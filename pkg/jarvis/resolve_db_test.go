@@ -133,13 +133,17 @@ func TestResolveAskOwner_RunWorker(t *testing.T) {
 	}
 }
 
-// A concierge worker dispatched by a NON-gatekeeper channel is not owned by the gatekeeper (nil), matching
+// A concierge worker dispatched by a channel set to concierge is not owned by the gatekeeper (nil), matching
 // the old ResolveGatekeeperChannel skip of non-enabled channels.
 func TestResolveAskOwner_NonGatekeeper(t *testing.T) {
 	ctx := context.Background()
 	plain, err := wstore.CreateChannel(ctx, "plain", "/p")
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
+	}
+	if _, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Channel, plain.OID),
+		waveobj.MetaMapType{MetaKey_GatekeeperEnabled: false}, false); err != nil {
+		t.Fatalf("set concierge: %v", err)
 	}
 	worker := seedWorkerTab(t, ctx)
 	dm := wstore.NewChannelMessage("dispatch", "claude", "task", worker, 10)

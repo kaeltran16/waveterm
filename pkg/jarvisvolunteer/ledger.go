@@ -69,9 +69,7 @@ func (p *LedgerProducer) Candidates(ctx context.Context, t *Trigger) ([]Candidat
 	if err != nil {
 		return nil, err
 	}
-	if ch == nil ||
-		(!ch.Meta.GetBool(jarvis.MetaKey_GatekeeperEnabled, false) &&
-			!ch.Meta.GetBool(jarvis.MetaKey_DelegatorEnabled, false)) {
+	if ch == nil || !jarvis.GatekeeperOn(ch) {
 		return nil, nil // the ladder's volume knob: concierge channels stay quiet about ledger facts
 	}
 	runs, err := p.getRuns(ctx, t.ChannelID)

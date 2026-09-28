@@ -60,15 +60,10 @@ export function planMessage(text: string, roster: RosterEntry[]): MessagePlan {
     return { kind: "post", text };
 }
 
-export type JarvisTier = "concierge" | "gatekeeper" | "delegator";
+export type JarvisTier = "concierge" | "gatekeeper";
 
-// tierFromMeta reads the nested autonomy tier from a channel's meta booleans (delegator ⇒ gatekeeper).
+// tierFromMeta reads the autonomy tier off a channel's meta. Gatekeeper is the default: only an explicit
+// false is concierge, the same rule as the backend's GatekeeperOn (pkg/jarvis/resolve.go).
 export function tierFromMeta(meta: Record<string, unknown> | undefined): JarvisTier {
-    if (meta?.["delegator:enabled"]) {
-        return "delegator";
-    }
-    if (meta?.["gatekeeper:enabled"]) {
-        return "gatekeeper";
-    }
-    return "concierge";
+    return meta?.["gatekeeper:enabled"] === false ? "concierge" : "gatekeeper";
 }

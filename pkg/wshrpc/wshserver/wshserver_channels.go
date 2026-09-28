@@ -81,18 +81,15 @@ func (ws *WshServer) SetChannelTierCommand(ctx context.Context, data wshrpc.Comm
 	if data.ChannelId == "" {
 		return fmt.Errorf("channelid is required")
 	}
-	gk, del := jarvis.TierMeta(data.Tier)
-	mode := data.Mode
-	if mode == "" {
-		mode = "report"
+	gk, err := jarvis.GatekeeperForTier(data.Tier)
+	if err != nil {
+		return err
 	}
-	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
+	err = wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
 		if ch.Meta == nil {
 			ch.Meta = make(waveobj.MetaMapType)
 		}
 		ch.Meta[jarvis.MetaKey_GatekeeperEnabled] = gk
-		ch.Meta[jarvis.MetaKey_DelegatorEnabled] = del
-		ch.Meta[jarvis.MetaKey_DelegatorMode] = mode
 	})
 	if err != nil {
 		return fmt.Errorf("updating channel tier: %w", err)

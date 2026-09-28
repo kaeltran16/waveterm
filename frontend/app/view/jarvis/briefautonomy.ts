@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The Brief header's autonomy chip, as a number. The mockup states the tier as one global fact
-// ("Delegator · answers routine asks"), but the backend has no global tier: gatekeeper:enabled and
-// delegator:enabled are per-channel meta (pkg/jarvis/resolve.go), and ResolveGatekeeperChannel gates on
-// the channel the work belongs to. So the header can only summarize, and this is the summary — one tier
-// when every project agrees, and an honest "mixed" when they do not, naming the highest tier in force
-// because that is the one acting without you.
+// ("Gatekeeper · answers routine asks"), but the backend has no global tier: gatekeeper:enabled is
+// per-channel meta (pkg/jarvis/resolve.go), and the Gatekeeper gates on the channel the work belongs to.
+// So the header can only summarize, and this is the summary — one tier when every project agrees, and an
+// honest "mixed" when they do not, naming the highest tier in force because that is the one acting
+// without you.
 
 import { partitionChannels } from "@/app/view/agents/channelderive";
 import { tierFromMeta, type JarvisTier } from "@/app/view/agents/channelmessages";
@@ -17,18 +17,16 @@ export interface ChannelAutonomy {
     channelId: string;
     name: string;
     tier: JarvisTier;
-    mode: string;
 }
 
 // what the tier means for the queue, in the mockup's own words. The ladder's blurbs say what a tier
 // includes; these say what it costs you, which is the thing a one-line chip has room for.
 const CONSEQUENCE: Record<JarvisTier, string> = {
     concierge: "asks you everything",
-    gatekeeper: "holds every gate",
-    delegator: "answers routine asks",
+    gatekeeper: "answers routine asks",
 };
 
-const RANK: Record<JarvisTier, number> = { concierge: 0, gatekeeper: 1, delegator: 2 };
+const RANK: Record<JarvisTier, number> = { concierge: 0, gatekeeper: 1 };
 
 function tierLabel(tier: JarvisTier): string {
     return LADDER.find((r) => r.tier === tier)?.label ?? tier;
@@ -43,12 +41,10 @@ export function channelAutonomy(
     const active = dedupeByProject(partitionChannels(channels ?? []).active);
     return active
         .map((c) => {
-            const meta = c.meta as Record<string, unknown> | undefined;
             return {
                 channelId: c.oid,
                 name: channelProjectLabel(c, projects),
-                tier: tierFromMeta(meta),
-                mode: typeof meta?.["delegator:mode"] === "string" ? (meta["delegator:mode"] as string) : "",
+                tier: tierFromMeta(c.meta as Record<string, unknown> | undefined),
             };
         })
         .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -73,10 +69,4 @@ export function autonomySummary(rows: ChannelAutonomy[]): AutonomySummary | null
         return { label: `${tierLabel(top)} · ${CONSEQUENCE[top]}`, tier: top, mixed: false };
     }
     return { label: `Mixed · ${atTop} of ${rows.length} ${tierLabel(top).toLowerCase()}`, tier: top, mixed: true };
-}
-
-/** Pure: the dispatch mode the panel shows as picked — the one every project shares, or none. */
-export function sharedMode(rows: ChannelAutonomy[]): string {
-    const mode = rows[0]?.mode ?? "";
-    return rows.every((r) => r.mode === mode) ? mode : "";
 }

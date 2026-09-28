@@ -17,23 +17,29 @@ import (
 // MetaKey_GatekeeperEnabled is the per-channel bool flag toggling Gatekeeper for that channel.
 const MetaKey_GatekeeperEnabled = "gatekeeper:enabled"
 
-// MetaKey_DelegatorEnabled toggles the Delegator (act) tier for a channel; nested above Gatekeeper.
-// MetaKey_DelegatorMode is the channel's default dispatch mode ("report" | "manage" | "fanout").
+// The two autonomy tiers a channel can be set to.
 const (
-	MetaKey_DelegatorEnabled = "delegator:enabled"
-	MetaKey_DelegatorMode    = "delegator:mode"
+	Tier_Concierge  = "concierge"
+	Tier_Gatekeeper = "gatekeeper"
 )
 
-// TierMeta derives the two per-channel autonomy booleans from a tier name. The ladder is nested:
-// delegator implies gatekeeper. Any unknown/empty tier falls to the floor (both off = concierge).
-func TierMeta(tier string) (gatekeeper bool, delegator bool) {
+// GatekeeperOn reports whether the Gatekeeper judges asks for the channel. It is on unless the channel
+// was explicitly set to concierge: a project nobody has configured gets routine asks answered, and
+// only an explicit concierge pick sends every ask to you.
+func GatekeeperOn(ch *waveobj.Channel) bool {
+	return ch.Meta.GetBool(MetaKey_GatekeeperEnabled, true)
+}
+
+// GatekeeperForTier maps a tier name to the channel's gatekeeper flag. An unknown tier is an error
+// rather than a silent concierge, which would quietly stop the Gatekeeper for that project.
+func GatekeeperForTier(tier string) (bool, error) {
 	switch tier {
-	case "delegator":
-		return true, true
-	case "gatekeeper":
-		return true, false
+	case Tier_Gatekeeper:
+		return true, nil
+	case Tier_Concierge:
+		return false, nil
 	default:
-		return false, false
+		return false, fmt.Errorf("unknown autonomy tier %q (want %s or %s)", tier, Tier_Concierge, Tier_Gatekeeper)
 	}
 }
 
@@ -42,7 +48,7 @@ func TierMeta(tier string) (gatekeeper bool, delegator bool) {
 // whose RefORef equals askingORef. First enabled owner wins (a worker in one channel is the norm).
 func ResolveGatekeeperChannel(channels []*waveobj.Channel, askingORef string) *waveobj.Channel {
 	for _, ch := range channels {
-		if !ch.Meta.GetBool(MetaKey_GatekeeperEnabled, false) {
+		if !GatekeeperOn(ch) {
 			continue
 		}
 		for _, m := range ch.Messages {
@@ -86,9 +92,9 @@ type RunWorkerMatch struct {
 }
 
 // ResolveRunWorker finds the run phase whose WorkerOrefs contains askingORef, across all channels.
-// Unlike ResolveGatekeeperChannel it is NOT gated by MetaKey_GatekeeperEnabled: starting a run is
-// itself opting into Jarvis management, so run workers are always gatekept. Returns nil when no phase
-// owns the oref. (Piece 5 can add a descendant/subagent predicate here without changing callers.)
+// Unlike ResolveGatekeeperChannel it is NOT gated by the tier: it answers "whose worker is this", and
+// handleAsk applies the tier to the channel it returns. Returns nil when no phase owns the oref.
+// (Piece 5 can add a descendant/subagent predicate here without changing callers.)
 func ResolveRunWorker(channels []*waveobj.Channel, askingORef string) *RunWorkerMatch {
 	for _, ch := range channels {
 		for ri := range ch.Runs {
@@ -163,7 +169,7 @@ func resolveGatekeeperChannelByMeta(ctx context.Context, ownerORef string) (*wav
 	if err == nil && channelORef != "" {
 		if chRef, perr := waveobj.ParseORef(channelORef); perr == nil {
 			if ch, gerr := wstore.DBMustGet[*waveobj.Channel](ctx, chRef.OID); gerr == nil && ch != nil {
-				if ch.Meta.GetBool(MetaKey_GatekeeperEnabled, false) {
+				if GatekeeperOn(ch) {
 					return ch, workerTaskFor(ch, ownerORef)
 				}
 				return nil, "" // owned by a non-gatekeeper channel: not gatekept (matches old skip)

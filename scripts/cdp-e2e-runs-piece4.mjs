@@ -1,8 +1,8 @@
 // DEV-only E2E for Channels Runs escalation guidance (Piece 4), over CDP against the running tauri
 // dev app, entirely over the websocket wshrpc. Verifies the three acceptance steps:
 //   1. Resolved principles reach a phase worker's initial prompt (Run.Principles + BuildPhasePrompt).
-//   2. A routine run-worker ask is routed through the classifier and auto-answered (jarvis-answered),
-//      even with the channel's gatekeeper:enabled toggle OFF.
+//   2. A routine run-worker ask is routed through the classifier and auto-answered (jarvis-answered)
+//      on a gatekeeper channel (the default tier; concierge leaves run asks for the human).
 //   3. A principle-significant fork escalates (jarvis-escalation, no auto-answer).
 //
 // Steps 2-3 inject asks via the `ask` RPC against the run worker's BLOCK oref (DeliverAnswer keys on
@@ -67,8 +67,6 @@ const e2e = `(async () => {
 
   const ch = await rpc("createchannel", { name: "runs-piece4", projectpath: CWD });
   const channelId = ch.oid;
-  // prove toggle-independence: explicitly disable the ad-hoc gatekeeper toggle
-  await rpc("setmeta", { oref: "channel:" + channelId, meta: { "gatekeeper:enabled": false } });
 
   async function getChannel() {
     const res = await rpc("getchannels", null);
@@ -118,7 +116,7 @@ const e2e = `(async () => {
     return null;
   }
 
-  // STEP 2: routine run-worker ask -> routed THROUGH classifier (toggle OFF); a classifier-generated
+  // STEP 2: routine run-worker ask -> routed THROUGH classifier; a classifier-generated
   // reason (not the pre-filter string) proves it reached Classify. A routine answer auto-delivers and
   // posts jarvis-answered (card.choice set); a cautious escalation also proves routing.
   const c2 = await askAndWait(
@@ -127,7 +125,7 @@ const e2e = `(async () => {
       { label: "Match the project's existing prettier config", description: "the conventional choice in this repo" },
       { label: "Use editor defaults", description: "ignore the repo config" },
     ], 160000);
-  results.push({ step: "2. routine run-worker ask routed THROUGH classifier (toggle OFF)",
+  results.push({ step: "2. routine run-worker ask routed THROUGH classifier",
     ok: !!c2 && c2.reason !== preFilterReason, detail: c2 || "no jarvis card within timeout" });
 
   // STEP 3: principle-significant fork (DRY vs KISS across existing code) -> escalation. Both options

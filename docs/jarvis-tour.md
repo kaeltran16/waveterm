@@ -166,21 +166,18 @@ expand.
 
 ## 6. Autonomy
 
-Three **nested** rungs, not alternatives: delegator implies gatekeeper implies concierge. Click a rung to
-set it; the lower rungs stay filled because they are implied. The dispatch mode strip
-(`report` / `manage` / `fanout`) appears at **Delegator** only, because below that tier it has nothing to
-act on.
+Two **nested** rungs, not alternatives: gatekeeper implies concierge. Click a rung to set it for every
+project; the lower rung stays filled because it is implied. **Gatekeeper is the default** — a project
+nobody has configured is gatekept, and only an explicit Concierge pick turns it off.
 
-![The autonomy ladder at Delegator](images/jarvis-tour/09-autonomy-delegator.png)
+![The autonomy ladder](images/jarvis-tour/09-autonomy-ladder.png)
 
 | Rung | Behaviour |
 |---|---|
 | Concierge | watches and narrates; every ask reaches you |
-| Gatekeeper | + answers routine asks itself; real forks still escalate |
-| Delegator | + dispatches follow-up work without asking first |
+| Gatekeeper | + answers routine single-choice asks itself (quick runs, orchestrator leads, dispatched workers); multi-part asks and real forks still reach you |
 
-Note the header in this shot: the subject name `waveterm` is gone. That is a real layout defect, measured
-below.
+DAG child tasks are outside both: their questions wait in the lead's queue.
 
 ## 7. The profile drawer
 

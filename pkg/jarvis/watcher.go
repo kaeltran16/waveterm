@@ -134,8 +134,10 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 		return
 	}
 	ch, task, _ := ResolveAskOwner(ctx, ownerORef)
-	if ch == nil {
-		return // not owned by any gatekeeper-enabled channel or run
+	// the tier gate lives here, not in ResolveAskOwner: the attention list resolves owners through it too,
+	// and a concierge project's asks still need their run and goal as a label there
+	if ch == nil || !GatekeeperOn(ch) {
+		return
 	}
 	// deterministic pre-filter: only a single single-select question is auto-answerable.
 	if !askAutoAnswerable(data.Questions) {

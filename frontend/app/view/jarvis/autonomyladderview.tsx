@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The autonomy control: how much Jarvis decides without you. AutonomyLadder is the Brief header's chip,
-// stating the summary across projects, over a popover of the three nested rungs, their blurbs and the
-// Delegator-only dispatch mode. Autonomy is one policy for all work: a pick writes every project.
+// stating the summary across projects, over a popover of the nested rungs and their blurbs. Autonomy is
+// one policy for all work: a pick writes every project.
 //
-// Why a chip. The rungs used to sit in the header with the dispatch strip beside them, rendered only at
-// Delegator — so selecting that tier grew the group ~140px and slid all three rungs left, out from under
-// the cursor that had just clicked one (this is JC12's cause, measured at a 0px title). Everything that
-// changes size now lives inside a popover anchored to the chip's right edge, so nothing moves under the
-// pointer. It also brings the control to the header's own scale: 28px tall, like the buttons beside it,
-// where the group was 41px in a 43px band.
+// Why a chip. The rungs used to sit in the header with a strip beside them that appeared only at the top
+// tier — so selecting that tier grew the group ~140px and slid the rungs left, out from under the cursor
+// that had just clicked one (this is JC12's cause, measured at a 0px title). Everything that changes size
+// lives inside a popover anchored to the chip's right edge, so nothing moves under the pointer. It also
+// brings the control to the header's own scale: 28px tall, like the buttons beside it, where the group
+// was 41px in a 43px band.
 //
 // It lost its mount when B5 retired the three-pane composition and has been unreachable since — the tier
 // is the remote-approval policy, so there was no way to see or change what Jarvis answers on your behalf.
@@ -35,15 +35,8 @@ import {
 import { useAtom, useAtomValue } from "jotai";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo } from "react";
-import {
-    autonomyPanelOpenAtom,
-    DISPATCH_MODES,
-    LADDER,
-    RUNG_BAR_PX,
-    rungState,
-    showsDispatchMode,
-} from "./autonomyladder";
-import { autonomySummary, channelAutonomy, sharedMode } from "./briefautonomy";
+import { autonomyPanelOpenAtom, LADDER, RUNG_BAR_PX, rungState } from "./autonomyladder";
+import { autonomySummary, channelAutonomy } from "./briefautonomy";
 import { briefUndo } from "./briefundo";
 
 // The ladder itself, at whatever width its host wants: 3px in the chip's glyph, 4px in a panel row. Bars
@@ -72,12 +65,11 @@ export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
     const projects = useAtomValue(projectsAtom);
     const rows = useMemo(() => channelAutonomy(channels, projects), [channels, projects]);
     const summary = autonomySummary(rows);
-    const mode = sharedMode(rows);
     // every pick writes every project, so a mixed set collapses to one value; the toast's undo puts each
-    // project's own tier and mode back
-    const apply = (next: { tier?: JarvisTier; mode?: string }, toast: string) => {
-        const prev = rows.map((r) => ({ channelId: r.channelId, tier: r.tier, mode: r.mode }));
-        const changes = prev.map((p) => ({ ...p, tier: next.tier ?? p.tier, mode: next.mode ?? p.mode }));
+    // project's own tier back
+    const apply = (tier: JarvisTier, toast: string) => {
+        const prev = rows.map((r) => ({ channelId: r.channelId, tier: r.tier }));
+        const changes = prev.map((p) => ({ ...p, tier }));
         fireAndForget(async () => {
             try {
                 await setChannelTiers(changes);
@@ -156,9 +148,7 @@ export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
                                     key={rung.tier}
                                     type="button"
                                     aria-pressed={active}
-                                    onClick={() =>
-                                        apply({ tier: rung.tier }, `Autonomy set to ${rung.label} for every project`)
-                                    }
+                                    onClick={() => apply(rung.tier, `Autonomy set to ${rung.label} for every project`)}
                                     className={cn(
                                         "flex w-full cursor-pointer items-start gap-2.5 rounded px-[9px] py-2 text-left hover:bg-surface-hover",
                                         active ? "bg-surface-raised" : "bg-transparent"
@@ -188,36 +178,6 @@ export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
                                 </button>
                             );
                         })}
-                        {/* Delegator-only, and absent rather than greyed out: a control the tier cannot act
-                            on is not drawn. The panel grows downward from a top-anchored header, so nothing
-                            under the pointer moves when this appears. */}
-                        {showsDispatchMode(summary.tier) ? (
-                            <div className="mt-1 border-t border-border px-[9px] pb-1 pt-2">
-                                <div className="pb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">
-                                    Dispatch mode
-                                </div>
-                                <div className="flex gap-1">
-                                    {DISPATCH_MODES.map((m) => (
-                                        <button
-                                            key={m}
-                                            type="button"
-                                            aria-pressed={mode === m}
-                                            onClick={() =>
-                                                apply({ mode: m }, `Dispatch mode set to ${m} for every project`)
-                                            }
-                                            className={cn(
-                                                "cursor-pointer rounded-[5px] px-2 py-1 font-mono text-[10.5px]",
-                                                mode === m
-                                                    ? "bg-success/15 text-success"
-                                                    : "text-muted hover:text-secondary"
-                                            )}
-                                        >
-                                            {m}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        ) : null}
                     </div>
                 </PopoverReveal>
             </div>

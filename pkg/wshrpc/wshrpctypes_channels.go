@@ -16,7 +16,7 @@ type ChannelCommands interface {
 	GetChannelRunsCommand(ctx context.Context, data CommandGetChannelRunsData) (*CommandGetChannelRunsRtnData, error)             // row-backed run list for a channel (Phase-2 active-channel surface)
 	GetChannelMessagesCommand(ctx context.Context, data CommandGetChannelMessagesData) (*CommandGetChannelMessagesRtnData, error) // row-backed message window for a channel (before/limit cursor)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
-	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error               // sets a channel's Jarvis autonomy tier (concierge|gatekeeper|delegator) + default dispatch mode
+	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error               // sets a channel's Jarvis autonomy tier (concierge|gatekeeper)
 	SetChannelReadCommand(ctx context.Context, data CommandSetChannelReadData) error               // stamps a channel's last-read timestamp for unread counts
 	SetChannelMessagePickCommand(ctx context.Context, data CommandSetChannelMessagePickData) error // records the human's chosen option index on a Jarvis card message (escalation answer / answered-override) so it survives a remount
 	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error         // write a channel's per-project profile override (empty clears it)
@@ -64,8 +64,7 @@ type CommandPostChannelMessageData struct {
 
 type CommandSetChannelTierData struct {
 	ChannelId string `json:"channelid"`
-	Tier      string `json:"tier"`           // concierge | gatekeeper | delegator
-	Mode      string `json:"mode,omitempty"` // default dispatch mode: report | manage | fanout
+	Tier      string `json:"tier"` // concierge | gatekeeper
 }
 
 type CommandSetChannelReadData struct {
