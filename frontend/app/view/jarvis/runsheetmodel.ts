@@ -730,3 +730,10 @@ function readonlyBody(run: Run): string {
         run.model || "default",
     ].join(" · ")}.`;
 }
+
+// the final stage's running states: its commands, then its verifier. A human can end any of them.
+const RUNNING_FINAL_STATES = new Set(["checking", "final", "verifying"]);
+
+export function finalStageEndable(group: TaskGroup | null): boolean {
+    return group != null && group.status !== "cancelled" && RUNNING_FINAL_STATES.has(group.final?.state ?? "");
+}

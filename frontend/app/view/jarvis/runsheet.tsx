@@ -22,6 +22,7 @@ import { userOwnedAsks } from "@/app/view/agents/childaskmodel";
 import { childAsksAtom } from "@/app/view/agents/childaskstore";
 import { InlineMarkdown } from "@/app/view/agents/inlinemarkdown";
 import { MarkdownMessage } from "@/app/view/agents/markdownmessage";
+import { endFinalStage, type FinalEndOutcome } from "@/app/view/agents/runactions";
 import { AskCard, CancelRunButton, CancelSurvivorsCard } from "@/app/view/agents/runcards";
 import { needsEvidenceSeal, verifCounts } from "@/app/view/agents/runcompletion";
 import { useRunEvents } from "@/app/view/agents/runeventstore";
@@ -43,6 +44,7 @@ import { briefEffortIndexAtom, briefRevealChunkAtom } from "./jarvisstore";
 import { RunReportView } from "./runreportview";
 import { runSettingsDraft, type LinkedGroupRead } from "./runsettings";
 import {
+    finalStageEndable,
     orderedTasks,
     runGraphRef,
     sheetStatus,
@@ -688,6 +690,8 @@ function Dock({ ctx, group }: { ctx: SheetCtx; group: TaskGroup | null }) {
     const { model, channel, run, agents } = ctx;
     const [saving, setSaving] = useState(false);
     const [result, setResult] = useState<{ failed: boolean; text: string } | null>(null);
+    const [ending, setEnding] = useState(false);
+    const endable = finalStageEndable(group);
     const lead = run.mode === "orchestrator" && !isTerminal(run.status) ? leadWorker(run, agents) : undefined;
     // a live quick run's one worker, opened where it is watched (design L576)
     const worker = run.mode !== "orchestrator" && !isTerminal(run.status) ? leadWorker(run, agents) : undefined;
@@ -724,6 +728,11 @@ function Dock({ ctx, group }: { ctx: SheetCtx; group: TaskGroup | null }) {
                         Open DAG
                     </button>
                 ) : null}
+                {endable && !ending ? (
+                    <button type="button" onClick={() => setEnding(true)} className={DOCK_BTN}>
+                        End final stage
+                    </button>
+                ) : null}
                 {lead != null ? (
                     <button type="button" onClick={() => jumpToAgent(model, lead.id)} className={DOCK_BTN}>
                         Open lead ↗
@@ -745,9 +754,89 @@ function Dock({ ctx, group }: { ctx: SheetCtx; group: TaskGroup | null }) {
                     />
                 ) : null}
             </div>
+            {endable && ending ? (
+                <EndFinalForm
+                    ctx={ctx}
+                    onClose={(text) => {
+                        setEnding(false);
+                        setResult(text != null ? { failed: false, text } : null);
+                    }}
+                    onError={(text) => setResult({ failed: true, text })}
+                />
+            ) : null}
             {result != null ? (
                 <span className={cn("text-[11px]", result.failed ? "text-error" : "text-success")}>{result.text}</span>
             ) : null}
+        </div>
+    );
+}
+
+// Ends a stuck final stage on the human's word. The reason is required: it is what the run records, and for
+// a fail what the lead plans the fix round from.
+function EndFinalForm({
+    ctx,
+    onClose,
+    onError,
+}: {
+    ctx: SheetCtx;
+    onClose: (done: string | null) => void;
+    onError: (text: string) => void;
+}) {
+    const [reason, setReason] = useState("");
+    const [busy, setBusy] = useState(false);
+    const blank = reason.trim() === "";
+    const end = (outcome: FinalEndOutcome) => {
+        setBusy(true);
+        fireAndForget(async () => {
+            try {
+                await endFinalStage(ctx.channel.oid, ctx.run.id, outcome, reason.trim());
+                onClose(
+                    outcome === "failed"
+                        ? "Final stage failed; the lead has the reason."
+                        : "Final stage ended unverified."
+                );
+            } catch (e) {
+                onError(`Ending the final stage failed: ${e instanceof Error ? e.message : String(e)}`);
+                setBusy(false);
+            }
+        });
+    };
+    return (
+        <div data-run-sheet-end-final className="flex flex-col gap-1.5">
+            <textarea
+                autoFocus
+                rows={2}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Why end it? Recorded on the run; a fail's reason goes to the lead."
+                aria-label="Reason for ending the final stage"
+                className="resize-none rounded-[6px] border border-edge-mid bg-transparent px-2 py-1.5 text-[12px] leading-[1.5] text-primary outline-none placeholder:text-muted focus-visible:border-accent"
+            />
+            <div className="flex items-center gap-2">
+                <button
+                    type="button"
+                    disabled={blank || busy}
+                    onClick={() => end("unverified")}
+                    className={cn(DOCK_BTN, "disabled:opacity-60")}
+                >
+                    Pass unverified
+                </button>
+                <button
+                    type="button"
+                    disabled={blank || busy}
+                    onClick={() => end("failed")}
+                    className={cn(
+                        DOCK_BTN,
+                        "border-edge-mid text-muted hover:border-error hover:text-error disabled:opacity-60"
+                    )}
+                >
+                    Fail
+                </button>
+                <span className="flex-1" />
+                <button type="button" disabled={busy} onClick={() => onClose(null)} className={DOCK_BTN}>
+                    Keep running
+                </button>
+            </div>
         </div>
     );
 }
