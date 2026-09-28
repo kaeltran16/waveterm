@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -382,5 +383,27 @@ func TestWorkerExitIgnoresAWorkerOutsideTheRunningPhase(t *testing.T) {
 	got, _ := wstore.GetRun(ctx, channelId, run.ID)
 	if got.Phases[0].State == jarvis.PhaseState_Failed || len(*rows) != 0 {
 		t.Fatalf("a stale worker's exit failed the running phase: %q %+v", got.Phases[0].State, *rows)
+	}
+}
+
+// c84aa179: a merge's cleanup held the dag lock 22-39 s and the exit's 10 s context expired while the outcome waited
+func TestHandleChildOutcomeOutlivesTheExitDeadline(t *testing.T) {
+	h := newChildOutcomeHarness(t, 1)
+	held := make(chan struct{})
+	release := make(chan struct{})
+	go WithDagMutation(h.dagID, func() error {
+		close(held)
+		<-release
+		return nil
+	})
+	<-held
+	time.AfterFunc(200*time.Millisecond, func() { close(release) })
+	short, cancel := context.WithTimeout(h.ctx, 50*time.Millisecond)
+	defer cancel()
+	if err := HandleChildOutcome(short, h.workers[0], jarvis.OutcomeData{Status: "failed", Summary: "tool call errored: invalid input", ExitCode: 2}); err != nil {
+		t.Fatalf("outcome lost behind the lock: %v", err)
+	}
+	if task := h.loadDag(t).Tasks[0]; task.Attempts != 1 || task.LastFailureKind != FailureKindToolError {
+		t.Fatalf("outcome not recorded: attempts %d kind %q", task.Attempts, task.LastFailureKind)
 	}
 }

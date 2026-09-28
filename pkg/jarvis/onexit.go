@@ -19,6 +19,9 @@ func init() {
 	blockcontroller.AgentOutcomeHook = OnWorkerExit
 }
 
+// exitReadTimeout bounds an exit's own reads. The child-outcome hook runs past it: it can wait on a dag lock.
+var exitReadTimeout = 10 * time.Second
+
 func notifyChildOutcome(ctx context.Context, workerORef string, data OutcomeData) {
 	if ChildOutcomeHook == nil {
 		return
@@ -51,7 +54,7 @@ func notifyRunWorkerExit(ctx context.Context, workerORef string) {
 // transcript never parses or the clean-exit/no-transcript case leaves nothing to post.
 // Fire-and-forget; injected into blockcontroller.AgentOutcomeHook at init to avoid an import cycle.
 func OnWorkerExit(blockId string, exitCode int) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), exitReadTimeout)
 	defer cancel()
 	blockData, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
 	if err != nil {
@@ -83,8 +86,9 @@ func OnWorkerExit(blockId string, exitCode int) {
 	if !ok {
 		return
 	}
-	notifyChildOutcome(ctx, workerORef, data)
+	// resolved before the hook, which can wait on a dag lock past this context's deadline
 	ch := resolveDispatchChannelForWorker(ctx, workerORef)
+	notifyChildOutcome(ctx, workerORef, data)
 	if ch == nil {
 		log.Printf("jarvis onexit: no dispatch channel for worker %s; outcome not posted", workerORef)
 		return

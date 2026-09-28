@@ -29,6 +29,9 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 	if data.Status != "failed" && data.Status != "done" {
 		return nil
 	}
+	// the exit's context bounds its own reads; this waits on the dag lock, which a merge's cleanup or a spawn's
+	// Setup can hold for longer, and an outcome lost there leaves a failed worker running until the stall watchdog
+	ctx = context.WithoutCancel(ctx)
 	channelId, runId, err := workerRunIds(ctx, workerORef)
 	if err != nil || runId == "" {
 		return err
