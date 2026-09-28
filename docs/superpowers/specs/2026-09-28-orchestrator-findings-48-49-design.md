@@ -131,7 +131,12 @@ is, and recording a result takes milliseconds.
   remove the tree after the lock.
 - The tick's debt retry moves out of `scheduleLocked` into `Schedule`, before the lock, beside `AutoMergeReady`. It
   calls `removeTaskTree` for each task with debt under the retry cap, and uses a try-lock on the tree, so a tree
-  another caller is removing is skipped, not waited on. A stuck tree still never blocks scheduling.
+  another caller is removing is skipped, not waited on. A stuck tree still never blocks scheduling. `Schedule`
+  skips the retry for a cancelled dag, as `scheduleLocked` did: a cancelled dag's trees are `Cancel`'s, which
+  dumps each one's recovery patch before removing it, so a tick must not remove one first. The startup sweep
+  still retries a cancelled dag's debt.
+- A `removeTaskTree` whose project path cannot be resolved records that as a counted attempt (`CleanupError`,
+  attempts + 1) under the dag lock before returning, so an unresolvable repo still reaches the retry cap.
 - The startup sweep (`retryCleanupDebtAtStartup`, `cmd/server/main-server.go`) calls `RetryPendingCleanup` and
   `PersistCleanupState` per dag with debt. The tick's retry is exported as `orchestrate.RetryCleanupDebt(ctx,
   dagID)` and the sweep calls it for each such dag. It persists its own results, so the sweep's

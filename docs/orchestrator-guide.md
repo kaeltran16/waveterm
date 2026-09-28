@@ -47,7 +47,8 @@ project switcher in the app bar → **+ New project**, give it a name and the re
 An orchestrator run lands on its own branch by default. At launch it creates `wave/<runId>` in a tree at
 `.waveterm/worktrees/<runId>`, and records the branch the checkout is on as the run's base. Its lead works in
 that tree, its lanes squash-merge there, and Verify runs there. The plan's Setup runs there once when the plan is
-submitted. For this repo that is `task worktree:prepare`, which junctions `node_modules`, `src-tauri/target` and
+submitted, or the project's `.arc/setup` when the plan has no Setup line. For this repo that is
+`node scripts/worktree-junctions.mjs prepare`, which junctions `node_modules`, `src-tauri/target` and
 `dist/bin` from the main checkout so tests run. The checkout does not move, and a dirty index there does not
 hold the run's merges. When the run completes, the engine merges the branch back into the base itself (see
 [Landing back](#landing-back)).
@@ -244,7 +245,8 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 ```
 
 - **Setup** runs in every new lane worktree before its first worker (2-minute limit), and once in a run's own
-  branch tree when the plan is submitted. **Verify** runs where lanes land (the project checkout, or the run's
+  branch tree when the plan is submitted. A plan with no Setup line takes the project's checked-in `.arc/setup`
+  (one command) as its Setup. **Verify** runs where lanes land (the project checkout, or the run's
   own branch tree) after every batch of lane merges (20-minute limit), with `ARC_VERIFY_CHANGED` naming a file
   that lists the paths the batch changed, one per line: a Verify that reads it should test only what those paths
   can break.
