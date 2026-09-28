@@ -167,17 +167,17 @@ stage already run". The worker-brief half of the second row is the other run's.
 
 - When the stage ran any of Check, Verify or Final, one line names each command that ran and the commit
   (`f.Commit`, short form): "Before you started, the engine ran Check `<cmd>`, Verify `<cmd>` and Final
-  `<cmd>` on `<commit>`, and they passed, apart from anything listed below as not verified." Only the
-  commands the plan has are listed. A stage that ran none of them, because the plan has none, gets no line.
-- "Do not run Check, Verify or the Final command again, or any whole package or test suite. Read the diff.
-  To settle a specific doubt about behavior, run one named test with `-run '^TestName$'` (or its vitest
-  equivalent)."
+  `<cmd>` on `<commit>`, and they passed, apart from anything listed below as not verified. Do not run them
+  again." Only the commands the plan has are listed. A stage that ran none of them, because the plan has
+  none, gets no line.
+- Always, whatever the plan has: "Do not run any whole package or test suite. Read the diff. To settle a
+  specific doubt about behavior, run one named test with `-run '^TestName$'` (or its vitest equivalent)."
 - "You have `<ReviewTimeout>` from your start to give a verdict. A session that gives none is stopped and
   replaced once, and then the result is left unverified." The duration is formatted from `ReviewTimeout`
   and `MaxReviewRespawns`, never hardcoded.
 
 `verifier_test.go` asserts each line's presence, the named commands and commit, and that a plan with no
-commands gets no "ran" line. The existing prompt tests keep passing.
+commands gets no "ran" line but still gets the whole-suite line. The existing prompt tests keep passing.
 
 ## 4. Finding 49's "second route" is log noise, not a lost outcome
 

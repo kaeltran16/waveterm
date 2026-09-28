@@ -68,6 +68,17 @@ func verifierPrompt(g *waveobj.TaskGroup, owner *waveobj.Run) string {
 	if owner.BaseCommit != "" {
 		fmt.Fprintf(&b, "The run's change is `git diff %s..%s`.\n", owner.BaseCommit, head)
 	}
+	var ran []string
+	for _, c := range []struct{ name, cmd string }{{"Check", g.Check}, {"Verify", g.Verify}, {"Final", g.FinalCmd}} {
+		if c.cmd != "" {
+			ran = append(ran, fmt.Sprintf("%s `%s`", c.name, c.cmd))
+		}
+	}
+	if len(ran) > 0 {
+		fmt.Fprintf(&b, "Before you started, the engine ran %s on `%s`, and they passed, apart from anything listed below as not verified. Do not run them again.\n", joinAnd(ran), shortSha(head))
+	}
+	b.WriteString("Do not run any whole package or test suite. Read the diff. To settle a specific doubt about behavior, run one named test with `-run '^TestName$'` (or its vitest equivalent).\n")
+	fmt.Fprintf(&b, "You have %s from your start to give a verdict. A session that gives none is stopped and replaced %s, and then the result is left unverified.\n", ReviewTimeout, timesWord(MaxReviewRespawns))
 	if g.FinalCmd != "" {
 		fmt.Fprintf(&b, "The plan's Final command `%s` wrote its screenshots and reports into %s.\n", g.FinalCmd, f.OutDir)
 	}
@@ -98,6 +109,33 @@ func verifierPrompt(g *waveobj.TaskGroup, owner *waveobj.Run) string {
 	b.WriteString("- `wsh jarvis dag final fail \"<defects: each one, where it is, and the fix>\"`.\n")
 	fmt.Fprintf(&b, "Keep each text within %d characters; a longer one is refused.", MaxReviewNoteLen)
 	return b.String()
+}
+
+// joinAnd lists items as English: "A", "A and B", "A, B and C".
+func joinAnd(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
+}
+
+// shortSha is a commit's abbreviated form, as git prints it.
+func shortSha(sha string) string {
+	const shortShaLen = 7
+	if len(sha) <= shortShaLen {
+		return sha
+	}
+	return sha[:shortShaLen]
+}
+
+func timesWord(n int) string {
+	switch n {
+	case 1:
+		return "once"
+	case 2:
+		return "twice"
+	}
+	return fmt.Sprintf("%d times", n)
 }
 
 // RecordFinalVerdict applies the verifier's verdict and ends the final stage. A fail's defects become the
