@@ -218,3 +218,72 @@ func TestOnWorkerExitPostsTheOutcomeWhenTheHookOutlivesTheDeadline(t *testing.T)
 		t.Fatal("the outcome was not posted to the dispatch channel")
 	}
 }
+
+// reapOnExit makes the run worker exit hook delete the worker's tab, as a merge's concurrent reap can after
+// OnWorkerExit reads the tab and before it resolves the dispatch channel.
+func reapOnExit(t *testing.T, tabOID string) {
+	t.Helper()
+	oldHook := RunWorkerExitHook
+	t.Cleanup(func() { RunWorkerExitHook = oldHook })
+	RunWorkerExitHook = func(context.Context, string) error {
+		return wstore.DBDelete(context.Background(), waveobj.OType_Tab, tabOID)
+	}
+}
+
+// an engine worker has no dispatch message, so it never gets a channel outcome; its reaped exit is normal, not
+// a lost outcome, and must not log as one (run 6c7652be's t-2 and t-3)
+func TestAReapedEngineWorkersExitPostsNothingAndLogsNothing(t *testing.T) {
+	ctx := context.Background()
+	tpath := filepath.Join(t.TempDir(), "session.jsonl")
+	transcript := `{"type":"user","cwd":"/repo","message":{"content":"do the thing"}}` + "\n" +
+		`{"type":"assistant","message":{"model":"claude-opus","content":[{"type":"text","text":"done."}]}}` + "\n"
+	if err := os.WriteFile(tpath, []byte(transcript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tabOID, blockOID := uuid.NewString(), uuid.NewString()
+	worker := waveobj.MakeORef(waveobj.OType_Tab, tabOID).String()
+	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabOID, BlockIds: []string{blockOID}, Meta: waveobj.MetaMapType{"session:agent": "claude"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.DBInsert(ctx, &waveobj.Block{OID: blockOID, ParentORef: worker, Meta: waveobj.MetaMapType{waveobj.MetaKey_AgentTranscriptPath: tpath}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := wstore.CreateChannel(ctx, "onexit-engine-worker", "/p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runORef := waveobj.MakeORef(waveobj.OType_Run, uuid.NewString()).String()
+	if err := wstore.StampWorkerOwner(ctx, worker, runORef, waveobj.MakeORef(waveobj.OType_Channel, ch.OID).String()); err != nil {
+		t.Fatal(err)
+	}
+	reapOnExit(t, tabOID)
+	var buf bytes.Buffer
+	oldOut := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(oldOut)
+
+	OnWorkerExit(blockOID, 0)
+
+	if channelHasOutcome(t, ch.OID) {
+		t.Fatal("an engine worker never gets a channel outcome")
+	}
+	if strings.Contains(buf.String(), "jarvis onexit") {
+		t.Fatalf("a reaped engine worker's exit is normal and must not log: %q", buf.String())
+	}
+}
+
+// a worker a channel dispatched keeps its outcome when the reap deletes its tab before the channel is resolved
+func TestADispatchedWorkersOutcomeSurvivesTheReap(t *testing.T) {
+	blockOID, channelOID := seedDispatchedWorker(t)
+	tabOID, err := wstore.DBFindTabForBlockId(context.Background(), blockOID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reapOnExit(t, tabOID)
+
+	OnWorkerExit(blockOID, 0)
+
+	if !channelHasOutcome(t, channelOID) {
+		t.Fatal("the outcome was not posted to the dispatching channel")
+	}
+}

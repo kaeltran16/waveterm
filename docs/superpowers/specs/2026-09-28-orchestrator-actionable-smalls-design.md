@@ -203,8 +203,10 @@ that route.
   `resolveDispatchChannelForWorker` (`outcome.go`) logs a `GetChannels` failure itself
   (`jarvis: listing channels to resolve worker <oref>: <err>`) instead of swallowing it, so a real failure
   is still visible.
-- `pkg/jarvis/onexit_test.go`, two tests. In both, `ChildOutcomeHook` deletes the worker's tab, as a merge's
-  reap does:
+- `pkg/jarvis/onexit_test.go`, two tests. In both, `RunWorkerExitHook` deletes the worker's tab, as a
+  merge's concurrent reap can after `OnWorkerExit` has read the tab and before it resolves the channel. It
+  must be that hook: `OnWorkerExit` resolves the dispatch channel before `ChildOutcomeHook` runs, so a tab
+  deleted there never reaches the nil-channel path, while `RunWorkerExitHook` runs inside that window:
   - `TestAReapedEngineWorkersExitPostsNothingAndLogsNothing`: the tab carries the owner meta (written with
     `wstore.StampWorkerOwner`) and the channel has no dispatch message. No outcome message is posted, and
     the log has no `jarvis onexit` line.

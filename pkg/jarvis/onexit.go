@@ -89,8 +89,8 @@ func OnWorkerExit(blockId string, exitCode int) {
 	// resolved before the hook, which can wait on a dag lock past this context's deadline
 	ch := resolveDispatchChannelForWorker(ctx, workerORef)
 	notifyChildOutcome(ctx, workerORef, data)
+	// nil is a worker no channel dispatched, an engine worker's normal case: there is no channel outcome to post
 	if ch == nil {
-		log.Printf("jarvis onexit: no dispatch channel for worker %s; outcome not posted", workerORef)
 		return
 	}
 	PostOutcome(ch, workerORef, runtime, data)
