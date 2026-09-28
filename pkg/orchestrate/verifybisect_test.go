@@ -41,7 +41,7 @@ func stubVerifyBreaksOn(t *testing.T, file, setup string, setupErr error) *planC
 		}
 		return "ok", nil
 	}
-	t.Cleanup(func() { runPlanCommand = orig })
+	restoreAfterStages(t, func() { runPlanCommand = orig })
 	return p
 }
 

@@ -67,7 +67,7 @@ func newChildOutcomeHarness(t *testing.T, taskCount int) *childOutcomeHarness {
 		h.workers = append(h.workers, worker)
 		return worker, nil
 	}
-	t.Cleanup(func() { spawnWorker = oldSpawn })
+	restoreAfterStages(t, func() { spawnWorker = oldSpawn })
 	if err := ScheduleOnce(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func newLeadExitRun(t *testing.T, mutate func(*waveobj.Run)) (context.Context, s
 		}
 		*rows = append(*rows, row)
 	}
-	t.Cleanup(func() { workerOwnerOf, appendRunEvent = oldOwner, oldAppend })
+	restoreAfterStages(t, func() { workerOwnerOf, appendRunEvent = oldOwner, oldAppend })
 	return ctx, ch.OID, &run, rows
 }
 

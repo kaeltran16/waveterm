@@ -291,7 +291,7 @@ func TestCancelStopsTheLivePlanReviewer(t *testing.T) {
 		stopped = append(stopped, r.ID)
 		return nil
 	}
-	t.Cleanup(func() { stopRunWorkers = old })
+	restoreAfterStages(t, func() { stopRunWorkers = old })
 	if err := Cancel(ctx, dag.OID); err != nil {
 		t.Fatal(err)
 	}

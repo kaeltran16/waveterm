@@ -45,7 +45,7 @@ func newNotifyHarness(t *testing.T, parallelism int, tasks []waveobj.TaskNode) *
 	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		return "tab:worker", nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 	h := &notifyHarness{ctx: ctx, dagID: g.OID, channel: ch.OID, runID: owner.ID}
 	if err := Schedule(ctx, g.OID); err != nil {
 		t.Fatal(err)

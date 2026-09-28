@@ -153,7 +153,7 @@ func TestLandRemovesALandingTreeItsLeadHeldOnceItLetsGo(t *testing.T) {
 	}
 	every, attempts := landTreeRetryEvery, landTreeRetryAttempts
 	landTreeRetryEvery, landTreeRetryAttempts = 20*time.Millisecond, 500
-	t.Cleanup(func() { landTreeRetryEvery, landTreeRetryAttempts = every, attempts })
+	restoreAfterStages(t, func() { landTreeRetryEvery, landTreeRetryAttempts = every, attempts })
 	f, tree := landFixture(t)
 	held, err := os.Open(filepath.Join(tree, "feature.txt"))
 	if err != nil {
@@ -415,7 +415,7 @@ func TestLandReverifiesCommitsAfterTheFinalStage(t *testing.T) {
 			}
 			return orig(ctx, dir, command, env, timeout, progress)
 		}
-		t.Cleanup(func() { runPlanCommand = orig })
+		restoreAfterStages(t, func() { runPlanCommand = orig })
 		head := gitCmd(t, f.project, "rev-parse", "main")
 		land := f.landRun(t, false)
 		f.assertHeld(t, land, head, "Check `task check:ts` did not finish")

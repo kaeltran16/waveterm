@@ -595,13 +595,19 @@ removed when the stage ends. It never runs in the shared checkout.
 
 With no Check, no Verify and no Final line, the stage goes straight to the verifier.
 
+**Ending a stuck stage.** You can end a stage stuck in any running step, from the run sheet's **End final
+stage** or with `wsh runs end-final <run-id> unverified|failed "<reason>"`. It stops the running commands or the
+verifier, and records the reason on the stage as `ended by the human: …`. Unverified finishes the dag done but
+unverified. Failed is a verifier's fail: the lead plans a fix round from the reason, so cancel the run instead
+when you want no fix round.
+
 **The outcome:**
 
 | Outcome | When | Then |
 |---|---|---|
 | **passed** | nothing failed and nothing is unverified | the dag is done; the lead gets `run finished` with the outcome |
-| **unverified** | nothing failed, but there is a reason: a Final exit 3, the verifier's `--unverified`, a reviewer's `--unverified` note, or a plan with no Verify | the dag is done; the `run finished` wake lists every reason in full |
-| **failed** | Check, Final or the verifier failed | the lead wakes with the failure in full |
+| **unverified** | nothing failed, but there is a reason: a Final exit 3, the verifier's `--unverified`, a reviewer's `--unverified` note, a plan with no Verify, or you ended the stage unverified | the dag is done; the `run finished` wake lists every reason in full |
+| **failed** | Check, Final or the verifier failed, or you ended the stage failed | the lead wakes with the failure in full |
 
 `wsh jarvis dag status` prints the stage as `final <state> round=N commit=… out=<ARC_FINAL_OUT>`, then each
 `final unverified:` reason and a `final failed:` detail, whole.

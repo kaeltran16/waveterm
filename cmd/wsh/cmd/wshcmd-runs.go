@@ -99,6 +99,19 @@ is passed.`,
 	RunE:    runsCancelRun,
 }
 
+var runsEndFinalCmd = &cobra.Command{
+	Use:   "end-final <run-id> unverified|failed <reason>",
+	Short: "end a run's stuck final stage as unverified or failed, with the reason recorded",
+	Long: fmt.Sprintf(`End an orchestrator run's final stage while it is still running (Check, Verify, the Final command,
+or the verifier), when it is stuck and waiting it out is not worth it: the verifier has %s, the Final
+command %s. unverified finishes the run done but unverified. failed fails the stage as a verifier's fail
+does: the lead gets the reason and plans a fix round from it (cancel the run for none). The reason is
+recorded on the run's final stage.`, orchestrate.ReviewTimeout, orchestrate.FinalTimeout),
+	Args:    cobra.ExactArgs(3),
+	PreRunE: preRunSetupRpcClient,
+	RunE:    runsEndFinalRun,
+}
+
 var runsLandCmd = &cobra.Command{
 	Use:   "land <run-id>",
 	Short: "merge a finished run's branch back into the branch it started from, or say why it is held",
@@ -140,7 +153,7 @@ func init() {
 	f.String("effort", "", "initiative to attach the run to (id from 'wsh effort list')")
 	f.String("chunk", "", "the initiative's chunk: its label or 1-based number")
 	f.Bool("json", false, "JSON output")
-	for _, c := range []*cobra.Command{runsStartCmd, runsListCmd, runsShowCmd, runsAnswerCmd, runsCancelCmd, runsLandCmd, runsAckCmd} {
+	for _, c := range []*cobra.Command{runsStartCmd, runsListCmd, runsShowCmd, runsAnswerCmd, runsCancelCmd, runsEndFinalCmd, runsLandCmd, runsAckCmd} {
 		c.Flags().String("project", "", "project directory (default: the current directory)")
 		c.Flags().String("channel", "", "channel id, instead of resolving the project")
 	}
@@ -152,7 +165,7 @@ func init() {
 	runsCancelCmd.Flags().Bool("yes", false, "cancel even though workers are live")
 	runsLandCmd.Flags().Bool("force", false, "land even though the final stage failed")
 	runsAttentionCmd.Flags().Bool("json", false, "JSON output")
-	runsCmd.AddCommand(runsStartCmd, runsListCmd, runsShowCmd, runsAnswerCmd, runsCancelCmd, runsLandCmd, runsAckCmd, runsAttentionCmd)
+	runsCmd.AddCommand(runsStartCmd, runsListCmd, runsShowCmd, runsAnswerCmd, runsCancelCmd, runsEndFinalCmd, runsLandCmd, runsAckCmd, runsAttentionCmd)
 	rootCmd.AddCommand(runsCmd)
 }
 
@@ -674,6 +687,36 @@ func runsCancelRun(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("cancelled run %s\n", run.ID)
 	return nil
+}
+
+// runsEndFinalAction is the dag action for end-final's outcome word.
+func runsEndFinalAction(word string) (string, error) {
+	switch word {
+	case "unverified", "failed":
+		return "final-end-" + word, nil
+	}
+	return "", fmt.Errorf("the outcome must be unverified or failed, got %q", word)
+}
+
+func runsEndFinalRun(cmd *cobra.Command, args []string) error {
+	action, err := runsEndFinalAction(args[1])
+	if err != nil {
+		return err
+	}
+	ch, run, err := runsFind(cmd, args[0])
+	if err != nil {
+		return err
+	}
+	if err := runsEndFinal(ch.OID, run.ID, action, args[2]); err != nil {
+		return err
+	}
+	fmt.Printf("ended run %s's final stage: %s\n", run.ID, args[1])
+	return nil
+}
+
+// runsEndFinal waits as long as a cancel does: stopping the verifier stops its worker
+func runsEndFinal(channelId, runId, action, reason string) error {
+	return wshclient.DagActionCommand(RpcClient, wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: action, Notes: reason}, &wshrpc.RpcOpts{Timeout: runsCancelTimeoutMs})
 }
 
 // runsLandLines are where a run's branch stands on its way back into its base

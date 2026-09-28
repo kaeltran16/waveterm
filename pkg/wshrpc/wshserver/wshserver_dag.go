@@ -513,6 +513,23 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 			}
 		}()
 		return nil
+	case "final-end-unverified", "final-end-failed":
+		// the human's end: RunId is the orchestrator run, so no verifier run id is needed, and no tab is marked complete
+		outcome := orchestrate.FinalState_Unverified
+		if data.Action == "final-end-failed" {
+			outcome = orchestrate.FinalState_Failed
+		}
+		if err := orchestrate.EndFinalStage(ctx, run.DagORef, outcome, data.Notes); err != nil {
+			return err
+		}
+		// the tick announces the dag done, or hands a failed stage to the lead
+		dagID := run.DagORef
+		go func() {
+			if err := orchestrate.Schedule(context.Background(), dagID); err != nil {
+				log.Printf("dag schedule after ending the final stage: %v", err)
+			}
+		}()
+		return nil
 	case "amend":
 		return orchestrate.AmendTask(ctx, run.DagORef, data.TaskId, data.Notes)
 	case "tell":

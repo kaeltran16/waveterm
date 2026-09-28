@@ -23,7 +23,7 @@ func awaitVerify(t *testing.T) func() {
 	done := make(chan struct{}, 16)
 	orig := verifyFinished
 	verifyFinished = func(string, string) { done <- struct{}{} }
-	t.Cleanup(func() { verifyFinished = orig })
+	restoreAfterStages(t, func() { verifyFinished = orig })
 	return func() {
 		t.Helper()
 		select {

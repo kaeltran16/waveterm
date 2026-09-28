@@ -147,7 +147,7 @@ func TestTellTypesIntoTheRunningWorker(t *testing.T) {
 	runBlockORefs = func(context.Context, *waveobj.Run) []string {
 		return []string{waveobj.MakeORef(waveobj.OType_Block, wakeLeadBlock).String()}
 	}
-	t.Cleanup(func() { runBlockORefs = old })
+	restoreAfterStages(t, func() { runBlockORefs = old })
 	if err := TellTask(ctx, dag.OID, "t-0", "use fmtDate from t-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestToldToTaskLeavesOutWhatWasTypedToAReviewer(t *testing.T) {
 	runBlockORefs = func(context.Context, *waveobj.Run) []string {
 		return []string{waveobj.MakeORef(waveobj.OType_Block, wakeLeadBlock).String()}
 	}
-	t.Cleanup(func() { runBlockORefs = old })
+	restoreAfterStages(t, func() { runBlockORefs = old })
 	if err := TellTask(ctx, dag.OID, "t-0", "use fmtDate from t-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestSkipAFailedReviewDropsTheRejectedCommit(t *testing.T) {
 		resetTo = append(resetTo, wt+"@"+commit)
 		return nil
 	}
-	t.Cleanup(func() { resetReviewTree = old })
+	restoreAfterStages(t, func() { resetReviewTree = old })
 	if err := ApplyAction(ctx, dag.OID, "t-0", "skip", waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}

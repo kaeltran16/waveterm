@@ -35,7 +35,7 @@ func recordMerges(t *testing.T, sha string, err error) *[]mergeCall {
 		calls = append(calls, mergeCall{runID, lane.Title, fold})
 		return sha, err
 	}
-	t.Cleanup(func() { mergeWorktree = old })
+	restoreAfterStages(t, func() { mergeWorktree = old })
 	return &calls
 }
 
@@ -148,7 +148,7 @@ func TestLaneConflictBlocksItsLastTaskAndContinueLandsTheLane(t *testing.T) {
 		continued = append(continued, runID)
 		return "sha-resolved", nil
 	}
-	t.Cleanup(func() { continueMerge = orig })
+	restoreAfterStages(t, func() { continueMerge = orig })
 	if err := ContinueMerge(f.ctx, f.channel, f.ownerID, "t-2"); err != nil {
 		t.Fatal(err)
 	}

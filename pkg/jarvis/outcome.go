@@ -109,6 +109,7 @@ func resolveDispatchChannelForWorker(ctx context.Context, workerORef string) *wa
 	}
 	channels, err := wstore.GetChannels(ctx)
 	if err != nil {
+		log.Printf("jarvis: listing channels to resolve worker %s: %v", workerORef, err)
 		return nil
 	}
 	return ResolveDispatchChannel(channels, workerORef)

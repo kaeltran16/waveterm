@@ -108,6 +108,26 @@ export async function cancelRun(channelId: string, runId: string): Promise<void>
     }
 }
 
+export type FinalEndOutcome = "unverified" | "failed";
+
+// as long as `wsh runs` waits on a cancel (runsCancelTimeoutMs): stopping the verifier stops its worker
+const END_FINAL_TIMEOUT_MS = 60_000;
+
+// endFinalStage ends a run's running final stage on the human's word; the engine records the reason on the
+// stage.
+export function endFinalStage(
+    channelId: string,
+    runId: string,
+    outcome: FinalEndOutcome,
+    reason: string
+): Promise<void> {
+    return RpcApi.DagActionCommand(
+        TabRpcClient,
+        { channelid: channelId, runid: runId, taskid: "", action: `final-end-${outcome}`, notes: reason },
+        { timeout: END_FINAL_TIMEOUT_MS }
+    );
+}
+
 // Cancel a run, confirming first when it has live workers (goal: never silently stop running agents).
 // liveCount 0 (e.g. the worker already exited — the "blocked · worker exited" card) cancels directly.
 // Copy reassures that completed work is kept: the backend stops the processes but keeps worker tabs,

@@ -65,7 +65,7 @@ func startBaseCheck(dagID, runID, project, commit, setup, check string) {
 	if !baseCheckRuns.SetUnless(dagID, true) {
 		return
 	}
-	go func() {
+	goStage("basecheck "+dagID, func() {
 		defer baseCheckFinished(dagID)
 		defer baseCheckRuns.Delete(dagID)
 		ctx := context.Background()
@@ -73,7 +73,7 @@ func startBaseCheck(dagID, runID, project, commit, setup, check string) {
 		if err := WithDagMutation(dagID, func() error { return recordBaseCheckLocked(ctx, dagID, setup, check, state, detail) }); err != nil {
 			log.Printf("dag %s: recording the base Check: %v", dagID, err)
 		}
-	}()
+	})
 }
 
 // treeStepError is a step of a detached tree that could not run, as against the command run in it failing.

@@ -60,7 +60,7 @@ func TestScheduleSerializesSameDag(t *testing.T) {
 		}
 		return waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 
 	errs := make(chan error, 2)
 	go func() { errs <- Schedule(ctx, dag.OID) }()
@@ -131,7 +131,7 @@ func TestRetryKeepsFailedOwnershipWhenWorkerStopFails(t *testing.T) {
 	}
 	oldStop := stopRunWorkers
 	stopRunWorkers = func(context.Context, *waveobj.Run) error { return errors.New("stop failed") }
-	t.Cleanup(func() { stopRunWorkers = oldStop })
+	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 
 	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", waveobj.RoutePin{})
 	if err == nil || !strings.Contains(err.Error(), "stop failed") {
@@ -174,7 +174,7 @@ func TestSkipStopsStalledChildBeforeClearingOwnership(t *testing.T) {
 		stopped = run.ID == child.ID
 		return nil
 	}
-	t.Cleanup(func() { stopRunWorkers = oldStop })
+	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 
 	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
@@ -290,10 +290,10 @@ func allowEscalationSchedule(t *testing.T) {
 	allowWorkerHarnessForTest(t)
 	oldStop := stopRunWorkers
 	stopRunWorkers = func(context.Context, *waveobj.Run) error { return nil }
-	t.Cleanup(func() { stopRunWorkers = oldStop })
+	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 	oldStamp := stampSpawnedWorker
 	stampSpawnedWorker = func(context.Context, string, string, string) error { return nil }
-	t.Cleanup(func() { stampSpawnedWorker = oldStamp })
+	restoreAfterStages(t, func() { stampSpawnedWorker = oldStamp })
 	stubSpawnWorker(t, waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil)
 }
 
@@ -385,7 +385,7 @@ func TestCancelPersistsBeforeStoppingWorkersAndIsIdempotent(t *testing.T) {
 			gotOwner.Status == jarvis.RunStatus_Cancelled && gotChild.Status == jarvis.RunStatus_Cancelled
 		return nil
 	}
-	t.Cleanup(func() { stopRunWorkers = oldStop })
+	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 
 	if err := Cancel(ctx, dag.OID); err != nil {
 		t.Fatal(err)
@@ -423,7 +423,7 @@ func TestCancelKeepsALandedTaskRunDone(t *testing.T) {
 		stopped[run.ID] = true
 		return nil
 	}
-	t.Cleanup(func() { stopRunWorkers = oldStop })
+	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 
 	if err := Cancel(ctx, dag.OID); err != nil {
 		t.Fatal(err)
@@ -459,7 +459,7 @@ func TestCancelDetachesWorkerCleanupFromCallerContext(t *testing.T) {
 		}
 		return nil
 	}
-	t.Cleanup(func() { withMutationTx, stopRunWorkers = oldTx, oldStop })
+	restoreAfterStages(t, func() { withMutationTx, stopRunWorkers = oldTx, oldStop })
 
 	if err := Cancel(ctx, dag.OID); err != nil {
 		t.Fatal(err)
@@ -478,7 +478,7 @@ func TestCancelReturnsStopFailureWithoutRevertingState(t *testing.T) {
 		}
 		return nil
 	}
-	t.Cleanup(func() { stopRunWorkers = oldStop })
+	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 
 	err := Cancel(ctx, dag.OID)
 	if err == nil || !strings.Contains(err.Error(), child.ID) || !strings.Contains(err.Error(), "worker stop failed") {
@@ -521,7 +521,7 @@ func TestCancelPersistsCleanupDebtAndRetry(t *testing.T) {
 		persistedPending = loadErr == nil && stored.Status == DagStatus_Cancelled && stored.Tasks[0].CleanupPending
 		return errors.New("locked")
 	}
-	t.Cleanup(func() { RemoveTaskWorktree = oldRemover })
+	restoreAfterStages(t, func() { RemoveTaskWorktree = oldRemover })
 
 	if err := Cancel(ctx, g.OID); err == nil || !strings.Contains(err.Error(), "locked") {
 		t.Fatalf("cancel error = %v, want cleanup failure", err)
@@ -565,7 +565,7 @@ func TestCancelRollsBackAllStateBeforeWorkerStop(t *testing.T) {
 	oldStop := stopRunWorkers
 	stopCalls := 0
 	stopRunWorkers = func(context.Context, *waveobj.Run) error { stopCalls++; return nil }
-	t.Cleanup(func() { stopRunWorkers = oldStop })
+	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 
 	if err := Cancel(ctx, dag.OID); err == nil {
 		t.Fatal("want forced cancellation transaction failure")
@@ -609,7 +609,7 @@ func TestCancelledDagRejectsFurtherMutations(t *testing.T) {
 		spawnCalls++
 		return "tab:unexpected", nil
 	}
-	t.Cleanup(func() { stopRunWorkers, spawnWorker = oldStop, oldSpawn })
+	restoreAfterStages(t, func() { stopRunWorkers, spawnWorker = oldStop, oldSpawn })
 	if err := Cancel(ctx, dag.OID); err != nil {
 		t.Fatal(err)
 	}
@@ -645,7 +645,7 @@ func TestCancelHoldsDagAuthorityThroughWorkerCleanup(t *testing.T) {
 		}
 		return nil
 	}
-	t.Cleanup(func() { stopRunWorkers = oldStop })
+	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 
 	cancelDone := make(chan error, 1)
 	go func() { cancelDone <- Cancel(ctx, dag.OID) }()
@@ -690,7 +690,7 @@ func TestCancelWaitsForSpawnAndStopsAttachedWorker(t *testing.T) {
 		}
 		return nil
 	}
-	t.Cleanup(func() { spawnWorker, stampSpawnedWorker, stopRunWorkers = oldSpawn, oldStamp, oldStop })
+	restoreAfterStages(t, func() { spawnWorker, stampSpawnedWorker, stopRunWorkers = oldSpawn, oldStamp, oldStop })
 
 	scheduleDone := make(chan error, 1)
 	go func() { scheduleDone <- Schedule(ctx, dag.OID) }()
@@ -737,7 +737,7 @@ func TestScheduleDifferentDagsProceedConcurrently(t *testing.T) {
 		callsDag2.Add(1)
 		return waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 
 	errs := make(chan error, 2)
 	go func() { errs <- Schedule(ctx1, dag1.OID) }()

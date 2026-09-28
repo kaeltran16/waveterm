@@ -99,7 +99,7 @@ func TestAppendRoundExtendsTheDagAndCutsFromTheLandingHead(t *testing.T) {
 		spawned = append(spawned, spawn{cwd, prompt})
 		return "tab:worker", nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 	if err := Schedule(f.ctx, f.dagID); err != nil {
 		t.Fatal(err)
 	}

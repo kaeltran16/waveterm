@@ -100,7 +100,7 @@ func TestScheduleRecordsUnrecordedDispatchReason(t *testing.T) {
 	oldAppend, oldStop := appendChildRun, stopSpawnedWorker
 	appendChildRun = func(context.Context, string, waveobj.Run) error { return errors.New("child run persist failed") }
 	stopSpawnedWorker = func(context.Context, string) error { return nil }
-	t.Cleanup(func() { appendChildRun, stopSpawnedWorker = oldAppend, oldStop })
+	restoreAfterStages(t, func() { appendChildRun, stopSpawnedWorker = oldAppend, oldStop })
 
 	if err := Schedule(ctx, g.OID); err == nil {
 		t.Fatal("want the persist failure returned")
@@ -128,7 +128,7 @@ func TestScheduleRecordsUnrecordedDispatchReason(t *testing.T) {
 func TestScheduleRecordsHarnessFailureReason(t *testing.T) {
 	old := validateWorkerHarness
 	validateWorkerHarness = func(string) error { return errors.New("pi is not installed") }
-	t.Cleanup(func() { validateWorkerHarness = old })
+	restoreAfterStages(t, func() { validateWorkerHarness = old })
 	ctx, g, channelID, runID := seedDispatchDag(t, "dispatch-harness")
 	stubSpawnWorker(t, waveobj.MakeORef(waveobj.OType_Tab, "unused").String(), nil)
 

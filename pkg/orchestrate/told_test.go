@@ -66,7 +66,7 @@ func launchToldChild(t *testing.T, channelName string) *toldChild {
 	prevSend, prevLaunch := sendWakeFn, launchLeadFn
 	sendWakeFn = func(string, string) { c.wakes++ }
 	launchLeadFn = func(context.Context, string, string, string) { c.wakes++ }
-	t.Cleanup(func() { sendWakeFn, launchLeadFn = prevSend, prevLaunch })
+	restoreAfterStages(t, func() { sendWakeFn, launchLeadFn = prevSend, prevLaunch })
 
 	ch, err := wstore.CreateChannel(c.ctx, channelName, t.TempDir())
 	if err != nil {
@@ -89,7 +89,7 @@ func launchToldChild(t *testing.T, channelName string) *toldChild {
 	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		return "tab:worker", nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 	if err := ScheduleOnce(c.ctx, c.g); err != nil {
 		t.Fatal(err)
 	}

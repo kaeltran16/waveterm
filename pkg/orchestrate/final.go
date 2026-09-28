@@ -10,8 +10,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -151,7 +153,7 @@ func startFinalCommands(dagID string, owner *waveobj.Run) {
 	}
 	finalRuns.byDag[dagID] = cancel
 	finalRuns.Unlock()
-	go func() {
+	goStage("final "+dagID, func() {
 		defer finalFinished(dagID)
 		res := runFinalSteps(ctx, dagID, owner)
 		cancel()
@@ -176,7 +178,7 @@ func startFinalCommands(dagID string, owner *waveobj.Run) {
 		if err := Schedule(bg, dagID); err != nil {
 			log.Printf("dag %s: schedule after the final stage: %v", dagID, err)
 		}
-	}()
+	})
 }
 
 // finalResult is what the deterministic steps found: a failure's Detail, or what they could not verify.
@@ -355,6 +357,88 @@ func finishFinal(g *waveobj.TaskGroup, afterCommit *[]func()) {
 	*afterCommit = append(*afterCommit, func() {
 		PostWake(context.Background(), channelID, runID, finalFailedWake(round, detail, last))
 	})
+}
+
+// settleFinalLocked ends a stage whose outcome is decided and persists the dag: the verifier's verdict and a
+// human's end both finish through it. The caller holds the dag mutation lock and runs afterCommit after it.
+func settleFinalLocked(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, afterCommit *[]func()) error {
+	finishFinal(g, afterCommit)
+	releaseFinalTree(g, owner, afterCommit)
+	RecomputeDagStatus(g)
+	g.UpdatedTs = time.Now().UnixMilli()
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		*cur = *g
+		return nil
+	}); err != nil {
+		return err
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
+	return nil
+}
+
+// finalEndedByHuman opens the reason a human gave for ending a running final stage.
+const finalEndedByHuman = "ended by the human: "
+
+// EndFinalStage ends a running final stage on the human's word, as unverified or failed, with reason recorded
+// where every final outcome is: failed is the stage's Detail and wakes the lead as a verifier's fail does. It
+// stops what is running: the stage's commands, or its verifier. The caller schedules the dag afterwards.
+func EndFinalStage(ctx context.Context, dagID, outcome, reason string) error {
+	reason = strings.TrimSpace(reason)
+	switch {
+	case outcome != FinalState_Unverified && outcome != FinalState_Failed:
+		return fmt.Errorf("the outcome must be %s or %s, got %q", FinalState_Unverified, FinalState_Failed, outcome)
+	case reason == "":
+		return fmt.Errorf("ending the final stage needs the human's reason")
+	}
+	if count := utf8.RuneCountInString(reason); count > MaxReviewNoteLen {
+		return fmt.Errorf("the reason is %d characters; the limit is %d", count, MaxReviewNoteLen)
+	}
+	var afterCommit []func()
+	err := withDagMutation(dagID, func() error {
+		g, err := wstore.GetDag(ctx, dagID)
+		if err != nil {
+			return fmt.Errorf("loading dag: %w", err)
+		}
+		f := g.Final
+		switch {
+		case g.Status == DagStatus_Cancelled:
+			return fmt.Errorf("run %s is cancelled; its final stage is not running", g.RunID)
+		case f == nil || f.State == "":
+			return fmt.Errorf("run %s's final stage has not started; only a running one can be ended", g.RunID)
+		case finalTerminal(f.State):
+			return fmt.Errorf("run %s's final stage is %s; only a running one can be ended", g.RunID, f.State)
+		}
+		owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
+		if err != nil {
+			return fmt.Errorf("loading the dag's run: %w", err)
+		}
+		switch f.State {
+		case FinalState_Checking, FinalState_Final:
+			// the commands' goroutine finds the stage ended when it comes back, and records nothing
+			afterCommit = append(afterCommit, func() { stopDagFinal(dagID) })
+		case FinalState_Verifying:
+			if f.VerifierRunID != "" {
+				stopReviewer(ctx, g, f.VerifierRunID, &afterCommit)
+			}
+		}
+		if outcome == FinalState_Failed {
+			f.Detail = finalEndedByHuman + reason
+		} else {
+			f.Unverified = append(f.Unverified, finalEndedByHuman+reason)
+			channelID, runID := g.ChannelId, g.RunID
+			afterCommit = append(afterCommit, func() {
+				PostQuiet(ctx, channelID, runID, "the human ended the final stage unverified: "+flatLine(reason))
+			})
+		}
+		return settleFinalLocked(ctx, g, owner, &afterCommit)
+	})
+	if err != nil {
+		return err
+	}
+	for _, fn := range afterCommit {
+		fn()
+	}
+	return nil
 }
 
 // finalTree is where the final stage runs: the landing tree for a dag landing on its own branch. A dag landing

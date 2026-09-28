@@ -83,7 +83,7 @@ func stubPlanCommandProgress(t *testing.T, fn func(ctx context.Context, dir, com
 		p.mu.Unlock()
 		return fn(ctx, dir, command, progress)
 	}
-	t.Cleanup(func() { runPlanCommand = orig })
+	restoreAfterStages(t, func() { runPlanCommand = orig })
 	return p
 }
 

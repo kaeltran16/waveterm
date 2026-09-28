@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -408,5 +409,27 @@ func TestRunsAttentionLinesKeepTheQuestionWhole(t *testing.T) {
 	}
 	if strings.Count(line, "goal") > runsGoalWidth/5 {
 		t.Fatalf("the source must be clipped: %q", line)
+	}
+}
+
+func TestRunsEndFinalSendsTheDagAction(t *testing.T) {
+	req := fakeRunsRpc(t, func() error { return runsEndFinal("ch-1", "r-1", "final-end-failed", "the verifier is stuck") }, nil)
+	var data wshrpc.CommandDagActionData
+	b, _ := json.Marshal(req.Data)
+	json.Unmarshal(b, &data)
+	want := wshrpc.CommandDagActionData{ChannelId: "ch-1", RunId: "r-1", Action: "final-end-failed", Notes: "the verifier is stuck"}
+	if req.Command != "dagaction" || !reflect.DeepEqual(data, want) {
+		t.Fatalf("request = %s %+v, want dagaction %+v", req.Command, data, want)
+	}
+}
+
+func TestRunsEndFinalAction(t *testing.T) {
+	for word, want := range map[string]string{"unverified": "final-end-unverified", "failed": "final-end-failed"} {
+		if got, err := runsEndFinalAction(word); err != nil || got != want {
+			t.Errorf("%s: got %q, %v; want %q", word, got, err, want)
+		}
+	}
+	if _, err := runsEndFinalAction("passed"); err == nil || !strings.Contains(err.Error(), "unverified or failed") {
+		t.Fatalf("passed is not an outcome a human ends a stage with, got %v", err)
 	}
 }

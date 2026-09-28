@@ -145,7 +145,7 @@ func TestAConflictMidBatchDefersTheBatchVerifyToTheContinue(t *testing.T) {
 	})
 	orig := continueMerge
 	continueMerge = func(context.Context, string, string, MergeLane, []string) (string, error) { return "sha-b", nil }
-	t.Cleanup(func() { continueMerge = orig })
+	restoreAfterStages(t, func() { continueMerge = orig })
 	calls := stubPlanCommand(t, func(context.Context, string, string) error { return nil })
 	await := awaitVerify(t)
 	finalDone := awaitFinal(t)

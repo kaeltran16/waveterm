@@ -129,7 +129,7 @@ func TestDispatchLaunchesWorkerUnderRecordedSessionId(t *testing.T) {
 		launched = opts.SessionId
 		return "tab:worker", nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 
 	if err := ScheduleOnce(ctx, g); err != nil {
 		t.Fatal(err)

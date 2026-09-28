@@ -4,6 +4,7 @@
 package orchestrate
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,7 +20,7 @@ import (
 func useVerifier(t *testing.T) {
 	t.Helper()
 	startVerifier = startVerifierSession
-	t.Cleanup(func() { startVerifier = skipVerifier })
+	restoreAfterStages(t, func() { startVerifier = skipVerifier })
 }
 
 // verifyingFixture is a checkout-landed dag whose final stage runs only a passing Verify: its verifier is
@@ -218,5 +219,47 @@ func TestChildRunIDsIncludesTheVerifier(t *testing.T) {
 	g := &waveobj.TaskGroup{Final: &waveobj.FinalStage{VerifierRunID: "verifier-run"}}
 	if got := childRunIDs(g); !slices.Equal(got, []string{"verifier-run"}) {
 		t.Fatalf("childRunIDs = %q", got)
+	}
+}
+
+// the one-named-test guidance applies whatever the plan has, so both briefs carry it
+const verifierSuiteGuidance = "Do not run any whole package or test suite. Read the diff. To settle a specific doubt about behavior, run one named test with `-run '^TestName$'` (or its vitest equivalent)."
+
+func TestTheVerifierBriefNamesWhatPassedAndItsBudget(t *testing.T) {
+	g := &waveobj.TaskGroup{
+		RunID: "run-1", Check: "go vet ./...", Verify: "node scripts/verify.mjs ./pkg/...", FinalCmd: "node scripts/cdp/final-verify.mjs",
+		Final: &waveobj.FinalStage{Round: 1, Tree: "/tree", Commit: "0123456789abcdef", OutDir: "/out"},
+	}
+	prompt := verifierPrompt(g, &waveobj.Run{BaseCommit: "base"})
+	for _, want := range []string{
+		"Before you started, the engine ran Check `go vet ./...`, Verify `node scripts/verify.mjs ./pkg/...` and Final `node scripts/cdp/final-verify.mjs` on `0123456`, and they passed, apart from anything listed below as not verified. Do not run them again.",
+		verifierSuiteGuidance,
+		fmt.Sprintf("You have %s from your start to give a verdict. A session that gives none is stopped and replaced once, and then the result is left unverified.", ReviewTimeout),
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the brief must contain %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestTheVerifierBriefNamesNoCommandsWhenThePlanHasNone(t *testing.T) {
+	g := &waveobj.TaskGroup{RunID: "run-1", Final: &waveobj.FinalStage{Round: 1, Tree: "/tree", Commit: "0123456789abcdef"}}
+	prompt := verifierPrompt(g, &waveobj.Run{})
+	if strings.Contains(prompt, "the engine ran") || strings.Contains(prompt, "Do not run them again") {
+		t.Fatalf("a plan with no commands ran none:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, verifierSuiteGuidance) {
+		t.Fatalf("the suite guidance is stated whatever ran:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, fmt.Sprintf("You have %s", ReviewTimeout)) {
+		t.Fatalf("the budget is stated whatever ran:\n%s", prompt)
+	}
+}
+
+func TestTheVerifierBriefNamesOnlyThePlansCommands(t *testing.T) {
+	g := &waveobj.TaskGroup{RunID: "run-1", Verify: "task test", Final: &waveobj.FinalStage{Round: 1, Tree: "/tree", Commit: "0123456789abcdef"}}
+	prompt := verifierPrompt(g, &waveobj.Run{})
+	if !strings.Contains(prompt, "the engine ran Verify `task test` on `0123456`") || strings.Contains(prompt, "Check `") {
+		t.Fatalf("only the plan's own commands are named:\n%s", prompt)
 	}
 }

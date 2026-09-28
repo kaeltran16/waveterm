@@ -7,6 +7,7 @@ import type { TaskWorkerView } from "../orchestrate/taskcorrelate";
 import {
     configLine,
     configNote,
+    finalStageEndable,
     launcherReading,
     orderedTasks,
     runGraphRef,
@@ -613,5 +614,26 @@ describe("configNote", () => {
             "This run's plan could not be read."
         );
         expect(configNote(run(), { kind: "loading" })?.pulse).toBe(true);
+    });
+});
+
+describe("finalStageEndable", () => {
+    const group = (status: string, state?: string) =>
+        ({ status, final: state == null ? undefined : { state, round: 1 } }) as unknown as TaskGroup;
+    it("is true while the stage's commands or its verifier run", () => {
+        for (const state of ["checking", "final", "verifying"]) {
+            expect(finalStageEndable(group("finalizing", state))).toBe(true);
+        }
+    });
+    it("is false with no stage, a stage not started, or one that ended", () => {
+        expect(finalStageEndable(null)).toBe(false);
+        expect(finalStageEndable(group("running"))).toBe(false);
+        expect(finalStageEndable(group("finalizing", ""))).toBe(false);
+        for (const state of ["passed", "unverified", "failed"]) {
+            expect(finalStageEndable(group("done", state))).toBe(false);
+        }
+    });
+    it("is false on a cancelled dag, whatever the stage last recorded", () => {
+        expect(finalStageEndable(group("cancelled", "final"))).toBe(false);
     });
 });
