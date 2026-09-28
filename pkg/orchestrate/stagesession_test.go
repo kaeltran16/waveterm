@@ -65,7 +65,7 @@ func TestSpawnStageSessionReportsASpawnFailure(t *testing.T) {
 	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		return "", errors.New("no terminal")
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 	if _, err := spawnStageSession(ctx, ctx, dag, dagOwner(t, ctx, dag), StageSession{Role: "verifier", Tree: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "no terminal") {
 		t.Fatalf("want the spawn's error, got %v", err)
 	}
@@ -100,7 +100,7 @@ func TestTendStageSessionGivesUpAfterOneRespawn(t *testing.T) {
 	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		return "", errors.New("no terminal")
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 	owner := dagOwner(t, ctx, dag)
 	session := func() StageSession { return StageSession{Role: "verifier", Tree: t.TempDir()} }
 	var runID string

@@ -184,7 +184,7 @@ func releaseFinalTree(g *waveobj.TaskGroup, owner *waveobj.Run, afterCommit *[]f
 		if removeWorktreeDir(context.Background(), project, tree) == nil {
 			return
 		}
-		go func() {
+		goStage("final-tree "+dagID, func() {
 			var err error
 			for i := 1; i < finalTreeRemoveAttempts; i++ {
 				time.Sleep(finalTreeRemoveInterval)
@@ -193,6 +193,6 @@ func releaseFinalTree(g *waveobj.TaskGroup, owner *waveobj.Run, afterCommit *[]f
 				}
 			}
 			log.Printf("dag %s: removing the final tree: %v", dagID, err)
-		}()
+		})
 	})
 }

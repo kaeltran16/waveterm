@@ -36,7 +36,7 @@ func stubCleanupRemover(t *testing.T, fn func(context.Context, string, string) e
 	t.Helper()
 	old := RemoveTaskWorktree
 	RemoveTaskWorktree = fn
-	t.Cleanup(func() { RemoveTaskWorktree = old })
+	restoreAfterStages(t, func() { RemoveTaskWorktree = old })
 }
 
 func TestCleanupTaskWorktreeIdempotent(t *testing.T) {
@@ -486,7 +486,7 @@ func TestCleanupTaskWorktreeReapsTheLanesWorkersFirst(t *testing.T) {
 		order = append(order, "stop:"+run.ID)
 		return nil
 	}
-	t.Cleanup(func() { stopRunWorkers = oldStop })
+	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 	stubCleanupRemover(t, func(context.Context, string, string) error {
 		order = append(order, "remove")
 		return nil
@@ -539,7 +539,7 @@ func TestCleanupTaskWorktreeReapsEveryRunInTheTree(t *testing.T) {
 		stopped = append(stopped, run.ID)
 		return nil
 	}
-	t.Cleanup(func() { stopRunWorkers = oldStop })
+	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 	stubCleanupRemover(t, func(context.Context, string, string) error { return nil })
 
 	if err := CleanupTaskWorktree(ctx, &g, "t-1"); err != nil {

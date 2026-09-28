@@ -99,7 +99,7 @@ func stubMerge(t *testing.T, fn func(ctx context.Context, projectPath, runID, go
 		calls++
 		return fn(ctx, projectPath, runID, lane.Title)
 	}
-	t.Cleanup(func() { mergeWorktree = old })
+	restoreAfterStages(t, func() { mergeWorktree = old })
 	return &calls
 }
 
@@ -171,7 +171,7 @@ func TestAChildOutcomeLandsWhileAMergesTreeIsRemoved(t *testing.T) {
 		}
 		return worker, nil
 	}
-	t.Cleanup(func() { spawnWorker = oldSpawn })
+	restoreAfterStages(t, func() { spawnWorker = oldSpawn })
 	if err := Schedule(f.ctx, f.dagID); err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func stubSpawn(t *testing.T, spawned *[]string) {
 		*spawned = append(*spawned, prompt)
 		return "tab:worker", nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 }
 
 // the whole point of the change: a finished task lands and its dependent starts, with nobody asked.
@@ -506,7 +506,7 @@ func TestContinueRetriesARefusedMerge(t *testing.T) {
 		continued++
 		return "sha-continue", nil
 	}
-	t.Cleanup(func() { continueMerge = oldContinue })
+	restoreAfterStages(t, func() { continueMerge = oldContinue })
 
 	for i := 0; i < mergeFailureLimit; i++ {
 		_ = MergeTask(f.ctx, f.channel, f.ownerID, "t-0")
@@ -549,7 +549,7 @@ func TestConflictAwaitingContinueHoldsOtherMerges(t *testing.T) {
 	})
 	oldContinue := continueMerge
 	continueMerge = func(context.Context, string, string, MergeLane, []string) (string, error) { return "sha-fix", nil }
-	t.Cleanup(func() { continueMerge = oldContinue })
+	restoreAfterStages(t, func() { continueMerge = oldContinue })
 
 	if err := Schedule(f.ctx, f.dagID); err != nil {
 		t.Fatal(err)

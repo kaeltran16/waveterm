@@ -51,7 +51,7 @@ func newBreakerHarness(t *testing.T, parallelism int) *breakerHarness {
 		h.spawns++
 		return "tab:worker", nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 	return h
 }
 

@@ -39,7 +39,7 @@ func stubLaunch(t *testing.T) *[]string {
 	var launched []string
 	old := launchLeadFn
 	launchLeadFn = func(_ context.Context, _, _, wake string) { launched = append(launched, wake) }
-	t.Cleanup(func() { launchLeadFn = old })
+	restoreAfterStages(t, func() { launchLeadFn = old })
 	return &launched
 }
 
@@ -74,7 +74,7 @@ func newFakeLead(t *testing.T) *fakeLead {
 		}
 		f.rows = append(f.rows, row)
 	}
-	t.Cleanup(func() {
+	restoreAfterStages(t, func() {
 		wakes, leadStateFn, sendWakeFn, wakeNow, appendRunEvent, agentask.GlobalRegistry = origWakes, origState, origSend, origNow, origAppend, origReg
 	})
 	return f
@@ -480,7 +480,7 @@ func newRelaunchFixture(t *testing.T) *relaunchFixture {
 			return nil
 		})
 	}
-	t.Cleanup(func() { jarvis.SpawnRunWorker, LaunchLeadHook = oldSpawn, oldHook })
+	restoreAfterStages(t, func() { jarvis.SpawnRunWorker, LaunchLeadHook = oldSpawn, oldHook })
 	return f
 }
 

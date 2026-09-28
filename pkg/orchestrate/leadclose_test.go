@@ -19,7 +19,7 @@ import (
 func stubLeadTabDelete(t *testing.T, err error) *[]waveobj.UpdatesRtnType {
 	t.Helper()
 	oldDelete, oldSend := deleteTab, sendLeadTabUpdates
-	t.Cleanup(func() { deleteTab, sendLeadTabUpdates = oldDelete, oldSend })
+	restoreAfterStages(t, func() { deleteTab, sendLeadTabUpdates = oldDelete, oldSend })
 	deleteTab = func(ctx context.Context, workspaceId, tabId string, _ bool) (string, error) {
 		waveobj.ContextAddUpdate(ctx, waveobj.WaveObjUpdate{UpdateType: waveobj.UpdateType_Update, OType: waveobj.OType_Workspace, OID: workspaceId})
 		waveobj.ContextAddUpdate(ctx, waveobj.WaveObjUpdate{UpdateType: waveobj.UpdateType_Delete, OType: waveobj.OType_Tab, OID: tabId})

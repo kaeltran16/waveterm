@@ -151,7 +151,7 @@ func startFinalCommands(dagID string, owner *waveobj.Run) {
 	}
 	finalRuns.byDag[dagID] = cancel
 	finalRuns.Unlock()
-	go func() {
+	goStage("final "+dagID, func() {
 		defer finalFinished(dagID)
 		res := runFinalSteps(ctx, dagID, owner)
 		cancel()
@@ -176,7 +176,7 @@ func startFinalCommands(dagID string, owner *waveobj.Run) {
 		if err := Schedule(bg, dagID); err != nil {
 			log.Printf("dag %s: schedule after the final stage: %v", dagID, err)
 		}
-	}()
+	})
 }
 
 // finalResult is what the deterministic steps found: a failure's Detail, or what they could not verify.

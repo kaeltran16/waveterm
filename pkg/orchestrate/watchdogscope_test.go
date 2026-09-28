@@ -76,7 +76,7 @@ func silentSiblingDag(t *testing.T, name string, mutate func(*waveobj.TaskGroup)
 		}
 		return "tab:worker", nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 	return ctx, g.OID, &spawns
 }
 

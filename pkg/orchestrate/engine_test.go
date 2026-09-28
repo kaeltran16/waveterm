@@ -325,7 +325,7 @@ func allowWorkerHarnessForTest(t *testing.T) {
 	t.Helper()
 	old := validateWorkerHarness
 	validateWorkerHarness = func(string) error { return nil }
-	t.Cleanup(func() { validateWorkerHarness = old })
+	restoreAfterStages(t, func() { validateWorkerHarness = old })
 }
 
 // a worker is named after its task: its ai-title would come from its first message, which for a prompt too long for a
@@ -405,7 +405,7 @@ func TestScheduleOncePublishesEachChildRunBeforeTheNextSpawn(t *testing.T) {
 		runIDs = append(runIDs, opts.RunId)
 		return "tab:worker-" + opts.TaskId, nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 
 	if err := ScheduleOnce(ctx, &g); err != nil {
 		t.Fatal(err)
@@ -817,7 +817,7 @@ func TestScheduleOnceUsesTaskRouteForSpawnAndChild(t *testing.T) {
 		gotCap = cap
 		return "tab:worker", nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 
 	if err := ScheduleOnce(ctx, &g); err != nil {
 		t.Fatal(err)
@@ -856,14 +856,14 @@ func TestScheduleOnceRejectsUnavailableTaskRouteBeforeSpawn(t *testing.T) {
 	}
 	oldValidate := validateWorkerHarness
 	validateWorkerHarness = func(string) error { return errors.New("unavailable") }
-	t.Cleanup(func() { validateWorkerHarness = oldValidate })
+	restoreAfterStages(t, func() { validateWorkerHarness = oldValidate })
 	spawned := 0
 	oldSpawn := spawnWorker
 	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		spawned++
 		return "tab:worker", nil
 	}
-	t.Cleanup(func() { spawnWorker = oldSpawn })
+	restoreAfterStages(t, func() { spawnWorker = oldSpawn })
 
 	if err := ScheduleOnce(ctx, &g); err != nil {
 		t.Fatal(err)
@@ -906,7 +906,7 @@ func TestScheduleOnceLegacyRuntimeOnlyAndInheritedRoutes(t *testing.T) {
 		}
 		return "tab:worker", nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 
 	if err := ScheduleOnce(ctx, &g); err != nil {
 		t.Fatal(err)
@@ -977,7 +977,7 @@ func TestScheduleStopsWorkerWhenChildPersistFails(t *testing.T) {
 	oldAppend, oldStop := appendChildRun, stopSpawnedWorker
 	appendChildRun = func(context.Context, string, waveobj.Run) error { return errors.New("persist failed") }
 	stopSpawnedWorker = func(context.Context, string) error { stopped = true; return nil }
-	t.Cleanup(func() { appendChildRun, stopSpawnedWorker = oldAppend, oldStop })
+	restoreAfterStages(t, func() { appendChildRun, stopSpawnedWorker = oldAppend, oldStop })
 	err := Schedule(ctx, dag.OID)
 	if err == nil || !strings.Contains(err.Error(), "persist failed") {
 		t.Fatalf("want persist failed error, got %v", err)
@@ -1030,7 +1030,7 @@ func TestScheduleCleansAllWorkersWhenLaterChildPersistFails(t *testing.T) {
 		return nil
 	}
 	stampSpawnedWorker = func(context.Context, string, string, string) error { return nil }
-	t.Cleanup(func() {
+	restoreAfterStages(t, func() {
 		spawnWorker, appendChildRun, stopSpawnedWorker, stampSpawnedWorker = oldSpawn, oldAppend, oldStop, oldStamp
 	})
 
@@ -1115,7 +1115,7 @@ func TestSchedulePersistenceFailureCancelsTheWorkerItAlreadySpawned(t *testing.T
 	}
 	stopSpawnedWorker = func(context.Context, string) error { return nil }
 	stampSpawnedWorker = func(context.Context, string, string, string) error { return nil }
-	t.Cleanup(func() {
+	restoreAfterStages(t, func() {
 		appendChildRun, stopSpawnedWorker, stampSpawnedWorker = oldAppend, oldStop, oldStamp
 	})
 	stubSpawnWorker(t, worker, nil)
@@ -1249,7 +1249,7 @@ func TestMaybeCloseOrchestratorLead(t *testing.T) {
 		}
 		return nil
 	}
-	t.Cleanup(func() { deleteLeadTab = orig })
+	restoreAfterStages(t, func() { deleteLeadTab = orig })
 	ok, err := MaybeCloseOrchestratorLead(ctx, run, dagDone)
 	if err != nil || !ok || !called {
 		t.Fatalf("should close done dag: ok=%v err=%v called=%v", ok, err, called)
@@ -1275,7 +1275,7 @@ func stubSpawnWorker(t *testing.T, worker string, err error) {
 	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		return worker, err
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 }
 
 // The worker process is spawned on a detached context, so the row recording it must be too. Persisting
@@ -1309,7 +1309,7 @@ func TestScheduleRecordsASpawnEvenWhenTheCallerGaveUp(t *testing.T) {
 		persisted = true
 		return wstore.AppendRun(runCtx, channelID, run)
 	}
-	t.Cleanup(func() { appendChildRun = oldAppend })
+	restoreAfterStages(t, func() { appendChildRun = oldAppend })
 
 	// the client gave up before the tick ran, exactly as a timed-out CreateRun RPC leaves its handler
 	dead, cancel := context.WithCancel(context.Background())
@@ -1594,7 +1594,7 @@ func TestTaskSpawnedCarriesEachTasksOwnSpawnTime(t *testing.T) {
 		returned = append(returned, time.Now().UnixMilli())
 		return waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 
 	if err := ScheduleOnce(ctx, g); err != nil {
 		t.Fatal(err)

@@ -50,7 +50,7 @@ func stubReviewTree(t *testing.T, head string) *int {
 	oldHead, oldReset := reviewTreeHead, resetReviewTree
 	reviewTreeHead = func(context.Context, string) (string, error) { return head, nil }
 	resetReviewTree = func(context.Context, string, string) error { resets++; return nil }
-	t.Cleanup(func() { reviewTreeHead, resetReviewTree = oldHead, oldReset })
+	restoreAfterStages(t, func() { reviewTreeHead, resetReviewTree = oldHead, oldReset })
 	return &resets
 }
 
@@ -71,7 +71,7 @@ func captureSpawns(t *testing.T) *[]spawnCall {
 		calls = append(calls, spawnCall{cap: cap, cwd: cwd, prompt: prompt, opts: opts})
 		return waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil
 	}
-	t.Cleanup(func() { spawnWorker = old })
+	restoreAfterStages(t, func() { spawnWorker = old })
 	return &calls
 }
 
@@ -79,7 +79,7 @@ func stubStopRunWorkers(t *testing.T) {
 	t.Helper()
 	old := stopRunWorkers
 	stopRunWorkers = func(context.Context, *waveobj.Run) error { return nil }
-	t.Cleanup(func() { stopRunWorkers = old })
+	restoreAfterStages(t, func() { stopRunWorkers = old })
 }
 
 func firstTask(t *testing.T, ctx context.Context, dagID string) waveobj.TaskNode {
@@ -516,7 +516,7 @@ func TestReviewDownstreamForARunningTaskTypesItToTheWorker(t *testing.T) {
 		}
 		return []string{waveobj.MakeORef(waveobj.OType_Block, "11111111-1111-1111-1111-111111111111").String()}
 	}
-	t.Cleanup(func() { runBlockORefs = old })
+	restoreAfterStages(t, func() { runBlockORefs = old })
 	stubReviewTree(t, worker.EndCommit)
 	captureSpawns(t)
 	f := newFakeLead(t)
@@ -604,7 +604,7 @@ func TestReviewDownstreamSkipsAWorkerWaitingOnAQuestion(t *testing.T) {
 		}
 		return []string{block}
 	}
-	t.Cleanup(func() { runBlockORefs = old })
+	restoreAfterStages(t, func() { runBlockORefs = old })
 	stubReviewTree(t, worker.EndCommit)
 	captureSpawns(t)
 	f := newFakeLead(t)

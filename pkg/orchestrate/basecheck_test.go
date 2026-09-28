@@ -19,7 +19,7 @@ func awaitBaseCheck(t *testing.T) func() {
 	done := make(chan struct{}, 4)
 	orig := baseCheckFinished
 	baseCheckFinished = func(string) { done <- struct{}{} }
-	t.Cleanup(func() { baseCheckFinished = orig })
+	restoreAfterStages(t, func() { baseCheckFinished = orig })
 	return func() {
 		t.Helper()
 		select {

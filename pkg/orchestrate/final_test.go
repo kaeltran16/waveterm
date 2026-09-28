@@ -44,7 +44,7 @@ func awaitFinal(t *testing.T) func() {
 	done := make(chan struct{}, 16)
 	orig := finalFinished
 	finalFinished = func(string) { done <- struct{}{} }
-	t.Cleanup(func() { finalFinished = orig })
+	restoreAfterStages(t, func() { finalFinished = orig })
 	return func() {
 		t.Helper()
 		select {
@@ -199,7 +199,7 @@ func TestFinalOtherExitFails(t *testing.T) {
 func TestAFinalCommandThatHangsTimesOut(t *testing.T) {
 	orig := finalCommandTimeout
 	finalCommandTimeout = time.Second
-	t.Cleanup(func() { finalCommandTimeout = orig })
+	restoreAfterStages(t, func() { finalCommandTimeout = orig })
 	f := finalFixture(t, passVerify, "", "sleep 30")
 
 	start := time.Now()

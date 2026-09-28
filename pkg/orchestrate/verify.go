@@ -294,7 +294,7 @@ func startVerify(channelID, dagID, runID, projectPath, command string, l *landin
 	landings.Lock()
 	l.cancel = cancel
 	landings.Unlock()
-	go func() {
+	goStage("verify "+dagID, func() {
 		bg := context.Background()
 		var batch []batchTip
 		ordered := false
@@ -352,7 +352,7 @@ func startVerify(channelID, dagID, runID, projectPath, command string, l *landin
 		if err := Schedule(bg, dagID); err != nil {
 			log.Printf("dag %s: schedule after verify: %v", dagID, err)
 		}
-	}()
+	})
 }
 
 // errVerifyProgressStale abandons a progress write with nothing to record. UpdateDag persists whatever

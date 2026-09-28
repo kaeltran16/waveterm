@@ -19,7 +19,7 @@ import (
 func useVerifier(t *testing.T) {
 	t.Helper()
 	startVerifier = startVerifierSession
-	t.Cleanup(func() { startVerifier = skipVerifier })
+	restoreAfterStages(t, func() { startVerifier = skipVerifier })
 }
 
 // verifyingFixture is a checkout-landed dag whose final stage runs only a passing Verify: its verifier is

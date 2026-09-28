@@ -23,7 +23,7 @@ func goStage(name string, fn func())
 It is the WaitGroup the row asks for, kept as a mutex-guarded count of running stages by name
 (`map[string]int`) rather than a bare `sync.WaitGroup`: a wait that times out can then say which stages are
 still running, and a test's wait never races a stage's `Add` from zero, which `sync.WaitGroup` forbids. The name is
-`"<kind> <dagID>"`, for example `"final dag-1"` or `"verify dag-1 t-2"`.
+`"<kind> <dagID>"`, for example `"final dag-1"` or `"verify dag-1"`.
 
 These four goroutines become `goStage` calls, and nothing else about them changes:
 

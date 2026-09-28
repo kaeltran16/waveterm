@@ -6,7 +6,9 @@ package orchestrate
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -41,4 +43,30 @@ func TestMain(m *testing.M) {
 func skipVerifier(_, _ context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, afterCommit *[]func()) {
 	finishFinal(g, afterCommit)
 	releaseFinalTree(g, owner, afterCommit)
+}
+
+// stageLeakTimeout bounds how long a test's cleanup waits for the background stages it started.
+const stageLeakTimeout = 10 * time.Second
+
+// waitStages waits until no background stage is running, and fails the test, naming them, if some still are
+// after stageLeakTimeout: a stage that outlives its test lands in the next test's fakes.
+func waitStages(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(stageLeakTimeout)
+	for len(runningStages()) > 0 {
+		if time.Now().After(deadline) {
+			t.Errorf("background stages outlived the test: %s", strings.Join(runningStages(), ", "))
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// restoreAfterStages restores a swapped hook once the test's background stages have finished with it.
+func restoreAfterStages(t *testing.T, restore func()) {
+	t.Helper()
+	t.Cleanup(func() {
+		waitStages(t)
+		restore()
+	})
 }

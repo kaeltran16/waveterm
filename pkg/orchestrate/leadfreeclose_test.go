@@ -21,7 +21,7 @@ func stubSealHook(t *testing.T) *[][2]string {
 	SealRunEvidenceHook = func(channelId, runId string) {
 		sealed = append(sealed, [2]string{channelId, runId})
 	}
-	t.Cleanup(func() { SealRunEvidenceHook = old })
+	restoreAfterStages(t, func() { SealRunEvidenceHook = old })
 	return &sealed
 }
 
