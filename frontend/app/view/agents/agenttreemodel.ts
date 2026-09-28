@@ -30,9 +30,11 @@ export type AgentTreeRow =
           extras?: number;
           extrasOpen?: boolean;
       }
-    // a session the engine started to judge the whole run: its plan reviewer, its final verifier
-    | { kind: "stage"; agent: AgentVM; project: string; run: RunInfo; stageRole: string }
-    | { kind: "done"; project: string; run: RunInfo; count: number; open: boolean }
+    // a session the engine started to judge the whole run: its plan reviewer, its final verifier. `outcome` is its
+    // verdict once it has one
+    | { kind: "stage"; agent: AgentVM; project: string; run: RunInfo; stageRole: string; outcome?: StageOutcome }
+    // the fold of what finished: `count` done tasks and `stages` stage sessions with a verdict
+    | { kind: "done"; project: string; run: RunInfo; count: number; stages: number; open: boolean }
     | { kind: "queued"; project: string; run: RunInfo; count: number; open: boolean };
 
 // TreeFolds is what the human folded: runs whose workers are hidden, runs whose done or queued tasks are listed,
@@ -84,6 +86,37 @@ const DROPPED = new Set(["skipped", "cancelled"]);
 
 type StageAgent = { agent: AgentVM; stageRole: string };
 
+export type StageOutcome = "passed" | "accepted" | "failed" | "unverified";
+
+const PLAN_REVIEW_OUTCOMES: Record<string, StageOutcome> = { passed: "passed", accepted: "accepted", failed: "failed" };
+const FINAL_OUTCOMES: Record<string, StageOutcome> = { passed: "passed", unverified: "unverified", failed: "failed" };
+
+/** Pure: a stage session's verdict, or undefined while it is still judging. The dag keeps only the current
+ *  round, so a session from an earlier round reads as failed: a stage gets another round only after one fails.
+ *  A session the engine replaced within a round is stopped with its tab, so it has no row to misread. */
+export function stageOutcome(
+    run: RunInfo,
+    stageRole: string,
+    agentRunId: string | undefined
+): StageOutcome | undefined {
+    const stage =
+        stageRole === "plan-reviewer"
+            ? { cur: run.dag?.planreview, runId: run.dag?.planreview?.runid, outcomes: PLAN_REVIEW_OUTCOMES }
+            : { cur: run.dag?.final, runId: run.dag?.final?.verifierrunid, outcomes: FINAL_OUTCOMES };
+    if (stage.cur == null || agentRunId == null) {
+        return undefined;
+    }
+    if (stage.runId !== agentRunId) {
+        return stage.cur.round > 1 ? "failed" : undefined;
+    }
+    return stage.outcomes[stage.cur.state];
+}
+
+// history order: a plan review came before any task, a final verification after every one, and within a stage an
+// earlier round (failed) before the current one
+const stageRank = (s: StageAgent & { outcome?: StageOutcome }) =>
+    (s.stageRole === "plan-reviewer" ? 0 : 2) + (s.outcome === "failed" ? 0 : 1);
+
 function runRows(
     item: Extract<TopItem, { kind: "lead" | "run" }>,
     workers: Map<string, AgentVM[]>,
@@ -101,7 +134,12 @@ function runRows(
     // tasks not dispatched yet have no session to open, so they fold away until asked for
     const queued = tasks.filter((t) => QUEUED.has(t.state) && !workers.has(t.id));
     const open = !folds.collapsed.has(run.runId);
-    const busy = live.length + stages.length;
+    const judged = stages
+        .map((s) => ({ ...s, outcome: stageOutcome(run, s.stageRole, s.agent.runId) }))
+        .sort((a, b) => stageRank(a) - stageRank(b));
+    const judging = judged.filter((s) => s.outcome == null);
+    const finished = judged.filter((s) => s.outcome != null);
+    const busy = live.length + judging.length;
     const head: AgentTreeRow =
         item.kind === "lead"
             ? { kind: "lead", agent: item.agent, project, run, open, live: busy }
@@ -121,21 +159,22 @@ function runRows(
             }
         }
     };
+    const pushStage = ({ agent, stageRole, outcome }: (typeof judged)[number]) =>
+        rows.push({ kind: "stage", agent, project, run, stageRole, outcome });
     if (open) {
-        // oldest first: what landed, what is running, what is still to come
-        if (done.length > 0) {
+        // oldest first: what finished, what is running, what is still to come
+        if (done.length > 0 || finished.length > 0) {
             const doneOpen = folds.doneOpen.has(run.runId);
-            rows.push({ kind: "done", project, run, count: done.length, open: doneOpen });
+            rows.push({ kind: "done", project, run, count: done.length, stages: finished.length, open: doneOpen });
             if (doneOpen) {
+                finished.filter((s) => s.stageRole === "plan-reviewer").forEach(pushStage);
                 done.forEach(pushTask);
+                finished.filter((s) => s.stageRole !== "plan-reviewer").forEach(pushStage);
             }
         }
         live.forEach(pushTask);
-        // a plan review runs before any task, a final verification after every one: either way it is what the run
-        // is doing now, so it sits between what landed and what is to come
-        for (const { agent, stageRole } of stages) {
-            rows.push({ kind: "stage", agent, project, run, stageRole });
-        }
+        // a stage still judging is what the run is doing now, so it sits between what finished and what is to come
+        judging.forEach(pushStage);
         if (queued.length > 0) {
             const queuedOpen = folds.queuedOpen.has(run.runId);
             rows.push({ kind: "queued", project, run, count: queued.length, open: queuedOpen });
@@ -145,7 +184,7 @@ function runRows(
         }
     }
     const attn = live.filter((t) => workerNeedsYou(run, t.id, workers.get(t.id)?.[0])).length;
-    const agents = live.filter((t) => workers.has(t.id)).length + stages.length;
+    const agents = live.filter((t) => workers.has(t.id)).length + judging.length;
     return { rows, members: agents, attn };
 }
 

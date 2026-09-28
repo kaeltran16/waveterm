@@ -80,12 +80,13 @@ describe("buildAgentTree with run lineage", () => {
                 case "worker":
                     return `${r.nested ? "  nested" : "worker"}:${r.task.id}:${r.agent?.id ?? "-"}${r.extras ? `:+${r.extras}${r.extrasOpen ? "v" : ">"}` : ""}`;
                 case "done":
+                    return `done:${r.count}${r.stages ? `+${r.stages}` : ""}:${r.open}`;
                 case "queued":
                     return `${r.kind}:${r.count}:${r.open}`;
                 case "parent":
                     return `parent:${r.agent.id}`;
                 case "stage":
-                    return `stage:${r.stageRole}:${r.agent.id}`;
+                    return `stage:${r.stageRole}:${r.agent.id}${r.outcome ? `:${r.outcome}` : ""}`;
                 default:
                     return `${r.kind}:${r.run.runId}:${r.live}`;
             }
@@ -142,6 +143,90 @@ describe("buildAgentTree with run lineage", () => {
             lineage([r], { ver: { kind: "stage", leadRunId: "run-1", stageRole: "verifier" } })
         );
         expect(shape(rows)).toEqual(["group:waveterm:1:0", "run:run-1:1", "done:1:false", "stage:verifier:ver"]);
+    });
+
+    describe("a stage session with a verdict", () => {
+        const stageAgent = (id: string, runId: string) => ({ ...agent(id, "idle", ""), runId });
+        // run 6c7652be's shape: round 1's plan review failed, round 2's was accepted, the final verifier is judging
+        const finishing = () => {
+            const r = run("run-1", [task("t-1", "done"), task("t-2", "done")]);
+            r.dag.planreview = { state: "accepted", round: 2, runid: "rv2" };
+            r.dag.final = { state: "final", round: 1, verifierrunid: "ver" };
+            const roles: Lineage["roles"] = {
+                lead: { kind: "lead", runId: "run-1" },
+                rev2: { kind: "stage", leadRunId: "run-1", stageRole: "plan-reviewer" },
+                rev1: { kind: "stage", leadRunId: "run-1", stageRole: "plan-reviewer" },
+                ver: { kind: "stage", leadRunId: "run-1", stageRole: "verifier" },
+            };
+            const agents = [
+                agent("lead", "idle"),
+                stageAgent("rev2", "rv2"),
+                stageAgent("rev1", "rv1"),
+                { ...stageAgent("ver", "ver"), state: "working" as const },
+            ];
+            return { r, roles, agents };
+        };
+
+        it("folds into the done fold, and only a stage still judging counts as live", () => {
+            const { r, roles, agents } = finishing();
+            const rows = buildAgentTree(agents, ["lead", "rev2", "rev1", "ver"], lineage([r], roles));
+            expect(shape(rows)).toEqual(["group:waveterm:2:0", "lead:run-1:1", "done:2+2:false", "stage:verifier:ver"]);
+        });
+
+        it("lists the plan reviews oldest round first, before the tasks, and a final verdict after them", () => {
+            const { r, roles, agents } = finishing();
+            r.dag.final = { state: "passed", round: 1, verifierrunid: "ver" };
+            const folds = {
+                collapsed: new Set<string>(),
+                doneOpen: new Set(["run-1"]),
+                queuedOpen: new Set<string>(),
+                extrasOpen: new Set<string>(),
+            };
+            const rows = buildAgentTree(agents, ["lead", "rev2", "rev1", "ver"], lineage([r], roles), folds);
+            expect(shape(rows)).toEqual([
+                "group:waveterm:1:0",
+                "lead:run-1:0",
+                "done:2+3:true",
+                "stage:plan-reviewer:rev1:failed",
+                "stage:plan-reviewer:rev2:accepted",
+                "worker:t-1:-",
+                "worker:t-2:-",
+                "stage:verifier:ver:passed",
+            ]);
+        });
+
+        it("reads an earlier final round's verifier as failed", () => {
+            const r = run("run-1", [task("t-1", "done")]);
+            r.dag.final = { state: "final", round: 2, verifierrunid: "ver2" };
+            const rows = buildAgentTree(
+                [stageAgent("ver1", "ver1"), { ...stageAgent("ver2", "ver2"), state: "working" as const }],
+                ["ver1", "ver2"],
+                lineage([r], {
+                    ver1: { kind: "stage", leadRunId: "run-1", stageRole: "verifier" },
+                    ver2: { kind: "stage", leadRunId: "run-1", stageRole: "verifier" },
+                })
+            );
+            expect(shape(rows)).toEqual(["group:waveterm:1:0", "run:run-1:1", "done:1+1:false", "stage:verifier:ver2"]);
+        });
+
+        it("stays live while the dag has no verdict for it", () => {
+            const r = run("run-1", [task("t-1", "pending")]);
+            r.dag.planreview = { state: "reviewing", round: 1, runid: "rv1" };
+            const rows = buildAgentTree(
+                [agent("lead", "idle"), stageAgent("rev1", "rv1")],
+                ["lead", "rev1"],
+                lineage([r], {
+                    lead: { kind: "lead", runId: "run-1" },
+                    rev1: { kind: "stage", leadRunId: "run-1", stageRole: "plan-reviewer" },
+                })
+            );
+            expect(shape(rows)).toEqual([
+                "group:waveterm:2:0",
+                "lead:run-1:1",
+                "stage:plan-reviewer:rev1",
+                "queued:1:false",
+            ]);
+        });
     });
 
     it("nests the done fold, then live workers in plan order, then a closed queued fold under their lead", () => {

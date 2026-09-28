@@ -14,7 +14,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
-import { buildAgentTree, treeAgentCount } from "./agenttreemodel";
+import { buildAgentTree, treeAgentCount, type StageOutcome } from "./agenttreemodel";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
@@ -480,7 +480,25 @@ function WorkerRow({
 }
 
 // A session the engine started to judge the whole run, under the run like a task's worker and named by its stage.
-function StageRow({ model, agent, stageRole }: { model: AgentsViewModel; agent: AgentVM; stageRole: string }) {
+// a finished stage's dot, by verdict: accepted means the review failed and the lead proceeded anyway
+const STAGE_OUTCOME_DOT: Record<StageOutcome, string> = {
+    passed: "bg-success",
+    accepted: "bg-warning",
+    unverified: "bg-warning",
+    failed: "bg-error",
+};
+
+function StageRow({
+    model,
+    agent,
+    stageRole,
+    outcome,
+}: {
+    model: AgentsViewModel;
+    agent: AgentVM;
+    stageRole: string;
+    outcome?: StageOutcome;
+}) {
     const focusId = useAtomValue(model.focusIdAtom);
     const now = useAtomValue(model.nowAtom);
     const selected = focusId === agent.id;
@@ -504,11 +522,15 @@ function StageRow({ model, agent, stageRole }: { model: AgentsViewModel; agent: 
             )}
         >
             <Elbow />
-            <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
+            {outcome ? (
+                <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full", STAGE_OUTCOME_DOT[outcome])} />
+            ) : (
+                <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
+            )}
             <div className="min-w-0 flex-1">
                 <div className="truncate font-mono text-[11.5px] font-semibold text-ink-hi">{stageLabel(stageRole)}</div>
                 <div className="truncate text-[10.5px] text-muted">
-                    {[stageRole, formatAgeShort(displayAgeMs(agent, now))].join(" · ")}
+                    {[stageRole, outcome, formatAgeShort(displayAgeMs(agent, now))].filter(Boolean).join(" · ")}
                 </div>
             </div>
         </div>
@@ -710,14 +732,26 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
                                 break;
                             case "stage":
                                 key = r.agent.id;
-                                body = <StageRow model={model} agent={r.agent} stageRole={r.stageRole} />;
+                                body = (
+                                    <StageRow
+                                        model={model}
+                                        agent={r.agent}
+                                        stageRole={r.stageRole}
+                                        outcome={r.outcome}
+                                    />
+                                );
                                 break;
                             case "done":
                                 key = `done-${r.run.runId}`;
                                 body = (
                                     <FoldRow
                                         glyph={<span className="text-success">✓</span>}
-                                        label={`${r.count} done`}
+                                        label={[
+                                            r.count > 0 ? `${r.count} done` : "",
+                                            r.stages > 0 ? `${r.stages} ${r.stages === 1 ? "review" : "reviews"}` : "",
+                                        ]
+                                            .filter(Boolean)
+                                            .join(" · ")}
                                         open={r.open}
                                         onToggle={() => toggleRunDoneOpen(r.run.runId)}
                                     />
