@@ -262,8 +262,8 @@ describe("composeRunGoal", () => {
 });
 
 describe("toPendingRunDraft", () => {
-    it("maps origin ids distinctly and carries the project path", () => {
-        const r = report({ oid: "report-1", projectpath: "/repo/demo" });
+    it("maps origin ids distinctly and carries the project", () => {
+        const r = report({ oid: "report-1", projectpath: "/repo/demo", projectname: "demo" });
         const f = finding("finding-1", "new", {
             fingerprint: "fp-9",
             mission: "add tests",
@@ -275,6 +275,7 @@ describe("toPendingRunDraft", () => {
         expect(draft.files).toEqual(["a.ts"]);
         expect(draft.evidenceRefs).toEqual(["s1"]);
         expect(draft.projectPath).toBe("/repo/demo");
+        expect(draft.projectName).toBe("demo");
         expect(draft.goal).toContain("add tests");
     });
 });

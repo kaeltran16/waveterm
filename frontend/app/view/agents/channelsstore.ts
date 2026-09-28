@@ -95,7 +95,8 @@ export async function selectChannel(channelId: string): Promise<void> {
 
 export async function createChannel(name: string, projectPath: string): Promise<string> {
     const ch = await RpcApi.CreateChannelCommand(TabRpcClient, { name, projectpath: projectPath });
-    await loadChannels();
+    // not loadChannels: it drops the call while a load is in flight, and that load predates this channel
+    await fetchChannelsInto();
     await selectChannel(ch.oid);
     return ch.oid;
 }
