@@ -13,7 +13,6 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -145,18 +144,7 @@ func RecordFinalVerdict(ctx context.Context, dagID, verifierRunID, verdict, text
 				PostQuiet(ctx, channelID, runID, "the final verifier passed the merged result: "+flatLine(text))
 			})
 		}
-		finishFinal(g, &afterCommit)
-		releaseFinalTree(g, owner, &afterCommit)
-		RecomputeDagStatus(g)
-		g.UpdatedTs = time.Now().UnixMilli()
-		if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
-			*cur = *g
-			return nil
-		}); err != nil {
-			return err
-		}
-		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))
-		return nil
+		return settleFinalLocked(ctx, g, owner, &afterCommit)
 	})
 	if err != nil {
 		return err
