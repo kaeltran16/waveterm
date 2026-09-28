@@ -87,7 +87,7 @@ func TestResolveAskOwner_Concierge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
-	if err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Channel, gk.OID),
+	if _, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Channel, gk.OID),
 		waveobj.MetaMapType{MetaKey_GatekeeperEnabled: true}, false); err != nil {
 		t.Fatalf("enable gatekeeper: %v", err)
 	}

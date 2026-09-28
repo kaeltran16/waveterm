@@ -47,7 +47,7 @@ func StopRunWorker(ctx context.Context, workerORef string) error {
 			waveobj.MetaKey_CmdRunOnStart: false,
 			waveobj.MetaKey_CmdRunOnce:    false,
 		}
-		if err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockId), meta, false); err != nil {
+		if _, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockId), meta, false); err != nil {
 			errs = append(errs, fmt.Errorf("disarming block %s: %w", blockId, err))
 			continue
 		}

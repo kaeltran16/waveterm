@@ -6,6 +6,7 @@ package wstore
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -40,8 +41,9 @@ func GetClientId() string {
 	return cachedClientId
 }
 
-func UpdateObjectMeta(ctx context.Context, oref waveobj.ORef, meta waveobj.MetaMapType, mergeSpecial bool) error {
-	return WithTx(ctx, func(tx *TxWrap) error {
+func UpdateObjectMeta(ctx context.Context, oref waveobj.ORef, meta waveobj.MetaMapType, mergeSpecial bool) (bool, error) {
+	changed := false
+	err := WithTx(ctx, func(tx *TxWrap) error {
 		if oref.IsEmpty() {
 			return fmt.Errorf("empty object reference")
 		}
@@ -54,8 +56,15 @@ func UpdateObjectMeta(ctx context.Context, oref waveobj.ORef, meta waveobj.MetaM
 			objMeta = make(map[string]any)
 		}
 		newMeta := waveobj.MergeMeta(objMeta, meta, mergeSpecial)
+		// agent hooks re-send the same meta on every tool call; a no-op write would still bump the
+		// version and get pushed to the frontend. a type-only difference (int vs float64) just writes.
+		if reflect.DeepEqual(objMeta, newMeta) {
+			return nil
+		}
+		changed = true
 		waveobj.SetMeta(obj, newMeta)
 		DBUpdate(tx.Context(), obj)
 		return nil
 	})
+	return changed, err
 }

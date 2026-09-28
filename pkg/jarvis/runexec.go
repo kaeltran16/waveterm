@@ -96,7 +96,8 @@ var createWorkerTab = wcore.CreateTab
 var sendWorkerTabUpdates = func(updates waveobj.UpdatesRtnType) { wps.Broker.SendUpdateEvents(updates) }
 
 var persistWorkerBlockMeta = func(ctx context.Context, blockID string, meta waveobj.MetaMapType) error {
-    return wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockID), meta, false)
+    _, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockID), meta, false)
+    return err
 }
 
 var startWorkerController = func(ctx context.Context, tabID, blockID string) error {
@@ -229,7 +230,7 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	if opts.Label != "" {
 		tabMeta["session:label"] = opts.Label
 	}
-	if err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Tab, tabId), tabMeta, false); err != nil {
+	if _, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Tab, tabId), tabMeta, false); err != nil {
 		return "", fmt.Errorf("setting worker tab meta: %w", err)
 	}
 	if err := configureAndStartWorker(ctx, tabId, blockId, blockMeta); err != nil {
