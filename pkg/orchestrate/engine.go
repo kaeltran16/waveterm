@@ -222,6 +222,11 @@ func Schedule(ctx context.Context, dagID string) error {
 	// landed merge is what makes a dependent's dep satisfied, so merging first lets one tick both
 	// land the predecessor and dispatch what it unblocked.
 	AutoMergeReady(ctx, dagID)
+	// before the lock, like the merge: a removal holds no dag lock, and a tree held open must not stall the tick.
+	// A cancelled dag's trees are Cancel's, which dumps each one's work before removing it.
+	if g, err := wstore.GetDag(ctx, dagID); err == nil && g.Status != DagStatus_Cancelled {
+		retryCleanupDebt(ctx, g)
+	}
 	return withDagMutation(dagID, func() error {
 		return scheduleLocked(ctx, dagID)
 	})
@@ -249,16 +254,6 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	}
 	if g.Status == DagStatus_Cancelled {
 		return nil
-	}
-	// cleanup debt retry (ordinary merge retry / interrupted prior run): a merged task still
-	// owning its worktree is retried through the same idempotent helper before any dispatch, and
-	// the outcome persists with this tick's group write. A still-stuck tree never blocks
-	// scheduling — it stays visible as task debt for the digest's attention.
-	if HasCleanupDebt(g) {
-		_ = RetryPendingCleanup(ctx, g)
-		if err := PersistCleanupState(ctx, g); err != nil {
-			return fmt.Errorf("persisting cleanup retry for dag %s: %w", g.ID, err)
-		}
 	}
 	var afterCommit []func()
 	spawnCtx := context.WithoutCancel(ctx)
@@ -634,7 +629,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	// whole-object replace: the snapshot was loaded under the dag mutation lock, so it cannot have
 	// gone stale. This is only sound while EVERY dag writer holds that lock — a write made outside it
 	// (the merge stamp used to be one) is silently discarded here, because UpdateDag hands the mutator
-	// the fresh row and this mutator throws it away. Field-scoped writers (PersistCleanupState) are the
+	// the fresh row and this mutator throws it away. Field-scoped writers (persistTaskCleanupLocked) are the
 	// pattern to follow if a writer ever genuinely cannot take the lock.
 	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
 		*cur = *g

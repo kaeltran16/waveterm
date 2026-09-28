@@ -44,11 +44,11 @@ func mergeLane(g *waveobj.TaskGroup, lane []string) MergeLane {
 const mergeFailureLimit = 3
 
 // MergeTask lands the finished lane holding a task on the project branch, stamps the merge and removes the
-// lane's tree. It holds the dag mutation lock across reload -> merge -> stamp -> cleanup for two reasons:
-// the engine persists a tick as a whole-object replace of a snapshot taken under that lock, so a
-// stamp written outside it is silently reverted by any overlapping tick; and two mergers running a
-// squash merge against one project tree collide on git's index lock. Nothing inside re-enters the
-// lock (it is not reentrant).
+// lane's tree. It holds the dag mutation lock across reload -> merge -> stamp for two reasons: the engine
+// persists a tick as a whole-object replace of a snapshot taken under that lock, so a stamp written outside
+// it is silently reverted by any overlapping tick; and two mergers running a squash merge against one project
+// tree collide on git's index lock. Nothing inside re-enters the lock (it is not reentrant). The tree is
+// removed after the lock is released.
 func MergeTask(ctx context.Context, channelID, ownerRunID, taskID string) error {
 	return mergeTaskEntry(ctx, channelID, ownerRunID, taskID, false)
 }
@@ -82,9 +82,7 @@ func ContinueMerge(ctx context.Context, channelID, ownerRunID, taskID string) er
 		if !task.CleanupPending && task.CleanupError == "" {
 			return nil
 		}
-		return withDagMutation(owner.DagORef, func() error {
-			return CleanupMergedTask(ctx, channelID, g, taskID)
-		})
+		return removeLaneTree(ctx, owner.DagORef, taskID)
 	case task.State == TaskState_BlockedMerge && task.MergeError != "":
 		return retryRefusedMerge(ctx, channelID, owner, taskID)
 	case task.State == TaskState_BlockedMerge:
@@ -137,6 +135,9 @@ func continueBlockedMerge(ctx context.Context, channelID string, owner *waveobj.
 		return ferr
 	})
 	landAfterMerge(channelID, owner, verify, l)
+	if rerr := removeLaneTree(ctx, owner.DagORef, task.ID); err == nil {
+		err = rerr
+	}
 	return err
 }
 
@@ -162,7 +163,26 @@ func mergeTaskEntry(ctx context.Context, channelID, ownerRunID, taskID string, r
 		return lerr
 	})
 	landAfterMerge(channelID, owner, verify, l)
+	// after the lock: removal takes tens of seconds, and the workers it stops exit into that lock
+	if rerr := removeLaneTree(ctx, owner.DagORef, taskID); err == nil {
+		err = rerr
+	}
 	return err
+}
+
+// removeLaneTree removes the tree of the lane holding taskID once the dag lock is released: its debt is recorded
+// on the lane's tip. The removal outlives the caller's context, as the merge it finishes did.
+func removeLaneTree(ctx context.Context, dagID, taskID string) error {
+	ctx = context.WithoutCancel(ctx)
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		return fmt.Errorf("loading dag: %w", err)
+	}
+	tip := laneTip(g, laneOf(g, taskID))
+	if tip == nil {
+		return nil
+	}
+	return removeTaskTree(ctx, dagID, tip.ID, true)
 }
 
 // landAfterMerge hands the project claim to the Verify a landed merge waits on, or releases it. That Verify judges
@@ -197,10 +217,8 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 		return "", fmt.Errorf("task %s: every task in lane %s was skipped, so there is nothing to merge", taskID, strings.Join(lane, ", "))
 	}
 	if task.Merged {
-		if !task.CleanupPending && task.CleanupError == "" {
-			return "", nil
-		}
-		return "", CleanupMergedTask(ctx, channelID, g, task.ID)
+		// the caller removes a tree still owed a removal, once it releases the lock
+		return "", nil
 	}
 	for _, id := range lane {
 		t := taskByID(g, id)
@@ -283,9 +301,8 @@ func conflictAwaitingContinue(g *waveobj.TaskGroup, except string) string {
 	return ""
 }
 
-// FinishMergedTask stamps a landed merge and then removes the worktree. It returns the plan's Verify
-// command when the task now waits on it, even when the cleanup failed: the merge landed either way. The
-// caller holds the dag mutation lock.
+// FinishMergedTask stamps a landed merge and returns the plan's Verify command when the task now waits on it.
+// The caller holds the dag mutation lock, and removes the tree after releasing it.
 func FinishMergedTask(ctx context.Context, channelID, dagID, childRunID, taskID, sha string) (string, error) {
 	if err := persistMergedTask(ctx, channelID, dagID, childRunID, taskID, sha); err != nil {
 		return "", err
@@ -296,31 +313,7 @@ func FinishMergedTask(ctx context.Context, channelID, dagID, childRunID, taskID,
 	}
 	appendRunEvent(ctx, channelID, g.RunID, waveobj.RunEventKindTaskMerged, nil, map[string]any{"taskid": taskID, "commit": sha})
 	appendRunEvent(ctx, channelID, g.RunID, waveobj.RunEventKindTaskCleanupPending, nil, map[string]any{"taskid": taskID})
-	return g.Verify, CleanupMergedTask(ctx, channelID, g, taskID)
-}
-
-// CleanupMergedTask removes a merged task's worktree, persists the outcome and seals the child's
-// evidence. The caller holds the dag mutation lock.
-func CleanupMergedTask(ctx context.Context, channelID string, g *waveobj.TaskGroup, taskID string) error {
-	task := taskByID(g, taskID)
-	if task == nil {
-		return fmt.Errorf("no task %q", taskID)
-	}
-	childRunID := task.RunID
-	cleanupErr := CleanupTaskWorktree(ctx, g, taskID)
-	if err := PersistCleanupState(ctx, g); err != nil {
-		return err
-	}
-	if cleanupErr != nil {
-		appendRunEvent(ctx, channelID, g.RunID, waveobj.RunEventKindTaskCleanupFailed, nil, map[string]any{"taskid": taskID, "error": cleanupErr.Error()})
-		return cleanupErr
-	}
-	appendRunEvent(ctx, channelID, g.RunID, waveobj.RunEventKindTaskCleanupCompleted, nil, map[string]any{"taskid": taskID})
-	child, err := wstore.GetRun(ctx, channelID, childRunID)
-	if err != nil {
-		return fmt.Errorf("loading child run: %w", err)
-	}
-	return jarvis.SealEvidence(ctx, child)
+	return g.Verify, nil
 }
 
 func persistMergedTask(ctx context.Context, channelID, dagID, childRunID, taskID, sha string) error {
@@ -424,8 +417,7 @@ func mergeBatch(ctx context.Context, channelID string, owner *waveobj.Run, ready
 			v, lerr = mergeTaskLocked(ctx, channelID, owner, taskID, true, batch)
 			return lerr
 		})
-		// a merge whose cleanup failed still landed, and still returns the Verify it waits on
-		if err == nil || v != "" {
+		if err == nil {
 			batch = append(batch, taskID)
 		}
 		if v != "" {
@@ -442,9 +434,15 @@ func mergeBatch(ctx context.Context, channelID string, owner *waveobj.Run, ready
 	}
 	if verify == "" || errors.Is(err, ErrMergeConflict) {
 		releaseProject(jarvis.LandPath(owner), l)
-		return len(batch), err
+	} else {
+		startVerify(channelID, owner.DagORef, owner.ID, jarvis.LandPath(owner), verify, l)
 	}
-	startVerify(channelID, owner.DagORef, owner.ID, jarvis.LandPath(owner), verify, l)
+	// after the claim moves on, so the batch's Verify does not wait on its cleanups
+	for _, id := range batch {
+		if rerr := removeLaneTree(ctx, owner.DagORef, id); rerr != nil {
+			log.Printf("dag %s task %s: removing its tree: %v", owner.DagORef, id, rerr)
+		}
+	}
 	return len(batch), err
 }
 

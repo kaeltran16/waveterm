@@ -538,10 +538,8 @@ func TestCancelPersistsCleanupDebtAndRetry(t *testing.T) {
 	}
 
 	RemoveTaskWorktree = func(context.Context, string, string) error { return nil }
-	if err := RetryPendingCleanup(ctx, stored); err != nil {
-		t.Fatal(err)
-	}
-	if err := PersistCleanupState(ctx, stored); err != nil {
+	RetryCleanupDebt(ctx, g.OID)
+	if stored, err = wstore.GetDag(ctx, g.OID); err != nil {
 		t.Fatal(err)
 	}
 	if stored.Status != DagStatus_Cancelled || HasCleanupDebt(stored) {

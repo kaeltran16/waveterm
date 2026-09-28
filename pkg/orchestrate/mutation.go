@@ -22,7 +22,9 @@ var dagMutationLocks = keyedmutex.New()
 // WithDagMutation serializes every read-modify-write of one DAG. The engine's scheduling write is a
 // whole-object replace of a snapshot loaded under this lock, so any writer that skips it has its
 // changes silently reverted by an overlapping tick. Exported because the merge handlers live in
-// wshserver (which imports this package) and are dag writers too. Not reentrant.
+// wshserver (which imports this package) and are dag writers too. Not reentrant. Work on a tree or a process
+// (a Setup aside) runs outside it, and only its result is recorded under it: a hold of tens of seconds makes
+// every exit it causes wait.
 func WithDagMutation(dagID string, fn func() error) error {
 	if dagID == "" {
 		return fmt.Errorf("dag id is required")
@@ -351,13 +353,54 @@ func clearMergeFailureLocked(ctx context.Context, dagID, taskID string) error {
 	})
 }
 
-func Cancel(ctx context.Context, dagID string) error {
-	return withDagMutation(dagID, func() error {
-		return cancelLocked(ctx, dagID)
-	})
+// cancelledDag is what the locked half of Cancel leaves for the tree removals that run after it.
+type cancelledDag struct {
+	g           *waveobj.TaskGroup
+	runIDs      []string
+	projectPath string
+	landOwner   *waveobj.Run
+	errs        []error
 }
 
-func cancelLocked(ctx context.Context, dagID string) error {
+func Cancel(ctx context.Context, dagID string) error {
+	var c *cancelledDag
+	if err := withDagMutation(dagID, func() error {
+		var err error
+		c, err = cancelLocked(ctx, dagID)
+		return err
+	}); err != nil {
+		return err
+	}
+	// cancelled work is abandoned, so every task's tree goes through the same durable cleanup path, outside the
+	// lock: each removal takes tens of seconds and the workers stopped above exit into that lock.
+	// dump dirty state first; each cleanup outcome persists and publishes before the next task.
+	errs := c.errs
+	if IsGitRepo(c.projectPath) {
+		removeCtx := context.WithoutCancel(ctx)
+		// unreadable leaves it empty, and the patch falls back to the checkout's head
+		landHead, _ := landingHead(removeCtx, c.landOwner)
+		for i := range c.g.Tasks {
+			taskID := c.g.Tasks[i].ID
+			// a lane's tasks share one key: the first removes the tree, the rest find nothing left to do
+			key := LaneWorktreeKey(c.g, taskID)
+			DumpRecoveryPatch(removeCtx, c.projectPath, key, landHead) // best effort
+			if err := removeTaskTree(removeCtx, dagID, taskID, true); err != nil {
+				errs = append(errs, fmt.Errorf("worktree %s: %w", key, err))
+			}
+		}
+	}
+	for _, runID := range c.runIDs {
+		if runID != "" {
+			wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, runID))
+			wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, c.g.ChannelId))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// cancelLocked writes the cancelled state and stops every worker; its error is only the state write's, and the
+// worker stops' errors ride on the result for Cancel to return.
+func cancelLocked(ctx context.Context, dagID string) (*cancelledDag, error) {
 	var gCopy *waveobj.TaskGroup
 	var runIDs []string
 	var projectPath string
@@ -405,7 +448,7 @@ func cancelLocked(ctx context.Context, dagID string) error {
 		}
 		return nil
 	}); err != nil {
-		return err
+		return nil, err
 	}
 
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))
@@ -437,30 +480,5 @@ func cancelLocked(ctx context.Context, dagID string) error {
 			fn()
 		}
 	}
-	// cancelled work is abandoned, so every task's tree goes through the same durable cleanup path.
-	// dump dirty state first; each cleanup outcome persists and publishes before the next task.
-	if IsGitRepo(projectPath) {
-		// unreadable leaves it empty, and the patch falls back to the checkout's head
-		landHead, _ := landingHead(cleanupCtx, landOwner)
-		for i := range gCopy.Tasks {
-			taskID := gCopy.Tasks[i].ID
-			// a lane's tasks share one key: the first removes the tree, the rest find nothing left to do
-			key := LaneWorktreeKey(gCopy, taskID)
-			DumpRecoveryPatch(cleanupCtx, projectPath, key, landHead) // best effort
-			cleanupErr := CleanupTaskWorktree(cleanupCtx, gCopy, taskID)
-			if err := PersistCleanupState(cleanupCtx, gCopy); err != nil {
-				errs = append(errs, fmt.Errorf("persisting worktree %s cleanup: %w", key, err))
-			}
-			if cleanupErr != nil {
-				errs = append(errs, fmt.Errorf("worktree %s: %w", key, cleanupErr))
-			}
-		}
-	}
-	for _, runID := range runIDs {
-		if runID != "" {
-			wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, runID))
-			wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, gCopy.ChannelId))
-		}
-	}
-	return errors.Join(errs...)
+	return &cancelledDag{g: gCopy, runIDs: runIDs, projectPath: projectPath, landOwner: landOwner, errs: errs}, nil
 }
