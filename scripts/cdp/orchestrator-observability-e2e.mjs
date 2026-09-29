@@ -199,7 +199,7 @@ await step("lifecycle-history", "5 · lifecycle events render as history, not ra
     const rail = await ev(`(() => {
         const panel = document.querySelector('[data-timeline-rail]');
         if (!panel) return null;
-        const rows = [...panel.querySelectorAll('button')].map(b => (b.innerText || '').trim()).filter(Boolean);
+        const rows = [...panel.querySelectorAll('[data-timeline-row]')].map(b => (b.innerText || '').trim()).filter(Boolean);
         return { layout: panel.getAttribute('data-timeline-rail'), rows };
     })()`);
     if (rail == null) {
@@ -213,10 +213,10 @@ await step("lifecycle-history", "5 · lifecycle events render as history, not ra
     if (raw.length > 0) {
         throw new Error(`rows show raw event kinds: ${raw.slice(0, 3).join(", ")}`);
     }
-    if (rail.rows.length <= 3) {
-        throw new Error(`rail shows ${rail.rows.length} rows (filters only) — no lifecycle history loaded`);
+    if (rail.rows.length < 1) {
+        throw new Error("rail shows no rows — no lifecycle history loaded");
     }
-    return `${rail.rows.length - 3} history rows, all titled`;
+    return `${rail.rows.length} history rows, all titled`;
 });
 
 // --- item 6: events deep-link ------------------------------------------------------------------
@@ -225,13 +225,9 @@ await step("event-deeplink", "6 · a task-scoped event selects its task", async 
     const routed = await ev(`(() => {
         const panel = document.querySelector('[data-timeline-rail]');
         if (!panel) return null;
-        // rows carry their task id as the trailing span; pick the first row that has one
-        const row = [...panel.querySelectorAll('button')].find(b => {
-            const last = b.lastElementChild;
-            return last && /^[a-z0-9._-]+$/i.test((last.textContent || '').trim()) && b.querySelectorAll('span').length >= 4;
-        });
+        const row = panel.querySelector('[data-timeline-row][data-timeline-task]');
         if (!row) return null;
-        const taskId = (row.lastElementChild.textContent || '').trim();
+        const taskId = row.getAttribute('data-timeline-task');
         row.click();
         return taskId;
     })()`);
@@ -257,7 +253,7 @@ await step("narrow-drawer", "7 · narrow layout collapses history into a drawer"
     const drawer = await ev(`(() => {
         const panel = document.querySelector('[data-timeline-rail]');
         if (!panel) return null;
-        const toggle = [...panel.querySelectorAll('button')].find(b => b.hasAttribute('aria-expanded'));
+        const toggle = [...panel.querySelectorAll('button[aria-expanded]')].find(b => !b.hasAttribute('data-timeline-row'));
         return { layout: panel.getAttribute('data-timeline-rail'), hasToggle: toggle != null, expanded: toggle?.getAttribute('aria-expanded') };
     })()`);
     if (drawer == null) {

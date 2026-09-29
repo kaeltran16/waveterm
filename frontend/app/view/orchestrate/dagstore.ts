@@ -7,6 +7,13 @@ import { canEscalate } from "./escalate";
 // it through dagmodalstate.ts, while node clicks and keyboard navigation update it directly.
 export const selectedTaskIdAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
+// the task under the pointer, and which pane it is under: a graph hover lights its path and its timeline rows,
+// a timeline hover only its node
+export const hoveredTaskAtom = atom<{ id: string; from: "graph" | "timeline" } | null>(null) as PrimitiveAtom<{
+    id: string;
+    from: "graph" | "timeline";
+} | null>;
+
 export type DagNodeRoute = {
     source: "pinned" | "workers" | "inherited";
     runtime: string;
