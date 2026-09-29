@@ -642,6 +642,11 @@ describe("formatReset", () => {
     });
     it("hours and minutes past an hour", () => {
         expect(formatReset(inMins(131), NOW)).toBe("2h 11m");
+        expect(formatReset(inMins(23 * 60 + 59), NOW)).toBe("23h 59m");
+    });
+    it("days and hours from a day out", () => {
+        expect(formatReset(inMins(24 * 60), NOW)).toBe("1d 0h");
+        expect(formatReset(inMins(85 * 60 + 57), NOW)).toBe("3d 13h");
     });
 });
 

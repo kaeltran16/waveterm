@@ -190,7 +190,7 @@ export function DailyChart({
                                 tickStroke="var(--color-border)"
                                 tickLabelProps={() => ({
                                     fill: "var(--color-muted)",
-                                    fontSize: 9.5,
+                                    fontSize: 10.5,
                                     fontFamily: "var(--font-mono)",
                                     textAnchor: "end",
                                     dx: -4,
@@ -205,7 +205,7 @@ export function DailyChart({
                                 tickStroke="var(--color-border)"
                                 tickLabelProps={() => ({
                                     fill: "var(--color-muted)",
-                                    fontSize: 9.5,
+                                    fontSize: 10.5,
                                     fontFamily: "var(--font-mono)",
                                     textAnchor: "middle",
                                     dy: 2,

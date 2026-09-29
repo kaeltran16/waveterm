@@ -228,16 +228,19 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
         if (minDay == null || b.day < minDay) minDay = b.day;
         if (maxDay == null || b.day > maxDay) maxDay = b.day;
 
-        // by-model (window), grouped by upstream provider
-        let models = byProvider.get(b.provider);
-        if (!models) {
-            models = new Map();
-            byProvider.set(b.provider, models);
+        // by-model (window), grouped by upstream provider. a request that failed before any token was
+        // billed still leaves a bucket; it is no usage, and alone it drew an empty provider card
+        if (tk > 0) {
+            let models = byProvider.get(b.provider);
+            if (!models) {
+                models = new Map();
+                byProvider.set(b.provider, models);
+            }
+            const cur = models.get(b.model) ?? { tokens: 0, spend: 0 };
+            cur.tokens += tk;
+            cur.spend += sp;
+            models.set(b.model, cur);
         }
-        const cur = models.get(b.model) ?? { tokens: 0, spend: 0 };
-        cur.tokens += tk;
-        cur.spend += sp;
-        models.set(b.model, cur);
 
         const inWeek = b.day >= weekStart;
         if (inWeek) {

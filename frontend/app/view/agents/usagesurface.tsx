@@ -18,6 +18,7 @@ import { Segmented } from "@/app/element/segmented";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { MotionConfig, motion } from "motion/react";
@@ -82,12 +83,12 @@ function pctStr(n: number): string {
     return +n.toFixed(1) + "%";
 }
 
-// "claude 1.2K · opencode 300" for the token summary-card secondary line.
+// "Claude 1.2K · OpenCode 300" for the token summary-card secondary line.
 function harnessSub(byHarness: Record<string, number>): string {
     const parts = Object.entries(byHarness)
         .filter(([, n]) => n > 0)
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([h, n]) => `${h} ${fmt(n)}`);
+        .map(([h, n]) => `${providerLabel(h)} ${fmt(n)}`);
     return parts.length > 0 ? parts.join(" · ") : "no usage in scope";
 }
 
@@ -102,10 +103,8 @@ function ageStr(ms: number): string {
 }
 
 // Rail/detail state chrome. Status is never color alone here — every use pairs this with the label.
-// `color` is a var() reference applied through `style`, NOT a utility routed through cn(): cn() is
-// tailwind-merge, which has no entry for the custom text-xxxs font size, reads it as a text COLOR, and
-// drops it when a real color class rides along in the same call. The pill then renders at the
-// inherited 16px. Sessions' status pills take the same style-not-class route for the same reason.
+// `color` is a var() reference applied through `style`, so the one value drives both the text and the
+// currentColor tint behind it.
 const PILL_TINT = "color-mix(in srgb, currentColor 14%, transparent)";
 
 function stateMeta(row: UsageRailRow, now: number): { label: string; long: string; color: string } {
@@ -124,14 +123,7 @@ function stateMeta(row: UsageRailRow, now: number): { label: string; long: strin
 function SectionRule({ label, meta, accent = false }: { label: string; meta?: string; accent?: boolean }) {
     return (
         <div className="mb-3 flex items-center gap-2.5">
-            <h3
-                className={cn(
-                    "font-mono text-[9.5px] font-bold uppercase tracking-[0.13em]",
-                    accent ? "text-accent-soft" : "text-muted"
-                )}
-            >
-                {label}
-            </h3>
+            <h3 className={cn(REGION_LABEL, accent ? "text-accent-soft" : "text-muted")}>{label}</h3>
             <div className="h-px flex-1 bg-edge-faint" />
             {meta != null ? <span className="font-mono text-[10.5px] text-muted">{meta}</span> : null}
         </div>
@@ -226,7 +218,7 @@ function RailRow({
                     {providerLabel(row.harness)}
                 </span>
                 <span
-                    className="flex-none rounded-[4px] px-1.5 py-0.5 font-mono text-xxxs font-bold uppercase tracking-[0.06em]"
+                    className="flex-none rounded-[4px] px-1.5 py-0.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.06em]"
                     style={{ color: st.color, backgroundColor: PILL_TINT }}
                 >
                     {st.label}
@@ -234,7 +226,7 @@ function RailRow({
             </span>
             <span className="flex items-center gap-2 font-mono text-[10.5px] text-muted">
                 <span className="text-secondary">{fmt(row.tokens)} tok</span>
-                <span className="text-ink-faint">·</span>
+                <span className="text-muted">·</span>
                 <span>≈ {usd(row.spendUsd)}</span>
                 <span className="flex-1" />
                 {row.state === "none" ? (
@@ -242,7 +234,7 @@ function RailRow({
                 ) : (
                     <>
                         <span>5h {row.fivehour.pct != null ? Math.round(row.fivehour.pct) + "%" : "—"}</span>
-                        <span className="text-ink-faint">·</span>
+                        <span className="text-muted">·</span>
                         <span>wk {row.week.pct != null ? Math.round(row.week.pct) + "%" : "—"}</span>
                     </>
                 )}
@@ -432,7 +424,7 @@ function DetailHeader({
                         {all ? "All providers" : providerLabel(sel)}
                     </h2>
                     <span
-                        className="rounded-[5px] px-1.5 py-[3px] font-mono text-[9px] font-bold uppercase tracking-[0.06em]"
+                        className="rounded-[5px] px-1.5 py-[3px] font-mono text-[10.5px] font-bold uppercase tracking-[0.06em]"
                         style={{
                             color: all ? "var(--color-accent-soft)" : (st?.color ?? "var(--color-muted)"),
                             backgroundColor: PILL_TINT,
@@ -589,7 +581,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const windowLabel = usageWindow === "7d" ? "last 7 days" : "all time";
 
     const reportedCard = (present: boolean, sources: string[], value: number): { value: string; sub: string } => ({
-        value: usd(value),
+        value: present ? usd(value) : "—",
         sub: present && sources.length > 0 ? `from ${sources.join(" · ")}` : "no source reports cost",
     });
     const estimateSub = (coveragePct: number | null) =>
@@ -602,7 +594,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                     title="Usage"
                     badge={
                         reporting > 0 ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-sm border border-accent bg-accentbg px-2 py-[3px] font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-soft">
+                            <span className="inline-flex items-center gap-1.5 rounded-sm border border-accent bg-accentbg px-2 py-[3px] font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-accent-soft">
                                 <span className="h-1.5 w-1.5 rounded-full bg-accent" />
                                 {reporting} reporting
                             </span>

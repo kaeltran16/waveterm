@@ -490,19 +490,33 @@ func parseFiles(files []scanFile) []Record {
 }
 
 // scanRoots walks the Claude, Codex, OpenCode, and Pi transcript roots, prunes Claude/Codex files by
-// modtime to the window (with a 1-day margin), applies the exact timestamp cutoff for OpenCode and
-// Pi, parses + dedups the records, and returns buckets. Missing roots yield nothing.
+// modtime to the window (with a 1-day margin), parses + dedups the records, keeps those inside the
+// window, and returns buckets. Missing roots yield nothing.
 func scanRoots(claudeRoot, codexRoot, opencodeRoot, piRoot string, windowDays int) []Bucket {
-	var cutoff time.Time
-	var opencodeCutoff time.Time
+	var cutoff, since time.Time
 	if windowDays > 0 {
 		cutoff = time.Now().AddDate(0, 0, -windowDays-1)
-		opencodeCutoff = time.Now().AddDate(0, 0, -windowDays)
+		since = windowStart(time.Now(), windowDays)
 	}
 	files := append(walkClaudeFiles(claudeRoot, cutoff), walkCodexFiles(codexRoot, cutoff)...)
-	files = append(files, walkOpencodeFiles(opencodeRoot, opencodeCutoff)...)
-	files = append(files, walkPiFiles(piRoot, opencodeCutoff)...)
-	return bucket(dedupe(parseFiles(files)))
+	files = append(files, walkOpencodeFiles(opencodeRoot, since)...)
+	files = append(files, walkPiFiles(piRoot, since)...)
+	// a transcript modified inside the window still holds every earlier turn of its session, so the
+	// modtime prune alone let a long-running session pull days from before the window into it
+	var records []Record
+	for _, r := range parseFiles(files) {
+		if since.IsZero() || !r.TS.Before(since) {
+			records = append(records, r)
+		}
+	}
+	return bucket(dedupe(records))
+}
+
+// windowStart is local midnight windowDays-1 days before now: the window is whole local days with
+// today included, the same days the frontend's per-week totals count.
+func windowStart(now time.Time, windowDays int) time.Time {
+	y, m, d := now.AddDate(0, 0, -(windowDays - 1)).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, now.Location())
 }
 
 // ScanUsage aggregates usage from the user's Claude, Codex, OpenCode, and Pi transcripts within

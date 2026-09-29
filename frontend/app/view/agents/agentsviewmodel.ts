@@ -425,7 +425,12 @@ export function formatReset(resetSec: number, now: number): string {
     if (mins < 60) {
         return `${mins}m`;
     }
-    return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+    const hours = Math.floor(mins / 60);
+    // a weekly window is days out: "3d 13h" reads at a glance where "85h 57m" makes you divide
+    if (hours >= 24) {
+        return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+    }
+    return `${hours}h ${mins % 60}m`;
 }
 
 const PROVIDER_RANK: Record<string, number> = { claude: 0, codex: 1, opencode: 2 };
