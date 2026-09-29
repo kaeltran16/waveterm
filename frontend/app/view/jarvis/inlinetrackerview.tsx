@@ -9,6 +9,7 @@
 
 import { cn } from "@/util/util";
 import { useAtom } from "jotai";
+import { Check, Circle, CircleAlert, Minus, Pause, Play, type LucideIcon } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 import { chunkTone, type ChunkTone } from "./effortmodel";
 import type { DetailRow } from "./inlinetracker";
@@ -16,16 +17,20 @@ import { trackerMenuAtom } from "./jarvisstore";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
-// the sans stack, deliberately: the mono face ships no ▸/▾/▶, so a mono caret renders the same
-// fallback box in both states and the disclosure stops saying anything.
-export const GLYPH: Record<ChunkTone, string> = {
-    done: "✓",
-    active: "▶",
-    blocked: "!",
-    deferred: "❙❙",
-    skipped: "–",
-    pending: "·",
+const TONE_ICON: Record<ChunkTone, LucideIcon> = {
+    done: Check,
+    active: Play,
+    blocked: CircleAlert,
+    deferred: Pause,
+    skipped: Minus,
+    // pending reads as an empty circle
+    pending: Circle,
 };
+
+export function ToneIcon({ tone, size = 12, className }: { tone: ChunkTone; size?: number; className?: string }) {
+    const Icon = TONE_ICON[tone];
+    return <Icon size={size} strokeWidth={2.25} aria-hidden className={cn("flex-none", TONE_FG[tone], className)} />;
+}
 
 export const TONE_FG: Record<ChunkTone, string> = {
     done: "text-success",
@@ -144,7 +149,7 @@ export function InitiativeDetail({
             />
         ) : null;
     // the last row each open stage header owns, so "+ Add chunk" lands at the end of the right run
-    const addAfter = new Map<number, Extract<DetailRow, { kind: "stage" }>>();
+    const addAfter = new Map<number, { stage: string; at: number }>();
     let openStage: Extract<DetailRow, { kind: "stage" }> | null = null;
     for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
@@ -153,6 +158,13 @@ export function InitiativeDetail({
         }
         if (openStage != null && (i + 1 === rows.length || rows[i + 1].kind === "stage")) {
             addAfter.set(i, openStage);
+        }
+    }
+    // a flat plan has no header to own its run, so its one run ends at its last chunk
+    if (!rows.some((r) => r.kind === "stage")) {
+        const last = rows.map((r) => r.kind).lastIndexOf("chunk");
+        if (last >= 0) {
+            addAfter.set(last, { stage: "", at: 0 });
         }
     }
 
@@ -275,12 +287,7 @@ export function InitiativeDetail({
                                     selected ? "bg-surface-selected" : "hover:bg-surface-hover"
                                 )}
                             >
-                                <span
-                                    aria-hidden
-                                    className={cn("w-3 flex-none text-center text-[10px]", TONE_FG[row.row.tone])}
-                                >
-                                    {GLYPH[row.row.tone]}
-                                </span>
+                                <ToneIcon tone={row.row.tone} />
                                 {renameInput(
                                     row.id,
                                     label,
@@ -334,7 +341,7 @@ export function InitiativeDetail({
                                         <MenuItem
                                             key={s}
                                             active={s === row.row.status}
-                                            glyph={<span className={TONE_FG[chunkTone(s)]}>{GLYPH[chunkTone(s)]}</span>}
+                                            glyph={<ToneIcon tone={chunkTone(s)} />}
                                             onClick={() => {
                                                 setMenu(null);
                                                 if (s !== row.row.status) {

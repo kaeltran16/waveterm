@@ -14,7 +14,7 @@ import { atom, useAtomValue, type Atom } from "jotai";
 import { useState } from "react";
 import { type FeedEntry } from "./effortfeed";
 import { chunkTone } from "./effortmodel";
-import { GLYPH, STATUSES, TONE_FG } from "./inlinetrackerview";
+import { STATUSES, TONE_FG, ToneIcon } from "./inlinetrackerview";
 import { RunReportView } from "./runreportview";
 import { sidebarNotes, type NoteCard } from "./sidebarnotes";
 
@@ -210,11 +210,7 @@ export function ChunkSidebar({
                                         FOCUS
                                     )}
                                 >
-                                    <span
-                                        className={cn("text-[11px] leading-none", on ? TONE_FG[tone] : "text-ink-mid")}
-                                    >
-                                        {GLYPH[tone]}
-                                    </span>
+                                    <ToneIcon tone={tone} className={on ? undefined : "text-ink-mid"} />
                                     <span className={cn("font-mono text-[9.5px]", on ? TONE_FG[tone] : "text-ink-mid")}>
                                         {s}
                                     </span>
