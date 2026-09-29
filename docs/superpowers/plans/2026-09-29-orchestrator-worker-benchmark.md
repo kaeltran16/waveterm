@@ -1,7 +1,7 @@
 # Lane rewind, flaky Verify reporting, and a Gatekeeper that judges multi-question asks
 
 **Verify:** `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" node scripts/verify.mjs ./pkg/orchestrate/... ./pkg/jarvis/... ./pkg/agentask/... ./pkg/wshrpc/... ./cmd/wsh/...`
-**Check:** `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit && go vet ./pkg/orchestrate/... ./pkg/jarvis/... ./pkg/agentask/... ./pkg/wshrpc/... ./cmd/wsh/... && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /dev/null ./cmd/wsh/`
+**Check:** `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit && go vet ./pkg/orchestrate/... ./pkg/jarvis/... ./pkg/agentask/... ./pkg/wshrpc/... ./cmd/wsh/... && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./cmd/wsh/...`
 
 **Goal:** Close three open orchestrator items from `docs/open-issues.md` §2. Each task states the outcome and
 how it is proven, not the implementation: choosing the design is part of the task. Read the source entry each
