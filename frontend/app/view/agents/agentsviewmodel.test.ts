@@ -900,6 +900,21 @@ describe("summarizeActions", () => {
         ];
         expect(summarizeActions(withFail).outcome).toBe("fail");
     });
+
+    it("counts failed actions", () => {
+        expect(summarizeActions(actions).failed).toBe(0);
+        const mixed: AgentActionEntry[] = [
+            { kind: "action", verb: "ran", target: "a", outcome: "fail" },
+            { kind: "action", verb: "read", target: "b", outcome: "ok" },
+            { kind: "action", verb: "ran", target: "c", outcome: "fail" },
+        ];
+        expect(summarizeActions(mixed).failed).toBe(2);
+        const allFailed: AgentActionEntry[] = [
+            { kind: "action", verb: "ran", target: "a", outcome: "fail" },
+            { kind: "action", verb: "ran", target: "b", outcome: "fail" },
+        ];
+        expect(summarizeActions(allFailed).failed).toBe(2);
+    });
 });
 
 describe("partitionBackgrounded", () => {
