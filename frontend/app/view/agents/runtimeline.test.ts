@@ -127,6 +127,12 @@ describe("eventKindTitle", () => {
         expect(eventKindTitle("task-told")).toBe("You told a worker");
         expect(eventKindTitle("task-suspect")).toBe("Task may be stuck");
     });
+
+    it("titles every kind the engine writes, never the raw kind", () => {
+        for (const kind of ["land-held", "stage-session-started", "plan-reviewed"]) {
+            expect(eventKindTitle(kind)).not.toBe(kind);
+        }
+    });
 });
 
 describe("eventText", () => {
