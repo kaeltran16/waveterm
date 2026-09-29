@@ -13,6 +13,8 @@ interface ConfirmModalProps {
     confirmLabel?: string;
     cancelLabel?: string;
     destructive?: boolean;
+    altLabel?: string;
+    onAlt?: () => void;
     onConfirm: () => void;
 }
 
@@ -22,12 +24,18 @@ const ConfirmModal = ({
     confirmLabel = "Confirm",
     cancelLabel = "Cancel",
     destructive,
+    altLabel,
+    onAlt,
     onConfirm,
 }: ConfirmModalProps) => {
     const close = () => modalsModel.popModal();
     const confirm = () => {
         close();
         onConfirm();
+    };
+    const alt = () => {
+        close();
+        onAlt?.();
     };
 
     return (
@@ -37,6 +45,8 @@ const ConfirmModal = ({
             body={message}
             confirmLabel={confirmLabel}
             cancelLabel={cancelLabel}
+            altLabel={altLabel}
+            onAlt={onAlt ? alt : undefined}
             onConfirm={confirm}
             onClose={close}
         />

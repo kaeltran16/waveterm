@@ -32,6 +32,8 @@ interface ConfirmDialogProps {
     confirmLabel?: string; // default "OK"
     cancelLabel?: string; // omit for a single-button dialog
     confirmDisabled?: boolean;
+    altLabel?: string; // a lesser second action beside the CTA; mouse only, Enter stays the CTA's
+    onAlt?: () => void;
     onConfirm: () => void;
     onClose: () => void;
 }
@@ -45,6 +47,8 @@ export function ConfirmDialog({
     confirmLabel = "OK",
     cancelLabel,
     confirmDisabled,
+    altLabel,
+    onAlt,
     onConfirm,
     onClose,
 }: ConfirmDialogProps) {
@@ -92,6 +96,11 @@ export function ConfirmDialog({
                     {cancelLabel && (
                         <DialogButton variant="secondary" hint="esc" onClick={onClose}>
                             {cancelLabel}
+                        </DialogButton>
+                    )}
+                    {altLabel && onAlt && (
+                        <DialogButton variant="secondary" onClick={onAlt}>
+                            {altLabel}
                         </DialogButton>
                     )}
                     <DialogButton

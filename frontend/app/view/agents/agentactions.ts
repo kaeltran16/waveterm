@@ -8,15 +8,45 @@ import { WorkspaceService } from "@/app/store/services";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget, stringToBase64 } from "@/util/util";
+import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
+import { leadRunTabIds } from "./runlineage";
+
+function closeTabs(workspaceId: string, tabIds: string[]): void {
+    fireAndForget(async () => {
+        for (const id of tabIds) {
+            await WorkspaceService.CloseTab(workspaceId, id, false);
+        }
+    });
+}
 
 // Close a whole session (its id is the tabId). Shows the same confirm modal as the header Close
 // button, then CloseTab -> wcore.DeleteTab tears down the block and reassigns the active tab.
 // Takes the VM rather than loose id/name strings so the prompt can never name one session while
 // closing another — and so a plain terminal, which has no agent to stop, gets its own wording.
-export function confirmCloseSession(vm: Pick<AgentVM, "id" | "name" | "kind">) {
+// Given the model, a lead whose run still holds other tabs is offered its whole run: closing the lead
+// alone leaves those tabs under a lead-less run row, which read as a close that did nothing.
+export function confirmCloseSession(
+    vm: Pick<AgentVM, "id" | "name" | "kind">,
+    model?: Pick<AgentsViewModel, "lineageAtom" | "agentsAtom">
+) {
     const ws = globalStore.get(atoms.workspace);
     if (ws?.oid == null) {
+        return;
+    }
+    const runTabIds =
+        model && leadRunTabIds(globalStore.get(model.lineageAtom), globalStore.get(model.agentsAtom), vm.id);
+    if (runTabIds) {
+        const others = runTabIds.length - 1;
+        modalsModel.pushModal("ConfirmModal", {
+            title: "Close lead",
+            message: `"${vm.name}" leads a run with ${others === 1 ? "1 other open session" : `${others} other open sessions`}. Close the whole run, or only the lead and leave its workers running? This can't be undone.`,
+            confirmLabel: "Close run",
+            altLabel: "Close lead only",
+            destructive: true,
+            onConfirm: () => closeTabs(ws.oid, runTabIds),
+            onAlt: () => closeTabs(ws.oid, [vm.id]),
+        });
         return;
     }
     const isTerminal = vm.kind === "terminal";
@@ -45,12 +75,7 @@ export function confirmCloseRun(title: string, tabIds: string[]) {
         message: `Close "${title}" and ${sessions}? This stops those agents and can't be undone.`,
         confirmLabel: "Close run",
         destructive: true,
-        onConfirm: () =>
-            fireAndForget(async () => {
-                for (const id of tabIds) {
-                    await WorkspaceService.CloseTab(ws.oid, id, false);
-                }
-            }),
+        onConfirm: () => closeTabs(ws.oid, tabIds),
     });
 }
 

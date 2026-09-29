@@ -8,7 +8,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Copy, CopyPlus, Pencil, X } from "lucide-react";
+import { Copy, CopyPlus, ExternalLink, Pencil, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
@@ -220,7 +220,7 @@ function ParentRow({
                 label: "Close agent",
                 icon: <X size={15} />,
                 danger: true,
-                click: () => confirmCloseSession(agent),
+                click: () => confirmCloseSession(agent, model),
             },
         ];
         ContextMenuModel.getInstance().showContextMenu(items, e);
@@ -331,7 +331,8 @@ function ParentRow({
 
 // A run with workers in the roster and no lead there: a plan-path run before its first judgment event, or
 // one whose lead session was closed. Its workers nest under it the way they would under a lead. Having no
-// session of its own to focus, it opens the run itself, and it is where the tabs left under its folds get closed.
+// session of its own to focus, a click folds its workers: it sits where its lead did, and a click that left the
+// surface read as the close gone wrong. Opening the run and closing the tabs left under its folds are its menu.
 function RunRow({ model, run, open, live }: { model: AgentsViewModel; run: RunInfo; open: boolean; live: number }) {
     const onContextMenu = (e: React.MouseEvent) => {
         const tabIds = runAgentsOf(
@@ -340,6 +341,12 @@ function RunRow({ model, run, open, live }: { model: AgentsViewModel; run: RunIn
             run.runId
         ).map((a) => a.id);
         const items: ContextMenuItem[] = [
+            {
+                label: "Open run",
+                icon: <ExternalLink size={15} />,
+                click: () => fireAndForget(() => openTarget(model, { kind: "run", runId: run.runId })),
+            },
+            { type: "separator" },
             {
                 label: "Close run",
                 icon: <X size={15} />,
@@ -351,7 +358,7 @@ function RunRow({ model, run, open, live }: { model: AgentsViewModel; run: RunIn
     };
     return (
         <div
-            onClick={() => fireAndForget(() => openTarget(model, { kind: "run", runId: run.runId }))}
+            onClick={() => toggleRunCollapsed(run.runId)}
             onContextMenu={onContextMenu}
             className="relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[10px] transition-colors duration-[140ms] hover:bg-surface-hover"
         >
