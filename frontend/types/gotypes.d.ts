@@ -511,6 +511,8 @@ declare global {
         runtime: string;
         model?: string;
         workerroute?: RoutePin;
+        reviewerpicks?: boolean;
+        reviewerroute?: RoutePin;
         orchestration?: string;
         parallelism?: number;
         playbookid?: string;
@@ -551,6 +553,7 @@ declare global {
         downstream?: string;
         unverified?: string;
         downstreamfor?: string[];
+        picks?: DagModelPick[];
     };
 
     // wshrpc.CommandDagAnswerData
@@ -587,6 +590,7 @@ declare global {
         setup?: string;
         check?: string;
         shape: DagPlanShape;
+        tasks?: DagPlanPreviewTask[];
     };
 
     // wshrpc.CommandDagStatusData
@@ -1412,6 +1416,8 @@ declare global {
         runid: string;
         parallelism?: number;
         workerroute?: RoutePin;
+        reviewerpicks?: boolean;
+        reviewerroute?: RoutePin;
     };
 
     // wshrpc.CommandStartRadarScanData
@@ -1548,6 +1554,13 @@ declare global {
         commit: string;
     };
 
+    // wshrpc.DagModelPick
+    type DagModelPick = {
+        taskid: string;
+        model: string;
+        reason: string;
+    };
+
     // wshrpc.DagNextStep
     type DagNextStep = {
         kind: string;
@@ -1555,6 +1568,15 @@ declare global {
         blockingtaskids?: string[];
         actions?: string[];
         terminalstatus?: string;
+    };
+
+    // wshrpc.DagPlanPreviewTask
+    type DagPlanPreviewTask = {
+        id: string;
+        title: string;
+        lane: number;
+        deps?: string[];
+        model?: string;
     };
 
     // wshrpc.DagPlanShape
@@ -1958,6 +1980,8 @@ declare global {
         defaultmode?: string;
         parallelism?: number;
         workerroute?: RoutePin;
+        reviewerpicks?: boolean;
+        reviewerroute?: RoutePin;
         landing?: string;
     };
 
@@ -2129,6 +2153,8 @@ declare global {
         defaultmode?: string;
         parallelism?: number;
         workerroute?: RoutePin;
+        reviewerpicks?: boolean;
+        reviewerroute?: RoutePin;
         landing?: string;
     };
 
@@ -2344,6 +2370,8 @@ declare global {
         stagerole?: string;
         branch?: string;
         workerroute?: RoutePin;
+        reviewerpicks?: boolean;
+        reviewerroute?: RoutePin;
         orchestration?: string;
         parallelism?: number;
         plangatepending?: boolean;
@@ -2639,6 +2667,8 @@ declare global {
         status: string;
         failures: number;
         workerroute?: RoutePin;
+        reviewerpicks?: boolean;
+        reviewerroute?: RoutePin;
         mergerequired?: boolean;
         createdts: number;
         updatedts: number;
@@ -2673,6 +2703,8 @@ declare global {
         released?: boolean;
         merged?: boolean;
         runspec?: RunSpec;
+        modelsource?: string;
+        pickreason?: string;
         lastactivity?: number;
         cpusample?: number;
         cpusamplets?: number;

@@ -33,6 +33,8 @@ type CommandCreateRunData struct {
 	Runtime       string                  `json:"runtime"`                 // the harness that runs every phase and child run; immutable after Start
 	Model         string                  `json:"model,omitempty"`         // exact model id; empty = runtime default
 	WorkerRoute   *waveobj.RoutePin       `json:"workerroute,omitempty"`   // B1b default worker route (nil = inherit lead)
+	ReviewerPicks *bool                   `json:"reviewerpicks,omitempty"` // Reviewer picks; nil = the profile's workers setting, non-nil = the caller owns it and a nil WorkerRoute means Same as lead
+	ReviewerRoute *waveobj.RoutePin       `json:"reviewerroute,omitempty"` // route for task reviewers and stage sessions (nil = the profile's, else the lead's)
 	Orchestration string                  `json:"orchestration,omitempty"` // engine | adaptive (empty = legacy runtime fork)
 	Parallelism   int                     `json:"parallelism,omitempty"`   // engine width the user picked in the Run rail; 0 = let the lead choose
 	PlaybookId    string                  `json:"playbookid,omitempty"`
@@ -141,4 +143,8 @@ type CommandSetRunSettingsData struct {
 	RunId       string            `json:"runid"`
 	Parallelism *int              `json:"parallelism,omitempty"`
 	WorkerRoute *waveobj.RoutePin `json:"workerroute,omitempty"`
+	// ReviewerPicks and ReviewerRoute are always applied, like WorkerRoute: false = the WorkerRoute rule stands,
+	// nil ReviewerRoute = the lead's route.
+	ReviewerPicks bool              `json:"reviewerpicks,omitempty"`
+	ReviewerRoute *waveobj.RoutePin `json:"reviewerroute,omitempty"`
 }

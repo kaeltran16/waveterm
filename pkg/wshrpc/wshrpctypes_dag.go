@@ -23,16 +23,16 @@ type DagCommands interface {
 }
 
 // A submission is a plan file or a typed task list. Every shipped caller sends a plan file — `wsh jarvis
-// dag submit --plan` and + Run are the only two, and slice 5c removed the rest. The typed form stays
-// because it is the only one that can carry a per-task RunSpec: the plan format has no syntax for pinning
-// a task to a runtime or model, and the engine validates and dispatches on that pin. Deleting it would
-// delete that capability, not dead code.
+// dag submit --plan` and + Run are the only two, and slice 5c removed the rest. A plan can pin a task's
+// model (`**Model:**`); the typed form stays because it is the only one that can pin a task's runtime,
+// and the engine validates and dispatches on that pin. Deleting it would delete that capability, not
+// dead code.
 type CommandDagSubmitData struct {
 	ChannelId   string             `json:"channelid"`
 	RunId       string             `json:"runid"`
 	Title       string             `json:"title,omitempty"`
 	Parallelism int                `json:"parallelism"`
-	Tasks       []waveobj.TaskNode `json:"tasks"`                 // per-task RunSpec routing; a plan file cannot express it
+	Tasks       []waveobj.TaskNode `json:"tasks"`                 // per-task RunSpec routing; a plan file can pin only the model
 	WorkerRoute *waveobj.RoutePin  `json:"workerroute,omitempty"` // nil = inherit lead; B1b workers default
 	PlanPath    string             `json:"planpath,omitempty"`    // absolute path to a plan in jarvis.PlanFormat; replaces tasks
 	SpecPath    string             `json:"specpath,omitempty"`    // absolute path to the spec the plan implements; only with planpath
@@ -45,13 +45,24 @@ type CommandDagPlanPreviewData struct {
 }
 
 // CommandDagPlanPreviewRtnData is what + Run shows before it starts a plan: its name, its two plan-level
-// commands, and its shape.
+// commands, its shape, and its tasks.
 type CommandDagPlanPreviewRtnData struct {
-	Title  string       `json:"title,omitempty"`
-	Verify string       `json:"verify,omitempty"`
-	Setup  string       `json:"setup,omitempty"`
-	Check  string       `json:"check,omitempty"`
-	Shape  DagPlanShape `json:"shape"`
+	Title  string               `json:"title,omitempty"`
+	Verify string               `json:"verify,omitempty"`
+	Setup  string               `json:"setup,omitempty"`
+	Check  string               `json:"check,omitempty"`
+	Shape  DagPlanShape         `json:"shape"`
+	Tasks  []DagPlanPreviewTask `json:"tasks,omitempty"`
+}
+
+// DagPlanPreviewTask is one task of a previewed plan. Lane is 1-based, in jarvis.Lanes order; Model is the
+// task's Model line, empty when it has none.
+type DagPlanPreviewTask struct {
+	Id    string   `json:"id"`
+	Title string   `json:"title"`
+	Lane  int      `json:"lane"`
+	Deps  []string `json:"deps,omitempty"`
+	Model string   `json:"model,omitempty"`
 }
 
 // DagPlanShape is how a plan decomposes: how many tasks, how many lanes they run in, and the longest chain
@@ -71,14 +82,23 @@ type CommandDagActionData struct {
 	ChannelId  string `json:"channelid"`
 	RunId      string `json:"runid"`
 	TaskId     string `json:"taskid"`
-	Action     string `json:"action"`               // approve | sendback | retry | skip | escalate | cancel | forward | takeover | relaunch-lead | review-pass | review-fail | planreview-pass | planreview-fail | planreview-accept | final-pass | final-fail | amend | tell | final-end-unverified | final-end-failed
-	Model      string `json:"model,omitempty"`      // escalate target model (exact id); required
-	Runtime    string `json:"runtime,omitempty"`    // escalate target runtime; empty = task's current runtime
+	Action     string `json:"action"`               // approve | sendback | retry | skip | escalate | cancel | forward | takeover | relaunch-lead | review-pass | review-fail | planreview-pass | planreview-fail | planreview-accept | final-pass | final-fail | amend | tell | final-end-unverified | final-end-failed | setmodel | leadmodels
+	Model      string `json:"model,omitempty"`      // escalate, setmodel target model (exact id); required
+	Runtime    string `json:"runtime,omitempty"`    // escalate, setmodel target runtime; empty = task's current runtime
 	Notes      string `json:"notes,omitempty"`      // forward: what the lead checked; review, planreview: summary or findings; final: summary or defects; final-end-*: the human's reason; planreview-accept: the human's reason; amend: the note; tell: the text; sendback: guidance
 	Downstream string `json:"downstream,omitempty"` // review-pass: what later tasks must know
 	Unverified string `json:"unverified,omitempty"` // review-pass, final-pass: what was not verified, and why
 	// DownstreamFor names the tasks a review-pass's Downstream is for; the engine delivers it to them
 	DownstreamFor []string `json:"downstreamfor,omitempty"`
+	// Picks are a planreview-pass's model picks, one per task without a Model line, sent only on Reviewer picks
+	Picks []DagModelPick `json:"picks,omitempty"`
+}
+
+// DagModelPick is the plan reviewer's model for one task: Model is sonnet or lead, Reason one line on why.
+type DagModelPick struct {
+	TaskId string `json:"taskid"`
+	Model  string `json:"model"`
+	Reason string `json:"reason"`
 }
 
 type CommandDagMergeData struct {
