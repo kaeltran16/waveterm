@@ -3,10 +3,11 @@
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { selectSubject } from "@/app/view/jarvis/jarvissubjectstore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Bot, Check, Crosshair, GitBranch, ListChecks, Search, X, type LucideIcon } from "lucide-react";
+import { Bot, Check, ChevronDown, Crosshair, GitBranch, ListChecks, Search, X, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentState } from "./agentsviewmodel";
@@ -23,7 +24,6 @@ const STATUS: Record<AgentState, { word: string; dot: string; text: string }> = 
 };
 
 const FOCUS_RING = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
-const EYEBROW = "font-mono text-[10px] font-semibold uppercase tracking-[0.1em]";
 const INLINE_ACTION =
     "shrink-0 cursor-pointer rounded-sm px-1.5 py-0.5 text-[12px] font-medium text-accent-soft hover:text-accent-100 " +
     FOCUS_RING;
@@ -168,7 +168,7 @@ export function FocusSwitcher({ model }: { model: AgentsViewModel }) {
                 >
                     <Crosshair size={13} strokeWidth={1.8} />
                     Focus
-                    <span className="text-[9px] text-muted">▾</span>
+                    <ChevronDown size={12} className="text-muted" />
                 </button>
             ) : (
                 <div className="flex items-center rounded-sm border border-accent/30 bg-accentbg">
@@ -189,7 +189,7 @@ export function FocusSwitcher({ model }: { model: AgentsViewModel }) {
                             <KindIcon size={13} strokeWidth={1.8} className="shrink-0 text-accent-soft" />
                         ) : null}
                         <span className="max-w-[220px] truncate">{active.label}</span>
-                        <span className="text-[9px] text-accent-soft">▾</span>
+                        <ChevronDown size={12} className="shrink-0 text-accent-soft" />
                     </button>
                     <span className="h-3.5 w-px bg-accent/30" />
                     <button
@@ -214,7 +214,7 @@ export function FocusSwitcher({ model }: { model: AgentsViewModel }) {
             >
                 <div role="dialog" aria-label="Focus on" className="flex flex-col">
                     <div className="flex flex-col gap-1 px-3.5 pb-2.5 pt-3">
-                        <span className={cn(EYEBROW, "text-muted")}>Focus on</span>
+                        <span className={cn(REGION_LABEL, "text-muted")}>Focus on</span>
                         <span className="text-[12px] leading-[1.45] text-ink-mid">
                             Cockpit and Sessions hide everything outside it. Agent, Diff and Code open on it.
                         </span>
@@ -266,8 +266,8 @@ export function FocusSwitcher({ model }: { model: AgentsViewModel }) {
                                 <div key={s.kind} className="flex flex-col">
                                     <div className="flex items-center gap-1.5 px-2 pb-1 pt-2.5 text-muted">
                                         <Icon size={12} strokeWidth={1.8} />
-                                        <span className={EYEBROW}>{s.title}</span>
-                                        <span className="font-mono text-[10px]">{s.rows.length}</span>
+                                        <span className={REGION_LABEL}>{s.title}</span>
+                                        <span className="font-mono text-[10.5px]">{s.rows.length}</span>
                                     </div>
                                     {s.rows.map((r) => (
                                         <FocusRow

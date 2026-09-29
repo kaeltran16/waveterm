@@ -755,7 +755,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                 className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-edge-mid bg-surface-raised px-2 py-0.5 text-[12px] text-secondary"
                             >
                                 <span className="text-muted">Commands</span>
-                                <span className="text-ink-faint">›</span>
+                                <span className="text-muted">›</span>
                                 <span>{DRILL_LABELS[nav.drill]}</span>
                             </button>
                         ) : null}
@@ -803,7 +803,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                         <span
                                             className={cn(
                                                 "font-mono text-[10.5px]",
-                                                on ? "text-accent-soft" : "text-ink-faint"
+                                                on ? "text-accent-soft" : "text-muted"
                                             )}
                                         >
                                             {s.sigil}
@@ -813,7 +813,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                             );
                         })}
                         <div className="flex-1" />
-                        <span className="rounded-[5px] border border-edge-mid px-1.5 py-px font-mono text-[10px] text-muted">
+                        <span className="rounded-[5px] border border-edge-mid px-1.5 py-px font-mono text-[10.5px] text-muted">
                             Tab
                         </span>
                     </div>
