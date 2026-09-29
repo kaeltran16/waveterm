@@ -430,7 +430,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     return (
         <MotionConfig reducedMotion="user">
             <div ref={surfaceRef} className="absolute inset-0 flex min-h-0 flex-col">
-                <DivergenceBanner decision={decision} onRejoin={openFocusedDiff} />
+                <DivergenceBanner scope="focus" decision={decision} onRejoin={openFocusedDiff} />
                 {/* subject bar: which repository, and which range within it */}
                 <div className="flex-none px-[18px] pt-[14px]">
                     {/* wraps because compare adds two controls to this row: at the shipped 1000x700 the

@@ -318,6 +318,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
             {/* Not in CodePathBar (which the plan named): that bar early-returns with no open file, so
                 the banner would be invisible on exactly the freshly-switched project that diverged. */}
             <DivergenceBanner
+                scope="project"
                 decision={decision}
                 onRejoin={() => {
                     const target = registeredProjects(registry).find((p) => p.name === filter);

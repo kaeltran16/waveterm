@@ -26,5 +26,12 @@ test("an empty-string local target counts as no target, not as a divergence", ()
 });
 
 test("divergenceText names both sides", () => {
-    expect(divergenceText("jarvis-recall", "wavesrv")).toBe("Showing wavesrv · focus is on jarvis-recall");
+    expect(divergenceText("focus", "jarvis-recall", "wavesrv")).toBe("Showing wavesrv · focus is on jarvis-recall");
+});
+
+// a project-scope divergence must not claim a focus: the app-bar Focus control reads "Focus" (none set)
+test("a project divergence names the project, not a focus", () => {
+    expect(divergenceText("project", "cyber_anomaly_detector", "waveterm")).toBe(
+        "Showing waveterm · project is cyber_anomaly_detector"
+    );
 });

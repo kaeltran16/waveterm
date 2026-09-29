@@ -11,7 +11,7 @@ import { Crosshair } from "lucide-react";
 import type { SurfaceKey } from "./agents";
 import type { FocusBannerCopy } from "./focusscope";
 import { concealSurface, exitFocus, focusRestoredAtom, revealSurface } from "./focusstore";
-import { divergenceText, type SubjectDecision } from "./focussubject";
+import { divergenceText, type DivergenceScope, type SubjectDecision } from "./focussubject";
 
 const BANNER_BUTTON =
     "shrink-0 cursor-pointer rounded-sm px-2 py-1 text-[12px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -72,7 +72,15 @@ export function FocusBanner({
 // The subject-posture counterpart to FocusBanner. A subject surface hides nothing, so it needs a
 // rejoin rather than a reveal — and it renders nothing at all when aligned, because the app bar
 // already carries the global answer and silence is the reward for being in sync.
-export function DivergenceBanner({ decision, onRejoin }: { decision: SubjectDecision; onRejoin: () => void }) {
+export function DivergenceBanner({
+    scope,
+    decision,
+    onRejoin,
+}: {
+    scope: DivergenceScope;
+    decision: SubjectDecision;
+    onRejoin: () => void;
+}) {
     if (decision.kind !== "diverged") {
         return null;
     }
@@ -83,7 +91,7 @@ export function DivergenceBanner({ decision, onRejoin }: { decision: SubjectDeci
         >
             <Crosshair size={14} strokeWidth={1.8} className="shrink-0 text-muted" />
             <span className="min-w-0 flex-1 truncate text-ink-mid">
-                {divergenceText(decision.focus, decision.local)}
+                {divergenceText(scope, decision.focus, decision.local)}
             </span>
             <button
                 type="button"
@@ -91,7 +99,7 @@ export function DivergenceBanner({ decision, onRejoin }: { decision: SubjectDeci
                 onClick={onRejoin}
                 className={cn(BANNER_BUTTON, "text-accent-soft hover:text-accent-100")}
             >
-                Show the focus
+                {scope === "project" ? "Show the project" : "Show the focus"}
             </button>
         </div>
     );

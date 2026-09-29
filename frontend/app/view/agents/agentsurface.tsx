@@ -113,7 +113,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                         returning to the parent never remounts/replays the live TUI (frame-stacking) */}
                     <div className={cn("flex min-h-0 flex-1 flex-col", showSub && "hidden")}>
                         <AgentHeader model={model} agent={agent} />
-                        <DivergenceBanner decision={decision} onRejoin={rejoin} />
+                        <DivergenceBanner scope="project" decision={decision} onRejoin={rejoin} />
                         {mountable
                             .filter((a) => a.blockId != null)
                             .map((a) => (

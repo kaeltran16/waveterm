@@ -21,6 +21,12 @@ export function subjectDecision(local: string | null, focus: string | null): Sub
     return local === focus ? { kind: "aligned" } : { kind: "diverged", focus, local };
 }
 
-export function divergenceText(focusLabel: string, localLabel: string): string {
-    return `Showing ${localLabel} · focus is on ${focusLabel}`;
+// "project" = the app-bar project scope, "focus" = the app-bar Focus. They are separate controls, so the
+// banner must name the one it compared against or it claims a focus the Focus control says is unset.
+export type DivergenceScope = "project" | "focus";
+
+export function divergenceText(scope: DivergenceScope, focusLabel: string, localLabel: string): string {
+    return scope === "project"
+        ? `Showing ${localLabel} · project is ${focusLabel}`
+        : `Showing ${localLabel} · focus is on ${focusLabel}`;
 }
