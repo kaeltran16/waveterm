@@ -2059,8 +2059,11 @@ func TestFetchFailureCarriesStderr(t *testing.T) {
 	if got.Failure == nil {
 		t.Fatal("want a Failure describing the fetch that did not run")
 	}
-	if got.Failure.Stderr == "" {
-		t.Error("want git's stderr verbatim so the panel can name the cause")
+	if !strings.HasPrefix(got.Failure.Stderr, "fatal:") {
+		t.Errorf("stderr = %q, want git's stderr verbatim, not the Go error wrapping it", got.Failure.Stderr)
+	}
+	if got.Failure.ExitCode != 128 {
+		t.Errorf("exitcode = %d, want git's 128", got.Failure.ExitCode)
 	}
 	if !strings.Contains(got.Failure.Command, "fetch") {
 		t.Errorf("command = %q, want the fetch invocation", got.Failure.Command)

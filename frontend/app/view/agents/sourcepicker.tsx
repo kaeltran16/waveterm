@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { Check, ChevronDown, Folder, Search } from "lucide-react";
 import { useState } from "react";
@@ -11,7 +12,7 @@ import { filterSources, worktreeParent, type FilesSource } from "./diffsource";
 import type { FilesProject } from "./filesstore";
 import { StatusDot } from "./statusdot";
 
-const groupLabelClass = "px-[12px] pb-[3px] font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint";
+const groupLabelClass = cn(REGION_LABEL, "px-[12px] pb-[3px] text-muted");
 
 function rowClass(current: boolean): string {
     return cn(
@@ -19,6 +20,10 @@ function rowClass(current: boolean): string {
         current ? "bg-surface-selected text-ink-hi" : "text-ink-mid"
     );
 }
+
+// the list scrolls once there are a dozen projects, and the source already picked should open in view
+// rather than below the fold
+const revealCurrent = (el: HTMLElement | null) => el?.scrollIntoView({ block: "nearest" });
 
 function CurrentMark({ current }: { current: boolean }) {
     return (
@@ -87,7 +92,7 @@ export function SourcePicker({
                 className="absolute left-0 top-full z-20 mt-1 w-[340px] rounded-[8px] border border-edge-mid bg-surface-raised py-[6px] shadow-popover"
             >
                 <label className="mx-[6px] mb-[4px] flex h-[30px] items-center gap-[8px] rounded-[7px] border border-edge-mid bg-surface px-[9px]">
-                    <Search size={13} className="flex-none text-ink-faint" />
+                    <Search size={13} className="flex-none text-muted" />
                     <input
                         autoFocus
                         value={query}
@@ -110,6 +115,7 @@ export function SourcePicker({
                         return (
                             <button
                                 key={a.id}
+                                ref={current ? revealCurrent : undefined}
                                 onClick={() => {
                                     onPickAgent(a.id);
                                     close();
@@ -130,6 +136,7 @@ export function SourcePicker({
                         return (
                             <button
                                 key={p.name}
+                                ref={current ? revealCurrent : undefined}
                                 // agent names and project names can collide, and this dropdown renders
                                 // both — a scenario needs to click a project by name, not by text match
                                 data-files-source-option={p.name}
@@ -140,7 +147,7 @@ export function SourcePicker({
                                 }}
                                 className={rowClass(current)}
                             >
-                                <Folder size={12} className="flex-none text-ink-faint" />
+                                <Folder size={12} className="flex-none text-muted" />
                                 <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{p.name}</span>
                                 {parent != null ? (
                                     <span className="flex-none text-[10.5px] text-muted">worktree · {parent}</span>
@@ -150,7 +157,7 @@ export function SourcePicker({
                         );
                     })}
                     {shown.agents.length === 0 && shown.projects.length === 0 ? (
-                        <div className="px-[12px] py-[7px] text-[11.5px] text-ink-faint">No match</div>
+                        <div className="px-[12px] py-[7px] text-[11.5px] text-muted">No match</div>
                     ) : null}
                 </div>
             </PopoverReveal>

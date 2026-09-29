@@ -210,11 +210,20 @@ export interface FetchState {
     failure: GitFailure | null;
 }
 
-export const fetchStateAtom = atom<FetchState>({
-    running: false,
-    at: 0,
-    failure: null,
-}) as PrimitiveAtom<FetchState>;
+// keyed by repository: a fetch is a fact about one remote, so its clock and its failure must not
+// follow the surface to the next source picked
+export const fetchStatesAtom = atom<Record<string, FetchState>>({}) as PrimitiveAtom<Record<string, FetchState>>;
+
+const FETCH_IDLE: FetchState = { running: false, at: 0, failure: null };
+
+export function fetchStateOf(states: Record<string, FetchState>, cwd: string | undefined): FetchState {
+    return (cwd && states[cwd]) || FETCH_IDLE;
+}
+
+function setFetchState(cwd: string, patch: Partial<FetchState>): void {
+    const states = globalStore.get(fetchStatesAtom);
+    globalStore.set(fetchStatesAtom, { ...states, [cwd]: { ...fetchStateOf(states, cwd), ...patch } });
+}
 
 // The one network call this surface makes. A remote-tracking ref is only as fresh as the last fetch,
 // so comparing against origin/main without one silently compares against yesterday's origin/main.
@@ -224,12 +233,12 @@ export const fetchStateAtom = atom<FetchState>({
 // 60s sits just outside gitinfo's own 55s fetchTimeout, so git's answer arrives first and a real
 // timeout is reported by the side that knows what it was doing.
 export async function runFetch(cwd: string): Promise<void> {
-    globalStore.set(fetchStateAtom, { ...globalStore.get(fetchStateAtom), running: true, failure: null });
+    setFetchState(cwd, { running: true, failure: null });
     try {
         const r = await RpcApi.GitFetchCommand(TabRpcClient, { cwd }, { timeout: 60000 });
         // a failed fetch reports no time; the previous one still happened, so the clock keeps reading it
-        const prevAt = globalStore.get(fetchStateAtom).at;
-        globalStore.set(fetchStateAtom, { running: false, at: r.fetchedat || prevAt, failure: r.failure ?? null });
+        const prevAt = fetchStateOf(globalStore.get(fetchStatesAtom), cwd).at;
+        setFetchState(cwd, { running: false, at: r.fetchedat || prevAt, failure: r.failure ?? null });
         if (r.failure != null) {
             return;
         }
@@ -243,16 +252,15 @@ export async function runFetch(cwd: string): Promise<void> {
     } catch {
         // An RPC-level failure has no stderr to show, so say the one thing that is known rather than
         // leaving the button spinning.
-        globalStore.set(fetchStateAtom, {
+        setFetchState(cwd, {
             running: false,
-            at: globalStore.get(fetchStateAtom).at,
             failure: { command: "git fetch", exitcode: -1, stderr: "the fetch did not complete" },
         });
     }
 }
 
-export function dismissFetchFailure(): void {
-    globalStore.set(fetchStateAtom, { ...globalStore.get(fetchStateAtom), failure: null });
+export function dismissFetchFailure(cwd: string): void {
+    setFetchState(cwd, { failure: null });
 }
 
 export async function selectCompareRow(cwd: string, rowId: string): Promise<void> {

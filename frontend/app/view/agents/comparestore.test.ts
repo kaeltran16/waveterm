@@ -25,7 +25,8 @@ import {
     compareRefsAtom,
     compareSidesAtom,
     enterCompare,
-    fetchStateAtom,
+    fetchStateOf,
+    fetchStatesAtom,
     leaveCompare,
     runFetch,
     setCompareForm,
@@ -44,7 +45,7 @@ afterEach(() => {
     compareChanges.mockReset();
     listBranches.mockReset();
     gitFetch.mockReset();
-    globalStore.set(fetchStateAtom, { running: false, at: 0, failure: null });
+    globalStore.set(fetchStatesAtom, {});
     globalStore.set(diffScopeAtom, null);
 });
 
@@ -212,34 +213,57 @@ describe("remote refs, swap and fetch", () => {
 
         await runFetch("/repo");
 
-        expect(globalStore.get(fetchStateAtom)).toEqual({ running: false, at: 1_700_000_000, failure: null });
+        expect(fetchStateOf(globalStore.get(fetchStatesAtom), "/repo")).toEqual({
+            running: false,
+            at: 1_700_000_000,
+            failure: null,
+        });
         expect(divergence.mock.calls.length).toBeGreaterThan(before);
     });
 
     // git's own words, and the comparison on screen is still valid — it is merely not freshened.
     it("keeps the failure as data, the old clock, and does not re-read", async () => {
         await entered();
-        globalStore.set(fetchStateAtom, { running: false, at: 1_699_000_000, failure: null });
+        globalStore.set(fetchStatesAtom, { "/repo": { running: false, at: 1_699_000_000, failure: null } });
         const before = divergence.mock.calls.length;
         const failure = { command: "git fetch --prune origin", exitcode: 128, stderr: "no such remote" };
         gitFetch.mockResolvedValue({ isrepo: true, fetchedat: 0, failure });
 
         await runFetch("/repo");
 
-        expect(globalStore.get(fetchStateAtom)).toEqual({ running: false, at: 1_699_000_000, failure });
+        expect(fetchStateOf(globalStore.get(fetchStatesAtom), "/repo")).toEqual({
+            running: false,
+            at: 1_699_000_000,
+            failure,
+        });
         expect(divergence.mock.calls.length).toBe(before);
     });
 
     // A rejected RPC has no stderr to show; the button must still stop spinning.
     it("stops running and keeps the previous clock when the call itself fails", async () => {
-        globalStore.set(fetchStateAtom, { running: false, at: 42, failure: null });
+        globalStore.set(fetchStatesAtom, { "/repo": { running: false, at: 42, failure: null } });
         gitFetch.mockRejectedValue(new Error("socket closed"));
 
         await runFetch("/repo");
 
-        const st = globalStore.get(fetchStateAtom);
+        const st = fetchStateOf(globalStore.get(fetchStatesAtom), "/repo");
         expect(st.running).toBe(false);
         expect(st.at).toBe(42);
         expect(st.failure?.exitcode).toBe(-1);
+    });
+
+    // the banner and the clock are about one remote; picking another source must not carry them over
+    it("keeps a fetch's failure and clock with the repository it ran in", async () => {
+        const failure = { command: "git fetch --prune origin", exitcode: 128, stderr: "no such remote" };
+        gitFetch.mockResolvedValue({ isrepo: true, fetchedat: 0, failure });
+
+        await runFetch("/repo");
+
+        expect(fetchStateOf(globalStore.get(fetchStatesAtom), "/repo").failure).toEqual(failure);
+        expect(fetchStateOf(globalStore.get(fetchStatesAtom), "/other")).toEqual({
+            running: false,
+            at: 0,
+            failure: null,
+        });
     });
 });
