@@ -542,63 +542,6 @@ export function JarvisGraph() {
                     </div>
                 ))}
             </div>
-
-            {selectedId ? (
-                <SelectionCard nodes={data.nodes} links={data.links} selectedId={selectedId} colors={colors} />
-            ) : null}
-        </div>
-    );
-}
-
-// The selection read-out: what you clicked, plus (for a task) the runs its attribution bloom
-// resolved, each tagged with its confidence bucket. Read-only — U3 has no detach/edit affordance.
-function SelectionCard({
-    nodes,
-    links,
-    selectedId,
-    colors,
-}: {
-    nodes: GNode[];
-    links: GLink[];
-    selectedId: string;
-    colors: ReturnType<typeof useThemeColors>;
-}) {
-    const node = nodes.find((n) => n.id === selectedId);
-    if (!node) return null;
-    const attributions = links.filter((l) => l.kind === "attribution" && idOf(l.source) === selectedId);
-    return (
-        <div className="absolute bottom-[12px] right-[12px] max-w-[280px] rounded-[9px] border border-edge-mid bg-surface/95 px-[13px] py-[10px]">
-            <div className="flex items-center gap-[6px]">
-                <div
-                    className="h-[8px] w-[8px]"
-                    style={{ background: colors.fill(node.kind), borderRadius: node.kind === "run" ? 0 : 9999 }}
-                />
-                <span className="font-mono text-[10px] uppercase text-ink-mid">{node.kind}</span>
-                {node.status ? <span className="font-mono text-[10px] text-ink-mid">· {node.status}</span> : null}
-            </div>
-            <div className="mt-[4px] text-[13px] font-semibold text-foreground">{node.label}</div>
-            {node.kind === "task" ? (
-                <div className="mt-[6px] text-[11px] text-ink-mid">
-                    {attributions.length === 0 ? (
-                        "no attributed runs yet"
-                    ) : (
-                        <div className="flex flex-col gap-[3px]">
-                            {attributions.map((l) => {
-                                const targetId = idOf(l.target);
-                                const run = nodes.find((n) => n.id === targetId);
-                                return (
-                                    <div key={targetId} className="flex items-center justify-between gap-[8px]">
-                                        <span className="truncate">{run?.label ?? targetId}</span>
-                                        <span className="font-mono text-[9.5px] uppercase text-ink-faint">
-                                            {l.bucket}
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-            ) : null}
         </div>
     );
 }

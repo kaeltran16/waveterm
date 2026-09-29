@@ -6,7 +6,7 @@
 //
 // It is deliberately the smaller half of the meta spec's §2 line: what is running against the record and
 // what you set it to, and nothing else. Its full history, decision log and past corrections belong to the
-// record as a Brief subject, and the footer says so rather than leaving the reader to wonder what is missing.
+// record as a Brief subject.
 //
 // Everything shown is derived in briefpeek.ts. This file mounts it, loads the two caches it reads, and
 // owns the one write on it.
@@ -22,8 +22,10 @@ import { fleetCounts } from "@/app/view/agents/jarviscards";
 import type { RunStatusTone } from "@/app/view/agents/runmodel";
 import { cn } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
+import { Check, ChevronDown, ChevronUp, Waypoints } from "lucide-react";
 import { useEffect, useState } from "react";
 import { buildRecordPeek, type PeekRunRow, type PeekStatusRow } from "./briefpeek";
+import { MONO_FAINT, MONO_META, REGION_LABEL, SMALL_BTN } from "./briefstyle";
 import { fleetForRecord } from "./fleetscope";
 import { briefGraphRecordAtom, briefPeekRecordAtom, graphPeekOpenAtom } from "./jarvisstore";
 import {
@@ -58,13 +60,17 @@ const RUN_TONE: Record<RunStatusTone, string> = {
     cancelled: "text-muted",
 };
 
-const MONO_LABEL = "flex-none font-mono text-[9px] font-bold uppercase tracking-[.12em] text-ink-faint";
+// LINK_BTN's type and hover without its border: a link inside the body, not a control beside it
+const BODY_LINK =
+    "inline-flex cursor-pointer items-center gap-1 self-start font-mono text-[10.5px] text-accent-soft hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 function StatusRow({ row, onPick }: { row: PeekStatusRow; onPick: (status: string) => void }) {
     const fg = STATUS_FG[row.status] ?? "text-muted";
     const body = (
         <>
-            <span className={cn("w-2 flex-none font-mono text-[9px] font-bold", fg)}>{row.current ? "•" : ""}</span>
+            <span className={cn("inline-flex w-3 flex-none", fg)}>
+                {row.current ? <Check size={12} strokeWidth={2.4} className="translate-y-px" /> : null}
+            </span>
             <span className={cn("w-[58px] flex-none font-mono text-[11px] font-semibold", fg)}>{row.label}</span>
             <span className="min-w-0 flex-1 text-[11.5px] leading-[1.45] text-muted">{row.note}</span>
         </>
@@ -102,11 +108,11 @@ function RunRowView({ row, model }: { row: PeekRunRow; model: AgentsViewModel })
             onClick={() => void openAddress(model, "run:" + row.runId)}
             className="flex w-full min-w-0 cursor-pointer items-center gap-2.5 px-3 py-[7px] text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-            <span className="flex-none font-mono text-[10px] font-semibold text-accent-soft">{row.shortId}</span>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-ink-mid">{row.headline}</span>
-            <span className="flex-none whitespace-nowrap font-mono text-[9.5px] text-ink-faint">{row.meta}</span>
+            <span className="flex-none font-mono text-[10.5px] font-semibold text-accent-soft">{row.shortId}</span>
+            <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink-mid">{row.headline}</span>
+            <span className="flex-none whitespace-nowrap font-mono text-[10.5px] text-muted">{row.meta}</span>
             <span
-                className={cn("flex-none whitespace-nowrap font-mono text-[9.5px] font-semibold", RUN_TONE[row.tone])}
+                className={cn("flex-none whitespace-nowrap font-mono text-[10.5px] font-semibold", RUN_TONE[row.tone])}
             >
                 {row.state}
             </span>
@@ -125,6 +131,7 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
     const harnesses = useAtomValue(harnessesAtom);
     const [pickerOpen, setPickerOpen] = useState(false);
     const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+    const [objectiveOpen, setObjectiveOpen] = useState(false);
 
     // both caches, because the peek's two halves come from different reads: the record's own fields, and the
     // runs attributed to it (a dossier has no run list of its own — ResolveSpaceScope answers that).
@@ -136,10 +143,12 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
         loadRecordScope(recordId);
     }, [recordId]);
 
-    // the picker is per-opening, not per-record: leaving it open across a close would reopen the peek mid-write
+    // the picker and the expanded objective are per-opening, not per-record: leaving the picker open across a
+    // close would reopen the peek mid-write, and a second record would open already expanded
     useEffect(() => {
         setPickerOpen(false);
         setPendingStatus(null);
+        setObjectiveOpen(false);
     }, [recordId]);
 
     const close = () => setRecordId(null);
@@ -178,34 +187,34 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
 
     return (
         <>
-            <ModalShell
-                open={recordId != null}
-                onClose={close}
-                align="center"
-                className="w-[640px] max-w-full"
-            >
+            <ModalShell open={recordId != null} onClose={close} align="center" className="w-[640px] max-w-full">
                 <div data-jarvis-brief-band="peek" className="flex min-h-0 flex-col">
                     <div className="flex min-w-0 flex-none items-center gap-2.5 border-b border-border px-[17px] py-3">
-                        <span className={MONO_LABEL}>record</span>
-                        <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink-hi">
+                        <span className={cn(REGION_LABEL, "text-accent-soft")}>record</span>
+                        <span
+                            data-jarvis-peek-title
+                            className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink-hi"
+                        >
                             {peek != null ? peek.title : <SkeletonLine className="h-[12px] w-[180px]" />}
                         </span>
                         {peek != null ? (
                             <>
-                                <span className="flex-none font-mono text-[9.5px] text-ink-faint">
-                                    {peek.updatedLabel}
-                                </span>
+                                <span className={cn("flex-none", MONO_FAINT)}>{peek.updatedLabel}</span>
                                 <button
                                     type="button"
                                     data-jarvis-peek-status-toggle
                                     aria-label="Change what this record does"
+                                    aria-expanded={pickerOpen}
                                     onClick={() => setPickerOpen((v) => !v)}
                                     className={cn(
-                                        "flex-none cursor-pointer rounded-[6px] border border-border bg-surface-raised px-2 py-0.5 font-mono text-[10px] font-semibold hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                                        "inline-flex flex-none cursor-pointer items-center gap-1 rounded-[6px] border border-border bg-surface-raised py-0.5 pl-2 pr-1.5 font-mono text-[10.5px] font-semibold hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                                         STATUS_FG[peek.statusLabel] ?? "text-muted"
                                     )}
                                 >
                                     {peek.statusLabel}
+                                    <span className="inline-flex text-muted">
+                                        {pickerOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                                    </span>
                                 </button>
                             </>
                         ) : null}
@@ -219,17 +228,39 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
                     ) : null}
                     {peek != null ? (
                         <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-[17px] py-4">
-                            <p className="text-[13px] leading-[1.6] text-ink-mid">{peek.body}</p>
+                            {peek.body != null ? (
+                                <div className="flex flex-col gap-1.5">
+                                    <p
+                                        data-jarvis-peek-body
+                                        className={cn(
+                                            "whitespace-pre-line text-[13px] leading-[1.6] text-ink-mid",
+                                            peek.bodyMore != null && !objectiveOpen && "line-clamp-4"
+                                        )}
+                                    >
+                                        {peek.body}
+                                    </p>
+                                    {peek.bodyMore != null ? (
+                                        <button
+                                            type="button"
+                                            data-jarvis-peek-body-toggle
+                                            aria-expanded={objectiveOpen}
+                                            onClick={() => setObjectiveOpen((v) => !v)}
+                                            className={BODY_LINK}
+                                        >
+                                            {objectiveOpen ? "Show less" : peek.bodyMore}
+                                            {objectiveOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                                        </button>
+                                    ) : null}
+                                </div>
+                            ) : null}
                             <div className="flex flex-col overflow-hidden rounded-[9px] border border-border bg-background">
                                 <div className="flex items-center gap-2.5 border-b border-edge-faint px-3 py-2">
-                                    <span className={MONO_LABEL}>Fleet · on this record</span>
+                                    <span className={cn(REGION_LABEL, "text-ink-mid")}>Fleet · on this record</span>
                                     <span className="h-px flex-1 bg-edge-faint" />
-                                    <span className="flex-none font-mono text-[9.5px] text-muted">
-                                        {peek.fleetMeta}
-                                    </span>
+                                    <span className={cn("flex-none", MONO_FAINT)}>{peek.fleetMeta}</span>
                                 </div>
                                 {peek.runs.length === 0 ? (
-                                    <div className="px-3 py-2.5 font-mono text-[11px] text-ink-faint">
+                                    <div className="px-3 py-2.5 font-mono text-[11px] text-muted">
                                         {peek.runsAbsent}
                                     </div>
                                 ) : (
@@ -239,17 +270,18 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
                             <div className="flex flex-wrap items-center gap-2">
                                 {/* a label, not a button: the peek reports the count and the Brief owns the log,
                                     so this states it and stops there. */}
-                                <span className="rounded-[6px] border border-edge-faint px-2.5 py-1 font-mono text-[11px] text-ink-mid">
+                                <span
+                                    className={cn(
+                                        "rounded-[6px] border border-edge-faint px-[9px] py-[3px]",
+                                        MONO_META
+                                    )}
+                                >
                                     {peek.logLine}
                                 </span>
-                                <span className="self-start rounded-[6px] border border-dashed border-edge-strong px-2.5 py-1 font-mono text-[9.5px] text-ink-faint">
-                                    {peek.absenceChip}
-                                </span>
-                            </div>
-                            {/* The peek's one exit. It closes the peek first: the graph peek is an overlay on the
-                                surface, and leaving the record modal up over it would stack two modals, both
-                                claiming Escape. */}
-                            <div className="flex items-center gap-2">
+                                <span className="flex-1" />
+                                {/* The peek's one exit. It closes the peek first: the graph peek is an overlay on the
+                                    surface, and leaving the record modal up over it would stack two modals, both
+                                    claiming Escape. */}
                                 <button
                                     type="button"
                                     data-jarvis-peek-open-graph
@@ -259,12 +291,12 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
                                         setRecordId(null);
                                         globalStore.set(graphPeekOpenAtom, true);
                                     }}
-                                    className="cursor-pointer rounded-[6px] border border-border bg-surface-raised px-2.5 py-1 font-mono text-[10.5px] font-semibold text-ink-mid hover:border-accent/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                    className={cn(SMALL_BTN, "inline-flex items-center gap-1.5")}
                                 >
+                                    <Waypoints size={12} className="text-muted" />
                                     Where it sits on the map
                                 </button>
                             </div>
-                            <span className="font-mono text-[11px] leading-[1.5] text-ink-faint">{peek.footer}</span>
                         </div>
                     ) : null}
                 </div>

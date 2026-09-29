@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { buildRecordPeek, PEEK_ABSENCE_CHIP, statusPickerRows, type RecordPeekInput } from "./briefpeek";
+import { buildRecordPeek, statusPickerRows, type RecordPeekInput } from "./briefpeek";
 
 const NOW = 1_800_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -91,13 +91,51 @@ describe("buildRecordPeek", () => {
         expect(buildRecordPeek(input({ detail: detail({ updated: 0 }) })).updatedLabel).toBe("never updated");
     });
 
-    it("titles the peek by its objective and falls back to its id", () => {
+    it("titles the peek by its objective's first sentence and falls back to its id", () => {
         expect(buildRecordPeek(input()).title).toBe("Make attention polling reliable");
+        expect(buildRecordPeek(input({ detail: detail({ objective: "Ship it. Then tidy up." }) })).title).toBe(
+            "Ship it."
+        );
         expect(buildRecordPeek(input({ detail: detail({ objective: "  " }) })).title).toBe("task-a");
     });
 
-    it("falls back from a missing objective to the notes, then to a stated absence", () => {
-        expect(buildRecordPeek(input({ detail: detail({ objective: "", notes: "scratch" }) })).body).toBe("scratch");
+    // 126 of the user's 163 records are one sentence: printing it as the title and again as the body said it twice
+    it("shows no body when the objective is its own headline", () => {
+        const peek = buildRecordPeek(input());
+        expect(peek.body).toBeNull();
+        expect(peek.bodyMore).toBeNull();
+    });
+
+    it("shows the whole objective, paragraphs kept, when it says more than its headline", () => {
+        const objective = "Ship it.\n\nThen tidy up the rest.";
+        const peek = buildRecordPeek(input({ detail: detail({ objective }) }));
+        expect(peek.title).toBe("Ship it.");
+        expect(peek.body).toBe(objective);
+        expect(peek.bodyMore).toBeNull();
+    });
+
+    it("shows the whole objective when the headline had to cut it", () => {
+        const objective = "word ".repeat(60).trim();
+        const peek = buildRecordPeek(input({ detail: detail({ objective }) }));
+        expect(peek.title.endsWith("…")).toBe(true);
+        expect(peek.body).toBe(objective);
+    });
+
+    it("offers the full objective only past 400 characters, counted in kilo", () => {
+        const at = (n: number) => "First sentence. " + "y".repeat(n - 16);
+        expect(buildRecordPeek(input({ detail: detail({ objective: at(400) }) })).bodyMore).toBeNull();
+        expect(buildRecordPeek(input({ detail: detail({ objective: at(401) }) })).bodyMore).toBe(
+            "Show the full objective · 401"
+        );
+        expect(buildRecordPeek(input({ detail: detail({ objective: at(1216) }) })).bodyMore).toBe(
+            "Show the full objective · 1.2k"
+        );
+    });
+
+    it("falls back from a missing objective to the notes, then to a stated absence, never clamped", () => {
+        const notes = buildRecordPeek(input({ detail: detail({ objective: "", notes: "scratch" }) }));
+        expect(notes.body).toBe("scratch");
+        expect(notes.bodyMore).toBeNull();
         expect(buildRecordPeek(input({ detail: detail({ objective: "", notes: "" }) })).body).toBe(
             "This record states no objective yet."
         );
@@ -145,17 +183,5 @@ describe("buildRecordPeek", () => {
         expect(
             buildRecordPeek(input({ detail: detail({ decisions: [{}, {}] as unknown as DecisionCard[] }) })).logLine
         ).toBe("2 decisions · on the Brief");
-    });
-
-    // the structural absence the meta spec asks the peek to state outright
-    it("states that a record cannot be messaged", () => {
-        expect(buildRecordPeek(input()).absenceChip).toBe(PEEK_ABSENCE_CHIP);
-        expect(buildRecordPeek(input()).absenceChip).toContain("cannot message one");
-    });
-
-    it("states the read/write split in its footer", () => {
-        const footer = buildRecordPeek(input()).footer;
-        expect(footer).toContain("on the Brief");
-        expect(footer).toContain("decision log");
     });
 });
