@@ -6,6 +6,7 @@ import {
     modelFace,
     normalizeProfileOverrideRoute,
     normalizeRoute,
+    pickerRowMeta,
     resolveEffectiveRoute,
     routePickerItems,
     scopePickerSections,
@@ -148,6 +149,20 @@ describe("picker sections", () => {
         expect(scopePickerSections(sections, "claude").map((s) => s.runtime)).toEqual(["claude"]);
         const onlyPi = filterPickerSections(sections, "deepseek");
         expect(scopePickerSections(onlyPi, "claude").map((s) => s.runtime)).toEqual(["pi"]);
+    });
+
+    it("pickerRowMeta joins only the facts a row has", () => {
+        const row = {
+            runtime: "pi",
+            model: "m",
+            label: "m",
+            provider: "openai-codex",
+            contexthint: "128K",
+            default: false,
+        };
+        expect(pickerRowMeta(row)).toBe("provider openai-codex · ctx 128K");
+        expect(pickerRowMeta({ ...row, default: true })).toBe("provider openai-codex · ctx 128K · CLI default");
+        expect(pickerRowMeta({ ...row, provider: "pi", contexthint: "" })).toBe("");
     });
 
     it("modelFace names the default when a route has no model", () => {

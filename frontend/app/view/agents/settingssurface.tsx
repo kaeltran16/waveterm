@@ -13,6 +13,7 @@ import { MOTION } from "@/app/element/motiontokens";
 import { atoms, getSettingsKeyAtom } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
 import { Folder, Search } from "lucide-react";
@@ -323,13 +324,11 @@ function SectionIndex({
                 {groups.map((g) => (
                     <div key={g.label} className="mb-3.5">
                         <div className="flex items-center gap-2.5 px-1 pb-2">
-                            <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.13em] text-accent-soft">
-                                {g.label}
-                            </span>
+                            <span className={cn(REGION_LABEL, "text-accent-soft")}>{g.label}</span>
                             <span className="h-px flex-1 bg-edge-faint" />
-                            <span className="font-mono text-[10px] text-muted">{g.sections.length}</span>
+                            <span className="font-mono text-[10.5px] text-muted">{g.sections.length}</span>
                         </div>
-                        <div className="flex flex-col gap-[7px]">
+                        <div className="flex flex-col gap-[2px]">
                             {g.sections.map((s) => {
                                 const on = s.id === selected;
                                 const n = changedCount(s, changed);
@@ -340,35 +339,31 @@ function SectionIndex({
                                         data-section={s.id}
                                         onClick={() => onSelect(s.id)}
                                         className={cn(
-                                            "flex w-full cursor-pointer flex-col gap-[7px] rounded-[11px] border px-3 py-[11px] text-left transition-colors",
+                                            "flex w-full cursor-pointer items-center gap-2.5 rounded-[9px] border px-3 py-[8px] text-left transition-colors",
                                             on
                                                 ? "border-accent bg-surface-hover"
-                                                : "border-border hover:border-edge-strong"
+                                                : "border-transparent hover:bg-surface-hover"
                                         )}
                                     >
-                                        <span className="flex items-center gap-2.5">
+                                        <span
+                                            className={cn(
+                                                "min-w-0 flex-1 truncate text-[13px] font-semibold",
+                                                on ? "text-primary" : "text-secondary"
+                                            )}
+                                        >
+                                            {s.name}
+                                        </span>
+                                        {n > 0 ? (
                                             <span
                                                 className={cn(
-                                                    "min-w-0 flex-1 truncate text-[13px] font-semibold",
-                                                    on ? "text-primary" : "text-secondary"
+                                                    "flex-none rounded-sm px-1.5 py-0.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.06em]",
+                                                    on ? "bg-accentbg text-accent" : "bg-accentbg/70 text-accent-soft"
                                                 )}
                                             >
-                                                {s.name}
+                                                {n} changed
                                             </span>
-                                            {n > 0 ? (
-                                                <span
-                                                    className={cn(
-                                                        "flex-none rounded-sm px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.06em]",
-                                                        on
-                                                            ? "bg-accentbg text-accent"
-                                                            : "bg-accentbg/70 text-accent-soft"
-                                                    )}
-                                                >
-                                                    {n} changed
-                                                </span>
-                                            ) : null}
-                                        </span>
-                                        <span className="font-mono text-[10px] text-muted">
+                                        ) : null}
+                                        <span className="flex-none font-mono text-[10.5px] text-muted">
                                             {countLabel(s.rows.length)}
                                         </span>
                                     </button>
@@ -388,7 +383,7 @@ function SectionIndex({
 
 function Legend({ scope, text }: { scope: "synced" | "local"; text: string }) {
     return (
-        <div className="flex items-center gap-[7px] font-mono text-[10px] text-muted">
+        <div className="flex items-center gap-[7px] font-mono text-[10.5px] text-muted">
             <ScopeDot scope={scope} />
             {text}
         </div>
@@ -417,14 +412,14 @@ function SettingRow({ id, stacked, children }: { id: string; stacked?: boolean; 
             <div className="flex items-center gap-2">
                 <span className="text-[13.5px] font-semibold text-primary">{def.title}</span>
                 {changed ? (
-                    <span className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-accent">
+                    <span className="flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.06em] text-accent">
                         <span className="h-[5px] w-[5px] rounded-full bg-accent" />
                         changed
                     </span>
                 ) : null}
             </div>
             <div className="mt-[3px] max-w-[440px] text-[12px] leading-[1.5] text-muted">{def.desc}</div>
-            <div className="mt-1.5 flex items-center gap-[7px] font-mono text-[10px] text-muted">
+            <div className="mt-1.5 flex items-center gap-[7px] font-mono text-[10.5px] text-muted">
                 {def.scope != null ? <ScopeDot scope={def.scope} /> : null}
                 {def.key}
             </div>
@@ -1106,7 +1101,7 @@ function HeadlessAISection() {
     const modelRow = (id: string, value: string, placeholder: string, key: string) => (
         <SettingRow id={id}>
             {!isOpenRouter ? (
-                <span className="font-mono text-[10.5px] tracking-[0.02em] text-ink-faint">openrouter only</span>
+                <span className="font-mono text-[10.5px] tracking-[0.02em] text-muted">openrouter only</span>
             ) : null}
             <CommitText
                 value={value}
@@ -1157,7 +1152,7 @@ function HeadlessAISection() {
                                 >
                                     {o.label}
                                 </span>
-                                <span className="font-mono text-[10.5px] font-normal tracking-[0.02em] text-ink-faint">
+                                <span className="font-mono text-[10.5px] font-normal tracking-[0.02em] text-muted">
                                     {o.mono}
                                 </span>
                                 <span

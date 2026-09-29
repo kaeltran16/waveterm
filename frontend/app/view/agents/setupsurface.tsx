@@ -7,6 +7,7 @@
 // one. Logic lives in setupmodel.ts and skillsmatrix.ts, the RPCs and the atoms in setupstore.ts.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Share2, TriangleAlert } from "lucide-react";
@@ -62,7 +63,7 @@ import {
     type SkillRow,
 } from "./skillsmatrix";
 
-const SECTION_HEAD = "text-[10px] font-bold uppercase tracking-[0.08em] text-muted";
+const SECTION_HEAD = cn(REGION_LABEL, "text-muted");
 const BTN_SECONDARY =
     "h-[30px] cursor-pointer rounded border border-edge-mid bg-surface-raised px-3 text-[12.5px] font-semibold text-ink-mid hover:border-edge-strong hover:bg-surface-hover hover:text-primary disabled:cursor-default disabled:text-ink-faint disabled:hover:border-edge-mid disabled:hover:bg-surface-raised";
 const BTN_PRIMARY =
@@ -93,13 +94,25 @@ function HarnessMark({ runtime }: { runtime: string }) {
     return (
         <span
             className={cn(
-                "flex flex-none items-center justify-center rounded-[5px] border font-mono text-[9.5px] font-bold",
+                "flex flex-none items-center justify-center rounded-[5px] border font-mono text-[10.5px] font-bold",
                 meta.line,
                 meta.text,
                 "h-5 w-5"
             )}
         >
             <RuntimeMark runtime={runtime} imageClassName="h-3 w-3" />
+        </span>
+    );
+}
+
+// the folder truncates and the file name never does: every path here starts with the same home prefix,
+// so a plain tail ellipsis hid the one part that tells two rows apart
+function PathTail({ path }: { path: string }) {
+    const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1;
+    return (
+        <span title={path} className="flex min-w-0 font-mono text-[10.5px] text-muted">
+            <span className="truncate">{path.slice(0, cut)}</span>
+            <span className="flex-none">{path.slice(cut)}</span>
         </span>
     );
 }
@@ -208,9 +221,7 @@ function FileList({ rows }: { rows: AgentSyncHarness[] }) {
                         <HarnessMark runtime={r.runtime} />
                         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                             <span className="text-[13px] font-medium">{r.label}</span>
-                            <span title={r.path} className="truncate font-mono text-[10.5px] text-muted">
-                                {r.path}
-                            </span>
+                            <PathTail path={r.path} />
                             <span className={cn("mt-[3px] flex items-center gap-1.5 text-[11px]", TONE_TEXT[tone])}>
                                 <Dot tone={tone} />
                                 {harnessRowLabel(state)}
@@ -275,7 +286,7 @@ function LineEditor({
                 </span>
                 <span className="flex-1" />
                 <span>Markdown</span>
-                <span className="text-ink-faint">·</span>
+                <span className="text-muted">·</span>
                 <span>
                     {lineCount(ed.draft)} {lineCount(ed.draft) === 1 ? "line" : "lines"}
                 </span>
@@ -389,9 +400,7 @@ function SharedRail({ rows }: { rows: AgentSyncHarness[] }) {
                             <span className="flex items-center gap-2 text-[12.5px] font-semibold text-secondary">
                                 {r.label}
                             </span>
-                            <span title={r.path} className="truncate font-mono text-[10.5px] text-muted">
-                                {r.path}
-                            </span>
+                            <PathTail path={r.path} />
                         </div>
                     ))}
             </div>
@@ -477,7 +486,7 @@ function SkillCellView({ cell }: { cell: SkillCell }) {
             title={cell.title}
             className={cn(
                 "flex min-w-0 items-center gap-1.5 text-[11.5px]",
-                cell.tone == null ? "text-ink-faint" : TONE_TEXT[cell.tone]
+                cell.tone == null ? "text-muted" : TONE_TEXT[cell.tone]
             )}
         >
             {cell.tone != null ? <Dot tone={cell.tone} /> : null}
@@ -522,7 +531,7 @@ function SkillsMatrix({
                             <span className="truncate">{c.label}</span>
                         </span>
                         {c.present ? null : (
-                            <span className="text-[9.5px] font-semibold tracking-normal text-warning">not set up</span>
+                            <span className="text-[10.5px] font-semibold tracking-normal text-warning">not set up</span>
                         )}
                     </span>
                 ))}
@@ -533,9 +542,14 @@ function SkillsMatrix({
                 ) : null}
                 {groups.map((g) => (
                     <div key={g.key} role="rowgroup" aria-label={g.title}>
-                        <div className="flex h-[26px] items-center gap-2 border-b border-edge-faint bg-background px-3 text-[10px] font-bold uppercase tracking-[0.08em] text-muted">
+                        <div
+                            className={cn(
+                                REGION_LABEL,
+                                "flex h-[26px] items-center gap-2 border-b border-edge-faint bg-background px-3 text-muted"
+                            )}
+                        >
                             {g.title}
-                            <span className="font-medium normal-case tracking-normal text-ink-faint">
+                            <span className="font-medium normal-case tracking-normal text-muted">
                                 · {g.rows.length}
                             </span>
                         </div>
@@ -649,9 +663,7 @@ function SkillRail({ model, row, skillsroot }: { model: AgentsViewModel; row: Sk
                                     <span className="ml-auto text-[11px] font-normal text-muted">{copyDelta(c)}</span>
                                 ) : null}
                             </span>
-                            <span title={c.path} className="truncate font-mono text-[10.5px] text-muted">
-                                {c.path}
-                            </span>
+                            <PathTail path={c.path} />
                         </div>
                     ))
                 )}

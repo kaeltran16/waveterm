@@ -17,15 +17,27 @@ import {
     type Placement,
 } from "@floating-ui/react";
 import { useAtomValue } from "jotai";
+import { Check, ChevronDown, Plus, RotateCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { buildPickerSections, filterPickerSections, modelFace, pickerTitleFor, scopePickerSections } from "./route";
+import {
+    buildPickerSections,
+    filterPickerSections,
+    modelFace,
+    pickerRowMeta,
+    pickerTitleFor,
+    scopePickerSections,
+} from "./route";
 import type { PickerSection } from "./route";
 import { harnessesAtom, harnessesLoadingAtom, loadHarnesses, refreshHarnessCatalog } from "./harnessstore";
+import { SubLabel } from "./sectionlabel";
 
 // The panel is portalled to the body so this is measured against the viewport. Rendered in place it was
 // clipped to the gap between the trigger and the bottom of whatever scroll container held it — inside the
 // + Run modal that left a 37px window onto a 28,000px list.
 const ROUTE_PICKER_MAX_HEIGHT = 480;
+// flip measures the menu after size has capped it, so a menu allowed to shrink into a thin gap always
+// "fits" there and never flips to the roomy side; below this floor it overflows and flip moves it
+const ROUTE_PICKER_MIN_HEIGHT = 240;
 
 export function RoutePicker({
     value,
@@ -107,7 +119,10 @@ export function RoutePicker({
             floatingSize({
                 padding: 8,
                 apply({ availableHeight, elements }) {
-                    const maxHeight = Math.max(0, Math.min(ROUTE_PICKER_MAX_HEIGHT, availableHeight));
+                    const maxHeight = Math.min(
+                        ROUTE_PICKER_MAX_HEIGHT,
+                        Math.max(ROUTE_PICKER_MIN_HEIGHT, availableHeight)
+                    );
                     elements.floating.style.setProperty("--route-picker-max-height", `${maxHeight}px`);
                 },
             }),
@@ -158,7 +173,7 @@ export function RoutePicker({
                 )}
             >
                 <span className="min-w-0 truncate">{face}</span>
-                <span className={cn("flex-none font-mono text-[10px] text-muted", open && "rotate-180")}>▾</span>
+                <ChevronDown size={12} className={cn("flex-none text-muted", open && "rotate-180")} />
             </button>
             <FloatingPortal>
                 {/* above ModalShell's z-[70] backdrop: the launcher's pickers live inside a modal */}
@@ -170,7 +185,7 @@ export function RoutePicker({
                 >
                     <div role="group" aria-label="Available routes" className="flex min-h-0 flex-1 flex-col">
                         <div className="flex items-center justify-between px-[9px] pb-1.5 pt-1">
-                            <span className="font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">{pickerTitleFor(title)}</span>
+                            <SubLabel>{pickerTitleFor(title)}</SubLabel>
                             <button
                                 type="button"
                                 onClick={() => void refreshHarnessCatalog()}
@@ -178,7 +193,7 @@ export function RoutePicker({
                                 title="Refresh model catalog"
                                 className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] text-muted hover:bg-surface-hover hover:text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                             >
-                                ↻
+                                <RotateCw size={12} />
                             </button>
                         </div>
                         <input
@@ -209,7 +224,7 @@ export function RoutePicker({
                                 )}
                             >
                                 <span className="min-w-0 flex-1 text-[12.5px] font-semibold">{inheritedLabel}</span>
-                                {value == null ? <span className="font-mono text-[11px] text-accent">✓</span> : null}
+                                {value == null ? <Check size={12} className="mt-[3px] flex-none text-accent" /> : null}
                             </button>
                         ) : null}
                         <div data-testid="route-picker-scroll" className="min-h-0 overflow-y-auto overscroll-contain">
@@ -242,13 +257,11 @@ export function RoutePicker({
                                         >
                                             <span className="min-w-0 flex-1">
                                                 <span className={cn("block font-mono text-[11.5px]", selectedRow ? "text-accent" : "text-primary")}>{row.model}</span>
-                                                <span className="mt-[2px] block text-[10px] text-muted">
-                                                    {row.provider && row.provider !== row.runtime ? `provider ${row.provider} · ` : ""}
-                                                    {row.contexthint ? `ctx ${row.contexthint} · ` : ""}
-                                                    {row.default ? "CLI default" : ""}
+                                                <span className="mt-[2px] block text-[10.5px] text-muted">
+                                                    {pickerRowMeta(row)}
                                                 </span>
                                             </span>
-                                            {selectedRow ? <span className="pt-[3px] font-mono text-[11px] text-accent">✓</span> : null}
+                                            {selectedRow ? <Check size={12} className="mt-[3px] flex-none text-accent" /> : null}
                                         </button>
                                     );
                                 })}
@@ -281,7 +294,8 @@ export function RoutePicker({
                                         onClick={() => setCustomId({ runtime: section.runtime, draft: "" })}
                                         className="flex w-full cursor-pointer items-center gap-2 rounded px-[9px] py-1.5 text-left text-[11px] text-muted hover:bg-surface-hover hover:text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                                     >
-                                        ＋ custom model id…
+                                        <Plus size={12} className="flex-none" />
+                                        custom model id…
                                     </button>
                                 )}
                             </div>
@@ -316,7 +330,7 @@ function HarnessChips({ sections, scope, onScope }: { sections: PickerSection[];
                     data-testid={`route-harness-${chip.runtime ?? "all"}`}
                     onClick={() => onScope(chip.runtime)}
                     className={cn(
-                        "cursor-pointer rounded-full border px-2 py-[2px] text-[10px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                        "cursor-pointer rounded-full border px-2 py-[2px] text-[10.5px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                         active === chip.runtime ? "border-accent-700 bg-surface-raised text-accent" : "border-border text-muted hover:text-secondary"
                     )}
                 >

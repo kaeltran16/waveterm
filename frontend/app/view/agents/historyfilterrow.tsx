@@ -10,6 +10,7 @@
 
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { X } from "lucide-react";
 import { useState } from "react";
 import { historyFiltersAtom, setHistoryFilter } from "./githistorystore";
 
@@ -31,7 +32,7 @@ function FilterChip({
     if (editing) {
         return (
             <span className="flex items-center gap-[7px] rounded-[7px] border border-accent/30 bg-accentbg px-[9px] py-[4px]">
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
+                <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">
                     {label}
                 </span>
                 <input
@@ -45,7 +46,7 @@ function FilterChip({
                             setEditing(false);
                         }
                     }}
-                    className="w-[150px] bg-transparent font-mono text-[11.5px] text-ink-hi outline-none placeholder:text-ink-faint"
+                    className="w-[150px] bg-transparent font-mono text-[11.5px] text-ink-hi outline-none placeholder:text-muted"
                 />
             </span>
         );
@@ -58,14 +59,18 @@ function FilterChip({
             )}
         >
             <button onClick={() => setEditing(true)} className="flex items-center gap-[7px]">
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
+                <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">
                     {label}
                 </span>
                 <span className="max-w-[170px] truncate font-mono text-[11.5px]">{on ? value : placeholder}</span>
             </button>
             {on ? (
-                <button onClick={() => onChange("")} className="flex-none text-[11px] opacity-70 hover:opacity-100">
-                    ✕
+                <button
+                    onClick={() => onChange("")}
+                    aria-label={`Clear ${label}`}
+                    className="flex-none opacity-70 hover:opacity-100"
+                >
+                    <X size={12} />
                 </button>
             ) : null}
         </span>
@@ -77,7 +82,7 @@ export function HistoryFilterRow() {
     return (
         <div className="flex flex-none items-center gap-[8px] px-[12px] pb-[10px]">
             <div className="flex min-w-0 flex-1 items-center gap-[8px] rounded-[8px] border border-edge-mid bg-surface px-[10px] py-[5px] focus-within:border-accent/30">
-                <span className="flex-none font-mono text-[11px] font-semibold text-ink-faint">/</span>
+                <span className="flex-none font-mono text-[11px] font-semibold text-muted">/</span>
                 <input
                     data-history-filter
                     value={filters.text}
@@ -90,7 +95,7 @@ export function HistoryFilterRow() {
                             (e.target as HTMLInputElement).blur();
                         }
                     }}
-                    className="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-ink-hi outline-none placeholder:text-ink-faint"
+                    className="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-ink-hi outline-none placeholder:text-muted"
                 />
             </div>
             <FilterChip
