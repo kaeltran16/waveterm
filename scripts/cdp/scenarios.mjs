@@ -3723,9 +3723,6 @@ const dagLifecycle = {
             runtime: "claude",
             mode: "orchestrator",
             deferstart: true,
-            // pinned, not left to the profile's default: every assertion below is about a plan-gated
-            // dag (park, approve, dispatch), and an inherited `false` would skip the gate entirely.
-            plangate: true,
         });
         const runId = createdParent.run.id;
         const afterPlanning = await getChannelRunCount();
@@ -3753,9 +3750,15 @@ const dagLifecycle = {
 
         // DagStatus returns { group, digest } since 5a863daa — the group is the snapshot this asserts.
         const g = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group;
+        // a JSON dag gets no plan gate: DagSubmit dispatches t-0 before it returns, so t-0 may already run
+        const taskState = (group, id) => (group.tasks.find((t) => t.id === id) || {}).state;
         rec(
-            "2. DagSubmit -> group with 3 tasks parked at the plan gate, nothing dispatched",
-            g.tasks.length === 3 && g.status === "awaiting-plan" && g.tasks.every((t) => t.state === "pending"),
+            "2. DagSubmit -> group with 3 tasks, no plan gate, t-1/t-2 pending",
+            g.tasks.length === 3 &&
+                g.status !== "awaiting-plan" &&
+                g.status !== "plan-review" &&
+                taskState(g, "t-1") === "pending" &&
+                taskState(g, "t-2") === "pending",
             JSON.stringify({ id: g.id, status: g.status, tasks: g.tasks.map((t) => [t.id, t.state]) })
         );
         const rAfter = await getRun(runId);
@@ -3780,18 +3783,18 @@ const dagLifecycle = {
             JSON.stringify({ first: g.id, retry: retry.id, beforeRetryCount, afterRetryCount })
         );
 
-        // approving the plan is what spawns the first worker — until then the dag holds every task
-        // pending, which is what step 2 just asserted.
-        await h.rpc("dagaction", { channelid: ctx.channelId, runid: runId, taskid: "", action: "approve-plan" });
         let st = null;
         for (let i = 0; i < 20; i++) {
             await h.ev("new Promise((r) => setTimeout(r, 700))");
             st = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group;
-            if (st.tasks[0].state !== "pending") break;
+            if (taskState(st, "t-0") !== "pending") break;
         }
         rec(
-            "4. approve-plan -> t-0 scheduled (running) or already finished, t-1/t-2 pending",
-            st != null && (st.tasks[0].state === "running" || st.tasks[0].state === "done"),
+            "4. DagSubmit dispatches t-0 (running) or it already finished, t-1/t-2 pending",
+            st != null &&
+                (taskState(st, "t-0") === "running" || taskState(st, "t-0") === "done") &&
+                taskState(st, "t-1") === "pending" &&
+                taskState(st, "t-2") === "pending",
             JSON.stringify(st == null ? null : st.tasks.map((t) => ({ id: t.id, state: t.state })))
         );
 
@@ -3809,8 +3812,12 @@ const dagLifecycle = {
         );
         const runClicked = await clickRetry(
             `[...document.querySelectorAll('[data-jarvis-brief-row="session"]')]
-                .find((x) => x.tagName === 'BUTTON' && (x.textContent || '').includes(${JSON.stringify(parentGoal)}))`,
-            16
+                .find((x) => (x.textContent || '').includes(${JSON.stringify(parentGoal)}))`,
+            // the Brief reloads its snapshot after the page reload; a loaded machine has missed an 8s window
+            30
+        );
+        const sessionRows = await h.ev(
+            `[...document.querySelectorAll('[data-jarvis-brief-row="session"]')].map((x) => (x.textContent || '').slice(0, 60))`
         );
         await h.ev("new Promise((r) => setTimeout(r, 1200))");
         // task 9 removed the cockpit takeover: Open DAG opens a surface-local modal (the Brief stays
@@ -3834,6 +3841,7 @@ const dagLifecycle = {
             openClicked === true && modalKindAfterOpen === "live" && nodeCount >= 3 && modalHeading === "Route DAG",
             JSON.stringify({
                 runClicked,
+                sessionRows,
                 openClicked,
                 modalKind: modalKindAfterOpen,
                 nodeCount,
