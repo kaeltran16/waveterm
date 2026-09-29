@@ -47,7 +47,7 @@ export function BackgroundAgentsStrip({ model }: { model: AgentsViewModel }) {
                 dotClassName="bg-muted"
                 countPillClassName="bg-surface-raised text-muted"
                 dividerClassName="bg-gradient-to-r from-edge-mid to-transparent"
-                caret={open ? "▾" : "▸"}
+                open={open}
                 onClick={() => setOpen((v) => !v)}
             />
             {open ? (
@@ -69,7 +69,7 @@ export function BackgroundAgentsStrip({ model }: { model: AgentsViewModel }) {
                                     <span className="shrink-0 text-[11px] text-ink-mid">{a.project}</span>
                                 ) : null}
                                 {a.needsInput ? (
-                                    <span className="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-semibold text-warning">
+                                    <span className="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-[10.5px] font-semibold text-warning">
                                         needs input
                                     </span>
                                 ) : null}

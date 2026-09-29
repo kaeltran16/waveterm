@@ -8,6 +8,8 @@ import {
     entriesToShow,
     isFinishTransition,
     muteMode,
+    subagentsLabel,
+    tasksLabel,
 } from "./agentrowmodel";
 
 describe("entriesToShow", () => {
@@ -77,5 +79,13 @@ describe("agentRowMenuItems", () => {
         const items = agentRowMenuItems({ hasDiff: true, hasMute: true });
         const keys = items.map((i) => ("key" in i ? i.key : "sep"));
         expect(keys).toEqual(["open", "terminal", "diff", "mute", "copy", "sep", "close"]);
+    });
+});
+
+describe("chip labels", () => {
+    it("names what it counts", () => {
+        expect(subagentsLabel(3)).toBe("3 subagents");
+        expect(subagentsLabel(1)).toBe("1 subagent");
+        expect(tasksLabel(3, 5)).toBe("3/5 tasks");
     });
 });

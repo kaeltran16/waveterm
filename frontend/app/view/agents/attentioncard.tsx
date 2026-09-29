@@ -7,6 +7,7 @@
 // neutral lane surface with normal light text. Shared so every attention surface (cockpit grid card,
 // channel escalation, runs review gate, runs clarify/fork) reads identically. Tokens only — no raw hex.
 
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import type { ReactNode } from "react";
 
@@ -41,20 +42,18 @@ export function AttentionBanner({
                     )}
                 />
             )}
-            <span className="font-mono text-[9px] font-bold uppercase tracking-[0.09em] text-on-warning">
-                {label}
-            </span>
-            {meta ? <span className="font-mono text-[9.5px] font-semibold text-on-warning/60">{meta}</span> : null}
+            <span className={cn(REGION_LABEL, "text-on-warning")}>{label}</span>
+            {meta ? <span className="font-mono text-[10.5px] font-semibold text-on-warning/60">{meta}</span> : null}
             <div className="min-w-[6px] flex-1" />
             {right}
         </div>
     );
 }
 
-// A right-aligned chip that reads on the amber banner (e.g. "3/5"): dark ink on a faint dark tint.
+// A right-aligned chip that reads on the amber banner (e.g. "3/5 tasks"): dark ink on a faint dark tint.
 export function BannerChip({ children }: { children: ReactNode }) {
     return (
-        <span className="shrink-0 rounded-[5px] border border-on-warning/20 bg-on-warning/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-on-warning">
+        <span className="shrink-0 rounded-[5px] border border-on-warning/20 bg-on-warning/10 px-1.5 py-px font-mono text-[10.5px] font-bold text-on-warning">
             {children}
         </span>
     );

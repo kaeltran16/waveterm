@@ -8,6 +8,7 @@ import {
     foldOpen,
     isLeadDown,
     leadActivity,
+    leadMark,
     mergeWaitTag,
     REVIEW_ACTIONS,
     reviewFindings,
@@ -106,7 +107,7 @@ describe("buildLeadCard", () => {
         expect(vm.waiting[0].tag).toBe("after t2");
         expect(vm.waiting[0].waitOn).toBe("deps");
         expect(vm.done[0].openId).toBe("ended:R:t1");
-        expect(vm.segs).toEqual(["ok", "run", "wait"]);
+        expect(vm).not.toHaveProperty("segs");
         expect(vm.progress).toEqual({ done: 1, total: 3 });
     });
 
@@ -165,9 +166,31 @@ describe("buildLeadCard", () => {
             tasks: [{ taskid: "t2", waitreason: "lead-ask", askdeadline: NOW + 4 * 60_000 } as DagTaskDigest],
         });
         const vm = buildLeadCard(input(run, [w]));
-        expect(vm.rows[0]).toMatchObject({ needsYou: false, tag: "→ lead · 4m left", actions: ["takeover"] });
+        expect(vm.rows[0]).toMatchObject({ needsYou: false, toLead: true, tag: "4m left", actions: ["takeover"] });
         expect(vm.rows[0].inline).toBeUndefined();
         expect(vm.askCount).toBe(0);
+    });
+
+    it("lead-held ask with no deadline: to the lead, with no tag", () => {
+        const w = { id: "w2", name: "t2", task: "t2", state: "asking", runId: "c2" } as AgentVM;
+        const run = runInfo([task("t2", "running", { runid: "c2" })], {
+            tasks: [{ taskid: "t2", waitreason: "lead-ask" } as DagTaskDigest],
+        });
+        const row = buildLeadCard(input(run, [w])).rows[0];
+        expect(row.toLead).toBe(true);
+        expect(row.tag).toBeUndefined();
+    });
+
+    it("marks a landed run complete", () => {
+        const r = runInfo([task("t1", "done")]);
+        const landed = {
+            ...r,
+            status: "done",
+            land: { state: "landed" } as RunLand,
+            dag: { ...r.dag!, status: "done" },
+        };
+        expect(buildLeadCard(input(landed)).complete).toBe(true);
+        expect(buildLeadCard(input(runInfo([task("t1", "running")]))).complete).toBe(false);
     });
 
     it("a failed review is the lead's to judge unless the lead is down", () => {
@@ -414,6 +437,64 @@ describe("leadActivity", () => {
     });
     it("names a finished run's end", () => {
         expect(leadActivity(run("done"), { ...lead, atPrompt: true } as AgentVM, false)).toBe("run complete");
+    });
+});
+
+describe("leadMark", () => {
+    const leadOf = (over: Partial<AgentVM> = {}) => ({ id: "l", name: "lead", state: "working", ...over }) as AgentVM;
+    // runmodel.test.ts builds runComplete's cases the same way: run status + land + dag status
+    const ended = (status: string, dagStatus: string, land?: RunLand): RunInfo => {
+        const r = runInfo([task("t-1", "done")]);
+        return { ...r, status, land, dag: { ...r.dag!, status: dagStatus } };
+    };
+    const MUTED = { tone: "muted", pulse: false };
+    it("is green and still only when the run is complete", () => {
+        expect(leadMark(ended("done", "done", { state: "landed" } as RunLand), leadOf({ state: "idle" }))).toEqual({
+            tone: "success",
+            pulse: false,
+        });
+        expect(leadMark(ended("done", "done"), leadOf({ state: "working" }))).toEqual({
+            tone: "success",
+            pulse: false,
+        });
+    });
+    it("is not green for a cancelled run, a lead wrapping up, or a held land", () => {
+        expect(leadMark(ended("cancelled", "cancelled"), leadOf({ state: "idle" }))).toEqual(MUTED);
+        expect(leadMark(ended("finalizing", "done"), leadOf({ state: "working" }))).toEqual({
+            tone: "accent",
+            pulse: true,
+        });
+        expect(leadMark(ended("done", "done", { state: "held" } as RunLand), leadOf({ state: "idle" }))).toEqual(MUTED);
+    });
+    it("is muted with no lead", () => {
+        expect(leadMark(runInfo([task("t-1", "running")]), undefined)).toEqual(MUTED);
+    });
+    it("is muted while the lead stands by", () => {
+        expect(leadMark(runInfo([task("t-1", "running")]), leadOf({ atPrompt: true }))).toEqual(MUTED);
+    });
+    it("pulses accent while working and warning while asking", () => {
+        const run = runInfo([task("t-1", "running")]);
+        expect(leadMark(run, leadOf({ state: "working" }))).toEqual({ tone: "accent", pulse: true });
+        expect(leadMark(run, leadOf({ state: "asking" }))).toEqual({ tone: "warning", pulse: true });
+        expect(leadMark(run, leadOf({ state: "idle" }))).toEqual(MUTED);
+    });
+});
+
+describe("lead card bar", () => {
+    it("draws nothing before a plan exists", () => {
+        expect(buildLeadCard(input({ ...runInfo([]), dag: undefined })).bar).toBeUndefined();
+    });
+    it("draws one segment per task, labelled with the done count", () => {
+        const vm = buildLeadCard(input(runInfo([task("t1", "done"), task("t2", "running"), task("t3", "pending")])));
+        expect(vm.bar).toEqual({
+            strip: { kind: "segments", states: ["done", "working", "pending"] },
+            label: "1 of 3 tasks done",
+        });
+    });
+    it("becomes one done/total bar past STRIP_MAX tasks", () => {
+        const tasks = Array.from({ length: 30 }, (_, i) => task(`t${i}`, i < 12 ? "done" : "pending"));
+        const vm = buildLeadCard(input(runInfo(tasks)));
+        expect(vm.bar).toEqual({ strip: { kind: "bar", done: 12, total: 30 }, label: "12 of 30 tasks done" });
     });
 });
 

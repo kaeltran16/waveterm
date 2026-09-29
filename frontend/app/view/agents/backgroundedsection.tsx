@@ -5,6 +5,7 @@ import { cardVariants } from "@/app/element/motiontokens";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { formatAge, type AgentVM } from "./agentsviewmodel";
+import { SectionHeader } from "./sectionheader";
 
 // Collapsed lane for still-running agents the user has muted with `b`. Distinct from Idle (finished):
 // clicking a row un-backgrounds it (returns it to the working region) via onRestore.
@@ -15,15 +16,18 @@ export function BackgroundedSection({ agents, onRestore }: { agents: AgentVM[]; 
     }
     return (
         <div className="shrink-0">
-            <div
-                className="flex cursor-pointer items-center gap-2 py-1.5 text-[11px] text-muted"
+            <SectionHeader
+                className="mb-2 py-1.5"
+                label="Backgrounded"
+                labelClassName="text-muted"
+                note="still running"
+                count={agents.length}
+                dotClassName="bg-accent/50"
+                countPillClassName="bg-surface-raised text-muted"
+                dividerClassName="bg-gradient-to-r from-edge-mid to-transparent"
+                open={open}
                 onClick={() => setOpen((v) => !v)}
-            >
-                <span className="text-[9px]">{open ? "▾" : "▸"}</span>
-                <span className="uppercase tracking-wide">Backgrounded</span>
-                <span className="text-muted/60">· still running</span>
-                <span className="ml-auto tabular-nums opacity-70">{agents.length}</span>
-            </div>
+            />
             {open ? (
                 <div className="flex flex-col gap-1">
                     <AnimatePresence initial={false}>
@@ -44,7 +48,9 @@ export function BackgroundedSection({ agents, onRestore }: { agents: AgentVM[]; 
                                 <span className="min-w-0 flex-1 truncate text-[12px] text-muted">
                                     {a.task || a.activity || ""}
                                 </span>
-                                <span className="ml-auto shrink-0 text-[10px] text-muted">{formatAge(a.activeMs)}</span>
+                                <span className="ml-auto shrink-0 font-mono text-[10.5px] text-muted">
+                                    {formatAge(a.activeMs)}
+                                </span>
                             </motion.div>
                         ))}
                     </AnimatePresence>

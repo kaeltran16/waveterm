@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn } from "@/util/util";
+import { Check, X } from "lucide-react";
 import { useState } from "react";
 import { answerHint, nextUnansweredQuestion, type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
 import { activePreview, previewMode } from "./answerbarpreview";
@@ -100,7 +101,7 @@ function QuestionGroup({
                         {showNum ? (
                             <span
                                 className={cn(
-                                    "mt-px inline-flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[4px] font-mono text-[10px]",
+                                    "mt-px inline-flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[4px] font-mono text-[10.5px]",
                                     isSelected ? accent.numSel : "bg-black/30 text-secondary"
                                 )}
                             >
@@ -115,7 +116,7 @@ function QuestionGroup({
                                 {isRecommended ? (
                                     <span
                                         className={cn(
-                                            "shrink-0 rounded-[5px] px-1.5 py-px font-mono text-xxxs font-semibold uppercase tracking-wide",
+                                            "shrink-0 rounded-[5px] px-1.5 font-mono text-[10.5px] font-semibold",
                                             accent.pill
                                         )}
                                     >
@@ -135,8 +136,8 @@ function QuestionGroup({
                             ) : null}
                         </span>
                         {isSelected ? (
-                            <span className={cn("mt-0.5 shrink-0 text-[13px]", accent.check)}>
-                                {question.multiSelect ? "✓" : "●"}
+                            <span className={cn("mt-0.5 flex shrink-0 text-[13px]", accent.check)}>
+                                {question.multiSelect ? <Check size={13} aria-hidden /> : "●"}
                             </span>
                         ) : null}
                     </button>
@@ -188,7 +189,7 @@ function QuestionGroup({
                                 {showNum ? (
                                     <span
                                         className={cn(
-                                            "inline-flex h-[16px] w-[16px] items-center justify-center rounded-[4px] font-mono text-[10px]",
+                                            "inline-flex h-[16px] w-[16px] items-center justify-center rounded-[4px] font-mono text-[10.5px]",
                                             isSelected ? accent.numSel : "bg-black/30 text-secondary"
                                         )}
                                     >
@@ -285,9 +286,9 @@ export function AnswerBar({
                 type="button"
                 onClick={onDismiss}
                 title="Dismiss this question (pi: cancels the ask; claude: closes the panel copy)"
-                className="cursor-pointer rounded-sm px-1.5 py-0.5 text-[11px] text-muted hover:bg-white/[0.04] hover:text-secondary"
+                className="flex cursor-pointer rounded-sm px-1.5 py-0.5 text-muted hover:bg-white/[0.04] hover:text-secondary"
             >
-                ✕
+                <X size={12} aria-hidden />
             </button>
         </div>
     ) : null;
@@ -303,7 +304,8 @@ export function AnswerBar({
             .filter(Boolean);
         return (
             <div className={cn("text-[12px] text-secondary", className)}>
-                <span className={accent.check}>✓</span> Answered{chosen.length ? `: ${chosen.join(", ")}` : ""}
+                <Check size={12} aria-hidden className={cn("inline align-[-1px]", accent.check)} /> Answered
+                {chosen.length ? `: ${chosen.join(", ")}` : ""}
             </div>
         );
     }

@@ -6,7 +6,7 @@ import { useAtomValue, type Atom } from "jotai";
 import type { ReactNode } from "react";
 import { getLastOutputAtom } from "./agentcontrollerstore";
 import { hungSilenceMs } from "./agenthung";
-import { type AgentState, isQuiet, projectOf, type AgentVM } from "./agentsviewmodel";
+import { isQuiet, projectOf, type AgentState, type AgentVM } from "./agentsviewmodel";
 import { activityAtomFor } from "./livetranscriptatoms";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
@@ -24,27 +24,35 @@ export function QuietDot({ nowAtom, agentId, state }: { nowAtom: Atom<number>; a
 
 // StatusLine is the compact worker identity + liveness row shared by the agent card header and the
 // orchestrator overview's worker rows: state dot (with quiet aging), runtime mark, name, project chip.
-// Status is always conveyed by dot + text — never color alone.
+// Status is always conveyed by dot + text — never color alone. `mark` takes the dot's place (the lead card's
+// Workflow icon).
 export function StatusLine({
     agent,
     nowAtom,
+    mark,
     className,
 }: {
     agent: AgentVM;
     nowAtom: Atom<number>;
+    mark?: ReactNode;
     className?: string;
 }) {
     const project = projectOf(agent);
     const rt = runtimeMeta(agent.agent);
     return (
         <div className={cn("flex min-w-0 items-center gap-2", className)}>
-            <QuietDot nowAtom={nowAtom} agentId={agent.id} state={agent.state} />
+            {mark ?? <QuietDot nowAtom={nowAtom} agentId={agent.id} state={agent.state} />}
             <span title={rt.label} className="shrink-0">
-                <RuntimeMark runtime={agent.agent} className={cn("shrink-0 font-mono text-[10px] leading-none", rt.text)} />
+                <RuntimeMark
+                    runtime={agent.agent}
+                    className={cn("shrink-0 font-mono text-[10.5px] leading-none", rt.text)}
+                />
             </span>
-            <b className="min-w-[30px] flex-1 truncate font-mono text-[13.5px] font-semibold text-primary">{agent.name}</b>
+            <b className="min-w-[30px] flex-1 truncate font-sans text-[13.5px] font-semibold text-primary">
+                {agent.name}
+            </b>
             {project ? (
-                <span className="shrink-0 rounded-[5px] border border-edge-mid bg-surface-raised px-1.5 py-px font-mono text-[10px] text-muted">
+                <span className="shrink-0 rounded-[5px] border border-edge-mid bg-surface-raised px-1.5 py-px font-mono text-[10.5px] text-muted">
                     {project}
                 </span>
             ) : null}

@@ -23,7 +23,8 @@ import {
     type Lineage,
     type RunInfo,
 } from "./runlineage";
-import { finishedRunLabel } from "./runmodel";
+import { finishedRunLabel, runComplete } from "./runmodel";
+import { taskStrip, taskStripLabel, type TaskStrip } from "./runstrip";
 import { detailOf } from "./runtimeline";
 import { modelLabel } from "./session-models/sessionviewmodel";
 
@@ -53,6 +54,8 @@ export interface TaskRowVM {
     // how long it has run, or ran; the row shows its tag instead when it has one
     age?: string;
     kind: "live" | "wait" | "done";
+    // a worker's question the lead holds; the row draws "→ lead" before its tag
+    toLead?: boolean;
     inline?: "ask" | "review";
     waitOn?: "deps" | "slot";
     needsYou: boolean;
@@ -65,11 +68,13 @@ export interface LeadCardVM {
     rows: TaskRowVM[];
     waiting: TaskRowVM[];
     done: TaskRowVM[];
-    segs: RowTone[];
     askCount: number;
     needsYou: boolean;
     planning: boolean;
     finished: boolean;
+    complete: boolean;
+    // the run's task strip and its words for a screen reader; none before a plan exists
+    bar?: { strip: TaskStrip; label: string };
     progress: { done: number; total: number };
     elapsed: string;
     // what the lead is doing, and what the run has cost so far
@@ -237,7 +242,13 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
     const ask = workerAsk(run.digest, task.id);
     if (ask?.owner === "lead") {
         const left = ask.deadline ? formatLeft(ask.deadline - now) : "";
-        return { ...base, sub: join(task.id, "asked the lead"), tag: join("→ lead", left), actions: ["takeover"] };
+        return {
+            ...base,
+            toLead: true,
+            sub: join(task.id, "asked the lead"),
+            tag: left || undefined,
+            actions: ["takeover"],
+        };
     }
     if (workerNeedsYou(run, task.id, worker) && worker.ask != null) {
         return { ...base, tone: "ask", tag: "asking", inline: "ask", needsYou: true, sub: join(task.id, "asks you") };
@@ -279,15 +290,17 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
     const workers = dag?.workerroute;
     const workerModel = modelLabel(workers?.model) || workers?.runtime || "default";
     const leadModel = lead ? `lead ${lead.model || lead.agent || ""}`.trim() : "no lead";
+    const strip = taskStrip(dag, run.digest);
     return {
         rows: all.filter((r) => r.kind === "live"),
         waiting: all.filter((r) => r.kind === "wait"),
         done: all.filter((r) => r.kind === "done"),
-        segs: all.map((r) => r.tone),
         askCount,
         needsYou: askCount > 0 || lead?.state === "asking",
         planning: dag == null,
         finished: dag != null && runFinished(run),
+        complete: runComplete(run),
+        bar: strip ? { strip, label: taskStripLabel(dag, run.digest) } : undefined,
         progress: runProgress(dag),
         elapsed: runElapsed(run, input.now),
         activity: leadActivity(run, lead, input.leadDown),
@@ -301,6 +314,26 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
             .join(" · "),
         settingsTitle: run.landPath ? `lands on wave/${run.runId}` : undefined,
     };
+}
+
+export type LeadMarkTone = "success" | "accent" | "warning" | "muted";
+
+/** Pure: the lead's Workflow mark, coloured as the agent tree colours it (agenttree.tsx MARK_COLOR): green only when
+ *  the run is complete. */
+export function leadMark(run: RunInfo, lead: AgentVM | undefined): { tone: LeadMarkTone; pulse: boolean } {
+    if (runComplete(run)) {
+        return { tone: "success", pulse: false };
+    }
+    if (lead == null || leadStandingBy(lead, run)) {
+        return { tone: "muted", pulse: false };
+    }
+    if (lead.state === "working") {
+        return { tone: "accent", pulse: true };
+    }
+    if (lead.state === "asking") {
+        return { tone: "warning", pulse: true };
+    }
+    return { tone: "muted", pulse: false };
 }
 
 /** Pure: the lead's line on its card. A lead at its prompt while the engine runs stands by; its own activity

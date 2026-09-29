@@ -5,8 +5,10 @@ import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { ChevronDown, Plus } from "lucide-react";
 import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsFromAgents } from "./agentsviewmodel";
@@ -63,7 +65,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                 )}
             >
                 {copy.label}
-                <span className="text-[9px] text-muted">▾</span>
+                <ChevronDown size={12} aria-hidden className="text-muted" />
             </button>
             {open ? <div className="fixed inset-0 z-50" onClick={close} /> : null}
             <PopoverReveal
@@ -72,9 +74,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                 className="absolute left-0 top-[calc(100%+7px)] z-[60] w-[268px] overflow-hidden rounded-lg border border-edge-strong bg-surface-raised shadow-popover"
             >
                         <div className="px-3 pb-1.5 pt-[9px]">
-                            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-                                Switch project
-                            </span>
+                            <span className={cn(REGION_LABEL, "text-muted")}>Switch project</span>
                         </div>
                         <div className="max-h-[46vh] overflow-y-auto px-1.5 pb-1.5">
                             <button
@@ -117,7 +117,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                                             {p.name}
                                         </span>
                                         {p.askingCount > 0 ? (
-                                            <span className="font-mono text-[10px] font-semibold text-warning">
+                                            <span className="font-mono text-[10.5px] font-semibold text-warning">
                                                 {p.askingCount}
                                             </span>
                                         ) : null}
@@ -125,7 +125,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                                     </button>
                                     {confirming === p.name ? (
                                         <span className="flex shrink-0 items-center gap-1">
-                                            <span className="text-[10px] font-medium text-muted">Remove?</span>
+                                            <span className="text-[10.5px] font-medium text-muted">Remove?</span>
                                             <button
                                                 type="button"
                                                 title="Confirm remove"
@@ -203,7 +203,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                             }}
                             className="flex w-full cursor-pointer items-center gap-2 border-t border-border px-[15px] py-[11px] text-left text-accent-soft hover:bg-surface-hover"
                         >
-                            <span className="text-[15px] leading-none">+</span>
+                            <Plus size={14} aria-hidden />
                             <span className="text-[12.5px] font-semibold">New project</span>
                         </button>
             </PopoverReveal>

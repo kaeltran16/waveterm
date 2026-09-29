@@ -5,8 +5,20 @@
 // transitions are tracked by useRailTracking while the cockpit is mounted; run events come from the surface.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
+import {
+    Check,
+    CircleDashed,
+    CornerDownRight,
+    GitMerge,
+    MessageCircleQuestion,
+    MessageSquare,
+    Workflow,
+    X,
+    type LucideIcon,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatAgeShort, type AgentVM } from "./agentsviewmodel";
@@ -23,19 +35,20 @@ import {
     type RailRow,
 } from "./cockpitevents";
 import type { Lineage } from "./runlineage";
+import { SectionLabel } from "./sectionlabel";
 
 const snapsAtom = atom<Record<string, AgentSnap>>({}) as PrimitiveAtom<Record<string, AgentSnap>>;
 const agentEventsAtom = atom<RailEvent[]>([]) as PrimitiveAtom<RailEvent[]>;
 const seenTsAtom = atom<number>(0) as PrimitiveAtom<number>;
 
-const KIND: Record<RailKind, { glyph: string; verb: string; tone: string }> = {
-    asked: { glyph: "◆", verb: "asked", tone: "text-warning" },
-    answered: { glyph: "›", verb: "answered", tone: "text-accent-soft" },
-    finished: { glyph: "✓", verb: "finished", tone: "text-accent-soft" },
-    quiet: { glyph: "○", verb: "went quiet", tone: "text-warning" },
-    failed: { glyph: "✕", verb: "failed", tone: "text-error" },
-    told: { glyph: "›", verb: "you told", tone: "text-accent-soft" },
-    landed: { glyph: "●", verb: "landed", tone: "text-success" },
+const KIND: Record<RailKind, { icon: LucideIcon; verb: string; tone: string }> = {
+    asked: { icon: MessageCircleQuestion, verb: "asked", tone: "text-warning" },
+    answered: { icon: CornerDownRight, verb: "answered", tone: "text-accent-soft" },
+    finished: { icon: Check, verb: "finished", tone: "text-accent-soft" },
+    quiet: { icon: CircleDashed, verb: "went quiet", tone: "text-warning" },
+    failed: { icon: X, verb: "failed", tone: "text-error" },
+    told: { icon: MessageSquare, verb: "you told", tone: "text-accent-soft" },
+    landed: { icon: GitMerge, verb: "landed", tone: "text-success" },
 };
 
 // useRailTracking observes plain agents' state changes. Workers and leads are covered by their run's events.
@@ -93,14 +106,19 @@ export function CockpitEventsRail({
                     isNew && "bg-accent/[0.05]"
                 )}
             >
-                <span className={cn("pt-px text-center font-mono text-[11px] leading-[1.4]", k.tone)}>{k.glyph}</span>
+                <span className={cn("flex justify-center pt-px", k.tone)}>
+                    <k.icon size={13} aria-hidden />
+                </span>
                 <div className="flex min-w-0 flex-col gap-[3px]">
                     <div className="flex min-w-0 items-center gap-1.5">
-                        <span className="truncate font-mono text-[11.5px] font-semibold text-secondary">
-                            {e.group != null ? `◆ ${e.who}` : e.who}
+                        <span className="inline-flex min-w-0 items-center gap-[5px] font-mono text-[11.5px] font-semibold text-secondary">
+                            {e.group != null ? (
+                                <Workflow size={11} aria-hidden className="shrink-0 text-muted" />
+                            ) : null}
+                            <span className="truncate">{e.who}</span>
                         </span>
                         {tag ? (
-                            <span className="shrink-0 rounded-[4px] border border-edge-mid px-[5px] font-mono text-[9px] uppercase tracking-[0.06em] text-muted">
+                            <span className="shrink-0 rounded-[4px] border border-edge-mid px-[5px] font-mono text-[10.5px] text-muted">
                                 {tag}
                             </span>
                         ) : null}
@@ -123,7 +141,7 @@ export function CockpitEventsRail({
                     ) : null}
                 </div>
                 <div className="flex flex-col items-end gap-1.5 pt-px">
-                    <span className="font-mono text-[10px] text-muted">{formatAgeShort(now - e.ts)}</span>
+                    <span className="font-mono text-[10.5px] text-muted">{formatAgeShort(now - e.ts)}</span>
                     {isNew ? <span className="h-1.5 w-1.5 rounded-full bg-accent" /> : null}
                 </div>
             </div>
@@ -131,14 +149,14 @@ export function CockpitEventsRail({
     };
     const section = (label: string, tone: string, top: boolean) => (
         <div className={cn("flex items-center gap-2 px-2 pb-1", top ? "pt-0.5" : "pt-2.5")}>
-            <span className={cn("font-mono text-[10px] font-semibold uppercase tracking-[0.1em]", tone)}>{label}</span>
+            <span className={cn(REGION_LABEL, tone)}>{label}</span>
             <div className="h-px flex-1 bg-border" />
         </div>
     );
     return (
         <div className="-mx-2 flex flex-col gap-1">
             <div className="flex items-center justify-between px-2 pb-2">
-                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Events</h3>
+                <SectionLabel>Events</SectionLabel>
                 {fresh.length > 0 ? (
                     <button
                         type="button"

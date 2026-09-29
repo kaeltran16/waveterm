@@ -11,8 +11,10 @@ import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type Atom, type PrimitiveAtom } from "jotai";
+import { ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, SquareTerminal, Workflow } from "lucide-react";
 import { motion } from "motion/react";
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { AgentComposer } from "./agentcomposer";
@@ -34,10 +36,12 @@ import type { CardShare } from "./cardgridlayout";
 import { dagAction, rowAction, runCardAction, runCardErrorAtom, tellingRowAtom } from "./leadcardactions";
 import {
     foldOpen,
+    leadMark,
     REVIEW_ACTIONS,
     reviewFindings,
     runningCount,
     type LeadCardVM,
+    type LeadMarkTone,
     type RowAction,
     type RowTone,
     type TaskRowVM,
@@ -47,6 +51,8 @@ import { NarrationTimeline } from "./narrationtimeline";
 import { clampParallelism } from "./runconfig";
 import type { RunInfo } from "./runlineage";
 import { openRunDag } from "./runrailsections";
+import { SEG_FILL, type TaskStrip } from "./runstrip";
+import { SubLabel } from "./sectionlabel";
 import { parseSpecReview, type SpecReview } from "./specreview";
 import { StatusLine } from "./statusline";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
@@ -57,7 +63,13 @@ const BTN =
     "h-[23px] shrink-0 cursor-pointer rounded-[6px] border border-edge-mid bg-transparent px-[9px] text-[11.5px] font-medium text-secondary hover:border-edge-strong";
 const ROW_BTN =
     "flex h-6 cursor-pointer items-center gap-1.5 rounded-[6px] border border-edge-strong bg-transparent pl-1.5 pr-2.5 text-[11.5px] font-semibold text-secondary hover:bg-surface-hover";
-const SECTION_LABEL = "text-[10px] font-semibold uppercase tracking-[0.08em] text-muted";
+const PULSE = "animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none";
+const MARK_TONE: Record<LeadMarkTone, string> = {
+    success: "text-success",
+    accent: "text-accent",
+    warning: "text-warning",
+    muted: "text-muted",
+};
 
 // below this body height the lead's pane would squeeze the tasks, so a card that small starts it collapsed
 const LEAD_PANE_MIN_BODY_PX = 320;
@@ -74,16 +86,6 @@ const TONE_DOT: Record<RowTone, string> = {
     ok: "bg-success",
     muted: "bg-muted",
     wait: "shadow-[inset_0_0_0_1.5px_var(--color-muted)]",
-};
-const TONE_SEG: Record<RowTone, string> = {
-    run: "bg-accent",
-    ask: "bg-warning",
-    soft: "bg-accent-soft",
-    warn: "bg-warning",
-    err: "bg-error",
-    ok: "bg-success",
-    muted: "bg-muted",
-    wait: "bg-edge-strong",
 };
 const ACTION_LABEL: Record<RowAction, string> = {
     retry: "Retry",
@@ -156,6 +158,10 @@ export function LeadCard(p: LeadCardProps) {
     const spec = leadAsking ? parseSpecReview(lead.ask) : null;
     const question = lead?.ask?.questions?.[answerTab[lead.id] ?? 0]?.question;
     const parValue = par ?? run.dag?.parallelism ?? 1;
+    const mark = leadMark(run, lead);
+    const leadIcon = (
+        <Workflow size={13} aria-hidden className={cn("shrink-0", MARK_TONE[mark.tone], mark.pulse && PULSE)} />
+    );
 
     return (
         <motion.div
@@ -177,19 +183,17 @@ export function LeadCard(p: LeadCardProps) {
             )}
         >
             <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-1.5">
-                <span title="Orchestrator lead" className="shrink-0 text-[10px] leading-none text-accent-soft">
-                    ◆
-                </span>
                 {lead ? (
-                    <StatusLine agent={lead} nowAtom={model.nowAtom} className="min-w-0 flex-1" />
+                    <StatusLine agent={lead} nowAtom={model.nowAtom} mark={leadIcon} className="min-w-0 flex-1" />
                 ) : (
                     <>
-                        <b className="min-w-0 truncate font-mono text-[13.5px] font-semibold text-primary">
+                        {leadIcon}
+                        <b className="min-w-0 truncate font-sans text-[13.5px] font-semibold text-primary">
                             {run.title}
                         </b>
                         <span
                             title="A lead starts at the run's first judgment event"
-                            className="font-mono text-[10px] text-muted"
+                            className="shrink-0 font-mono text-[10.5px] text-muted"
                         >
                             no lead
                         </span>
@@ -199,7 +203,7 @@ export function LeadCard(p: LeadCardProps) {
                 {vm.askCount > 0 ? (
                     <span
                         title="Questions answered in this card; n cycles them"
-                        className="shrink-0 rounded-[5px] bg-warning/15 px-[7px] py-px font-mono text-[10px] font-semibold text-warning"
+                        className="shrink-0 rounded-[5px] bg-askingbg px-[7px] py-px font-mono text-[10.5px] font-semibold text-warning"
                     >
                         {vm.askCount} asking you
                     </span>
@@ -212,7 +216,7 @@ export function LeadCard(p: LeadCardProps) {
                             p.onOpenDiff(lead.id);
                         }}
                         title="Review changes in Diff"
-                        className="flex shrink-0 cursor-pointer items-center gap-1 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] font-bold hover:border-accent hover:bg-accent/10"
+                        className="flex h-5 shrink-0 cursor-pointer items-center gap-1 rounded-[5px] border border-edge-mid px-[7px] font-mono text-[10.5px] font-semibold hover:border-accent hover:bg-accent/10"
                     >
                         <span className="text-diff-added">+{diff.adds}</span>
                         <span className="text-diff-removed">−{diff.dels}</span>
@@ -226,9 +230,9 @@ export function LeadCard(p: LeadCardProps) {
                             model.openTerminal(lead.id);
                         }}
                         title="Open the lead's terminal (T)"
-                        className={cn(CTL_BOX, "font-mono text-[9px] font-bold")}
+                        className={CTL_BOX}
                     >
-                        {">_"}
+                        <SquareTerminal size={13} aria-hidden />
                     </button>
                 ) : null}
                 {p.onBackground ? (
@@ -259,17 +263,19 @@ export function LeadCard(p: LeadCardProps) {
             </div>
 
             {leadAsking ? (
-                <AttentionBanner glyph="diamond" label="Waiting on you" meta={formatAge(displayAgeMs(lead))} />
+                <AttentionBanner glyph="dot" pulse label="Waiting on you" meta={formatAge(displayAgeMs(lead))} />
             ) : null}
 
             <div className="flex shrink-0 flex-col gap-2 px-[18px] pb-2.5 pt-3">
-                <div className="flex h-[3px] gap-[3px]">
-                    {vm.segs.map((s, i) => (
-                        <div key={i} className={cn("h-full flex-1 rounded-[2px]", TONE_SEG[s])} />
-                    ))}
-                </div>
+                {vm.bar ? <LeadBar strip={vm.bar.strip} label={vm.bar.label} /> : null}
                 <div className="flex items-center gap-2 text-[11.5px] text-muted">
-                    <span className="min-w-0 flex-1 truncate text-accent-soft first-letter:uppercase">
+                    {vm.complete ? <Check size={12} aria-hidden className="shrink-0 text-success" /> : null}
+                    <span
+                        className={cn(
+                            "min-w-0 flex-1 truncate first-letter:uppercase",
+                            vm.complete ? "text-success" : "text-accent-soft"
+                        )}
+                    >
                         {vm.activity}
                     </span>
                     <span className="shrink-0 font-mono text-[10.5px]">
@@ -362,7 +368,7 @@ export function LeadCard(p: LeadCardProps) {
                                                 key={f.round}
                                                 className="grid grid-cols-[58px_minmax(0,1fr)] items-baseline gap-x-2"
                                             >
-                                                <span className="font-mono text-[10px] font-semibold text-error">
+                                                <span className="font-mono text-[10.5px] font-semibold text-error">
                                                     Round {f.round}
                                                 </span>
                                                 <span className="text-[12px] leading-[1.45] text-secondary">
@@ -387,7 +393,7 @@ export function LeadCard(p: LeadCardProps) {
                                                     }}
                                                     className="flex cursor-pointer items-center gap-[7px] rounded-[6px] border border-edge-mid bg-transparent py-1 pl-1.5 pr-2.5 hover:border-warning"
                                                 >
-                                                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-[4px] bg-surface-code font-mono text-[10px] text-secondary">
+                                                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-[4px] bg-surface-code font-mono text-[10.5px] text-secondary">
                                                         {i + 1}
                                                     </span>
                                                     <span className="text-[12px] font-semibold text-primary">
@@ -414,7 +420,7 @@ export function LeadCard(p: LeadCardProps) {
                             </TaskRow>
                         ))}
                         {vm.waiting.length > 0 ? (
-                            <div className={cn(SECTION_LABEL, "px-2.5 pb-1 pt-3")}>Waiting · {vm.waiting.length}</div>
+                            <SubLabel className="block px-2.5 pb-1 pt-3">Waiting · {vm.waiting.length}</SubLabel>
                         ) : null}
                         {vm.waiting.map((row) => (
                             <TaskRow
@@ -494,8 +500,13 @@ export function LeadCard(p: LeadCardProps) {
                     </button>
                 ) : null}
                 {run.dag ? (
-                    <button type="button" onClick={() => openRunDag(model, run)} className={BTN}>
-                        DAG ↗
+                    <button
+                        type="button"
+                        onClick={() => openRunDag(model, run)}
+                        className={cn(BTN, "inline-flex items-center gap-[5px]")}
+                    >
+                        DAG
+                        <ArrowUpRight size={11} aria-hidden />
                     </button>
                 ) : null}
                 {run.dag && !vm.finished ? (
@@ -642,11 +653,18 @@ function TaskRow({
                 </span>
                 <span
                     className={cn(
-                        "whitespace-nowrap font-mono text-[10.5px]",
+                        "inline-flex items-center whitespace-nowrap font-mono text-[10.5px]",
                         row.needsYou ? "text-warning" : row.tone === "err" ? "text-error" : "text-muted"
                     )}
                 >
-                    {row.tag ?? row.age}
+                    {row.toLead ? (
+                        <>
+                            <ArrowRight size={11} aria-hidden className="mr-[3px]" />
+                            lead{row.tag ? ` · ${row.tag}` : ""}
+                        </>
+                    ) : (
+                        (row.tag ?? row.age)
+                    )}
                 </span>
             </div>
             {focused || tell ? (
@@ -667,7 +685,7 @@ function TaskRow({
                                         }}
                                         className={ROW_BTN}
                                     >
-                                        <span className="rounded-[3px] bg-surface-code px-1 font-mono text-[9.5px] text-ink-mid">
+                                        <span className="rounded-[3px] bg-surface-code px-1 font-mono text-[10.5px] text-ink-mid">
                                             {i + 1}
                                         </span>
                                         {ACTION_LABEL[a]}
@@ -694,11 +712,30 @@ function TaskRow({
     );
 }
 
+// the run's task strip, the one the agent tree and the rail draw: a segment per task, or one done/total bar
+function LeadBar({ strip, label }: { strip: TaskStrip; label: string }) {
+    if (strip.kind === "bar") {
+        return (
+            <div role="img" aria-label={label} className="flex h-[3px] overflow-hidden rounded-[2px]">
+                <span className="h-full bg-success" style={{ flex: strip.done }} />
+                <span className="h-full bg-edge-strong" style={{ flex: strip.total - strip.done }} />
+            </div>
+        );
+    }
+    return (
+        <div role="img" aria-label={label} className="flex h-[3px] gap-[3px]">
+            {strip.states.map((st, i) => (
+                <span key={i} className={cn("h-full flex-1 rounded-[2px]", SEG_FILL[st])} />
+            ))}
+        </div>
+    );
+}
+
 function InlineBlock({ children }: { children: ReactNode }) {
     return (
         <div
             onClick={(e) => e.stopPropagation()}
-            className="mb-2 ml-[30px] mr-2.5 flex flex-col gap-[7px] border-l-2 border-warning/55 pb-[5px] pl-[11px] pt-[3px]"
+            className="mb-2 ml-[30px] mr-2.5 flex flex-col gap-2 rounded-[8px] border border-edge-mid bg-surface-raised px-[11px] py-[9px]"
         >
             {children}
         </div>
@@ -729,12 +766,16 @@ function Fold({
                     onToggle();
                 }}
                 className={cn(
-                    SECTION_LABEL,
-                    "flex cursor-pointer items-center gap-2 px-2.5 pb-1 pt-3 hover:text-secondary"
+                    REGION_LABEL,
+                    "flex cursor-pointer items-center gap-2 px-2.5 pb-1 pt-3 text-muted hover:text-secondary"
                 )}
             >
                 {label}
-                <span className="ml-auto font-normal">{open ? "▾" : "▸"}</span>
+                {open ? (
+                    <ChevronDown size={10} aria-hidden className="ml-auto" />
+                ) : (
+                    <ChevronRight size={10} aria-hidden className="ml-auto" />
+                )}
             </div>
             {open ? children : null}
         </>
@@ -756,16 +797,15 @@ function SpecReviewBlock({ spec, onOpen }: { spec: SpecReview; onOpen: () => voi
                 <button
                     type="button"
                     onClick={onOpen}
-                    className="h-[25px] shrink-0 cursor-pointer rounded-[6px] border border-accent/45 bg-transparent px-2.5 text-[11.5px] font-semibold text-accent-soft hover:bg-accent/10"
+                    className="inline-flex h-[25px] shrink-0 cursor-pointer items-center gap-[5px] rounded-[6px] border border-accent/45 bg-transparent px-2.5 text-[11.5px] font-semibold text-accent-soft hover:bg-accent/10"
                 >
-                    Open in Code ↗
+                    Open in Code
+                    <ArrowUpRight size={11} aria-hidden />
                 </button>
             </div>
             {spec.decisions.length > 0 ? (
                 <div className="flex flex-col gap-1">
-                    <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
-                        Decisions in it
-                    </span>
+                    <SubLabel>Decisions in it</SubLabel>
                     {spec.decisions.map((d, i) => (
                         <div
                             key={i}
@@ -813,11 +853,11 @@ function LeadPane({
             title="Show the lead's transcript"
             className="flex w-full shrink-0 cursor-pointer items-center gap-2.5 border-0 border-t border-edge-mid bg-surface py-[9px] pl-[18px] pr-3 text-left hover:bg-surface-hover"
         >
-            <span className={SECTION_LABEL}>Lead</span>
+            <SubLabel>Lead</SubLabel>
             <span className="min-w-0 flex-1 truncate text-[12px] text-ink-mid">
                 {latestMessageText(entries) ?? lead.activity ?? ""}
             </span>
-            {age ? <span className="shrink-0 font-mono text-[10px] text-muted">{age}</span> : null}
+            {age ? <span className="shrink-0 font-mono text-[10.5px] text-muted">{age}</span> : null}
             <span className="shrink-0 px-2 text-[11px] font-semibold text-ink-mid">Show</span>
         </button>
     );
@@ -837,7 +877,7 @@ function LeadTranscript({
     return (
         <div className="flex min-h-0 flex-1 flex-col border-t border-edge-mid bg-surface">
             <div className="flex shrink-0 items-center gap-2 pb-1 pl-[18px] pr-3 pt-[9px]">
-                <span className={cn(SECTION_LABEL, "flex-1")}>Lead</span>
+                <SubLabel className="flex-1">Lead</SubLabel>
                 <button
                     type="button"
                     onClick={onHide}
