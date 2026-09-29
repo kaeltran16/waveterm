@@ -74,11 +74,7 @@ export function EndedTranscript({ model, agent }: { model: AgentsViewModel; agen
                 ) : null}
             </div>
             <div className="relative min-h-0 flex-1">
-                <div
-                    ref={scrollRef}
-                    onScroll={onScroll}
-                    className="h-full overflow-y-auto px-[22px] py-[12px] opacity-80"
-                >
+                <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto px-[22px] py-[12px]">
                     {entries.length > 0 ? (
                         <NarrationTimeline entries={entries} active={false} />
                     ) : missing ? (
