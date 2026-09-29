@@ -219,7 +219,7 @@ func TestScanRootsPrunesByModtime(t *testing.T) {
 	if err := os.MkdirAll(proj, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	line := `{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","message":{"id":"m","model":"claude-haiku-4-5","usage":{"input_tokens":7}}}`
+	line := `{"type":"assistant","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `","message":{"id":"m","model":"claude-haiku-4-5","usage":{"input_tokens":7}}}`
 	fresh := filepath.Join(proj, "fresh.jsonl")
 	stale := filepath.Join(proj, "stale.jsonl")
 	for _, p := range []string{fresh, stale} {
@@ -240,6 +240,35 @@ func TestScanRootsPrunesByModtime(t *testing.T) {
 	all := scanRoots(claude, filepath.Join(dir, "codex-missing"), filepath.Join(dir, "opencode-missing"), filepath.Join(dir, "pi-missing"), 0)
 	if len(all) != 1 || all[0].Msgs != 2 {
 		t.Fatalf("want 1 bucket msgs=2 with no prune, got %+v", all)
+	}
+}
+
+func TestScanRootsDropsTurnsBeforeWindowFromFreshTranscript(t *testing.T) {
+	dir := t.TempDir()
+	proj := filepath.Join(dir, "claude", "proj")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	since := windowStart(time.Now(), 7)
+	turn := func(id string, ts time.Time, input int) string {
+		return `{"type":"assistant","timestamp":"` + ts.UTC().Format(time.RFC3339Nano) + `","message":{"id":"` + id +
+			`","model":"claude-haiku-4-5","usage":{"input_tokens":` + fmt.Sprintf("%d", input) + `}}}` + "\n"
+	}
+	// one long-running session: written today, but its first turns are older than the window
+	body := turn("old", time.Now().AddDate(0, 0, -20), 1) +
+		turn("edge", since.Add(-time.Second), 10) +
+		turn("first", since, 100) +
+		turn("now", time.Now(), 1000)
+	if err := os.WriteFile(filepath.Join(proj, "s.jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := scanRoots(filepath.Join(dir, "claude"), filepath.Join(dir, "codex-missing"), filepath.Join(dir, "opencode-missing"), filepath.Join(dir, "pi-missing"), 7)
+	total := 0
+	for _, b := range got {
+		total += b.Input
+	}
+	if total != 1100 {
+		t.Fatalf("want only the in-window turns (1100 input tokens), got %d from %+v", total, got)
 	}
 }
 

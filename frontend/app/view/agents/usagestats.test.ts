@@ -61,6 +61,19 @@ describe("aggregateBuckets", () => {
         expect(stats.totals.spendWindowUsd).toBeGreaterThan(0);
     });
 
+    it("leaves a model, and a provider, with no tokens out of the by-model breakdown", () => {
+        const stats = aggregateBuckets(
+            [
+                bkt({ day: today, input: 100 }),
+                bkt({ harness: "pi", provider: "openrouter", model: "deepseek-v4.1-flash", day: today }),
+                bkt({ model: "claude-sonnet-4-6", day: today }),
+            ],
+            now
+        );
+        expect(stats.providers.map((p) => p.provider)).toEqual(["anthropic"]);
+        expect(stats.providers[0].models.map((m) => m.model)).toEqual(["claude-opus-4-8"]);
+    });
+
     it("by-model pct is over the whole loaded window (includes >7d buckets), desc by tokens", () => {
         const stats = aggregateBuckets(
             [
