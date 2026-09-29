@@ -6,6 +6,7 @@ package orchestrate
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
@@ -44,6 +45,21 @@ func RunFinishedWake(f *waveobj.FinalStage) string {
 		lines = append(lines, "- "+r)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// landConflictLine goes after the run-finished wake's outcome when the land would hold on a conflict, so the lead
+// fixes it before complete closes its tab. Empty when the land merges cleanly or cannot be predicted: the land
+// checks again either way.
+func landConflictLine(ctx context.Context, run *waveobj.Run) string {
+	files, err := LandConflicts(ctx, run)
+	if err != nil {
+		log.Printf("run %s: %v", run.ID, err)
+		return ""
+	}
+	if len(files) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("\nThe land into %s will conflict in %s: merge %s into this tree, resolve, commit, then complete.", run.BaseBranch, strings.Join(files, ", "), run.BaseBranch)
 }
 
 // finalFailedWake carries the final stage's failure whole: the lead writes its fix plan from it. After the

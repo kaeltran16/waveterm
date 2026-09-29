@@ -145,3 +145,64 @@ func TestATaskCompletingWithoutACommitGetsNoProjectHead(t *testing.T) {
 		t.Fatalf("a task run must not be credited with the project head, got %q", run.EndCommit)
 	}
 }
+
+// run a088e568: the lead completed, its tab closed, and only then did the land hold on a conflict with main
+func TestLeadCompleteRefusesALandThatWouldConflict(t *testing.T) {
+	setup := func(t *testing.T, conflict bool) *leadCompleteFixture {
+		t.Helper()
+		f := newLeadCompleteFixture(t)
+		ctx := context.Background()
+		tree, err := orchestrate.CreateRunWorktree(ctx, f.projectDir, f.owner.ID, f.git(t, "rev-parse", "HEAD"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := wstore.UpdateRun(ctx, f.channelId, f.owner.ID, func(r *waveobj.Run) error {
+			r.LandPath, r.BaseBranch = tree, "main"
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(tree, "base.txt"), []byte("branch\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := exec.Command("git", "-C", tree, "commit", "-am", "branch").CombinedOutput(); err != nil {
+			t.Fatalf("committing on the branch: %v\n%s", err, out)
+		}
+		if conflict {
+			f.write(t, "base.txt", "main\n")
+			f.git(t, "commit", "-m", "main", "--", "base.txt")
+		}
+		return f
+	}
+	advance := func(f *leadCompleteFixture, holdLand bool) error {
+		return (&WshServer{}).AdvanceRunCommand(context.Background(), wshrpc.CommandAdvanceRunData{
+			ChannelId: f.channelId, RunId: f.owner.ID, PhaseIdx: 0, Action: jarvis.RunAction_Complete, HoldLand: holdLand,
+		})
+	}
+
+	t.Run("a conflict is refused, naming its files and the way out", func(t *testing.T) {
+		f := setup(t, true)
+		err := advance(f, false)
+		if err == nil || !strings.Contains(err.Error(), "base.txt") || !strings.Contains(err.Error(), "--hold-land") {
+			t.Fatalf("complete = %v, want a refusal naming base.txt and --hold-land", err)
+		}
+		if run, _ := wstore.GetRun(context.Background(), f.channelId, f.owner.ID); run.Status == jarvis.RunStatus_Done {
+			t.Fatal("a refused complete still finished the run")
+		}
+	})
+	t.Run("--hold-land completes anyway", func(t *testing.T) {
+		f := setup(t, true)
+		if err := advance(f, true); err != nil {
+			t.Fatalf("complete --hold-land: %v", err)
+		}
+		if run, _ := wstore.GetRun(context.Background(), f.channelId, f.owner.ID); run.Status != jarvis.RunStatus_Done {
+			t.Fatalf("run is %s, want done", run.Status)
+		}
+	})
+	t.Run("a clean land completes", func(t *testing.T) {
+		f := setup(t, false)
+		if err := advance(f, false); err != nil {
+			t.Fatalf("complete: %v", err)
+		}
+	})
+}

@@ -709,6 +709,14 @@ It **holds** the land, with a reason, and leaves the checkout as it was, when:
 
 Uncommitted edits to other files do not hold it, and survive the merge.
 
+A conflict with the base is predicted before the lead leaves, because the land runs after `complete` has closed
+the lead's tab. At run finished the engine runs `git merge-tree` of the branch against the base, which touches no
+tree. When it finds a conflict, the wake ends with "The land into <base> will conflict in <files>: merge <base>
+into this tree, resolve, commit, then complete". The lead's `wsh jarvis complete` checks again and is refused while
+the conflict stands. `wsh jarvis complete --hold-land` completes anyway, for when the human decides to leave it,
+and the land then holds as above. The base can still move between `complete` and the merge; a conflict that
+arrives then holds the land.
+
 A held land raises a **land held** item under Waiting on you: "The run's branch was not merged back: <reason>".
 Clear the reason, then run `wsh runs land <run-id>`, which retries and prints where the land stands.
 `wsh runs land <run-id> --force` lands a run whose final stage failed; it is your call only, and the lead is never

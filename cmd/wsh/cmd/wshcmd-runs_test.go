@@ -343,6 +343,18 @@ func TestRunsShowLinesPrintVerificationAndLand(t *testing.T) {
 	}
 }
 
+// run a088e568's held land printed below its 30-line task digest, where a `| head` read never reached it
+func TestRunsShowLinesPrintTheLandBesideTheStatus(t *testing.T) {
+	ch := &waveobj.Channel{OID: "ch-1", Name: "waveterm"}
+	run := &waveobj.Run{ID: "r-1", Status: "done", Mode: "orchestrator", Land: &waveobj.RunLand{State: "held", Reason: "the merge conflicts with main in a.mjs; it was aborted"}}
+	digest := &wshrpc.CommandDagStatusRtnData{}
+	lines := runsShowLines(ch, run, digest, 2, nil)
+	status := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "status ") })
+	if status < 0 || status+1 >= len(lines) || lines[status+1] != "land     held: the merge conflicts with main in a.mjs; it was aborted" {
+		t.Fatalf("the land must follow the status line:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
 // fakeRunsRpc points RpcClient at channels and replies to the one request the call under test sends with rtn.
 func fakeRunsRpc(t *testing.T, call func() error, rtn any) wshutil.RpcMessage {
 	t.Helper()

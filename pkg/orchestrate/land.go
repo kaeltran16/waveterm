@@ -5,11 +5,14 @@ package orchestrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -356,6 +359,41 @@ func clearUntrackedCopies(ctx context.Context, project, branch string) string {
 	}
 	return ""
 }
+
+// LandConflicts names the files the land of a branch-landed run would conflict in, sorted, while its lead can
+// still fix them: the land itself runs after the lead's complete has closed its tab. git merge-tree merges the
+// two commits in memory, so neither the checkout nor the landing tree is touched. A run that lands in the
+// checkout, or started on a detached HEAD, has no land to predict.
+func LandConflicts(ctx context.Context, run *waveobj.Run) ([]string, error) {
+	if run.LandPath == "" || run.BaseBranch == "" {
+		return nil, nil
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", run.ProjectPath, "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", run.BaseBranch, "wave/"+run.ID)
+	out, err := cmd.Output()
+	if err == nil {
+		return nil, nil
+	}
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		return nil, fmt.Errorf("predicting the land of wave/%s into %s: %w", run.ID, run.BaseBranch, err)
+	}
+	fields := strings.Split(string(out), "\x00")
+	// exit 1 is a conflict only with the merged tree's id first; a bad ref also exits 1, with nothing on stdout
+	if exit.ExitCode() != 1 || !objectID.MatchString(fields[0]) {
+		return nil, fmt.Errorf("predicting the land of wave/%s into %s: %w: %s", run.ID, run.BaseBranch, err, strings.TrimSpace(string(exit.Stderr)))
+	}
+	var files []string
+	for _, p := range fields[1:] {
+		if p != "" {
+			files = append(files, p)
+		}
+	}
+	slices.Sort(files)
+	return slices.Compact(files), nil
+}
+
+// objectID is a git object id, sha1 or sha256.
+var objectID = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 
 // mergeRefusal says why git would not make the merge. A conflict is aborted, so the checkout is left with no
 // merge state; a refusal to overwrite uncommitted edits never started one, and the edits are untouched.

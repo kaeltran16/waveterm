@@ -266,6 +266,51 @@ func TestLandHoldsWhatItCannotMergeSafely(t *testing.T) {
 	}
 }
 
+func TestLandConflictsPredictsTheLandsConflicts(t *testing.T) {
+	t.Run("every file both sides changed, with no tree touched", func(t *testing.T) {
+		f, tree := landFixture(t)
+		commitOnBranch(t, tree, "base.txt", "branch\n")
+		commitOnBranch(t, tree, "list.txt", "branch\n")
+		commitOnBase(t, f.project, "base.txt", "main\n")
+		commitOnBase(t, f.project, "list.txt", "main\n")
+		head := gitCmd(t, f.project, "rev-parse", "main")
+
+		got, err := LandConflicts(f.ctx, f.owner(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"base.txt", "list.txt"}; !slices.Equal(got, want) {
+			t.Fatalf("LandConflicts = %v, want %v", got, want)
+		}
+		if gitCmd(t, f.project, "rev-parse", "main") != head || mergeInProgress(f.project) || mergeInProgress(tree) {
+			t.Fatal("predicting the land touched the checkout or the landing tree")
+		}
+	})
+	t.Run("none when the base moved elsewhere", func(t *testing.T) {
+		f, _ := landFixture(t)
+		commitOnBase(t, f.project, "upstream.txt", "base\n")
+		if got, err := LandConflicts(f.ctx, f.owner(t)); err != nil || got != nil {
+			t.Fatalf("LandConflicts = %v, %v, want none", got, err)
+		}
+	})
+	t.Run("none for a run that lands in the checkout", func(t *testing.T) {
+		f, _ := landFixture(t)
+		run := f.owner(t)
+		run.LandPath = ""
+		if got, err := LandConflicts(f.ctx, run); err != nil || got != nil {
+			t.Fatalf("LandConflicts = %v, %v, want none", got, err)
+		}
+	})
+	t.Run("an error for a branch that is gone", func(t *testing.T) {
+		f, _ := landFixture(t)
+		run := f.owner(t)
+		run.BaseBranch = "no-such-branch"
+		if _, err := LandConflicts(f.ctx, run); err == nil {
+			t.Fatal("LandConflicts against a missing base returned no error")
+		}
+	})
+}
+
 func TestLandAbortsAConflictedMerge(t *testing.T) {
 	f, tree := landFixture(t)
 	commitOnBranch(t, tree, "base.txt", "branch\n")

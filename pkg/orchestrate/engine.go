@@ -622,7 +622,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventComplete, g, "")
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagDone, nil, map[string]any{})
-			PostWake(ctx, g.ChannelId, g.RunID, finished)
+			PostWake(ctx, g.ChannelId, g.RunID, finished+landConflictLine(ctx, owner))
 		})
 	}
 	g.UpdatedTs = time.Now().UnixMilli()

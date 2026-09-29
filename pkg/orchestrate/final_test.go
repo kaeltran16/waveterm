@@ -227,6 +227,43 @@ func TestFinalWithOnlyAPassingVerifyPasses(t *testing.T) {
 	}
 }
 
+// run a088e568: the lead completed on a clean "run finished", and the land held on a conflict with a main commit
+// 25 minutes old, after the lead's tab had closed
+func TestRunFinishedWakeNamesTheConflictsTheLandWouldHoldOn(t *testing.T) {
+	passed := runFinishedWake + "\nThe final stage passed on the merged result."
+	cases := []struct {
+		name     string
+		conflict bool
+		want     string
+	}{
+		{"a conflict the lead can still fix", true, passed + "\nThe land into main will conflict in base.txt: merge main into this tree, resolve, commit, then complete."},
+		{"a clean land adds nothing", false, passed},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			lead := newFakeLead(t)
+			f := finalFixture(t, passVerify, "", "")
+			tree := f.land(t)
+			if err := wstore.UpdateRun(f.ctx, f.channel, f.ownerID, func(r *waveobj.Run) error {
+				r.BaseBranch = "main"
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			commitOnBranch(t, tree, "base.txt", "branch\n")
+			if c.conflict {
+				commitOnBase(t, f.project, "base.txt", "main\n")
+			}
+
+			runFinal(t, f)
+
+			if len(lead.sends) != 1 || lead.sends[0] != c.want {
+				t.Fatalf("want %q, got %q", c.want, lead.sends)
+			}
+		})
+	}
+}
+
 func TestFinalCountsReviewCaveatsAndAMissingVerify(t *testing.T) {
 	f := finalFixture(t, "", "", "")
 	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {

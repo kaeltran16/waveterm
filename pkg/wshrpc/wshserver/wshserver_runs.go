@@ -636,6 +636,14 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		path := orchestrate.WorkerReportPath(preRun.DagORef, preRun.TaskId)
 		return fmt.Errorf("%s: write to %s what you did, what you did differently and why, what a later task must know, and what you could not verify, then run wsh jarvis complete --commit <sha> --report %s", ErrWorkerReportRequired, path, path)
 	}
+	// the land runs after complete has closed the lead's tab, so a conflict it would hold on is the lead's to fix now
+	if data.Action == jarvis.RunAction_Complete && !data.HoldLand && preRun != nil && preRun.TaskId == "" && preStatus != jarvis.RunStatus_Done {
+		if files, cerr := orchestrate.LandConflicts(ctx, preRun); cerr != nil {
+			log.Printf("AdvanceRun: run %s: %v", preRun.ID, cerr)
+		} else if len(files) > 0 {
+			return fmt.Errorf("run %s would not land: wave/%s conflicts with %s in %s. Merge %s into this tree, resolve, commit, then complete again. If the human decides to leave the conflict for later, complete with --hold-land", preRun.ID, preRun.ID, preRun.BaseBranch, strings.Join(files, ", "), preRun.BaseBranch)
+		}
+	}
 	ts := time.Now().UnixMilli()
 	err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
 		next, e := applyRunAction(*r, data, ts)
@@ -797,6 +805,7 @@ func (ws *WshServer) ReportRunPhaseCommand(ctx context.Context, data wshrpc.Comm
 		Note:      data.Note,
 		Commit:    data.Commit,
 		Report:    data.Report,
+		HoldLand:  data.HoldLand,
 	})
 }
 

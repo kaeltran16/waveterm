@@ -66,7 +66,8 @@ var jarvisCompleteCmd = &cobra.Command{
 			}
 			report = r
 		}
-		if err := reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete", Artifacts: artifacts, Commit: commit, Report: report}); err != nil {
+		holdLand, _ := cmd.Flags().GetBool("hold-land")
+		if err := reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete", Artifacts: artifacts, Commit: commit, Report: report, HoldLand: holdLand}); err != nil {
 			return err
 		}
 		fmt.Println("run phase marked complete; the engine takes it from here")
@@ -103,6 +104,7 @@ func init() {
 	jarvisRunCmd.Flags().String("mode", "", "child run mode: quick|orchestrator (default: inherit the channel strategy)")
 	jarvisCompleteCmd.Flags().String("commit", "", "SHA of your finished work (e.g. $(git rev-parse HEAD)); scopes this run's evidence diff to its own commits")
 	jarvisCompleteCmd.Flags().String("report", "", "path to a file holding your final report; read relative to this process's working directory and sealed as the run's evidence summary")
+	jarvisCompleteCmd.Flags().Bool("hold-land", false, "complete even though the run's branch conflicts with its base; the land stays held for the human")
 	jarvisCmd.AddCommand(jarvisCompleteCmd)
 	jarvisCmd.AddCommand(jarvisRunCmd)
 	jarvisCmd.AddCommand(jarvisCtxCmd)

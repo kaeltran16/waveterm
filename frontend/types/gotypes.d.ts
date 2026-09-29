@@ -331,6 +331,7 @@ declare global {
         note?: string;
         commit?: string;
         report?: string;
+        holdland?: boolean;
     };
 
     // wshrpc.CommandAgentSyncAdoptData
@@ -1278,6 +1279,7 @@ declare global {
         note?: string;
         commit?: string;
         report?: string;
+        holdland?: boolean;
     };
 
     // wshrpc.CommandResolveAmbientRtnData

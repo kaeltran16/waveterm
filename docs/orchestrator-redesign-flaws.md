@@ -308,17 +308,26 @@ The gaps are in who hears about it.
 - **The hold lands after the only agent with context has gone.** `complete` triggers seal-then-land
   (`sealThenLand`, `wshserver_runs.go`), so the hold is decided after the lead's tab has closed. The only
   signal is a `run-land-held` item in the Brief queue. A merge conflict inside a run goes back to the lead,
-  but a conflict at land does not.
+  but a conflict at land does not. **Fixed:** a lead's `complete` runs `orchestrate.LandConflicts` (`git
+  merge-tree`, no tree touched) and is refused while the land would conflict, naming the files;
+  `wsh jarvis complete --hold-land` completes anyway when the human decides to leave it. The base can still
+  move between `complete` and the merge, and a conflict that arrives then still holds the land.
 - **"Run finished" does not check the land first.** The conflicting `main` commit was 25 min old when the lead
-  was woken. A merge-tree check against the base at `dag-done` could have put "the land will conflict in
-  X" into the wake, so the lead fixes it the way it fixes a merge-point conflict, before `complete`.
-- **The reason names one file.** `git merge` stops at the first conflict it reports. `git merge-tree
-  --write-tree --name-only` lists every conflicting file (here both `scenarios.mjs` and `agenttree.tsx`).
+  was woken. **Fixed:** at `dag-done` the run-finished wake ends with "The land into main will conflict in
+  <files>: merge main into this tree, resolve, commit, then complete" (`landConflictLine`, `queue.go`).
+- **The reason names one file.** **Wrong premise, dropped.** `mergeRefusal` lists every unmerged file
+  (`git diff --diff-filter=U`). At the hold (12:13:40) `scenarios.mjs` was the only conflict; the
+  `agenttree.tsx` conflict arrived with `c403609e` at 12:15, after the hold.
 - **`wsh runs show` prints `land` after the whole task digest** (line 42 of 73 here), below the task results.
-  A `| head` read, as the lead ran it, misses it. It belongs beside `status`.
+  A `| head` read misses it. **Fixed:** the `land` line follows `status`.
 - **The plan asked for a guaranteed conflict.** The goal said run a2521425 was appending `narrationFeed`, and
   this run's plan still appended its entry at the end of the same list. Two concurrent runs that append to one
-  list tail always conflict at land. That is a plan-writing rule for leads, not an engine bug.
+  list tail always conflict at land. **Not pursued:** a lead generally cannot see what other runs' plans touch,
+  and with the conflict predicted before `complete`, an overlap like this costs the lead one resolve.
+
+None of the fixes has run live; they are unit-tested (`TestLandConflictsPredictsTheLandsConflicts`,
+`TestRunFinishedWakeNamesTheConflictsTheLandWouldHoldOn`, `TestLeadCompleteRefusesALandThatWouldConflict`,
+`TestRunsShowLinesPrintTheLandBesideTheStatus`).
 
 Recovery, by the lead on the human's go-ahead:
 

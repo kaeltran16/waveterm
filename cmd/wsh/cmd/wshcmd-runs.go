@@ -575,6 +575,8 @@ func runsShowLines(ch *waveobj.Channel, r *waveobj.Run, digest *wshrpc.CommandDa
 		fmt.Sprintf("project  %s (channel %s)", ch.Name, ch.OID),
 		fmt.Sprintf("status   %s  mode=%s  created %s", r.Status, runsMode(r), runsAgo(r.CreatedTs, now)),
 	}
+	// beside the status: a held land is what a reader must not miss, and the digest below runs to dozens of lines
+	lines = append(lines, runsLandLines(r.Land)...)
 	lines = append(lines, runsQuestionLines(r.ID, asks)...)
 	route := r.Runtime
 	if r.Model != "" {
@@ -617,7 +619,6 @@ func runsShowLines(ch *waveobj.Channel, r *waveobj.Run, digest *wshrpc.CommandDa
 			}
 		}
 	}
-	lines = append(lines, runsLandLines(r.Land)...)
 	if report := runsReport(r); report != "" {
 		lines = append(lines, "", "report", report)
 	}
