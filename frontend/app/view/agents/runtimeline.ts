@@ -148,6 +148,9 @@ const KIND_TITLE: Record<string, string> = {
     "review-overruled": "Lead overruled the review",
     "task-amended": "Lead amended a task",
     "task-lead-told": "Lead told a worker",
+    "land-held": "Land held",
+    "stage-session-started": "Judging session started",
+    "plan-reviewed": "Plan reviewed",
 };
 
 // KIND_TONE stays inside the EXISTING status/phase tone utilities (the same token classes
@@ -208,13 +211,25 @@ const KIND_TONE: Record<string, string> = {
     "lead-launched": "text-muted",
     "task-told": "text-muted",
     "task-verify-started": "text-muted",
+    "land-held": "text-warning",
+    "stage-session-started": "text-muted",
+    "plan-reviewed": "text-muted",
 };
 
 export function eventKindTitle(kind: string): string {
     return KIND_TITLE[kind] ?? kind;
 }
 
+// a stage session is the plan reviewer or the final verifier, and only its detail says which
+const STAGE_ROLE_TITLE: Record<string, string> = {
+    "plan-reviewer": "Plan reviewer started",
+    verifier: "Final verifier started",
+};
+
 export function eventTitle(event: RunEvent): string {
+    if (event.kind === "stage-session-started") {
+        return STAGE_ROLE_TITLE[detailOf<{ role?: string }>(event)?.role ?? ""] ?? eventKindTitle(event.kind);
+    }
     return eventKindTitle(event.kind);
 }
 

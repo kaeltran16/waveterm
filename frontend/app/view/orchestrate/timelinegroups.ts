@@ -4,7 +4,7 @@
 // one-line snippet, quiet gaps and the activity strip. Attention is ATTENTION_KINDS and titles are
 // runtimeline's, so this rail and the run body's timeline cannot disagree about either.
 
-import { detailOf, eventKindTitle } from "../agents/runtimeline";
+import { detailOf, eventTitle } from "../agents/runtimeline";
 import { ATTENTION_KINDS, taskIdOf, type TimelineFilter } from "./timelinefilter";
 
 // one phase of one task within BURST_MS reads as one row; a silence of QUIET_MS or more is worth a gap row
@@ -85,8 +85,8 @@ const STEP_LABEL = new Map<string, string>([
     ["task-failed", "failed"],
 ]);
 
-export function stepLabel(kind: string): string {
-    return STEP_LABEL.get(kind) ?? eventKindTitle(kind);
+export function stepLabel(event: RunEvent): string {
+    return STEP_LABEL.get(event.kind) ?? eventTitle(event);
 }
 
 export type EventGroup = {

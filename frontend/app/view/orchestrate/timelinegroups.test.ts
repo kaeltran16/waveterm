@@ -103,8 +103,16 @@ describe("snippetOf / eventDetail", () => {
 
 describe("stepLabel / glyphOf / stripTicks", () => {
     it("labels steps in words", () => {
-        expect(stepLabel("task-verify-passed")).toBe("verify passed");
-        expect(stepLabel("dag-done")).not.toBe("");
+        expect(stepLabel(ev(0, "task-verify-passed", "t-1"))).toBe("verify passed");
+        expect(stepLabel(ev(0, "dag-done"))).not.toBe("");
+    });
+    it("names a stage session by its role, so two in one burst read apart", () => {
+        expect(stepLabel(ev(0, "stage-session-started", undefined, { role: "plan-reviewer" }))).toBe(
+            "Plan reviewer started"
+        );
+        expect(stepLabel(ev(0, "stage-session-started", undefined, { role: "verifier" }))).toBe(
+            "Final verifier started"
+        );
     });
     it("gives attention kinds the alert glyph", () => {
         expect(glyphOf("task-failed")).toBe("alert");

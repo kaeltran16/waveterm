@@ -130,7 +130,7 @@ export function DagCardNode({ data }: NodeProps) {
                 onPointerEnter={() => d.onHover(task.id)}
                 onPointerLeave={() => d.onHover(null)}
                 style={{ width: CARD_W, height: CARD_H }}
-                className={`flex cursor-grab select-none flex-col justify-between rounded-[11px] border px-2.5 py-2 shadow-popover-line ${bg} ${border} ${
+                className={`flex cursor-grab select-none flex-col justify-between rounded-[11px] border px-2.5 py-[7px] shadow-popover-line ${bg} ${border} ${
                     dimmed ? "opacity-40" : ""
                 }`}
             >
@@ -157,7 +157,7 @@ export function LaneBandNode({ data }: NodeProps) {
             style={{ width: rect.w, height: rect.h }}
             className={`pointer-events-none rounded-2xl border border-dashed border-edge-mid ${dimmed ? "opacity-40" : ""}`}
         >
-            <div className="px-2.5 py-[5px] font-mono text-[10.5px] text-ink-faint">lane · one merge</div>
+            <div className="px-2.5 py-[5px] font-mono text-[10.5px] text-muted">lane · one merge</div>
         </div>
     );
 }
@@ -257,7 +257,7 @@ function TaskPeekCard({
                     ) : null}
                 </div>
             ) : null}
-            <div className="font-mono text-[10.5px] leading-[14px] text-ink-faint">
+            <div className="font-mono text-[10.5px] leading-[14px] text-muted">
                 {more
                     ? "click to select and read the full description · double-click opens its worker"
                     : "click to select · double-click to open its worker"}

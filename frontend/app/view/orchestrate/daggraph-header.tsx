@@ -3,7 +3,6 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useAtomValue } from "jotai";
 import { chipGroups, pickNext, type ChipGroup } from "./dagcanvas";
-import { closeDagModal } from "./dagmodalstate";
 import { selectedTaskIdAtom } from "./dagstore";
 
 // a chip's dot: filled for the groups that are doing or done something, an open ring for those that are not
@@ -39,8 +38,9 @@ function SummaryChips({ tasks }: { tasks: TaskNode[] }) {
     );
 }
 
-// graph header: back, the owning run's goal, the summary chips, the derived status pill, cancel. The graph
-// lives in the Stage modal; back dismisses that modal.
+// graph header: the owning run's goal, the summary chips, the derived status pill, cancel. No back button:
+// the modal header above it already closes, and a second close one row down read as two different exits.
+// No dag id either: the modal subtitle names the run, and the dag's uuid identified it to nobody.
 export function DagGraphHeader({ group }: { group: TaskGroup }) {
     const status = group.status;
     const tone =
@@ -52,22 +52,15 @@ export function DagGraphHeader({ group }: { group: TaskGroup }) {
                 ? "border-edge-mid bg-surface-raised text-muted"
                 : "border-accent/50 bg-accent/10 text-accent-soft";
     const label = status.split("-").join(" ");
+    const done = group.tasks.filter((t) => t.state === "done").length;
     return (
         <div className="flex items-center gap-3 border-b border-border bg-background px-4 py-2.5">
-            <button
-                type="button"
-                onClick={closeDagModal}
-                className="rounded border border-edge-mid px-2.5 py-1 text-[11.5px] font-semibold text-secondary hover:border-edge-strong"
-            >
-                ← Back
-            </button>
             <div className="min-w-0 flex-1">
                 <div className="truncate text-[15px] font-bold tracking-[-0.01em] text-primary">
                     {group.title || "orchestration dag"}
                 </div>
                 <div className="font-mono text-[10.5px] text-ink-mid">
-                    {group.id} · parallelism {group.parallelism} ·{" "}
-                    {group.tasks.filter((t) => t.state === "done").length}/{group.tasks.length} done
+                    parallelism {group.parallelism} · {done}/{group.tasks.length} done
                 </div>
             </div>
             <SummaryChips tasks={group.tasks} />

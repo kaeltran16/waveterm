@@ -12,6 +12,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { retryRunEvents, useRunEventsState } from "../agents/runeventstore";
 import { eventTitle, toneFor, tsLabel } from "../agents/runtimeline";
@@ -135,7 +136,7 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
                                     {showCount && (
                                         <span
                                             className={
-                                                f.id === "attention" && count > 0 ? "text-warning" : "text-ink-faint"
+                                                f.id === "attention" && count > 0 ? "text-warning" : "text-muted"
                                             }
                                         >
                                             {count}
@@ -216,9 +217,10 @@ function RailHeader({
                     type="button"
                     onClick={onToggle}
                     aria-expanded={open}
-                    className="cursor-pointer font-mono text-[10.5px] text-ink-faint focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                    aria-label={open ? "Collapse lifecycle" : "Expand lifecycle"}
+                    className="cursor-pointer text-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                 >
-                    {open ? "▼" : "▶"}
+                    {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                 </button>
             )}
             <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-mid">Lifecycle</span>
@@ -311,7 +313,7 @@ function ActivityStrip({
                     <line x1="100%" x2="100%" y1={0} y2={STRIP_H} stroke="var(--color-accent)" />
                 </svg>
             </div>
-            <div className="mt-1 flex justify-between font-mono text-[10.5px] text-ink-faint">
+            <div className="mt-1 flex justify-between font-mono text-[10.5px] text-muted">
                 <span>{tsLabel(start)}</span>
                 <span>{spanMin} min</span>
                 <span>now {tsLabel(nowMs)}</span>
@@ -338,7 +340,7 @@ function GapRow({ minutes }: { minutes: number }) {
                 <span className="size-[5px] rounded-full bg-edge-mid" />
             </span>
             <span className="flex-1 border-t border-dashed border-edge-mid" />
-            <span className="font-mono text-[10.5px] text-ink-faint">{minutes} min quiet</span>
+            <span className="font-mono text-[10.5px] text-muted">{minutes} min quiet</span>
             <span className="flex-1 border-t border-dashed border-edge-mid" />
         </div>
     );
@@ -501,7 +503,7 @@ function GroupRow({
                                         toneFor(e.kind)
                                     )}
                                 >
-                                    {stepLabel(e.kind)}
+                                    {stepLabel(e)}
                                 </span>
                             ))}
                         </span>
@@ -552,7 +554,7 @@ function GroupDetail({
                 return (
                     <div key={e.id} className="flex flex-col gap-0.5">
                         <div className="flex gap-1.5 font-mono text-[10.5px]">
-                            <span className="text-ink-faint">{tsLabel(e.ts)}</span>
+                            <span className="text-muted">{tsLabel(e.ts)}</span>
                             <span className={toneFor(e.kind)}>{eventTitle(e)}</span>
                         </div>
                         {detail.text && (
