@@ -220,9 +220,13 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 	}
 	// per merge Verify tested only what each merge changed; the whole suite runs once, here, on the merged result
 	if g.Verify != "" {
-		if out, err := runPlanCommand(ctx, tree, g.Verify, unscopedEnv, VerifyTimeout, nil); err != nil {
+		out, flaky, err := runVerifyCommand(ctx, tree, g.Verify, unscopedEnv, nil)
+		if err != nil {
 			res.detail = fmt.Sprintf("Verify `%s` failed on the merged result (%s):\n%s", g.Verify, commandReason(err), out)
 			return res
+		}
+		for _, test := range flaky {
+			res.unverified = append(res.unverified, flakyItem(test, finalVerifyWhere))
 		}
 	}
 	if g.FinalCmd == "" {
@@ -327,12 +331,28 @@ func startVerifierSession(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, o
 	tendVerifier(ctx, spawnCtx, g, owner, time.Now().UnixMilli(), afterCommit)
 }
 
+// finalVerifyWhere names the final stage's Verify in a flaky item.
+const finalVerifyWhere = "in the final stage's Verify on the merged result"
+
 // finishFinal decides the stage's outcome: failed on a Detail, unverified when anything could not be verified,
-// else passed. The reviewers' caveats and a plan with no Verify are reasons too, since nothing checked them. A
-// done outcome wakes the lead from the tick that announces the dag done; a failure wakes it here, with the
-// Detail whole, because the fix plan is written from it.
+// else passed. The tests a merge Verify reported flaky, the reviewers' caveats and a plan with no Verify are
+// reasons too, since nothing checked them cleanly. A done outcome wakes the lead from the tick that announces the
+// dag done; a failure wakes it here, with the Detail whole, because the fix plan is written from it.
 func finishFinal(g *waveobj.TaskGroup, afterCommit *[]func()) {
 	f := g.Final
+	// a batch's tips each keep the one Verify's output
+	seen := map[string]bool{}
+	for _, t := range g.Tasks {
+		if t.State != TaskState_Done {
+			continue
+		}
+		for _, item := range flakyItemsIn(t.VerifyOutput) {
+			if !seen[item] {
+				seen[item] = true
+				f.Unverified = append(f.Unverified, item)
+			}
+		}
+	}
 	for _, t := range g.Tasks {
 		if t.ReviewUnverified != "" {
 			f.Unverified = append(f.Unverified, t.ID+": "+t.ReviewUnverified)

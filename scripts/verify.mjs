@@ -1,11 +1,12 @@
 // Verify for this repo's engine plans. At each merge the engine sets ARC_VERIFY_CHANGED to a file listing the
 // paths the merge changed; this tests only what those paths can break. Unset (the final stage, or a human), it
-// runs everything the patterns name.
+// runs everything the patterns name. A failed Go test that passes when rerun alone is flaky: the run passes, and
+// the test is appended to the file ARC_VERIFY_FLAKY names, so the engine reports it instead of a clean pass.
 //
 // usage: node scripts/verify.mjs <go package pattern>...
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -238,6 +239,17 @@ async function goTest(args) {
     if (failed) {
         process.exit(1);
     }
+    reportFlaky(flaky, process.env);
+}
+
+// reportFlaky appends each flaky test, one per line, to the file the engine names in ARC_VERIFY_FLAKY, so the run
+// names them among what it did not verify instead of reading as a clean pass. A human's run has no file to write.
+export function reportFlaky(flaky, env) {
+    const file = env.ARC_VERIFY_FLAKY;
+    if (!file || flaky.length === 0) {
+        return;
+    }
+    appendFileSync(file, flaky.map((name) => `${name}\n`).join(""));
 }
 
 const OUTPUT_MAX = 256 * 1024 * 1024;

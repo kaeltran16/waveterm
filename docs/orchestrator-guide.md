@@ -252,6 +252,13 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
   can break.
   The final stage runs Verify once more with `ARC_VERIFY_CHANGED` unset, on the merged result, where it runs
   everything. Both are optional, both run in a POSIX shell (Git Bash on Windows).
+  **Flaky tests.** Every Verify, at a merge and in the final stage, runs with `ARC_VERIFY_FLAKY` naming an empty
+  file. A Verify that reruns a failing test and sees it pass exits 0 and appends that test's name to the file,
+  one per line. The Verify still passes, but each name becomes an unverified reason of the run
+  (`Verify reported flaky: <test> (failed, then passed on a rerun, in the Verify after merging t-2)`), so a race
+  that passes on a rerun reaches you instead of a clean pass. A merge's report is also appended to its tasks'
+  kept Verify output. A failed Verify's file is not read. The engine knows nothing else about the command:
+  this repo's `scripts/verify.mjs` reruns a failed Go test alone once and reports it as `<package> <test>`.
 - **Check** is a fast whole-project static check. Each worker runs it itself instead of Verify, and the final
   stage runs it once on the merged result. The engine also runs it once at submit, in a detached tree at the
   commit the lanes start from; if it fails there, the lead is woken, every worker is told those failures are
@@ -576,7 +583,7 @@ removed when the stage ends. It never runs in the shared checkout.
 1. **Check**, the plan's Check line, on the merged result (20-minute limit). A non-zero exit fails the stage,
    unless Check already failed on the base at submit: then the stage goes on and reports it as unverified.
 2. **Verify**, the plan's Verify line with `ARC_VERIFY_CHANGED` unset, on the merged result (20-minute limit). A
-   non-zero exit fails the stage.
+   non-zero exit fails the stage. Each test it reports flaky in `ARC_VERIFY_FLAKY` becomes an unverified reason.
 3. **Final**, the plan's `**Final:**` command, in a POSIX shell with `ARC_FINAL_OUT` set to a fresh directory
    for its screenshots and reports (`<temp>/arc-final/<dag>/<round>`, outside every tree). Exit 0 passes. Exit
    3 means it could not verify, and its last output line becomes an unverified reason. Any other exit, or
@@ -606,7 +613,7 @@ when you want no fix round.
 | Outcome | When | Then |
 |---|---|---|
 | **passed** | nothing failed and nothing is unverified | the dag is done; the lead gets `run finished` with the outcome |
-| **unverified** | nothing failed, but there is a reason: a Final exit 3, the verifier's `--unverified`, a reviewer's `--unverified` note, a plan with no Verify, or you ended the stage unverified | the dag is done; the `run finished` wake lists every reason in full |
+| **unverified** | nothing failed, but there is a reason: a test a merge's or the final stage's Verify reported flaky, a Final exit 3, the verifier's `--unverified`, a reviewer's `--unverified` note, a plan with no Verify, or you ended the stage unverified | the dag is done; the `run finished` wake lists every reason in full |
 | **failed** | Check, Final or the verifier failed, or you ended the stage failed | the lead wakes with the failure in full |
 
 `wsh jarvis dag status` prints the stage as `final <state> round=N commit=… out=<ARC_FINAL_OUT>`, then each

@@ -1,7 +1,8 @@
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SHARDS, SHARD_MIN_TESTS, countTopLevelTests, dealShards, goSummary, goTestEnv, needsGoGraph, packageResults, partitionPackages, planVerify, readChanged, readChangedFile, rerunnableTests, runPattern } from "./verify.mjs";
+import { SHARDS, SHARD_MIN_TESTS, countTopLevelTests, dealShards, goSummary, goTestEnv, needsGoGraph, packageResults, partitionPackages, planVerify, readChanged, readChangedFile, reportFlaky, rerunnableTests, runPattern } from "./verify.mjs";
 
 const MOD = "github.com/wavetermdev/waveterm";
 const graph = [
@@ -172,5 +173,23 @@ describe("goTestEnv", () => {
         expect(goTestEnv(env, "win32", "x64")).toBe(env);
         const linux = { PATH: "p" };
         expect(goTestEnv(linux, "linux", "x64")).toBe(linux);
+    });
+});
+
+describe("reportFlaky", () => {
+    it("appends each flaky test on its own line to the file ARC_VERIFY_FLAKY names", () => {
+        const file = join(mkdtempSync(join(tmpdir(), "verify-flaky-")), "flaky.txt");
+        writeFileSync(file, "");
+        reportFlaky([`${MOD}/pkg/orchestrate TestA`, `${MOD}/pkg/jarvis TestB`], { ARC_VERIFY_FLAKY: file });
+        expect(readFileSync(file, "utf8")).toBe(`${MOD}/pkg/orchestrate TestA\n${MOD}/pkg/jarvis TestB\n`);
+    });
+    it("writes nothing for a clean pass", () => {
+        const file = join(mkdtempSync(join(tmpdir(), "verify-flaky-")), "flaky.txt");
+        writeFileSync(file, "");
+        reportFlaky([], { ARC_VERIFY_FLAKY: file });
+        expect(readFileSync(file, "utf8")).toBe("");
+    });
+    it("needs no file when the engine did not name one", () => {
+        expect(() => reportFlaky(["TestA"], {})).not.toThrow();
     });
 });
