@@ -287,6 +287,47 @@ It ran 26 min end to end and landed on `main` as `4dda4b54`.
 - **Not in that build:** today's flaky Verify reporting (`8b322aa0`), multi-question Gatekeeper (`ac04d587`) and lane
   rewind (`69abf62e`), and the run's own three changes. They need a rebuilt Arc and another run.
 
+## Incident — run a088e568's land held on a merge conflict, and nobody was told (2026-09-29)
+
+Run a088e568 (agent tree and details rail polish, 3 claude tasks, base `3530fa43`) finished clean, but its
+branch did not land. The human found out only by asking "is it landed". Timeline (`db_runevent`, +07:00):
+
+- 11:47: run a2521425 lands `a7415e63` on `main`. It appends `narrationFeed` as the last entry of
+  `SCENARIOS` in `scripts/cdp/scenarios.mjs`.
+- 12:12:32: `dag-done`, and the lead is woken with "run finished". The wake says nothing about whether the
+  branch still merges with `main`.
+- 12:13:37: the lead runs `wsh jarvis complete`, which closes its tab. Its report says "landed" per task and
+  never mentions the land back to `main`.
+- 12:13:40: `land-held`, reason "the merge conflicts with main in scripts/cdp/scenarios.mjs; it was aborted".
+  The run's own plan had appended `agentTreeRail` at the same spot.
+- 12:15: `c403609e` lands on `main` and edits `agenttree.tsx`, adding a second conflict (the lucide import).
+
+The hold itself worked: `checkoutHold` and `reverifyHold` caught the conflict and left the checkout alone.
+The gaps are in who hears about it.
+
+- **The hold lands after the only agent with context has gone.** `complete` triggers seal-then-land
+  (`sealThenLand`, `wshserver_runs.go`), so the hold is decided after the lead's tab has closed. The only
+  signal is a `run-land-held` item in the Brief queue. A merge conflict inside a run goes back to the lead,
+  but a conflict at land does not.
+- **"Run finished" does not check the land first.** The conflicting `main` commit was 25 min old when the lead
+  was woken. A merge-tree check against the base at `dag-done` could have put "the land will conflict in
+  X" into the wake, so the lead fixes it the way it fixes a merge-point conflict, before `complete`.
+- **The reason names one file.** `git merge` stops at the first conflict it reports. `git merge-tree
+  --write-tree --name-only` lists every conflicting file (here both `scenarios.mjs` and `agenttree.tsx`).
+- **`wsh runs show` prints `land` after the whole task digest** (line 42 of 73 here), below the task results.
+  A `| head` read, as the lead ran it, misses it. It belongs beside `status`.
+- **The plan asked for a guaranteed conflict.** The goal said run a2521425 was appending `narrationFeed`, and
+  this run's plan still appended its entry at the end of the same list. Two concurrent runs that append to one
+  list tail always conflict at land. That is a plan-writing rule for leads, not an engine bug.
+
+Recovery, by the lead on the human's go-ahead:
+
+1. Merge `main` into `wave/a088e568` in the landing tree, keeping both scenario entries and adding
+   `ExternalLink` to the lucide import.
+2. Run tsc (exit 0), then vitest on `frontend/app/view/agents` and `frontend/app/element` (1839 passed).
+3. Commit the merge as `7561443d`.
+4. `wsh runs land`, which landed it as `fb4e5db2`.
+
 ## Constraints carried into the redesign
 
 - KISS/YAGNI: no new subsystems, no per-task timeout policies, no message bus. Only the failure modes
