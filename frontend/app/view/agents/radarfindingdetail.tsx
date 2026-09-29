@@ -4,6 +4,7 @@
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { openInCode } from "@/app/view/code/codestore";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
 import { ArrowRight, ChevronDown, Target } from "lucide-react";
@@ -25,6 +26,7 @@ import {
     missedLatestScan,
     MODE_META,
     primaryAction,
+    subsystemLabel,
     toPendingRunDraft,
 } from "./radarmodel";
 import { setDisposition } from "./radarstore";
@@ -50,7 +52,7 @@ const DIFF_TONE: Record<DiffLineKind, string> = {
     ctx: "text-ink-mid",
 };
 
-const LABEL = "text-[10.5px] font-bold uppercase tracking-[0.08em] text-muted";
+const LABEL = cn(REGION_LABEL, "text-muted");
 
 function plural(n: number, word: string): string {
     return `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -108,7 +110,7 @@ function DismissMenu({ finding, onPick }: { finding: RadarFinding; onPick: (reas
                 className="flex items-center gap-1.5 rounded-lg border border-edge-mid bg-surface-raised px-3 py-[7px] text-[13px] font-semibold text-secondary hover:border-edge-strong"
             >
                 Dismiss
-                <ChevronDown className="h-3 w-3 text-ink-faint" />
+                <ChevronDown className="h-3 w-3 text-muted" />
             </button>
             {open ? <div className="fixed inset-0 z-50" onClick={() => setOpen(false)} /> : null}
             <PopoverReveal
@@ -171,12 +173,7 @@ export function RadarFindingDetail({
             <div className="flex max-w-[880px] flex-col gap-6 px-[34px] pb-10 pt-[22px] @min-[1300px]:max-w-[1440px]">
                 <div className="flex flex-col gap-3.5">
                     <div className="flex min-w-0 flex-wrap items-center gap-2.5">
-                        <span
-                            className={cn(
-                                "flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em]",
-                                TONE_TEXT[meta.tone]
-                            )}
-                        >
+                        <span className={cn(REGION_LABEL, "flex items-center gap-1.5", TONE_TEXT[meta.tone])}>
                             <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT[meta.tone])} />
                             {meta.label}
                         </span>
@@ -185,7 +182,7 @@ export function RadarFindingDetail({
                         ) : null}
                         <span
                             className={cn(
-                                "rounded px-[7px] py-px text-[10px] font-bold uppercase tracking-[0.06em]",
+                                "rounded px-[7px] py-px text-[10.5px] font-bold uppercase tracking-[0.06em]",
                                 severityPill(finding.severity)
                             )}
                         >
@@ -194,14 +191,16 @@ export function RadarFindingDetail({
                         {mode !== "correctness" ? (
                             <span
                                 className={cn(
-                                    "rounded border px-[7px] text-[10px] font-bold uppercase tracking-[0.06em]",
+                                    "rounded border px-[7px] text-[10.5px] font-bold uppercase tracking-[0.06em]",
                                     modeBadge(mode)
                                 )}
                             >
                                 {MODE_META[mode].label}
                             </span>
                         ) : null}
-                        <span className="font-mono text-[11.5px] text-ink-mid">{finding.subsystem}</span>
+                        {subsystemLabel(finding.subsystem) ? (
+                            <span className="font-mono text-[11.5px] text-ink-mid">{finding.subsystem}</span>
+                        ) : null}
                         <AmbientTags {...ambientRefForFinding(finding)} />
                         <span className="flex-1" />
                         <span className="flex items-center gap-[7px] text-[11.5px] text-muted">
@@ -287,7 +286,7 @@ export function RadarFindingDetail({
                         </>
                     )}
                     <span className="flex-1" />
-                    <span className="font-mono text-[11px] text-ink-faint">{finding.fingerprint}</span>
+                    <span className="font-mono text-[11px] text-muted">{finding.fingerprint}</span>
                 </div>
 
                 <div className="flex flex-col gap-6 @min-[1300px]:flex-row @min-[1300px]:items-start @min-[1300px]:gap-8">
@@ -305,9 +304,7 @@ export function RadarFindingDetail({
                         <div className="flex flex-col gap-2 rounded-[10px] border border-dashed border-accent/40 bg-surface px-4 pb-3.5 pt-[13px]">
                             <div className="flex items-center gap-2">
                                 <Target className="h-[13px] w-[13px] text-accent-soft" />
-                                <span className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-accent-soft">
-                                    Suggested investigation
-                                </span>
+                                <span className={cn(REGION_LABEL, "text-accent-soft")}>Suggested investigation</span>
                                 <span className="flex-1" />
                                 <span className="text-[11px] text-muted">Radar's interpretation, not evidence</span>
                             </div>
@@ -320,7 +317,7 @@ export function RadarFindingDetail({
                         <div className="flex flex-col gap-2">
                             <div className="flex items-baseline gap-2.5">
                                 <h3 className={LABEL}>Evidence</h3>
-                                <span className="font-mono text-[11px] text-ink-faint">
+                                <span className="font-mono text-[11px] text-muted">
                                     {plural(findingSignalCount(finding), "signal")} from{" "}
                                     {plural(findingSourceCount(finding, report), "collector")}
                                 </span>
@@ -330,7 +327,7 @@ export function RadarFindingDetail({
                                     {evidence.map((s) => (
                                         <div key={s.id} className="flex flex-col gap-[9px] bg-background px-3.5 py-2.5">
                                             <div className="grid grid-cols-[52px_92px_minmax(0,1fr)_auto] items-baseline gap-3">
-                                                <span className="font-mono text-[11px] text-ink-faint">
+                                                <span className="font-mono text-[11px] text-muted">
                                                     {formatDate(s.observedts)}
                                                 </span>
                                                 <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.04em] text-ink-mid">
@@ -339,7 +336,13 @@ export function RadarFindingDetail({
                                                 <span className="text-[13px] leading-[1.45] text-secondary">
                                                     {s.summary}
                                                 </span>
-                                                <span className="font-mono text-[11px] text-muted">{s.sourceref}</span>
+                                                {/* transcript refs carry a whole session uuid; uncapped, they squeezed the summary into a wrap */}
+                                                <span
+                                                    title={s.sourceref}
+                                                    className="max-w-[220px] truncate font-mono text-[11px] text-muted"
+                                                >
+                                                    {s.sourceref}
+                                                </span>
                                             </div>
                                             {s.snippet ? <Snippet snippet={s.snippet} /> : null}
                                         </div>
@@ -356,7 +359,7 @@ export function RadarFindingDetail({
                             <div className="flex flex-col gap-2">
                                 <div className="flex items-baseline gap-2.5">
                                     <h3 className={LABEL}>Affected files</h3>
-                                    <span className="font-mono text-[11px] text-ink-faint">{finding.files.length}</span>
+                                    <span className="font-mono text-[11px] text-muted">{finding.files.length}</span>
                                 </div>
                                 <div className="flex flex-col gap-px overflow-hidden rounded-[10px] border border-edge-mid bg-edge-faint">
                                     {finding.files.map((f) => (
@@ -378,10 +381,10 @@ export function RadarFindingDetail({
                                             >
                                                 {f}
                                             </span>
-                                            <span className="text-[11px] text-ink-faint group-hover:text-muted @min-[1300px]:hidden">
+                                            <span className="text-[11px] text-muted group-hover:text-secondary @min-[1300px]:hidden">
                                                 open in Code
                                             </span>
-                                            <ArrowRight className="h-3 w-3 text-ink-faint" />
+                                            <ArrowRight className="h-3 w-3 text-muted" />
                                         </button>
                                     ))}
                                 </div>

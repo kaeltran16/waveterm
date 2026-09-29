@@ -54,6 +54,7 @@ import {
     startScan,
     type RadarScope,
 } from "./radarstore";
+import { SubLabel } from "./sectionlabel";
 import { SurfaceError } from "./surfacescaffold";
 
 const COVERAGE_STATUS: Record<CoverageCell, string> = {
@@ -85,8 +86,8 @@ function ScopeSelector({ scope, onSelect }: { scope: RadarScope | null; onSelect
                 <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-ink-hi">
                     {scope?.name ?? "Select project"}
                 </span>
-                <span className="font-mono text-[10px] text-ink-faint">project</span>
-                <ChevronDown className="h-3 w-3 text-ink-faint" />
+                <span className="font-mono text-[10.5px] text-muted">project</span>
+                <ChevronDown className="h-3 w-3 text-muted" />
             </button>
             {open ? <div className="fixed inset-0 z-50" onClick={() => setOpen(false)} /> : null}
             <PopoverReveal open={open} origin="top left" className={cn(POPOVER, "left-0 w-[240px]")}>
@@ -148,7 +149,7 @@ function LensTabs({ report, lens, onPick }: { report: RadarReport; lens: LensKey
                         <span
                             className={cn(
                                 "font-mono text-[10.5px] font-medium",
-                                t.failed ? "text-warning" : on ? "text-accent-soft" : "text-ink-faint"
+                                t.failed ? "text-warning" : on ? "text-accent-soft" : "text-muted"
                             )}
                         >
                             {t.failed && t.count === 0 ? "failed" : t.count}
@@ -180,13 +181,11 @@ function CoveragePopover({ report }: { report: RadarReport }) {
                     {done}/{ran.length}
                 </span>
                 collectors
-                <ChevronDown className="h-[11px] w-[11px] text-ink-faint" />
+                <ChevronDown className="h-3 w-3 text-muted" />
             </button>
             {open ? <div className="fixed inset-0 z-50" onClick={() => setOpen(false)} /> : null}
             <PopoverReveal open={open} origin="top right" className={cn(POPOVER, "right-0 w-[400px]")}>
-                <div className="px-2 pb-2 pt-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-muted">
-                    Last scan coverage
-                </div>
+                <SubLabel className="px-2 pb-2 pt-1.5">Last scan coverage</SubLabel>
                 {rows.map((r) => (
                     <div
                         key={r.name}
@@ -203,8 +202,8 @@ function CoveragePopover({ report }: { report: RadarReport }) {
                         <span className="truncate text-xs text-muted">{r.examines}</span>
                         <span
                             className={cn(
-                                "font-mono text-[10px] uppercase tracking-[0.06em]",
-                                r.cell === "failed" ? "text-error" : "text-ink-faint"
+                                "font-mono text-[10.5px] uppercase tracking-[0.06em]",
+                                r.cell === "failed" ? "text-error" : "text-muted"
                             )}
                         >
                             {COVERAGE_STATUS[r.cell]}
@@ -396,7 +395,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                         ) : null}
                     </div>
                     {isResults && report ? (
-                        <div className="pb-[11px] font-mono text-[11.5px] text-ink-faint">
+                        <div className="pb-[11px] font-mono text-[11.5px] text-muted">
                             {scanMetaLine(report, Date.now())}
                         </div>
                     ) : (

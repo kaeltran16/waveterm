@@ -93,6 +93,12 @@ export function strengthPips(strength: string): number {
     return STRENGTH_PIPS[strength] ?? 0;
 }
 
+// the backend names a finding whose files share no directory "." (and one with no paths "unknown");
+// neither says where to look, and the affected-files list already does, so they render as nothing
+export function subsystemLabel(subsystem: string): string {
+    return subsystem === "." || subsystem === "unknown" ? "" : subsystem;
+}
+
 // Group presentation metadata (label + lifecycle hint + delta indicator), shared by the master list
 // and the detail pane so the two never drift. Tone drives color choice in the components.
 export type RadarTone = "new" | "recurring" | "nolonger" | "muted";
