@@ -495,7 +495,7 @@ func finishFinal(g *waveobj.TaskGroup, judged bool, afterCommit *[]func()) {
 	round, detail, last := f.Round, f.Detail, f.Round >= MaxFinalRounds
 	channelID, runID := g.ChannelId, g.RunID
 	*afterCommit = append(*afterCommit, func() {
-		PostWake(context.Background(), channelID, runID, finalFailedWake(round, detail, last))
+		PostWake(context.Background(), channelID, runID, finalFailedWake(round, runID, detail, last))
 	})
 }
 

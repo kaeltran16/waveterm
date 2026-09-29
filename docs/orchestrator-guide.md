@@ -720,8 +720,9 @@ arrives then holds the land.
 
 A held land raises a **land held** item under Waiting on you: "The run's branch was not merged back: <reason>".
 Clear the reason, then run `wsh runs land <run-id>`, which retries and prints where the land stands.
-`wsh runs land <run-id> --force` lands a run whose final stage failed; it is your call only, and the lead is never
-told about it.
+`wsh runs land <run-id> --force` lands a run whose final stage failed; it is your call only. When the last final
+round fails, the lead's question to you and its report say that completing will not merge the branch, and name this
+command.
 
 A done run whose outcome is unverified, or whose land carries a note, raises an **unverified** item ("Finished,
 but N things were not verified.") naming each reason. It holds nothing, since the run is done. It stays until you

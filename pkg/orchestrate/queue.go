@@ -63,10 +63,11 @@ func landConflictLine(ctx context.Context, run *waveobj.Run) string {
 }
 
 // finalFailedWake carries the final stage's failure whole: the lead writes its fix plan from it. After the
-// last round the call is the human's.
-func finalFailedWake(round int, detail string, last bool) string {
+// last round the call is the human's, and the lead must say the land will hold: the land runs after complete
+// closes the lead's tab, so nobody else can warn the human first (run dc7d6de0 completed held and unannounced).
+func finalFailedWake(round int, runID, detail string, last bool) string {
 	if last {
-		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d, the last. Put it to the human:\n%s", round, detail)
+		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d, the last. Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land %s --force`, the human's call once the run is done, lands it:\n%s", round, runID, detail)
 	}
 	return fmt.Sprintf("wake: the final stage failed on the merged result in round %d. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`, or put it to the human if the fix is a product call:\n%s", round, detail)
 }

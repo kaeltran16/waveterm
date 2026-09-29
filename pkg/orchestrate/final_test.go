@@ -461,16 +461,20 @@ func TestAFinishedRunWithNoLeadLaunchesNoneUnlessTheFinalStageFailed(t *testing.
 		t.Fatalf("a passed or unverified finish launches no lead, got %q", *launched)
 	}
 
-	PostWake(ctx, wakeChannel, wakeRun, finalFailedWake(1, "Check failed", false))
+	PostWake(ctx, wakeChannel, wakeRun, finalFailedWake(1, wakeRun, "Check failed", false))
 	if len(*launched) != 1 || !strings.Contains((*launched)[0], "the final stage failed") {
 		t.Fatalf("a failed final stage launches the lead, got %q", *launched)
 	}
 }
 
 func TestFinalFailedWakeAfterTheLastRoundGoesToTheHuman(t *testing.T) {
-	w := finalFailedWake(MaxFinalRounds, "Final failed (exit 1):\nFAIL board", true)
+	w := finalFailedWake(MaxFinalRounds, "run-1", "Final failed (exit 1):\nFAIL board", true)
 	if !strings.Contains(w, "the last") || !strings.Contains(w, "Put it to the human") || strings.Contains(w, "--round") {
 		t.Fatalf("after the last round the lead forwards, got %q", w)
+	}
+	// the land runs after complete closes the lead's tab, so only the lead can warn the human first
+	if !strings.Contains(w, "completing will not merge the branch") || !strings.Contains(w, "wsh runs land run-1 --force") {
+		t.Fatalf("the last-round wake must say the land holds and how to force it, got %q", w)
 	}
 	if !strings.HasSuffix(w, "Final failed (exit 1):\nFAIL board") {
 		t.Fatalf("the detail is carried whole, got %q", w)
