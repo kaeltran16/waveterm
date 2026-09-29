@@ -53,7 +53,8 @@ import {
     compareSidesAtom,
     dismissFetchFailure,
     enterCompare,
-    fetchStateAtom,
+    fetchStateOf,
+    fetchStatesAtom,
     leaveCompare,
     runFetch,
     selectCompareFile,
@@ -103,7 +104,8 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const loadError = useAtomValue(filesErrorAtom);
     const historyRows = useAtomValue(historyRowsAtom);
     const historyFailure = useAtomValue(historyFailureAtom);
-    const fetchState = useAtomValue(fetchStateAtom);
+    const fetchStates = useAtomValue(fetchStatesAtom);
+    const fetchState = fetchStateOf(fetchStates, state?.cwd);
     const historyFiltered = useAtomValue(historyFilteredAtom);
     const historyFilters = useAtomValue(historyFiltersAtom);
     const historyScroll = useAtomValue(historyScrollAtom);
@@ -503,7 +505,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     clock is part of reading the comparison. Absent until one has
                                     happened — "just now" on an unfetched session would be a lie. */}
                                 {fetchState.at > 0 ? (
-                                    <span className="font-mono text-[10.5px] text-ink-faint">
+                                    <span className="font-mono text-[10.5px] text-muted">
                                         fetched {formatAge(Date.now() - fetchState.at * 1000)} ago
                                     </span>
                                 ) : null}
@@ -550,7 +552,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                     <GitFailureNotice
                         failure={fetchState.failure}
                         onRetry={() => state?.cwd && fireAndForget(() => runFetch(state.cwd!))}
-                        onDismiss={() => dismissFetchFailure()}
+                        onDismiss={() => state?.cwd && dismissFetchFailure(state.cwd)}
                     />
                 ) : null}
 

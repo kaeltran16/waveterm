@@ -1167,7 +1167,9 @@ func Fetch(ctx context.Context, cwd, remote string) (*FetchResult, error) {
 		}}, nil
 	}
 	args := []string{"fetch", "--prune", remote}
-	if _, err := runErr(ctx, cwd, args...); err != nil {
+	// run, not runErr: runErr folds git's output into its error text, which left failureOf no stderr
+	// and the banner printing the command and "exit status 128" ahead of git's own message
+	if _, err := run(ctx, cwd, args...); err != nil {
 		return &FetchResult{IsRepo: true, Failure: failureOf(args, err)}, nil
 	}
 	return &FetchResult{IsRepo: true, FetchedAt: time.Now().Unix()}, nil

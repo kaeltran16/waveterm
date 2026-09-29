@@ -8,6 +8,7 @@
 // suggestions, so a tag or a raw SHA works.
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { ArrowLeftRight, ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -39,7 +40,7 @@ function Suggestions({
             {groups.map((g) =>
                 g.rows.length === 0 ? null : (
                     <div key={g.label}>
-                        <div className="px-[10px] pb-[2px] pt-[4px] font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+                        <div className={cn(REGION_LABEL, "px-[10px] pb-[2px] pt-[4px] text-muted")}>
                             {g.label}
                         </div>
                         {g.rows.map((b) => (
@@ -55,7 +56,7 @@ function Suggestions({
                                 <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-mid">
                                     {b.name}
                                 </span>
-                                <span className="flex-none text-[10px] text-ink-faint">{b.age}</span>
+                                <span className="flex-none text-[10.5px] text-muted">{b.age}</span>
                             </button>
                         ))}
                     </div>
@@ -130,7 +131,7 @@ export function RefPicker({
                 >
                     <span className={cn("h-[7px] w-[7px] flex-none rounded-full", SIDE_DOT.base)} />
                     <span className={SIDE_TEXT.base}>{base || "—"}</span>
-                    <span className="text-ink-faint">…</span>
+                    <span className="text-muted">…</span>
                     <span className={cn("h-[7px] w-[7px] flex-none rounded-full", SIDE_DOT.head)} />
                     <span className={SIDE_TEXT.head}>{head || "—"}</span>
                     <ChevronDown size={12} className="flex-none text-muted" />
@@ -157,9 +158,7 @@ export function RefPicker({
 
     return (
         <div className={cn("relative flex items-center gap-[8px] px-[11px] py-[6px]", CHIP)}>
-            <span className="font-mono text-xxxs font-semibold uppercase tracking-[0.1em] text-ink-faint">
-                Compare
-            </span>
+            <span className={cn(REGION_LABEL, "text-muted")}>Compare</span>
             <div className="relative">
                 <input
                     ref={baseRef}

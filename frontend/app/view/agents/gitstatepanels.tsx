@@ -60,7 +60,7 @@ export function SurfaceBanner({
                 onClick={onDismiss}
                 title="Dismiss"
                 aria-label="Dismiss"
-                className="flex flex-none text-ink-faint hover:text-foreground"
+                className="flex flex-none text-muted hover:text-foreground"
             >
                 <X size={14} />
             </button>
@@ -71,9 +71,9 @@ export function SurfaceBanner({
 export function NotARepoPanel({ path, onChooseSource }: { path: string; onChooseSource: () => void }) {
     return (
         <div data-not-a-repo className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[10px] px-[40px]">
-            <Folder size={26} className="text-ink-faint" />
+            <Folder size={26} className="text-muted" />
             <div className="text-[14px] font-semibold text-ink-hi">This folder isn’t a Git repository</div>
-            <div className="max-w-[560px] select-text truncate font-mono text-[11px] text-ink-faint">{path}</div>
+            <div className="max-w-[560px] select-text truncate font-mono text-[11px] text-muted">{path}</div>
             <div className="max-w-[520px] text-center text-[12.5px] leading-[1.6] text-ink-mid">
                 There’s no history to show here. Pick another agent or project.
             </div>
@@ -110,7 +110,11 @@ export function GitFailureNotice({
         >
             <span className="flex-none font-semibold text-error">Fetch failed</span>
             <span className="flex-none text-ink-mid">· showing refs as of the last fetch</span>
-            <span className="min-w-0 flex-1 select-text truncate font-mono text-[11px] text-ink-faint">
+            <span
+                // one line of what can be several; the full text is a hover away rather than cut off
+                title={failure.stderr || undefined}
+                className="min-w-0 flex-1 select-text truncate font-mono text-[11px] text-muted"
+            >
                 {failure.stderr || exitLabel(failure)}
             </span>
         </SurfaceBanner>
@@ -132,14 +136,14 @@ export function GitFailurePanel({ failure, onRetry }: { failure: GitFailure; onR
                     <span className="min-w-0 flex-1 select-text truncate font-mono text-[11.5px] text-ink-mid">
                         {failure.command}
                     </span>
-                    <span className="flex-none rounded-[5px] border border-error/25 bg-error/12 px-[7px] py-[2px] font-mono text-[9.5px] font-semibold text-error">
+                    <span className="flex-none rounded-[5px] border border-error/25 bg-error/12 px-[7px] py-[2px] font-mono text-[10.5px] font-semibold text-error">
                         {exitLabel(failure)}
                     </span>
                     <button
                         onClick={copy}
                         title="Copy command and output"
                         aria-label="Copy command and output"
-                        className="flex flex-none text-ink-faint hover:text-foreground"
+                        className="flex flex-none text-muted hover:text-foreground"
                     >
                         <Copy size={13} />
                     </button>
