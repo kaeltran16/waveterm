@@ -5,12 +5,14 @@
 // Pane 2 of the Diff surface (Wave-git-review.dc.html): who made the selected commit, when, and which
 // files it touched. Read-only — no stage control, no message box, nothing that authors a commit.
 
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { Copy } from "lucide-react";
 import { formatAgo } from "./agentsviewmodel";
 import { ChangedFileList, TreeModeToggle } from "./changedfilelist";
 import { type GitChanges } from "./gitstatus";
 import { WORKING_TREE, refChipClass, type HistoryRow } from "./historyrows";
+import { SubLabel } from "./sectionlabel";
 
 function initials(name: string): string {
     return name.slice(0, 2).toUpperCase();
@@ -19,7 +21,7 @@ function initials(name: string): string {
 function WorkingTreeHeader({ row, caption }: { row: HistoryRow; caption?: string }) {
     return (
         <>
-            <div className="mb-[8px] flex items-center gap-[7px] font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-warning">
+            <div className={cn(REGION_LABEL, "mb-[8px] flex items-center gap-[7px] text-warning")}>
                 <span className="h-[9px] w-[9px] rounded-full border border-dashed border-warning" />
                 Working tree
             </div>
@@ -40,16 +42,16 @@ function CommitHeader({ row }: { row: HistoryRow }) {
                     onClick={() => fireAndForget(() => navigator.clipboard.writeText(row.hash))}
                     title="Copy hash"
                     aria-label="Copy hash"
-                    className="flex h-[22px] w-[22px] items-center justify-center rounded-[5px] text-ink-faint hover:bg-surface hover:text-foreground"
+                    className="flex h-[22px] w-[22px] items-center justify-center rounded-[5px] text-muted hover:bg-surface hover:text-foreground"
                 >
                     <Copy size={13} />
                 </button>
                 <div className="flex-1" />
-                <span className="font-mono text-[11px] text-ink-faint">{formatAgo(Date.now() - row.ts)}</span>
+                <span className="font-mono text-[11px] text-muted">{formatAgo(Date.now() - row.ts)}</span>
             </div>
             <div className="mb-[8px] text-[14px] font-semibold leading-[1.4] text-ink-hi">{row.subject}</div>
             <div className="flex items-center gap-[8px]">
-                <span className="flex h-[20px] w-[20px] items-center justify-center rounded-full bg-surface-raised font-mono text-[9px] font-bold text-ink-mid">
+                <span className="flex h-[20px] w-[20px] items-center justify-center rounded-full bg-surface-raised font-mono text-[10.5px] font-bold text-ink-mid">
                     {initials(row.author)}
                 </span>
                 <span className="text-[12px] text-ink-mid">{row.author}</span>
@@ -60,7 +62,7 @@ function CommitHeader({ row }: { row: HistoryRow }) {
                         <span
                             key={r.label}
                             className={cn(
-                                "rounded-[4px] border px-[6px] py-[2px] font-mono text-[9.5px] font-semibold",
+                                "rounded-[4px] border px-[6px] py-[2px] font-mono text-[10.5px] font-semibold",
                                 refChipClass(r.kind)
                             )}
                         >
@@ -102,9 +104,9 @@ export function CommitPane({
                 {isWorkingTree ? <WorkingTreeHeader row={row} caption={caption} /> : <CommitHeader row={row} />}
             </div>
             <div className="flex flex-none items-center gap-[9px] px-[15px] pb-[8px] pt-[10px]">
-                <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted">
+                <SubLabel>
                     {count} {count === 1 ? "file" : "files"}
-                </span>
+                </SubLabel>
                 <div className="flex-1" />
                 <span className="font-mono text-[11px] font-semibold text-diff-added">+{changes?.adds ?? 0}</span>
                 <span className="font-mono text-[11px] font-semibold text-diff-removed">−{changes?.dels ?? 0}</span>

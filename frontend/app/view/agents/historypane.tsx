@@ -26,6 +26,7 @@ import { GraphGutter } from "./graphgutter";
 import { HistoryFilterRow } from "./historyfilterrow";
 import { HISTORY_PAGE_SIZE, NEAR_BOTTOM_PX, SCROLL_THROTTLE_MS, noMatchSentence, slowSeconds } from "./historyquery";
 import { refChipClass, type HistoryRow } from "./historyrows";
+import { SubLabel } from "./sectionlabel";
 
 const ROW_H = 34;
 const HASH_W = 52;
@@ -75,7 +76,7 @@ function SlowNotice({ loading }: { loading: boolean }) {
             <Clock size={14} className="flex-none text-warning" />
             <div className="min-w-0 flex-1">
                 <div className="text-[12.5px] font-semibold text-ink-hi">Still reading history</div>
-                <div className="font-mono text-[11px] text-ink-faint">git log has been running for {secs}s</div>
+                <div className="font-mono text-[11px] text-muted">git log has been running for {secs}s</div>
             </div>
             <button
                 onClick={() => retryHistory()}
@@ -94,7 +95,7 @@ function ClearFiltersButton({ kbd }: { kbd?: boolean }) {
             className="flex flex-none items-center gap-[7px] rounded-[7px] border border-edge-mid bg-surface px-[10px] py-[4px] text-[11.5px] font-semibold text-ink-hi hover:border-edge-strong"
         >
             Clear filters
-            {kbd ? <span className="font-mono text-[9.5px] text-ink-faint">esc</span> : null}
+            {kbd ? <span className="font-mono text-[10.5px] text-muted">esc</span> : null}
         </button>
     );
 }
@@ -148,7 +149,7 @@ function Row({
                 <span
                     key={r.label}
                     className={cn(
-                        "max-w-[110px] flex-none truncate rounded-[4px] border px-[6px] py-[1px] font-mono text-[9.5px] font-semibold",
+                        "max-w-[110px] flex-none truncate rounded-[4px] border px-[6px] py-[1px] font-mono text-[10.5px] font-semibold",
                         refChipClass(r.kind)
                     )}
                 >
@@ -156,7 +157,7 @@ function Row({
                 </span>
             ))}
             {overflow > 0 ? (
-                <span className="flex-none rounded-[4px] border border-edge-mid bg-surface-raised px-[6px] py-[1px] font-mono text-[9.5px] font-semibold text-muted">
+                <span className="flex-none rounded-[4px] border border-edge-mid bg-surface-raised px-[6px] py-[1px] font-mono text-[10.5px] font-semibold text-muted">
                     +{overflow}
                 </span>
             ) : null}
@@ -164,7 +165,7 @@ function Row({
                 className={cn(
                     "min-w-[140px] flex-1 truncate text-[12.5px]",
                     row.before
-                        ? "text-ink-faint"
+                        ? "text-muted"
                         : selected
                           ? "font-semibold text-ink-hi"
                           : row.workingTree
@@ -175,15 +176,15 @@ function Row({
                 {row.subject}
             </span>
             {row.workingTree ? (
-                <span className="flex-none text-[11px] text-ink-faint">
+                <span className="flex-none text-[11px] text-muted">
                     {row.fileCount} {row.fileCount === 1 ? "file" : "files"}
                 </span>
             ) : row.refs.length === 0 ? (
-                <span className="flex-none truncate text-[11px] text-ink-faint" style={{ maxWidth: 92 }}>
+                <span className="flex-none truncate text-[11px] text-muted" style={{ maxWidth: 92 }}>
                     {row.author}
                 </span>
             ) : null}
-            <span className="w-[42px] flex-none text-right font-mono text-[10.5px] text-ink-faint">{row.when}</span>
+            <span className="w-[42px] flex-none text-right font-mono text-[10.5px] text-muted">{row.when}</span>
         </button>
     );
 }
@@ -274,16 +275,16 @@ export function HistoryPane({
     return (
         <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex flex-none items-center gap-[9px] px-[14px] pb-[8px] pt-[10px]">
-                <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted">History</span>
+                <SubLabel>History</SubLabel>
                 {filtered ? (
-                    <span data-filter-count className="font-mono text-[10px] font-semibold text-accent-soft">
+                    <span data-filter-count className="font-mono text-[10.5px] font-semibold text-accent-soft">
                         {countLabel}
                     </span>
                 ) : (
-                    <span className="font-mono text-[10px] text-ink-faint">{countLabel}</span>
+                    <span className="font-mono text-[10.5px] text-muted">{countLabel}</span>
                 )}
                 {graphOn && geom.foldedCount > 0 ? (
-                    <span className="rounded-[5px] border border-edge-mid bg-surface-raised px-[7px] py-[2px] font-mono text-[9.5px] font-semibold text-graphlane-fold">
+                    <span className="rounded-[5px] border border-edge-mid bg-surface-raised px-[7px] py-[2px] font-mono text-[10.5px] font-semibold text-graphlane-fold">
                         {laneCount(laned)} lanes · {geom.foldedCount} folded
                     </span>
                 ) : null}
@@ -298,14 +299,14 @@ export function HistoryPane({
                 >
                     <GitGraph size={13} />
                     Graph
-                    <span className="font-mono text-[9.5px] text-ink-faint">⇧G</span>
+                    <span className="font-mono text-[10.5px] text-muted">⇧G</span>
                 </button>
                 {onCollapse ? (
                     <button
                         onClick={onCollapse}
                         title="Collapse history"
                         aria-label="Collapse history"
-                        className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[6px] text-ink-faint hover:bg-surface hover:text-foreground"
+                        className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[6px] text-muted hover:bg-surface hover:text-foreground"
                     >
                         <PanelLeftClose size={15} />
                     </button>
@@ -353,7 +354,7 @@ export function HistoryPane({
                                 Couldn’t load more commits — retry
                             </button>
                         ) : appendState === "loading" ? (
-                            <div className="flex h-[34px] items-center px-[14px] font-mono text-[11px] text-ink-faint">
+                            <div className="flex h-[34px] items-center px-[14px] font-mono text-[11px] text-muted">
                                 {`loading commits ${rows.length + 1}–${rows.length + HISTORY_PAGE_SIZE}…`}
                             </div>
                         ) : null}
