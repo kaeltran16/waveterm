@@ -252,11 +252,6 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
   can break.
   The final stage runs Verify once more with `ARC_VERIFY_CHANGED` unset, on the merged result, where it runs
   everything. Both are optional, both run in a POSIX shell (Git Bash on Windows).
-  A Verify that passes only after rerunning a failed test reports it by printing, last in its output, one line
-  `ARC_VERIFY_FLAKY: <test>` per such test (`scripts/verify.mjs` does). The engine never reads what the tests
-  are: a merge Verify's report is added to the first passed task's unverified note, which `dag status` and the
-  attention row show and the lead's next wake lists; the final stage's Verify report becomes an unverified
-  reason, so the stage ends unverified rather than passed. A Verify that fails is judged as before.
 - **Check** is a fast whole-project static check. Each worker runs it itself instead of Verify, and the final
   stage runs it once on the merged result. The engine also runs it once at submit, in a detached tree at the
   commit the lanes start from; if it fails there, the lead is woken, every worker is told those failures are
@@ -531,11 +526,6 @@ first; you see it when it is forwarded or the lead is dead. Retry and escalate s
 replace, so before you retry a stalled task, check its lane worktree under `.waveterm/worktrees/` for recent
 writes: a worker that is still writing files is alive, and the stall signal is wrong.
 
-Skipping a failed or stalled task rewinds its lane to where the task first started, so none of its commits land.
-What it drops (those commits and any uncommitted edits to tracked files) is saved first to
-`.waveterm/recovery/<lane>-<task>.patch` in the project. A retry or escalate keeps the first attempt's base, so
-its review and evidence cover the failed attempt's commits too.
-
 To move a task to another model, use **escalate…** in the DAG's detail panel under the graph (it opens a
 route picker, then **Re-queue on model**). Escalation is one hop per task.
 
@@ -616,7 +606,7 @@ when you want no fix round.
 | Outcome | When | Then |
 |---|---|---|
 | **passed** | nothing failed and nothing is unverified | the dag is done; the lead gets `run finished` with the outcome |
-| **unverified** | nothing failed, but there is a reason: a Final exit 3, the verifier's `--unverified`, a reviewer's `--unverified` note, a Verify that reported flaky tests, a plan with no Verify, or you ended the stage unverified | the dag is done; the `run finished` wake lists every reason in full |
+| **unverified** | nothing failed, but there is a reason: a Final exit 3, the verifier's `--unverified`, a reviewer's `--unverified` note, a plan with no Verify, or you ended the stage unverified | the dag is done; the `run finished` wake lists every reason in full |
 | **failed** | Check, Final or the verifier failed, or you ended the stage failed | the lead wakes with the failure in full |
 
 `wsh jarvis dag status` prints the stage as `final <state> round=N commit=… out=<ARC_FINAL_OUT>`, then each

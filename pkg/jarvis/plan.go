@@ -21,9 +21,7 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"ARC_VERIFY_CHANGED naming a file that lists the paths the merge changed, one per line: a Verify that reads it " +
 	"should test only what those paths can break, so the merge queue waits on those tests, not the whole suite. The " +
 	"final stage runs Verify once more with ARC_VERIFY_CHANGED unset, on the merged result, where it should run " +
-	"everything. A Verify that passes only after rerunning a failed test should print, last in its output, one line " +
-	"`ARC_VERIFY_FLAKY: <test>` per such test: the engine then lists it as unverified instead of counting a clean pass. " +
-	"Check is a fast whole-project static check (for example typecheck plus go vet) that each worker runs " +
+	"everything. Check is a fast whole-project static check (for example typecheck plus go vet) that each worker runs " +
 	"itself, instead of Verify, before it completes. " +
 	"A task step names only the focused tests that prove it (for Go, `go test ./pkg/x -run '<names>'`), never a whole " +
 	"package or the full suite: Verify runs those at each merge and in the final stage. " +

@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 )
@@ -226,28 +225,6 @@ func execPlanCommandEnv(ctx context.Context, dir, command string, env []string, 
 		pe.output = err.Error()
 	}
 	return pe.output, pe
-}
-
-// VerifyFlakyMarker opens each line a passing Verify prints to name one test that failed and then passed on a
-// rerun: `ARC_VERIFY_FLAKY: <test>`. It is the whole contract, so the engine stays ignorant of what runs the tests.
-// The lines go last in the output, where the kept tail holds them.
-const VerifyFlakyMarker = "ARC_VERIFY_FLAKY:"
-
-// flakyTests lists the tests a passing Verify's output reports as flaky, each once, in the order reported.
-func flakyTests(output string) []string {
-	var names []string
-	for _, line := range strings.Split(output, "\n") {
-		name, ok := strings.CutPrefix(strings.TrimSpace(line), VerifyFlakyMarker)
-		if name = strings.TrimSpace(name); ok && name != "" && !slices.Contains(names, name) {
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
-// flakyNote is the unverified reason a pass with flaky tests leaves.
-func flakyNote(names []string) string {
-	return "Verify passed only on a rerun; flaky: " + strings.Join(names, ", ")
 }
 
 // lastOutputLine is the last non-blank line of a plan command's output: the one line a status row has

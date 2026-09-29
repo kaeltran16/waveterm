@@ -370,9 +370,6 @@ type TaskNode struct {
 	Attempts int `json:"attempts,omitempty"`
 	// LastFailureKind is the classifier output for the latest failed attempt.
 	LastFailureKind string `json:"lastfailurekind,omitempty"`
-	// StartBase is the lane commit the task's first attempt started from, kept across retries: the evidence of a
-	// retry covers what its failed attempts committed too, and skipping the task puts the lane back to it.
-	StartBase string `json:"startbase,omitempty"`
 	// Escalations is the judged-hop count; one is the terminal cap for this phase.
 	Escalations    int    `json:"escalations,omitempty"`
 	CleanupPending bool   `json:"cleanuppending,omitempty"`

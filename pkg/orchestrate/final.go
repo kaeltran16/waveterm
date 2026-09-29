@@ -220,13 +220,9 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 	}
 	// per merge Verify tested only what each merge changed; the whole suite runs once, here, on the merged result
 	if g.Verify != "" {
-		out, err := runPlanCommand(ctx, tree, g.Verify, unscopedEnv, VerifyTimeout, nil)
-		if err != nil {
+		if out, err := runPlanCommand(ctx, tree, g.Verify, unscopedEnv, VerifyTimeout, nil); err != nil {
 			res.detail = fmt.Sprintf("Verify `%s` failed on the merged result (%s):\n%s", g.Verify, commandReason(err), out)
 			return res
-		}
-		if flaky := flakyTests(out); len(flaky) > 0 {
-			res.unverified = append(res.unverified, flakyNote(flaky))
 		}
 	}
 	if g.FinalCmd == "" {

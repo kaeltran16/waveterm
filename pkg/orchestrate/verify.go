@@ -418,14 +418,6 @@ func recordBatchVerifyLocked(ctx context.Context, dagID string, out batchOutcome
 	if failed != nil {
 		failed.State, failed.VerifyError, failed.VerifyOutput = TaskState_VerifyFailed, out.err.Error(), out.output
 	}
-	// the one Verify judged every passed tip, so its flaky report goes on the first: the digest and the final stage
-	// read a task's caveat, and the batch cannot say which tip a flaky test belongs to
-	flaky := flakyTests(out.passedOutput)
-	var flakyTip *waveobj.TaskNode
-	if len(flaky) > 0 && len(passed) > 0 {
-		flakyTip = taskByID(g, passed[0])
-		flakyTip.ReviewUnverified = strings.Join(slices.DeleteFunc([]string{flakyTip.ReviewUnverified, flakyNote(flaky)}, func(s string) bool { return s == "" }), "; ")
-	}
 	for _, id := range out.held {
 		if t := verifying(id); t != nil {
 			t.VerifyOutput = heldLine(out.failed)
@@ -451,15 +443,8 @@ func recordBatchVerifyLocked(ctx context.Context, dagID string, out batchOutcome
 		if out.bisect > 0 {
 			data["bisect"] = true
 		}
-		if flakyTip != nil && flakyTip.ID == id {
-			data["flaky"] = flaky
-		}
 		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskVerifyPassed, nil, data)
 		closeLandedChunks(ctx, g, id)
-	}
-	// the lead reads it with its next wake, like a reviewer's caveat
-	if flakyTip != nil {
-		PostCaveat(ctx, g.ChannelId, g.RunID, fmt.Sprintf("%s: %s", flakyTip.ID, flakyNote(flaky)))
 	}
 	if failed == nil {
 		return nil

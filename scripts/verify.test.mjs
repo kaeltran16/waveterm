@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FLAKY_MARKER, SHARDS, SHARD_MIN_TESTS, countTopLevelTests, dealShards, flakyLines, goSummary, goTestEnv, needsGoGraph, packageResults, partitionPackages, planVerify, readChanged, readChangedFile, rerunAlone, rerunnableTests, runPattern } from "./verify.mjs";
+import { SHARDS, SHARD_MIN_TESTS, countTopLevelTests, dealShards, goSummary, goTestEnv, needsGoGraph, packageResults, partitionPackages, planVerify, readChanged, readChangedFile, rerunnableTests, runPattern } from "./verify.mjs";
 
 const MOD = "github.com/wavetermdev/waveterm";
 const graph = [
@@ -154,21 +154,6 @@ describe("rerunning a failure alone", () => {
             ["m/pkg/c", true],
         ]);
         expect(rerunnableTests(results[1].output)).toEqual(["TestB"]);
-    });
-});
-
-describe("the flaky report", () => {
-    it("prints one marker line per test that passed only on a rerun", () => {
-        const flaky = [];
-        expect(rerunAlone("m/pkg/a", ["TestX", "TestY"], flaky, () => ({ status: 0, stdout: "", stderr: "" }))).toBe(true);
-        expect(flakyLines(flaky)).toEqual([`${FLAKY_MARKER} m/pkg/a TestX`, `${FLAKY_MARKER} m/pkg/a TestY`]);
-        expect(FLAKY_MARKER).toBe("ARC_VERIFY_FLAKY:");
-    });
-    it("reports nothing for a test that failed again, or a run with no rerun", () => {
-        const flaky = [];
-        expect(rerunAlone("m/pkg/a", ["TestX"], flaky, () => ({ status: 1, stdout: "", stderr: "" }))).toBe(false);
-        expect(flakyLines(flaky)).toEqual([]);
-        expect(flakyLines([])).toEqual([]);
     });
 });
 

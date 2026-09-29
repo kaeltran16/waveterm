@@ -111,13 +111,25 @@ func injectAnswer(oref string, pending PendingAsk, answers []baseds.AgentAnswerI
 // (text + enter). Error semantics match EncodeAnswer: nothing is typed on failure, so the
 // caller can restore the pending ask and retry safely.
 func proseAnswerText(pending PendingAsk, answers []baseds.AgentAnswerItem) (string, error) {
-	if err := ValidateAnswers(pending.Questions, answers, true); err != nil {
-		return "", err
+	if len(pending.Questions) != 1 {
+		return "", fmt.Errorf("prose ask expects exactly one question, got %d", len(pending.Questions))
 	}
-	if a := answers[0]; a.Text != "" {
-		return a.Text, nil
+	if len(answers) != 1 {
+		return "", fmt.Errorf("prose ask expects exactly one answer, got %d", len(answers))
 	}
-	text := pending.Questions[0].Options[answers[0].SelectedIndexes[0]].Label
+	a := answers[0]
+	text := a.Text
+	if text == "" {
+		if len(a.SelectedIndexes) != 1 {
+			return "", fmt.Errorf("prose answer must be text or a single option index")
+		}
+		idx := a.SelectedIndexes[0]
+		opts := pending.Questions[0].Options
+		if idx < 0 || idx >= len(opts) {
+			return "", fmt.Errorf("selected index %d out of range (%d options)", idx, len(opts))
+		}
+		text = opts[idx].Label
+	}
 	if err := validateFreeText(text); err != nil {
 		return "", err
 	}

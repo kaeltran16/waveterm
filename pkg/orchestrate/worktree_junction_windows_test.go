@@ -78,22 +78,3 @@ func TestRemoveRunWorktreeReportsADirItCannotDelete(t *testing.T) {
 		t.Fatalf("the reported failure must match disk: worktree stat err = %v", err)
 	}
 }
-
-// task worktree:prepare's junctions sit untracked in a lane tree, and a rollback that cleans or resets
-// through one wipes the main checkout.
-func TestRewindLaneLeavesAJunctionTargetIntact(t *testing.T) {
-	f := seedLaneFixture(t, TaskState_Failed)
-	shared := t.TempDir()
-	keep := filepath.Join(shared, "keep.txt")
-	if err := os.WriteFile(keep, []byte("keep\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	mklinkJunction(t, filepath.Join(f.wt, "node_modules"), shared)
-	f.skip(t)
-	if b, err := os.ReadFile(keep); err != nil || string(b) != "keep\n" {
-		t.Fatalf("a junction target outside the lane tree must survive the rollback, got %q err %v", b, err)
-	}
-	if got := f.branchHead(t); got != f.doneTip {
-		t.Fatalf("the lane must still be rewound, head %s want %s", got, f.doneTip)
-	}
-}

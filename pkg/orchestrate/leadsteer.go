@@ -178,28 +178,6 @@ func SendBack(ctx context.Context, dagID, taskID, guidance string) error {
 	return Schedule(ctx, dagID)
 }
 
-// dropAbandonedCommits moves a skipped failed or stalled task's lane back to where the task first started, keeping
-// the lane's earlier done tasks. What it drops is written to a recovery patch named for the task. A task that never
-// reached a worker has nothing to drop.
-func dropAbandonedCommits(ctx context.Context, g *waveobj.TaskGroup, task *waveobj.TaskNode) error {
-	if task.StartBase == "" || task.RunID == "" {
-		return nil
-	}
-	worker, err := wstore.GetRun(ctx, g.ChannelId, task.RunID)
-	if err != nil {
-		return fmt.Errorf("loading task %s's worker run: %w", task.ID, err)
-	}
-	owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
-	if err != nil {
-		return fmt.Errorf("loading owner run: %w", err)
-	}
-	key := LaneWorktreeKey(g, task.ID)
-	if err := rewindLane(ctx, owner.ProjectPath, worker.ProjectPath, key, task.StartBase, key+"-"+task.ID); err != nil {
-		return fmt.Errorf("dropping task %s's commits from its lane: %w", task.ID, err)
-	}
-	return nil
-}
-
 // dropRejectedCommit moves a review-failed task's lane back to where the task's first reviewed attempt started.
 // Nothing later in the lane can have built on it: the task never counted as done.
 func dropRejectedCommit(ctx context.Context, g *waveobj.TaskGroup, task *waveobj.TaskNode) error {
