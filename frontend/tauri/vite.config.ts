@@ -1,7 +1,8 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react-swc";
+import { realpathSync } from "fs";
 import { resolve } from "path";
-import { defineConfig } from "vite";
+import { defineConfig, searchForWorkspaceRoot } from "vite";
 
 const fe = resolve(__dirname, ".."); // frontend/
 
@@ -24,6 +25,13 @@ export default defineConfig({
             "@/preview": resolve(fe, "preview"),
         },
     },
-    server: { port: 5174, strictPort: true },
+    server: {
+        port: 5174,
+        strictPort: true,
+        // a worktree's node_modules is a junction to the main checkout's, and vite resolves it to that real
+        // path, outside the worktree: without it every asset a package loads by url() (monaco's codicon
+        // font) is refused with a 403 in a worktree's dev app
+        fs: { allow: [searchForWorkspaceRoot(process.cwd()), realpathSync(resolve(fe, "../node_modules"))] },
+    },
     build: { outDir: resolve(__dirname, "dist"), emptyOutDir: true },
 });
