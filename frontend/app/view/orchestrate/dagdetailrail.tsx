@@ -78,9 +78,12 @@ export function DagDetailRail({
                         className="truncate font-mono text-[10.5px] text-secondary"
                         data-dag-node-route={`${view.route.source}:${view.route.runtime}:${view.route.model}`}
                     >
-                        {routeSourceLabel(view.route.source)} · {view.route.runtime} / {view.route.model || "default"} ·{" "}
-                        {view.route.resolvedModel}
+                        <span className="text-ink-mid">worker</span> · {routeSourceLabel(view.route.source)} ·{" "}
+                        {view.route.runtime} / {view.route.model || "default"} · {view.route.resolvedModel}
                         {view.meta ? ` · ${view.meta}` : ""}
+                    </div>
+                    <div className="truncate font-mono text-[10.5px] text-secondary">
+                        <span className="text-ink-mid">review</span> · {view.reviewLine}
                     </div>
                 </div>
                 <div className="flex flex-none gap-1.5">

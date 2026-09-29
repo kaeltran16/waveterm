@@ -15,6 +15,7 @@ import {
     clickTargetFor,
     eventText,
     joinWorkspacePath,
+    planReviewPicks,
     toneFor,
     tsLabel,
     type RunTimelineGroup,
@@ -81,28 +82,40 @@ function EventRow({
 }) {
     const onClick = interactive ? clickTarget(event, channel, run) : undefined;
     const artifacts = artifactsOf(event);
+    const picks = event.kind === "plan-reviewed" ? planReviewPicks(event.detail) : [];
     return (
-        <div
-            onClick={onClick}
-            style={onClick ? { cursor: "pointer" } : undefined}
-            className="flex items-center gap-2 rounded px-1 py-0.5 font-mono text-[11px] text-secondary hover:bg-surface-hover"
-        >
-            <span className="shrink-0 text-xxxs text-edge-strong">{tsLabel(event.ts)}</span>
-            <span className={"shrink-0 text-[10px] " + toneFor(event.kind)}>●</span>
-            <span className="truncate">{eventText(event)}</span>
-            {artifacts.length > 0 && (
-                <span
-                    className="ml-auto shrink-0 cursor-pointer border-b border-dotted border-edge-strong text-[10px] text-accent-soft hover:text-accent"
-                    onClick={(e) => {
-                        e.stopPropagation(); // the row's own click target must not steal the artifact link
-                        openArtifact(runTree(run), artifacts[0]);
-                    }}
-                    title={`open ${artifacts[0]} in editor`}
+        <>
+            <div
+                onClick={onClick}
+                style={onClick ? { cursor: "pointer" } : undefined}
+                className="flex items-center gap-2 rounded px-1 py-0.5 font-mono text-[11px] text-secondary hover:bg-surface-hover"
+            >
+                <span className="shrink-0 text-xxxs text-edge-strong">{tsLabel(event.ts)}</span>
+                <span className={"shrink-0 text-[10px] " + toneFor(event.kind)}>●</span>
+                <span className="truncate">{eventText(event)}</span>
+                {artifacts.length > 0 && (
+                    <span
+                        className="ml-auto shrink-0 cursor-pointer border-b border-dotted border-edge-strong text-[10px] text-accent-soft hover:text-accent"
+                        onClick={(e) => {
+                            e.stopPropagation(); // the row's own click target must not steal the artifact link
+                            openArtifact(runTree(run), artifacts[0]);
+                        }}
+                        title={`open ${artifacts[0]} in editor`}
+                    >
+                        {artifacts[0]} ✎
+                    </span>
+                )}
+            </div>
+            {picks.map((p) => (
+                <div
+                    key={p.taskid}
+                    data-plan-review-pick={p.taskid}
+                    className="truncate pl-[52px] font-mono text-[10.5px] text-ink-mid"
                 >
-                    {artifacts[0]} ✎
-                </span>
-            )}
-        </div>
+                    {[p.taskid, p.model, p.reason].filter(Boolean).join(" · ")}
+                </div>
+            ))}
+        </>
     );
 }
 

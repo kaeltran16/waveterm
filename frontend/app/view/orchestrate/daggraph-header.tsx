@@ -4,6 +4,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useAtomValue } from "jotai";
 import { chipGroups, pickNext, type ChipGroup } from "./dagcanvas";
 import { selectedTaskIdAtom } from "./dagstore";
+import { reviewersChip, workersChip } from "./taskroute";
 
 // a chip's dot: filled for the groups that are doing or done something, an open ring for those that are not
 const CHIP_DOT = new Map<ChipGroup["key"], string>([
@@ -38,10 +39,14 @@ function SummaryChips({ tasks }: { tasks: TaskNode[] }) {
     );
 }
 
-// graph header: the owning run's goal, the summary chips, the derived status pill, cancel. No back button:
-// the modal header above it already closes, and a second close one row down read as two different exits.
+const ROUTE_CHIP =
+    "flex-none rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-ink-mid";
+
+// graph header: the owning run's goal, the summary chips, the workers and reviewers routes, the derived status
+// pill, cancel. No back button: the modal header above it already closes, and a second close one row down read
+// as two different exits.
 // No dag id either: the modal subtitle names the run, and the dag's uuid identified it to nobody.
-export function DagGraphHeader({ group }: { group: TaskGroup }) {
+export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run }) {
     const status = group.status;
     const tone =
         status === "done" || status === "awaiting-review"
@@ -64,6 +69,8 @@ export function DagGraphHeader({ group }: { group: TaskGroup }) {
                 </div>
             </div>
             <SummaryChips tasks={group.tasks} />
+            <span className={ROUTE_CHIP}>{workersChip(group, owner)}</span>
+            <span className={ROUTE_CHIP}>{reviewersChip(group, owner)}</span>
             <span
                 className={`rounded-[5px] border px-2 py-0.5 font-mono text-[10.5px] uppercase tracking-wide ${tone}`}
             >

@@ -44,10 +44,17 @@ import { dagModalAgentsContextAtom } from "./dagmodalstate";
 import { dagEdgeTypes, dagNodeTypes, type DagCardData, type LaneBandData, type RoutedEdgeData } from "./dagnodes";
 import { buildViewData, hoveredTaskAtom, mergeReadyIds, selectedTaskIdAtom, useDagGroup } from "./dagstore";
 import { enterOpensTask } from "./taskcorrelate";
+import { stageEntries, type StageEntry } from "./taskroute";
 
 // fitView's padding, as a fraction of the pane
 const FIT_PADDING = 0.1;
 const PAN_MS = 200;
+
+const STAGE_DOT: Record<StageEntry["tone"], string> = {
+    done: "border-success bg-success",
+    failed: "border-warning bg-warning",
+    open: "border-ink-faint",
+};
 
 // without the roster context there is no shared ticker; the card facts then read the clock at render
 const NO_TICK_ATOM = atom(0);
@@ -336,9 +343,17 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
         : undefined;
     return (
         <div className="relative flex h-full min-h-0 w-full flex-col bg-background">
-            <DagGraphHeader group={group} />
-            <div className="flex flex-none items-center gap-2 border-b border-border bg-surface px-4 py-1.5 font-mono text-[10.5px] text-ink-mid">
-                Run route · {owner.runtime || "unavailable"} / {owner.model || "default"}
+            <DagGraphHeader group={group} owner={owner} />
+            <div className="flex flex-none items-center gap-[18px] border-b border-border bg-surface px-4 py-1.5 font-mono text-[10.5px] text-ink-mid">
+                <span>
+                    Run route · {owner.runtime || "unavailable"} / {owner.model || "default"}
+                </span>
+                {stageEntries(group, owner).map((s) => (
+                    <span key={s.key} className="flex items-center gap-1.5">
+                        <span className={`h-[7px] w-[7px] rounded-full border ${STAGE_DOT[s.tone]}`} />
+                        {s.text}
+                    </span>
+                ))}
             </div>
             <div ref={paneRef} className="relative min-h-0 flex-1">
                 <ReactFlow

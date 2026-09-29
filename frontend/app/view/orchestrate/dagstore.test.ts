@@ -109,8 +109,8 @@ describe("worker routes", () => {
     });
     it("names each source", () => {
         expect(routeSourceLabel("pinned")).toBe("pinned");
-        expect(routeSourceLabel("workers")).toBe("run worker route");
-        expect(routeSourceLabel("inherited")).toBe("inherits run route");
+        expect(routeSourceLabel("workers")).toBe("workers route");
+        expect(routeSourceLabel("inherited")).toBe("same as lead");
     });
 });
 
