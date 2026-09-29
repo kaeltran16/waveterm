@@ -11,6 +11,7 @@ import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useMemo } from "react";
 import { buildFileTree, collapsedDirsAtom, treeModeAtom, type FileTreeRow } from "./filetree";
 import { statusColor, type GitChange, type GitChanges } from "./gitstatus";
@@ -39,7 +40,7 @@ export function TreeModeToggle() {
         <button
             onClick={() => globalStore.set(treeModeAtom, !tree)}
             title={tree ? "Show a flat path list" : "Group files by directory"}
-            className="flex-none rounded border border-edge-mid px-[6px] py-[1px] font-mono text-[10px] text-ink-faint hover:text-foreground"
+            className="flex-none rounded border border-edge-mid px-[6px] py-[1px] font-mono text-[10.5px] text-muted hover:text-foreground"
         >
             {tree ? "tree" : "flat"}
         </button>
@@ -72,7 +73,7 @@ function FileRow({
         >
             <span
                 className={cn(
-                    "w-[13px] flex-none text-center font-mono text-[10px] font-bold",
+                    "w-[13px] flex-none text-center font-mono text-[10.5px] font-bold",
                     statusColor(change.status)
                 )}
             >
@@ -86,8 +87,8 @@ function FileRow({
             >
                 {label}
             </span>
-            <span className="flex-none font-mono text-[10px] font-semibold text-diff-added">+{change.adds}</span>
-            <span className="flex-none font-mono text-[10px] font-semibold text-diff-removed">−{change.dels}</span>
+            <span className="flex-none font-mono text-[10.5px] font-semibold text-diff-added">+{change.adds}</span>
+            <span className="flex-none font-mono text-[10.5px] font-semibold text-diff-removed">−{change.dels}</span>
         </button>
     );
 }
@@ -100,13 +101,17 @@ function DirRow({ row, collapsed, onToggle }: { row: FileTreeRow; collapsed: boo
             title={row.id}
             className="flex w-full items-center gap-[6px] rounded-[7px] py-[5px] pr-[8px] text-left hover:bg-surface-raised"
         >
-            <span className="w-[9px] flex-none font-mono text-[9px] text-ink-faint">{collapsed ? "▸" : "▾"}</span>
+            {collapsed ? (
+                <ChevronRight size={12} className="flex-none text-muted" />
+            ) : (
+                <ChevronDown size={12} className="flex-none text-muted" />
+            )}
             <span className="min-w-0 flex-1 truncate font-mono text-[11px] font-semibold text-ink-mid">
                 {row.label}
             </span>
-            <span className="flex-none font-mono text-[9.5px] text-ink-faint">{row.files}</span>
-            <span className="flex-none font-mono text-[9.5px] text-diff-added">+{row.adds}</span>
-            <span className="flex-none font-mono text-[9.5px] text-diff-removed">−{row.dels}</span>
+            <span className="flex-none font-mono text-[10.5px] text-muted">{row.files}</span>
+            <span className="flex-none font-mono text-[10.5px] text-diff-added">+{row.adds}</span>
+            <span className="flex-none font-mono text-[10.5px] text-diff-removed">−{row.dels}</span>
         </button>
     );
 }

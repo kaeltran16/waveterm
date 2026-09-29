@@ -10,6 +10,7 @@
 import { SkeletonLine } from "@/app/element/skeleton";
 import { cn } from "@/util/util";
 import { PanelLeftClose } from "lucide-react";
+import { SubLabel } from "./sectionlabel";
 import {
     AGGREGATE,
     SIDE_DOT,
@@ -66,8 +67,8 @@ function AggregateRowView({
                     <span className="font-mono text-[10.5px] text-ink-mid">
                         {row.files} {row.files === 1 ? "file" : "files"}
                     </span>
-                    <span className="font-mono text-[10px] font-semibold text-diff-added">+{row.adds}</span>
-                    <span className="font-mono text-[10px] font-semibold text-diff-removed">−{row.dels}</span>
+                    <span className="font-mono text-[10.5px] font-semibold text-diff-added">+{row.adds}</span>
+                    <span className="font-mono text-[10.5px] font-semibold text-diff-removed">−{row.dels}</span>
                 </>
             )}
         </button>
@@ -113,7 +114,7 @@ function CommitRowView({
             >
                 {row.subject}
             </span>
-            <span className="flex-none text-right font-mono text-[10.5px] text-ink-faint">{row.when}</span>
+            <span className="flex-none text-right font-mono text-[10.5px] text-muted">{row.when}</span>
         </button>
     );
 }
@@ -141,8 +142,8 @@ export function CompareColumn({
     return (
         <div data-compare-column className="flex min-h-0 flex-1 flex-col">
             <div className="flex h-[40px] flex-none items-center gap-[9px] border-b border-edge-faint pl-[14px] pr-[8px]">
-                <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted">Compare</span>
-                <span className="min-w-0 truncate font-mono text-[10px] text-ink-faint">
+                <SubLabel>Compare</SubLabel>
+                <span className="min-w-0 truncate font-mono text-[10.5px] text-muted">
                     {splitLabel(mergeBase, mergeBaseTs, Date.now())}
                 </span>
                 <div className="flex-1" />
