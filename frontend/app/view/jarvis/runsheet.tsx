@@ -27,17 +27,21 @@ import { AskCard, CancelRunButton, CancelSurvivorsCard } from "@/app/view/agents
 import { needsEvidenceSeal, verifCounts } from "@/app/view/agents/runcompletion";
 import { useRunEvents } from "@/app/view/agents/runeventstore";
 import { cancelSurvivors, isTerminal, leadAsker, leadWorker, liveWorkers } from "@/app/view/agents/runmodel";
-import { buildRunTimeline } from "@/app/view/agents/runtimeline";
-import { eventsCount, GroupSection } from "@/app/view/agents/runtimelineview";
+import { SEG_FILL, STRIP_MAX, taskStrip, taskStripLabel } from "@/app/view/agents/runstrip";
+import { eventTitle, tsLabel } from "@/app/view/agents/runtimeline";
+import { SectionLabel } from "@/app/view/agents/sectionlabel";
 import { attentionQueue, type QueueEntry } from "@/app/view/orchestrate/attentionqueue";
 import { formatElapsed, taskBriefs, useDagDigest, type TaskBrief } from "@/app/view/orchestrate/dagdigest";
 import { openDagLive, openDagTask } from "@/app/view/orchestrate/dagmodalstate";
 import { useDagGroup } from "@/app/view/orchestrate/dagstore";
 import { recoverySummary, recoveryText } from "@/app/view/orchestrate/recoverysummary";
 import { openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "@/app/view/orchestrate/taskcorrelate";
+import { groupEvents, railRows, type EventGroup } from "@/app/view/orchestrate/timelinegroups";
+import { groupTime, SpineGlyph } from "@/app/view/orchestrate/timelinerail";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
-import { useEffect, useState, type ReactNode } from "react";
+import { ArrowUpRight, ChevronDown, ChevronRight, CornerDownRight } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { RunComposer } from "./briefcomposer";
 import { RunSettingsPanel, saveRunAsDefaults, SHEET_BTN } from "./briefrunsheet";
 import { briefEffortIndexAtom, briefRevealChunkAtom } from "./jarvisstore";
@@ -50,6 +54,7 @@ import {
     sheetStatus,
     taskRow,
     taskSectionMeta,
+    type SheetBar,
     type SheetDagRead,
     type SheetRowAction,
     type SheetStatus,
@@ -57,15 +62,12 @@ import {
 } from "./runsheetmodel";
 import { STAGE_PROSE } from "./stagemeasure";
 
-const EYEBROW = "font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-feed-label";
-// a finished run's evidence eyebrows are a step brighter (design L541-555)
-const EYEBROW_MID = "font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-ink-mid";
 const LINK =
     "cursor-pointer font-mono text-[10.5px] text-accent-soft hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent";
 const DOCK_BTN = cn(SHEET_BTN, "bg-transparent px-3 py-1.5 text-[11.5px]");
 const DOCK_ACCENT = cn(DOCK_BTN, "border-accent/50 bg-accent/12 text-accent-soft");
 const ROW_BTN =
-    "cursor-pointer rounded-[5px] border border-border px-[7px] py-0.5 font-mono text-[9.5px] text-secondary hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent";
+    "inline-flex h-[22px] flex-none cursor-pointer items-center gap-1 rounded-[5px] border border-edge-mid px-[7px] font-mono text-[10.5px] text-secondary hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent";
 
 const TONE_TEXT: Record<SheetTone, string> = {
     success: "text-success",
@@ -77,7 +79,6 @@ const TONE_TEXT: Record<SheetTone, string> = {
     muted: "text-muted",
     faint: "text-ink-faint",
     accent: "text-accent-soft",
-    dim: "text-muted",
 };
 
 const TONE_BG: Record<SheetTone, string> = {
@@ -90,13 +91,12 @@ const TONE_BG: Record<SheetTone, string> = {
     muted: "bg-muted",
     faint: "bg-edge-strong",
     accent: "bg-accent",
-    dim: "bg-accent-700",
 };
 
 const ROW_ACTION_LABEL: Record<Exclude<SheetRowAction, null>, string> = {
-    "open-agent": "Open in Agent ↗",
+    "open-agent": "Open in Agent",
     "open-child-run": "View child run",
-    "open-dag-task": "Open DAG ↗",
+    "open-dag-task": "Open DAG",
 };
 
 // stable no-run atom for a task that has not been dispatched: runAtom is oref-cached, and the row's hook
@@ -165,7 +165,7 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
 
     return (
         <div data-run-sheet={run.status} className="flex min-h-0 flex-1 flex-col bg-background">
-            <Reading run={run} agents={agents} status={status} onRetry={dag?.digest.retry} />
+            <Reading run={run} agents={agents} status={status} dag={dag} onRetry={dag?.digest.retry} />
             <div className="sc min-h-0 flex-1 overflow-y-auto px-4 pb-2.5">
                 {survivors > 0 ? (
                     <CancelSurvivorsCard model={ctx.model} channelId={channel.oid} run={run} agents={agents} />
@@ -201,17 +201,18 @@ function Reading({
     run,
     agents,
     status,
+    dag,
     onRetry,
 }: {
     run: Run;
     agents: AgentVM[];
     status: SheetStatus;
+    dag: SheetDagRead | null;
     onRetry?: () => void;
 }) {
     const [goalOpen, setGoalOpen] = useState(false);
     const index = useAtomValue(briefEffortIndexAtom);
     const revealChunk = useAtomValue(briefRevealChunkAtom);
-    const meter = status.meter;
     // what the run has spent so far, off its live workers (design L1401)
     const cost = liveWorkers(run, agents).reduce((sum, a) => sum + (a.usage?.costusd ?? 0), 0);
     const ref = run.effortref;
@@ -235,23 +236,7 @@ function Reading({
                 </span>
                 <span className="min-w-0 text-[13px] leading-[1.35] text-ink-mid">{status.sub}</span>
             </div>
-            {meter != null && meter.total > 0 ? (
-                <div
-                    role="img"
-                    aria-label={`${meter.done} of ${meter.total} tasks finished`}
-                    className={cn("flex", meter.total > 24 ? "gap-px" : "gap-1")}
-                >
-                    {Array.from({ length: meter.total }, (_, i) => (
-                        <span
-                            key={i}
-                            className={cn(
-                                "h-1 flex-1 rounded-[2px]",
-                                i < meter.done ? TONE_BG[meter.tone] : "bg-edge-mid"
-                            )}
-                        />
-                    ))}
-                </div>
-            ) : null}
+            <SheetBarView bar={status.meter} dag={dag} />
             <RunSettingsPanel
                 run={run}
                 inline
@@ -294,11 +279,64 @@ function Reading({
                     type="button"
                     title="Open this chunk"
                     onClick={() => revealChunk?.(effort.oref, ref.chunklabel)}
-                    className="max-w-full cursor-pointer self-start truncate font-mono text-[10.5px] text-ink-mid hover:text-accent-soft focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                    className="inline-flex max-w-full cursor-pointer items-center gap-1 self-start font-mono text-[10.5px] text-ink-mid hover:text-accent-soft focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                 >
-                    ↳ {effort.title} · {effort.chunkStages[ref.chunklabel] || "unstaged"} · {ref.chunklabel}
+                    <CornerDownRight size={11} aria-hidden className="flex-none text-muted" />
+                    <span className="truncate">
+                        {effort.title} · {effort.chunkStages[ref.chunklabel] || "unstaged"} · {ref.chunklabel}
+                    </span>
                 </button>
             ) : null}
+        </div>
+    );
+}
+
+// the shared task strip (the agent tree, the rail and the Cockpit draw the same one); a stale read keeps the
+// dated count in the dim tone
+function SheetBarView({ bar, dag }: { bar: SheetBar | null; dag: SheetDagRead | null }) {
+    if (bar == null) {
+        return null;
+    }
+    if (bar.kind === "stale") {
+        if (bar.total === 0) {
+            return null;
+        }
+        return (
+            <div
+                role="img"
+                aria-label={`${bar.done} of ${bar.total} tasks finished`}
+                className={cn("flex", bar.total > STRIP_MAX ? "gap-px" : "gap-1")}
+            >
+                {Array.from({ length: bar.total }, (_, i) => (
+                    <span
+                        key={i}
+                        className={cn("h-1 flex-1 rounded-[2px]", i < bar.done ? "bg-accent-700" : "bg-edge-mid")}
+                    />
+                ))}
+            </div>
+        );
+    }
+    const group = dag?.group ?? undefined;
+    const digest = dag?.digest.digest;
+    const strip = taskStrip(group, digest);
+    if (strip == null) {
+        return null;
+    }
+    return (
+        <div role="img" aria-label={taskStripLabel(group, digest)} className="flex h-1 gap-[3px]">
+            {strip.kind === "segments" ? (
+                strip.states.map((st, i) => (
+                    <span key={i} className={cn("h-full min-w-[2px] flex-1 rounded-[2px]", SEG_FILL[st])} />
+                ))
+            ) : (
+                <>
+                    <span className="h-full min-w-0 rounded-[2px] bg-success" style={{ flexGrow: strip.done }} />
+                    <span
+                        className="h-full min-w-0 rounded-[2px] bg-edge-strong"
+                        style={{ flexGrow: strip.total - strip.done }}
+                    />
+                </>
+            )}
         </div>
     );
 }
@@ -317,7 +355,7 @@ function Tasks({
     const { run, channel } = ctx;
     const events = useRunEvents(run.id, channel.oid);
     const [timelineOpen, setTimelineOpen] = useState(false);
-    const { groups } = buildRunTimeline(run, events);
+    const rows = railRows(useMemo(() => groupEvents(events), [events]));
     const digestState = dag?.digest;
     const digest = digestState?.digest;
     const group = dag?.group ?? null;
@@ -336,36 +374,56 @@ function Tasks({
     return (
         <div>
             <div className="flex items-center gap-2.5 pb-2 pt-4">
-                <span className={EYEBROW}>tasks</span>
-                <span className="min-w-0 truncate font-mono text-[10.5px] text-ink-faint">
+                <SectionLabel>tasks</SectionLabel>
+                <span className="min-w-0 truncate font-mono text-[10.5px] text-muted">
                     {taskSectionMeta(run, digest)}
                 </span>
                 <span className="flex-1" />
-                {groups.length > 0 ? (
+                {events.length > 0 ? (
                     <button
                         type="button"
                         aria-expanded={timelineOpen}
                         onClick={() => setTimelineOpen((o) => !o)}
-                        className={cn(LINK, "flex-none")}
+                        className={cn(LINK, "inline-flex flex-none items-center gap-1")}
                     >
-                        {timelineOpen ? "▾" : "▸"} timeline · {eventsCount(groups)} events
+                        {timelineOpen ? <ChevronDown size={11} aria-hidden /> : <ChevronRight size={11} aria-hidden />}
+                        timeline · {events.length} events
                     </button>
                 ) : null}
             </div>
             {timelineOpen ? (
-                <div className="mb-3 flex flex-col border-l-2 border-edge-mid pl-3">
-                    <div className="sc max-h-[260px] overflow-y-auto">
-                        {groups.map((g) => (
-                            <GroupSection key={g.id} group={g} channel={channel} run={run} />
-                        ))}
+                <div data-run-sheet-timeline className="mb-3 flex flex-col">
+                    <div className="sc max-h-[230px] overflow-y-auto">
+                        <div className="relative pb-1.5 pt-0.5">
+                            <div
+                                aria-hidden="true"
+                                className="absolute bottom-2 left-[15px] top-2 w-px bg-edge-faint"
+                            />
+                            <div className="relative flex items-center gap-2 py-0.5 pl-[5px] pr-1.5">
+                                <span className="flex w-5 flex-none justify-center">
+                                    <span className="size-2 animate-[pulseDot_1.6s_infinite] rounded-full bg-accent motion-reduce:animate-none" />
+                                </span>
+                                <span className="font-mono text-[10.5px] text-accent-soft">
+                                    now · {tsLabel(ctx.now)}
+                                </span>
+                            </div>
+                            {rows.map((row, i) =>
+                                row.kind === "gap" ? (
+                                    <SheetGapRow key={`gap:${i}`} minutes={row.minutes} />
+                                ) : (
+                                    <SheetBurstRow key={row.group.id} ctx={ctx} group={row.group} />
+                                )
+                            )}
+                        </div>
                     </div>
                     {run.dagoref ? (
                         <button
                             type="button"
                             onClick={() => openDagLive(channel.oid, run.id, "dag:" + run.dagoref)}
-                            className={cn(LINK, "mt-1 self-start")}
+                            className={cn(LINK, "mt-1 inline-flex items-center gap-1 self-start")}
                         >
-                            open the full timeline ↗
+                            open the full timeline
+                            <ArrowUpRight size={11} aria-hidden />
                         </button>
                     ) : null}
                 </div>
@@ -392,11 +450,72 @@ function Tasks({
             )}
             {status.next != null ? (
                 <div className="pb-1 pt-[13px] font-mono text-[11px] leading-[1.5] text-muted">
-                    <span className="text-ink-faint">next: </span>
+                    <span className="text-muted">next: </span>
                     {status.next}
                 </div>
             ) : null}
         </div>
+    );
+}
+
+function SheetGapRow({ minutes }: { minutes: number }) {
+    return (
+        <div className="relative flex items-center gap-2 py-0.5 pl-[5px] pr-1.5">
+            <span className="flex w-5 flex-none justify-center">
+                <span className="size-[5px] rounded-full bg-edge-mid" />
+            </span>
+            <span className="flex-1 border-t border-dashed border-edge-mid" />
+            <span className="font-mono text-[10.5px] text-ink-faint">{minutes} min quiet</span>
+            <span className="flex-1 border-t border-dashed border-edge-mid" />
+        </div>
+    );
+}
+
+// one line per burst; the modal keeps the steps, snippet and detail. Without a dag there is no modal to open,
+// so the row is plain.
+function SheetBurstRow({ ctx, group }: { ctx: SheetCtx; group: EventGroup }) {
+    const { channel, run } = ctx;
+    const body = (
+        <>
+            <SpineGlyph kind={group.head.kind} attention={group.attention} compact />
+            <span
+                className={cn(
+                    "min-w-0 truncate text-[12px]",
+                    group.attention ? "font-semibold text-warning" : "font-medium text-ink-hi"
+                )}
+            >
+                {eventTitle(group.head)}
+            </span>
+            {group.taskId ? (
+                <span className="flex-none rounded bg-pill px-1.5 font-mono text-[10.5px] leading-4 text-ink-mid">
+                    {group.taskId}
+                </span>
+            ) : null}
+            <span className="ml-auto flex-none font-mono text-[10.5px] text-ink-mid">{groupTime(group)}</span>
+        </>
+    );
+    const rowClass = "relative flex w-full items-center gap-2 rounded-[6px] py-[3px] pl-[5px] pr-1.5 text-left";
+    if (!run.dagoref) {
+        return <div className={rowClass}>{body}</div>;
+    }
+    const dagOref = "dag:" + run.dagoref;
+    return (
+        <button
+            type="button"
+            data-run-sheet-burst={group.taskId || undefined}
+            title="Show in the DAG"
+            onClick={() =>
+                group.taskId
+                    ? openDagTask(channel.oid, run.id, dagOref, group.taskId)
+                    : openDagLive(channel.oid, run.id, dagOref)
+            }
+            className={cn(
+                rowClass,
+                "cursor-pointer hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+            )}
+        >
+            {body}
+        </button>
     );
 }
 
@@ -474,10 +593,13 @@ function TaskRow({
                 ) : null}
             </div>
             <div className="flex items-center gap-2">
-                <span className={cn("font-mono text-[10px]", TONE_TEXT[row.stateTone])}>{row.state}</span>
+                <span className={cn("font-mono text-[10.5px] font-semibold", TONE_TEXT[row.stateTone])}>
+                    {row.state}
+                </span>
                 {row.action != null ? (
                     <button type="button" onClick={act} className={ROW_BTN}>
                         {ROW_ACTION_LABEL[row.action]}
+                        {row.action !== "open-child-run" ? <ArrowUpRight size={11} aria-hidden /> : null}
                     </button>
                 ) : null}
             </div>
@@ -520,7 +642,7 @@ function AttentionRow({ ctx, entry }: { ctx: SheetCtx; entry: QueueEntry }) {
             <span className="flex-none font-mono text-[11px] font-medium text-ink-hi">{entry.label}</span>
             <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">{entry.detail}</span>
             {entry.actions.length > 0 ? (
-                <span className="flex-none rounded-[5px] border border-warning/45 px-[7px] py-0.5 font-mono text-[9.5px] text-warning-soft">
+                <span className="flex-none rounded-[5px] border border-warning/45 px-[7px] py-px font-mono text-[10.5px] text-warning-soft">
                     {entry.actions.join("/")}
                 </span>
             ) : null}
@@ -560,8 +682,13 @@ function EmptyTasks({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }) {
                 body="A quick run is one worker on one goal. Its transcript is the whole run; the Agent view is where it is watched."
                 act={
                     worker != null ? (
-                        <button type="button" onClick={() => jumpToAgent(model, worker.id)} className={actClass}>
-                            Open in Agent ↗
+                        <button
+                            type="button"
+                            onClick={() => jumpToAgent(model, worker.id)}
+                            className={cn(actClass, "inline-flex items-center gap-1")}
+                        >
+                            Open in Agent
+                            <ArrowUpRight size={11} aria-hidden />
                         </button>
                     ) : undefined
                 }
@@ -629,7 +756,7 @@ function Evidence({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }) {
     return (
         <div className="flex flex-col gap-4 pt-4" data-evidence-block>
             <div className="flex flex-col gap-[9px]">
-                <span className={EYEBROW_MID}>what landed</span>
+                <SectionLabel>what landed</SectionLabel>
                 {commits.length > 0
                     ? commits.map((c) => (
                           <div
@@ -652,8 +779,9 @@ function Evidence({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }) {
                               className="grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 border-b border-edge-faint py-[9px] text-left hover:bg-surface-hover"
                           >
                               <span className="truncate font-mono text-[11.5px] text-ink-hi">{f.path}</span>
-                              <span className="font-mono text-[10px] text-muted">
-                                  +{f.add} −{f.del}
+                              <span className="font-mono text-[10.5px]">
+                                  <span className="text-diff-added">+{f.add}</span>{" "}
+                                  <span className="text-diff-removed">−{f.del}</span>
                               </span>
                           </button>
                       ))}
@@ -661,11 +789,11 @@ function Evidence({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }) {
                     <span className="text-[12px] text-muted">Nothing landed in the repository.</span>
                 ) : null}
                 {commits.length === 0 && files.length > 8 ? (
-                    <span className="font-mono text-[10.5px] text-ink-faint">+{files.length - 8} more files</span>
+                    <span className="font-mono text-[10.5px] text-muted">+{files.length - 8} more files</span>
                 ) : null}
             </div>
             <div className="flex flex-col gap-[7px]">
-                <span className={EYEBROW_MID}>sealed evidence</span>
+                <SectionLabel>sealed evidence</SectionLabel>
                 <div className="flex flex-col font-mono text-[11px] leading-[1.6] text-secondary">
                     {lines.map((l) => (
                         <span key={l}>{l}</span>
@@ -677,9 +805,10 @@ function Evidence({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }) {
                 <button
                     type="button"
                     onClick={() => openDiff(model, diffScopeOfRun(run))}
-                    className={cn(LINK, "self-start")}
+                    className={cn(LINK, "inline-flex items-center gap-1 self-start")}
                 >
-                    open the repository diff ↗
+                    open the repository diff
+                    <ArrowUpRight size={11} aria-hidden />
                 </button>
             </div>
         </div>
@@ -734,13 +863,23 @@ function Dock({ ctx, group }: { ctx: SheetCtx; group: TaskGroup | null }) {
                     </button>
                 ) : null}
                 {lead != null ? (
-                    <button type="button" onClick={() => jumpToAgent(model, lead.id)} className={DOCK_BTN}>
-                        Open lead ↗
+                    <button
+                        type="button"
+                        onClick={() => jumpToAgent(model, lead.id)}
+                        className={cn(DOCK_BTN, "inline-flex items-center gap-1")}
+                    >
+                        Open lead
+                        <ArrowUpRight size={11} aria-hidden />
                     </button>
                 ) : null}
                 {worker != null ? (
-                    <button type="button" onClick={() => jumpToAgent(model, worker.id)} className={DOCK_BTN}>
-                        Open in Agent ↗
+                    <button
+                        type="button"
+                        onClick={() => jumpToAgent(model, worker.id)}
+                        className={cn(DOCK_BTN, "inline-flex items-center gap-1")}
+                    >
+                        Open in Agent
+                        <ArrowUpRight size={11} aria-hidden />
                     </button>
                 ) : null}
                 <span className="flex-1" />

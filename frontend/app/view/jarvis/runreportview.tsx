@@ -6,12 +6,13 @@
 
 import { diffScopeOfRun, openDiff } from "@/app/view/agents/agentdiffnav";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { SectionLabel } from "@/app/view/agents/sectionlabel";
 import { cn } from "@/util/util";
+import { ArrowUpRight } from "lucide-react";
 import { useState } from "react";
 import { briefUndo } from "./briefundo";
 import { parseRunReport, type ReportItem } from "./runreport";
 
-const EYEBROW = "font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-ink-mid";
 const LINK = "cursor-pointer font-mono text-[10.5px] text-accent-soft hover:text-accent";
 const DOT: Record<ReportItem["dot"], string> = {
     ok: "bg-success",
@@ -30,7 +31,7 @@ export function RunReportView({ model, run, compact }: { model: AgentsViewModel;
     return (
         <div data-jarvis-run-report className={cn("flex flex-col", compact ? "gap-2.5" : "gap-3.5 pt-4")}>
             <div className="flex items-center gap-2.5">
-                <span className={EYEBROW}>run report</span>
+                <SectionLabel>run report</SectionLabel>
                 <span className="min-w-0 truncate font-mono text-[10.5px] text-muted">{report.title}</span>
                 <span className="flex-1" />
                 <button type="button" onClick={() => setRaw(!raw)} className={cn(LINK, "flex-none")}>
@@ -59,7 +60,7 @@ export function RunReportView({ model, run, compact }: { model: AgentsViewModel;
                     {report.sections.map((sec) => (
                         <div key={sec.heading} className="flex flex-col gap-0.5">
                             <div className="flex items-center gap-2 pb-1">
-                                <span className={EYEBROW}>{sec.heading}</span>
+                                <SectionLabel>{sec.heading}</SectionLabel>
                                 <span className="font-mono text-[10.5px] text-muted">{sec.count}</span>
                             </div>
                             {sec.items.map((it, n) => (
@@ -92,7 +93,7 @@ export function RunReportView({ model, run, compact }: { model: AgentsViewModel;
                                         {it.text}
                                     </span>
                                     {it.tag !== "" ? (
-                                        <span className="flex-none rounded-[5px] border border-edge-mid px-[5px] font-mono text-[10px] leading-4 text-ink-mid">
+                                        <span className="flex-none rounded-[5px] border border-edge-mid px-1.5 font-mono text-[10.5px] leading-[17px] text-ink-mid">
                                             {it.tag}
                                         </span>
                                     ) : null}
@@ -103,9 +104,10 @@ export function RunReportView({ model, run, compact }: { model: AgentsViewModel;
                     <button
                         type="button"
                         onClick={() => openDiff(model, diffScopeOfRun(run))}
-                        className={cn(LINK, "self-start")}
+                        className={cn(LINK, "inline-flex items-center gap-1 self-start")}
                     >
-                        open the repository diff ↗
+                        open the repository diff
+                        <ArrowUpRight size={11} aria-hidden />
                     </button>
                 </>
             )}

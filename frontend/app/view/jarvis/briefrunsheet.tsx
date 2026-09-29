@@ -25,6 +25,7 @@ import { useDagGroup } from "@/app/view/orchestrate/dagstore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useState, type ReactNode } from "react";
+import { REGION_LABEL } from "./briefstyle";
 import {
     draftIsDirty,
     draftSeedKey,
@@ -73,11 +74,9 @@ export function SheetShell({
             className="flex h-full min-h-0 flex-col"
         >
             <header className="flex flex-none items-center gap-2.5 border-b border-edge-faint px-4 py-2.5">
-                <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-accent-soft">
-                    {label}
-                </span>
+                <span className={cn(REGION_LABEL, "text-accent-soft")}>{label}</span>
                 <span className="min-w-0 truncate text-[13.5px] font-semibold text-ink-hi">{title}</span>
-                {meta ? <span className="min-w-0 truncate font-mono text-[10px] text-muted">{meta}</span> : null}
+                {meta ? <span className="min-w-0 truncate font-mono text-[10.5px] text-muted">{meta}</span> : null}
                 <span className="flex-1" />
                 {actions}
                 <button type="button" aria-label="Close detail sheet" onClick={onClose} className={SHEET_BTN}>

@@ -6,8 +6,10 @@
 // Extracted from runbody.tsx so RunBody keeps only the run-scoped live machinery. Presentational +
 // action-dispatch only; all derivations come from runmodel.ts.
 
-import { fireAndForget } from "@/util/util";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { CircleAlert } from "lucide-react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { AttentionBanner, AttentionCard } from "./attentioncard";
@@ -102,10 +104,8 @@ export function CancelSurvivorsCard({
     return (
         <div className="relative mt-3 max-w-[760px] overflow-hidden rounded-lg border border-error/40 bg-error/10 px-4 py-3">
             <div className="mb-2 flex items-center gap-2">
-                <span className="font-mono text-[12px] font-bold text-error">!</span>
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-error">
-                    Cancelled · {n} still running
-                </span>
+                <CircleAlert size={13} aria-hidden className="flex-none text-error" />
+                <span className={cn(REGION_LABEL, "text-error")}>Cancelled · {n} still running</span>
             </div>
             <p className="mb-3 text-[12.5px] leading-[1.5] text-secondary">
                 These workers didn't stop when the run was cancelled. Stop each to finish cancelling, or take control to

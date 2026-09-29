@@ -56,9 +56,11 @@ import { RunLauncher } from "@/app/view/agents/runlauncher";
 import { isTerminal, leadAsker } from "@/app/view/agents/runmodel";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, useSetAtom } from "jotai";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RunSettingsPanel, SHEET_BTN, SheetShell } from "./briefrunsheet";
 import { sheetFace, type SheetFace } from "./briefsheetmodel";
+import { REGION_LABEL } from "./briefstyle";
 import { EffortDetailView } from "./effortdetailview";
 import { briefRunListAtom, briefSheetOpenAtom } from "./jarvisstore";
 import {
@@ -85,7 +87,7 @@ const FIELD =
 const NO_RUN = atom<Run | null>(null);
 
 const STEP_BTN =
-    "h-[22px] w-6 cursor-pointer rounded-[6px] border border-border bg-surface-raised text-[11px] hover:border-edge-strong";
+    "inline-flex h-[22px] w-6 cursor-pointer items-center justify-center rounded-[6px] border border-border bg-surface-raised text-[11px] hover:border-edge-strong";
 
 // The goal row the launcher needs to be a launch. It reads the same config atoms RunLauncher edits, so a
 // control the user moved above is the control this dispatches with — a launch that ignored the launcher
@@ -168,7 +170,7 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
 
     return (
         <div className="flex flex-none flex-col gap-1.5 border-t border-edge-faint px-4 py-3">
-            <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-feed-label">
+            <span className={cn(REGION_LABEL, "text-accent-soft")}>
                 run this in {channelProjectLabel(channel, projects)}
             </span>
             <div className="flex items-center gap-2">
@@ -402,7 +404,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
                                             onClick={() => step(pos.prev)}
                                             className={cn(STEP_BTN, pos.prev ? "text-secondary" : "text-feed-glyph")}
                                         >
-                                            ↑
+                                            <ChevronUp size={13} aria-hidden />
                                         </button>
                                         <button
                                             type="button"
@@ -411,7 +413,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
                                             onClick={() => step(pos.next)}
                                             className={cn(STEP_BTN, pos.next ? "text-secondary" : "text-feed-glyph")}
                                         >
-                                            ↓
+                                            <ChevronDown size={13} aria-hidden />
                                         </button>
                                     </div>
                                     <button

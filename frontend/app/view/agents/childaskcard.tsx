@@ -6,7 +6,10 @@
 // deliver, lands here with the reason. The child's own ask card sits on a session nobody sees, so this is
 // where the human answers it, through the dag answer path.
 
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
+import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { MessageCircleQuestion } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { canSubmitAsk } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
@@ -59,12 +62,10 @@ export function ChildAskCard({ channelId, runId }: { channelId: string; runId: s
     return (
         <div className="mb-4 flex-none overflow-hidden rounded-xl border border-warning/30 bg-warning/5">
             <div className="flex items-center gap-2 border-b border-warning/15 px-3.5 py-2">
-                <span className="text-[12px] text-warning">?</span>
-                <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[.09em] text-warning">
-                    Questions for you
-                </span>
+                <MessageCircleQuestion size={13} aria-hidden className="flex-none text-warning" />
+                <span className={cn(REGION_LABEL, "text-warning")}>Questions for you</span>
                 <div className="flex-1" />
-                <span className="font-mono text-[10px] text-muted">{asks.length} waiting</span>
+                <span className="font-mono text-[10.5px] text-muted">{asks.length} waiting</span>
             </div>
             <div className="flex flex-col gap-2 px-3.5 py-3">
                 {asks.map((a) => {
@@ -74,7 +75,7 @@ export function ChildAskCard({ channelId, runId }: { channelId: string; runId: s
                     const ready = canSubmitAsk(agent.ask?.questions ?? [], selections[key] ?? {}, texts[key] ?? {});
                     return (
                         <div key={key} className="rounded-[9px] border border-warning/20 bg-background px-3 py-2.5">
-                            <div className="font-mono text-[10px] text-ink-mid">{a.taskid}</div>
+                            <div className="font-mono text-[10.5px] text-ink-mid">{a.taskid}</div>
                             {a.note ? <div className="mt-1 text-[12px] text-secondary">{a.note}</div> : null}
                             <AnswerBar
                                 agent={agent}

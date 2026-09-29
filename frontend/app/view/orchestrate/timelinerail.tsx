@@ -373,7 +373,8 @@ function EmptyRows({
     return <div className="py-2.5 pr-3 pl-10 text-[11.5px] text-muted">{text}</div>;
 }
 
-function SpineGlyph({ kind, attention }: { kind: string; attention: boolean }) {
+// the burst's lifecycle icon on the spine; compact is the run sheet's one-line row
+export function SpineGlyph({ kind, attention, compact }: { kind: string; attention: boolean; compact?: boolean }) {
     const tone = toneFor(kind);
     let fill = "border-edge-mid bg-surface-raised";
     if (attention) {
@@ -381,17 +382,25 @@ function SpineGlyph({ kind, attention }: { kind: string; attention: boolean }) {
     } else if (tone === "text-success") {
         fill = "border-edge-mid bg-success/12";
     }
+    const glyph = compact ? 9 : 11;
     return (
         <span className="relative flex w-5 flex-none justify-center">
-            <span className={cn("mt-2 flex size-5 items-center justify-center rounded-full border", fill, tone)}>
+            <span
+                className={cn(
+                    "flex items-center justify-center rounded-full border",
+                    compact ? "size-4" : "mt-2 size-5",
+                    fill,
+                    tone
+                )}
+            >
                 <svg
-                    width="11"
-                    height="11"
+                    width={glyph}
+                    height={glyph}
                     viewBox="0 0 24 24"
                     aria-hidden="true"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth={2.2}
+                    strokeWidth={compact ? 2.4 : 2.2}
                     strokeLinecap="round"
                     strokeLinejoin="round"
                 >
@@ -402,7 +411,7 @@ function SpineGlyph({ kind, attention }: { kind: string; attention: boolean }) {
     );
 }
 
-function groupTime(group: EventGroup): string {
+export function groupTime(group: EventGroup): string {
     const first = tsLabel(group.first);
     const last = tsLabel(group.last);
     return first === last ? first : `${first}–${last}`;
