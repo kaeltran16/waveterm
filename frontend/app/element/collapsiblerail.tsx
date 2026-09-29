@@ -10,6 +10,7 @@
 
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useAtom, type PrimitiveAtom } from "jotai";
+import { ChevronRight } from "lucide-react";
 import { type ReactNode } from "react";
 import { cn } from "@/util/util";
 import { MOTION } from "./motiontokens";
@@ -137,9 +138,9 @@ export function CollapsibleRail({
                                         onClick={() => setOpen(false)}
                                         aria-label="Collapse panel"
                                         title="Collapse"
-                                        className="cursor-pointer rounded-[7px] px-2 py-1 text-[14px] leading-none text-muted hover:bg-surface-hover hover:text-secondary"
+                                        className="flex cursor-pointer items-center rounded-[7px] px-2 py-1 text-[14px] leading-none text-muted hover:bg-surface-hover hover:text-secondary"
                                     >
-                                        ›
+                                        <ChevronRight size={16} aria-hidden />
                                     </button>
                                 </div>
                             </div>

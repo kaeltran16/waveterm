@@ -20,6 +20,7 @@ import {
 import { openDagLive, openDagTask } from "@/app/view/orchestrate/dagmodalstate";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { ArrowRight, ArrowUp, ArrowUpRight, Check } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -39,6 +40,7 @@ import {
     type LaneState,
 } from "./runrail";
 import { tsLabel } from "./runtimeline";
+import { SectionLabel, SubLabel } from "./sectionlabel";
 
 const LANE_DOT: Record<LaneState, string> = {
     done: "bg-success",
@@ -76,7 +78,7 @@ const RUN_STATUS: Record<string, { text: string; tone: string }> = {
     "needs-you": { text: "Waiting on you", tone: "text-warning" },
     stalled: { text: "Stalled", tone: "text-error" },
     healthy: { text: "On track", tone: "text-accent" },
-    done: { text: "✓ Done", tone: "text-success" },
+    done: { text: "Done", tone: "text-success" },
     cancelled: { text: "Cancelled", tone: "text-muted" },
 };
 
@@ -85,14 +87,6 @@ const ACTIVITY_MAX = 8;
 
 const LINK =
     "-ml-[6px] w-fit cursor-pointer rounded-[7px] px-[6px] py-[3px] font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover";
-
-function SectionLabel({ children, className }: { children: React.ReactNode; className?: string }) {
-    return (
-        <h3 className={cn("font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid", className)}>
-            {children}
-        </h3>
-    );
-}
 
 function FactRow({ label, children }: { label: string; children: React.ReactNode }) {
     return (
@@ -170,11 +164,7 @@ function NeedsYouCard({ ask, action }: { ask: DagAskItem; action: { label: strin
                 <b className="font-semibold text-primary">{ask.taskid}</b>
                 <span className="truncate text-warning">waiting on you</span>
             </div>
-            {first?.header ? (
-                <span className="mt-[6px] inline-block font-mono text-[9.5px] font-semibold uppercase tracking-[.09em] text-muted">
-                    {first.header}
-                </span>
-            ) : null}
+            {first?.header ? <SubLabel className="mt-[6px] inline-block">{first.header}</SubLabel> : null}
             <div className="mt-[2px] line-clamp-2 text-[12.5px] leading-[1.45] text-primary">{first?.question}</div>
             <div className="mt-[7px] flex items-center gap-[10px] font-mono text-[10.5px]">
                 {more > 0 ? <span className="text-muted">+{more} more</span> : null}
@@ -182,9 +172,10 @@ function NeedsYouCard({ ask, action }: { ask: DagAskItem; action: { label: strin
                 <button
                     type="button"
                     onClick={action.run}
-                    className="cursor-pointer font-semibold text-accent-soft hover:underline"
+                    className="inline-flex cursor-pointer items-center gap-[3px] font-semibold text-accent-soft hover:underline"
                 >
                     {action.label}
+                    <ArrowUpRight size={11} aria-hidden />
                 </button>
             </div>
         </div>
@@ -214,11 +205,11 @@ export function NeedsYouSection({ model, run, asks }: { model: AgentsViewModel; 
                                 const worker = taskAgentOf(lineage, agents, run.runId, a.taskid);
                                 const action = worker
                                     ? {
-                                          label: `answer in ${a.taskid} ↗`,
+                                          label: `answer in ${a.taskid}`,
                                           run: () => globalStore.set(model.focusIdAtom, worker.id),
                                       }
                                     : {
-                                          label: "answer in the run ↗",
+                                          label: "answer in the run",
                                           run: () =>
                                               void openTarget(model, {
                                                   kind: "channel",
@@ -254,11 +245,7 @@ function LeadAskCard({ model, run, ask }: { model: AgentsViewModel; run: RunInfo
                 <b className="font-semibold text-primary">{ask.taskid}</b>
                 <span className="truncate">{leadAnswering(ask, now)}</span>
             </div>
-            {first?.header ? (
-                <span className="mt-[6px] inline-block font-mono text-[9.5px] font-semibold uppercase tracking-[.09em] text-muted">
-                    {first.header}
-                </span>
-            ) : null}
+            {first?.header ? <SubLabel className="mt-[6px] inline-block">{first.header}</SubLabel> : null}
             <div className="mt-[2px] text-[12.5px] leading-[1.45] text-primary">{first?.question}</div>
             {ask.questions.length > 1 ? (
                 <div className="mt-[2px] font-mono text-[10.5px] text-muted">+{ask.questions.length - 1} more</div>
@@ -283,8 +270,8 @@ function LaneAsk({ model, run, ask }: { model: AgentsViewModel; run: RunInfo; as
     const now = useAtomValue(model.nowAtom);
     const error = useAtomValue(childAskErrorAtom)[childAskKey(ask)];
     return (
-        <div className="mb-[6px] ml-[33px] mr-[6px] border-l-2 border-edge-strong py-[2px] pl-[10px]">
-            <div className="flex items-baseline gap-[8px] font-mono text-[10px] text-muted">
+        <div className="mb-[6px] ml-[35px] mr-[6px] rounded-[8px] border border-edge-mid bg-surface-raised px-[10px] py-[7px]">
+            <div className="flex items-baseline gap-[8px] font-mono text-[10.5px] text-muted">
                 <span className="min-w-0 flex-1 truncate">
                     {ask.deadline
                         ? `asked the lead · ${formatLeft(Math.max(0, ask.deadline - now))}`
@@ -331,11 +318,11 @@ function Lanes({ model, run, leadAsks }: { model: AgentsViewModel; run: RunInfo;
                         <div
                             onClick={agent ? () => globalStore.set(model.focusIdAtom, agent.id) : undefined}
                             className={cn(
-                                "grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-[9px] p-[6px]",
+                                "grid grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-[9px] p-[6px]",
                                 agent && "cursor-pointer"
                             )}
                         >
-                            <span className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border border-edge-mid font-mono text-[9.5px] font-semibold text-muted">
+                            <span className="flex h-[20px] w-[20px] items-center justify-center rounded-[5px] border border-edge-mid font-mono text-[10.5px] font-semibold text-ink-mid">
                                 {r.key}
                             </span>
                             <div className="min-w-0">
@@ -347,7 +334,9 @@ function Lanes({ model, run, leadAsks }: { model: AgentsViewModel; run: RunInfo;
                                 >
                                     {r.name}
                                 </div>
-                                {r.hist ? <div className="truncate text-[10.5px] text-muted">{r.hist}</div> : null}
+                                {r.hist ? (
+                                    <div className="truncate font-mono text-[10.5px] text-muted">{r.hist}</div>
+                                ) : null}
                             </div>
                             <span
                                 className={cn(
@@ -355,7 +344,11 @@ function Lanes({ model, run, leadAsks }: { model: AgentsViewModel; run: RunInfo;
                                     LANE_TEXT[r.state]
                                 )}
                             >
-                                <span className={cn("h-[6px] w-[6px] rounded-full", LANE_DOT[r.state])} />
+                                {r.state === "lead" ? (
+                                    <ArrowRight size={10} aria-hidden />
+                                ) : (
+                                    <span className={cn("h-[7px] w-[7px] rounded-full", LANE_DOT[r.state])} />
+                                )}
                                 {r.text}
                             </span>
                         </div>
@@ -386,22 +379,20 @@ function Activity({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
     const more = older.length;
     const row = (l: (typeof log)[number]) => (
         <div key={l.id} className="flex gap-[9px] font-mono text-[11px] leading-[1.45] text-secondary">
-            <span className="flex-none text-ink-faint">{tsLabel(l.ts)}</span>
+            <span className="flex-none text-muted">{tsLabel(l.ts)}</span>
             <span className="min-w-0">{l.text}</span>
         </div>
     );
     return (
         <div className="flex flex-col gap-[5px] border-t border-edge-faint pt-[10px]">
             <div className="flex items-center gap-[4px]">
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">
-                    Activity
-                </span>
+                <SubLabel>Activity</SubLabel>
                 <span className="flex-1" />
                 {more > 0 ? (
                     <button
                         type="button"
                         onClick={() => setOpen((v) => !v)}
-                        className="cursor-pointer rounded-[6px] px-[6px] py-[2px] font-mono text-[10px] font-semibold text-muted hover:bg-surface-hover hover:text-secondary"
+                        className="inline-flex cursor-pointer items-center gap-[3px] rounded-[6px] px-[6px] py-[2px] font-mono text-[10.5px] font-semibold text-muted hover:bg-surface-hover hover:text-secondary"
                     >
                         {open ? "less" : `+${more} more`}
                     </button>
@@ -410,9 +401,10 @@ function Activity({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
                     <button
                         type="button"
                         onClick={() => openRunDag(model, run)}
-                        className="cursor-pointer rounded-[6px] px-[6px] py-[2px] font-mono text-[10px] font-semibold text-accent-soft hover:bg-surface-hover"
+                        className="inline-flex cursor-pointer items-center gap-[3px] rounded-[6px] px-[6px] py-[2px] font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover"
                     >
-                        timeline ↗
+                        timeline
+                        <ArrowUpRight size={11} aria-hidden />
                     </button>
                 ) : null}
             </div>
@@ -452,7 +444,14 @@ function RunStatus({ run, waitingOnYou }: { run: RunInfo; waitingOnYou: boolean 
                 ))}
             </div>
             <div className="flex min-w-0 items-baseline gap-[6px] text-[12px]">
-                <span className={cn("flex-none font-semibold", status.tone)}>{status.text}</span>
+                {status === RUN_STATUS.done ? (
+                    <span className={cn("inline-flex flex-none items-center gap-[4px] font-semibold", status.tone)}>
+                        <Check size={12} aria-hidden />
+                        {status.text}
+                    </span>
+                ) : (
+                    <span className={cn("flex-none font-semibold", status.tone)}>{status.text}</span>
+                )}
                 {tail ? <span className="min-w-0 truncate text-muted">{tail}</span> : null}
             </div>
         </div>
@@ -539,8 +538,13 @@ export function TaskSection({
         <div className="flex flex-col gap-[12px]">
             <div className="flex items-baseline justify-between gap-[8px]">
                 <SectionLabel>Task</SectionLabel>
-                <button type="button" onClick={() => openRunDag(model, run, taskId)} className={cn(LINK, "ml-0")}>
-                    plan · Task {taskId.replace(/^t-/, "")} ↗
+                <button
+                    type="button"
+                    onClick={() => openRunDag(model, run, taskId)}
+                    className={cn(LINK, "ml-0 inline-flex items-center gap-[3px]")}
+                >
+                    plan · Task {taskId.replace(/^t-/, "")}
+                    <ArrowUpRight size={11} aria-hidden />
                 </button>
             </div>
             <div>
@@ -549,12 +553,16 @@ export function TaskSection({
                         <button
                             type="button"
                             onClick={() => globalStore.set(model.focusIdAtom, lead.id)}
-                            className="cursor-pointer text-accent-soft hover:underline"
+                            className="inline-flex cursor-pointer items-center gap-[3px] text-accent-soft hover:underline"
                         >
-                            ↑ {lead.name}
+                            <ArrowUp size={11} aria-hidden />
+                            {lead.name}
                         </button>
                     ) : (
-                        `↑ ${run.title}`
+                        <span className="inline-flex items-center gap-[3px]">
+                            <ArrowUp size={11} aria-hidden />
+                            {run.title}
+                        </span>
                     )}
                 </FactRow>
                 {facts?.laneText ? <FactRow label="Lane">{facts.laneText}</FactRow> : null}

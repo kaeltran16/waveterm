@@ -9,6 +9,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { ArrowLeft, ArrowUpRight, ChevronLeft } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect } from "react";
 import { driveAgent, NUDGE_INPUT } from "./agentactions";
@@ -33,6 +34,7 @@ import { RAIL_ICON } from "./railicons";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
 import { agentProject, roleRunId } from "./runlineage";
 import { NeedsYouSection, RunSection, TaskSection, useRunAsks } from "./runrailsections";
+import { SectionLabel, SubLabel } from "./sectionlabel";
 import type { SubagentState } from "./session-models/sessionviewmodel";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { TokenUsageSection } from "./tokenusagesection";
@@ -129,10 +131,6 @@ function ContextLine({ pct, max, onReset }: { pct: number; max?: number; onReset
     );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-    return <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">{children}</h3>;
-}
-
 // RailStrip is the collapsed rail: the expand chevron, a badge for questions waiting on you, and the context
 // window as a vertical gauge, so both read without opening the rail.
 function RailStrip({ needs, ctxPct, ctxMax }: { needs: number; ctxPct?: number; ctxMax?: number }) {
@@ -143,7 +141,9 @@ function RailStrip({ needs, ctxPct, ctxMax }: { needs: number; ctxPct?: number; 
     return (
         <>
             <span className="relative block h-[18px] w-[18px]">
-                <span className="flex h-[18px] w-[18px] items-center justify-center text-[16px] leading-none">‹</span>
+                <span className="flex h-[18px] w-[18px] items-center justify-center">
+                    <ChevronLeft size={18} aria-hidden />
+                </span>
                 <AnimatePresence initial={false}>
                     {needs > 0 ? (
                         <motion.span
@@ -152,7 +152,7 @@ function RailStrip({ needs, ctxPct, ctxMax }: { needs: number; ctxPct?: number; 
                             initial="initial"
                             animate="animate"
                             exit="exit"
-                            className="absolute -right-[7px] -top-[5px] flex h-[14px] min-w-[14px] items-center justify-center rounded-[7px] border-2 border-surface bg-warning px-[3px] font-mono text-[8.5px] font-bold leading-none text-on-warning"
+                            className="absolute -right-[8px] -top-[6px] flex h-[16px] min-w-[16px] items-center justify-center rounded-[8px] border-2 border-surface bg-warning px-[3px] font-mono text-[10.5px] font-bold leading-none text-on-warning"
                         >
                             {needs}
                         </motion.span>
@@ -171,7 +171,7 @@ function RailStrip({ needs, ctxPct, ctxMax }: { needs: number; ctxPct?: number; 
                         />
                     </span>
                     <span
-                        className={cn("font-mono text-[9.5px] font-semibold", GAUGE_TEXT[level])}
+                        className={cn("font-mono text-[10.5px] font-semibold", GAUGE_TEXT[level])}
                         style={{ transition: tween(["color"]) }}
                     >
                         {Math.round(ctxPct)}%
@@ -321,9 +321,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                       icon: RAIL_ICON.subagents,
                       content: (
                           <div className="flex flex-col gap-[6px]">
-                              <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[.1em] text-muted">
-                                  Subagent of {agent.name}
-                              </span>
+                              <SubLabel>Subagent of {agent.name}</SubLabel>
                               <div className="flex items-center gap-[8px]">
                                   <span
                                       className="h-[7px] w-[7px] shrink-0 rounded-full"
@@ -334,7 +332,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                   </span>
                                   {subVM ? (
                                       <span
-                                          className="ml-auto font-mono text-[10.5px] font-medium"
+                                          className="ml-auto font-mono text-[10.5px] font-semibold"
                                           style={{ color: SUB_COLOR[subVM.state] }}
                                       >
                                           {subVM.state === "failure" ? "failed" : subVM.state}
@@ -344,9 +342,10 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                               <button
                                   type="button"
                                   onClick={() => globalStore.set(focusSubagentAtom, null)}
-                                  className="-ml-[6px] w-fit cursor-pointer rounded-[7px] px-[6px] py-[3px] font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover"
+                                  className="-ml-[6px] inline-flex w-fit cursor-pointer items-center gap-[4px] rounded-[7px] px-[6px] py-[3px] font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover"
                               >
-                                  ◂ back to {agent.name}
+                                  <ArrowLeft size={11} aria-hidden />
+                                  back to {agent.name}
                               </button>
                           </div>
                       ),
@@ -494,10 +493,15 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                                   <div className="truncate font-mono text-[11.5px] font-semibold text-secondary">
                                                       {s.type || "subagent"}
                                                   </div>
-                                                  <div className="truncate text-[10px] text-muted">{s.model ?? ""}</div>
+                                                  <div className="truncate font-mono text-[10.5px] text-muted">
+                                                      {s.model ?? ""}
+                                                  </div>
                                               </div>
-                                              <span className="whitespace-nowrap font-mono text-[9.5px] font-medium text-muted">
-                                                  {s.state}
+                                              <span
+                                                  className="whitespace-nowrap font-mono text-[10.5px] font-semibold"
+                                                  style={{ color: SUB_COLOR[s.state] }}
+                                              >
+                                                  {s.state === "failure" ? "failed" : s.state}
                                               </span>
                                           </div>
                                       );
@@ -526,7 +530,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                           className="flex items-baseline gap-[5px] rounded-sm border border-edge-mid bg-surface-raised px-[9px] py-[4px] font-mono text-[11px] font-medium"
                                       >
                                           <span className={t.dim ? "text-muted" : "text-secondary"}>{t.verb}</span>
-                                          <span className="text-[10px] text-ink-faint">×{t.count}</span>
+                                          <span className="text-[10.5px] text-muted">×{t.count}</span>
                                       </span>
                                   ))}
                               </div>
@@ -578,9 +582,10 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                           <button
                                               type="button"
                                               onClick={() => openFileDiff()}
-                                              className="cursor-pointer rounded-[7px] px-[6px] py-[3px] font-semibold text-accent-soft hover:bg-surface-hover"
+                                              className="inline-flex cursor-pointer items-center gap-[3px] rounded-[7px] px-[6px] py-[3px] font-semibold text-accent-soft hover:bg-surface-hover"
                                           >
-                                              View diff ↗
+                                              View diff
+                                              <ArrowUpRight size={11} aria-hidden />
                                           </button>
                                       </div>
                                   </>
