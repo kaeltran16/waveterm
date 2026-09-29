@@ -39,6 +39,7 @@ import {
     thenTask,
     type LaneState,
 } from "./runrail";
+import { SEG_FILL } from "./runstrip";
 import { tsLabel } from "./runtimeline";
 import { SectionLabel, SubLabel } from "./sectionlabel";
 
@@ -60,16 +61,6 @@ const LANE_TEXT: Record<LaneState, string> = {
     pending: "text-muted",
     failed: "text-error",
     muted: "text-muted",
-};
-
-const SEG_FILL: Record<LaneState, string> = {
-    done: "bg-success",
-    working: "bg-accent",
-    asking: "bg-warning",
-    lead: "bg-accent",
-    pending: "bg-edge-strong",
-    failed: "bg-error",
-    muted: "bg-muted",
 };
 
 // what the Run section's status line says for each digest health; one the UI does not know falls back to

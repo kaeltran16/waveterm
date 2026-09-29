@@ -5581,6 +5581,272 @@ const focusDivergenceRejoin = {
     },
 };
 
+// The Agent tree and the details rail on the brief type scale (docs/superpowers/specs/2026-09-29-agent-tree-rail-
+// polish-design.md): lucide marks instead of text glyphs, and nothing smaller than 10.5px. The roster is a dev
+// fixture, so nothing runs; the lead's run is a real orchestrator run held in planning by deferstart, which spawns
+// no worker, so the tree nests the fixture lead under it and the rail shows its Run section. No dagsubmit: with the
+// plan gate gone it would start real workers.
+const TREE_RAIL_FIXTURE = new URL("../../public/cockpit-fixtures/active.json", import.meta.url);
+const TREE_RAIL_LEAD = "tree-rail lead";
+const RAIL_VISIBLE_KEY = "agent.rail.visible";
+// the text glyphs the polish replaced with lucide icons
+const TREE_RAIL_GLYPHS = ["↳", "◆", "▸", "▾", "›_", "↗", "‹"];
+const MIN_FONT_PX = 10.5;
+
+function treeRailRoster(runId, now) {
+    return [
+        {
+            id: "fx-lead",
+            name: TREE_RAIL_LEAD,
+            project: "waveterm",
+            task: "verify tree rail",
+            state: "working",
+            agent: "claude",
+            model: "opus",
+            activeMs: 240_000,
+            runId,
+            blockId: "fx-blk-lead",
+        },
+        {
+            id: "fx-ask-wave",
+            name: "wave asker",
+            project: "waveterm",
+            task: "pick a packaging track",
+            state: "asking",
+            model: "opus",
+            blockedMs: 120_000,
+            blockId: "fx-blk-ask-wave",
+        },
+        {
+            id: "fx-ask-siem",
+            name: "siem asker",
+            project: "siem-platform",
+            task: "pick a detector track",
+            state: "asking",
+            model: "opus",
+            blockedMs: 60_000,
+            blockId: "fx-blk-ask-siem",
+        },
+        {
+            id: "fx-idle",
+            name: "idle scribe",
+            project: "siem-platform",
+            task: "release notes",
+            state: "idle",
+            model: "sonnet",
+            idleSince: now - 60_000,
+            blockId: "fx-blk-idle",
+        },
+    ];
+}
+
+async function arrangeTreeRail(h, ctx) {
+    const wslist = await h.rpc("workspacelist", null);
+    const ch = await h.rpc("createchannel", { name: "verify-tree-rail", projectpath: ctx.cwd });
+    ctx.channelId = ch.oid;
+    const created = await h.rpc("createrun", {
+        channelid: ctx.channelId,
+        workspaceid: wslist[0].workspacedata.oid,
+        goal: "verify tree rail: do nothing",
+        runtime: "claude",
+        mode: "orchestrator",
+        deferstart: true,
+    });
+    ctx.runId = created.run.id;
+    mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
+    writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(treeRailRoster(ctx.runId, Date.now()), null, 2));
+    ctx.wroteFixture = true;
+    // the rail is off by default and persisted, and the fixture roster is read once at boot
+    await h.ev(`localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "true")`);
+    await h.ev("location.reload()");
+    await h.ev(`(async () => {
+        for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+            await new Promise((r) => setTimeout(r, 500));
+        }
+    })()`);
+    await h.goto("agent");
+    // the lead row nests once its run loads, which is when its mark turns from a dot into the Workflow icon
+    ctx.leadFocused = await h.ev(`(async () => {
+        const leadRow = () => {
+            const tree = document.querySelector("[data-agent-tree]");
+            const name = tree && [...tree.querySelectorAll("div")].find(
+                (d) => d.textContent.trim() === ${JSON.stringify(TREE_RAIL_LEAD)} && d.children.length === 0
+            );
+            return name ? name.closest(".cursor-pointer") : null;
+        };
+        for (let i = 0; i < 40; i++) {
+            const row = leadRow();
+            if (row && row.firstElementChild?.firstElementChild?.tagName.toLowerCase() === "svg") {
+                row.click();
+                return true;
+            }
+            await new Promise((r) => setTimeout(r, 250));
+        }
+        return false;
+    })()`);
+    // let the rail's width slide and the run section settle before the shot
+    await new Promise((r) => setTimeout(r, 1200));
+}
+
+const agentTreeRail = {
+    name: "agent-tree-rail",
+    surface: "agent",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-tree-rail-"));
+        const ctx = { cwd, prevRail: await h.ev(`localStorage.getItem(${JSON.stringify(RAIL_VISIBLE_KEY)})`) };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            await arrangeTreeRail(h, ctx);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const RAIL = `document.querySelector('aside[aria-label="Agent details"]')`;
+        const TREE = `document.querySelector("[data-agent-tree]")`;
+        rec(
+            "0. the lead row nested under its run and was focused",
+            ctx.arrangeError == null && ctx.leadFocused === true,
+            ctx.arrangeError ?? `runId=${ctx.runId}`
+        );
+
+        const badges = await h.ev(`(() => {
+            const tree = ${TREE};
+            if (!tree) return null;
+            return [...tree.querySelectorAll("span")]
+                .map((s) => s.textContent.trim())
+                .filter((t) => /^\\d+ asking$/.test(t));
+        })()`);
+        rec(
+            "1. each live project's group carries an asking badge",
+            Array.isArray(badges) && badges.filter((t) => t === "1 asking").length === 2,
+            `badges=${JSON.stringify(badges)}`
+        );
+
+        const glyphs = await h.ev(`(() => {
+            const glyphs = ${JSON.stringify(TREE_RAIL_GLYPHS)};
+            const hits = [];
+            for (const root of [${TREE}, ${RAIL}]) {
+                if (!root) continue;
+                const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+                    if (glyphs.some((g) => n.data.includes(g))) hits.push(n.data.trim());
+                }
+            }
+            return { tree: !!${TREE}, rail: !!${RAIL}, hits };
+        })()`);
+        rec(
+            "2. no text glyph survives in the tree or the rail",
+            glyphs.tree && glyphs.rail && glyphs.hits.length === 0,
+            JSON.stringify(glyphs)
+        );
+
+        const mark = await h.ev(`(() => {
+            const tree = ${TREE};
+            const name = tree && [...tree.querySelectorAll("div")].find(
+                (d) => d.textContent.trim() === ${JSON.stringify(TREE_RAIL_LEAD)} && d.children.length === 0
+            );
+            const row = name && name.closest(".cursor-pointer");
+            const slot = row && row.firstElementChild;
+            const first = slot && slot.firstElementChild;
+            return {
+                tag: first ? first.tagName.toLowerCase() : null,
+                slotWidth: slot ? getComputedStyle(slot).width : null,
+            };
+        })()`);
+        rec(
+            "3. the lead row's mark is an svg in the 14px leading column",
+            mark.tag === "svg" && mark.slotWidth === "14px",
+            JSON.stringify(mark)
+        );
+
+        const labels = await h.ev(`(() => {
+            const rail = ${RAIL};
+            if (!rail) return null;
+            const out = {};
+            for (const h3 of rail.querySelectorAll("h3")) {
+                const t = h3.textContent.trim();
+                if (t === "Details" || t === "Run") {
+                    const cs = getComputedStyle(h3);
+                    out[t] = { size: cs.fontSize, weight: cs.fontWeight };
+                }
+            }
+            return out;
+        })()`);
+        const onScale = (l) => l != null && l.size === `${MIN_FONT_PX}px` && l.weight === "700";
+        rec(
+            "4. the rail's Details and Run headings are 10.5px bold",
+            labels != null && onScale(labels.Details) && onScale(labels.Run),
+            JSON.stringify(labels)
+        );
+
+        const small = await h.ev(`(() => {
+            const min = ${MIN_FONT_PX};
+            const offenders = [];
+            let seen = 0;
+            for (const root of [${TREE}, ${RAIL}]) {
+                if (!root) continue;
+                const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+                    const text = n.data.trim();
+                    if (!text) continue;
+                    const range = document.createRange();
+                    range.selectNodeContents(n);
+                    const r = range.getBoundingClientRect();
+                    if (r.width === 0 || r.height === 0) continue;
+                    const cs = getComputedStyle(n.parentElement);
+                    if (cs.visibility === "hidden" || Number(cs.opacity) === 0) continue;
+                    seen++;
+                    const px = parseFloat(cs.fontSize);
+                    if (px < min) offenders.push(text.slice(0, 40) + " @" + cs.fontSize);
+                }
+            }
+            return { seen, offenders };
+        })()`);
+        rec(
+            "5. no visible text in the tree or the rail is under 10.5px",
+            small.seen > 0 && small.offenders.length === 0,
+            `checked ${small.seen} text nodes; offenders=${JSON.stringify(small.offenders)}`
+        );
+
+        const collapse = await h.ev(`(() => {
+            const b = ${RAIL}?.querySelector('[aria-label="Collapse panel"]');
+            return b ? !!b.querySelector("svg") : null;
+        })()`);
+        rec("6. the rail's collapse control is an icon", collapse === true, `svg=${collapse}`);
+        return steps;
+    },
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`agent-tree-rail teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        if (ctx.wroteFixture) await step("remove the fixture roster", () => rmSync(TREE_RAIL_FIXTURE, { force: true }));
+        await step("restore the rail preference", () =>
+            h.ev(
+                ctx.prevRail == null
+                    ? `localStorage.removeItem(${JSON.stringify(RAIL_VISIBLE_KEY)})`
+                    : `localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, ${JSON.stringify(ctx.prevRail)})`
+            )
+        );
+        if (ctx.runId) {
+            await step("cancel the run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId }));
+        }
+        if (ctx.channelId) await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
+        await step("reload onto the live roster", async () => {
+            await h.ev("location.reload()");
+            await new Promise((r) => setTimeout(r, 2500));
+        });
+        await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
+    },
+};
+
 export const SCENARIOS = [
     briefContextualMap,
     briefRestore,
@@ -5616,4 +5882,5 @@ export const SCENARIOS = [
     uiApi,
     focusReaimsSurfaces,
     focusDivergenceRejoin,
+    agentTreeRail,
 ];
