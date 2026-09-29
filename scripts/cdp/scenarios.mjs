@@ -3842,6 +3842,85 @@ const dagLifecycle = {
             })
         );
         await h.shot("cdp-shots/dag-modal.png");
+
+        // spec D7: a native title inside a node opens over the hover peek
+        const titledInNode = await h.ev(
+            `(() => document.querySelectorAll('[data-dag-modal-kind] .react-flow__node [title]').length)()`
+        );
+        rec("5a. No node carries a native tooltip", titledInNode === 0, JSON.stringify({ titledInNode }));
+
+        // React synthesizes onPointerEnter from pointerover/mouseover; the peek's floating-ui hover listens for a
+        // native mouseenter on the card's wrapper, which the bubbling dispatch reaches
+        const hoverPeek = await h.ev(`(async () => {
+            const card = document.querySelector('[data-dag-modal-kind] [data-dag-node]');
+            if (!card) return { card: null };
+            for (const type of ['pointerover', 'pointerenter', 'mouseover', 'mouseenter']) {
+                const Ev = type.startsWith('pointer') ? PointerEvent : MouseEvent;
+                card.dispatchEvent(new Ev(type, { bubbles: true }));
+            }
+            await new Promise((r) => setTimeout(r, 700));
+            const peek = !!document.querySelector('[data-dag-peek]');
+            const titled = document.querySelectorAll('[data-dag-modal-kind] .react-flow__node [title]').length;
+            for (const type of ['pointerout', 'pointerleave', 'mouseout', 'mouseleave']) {
+                const Ev = type.startsWith('pointer') ? PointerEvent : MouseEvent;
+                card.dispatchEvent(new Ev(type, { bubbles: true }));
+            }
+            return { card: card.getAttribute('data-dag-node'), peek, titled };
+        })()`);
+        rec("5b. Hover opens the peek", hoverPeek.peek === true && hoverPeek.titled === 0, JSON.stringify(hoverPeek));
+
+        const liveDag = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group;
+        const depPairs = liveDag.tasks.flatMap((t) => (t.deps || []).map((d) => [d, t.id]));
+        const pairLefts = await h.ev(`(() => {
+            const left = (id) => {
+                const el = document.querySelector('[data-dag-modal-kind] [data-dag-node="' + CSS.escape(id) + '"]');
+                return el ? el.getBoundingClientRect().left : null;
+            };
+            return ${JSON.stringify(depPairs)}.map(([dep, dependent]) => ({ dep, dependent, depLeft: left(dep), left: left(dependent) }));
+        })()`);
+        rec(
+            "5c. Dependents sit to the right of their dependencies",
+            pairLefts.length > 0 && pairLefts.every((p) => p.depLeft != null && p.left != null && p.left > p.depLeft),
+            JSON.stringify(pairLefts)
+        );
+
+        // aria-pressed mirrors the card's selected border (DagCardNode)
+        const escSelection = await h.ev(`(async () => {
+            const pressed = () => document.querySelectorAll('[data-dag-modal-kind] [data-dag-node][aria-pressed="true"]').length;
+            const card = document.querySelector('[data-dag-modal-kind] [data-dag-node]');
+            if (!card) return { card: null };
+            card.click();
+            await new Promise((r) => setTimeout(r, 200));
+            const selectedBefore = pressed();
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            await new Promise((r) => setTimeout(r, 300));
+            return {
+                card: card.getAttribute('data-dag-node'),
+                selectedBefore,
+                selectedAfter: pressed(),
+                modalOpen: !!document.querySelector('[data-dag-modal-kind]'),
+            };
+        })()`);
+        rec(
+            "5d. Esc clears a selection before closing",
+            escSelection.selectedBefore === 1 && escSelection.selectedAfter === 0 && escSelection.modalOpen === true,
+            JSON.stringify(escSelection)
+        );
+
+        // a narrow window renders the rail as a drawer, collapsed until toggled
+        const timeline = await h.ev(`(async () => {
+            const rail = document.querySelector('[data-dag-modal-kind] [data-timeline-rail]');
+            const layout = rail ? rail.getAttribute('data-timeline-rail') : null;
+            if (layout === 'drawer') rail.querySelector('button[aria-expanded="false"]')?.click();
+            let rows = 0;
+            for (let i = 0; i < 10 && rows === 0; i++) {
+                await new Promise((r) => setTimeout(r, 300));
+                rows = document.querySelectorAll('[data-dag-modal-kind] [data-timeline-row]').length;
+            }
+            return { layout, rows };
+        })()`);
+        rec("5e. Timeline rows render", timeline.rows > 0, JSON.stringify(timeline));
+
         // escape dismisses the modal (the modal state machine refuses close while launching, which is
         // not in play here; the Close button and backdrop click share the same path)
         const esc = await h.ev(`(async () => {
