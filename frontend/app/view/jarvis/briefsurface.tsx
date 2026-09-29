@@ -126,7 +126,15 @@ import {
 import { freshKeys } from "./freshrows";
 import { type PeekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
-import { chunkRowId, expandableORef, stageRowId, trackerNavIds, trackerRows, type DetailRow } from "./inlinetracker";
+import {
+    chunkRowId,
+    expandableORef,
+    isFlatPlan,
+    stageRowId,
+    trackerNavIds,
+    trackerRows,
+    type DetailRow,
+} from "./inlinetracker";
 import { InitiativeDetail, type TrackerEdits } from "./inlinetrackerview";
 import {
     briefEffortIndexAtom,
@@ -1284,7 +1292,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                             </button>
                         </>
                     ) : (
-                        <kbd className="flex-none rounded-[4px] border border-edge-strong px-[5px] font-mono text-[10px] leading-4 text-ink-mid">
+                        <kbd className="flex-none rounded-[4px] border border-edge-strong px-[5px] font-mono text-[10.5px] leading-4 text-ink-mid">
                             /
                         </kbd>
                     )}
@@ -1318,11 +1326,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         animate="animate"
                         exit="exit"
                         data-jarvis-brief-band="stale"
-                        className="flex flex-none items-center gap-2 overflow-hidden border-b border-edge-faint px-[22px] py-1 font-mono text-[10px] text-error"
+                        className="flex flex-none items-center gap-2 overflow-hidden border-b border-edge-faint px-[22px] py-1 font-mono text-[10.5px] text-error"
                     >
-                        <span aria-hidden className="font-bold">
-                            ✕
-                        </span>
+                        <X size={12} aria-hidden className="flex-none" />
                         refresh failed — showing the previous snapshot
                     </motion.div>
                 ) : null}
@@ -1799,6 +1805,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         initiative={openEffort?.title ?? ""}
                         label={selectedChunk.row.label}
                         stage={selectedChunk.row.stage}
+                        flat={isFlatPlan(planChunks)}
                         status={selectedChunk.row.status}
                         position={{
                             n: planChunks.findIndex((c) => c.label === selectedChunk.row.label) + 1,

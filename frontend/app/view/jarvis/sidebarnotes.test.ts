@@ -18,15 +18,15 @@ describe("sidebarNotes", () => {
     it("opens the newest short note by default and gives it no chevron", () => {
         const cards = sidebarNotes([e(2, "short"), e(1, "older")], "N1", 5000, new Set());
         expect(cards[0]).toMatchObject({ open: true, chev: "" });
-        expect(cards[1]).toMatchObject({ open: false, chev: "more ▾" });
+        expect(cards[1]).toMatchObject({ open: false, chev: "more" });
     });
     it("a long newest note starts folded", () => {
         const cards = sidebarNotes([e(1, "x".repeat(300))], "N1", 5000, new Set());
-        expect(cards[0]).toMatchObject({ open: false, chev: "more ▾" });
+        expect(cards[0]).toMatchObject({ open: false, chev: "more" });
     });
     it("an expanded card offers less", () => {
         const cards = sidebarNotes([e(2, "a"), e(1, "b")], "N1", 5000, new Set(["1"]));
-        expect(cards[1]).toMatchObject({ open: true, chev: "less ▴" });
+        expect(cards[1]).toMatchObject({ open: true, chev: "less" });
     });
     it("labels the author; a legacy note has none", () => {
         const cards = sidebarNotes(

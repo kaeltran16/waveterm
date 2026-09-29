@@ -11,7 +11,10 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { runAtom } from "@/app/view/agents/channelsstore";
 import { cn } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
+import { ArrowUpRight, ChevronDown, ChevronUp, Copy } from "lucide-react";
 import { useState } from "react";
+import { SHEET_BTN } from "./briefrunsheet";
+import { REGION_LABEL } from "./briefstyle";
 import { type FeedEntry } from "./effortfeed";
 import { chunkTone } from "./effortmodel";
 import { STATUSES, TONE_FG, ToneIcon } from "./inlinetrackerview";
@@ -20,7 +23,7 @@ import { sidebarNotes, type NoteCard } from "./sidebarnotes";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const NAV_BUTTON =
-    "h-[22px] w-6 cursor-pointer rounded-[6px] border border-border bg-surface-raised text-[11px] hover:border-edge-strong disabled:cursor-default";
+    "inline-flex h-[22px] w-6 cursor-pointer items-center justify-center rounded-[6px] border border-border bg-surface-raised hover:border-edge-strong disabled:cursor-default";
 
 const NO_RUN = atom<Run | undefined>(undefined);
 // the report a finished run left on this chunk (Task 2): the structured report when the lead filed one,
@@ -50,6 +53,7 @@ export function ChunkSidebar({
     initiative,
     label,
     stage,
+    flat,
     status,
     position,
     feed,
@@ -72,6 +76,8 @@ export function ChunkSidebar({
     initiative: string;
     label: string;
     stage: string;
+    // a flat plan has no stages, so its crumb is the initiative alone
+    flat: boolean;
     status: string;
     position: { n: number; total: number };
     feed: FeedEntry[];
@@ -118,7 +124,7 @@ export function ChunkSidebar({
             className="absolute inset-y-0 right-0 z-[4] flex w-[460px] flex-col overflow-hidden border-l border-border bg-background @max-[1280px]:shadow-[-18px_0_44px_var(--color-background)] @max-[980px]:w-[min(460px,92cqw)]"
         >
             <div className="flex flex-none items-center gap-2 border-b border-edge-faint px-[13px] py-[9px]">
-                <span className="font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-muted">Chunk</span>
+                <span className={cn(REGION_LABEL, "text-ink-mid")}>Chunk</span>
                 <span className="font-mono text-[10.5px] text-muted">
                     {position.n} / {position.total}
                 </span>
@@ -131,7 +137,7 @@ export function ChunkSidebar({
                         onClick={onPrev ?? undefined}
                         className={cn(NAV_BUTTON, onPrev == null ? "text-feed-glyph" : "text-secondary", FOCUS)}
                     >
-                        ↑
+                        <ChevronUp size={13} aria-hidden />
                     </button>
                     <button
                         type="button"
@@ -141,18 +147,11 @@ export function ChunkSidebar({
                         onClick={onNext ?? undefined}
                         className={cn(NAV_BUTTON, onNext == null ? "text-feed-glyph" : "text-secondary", FOCUS)}
                     >
-                        ↓
+                        <ChevronDown size={13} aria-hidden />
                     </button>
                 </div>
-                <span className="font-mono text-[10px] text-ink-mid">j / k</span>
-                <button
-                    type="button"
-                    onClick={onClose}
-                    className={cn(
-                        "ml-auto cursor-pointer rounded-[7px] border border-border bg-surface-raised px-[9px] py-1 text-[10px] font-semibold text-ink-mid hover:border-edge-strong hover:text-ink-hi",
-                        FOCUS
-                    )}
-                >
+                <span className="font-mono text-[10.5px] text-muted">j / k</span>
+                <button type="button" onClick={onClose} className={cn(SHEET_BTN, "ml-auto")}>
                     Close
                 </button>
             </div>
@@ -160,8 +159,12 @@ export function ChunkSidebar({
                 <div className="flex flex-col gap-1.5 px-[18px] pb-3.5 pt-[15px]">
                     <div className="flex flex-wrap items-center gap-[7px] font-mono text-[10.5px] uppercase tracking-[.06em] text-ink-mid">
                         <span>{initiative}</span>
-                        <span className="text-feed-glyph">/</span>
-                        <span>{stage || "unstaged"}</span>
+                        {flat ? null : (
+                            <>
+                                <span className="text-feed-glyph">/</span>
+                                <span>{stage || "unstaged"}</span>
+                            </>
+                        )}
                     </div>
                     <div className="text-pretty text-[16px] font-semibold leading-[1.35] text-primary">{label}</div>
                     <div className="flex items-center gap-2.5">
@@ -170,21 +173,23 @@ export function ChunkSidebar({
                             title={handle}
                             onClick={() => void navigator.clipboard?.writeText(handle)}
                             className={cn(
-                                "min-w-0 cursor-pointer truncate text-left font-mono text-[10.5px] text-muted hover:text-ink-hi",
+                                "flex min-w-0 cursor-pointer items-center gap-1.5 text-left font-mono text-[10.5px] text-muted hover:text-ink-hi",
                                 FOCUS
                             )}
                         >
-                            {handle} ⧉
+                            <span className="truncate">{handle}</span>
+                            <Copy size={11} aria-hidden className="flex-none" />
                         </button>
                         <button
                             type="button"
                             onClick={onActivity}
                             className={cn(
-                                "flex-none cursor-pointer font-mono text-[10.5px] text-accent-soft hover:underline",
+                                "inline-flex flex-none cursor-pointer items-center gap-1 font-mono text-[10.5px] text-accent-soft hover:underline",
                                 FOCUS
                             )}
                         >
-                            activity ↗
+                            activity
+                            <ArrowUpRight size={11} aria-hidden />
                         </button>
                     </div>
                 </div>
@@ -211,7 +216,9 @@ export function ChunkSidebar({
                                     )}
                                 >
                                     <ToneIcon tone={tone} className={on ? undefined : "text-ink-mid"} />
-                                    <span className={cn("font-mono text-[9.5px]", on ? TONE_FG[tone] : "text-ink-mid")}>
+                                    <span
+                                        className={cn("font-mono text-[10.5px]", on ? TONE_FG[tone] : "text-ink-mid")}
+                                    >
                                         {s}
                                     </span>
                                 </button>
@@ -220,9 +227,9 @@ export function ChunkSidebar({
                     </div>
                 </div>
                 <div className="border-t border-edge-faint px-[18px] pb-[18px] pt-3">
-                    <div className="mb-2 flex items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-[.1em] text-muted">
-                        <span>Notes</span>
-                        <span className="font-normal tracking-[.04em] text-muted">
+                    <div className="mb-2 flex items-center gap-2">
+                        <span className={cn(REGION_LABEL, "text-ink-mid")}>Notes</span>
+                        <span className="font-mono text-[10.5px] text-muted">
                             {cards.length} {cards.length === 1 ? "note" : "notes"}
                         </span>
                     </div>
@@ -262,7 +269,16 @@ export function ChunkSidebar({
                                                 {c.day}
                                                 {c.edited ? " · edited" : ""}
                                             </span>
-                                            <span className="ml-auto text-muted">{c.chev}</span>
+                                            {c.chev !== "" ? (
+                                                <span className="ml-auto flex items-center gap-1 text-muted">
+                                                    {c.chev}
+                                                    {c.open ? (
+                                                        <ChevronUp size={11} aria-hidden />
+                                                    ) : (
+                                                        <ChevronDown size={11} aria-hidden />
+                                                    )}
+                                                </span>
+                                            ) : null}
                                         </span>
                                         {isEditing ? null : (
                                             <span
@@ -359,11 +375,12 @@ export function ChunkSidebar({
                                                 type="button"
                                                 onClick={() => onOpenSession(c)}
                                                 className={cn(
-                                                    "cursor-pointer font-mono text-[10.5px] text-accent-soft hover:underline",
+                                                    "inline-flex cursor-pointer items-center gap-1 font-mono text-[10.5px] text-accent-soft hover:underline",
                                                     FOCUS
                                                 )}
                                             >
-                                                {c.sessionTab !== "" ? "open agent session ↗" : "open run ↗"}
+                                                {c.sessionTab !== "" ? "open agent session" : "open run"}
+                                                <ArrowUpRight size={11} aria-hidden />
                                             </button>
                                         </div>
                                     ) : null}
