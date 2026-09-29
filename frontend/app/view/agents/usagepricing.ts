@@ -11,8 +11,9 @@
 // costUSD is persisted in Claude/Codex transcripts.
 //
 // Family-substring pricing loses the model version, so a historical Claude-Opus-4.0 transcript
-// (which billed $15/$75) is priced at the current Opus tier ($5/$25). Acceptable: the cockpit's
-// spend is an estimate and the bulk of real data is current-generation. Refresh when plans change.
+// (which billed $15/$75) is priced at the Opus family rate ($5/$25). Acceptable: the cockpit's
+// spend is an estimate. Versions that repriced a family we run today (Opus 5.5, Sonnet 5.x) get
+// their own row, matched before the family. Refresh when plans change.
 
 import type { UsageRecord } from "./usagestats";
 
@@ -28,7 +29,9 @@ export interface ModelPrice {
 // cacheCreateTokens = 0 anyway. codex-auto-review and similar aliases fall under the codex family.
 const MODEL_PRICES: Record<string, ModelPrice> = {
     fable: { input: 10, output: 50, cacheRead: 1.0, cacheWrite5m: 12.5, cacheWrite1h: 20 },
+    "opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite5m: 5, cacheWrite1h: 8 },
     opus: { input: 5, output: 25, cacheRead: 0.5, cacheWrite5m: 6.25, cacheWrite1h: 10 },
+    "sonnet-5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite5m: 2.5, cacheWrite1h: 4 }, // sonnet 5 and 5.5
     sonnet: { input: 3, output: 15, cacheRead: 0.3, cacheWrite5m: 3.75, cacheWrite1h: 6 },
     haiku: { input: 1, output: 5, cacheRead: 0.1, cacheWrite5m: 1.25, cacheWrite1h: 2 },
     "gpt-5.6-luna": { input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite5m: 0.25, cacheWrite1h: 0 },
@@ -55,13 +58,15 @@ const MODEL_PRICES: Record<string, ModelPrice> = {
     hy3: { input: 0.14, output: 0.58, cacheRead: 0.035, cacheWrite5m: 0, cacheWrite1h: 0 },
 };
 
-// Family substring match. Order matters: gpt-5.6-luna before the gpt-5.5/gpt-5 bases (it contains
+// Family substring match. Order matters: opus-5-5 and sonnet-5 before their families, gpt-5.6-luna before the gpt-5.5/gpt-5 bases (it contains
 // "gpt-5"), gpt-5.5 before the gpt-5 base, codex before gpt-5 (a codex alias like "codex-auto-review"
 // has no gpt-5 substring), and mimo-v2.5-pro before the mimo-v2.5 base. Unknown -> undefined (spend 0).
 export function priceFor(model: string): ModelPrice | undefined {
     const m = model.toLowerCase();
     if (m.includes("fable")) return MODEL_PRICES.fable;
+    if (m.includes("opus-5-5")) return MODEL_PRICES["opus-5-5"];
     if (m.includes("opus")) return MODEL_PRICES.opus;
+    if (m.includes("sonnet-5")) return MODEL_PRICES["sonnet-5"];
     if (m.includes("sonnet")) return MODEL_PRICES.sonnet;
     if (m.includes("haiku")) return MODEL_PRICES.haiku;
     if (m.includes("gpt-5.6-luna")) return MODEL_PRICES["gpt-5.6-luna"];

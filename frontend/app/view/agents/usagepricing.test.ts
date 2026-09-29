@@ -35,6 +35,27 @@ describe("priceFor", () => {
         expect(priceFor("claude-haiku-4-5")?.input).toBe(1);
         expect(priceFor("claude-haiku-4-5")?.output).toBe(5);
     });
+    it("prices sonnet 5.x below the legacy sonnet family", () => {
+        expect(priceFor("claude-sonnet-5-5")).toEqual({
+            input: 2,
+            output: 10,
+            cacheRead: 0.2,
+            cacheWrite5m: 2.5,
+            cacheWrite1h: 4,
+        });
+        expect(priceFor("claude-sonnet-5")?.output).toBe(10);
+        expect(priceFor("claude-sonnet-4-5")?.input).toBe(3); // "sonnet-4-5" must not hit the sonnet-5 row
+    });
+    it("prices opus 5.5 below the opus family", () => {
+        expect(priceFor("claude-opus-5-5")).toEqual({
+            input: 4,
+            output: 20,
+            cacheRead: 0.2,
+            cacheWrite5m: 5,
+            cacheWrite1h: 8,
+        });
+        expect(priceFor("claude-opus-5")?.input).toBe(5);
+    });
     it("prefers gpt-5.5 over the gpt-5 base family", () => {
         expect(priceFor("gpt-5.5")?.input).toBe(5);
     });
