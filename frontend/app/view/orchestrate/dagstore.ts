@@ -2,6 +2,9 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { useWaveObjectValue } from "../../store/wos";
 import { capabilityFor } from "../agents/route";
 import { canEscalate } from "./escalate";
+import { cardModelTag, reviewerRouteOf, reviewStateText, taskRoute, type RouteSource } from "./taskroute";
+
+export { routeSourceLabel } from "./taskroute";
 
 // selectedTaskIdAtom is shared by the live graph and its detail rail. Opening or closing a modal resets
 // it through dagmodalstate.ts, while node clicks and keyboard navigation update it directly.
@@ -15,23 +18,11 @@ export const hoveredTaskAtom = atom<{ id: string; from: "graph" | "timeline" } |
 } | null>;
 
 export type DagNodeRoute = {
-    source: "pinned" | "workers" | "inherited";
+    source: RouteSource;
     runtime: string;
     model: string; // exact model id; "" when the runtime runs its own default
     resolvedModel: string;
 };
-
-// routeSourceLabel is how a node names where its route came from.
-export function routeSourceLabel(source: DagNodeRoute["source"]): string {
-    switch (source) {
-        case "pinned":
-            return "pinned";
-        case "workers":
-            return "run worker route";
-        default:
-            return "inherits run route";
-    }
-}
 
 export type DagActionRoute = "pick-route" | "merge" | "continue" | "action";
 
@@ -56,16 +47,6 @@ export function dagActionError(action: string, taskId: string, err: unknown): st
     return `${action} ${taskId} failed: ${reason}`;
 }
 
-// the engine's default runtime for a worker route that names only a model (runroute.DefaultRuntime)
-const DEFAULT_RUNTIME = "claude";
-
-// normalizeWorkerPin mirrors effectiveTaskRoute (pkg/orchestrate/engine.go): the dag's worker route applies
-// when it names a runtime or a model.
-function normalizeWorkerPin(pin: RoutePin | undefined): RoutePin | null {
-    if (pin == null || (!pin.runtime && !pin.model)) return null;
-    return { runtime: pin.runtime || DEFAULT_RUNTIME, ...(pin.model ? { model: pin.model } : {}) };
-}
-
 export interface DagViewNode {
     id: string;
     label: string;
@@ -74,6 +55,8 @@ export interface DagViewNode {
     meta: string; // worktree / evidence line
     actions: string[]; // approve | sendback | retry | skip | merge
     route: DagNodeRoute;
+    tag: string | null; // the card's model tag, when the task runs off the workers model
+    reviewLine: string; // the rail's review line after "review · "
 }
 export interface DagViewEdge {
     source: string;
@@ -105,15 +88,15 @@ export function buildViewData(
     harnesses: HarnessInfo[],
     mergeReady: ReadonlySet<string>
 ): { nodes: DagViewNode[]; edges: DagViewEdge[] } {
-    const ownerPin = normalizeRunPin(owner);
-    const workerPin = normalizeWorkerPin(group.workerroute);
+    const reviewer = reviewerRouteOf(group, owner);
+    const reviewerModel = capabilityFor(reviewer.route, harnesses)?.resolvedmodel ?? "unavailable";
+    const reviewerLabel = reviewer.custom ? "reviewer route" : "same as lead";
     const nodes: DagViewNode[] = group.tasks.map((t) => {
         let actions = ACTION_BY_STATE[t.state] ?? [];
         if (t.gate && t.state === "done") actions = GATE_DONE_ACTIONS;
         if (mergeReady.has(t.id)) actions = ["merge"];
         if (canEscalate(t)) actions = [...new Set([...actions, "escalate"])];
-        const taskPin = t.runspec?.runtime || t.runspec?.model ? normalizeSpecPin(t.runspec, owner) : null;
-        const effective: RoutePin = taskPin ?? workerPin ?? ownerPin ?? { runtime: "" };
+        const { route: effective, source } = taskRoute(t, owner, group);
         const capability = capabilityFor(effective, harnesses);
         return {
             id: t.id,
@@ -123,11 +106,13 @@ export function buildViewData(
             meta: t.runid ? `wave/${t.runid}` : "",
             actions,
             route: {
-                source: taskPin != null ? ("pinned" as const) : workerPin != null ? ("workers" as const) : ("inherited" as const),
+                source,
                 runtime: effective.runtime,
                 model: effective.model ?? "",
                 resolvedModel: capability?.resolvedmodel ?? "unavailable",
             },
+            tag: cardModelTag(t, owner, group),
+            reviewLine: `${reviewerLabel} · ${reviewerModel} · ${reviewStateText(t)}`,
         };
     });
     const edges: DagViewEdge[] = [];
@@ -140,14 +125,4 @@ export function buildViewData(
 // useDagGroup subscribes the caller to the live dag object for its oref.
 export function useDagGroup(oref: string) {
     return useWaveObjectValue<TaskGroup>(oref);
-}
-
-function normalizeRunPin(run: Pick<Run, "runtime" | "model">): RoutePin | null {
-    if (!run.runtime && !run.model) return null;
-    return { runtime: run.runtime ?? "", ...(run.model ? { model: run.model } : {}) };
-}
-
-function normalizeSpecPin(spec: TaskNode["runspec"] | undefined, owner: Run): RoutePin | null {
-    if (spec == null || (!spec.runtime && !spec.model)) return null;
-    return { runtime: spec.runtime || owner.runtime || "", ...(spec.model ? { model: spec.model } : {}) };
 }

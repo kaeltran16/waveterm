@@ -18,6 +18,9 @@ export type SheetFace = { kind: "missing" } | { kind: "readonly"; reason: string
 export type RunSettingsDraft = {
     parallelism: number;
     workerRoute: RoutePin | null;
+    // never true beside a worker route: the server refuses the pair
+    reviewerPicks: boolean;
+    reviewerRoute: RoutePin | null;
 };
 
 export type RunSettingsPanelState =
@@ -84,21 +87,32 @@ export function sheetFace(run: Run | null | undefined): SheetFace {
 
 // The sheet's starting values. After submission the group wins: reading the run there would print the
 // launch snapshot beside a scheduler honouring something else.
-export function runSettingsDraft(run: Run, group: TaskGroup | null): RunSettingsDraft {
-    if (group != null) {
-        return {
-            parallelism: group.parallelism,
-            workerRoute: group.workerroute ?? null,
-        };
-    }
+export function runSettingsDraft(run: Run | null, group: TaskGroup | null): RunSettingsDraft {
+    const from = group ?? run;
     return {
-        parallelism: run.parallelism ?? 0,
-        workerRoute: run.workerroute ?? null,
+        parallelism: (group != null ? group.parallelism : run?.parallelism) ?? 0,
+        workerRoute: from?.workerroute ?? null,
+        reviewerPicks: from?.reviewerpicks ?? false,
+        reviewerRoute: from?.reviewerroute ?? null,
     };
 }
 
 export function draftIsDirty(a: RunSettingsDraft, b: RunSettingsDraft): boolean {
-    return a.parallelism !== b.parallelism || !sameRoute(a.workerRoute, b.workerRoute);
+    return (
+        a.parallelism !== b.parallelism ||
+        !sameRoute(a.workerRoute, b.workerRoute) ||
+        a.reviewerPicks !== b.reviewerPicks ||
+        !sameRoute(a.reviewerRoute, b.reviewerRoute)
+    );
+}
+
+// The workers picker's three answers: Same as lead (null), a route, or Reviewer picks. Choosing one clears
+// the other half of the pair, which the server would refuse together.
+export function withWorkers(draft: RunSettingsDraft, choice: RoutePin | null | "picks"): RunSettingsDraft {
+    if (choice === "picks") {
+        return { ...draft, workerRoute: null, reviewerPicks: true };
+    }
+    return { ...draft, workerRoute: choice, reviewerPicks: false };
 }
 
 // What the sheet re-seeds its draft on: every effective mutable input, from whichever object currently owns
@@ -107,7 +121,15 @@ export function draftIsDirty(a: RunSettingsDraft, b: RunSettingsDraft): boolean 
 export function draftSeedKey(run: Run, group: TaskGroup | null): string {
     const draft = runSettingsDraft(run, group);
     const route = draft.workerRoute;
-    return [draft.parallelism, route?.runtime ?? "", route?.model ?? ""].join("|");
+    const reviewer = draft.reviewerRoute;
+    return [
+        draft.parallelism,
+        route?.runtime ?? "",
+        route?.model ?? "",
+        draft.reviewerPicks,
+        reviewer?.runtime ?? "",
+        reviewer?.model ?? "",
+    ].join("|");
 }
 
 function sameRoute(a: RoutePin | null, b: RoutePin | null): boolean {
@@ -127,11 +149,27 @@ export function settingsPayload(channelId: string, runId: string, draft: RunSett
         channelid: channelId,
         runid: runId,
         parallelism: draft.parallelism,
+        reviewerpicks: draft.reviewerPicks,
     };
     if (draft.workerRoute != null) {
         payload.workerroute = draft.workerRoute;
     }
+    if (draft.reviewerRoute != null) {
+        payload.reviewerroute = draft.reviewerRoute;
+    }
     return payload;
+}
+
+// SetRunSettings applies every field it is sent, so a control that changes one dial sends the rest as they
+// stand: from the group once a dag exists, else from the run.
+export function settingsChangePayload(
+    channelId: string,
+    runId: string,
+    run: Run | null,
+    group: TaskGroup | null,
+    change: Partial<RunSettingsDraft>
+): CommandSetRunSettingsData {
+    return settingsPayload(channelId, runId, { ...runSettingsDraft(run, group), ...change });
 }
 
 // Everything about a run that a future launch could inherit: the launched facts from the run, the mutable
@@ -142,6 +180,8 @@ export type EffectiveRunConfig = {
     parallelism: number;
     leadRoute: RoutePin | null;
     workerRoute: RoutePin | null;
+    reviewerPicks: boolean;
+    reviewerRoute: RoutePin | null;
 };
 
 export function effectiveRunConfig(run: Run, draft: RunSettingsDraft): EffectiveRunConfig {
@@ -150,6 +190,8 @@ export function effectiveRunConfig(run: Run, draft: RunSettingsDraft): Effective
         parallelism: draft.parallelism,
         leadRoute: leadRouteOf(run),
         workerRoute: draft.workerRoute,
+        reviewerPicks: draft.reviewerPicks,
+        reviewerRoute: draft.reviewerRoute,
     };
 }
 
@@ -170,6 +212,9 @@ export function engineDefaultsPatch(override: ProfileOverride, config: Effective
         parallelism: config.parallelism,
         route: config.leadRoute ?? undefined,
         workerroute: config.workerRoute ?? undefined,
+        // unset rather than false, as the worker route is: a run on Same as lead leaves the project inheriting
+        reviewerpicks: config.reviewerPicks || undefined,
+        reviewerroute: config.reviewerRoute ?? undefined,
     };
 }
 
@@ -178,4 +223,8 @@ export function routeLabel(route: RoutePin | null | undefined): string {
         return "inherit the lead";
     }
     return [route.runtime, route.model || "default"].join(" · ");
+}
+
+export function workersLabel(draft: RunSettingsDraft): string {
+    return draft.reviewerPicks ? "reviewer picks" : routeLabel(draft.workerRoute);
 }

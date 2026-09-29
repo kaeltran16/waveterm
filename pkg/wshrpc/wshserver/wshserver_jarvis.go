@@ -65,6 +65,9 @@ func (ws *WshServer) GetGlobalProfileCommand(ctx context.Context) (*waveobj.Jarv
 }
 
 func (ws *WshServer) SetGlobalProfileCommand(ctx context.Context, data wshrpc.CommandSetGlobalProfileData) error {
+	if err := validateGlobalEngineDefaults(data.Profile); err != nil {
+		return fmt.Errorf("validating engine defaults: %w", err)
+	}
 	return jarvis.SaveGlobalProfile(data.Profile)
 }
 

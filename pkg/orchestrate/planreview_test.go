@@ -102,7 +102,7 @@ func TestPlanReviewPassStartsDispatch(t *testing.T) {
 	calls := captureSpawns(t)
 	newFakeLead(t)
 	reviewer := startPlanReview(t, ctx, dag.OID)
-	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "every requirement has a task"); err != nil {
+	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "every requirement has a task", nil); err != nil {
 		t.Fatal(err)
 	}
 	if pr := loadDag(t, ctx, dag.OID).PlanReview; pr.State != PlanReviewState_Passed || pr.Findings != "every requirement has a task" {
@@ -125,7 +125,7 @@ func TestPlanReviewFailWakesTheLeadWithTheFindingsWhole(t *testing.T) {
 	reviewer := startPlanReview(t, ctx, dag.OID)
 	findings := "Task 2 and Task 3 both edit engine.go with no Depends between them; add Depends on: Task 2 to Task 3. " +
 		strings.Repeat("The spec's section 4.1 has no task. ", 20)
-	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, findings); err != nil {
+	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, findings, nil); err != nil {
 		t.Fatal(err)
 	}
 	pr := loadDag(t, ctx, dag.OID).PlanReview
@@ -156,7 +156,7 @@ func TestPlanReviewAfterTheLastRoundGoesToTheHuman(t *testing.T) {
 	if err := AcceptPlanReview(ctx, dag.OID, "the human said go"); err == nil || !strings.Contains(err.Error(), "reviewing") {
 		t.Fatalf("accept while the reviewer works must be refused, got %v", err)
 	}
-	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "still no task for 4.1"); err != nil {
+	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "still no task for 4.1", nil); err != nil {
 		t.Fatal(err)
 	}
 	if want := "Put it to the human; " + proceedPastPlanReview; !strings.Contains(strings.Join(f.sends, "\n"), want) {
@@ -197,7 +197,7 @@ func TestResubmitReplacesAFailedPlanAndOpensTheNextRound(t *testing.T) {
 	if PlanReviewReplaceable(loadDag(t, ctx, dag.OID)) {
 		t.Fatal("a plan under review is not replaceable")
 	}
-	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "no task for 4.1"); err != nil {
+	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "no task for 4.1", nil); err != nil {
 		t.Fatal(err)
 	}
 	if !PlanReviewReplaceable(loadDag(t, ctx, dag.OID)) {
@@ -264,17 +264,17 @@ func TestPlanReviewVerdictsAreRefusedWhenTheyCannotApply(t *testing.T) {
 		{"too long", reviewer, ReviewVerdict_Fail, strings.Repeat("x", MaxReviewNoteLen+1)},
 	}
 	for _, c := range cases {
-		if err := RecordPlanReviewVerdict(ctx, dag.OID, c.run, c.verdict, c.text); err == nil {
+		if err := RecordPlanReviewVerdict(ctx, dag.OID, c.run, c.verdict, c.text, nil); err == nil {
 			t.Errorf("%s: want refused", c.name)
 		}
 	}
 	if pr := loadDag(t, ctx, dag.OID).PlanReview; pr.State != PlanReviewState_Reviewing {
 		t.Fatalf("a refused verdict changes nothing, got %+v", pr)
 	}
-	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "fine"); err != nil {
+	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "fine", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "second thoughts"); err == nil {
+	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "second thoughts", nil); err == nil {
 		t.Fatal("a second verdict must be refused")
 	}
 }

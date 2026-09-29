@@ -12,6 +12,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
+import { settingsChangePayload } from "@/app/view/jarvis/runsettings";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type Atom, type PrimitiveAtom } from "jotai";
 import { ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, SquareTerminal, Workflow } from "lucide-react";
@@ -537,11 +538,12 @@ export function LeadCard(p: LeadCardProps) {
                             type="button"
                             onClick={() => {
                                 act("Parallelism", () =>
-                                    RpcApi.SetRunSettingsCommand(TabRpcClient, {
-                                        channelid: run.channelId,
-                                        runid: run.runId,
-                                        parallelism: parValue,
-                                    })
+                                    RpcApi.SetRunSettingsCommand(
+                                        TabRpcClient,
+                                        settingsChangePayload(run.channelId, run.runId, null, run.dag ?? null, {
+                                            parallelism: parValue,
+                                        })
+                                    )
                                 );
                                 setPanel(null);
                             }}

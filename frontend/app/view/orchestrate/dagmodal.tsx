@@ -13,6 +13,7 @@ import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState, type JSX } from "react";
 import { DagGraphView } from "./daggraph";
 import { closeDagModal, dagModalStateAtom, escapeDagModal, type DagModalState } from "./dagmodalstate";
+import { ModelPicksBanner, ModelPicksPanel } from "./modelpicksview";
 import { timelineLayout, type TimelineLayout } from "./timelinefilter";
 import { TimelineRail } from "./timelinerail";
 
@@ -94,9 +95,10 @@ export function DagModal() {
                                     Close · Esc
                                 </button>
                             </div>
+                            <ModelPicksBanner dagOref={state.dagOref} runId={state.runId} />
                             <div className={"min-h-0 flex flex-1 " + (layout === "drawer" ? "flex-col" : "")}>
                                 <LiveDagModal state={state} />
-                                <TimelineRail channelId={state.channelId} runId={state.runId} layout={layout} />
+                                <SideColumn state={state} layout={layout} />
                             </div>
                         </motion.div>
                     </motion.div>
@@ -129,6 +131,27 @@ function useTimelineLayout(): TimelineLayout {
         return () => window.removeEventListener("resize", onResize);
     }, []);
     return layout;
+}
+
+// SideColumn stacks the model picks above the timeline. The rail sizes itself to the full height, so in the side
+// layout it gets a flex cell to fill; the drawer caps itself by a share of the modal and so stays a direct child.
+function SideColumn({ state, layout }: { state: DagModalState; layout: TimelineLayout }) {
+    const picks = <ModelPicksPanel dagOref={state.dagOref} runId={state.runId} layout={layout} />;
+    const rail = <TimelineRail channelId={state.channelId} runId={state.runId} layout={layout} />;
+    if (layout === "drawer") {
+        return (
+            <>
+                {picks}
+                {rail}
+            </>
+        );
+    }
+    return (
+        <div className="flex h-full w-[300px] flex-none flex-col">
+            {picks}
+            <div className="min-h-0 flex-1">{rail}</div>
+        </div>
+    );
 }
 
 function LiveDagModal({ state }: { state: Extract<DagModalState, { kind: "live" }> }): JSX.Element {

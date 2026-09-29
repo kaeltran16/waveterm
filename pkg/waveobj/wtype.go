@@ -285,6 +285,12 @@ type Run struct {
 	Branch string `json:"branch,omitempty"`
 	// WorkerRoute is the default worker route for orchestrator children (nil = inherit lead); stored here at CreateRun so a submit can carry it onto the group.
 	WorkerRoute *RoutePin `json:"workerroute,omitempty"`
+	// ReviewerPicks is the Reviewer picks workers setting, carried onto the group at submit like WorkerRoute:
+	// the plan reviewer picks each task's model. false = the WorkerRoute rule stands. Never set with WorkerRoute.
+	ReviewerPicks bool `json:"reviewerpicks,omitempty"`
+	// ReviewerRoute is the route task reviewers and stage sessions run on (nil = the lead's route). Only the
+	// human sets it; a submit carries it onto the group.
+	ReviewerRoute *RoutePin `json:"reviewerroute,omitempty"`
 	// Orchestration selects which machine an orchestrator lead drives: "engine" publishes a TaskGroup
 	// that pkg/orchestrate schedules; "adaptive" dispatches the lead's own subagents with no TaskGroup.
 	// Empty preserves the pre-2026-09 fork, where runtime alone decided (pi engine, others adaptive).
@@ -315,6 +321,14 @@ type RunLand struct {
 	Notes  []string `json:"notes,omitempty"`  // what the landed result was not verified against, e.g. a moved base
 }
 
+// TaskNode.ModelSource values: who set the task's RunSpec model.
+const (
+	TaskModelSource_Plan       = "plan"
+	TaskModelSource_Reviewer   = "reviewer"
+	TaskModelSource_Owner      = "owner"
+	TaskModelSource_Escalation = "escalation"
+)
+
 // TaskNode is one unit of work in a TaskGroup DAG. State is derived by the engine
 // (pkg/orchestrate), never hand-set — mirrors the RunStatus discipline.
 type TaskNode struct {
@@ -329,6 +343,12 @@ type TaskNode struct {
 	Released    bool     `json:"released,omitempty"` // gate released by human approval
 	Merged      bool     `json:"merged,omitempty"`   // successful squash-merge back into the project branch
 	RunSpec     RunSpec  `json:"runspec,omitempty"`
+	// ModelSource is who set RunSpec's model: plan | reviewer | owner | escalation (TaskModelSource_*). Empty is
+	// a typed-JSON RunSpec pin, or no pin at all. On a group not on Reviewer picks, a plan or reviewer pin is ignored.
+	ModelSource string `json:"modelsource,omitempty"`
+	// PickReason is the plan reviewer's one-line reason for its pick. Kept after the owner changes the pick, so
+	// the panel can still say why the reviewer chose it.
+	PickReason string `json:"pickreason,omitempty"`
 	// LastActivity is the newest observed child transcript write (UnixMilli). The watchdog flags a
 	// running task stalled when this goes quiet past the stall threshold; 0 = never observed.
 	LastActivity int64 `json:"lastactivity,omitempty"`
@@ -439,9 +459,11 @@ type TaskGroup struct {
 	Title         string      `json:"title,omitempty"`
 	Parallelism   int         `json:"parallelism"`
 	Tasks         []TaskNode  `json:"tasks"`
-	Status        string      `json:"status"`                // awaiting-plan|running|awaiting-review|blocked|done|cancelled (derived)
-	Failures      int         `json:"failures"`              // consecutive task failures; circuit-break at 3
-	WorkerRoute   *RoutePin   `json:"workerroute,omitempty"` // default worker route (nil = inherit owner); task RunSpec wins
+	Status        string      `json:"status"`                  // awaiting-plan|running|awaiting-review|blocked|done|cancelled (derived)
+	Failures      int         `json:"failures"`                // consecutive task failures; circuit-break at 3
+	WorkerRoute   *RoutePin   `json:"workerroute,omitempty"`   // default worker route (nil = inherit owner); task RunSpec wins
+	ReviewerPicks bool        `json:"reviewerpicks,omitempty"` // the plan reviewer picks task models (false = the WorkerRoute rule stands)
+	ReviewerRoute *RoutePin   `json:"reviewerroute,omitempty"` // route for task reviewers and stage sessions (nil = the lead's route)
 	MergeRequired bool        `json:"mergerequired,omitempty"`
 	CreatedTs     int64       `json:"createdts"`
 	UpdatedTs     int64       `json:"updatedts"`
@@ -686,6 +708,11 @@ type JarvisProfile struct {
 	Parallelism int `json:"parallelism,omitempty"`
 	// WorkerRoute is the default route for engine children of a new run (nil = inherit the lead).
 	WorkerRoute *RoutePin `json:"workerroute,omitempty"`
+	// ReviewerPicks defaults a new run to Reviewer picks: the plan reviewer picks each task's model. false = the
+	// WorkerRoute rule stands. Never set with WorkerRoute.
+	ReviewerPicks bool `json:"reviewerpicks,omitempty"`
+	// ReviewerRoute is the default route for a new run's task reviewers and stage sessions (nil = the lead's route).
+	ReviewerRoute *RoutePin `json:"reviewerroute,omitempty"`
 	// Landing is where an engine run's lanes land: checkout | branch (empty = branch).
 	Landing string `json:"landing,omitempty"`
 }
@@ -698,7 +725,11 @@ type ProfileOverride struct {
 	DefaultMode *string         `json:"defaultmode,omitempty"`
 	Parallelism *int            `json:"parallelism,omitempty"`
 	WorkerRoute *RoutePin       `json:"workerroute,omitempty"`
-	Landing     *string         `json:"landing,omitempty"`
+	// ReviewerPicks is one section with WorkerRoute: when either is non-nil, both come from the override, and
+	// nil here then reads as false.
+	ReviewerPicks *bool     `json:"reviewerpicks,omitempty"`
+	ReviewerRoute *RoutePin `json:"reviewerroute,omitempty"`
+	Landing       *string   `json:"landing,omitempty"`
 }
 
 type Channel struct {

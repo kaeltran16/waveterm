@@ -52,6 +52,9 @@ export interface ProfileRunDefaults {
     shape: RunShape | null;
     parallelism: number | null;
     workerRoute: RoutePin | null;
+    // not nullable: false is the profile's own answer (Same as lead or its worker route), not silence
+    reviewerPicks: boolean;
+    reviewerRoute: RoutePin | null;
 }
 
 export function profileRunDefaults(profile: JarvisProfile | null | undefined): ProfileRunDefaults {
@@ -63,6 +66,8 @@ export function profileRunDefaults(profile: JarvisProfile | null | undefined): P
         // a width only counts when it is a width; anything else is the profile saying nothing
         parallelism: width > 0 ? clampParallelism(width) : null,
         workerRoute: profile?.workerroute ?? null,
+        reviewerPicks: profile?.reviewerpicks ?? false,
+        reviewerRoute: profile?.reviewerroute ?? null,
     };
 }
 

@@ -72,7 +72,15 @@ describe("radarDraftLanding", () => {
 });
 
 describe("launchOptsFromConfig", () => {
-    const base: RunConfig = { shape: "quick", parallelism: 3, workerRoute: null, start: "goal", planPath: "" };
+    const base: RunConfig = {
+        shape: "quick",
+        parallelism: 3,
+        workerRoute: null,
+        start: "goal",
+        planPath: "",
+        reviewerPicks: false,
+        reviewerRoute: null,
+    };
     const workerRoute: RoutePin = { runtime: "claude" };
 
     it("names the mode rather than leaving the server to default it to quick", () => {
@@ -91,6 +99,7 @@ describe("launchOptsFromConfig", () => {
     it("always launches an orchestrator on the engine, with its width and worker route", () => {
         expect(launchOptsFromConfig({ ...base, shape: "orchestrator", parallelism: 4, workerRoute })).toEqual({
             mode: "orchestrator",
+            reviewerPicks: false,
             parallelism: 4,
             workerRoute,
         });
@@ -99,6 +108,7 @@ describe("launchOptsFromConfig", () => {
     it("omits a worker route the launcher left inheriting the lead", () => {
         expect(launchOptsFromConfig({ ...base, shape: "orchestrator", parallelism: 2 })).toEqual({
             mode: "orchestrator",
+            reviewerPicks: false,
             parallelism: 2,
         });
     });
@@ -108,6 +118,7 @@ describe("launchOptsFromConfig", () => {
             launchOptsFromConfig({ ...base, shape: "orchestrator", start: "plan", planPath: "  /repo/plan.md " })
         ).toEqual({
             mode: "orchestrator",
+            reviewerPicks: false,
             parallelism: 3,
             planPath: "/repo/plan.md",
         });

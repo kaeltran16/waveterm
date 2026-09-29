@@ -141,8 +141,15 @@ export function DagCardNode({ data }: NodeProps) {
                         {view.label}
                     </span>
                 </div>
-                <div className={`truncate leading-[14px] ${MONO_META}`}>
-                    {task.id} · <span className={look.word}>{word}</span> · {fact}
+                <div className={`flex items-center gap-1.5 leading-[14px] ${MONO_META}`}>
+                    <span className="min-w-0 flex-1 truncate">
+                        {task.id} · <span className={look.word}>{word}</span> · {fact}
+                    </span>
+                    {view.tag ? (
+                        <span className="flex-none rounded-[5px] border border-edge-mid bg-surface-raised px-[5px] text-[10px] text-accent-soft">
+                            {view.tag}
+                        </span>
+                    ) : null}
                 </div>
                 <Handle type="source" position={Position.Right} isConnectable={false} className="!opacity-0" />
             </div>

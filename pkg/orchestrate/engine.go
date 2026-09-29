@@ -851,20 +851,6 @@ func taskPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveobj.Run
 	return b.String()
 }
 
-func effectiveTaskRoute(task *waveobj.TaskNode, owner *waveobj.Run, group *waveobj.TaskGroup) waveobj.RoutePin {
-	if task.RunSpec.Runtime != "" || task.RunSpec.Model != "" {
-		runtime := task.RunSpec.Runtime
-		if runtime == "" {
-			runtime = owner.Runtime
-		}
-		return waveobj.RoutePin{Runtime: runroute.DefaultRuntime(runtime), Model: task.RunSpec.Model}
-	}
-	if group != nil && group.WorkerRoute != nil && (group.WorkerRoute.Runtime != "" || group.WorkerRoute.Model != "") {
-		return waveobj.RoutePin{Runtime: runroute.DefaultRuntime(group.WorkerRoute.Runtime), Model: group.WorkerRoute.Model}
-	}
-	return waveobj.RoutePin{Runtime: runroute.DefaultRuntime(owner.Runtime), Model: owner.Model}
-}
-
 // childRunFromSpec builds the child run that owns the spawned worker. The child carries
 // DagORef so GroupForRun resolves the group from any run in the DAG, and its ProjectPath is
 // the worktree cwd so evidence/continuity machinery scopes to the isolated checkout.

@@ -142,6 +142,7 @@ func applyEscalation(task *waveobj.TaskNode, target waveobj.RoutePin) {
 	task.Attempts = 0
 	task.LastFailureKind = ""
 	task.Escalations++
+	task.ModelSource = waveobj.TaskModelSource_Escalation
 	task.State = TaskState_Pending
 	task.RunID = ""
 }
@@ -153,6 +154,9 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 	}
 	if g.Status == DagStatus_Cancelled {
 		return fmt.Errorf("dag %s is cancelled", dagID)
+	}
+	if action == "setmodel" || action == "leadmodels" {
+		return applyModelActionLocked(ctx, g, taskID, action, target)
 	}
 	var emit []func()
 	switch action {

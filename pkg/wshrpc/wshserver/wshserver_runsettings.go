@@ -38,22 +38,40 @@ func validateParallelism(n int, zeroMeansUnset bool) error {
 	return nil
 }
 
-// validateWorkerRoute is the worker-route half of the profile and run-settings validation. It resolves the
-// route through the same resolver and harness check CreateRun uses, so a route that could not launch a
-// worker cannot be stored as a default that will later fail to launch one.
-func validateWorkerRoute(route *waveobj.RoutePin, requireInstalled bool) error {
+// validateRoute is the route half of the profile and run-settings validation, for a worker or a reviewer
+// route; field names it in the error. It resolves the route through the same resolver and harness check
+// CreateRun uses, so a route that could not launch a worker cannot be stored as a default that will later
+// fail to launch one. Reviewers and stage sessions are spawned as workers, so both use the worker operation.
+func validateRoute(field string, route *waveobj.RoutePin, requireInstalled bool) error {
 	if route == nil {
 		return nil
 	}
 	if _, err := runroute.Resolve(*route); err != nil {
-		return fmt.Errorf("workerRoute %w", err)
+		return fmt.Errorf("%s %w", field, err)
 	}
 	if requireInstalled {
 		if _, err := validateHarness(route.Runtime, harness.OperationRunWorker); err != nil {
-			return fmt.Errorf("workerRoute %w", err)
+			return fmt.Errorf("%s %w", field, err)
 		}
 	}
 	return nil
+}
+
+// validateWorkersSetting refuses Reviewer picks beside a worker route: the workers setting is one of them.
+func validateWorkersSetting(route *waveobj.RoutePin, picks bool) error {
+	if picks && route != nil {
+		return fmt.Errorf("reviewerPicks and workerRoute are both set; the workers setting is one of them")
+	}
+	return nil
+}
+
+// validateGlobalEngineDefaults validates the global profile's workers and reviewer settings as
+// validateEngineDefaults does an override's.
+func validateGlobalEngineDefaults(p waveobj.JarvisProfile) error {
+	if err := validateWorkersSetting(p.WorkerRoute, p.ReviewerPicks); err != nil {
+		return err
+	}
+	return validateRoute("reviewerRoute", p.ReviewerRoute, false)
 }
 
 // validateEngineDefaults validates a profile override's engine sections before any write.
@@ -78,7 +96,13 @@ func validateEngineDefaults(o *waveobj.ProfileOverride) error {
 	}
 	// a profile default is stored, not launched: it is resolved against the harness catalog at launch,
 	// exactly like the profile's lead route already is.
-	return validateWorkerRoute(o.WorkerRoute, false)
+	if err := validateWorkersSetting(o.WorkerRoute, o.ReviewerPicks != nil && *o.ReviewerPicks); err != nil {
+		return err
+	}
+	if err := validateRoute("workerRoute", o.WorkerRoute, false); err != nil {
+		return err
+	}
+	return validateRoute("reviewerRoute", o.ReviewerRoute, false)
 }
 
 // errDagLinkedDuringSettings marks the one interleave that cannot be avoided: a group appeared between
@@ -103,12 +127,20 @@ func (ws *WshServer) SetRunSettingsCommand(ctx context.Context, data wshrpc.Comm
 			return err
 		}
 	}
-	if err := validateWorkerRoute(data.WorkerRoute, true); err != nil {
+	if err := validateWorkersSetting(data.WorkerRoute, data.ReviewerPicks); err != nil {
+		return err
+	}
+	if err := validateRoute("workerRoute", data.WorkerRoute, true); err != nil {
+		return err
+	}
+	if err := validateRoute("reviewerRoute", data.ReviewerRoute, true); err != nil {
 		return err
 	}
 	settings := jarvis.PendingEngineSettings{
-		Parallelism: data.Parallelism,
-		WorkerRoute: data.WorkerRoute,
+		Parallelism:   data.Parallelism,
+		WorkerRoute:   data.WorkerRoute,
+		ReviewerPicks: data.ReviewerPicks,
+		ReviewerRoute: data.ReviewerRoute,
 	}
 
 	for attempt := 0; attempt < runSettingsAttempts; attempt++ {

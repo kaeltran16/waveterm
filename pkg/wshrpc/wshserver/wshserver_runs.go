@@ -395,11 +395,25 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		if data.Parallelism == 0 {
 			data.Parallelism = resolved.Parallelism
 		}
-		if data.WorkerRoute == nil {
-			data.WorkerRoute = resolved.WorkerRoute
+		// a caller that sends the workers setting owns it as sent, so a nil route there is Same as lead
+		if data.ReviewerPicks == nil {
+			if data.WorkerRoute == nil {
+				data.WorkerRoute = resolved.WorkerRoute
+			}
+			data.ReviewerPicks = &resolved.ReviewerPicks
+		}
+		if data.ReviewerRoute == nil {
+			data.ReviewerRoute = resolved.ReviewerRoute
 		}
 	}
-	if err := validateWorkerRoute(data.WorkerRoute, true); err != nil {
+	reviewerPicks := data.ReviewerPicks != nil && *data.ReviewerPicks
+	if err := validateWorkersSetting(data.WorkerRoute, reviewerPicks); err != nil {
+		return nil, err
+	}
+	if err := validateRoute("workerRoute", data.WorkerRoute, true); err != nil {
+		return nil, err
+	}
+	if err := validateRoute("reviewerRoute", data.ReviewerRoute, true); err != nil {
 		return nil, err
 	}
 	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, resolved.Principles, mode, playbook, time.Now().UnixMilli())
@@ -409,6 +423,8 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	run.Runtime = cap.Runtime // immutable after Start; every phase and child inherits this
 	run.Model = cap.Model
 	run.WorkerRoute = data.WorkerRoute
+	run.ReviewerPicks = reviewerPicks
+	run.ReviewerRoute = data.ReviewerRoute
 	run.Orchestration = orchestration // prompt-shaping only; DagSubmit stays open to either choice
 	// out-of-band widths are rejected rather than clamped: a caller asking for 40 workers has a wrong
 	// model of the engine, and silently running 8 would hide that.

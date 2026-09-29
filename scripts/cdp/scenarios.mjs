@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { SURFACE_LABEL } from "./attach.mjs";
 import { narrationFeed } from "./narrationfeed.mjs";
 
@@ -6627,6 +6628,401 @@ const briefPeeksPolish = {
     },
 };
 
+// --- new-run-window, model-picks: a model per task (docs/superpowers/specs/2026-09-29-worker-reviewer-models-design.md)
+// Both read one three-task plan of noops: Task 1 has a Model line, Tasks 2 and 3 are left to the plan reviewer.
+const MODELS_PLAN = fileURLToPath(new URL("./fixtures/models-plan.md", import.meta.url));
+// narrow columns defeat by-name clicks, and verify.mjs clears any earlier override
+const MODELS_VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+const MODELS_RPC = { timeout: 30000 };
+const setInputExpr = (elExpr, value) => `(() => {
+    const el = ${elExpr};
+    if (!el) return false;
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    set.call(el, ${JSON.stringify(value)});
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+})()`;
+const flatText = (elExpr) => `(${elExpr}?.textContent ?? '').replace(/\\s+/g, ' ').trim()`;
+
+// the window renders beside the button that opens it, so the button's wrapper scopes every query to it
+const NEW_RUN = `document.querySelector('[data-jarvis-new-run]')?.parentElement?.querySelector('[role="dialog"]')`;
+const NEW_RUN_FIELD = `${NEW_RUN}?.querySelector('button[aria-haspopup="listbox"]')`;
+const NEW_RUN_LIST = `${NEW_RUN}?.querySelector('[role="listbox"][aria-label="Projects"]')`;
+const NEW_RUN_WORKERS = `${NEW_RUN}?.querySelector('[data-testid="route-picker"][aria-label="Workers model"]')`;
+const NEW_RUN_PROJECT = "verify-new-run-window";
+
+// the list's group labels in order, and whether the project is listed under Recent
+const newRunListExpr = (name) => `(() => {
+    const list = ${NEW_RUN_LIST};
+    if (!list) return null;
+    const items = [...list.children].map((el) =>
+        el.tagName === 'SPAN' ? { label: el.textContent.trim() } : { option: el.getAttribute('data-project-option') }
+    );
+    const at = items.findIndex((i) => i.option === ${JSON.stringify(name)});
+    const recentAt = items.findIndex((i) => i.label === 'Recent');
+    const allAt = items.findIndex((i) => i.label === 'All projects');
+    return {
+        labels: items.filter((i) => i.label != null).map((i) => i.label),
+        listed: at >= 0,
+        inRecent: recentAt >= 0 && at > recentAt && (allAt < 0 || at < allAt),
+    };
+})()`;
+
+// a row's first cell is its task id; the needs cell can also read t-N, so only a first child counts
+const NEW_RUN_PLAN = `(() => {
+    const ready = ${NEW_RUN}?.querySelector('[data-jarvis-plan-preview="ready"]');
+    if (!ready) return { error: (${NEW_RUN}?.querySelector('[data-jarvis-plan-preview="error"]')?.textContent ?? null) };
+    const spans = [...ready.querySelectorAll('span')];
+    const rows = spans
+        .filter((s) => s.parentElement.firstElementChild === s && /^t-\\d+$/.test(s.textContent.trim()))
+        .map((s) => {
+            const cell = s.parentElement.lastElementChild;
+            return {
+                id: s.textContent.trim(),
+                model: cell.textContent.trim(),
+                struck: getComputedStyle(cell).textDecorationLine.includes('line-through'),
+            };
+        });
+    const mix = spans.find((s) => /set by the plan|^all on /.test(s.textContent.trim()));
+    return { rows, mix: mix ? mix.textContent.trim() : null };
+})()`;
+
+// the picker's rows are portaled out of the window, but only one picker is open at a time
+async function pickWorkers(h, testId) {
+    await h.ev(`${NEW_RUN_WORKERS}?.click()`);
+    if (await polishWaitFor(h, `!!document.querySelector('[data-testid="${testId}"]')`, 3000)) {
+        await h.ev(`document.querySelector('[data-testid="${testId}"]').click()`);
+    }
+    await polishNap(400);
+    return h.ev(flatText(NEW_RUN_WORKERS));
+}
+
+async function channelRunCount(h, channelId) {
+    const res = await h.rpc("getchannels", null);
+    return ((res.channels || []).find((c) => c.oid === channelId)?.runs || []).length;
+}
+
+const newRunWindow = {
+    name: "new-run-window",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-new-run-window-"));
+        const ctx = { cwd };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            await h.rpc("createproject", { name: NEW_RUN_PROJECT, path: cwd });
+            ctx.project = NEW_RUN_PROJECT;
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-new-run-window", projectpath: cwd });
+            ctx.channelId = ch.oid;
+            // a run held in planning makes the project recent without starting a worker
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: "verify new-run-window: do nothing, make no file changes, stop immediately",
+                runtime: "claude",
+                mode: "orchestrator",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            // the window reads the boot-primed channel list
+            await polishReload(h);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. the project, its channel and a planning run were made", false, ctx.arrangeError);
+            return steps;
+        }
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        await h.goto("jarvis");
+        await h.ev(`document.querySelector('[data-jarvis-new-run]')?.click()`);
+        const opened = await polishWaitFor(h, `!!${NEW_RUN}`, 5000);
+        rec("1. New run opens the window", opened, `dialog=${opened}`);
+        if (!opened) return steps;
+
+        await h.ev(`${NEW_RUN_FIELD}?.click()`);
+        await polishWaitFor(h, `!!${NEW_RUN_LIST}`, 3000);
+        const listed = await h.ev(newRunListExpr(NEW_RUN_PROJECT));
+        await h.shot("cdp-shots/new-run-window-1-picker.png");
+        rec(
+            "2. the project picker lists Recent, holding the project, then All projects",
+            listed != null && listed.labels[0] === "Recent" && listed.labels.includes("All projects") && listed.inRecent,
+            JSON.stringify(listed)
+        );
+
+        await h.ev(setInputExpr(`${NEW_RUN}?.querySelector('input[aria-label="Search projects"]')`, NEW_RUN_PROJECT));
+        await polishNap(300);
+        const searched = await h.ev(newRunListExpr(NEW_RUN_PROJECT));
+        rec(
+            "3. a query drops Recent and shows Matches",
+            searched != null && !searched.labels.includes("Recent") && searched.labels[0] === "Matches" && searched.listed,
+            JSON.stringify(searched)
+        );
+
+        await h.ev(`${NEW_RUN_LIST}?.querySelector('[data-project-option="${NEW_RUN_PROJECT}"]')?.click()`);
+        await polishNap(300);
+        const field = await h.ev(`({ expanded: ${NEW_RUN_FIELD}?.getAttribute('aria-expanded'), text: ${flatText(NEW_RUN_FIELD)} })`);
+        rec(
+            "4. picking the project closes the list on it",
+            field.expanded === "false" && field.text.startsWith(NEW_RUN_PROJECT),
+            JSON.stringify(field)
+        );
+
+        await h.ev(
+            `[...(${NEW_RUN}?.querySelectorAll('button[aria-pressed]') ?? [])].find((b) => b.firstElementChild?.textContent.trim() === 'orchestrator')?.click()`
+        );
+        await polishNap(200);
+        await h.ev(
+            `[...(${NEW_RUN}?.querySelectorAll('[role="group"][aria-label="Start from"] button') ?? [])].find((b) => b.textContent.trim() === 'Plan file')?.click()`
+        );
+        await polishWaitFor(h, `!!${NEW_RUN}?.querySelector('[data-jarvis-plan-path]')`, 3000);
+        await h.ev(setInputExpr(`${NEW_RUN}?.querySelector('[data-jarvis-plan-path]')`, MODELS_PLAN));
+        // the profile may name a workers route, so Same as lead is chosen rather than assumed
+        const sameAsLead = await pickWorkers(h, "route-option-inherit");
+        await polishWaitFor(h, `!!${NEW_RUN}?.querySelector('[data-jarvis-plan-preview="ready"]')`, 10000);
+        const onLead = await h.ev(NEW_RUN_PLAN);
+        const planRow = (table) => table?.rows?.find((r) => r.id === "t-1");
+        rec(
+            "5. a plan file shows 3 rows, its Model line `sonnet · plan` struck through on Same as lead",
+            sameAsLead.includes("Same as lead") &&
+                onLead.rows?.length === 3 &&
+                planRow(onLead)?.model === "sonnet · plan" &&
+                planRow(onLead).struck === true,
+            JSON.stringify({ workers: sameAsLead, plan: MODELS_PLAN, ...onLead })
+        );
+
+        const reviewerPicks = await pickWorkers(h, "route-option-extra");
+        await polishNap(300);
+        const onPicks = await h.ev(NEW_RUN_PLAN);
+        const others = onPicks.rows?.filter((r) => r.id !== "t-1") ?? [];
+        await h.shot("cdp-shots/new-run-window-2-picks.png");
+        rec(
+            "6. on Reviewer picks the Model line counts, the rest read `at review`, and the mix line says so",
+            reviewerPicks.includes("Reviewer picks") &&
+                planRow(onPicks)?.model === "sonnet · plan" &&
+                planRow(onPicks).struck === false &&
+                others.length === 2 &&
+                others.every((r) => r.model === "at review") &&
+                onPicks.mix === "1 set by the plan · 2 picked at review",
+            JSON.stringify({ workers: reviewerPicks, ...onPicks })
+        );
+
+        const runsBefore = await channelRunCount(h, ctx.channelId);
+        await h.ev(`[...(${NEW_RUN}?.querySelectorAll('button') ?? [])].find((b) => b.textContent.trim() === 'Cancel')?.click()`);
+        const closed = await polishWaitFor(h, `!${NEW_RUN}`, 3000);
+        const runsAfter = await channelRunCount(h, ctx.channelId);
+        rec(
+            "7. Cancel closes the window and starts no run",
+            closed && runsAfter === runsBefore,
+            JSON.stringify({ closed, runsBefore, runsAfter })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(PEEKS_ESC).catch(() => {});
+        await teardownFixtureRun(h, ctx, "new-run-window", {
+            what: "delete the project",
+            fn: () => (ctx.project ? h.rpc("deleteproject", { name: ctx.project }) : null),
+        });
+    },
+};
+
+const PICKS_BANNER = `document.querySelector('[data-dag-modal-kind] [data-model-picks-banner]')`;
+const PICKS_PANEL = `document.querySelector('[data-dag-modal-kind] [data-model-picks]')`;
+const pickRowExpr = (id) => `${PICKS_PANEL}?.querySelector('[data-model-pick="${id}"]')`;
+const pickToggleExpr = (id, sonnet) =>
+    `[...(${pickRowExpr(id)}?.querySelectorAll('[role="group"] button') ?? [])].find((b) => (b.textContent.trim() === 'sonnet') === ${sonnet})`;
+const dagCardExpr = (id) => `document.querySelector('[data-dag-modal-kind] [data-dag-node="${id}"]')`;
+// a card's model tag is its own span, `<model> · <source>`
+const cardTagExpr = (id) =>
+    `([...(${dagCardExpr(id)}?.querySelectorAll('span') ?? [])].map((s) => s.textContent.trim()).find((t) => / · (plan|review|you|escalated|pinned)$/.test(t)) ?? null)`;
+// the detail rail's worker line carries the same route attribute as the cards
+const DAG_RAIL_ROUTE = `document.querySelector('[data-dag-modal-kind] [data-dag-node-route]:not([data-dag-node])')`;
+const railExpr = `({ route: ${DAG_RAIL_ROUTE}?.getAttribute('data-dag-node-route') ?? null, text: ${flatText(DAG_RAIL_ROUTE)} })`;
+// Task 1's Model line leaves it off the picks; one sonnet pick and one lead pick make the banner "1 of 3"
+const MODEL_PICKS = [
+    { taskid: "t-2", model: "sonnet", reason: "a noop needs no deep reasoning" },
+    { taskid: "t-3", model: "lead", reason: "kept on the lead, so the panel must not list it" },
+];
+
+async function dagTask(h, ctx, id) {
+    const g = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group;
+    return (g?.tasks ?? []).find((t) => t.id === id) ?? null;
+}
+
+async function waitDagTask(h, ctx, id, ok) {
+    let task = null;
+    for (let waited = 0; waited < 8000; waited += 250) {
+        task = await dagTask(h, ctx, id);
+        if (task != null && ok(task)) break;
+        await polishNap(250);
+    }
+    return task;
+}
+
+const taskFacts = (t) =>
+    t && { state: t.state, modelsource: t.modelsource ?? "", runtime: t.runspec?.runtime ?? "", model: t.runspec?.model ?? "" };
+
+const modelPicks = {
+    name: "model-picks",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-model-picks-"));
+        const ctx = { cwd };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-model-picks", projectpath: cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: "verify model-picks: do nothing, make no file changes, stop immediately",
+                runtime: "claude",
+                mode: "orchestrator",
+                deferstart: true,
+                reviewerpicks: true,
+                parallelism: 1,
+            });
+            ctx.runId = created.run.id;
+            await h.rpc(
+                "dagsubmit",
+                { channelid: ctx.channelId, runid: ctx.runId, parallelism: 1, planpath: MODELS_PLAN },
+                MODELS_RPC
+            );
+            // the plan reviewer is a real session, spawned after the submit returns; its verdict is recorded
+            // here, in its name, before it can send one
+            let reviewer = null;
+            for (let waited = 0; waited < 90000 && reviewer == null; waited += 1000) {
+                const pr = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.planreview;
+                reviewer = pr?.state === "reviewing" && pr.runid ? pr.runid : null;
+                if (reviewer == null) await polishNap(1000);
+            }
+            if (reviewer == null) throw new Error("the plan reviewer never started");
+            await h.rpc(
+                "dagaction",
+                {
+                    channelid: ctx.channelId,
+                    runid: reviewer,
+                    taskid: "",
+                    action: "planreview-pass",
+                    notes: "verify model-picks: three noops",
+                    picks: MODEL_PICKS,
+                },
+                MODELS_RPC
+            );
+            // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
+            await polishReload(h);
+            ctx.opened = await h.ev(`(async () => {
+                for (let i = 0; i < 20 && typeof window.__openAddress !== "function"; i++) {
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                if (typeof window.__openAddress !== "function") return { ok: false, why: "no __openAddress hook" };
+                return window.__openAddress(${JSON.stringify(`run:${ctx.runId}`)});
+            })()`);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. a Reviewer picks run passed its plan review with picks", false, ctx.arrangeError);
+            return steps;
+        }
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        const openDag = `[...(document.querySelector('[data-jarvis-brief-sheet]')?.querySelectorAll('button') ?? [])].find((b) => b.textContent.trim() === 'Open DAG')`;
+        const sheet = await polishWaitFor(h, `!!${openDag}`, 15000);
+        if (sheet) await h.ev(`${openDag}.click()`);
+        const graph = await polishWaitFor(
+            h,
+            `!!document.querySelector('[data-dag-modal-kind="live"]') && document.querySelectorAll('[data-dag-modal-kind] [data-dag-node]').length === 3`,
+            10000
+        );
+        rec(
+            "0. the run's graph opened with its 3 tasks",
+            ctx.opened?.ok === true && sheet && graph,
+            JSON.stringify({ runId: ctx.runId, opened: ctx.opened, sheet, graph })
+        );
+        if (!graph) return steps;
+
+        await polishWaitFor(h, `!!${PICKS_BANNER}`, 5000);
+        const banner = await h.ev(flatText(PICKS_BANNER));
+        await h.shot("cdp-shots/model-picks-1-banner.png");
+        rec("1. the banner reads `1 of 3 tasks on sonnet`", banner.includes("1 of 3 tasks on sonnet"), `banner=${JSON.stringify(banner)}`);
+
+        const panel = await h.ev(`(() => {
+            const rows = [...(${PICKS_PANEL}?.querySelectorAll('[data-model-pick]') ?? [])];
+            return {
+                rows: rows.map((r) => r.getAttribute('data-model-pick')),
+                pressed: ${pickRowExpr("t-2")}?.querySelector('[role="group"] button[aria-pressed="true"]')?.textContent.trim() ?? null,
+                reason: ${flatText(pickRowExpr("t-2"))}.includes(${JSON.stringify(MODEL_PICKS[0].reason)}),
+            };
+        })()`);
+        rec(
+            "2. the panel lists only the sonnet pick, on sonnet, with its reason",
+            panel.rows.length === 1 && panel.rows[0] === "t-2" && panel.pressed === "sonnet" && panel.reason,
+            JSON.stringify(panel)
+        );
+
+        await h.ev(`${dagCardExpr("t-2")}?.click()`);
+        await polishWaitFor(h, `!!${DAG_RAIL_ROUTE}`, 3000);
+        const picked = await h.ev(`({
+            t1: ${cardTagExpr("t-1")},
+            t2: ${cardTagExpr("t-2")},
+            t3: ${cardTagExpr("t-3")},
+            rail: ${railExpr},
+        })`);
+        rec(
+            "3. the cards tag the plan's and the reviewer's picks, and the rail names the reviewer",
+            picked.t1 === "sonnet · plan" &&
+                picked.t2 === "sonnet · review" &&
+                picked.t3 == null &&
+                picked.rail.route === "reviewer:claude:sonnet" &&
+                picked.rail.text.includes("worker · reviewer's pick"),
+            JSON.stringify(picked)
+        );
+
+        await h.ev(`${pickToggleExpr("t-2", false)}?.click()`);
+        const onLead = await waitDagTask(h, ctx, "t-2", (t) => t.modelsource === "owner");
+        await polishWaitFor(h, `${flatText(pickRowExpr("t-2"))}.includes('you changed it')`, 3000);
+        const leadRow = await h.ev(flatText(pickRowExpr("t-2")));
+        rec(
+            "4. toggling the pick to the lead's model writes modelsource owner and clears the pin",
+            onLead?.modelsource === "owner" && !onLead.runspec?.model && leadRow.includes("you changed it"),
+            JSON.stringify({ task: taskFacts(onLead), row: leadRow })
+        );
+
+        await h.ev(`${pickToggleExpr("t-2", true)}?.click()`);
+        const onSonnet = await waitDagTask(h, ctx, "t-2", (t) => t.modelsource === "owner" && t.runspec?.model === "sonnet");
+        await polishWaitFor(h, `${cardTagExpr("t-2")} === 'sonnet · you'`, 3000);
+        const yours = await h.ev(`({ tag: ${cardTagExpr("t-2")}, rail: ${railExpr} })`);
+        await h.shot("cdp-shots/model-picks-2-yours.png");
+        rec(
+            "5. toggling it back to sonnet tags the card `sonnet · you` and the rail names your pick",
+            onSonnet?.modelsource === "owner" &&
+                onSonnet.runspec?.model === "sonnet" &&
+                yours.tag === "sonnet · you" &&
+                yours.rail.route === "owner:claude:sonnet" &&
+                yours.rail.text.includes("worker · your pick"),
+            JSON.stringify({ task: taskFacts(onSonnet), ...yours })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(PEEKS_ESC).catch(() => {});
+        await teardownFixtureRun(h, ctx, "model-picks");
+    },
+};
+
 export const SCENARIOS = [
     briefContextualMap,
     briefRestore,
@@ -6669,4 +7065,6 @@ export const SCENARIOS = [
     runSheetPolish,
     briefInitiativesPolish,
     briefPeeksPolish,
+    newRunWindow,
+    modelPicks,
 ];

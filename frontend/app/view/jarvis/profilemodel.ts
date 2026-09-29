@@ -128,7 +128,9 @@ export function profileOverrideIsEmpty(o: ProfileOverride | null | undefined): b
         o.defaultmode == null &&
         o.landing == null &&
         o.parallelism == null &&
-        o.workerroute == null
+        o.workerroute == null &&
+        o.reviewerpicks == null &&
+        o.reviewerroute == null
     );
 }
 
@@ -211,13 +213,76 @@ export function globalProfileIsDirty(a: JarvisProfile, b: JarvisProfile): boolea
 }
 
 // the run defaults a project can set for itself, in the order the modal lists them
-const OVERRIDE_FIELDS = ["defaultmode", "parallelism", "route", "workerroute", "landing"] as const;
-export type GlobalDefaultKey = "defaultmode" | "parallelism" | "workerroute" | "landing";
+const OVERRIDE_FIELDS = ["defaultmode", "parallelism", "route", "workerroute", "reviewerroute", "landing"] as const;
+export type GlobalDefaultKey = "defaultmode" | "parallelism" | "workerroute" | "reviewerroute" | "landing";
+// the fields both scopes share. ProfileOverride and JarvisProfile agree on all of them; `route` is the one
+// that does not exist globally, which is why the modal passes its lead-route row in.
+export type ProfileDefaults = Pick<ProfileOverride, GlobalDefaultKey | "reviewerpicks">;
+
+// Whether an override sets a row itself. The Worker route row is the workers setting, which Go resolves as
+// one section made of workerroute and reviewerpicks (jarvis.ResolveProfile): either half makes it the project's.
+export function overridesRow(o: ProfileOverride, key: GlobalDefaultKey | "route"): boolean {
+    return key === "workerroute" ? o.workerroute != null || o.reviewerpicks != null : o[key] != null;
+}
 
 // the project-scope Run defaults meta: how many rows this project sets instead of inheriting
 export function overrideSummary(o: ProfileOverride): string {
-    const n = OVERRIDE_FIELDS.filter((k) => o[k] != null).length;
+    const n = OVERRIDE_FIELDS.filter((k) => overridesRow(o, k)).length;
     return n === 0 ? "All from global" : `${n} set for this project`;
+}
+
+export type WorkersRow = { picks: boolean; route: RoutePin | null; inherited: boolean };
+
+// What the Worker route row shows. An inherited row shows what the global resolves to, since its Same as lead
+// answer is a value a project can state (reviewerpicks false), not the way back to global; Reset is that.
+export function workersRow(draft: ProfileDefaults, base: JarvisProfile, inheritable: boolean): WorkersRow {
+    const inherited = inheritable && !overridesRow(draft, "workerroute");
+    const from = inherited ? base : draft;
+    return { picks: from.reviewerpicks ?? false, route: from.workerroute ?? null, inherited };
+}
+
+export type WorkersChoice =
+    | { kind: "lead" }
+    | { kind: "picks" }
+    | { kind: "route"; route: RoutePin }
+    | { kind: "reset" };
+
+// The server refuses Reviewer picks beside a worker route, so every choice writes both halves of the pair.
+// Global scope unsets rather than stores false, so choosing Same as lead there reads clean against a profile
+// that never had the key.
+export function applyWorkersChoice<T extends ProfileDefaults>(
+    draft: T,
+    choice: WorkersChoice,
+    inheritable: boolean
+): T {
+    const next = { ...draft };
+    delete next.workerroute;
+    delete next.reviewerpicks;
+    switch (choice.kind) {
+        case "picks":
+            next.reviewerpicks = true;
+            break;
+        case "route":
+            next.workerroute = choice.route;
+            break;
+        case "lead":
+            if (inheritable) {
+                next.reviewerpicks = false;
+            }
+            break;
+    }
+    return next;
+}
+
+export type ReviewerRow = { value: RoutePin | null; inheritedLabel: string };
+
+// The Reviewer route row. Unlike the workers pair, a project override has no way to say Same as lead over a
+// global reviewer route (nil inherits), so its unset answer reads as the global's.
+export function reviewerRow(draft: ProfileDefaults, base: JarvisProfile, inheritable: boolean): ReviewerRow {
+    return {
+        value: draft.reviewerroute ?? null,
+        inheritedLabel: inheritable && base.reviewerroute != null ? "Same as global" : "Same as lead",
+    };
 }
 
 // the project-scope Principles meta, counted off the same rows the editor draws
@@ -247,7 +312,7 @@ export function defaultReach(projects: ProjectOverride[], key: GlobalDefaultKey)
     if (total === 0) {
         return null;
     }
-    const own = projects.filter((p) => p.override[key] != null).map((p) => p.name);
+    const own = projects.filter((p) => overridesRow(p.override, key)).map((p) => p.name);
     if (own.length === 0) {
         return { main: total === 1 ? "1 project" : `All ${total} projects` };
     }

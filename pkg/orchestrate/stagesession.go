@@ -21,11 +21,20 @@ import (
 // no task, reads Tree, and ends with a verdict command its Prompt names.
 type StageSession struct{ Role, Label, Tree, Prompt string }
 
-// spawnStageSession starts s on the lead's route, as a task reviewer is: the model picked for judgment. Its
+// reviewerRoute is the route judging sessions run on: the group's reviewer route when it names one, else the
+// lead's.
+func reviewerRoute(owner *waveobj.Run, g *waveobj.TaskGroup) waveobj.RoutePin {
+	if r := g.ReviewerRoute; r != nil && (r.Runtime != "" || r.Model != "") {
+		return waveobj.RoutePin{Runtime: runroute.DefaultRuntime(r.Runtime), Model: r.Model}
+	}
+	return waveobj.RoutePin{Runtime: runroute.DefaultRuntime(owner.Runtime), Model: owner.Model}
+}
+
+// spawnStageSession starts s on the reviewer route, as a task reviewer is: the model picked for judgment. Its
 // child run carries the dag, the session id and StageRole, and no task, so usage counts it under its role and
 // a bare complete is not taken for a worker's.
 func spawnStageSession(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, s StageSession) (string, error) {
-	pin := waveobj.RoutePin{Runtime: runroute.DefaultRuntime(owner.Runtime), Model: owner.Model}
+	pin := reviewerRoute(owner, g)
 	capability, err := runroute.Resolve(pin)
 	if err == nil {
 		err = validateWorkerHarness(pin.Runtime)

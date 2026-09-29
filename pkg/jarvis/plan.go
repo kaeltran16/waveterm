@@ -36,6 +36,8 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"at most one). A task may then list `**Chunk:** <exact chunk label>` lines, one per chunk, directly after its Depends on line " +
 	"(or first under the heading when it has none): the engine marks those chunks done when the task's merge passes Verify. " +
 	"A Chunk line anywhere else is task text, and a plan with a Chunk line but no Effort line is refused. " +
+	"A task may also carry one **Model:** <model id> line in that same place (not in backticks): the model its worker runs on, " +
+	"used when the run's workers setting is Reviewer picks and ignored otherwise. " +
 	"Number tasks 1, 2, 3... in order under `##` or `###` headings. A Depends on line must be the first line under its heading: " +
 	"leave it out to run after the previous task, write `none` for no dependencies, or list earlier tasks (`Task 1, Task 3`).\n" +
 	"The engine runs tasks at the same time whenever nothing makes them wait, so the Depends on lines are what set a plan's width. " +
@@ -50,6 +52,7 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"**Prototype:** <path to the design canvas>\n\n" +
 	"### Task 1: <title>\n" +
 	"**Depends on:** none\n" +
+	"**Model:** <model-id>\n" +
 	"**Chunk:** <exact chunk label>\n" +
 	"<what to do, and the tests that prove it>\n\n" +
 	"### Task 2: <title>\n" +
@@ -87,6 +90,7 @@ var (
 	planPrototypeRe   = regexp.MustCompile(`^\*\*Prototype:\*\*\s*(.*?)\s*$`)
 	planDependsRe     = regexp.MustCompile(`^\*\*Depends on:\*\*\s*(.*?)\s*$`)
 	planChunkRe       = regexp.MustCompile(`^\*\*Chunk:\*\*\s*(.*?)\s*$`)
+	planModelRe       = regexp.MustCompile(`^\*\*Model:\*\*\s*(.*?)\s*$`)
 	planTaskRefRe     = regexp.MustCompile(`^Task (\d+)$`)
 )
 
@@ -188,6 +192,16 @@ func ParsePlan(src string) (Plan, error) {
 					return Plan{}, fmt.Errorf("task %d lists chunk %q twice", len(p.Tasks), m[1])
 				}
 				task.Chunks, dependsAllowed = append(task.Chunks, m[1]), false
+				continue
+			}
+			if m := planModelRe.FindStringSubmatch(line); m != nil {
+				if m[1] == "" || strings.ContainsAny(m[1], "` \t") {
+					return Plan{}, fmt.Errorf("task %d: **Model:** must be one model id, not in backticks, got %q", len(p.Tasks), m[1])
+				}
+				if task.ModelSource != "" {
+					return Plan{}, fmt.Errorf("task %d: **Model:** appears twice; a task runs on one model", len(p.Tasks))
+				}
+				task.RunSpec.Model, task.ModelSource, dependsAllowed = m[1], waveobj.TaskModelSource_Plan, false
 				continue
 			}
 			inTaskHead = false

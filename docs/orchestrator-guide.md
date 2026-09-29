@@ -88,8 +88,32 @@ run's own commands always reach the right store.
 ### 4. Routes
 
 Leads and workers run on **Claude Code** or **pi** only. A route is a harness plus an exact model; there are
-no tiers. The launcher has two pickers, **Lead model** and **Workers model**; the workers inherit the lead's
-route unless you pick one.
+no tiers. An orchestrator run has three routes: the lead's, the workers setting, and the reviewer route. The
+launcher picks each (**Lead**, **Workers**, **Reviewers**), and the profile's run defaults fill them in.
+
+**The workers setting** is one of:
+
+- **Same as lead**, the default: every task runs on the lead's route.
+- **A route**: every task runs on it.
+- **Reviewer picks**: each task runs on its plan's `**Model:**` line when it has one
+  ([The plan format](#the-plan-format)), else on the model the plan reviewer picks for it, `sonnet` or the lead's
+  ([Model picks](#model-picks)). Reviewer picks and a route are one setting, so a run never has both; the server
+  refuses one that sends both.
+
+The engine resolves each task's route with one rule (`effectiveTaskRoute`, `pkg/orchestrate/modelroute.go`),
+taking the first rung that applies:
+
+1. A route you set on the task ([Model picks](#model-picks)), an escalation, or a pin in a dag submitted as JSON.
+2. The plan's Model line or the reviewer's pick, only when the run is on Reviewer picks.
+3. The workers route, when the run has one.
+4. The lead's route.
+
+So on Same as lead or a route, Model lines and reviewer picks are ignored, and a run that never opts in runs
+exactly as before. A reviewer pick of the lead's model stores no pin, so it falls to rung 4.
+
+**The reviewer route** is where the engine's judging sessions run: each task's reviewer, the plan reviewer and
+the final verifier. It is the lead's route unless you pick one. Only you set it (the launcher, the profile,
+`wsh runs start`); a lead has no command that writes it.
 
 A pi lead needs the `@juicesharp/rpiv-ask-user-question` package (so its questions reach the cockpit) and the
 superpowers package installed into pi itself (the lead plans with `brainstorming` and `writing-plans`).
@@ -130,7 +154,8 @@ sealed.
 | **Start from → A goal** | "A lead works the goal with you in its terminal, then hands the engine a plan." |
 | **Parallelism** | How many lanes run at once, 1-8, default 3. Lowerable on a live run. |
 | **Lead model** | The lead's route. It brainstorms, writes the spec and plan, and later judges wakes, so this is the model whose judgment a retry cannot recover. |
-| **Workers model** | Every task worker's route. "Same as lead" unless set. Changeable on a live run for tasks not yet dispatched. |
+| **Workers model** | The workers setting ([Routes](#4-routes)): Same as lead, Reviewer picks, or a route. Changeable on a live run for tasks not yet dispatched. |
+| **Reviewers model** | The reviewer route: task reviews, the plan review and the final verify. "Same as lead" unless set. |
 | **Goal** | What the lead starts from. |
 
 The route picker filters by harness (**All / Pi / Claude Code**) and accepts a custom model id:
@@ -235,6 +260,7 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 
 ### Task 1: <title>
 **Depends on:** none
+**Model:** sonnet
 ...task text...
 
 ### Task 2: <title>
@@ -269,6 +295,12 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 - Headings are `### Task N` or `## Task N`, numbered 1, 2, 3… in order.
 - `**Depends on:**` must be the first line after the heading. Left out, the task depends on the task before it,
   so a plan with no Depends lines is **serial**. `none` means independent. References must point backwards.
+- `**Model:** <model>` pins one task's worker model: a model id or alias as `dag escalate --model` takes it
+  (`sonnet`, `claude-opus-5-5`, a pi `provider/model`), not in backticks, resolved on the lead's harness. It goes
+  in the task's head block with its Chunk lines: after the Depends line, or first under the heading when there is
+  none. Anywhere else it is task text. One per task; an empty value, a space or a backtick is refused. It counts
+  only on a run whose workers setting is Reviewer picks ([Routes](#4-routes)), but submit checks it on every run:
+  a model this machine cannot run fails the submit, naming the task.
 - There is no task cap.
 - **Every worker gets the plan's header.** Its prompt is the engine's worker contract, then the prose above
   Task 1, then its own task's section (`taskPrompt`, `engine.go`). This used to be the task alone: the backlog
@@ -325,6 +357,12 @@ Depends lines in the plan. Raising parallelism won't help.
 
 ![The backlog plan in the launcher](images/orchestrator-guide/24-plan-dialog-backlog.png)
 
+The New run window lists the parsed plan's tasks with a model column that follows the Workers picker. On
+Reviewer picks a Model line reads `<model> · plan` and a task without one reads `at review`, under the mix line
+`N set by the plan · M picked at review`. On any other workers setting a task without a Model line reads the
+workers model, a Model line is struck through, and the mix line reads `all on <model>`, plus
+` · plan lines ignored` when the plan has any.
+
 **Start run** submits the plan immediately. There is no approval step from you and no lead. The engine's plan
 reviewer reads the plan first ([The plan review](#the-plan-review)), and the first layer dispatches once it
 passes. The launcher submits no spec. On a branch-landed run the engine commits the plan to `wave/<runId>` at
@@ -351,7 +389,7 @@ Both flows submit a plan file, and the engine reviews it before any worker start
 `plan-review`, and the scheduler dispatches nothing until the review passes or the lead accepts it. A dag
 submitted as JSON, with no plan file, and a fix round skip it.
 
-The engine starts a fresh plan-reviewer session in the tree where lanes land, on the lead's route. It reads the
+The engine starts a fresh plan-reviewer session in the tree where lanes land, on the reviewer route. It reads the
 spec, the plan and the files they name, and checks that:
 
 - every requirement in the spec has a task;
@@ -371,6 +409,46 @@ with the reason, and the same plan can be submitted again.
   review round 2. A plan run started without a lead gets one launched by this wake.
 - **Round 2 fails:** the lead must put it to you. If you say to proceed anyway, it runs
   `wsh jarvis dag planreview accept "<your reason>"`, and dispatch starts on the plan as it stands.
+
+A lead's resubmit replaces the plan, not your settings: the run's workers setting and reviewer route stay, a change
+you made in the run sheet before it included, and on Reviewer picks the next round's reviewer is asked for picks
+again.
+
+### Model picks
+
+On a run whose workers setting is Reviewer picks, the plan reviewer also picks a model for every task the plan
+gives no Model line. Its brief lists those tasks and the rule: `sonnet` only for a mechanical, tightly specified
+task (a copy of an existing pattern, a field threaded through, prose against written code), `lead` for anything
+with a design choice, with one line on why. Its pass carries one `--pick` per listed task:
+
+```bash
+wsh jarvis dag planreview pass "<summary>" --pick "t-2=sonnet: copies the existing row pattern" --pick "t-3=lead: picks the precedence rule"
+```
+
+The shape is `t-N=<sonnet|lead>: <reason>`. `wsh` refuses anything else before sending it (`Task 2=sonnet`,
+`t-2 sonnet`, a missing reason), and `--pick` goes with `pass` only. The server refuses the pass, naming the task,
+for a missing pick, a pick for a task with a Model line, an unknown or repeated task, an empty reason, a reason of
+more than one line or over 200 characters, and a `sonnet` pick when the claude harness cannot run a worker here
+(it says to pick `lead`). The reviewer then resends. A run not on Reviewer picks refuses any pick.
+
+The picks are applied in the same write that passes the review, so no worker starts without its pick. `sonnet` puts
+the task on Claude Code · `sonnet`; `lead` leaves it on the lead's route. Tasks the review did not pick for (a plan
+accepted after a failed review, a fix round's tasks) run on the lead's route unless they have a Model line.
+
+**Where picks show.** The run's timeline lists them under the **Plan reviewed** row, one `t-N · <model> · <reason>`
+line each. A task card whose model differs from the run's workers model carries a tag, `<model> · plan`,
+`· review`, `· you`, `· escalated` or `· pinned`, and the DAG view's detail rail names where the task's worker
+model came from (`plan's pick`, `reviewer's pick`, `your pick`, `escalated`, `pinned`, `workers route`,
+`same as lead`). The graph header shows the workers setting and the reviewer route as chips.
+
+**Changing a pick.** While a task the reviewer put on `sonnet`, or one you changed, has not started, the live DAG
+view shows a banner, "Plan review passed and put N of M tasks on sonnet. They run as picked unless you change
+them.", and a **Model picks** panel above the timeline rail. Each row has a `sonnet | <lead>` toggle, the reviewer's reason, and
+`waiting` or `you changed it`. **Put waiting tasks back on <lead>** moves every waiting picked task at once. A
+task counts as waiting until it first dispatches; after that its row reads `running on <model>`, and a change is
+refused with the task's state, shown on the row. A started task keeps its model; to move it, retry or escalate it.
+Your change wins over the plan and the reviewer (rung 1 of [Routes](#4-routes)), and the reviewer's reason stays on
+the row. Both banner and panel go away once every listed task has started; the cards and rail keep the source.
 
 ---
 
@@ -469,9 +547,10 @@ did differently from the task and why, what a later task must know, and what it 
 server refuses a task worker's `complete` without `--report`; leads and reviewers are not held to it.
 
 When a worker finishes with a commit, the task goes to **reviewing** and the engine starts a reviewer in the
-task's lane worktree, on the **lead's** model. The reviewer reads the task, the spec, the worker's whole report
-and `git diff` of the task's commits. It checks the change against what the task asked for (missing requirements,
-contradictions of the spec, cut corners, changes outside the task), and ends with one command:
+task's lane worktree, on the reviewer route (the lead's unless you picked one, see [Routes](#4-routes)). The
+reviewer reads the task, the spec, the worker's whole report and `git diff` of the task's commits. It checks the
+change against what the task asked for (missing requirements, contradictions of the spec, cut corners, changes
+outside the task), and ends with one command:
 
 - `wsh jarvis dag review pass "<summary>"`: the task lands as before. Adding `--downstream "<note>" --for t-3,t-5`
   hands what later tasks must know to the tasks named (the reviewer's brief lists the unfinished ones): the engine
@@ -557,7 +636,9 @@ the run; a second stall waits for you.
 - **Change parallelism or the workers' route.** **Adjust** on the settings line → **Worker parallelism**,
   **Worker route** → **Save settings**. It applies to dispatches from then on. **Save as project defaults**
   makes the next run start this way. Shape, machine and the lead's route are fixed at launch, and nothing
-  already running changes.
+  already running changes. The **Worker route** picker also offers **Reviewer picks**, and a **Reviewers**
+  picker beside it sets the reviewer route ([Routes](#4-routes)). The profile's run defaults set the same pair
+  in the **Worker route** row (which includes **Reviewer picks**) and the **Reviewer route** row below it.
 
   ![Adjust on a live run](images/orchestrator-guide/23-adjust.png)
 
@@ -590,7 +671,7 @@ Final line, and alongside Check and Verify when it has none:
    for its screenshots and reports (`<temp>/arc-final/<dag>/<round>`, outside every tree). Exit 0 passes. Exit
    3 means it could not verify, and its last output line becomes an unverified reason. Any other exit, or
    running past 30 minutes ("timed out"), fails the stage with the output tail.
-4. **The verifier**, a fresh session in the final tree on the lead's route. Its brief names the spec and plan,
+4. **The verifier**, a fresh session in the final tree on the reviewer route. Its brief names the spec and plan,
    `git diff <base>..<head>` of the run, `ARC_FINAL_OUT`, the `**Prototype:**` canvas, and every unverified
    note so far. It checks that the combined change does what the spec asks, and looks for breaks where tasks
    meet: code one task changed that another uses, a name two tasks spell differently, behavior two tasks both
@@ -836,7 +917,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag sendback <task> ["<guidance>"]` | one more round for a review-failed task, with your guidance beside the findings |
 | `dag approve <task>` | overrule a failed review; the task lands as it is |
 | `dag review <pass\|fail> "<note>" [--downstream "<note>" [--for <task ids>]] [--unverified "<what, why>"]` | a reviewer's verdict; ends the reviewer's session |
-| `dag planreview <pass\|fail> "<text>"` | the plan reviewer's verdict; ends its session |
+| `dag planreview <pass\|fail> "<text>" [--pick "t-N=<sonnet\|lead>: <reason>" ...]` | the plan reviewer's verdict; ends its session. On a Reviewer picks run a pass carries one `--pick` per task without a Model line ([Model picks](#model-picks)) |
 | `dag planreview accept "<the human's reason>"` | as the lead, proceed past a failed plan review on the human's word |
 | `dag final pass "<summary>" [--unverified "<what, why>"]` / `dag final fail "<defects>"` | the final verifier's verdict; ends its session |
 | `dag retry <task>` / `dag skip <task>` | retry or skip a failed or stalled task |
@@ -851,10 +932,16 @@ Run-level commands, from any terminal in the project:
 | Command | Does |
 |---|---|
 | `wsh runs start [goal] [--plan <md>] [--landing branch\|checkout]` | start a run; `--landing` wins over the profile, and the default is branch |
-| `wsh runs show <run-id>` | status, commits, `usage`, the task digest, `outcome` with its reasons, `land`, the report |
+| `wsh runs start … --worker-runtime <rt> [--worker-model <id>]` | the workers setting is that route |
+| `wsh runs start … --reviewer-picks` | the workers setting is Reviewer picks; refused with `--worker-runtime`/`--worker-model` |
+| `wsh runs start … --reviewer-runtime <rt> [--reviewer-model <id>]` | the reviewer route; `--reviewer-model` needs `--reviewer-runtime` |
+| `wsh runs show <run-id>` | status, commits, `usage`, the task digest, `outcome` with its reasons, `land`, the report; its `route` line adds `workers=…` and `reviewers=…` when the run has them |
 | `wsh runs answer <run-id> <answers-json>` | answer the run's own question (the lead's), which `runs show` prints |
 | `wsh runs land <run-id> [--force]` | retry a held land-back; `--force` lands a failed final stage (the human's call only) |
 | `wsh runs ack <run-id>` | acknowledge an unverified outcome, clearing its attention item |
+
+The worker and reviewer flags need an orchestrator run, like `--parallelism` and `--landing`. Left out, the run
+takes the profile's workers setting and reviewer route ([Routes](#4-routes)).
 
 ---
 

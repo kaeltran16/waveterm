@@ -286,6 +286,24 @@ export function detailOf<T>(event: RunEvent): T | undefined {
     }
 }
 
+export type PlanReviewPick = { taskid: string; model: string; reason: string };
+
+// planReviewPicks reads the model picks a passed plan review applied, as its timeline row lists them; a malformed
+// entry is dropped rather than shown half-read.
+export function planReviewPicks(detail: unknown): PlanReviewPick[] {
+    const d = detailOf<{ picks?: unknown }>({ detail } as RunEvent);
+    if (!Array.isArray(d?.picks)) {
+        return [];
+    }
+    const out: PlanReviewPick[] = [];
+    for (const p of d.picks as { taskid?: unknown; model?: unknown; reason?: unknown }[]) {
+        if (typeof p?.taskid === "string" && typeof p.model === "string") {
+            out.push({ taskid: p.taskid, model: p.model, reason: typeof p.reason === "string" ? p.reason : "" });
+        }
+    }
+    return out;
+}
+
 // artifactsOf extracts the reported artifact list (completed/held detail rows), for the row's
 // inline "open first artifact" link.
 export function artifactsOf(event: RunEvent): string[] {

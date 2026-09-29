@@ -148,6 +148,9 @@ func init() {
 	f.String("model", "", "lead model id (needs --runtime)")
 	f.String("worker-runtime", "", "orchestrator worker harness (default: the lead's)")
 	f.String("worker-model", "", "orchestrator worker model id (needs --worker-runtime)")
+	f.Bool("reviewer-picks", false, "the plan reviewer picks each task's model (not with --worker-runtime/--worker-model)")
+	f.String("reviewer-runtime", "", "harness for task reviewers, the plan review and the final verify (default: the lead's)")
+	f.String("reviewer-model", "", "reviewer model id (needs --reviewer-runtime)")
 	f.Int("parallelism", 0, "orchestrator width (default: the project's profile)")
 	f.String("landing", "", "branch|checkout: where an orchestrator run commits (default: the project's profile, else branch)")
 	f.String("effort", "", "initiative to attach the run to (id from 'wsh effort list')")
@@ -180,9 +183,11 @@ func runsStartRun(cmd *cobra.Command, args []string) error {
 	}
 	flag := func(name string) string { v, _ := cmd.Flags().GetString(name); return v }
 	parallelism, _ := cmd.Flags().GetInt("parallelism")
+	reviewerPicks, _ := cmd.Flags().GetBool("reviewer-picks")
 	opts := runsStartOpts{
 		goal: goal, mode: flag("mode"), plan: flag("plan"), parallelism: parallelism, landing: flag("landing"),
-		workerRuntime: flag("worker-runtime"), workerModel: flag("worker-model"),
+		workerRuntime: flag("worker-runtime"), workerModel: flag("worker-model"), reviewerPicks: reviewerPicks,
+		reviewerRuntime: flag("reviewer-runtime"), reviewerModel: flag("reviewer-model"),
 		effort: flag("effort"), chunk: flag("chunk"),
 	}
 	data, err := runsStartData(opts)
@@ -219,11 +224,13 @@ func runsStartRun(cmd *cobra.Command, args []string) error {
 }
 
 type runsStartOpts struct {
-	goal, mode, plan           string
-	parallelism                int
-	landing                    string
-	workerRuntime, workerModel string
-	effort, chunk              string
+	goal, mode, plan               string
+	parallelism                    int
+	landing                        string
+	workerRuntime, workerModel     string
+	reviewerPicks                  bool
+	reviewerRuntime, reviewerModel string
+	effort, chunk                  string
 }
 
 // runsStartData applies the flag rules; the parts that need the RPC client (channel, workspace, route,
@@ -246,11 +253,19 @@ func runsStartData(o runsStartOpts) (wshrpc.CommandCreateRunData, error) {
 		return s, fmt.Errorf("pass a goal, or --plan <plan.md>")
 	}
 	engine := mode == jarvis.RunMode_Orchestrator
-	if !engine && (o.parallelism != 0 || o.landing != "" || o.workerRuntime != "" || o.workerModel != "") {
-		return s, fmt.Errorf("--parallelism, --landing and --worker-runtime/--worker-model need an orchestrator run")
+	workerFlags := o.workerRuntime != "" || o.workerModel != ""
+	reviewerFlags := o.reviewerPicks || o.reviewerRuntime != "" || o.reviewerModel != ""
+	if !engine && (o.parallelism != 0 || o.landing != "" || workerFlags || reviewerFlags) {
+		return s, fmt.Errorf("--parallelism, --landing, --worker-runtime/--worker-model, --reviewer-picks and --reviewer-runtime/--reviewer-model need an orchestrator run")
+	}
+	if o.reviewerPicks && workerFlags {
+		return s, fmt.Errorf("--reviewer-picks and --worker-runtime/--worker-model are both set; the workers setting is one of them")
 	}
 	if o.workerModel != "" && o.workerRuntime == "" {
 		return s, fmt.Errorf("--worker-model needs --worker-runtime")
+	}
+	if o.reviewerModel != "" && o.reviewerRuntime == "" {
+		return s, fmt.Errorf("--reviewer-model needs --reviewer-runtime")
 	}
 	effort := strings.TrimPrefix(o.effort, effortORefPrefix)
 	if (effort == "") != (o.chunk == "") {
@@ -259,6 +274,14 @@ func runsStartData(o runsStartOpts) (wshrpc.CommandCreateRunData, error) {
 	s.Goal, s.Mode, s.PlanPath, s.Parallelism, s.Landing = o.goal, mode, o.plan, o.parallelism, o.landing
 	if o.workerRuntime != "" {
 		s.WorkerRoute = &waveobj.RoutePin{Runtime: o.workerRuntime, Model: o.workerModel}
+		noPicks := false
+		s.ReviewerPicks = &noPicks // a worker route is the whole workers setting; the profile's picks must not fill it in
+	}
+	if o.reviewerPicks {
+		s.ReviewerPicks = &o.reviewerPicks
+	}
+	if o.reviewerRuntime != "" {
+		s.ReviewerRoute = &waveobj.RoutePin{Runtime: o.reviewerRuntime, Model: o.reviewerModel}
 	}
 	s.EffortOID, s.ChunkLabel = effort, o.chunk
 	return s, nil
@@ -584,6 +607,12 @@ func runsShowLines(ch *waveobj.Channel, r *waveobj.Run, digest *wshrpc.CommandDa
 	}
 	if r.WorkerRoute != nil && r.WorkerRoute.Runtime != "" {
 		route += "  workers=" + strings.TrimSpace(r.WorkerRoute.Runtime+" "+r.WorkerRoute.Model)
+	}
+	if r.ReviewerPicks {
+		route += "  workers=reviewer-picks"
+	}
+	if r.ReviewerRoute != nil && r.ReviewerRoute.Runtime != "" {
+		route += "  reviewers=" + strings.TrimSpace(r.ReviewerRoute.Runtime+" "+r.ReviewerRoute.Model)
 	}
 	if route != "" {
 		lines = append(lines, "route    "+route)

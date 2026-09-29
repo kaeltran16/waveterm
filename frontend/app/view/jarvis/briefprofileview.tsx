@@ -38,18 +38,24 @@ import { briefUndo } from "./briefundo";
 import { GlobalPrinciplesEditor } from "./globalprincipleseditor";
 import { PrinciplesEditor, PROFILE_PANEL } from "./principleseditor";
 import {
+    applyWorkersChoice,
     defaultReach,
     globalProfileIsDirty,
     isDirty,
+    overridesRow,
     overrideSummary,
     principleNote,
     principleRows,
     principleSummary,
     profileOverrideIsEmpty,
     resetActionState,
+    reviewerRow,
+    workersRow,
     type GlobalDefaultKey,
+    type ProfileDefaults,
     type ProjectOverride,
     type Reach,
+    type WorkersChoice,
 } from "./profilemodel";
 import { ProjectChips } from "./projectchips";
 
@@ -70,9 +76,6 @@ const LANDINGS = [
 
 type Scope = "project" | "global";
 type Loaded = { global: JarvisProfile; override: ProfileOverride; diagnostics: PrincipleDiagnostic[] };
-// the fields both scopes share. ProfileOverride and JarvisProfile agree on all of them; `route` is the one
-// that does not exist globally, which is why the lead-route row is passed in rather than rendered here.
-type Defaults = Pick<ProfileOverride, GlobalDefaultKey>;
 
 // the chips name projects, the modal edits channels: map one to the other, keeping a colliding label
 // distinct so both channels stay reachable
@@ -179,22 +182,24 @@ function DefaultsFields({
     drop,
     aside,
     routeRow,
+    setWorkers,
 }: {
     inheritable: boolean;
-    draft: Defaults;
+    draft: ProfileDefaults;
     base: JarvisProfile;
     saving: boolean;
-    set: (patch: Defaults) => void;
+    set: (patch: ProfileDefaults) => void;
     drop: (key: GlobalDefaultKey) => void;
     aside: (key: GlobalDefaultKey, label: string) => ReactNode;
     routeRow?: ReactNode;
+    setWorkers: (choice: WorkersChoice) => void;
 }) {
     const shape = draft.defaultmode ?? base.defaultmode ?? "quick";
     const width = draft.parallelism ?? base.parallelism ?? null;
     // "" is a stored global meaning branch; an empty project override is refused on save
     const landing = draft.landing || base.landing || "branch";
-    // a project that inherits the worker route inherits whatever global says, which is the lead unless set
-    const workerInherits = inheritable && base.workerroute != null ? "Same as global" : "Same as lead";
+    const workers = workersRow(draft, base, inheritable);
+    const reviewers = reviewerRow(draft, base, inheritable);
     return (
         <div className={PROFILE_PANEL}>
             <DefaultRow
@@ -254,11 +259,29 @@ function DefaultsFields({
                 aside={aside("workerroute", "Worker route")}
             >
                 <RoutePicker
-                    value={draft.workerroute ?? null}
+                    value={workers.route}
                     canInherit
-                    inheritedLabel={workerInherits}
+                    inheritedLabel="Same as lead"
                     disabled={saving}
-                    onChange={(route) => (route == null ? drop("workerroute") : set({ workerroute: route }))}
+                    onChange={(route) => setWorkers(route == null ? { kind: "lead" } : { kind: "route", route })}
+                    extraOption={{
+                        label: "Reviewer picks",
+                        selected: workers.picks,
+                        onSelect: () => setWorkers({ kind: "picks" }),
+                    }}
+                />
+            </DefaultRow>
+            <DefaultRow
+                label="Reviewer route"
+                hint="Task reviews, plan review and final verify"
+                aside={aside("reviewerroute", "Reviewer route")}
+            >
+                <RoutePicker
+                    value={reviewers.value}
+                    canInherit
+                    inheritedLabel={reviewers.inheritedLabel}
+                    disabled={saving}
+                    onChange={(route) => (route == null ? drop("reviewerroute") : set({ reviewerroute: route }))}
                 />
             </DefaultRow>
             <DefaultRow
@@ -480,8 +503,15 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
         });
     };
 
-    const sourceCell = (key: keyof ProfileOverride, label: string) => (
-        <SourceCell label={label} inherited={draft[key] == null} saving={saving} onReset={() => drop(key)} />
+    const sourceCell = (key: GlobalDefaultKey | "route", label: string) => (
+        <SourceCell
+            label={label}
+            inherited={!overridesRow(draft, key)}
+            saving={saving}
+            onReset={() =>
+                key === "workerroute" ? setDraft((d) => applyWorkersChoice(d, { kind: "reset" }, true)) : drop(key)
+            }
+        />
     );
     const leadRouteRow =
         loaded != null ? (
@@ -595,6 +625,9 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                     set={setGlobal}
                                     drop={dropGlobal}
                                     aside={globalReach}
+                                    setWorkers={(choice) =>
+                                        setGlobalDraft((g) => (g ? applyWorkersChoice(g, choice, false) : g))
+                                    }
                                 />
                                 <p className="m-0 text-[11.5px] leading-[1.45] text-muted">
                                     Lead route is set per project; autonomy lives in the Brief header.
@@ -624,6 +657,7 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                     drop={drop}
                                     aside={sourceCell}
                                     routeRow={leadRouteRow}
+                                    setWorkers={(choice) => setDraft((d) => applyWorkersChoice(d, choice, true))}
                                 />
                             </section>
                             <section className="flex flex-col gap-2">

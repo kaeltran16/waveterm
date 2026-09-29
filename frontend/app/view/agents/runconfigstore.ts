@@ -26,6 +26,9 @@ const LAUNCH_SHAPE: RunShape = "quick";
 export const runShapeAtom = atom<RunShape>(LAUNCH_SHAPE) as PrimitiveAtom<RunShape>;
 export const runRouteAtom = atom<RoutePin | null>(null) as PrimitiveAtom<RoutePin | null>;
 export const workerRouteAtom = atom<RoutePin | null>(null) as PrimitiveAtom<RoutePin | null>;
+// the Workers picker's third answer beside Same as lead and a route; never true alongside a worker route
+export const reviewerPicksAtom = atom(false) as PrimitiveAtom<boolean>;
+export const reviewerRouteAtom = atom<RoutePin | null>(null) as PrimitiveAtom<RoutePin | null>;
 export const parallelismAtom = atom<number>(DEFAULT_PARALLELISM) as PrimitiveAtom<number>;
 // Not profile-backed: a plan file belongs to one launch, never to a project's defaults, and a saved default
 // that silently started lead-free runs is not a default anyone asked for.
@@ -65,9 +68,25 @@ export function setPlanPath(next: string): void {
     globalStore.set(planPathAtom, next);
 }
 
+// The server refuses Reviewer picks with a worker route, so choosing one of the Workers picker's answers
+// clears the other in the same action.
 export function setWorkerRoute(next: RoutePin | null): void {
     globalStore.set(configTouchedAtom, true);
     globalStore.set(workerRouteAtom, next);
+    globalStore.set(reviewerPicksAtom, false);
+}
+
+export function setReviewerPicks(next: boolean): void {
+    globalStore.set(configTouchedAtom, true);
+    globalStore.set(reviewerPicksAtom, next);
+    if (next) {
+        globalStore.set(workerRouteAtom, null);
+    }
+}
+
+export function setReviewerRoute(next: RoutePin | null): void {
+    globalStore.set(configTouchedAtom, true);
+    globalStore.set(reviewerRouteAtom, next);
 }
 
 // Fills the launcher from a channel's resolved profile, applying only what the profile actually states and
@@ -87,6 +106,8 @@ export function hydrateRunConfigFromProfile(profile: JarvisProfile | null | unde
     globalStore.set(startAtom, DEFAULT_START);
     globalStore.set(planPathAtom, "");
     globalStore.set(workerRouteAtom, defaults.workerRoute ?? null);
+    globalStore.set(reviewerPicksAtom, defaults.reviewerPicks);
+    globalStore.set(reviewerRouteAtom, defaults.reviewerRoute);
 }
 
 // A launch or a discarded draft ends the configuration the user's manual choices belonged to. Manual choices
@@ -133,6 +154,8 @@ export function resetRunConfig(): void {
     globalStore.set(runShapeAtom, LAUNCH_SHAPE);
     globalStore.set(runRouteAtom, null);
     globalStore.set(workerRouteAtom, null);
+    globalStore.set(reviewerPicksAtom, false);
+    globalStore.set(reviewerRouteAtom, null);
     globalStore.set(parallelismAtom, DEFAULT_PARALLELISM);
     globalStore.set(startAtom, DEFAULT_START);
     globalStore.set(planPathAtom, "");

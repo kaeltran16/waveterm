@@ -102,7 +102,29 @@ func (ws *WshServer) DagPlanPreviewCommand(ctx context.Context, data wshrpc.Comm
 		Setup:  plan.Setup,
 		Check:  plan.Check,
 		Shape:  orchestrate.PlanShapeOf(plan.Tasks),
+		Tasks:  planPreviewTasks(plan.Tasks),
 	}, nil
+}
+
+// planPreviewTasks lists a plan's tasks in plan order, each with its 1-based lane and its Model line.
+func planPreviewTasks(tasks []waveobj.TaskNode) []wshrpc.DagPlanPreviewTask {
+	laneOf := map[string]int{}
+	for i, lane := range jarvis.Lanes(tasks) {
+		for _, id := range lane {
+			laneOf[id] = i + 1
+		}
+	}
+	out := make([]wshrpc.DagPlanPreviewTask, len(tasks))
+	for i, t := range tasks {
+		out[i] = wshrpc.DagPlanPreviewTask{Id: t.ID, Title: t.Label, Lane: laneOf[t.ID]}
+		if len(t.Deps) > 0 {
+			out[i].Deps = t.Deps
+		}
+		if t.ModelSource == waveobj.TaskModelSource_Plan {
+			out[i].Model = t.RunSpec.Model
+		}
+	}
+	return out
 }
 
 // checkDagEffort refuses a dag whose tasks name effort chunks the engine could not close when they land:
@@ -222,6 +244,10 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 			return nil, fmt.Errorf("task %q: %w", task.ID, err)
 		}
 	}
+	// the group must never hold picks and a route together: the route would silently win over every pick
+	if run.ReviewerPicks && data.WorkerRoute != nil {
+		return nil, fmt.Errorf("this run's workers setting is Reviewer picks; submit without a worker route")
+	}
 	if data.WorkerRoute != nil {
 		if _, err := runroute.Resolve(*data.WorkerRoute); err != nil {
 			return nil, fmt.Errorf("workerRoute %w", err)
@@ -251,6 +277,7 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	proposed.FinalCmd, proposed.Prototype = plan.Final, plan.Prototype
 	proposed.EffortOID = plan.EffortOID
 	proposed.PlanPath, proposed.SpecPath = data.PlanPath, data.SpecPath
+	proposed.ReviewerPicks, proposed.ReviewerRoute = run.ReviewerPicks, run.ReviewerRoute
 	// a plan file is reviewed before any worker starts; a JSON dag has no plan to review
 	if data.PlanPath != "" {
 		proposed.PlanReview = orchestrate.NewPlanReview()
@@ -480,11 +507,14 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 		return nil
 	case "planreview-pass", "planreview-fail", "planreview-accept":
 		var err error
-		if data.Action == "planreview-accept" {
+		switch {
+		case data.Action == "planreview-accept" && len(data.Picks) > 0:
+			err = fmt.Errorf("--pick goes with the plan reviewer's pass only")
+		case data.Action == "planreview-accept":
 			err = orchestrate.AcceptPlanReview(ctx, run.DagORef, data.Notes)
-		} else {
+		default:
 			// RunId is the plan reviewer's own run, resolved from its terminal as `dag review` does
-			err = orchestrate.RecordPlanReviewVerdict(ctx, run.DagORef, data.RunId, strings.TrimPrefix(data.Action, "planreview-"), data.Notes)
+			err = orchestrate.RecordPlanReviewVerdict(ctx, run.DagORef, data.RunId, strings.TrimPrefix(data.Action, "planreview-"), data.Notes, data.Picks)
 		}
 		if err != nil {
 			return err

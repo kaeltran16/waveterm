@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -774,11 +775,44 @@ func dagPlanReviewData(cmd *cobra.Command, args []string) (wshrpc.CommandDagActi
 	if verb != "pass" && verb != "fail" && verb != "accept" {
 		return wshrpc.CommandDagActionData{}, fmt.Errorf("planreview takes pass, fail or accept, got %q", verb)
 	}
+	rawPicks, _ := cmd.Flags().GetStringArray("pick")
+	if len(rawPicks) > 0 && verb != "pass" {
+		return wshrpc.CommandDagActionData{}, fmt.Errorf("--pick goes with pass only")
+	}
+	var picks []wshrpc.DagModelPick
+	for _, raw := range rawPicks {
+		pick, err := parsePick(raw)
+		if err != nil {
+			return wshrpc.CommandDagActionData{}, err
+		}
+		picks = append(picks, pick)
+	}
 	channelId, runId, err := dagIds(cmd)
 	if err != nil {
 		return wshrpc.CommandDagActionData{}, err
 	}
-	return wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "planreview-" + verb, Notes: args[1]}, nil
+	return wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "planreview-" + verb, Notes: args[1], Picks: picks}, nil
+}
+
+var pickTaskRe = regexp.MustCompile(`^t-\d+$`)
+
+// parsePick reads one --pick, `t-N=<sonnet|lead>: <reason>`. The server checks the task and the reason's length;
+// this refuses what cannot be a pick at all, so it never reaches the dag under a task id that matches nothing.
+func parsePick(s string) (wshrpc.DagModelPick, error) {
+	bad := fmt.Errorf("--pick wants \"t-N=<sonnet|lead>: <reason>\", got %q", s)
+	taskID, rest, ok := strings.Cut(s, "=")
+	if !ok {
+		return wshrpc.DagModelPick{}, bad
+	}
+	model, reason, ok := strings.Cut(rest, ":")
+	if !ok {
+		return wshrpc.DagModelPick{}, bad
+	}
+	pick := wshrpc.DagModelPick{TaskId: strings.TrimSpace(taskID), Model: strings.TrimSpace(model), Reason: strings.TrimSpace(reason)}
+	if !pickTaskRe.MatchString(pick.TaskId) || (pick.Model != "sonnet" && pick.Model != "lead") || pick.Reason == "" {
+		return wshrpc.DagModelPick{}, bad
+	}
+	return pick, nil
 }
 
 var dagPlanReviewCmd = &cobra.Command{
@@ -970,6 +1004,7 @@ func init() {
 	dagReviewCmd.Flags().String("downstream", "", "with pass: what a later task must know (a renamed API, a plan assumption that turned out wrong)")
 	dagReviewCmd.Flags().StringSlice("for", nil, "with --downstream: the tasks it is for (t-3,t-5); the engine adds it to a task not started and types it to a running one. Without it the lead routes the note")
 	dagReviewCmd.Flags().String("unverified", "", "with pass: a check the task asked for (a test, a screenshot, a live run) that was not done, and why; the lead reads it whole")
+	dagPlanReviewCmd.Flags().StringArray("pick", nil, "with pass, on a Reviewer picks run: one per task without a Model line, as \"t-N=<sonnet|lead>: <one-line reason>\"")
 	dagFinalCmd.Flags().String("unverified", "", "with pass: what you could not verify on the merged result, and why; the lead and the human read it whole")
 	dagMergeCmd.Flags().Bool("continue", false, "finish a resolved squash merge, or re-run a failed Verify after committing the fix")
 	dagRulesCmd.Flags().BoolVar(&dagRulesInject, "inject", false, "emit the rules as a Claude Code SessionStart hook's added context")
