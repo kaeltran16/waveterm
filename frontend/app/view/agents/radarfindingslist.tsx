@@ -3,6 +3,7 @@
 
 import { composerReveal } from "@/app/element/motiontokens";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -20,6 +21,7 @@ import {
     missedLatestScan,
     MODE_META,
     strengthPips,
+    subsystemLabel,
     type RadarGroup,
 } from "./radarmodel";
 import { INVESTIGATION_TEXT, modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
@@ -44,7 +46,9 @@ export function StrengthPips({ strength, tall }: { strength: string; tall?: bool
 
 function Kbd({ children }: { children: React.ReactNode }) {
     return (
-        <kbd className="rounded border border-edge-strong px-[5px] font-mono text-[10px] text-ink-mid">{children}</kbd>
+        <kbd className="rounded border border-edge-strong px-[5px] font-mono text-[10.5px] text-ink-mid">
+            {children}
+        </kbd>
     );
 }
 
@@ -108,22 +112,15 @@ export function RadarFindingsList({
                                 className="flex items-center gap-2 px-4 pb-1.5 pt-3 text-left"
                             >
                                 {isOpen ? (
-                                    <ChevronDown className="h-3 w-3 text-ink-faint" />
+                                    <ChevronDown className="h-3 w-3 text-muted" />
                                 ) : (
-                                    <ChevronRight className="h-3 w-3 text-ink-faint" />
+                                    <ChevronRight className="h-3 w-3 text-muted" />
                                 )}
                                 <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT[meta.tone])} />
-                                <span
-                                    className={cn(
-                                        "text-[10.5px] font-bold uppercase tracking-[0.08em]",
-                                        TONE_TEXT[meta.tone]
-                                    )}
-                                >
-                                    {meta.label}
-                                </span>
-                                <span className="font-mono text-[10.5px] text-ink-faint">{items.length}</span>
+                                <span className={cn(REGION_LABEL, TONE_TEXT[meta.tone])}>{meta.label}</span>
+                                <span className="font-mono text-[10.5px] text-muted">{items.length}</span>
                                 <span className="flex-1" />
-                                <span className="text-[11px] text-ink-faint">{meta.hint}</span>
+                                <span className="text-[11px] text-muted">{meta.hint}</span>
                             </button>
                             <AnimatePresence initial={false}>
                                 {isOpen ? (
@@ -205,7 +202,7 @@ function FindingRow({
             <span className="flex min-w-0 items-center gap-2">
                 <span
                     className={cn(
-                        "flex-none rounded px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.06em]",
+                        "flex-none rounded px-1.5 py-px text-[10.5px] font-bold uppercase tracking-[0.06em]",
                         severityPill(f.severity)
                     )}
                 >
@@ -214,14 +211,16 @@ function FindingRow({
                 {showMode ? (
                     <span
                         className={cn(
-                            "flex-none rounded border px-[5px] text-[9.5px] font-bold uppercase tracking-[0.06em]",
+                            "flex-none rounded border px-[5px] text-[10.5px] font-bold uppercase tracking-[0.06em]",
                             modeBadge(mode)
                         )}
                     >
                         {MODE_META[mode].short}
                     </span>
                 ) : null}
-                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted">{f.subsystem}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted">
+                    {subsystemLabel(f.subsystem)}
+                </span>
                 <AmbientTags {...ambientRefForFinding(f)} />
                 {missedLatestScan(f) ? (
                     <span className="flex-none text-[11px] text-muted">not detected this scan</span>

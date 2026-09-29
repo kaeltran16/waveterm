@@ -45,6 +45,7 @@ import {
     scanHealth,
     scanMetaLine,
     strengthPips,
+    subsystemLabel,
     toPendingRunDraft,
 } from "./radarmodel";
 
@@ -161,6 +162,12 @@ describe("presentation helpers", () => {
         expect(strengthPips("moderate")).toBe(2);
         expect(strengthPips("limited")).toBe(1);
         expect(strengthPips("bogus")).toBe(0);
+    });
+
+    it("hides a subsystem that names no directory", () => {
+        expect(subsystemLabel(".")).toBe("");
+        expect(subsystemLabel("unknown")).toBe("");
+        expect(subsystemLabel("pkg/reporadar")).toBe("pkg/reporadar");
     });
 
     it("exposes group label/hint/delta, defaulting unknown groups to new", () => {

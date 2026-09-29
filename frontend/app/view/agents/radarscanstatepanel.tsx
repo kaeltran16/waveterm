@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { AlertTriangle, Check, CheckCircle2, Loader2, Radar, X, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -15,6 +16,7 @@ import {
     type RadarScanState,
 } from "./radarmodel";
 import { cancelScan, retryClustering, startScan } from "./radarstore";
+import { SubLabel } from "./sectionlabel";
 import { SurfaceEmptyState } from "./surfacescaffold";
 
 const GLYPH = "mb-[18px] h-[30px] w-[30px]";
@@ -27,10 +29,10 @@ const STATUS_TEXT: Record<CoverageCell, string> = {
 };
 
 const STATUS_TONE: Record<CoverageCell, string> = {
-    done: "text-ink-faint",
+    done: "text-muted",
     running: "text-accent-soft",
     failed: "text-error",
-    queued: "text-ink-faint",
+    queued: "text-muted",
 };
 
 function CellGlyph({ cell }: { cell: CoverageCell }) {
@@ -94,7 +96,7 @@ function ScanProgress({ title, rows, since }: { title: string; rows: CoverageRow
     return (
         <CollectorTable>
             <div className="flex items-center gap-2.5 bg-surface px-3.5 py-2">
-                <span className="flex-1 text-[10.5px] font-bold uppercase tracking-[0.08em] text-muted">{title}</span>
+                <SubLabel className="flex-1">{title}</SubLabel>
                 <span className="font-mono text-[11px] text-ink-mid">
                     {done} of {rows.length} done
                     {since ? <Elapsed since={since} /> : null}
@@ -112,7 +114,7 @@ function ScanProgress({ title, rows, since }: { title: string; rows: CoverageRow
                     <span className="truncate text-[12.5px] text-muted">{r.examines}</span>
                     <span
                         className={cn(
-                            "text-right font-mono text-[10px] uppercase tracking-[0.06em]",
+                            "text-right font-mono text-[10.5px] uppercase tracking-[0.06em]",
                             STATUS_TONE[r.cell]
                         )}
                     >
@@ -131,9 +133,7 @@ function FailureFacts({ report }: { report: RadarReport }) {
     const payload = report.payloadtokens ? ` · ${formatTokens(report.payloadtokens)}-token payload` : "";
     const fact = (label: string, value: string, tone: string) => (
         <div className="flex items-baseline gap-2.5">
-            <span className="w-16 flex-none text-[10.5px] font-bold uppercase tracking-[0.08em] text-muted">
-                {label}
-            </span>
+            <span className={cn(REGION_LABEL, "w-16 text-muted")}>{label}</span>
             <span className={cn("font-mono text-xs", tone)}>{value}</span>
         </div>
     );
