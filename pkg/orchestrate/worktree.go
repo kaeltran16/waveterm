@@ -243,6 +243,53 @@ func DumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead string)
 	return os.WriteFile(filepath.Join(recDir, runID+".patch"), []byte(patch), 0o644)
 }
 
+// rewindLane puts the lane's branch back to base, dropping the commits after it, and writes what it drops
+// (those commits and uncommitted changes to tracked files) to <project>/.waveterm/recovery/<patchName>.patch
+// first. A tree that is not the branch's checkout is never touched: git run in it acts on the project
+// checkout above. Nothing is cleaned: an untracked junction into the main checkout (node_modules, target)
+// would be followed, and the next dispatch rebuilds a dirty tree safely.
+func rewindLane(ctx context.Context, projectPath, wt, laneKey, base, patchName string) error {
+	branch := "wave/" + laneKey
+	head, err := git(ctx, projectPath, "rev-parse", branch)
+	if err != nil {
+		return err
+	}
+	if head == base {
+		return nil
+	}
+	if _, err := git(ctx, projectPath, "merge-base", "--is-ancestor", base, head); err != nil {
+		return fmt.Errorf("%s is not before the head of %s", base, branch)
+	}
+	onBranch := worktreeOnBranch(ctx, wt, laneKey)
+	patch, err := git(ctx, projectPath, "diff", base, head)
+	if err != nil {
+		return err
+	}
+	patch += "\n"
+	if onBranch {
+		dirty, err := git(ctx, wt, "diff", "HEAD")
+		if err != nil {
+			return err
+		}
+		if dirty != "" {
+			patch += dirty + "\n"
+		}
+	}
+	recDir := filepath.Join(projectPath, ".waveterm", "recovery")
+	if err := os.MkdirAll(recDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(recDir, patchName+".patch"), []byte(patch), 0o644); err != nil {
+		return err
+	}
+	if onBranch {
+		_, err = git(ctx, wt, "reset", "--hard", base)
+	} else {
+		_, err = git(ctx, projectPath, "update-ref", "refs/heads/"+branch, base, head)
+	}
+	return err
+}
+
 // WorktreeHeadCommit returns the worktree branch's HEAD sha.
 func WorktreeHeadCommit(ctx context.Context, projectPath, runID string) (string, error) {
 	return git(ctx, projectPath, "rev-parse", "wave/"+runID)

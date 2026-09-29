@@ -190,8 +190,14 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 			if err := dropRejectedCommit(ctx, g, task); err != nil {
 				return err
 			}
-		} else if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
-			return err
+		} else {
+			if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
+				return err
+			}
+			// a failed or stalled attempt may have committed before it stopped, and the lane lands by squashing
+			if err := dropAbandonedCommits(ctx, g, task); err != nil {
+				return err
+			}
 		}
 		if err := SkipTask(g, taskID); err != nil {
 			return err

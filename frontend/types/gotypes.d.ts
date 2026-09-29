@@ -2675,6 +2675,7 @@ declare global {
         toldts?: number;
         attempts?: number;
         lastfailurekind?: string;
+        startbase?: string;
         escalations?: number;
         cleanuppending?: boolean;
         cleanuperror?: string;

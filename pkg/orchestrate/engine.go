@@ -516,7 +516,11 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 				}
 			}
 			cwd = wt
-			taskBase = head
+			// a retry keeps the first attempt's base: its evidence covers what the failed attempts committed
+			if task.StartBase == "" {
+				task.StartBase = head
+			}
+			taskBase = task.StartBase
 			branch = "wave/" + key
 		}
 		reportPath := WorkerReportPath(g.OID, taskID)

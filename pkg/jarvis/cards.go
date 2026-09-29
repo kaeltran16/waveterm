@@ -15,19 +15,36 @@ type JarvisCardOption struct {
 	Sub   string `json:"sub,omitempty"`
 }
 
+// JarvisCardQuestion is one question of a Gatekeeper card's ask.
+type JarvisCardQuestion struct {
+	Question    string             `json:"question"`
+	MultiSelect bool               `json:"multiSelect,omitempty"`
+	Options     []JarvisCardOption `json:"options"`
+}
+
+// JarvisCardAnswer is Jarvis's answer to one question: option indexes or a one-line text.
+type JarvisCardAnswer struct {
+	Picks []int  `json:"picks,omitempty"`
+	Text  string `json:"text,omitempty"`
+}
+
 // JarvisCardData is the structured payload the FE uses to render the rich Gatekeeper answered /
 // escalation cards. Serialized into ChannelMessage.Data. AskORef is the block-level ask oref (used to
 // deliver an answer); WorkerORef is the worker's tab oref (used to resolve the roster row + steer).
 type JarvisCardData struct {
 	AskORef string `json:"askORef"`
 	// AskId names the one ask this card is about: every ask an agent raises shares its block's AskORef.
-	AskId      string             `json:"askId,omitempty"`
-	WorkerORef string             `json:"workerORef"`
-	Question   string             `json:"question"`
-	Options    []JarvisCardOption `json:"options"`
-	Choice     *int               `json:"choice,omitempty"`    // Jarvis's own pick: present ⇒ auto-answered; absent ⇒ escalation
-	HumanPick  *int               `json:"humanPick,omitempty"` // the option a human selected on this card (escalation answer / answered-override); persisted so it survives a surface remount
-	Reason     string             `json:"reason,omitempty"`
+	AskId      string `json:"askId,omitempty"`
+	WorkerORef string `json:"workerORef"`
+	// Question and Options mirror Questions[0] so cards persisted before multi-question asks, and their
+	// readers, keep working; Questions and Answers carry the whole ask.
+	Question  string               `json:"question"`
+	Options   []JarvisCardOption   `json:"options"`
+	Questions []JarvisCardQuestion `json:"questions,omitempty"`
+	Answers   []JarvisCardAnswer   `json:"answers,omitempty"`   // one per question when Jarvis auto-answered; absent on an escalation
+	Choice    *int                 `json:"choice,omitempty"`    // Jarvis's first pick for question 0: present ⇒ auto-answered by pick; absent ⇒ escalation or a text answer
+	HumanPick *int                 `json:"humanPick,omitempty"` // the option a human selected on this card (escalation answer / answered-override); persisted so it survives a surface remount
+	Reason    string               `json:"reason,omitempty"`
 }
 
 // SetCardHumanPick patches HumanPick onto a JarvisCardData JSON blob, recording the option index a human
@@ -46,19 +63,30 @@ func SetCardHumanPick(data string, pick int) (string, error) {
 	return string(out), nil
 }
 
-// BuildCardData assembles the card payload from a single-select ask question.
-func BuildCardData(q baseds.AgentAskQuestion, choice *int, reason, askORef, askId, workerORef string) JarvisCardData {
+func cardOptions(q baseds.AgentAskQuestion) []JarvisCardOption {
 	opts := make([]JarvisCardOption, 0, len(q.Options))
 	for _, o := range q.Options {
 		opts = append(opts, JarvisCardOption{Label: o.Label, Sub: o.Description})
 	}
-	return JarvisCardData{
-		AskORef:    askORef,
-		AskId:      askId,
-		WorkerORef: workerORef,
-		Question:   q.Question,
-		Options:    opts,
-		Choice:     choice,
-		Reason:     reason,
+	return opts
+}
+
+// BuildCardData assembles the card payload from an ask's questions and, for an auto-answer, the
+// answers delivered (nil for an escalation).
+func BuildCardData(questions []baseds.AgentAskQuestion, answers []baseds.AgentAnswerItem, reason, askORef, askId, workerORef string) JarvisCardData {
+	card := JarvisCardData{AskORef: askORef, AskId: askId, WorkerORef: workerORef, Reason: reason}
+	for _, q := range questions {
+		card.Questions = append(card.Questions, JarvisCardQuestion{Question: q.Question, MultiSelect: q.MultiSelect, Options: cardOptions(q)})
 	}
+	if len(card.Questions) > 0 {
+		card.Question, card.Options = card.Questions[0].Question, card.Questions[0].Options
+	}
+	for _, a := range answers {
+		card.Answers = append(card.Answers, JarvisCardAnswer{Picks: a.SelectedIndexes, Text: a.Text})
+	}
+	if len(answers) > 0 && len(answers[0].SelectedIndexes) > 0 {
+		first := answers[0].SelectedIndexes[0]
+		card.Choice = &first
+	}
+	return card
 }
