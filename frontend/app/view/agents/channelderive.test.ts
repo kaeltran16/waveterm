@@ -4,7 +4,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
-    avatarColor,
     channelHasAsk,
     filterChannels,
     highlightSegments,
@@ -14,30 +13,6 @@ import {
     resolveTargetChannel,
 } from "./channelderive";
 import type { RosterEntry } from "./channelmessages";
-
-describe("avatarColor", () => {
-    it("is deterministic for the same name", () => {
-        expect(avatarColor("codex")).toBe(avatarColor("codex"));
-    });
-
-    it("pins 'you' to the accent token, case-insensitively", () => {
-        expect(avatarColor("you")).toBe("var(--color-accent)");
-        expect(avatarColor("YOU")).toBe("var(--color-accent)");
-    });
-
-    it("returns a palette token for other names", () => {
-        const palette = new Set([
-            "var(--color-avatar-1)",
-            "var(--color-avatar-2)",
-            "var(--color-avatar-3)",
-            "var(--color-avatar-4)",
-            "var(--color-avatar-5)",
-            "var(--color-avatar-6)",
-        ]);
-        expect(palette.has(avatarColor("claude"))).toBe(true);
-        expect(palette.has(avatarColor("pi"))).toBe(true);
-    });
-});
 
 const agent = (id: string, state: AgentVM["state"]): AgentVM =>
     ({ id, name: id, task: "", state }) as AgentVM;

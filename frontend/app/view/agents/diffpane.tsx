@@ -31,7 +31,7 @@ const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m)
 const headerBtn =
     "flex h-[28px] flex-none items-center gap-[6px] rounded-[8px] border border-edge-mid px-[10px] text-[11.5px] font-semibold";
 const navBtn =
-    "flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[6px] text-ink-faint hover:text-ink-hi";
+    "flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[6px] text-muted hover:text-ink-hi";
 
 function EmptyState({ empty }: { empty: EmptyDiff }) {
     return (
@@ -148,7 +148,7 @@ export function DiffPane({
                 <span className="flex min-w-0 items-baseline font-mono text-[12.5px]">
                     {/* rtl truncates from the left, but alone it would move the directory's trailing "/"
                         to its front; the bdi keeps the text itself left-to-right */}
-                    <span className="min-w-0 truncate text-ink-faint [direction:rtl]">
+                    <span className="min-w-0 truncate text-muted [direction:rtl]">
                         <bdi dir="ltr">{dir}</bdi>
                     </span>
                     <span className="flex-none font-semibold text-ink-hi">{file}</span>
@@ -156,7 +156,7 @@ export function DiffPane({
                 <span className="flex-none font-mono text-[11px] font-bold text-diff-added">+{adds}</span>
                 <span className="flex-none font-mono text-[11px] font-bold text-diff-removed">−{dels}</span>
                 {empty?.kind === "toolarge" && pair != null ? (
-                    <span className="flex-none font-mono text-[11px] text-ink-faint">{fmtBytes(pair.size)}</span>
+                    <span className="flex-none font-mono text-[11px] text-muted">{fmtBytes(pair.size)}</span>
                 ) : null}
                 <div className="flex-1" />
                 {navPos != null && navPos.total > 0 ? (
@@ -169,7 +169,7 @@ export function DiffPane({
                         >
                             <ChevronUp size={14} />
                         </button>
-                        <span className="text-center font-mono text-[11px] text-ink-faint">
+                        <span className="text-center font-mono text-[11px] text-muted">
                             {layout.labelled ? "change " : ""}
                             {navPos.index}/{navPos.total}
                         </span>
