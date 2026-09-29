@@ -216,10 +216,9 @@ function testSource(dir) {
 
 // goTest runs the packages like go test, except that a package with many tests is built once and its tests are
 // dealt across SHARDS processes; go test runs one package's tests in one process however many cores are idle.
-async function goTest(args) {
+async function goTest(args, flaky) {
     const env = goTestEnv(process.env, process.platform, process.arch);
     const { sharded, plain } = partitionPackages(goPackages(args), (dir) => countTopLevelTests(testSource(dir)));
-    const flaky = [];
     let failed = plain.length > 0 && !goTestPlain(plain.map((p) => p.importPath), env, flaky);
     if (!failed && sharded.length > 0) {
         const tmp = mkdtempSync(join(tmpdir(), "arc-verify-"));
@@ -245,7 +244,7 @@ const OUTPUT_MAX = 256 * 1024 * 1024;
 // rerunAlone reruns a package's failed tests once, in one process. Passing alone, they failed on what another test
 // left behind or on load, so they are reported as flaky rather than failing the merge and costing a fix round;
 // failing again, the failure is real.
-function rerunAlone(pkg, names, flaky, spawnRerun) {
+export function rerunAlone(pkg, names, flaky, spawnRerun) {
     if (names == null) {
         return false;
     }
@@ -337,15 +336,31 @@ function runShard(bin, dir, names) {
 const VITEST = ["node_modules/vitest/vitest.mjs", "run"];
 const TSC = ["--stack-size=4000", "node_modules/typescript/lib/tsc.js", "--noEmit"];
 
+// the engine's contract for a passing Verify that reported flaky tests: one `ARC_VERIFY_FLAKY: <test>` line each
+// (pkg/orchestrate's VerifyFlakyMarker), printed last, where the engine keeps the tail of the output
+export const FLAKY_MARKER = "ARC_VERIFY_FLAKY:";
+
+export function flakyLines(flaky) {
+    return flaky.map((name) => `${FLAKY_MARKER} ${name}`);
+}
+
 async function main(patterns) {
     if (patterns.length === 0) {
         console.error("usage: node scripts/verify.mjs <go package pattern>...");
         process.exit(2);
     }
+    const flaky = [];
+    await verifyAll(patterns, flaky);
+    for (const line of flakyLines(flaky)) {
+        console.log(line);
+    }
+}
+
+async function verifyAll(patterns, flaky) {
     const listFile = process.env.ARC_VERIFY_CHANGED;
     const changed = listFile ? readChangedFile(listFile) : null;
     if (!changed) {
-        await goTest(patterns);
+        await goTest(patterns, flaky);
         run("node", VITEST);
         return;
     }
@@ -360,7 +375,7 @@ async function main(patterns) {
         return;
     }
     if (goArgs.length > 0) {
-        await goTest(goArgs);
+        await goTest(goArgs, flaky);
     }
     if (plan.tsc) {
         run("node", TSC);
