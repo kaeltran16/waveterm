@@ -3,7 +3,8 @@
 //
 // An initiative's notes as one newest-first feed. The effort keeps two logs: every chunk's note trail,
 // which records everything down to renames and stage moves, and the events list, which the backend keeps
-// for "what changed that matters". The feed reads the events, so bookkeeping never reaches it.
+// for "what changed that matters". The feed reads the events, so bookkeeping never reaches it. feedGroups
+// lays the feed out for reading: day dividers, a heading per chunk within a day, one line per entry.
 //
 // An event names its chunk by whatever ref its writer passed: a label, a 1-based index, or a label renamed
 // since. Events written before effortops stored the resolved label still carry those, but each one shares
@@ -116,10 +117,29 @@ const localDay = (ts: number) => {
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 };
 
+const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export function clock(ts: number): string {
+    const d = new Date(ts);
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 // today's entries read by time of day, older ones by date
 export function stamp(ts: number, now: number): string {
+    return localDay(ts) === localDay(now) ? clock(ts) : localDay(ts).slice(5);
+}
+
+// the divider above a day's entries; the time column then needs only the time of day
+export function dayLabel(ts: number, now: number): string {
     const d = new Date(ts);
-    return localDay(ts) === localDay(now) ? `${pad2(d.getHours())}:${pad2(d.getMinutes())}` : localDay(ts).slice(5);
+    const date = `${WEEKDAY[d.getDay()]} ${d.getDate()} ${MONTH[d.getMonth()]}`;
+    if (localDay(ts) === localDay(now)) {
+        return "Today";
+    }
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    return localDay(ts) === localDay(yesterday.getTime()) ? "Yesterday · " + date : date;
 }
 
 // a leading date that repeats the note's own timestamp says nothing the stamp column doesn't
@@ -173,53 +193,66 @@ export function paragraphs(body: string): Paragraph[] {
         }));
 }
 
-export type FeedRow = {
-    key: string;
-    entry: FeedEntry;
-    // blank when it repeats the stamp above, unless a chunk tag starts a new run here
-    day: string;
-    tagged: boolean;
-    spaced: boolean;
-    head: string;
-    body: string;
-    // characters the headline leaves out; zero means the row has nothing to expand
-    extra: number;
-};
+// a chunk added, or a status change with nothing written: the event itself is all there is to read
+const isBookkeeping = (e: FeedEntry) => e.kind === "chunk-added" || (e.kind !== "effort-note" && e.text === "");
 
-export function feedRows(
+export type FeedGroupRow =
+    | { kind: "day"; key: string; label: string }
+    | { kind: "head"; key: string; chunk: string; status: string }
+    | {
+          kind: "note";
+          key: string;
+          entry: FeedEntry;
+          time: string;
+          marked: string;
+          head: string;
+          body: string;
+          size: string;
+      }
+    | { kind: "event"; key: string; entry: FeedEntry; time: string; text: string };
+
+/**
+ * The feed as a reader scans it: a divider per local day, and inside a day one group per chunk, the groups
+ * ordered by their newest entry. The stream interleaves chunks, so grouping is what stops every line from
+ * needing its own chunk tag. Under "only" the chunk is already named, so no headings.
+ */
+export function feedGroups(
     feed: FeedEntry[],
     opts: { only: string | null; limit: number; now: number }
-): { rows: FeedRow[]; left: number; newestKey: string | null } {
+): { rows: FeedGroupRow[]; left: number } {
     const entries = opts.only == null ? feed : feed.filter((e) => e.chunk === opts.only);
-    const newest = entries.find((e) => e.text !== "");
-    const rows: FeedRow[] = [];
-    let prevChunk: string | null = null;
-    let prevDay: string | null = null;
-    entries.slice(0, opts.limit).forEach((e, i) => {
-        // an added chunk has nothing to read but its name, so the name is the line and no tag sits above it
-        const added = e.kind === "chunk-added";
-        const body = added ? (opts.only == null ? e.chunk : "") : noteBody(e);
-        const head = added ? body : headline(body);
-        const day = stamp(e.ts, opts.now);
-        const tagged = opts.only == null && !added && e.chunk !== prevChunk;
-        rows.push({
-            key: String(e.seq),
-            entry: e,
-            day: tagged || day !== prevDay ? day : "",
-            tagged,
-            spaced: i > 0 && (tagged || (added && prevChunk != null)),
-            head,
-            body,
-            extra: body.length - head.length,
-        });
-        prevChunk = added ? null : e.chunk;
-        prevDay = day;
-    });
-    return {
-        rows,
-        left: Math.max(0, entries.length - opts.limit),
-        newestKey: newest != null ? String(newest.seq) : null,
-    };
+    const page = entries.slice(0, opts.limit);
+    const rows: FeedGroupRow[] = [];
+    const days = [...new Set(page.map((e) => localDay(e.ts)))];
+    for (const day of days) {
+        const inDay = page.filter((e) => localDay(e.ts) === day);
+        rows.push({ kind: "day", key: "day:" + day, label: dayLabel(inDay[0].ts, opts.now) });
+        for (const chunk of [...new Set(inDay.map((e) => e.chunk))]) {
+            const items = inDay.filter((e) => e.chunk === chunk);
+            if (opts.only == null) {
+                rows.push({ kind: "head", key: `head:${day}:${chunk}`, chunk, status: items[0].status });
+            }
+            for (const e of items) {
+                const key = String(e.seq);
+                if (isBookkeeping(e)) {
+                    rows.push({ kind: "event", key, entry: e, time: clock(e.ts), text: e.marked });
+                    continue;
+                }
+                const body = noteBody(e);
+                rows.push({
+                    kind: "note",
+                    key,
+                    entry: e,
+                    time: clock(e.ts),
+                    marked: e.marked,
+                    head: headline(body),
+                    body,
+                    size: kilo(body.length),
+                });
+            }
+        }
+    }
+    return { rows, left: Math.max(0, entries.length - opts.limit) };
 }
 
 // the size hint on a folded note

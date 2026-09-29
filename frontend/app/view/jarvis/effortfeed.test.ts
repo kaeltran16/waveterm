@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+    clock,
     codeSegments,
+    dayLabel,
     effortFeed,
+    feedGroups,
     feedNoteCounts,
-    feedRows,
     headline,
     kilo,
     noteBody,
     paragraphs,
     stamp,
     type FeedEntry,
+    type FeedGroupRow,
 } from "./effortfeed";
 
 const MIN = 60 * 1000;
@@ -171,46 +174,75 @@ const entry = (seq: number, ts: number, chunk: string, over: Partial<FeedEntry> 
 const added = (seq: number, ts: number, chunk: string) =>
     entry(seq, ts, chunk, { kind: "chunk-added", marked: "chunk added", text: "" });
 
-describe("feedRows", () => {
-    it("tags each run of entries once and prints a stamp only when it changes", () => {
+const shape = (rows: FeedGroupRow[]) =>
+    rows.map((r) =>
+        r.kind === "day" ? `day ${r.label}` : r.kind === "head" ? `head ${r.chunk}` : `${r.kind} ${r.entry.seq}`
+    );
+
+describe("dayLabel and clock", () => {
+    it("names today, yesterday with its date, and older days by date", () => {
+        expect(dayLabel(T, T)).toBe("Today");
+        expect(dayLabel(new Date(2026, 8, 14, 23, 0).getTime(), T)).toBe("Yesterday · Mon 14 Sep");
+        expect(dayLabel(new Date(2026, 8, 13, 8, 0).getTime(), T)).toBe("Sun 13 Sep");
+    });
+    it("reads the time of day as HH:MM, whatever the day", () => {
+        expect(clock(new Date(2026, 8, 13, 8, 7).getTime())).toBe("08:07");
+    });
+});
+
+describe("feedGroups", () => {
+    it("divides by day, groups by chunk ordered by newest entry, entries newest first", () => {
         const feed = [
-            entry(3, T + 3 * MIN + 30_000, "A"),
-            entry(2, T + 3 * MIN + 10_000, "A"),
-            entry(1, T + MIN, "B"),
-            entry(0, new Date(2026, 8, 14, 23, 0).getTime(), "B"),
+            entry(4, T + 4 * MIN, "A"),
+            entry(3, T + 3 * MIN, "B"),
+            entry(2, T + 2 * MIN, "A"),
+            entry(1, new Date(2026, 8, 14, 12, 0).getTime(), "B"),
         ];
-        const { rows } = feedRows(feed, { only: null, limit: 25, now: T + 10 * MIN });
-        expect(rows.map((r) => [r.tagged, r.day])).toEqual([
-            [true, "09:08"],
-            [false, ""],
-            [true, "09:06"],
-            [false, "09-14"],
+        const { rows } = feedGroups(feed, { only: null, limit: 25, now: T });
+        expect(shape(rows)).toEqual([
+            "day Today",
+            "head A",
+            "note 4",
+            "note 2",
+            "head B",
+            "note 3",
+            "day Yesterday · Mon 14 Sep",
+            "head B",
+            "note 1",
         ]);
     });
 
-    it("sets an added chunk as its own untagged line and tags the note after it again", () => {
-        const feed = [entry(2, T + 2 * MIN, "A"), added(1, T + MIN, "B"), entry(0, T, "A")];
-        const { rows } = feedRows(feed, { only: null, limit: 25, now: T });
-        expect(rows.map((r) => [r.tagged, r.spaced, r.head])).toEqual([
-            [true, false, "note 2"],
-            [false, true, "B"],
-            [true, true, "note 0"],
-        ]);
-    });
-
-    it("narrows to one chunk without tags and pages the rest", () => {
-        const feed = Array.from({ length: 12 }, (_, i) => entry(11 - i, T - i * MIN, i % 2 === 0 ? "A" : "B"));
-        const { rows, left } = feedRows(feed, { only: "A", limit: 4, now: T });
-        expect(rows.map((r) => r.entry.chunk)).toEqual(["A", "A", "A", "A"]);
-        expect(rows.some((r) => r.tagged)).toBe(false);
+    it("under one chunk draws no headings but keeps the day dividers, and pages the rest", () => {
+        const feed = Array.from({ length: 12 }, (_, i) => entry(11 - i, T - i * 60 * MIN, i % 2 === 0 ? "A" : "B"));
+        const { rows, left } = feedGroups(feed, { only: "A", limit: 4, now: T });
+        expect(rows.some((r) => r.kind === "head")).toBe(false);
+        expect(rows.filter((r) => r.kind === "note")).toHaveLength(4);
+        expect(rows[0]).toMatchObject({ kind: "day", label: "Today" });
         expect(left).toBe(2);
     });
 
-    it("keys the newest entry that has text, and measures what its headline leaves out", () => {
-        const feed = [added(1, T + MIN, "A"), entry(0, T, "A", { text: "First. Second sentence here." })];
-        const { rows, newestKey } = feedRows(feed, { only: null, limit: 25, now: T });
-        expect(newestKey).toBe("0");
-        expect(rows[1].extra).toBe(" Second sentence here.".length);
+    it("sets a chunk added and a bare status change as quiet lines, and keeps a status change with a note readable", () => {
+        const feed = [
+            entry(3, T + 3 * MIN, "A", { kind: "chunk-done", marked: "marked done", text: "Landed. Details follow." }),
+            entry(2, T + 2 * MIN, "A", { kind: "chunk-status", marked: "marked active", text: "" }),
+            added(1, T + MIN, "A"),
+        ];
+        const { rows } = feedGroups(feed, { only: null, limit: 25, now: T });
+        expect(shape(rows)).toEqual(["day Today", "head A", "note 3", "event 2", "event 1"]);
+        expect(rows[3]).toMatchObject({ text: "marked active", time: "09:07" });
+        expect(rows[4]).toMatchObject({ text: "chunk added" });
+        expect(rows[2]).toMatchObject({ marked: "marked done", head: "Landed.", size: "23" });
+    });
+
+    it("heads each note with its first sentence and sizes the whole body", () => {
+        const body = "First. " + "x".repeat(1200);
+        const { rows } = feedGroups([entry(0, T, "A", { text: body })], { only: null, limit: 25, now: T });
+        expect(rows[2]).toMatchObject({ kind: "note", head: "First.", size: "1.2k", body });
+    });
+
+    it("carries the chunk's status on its heading", () => {
+        const { rows } = feedGroups([entry(0, T, "A", { status: "removed" })], { only: null, limit: 25, now: T });
+        expect(rows[1]).toMatchObject({ kind: "head", chunk: "A", status: "removed" });
     });
 });
 
