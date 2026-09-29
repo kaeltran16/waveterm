@@ -39,8 +39,13 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// skipVerifier ends the final stage as though the verifier passed the moment it started.
+// skipVerifier ends the final stage as though the verifier passed the moment it started. Alongside the
+// commands, the pass waits for them, as a real verifier's would.
 func skipVerifier(_, _ context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, afterCommit *[]func()) {
+	if g.Final.State == FinalState_Checking {
+		holdFinalVerdict(g.OID, finalVerdict{round: g.Final.Round, verdict: ReviewVerdict_Pass, text: "skipped"})
+		return
+	}
 	finishFinal(g, afterCommit)
 	releaseFinalTree(g, owner, afterCommit)
 }

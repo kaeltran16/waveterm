@@ -578,7 +578,8 @@ passed or unverified.
 detached worktree at the checkout's HEAD (`.waveterm/worktrees/<runId>-final`), with the plan's Setup run in it,
 removed when the stage ends. It never runs in the shared checkout.
 
-**The steps, in order:**
+**The steps.** Check, Verify and Final run one after another; the verifier runs after them when the plan has a
+Final line, and alongside Check and Verify when it has none:
 
 1. **Check**, the plan's Check line, on the merged result (20-minute limit). A non-zero exit fails the stage,
    unless Check already failed on the base at submit: then the stage goes on and reports it as unverified.
@@ -588,23 +589,32 @@ removed when the stage ends. It never runs in the shared checkout.
    for its screenshots and reports (`<temp>/arc-final/<dag>/<round>`, outside every tree). Exit 0 passes. Exit
    3 means it could not verify, and its last output line becomes an unverified reason. Any other exit, or
    running past 30 minutes ("timed out"), fails the stage with the output tail.
-4. **The verifier**, a fresh session in the final tree on the lead's route, unless a step above failed. Its
-   brief names the spec and plan, `git diff <base>..<head>` of the run, `ARC_FINAL_OUT`, the `**Prototype:**`
-   canvas, and every unverified note so far. It checks that the combined change does what the spec asks, and
-   looks for breaks where tasks meet: code one task changed that another uses, a name two tasks spell
-   differently, behavior two tasks both touch. It compares screenshots to the canvas's boards structurally
-   (which elements, their order, copy, controls at that width), never by pixels, and classifies each
-   difference as allowed (listed in the spec's Deviations) or a defect. It only reads, and ends with
+4. **The verifier**, a fresh session in the final tree on the lead's route. Its brief names the spec and plan,
+   `git diff <base>..<head>` of the run, `ARC_FINAL_OUT`, the `**Prototype:**` canvas, and every unverified
+   note so far. It checks that the combined change does what the spec asks, and looks for breaks where tasks
+   meet: code one task changed that another uses, a name two tasks spell differently, behavior two tasks both
+   touch. It compares screenshots to the canvas's boards structurally (which elements, their order, copy,
+   controls at that width), never by pixels, and classifies each difference as allowed (listed in the spec's
+   Deviations) or a defect. It only reads, never runs the plan's commands, and ends with
    `wsh jarvis dag final pass "<summary>" [--unverified "<what, and why>"]` or
    `wsh jarvis dag final fail "<defects: each, where, the fix>"`. A verifier silent past 20 minutes, or ending
    without a verdict, is replaced once. One lost twice adds the unverified reason
    `the verifier did not finish: <why>`.
 
-With no Check, no Verify and no Final line, the stage goes straight to the verifier.
+**When the verifier starts.** With a Final line it starts only once Final is done, unless a step failed, since
+it reads Final's screenshots and reports. With no Final line it starts on the merged tree as soon as the tree is
+ready, while Check and Verify run, so the stage takes about the longer of the two instead of their sum; its brief
+says the commands are running rather than that they passed. A verdict given before they finish waits for them.
+A Check or Verify failure fails the stage with that command's output whatever the verifier said, and stops a
+verifier still working; their unverified reasons join the verifier's. The tree is made once and removed once
+both are done. With no Check, no Verify and no Final line, the stage goes straight to the verifier.
+
+A server restart mid-stage runs Check and Verify again in the tree the stage recorded. A verdict given while they
+ran is held in memory only, so after a restart the verifier, whose session ended with it, is replaced.
 
 **Ending a stuck stage.** You can end a stage stuck in any running step, from the run sheet's **End final
-stage** or with `wsh runs end-final <run-id> unverified|failed "<reason>"`. It stops the running commands or the
-verifier, and records the reason on the stage as `ended by the human: …`. Unverified finishes the dag done but
+stage** or with `wsh runs end-final <run-id> unverified|failed "<reason>"`. It stops the running commands and
+the verifier, and records the reason on the stage as `ended by the human: …`. Unverified finishes the dag done but
 unverified. Failed is a verifier's fail: the lead plans a fix round from the reason, so cancel the run instead
 when you want no fix round.
 
