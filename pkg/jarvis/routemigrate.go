@@ -84,7 +84,9 @@ func migratePreferredTier() error {
 
 func migrateGlobalProfilePins() error {
 	profile := LoadGlobalProfile()
-	if !migratePin(profile.WorkerRoute) {
+	workerChanged := migratePin(profile.WorkerRoute)
+	reviewerChanged := migratePin(profile.ReviewerRoute)
+	if !workerChanged && !reviewerChanged {
 		return nil
 	}
 	return SaveGlobalProfile(profile)
@@ -98,7 +100,8 @@ func migrateChannelPins(ctx context.Context, channels []*waveobj.Channel) error 
 		}
 		routeChanged := migratePin(override.Route)
 		workerChanged := migratePin(override.WorkerRoute)
-		if !routeChanged && !workerChanged {
+		reviewerChanged := migratePin(override.ReviewerRoute)
+		if !routeChanged && !workerChanged && !reviewerChanged {
 			continue
 		}
 		if err := wstore.DBUpdateFn(ctx, ch.OID, func(c *waveobj.Channel) {
@@ -117,15 +120,21 @@ func migrateRunPins(ctx context.Context, channels []*waveobj.Channel) error {
 	for _, ch := range channels {
 		for i := range ch.Runs {
 			run := &ch.Runs[i]
-			if !migratePin(run.WorkerRoute) {
+			workerChanged := migratePin(run.WorkerRoute)
+			reviewerChanged := migratePin(run.ReviewerRoute)
+			if !workerChanged && !reviewerChanged {
 				continue
 			}
-			route := *run.WorkerRoute
 			if err := wstore.UpdateRun(ctx, ch.OID, run.ID, func(r *waveobj.Run) error {
-				r.WorkerRoute = &route
+				if workerChanged {
+					r.WorkerRoute = run.WorkerRoute
+				}
+				if reviewerChanged {
+					r.ReviewerRoute = run.ReviewerRoute
+				}
 				return nil
 			}); err != nil {
-				return fmt.Errorf("migrating run %s worker route: %w", run.ID, err)
+				return fmt.Errorf("migrating run %s route pins: %w", run.ID, err)
 			}
 		}
 	}
@@ -138,15 +147,21 @@ func migrateDagPins(ctx context.Context) error {
 		return fmt.Errorf("listing dags: %w", err)
 	}
 	for _, g := range dags {
-		if !migratePin(g.WorkerRoute) {
+		workerChanged := migratePin(g.WorkerRoute)
+		reviewerChanged := migratePin(g.ReviewerRoute)
+		if !workerChanged && !reviewerChanged {
 			continue
 		}
-		route := *g.WorkerRoute
 		if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
-			cur.WorkerRoute = &route
+			if workerChanged {
+				cur.WorkerRoute = g.WorkerRoute
+			}
+			if reviewerChanged {
+				cur.ReviewerRoute = g.ReviewerRoute
+			}
 			return nil
 		}); err != nil {
-			return fmt.Errorf("migrating dag %s worker route: %w", g.OID, err)
+			return fmt.Errorf("migrating dag %s route pins: %w", g.OID, err)
 		}
 	}
 	return nil

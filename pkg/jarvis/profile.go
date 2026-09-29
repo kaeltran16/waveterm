@@ -300,8 +300,14 @@ func ResolveProfileWithDiagnostics(global waveobj.JarvisProfile, override *waveo
 		if override.Parallelism != nil {
 			out.Parallelism = *override.Parallelism
 		}
-		if override.WorkerRoute != nil {
+		// the workers setting is one section: naming either half replaces both, so a project can override a
+		// global route or Reviewer picks back to Same as lead
+		if override.WorkerRoute != nil || override.ReviewerPicks != nil {
 			out.WorkerRoute = override.WorkerRoute
+			out.ReviewerPicks = override.ReviewerPicks != nil && *override.ReviewerPicks
+		}
+		if override.ReviewerRoute != nil {
+			out.ReviewerRoute = override.ReviewerRoute
 		}
 		if override.Landing != nil {
 			out.Landing = *override.Landing
@@ -329,7 +335,8 @@ func ProfileOverrideIsEmpty(o *waveobj.ProfileOverride) bool {
 		patch = nil
 	}
 	return patch == nil && o.Route == nil && o.DefaultMode == nil &&
-		o.Parallelism == nil && o.WorkerRoute == nil && o.Landing == nil
+		o.Parallelism == nil && o.WorkerRoute == nil && o.ReviewerPicks == nil && o.ReviewerRoute == nil &&
+		o.Landing == nil
 }
 
 func RenderPrinciples(items waveobj.PrincipleList) string {

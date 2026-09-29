@@ -25,10 +25,13 @@ import (
 // WorkerRoute is deliberately not symmetric with those two: a nil route is itself a value (inherit the
 // lead), so it is always applied. A caller that omits it is asking for inheritance, not asking for the
 // stored route to be left alone — the sheet always sends the route it is showing, so the two readings
-// only diverge for a hand-rolled client.
+// only diverge for a hand-rolled client. ReviewerPicks and ReviewerRoute follow the same rule for the same
+// reason: false is the WorkerRoute rule standing, and a nil reviewer route is the lead's.
 type PendingEngineSettings struct {
-	Parallelism *int
-	WorkerRoute *waveobj.RoutePin
+	Parallelism   *int
+	WorkerRoute   *waveobj.RoutePin
+	ReviewerPicks bool
+	ReviewerRoute *waveobj.RoutePin
 }
 
 // EngineSettingsBlocker returns the reason a run's engine settings can no longer change, or "" when they
@@ -56,6 +59,8 @@ func ApplyPendingEngineSettings(r waveobj.Run, s PendingEngineSettings) waveobj.
 		r.Parallelism = *s.Parallelism
 	}
 	r.WorkerRoute = s.WorkerRoute
+	r.ReviewerPicks = s.ReviewerPicks
+	r.ReviewerRoute = s.ReviewerRoute
 	return r
 }
 
@@ -67,6 +72,8 @@ func ApplyLiveEngineSettings(g waveobj.TaskGroup, s PendingEngineSettings) waveo
 		g.Parallelism = *s.Parallelism
 	}
 	g.WorkerRoute = s.WorkerRoute
+	g.ReviewerPicks = s.ReviewerPicks
+	g.ReviewerRoute = s.ReviewerRoute
 	return g
 }
 
@@ -75,8 +82,8 @@ func ApplyLiveEngineSettings(g waveobj.TaskGroup, s PendingEngineSettings) waveo
 func RunEngineSettings(r waveobj.Run, g *waveobj.TaskGroup) PendingEngineSettings {
 	if g != nil {
 		width := g.Parallelism
-		return PendingEngineSettings{Parallelism: &width, WorkerRoute: g.WorkerRoute}
+		return PendingEngineSettings{Parallelism: &width, WorkerRoute: g.WorkerRoute, ReviewerPicks: g.ReviewerPicks, ReviewerRoute: g.ReviewerRoute}
 	}
 	width := r.Parallelism
-	return PendingEngineSettings{Parallelism: &width, WorkerRoute: r.WorkerRoute}
+	return PendingEngineSettings{Parallelism: &width, WorkerRoute: r.WorkerRoute, ReviewerPicks: r.ReviewerPicks, ReviewerRoute: r.ReviewerRoute}
 }
