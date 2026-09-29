@@ -24,33 +24,33 @@ const maxTimelineLine = 200
 // each call selects — notably its tier — is observable.
 var runFn = consult.Run
 
-// Decision is the classifier's structured verdict. OptionIndex is a pointer so a missing index in
-// the model's reply is distinguishable from index 0 and fails safe to escalate.
+// Decision is the classifier's structured verdict. An "answer" carries one AgentAnswerItem per question, in
+// order; handleAsk validates them against the ask before delivery, since ParseDecision never sees the questions.
 type Decision struct {
-	Action      string `json:"action"` // "answer" | "escalate"
-	OptionIndex *int   `json:"optionindex"`
-	Reason      string `json:"reason"`
+	Action  string                   `json:"action"` // "answer" | "escalate"
+	Answers []baseds.AgentAnswerItem `json:"answers,omitempty"`
+	Reason  string                   `json:"reason"`
 }
 
-// BuildClassifyPrompt composes a JSON-only prompt: the single question + its indexed options, the
-// worker's task, the resolved principles (when any), and a capped recent timeline. The model must
-// return {action, optionindex, reason}. Empty principles reproduce the pre-Piece-4 prompt.
-func BuildClassifyPrompt(q baseds.AgentAskQuestion, task string, channel *waveobj.Channel, principles waveobj.PrincipleList) string {
-	var opts strings.Builder
-	for i, o := range q.Options {
-		opts.WriteString(fmt.Sprintf("  %d: %s", i, o.Label))
-		if o.Description != "" {
-			opts.WriteString(" — " + o.Description)
-		}
-		opts.WriteString("\n")
-	}
+// judgeAnswer is one question's verdict as the model writes it: picks, a one-line text answer, or a flag that
+// this question needs the human.
+type judgeAnswer struct {
+	Picks []int  `json:"picks"`
+	Text  string `json:"text"`
+	Human bool   `json:"human"`
+}
+
+// BuildClassifyPrompt composes a JSON-only prompt: every question with its pick-one / pick-any mode and indexed
+// options, the worker's task, the resolved principles (when any), and a capped recent timeline. The model must
+// return {action, answers, reason}. Empty principles leave the principles section out.
+func BuildClassifyPrompt(questions []baseds.AgentAskQuestion, task string, channel *waveobj.Channel, principles waveobj.PrincipleList) string {
 	timeline := recentTimeline(channel)
 	if task == "" {
 		task = "(unknown task)"
 	}
 	lines := []string{
-		fmt.Sprintf(`You are Jarvis, gatekeeping a coding agent in the "%s" channel. A worker paused to ask a multiple-choice question. Decide whether it is ROUTINE (safe to auto-answer on the human's behalf) or a genuine FORK that needs the human.`, channel.Name),
-		`Escalate (do NOT answer) if the choice is irreversible, changes product scope or user-facing behavior, is a real judgment call, or you are not confident. When in doubt, escalate.`,
+		fmt.Sprintf(`You are Jarvis, gatekeeping a coding agent in the "%s" channel. A worker paused to ask %d multiple-choice question(s). Decide for each whether it is ROUTINE (safe to auto-answer on the human's behalf) or a genuine FORK that needs the human.`, channel.Name, len(questions)),
+		`A question needs the human if the choice is irreversible, changes product scope or user-facing behavior, is a real judgment call, or you are not confident. When in doubt, escalate. The worker receives all answers at once, so if ANY question needs the human, escalate the whole ask.`,
 	}
 	if rendered := RenderPrinciples(principles); rendered != "" {
 		lines = append(lines,
@@ -62,16 +62,37 @@ func BuildClassifyPrompt(q baseds.AgentAskQuestion, task string, channel *waveob
 	lines = append(lines,
 		"",
 		"Worker task: "+task,
-		"Question: "+q.Question,
-		"Options (index: label):",
-		strings.TrimRight(opts.String(), "\n"),
+		"",
+		renderQuestions(questions),
 		"",
 		"Recent channel messages:",
 		timeline,
 		"",
-		`Reply with ONLY a JSON object, no prose: {"action":"answer"|"escalate","optionindex":<int, required when action is answer>,"reason":"<one short sentence>"}`,
+		`Reply with ONLY a JSON object, no prose: {"action":"answer"|"escalate","answers":[...],"reason":"<one short sentence>"}`,
+		`When action is answer, "answers" holds one entry per question, in order: {"picks":[<index>]} for a pick-one question, {"picks":[<index>, ...]} for a pick-any question, or {"text":"<one line>"} when no option fits. Mark a question that needs the human {"human":true} and set action to escalate.`,
 	)
 	return strings.Join(lines, "\n")
+}
+
+// renderQuestions lists every question with its answer mode and its options by index.
+func renderQuestions(questions []baseds.AgentAskQuestion) string {
+	var b strings.Builder
+	for qi, q := range questions {
+		mode := "pick exactly one"
+		if q.MultiSelect {
+			mode = "pick one or more"
+		}
+		b.WriteString(fmt.Sprintf("Question %d (%s): %s\n", qi+1, mode, q.Question))
+		b.WriteString("Options (index: label):\n")
+		for i, o := range q.Options {
+			b.WriteString(fmt.Sprintf("  %d: %s", i, o.Label))
+			if o.Description != "" {
+				b.WriteString(" — " + o.Description)
+			}
+			b.WriteString("\n")
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func recentTimeline(channel *waveobj.Channel) string {
@@ -99,32 +120,45 @@ func truncateLine(text string) string {
 	return string(runes[:maxTimelineLine]) + "…"
 }
 
-// ParseDecision extracts the JSON object from the reply and validates it. ANY problem — no JSON,
-// bad JSON, unknown action, or action=="answer" without a numeric optionindex — yields escalate.
-// The model can never fail open into an auto-answer.
+// ParseDecision extracts the JSON object from the reply. ANY problem — no JSON, bad JSON, unknown action,
+// action=="answer" without answers, or any question marked for the human — yields escalate. The model can
+// never fail open into an auto-answer; whether the answers fit the ask is handleAsk's check.
 func ParseDecision(reply string) Decision {
 	start := strings.Index(reply, "{")
 	end := strings.LastIndex(reply, "}")
 	if start < 0 || end <= start {
 		return Decision{Action: "escalate", Reason: "unparseable classifier reply"}
 	}
-	var d Decision
-	if err := json.Unmarshal([]byte(reply[start:end+1]), &d); err != nil {
+	var raw struct {
+		Action  string        `json:"action"`
+		Answers []judgeAnswer `json:"answers"`
+		Reason  string        `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(reply[start:end+1]), &raw); err != nil {
 		return Decision{Action: "escalate", Reason: "unparseable classifier reply"}
 	}
-	if d.Action != "answer" {
-		return Decision{Action: "escalate", Reason: d.Reason}
+	if raw.Action != "answer" {
+		return Decision{Action: "escalate", Reason: raw.Reason}
 	}
-	if d.OptionIndex == nil {
-		return Decision{Action: "escalate", Reason: "classifier gave no option index"}
+	if len(raw.Answers) == 0 {
+		return Decision{Action: "escalate", Reason: "classifier gave no answers"}
 	}
-	return d
+	answers := make([]baseds.AgentAnswerItem, 0, len(raw.Answers))
+	for _, a := range raw.Answers {
+		// all or nothing: the worker's panel submits every answer at once, so a partial answer would leave the
+		// human finishing a half-typed panel
+		if a.Human {
+			return Decision{Action: "escalate", Reason: raw.Reason}
+		}
+		answers = append(answers, baseds.AgentAnswerItem{SelectedIndexes: a.Picks, Text: a.Text})
+	}
+	return Decision{Action: "answer", Answers: answers, Reason: raw.Reason}
 }
 
 // Classify runs the headless classifier. It fails safe to escalate on any CLI/timeout error.
-func Classify(ctx context.Context, channel *waveobj.Channel, q baseds.AgentAskQuestion, task string) Decision {
+func Classify(ctx context.Context, channel *waveobj.Channel, questions []baseds.AgentAskQuestion, task string) Decision {
 	// cheap tier: this is a bounded pick-an-option classification, and every failure mode
-	// (unparseable reply, no option index, non-"answer" action) already falls through to
+	// (unparseable reply, no or invalid answers, non-"answer" action) already falls through to
 	// escalate — a weaker model degrades toward asking the human, not toward a wrong answer.
 	spec, ok := consult.HeadlessSpecForTier(consult.TierCheap)
 	if !ok {
@@ -133,7 +167,7 @@ func Classify(ctx context.Context, channel *waveobj.Channel, q baseds.AgentAskQu
 	principles := resolveGatekeeperPrinciples(channel)
 	runCtx, cancel := context.WithTimeout(ctx, classifyTimeout)
 	defer cancel()
-	reply, err := runFn(runCtx, spec, channel.ProjectPath, BuildClassifyPrompt(q, task, channel, principles), func(string) {})
+	reply, err := runFn(runCtx, spec, channel.ProjectPath, BuildClassifyPrompt(questions, task, channel, principles), func(string) {})
 	if err != nil {
 		return Decision{Action: "escalate", Reason: "classifier error: " + err.Error()}
 	}

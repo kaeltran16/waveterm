@@ -46,6 +46,7 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -57,8 +58,9 @@ const (
 	jevModel    = "jev-latest"
 	jevTimeout  = 30 * time.Second
 
-	// prefilterReason is askAutoAnswerable's verdict. Those escalations never reached a model, so
-	// replaying them would compare two backends on a decision neither one made.
+	// prefilterReason is the retired multi-question prefilter's verdict, still on cards written before
+	// it went. Those escalations never reached a model, so replaying them would compare two backends
+	// on a decision neither one made.
 	prefilterReason = "needs a human (multiple or multi-select questions)"
 
 	// Published rates. Jev 1.13 bills input only. The baseline rate is whatever the configured cheap
@@ -257,7 +259,7 @@ func loadCorpus(t *testing.T, db *sql.DB) []probeCase {
 			continue
 		}
 		if card.Reason == prefilterReason || len(card.Options) == 0 {
-			continue // askAutoAnswerable rejected it; no model ran
+			continue // the prefilter rejected it; no model ran
 		}
 		opts := make([]baseds.AgentAskOption, 0, len(card.Options))
 		for _, o := range card.Options {
@@ -322,7 +324,8 @@ func (c probeCase) channel() *waveobj.Channel {
 // ---- leg A: the configured cheap tier (today's gatekeeper) ----
 
 func runBaselineLeg(spec consult.RuntimeSpec, c probeCase) legResult {
-	prompt := BuildClassifyPrompt(c.question, "", c.channel(), nil)
+	questions := []baseds.AgentAskQuestion{c.question}
+	prompt := BuildClassifyPrompt(questions, "", c.channel(), nil)
 	ctx, cancel := context.WithTimeout(context.Background(), classifyTimeout)
 	defer cancel()
 	start := time.Now()
@@ -342,8 +345,9 @@ func runBaselineLeg(spec consult.RuntimeSpec, c probeCase) legResult {
 		inTok, outTok = usage.TotalTokens, 0
 	}
 	res := legResult{latency: elapsed, inTok: inTok, outTok: outTok, model: usage.Model, reason: d.Reason}
-	if d.Action == "answer" && d.OptionIndex != nil && optionIndexInRange(*d.OptionIndex, c.question) {
-		res.choice = d.OptionIndex
+	// the corpus is single single-select questions, so a valid answer is one pick or a line of text
+	if d.Action == "answer" && agentask.ValidateAnswers(questions, d.Answers, false) == nil && len(d.Answers[0].SelectedIndexes) == 1 {
+		res.choice = &d.Answers[0].SelectedIndexes[0]
 	}
 	return res
 }

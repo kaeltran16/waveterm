@@ -387,3 +387,47 @@ func TestEncodeMultiQuestionRefusesFreeTextToPreviewQuestion(t *testing.T) {
 		t.Fatal("want an error for free text to a preview question in a batch")
 	}
 }
+
+// ValidateAnswers is the one rule set both delivery and the Gatekeeper check an answer against.
+func TestValidateAnswers(t *testing.T) {
+	preview := qn(2, false)
+	preview.Options[0].Preview = "shown beside the list"
+	single, multi := qn(3, false), qn(3, true)
+	cases := []struct {
+		name      string
+		questions []baseds.AgentAskQuestion
+		answers   []baseds.AgentAnswerItem
+		prose     bool
+		ok        bool
+	}{
+		{"single pick", []baseds.AgentAskQuestion{single}, []baseds.AgentAnswerItem{item(2)}, false, true},
+		{"several picks on multi-select", []baseds.AgentAskQuestion{multi}, []baseds.AgentAnswerItem{item(0, 2)}, false, true},
+		{"duplicate picks on multi-select", []baseds.AgentAskQuestion{multi}, []baseds.AgentAnswerItem{item(1, 1)}, false, true},
+		{"free text", []baseds.AgentAskQuestion{single}, []baseds.AgentAnswerItem{{Text: "something else"}}, false, true},
+		{"two questions", []baseds.AgentAskQuestion{single, multi}, []baseds.AgentAnswerItem{item(0), item(1, 2)}, false, true},
+		{"free text to a lone preview question", []baseds.AgentAskQuestion{preview}, []baseds.AgentAnswerItem{{Text: "hi"}}, false, true},
+		{"prose text", []baseds.AgentAskQuestion{single}, []baseds.AgentAnswerItem{{Text: "go"}}, true, true},
+		{"prose single pick", []baseds.AgentAskQuestion{single}, []baseds.AgentAnswerItem{item(1)}, true, true},
+
+		{"no questions", nil, nil, false, false},
+		{"too few answers", []baseds.AgentAskQuestion{single, multi}, []baseds.AgentAnswerItem{item(0)}, false, false},
+		{"too many answers", []baseds.AgentAskQuestion{single}, []baseds.AgentAnswerItem{item(0), item(1)}, false, false},
+		{"picks and text", []baseds.AgentAskQuestion{single}, []baseds.AgentAnswerItem{{SelectedIndexes: []int{0}, Text: "x"}}, false, false},
+		{"neither picks nor text", []baseds.AgentAskQuestion{single}, []baseds.AgentAnswerItem{{}}, false, false},
+		{"several picks on single-select", []baseds.AgentAskQuestion{single}, []baseds.AgentAnswerItem{item(0, 1)}, false, false},
+		{"no picks on multi-select", []baseds.AgentAskQuestion{multi}, []baseds.AgentAnswerItem{item()}, false, false},
+		{"index past the end", []baseds.AgentAskQuestion{single}, []baseds.AgentAnswerItem{item(3)}, false, false},
+		{"negative index", []baseds.AgentAskQuestion{multi}, []baseds.AgentAnswerItem{item(0, -1)}, false, false},
+		{"out of range in a batch", []baseds.AgentAskQuestion{single, multi}, []baseds.AgentAnswerItem{item(0), item(1, 3)}, false, false},
+		{"multi-line text", []baseds.AgentAskQuestion{single}, []baseds.AgentAnswerItem{{Text: "a\nb"}}, false, false},
+		{"free text to a preview question in a batch", []baseds.AgentAskQuestion{single, preview}, []baseds.AgentAnswerItem{item(0), {Text: "hi"}}, false, false},
+		{"prose with two questions", []baseds.AgentAskQuestion{single, single}, []baseds.AgentAnswerItem{item(0), item(0)}, true, false},
+		{"prose with several picks", []baseds.AgentAskQuestion{multi}, []baseds.AgentAnswerItem{item(0, 1)}, true, false},
+	}
+	for _, tc := range cases {
+		err := ValidateAnswers(tc.questions, tc.answers, tc.prose)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s: ValidateAnswers err = %v, want ok=%v", tc.name, err, tc.ok)
+		}
+	}
+}

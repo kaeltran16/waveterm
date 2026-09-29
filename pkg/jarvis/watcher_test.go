@@ -5,7 +5,9 @@ package jarvis
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -22,48 +24,6 @@ func singleSelect(nOptions int) []baseds.AgentAskQuestion {
 		opts[i] = baseds.AgentAskOption{Label: "opt"}
 	}
 	return []baseds.AgentAskQuestion{{Question: "q", Options: opts}}
-}
-
-// Guards the gatekeeper pre-filter: only a single single-select question may be auto-answered;
-// anything else must reach a human.
-func TestAskAutoAnswerable(t *testing.T) {
-	cases := []struct {
-		name      string
-		questions []baseds.AgentAskQuestion
-		want      bool
-	}{
-		{"single single-select", singleSelect(2), true},
-		{"single multi-select", []baseds.AgentAskQuestion{{Question: "q", MultiSelect: true, Options: []baseds.AgentAskOption{{Label: "a"}}}}, false},
-		{"multiple questions", []baseds.AgentAskQuestion{{Question: "q1"}, {Question: "q2"}}, false},
-		{"no questions", nil, false},
-	}
-	for _, tc := range cases {
-		if got := askAutoAnswerable(tc.questions); got != tc.want {
-			t.Errorf("%s: askAutoAnswerable = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
-// Guards the delivery bounds check: a classifier index outside the option list must not be delivered.
-func TestOptionIndexInRange(t *testing.T) {
-	q := baseds.AgentAskQuestion{Options: []baseds.AgentAskOption{{Label: "a"}, {Label: "b"}}}
-	cases := []struct {
-		name string
-		idx  int
-		q    baseds.AgentAskQuestion
-		want bool
-	}{
-		{"first option", 0, q, true},
-		{"last option", 1, q, true},
-		{"one past the end", 2, q, false},
-		{"negative", -1, q, false},
-		{"empty options", 0, baseds.AgentAskQuestion{}, false},
-	}
-	for _, tc := range cases {
-		if got := optionIndexInRange(tc.idx, tc.q); got != tc.want {
-			t.Errorf("%s: optionIndexInRange(%d) = %v, want %v", tc.name, tc.idx, got, tc.want)
-		}
-	}
 }
 
 // seedGatekeeperChannel creates a gatekeeper-enabled channel with a dispatched concierge worker tab
@@ -105,7 +65,7 @@ func stubClassifier(t *testing.T) {
 	t.Helper()
 	oldRun := runFn
 	runFn = func(_ context.Context, _ consult.RuntimeSpec, _ string, _ string, _ func(string)) (string, error) {
-		return `{"action":"answer","optionindex":0,"reason":"routine"}`, nil
+		return `{"action":"answer","answers":[{"picks":[0]}],"reason":"routine"}`, nil
 	}
 	t.Cleanup(func() { runFn = oldRun })
 }
@@ -171,6 +131,134 @@ func TestHandleAsk_DeliverySuccessPostsAnswered(t *testing.T) {
 	msgs := channelMessages(t, ctx, ch.OID)
 	if len(msgs) == 0 || msgs[len(msgs)-1].Kind != "jarvis-answered" {
 		t.Fatalf("want answered card, got %+v", msgs)
+	}
+}
+
+var (
+	shipQ   = baseds.AgentAskQuestion{Question: "ship?", Options: []baseds.AgentAskOption{{Label: "yes"}, {Label: "no"}}}
+	checksQ = baseds.AgentAskQuestion{Question: "which checks?", MultiSelect: true, Options: []baseds.AgentAskOption{{Label: "lint"}, {Label: "vet"}, {Label: "test"}}}
+)
+
+// judgeAsk runs handleAsk on a gatekeeper channel with the classifier replying reply, and returns what was handed to
+// delivery (nil when delivery was never called) and the last message posted to the channel.
+func judgeAsk(t *testing.T, questions []baseds.AgentAskQuestion, reply string) ([]baseds.AgentAnswerItem, *waveobj.ChannelMessage) {
+	t.Helper()
+	ctx := context.Background()
+	ch, workerORef := seedGatekeeperChannel(t, ctx, "task")
+	oldRun := runFn
+	runFn = func(_ context.Context, _ consult.RuntimeSpec, _ string, _ string, _ func(string)) (string, error) {
+		return reply, nil
+	}
+	t.Cleanup(func() { runFn = oldRun })
+	origDeliver := deliverFn
+	t.Cleanup(func() { deliverFn = origDeliver })
+	var delivered []baseds.AgentAnswerItem
+	deliverFn = func(_ string, _ string, answers []baseds.AgentAnswerItem) (bool, error) {
+		delivered = answers
+		return true, nil
+	}
+	handleAsk(ctx, baseds.AgentAskData{ORef: workerORef, AskId: uuid.NewString(), Questions: questions})
+	msgs := channelMessages(t, ctx, ch.OID)
+	if len(msgs) == 0 {
+		t.Fatalf("handleAsk posted nothing")
+	}
+	return delivered, msgs[len(msgs)-1]
+}
+
+// Multi-question and multi-select asks reach the judge, and its answers — several picks or a line of text — are
+// delivered whole and recorded on the answered card.
+func TestHandleAsk_JudgesAndDeliversEveryAnswerShape(t *testing.T) {
+	cases := []struct {
+		name      string
+		questions []baseds.AgentAskQuestion
+		reply     string
+		want      []baseds.AgentAnswerItem
+		wantText  string
+	}{
+		{
+			"two questions answered in full",
+			[]baseds.AgentAskQuestion{shipQ, checksQ},
+			`{"action":"answer","answers":[{"picks":[1]},{"picks":[2]}],"reason":"routine"}`,
+			[]baseds.AgentAnswerItem{{SelectedIndexes: []int{1}}, {SelectedIndexes: []int{2}}},
+			`Answered → "no"; "test" — routine`,
+		},
+		{
+			"multi-select with several picks",
+			[]baseds.AgentAskQuestion{checksQ},
+			`{"action":"answer","answers":[{"picks":[0,2]}],"reason":"routine"}`,
+			[]baseds.AgentAnswerItem{{SelectedIndexes: []int{0, 2}}},
+			`Answered → "lint", "test" — routine`,
+		},
+		{
+			"free-text answer",
+			[]baseds.AgentAskQuestion{shipQ},
+			`{"action":"answer","answers":[{"text":"after the tests pass"}],"reason":"no option fits"}`,
+			[]baseds.AgentAnswerItem{{Text: "after the tests pass"}},
+			`Answered → "after the tests pass" — no option fits`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			delivered, msg := judgeAsk(t, tc.questions, tc.reply)
+			if !reflect.DeepEqual(delivered, tc.want) {
+				t.Fatalf("delivered %+v, want %+v", delivered, tc.want)
+			}
+			if msg.Kind != "jarvis-answered" || msg.Text != tc.wantText {
+				t.Fatalf("want answered card %q, got %s %q", tc.wantText, msg.Kind, msg.Text)
+			}
+			var card JarvisCardData
+			if err := json.Unmarshal([]byte(msg.Data), &card); err != nil {
+				t.Fatalf("card data: %v", err)
+			}
+			if !reflect.DeepEqual(card.Answers, tc.want) || len(card.Questions) != len(tc.questions) {
+				t.Fatalf("card should carry the whole ask and its answers, got %+v", card)
+			}
+			if card.Question != tc.questions[0].Question || len(card.Options) != len(tc.questions[0].Options) {
+				t.Fatalf("card's legacy question/options should describe question 0, got %+v", card)
+			}
+		})
+	}
+}
+
+// All or nothing: one question needing the human escalates the whole ask with nothing delivered, even when the judge
+// answered the rest, and the escalation shows the human every question.
+func TestHandleAsk_OneHumanQuestionEscalatesTheWholeAsk(t *testing.T) {
+	delivered, msg := judgeAsk(t, []baseds.AgentAskQuestion{shipQ, checksQ},
+		`{"action":"answer","answers":[{"picks":[0]},{"human":true}],"reason":"which checks is a scope call"}`)
+	if delivered != nil {
+		t.Fatalf("nothing may be delivered, got %+v", delivered)
+	}
+	if msg.Kind != "jarvis-escalation" || !strings.Contains(msg.Text, "which checks is a scope call") {
+		t.Fatalf("want an escalation carrying the judge's reason, got %s %q", msg.Kind, msg.Text)
+	}
+	if !strings.Contains(msg.Text, "ship?") || !strings.Contains(msg.Text, "which checks?") {
+		t.Fatalf("the escalation should show every question, got %q", msg.Text)
+	}
+}
+
+// A judge answer the encoder would refuse escalates before delivery: DeliverAnswer claims the ask before encoding, so
+// a bad answer reaching it would drop the ask with nothing typed.
+func TestHandleAsk_InvalidAnswerEscalatesWithoutDelivery(t *testing.T) {
+	cases := []struct {
+		name      string
+		questions []baseds.AgentAskQuestion
+		reply     string
+	}{
+		{"wrong answer count", []baseds.AgentAskQuestion{shipQ, checksQ}, `{"action":"answer","answers":[{"picks":[0]}]}`},
+		{"out-of-range index", []baseds.AgentAskQuestion{shipQ}, `{"action":"answer","answers":[{"picks":[2]}]}`},
+		{"picks and text together", []baseds.AgentAskQuestion{shipQ}, `{"action":"answer","answers":[{"picks":[0],"text":"yes"}]}`},
+		{"several picks on a single-select", []baseds.AgentAskQuestion{shipQ}, `{"action":"answer","answers":[{"picks":[0,1]}]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			delivered, msg := judgeAsk(t, tc.questions, tc.reply)
+			if delivered != nil {
+				t.Fatalf("an invalid answer must never reach delivery, got %+v", delivered)
+			}
+			if msg.Kind != "jarvis-escalation" || !strings.Contains(msg.Text, "invalid classifier answer") {
+				t.Fatalf("want an escalation naming the invalid answer, got %s %q", msg.Kind, msg.Text)
+			}
+		})
 	}
 }
 
@@ -294,7 +382,7 @@ func TestHandleAskHonoursTheTierForRunWorkers(t *testing.T) {
 			oldRun := runFn
 			runFn = func(_ context.Context, _ consult.RuntimeSpec, _ string, _ string, _ func(string)) (string, error) {
 				classified++
-				return `{"action":"answer","optionindex":0,"reason":"routine"}`, nil
+				return `{"action":"answer","answers":[{"picks":[0]}],"reason":"routine"}`, nil
 			}
 			t.Cleanup(func() { runFn = oldRun })
 			delivered := 0
