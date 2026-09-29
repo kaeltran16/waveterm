@@ -86,9 +86,17 @@ func phaseIdxOf(idx int) *int { return &idx }
 // the dispatch without running it.
 var captureAsync = func(fn func()) { go fn() }
 
-// scheduleAsync pokes a terminal child's dag scheduler off the RPC handler's goroutine. A seam so tests
-// whose fixture repo is torn down on return don't race the engine's git work in it.
-var scheduleAsync = func(fn func()) { go fn() }
+// scheduleDag pokes a dag's scheduler off the caller's goroutine: the tick can merge, run Setup and spawn,
+// which neither an RPC budget nor the seal path should wait on, and it takes the dag lock the caller may not
+// hold. A seam so tests see which dag is poked, and whose fixture repo is torn down on return don't race the
+// engine's git work in it.
+var scheduleDag = func(dagID string) {
+	go func() {
+		if serr := orchestrate.Schedule(context.Background(), dagID); serr != nil {
+			log.Printf("dag schedule error: %v", serr)
+		}
+	}()
+}
 
 // continuityCaptureTimeout bounds the detached boundary-summary model call (PLACEHOLDER; see docs/deferred.md).
 const continuityCaptureTimeout = 90 * time.Second
@@ -142,6 +150,10 @@ func sealDoneRunEvidence(channelId, runId string) {
 	}); uerr != nil {
 		log.Printf("AdvanceRun: persisting evidence for run %s failed: %v", runId, uerr)
 		return
+	}
+	if run.DagORef != "" && run.TaskId != "" && !run.Review {
+		// the task's reviewer waits on this evidence; without a poke it starts on the next watchdog tick
+		scheduleDag(run.DagORef)
 	}
 	if run.EffortRef != nil {
 		// same seal-ctx expiry concern as the event append below: the note is a quick write.
@@ -688,12 +700,7 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		if grp, gerr := orchestrate.GroupForRun(ctx, run.ChannelOID, run.ID); gerr == nil {
 			// the transition is durable; the tick it pokes can merge, run Setup and spawn, which outlasts the
 			// child's RPC budget and reads to the child as a failed complete (run 28caa81f's t-4)
-			dagID := grp.OID
-			scheduleAsync(func() {
-				if serr := orchestrate.Schedule(context.Background(), dagID); serr != nil {
-					log.Printf("dag schedule error: %v", serr)
-				}
-			})
+			scheduleDag(grp.OID)
 		}
 	}
 	// continuity (sub-project E): on entering a rest state (awaiting-review | blocked | done), write the
