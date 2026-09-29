@@ -410,7 +410,11 @@ await step("13-dispatch", "Real dispatch — TaskGroup + workers (engine)", asyn
 });
 
 await step("14-run-body", "Run body — orchestrator execution", async () => {
-    // close DAG modal (Esc) to show the run body / channel stage
+    // step 13 clicked a node, so the first Esc clears the selection and the second closes the DAG modal
+    // to show the run body / channel stage
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await sleep(200);
     await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     await sleep(700);

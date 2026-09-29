@@ -1,8 +1,45 @@
+import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { useAtomValue } from "jotai";
+import { chipGroups, pickNext, type ChipGroup } from "./dagcanvas";
 import { closeDagModal } from "./dagmodalstate";
+import { selectedTaskIdAtom } from "./dagstore";
 
-// graph header: back, the owning run's goal, the derived status pill, cancel. The graph
+// a chip's dot: filled for the groups that are doing or done something, an open ring for those that are not
+const CHIP_DOT = new Map<ChipGroup["key"], string>([
+    ["attention", "border-warning bg-warning"],
+    ["live", "border-accent bg-accent"],
+    ["done", "border-success bg-success"],
+    ["waiting", "border-ink-faint"],
+    ["inert", "border-muted"],
+]);
+
+// the summary chips: how many tasks are in each group, and a click steps the selection through that group
+function SummaryChips({ tasks }: { tasks: TaskNode[] }) {
+    const selected = useAtomValue(selectedTaskIdAtom);
+    return (
+        <div className="flex flex-none items-center gap-1.5">
+            {chipGroups(tasks).map((g) => (
+                <button
+                    key={g.key}
+                    type="button"
+                    title={`Select the next task that is ${g.label}`}
+                    onClick={() => {
+                        const next = pickNext(tasks, g.kinds, selected);
+                        if (next != null) globalStore.set(selectedTaskIdAtom, next);
+                    }}
+                    className="flex cursor-pointer items-center gap-1.5 rounded-[6px] border border-edge-mid bg-surface-raised px-2 py-[3px] text-[11.5px] text-secondary hover:border-edge-strong"
+                >
+                    <span className={`h-[7px] w-[7px] rounded-full border-[1.5px] ${CHIP_DOT.get(g.key)}`} />
+                    {`${g.count} ${g.label}`}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+// graph header: back, the owning run's goal, the summary chips, the derived status pill, cancel. The graph
 // lives in the Stage modal; back dismisses that modal.
 export function DagGraphHeader({ group }: { group: TaskGroup }) {
     const status = group.status;
@@ -28,12 +65,15 @@ export function DagGraphHeader({ group }: { group: TaskGroup }) {
                 <div className="truncate text-[15px] font-bold tracking-[-0.01em] text-primary">
                     {group.title || "orchestration dag"}
                 </div>
-                <div className="font-mono text-[10px] text-muted">
+                <div className="font-mono text-[10.5px] text-ink-mid">
                     {group.id} · parallelism {group.parallelism} ·{" "}
                     {group.tasks.filter((t) => t.state === "done").length}/{group.tasks.length} done
                 </div>
             </div>
-            <span className={`rounded-[5px] border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide ${tone}`}>
+            <SummaryChips tasks={group.tasks} />
+            <span
+                className={`rounded-[5px] border px-2 py-0.5 font-mono text-[10.5px] uppercase tracking-wide ${tone}`}
+            >
                 {label}
             </span>
             {/* awaiting-plan is cancellable too: abandoning a run at its gate is a normal answer, and the
