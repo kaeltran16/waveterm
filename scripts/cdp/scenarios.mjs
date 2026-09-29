@@ -6531,7 +6531,10 @@ const briefPeeksPolish = {
 
         await h.ev(`${PEEKS_RECORD}?.querySelector('[data-jarvis-peek-open-graph]')?.click()`);
         const focused = await polishWaitFor(h, `!!${PEEKS_OPEN}`, 8000);
-        rec("5. the map button opens the graph peek with the record selected", focused, "");
+        const panel = focused
+            ? ""
+            : await h.ev(`(${PEEKS_GRAPH}?.innerText ?? 'no graph peek').replace(/\\s+/g, ' ').slice(0, 160)`);
+        rec("5. the map button opens the graph peek with the record selected", focused, panel);
         if (!focused) return steps;
         await polishNap(800);
         await h.shot("cdp-shots/brief-peeks-polish-2-graph.png");

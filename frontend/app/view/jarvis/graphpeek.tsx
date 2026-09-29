@@ -82,11 +82,12 @@ export function GraphPeek({
     const selectedId = useAtomValue(graphSelectedIdAtom);
     const [query, setQuery] = useState("");
 
+    // refetch on every open, not only the first: a record captured since (every new run makes one) has no node
+    // in a cached graph, so its map button would land on an empty panel. The cached graph stays on screen
+    // until the refetch lands, and the canvas seeds positions from its cache, so known nodes do not move.
     useEffect(() => {
-        if (!loaded) {
-            fireAndForget(loadGraph);
-        }
-    }, [loaded]);
+        fireAndForget(loadGraph);
+    }, []);
 
     // the peek opens *from* an object, whatever the subject kind: bloom the record the subject resolves to
     // and then select the run node itself if that bloom brought it in, so the overlay arrives centred on
