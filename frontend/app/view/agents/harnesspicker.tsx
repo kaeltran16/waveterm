@@ -8,6 +8,7 @@
 // The pure derivation functions live here too so the picker and the composer dispatch share one module.
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import {
     autoUpdate,
@@ -20,6 +21,7 @@ import {
     type Placement,
 } from "@floating-ui/react";
 import { useAtomValue } from "jotai";
+import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { harnessPreferenceAtom, harnessesAtom, setPreferredHarness } from "./harnessstore";
 import { RuntimeMark } from "./runtimemark";
@@ -138,9 +140,9 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
             >
                 <span className="min-w-0 flex-1 truncate text-left">{face.label}</span>
                 {pref.saving ? (
-                    <span className="font-mono text-[10px] font-normal text-muted">saving</span>
+                    <span className="font-mono text-[10.5px] font-normal text-muted">saving</span>
                 ) : (
-                    <span className={cn("flex-none font-mono text-[10px] text-muted", open && "rotate-180")}>▾</span>
+                    <ChevronDown size={12} className={cn("flex-none text-muted", open && "rotate-180")} />
                 )}
             </button>
             <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()} className="z-20">
@@ -150,9 +152,7 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
                     className="w-[300px] rounded-[11px] border border-border bg-surface p-[5px] shadow-popover-md"
                 >
                     <div>
-                        <div className="px-[9px] pb-1.5 pt-1 font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">
-                            Harness
-                        </div>
+                        <div className={cn(REGION_LABEL, "px-[9px] pb-1.5 pt-1 text-muted")}>Harness</div>
                         {items.map((item) => (
                             <button
                                 key={item.runtime}
@@ -191,13 +191,11 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
                                         </span>
                                     ) : null}
                                 </span>
-                                {item.selected ? (
-                                    <span className="flex-none pt-[3px] font-mono text-[11px] text-accent">✓</span>
-                                ) : null}
+                                {item.selected ? <Check size={12} className="mt-[3px] flex-none text-accent" /> : null}
                             </button>
                         ))}
                         {pref.error != null ? (
-                            <div className="mt-1 border-t border-border px-[9px] pb-1 pt-2 font-mono text-[10px] text-error">
+                            <div className="mt-1 border-t border-border px-[9px] pb-1 pt-2 font-mono text-[10.5px] text-error">
                                 saving failed: {pref.error}
                             </div>
                         ) : null}

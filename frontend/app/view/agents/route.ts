@@ -137,6 +137,17 @@ export function modelFace(pin: RoutePin): string {
     return pin.model || "default";
 }
 
+// the line under a model: only the facts it has, so a row with no "CLI default" ends on its last fact
+export function pickerRowMeta(row: PickerModelRow): string {
+    return [
+        row.provider && row.provider !== row.runtime ? `provider ${row.provider}` : "",
+        row.contexthint ? `ctx ${row.contexthint}` : "",
+        row.default ? "CLI default" : "",
+    ]
+        .filter(Boolean)
+        .join(" · ");
+}
+
 export function pickerTitleFor(customTitle?: string): string {
     const t = customTitle?.trim();
     return t ? t : "Run route";
