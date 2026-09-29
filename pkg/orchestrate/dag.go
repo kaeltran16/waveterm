@@ -254,6 +254,9 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 		if t.Escalations != 0 {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q escalations must be zero", t.ID)
 		}
+		if t.StartBase != "" {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q startbase must be empty", t.ID)
+		}
 		if t.ReviewRunID != "" || t.ReviewSpawnedTs != 0 || t.ReviewRespawns != 0 || t.ReviewRound != 0 ||
 			t.ReviewVerdict != "" || t.ReviewNote != "" || t.ReviewDownstream != "" || t.ReviewUnverified != "" || len(t.ReviewDownstreamFor) != 0 || t.ReviewBase != "" || t.ReviewCommit != "" {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q review fields must be empty", t.ID)
