@@ -256,7 +256,7 @@ function ToolLine({ action }: { action: AgentActionEntry }) {
     };
     return (
         <div>
-            <div onClick={onClick} className={cn(TOOL_ROW, detail && "cursor-pointer hover:bg-lane")}>
+            <div onClick={onClick} className={cn(TOOL_ROW, detail && "cursor-pointer hover:bg-surface-hover")}>
                 <StatusSquare ok={ok} />
                 <span className={VERB}>{action.verb}</span>
                 <span className={TARGET}>{action.target}</span>
@@ -405,7 +405,7 @@ function EditBurstRow({ files, adds, dels }: { files: EditFile[]; adds: number; 
     const onClick = () => (toModal ? modalsModel.pushModal("AgentToolDetailModal", { action }) : setOpen((v) => !v));
     return (
         <div>
-            <div onClick={onClick} className={cn(TOOL_ROW, "cursor-pointer hover:bg-lane")}>
+            <div onClick={onClick} className={cn(TOOL_ROW, "cursor-pointer hover:bg-surface-hover")}>
                 <StatusSquare ok />
                 <span className={VERB}>edited</span>
                 <span className={TARGET}>{action.target}</span>
@@ -684,7 +684,7 @@ export function NarrationTimeline({
                         type="button"
                         data-fold
                         onClick={() => expand(item.startIndex)}
-                        className="my-1 flex w-full cursor-pointer items-center gap-2 rounded-[6px] border border-edge-mid px-[5px] py-[3px] text-left font-mono hover:bg-lane"
+                        className="my-1 flex w-full cursor-pointer items-center gap-2 rounded-[6px] border border-edge-mid px-[5px] py-[3px] text-left font-mono hover:bg-surface-hover"
                     >
                         <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] bg-accent/[0.12] text-accent-soft">
                             <Layers size={11} strokeWidth={2.2} aria-hidden />
