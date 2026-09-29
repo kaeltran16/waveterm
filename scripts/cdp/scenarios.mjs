@@ -6056,6 +6056,144 @@ const cockpitPolish = {
     },
 };
 
+// The Jarvis run sheet on the brief type scale (docs/superpowers/specs/2026-09-29-run-sheet-polish-design.md):
+// nothing under 10.5px in the sheet body or its header, the shared task strip under the verb, and the compact
+// lifecycle timeline. The run is a real orchestrator run held by deferstart, then given a chained three-task plan,
+// so only t-1 dispatches a worker; teardown cancels the run, which cancels its DAG and that worker.
+const RUN_SHEET_POLISH_TASKS = [
+    { id: "t-1", label: "noop", description: "do nothing, stop immediately", deps: [], gate: false, state: "" },
+    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: ["t-1"], gate: false, state: "" },
+    { id: "t-3", label: "noop 3", description: "do nothing, stop immediately", deps: ["t-2"], gate: false, state: "" },
+];
+
+const runSheetPolish = {
+    name: "run-sheet-polish",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-run-sheet-polish-"));
+        const ctx = { cwd };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-run-sheet-polish", projectpath: cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: "verify run-sheet-polish: do nothing, make no file changes, stop immediately",
+                runtime: "claude",
+                mode: "orchestrator",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            await h.rpc("dagsubmit", {
+                channelid: ctx.channelId,
+                runid: ctx.runId,
+                title: "verify run-sheet-polish",
+                parallelism: 1,
+                tasks: RUN_SHEET_POLISH_TASKS,
+            });
+            // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+            await h.goto("jarvis");
+            ctx.opened = await h.ev(`(async () => {
+                for (let i = 0; i < 20 && typeof window.__openAddress !== "function"; i++) {
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                if (typeof window.__openAddress !== "function") return { ok: false, why: "no __openAddress hook" };
+                return window.__openAddress(${JSON.stringify(`run:${ctx.runId}`)});
+            })()`);
+            ctx.timelineOpened = await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector('[data-run-sheet] [role="img"]'); i++) {
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                for (let i = 0; i < 40; i++) {
+                    const toggle = [...document.querySelectorAll("[data-run-sheet] button[aria-expanded]")].find((b) =>
+                        (b.textContent || "").trim().startsWith("timeline")
+                    );
+                    if (toggle) {
+                        if (toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+                        return true;
+                    }
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                return false;
+            })()`);
+            await new Promise((r) => setTimeout(r, 600));
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec(
+            "0. the run's sheet opened on the Brief",
+            ctx.arrangeError == null && ctx.opened?.ok === true,
+            ctx.arrangeError ?? JSON.stringify({ runId: ctx.runId, opened: ctx.opened })
+        );
+
+        const small = await h.ev(`(() => {
+            const roots = [
+                document.querySelector("[data-run-sheet]"),
+                document.querySelector("[data-jarvis-brief-sheet] > header"),
+            ];
+            if (roots.some((r) => r == null)) return null;
+            const min = ${MIN_FONT_PX};
+            const offenders = [];
+            let seen = 0;
+            for (const root of roots) {
+                const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+                    const text = n.data.trim();
+                    if (!text) continue;
+                    const range = document.createRange();
+                    range.selectNodeContents(n);
+                    const r = range.getBoundingClientRect();
+                    if (r.width === 0 || r.height === 0) continue;
+                    const cs = getComputedStyle(n.parentElement);
+                    if (cs.visibility === "hidden" || Number(cs.opacity) === 0) continue;
+                    seen++;
+                    const px = parseFloat(cs.fontSize);
+                    if (px < min) offenders.push(text.slice(0, 40) + " @" + cs.fontSize);
+                }
+            }
+            return { seen, offenders };
+        })()`);
+        rec(
+            "1. no visible text on the run sheet or its header is under 10.5px",
+            small != null && small.seen > 0 && small.offenders.length === 0,
+            small == null
+                ? "no [data-run-sheet] or [data-jarvis-brief-sheet] > header"
+                : `checked ${small.seen} text nodes; offenders=${JSON.stringify(small.offenders)}`
+        );
+
+        const bar = await h.ev(`document.querySelector("[data-run-sheet] [role=img]")?.getAttribute("aria-label") ?? null`);
+        rec(
+            "2. the task strip under the verb carries its done/total label",
+            typeof bar === "string" && /^\d+ of \d+ tasks (done|finished)/.test(bar),
+            `aria-label=${JSON.stringify(bar)}`
+        );
+
+        const timeline = await h.ev(`!!document.querySelector("[data-run-sheet-timeline]")`);
+        rec(
+            "3. the compact timeline opened from the tasks heading",
+            timeline === true,
+            JSON.stringify({ toggled: ctx.timelineOpened, timeline })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "run-sheet-polish");
+    },
+};
+
 export const SCENARIOS = [
     briefContextualMap,
     briefRestore,
@@ -6094,4 +6232,5 @@ export const SCENARIOS = [
     narrationFeed,
     agentTreeRail,
     cockpitPolish,
+    runSheetPolish,
 ];

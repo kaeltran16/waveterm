@@ -33,8 +33,7 @@ import {
     type RunSettingsPanelState,
 } from "./runsettings";
 
-// status tones, mapped onto @theme utilities by the view. "dim" is the stale meter: figures that are no
-// longer current keep their shape but lose their status colour.
+// status tones, mapped onto @theme utilities by the view
 export type SheetTone =
     | "success"
     | "success-soft"
@@ -44,19 +43,22 @@ export type SheetTone =
     | "error-soft"
     | "muted"
     | "faint"
-    | "accent"
-    | "dim";
+    | "accent";
 
 export type SheetMeta = { text: string; tone: SheetTone };
 
-export type SheetMeter = { done: number; total: number; tone: SheetTone };
+// The bar under the verb: the shared task strip (runstrip.ts), drawn from the live group. A stale read keeps the
+// held digest's dated done/total instead: per-task colours would present old figures as current.
+export type SheetBar = { kind: "strip" } | { kind: "stale"; done: number; total: number };
+
+const STRIP: SheetBar = { kind: "strip" };
 
 export type SheetStatus = {
     verb: string;
     sub: string;
     tone: SheetTone;
     pulse: boolean;
-    meter: SheetMeter | null;
+    meter: SheetBar | null;
     meta: SheetMeta[];
     // null when the sheet has no next move to state: a finished run, or a quick run with no scheduler
     next: string | null;
@@ -157,7 +159,7 @@ function doneStatus(read: SheetRead): SheetStatus {
         sub: parts.length > 0 ? parts.join(", ") : "the run finished",
         tone: "success",
         pulse: false,
-        meter: group != null ? { done: finishedCount(group), total: group.tasks.length, tone: "success" } : null,
+        meter: group != null ? STRIP : null,
         meta,
         next: null,
         retry: false,
@@ -185,7 +187,7 @@ function cancelledStatus(read: SheetRead): SheetStatus {
         sub,
         tone: "error",
         pulse: false,
-        meter: group != null ? { done: finishedCount(group), total: group.tasks.length, tone: "muted" } : null,
+        meter: group != null ? STRIP : null,
         meta,
         next: group != null ? "nothing — the scheduler stopped dispatching" : null,
         retry: false,
@@ -308,7 +310,7 @@ function daggedStatus(read: SheetRead, dag: SheetDagRead): SheetStatus {
             tone: "muted",
             pulse: false,
             // the held digest's own figures, not the live group's: the meter is dated with everything else
-            meter: { done: digest.counts.done, total: digest.counts.total, tone: "dim" },
+            meter: { kind: "stale", done: digest.counts.done, total: digest.counts.total },
             meta,
             next: "unknown — the engine's next move could not be read",
             retry: true,
@@ -333,7 +335,7 @@ function daggedStatus(read: SheetRead, dag: SheetDagRead): SheetStatus {
     if (updated != null) {
         meta.push({ text: updated, tone: "muted" });
     }
-    const meter: SheetMeter = { done: finished, total, tone: "success" };
+    const meter = STRIP;
     const next = nextStepText(digest.next, briefs);
     const running = digest.counts.running;
 

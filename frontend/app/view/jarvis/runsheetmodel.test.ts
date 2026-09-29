@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { taskStripLabel } from "@/app/view/agents/runstrip";
 import { describe, expect, it } from "vitest";
 import type { DigestState } from "../orchestrate/dagdigest";
 import type { TaskWorkerView } from "../orchestrate/taskcorrelate";
@@ -147,7 +148,7 @@ describe("sheetStatus", () => {
         const s = sheetStatus(read());
         expect(s.verb).toBe("Executing");
         expect(s.sub).toBe("2 of 4 tasks done, 2 workers live");
-        expect(s.meter).toEqual({ done: 2, total: 4, tone: "success" });
+        expect(s.meter).toEqual({ kind: "strip" });
         expect(s.next).toBe("waiting for a slot — task 1, task 2 still running");
         expect(s.meta.map((m) => m.text)).toEqual(["18m elapsed", "workers 31m", "updated 3s ago"]);
     });
@@ -169,23 +170,33 @@ describe("sheetStatus", () => {
             })
         );
         expect(s.verb).toBe("Landing");
-        expect(s.meter).toEqual({ done: 4, total: 4, tone: "success" });
+        expect(s.meter).toEqual({ kind: "strip" });
         expect(s.next).not.toMatch(/finished/);
     });
 
-    it("counts a skipped task as finished, so Landing never sits over a meter one short", () => {
+    it("counts a skipped task as finished, so Landing never sits over a strip one short", () => {
+        const g = group(["done", "skipped", "done", "done"], { status: "done" });
         const s = sheetStatus(
             read({
                 dag: {
                     digest: fresh(
                         digest({ next: { kind: "terminal", terminalstatus: "done" } }, { done: 3, running: 0 })
                     ),
-                    group: group(["done", "skipped", "done", "done"], { status: "done" }),
+                    group: g,
                     groupRead: "ready",
                 },
             })
         );
-        expect(s.meter?.done).toBe(4);
+        expect(s.verb).toBe("Landing");
+        expect(s.meter).toEqual({ kind: "strip" });
+        expect(taskStripLabel(g, undefined)).toBe("4 of 4 tasks done");
+    });
+
+    it("draws the strip for a finished or cancelled run with a graph, and no bar without one", () => {
+        const dag = { digest: fresh(digest()), group: group(["done", "cancelled"]), groupRead: "ready" as const };
+        expect(sheetStatus(read({ run: run({ status: "done" }), dag })).meter).toEqual({ kind: "strip" });
+        expect(sheetStatus(read({ run: run({ status: "cancelled" }), dag })).meter).toEqual({ kind: "strip" });
+        expect(sheetStatus(read({ run: run({ status: "cancelled" }), dag: null })).meter).toBeNull();
     });
 
     it("waits on you for a question that is yours, naming the task that asked", () => {
@@ -285,8 +296,8 @@ describe("sheetStatus", () => {
         );
         expect(s.verb).toBe("Status is stale");
         expect(s.sub).toBe("the last status read failed; these figures are 2m old");
-        // the digest's own count, not the live group's three
-        expect(s.meter).toEqual({ done: 2, total: 4, tone: "dim" });
+        // the digest's own count, not the live group's three, and no per-task colours: the figures are old
+        expect(s.meter).toEqual({ kind: "stale", done: 2, total: 4 });
         expect(s.retry).toBe(true);
         expect(s.next).toMatch(/^unknown/);
     });
