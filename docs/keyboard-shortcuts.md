@@ -154,11 +154,16 @@ row below expands into the same choices.
 | Keys | Action |
 |---|---|
 | `j` / `k` | Next / previous task, in plan order |
+| `←` / `→` | Follow an edge to the nearest dependency / dependent |
+| `↑` / `↓` | Previous / next task in the same column |
 | `Enter` (or double-click a task) | Open the task's worker in the Agent surface, or its child run once the session is gone |
-| `Esc` | Close the graph |
+| `f` | Fit the whole graph |
+| `+` / `-` | Zoom in / out |
+| `Esc` | Clear the selection; with nothing selected, close the graph |
 
-Resting the pointer on a task shows its peek: the full title and description, what it is waiting on,
-its latest activity, and why it failed.
+Resting the pointer on a task shows its peek: the full title, the description's first paragraph (or the files
+it touches), what it is waiting on, its latest activity, and why it failed. Drag a task to move it (its place is
+kept for that run until Reset layout); drag empty canvas to pan. A dashed band marks a lane: tasks that merge as one.
 
 ## Help
 

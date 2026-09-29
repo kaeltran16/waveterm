@@ -8,6 +8,7 @@ import {
     closeDagModal,
     dagModalAgentsContextAtom,
     dagModalStateAtom,
+    escapeDagModal,
     openDagLive,
     openDagTask,
     reduceDagModalState,
@@ -76,5 +77,16 @@ describe("dag modal atom actions", () => {
         expect(ctx?.agents[0]).toMatchObject({ id: "w1" });
         // selection source stays selectedTaskIdAtom — the context never writes it
         expect(globalStore.get(selectedTaskIdAtom)).toBeNull();
+    });
+});
+
+describe("escapeDagModal", () => {
+    it("clears a selection before it closes the modal", () => {
+        openDagTask("c", "r", "dag:x", "t-1");
+        escapeDagModal();
+        expect(globalStore.get(selectedTaskIdAtom)).toBeNull();
+        expect(globalStore.get(dagModalStateAtom)).not.toBeNull();
+        escapeDagModal();
+        expect(globalStore.get(dagModalStateAtom)).toBeNull();
     });
 });

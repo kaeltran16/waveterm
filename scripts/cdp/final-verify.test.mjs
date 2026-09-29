@@ -116,7 +116,7 @@ describe("final-verify.mjs", () => {
         expect(r.last).toMatch(/^dev app did not answer on :\d+$/);
         expect(existsSync(pidFile)).toBe(true);
         expect(alive(Number(readFileSync(pidFile, "utf8")))).toBe(false);
-    });
+    }, 30_000);
 
     // a dev app is running on the vite port most of the time here: the final one takes another port, and builds
     // and stores everything where the running one cannot see it

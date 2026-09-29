@@ -323,25 +323,26 @@ export interface ActionsSummary {
     total: number;
     byVerb: { verb: string; count: number }[];
     outcome: "ok" | "fail";
+    failed: number;
 }
 
-/** Pure: per-verb counts (count desc, then first appearance) plus the aggregate outcome
- *  (fail if any action failed). Drives a collapsed group's summary label. */
+/** Pure: per-verb counts (count desc, then first appearance), the number of failed actions, and the aggregate
+ *  outcome (fail if any action failed). Drives a collapsed group's summary label. */
 export function summarizeActions(actions: AgentActionEntry[]): ActionsSummary {
     const order: string[] = [];
     const counts = new Map<string, number>();
-    let outcome: "ok" | "fail" = "ok";
+    let failed = 0;
     for (const a of actions) {
         if (!counts.has(a.verb)) {
             order.push(a.verb);
         }
         counts.set(a.verb, (counts.get(a.verb) ?? 0) + 1);
         if (a.outcome === "fail") {
-            outcome = "fail";
+            failed++;
         }
     }
     const byVerb = order.map((verb) => ({ verb, count: counts.get(verb)! })).sort((x, y) => y.count - x.count);
-    return { total: actions.length, byVerb, outcome };
+    return { total: actions.length, byVerb, outcome: failed > 0 ? "fail" : "ok", failed };
 }
 
 /**

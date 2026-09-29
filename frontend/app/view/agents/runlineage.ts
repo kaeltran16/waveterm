@@ -122,6 +122,21 @@ export function runAgentsOf<T extends { id: string }>(lineage: Lineage, agents: 
     });
 }
 
+// leadRunTabIds is every tab of the run agentId leads, its own included, when the run holds any besides the lead:
+// closing the lead alone would leave those nested under a lead-less run row. Undefined for anything else.
+export function leadRunTabIds<T extends { id: string }>(
+    lineage: Lineage,
+    agents: T[],
+    agentId: string
+): string[] | undefined {
+    const role = lineage.roles[agentId];
+    if (role?.kind !== "lead") {
+        return undefined;
+    }
+    const ids = runAgentsOf(lineage, agents, role.runId).map((a) => a.id);
+    return ids.length > 1 ? ids : undefined;
+}
+
 const ENDED_WORKER_PREFIX = "ended:";
 
 // endedWorkerId is what a done task's worker is focused by. Its session has ended, so the surface reads it back

@@ -12,7 +12,7 @@ import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState, type JSX } from "react";
 import { DagGraphView } from "./daggraph";
-import { closeDagModal, dagModalStateAtom, type DagModalState } from "./dagmodalstate";
+import { closeDagModal, dagModalStateAtom, escapeDagModal, type DagModalState } from "./dagmodalstate";
 import { timelineLayout, type TimelineLayout } from "./timelinefilter";
 import { TimelineRail } from "./timelinerail";
 
@@ -32,7 +32,7 @@ export function DagModal() {
             if (event.key === "Escape") {
                 event.preventDefault();
                 event.stopPropagation();
-                closeDagModal();
+                escapeDagModal();
                 return;
             }
             if (event.key !== "Tab") return;
@@ -113,7 +113,7 @@ function ModalSubtitle({ channelId, runId }: { channelId: string; runId: string 
     const [channel] = useWaveObjectValue<Channel>(`channel:${channelId}`);
     const projects = useAtomValue(projectsAtom);
     return (
-        <p className="font-mono text-xxs uppercase tracking-[.1em] text-muted">
+        <p className="font-mono text-[10.5px] uppercase tracking-[.1em] text-muted">
             {channelProjectLabel(channel, projects) || channelId} · {runId.slice(0, 13)}
         </p>
     );

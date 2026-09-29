@@ -101,7 +101,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
 
     // Close the whole session (a tab, per launchAgent) — shared with the double-Ctrl+C handler. The
     // header also fronts background terminals, so the noun follows what is actually focused.
-    const closeTerminal = () => confirmCloseSession(agent);
+    const closeTerminal = () => confirmCloseSession(agent, model);
     const closeLabel = agent.kind === "terminal" ? "Close terminal" : "Close agent";
 
     // Right-click the header for the same controls as the button row (plus the details toggle).

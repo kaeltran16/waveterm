@@ -43,7 +43,7 @@ export const ATTENTION_KINDS = new Set<string>([
 ]);
 
 // taskIdOf reads the task a row belongs to; "" for a dag-level row (dag-done, evidence-sealed).
-function taskIdOf(event: RunEvent): string {
+export function taskIdOf(event: RunEvent): string {
     return detailOf<{ taskid?: string }>(event)?.taskid ?? "";
 }
 

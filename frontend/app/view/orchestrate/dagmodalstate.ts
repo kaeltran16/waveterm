@@ -76,6 +76,15 @@ export function closeDagModal(): void {
     dispatchDagModal({ type: "close" });
 }
 
+// escapeDagModal is Esc inside the modal: a selection is the nearer thing to dismiss, so it goes first
+export function escapeDagModal(): void {
+    if (globalStore.get(selectedTaskIdAtom) != null) {
+        resetSelection();
+        return;
+    }
+    closeDagModal();
+}
+
 if (import.meta.env.DEV && typeof window !== "undefined") {
     window.__waveDagModalFixture = {
         setState: (state: DagModalState | null) => {

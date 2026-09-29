@@ -303,7 +303,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                     const fid = globalStore.get(model.focusIdAtom);
                     const a = closeTargetForDoubleCtrlC(agents, fid);
                     if (a) {
-                        confirmCloseSession(a);
+                        confirmCloseSession(a, model);
                         return true;
                     }
                     return false;

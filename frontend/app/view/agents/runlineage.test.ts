@@ -13,6 +13,7 @@ import {
     isEndedWorkerId,
     laneLabel,
     leadAgentOf,
+    leadRunTabIds,
     leadStandingBy,
     runAgentsOf,
     runProgress,
@@ -146,6 +147,23 @@ describe("run facts", () => {
         const agents = [{ id: "w1" }, { id: "plain" }, { id: "w2" }, { id: "l" }, { id: "other" }];
         expect(runAgentsOf(lineage, agents, "r1").map((a) => a.id)).toEqual(["w1", "w2", "l"]);
         expect(runAgentsOf(lineage, agents, "r3")).toEqual([]);
+    });
+
+    it("offers a lead's whole run to close only when the run holds tabs besides the lead", () => {
+        const lineage = {
+            roles: {
+                l: { kind: "lead", runId: "r1" },
+                w: { kind: "worker", leadRunId: "r1", taskId: "t-1" },
+                s: { kind: "stage", leadRunId: "r1", stageRole: "plan-reviewer" },
+                alone: { kind: "lead", runId: "r2" },
+            },
+            runs: {},
+        } as const;
+        const agents = [{ id: "l" }, { id: "w" }, { id: "s" }, { id: "alone" }, { id: "plain" }];
+        expect(leadRunTabIds(lineage, agents, "l")).toEqual(["l", "w", "s"]);
+        expect(leadRunTabIds(lineage, agents, "alone")).toBeUndefined();
+        expect(leadRunTabIds(lineage, agents, "w")).toBeUndefined();
+        expect(leadRunTabIds(lineage, agents, "plain")).toBeUndefined();
     });
 
     it("shows a worker under its lead's project, else its run's", () => {
