@@ -1,6 +1,6 @@
 # Cockpit surface polish
 
-**Status:** Approved design, not built.
+**Status:** Built (run a02cd7f7, 2026-09-29).
 
 The Cockpit surface (`frontend/app/view/agents/cockpitsurface.tsx` and what it renders: `agentrow.tsx`,
 `leadcard.tsx` with `leadcardmodel.ts`, `attentioncard.tsx`, `answerbar.tsx`, `cockpiteventsrail.tsx`,
