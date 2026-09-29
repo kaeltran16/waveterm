@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentTree, treeAgentCount, UNGROUPED_PROJECT, type AgentTreeRow } from "./agenttreemodel";
+import { buildAgentTree, stageSubline, treeAgentCount, UNGROUPED_PROJECT, type AgentTreeRow } from "./agenttreemodel";
 import type { AgentVM } from "./agentsviewmodel";
 import type { Lineage, RunInfo } from "./runlineage";
 
@@ -454,5 +454,14 @@ describe("buildAgentTree with run lineage", () => {
             lineage([], { w1: { kind: "worker", leadRunId: "gone", taskId: "t-1" } })
         );
         expect(shape(rows)).toEqual(["group:waveterm:1:0", "parent:w1"]);
+    });
+});
+
+describe("stageSubline", () => {
+    it("says the verdict and the age, not the role the title already names", () => {
+        expect(stageSubline("passed", "14m")).toBe("passed · 14m");
+    });
+    it("is just the age while the stage is judging", () => {
+        expect(stageSubline(undefined, "2m")).toBe("2m");
     });
 });

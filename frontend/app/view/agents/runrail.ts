@@ -106,7 +106,7 @@ function laneRow(key: string, tasks: TaskNode[], byId: Map<string, TaskNode>, di
     }
     const ask = workerAsk(digest, current.id);
     if (ask?.owner === "lead") {
-        return { ...row, hist: prior, state: "lead", text: "→ lead" };
+        return { ...row, hist: prior, state: "lead", text: "lead" };
     }
     if (ask?.owner === "you") {
         return { ...row, hist: prior, state: "asking", text: "asks you" };

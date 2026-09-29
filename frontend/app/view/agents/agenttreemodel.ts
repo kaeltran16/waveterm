@@ -112,6 +112,11 @@ export function stageOutcome(
     return stage.outcomes[stage.cur.state];
 }
 
+// stageSubline is a stage row's second line: its verdict and age. the row's title already names the role.
+export function stageSubline(outcome: StageOutcome | undefined, age: string): string {
+    return [outcome, age].filter(Boolean).join(" · ");
+}
+
 // history order: a plan review came before any task, a final verification after every one, and within a stage an
 // earlier round (failed) before the current one
 const stageRank = (s: StageAgent & { outcome?: StageOutcome }) =>

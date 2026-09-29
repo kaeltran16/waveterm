@@ -8,16 +8,28 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Copy, CopyPlus, ExternalLink, Pencil, X } from "lucide-react";
+import {
+    ArrowRight,
+    Check,
+    ChevronDown,
+    ChevronRight,
+    Copy,
+    CopyPlus,
+    ExternalLink,
+    Pencil,
+    SquareTerminal,
+    Workflow,
+    X,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
-import { buildAgentTree, treeAgentCount, type StageOutcome } from "./agenttreemodel";
+import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
-import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
+import { displayAgeMs, formatAgeShort, type AgentState, type AgentVM } from "./agentsviewmodel";
 import {
     endedWorkerId,
     laneLabel,
@@ -40,7 +52,8 @@ import {
     treeFoldsAtom,
     useRunDigests,
 } from "./runlineagestore";
-import { finishedRunLabel, runStatusView } from "./runmodel";
+import { finishedRunLabel, runComplete, runStatusView } from "./runmodel";
+import { SEG_FILL, taskStrip, taskStripLabel } from "./runstrip";
 import {
     getSubagentExpandAtom,
     toggleSubagentExpand,
@@ -117,27 +130,98 @@ function RenameBox({ tabId }: { tabId: string }) {
             onBlur={() => finish(true)}
             placeholder="Name this session"
             aria-label="Session name"
-            className="w-full min-w-0 rounded-[5px] border border-accent bg-surface px-1 font-mono text-[12px] font-semibold text-primary focus:outline-none"
+            className="w-full min-w-0 rounded-[5px] border border-accent bg-surface px-[5px] text-[13px] font-medium text-primary focus:outline-none"
         />
     );
 }
 
-// The run glyph marks a row that stands for an orchestrator run: its lead, or the run itself before one.
-function RunGlyph() {
-    return <span className="mr-[5px] text-[10px] text-accent-soft">◆</span>;
+const PULSE = "animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none";
+
+// the lead's Workflow mark takes the colour its status dot would have had (see StatusDot)
+const MARK_COLOR: Record<AgentState, string> = {
+    asking: "text-warning",
+    working: "text-accent",
+    idle: "text-muted",
+};
+
+// Every row's leading mark sits in one column, so dots, icons and fold marks line up down the tree.
+function Slot({ children }: { children: React.ReactNode }) {
+    return <span className="flex w-[14px] shrink-0 items-center justify-center">{children}</span>;
 }
 
-// The elbow marks a row nested under a run, or one level deeper under a task's worker.
-function Elbow({ deep }: { deep?: boolean }) {
+// A nested row's tree guides: one line per level above it, through that level's leading column.
+const GUIDE_LEFT = ["left-[18px]", "left-[35px]"];
+
+function Guides({ depth }: { depth: 1 | 2 }) {
     return (
-        <span
-            className={cn(
-                "absolute top-1/2 -translate-y-1/2 font-mono text-[11px] font-semibold text-ink-faint",
-                deep ? "left-[28px]" : "left-[12px]"
-            )}
+        <>
+            {GUIDE_LEFT.slice(0, depth).map((left) => (
+                <span key={left} className={cn("absolute inset-y-0 w-px bg-edge-strong", left)} />
+            ))}
+        </>
+    );
+}
+
+function FoldChip({
+    label,
+    open,
+    onToggle,
+    ariaShow,
+    ariaHide,
+}: {
+    label: string;
+    open: boolean;
+    onToggle: () => void;
+    ariaShow: string;
+    ariaHide: string;
+}) {
+    return (
+        <button
+            type="button"
+            onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+            }}
+            aria-label={open ? ariaHide : ariaShow}
+            aria-expanded={open}
+            className="inline-flex h-[18px] flex-none items-center gap-[3px] rounded-[5px] border border-edge-mid bg-surface-hover pl-[3px] pr-[6px] font-mono text-[10.5px] font-semibold text-ink-mid hover:border-accent hover:text-accent-soft"
         >
-            ↳
+            {open ? <ChevronDown size={10} aria-hidden /> : <ChevronRight size={10} aria-hidden />}
+            {label}
+        </button>
+    );
+}
+
+function AskingBadge({ n }: { n: number }) {
+    return (
+        <span className="whitespace-nowrap rounded-[5px] bg-askingbg px-[6px] py-[1px] font-mono text-[10.5px] font-semibold text-warning">
+            {n} asking
         </span>
+    );
+}
+
+// TaskStripBar is a run's per-task strip under its second line: a segment per task, or one bar for a long plan.
+function TaskStripBar({ run }: { run: RunInfo }) {
+    const strip = taskStrip(run.dag, run.digest);
+    if (strip == null) {
+        return null;
+    }
+    return (
+        <div role="img" aria-label={taskStripLabel(run.dag, run.digest)} className="mt-[6px] flex h-[3px] gap-[2px]">
+            {strip.kind === "segments" ? (
+                strip.states.map((st, i) => (
+                    <span key={i} className={cn("min-w-[2px] flex-1 rounded-[1.5px]", SEG_FILL[st])} />
+                ))
+            ) : (
+                <>
+                    <span className="min-w-0 rounded-[1.5px] bg-success" style={{ flexGrow: strip.done }} />
+                    <span
+                        className="min-w-0 rounded-[1.5px] bg-edge-strong"
+                        style={{ flexGrow: strip.total - strip.done }}
+                    />
+                </>
+            )}
+        </div>
     );
 }
 
@@ -148,7 +232,11 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
         // still on its way — so the run's own status is the only truth here. Hardcoding "planning" left
         // a finished bounded run's lead row reading planning for good, the same misreading of an absent
         // dag the engine had in ShouldCloseOrchestratorLead.
-        return <div className="truncate text-[10.5px] text-muted">{runStatusView(run.status ?? "planning").label}</div>;
+        return (
+            <div className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
+                {runStatusView(run.status ?? "planning").label}
+            </div>
+        );
     }
     const { done, total } = runProgress(run.dag);
     const chip = live > 0 || done === 0 ? `${live} ${live === 1 ? "worker" : "workers"}` : `${done} done`;
@@ -160,21 +248,26 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
         progress = `${done}/${total} · ${run.leadStarted ? "lead closed" : "lead starts if needed"}`;
     }
     return (
-        <div className="mt-[2px] flex min-w-0 items-center gap-[6px]">
-            <button
-                type="button"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    toggleRunCollapsed(run.runId);
-                }}
-                title={open ? "Hide workers" : "Show workers"}
-                className="flex flex-none items-center gap-[3px] rounded-sm border border-edge-mid bg-surface-hover px-[5px] font-mono text-[9.5px] font-semibold text-muted hover:border-accent hover:text-accent-soft"
-            >
-                <span className="text-xxxs leading-none">{open ? "▾" : "▸"}</span>
-                {chip}
-            </button>
-            <span className="truncate text-[10.5px] text-muted">{progress}</span>
-        </div>
+        <>
+            <div className="mt-[3px] flex min-w-0 items-center gap-[6px] font-mono text-[10.5px]">
+                <FoldChip
+                    label={chip}
+                    open={open}
+                    onToggle={() => toggleRunCollapsed(run.runId)}
+                    ariaShow="Show workers"
+                    ariaHide="Hide workers"
+                />
+                {runComplete(run) ? (
+                    <span className="flex min-w-0 items-center gap-[5px] text-success">
+                        <Check size={11} aria-hidden className="flex-none" />
+                        <span className="truncate">{finishedRunLabel(run)}</span>
+                    </span>
+                ) : (
+                    <span className="truncate text-muted">{progress}</span>
+                )}
+            </div>
+            <TaskStripBar run={run} />
+        </>
     );
 }
 
@@ -197,6 +290,7 @@ function ParentRow({
     const selected = focusId === agent.id;
     const asking = agent.state === "asking";
     const standingBy = lead != null && leadStandingBy(agent, lead.run);
+    const complete = lead != null && runComplete(lead.run);
     // m4: one-shot settle when this agent reaches idle (working/asking -> idle)
     const settling = useSettle(agent.state === "idle");
 
@@ -226,6 +320,17 @@ function ParentRow({
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };
 
+    const subsChip =
+        subs.length > 0 ? (
+            <FoldChip
+                label={`${subs.length} ${subs.length === 1 ? "subagent" : "subagents"}`}
+                open={expanded}
+                onToggle={() => toggleSubagentExpand(oref, expanded)}
+                ariaShow="Show subagents"
+                ariaHide="Hide subagents"
+            />
+        ) : null;
+
     // The animating motion.div wrapper lives in AgentTree (direct AnimatePresence child, required for
     // popLayout to pop an exiting row out of flow). This is just the row body + subagent reveal.
     return (
@@ -234,49 +339,46 @@ function ParentRow({
                 onClick={select}
                 onContextMenu={onContextMenu}
                 className={cn(
-                    "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[10px] transition-colors duration-[140ms]",
+                    "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[9px] transition-colors duration-[140ms]",
                     // m3 attention: a static amber tint marks an asking row (the pulse lives in the dot, not the row);
                     // selection wins the background so the focused row still reads as focused.
                     selected ? "bg-accentbg" : asking ? "bg-warning/[0.06]" : "hover:bg-surface-hover",
                     settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
                 )}
             >
-                <StatusDot
-                    state={standingBy ? "idle" : agent.state}
-                    pulse={agent.state !== "idle" && !standingBy}
-                    className="!h-[7px] !w-[7px]"
-                />
+                <Slot>
+                    {lead ? (
+                        <Workflow
+                            size={13}
+                            aria-hidden
+                            className={cn(
+                                complete ? "text-success" : standingBy ? "text-muted" : MARK_COLOR[agent.state],
+                                !complete && !standingBy && agent.state !== "idle" && PULSE
+                            )}
+                        />
+                    ) : (
+                        <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
+                    )}
+                </Slot>
                 <div className="min-w-0 flex-1">
                     {renaming ? (
                         <RenameBox tabId={agent.id} />
                     ) : (
-                        <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">
-                            {lead ? <RunGlyph /> : null}
-                            {agent.name}
-                        </div>
+                        <div className="truncate text-[13px] font-medium text-ink-hi">{agent.name}</div>
                     )}
                     {lead ? (
                         <RunSubline run={lead.run} open={lead.open} live={lead.live} />
                     ) : (
-                        <div className="truncate text-[10.5px] text-muted">{branch || "—"}</div>
+                        <div className="mt-[3px] flex min-w-0 items-center gap-[6px]">
+                            {subsChip}
+                            <span className="truncate font-mono text-[10.5px] text-muted">{branch || "—"}</span>
+                        </div>
                     )}
                 </div>
-                {subs.length > 0 ? (
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            toggleSubagentExpand(oref, expanded);
-                        }}
-                        title="Toggle subagents"
-                        className="flex items-center gap-[3px] rounded-sm border border-edge-mid bg-surface-hover px-[6px] py-[2px] font-mono text-[9.5px] font-semibold text-muted hover:border-accent hover:text-accent-soft"
-                    >
-                        <span className="text-xxxs leading-none">{expanded ? "▾" : "▸"}</span>
-                        {subs.length}
-                    </button>
-                ) : null}
+                {/* a lead's second line holds its workers chip, so its subagents chip stays at the row's end */}
+                {lead ? subsChip : null}
                 {/* a row names its state only when it wants something; the dot already says working or idle */}
-                {asking ? <span className="font-mono text-[10px] font-medium text-warning">asking</span> : null}
+                {asking ? <span className="font-mono text-[10.5px] font-semibold text-warning">asking</span> : null}
             </div>
             {/* subagent reveal: the children block expands/collapses via composerReveal (height+opacity).
                 It is not a layout node itself, so its height animation and the row-list reflow don't fight. */}
@@ -299,26 +401,30 @@ function ParentRow({
                                     });
                                 }}
                                 className={cn(
-                                    "relative flex items-center gap-[8px] rounded-[9px] py-[7px] pl-[28px] pr-[10px] hover:bg-surface-hover",
+                                    "relative flex items-center gap-[9px] rounded-[9px] py-[6px] pl-[28px] pr-[11px] hover:bg-surface-hover",
                                     s.transcriptPath && "cursor-pointer"
                                 )}
                             >
-                                <span className="absolute left-[13px] top-1/2 -translate-y-1/2 font-mono text-[11px] font-semibold text-ink-faint">
-                                    ↳
-                                </span>
-                                <span
-                                    className="h-[5px] w-[5px] shrink-0 rounded-full"
-                                    style={{ background: SUB_COLOR[s.state] }}
-                                />
+                                <Guides depth={1} />
+                                <Slot>
+                                    <span
+                                        className="h-[7px] w-[7px] shrink-0 rounded-full"
+                                        style={{ background: SUB_COLOR[s.state] }}
+                                    />
+                                </Slot>
                                 <div className="min-w-0 flex-1">
-                                    <div className="truncate font-mono text-[11px] font-semibold text-muted-foreground">
+                                    <div className="truncate font-mono text-[11.5px] font-medium text-secondary">
                                         {s.type || "subagent"}
                                     </div>
-                                    <div className="truncate text-[9.5px] text-muted">{s.model ?? ""}</div>
+                                    <div className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
+                                        {s.model ?? ""}
+                                    </div>
                                 </div>
                                 {/* the dot carries a live child's state; only a failure is worth the words */}
                                 {s.state === "failure" ? (
-                                    <span className="whitespace-nowrap font-mono text-[9.5px] font-medium text-error">failed</span>
+                                    <span className="whitespace-nowrap font-mono text-[10.5px] font-semibold text-error">
+                                        failed
+                                    </span>
                                 ) : null}
                             </div>
                         ))}
@@ -360,14 +466,13 @@ function RunRow({ model, run, open, live }: { model: AgentsViewModel; run: RunIn
         <div
             onClick={() => toggleRunCollapsed(run.runId)}
             onContextMenu={onContextMenu}
-            className="relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[10px] transition-colors duration-[140ms] hover:bg-surface-hover"
+            className="relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[9px] transition-colors duration-[140ms] hover:bg-surface-hover"
         >
-            <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
+            <Slot>
+                <Workflow size={13} aria-hidden className={runComplete(run) ? "text-success" : "text-muted"} />
+            </Slot>
             <div className="min-w-0 flex-1">
-                <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">
-                    <RunGlyph />
-                    {run.title}
-                </div>
+                <div className="truncate text-[13px] font-medium text-ink-hi">{run.title}</div>
                 <RunSubline run={run} open={open} live={live} leadless />
             </div>
         </div>
@@ -437,8 +542,8 @@ function WorkerRow({
             onClick={select}
             onContextMenu={onContextMenu}
             className={cn(
-                "relative flex items-center gap-[9px] rounded-[9px] py-[8px] pr-[11px] transition-colors duration-[140ms]",
-                nested ? "pl-[44px]" : "pl-[28px]",
+                "relative flex items-center gap-[9px] rounded-[9px] py-[7px] pr-[11px] transition-colors duration-[140ms]",
+                nested ? "pl-[45px]" : "pl-[28px]",
                 focusKey != null && "cursor-pointer",
                 selected
                     ? "bg-accentbg"
@@ -447,40 +552,44 @@ function WorkerRow({
                       : focusKey != null && "hover:bg-surface-hover"
             )}
         >
-            <Elbow deep={nested} />
-            {done ? (
-                <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-success" />
-            ) : waits ? (
-                <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
-            ) : task.state === "verifying" && !nested ? (
-                <StatusDot state="working" pulse className="!h-[7px] !w-[7px]" />
-            ) : agent == null ? (
-                <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-muted" />
-            ) : (
-                <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
-            )}
+            <Guides depth={nested ? 2 : 1} />
+            <Slot>
+                {done ? (
+                    <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-success" />
+                ) : waits ? (
+                    <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
+                ) : task.state === "verifying" && !nested ? (
+                    <StatusDot state="working" pulse className="!h-[7px] !w-[7px]" />
+                ) : agent == null ? (
+                    <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-muted" />
+                ) : (
+                    <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
+                )}
+            </Slot>
             <div className="min-w-0 flex-1">
-                <div className="truncate font-mono text-[11.5px] font-semibold text-ink-hi">{title}</div>
-                <div className={cn("truncate text-[10.5px]", asksYou ? "text-warning/85" : "text-muted")}>{sub}</div>
+                <div className="truncate text-[12.5px] font-medium text-ink-hi">{title}</div>
+                <div className="mt-[3px] flex min-w-0 items-center gap-[6px]">
+                    {extras != null && extras.count > 0 ? (
+                        <FoldChip
+                            label={`${extras.count} ${extras.count === 1 ? "session" : "sessions"}`}
+                            open={extras.open}
+                            onToggle={() => toggleTaskExtrasOpen(run.runId, task.id)}
+                            ariaShow="Show reviewer and earlier sessions"
+                            ariaHide="Hide reviewer and earlier sessions"
+                        />
+                    ) : null}
+                    <span className={cn("truncate font-mono text-[10.5px]", asksYou ? "text-warning" : "text-muted")}>
+                        {sub}
+                    </span>
+                </div>
             </div>
-            {extras != null && extras.count > 0 ? (
-                <button
-                    type="button"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        toggleTaskExtrasOpen(run.runId, task.id);
-                    }}
-                    title={extras.open ? "Hide reviewer and earlier sessions" : "Show reviewer and earlier sessions"}
-                    className="flex flex-none items-center gap-[3px] rounded-sm border border-edge-mid bg-surface-hover px-[5px] font-mono text-[9.5px] font-semibold text-muted hover:border-accent hover:text-accent-soft"
-                >
-                    <span className="text-xxxs leading-none">{extras.open ? "▾" : "▸"}</span>
-                    {extras.count}
-                </button>
-            ) : null}
             {ask?.owner === "lead" ? (
-                <span className="whitespace-nowrap font-mono text-[10px] font-medium text-muted">→ lead</span>
+                <span className="flex items-center gap-[3px] whitespace-nowrap font-mono text-[10.5px] font-medium text-muted">
+                    <ArrowRight size={10} aria-hidden />
+                    lead
+                </span>
             ) : asksYou ? (
-                <span className="whitespace-nowrap font-mono text-[10px] font-medium text-warning">asking</span>
+                <span className="whitespace-nowrap font-mono text-[10.5px] font-semibold text-warning">asking</span>
             ) : null}
         </div>
     );
@@ -524,20 +633,22 @@ function StageRow({
             onClick={select}
             onContextMenu={onContextMenu}
             className={cn(
-                "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] py-[8px] pl-[28px] pr-[11px] transition-colors duration-[140ms]",
+                "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] py-[7px] pl-[28px] pr-[11px] transition-colors duration-[140ms]",
                 selected ? "bg-accentbg" : "hover:bg-surface-hover"
             )}
         >
-            <Elbow />
-            {outcome ? (
-                <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full", STAGE_OUTCOME_DOT[outcome])} />
-            ) : (
-                <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
-            )}
+            <Guides depth={1} />
+            <Slot>
+                {outcome ? (
+                    <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full", STAGE_OUTCOME_DOT[outcome])} />
+                ) : (
+                    <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
+                )}
+            </Slot>
             <div className="min-w-0 flex-1">
-                <div className="truncate font-mono text-[11.5px] font-semibold text-ink-hi">{stageLabel(stageRole)}</div>
-                <div className="truncate text-[10.5px] text-muted">
-                    {[stageRole, outcome, formatAgeShort(displayAgeMs(agent, now))].filter(Boolean).join(" · ")}
+                <div className="truncate text-[12.5px] font-medium text-ink-hi">{stageLabel(stageRole)}</div>
+                <div className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
+                    {stageSubline(outcome, formatAgeShort(displayAgeMs(agent, now)))}
                 </div>
             </div>
         </div>
@@ -559,12 +670,14 @@ function FoldRow({
     return (
         <div
             onClick={onToggle}
-            className="relative flex cursor-pointer items-center gap-[8px] rounded-[9px] py-[6px] pl-[28px] pr-[11px] font-mono text-[10.5px] text-muted hover:bg-surface-hover hover:text-secondary"
+            className="relative flex cursor-pointer items-center gap-[9px] rounded-[9px] py-[6px] pl-[28px] pr-[11px] font-mono text-[10.5px] text-ink-mid hover:bg-surface-hover hover:text-secondary"
         >
-            <Elbow />
-            {glyph}
+            <Guides depth={1} />
+            <Slot>{glyph}</Slot>
             {label}
-            <span className="ml-auto">{open ? "▾" : "▸"}</span>
+            <span className="ml-auto flex text-muted">
+                {open ? <ChevronDown size={10} aria-hidden /> : <ChevronRight size={10} aria-hidden />}
+            </span>
         </div>
     );
 }
@@ -607,16 +720,18 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
             onClick={select}
             onContextMenu={onContextMenu}
             className={cn(
-                "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[10px] transition-colors duration-[140ms]",
+                "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[9px] transition-colors duration-[140ms]",
                 selected ? "bg-accentbg" : "hover:bg-surface-hover"
             )}
         >
-            <span className="w-[7px] shrink-0 text-center font-mono text-[11px] leading-none text-muted">›_</span>
+            <Slot>
+                <SquareTerminal size={13} aria-hidden className="text-muted" />
+            </Slot>
             <div className="min-w-0 flex-1">
                 {renaming ? (
                     <RenameBox tabId={terminal.id} />
                 ) : (
-                    <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">{terminal.name}</div>
+                    <div className="truncate text-[13px] font-medium text-ink-hi">{terminal.name}</div>
                 )}
             </div>
         </div>
@@ -665,14 +780,10 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
         <div data-agent-tree className="flex w-[248px] shrink-0 flex-col border-r border-border bg-surface">
             <div className="border-b border-edge-faint px-[16px] pb-[12px] pt-[16px]">
                 <div className="flex items-center justify-between">
-                    <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">Agents</h3>
+                    <h3 className="font-mono text-[10.5px] font-bold uppercase tracking-[.1em] text-ink-mid">Agents</h3>
                     <div className="flex items-center gap-[6px]">
-                        {headerAttn > 0 ? (
-                            <span className="rounded-[5px] bg-warning/10 px-[6px] py-[1px] font-mono text-[9.5px] font-semibold text-warning">
-                                {headerAttn}
-                            </span>
-                        ) : null}
-                        <span className="font-mono text-[11px] font-semibold text-muted">{total}</span>
+                        {headerAttn > 0 ? <AskingBadge n={headerAttn} /> : null}
+                        <span className="font-mono text-[10.5px] font-semibold text-muted">{total}</span>
                     </div>
                 </div>
             </div>
@@ -686,16 +797,12 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
                                     layout="position"
                                     className="flex items-center gap-[8px] px-[11px] pb-[6px] pt-[14px]"
                                 >
-                                    <span className="truncate font-mono text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
+                                    <span className="truncate font-mono text-[10.5px] font-bold uppercase tracking-[.1em] text-muted">
                                         {r.project}
                                     </span>
-                                    <div className="h-px flex-1 bg-edge-faint" />
-                                    {r.attn > 0 ? (
-                                        <span className="rounded-[5px] bg-warning/10 px-[6px] py-[1px] font-mono text-[9.5px] font-semibold text-warning">
-                                            {r.attn}
-                                        </span>
-                                    ) : null}
-                                    <span className="font-mono text-[10px] font-semibold text-feed-time">{r.count}</span>
+                                    <div className="h-px flex-1 bg-edge-mid" />
+                                    {r.attn > 0 ? <AskingBadge n={r.attn} /> : null}
+                                    <span className="font-mono text-[10.5px] font-semibold text-muted">{r.count}</span>
                                 </motion.div>
                             );
                         }
@@ -752,7 +859,7 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
                                 key = `done-${r.run.runId}`;
                                 body = (
                                     <FoldRow
-                                        glyph={<span className="text-success">✓</span>}
+                                        glyph={<Check size={11} aria-hidden className="text-success" />}
                                         label={[
                                             r.count > 0 ? `${r.count} done` : "",
                                             r.stages > 0 ? `${r.stages} ${r.stages === 1 ? "review" : "reviews"}` : "",
@@ -800,11 +907,11 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
                             layout="position"
                             className="flex items-center gap-[8px] px-[11px] pb-[6px] pt-[14px]"
                         >
-                            <span className="truncate font-mono text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
+                            <span className="truncate font-mono text-[10.5px] font-bold uppercase tracking-[.1em] text-muted">
                                 Terminals
                             </span>
-                            <div className="h-px flex-1 bg-edge-faint" />
-                            <span className="font-mono text-[10px] font-semibold text-feed-time">{terminals.length}</span>
+                            <div className="h-px flex-1 bg-edge-mid" />
+                            <span className="font-mono text-[10.5px] font-semibold text-muted">{terminals.length}</span>
                         </motion.div>
                     ) : null}
                     {terminals.map((t) => (

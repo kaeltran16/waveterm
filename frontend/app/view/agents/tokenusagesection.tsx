@@ -11,9 +11,11 @@ import { paneReveal } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
+import { ChevronDown, ChevronUp, Lightbulb } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { prettyModel } from "./modellabel";
 import { usageBreakdownAtom } from "./railstore";
+import { SectionLabel, SubLabel } from "./sectionlabel";
 import { sessionUsageAtom } from "./transcriptusagestore";
 import { CLASS_FILL, fmt, usd } from "./usagestats";
 import type { TokenClass } from "./usagestats";
@@ -23,10 +25,6 @@ function pctStr(n: number): string {
     if (n <= 0) return "0%";
     if (n < 0.1) return "<0.1%";
     return +n.toFixed(1) + "%";
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-    return <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">{children}</h3>;
 }
 
 export function TokenUsageSection() {
@@ -69,17 +67,17 @@ export function TokenUsageSection() {
             <div className="mt-[13px] mb-[15px] flex items-end justify-between">
                 <div>
                     <div className="font-mono text-[22px] font-bold leading-none text-primary">{fmt(totalTokens)}</div>
-                    <div className="mt-[4px] font-mono text-[10px] text-muted">total tokens</div>
+                    <div className="mt-[4px] font-mono text-[10.5px] text-muted">total tokens</div>
                 </div>
                 <div className="text-right">
                     <div className="font-mono text-[22px] font-bold leading-none text-success">{headlineUsd}</div>
-                    <div className="mt-[4px] font-mono text-[10px] text-muted">{headlineCaption}</div>
+                    <div className="mt-[4px] font-mono text-[10.5px] text-muted">{headlineCaption}</div>
                 </div>
             </div>
 
             {/* tokens bar */}
             <div className="mb-[6px] flex items-baseline justify-between">
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.09em] text-muted">Tokens</span>
+                <SubLabel>Tokens</SubLabel>
                 <span className="font-mono text-[11px] text-secondary">{fmt(totalTokens)}</span>
             </div>
             <StackedMeter
@@ -101,7 +99,7 @@ export function TokenUsageSection() {
                     >
                         {/* spend bar */}
                         <div className="mb-[6px] mt-[13px] flex items-baseline justify-between">
-                            <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.09em] text-muted">≈ Spend</span>
+                            <SubLabel>≈ Spend</SubLabel>
                             <span className="font-mono text-[11px] text-secondary">{usd(totalSpendUsd)}</span>
                         </div>
                         <StackedMeter
@@ -114,7 +112,7 @@ export function TokenUsageSection() {
                         {/* insight */}
                         {insight ? (
                             <div className="mt-[13px] flex gap-[8px] rounded-[9px] border border-border bg-surface-raised px-[11px] py-[9px]">
-                                <span className="flex-none text-[12px] leading-[1.4] text-warning">◆</span>
+                                <Lightbulb size={13} aria-hidden className="mt-[1px] flex-none text-warning" />
                                 <p className="text-[11.5px] leading-[1.5] text-secondary">
                                     Cache reads are {pctStr(insight.readTokPct)} of tokens but {pctStr(insight.readCostPct)} of spend;{" "}
                                     {topLabel.toLowerCase()} drives the cost.
@@ -133,7 +131,7 @@ export function TokenUsageSection() {
                                     <span className={cn("h-[9px] w-[9px] flex-none rounded-[3px]", CLASS_FILL[c.cls])} />
                                     <span className="min-w-0 flex-1 text-[12px] text-secondary">{c.label}</span>
                                     <span className="w-[52px] text-right font-mono text-[11.5px] text-secondary">{fmt(c.tokens)}</span>
-                                    <span className="w-[34px] text-right font-mono text-[9.5px] text-muted">
+                                    <span className="w-[40px] text-right font-mono text-[10.5px] text-muted">
                                         {pctStr(totalTokens > 0 ? (c.tokens / totalTokens) * 100 : 0)}
                                     </span>
                                     <span className="w-[48px] text-right font-mono text-[11.5px] text-muted">{usd(c.spendUsd)}</span>
@@ -143,9 +141,9 @@ export function TokenUsageSection() {
 
                         {/* by model */}
                         <div className="mb-[11px] mt-[16px] flex items-center gap-[8px]">
-                            <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.09em] text-muted">By model</span>
+                            <SubLabel>By model</SubLabel>
                             <div className="h-px flex-1 bg-edge-faint" />
-                            <span className="font-mono text-[10px] text-muted">{single ? "1 model" : `${models.length} models`}</span>
+                            <span className="font-mono text-[10.5px] text-muted">{single ? "1 model" : `${models.length} models`}</span>
                         </div>
                         <div className="flex flex-col gap-[11px]">
                             {models.map((m) => (
@@ -173,7 +171,7 @@ export function TokenUsageSection() {
                             ))}
                         </div>
 
-                        <p className="mt-[13px] font-mono text-[10px] leading-[1.5] text-muted">
+                        <p className="mt-[13px] font-mono text-[10.5px] leading-[1.5] text-muted">
                             Priced per class from a bundled table. Subagents run in separate transcripts — see Subagents.
                         </p>
                     </motion.div>
@@ -182,9 +180,10 @@ export function TokenUsageSection() {
             <button
                 type="button"
                 onClick={() => setBreakdown((v) => !v)}
-                className="-ml-[6px] mt-[8px] cursor-pointer rounded-[7px] px-[6px] py-[3px] font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover"
+                className="-ml-[6px] mt-[8px] inline-flex cursor-pointer items-center gap-[3px] rounded-[7px] px-[6px] py-[3px] font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover"
             >
-                {breakdown ? "Hide breakdown ▴" : "Show breakdown ▾"}
+                {breakdown ? "Hide breakdown" : "Show breakdown"}
+                {breakdown ? <ChevronUp size={11} aria-hidden /> : <ChevronDown size={11} aria-hidden />}
             </button>
         </div>
     );

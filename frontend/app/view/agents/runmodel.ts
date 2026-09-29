@@ -35,6 +35,14 @@ export function finishedRunLabel(run: RunInfo): string {
     return (run.land && landView(run.land)?.label) || "run complete";
 }
 
+const COMPLETE_LABELS = new Set(["landed", "run complete"]);
+
+// runComplete is a run with nothing left to happen: its plan done and the run itself over and landed (or with nothing
+// to land). a lead still wrapping up, a land in flight or held, and a cancelled run are not complete.
+export function runComplete(run: RunInfo): boolean {
+    return run.dag?.status === "done" && COMPLETE_LABELS.has(finishedRunLabel(run));
+}
+
 export function runStatusView(status: string, land?: RunLand): { label: string; tone: RunStatusTone } {
     const landed = status === "done" && land != null ? landView(land) : undefined;
     if (landed) {

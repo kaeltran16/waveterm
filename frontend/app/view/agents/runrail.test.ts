@@ -32,7 +32,7 @@ describe("laneRows", () => {
     it("names each lane's task in play and where it stands", () => {
         expect(laneRows(dag, digest)).toEqual([
             { key: "A", taskId: "t-3", name: "t-3 · do t-3", hist: "t-1 landed", state: "working", text: "working" },
-            { key: "B", taskId: "t-4", name: "t-4 · do t-4", hist: "t-2 landed", state: "lead", text: "→ lead" },
+            { key: "B", taskId: "t-4", name: "t-4 · do t-4", hist: "t-2 landed", state: "lead", text: "lead" },
             {
                 key: "C",
                 taskId: "t-5",

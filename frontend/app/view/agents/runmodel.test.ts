@@ -21,6 +21,7 @@ import {
     resolveActiveRunId,
     resolveArtifactPath,
     reviewGate,
+    runComplete,
     runLiveWorkers,
     runRuntimeView,
     runStatusView,
@@ -96,6 +97,38 @@ describe("finishedRunLabel", () => {
     });
     it("says a cancelled run is cancelled", () => {
         expect(finishedRunLabel(info("executing", undefined, "cancelled"))).toBe("run cancelled");
+    });
+});
+
+describe("runComplete", () => {
+    const info = (status?: string, land?: RunLand, dagStatus = "done"): RunInfo => ({
+        runId: "r",
+        channelId: "ch",
+        title: "t",
+        project: "p",
+        status,
+        land,
+        dag: { status: dagStatus } as TaskGroup,
+    });
+    it("is complete once the plan is done and the run landed, or had nothing to land", () => {
+        expect(runComplete(info("done"))).toBe(true);
+        expect(runComplete(info("done", { state: "landed" }))).toBe(true);
+    });
+    it("is not complete while a land is in flight or held", () => {
+        expect(runComplete(info("done", { state: "pending" }))).toBe(false);
+        expect(runComplete(info("done", { state: "held" }))).toBe(false);
+    });
+    it("is not complete while the lead is still wrapping up", () => {
+        expect(runComplete(info("executing"))).toBe(false);
+        expect(runComplete(info("finalizing"))).toBe(false);
+    });
+    it("is not complete when cancelled or still running", () => {
+        expect(runComplete(info("done", undefined, "cancelled"))).toBe(false);
+        expect(runComplete(info("cancelled"))).toBe(false);
+        expect(runComplete(info("done", undefined, "running"))).toBe(false);
+    });
+    it("is not complete without a dag", () => {
+        expect(runComplete({ ...info("done"), dag: undefined })).toBe(false);
     });
 });
 
