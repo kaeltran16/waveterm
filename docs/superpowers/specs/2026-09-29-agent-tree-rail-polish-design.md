@@ -1,5 +1,7 @@
 # Agent surface: tree and details rail polish
 
+**Status:** Shipped (run a088e568, 2026-09-29). Not yet seen live: see "Open" below.
+
 The Agent surface's left tree (`frontend/app/view/agents/agenttree.tsx`) and right details rail
 (`agentdetailsrail.tsx`, `runrailsections.tsx`, `tokenusagesection.tsx`, plus the shared
 `frontend/app/element/collapsiblerail.tsx`) move onto the Jarvis brief type scale
@@ -133,3 +135,11 @@ tokens transcribed. There are no new tokens, no raw hex or rgba, and no emoji.
 - Frontend only: no wire-type, Go or generated-file change.
 - Stay out of run a2521425's files (`narrationtimeline.tsx`, `agentsviewmodel.ts`, `markdownmessage.tsx`, `endedtranscript.tsx`, `narrationfeedfixture.tsx`, `modalsrenderer.tsx`) and run ba79c116's (`frontend/app/view/orchestrate/*`). `runrailsections.tsx` keeps importing `dagdigest` and `dagmodalstate` unchanged.
 - The `.superpowers/design/agent-tree` and `agent-rail` folders stay; the user removes them after this ships.
+
+## Open
+
+- The agent header (`agentheader.tsx`) still prints a ◆ before a focused lead's name; it is outside the tree
+  and the rail, so this spec did not cover it.
+- Never seen live: the task strip, the completed-run state, fold chips and guides for
+  workers/stages/subagents, terminal rows, and the rail's lanes, run bar and LaneAsk card. The
+  `agent-tree-rail` scenario creates no dag and its fixture has no terminals or subagents.
