@@ -1,6 +1,6 @@
 # Run sheet polish
 
-**Status:** Approved, not built.
+**Status:** Built (run 2c52729f, 2026-09-29).
 
 The run face of the Brief's detail sheet (`frontend/app/view/jarvis/runsheet.tsx`) and what it renders
 (`briefrunsheet.tsx`'s `SheetShell`, `briefsheet.tsx`'s run header actions and `ChannelLaunch` label,
