@@ -636,7 +636,9 @@ the run; a second stall waits for you.
 - **Change parallelism or the workers' route.** **Adjust** on the settings line → **Worker parallelism**,
   **Worker route** → **Save settings**. It applies to dispatches from then on. **Save as project defaults**
   makes the next run start this way. Shape, machine and the lead's route are fixed at launch, and nothing
-  already running changes.
+  already running changes. The **Worker route** picker also offers **Reviewer picks**, and a **Reviewers**
+  picker beside it sets the reviewer route ([Routes](#4-routes)). The profile's run defaults set the same pair
+  in the **Worker route** row (which includes **Reviewer picks**) and the **Reviewer route** row below it.
 
   ![Adjust on a live run](images/orchestrator-guide/23-adjust.png)
 
