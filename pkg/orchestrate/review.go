@@ -104,10 +104,10 @@ func workerDoneTs(run *waveobj.Run) int64 {
 	return ts
 }
 
-// spawnReviewer starts a task's reviewer in the worker's lane tree, on the lead's route: the model picked for
-// judgment, and not the worker's own.
+// spawnReviewer starts a task's reviewer in the worker's lane tree, on the reviewer route: the model picked
+// for judgment, and not the worker's own.
 func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveobj.TaskNode, owner, worker *waveobj.Run, now int64, afterCommit *[]func()) {
-	pin := waveobj.RoutePin{Runtime: runroute.DefaultRuntime(owner.Runtime), Model: owner.Model}
+	pin := reviewerRoute(owner, g)
 	capability, err := runroute.Resolve(pin)
 	if err == nil {
 		err = validateWorkerHarness(pin.Runtime)
