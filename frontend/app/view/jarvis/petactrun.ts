@@ -11,6 +11,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { loadAttention } from "@/app/view/agents/attentionstore";
 import { openAddress } from "./openref";
 import type { PetAct } from "./petacts";
 import { petErrandAtom, petPeekOpenAtom, setActState } from "./petstore";
@@ -27,7 +28,7 @@ function errText(e: unknown): string {
 // An escort closes the peek only once the landing succeeds: an overlay anchored to the creature, left open over
 // a surface it just navigated away from, is stranded — but a landing that cannot open leaves the user where
 // they were, and its failure is set on the act, which only an open peek shows.
-async function escort(model: AgentsViewModel, act: PetAct): Promise<void> {
+async function escort(model: AgentsViewModel, act: Extract<PetAct, { verb: "open" }>): Promise<void> {
     const target = act.target;
     const result = await openAddress(model, target.ref, { anchor: target.anchor }, (r) => {
         if ("reason" in r) {
@@ -39,8 +40,30 @@ async function escort(model: AgentsViewModel, act: PetAct): Promise<void> {
     }
 }
 
+// An ack settles its row in place, so the peek stays open; the reload drops the row now instead of on the
+// next 10s poll.
+async function ack(act: Extract<PetAct, { verb: "ack" }>): Promise<void> {
+    setActState(act.id, { status: "running" });
+    try {
+        await RpcApi.AckRunCommand(TabRpcClient, { channelid: act.channelId, runid: act.runId });
+        setActState(act.id, { status: "done" });
+        await loadAttention();
+    } catch (e) {
+        setActState(act.id, { status: "error", text: errText(e) });
+    }
+}
+
 export async function runAct(model: AgentsViewModel, act: PetAct): Promise<void> {
+    if (act.verb === "ack") {
+        await ack(act);
+        return;
+    }
     await escort(model, act);
+}
+
+// only an escort leaves the peek; the caller drops focus-return for it and nothing else
+export function actNavigates(act: PetAct): boolean {
+    return act.verb === "open";
 }
 
 // The errand reuses the Channels surface's consult path exactly (channelactions.ts): post the question as a

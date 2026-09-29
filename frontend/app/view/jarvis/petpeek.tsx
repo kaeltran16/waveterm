@@ -32,7 +32,7 @@ import {
     type KeyboardEvent,
     type ReactNode,
 } from "react";
-import { runAct } from "./petactrun";
+import { actNavigates, runAct } from "./petactrun";
 import { actsForEvent, type PetAct } from "./petacts";
 import { EventLabel, eventTone } from "./petbubble";
 import { conditionLine, type PetExpression, type PetSignals } from "./petcondition";
@@ -40,6 +40,7 @@ import { PetErrand } from "./peterrand";
 import { resolveDestination } from "./peterrandmodel";
 import {
     dedupeUpdates,
+    enterHintLabel,
     peekActForCommand,
     peekConditions,
     peekKeyCommand,
@@ -150,8 +151,10 @@ function ActButton({
             disabled={running}
             aria-busy={running || undefined}
             onClick={() => {
-                // every act navigates, so the peek would cover the destination it just sent you to
-                onLeave();
+                // an escort navigates, so the peek would cover the destination it just sent you to
+                if (actNavigates(act)) {
+                    onLeave();
+                }
                 fireAndForget(() => runAct(model, act));
             }}
             // only the cursor row's act is filled, so one button in the queue reads as "Enter does this"
@@ -233,7 +236,7 @@ function QueueRow({
     focused: boolean;
     onLeave: () => void;
 }) {
-    const acts = row.primary != null ? [row.primary] : [];
+    const acts = [row.primary, row.secondary].filter((act) => act != null);
     return (
         <div data-pet-row={row.key} className="border-b border-border last:border-b-0">
             <div
@@ -266,7 +269,12 @@ function QueueRow({
                     <ActOutcome acts={acts} className="mt-1.5" />
                 </div>
                 {row.primary != null ? (
-                    <ActButton model={model} act={row.primary} filled={focused} onLeave={onLeave} />
+                    <div className="flex flex-none items-center gap-2.5">
+                        {row.secondary != null ? (
+                            <ActLinks model={model} acts={[row.secondary]} onLeave={onLeave} />
+                        ) : null}
+                        <ActButton model={model} act={row.primary} filled={focused} onLeave={onLeave} />
+                    </div>
                 ) : null}
             </div>
         </div>
@@ -524,6 +532,7 @@ export function PetPeek({
     const focusedRow = rows[Math.min(cursor, Math.max(0, rows.length - 1))];
     // the quiet card's Enter opens what its headline offers, the way a busy row's Enter opens that row
     const latestAct = quiet && updates[0] != null ? (actsForEvent(updates[0])[0] ?? null) : null;
+    const enterAct = quiet ? latestAct : peekActForCommand(focusedRow, "open");
     // quiet: the headline is the newest update and Earlier holds the rest. busy: every update is news that
     // arrived since you looked, behind the queue.
     const drawerUpdates = quiet ? updates.slice(1) : updates;
@@ -547,7 +556,9 @@ export function PetPeek({
         if (act == null) {
             return false;
         }
-        leavePeek();
+        if (actNavigates(act)) {
+            leavePeek();
+        }
         fireAndForget(() => runAct(model, act));
         return true;
     };
@@ -579,14 +590,14 @@ export function PetPeek({
             panelRef.current?.querySelector<HTMLInputElement>("[data-pet-errand-input]")?.focus();
             return;
         }
-        if (runKeyboardAct(quiet ? latestAct : peekActForCommand(focusedRow, command))) {
+        if (runKeyboardAct(enterAct)) {
             event.preventDefault();
         }
     };
 
     const hints = [
         ...(quiet ? [] : [{ keys: ["j", "k"], label: "move" }]),
-        ...(!quiet || latestAct != null ? [{ keys: ["↵"], label: "open" }] : []),
+        ...(!quiet || latestAct != null ? [{ keys: ["↵"], label: enterHintLabel(enterAct) }] : []),
         { keys: ["/"], label: "ask" },
         { keys: ["esc"], label: "close" },
     ];

@@ -25,13 +25,32 @@ describe("actsForAttention", () => {
         expect(actsForAttention(gate())[0]).toMatchObject({ verb: "open", target: { kind: "oref", ref: "run:run1" } });
     });
 
-    // Slice 5c deleted the review gate, the one attention kind a button could settle. Nothing is left that
-    // a click resolves in place, so no kind may offer a second act.
-    it("offers an escort and nothing else, whatever the kind", () => {
+    // Slice 5c deleted the review gate; nothing but an unverified run is settled by a click, so every other
+    // kind offers the escort alone.
+    it("offers an escort and nothing else for a kind a click cannot settle", () => {
         for (const kind of ["gate", "escalation", "ask", "dag-blocked"]) {
             const it = { ...gate(), kind, key: `${kind}:m1` } as AttentionItem;
             expect(actsForAttention(it).map((a) => a.label)).toEqual(["Open"]);
         }
+    });
+
+    // the button used to be an Open relabelled "Acknowledge", so pressing it never cleared the row
+    it("acknowledges an unverified run in place, and still escorts to it for reading first", () => {
+        const unverified = { ...gate(), kind: "run-unverified", key: "run-unverified:run1" } as AttentionItem;
+        expect(actsForAttention(unverified)).toEqual([
+            { id: "run-unverified:run1:ack", verb: "ack", label: "Acknowledge", channelId: "ch1", runId: "run1" },
+            {
+                id: "run-unverified:run1:open",
+                verb: "open",
+                label: "Open",
+                target: { kind: "oref", ref: "run:run1" },
+            },
+        ]);
+    });
+
+    it("escorts an unverified run that names no channel, since the ack needs one", () => {
+        const unverified = { ...gate(), kind: "run-unverified", channelid: "" } as AttentionItem;
+        expect(actsForAttention(unverified).map((a) => a.verb)).toEqual(["open"]);
     });
 
     it("offers nothing at all for an item with no run to address", () => {

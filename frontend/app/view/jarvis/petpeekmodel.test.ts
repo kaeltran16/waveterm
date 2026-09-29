@@ -2,6 +2,7 @@ import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
 import {
     dedupeUpdates,
+    enterHintLabel,
     peekActForCommand,
     peekConditions,
     peekKeyCommand,
@@ -107,8 +108,7 @@ describe("queueRows — the button says what the item needs, not how to get ther
         const orphan = item({ kind: "ask", key: "ask:block:b9", runid: undefined, action: "Answer" });
         const agents = [{ id: "tab-9", name: "pi · scratch", blockId: "b9" } as unknown as AgentVM];
         const primary = queueRows([orphan], agents)[0].primary;
-        expect(primary?.label).toBe("Answer");
-        expect(primary?.target).toEqual({ kind: "oref", ref: "agent:tab-9" });
+        expect(primary).toMatchObject({ label: "Answer", target: { kind: "oref", ref: "agent:tab-9" } });
     });
 });
 
@@ -196,6 +196,28 @@ describe("peekActForCommand", () => {
 
     it("returns no act without a focused row", () => {
         expect(peekActForCommand(undefined, "open")).toBeNull();
+    });
+});
+
+describe("queueRows — an unverified run settles in place", () => {
+    const UNVERIFIED = item({ kind: "run-unverified", key: "run-unverified:" + RUN, action: "Acknowledge" });
+
+    it("puts the ack on the button and the escort beside it", () => {
+        const row = queueRows([UNVERIFIED])[0];
+        expect(row.primary).toMatchObject({ verb: "ack", label: "Acknowledge", channelId: CH, runId: RUN });
+        expect(row.secondary).toMatchObject({ verb: "open", target: { kind: "oref", ref: `run:${RUN}` } });
+    });
+
+    it("gives every other kind no second act", () => {
+        expect(queueRows([GATE, ESCALATION, ASK]).map((r) => r.secondary)).toEqual([null, null, null]);
+    });
+});
+
+describe("enterHintLabel", () => {
+    it("names what Enter does to the focused row", () => {
+        expect(enterHintLabel(queueRows([item({ kind: "run-unverified", key: "u" })])[0].primary)).toBe("acknowledge");
+        expect(enterHintLabel(queueRows([GATE])[0].primary)).toBe("open");
+        expect(enterHintLabel(null)).toBe("open");
     });
 });
 

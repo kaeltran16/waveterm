@@ -18,10 +18,11 @@ export interface PeekRow {
     // null when the kind's text is a constant the verb already implies — see DETAIL_KINDS.
     detail: string | null;
     waitingsince: number;
-    // the escort, relabelled with the item's own verb. null when nothing is addressable behind the item.
-    // It is the only act a row can carry: slice 5c deleted the review gate, the one attention kind a
-    // button could settle, so nothing is left to show behind a disclosure.
+    // the row's button, labelled with the item's own verb: an unverified run's in-place ack, otherwise the
+    // escort. null when nothing is addressable behind the item.
     primary: PetAct | null;
+    // the escort beside an ack, so settling a row in place does not cost the way to read it first
+    secondary: PetAct | null;
 }
 
 // pkg/jarvis/attention.go writes Text per kind, and only these put anything in it that the row's own verb
@@ -72,9 +73,8 @@ export function queueRows(items: AttentionItem[], agents: ReadonlyArray<AgentVM>
     return (items ?? [])
         .filter((item) => item.kind !== PEEK_EXCLUDED_KIND)
         .map((item) => {
-            // actsForAttention returns [] with no runid and [Open] otherwise: no attention kind carries a
-            // resolving verb, so the escort is the only act and `more` is always empty.
-            const [escort] = actsForAttention(item);
+            // actsForAttention returns [] with no runid, [ack, escort] for an unverified run, [escort] otherwise
+            const [first, second] = actsForAttention(item);
             return {
                 key: item.key,
                 kind: item.kind,
@@ -82,7 +82,8 @@ export function queueRows(items: AttentionItem[], agents: ReadonlyArray<AgentVM>
                 detail: DETAIL_KINDS.has(item.kind) ? item.text : null,
                 waitingsince: item.waitingsince,
                 // "Review" / "Decide" / "Answer" is the same navigation as "Open", named by what it is for.
-                primary: escort != null ? ({ ...escort, label: item.action } as PetAct) : answerInAgent(item, agents),
+                primary: first != null ? ({ ...first, label: item.action } as PetAct) : answerInAgent(item, agents),
+                secondary: second ?? null,
             };
         });
 }
@@ -123,6 +124,11 @@ export function peekActForCommand(row: PeekRow | undefined, command: PeekKeyComm
         return null;
     }
     return command === "open" ? row.primary : null;
+}
+
+// The Enter hint names what Enter does to the focused row, which is not always a navigation.
+export function enterHintLabel(act: PetAct | null): string {
+    return act?.verb === "ack" ? "acknowledge" : "open";
 }
 
 export interface PeekCondition {

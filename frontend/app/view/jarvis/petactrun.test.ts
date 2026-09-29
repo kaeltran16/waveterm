@@ -7,16 +7,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const openAddress = vi.fn();
 const postMessage = vi.fn();
 const consult = vi.fn();
+const ackRun = vi.fn();
+const getAttention = vi.fn();
 
 vi.mock("./openref", () => ({ openAddress: (...a: any[]) => openAddress(...a) }));
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         PostChannelMessageCommand: (...a: any[]) => postMessage(...a),
         ConsultCommand: (...a: any[]) => consult(...a),
+        AckRunCommand: (...a: any[]) => ackRun(...a),
+        GetAttentionCommand: (...a: any[]) => getAttention(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
+import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { atom } from "jotai";
 import { runAct, sendErrand } from "./petactrun";
 import type { PetAct } from "./petacts";
@@ -63,6 +68,43 @@ describe("runAct — escorts", () => {
             status: "error",
             text: "That record no longer exists",
         });
+    });
+});
+
+describe("runAct — ack", () => {
+    const act: PetAct = {
+        id: "run-unverified:r1:ack",
+        verb: "ack",
+        label: "Acknowledge",
+        channelId: "ch1",
+        runId: "r1",
+    };
+
+    afterEach(() => globalStore.set(attentionAtom, []));
+
+    it("acknowledges the run, drops its row at once, and leaves the peek open", async () => {
+        globalStore.set(petPeekOpenAtom, true);
+        globalStore.set(attentionAtom, [{ key: "run-unverified:r1" } as AttentionItem]);
+        ackRun.mockResolvedValue(undefined);
+        getAttention.mockResolvedValue({ items: [] });
+        await runAct(model, act);
+        expect(ackRun).toHaveBeenCalledWith(expect.anything(), { channelid: "ch1", runid: "r1" });
+        expect(globalStore.get(attentionAtom)).toEqual([]);
+        expect(globalStore.get(petPeekOpenAtom)).toBe(true);
+        expect(openAddress).not.toHaveBeenCalled();
+        expect(globalStore.get(petActStateAtom)[act.id]).toEqual({ status: "done" });
+    });
+
+    it("reports a failed ack on the act and keeps the row", async () => {
+        const row = { key: "run-unverified:r1" } as AttentionItem;
+        globalStore.set(attentionAtom, [row]);
+        ackRun.mockRejectedValue(new Error("acknowledging run: not found"));
+        await runAct(model, act);
+        expect(globalStore.get(petActStateAtom)[act.id]).toEqual({
+            status: "error",
+            text: "acknowledging run: not found",
+        });
+        expect(globalStore.get(attentionAtom)).toEqual([row]);
     });
 });
 
