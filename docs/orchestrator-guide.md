@@ -531,6 +531,11 @@ first; you see it when it is forwarded or the lead is dead. Retry and escalate s
 replace, so before you retry a stalled task, check its lane worktree under `.waveterm/worktrees/` for recent
 writes: a worker that is still writing files is alive, and the stall signal is wrong.
 
+Skipping a failed or stalled task rewinds its lane to where the task first started, so none of its commits land.
+What it drops (those commits and any uncommitted edits to tracked files) is saved first to
+`.waveterm/recovery/<lane>-<task>.patch` in the project. A retry or escalate keeps the first attempt's base, so
+its review and evidence cover the failed attempt's commits too.
+
 To move a task to another model, use **escalate…** in the DAG's detail panel under the graph (it opens a
 route picker, then **Re-queue on model**). Escalation is one hop per task.
 
