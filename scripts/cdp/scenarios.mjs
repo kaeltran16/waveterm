@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SURFACE_LABEL } from "./attach.mjs";
+import { narrationFeed } from "./narrationfeed.mjs";
 
 // A step this profile cannot run: no scan report to cite, no pi session focused. Neither a pass nor a
 // failure — report.mjs tallies it apart and exitCode ignores it. The detail must name what to seed, so a
@@ -5616,4 +5617,5 @@ export const SCENARIOS = [
     uiApi,
     focusReaimsSurfaces,
     focusDivergenceRejoin,
+    narrationFeed,
 ];
