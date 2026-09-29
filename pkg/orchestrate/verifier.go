@@ -22,9 +22,10 @@ const verifierDidNotFinish = "the verifier did not finish"
 // fixRoundPrefix opens the description of a task a fix round appended, which names the fix plan.
 const fixRoundPrefix = "Fix round "
 
-// tendVerifier keeps the final stage's verifier going while the stage is verifying. A verifier that could not
-// finish twice leaves the result unverified rather than failed: nothing found a defect, but nothing judged it.
-// The caller holds the dag mutation lock.
+// tendVerifier keeps the final stage's verifier going while it works: alongside the commands, or once they
+// passed. A verifier that could not finish twice leaves the result unverified rather than failed: nothing found
+// a defect, but nothing judged it. Alongside the commands, their result ends the stage when they finish. The
+// caller holds the dag mutation lock.
 func tendVerifier(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, now int64, afterCommit *[]func()) {
 	f := g.Final
 	session := func() StageSession {
@@ -35,6 +36,9 @@ func tendVerifier(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *wa
 		return
 	}
 	f.Unverified = append(f.Unverified, verifierDidNotFinish+": "+reason)
+	if f.State == FinalState_Checking {
+		return
+	}
 	finishFinal(g, afterCommit)
 	releaseFinalTree(g, owner, afterCommit)
 }
@@ -74,7 +78,11 @@ func verifierPrompt(g *waveobj.TaskGroup, owner *waveobj.Run) string {
 			ran = append(ran, fmt.Sprintf("%s `%s`", c.name, c.cmd))
 		}
 	}
-	if len(ran) > 0 {
+	switch {
+	case len(ran) == 0:
+	case f.State == FinalState_Checking:
+		fmt.Fprintf(&b, "While you work, the engine runs %s on `%s`; if one fails, the stage fails whatever your verdict. Do not run them yourself.\n", joinAnd(ran), shortSha(head))
+	default:
 		fmt.Fprintf(&b, "Before you started, the engine ran %s on `%s`, and they passed, apart from anything listed below as not verified. Do not run them again.\n", joinAnd(ran), shortSha(head))
 	}
 	b.WriteString("Do not run any whole package or test suite. Read the diff. To settle a specific doubt about behavior, run one named test with `-run '^TestName$'` (or its vitest equivalent).\n")
@@ -138,8 +146,8 @@ func timesWord(n int) string {
 	return fmt.Sprintf("%d times", n)
 }
 
-// RecordFinalVerdict applies the verifier's verdict and ends the final stage. A fail's defects become the
-// stage's Detail whole, since the lead writes its fix plan from them. It does not schedule: the caller does,
+// RecordFinalVerdict applies the verifier's verdict and ends the final stage. A verdict given while Check and
+// Verify still run waits for them, and a failure of theirs outweighs it. It does not schedule: the caller does,
 // off the verifier's RPC, and that tick announces a done dag.
 func RecordFinalVerdict(ctx context.Context, dagID, verifierRunID, verdict, text, unverified string) error {
 	text, unverified = strings.TrimSpace(text), strings.TrimSpace(unverified)
@@ -164,24 +172,28 @@ func RecordFinalVerdict(ctx context.Context, dagID, verifierRunID, verdict, text
 			return fmt.Errorf("loading dag: %w", err)
 		}
 		f := g.Final
-		if g.Status == DagStatus_Cancelled || f == nil || f.State != FinalState_Verifying || f.VerifierRunID != verifierRunID {
+		if g.Status == DagStatus_Cancelled || f == nil || (f.State != FinalState_Verifying && f.State != FinalState_Checking) || f.VerifierRunID != verifierRunID {
 			return fmt.Errorf("run %s is not verifying this dag's result", verifierRunID)
 		}
-		owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
-		if err != nil {
-			return fmt.Errorf("loading the dag's run: %w", err)
+		if _, held := heldFinalVerdict(dagID, f, false); held {
+			return fmt.Errorf("run %s already gave its verdict; it waits for the final stage's commands", verifierRunID)
 		}
-		if verdict == ReviewVerdict_Fail {
-			f.Detail = text
-		} else {
-			if unverified != "" {
-				f.Unverified = append(f.Unverified, "verifier: "+unverified)
-			}
+		if verdict == ReviewVerdict_Pass {
 			channelID, runID := g.ChannelId, g.RunID
 			afterCommit = append(afterCommit, func() {
 				PostQuiet(ctx, channelID, runID, "the final verifier passed the merged result: "+flatLine(text))
 			})
 		}
+		v := finalVerdict{round: f.Round, runID: verifierRunID, verdict: verdict, text: text, unverified: unverified}
+		if f.State == FinalState_Checking {
+			holdFinalVerdict(dagID, v)
+			return nil
+		}
+		owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
+		if err != nil {
+			return fmt.Errorf("loading the dag's run: %w", err)
+		}
+		applyFinalVerdict(f, v)
 		return settleFinalLocked(ctx, g, owner, &afterCommit)
 	})
 	if err != nil {
@@ -202,23 +214,31 @@ var finalTreeRemoveInterval = 10 * time.Second
 // releaseFinalTree removes the detached tree a checkout-landed dag's stage made, once the verifier is done
 // with it. A branch-landed dag's tree is its landing tree, which the run keeps.
 func releaseFinalTree(g *waveobj.TaskGroup, owner *waveobj.Run, afterCommit *[]func()) {
-	if owner.LandPath != "" || g.Final == nil || g.Final.Tree == "" {
+	if g.Final == nil {
 		return
 	}
-	dagID, project, tree := g.OID, owner.ProjectPath, g.Final.Tree
-	*afterCommit = append(*afterCommit, func() {
-		if removeWorktreeDir(context.Background(), project, tree) == nil {
-			return
-		}
-		goStage("final-tree "+dagID, func() {
-			var err error
-			for i := 1; i < finalTreeRemoveAttempts; i++ {
-				time.Sleep(finalTreeRemoveInterval)
-				if err = removeWorktreeDir(context.Background(), project, tree); err == nil {
-					return
-				}
+	dagID, tree := g.OID, g.Final.Tree
+	*afterCommit = append(*afterCommit, func() { removeFinalTree(dagID, owner, tree) })
+}
+
+// removeFinalTree removes a checkout-landed dag's detached final tree now, or retries off the caller while a
+// session that worked in it lets go.
+func removeFinalTree(dagID string, owner *waveobj.Run, tree string) {
+	if owner.LandPath != "" || tree == "" {
+		return
+	}
+	project := owner.ProjectPath
+	if removeWorktreeDir(context.Background(), project, tree) == nil {
+		return
+	}
+	goStage("final-tree "+dagID, func() {
+		var err error
+		for i := 1; i < finalTreeRemoveAttempts; i++ {
+			time.Sleep(finalTreeRemoveInterval)
+			if err = removeWorktreeDir(context.Background(), project, tree); err == nil {
+				return
 			}
-			log.Printf("dag %s: removing the final tree: %v", dagID, err)
-		})
+		}
+		log.Printf("dag %s: removing the final tree: %v", dagID, err)
 	})
 }
