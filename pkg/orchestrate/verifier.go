@@ -39,7 +39,7 @@ func tendVerifier(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *wa
 	if f.State == FinalState_Checking {
 		return
 	}
-	finishFinal(g, afterCommit)
+	finishFinal(g, false, afterCommit)
 	releaseFinalTree(g, owner, afterCommit)
 }
 
@@ -194,7 +194,7 @@ func RecordFinalVerdict(ctx context.Context, dagID, verifierRunID, verdict, text
 			return fmt.Errorf("loading the dag's run: %w", err)
 		}
 		applyFinalVerdict(f, v)
-		return settleFinalLocked(ctx, g, owner, &afterCommit)
+		return settleFinalLocked(ctx, g, owner, true, &afterCommit)
 	})
 	if err != nil {
 		return err

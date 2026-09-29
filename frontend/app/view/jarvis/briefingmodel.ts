@@ -353,6 +353,13 @@ export function queueAction(row: QueueRow): QueueAct {
     return { label: "Open", kind: "open" };
 }
 
+// the rows Acknowledge all settles: exactly the ones whose own button is Acknowledge
+export function ackableRuns(rows: QueueRow[]): { channelId: string; runId: string }[] {
+    return rows
+        .filter((r) => queueAction(r).kind === "ack-run")
+        .map((r) => ({ channelId: r.channelId, runId: r.runId! }));
+}
+
 export function summarizeAttentionQueue(rows: QueueRow[], now: number): QueueSummary | null {
     if (rows.length === 0) {
         return null;

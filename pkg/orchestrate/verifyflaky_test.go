@@ -130,7 +130,7 @@ func TestFinishFinalNamesABatchsFlakyTestOnce(t *testing.T) {
 	g.Final = &waveobj.FinalStage{State: FinalState_Verifying, Round: 1}
 	var afterCommit []func()
 
-	finishFinal(g, &afterCommit)
+	finishFinal(g, false, &afterCommit)
 
 	want := []string{flakyItem("pkg/x TestRace", "in the Verify after merging t-0, t-1")}
 	if g.Final.State != FinalState_Unverified || !reflect.DeepEqual(g.Final.Unverified, want) {

@@ -264,7 +264,8 @@ func TestRunFinishedWakeNamesTheConflictsTheLandWouldHoldOn(t *testing.T) {
 	}
 }
 
-func TestFinalCountsReviewCaveatsAndAMissingVerify(t *testing.T) {
+// the verifier is briefed with the reviewers' caveats, so its pass answers them; a missing Verify still counts
+func TestAVerifiersPassSettlesReviewCaveatsButNotAMissingVerify(t *testing.T) {
 	f := finalFixture(t, "", "", "")
 	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
 		cur.Tasks[0].ReviewUnverified = "the timeout path has no test"
@@ -278,9 +279,31 @@ func TestFinalCountsReviewCaveatsAndAMissingVerify(t *testing.T) {
 	}
 
 	g := f.dag(t)
-	want := []string{"t-0: the timeout path has no test", "the plan has no Verify"}
+	want := []string{"the plan has no Verify"}
 	if g.Final.State != FinalState_Unverified || !reflect.DeepEqual(g.Final.Unverified, want) {
 		t.Fatalf("want unverified with %q, got %s %q", want, g.Final.State, g.Final.Unverified)
+	}
+}
+
+// with no verdict (the verifier gave up, there was no tree, the human ended the stage) nothing answered them
+func TestReviewCaveatsCountWhenNoVerifierJudged(t *testing.T) {
+	g := mustGroup(t, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
+	g.Verify = verifyCmd
+	g.Tasks[0].State, g.Tasks[0].ReviewUnverified = TaskState_Done, "the timeout path has no test"
+	g.Final = &waveobj.FinalStage{State: FinalState_Verifying, Round: 1}
+	var afterCommit []func()
+
+	finishFinal(g, false, &afterCommit)
+
+	want := []string{"t-0: the timeout path has no test"}
+	if g.Final.State != FinalState_Unverified || !reflect.DeepEqual(g.Final.Unverified, want) {
+		t.Fatalf("want unverified with %q, got %s %q", want, g.Final.State, g.Final.Unverified)
+	}
+
+	g.Final = &waveobj.FinalStage{State: FinalState_Verifying, Round: 1}
+	finishFinal(g, true, &afterCommit)
+	if g.Final.State != FinalState_Passed || len(g.Final.Unverified) != 0 {
+		t.Fatalf("a verifier's verdict settles the caveats, got %s %q", g.Final.State, g.Final.Unverified)
 	}
 }
 

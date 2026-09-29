@@ -48,6 +48,7 @@ import { AutonomyLadder } from "./autonomyladderview";
 import { briefFleet } from "./brieffleet";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import {
+    ackableRuns,
     buildAttentionQueue,
     capRegion,
     DELTA_CAP,
@@ -95,7 +96,7 @@ import {
 } from "./briefrows";
 import { DeltaRowView, InitiativeRow, RunRowView, ShippedRowView, WaitingRow } from "./briefrowviews";
 import { BriefSheet } from "./briefsheet";
-import { LINK_BTN, MONO_FAINT, REGION_LABEL } from "./briefstyle";
+import { LINK_BTN, MONO_FAINT, REGION_LABEL, SMALL_BTN } from "./briefstyle";
 import { BriefToastView } from "./brieftoast";
 import { briefUndo, chunkKey, effortKey, noteKey, pendingDeleteKeysAtom } from "./briefundo";
 import { ChunkSidebar } from "./chunksidebar";
@@ -1169,6 +1170,20 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         }
     };
     const queueOf = (l: BriefLine) => queue.find((q) => "waiting:" + q.key === l.id)!;
+    const ackable = ackableRuns(queue);
+    // every run is acked on its own, so one refused ack leaves the rest acked and names how many failed
+    const ackAll = () =>
+        fireAndForget(async () => {
+            const results = await Promise.allSettled(
+                ackable.map((r) => RpcApi.AckRunCommand(TabRpcClient, { channelid: r.channelId, runid: r.runId }))
+            );
+            const failed = results.filter((r) => r.status === "rejected").length;
+            if (failed > 0) {
+                briefUndo.error(`${failed} of ${results.length} acknowledgements failed`);
+            } else {
+                briefUndo.notify(`Acknowledged ${results.length} unverified runs`);
+            }
+        });
 
     // a run row's ↳ opens its initiative inline on that chunk, with the chunk's stage unfolded
     const revealChunk = useCallback(
@@ -1410,6 +1425,18 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         meta="gates before asks"
                                         only={only === "waiting"}
                                         onOnly={() => toggleOnly("waiting")}
+                                        tools={
+                                            ackable.length > 1 ? (
+                                                <button
+                                                    type="button"
+                                                    data-jarvis-queue-ack-all
+                                                    onClick={ackAll}
+                                                    className={cn(SMALL_BTN, "flex-none font-mono")}
+                                                >
+                                                    Acknowledge {ackable.length} unverified
+                                                </button>
+                                            ) : undefined
+                                        }
                                     >
                                         {queueSummary != null ? (
                                             <div className="flex flex-col gap-[9px]">

@@ -5,6 +5,7 @@ import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
 import { EFFORT_FIXTURES } from "./briefingfixtures";
 import {
+    ackableRuns,
     ACTIVE_CAP,
     buildAttentionQueue,
     capRegion,
@@ -795,6 +796,19 @@ describe("design queue wording", () => {
         expect(queueAction(q({ wireKind: "run-unverified" }))).toEqual({ label: "Acknowledge", kind: "ack-run" });
         expect(queueAction(q({ wireKind: "run-unverified", runId: null }))).toEqual({ label: "Open", kind: "open" });
         expect(queueAction(q({ wireKind: "run-land-held" }))).toEqual({ label: "Open", kind: "open" });
+    });
+    it("acknowledges all only the rows whose own button is Acknowledge", () => {
+        const rows = [
+            q({ wireKind: "run-unverified", channelId: "c1", runId: "r1" }),
+            q({ wireKind: "gate", runId: "r2" }),
+            q({ wireKind: "run-unverified", runId: null }),
+            q({ wireKind: "run-unverified", channelId: "", runId: "r4" }),
+            q({ wireKind: "run-unverified", channelId: "c5", runId: "r5" }),
+        ];
+        expect(ackableRuns(rows)).toEqual([
+            { channelId: "c1", runId: "r1" },
+            { channelId: "c5", runId: "r5" },
+        ]);
     });
     it("a record blocker joins the queue as blocked and opens its record", () => {
         const rows = buildAttentionQueue({
