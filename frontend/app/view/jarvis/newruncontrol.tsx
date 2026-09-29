@@ -10,9 +10,9 @@
 // The launcher's own controls are here too, not a reduced copy of them. They used to live only on the
 // sheet, which renders the launcher while a project has never run and the run body forever after
 // (briefsheetmodel: body is "run" once a run exists) — so after the first launch there was no reachable
-// way to say "not this time", and every run silently took the profile's shape. Rendering
-// RunLauncherSections rather than a second set of pickers is what keeps one answer to what a launch
-// dispatches with: the same atoms, the same profile hydration, the same route.
+// way to say "not this time", and every run silently took the profile's shape. The window lays them out in
+// two panes (Main.dc.html) but every control writes the launcher's own atoms, which is what keeps one answer
+// to what a launch dispatches with: the same atoms, the same profile hydration, the same route.
 //
 // The `r` binding presses this button by its data attribute (buildJarvisBindings), which is why the
 // attribute matters more than the label.
@@ -20,12 +20,13 @@
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
-import { fireAndForget } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import { channelsAtom, createChannel } from "../agents/channelsstore";
 import { projectsAtom } from "../agents/projectsstore";
+import { RoutePicker } from "../agents/routepicker";
 import {
     channelOverrideAtom,
     createRun,
@@ -33,7 +34,7 @@ import {
     resolveChannelLaunchRoute,
     resolvedProfileAtom,
 } from "../agents/runactions";
-import { launchBlocker } from "../agents/runconfig";
+import { START_OPTIONS, launchBlocker, startNote, type StartFrom } from "../agents/runconfig";
 import {
     endRunConfigDraft,
     hydrateRunConfigFromProfile,
@@ -43,16 +44,26 @@ import {
     resetRunConfigForChannel,
     reviewerPicksAtom,
     reviewerRouteAtom,
+    routeOpenRequestAtom,
     routeTouchedAtom,
     runRouteAtom,
     runShapeAtom,
+    setPlanPath,
+    setReviewerPicks,
+    setReviewerRoute,
+    setRunRoute,
+    setStart,
+    setWorkerRoute,
     startAtom,
+    stepParallelism,
     workerRouteAtom,
 } from "../agents/runconfigstore";
-import { RunLauncherSections } from "../agents/runlauncher";
-import { initialPick, launchGoal, launchOptsFromConfig, resolveChannelTarget, stepPick } from "./newrun";
+import { ShapeCards, WorkerStepper, usePlanPreview } from "../agents/runlauncher";
+import { planShapeText, planWarnings } from "../orchestrate/dagdigest";
+import { initialPick, launchGoal, launchOptsFromConfig, resolveChannelTarget } from "./newrun";
+import { planMixLine, planModelRows, workersModelName, type PlanModelTone, type WorkersSetting } from "./newrunplan";
 import { openTarget } from "./openref";
-import { ProjectChips } from "./projectchips";
+import { ProjectPicker } from "./projectpickerview";
 
 // Module scope, not component state: NewRunControl unmounts the modal on close, so a project picked for
 // one launch was gone by the next one and every run started by re-picking the same project. Not persisted
@@ -62,6 +73,209 @@ const lastPickedProjectAtom = atom<string | null>(null) as PrimitiveAtom<string 
 const FIELD_LABEL = "font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-ink-mid";
 const CANCEL_BTN =
     "cursor-pointer rounded-[7px] border border-border bg-surface-raised px-3.5 py-1.5 text-[11.5px] font-semibold text-secondary hover:text-primary";
+// RoutePicker caps its trigger for the inline rows it usually sits in; a Models row gives it the column
+const FULL_WIDTH_PICKER =
+    "min-w-0 flex-1 [&>div]:w-full [&>div>button]:w-full [&>div>button]:max-w-none [&>div>button]:justify-between";
+const PLAN_GRID = "grid grid-cols-[40px_minmax(0,1fr)_44px_96px_112px] gap-x-2.5 px-3";
+const START_LABEL: Record<StartFrom, string> = { goal: "Goal", plan: "Plan file" };
+const MODEL_TONE: Record<PlanModelTone, string> = {
+    "plan-live": "text-accent-soft",
+    "plan-ignored": "text-ink-faint line-through",
+    "at-review": "text-muted",
+    workers: "text-ink-mid",
+};
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+    return (
+        <div className="flex flex-col gap-1.5">
+            <span className={FIELD_LABEL}>{label}</span>
+            {children}
+        </div>
+    );
+}
+
+function ModelRow({ label, children }: { label: string; children: ReactNode }) {
+    return (
+        <div className="flex items-center gap-2">
+            <span className="w-[74px] flex-none text-[12px] text-ink-mid">{label}</span>
+            <div className={FULL_WIDTH_PICKER}>{children}</div>
+        </div>
+    );
+}
+
+function ModelsSection({ orchestrator }: { orchestrator: boolean }) {
+    const route = useAtomValue(runRouteAtom);
+    const workerRoute = useAtomValue(workerRouteAtom);
+    const reviewerPicks = useAtomValue(reviewerPicksAtom);
+    const reviewerRoute = useAtomValue(reviewerRouteAtom);
+    const openRequest = useAtomValue(routeOpenRequestAtom);
+    return (
+        <div className="flex flex-col gap-2">
+            <span className={FIELD_LABEL}>Models</span>
+            <ModelRow label="Lead">
+                <RoutePicker
+                    value={route}
+                    onChange={setRunRoute}
+                    placement="bottom-start"
+                    openRequest={openRequest}
+                    title="Lead model"
+                />
+            </ModelRow>
+            {orchestrator ? (
+                <>
+                    <ModelRow label="Workers">
+                        <RoutePicker
+                            value={workerRoute}
+                            onChange={setWorkerRoute}
+                            placement="bottom-start"
+                            title="Workers model"
+                            canInherit
+                            inheritedLabel="Same as lead"
+                            extraOption={{
+                                label: "Reviewer picks",
+                                selected: reviewerPicks,
+                                onSelect: () => setReviewerPicks(true),
+                            }}
+                        />
+                    </ModelRow>
+                    <ModelRow label="Reviewers">
+                        <RoutePicker
+                            value={reviewerRoute}
+                            onChange={setReviewerRoute}
+                            placement="bottom-start"
+                            title="Reviewers model"
+                            canInherit
+                            inheritedLabel="Same as lead"
+                        />
+                    </ModelRow>
+                </>
+            ) : null}
+        </div>
+    );
+}
+
+function StartToggle({ start }: { start: StartFrom }) {
+    return (
+        <div className="flex items-center gap-2">
+            <div
+                role="group"
+                aria-label="Start from"
+                className="flex flex-none gap-0.5 rounded-[8px] border border-border bg-surface p-0.5"
+            >
+                {START_OPTIONS.map((option) => (
+                    <button
+                        key={option}
+                        type="button"
+                        aria-pressed={start === option}
+                        onClick={() => setStart(option)}
+                        className={cn(
+                            "cursor-pointer rounded-[6px] px-3 py-1 text-[11.5px] font-semibold",
+                            start === option ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:text-secondary"
+                        )}
+                    >
+                        {START_LABEL[option]}
+                    </button>
+                ))}
+            </div>
+            <span className="min-w-0 flex-1 text-[11px] leading-[1.45] text-muted">{startNote(start)}</span>
+        </div>
+    );
+}
+
+function PlanTable({ result, workers }: { result: CommandDagPlanPreviewRtnData; workers: WorkersSetting }) {
+    const tasks = result.tasks ?? [];
+    const mix = planMixLine(tasks, workers);
+    return (
+        <div data-jarvis-plan-preview="ready" className="flex min-h-0 flex-1 flex-col gap-3">
+            <div className="flex items-baseline gap-2.5">
+                {result.title ? (
+                    <span className="min-w-0 truncate text-[14px] font-semibold text-ink-hi">{result.title}</span>
+                ) : null}
+                <span className="flex-none font-mono text-[10.5px] text-ink-mid">{planShapeText(result.shape)}</span>
+                <span
+                    className={cn(
+                        "ml-auto flex-none font-mono text-[10.5px]",
+                        mix.accent ? "text-accent-soft" : "text-ink-mid"
+                    )}
+                >
+                    {mix.text}
+                </span>
+            </div>
+            {planWarnings(result.shape, result.verify).map((warning) => (
+                <span key={warning} className="font-mono text-[10.5px] text-warning">
+                    {warning}
+                </span>
+            ))}
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-[8px] border border-border bg-surface">
+                <div
+                    className={cn(
+                        PLAN_GRID,
+                        "sticky top-0 border-b border-border bg-surface py-1.5 font-mono text-[10px] uppercase tracking-[.08em] text-muted"
+                    )}
+                >
+                    <span>task</span>
+                    <span>title</span>
+                    <span>lane</span>
+                    <span>needs</span>
+                    <span>model</span>
+                </div>
+                {planModelRows(tasks, workers).map((row, i) => (
+                    <div
+                        key={row.id}
+                        className={cn(PLAN_GRID, "items-center py-1.5", i > 0 && "border-t border-edge-faint")}
+                    >
+                        <span className="font-mono text-[10.5px] text-muted">{row.id}</span>
+                        <span className="truncate text-[12px] text-ink-hi">{row.title}</span>
+                        <span className="font-mono text-[10.5px] text-ink-mid">{row.lane}</span>
+                        <span className="truncate font-mono text-[10.5px] text-muted">{row.needs}</span>
+                        <span
+                            title={row.model}
+                            className={cn("truncate font-mono text-[10.5px]", MODEL_TONE[row.tone])}
+                        >
+                            {row.model}
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+// The plan is parsed here, before anything is created (spec §1): a plan that will not run shows the parser's
+// message in place of the table and holds the start.
+function PlanPane({
+    projectPath,
+    workers,
+    inputRef,
+}: {
+    projectPath: string;
+    workers: WorkersSetting;
+    inputRef: RefObject<HTMLInputElement>;
+}) {
+    const path = useAtomValue(planPathAtom);
+    const current = usePlanPreview(path, projectPath);
+    return (
+        <>
+            <input
+                ref={inputRef}
+                data-jarvis-plan-path
+                autoFocus
+                value={path}
+                aria-label="Plan file path"
+                onChange={(e) => setPlanPath(e.target.value)}
+                placeholder="Plan path, absolute or relative to the project"
+                className="w-full rounded-[7px] border border-edge-mid bg-background px-2.5 py-[7px] font-mono text-[11.5px] text-primary placeholder:text-muted outline-none focus:border-accent/60"
+            />
+            {current?.error != null ? (
+                <span data-jarvis-plan-preview="error" className="text-[11px] leading-[1.45] text-error">
+                    {current.error}
+                </span>
+            ) : current?.result != null ? (
+                <PlanTable result={current.result} workers={workers} />
+            ) : null}
+        </>
+    );
+}
 
 function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () => void }) {
     const projects = useAtomValue(projectsAtom);
@@ -80,29 +294,30 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const runRoute = useAtomValue(runRouteAtom);
     const routeTouched = useAtomValue(routeTouchedAtom);
     const entries = Object.entries(projects ?? {});
-    // read once: "last used" names where the previous launch went, not the pick being made now
-    const [recent] = useState(() => globalStore.get(lastPickedProjectAtom));
     // the project you last started work in, else the only one there is — either way the common case is
     // type-a-goal-and-go rather than pick-the-same-project-again
     const [picked, setPicked] = useState<string | null>(() =>
         initialPick(
             entries.map(([name]) => name),
-            recent
+            globalStore.get(lastPickedProjectAtom)
         )
     );
     const [goal, setGoal] = useState("");
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const goalRef = useRef<HTMLTextAreaElement>(null);
+    const planRef = useRef<HTMLInputElement>(null);
     const config = { shape, parallelism, workerRoute, start: startFrom, planPath, reviewerPicks, reviewerRoute };
+    const orchestrator = shape === "orchestrator";
     // a plan start is named by its plan, so it has no goal field to fill
-    const planStart = shape === "orchestrator" && startFrom === "plan";
+    const planStart = orchestrator && startFrom === "plan";
     const blocker = launchBlocker({ shape, start: startFrom, goal, planPath, preview });
+    const projectPath = picked != null ? (projects?.[picked]?.path ?? "") : "";
 
     // The project's own channel is where its profile lives, and a project that has never run has no channel
     // yet — hydrating from `undefined` then leaves the launcher on its baselines, which is the right answer
     // for a project that has never said otherwise.
-    const target = picked != null ? resolveChannelTarget(channels, picked, projects?.[picked]?.path ?? "") : null;
+    const target = picked != null ? resolveChannelTarget(channels, picked, projectPath) : null;
     const pickedOid = target?.kind === "existing" ? target.oid : null;
     useEffect(() => {
         // keepTouched: the project is a field of this one launch, not a place you navigated to, so
@@ -129,26 +344,12 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         globalStore.set(lastPickedProjectAtom, project);
         // back to the field, so focus never rests on a non-editable target: a locally mounted modal is
         // invisible to deriveKeyContext, so every bare-letter Jarvis binding stays live behind it
-        goalRef.current?.focus();
+        (goalRef.current ?? planRef.current)?.focus();
     };
 
-    // Arrow keys walk the chips the search leaves without leaving the search box; Enter takes the
-    // highlighted one. Enter is swallowed rather than allowed to bubble, because ModalShell's onSubmit would
-    // otherwise read it as "start the run" while the user is still choosing which project to start it in.
-    const onSearchKey = (e: KeyboardEvent<HTMLInputElement>, rows: string[]) => {
-        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-            e.preventDefault();
-            setPicked(stepPick(rows, picked, e.key === "ArrowDown" ? 1 : -1));
-            return;
-        }
-        if (e.key === "Enter") {
-            e.preventDefault();
-            e.stopPropagation();
-            const next = picked != null && rows.includes(picked) ? picked : rows[0];
-            if (next != null) {
-                select(next);
-            }
-        }
+    const register = () => {
+        onClose();
+        globalStore.set(model.newProjectOpenAtom, true);
     };
 
     const start = () => {
@@ -168,7 +369,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                 // a channel minted here and then orphaned by a failed launch is the project's channel
                 // either way, so there is nothing to roll back — the next run finds it
                 oid = target.kind === "existing" ? target.oid : await createChannel(target.name, target.path);
-                // a route the user picked in the Routing section is the answer; otherwise resolve the
+                // a route the user picked in the Models section is the answer; otherwise resolve the
                 // project's own, which also validates that the route is actually available right now
                 const route = routeTouched && runRoute != null ? runRoute : await resolveChannelLaunchRoute(oid);
                 run = await createRun(oid, launchGoal(config, goal), route, launchOptsFromConfig(config));
@@ -191,7 +392,12 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     };
 
     return (
-        <ModalShell open onClose={onClose} onSubmit={start} className="flex max-h-[88vh] w-[min(640px,94vw)] flex-col">
+        <ModalShell
+            open
+            onClose={onClose}
+            onSubmit={start}
+            className={cn("flex w-[min(960px,94vw)] flex-col", entries.length > 0 && "h-[min(720px,88vh)]")}
+        >
             <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
                 <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-accentbg font-mono text-[10.5px] font-bold text-accent-soft">
                     ▸
@@ -208,10 +414,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                     </span>
                     <button
                         type="button"
-                        onClick={() => {
-                            onClose();
-                            globalStore.set(model.newProjectOpenAtom, true);
-                        }}
+                        onClick={register}
                         className="cursor-pointer rounded-[7px] border border-accent/30 bg-accentbg px-2.5 py-1.5 text-[11.5px] font-semibold text-accent-soft hover:bg-accent/20"
                     >
                         Register a project
@@ -219,33 +422,48 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                 </div>
             ) : (
                 <>
-                    <div className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-y-auto px-[18px] py-4">
-                        <div className="flex flex-col gap-1.5">
-                            <span className={FIELD_LABEL}>Project</span>
-                            <ProjectChips
-                                names={entries.map(([name]) => name)}
-                                picked={picked}
-                                recent={recent}
-                                onPick={select}
-                                columns={2}
-                                onKeyDown={onSearchKey}
-                            />
+                    <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)]">
+                        <div className="flex min-h-0 flex-col gap-5 overflow-y-auto border-r border-border bg-surface px-[18px] py-4">
+                            <Field label="Project">
+                                <ProjectPicker
+                                    projects={entries.map(([name, p]) => ({ name, path: p?.path ?? "" }))}
+                                    channels={channels}
+                                    picked={picked}
+                                    onPick={select}
+                                    onRegister={register}
+                                />
+                            </Field>
+                            <div className="flex flex-col gap-1.5">
+                                <ShapeCards showParallelism={false} />
+                                {orchestrator ? (
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="flex-1 text-[12px] text-ink-mid">Workers at once</span>
+                                        <WorkerStepper value={parallelism} onStep={stepParallelism} />
+                                    </div>
+                                ) : null}
+                            </div>
+                            <ModelsSection orchestrator={orchestrator} />
                         </div>
-                        <RunLauncherSections projectPath={picked != null ? (projects?.[picked]?.path ?? "") : ""} />
-                        {planStart ? null : (
-                            <div className="flex flex-col gap-1">
-                                <span className={FIELD_LABEL}>Goal</span>
+                        <div className="flex min-h-0 min-w-0 flex-col gap-3 px-[18px] py-4">
+                            {orchestrator ? <StartToggle start={startFrom} /> : null}
+                            {planStart ? (
+                                <PlanPane
+                                    projectPath={projectPath}
+                                    workers={{ picks: reviewerPicks, model: workersModelName(workerRoute, runRoute) }}
+                                    inputRef={planRef}
+                                />
+                            ) : (
                                 <textarea
                                     ref={goalRef}
                                     autoFocus
-                                    rows={3}
+                                    aria-label="Goal"
                                     value={goal}
                                     onChange={(e) => setGoal(e.target.value)}
                                     placeholder="What should it do?"
-                                    className="w-full resize-none rounded-[7px] border border-edge-mid bg-background px-2.5 py-1.5 text-[12.5px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent/60"
+                                    className="min-h-0 w-full flex-1 resize-none rounded-[7px] border border-edge-mid bg-background px-3 py-2.5 text-[13px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent/60"
                                 />
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2 border-t border-border px-[18px] py-3">
                         {error != null ? (
@@ -257,8 +475,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                     button, which is what a silent click on it looks like */}
                                 {picked == null
                                     ? "pick a project"
-                                    : (blocker ??
-                                      `${shape}${shape === "orchestrator" ? " × " + parallelism : ""} in ${picked}`)}
+                                    : (blocker ?? `${shape}${orchestrator ? " × " + parallelism : ""} in ${picked}`)}
                             </span>
                         )}
                         <button type="button" onClick={onClose} className={CANCEL_BTN}>

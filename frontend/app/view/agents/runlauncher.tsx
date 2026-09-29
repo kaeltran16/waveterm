@@ -20,7 +20,15 @@ import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 import { planShapeText, planWarnings } from "../orchestrate/dagdigest";
 import { RoutePicker } from "./routepicker";
-import { MAX_PARALLELISM, SHAPE_CARDS, START_OPTIONS, runLauncherFace, startNote, type StartFrom } from "./runconfig";
+import {
+    MAX_PARALLELISM,
+    SHAPE_CARDS,
+    START_OPTIONS,
+    runLauncherFace,
+    startNote,
+    type PlanPreview,
+    type StartFrom,
+} from "./runconfig";
 import {
     parallelismAtom,
     planPathAtom,
@@ -64,7 +72,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 // Side by side rather than stacked: the two shapes are alternatives to one another, and a column made
 // the reader compare them in sequence instead of at a glance. The width sits on the same line (design
 // L869-883) because it only exists for the orchestrator shape it is next to.
-function ShapeCards({ showParallelism }: { showParallelism: boolean }) {
+export function ShapeCards({ showParallelism }: { showParallelism: boolean }) {
     const shape = useAtomValue(runShapeAtom);
     const par = useAtomValue(parallelismAtom);
     return (
@@ -129,10 +137,8 @@ function StartSection({ projectPath }: { projectPath: string }) {
 // lets a typed or pasted path finish arriving before wavesrv reads the file
 const PLAN_PREVIEW_DELAY_MS = 300;
 
-// The plan is parsed here, before anything is created (spec §1): a plan that will not run shows the parser's
-// message and holds the start, and one that will shows the shape the engine is about to run.
-function PlanPathField({ projectPath }: { projectPath: string }) {
-    const path = useAtomValue(planPathAtom);
+// Reads the plan at `path` into planPreviewAtom, and returns the reading of exactly that path, or null.
+export function usePlanPreview(path: string, projectPath: string): PlanPreview | null {
     const preview = useAtomValue(planPreviewAtom);
     useEffect(() => {
         const trimmed = path.trim();
@@ -163,7 +169,14 @@ function PlanPathField({ projectPath }: { projectPath: string }) {
             clearTimeout(timer);
         };
     }, [path, projectPath]);
-    const current = preview != null && preview.path === path.trim() ? preview : null;
+    return preview != null && preview.path === path.trim() ? preview : null;
+}
+
+// The plan is parsed here, before anything is created (spec §1): a plan that will not run shows the parser's
+// message and holds the start, and one that will shows the shape the engine is about to run.
+function PlanPathField({ projectPath }: { projectPath: string }) {
+    const path = useAtomValue(planPathAtom);
+    const current = usePlanPreview(path, projectPath);
     return (
         <div className="flex flex-col gap-1">
             <input
