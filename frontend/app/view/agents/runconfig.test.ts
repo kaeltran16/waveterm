@@ -140,7 +140,13 @@ describe("profileRunDefaults", () => {
             parallelism: 5,
             workerroute: route,
         } as JarvisProfile);
-        expect(got).toEqual({ shape: "orchestrator", parallelism: 5, workerRoute: route });
+        expect(got).toEqual({
+            shape: "orchestrator",
+            parallelism: 5,
+            workerRoute: route,
+            reviewerPicks: false,
+            reviewerRoute: null,
+        });
     });
 
     it("has no opinion where the profile is silent", () => {
@@ -148,11 +154,15 @@ describe("profileRunDefaults", () => {
             shape: null,
             parallelism: null,
             workerRoute: null,
+            reviewerPicks: false,
+            reviewerRoute: null,
         });
         expect(profileRunDefaults(null)).toEqual({
             shape: null,
             parallelism: null,
             workerRoute: null,
+            reviewerPicks: false,
+            reviewerRoute: null,
         });
     });
 

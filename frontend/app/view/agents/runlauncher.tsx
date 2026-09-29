@@ -25,10 +25,14 @@ import {
     parallelismAtom,
     planPathAtom,
     planPreviewAtom,
+    reviewerPicksAtom,
+    reviewerRouteAtom,
     routeOpenRequestAtom,
     runRouteAtom,
     runShapeAtom,
     setPlanPath,
+    setReviewerPicks,
+    setReviewerRoute,
     setRunRoute,
     setRunShape,
     setStart,
@@ -248,6 +252,8 @@ export function WorkerStepper({
 function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
     const route = useAtomValue(runRouteAtom);
     const workerRoute = useAtomValue(workerRouteAtom);
+    const reviewerPicks = useAtomValue(reviewerPicksAtom);
+    const reviewerRoute = useAtomValue(reviewerRouteAtom);
     const openRequest = useAtomValue(routeOpenRequestAtom);
     return (
         <Section label="Routing">
@@ -260,13 +266,29 @@ function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
                     title="Lead model"
                 />
                 {showWorkerRoute ? (
-                    <RoutePicker
-                        value={workerRoute}
-                        onChange={setWorkerRoute}
-                        placement="bottom-start"
-                        title="Workers model"
-                        inheritedLabel="Same as lead"
-                    />
+                    <>
+                        <RoutePicker
+                            value={workerRoute}
+                            onChange={setWorkerRoute}
+                            placement="bottom-start"
+                            title="Workers model"
+                            canInherit
+                            inheritedLabel="Same as lead"
+                            extraOption={{
+                                label: "Reviewer picks",
+                                selected: reviewerPicks,
+                                onSelect: () => setReviewerPicks(true),
+                            }}
+                        />
+                        <RoutePicker
+                            value={reviewerRoute}
+                            onChange={setReviewerRoute}
+                            placement="bottom-start"
+                            title="Reviewers model"
+                            canInherit
+                            inheritedLabel="Same as lead"
+                        />
+                    </>
                 ) : null}
             </div>
         </Section>

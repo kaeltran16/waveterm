@@ -1,0 +1,50 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+import { describe, expect, it } from "vitest";
+import type { RunConfig } from "./newrun";
+import { launchOptsFromConfig } from "./newrun";
+
+const base: RunConfig = {
+    shape: "orchestrator",
+    parallelism: 3,
+    workerRoute: null,
+    start: "goal",
+    planPath: "",
+    reviewerPicks: false,
+    reviewerRoute: null,
+};
+const opus: RoutePin = { runtime: "claude", model: "opus" };
+
+describe("launchOptsFromConfig reviewer fields", () => {
+    it("sends Reviewer picks for an orchestrator on picks", () => {
+        expect(launchOptsFromConfig({ ...base, reviewerPicks: true })).toEqual({
+            mode: "orchestrator",
+            parallelism: 3,
+            reviewerPicks: true,
+        });
+    });
+
+    it("sends the reviewer route when one is set", () => {
+        expect(launchOptsFromConfig({ ...base, reviewerRoute: opus })).toEqual({
+            mode: "orchestrator",
+            parallelism: 3,
+            reviewerPicks: false,
+            reviewerRoute: opus,
+        });
+    });
+
+    // an unset workers setting reads the profile server-side, so false has to be said out loud to mean
+    // Same as lead over a profile that picks
+    it("still sends reviewerPicks false with neither set", () => {
+        const opts = launchOptsFromConfig(base);
+        expect(opts).toEqual({ mode: "orchestrator", parallelism: 3, reviewerPicks: false });
+        expect(opts).not.toHaveProperty("reviewerRoute");
+    });
+
+    it("sends neither for a quick launch", () => {
+        expect(launchOptsFromConfig({ ...base, shape: "quick", reviewerPicks: true, reviewerRoute: opus })).toEqual({
+            mode: "quick",
+        });
+    });
+});

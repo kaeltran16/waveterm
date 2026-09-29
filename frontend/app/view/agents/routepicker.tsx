@@ -49,6 +49,7 @@ export function RoutePicker({
     title,
     size = "default",
     disabled = false,
+    extraOption,
 }: {
     value: RoutePin | null;
     onChange: (route: RoutePin | null) => void;
@@ -59,6 +60,8 @@ export function RoutePicker({
     title?: string;
     size?: "default" | "compact";
     disabled?: boolean;
+    // an answer that is not a route (Reviewer picks), so it has no RoutePin for value to hold
+    extraOption?: { label: string; selected: boolean; onSelect: () => void };
 }): JSX.Element {
     const harnesses = useAtomValue(harnessesAtom);
     const loading = useAtomValue(harnessesLoadingAtom);
@@ -77,7 +80,13 @@ export function RoutePicker({
     // custom/free-form ids may be namespace-valid without catalog presence, so the face never
     // claims "unavailable" — resolution happens server-side at dispatch.
     const harness = value == null ? undefined : harnesses.find((h) => h.runtime === value.runtime);
-    const face = value == null ? inheritedLabel : `${harness?.label ?? value.runtime} · ${modelFace(value)}`;
+    const extraSelected = extraOption?.selected ?? false;
+    const inheritedSelected = value == null && !extraSelected;
+    const face = extraSelected
+        ? extraOption.label
+        : value == null
+          ? inheritedLabel
+          : `${harness?.label ?? value.runtime} · ${modelFace(value)}`;
     const catalog = useMemo(() => buildPickerSections(harnesses), [harnesses]);
     const matched = useMemo(() => filterPickerSections(catalog, query), [catalog, query]);
     const sections = useMemo(() => scopePickerSections(matched, scope), [matched, scope]);
@@ -131,10 +140,13 @@ export function RoutePicker({
     });
     const { getReferenceProps, getFloatingProps } = useInteractions([useClick(context), useDismiss(context)]);
 
-    const choose = (route: RoutePin | null) => {
-        onChange(route);
+    const close = () => {
         setOpen(false);
         requestAnimationFrame(() => triggerRef.current?.focus());
+    };
+    const choose = (route: RoutePin | null) => {
+        onChange(route);
+        close();
     };
     const focusRow = (index: number) => {
         if (rowKeys.length === 0) {
@@ -215,16 +227,34 @@ export function RoutePicker({
                         {canInherit ? (
                             <button
                                 type="button"
-                                aria-pressed={value == null}
+                                aria-pressed={inheritedSelected}
                                 data-testid="route-option-inherit"
                                 onClick={() => choose(null)}
                                 className={cn(
                                     "flex w-full cursor-pointer items-start rounded px-[9px] py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                                    value == null ? "bg-surface-raised text-accent" : "text-primary hover:bg-surface-hover"
+                                    inheritedSelected ? "bg-surface-raised text-accent" : "text-primary hover:bg-surface-hover"
                                 )}
                             >
                                 <span className="min-w-0 flex-1 text-[12.5px] font-semibold">{inheritedLabel}</span>
-                                {value == null ? <Check size={12} className="mt-[3px] flex-none text-accent" /> : null}
+                                {inheritedSelected ? <Check size={12} className="mt-[3px] flex-none text-accent" /> : null}
+                            </button>
+                        ) : null}
+                        {extraOption != null ? (
+                            <button
+                                type="button"
+                                aria-pressed={extraSelected}
+                                data-testid="route-option-extra"
+                                onClick={() => {
+                                    extraOption.onSelect();
+                                    close();
+                                }}
+                                className={cn(
+                                    "flex w-full cursor-pointer items-start rounded px-[9px] py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                                    extraSelected ? "bg-surface-raised text-accent" : "text-primary hover:bg-surface-hover"
+                                )}
+                            >
+                                <span className="min-w-0 flex-1 text-[12.5px] font-semibold">{extraOption.label}</span>
+                                {extraSelected ? <Check size={12} className="mt-[3px] flex-none text-accent" /> : null}
                             </button>
                         ) : null}
                         <div data-testid="route-picker-scroll" className="min-h-0 overflow-y-auto overscroll-contain">

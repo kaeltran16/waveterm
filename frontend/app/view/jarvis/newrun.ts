@@ -51,6 +51,8 @@ export interface RunConfig {
     workerRoute: RoutePin | null;
     start: StartFrom;
     planPath: string;
+    reviewerPicks: boolean;
+    reviewerRoute: RoutePin | null;
 }
 
 export interface LaunchOpts {
@@ -58,13 +60,16 @@ export interface LaunchOpts {
     parallelism?: number;
     workerRoute?: RoutePin;
     planPath?: string;
+    reviewerPicks?: boolean;
+    reviewerRoute?: RoutePin;
 }
 
 // What the launcher's controls mean as CreateRun's arguments. The mode cannot simply be omitted: the server
 // reads an unset mode as `quick` (resolveRunPlan). Every orchestrator run is an engine run, so the machine
-// is the server's to set.
+// is the server's to set. reviewerPicks goes out even when false: the server reads an unset one as the
+// profile's, and the launcher has already shown the user the profile's answer and let them change it.
 export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
-    const { shape, parallelism, workerRoute, start, planPath } = config;
+    const { shape, parallelism, workerRoute, start, planPath, reviewerPicks, reviewerRoute } = config;
     if (shape !== "orchestrator") {
         return { mode: shape };
     }
@@ -73,6 +78,8 @@ export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
         parallelism,
         ...(workerRoute != null ? { workerRoute } : {}),
         ...(start === "plan" ? { planPath: planPath.trim() } : {}),
+        reviewerPicks,
+        ...(reviewerRoute != null ? { reviewerRoute } : {}),
     };
 }
 

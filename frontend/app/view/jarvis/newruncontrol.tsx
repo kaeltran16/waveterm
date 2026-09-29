@@ -41,6 +41,8 @@ import {
     planPathAtom,
     planPreviewAtom,
     resetRunConfigForChannel,
+    reviewerPicksAtom,
+    reviewerRouteAtom,
     routeTouchedAtom,
     runRouteAtom,
     runShapeAtom,
@@ -70,6 +72,8 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const shape = useAtomValue(runShapeAtom);
     const parallelism = useAtomValue(parallelismAtom);
     const workerRoute = useAtomValue(workerRouteAtom);
+    const reviewerPicks = useAtomValue(reviewerPicksAtom);
+    const reviewerRoute = useAtomValue(reviewerRouteAtom);
     const startFrom = useAtomValue(startAtom);
     const planPath = useAtomValue(planPathAtom);
     const preview = useAtomValue(planPreviewAtom);
@@ -90,7 +94,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const goalRef = useRef<HTMLTextAreaElement>(null);
-    const config = { shape, parallelism, workerRoute, start: startFrom, planPath };
+    const config = { shape, parallelism, workerRoute, start: startFrom, planPath, reviewerPicks, reviewerRoute };
     // a plan start is named by its plan, so it has no goal field to fill
     const planStart = shape === "orchestrator" && startFrom === "plan";
     const blocker = launchBlocker({ shape, start: startFrom, goal, planPath, preview });

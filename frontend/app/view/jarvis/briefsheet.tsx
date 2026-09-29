@@ -46,6 +46,8 @@ import {
     planPathAtom,
     planPreviewAtom,
     resetRunConfigForChannel,
+    reviewerPicksAtom,
+    reviewerRouteAtom,
     routeTouchedAtom,
     runRouteAtom,
     runShapeAtom,
@@ -95,6 +97,8 @@ const STEP_BTN =
 function ChannelLaunch({ channel }: { channel: Channel }) {
     const shape = useAtomValue(runShapeAtom);
     const workerRoute = useAtomValue(workerRouteAtom);
+    const reviewerPicks = useAtomValue(reviewerPicksAtom);
+    const reviewerRoute = useAtomValue(reviewerRouteAtom);
     const parallelism = useAtomValue(parallelismAtom);
     const startFrom = useAtomValue(startAtom);
     const planPath = useAtomValue(planPathAtom);
@@ -117,7 +121,7 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
     const target = pendingDraft != null ? resolveTargetChannel(channels ?? [], pendingDraft.projectPath) : undefined;
     const radarDraft = pendingDraft != null && target?.oid === channel.oid ? pendingDraft : null;
     const value = radarDraft != null ? radarDraft.goal : goal;
-    const config = { shape, parallelism, workerRoute, start: startFrom, planPath };
+    const config = { shape, parallelism, workerRoute, start: startFrom, planPath, reviewerPicks, reviewerRoute };
     const planStart = shape === "orchestrator" && startFrom === "plan";
     const blocker = launchBlocker({ shape, start: startFrom, goal: value, planPath, preview });
 

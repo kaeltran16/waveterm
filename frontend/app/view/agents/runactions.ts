@@ -54,38 +54,51 @@ export async function stopRunWorker(channelId: string, runId: string, workerORef
 // derives its own handler deadline from this same field.
 const CREATE_RUN_TIMEOUT_MS = 180_000;
 
-export async function createRun(
+export interface CreateRunOpts {
+    mode?: string;
+    deferStart?: boolean;
+    radarOrigin?: { reportid: string; findingid: string; fingerprint: string };
+    workerRoute?: RoutePin | null;
+    orchestration?: string;
+    parallelism?: number;
+    planPath?: string;
+    reviewerPicks?: boolean;
+    reviewerRoute?: RoutePin | null;
+}
+
+export function createRunPayload(
+    workspaceId: string,
     channelId: string,
     goal: string,
     route: RoutePin,
-    opts?: {
-        mode?: string;
-        deferStart?: boolean;
-        radarOrigin?: { reportid: string; findingid: string; fingerprint: string };
-        workerRoute?: RoutePin | null;
-        orchestration?: string;
-        parallelism?: number;
-        planPath?: string;
-    }
-): Promise<Run> {
+    opts?: CreateRunOpts
+): CommandCreateRunData {
+    const orchestrator = opts?.mode === "orchestrator";
+    return {
+        channelid: channelId,
+        workspaceid: workspaceId,
+        goal,
+        runtime: route.runtime,
+        ...(route.model ? { model: route.model } : {}),
+        ...(orchestrator && opts.workerRoute ? { workerroute: opts.workerRoute } : {}),
+        ...(orchestrator && opts.orchestration ? { orchestration: opts.orchestration } : {}),
+        ...(orchestrator && opts.parallelism ? { parallelism: opts.parallelism } : {}),
+        ...(orchestrator && opts.planPath ? { planpath: opts.planPath } : {}),
+        // false is sent too: unset means "the profile's", which is not what a launcher showing false chose
+        ...(orchestrator && opts.reviewerPicks != null ? { reviewerpicks: opts.reviewerPicks } : {}),
+        ...(orchestrator && opts.reviewerRoute ? { reviewerroute: opts.reviewerRoute } : {}),
+        mode: opts?.mode,
+        deferstart: opts?.deferStart,
+        ...(opts?.radarOrigin ? { radarorigin: opts.radarOrigin } : {}),
+    };
+}
+
+export async function createRun(channelId: string, goal: string, route: RoutePin, opts?: CreateRunOpts): Promise<Run> {
     if (!route.runtime) throw new Error("Choose a route");
     const workspaceId = globalStore.get(atoms.workspaceId);
     const rtn = await RpcApi.CreateRunCommand(
         TabRpcClient,
-        {
-            channelid: channelId,
-            workspaceid: workspaceId,
-            goal,
-            runtime: route.runtime,
-            ...(route.model ? { model: route.model } : {}),
-            ...(opts?.mode === "orchestrator" && opts.workerRoute ? { workerroute: opts.workerRoute } : {}),
-            ...(opts?.mode === "orchestrator" && opts.orchestration ? { orchestration: opts.orchestration } : {}),
-            ...(opts?.mode === "orchestrator" && opts.parallelism ? { parallelism: opts.parallelism } : {}),
-            ...(opts?.mode === "orchestrator" && opts.planPath ? { planpath: opts.planPath } : {}),
-            mode: opts?.mode,
-            deferstart: opts?.deferStart,
-            ...(opts?.radarOrigin ? { radarorigin: opts.radarOrigin } : {}),
-        },
+        createRunPayload(workspaceId, channelId, goal, route, opts),
         { timeout: CREATE_RUN_TIMEOUT_MS }
     );
     if (rtn?.run == null) {
