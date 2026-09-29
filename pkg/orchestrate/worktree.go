@@ -67,10 +67,11 @@ func CreateRunWorktree(ctx context.Context, projectPath, runID, baseCommit strin
 // RemoveRunWorktree removes the linked worktree and its branch.
 func RemoveRunWorktree(ctx context.Context, projectPath, runID string) error {
 	wt := worktreeDir(projectPath, runID)
-	if _, err := os.Stat(wt); err != nil {
-		return nil // nothing to remove
+	var err error
+	// a tree already gone still leaves its branch: a skipped task's rewind removes the lane's tree
+	if _, serr := os.Stat(wt); serr == nil {
+		err = removeWorktreeDir(ctx, projectPath, wt)
 	}
-	err := removeWorktreeDir(ctx, projectPath, wt)
 	// a process holding the directory fails its delete after git has unregistered the tree, which frees the
 	// branch; git refuses to delete a branch a still-registered tree has checked out
 	branch := "wave/" + runID
@@ -219,6 +220,11 @@ func worktreeOnBranch(ctx context.Context, wt, runID string) bool {
 // = the project head), and uncommitted changes inside the linked tree. Diffing from the fork point keeps
 // out the lanes that landed before it was cut and anything committed on landHead since.
 func DumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead string) error {
+	return dumpRecoveryPatch(ctx, projectPath, runID, landHead, runID)
+}
+
+// dumpRecoveryPatch is DumpRecoveryPatch writing to recovery/<name>.patch.
+func dumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead, name string) error {
 	if landHead == "" {
 		landHead = "HEAD"
 	}
@@ -227,7 +233,8 @@ func DumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead string)
 		return err
 	}
 	wt := worktreeDir(projectPath, runID)
-	if _, statErr := os.Stat(wt); statErr == nil {
+	// a leftover directory git no longer knows as the branch's tree is not one: git run there stages the project checkout
+	if worktreeOnBranch(ctx, wt, runID) {
 		// dump paths are discard/rebuild paths, so staging here is safe — and it pulls untracked
 		// files into the diff, which plain `diff HEAD` would silently drop
 		git(ctx, wt, "add", "-A")
@@ -240,7 +247,7 @@ func DumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead string)
 	if err := os.MkdirAll(recDir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(recDir, runID+".patch"), []byte(patch), 0o644)
+	return os.WriteFile(filepath.Join(recDir, name+".patch"), []byte(patch), 0o644)
 }
 
 // WorktreeHeadCommit returns the worktree branch's HEAD sha.

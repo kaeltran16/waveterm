@@ -190,8 +190,14 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 			if err := dropRejectedCommit(ctx, g, task); err != nil {
 				return err
 			}
-		} else if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
-			return err
+		} else {
+			if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
+				return err
+			}
+			// after the stop, so the worker cannot commit behind the rewind
+			if err := dropSkippedAttempt(ctx, g, taskID); err != nil {
+				return err
+			}
 		}
 		if err := SkipTask(g, taskID); err != nil {
 			return err

@@ -516,7 +516,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 				}
 			}
 			cwd = wt
-			taskBase = head
+			taskBase = attemptBase(spawnCtx, g, taskID, wt, head)
 			branch = "wave/" + key
 		}
 		reportPath := WorkerReportPath(g.OID, taskID)

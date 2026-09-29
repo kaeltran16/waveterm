@@ -97,19 +97,6 @@ func ChannelOwnerORef(ctx context.Context, askingORef string) string {
 	return waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
 }
 
-// askAutoAnswerable reports whether an ask is even a candidate for gatekeeper auto-answer: exactly
-// one single-select question. multiple questions, or a multi-select, always reach a human — the
-// keystroke actuator delivers a single index and can't express a multi-select's semantics.
-func askAutoAnswerable(questions []baseds.AgentAskQuestion) bool {
-	return len(questions) == 1 && !questions[0].MultiSelect
-}
-
-// optionIndexInRange guards a classifier-chosen index before delivery: an out-of-range index would
-// inject a wrong or invalid selection, so it escalates instead of answering.
-func optionIndexInRange(idx int, q baseds.AgentAskQuestion) bool {
-	return idx >= 0 && idx < len(q.Options)
-}
-
 // ResolveAskOwner resolves the channel + classifier task that owns an ask's worker oref, via the Phase-2
 // owner-stamp meta (each helper falls back to the old scan on a stamp miss). Run workers carry
 // jarvis:runoref (+channeloref); we check the run path FIRST so a run worker takes the run path, not the
@@ -139,35 +126,32 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 	if ch == nil || !GatekeeperOn(ch) {
 		return
 	}
-	// deterministic pre-filter: only a single single-select question is auto-answerable.
-	if !askAutoAnswerable(data.Questions) {
-		postEscalation(ch.OID, data, "needs a human (multiple or multi-select questions)", ownerORef)
-		return
-	}
-	q := data.Questions[0]
-	decision := Classify(ctx, ch, q, task)
+	decision := Classify(ctx, ch, data.Questions, task)
 	if ctx.Err() != nil {
 		return // cleared / cancelled mid-classification
 	}
-	if decision.Action == "answer" && decision.OptionIndex != nil {
-		idx := *decision.OptionIndex
-		if optionIndexInRange(idx, q) {
-			delivered, derr := deliverFn(data.ORef, data.AskId, []baseds.AgentAnswerItem{{SelectedIndexes: []int{idx}}})
-			if derr == nil && delivered {
-				postAnswered(ch.OID, q, idx, decision.Reason, data.ORef, data.AskId, ownerORef)
-				return
-			}
-			// classifier chose answer but delivery raced a clear or failed — fail safe to escalate
-			// rather than let the ask vanish from the channel trail.
-			reason := "answer delivery failed"
-			if derr != nil {
-				reason += ": " + derr.Error()
-			}
-			postEscalation(ch.OID, data, reason, ownerORef)
-			return
-		}
+	if decision.Action != "answer" {
+		postEscalation(ch.OID, data, decision.Reason, ownerORef)
+		return
 	}
-	postEscalation(ch.OID, data, decision.Reason, ownerORef)
+	// DeliverAnswer claims the ask before it encodes, so an answer the encoder would refuse must be caught here:
+	// past the claim it would take the ask out of the registry with nothing delivered
+	if err := agentask.ValidateAnswers(data.Questions, decision.Answers, data.Prose); err != nil {
+		postEscalation(ch.OID, data, "invalid classifier answer: "+err.Error(), ownerORef)
+		return
+	}
+	delivered, derr := deliverFn(data.ORef, data.AskId, decision.Answers)
+	if derr == nil && delivered {
+		postAnswered(ch.OID, data, decision.Answers, decision.Reason, ownerORef)
+		return
+	}
+	// classifier chose answer but delivery raced a clear or failed — fail safe to escalate
+	// rather than let the ask vanish from the channel trail.
+	reason := "answer delivery failed"
+	if derr != nil {
+		reason += ": " + derr.Error()
+	}
+	postEscalation(ch.OID, data, reason, ownerORef)
 }
 
 // isDagChildRun reports a run the engine spawned for a dag task. A dag names its lead in RunID, and the
@@ -180,13 +164,27 @@ func isDagChildRun(ctx context.Context, run *waveobj.Run) bool {
 	return err == nil && g.RunID != run.ID
 }
 
-func postAnswered(channelId string, q baseds.AgentAskQuestion, choiceIdx int, reason, askORef, askId, workerORef string) {
-	text := fmt.Sprintf("Answered → %q", q.Options[choiceIdx].Label)
+// postAnswered records a delivered answer; answers has already passed agentask.ValidateAnswers, so every pick
+// indexes its question's options.
+func postAnswered(channelId string, data baseds.AgentAskData, answers []baseds.AgentAnswerItem, reason, workerORef string) {
+	parts := make([]string, 0, len(answers))
+	for i, a := range answers {
+		if a.Text != "" {
+			parts = append(parts, fmt.Sprintf("%q", a.Text))
+			continue
+		}
+		labels := make([]string, 0, len(a.SelectedIndexes))
+		for _, idx := range a.SelectedIndexes {
+			labels = append(labels, fmt.Sprintf("%q", data.Questions[i].Options[idx].Label))
+		}
+		parts = append(parts, strings.Join(labels, ", "))
+	}
+	text := "Answered → " + strings.Join(parts, "; ")
 	if reason != "" {
 		text += " — " + reason
 	}
-	data, _ := json.Marshal(BuildCardData(q, &choiceIdx, reason, askORef, askId, workerORef))
-	postJarvisData(channelId, "jarvis-answered", text, string(data))
+	payload, _ := json.Marshal(BuildCardData(data.Questions, answers, reason, data.ORef, data.AskId, workerORef))
+	postJarvisData(channelId, "jarvis-answered", text, string(payload))
 }
 
 func postEscalation(channelId string, data baseds.AgentAskData, reason, workerORef string) {
@@ -198,12 +196,13 @@ func postEscalation(channelId string, data baseds.AgentAskData, reason, workerOR
 	b.WriteString("\n")
 	var payload string
 	if len(data.Questions) > 0 {
-		q := data.Questions[0]
-		b.WriteString(q.Question + "\n")
-		for i, o := range q.Options {
-			b.WriteString(fmt.Sprintf("  %d) %s\n", i, o.Label))
+		for _, q := range data.Questions {
+			b.WriteString(q.Question + "\n")
+			for i, o := range q.Options {
+				b.WriteString(fmt.Sprintf("  %d) %s\n", i, o.Label))
+			}
 		}
-		j, _ := json.Marshal(BuildCardData(q, nil, reason, data.ORef, data.AskId, workerORef))
+		j, _ := json.Marshal(BuildCardData(data.Questions, nil, reason, data.ORef, data.AskId, workerORef))
 		payload = string(j)
 	}
 	postJarvisData(channelId, "jarvis-escalation", strings.TrimRight(b.String(), "\n"), payload)

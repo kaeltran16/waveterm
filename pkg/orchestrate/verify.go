@@ -86,6 +86,98 @@ const verifyChangedEnv = "ARC_VERIFY_CHANGED"
 // own environment cannot scope it.
 var unscopedEnv = []string{verifyChangedEnv + "="}
 
+// verifyFlakyEnv names a fresh, empty file a Verify command may append its flaky tests to, one per line: tests
+// that failed and then passed when the command reran them. A pass with lines in it is still a pass, and each line
+// becomes an unverified item of the run, so a race that passes on a rerun is never a silent pass. A failed Verify's
+// file is not read. The engine reads nothing else from the command, so any test runner can follow it.
+const verifyFlakyEnv = "ARC_VERIFY_FLAKY"
+
+// maxFlakyReported bounds the flaky tests kept from one Verify: the file is the command's to write.
+const maxFlakyReported = 20
+
+// flakyPrefix opens each flaky item, both on a passed tip's kept Verify output and among the unverified items.
+const flakyPrefix = "Verify reported flaky: "
+
+// flakyItem is one flaky test, named as its Verify reported it, and which Verify that was.
+func flakyItem(test, where string) string {
+	return fmt.Sprintf("%s%s (failed, then passed on a rerun, %s)", flakyPrefix, test, where)
+}
+
+// runVerifyCommand runs a Verify command with verifyFlakyEnv naming a fresh file, and returns what a pass reported
+// flaky. A file it cannot make runs the command without one: the report is worth less than the Verify.
+func runVerifyCommand(ctx context.Context, dir, command string, env []string, progress planProgress) (string, []string, error) {
+	f, err := os.CreateTemp("", "arc-verify-flaky-*.txt")
+	if err != nil {
+		log.Printf("creating the flaky report file for Verify in %s: %v", dir, err)
+		out, verr := runPlanCommand(ctx, dir, command, env, VerifyTimeout, progress)
+		return out, nil, verr
+	}
+	path := f.Name()
+	f.Close()
+	defer os.Remove(path)
+	// Git Bash eats the backslashes of an unquoted Windows path
+	withFlaky := append(slices.Clone(env), verifyFlakyEnv+"="+filepath.ToSlash(path))
+	out, verr := runPlanCommand(ctx, dir, command, withFlaky, VerifyTimeout, progress)
+	if verr != nil {
+		return out, nil, verr
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("reading the flaky report of Verify in %s: %v", dir, err)
+		return out, nil, nil
+	}
+	return out, parseFlakyReport(string(b)), nil
+}
+
+// parseFlakyReport reads a flaky report's test names, one per line, without blanks or repeats, keeping the first
+// maxFlakyReported and counting the rest in a last line.
+func parseFlakyReport(text string) []string {
+	var tests []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(text, "\n") {
+		test := flatLine(line)
+		if test == "" || seen[test] {
+			continue
+		}
+		seen[test] = true
+		tests = append(tests, truncateText(test, MaxAskSummaryLen))
+	}
+	if len(tests) > maxFlakyReported {
+		more := len(tests) - maxFlakyReported
+		tests = append(tests[:maxFlakyReported], fmt.Sprintf("%d more tests", more))
+	}
+	return tests
+}
+
+// withFlakyItems appends a passed Verify's flaky items to the output kept on its tips, where the final stage finds
+// them (flakyItemsIn) and a human reading the gate sees them.
+func withFlakyItems(output string, tests []string, where string) string {
+	if len(tests) == 0 {
+		return output
+	}
+	lines := make([]string, len(tests))
+	for i, test := range tests {
+		lines[i] = flakyItem(test, where)
+	}
+	return strings.TrimRight(output, "\n") + "\n" + strings.Join(lines, "\n")
+}
+
+// afterMerging names a merge Verify in a flaky item by the tips it passed.
+func afterMerging(tips []string) string {
+	return "in the Verify after merging " + strings.Join(tips, ", ")
+}
+
+// flakyItemsIn returns the flaky items withFlakyItems appended to a kept Verify output.
+func flakyItemsIn(output string) []string {
+	var items []string
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, flakyPrefix) {
+			items = append(items, line)
+		}
+	}
+	return items
+}
+
 // changedFilesEnv lists the paths that differ between since and to in dir (to "" is the working tree) and
 // returns the env entry naming the list. unscopedEnv when they cannot be listed: Verify then runs unscoped,
 // which costs time and never a missed test.
@@ -196,8 +288,8 @@ type batchRunner struct {
 
 // batchOutcome is a batch's verdict: passed tips go done, failed goes verify-failed ("" on a pass), and held tips stay
 // verifying with the held line. output and err come from the run that judged failed, or the batch's run on a pass;
-// passedOutput comes from the run that passed the passed tips. reason replaces the wake reason when it is not empty,
-// and bisect counts the extra Verify runs.
+// passedOutput comes from the run that passed the passed tips, with that run's flaky items. reason replaces the wake
+// reason when it is not empty, and bisect counts the extra Verify runs.
 type batchOutcome struct {
 	batch, passed []string
 	failed        string
@@ -222,10 +314,10 @@ func verifyReason(err error) string {
 // judgeBatch turns the batch's Verify result into its outcome. A failure of an ordered batch of two or more, with
 // nothing committed on top, is bisected over its prefixes in a detached tree to the tip that broke it; otherwise it
 // blames the oldest tip and holds the rest.
-func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output string, verr error, run batchRunner) batchOutcome {
+func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output string, flaky []string, verr error, run batchRunner) batchOutcome {
 	out := batchOutcome{batch: tipIDs(batch), output: output, err: verr}
 	if verr == nil {
-		out.passed, out.passedOutput = out.batch, output
+		out.passed, out.passedOutput = out.batch, withFlakyItems(output, flaky, afterMerging(out.batch))
 		return out
 	}
 	out.failed, out.held = out.batch[0], out.batch[1:]
@@ -239,6 +331,7 @@ func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output stri
 	lo, hi := 0, len(batch) // prefix i is the tree at batch[i-1].commit; prefix 0 passed its own Verify, prefix n just failed
 	failOut, failErr := output, verr
 	passOut := ""
+	var passFlaky []string
 	steps := 0
 	first := batch[len(batch)/2-1].commit
 	stepErr := withDetachedTree(ctx, run.project, run.runID+"-bisect", "bisect tree", first, run.setup, func(wt string) error {
@@ -255,10 +348,10 @@ func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output stri
 				run.progress(fmt.Sprintf("verify: bisecting: testing %s at %.8s", strings.Join(tipIDs(batch[:mid]), ", "), commit))
 			}
 			env := changedFilesEnv(ctx, wt, batch[0].commit+"^", commit, run.dagID+"/bisect")
-			stepOut, err := runPlanCommand(ctx, wt, run.command, env, VerifyTimeout, run.progress)
+			stepOut, stepFlaky, err := runVerifyCommand(ctx, wt, run.command, env, run.progress)
 			steps++
 			if err == nil {
-				lo, passOut = mid, stepOut
+				lo, passOut, passFlaky = mid, stepOut, stepFlaky
 				continue
 			}
 			var pe *planCommandError
@@ -276,12 +369,12 @@ func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output stri
 	if stepErr != nil {
 		// only prefixes a Verify passed may land: the oldest tip past them is blamed
 		out.passed, out.failed, out.held = out.batch[:lo], out.batch[lo], out.batch[lo+1:]
-		out.passedOutput = passOut
+		out.passedOutput = withFlakyItems(passOut, passFlaky, afterMerging(out.passed))
 		out.reason = verifyReason(verr) + "; bisect stopped: " + stepErr.Error()
 		return out
 	}
 	out.passed, out.failed, out.held = out.batch[:hi-1], out.batch[hi-1], out.batch[hi:]
-	out.passedOutput, out.output, out.err = passOut, failOut, failErr
+	out.passedOutput, out.output, out.err = withFlakyItems(passOut, passFlaky, afterMerging(out.passed)), failOut, failErr
 	out.reason = verifyReason(failErr) + "; bisected from " + strings.Join(out.batch, ", ")
 	return out
 }
@@ -336,11 +429,11 @@ func startVerify(channelID, dagID, runID, projectPath, command string, l *landin
 			return ran && err == nil
 		}
 		env := batchScopeEnv(bg, dagID, projectPath, batch)
-		output, verr := runPlanCommand(ctx, projectPath, command, env, VerifyTimeout, progress)
+		output, flaky, verr := runVerifyCommand(ctx, projectPath, command, env, progress)
 		run := batchRunner{channelID: channelID, dagID: dagID, runID: runID, project: project, tree: projectPath,
 			setup: setup, command: command, progress: progress}
 		// judged on the claim's context, so a cancelled dag also stops whatever judging runs
-		out := judgeBatch(ctx, batch, ordered, output, verr, run)
+		out := judgeBatch(ctx, batch, ordered, output, flaky, verr, run)
 		cancel()
 		if err := WithDagMutation(dagID, func() error {
 			return recordBatchVerifyLocked(bg, dagID, out, time.Since(start).Milliseconds())

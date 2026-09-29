@@ -39,46 +39,83 @@ const KeystrokeDelay = 60 * time.Millisecond
 // question (single- or multi-select) or a multi-question batch (see encodeMultiQuestion). Returns an
 // error for shapes it cannot encode; callers then fall back to answering in the terminal.
 func EncodeAnswer(questions []baseds.AgentAskQuestion, answers []baseds.AgentAnswerItem) ([][]byte, error) {
-	if len(questions) == 0 {
-		return nil, fmt.Errorf("no questions to answer")
-	}
-	if len(answers) != len(questions) {
-		return nil, fmt.Errorf("expected %d answers, got %d", len(questions), len(answers))
+	if err := ValidateAnswers(questions, answers, false); err != nil {
+		return nil, err
 	}
 	if len(questions) == 1 {
-		return encodeSingleQuestion(questions[0], answers[0])
+		return encodeSingleQuestion(questions[0], answers[0]), nil
 	}
-	return encodeMultiQuestion(questions, answers)
+	return encodeMultiQuestion(questions, answers), nil
+}
+
+// ValidateAnswers is the one set of rules an answer must pass before anything claims or types it: EncodeAnswer and
+// the prose path enforce it, and the Gatekeeper checks its judge's answer with it before delivery. One answer per
+// question; each is picks or text, never both; a single-select takes exactly one pick and a multi-select at least
+// one; every pick is in range; text is one printable line. A batch question drawn as a preview picker has no
+// free-text row. A prose ask is one question answered with text or one pick, since its answer is typed verbatim.
+func ValidateAnswers(questions []baseds.AgentAskQuestion, answers []baseds.AgentAnswerItem, prose bool) error {
+	if len(questions) == 0 {
+		return fmt.Errorf("no questions to answer")
+	}
+	if prose && len(questions) != 1 {
+		return fmt.Errorf("prose ask expects exactly one question, got %d", len(questions))
+	}
+	if len(answers) != len(questions) {
+		return fmt.Errorf("expected %d answers, got %d", len(questions), len(answers))
+	}
+	batch := len(questions) > 1
+	for i, q := range questions {
+		err := validateAnswer(q, answers[i], prose, batch)
+		if err != nil && batch {
+			return fmt.Errorf("question %d: %w", i, err)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateAnswer(q baseds.AgentAskQuestion, a baseds.AgentAnswerItem, prose, batch bool) error {
+	if a.Text != "" {
+		if len(a.SelectedIndexes) > 0 {
+			return fmt.Errorf("answer has both text and selected indexes")
+		}
+		if batch && previewLayout(q) {
+			return fmt.Errorf("question shows previews, so its picker has no free-text row: pick an option")
+		}
+		return validateFreeText(a.Text)
+	}
+	sel := a.SelectedIndexes
+	if q.MultiSelect && !prose {
+		if len(sel) == 0 {
+			return fmt.Errorf("multi-select expects at least one selected index")
+		}
+	} else if len(sel) != 1 {
+		return fmt.Errorf("single-select expects exactly one selected index, got %d", len(sel))
+	}
+	for _, idx := range sel {
+		if idx < 0 || idx >= len(q.Options) {
+			return fmt.Errorf("selected index %d out of range (%d options)", idx, len(q.Options))
+		}
+	}
+	return nil
 }
 
 // encodeSingleQuestion drives a standalone one-question picker: free text types into the "Type
 // something" row; single-select confirms + closes on enter; multi-select uses its inline Submit row +
 // review. Select output is unchanged from the original.
-func encodeSingleQuestion(q baseds.AgentAskQuestion, a baseds.AgentAnswerItem) ([][]byte, error) {
+func encodeSingleQuestion(q baseds.AgentAskQuestion, a baseds.AgentAnswerItem) [][]byte {
 	if a.Text != "" {
-		if len(a.SelectedIndexes) > 0 {
-			return nil, fmt.Errorf("answer has both text and selected indexes")
-		}
-		if err := validateFreeText(a.Text); err != nil {
-			return nil, err
-		}
 		if previewLayout(q) {
-			return chatThenPromptKeys(len(q.Options), a.Text), nil
+			return chatThenPromptKeys(len(q.Options), a.Text)
 		}
-		return freeTextKeys(len(q.Options), a.Text), nil
+		return freeTextKeys(len(q.Options), a.Text)
 	}
-	sel := a.SelectedIndexes
 	if q.MultiSelect {
-		return encodeMultiSelect(q, sel)
+		return encodeMultiSelect(q, a.SelectedIndexes)
 	}
-	if len(sel) != 1 {
-		return nil, fmt.Errorf("single-select expects exactly one selected index, got %d", len(sel))
-	}
-	idx := sel[0]
-	if idx < 0 || idx >= len(q.Options) {
-		return nil, fmt.Errorf("selected index %d out of range (%d options)", idx, len(q.Options))
-	}
-	return singleSelectKeys(idx), nil
+	return singleSelectKeys(a.SelectedIndexes[0])
 }
 
 // validateFreeText rejects shapes we can't drive: empty text, or any control character. A literal Tab
@@ -176,58 +213,44 @@ func singleSelectKeys(idx int) [][]byte {
 	return append(keys, []byte{enter})
 }
 
-// sortedUniqueIndexes validates sel against nOpts and returns it ascending + de-duplicated, so a
-// double-toggle can't cancel a choice.
-func sortedUniqueIndexes(sel []int, nOpts int) ([]int, error) {
-	if len(sel) == 0 {
-		return nil, fmt.Errorf("multi-select expects at least one selected index")
-	}
+// sortedUniqueIndexes returns sel ascending + de-duplicated, so a double-toggle can't cancel a choice.
+func sortedUniqueIndexes(sel []int) []int {
 	idxs := append([]int(nil), sel...)
 	sort.Ints(idxs)
 	uniq := make([]int, 0, len(idxs))
 	for _, i := range idxs {
-		if i < 0 || i >= nOpts {
-			return nil, fmt.Errorf("selected index %d out of range (%d options)", i, nOpts)
-		}
 		if len(uniq) == 0 || uniq[len(uniq)-1] != i {
 			uniq = append(uniq, i)
 		}
 	}
-	return uniq, nil
+	return uniq
 }
 
 // multiToggleKeys moves to each selected option and toggles it (enter), stopping after the last
 // toggle. It returns the final highlight index so a caller can navigate onward. Assumes the tab's
 // highlight starts at option 0.
-func multiToggleKeys(sel []int, nOpts int) (keys [][]byte, last int, err error) {
-	uniq, err := sortedUniqueIndexes(sel, nOpts)
-	if err != nil {
-		return nil, 0, err
-	}
+func multiToggleKeys(sel []int) (keys [][]byte, last int) {
 	cur := 0
-	for _, i := range uniq {
+	for _, i := range sortedUniqueIndexes(sel) {
 		for d := 0; d < i-cur; d++ {
 			keys = append(keys, downArrow)
 		}
 		keys = append(keys, []byte{enter}) // toggle this option
 		cur = i
 	}
-	return keys, cur, nil
+	return keys, cur
 }
 
 // encodeMultiSelect drives a standalone multi-select picker: toggle each option, descend to the
 // Submit row (index nOpts+1, after CC's "Type something" row), enter to open the review, enter to
 // confirm. Verified live against CC v2.1.199 (2026-07-03).
-func encodeMultiSelect(q baseds.AgentAskQuestion, sel []int) ([][]byte, error) {
+func encodeMultiSelect(q baseds.AgentAskQuestion, sel []int) [][]byte {
 	n := len(q.Options)
-	keys, last, err := multiToggleKeys(sel, n)
-	if err != nil {
-		return nil, err
-	}
+	keys, last := multiToggleKeys(sel)
 	for d := 0; d < (n+1)-last; d++ {
 		keys = append(keys, downArrow)
 	}
-	return append(keys, []byte{enter}, []byte{enter}), nil
+	return append(keys, []byte{enter}, []byte{enter})
 }
 
 // encodeMultiQuestion drives Claude Code's multi-question tab bar (Q1..QN, Submit). Each tab's
@@ -240,20 +263,11 @@ func encodeMultiSelect(q baseds.AgentAskQuestion, sel []int) ([][]byte, error) {
 // A free-text tab types into its "Type something" row, then Enter — which, like a single-select,
 // confirms the text AND auto-advances to the next tab (not Tab). Verified live against CC v2.1.206
 // (2026-07-10) for [select][free-text] and [free-text][select] batches.
-func encodeMultiQuestion(questions []baseds.AgentAskQuestion, answers []baseds.AgentAnswerItem) ([][]byte, error) {
+func encodeMultiQuestion(questions []baseds.AgentAskQuestion, answers []baseds.AgentAnswerItem) [][]byte {
 	var keys [][]byte
 	for i, q := range questions {
 		a := answers[i]
 		if a.Text != "" {
-			if len(a.SelectedIndexes) > 0 {
-				return nil, fmt.Errorf("question %d: answer has both text and selected indexes", i)
-			}
-			if err := validateFreeText(a.Text); err != nil {
-				return nil, fmt.Errorf("question %d: %w", i, err)
-			}
-			if previewLayout(q) {
-				return nil, fmt.Errorf("question %d shows previews, so its picker has no free-text row: pick an option", i)
-			}
 			for d := 0; d < len(q.Options); d++ {
 				keys = append(keys, downArrow) // -> "Type something" (index len(options))
 			}
@@ -261,24 +275,13 @@ func encodeMultiQuestion(questions []baseds.AgentAskQuestion, answers []baseds.A
 			keys = append(keys, []byte{enter}) // Enter confirms the text AND auto-advances (like single-select)
 			continue
 		}
-		sel := a.SelectedIndexes
 		if q.MultiSelect {
-			toggles, _, err := multiToggleKeys(sel, len(q.Options))
-			if err != nil {
-				return nil, fmt.Errorf("question %d: %w", i, err)
-			}
+			toggles, _ := multiToggleKeys(a.SelectedIndexes)
 			keys = append(keys, toggles...)
 			keys = append(keys, []byte{tab})
 			continue
 		}
-		if len(sel) != 1 {
-			return nil, fmt.Errorf("question %d: single-select expects exactly one selected index, got %d", i, len(sel))
-		}
-		idx := sel[0]
-		if idx < 0 || idx >= len(q.Options) {
-			return nil, fmt.Errorf("question %d: selected index %d out of range (%d options)", i, idx, len(q.Options))
-		}
-		keys = append(keys, singleSelectKeys(idx)...)
+		keys = append(keys, singleSelectKeys(a.SelectedIndexes[0])...)
 	}
-	return append(keys, []byte{enter}), nil
+	return append(keys, []byte{enter})
 }
