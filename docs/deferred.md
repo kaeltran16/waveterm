@@ -7,6 +7,26 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Work on an initiative — "Save place and close" (deferred 2026-09-29)
+
+Work on (the Brief's initiative row, `w`, and the palette's ctrl+enter) starts an agent with "where are
+we" and points it at the initiative's newest note, and sends you to the agent already open on it instead
+of starting a second one. What it does **not** do is capture where a session was when it closes.
+
+- **Deferred:** the close dialog (header ✕, tree "Close agent", double ctrl+c — all `confirmCloseSession`)
+  offering **Save place and close** for a session linked to an initiative. Arc would type a "record where
+  we are as one left-off note" prompt into the agent, wait for a note from that session with a new
+  `--left-off` flag on `wsh effort note`, then close the tab; ctrl+c in the dialog closes without saving.
+- **Why:** agents already write where they are. Since note authorship shipped (2026-09-23), 23 sessions
+  wrote 185 notes to initiatives, including explicit "END-OF-DAY STATE (resume here)" notes, so the newest
+  note is usually the resume point. Losing mid-conversation state ("I was at question 10+") showed up once
+  in 30 days of transcripts. Saving costs a turn on every close, and a full cache write when the session
+  has sat idle past the cache TTL — the cost that ruled out resuming the last session instead.
+- **Revive when** losing a session's place recurs. It plugs in on top of what shipped: the link is the
+  tab's `session:effort`, and `confirmCloseSession` (`frontend/app/view/agents/agentactions.ts`) is the one
+  place to add the option. The design was a local `.dc.html` canvas and was never committed, so there is
+  nothing to recover from git; the steps above are the whole design.
+
 ## Cockpit focus — deferred until evidence (2026-09-22)
 
 From `docs/superpowers/specs/2026-09-22-cockpit-focus-and-peek-design.md`. Slice 1 landed the posture

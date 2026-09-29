@@ -127,6 +127,8 @@ import {
 import { freshKeys } from "./freshrows";
 import { type PeekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
+import { initiativeResume, type InitiativeResume } from "./initiativework";
+import { workOnInitiative } from "./initiativeworkaction";
 import {
     chunkRowId,
     expandableORef,
@@ -1109,6 +1111,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             )
         );
     }, [efforts, archivedCards]);
+    // Work on reads the live initiatives only: an archived one is finished, so it offers nothing to resume
+    const liveCards = useMemo(() => new Map(efforts.map((e) => [e.oref, e])), [efforts]);
+    const cardOf = (l: BriefLine) =>
+        l.target != null && "oref" in l.target ? liveCards.get(l.target.oref) : undefined;
+    const resumeOf = (l: BriefLine): InitiativeResume | undefined => {
+        const c = cardOf(l);
+        return c != null ? initiativeResume(c.oref.replace(/^effort:/, ""), c.lastnote, agents, Date.now()) : undefined;
+    };
     useEffect(() => {
         globalStore.set(
             briefRunListAtom,
@@ -1545,6 +1555,13 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                 focused={cursor === l.id}
                                                                 fresh={freshInitiatives.has(keyOf(l))}
                                                                 expanded={l.id === openInitiative}
+                                                                resume={resumeOf(l)}
+                                                                onWork={() => {
+                                                                    const c = cardOf(l);
+                                                                    if (c != null) {
+                                                                        void workOnInitiative(model, c);
+                                                                    }
+                                                                }}
                                                                 onContextMenu={(ev) => showInitiativeMenu(l, ev)}
                                                                 onOpen={() => {
                                                                     setCursor(l.id);

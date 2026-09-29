@@ -66,6 +66,7 @@ export const liveAgentBaseAtom: Atom<AgentVM[]> = atom((get) => {
                 // transcript-path guess (projectOf) only cover agents outside every registered project
                 project: registeredProjectFor(row.cwd ?? "", projects) || row.projectLabel,
                 runORef: row.runORef,
+                effortORef: row.effortORef,
                 sessionId: status.sessionid,
             },
             now

@@ -258,6 +258,10 @@ local default. Effort realistically L counting step 1. Full reference design in 
 
 ## 4 · Held — pick up only on the named trigger
 
+Work on an initiative — "Save place and close" (held 2026-09-29): the close dialog asking a session linked to an
+initiative to write a left-off note before it closes. Revive when losing a session's place recurs; full
+rationale in `docs/deferred.md`.
+
 Channel data-model scaling — Phase 3 (Contract) (parked 2026-08-25): revive when a real channel blob is
 material (>5 MB or a measured per-event write/broadcast cost) — prod reality check: 4 channels, 680 KB
 total. Full rationale + measurement in `docs/deferred.md`; Phases 0–2 shipped.

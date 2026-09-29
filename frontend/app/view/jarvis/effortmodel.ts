@@ -36,6 +36,8 @@ export type EffortCardModel = {
     chunkStages: Record<string, string>;
     // carried so the card can tell the detail cache how fresh the summary it is drawing from is
     updatedts: number;
+    // the newest note: where the initiative was left, which Work on picks up from
+    lastnote?: EffortLastNote;
 };
 
 // done/(total-skipped): skips shrink the denominator so a finished-by-skipping effort still reads 100%.
@@ -75,6 +77,7 @@ export function buildEffortCard(e: EffortSummary): EffortCardModel {
         blockedChunks: chunks.filter((c) => c.status === "blocked").map((c) => c.label),
         shortId: e.oref.replace(/^effort:/, "").slice(0, 8),
         chunkStages: Object.fromEntries(chunks.map((c) => [c.label, c.stage ?? ""])),
+        lastnote: e.lastnote,
     };
 }
 

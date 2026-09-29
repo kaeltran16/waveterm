@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import type { QueueAct } from "./briefingmodel";
 import type { BriefLine, RunRowFace } from "./briefrows";
 import { CURSOR_RING, cursorAttrs, MONO_FAINT, ROW_BORDER, SMALL_BTN, TONE_TEXT } from "./briefstyle";
+import type { InitiativeResume } from "./initiativework";
 import { ProgressBar } from "./progressbar";
 
 const PULSE = "animate-[pulseDot_1.8s_ease-in-out_infinite] motion-reduce:animate-none";
@@ -87,13 +88,42 @@ export function WaitingRow({
     );
 }
 
+// Work on / Go to it. In flow at a fixed width and shown by opacity, so the row never reflows under the
+// cursor, and a hidden button can still be tabbed to.
+function WorkOnButton({ resume, focused, onWork }: { resume: InitiativeResume; focused: boolean; onWork: () => void }) {
+    const go = resume.kind === "go";
+    return (
+        <button
+            type="button"
+            data-jarvis-work-on={resume.kind}
+            title={go ? "Go to the agent open on this initiative (w)" : "Work on this in a new agent (w)"}
+            onClick={(e) => {
+                e.stopPropagation();
+                onWork();
+            }}
+            className={cn(
+                "flex w-[84px] flex-none cursor-pointer items-center justify-center gap-1.5 rounded-[6px] border py-[3px] font-mono text-[10.5px] font-semibold opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                go
+                    ? "border-success/45 bg-success/12 text-success"
+                    : "border-accent/45 bg-accentbg text-accent-soft hover:text-accent-50",
+                focused && "opacity-100"
+            )}
+        >
+            {go ? "Go to it" : "Work on"}
+            <span className="rounded-[4px] border border-current/35 px-1 text-[9.5px] leading-[14px]">w</span>
+        </button>
+    );
+}
+
 export function InitiativeRow({
     line,
     focused,
     fresh,
     expanded,
     titleSlot,
+    resume,
     onOpen,
+    onWork,
     onContextMenu,
 }: {
     line: BriefLine;
@@ -102,7 +132,10 @@ export function InitiativeRow({
     expanded: boolean;
     // the rename input replaces the title in place, keeping the progress, meta and state columns
     titleSlot?: ReactNode;
+    // where the initiative was left and what Work on does; absent on an archived initiative
+    resume?: InitiativeResume;
     onOpen: () => void;
+    onWork?: () => void;
     onContextMenu?: (e: React.MouseEvent) => void;
 }) {
     const p = line.progress ?? { done: 0, total: 0, pct: 0 };
@@ -117,7 +150,7 @@ export function InitiativeRow({
             onClick={onOpen}
             onContextMenu={onContextMenu}
             className={cn(
-                "relative flex cursor-pointer items-center gap-[13px] border px-[11px] py-[7px]",
+                "group relative flex cursor-pointer flex-col gap-[3px] border px-[11px] py-[7px]",
                 expanded
                     ? "rounded-t-[10px] border-border bg-surface-selected"
                     : "rounded-[9px] border-transparent border-b-edge-faint hover:bg-surface-hover",
@@ -125,41 +158,73 @@ export function InitiativeRow({
                 fresh && "fresh-mark"
             )}
         >
-            <span className="flex w-[92px] flex-none items-center gap-[7px]">
-                <ProgressBar
-                    pct={p.pct}
-                    tone={line.stateTone === "asking" ? "asking" : "success"}
-                    className="h-1 min-w-0 flex-1 rounded-[2px]"
-                />
-                <span className="flex-none font-mono text-[10.5px] text-ink-mid">
-                    {p.done}/{p.total}
+            <div className="flex min-w-0 items-center gap-[13px]">
+                <span className="flex w-[92px] flex-none items-center gap-[7px]">
+                    <ProgressBar
+                        pct={p.pct}
+                        tone={line.stateTone === "asking" ? "asking" : "success"}
+                        className="h-1 min-w-0 flex-1 rounded-[2px]"
+                    />
+                    <span className="flex-none font-mono text-[10.5px] text-ink-mid">
+                        {p.done}/{p.total}
+                    </span>
                 </span>
-            </span>
-            {titleSlot ?? (
-                <span
-                    title={line.note ? `${line.title} — ${line.note}` : line.title}
-                    className="min-w-0 flex-1 truncate text-[13px] text-ink-hi"
-                >
-                    {line.title}
-                    {line.note ? <span className="text-ink-mid"> — {line.note}</span> : null}
-                </span>
-            )}
-            <span className="w-[190px] flex-none truncate text-right font-mono text-[11px] text-ink-mid">
-                {line.meta}
-            </span>
-            <span
-                className={cn(
-                    "w-[76px] flex-none truncate text-right font-mono text-[11px] font-semibold",
-                    TONE_TEXT[line.stateTone]
+                {titleSlot ?? (
+                    <span
+                        title={line.note ? `${line.title} — ${line.note}` : line.title}
+                        className="min-w-0 flex-1 truncate text-[13px] text-ink-hi"
+                    >
+                        {line.title}
+                        {line.note ? <span className="text-ink-mid"> — {line.note}</span> : null}
+                    </span>
                 )}
-            >
-                {line.state}
-            </span>
-            {expanded ? (
-                <ChevronDown size={12} aria-hidden className="flex-none text-muted" />
-            ) : (
-                <ChevronRight size={12} aria-hidden className="flex-none text-muted" />
-            )}
+                <span className="w-[190px] flex-none truncate text-right font-mono text-[11px] text-ink-mid">
+                    {line.meta}
+                </span>
+                <span
+                    className={cn(
+                        "w-[76px] flex-none truncate text-right font-mono text-[11px] font-semibold",
+                        TONE_TEXT[line.stateTone]
+                    )}
+                >
+                    {line.state}
+                </span>
+                {resume != null && onWork != null ? (
+                    <WorkOnButton resume={resume} focused={focused} onWork={onWork} />
+                ) : null}
+                {expanded ? (
+                    <ChevronDown size={12} aria-hidden className="flex-none text-muted" />
+                ) : (
+                    <ChevronRight size={12} aria-hidden className="flex-none text-muted" />
+                )}
+            </div>
+            {resume != null ? (
+                // lined up under the title, past the progress column
+                <div className={cn("flex min-w-0 items-baseline gap-2 pl-[105px] pr-[110px]", MONO_FAINT)}>
+                    <span
+                        className={cn(
+                            "flex flex-none items-center gap-[5px]",
+                            resume.kind === "go" ? "text-success" : "text-ink-mid"
+                        )}
+                    >
+                        <span
+                            className={cn(
+                                "h-1.5 w-1.5 rounded-full",
+                                resume.kind === "go" ? "bg-success" : "bg-ink-faint"
+                            )}
+                        />
+                        {resume.status}
+                    </span>
+                    {resume.kind === "work" && resume.when !== "" ? (
+                        <>
+                            <span className="flex-none text-ink-mid">{resume.when}</span>
+                            <span title={resume.note} className="min-w-0 truncate">
+                                {resume.note}
+                            </span>
+                        </>
+                    ) : null}
+                </div>
+            ) : null}
         </div>
     );
 }

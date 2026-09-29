@@ -98,6 +98,11 @@ function input(overrides: Partial<SessionInput>): SessionInput {
 }
 
 describe("buildSessionViewModel", () => {
+    it("carries the initiative a session is linked to onto its row", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", cwd: "/src/Zeta", effortORef: "effort:e1" })]);
+        expect(vm.groups[0].sessions[0].effortORef).toBe("effort:e1");
+    });
+
     it("routes pinned sessions into the pinned group with service in the label", () => {
         const vm = buildSessionViewModel([
             input({ tabId: "t1", agent: "claude", cwd: "/src/CorrelationEngine", pinned: true }),

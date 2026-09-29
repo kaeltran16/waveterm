@@ -669,6 +669,7 @@ declare global {
     // wshrpc.CommandEffortGetData
     type CommandEffortGetData = {
         effortoid: string;
+        sourceblock?: string;
     };
 
     // wshrpc.CommandEffortGetRtnData
@@ -1721,6 +1722,15 @@ declare global {
         text?: string;
     };
 
+    // wshrpc.EffortLastNote
+    type EffortLastNote = {
+        ts: number;
+        text: string;
+        chunk?: string;
+        author?: string;
+        session?: string;
+    };
+
     // waveobj.EffortNote
     type EffortNote = {
         ts: number;
@@ -1763,6 +1773,7 @@ declare global {
         total: number;
         activechunk?: string;
         updatedts: number;
+        lastnote?: EffortLastNote;
     };
 
     // waveobj.EvidenceArtifact
@@ -2006,6 +2017,7 @@ declare global {
         "session:agent"?: string;
         "session:label"?: string;
         "session:project"?: string;
+        "session:effort"?: string;
         "session:collapsedgroups"?: string[];
         "app:loom"?: boolean;
         "agent:transcriptpath"?: string;

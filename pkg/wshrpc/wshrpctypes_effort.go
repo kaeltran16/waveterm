@@ -63,6 +63,9 @@ type CommandEffortListRtnData struct {
 
 type CommandEffortGetData struct {
 	EffortOID string `json:"effortoid"`
+	// SourceBlock is the calling terminal ("block:<id>"), sent by `wsh effort show`: an agent that reads an
+	// initiative is working on it, so its session is linked to it. The cockpit's own reads send none.
+	SourceBlock string `json:"sourceblock,omitempty"`
 }
 
 type CommandEffortGetRtnData struct {
@@ -106,6 +109,17 @@ type EffortSummary struct {
 	Total       int                  `json:"total"`
 	ActiveChunk string               `json:"activechunk,omitempty"` // first chunk with status active, else first non-done label
 	UpdatedTs   int64                `json:"updatedts"`
+	LastNote    *EffortLastNote      `json:"lastnote,omitempty"` // the newest note on the effort or any chunk
+}
+
+// EffortLastNote is where an initiative was left: its newest note, cut to its first line so the ledger does
+// not carry note trails.
+type EffortLastNote struct {
+	Ts      int64  `json:"ts"`
+	Text    string `json:"text"`
+	Chunk   string `json:"chunk,omitempty"` // the chunk the note is on; empty for an effort-level note
+	Author  string `json:"author,omitempty"`
+	Session string `json:"session,omitempty"` // "agent:<tabid>" when an agent wrote it
 }
 
 type EffortChunkSummary struct {

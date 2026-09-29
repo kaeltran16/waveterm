@@ -21,6 +21,8 @@ export interface LaunchAgentOpts {
     projectName: string; // labels the roster row + carries project scope
     branch?: string;
     resumePath?: string; // pi transcript path; preflighted before any worktree/tab is created
+    label?: string; // the session's name in the roster (session:label), e.g. the initiative it works on
+    effortORef?: string; // the initiative it works on (session:effort), "effort:<oid>"
 }
 
 // Launch a runtime as its OWN session tab. Agent runtimes get a pending roster row; terminals only
@@ -82,17 +84,21 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
     // a stale region. fire-and-forget — a sync failure must not block the launch.
     void RpcApi.AgentSyncApplyCommand(TabRpcClient, { dryrun: false }).catch(() => {});
     const agentPanel = runtimeCreatesAgentPanel(opts.runtime);
-    await RpcApi.SetMetaCommand(TabRpcClient, {
-        oref: WOS.makeORef("tab", tabId),
-        meta: agentPanel
-            ? { "session:agent": opts.runtime, "session:project": opts.projectName }
-            : { "session:project": opts.projectName },
-    });
+    const tabMeta: MetaType = agentPanel
+        ? { "session:agent": opts.runtime, "session:project": opts.projectName }
+        : { "session:project": opts.projectName };
+    if (opts.label) {
+        tabMeta["session:label"] = opts.label;
+    }
+    if (opts.effortORef) {
+        tabMeta["session:effort"] = opts.effortORef;
+    }
+    await RpcApi.SetMetaCommand(TabRpcClient, { oref: WOS.makeORef("tab", tabId), meta: tabMeta });
     if (agentPanel) {
         const pending: PendingLaunch = {
             tabId,
             blockId,
-            name: opts.projectName,
+            name: opts.label || opts.projectName,
             project: opts.projectName,
             ts: Date.now(),
         };

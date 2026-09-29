@@ -6,12 +6,14 @@ package wshserver
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -96,6 +98,7 @@ func (ws *WshServer) EffortMutateCommand(ctx context.Context, data wshrpc.Comman
 	if err != nil {
 		return nil, err
 	}
+	linkSessionToEffort(ctx, data.SourceBlock, data.EffortOID)
 	return &wshrpc.CommandEffortMutateRtnData{Effort: updated}, nil
 }
 
@@ -122,7 +125,42 @@ func (ws *WshServer) EffortGetCommand(ctx context.Context, data wshrpc.CommandEf
 	if err != nil {
 		return nil, err
 	}
+	linkSessionToEffort(ctx, data.SourceBlock, e.OID)
 	return &wshrpc.CommandEffortGetRtnData{Effort: e}, nil
+}
+
+// linkSessionToEffort records on an agent session's tab the initiative it is working on: the one it last
+// read or wrote through `wsh effort`. The Brief reads the link to send you to an open session instead of
+// starting a second one. A run's worker is left alone — its run owns it. Best effort: a failed link must not
+// fail the read or write that caused it.
+func linkSessionToEffort(ctx context.Context, sourceBlock string, effortOID string) {
+	if sourceBlock == "" {
+		return
+	}
+	oref, err := waveobj.ParseORef(sourceBlock)
+	if err != nil || oref.OType != waveobj.OType_Block {
+		return
+	}
+	block, err := wstore.DBMustGet[*waveobj.Block](ctx, oref.OID)
+	if err != nil {
+		return
+	}
+	tab, err := waveobj.ParseORef(block.ParentORef)
+	if err != nil || tab.OType != waveobj.OType_Tab {
+		return
+	}
+	if _, _, ok := ownerRunForBlock(ctx, sourceBlock); ok {
+		return
+	}
+	meta := waveobj.MetaMapType{waveobj.MetaKey_SessionEffort: "effort:" + effortOID}
+	changed, err := wstore.UpdateObjectMeta(ctx, tab, meta, false)
+	if err != nil {
+		log.Printf("effort link: tab %s -> effort %s: %v", tab.OID, effortOID, err)
+		return
+	}
+	if changed {
+		wcore.SendWaveObjUpdate(tab)
+	}
 }
 
 func (ws *WshServer) EffortDeleteCommand(ctx context.Context, data wshrpc.CommandEffortDeleteData) error {

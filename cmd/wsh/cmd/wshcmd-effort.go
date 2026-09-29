@@ -96,7 +96,12 @@ var effortShowCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		rtn, err := wshclient.EffortGetCommand(RpcClient, wshrpc.CommandEffortGetData{EffortOID: args[0]}, nil)
+		data := wshrpc.CommandEffortGetData{EffortOID: args[0]}
+		// reading an initiative from a terminal links that agent session to it (see linkSessionToEffort)
+		if RpcContext.BlockId != "" {
+			data.SourceBlock = "block:" + RpcContext.BlockId
+		}
+		rtn, err := wshclient.EffortGetCommand(RpcClient, data, nil)
 		if err != nil {
 			return err
 		}

@@ -35,6 +35,7 @@ import {
     type CodeIndex,
 } from "@/app/view/code/codestore";
 import { buildBriefIndex, rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
+import { workOnInitiative } from "@/app/view/jarvis/initiativeworkaction";
 import { openAddress, openTarget } from "@/app/view/jarvis/openref";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { sameRepoPath } from "@/util/paths";
@@ -424,6 +425,20 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             // an effort row's id is already an address
             fireAndForget(() => openAddress(model, row.kind === "record" ? `task:${row.id}` : row.id));
         };
+        // a live initiative can also be worked on from here; an archived one is finished
+        const workOn = (row: BriefRow): PaletteItem["alt"] => {
+            const e = row.kind === "effort" && !row.archived ? efforts?.find((s) => s.oref === row.id) : undefined;
+            if (e == null) {
+                return undefined;
+            }
+            return {
+                echo: "Works on it in a new agent, or goes to the one open on it",
+                run: () => {
+                    void workOnInitiative(model, e);
+                    close();
+                },
+            };
+        };
         return rankBriefRows(briefIndex, nav.query, briefIndex.length).rows.map((r) => ({
             key: r.key,
             kind: r.kind, // BriefKind is a subset of GroupKind
@@ -437,8 +452,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 open(r);
                 close();
             },
+            alt: workOn(r),
         }));
-    }, [briefIndex, nav.query, model]);
+    }, [briefIndex, nav.query, model, efforts]);
 
     // --- Launch -----------------------------------------------------------------------------------
     // Projects scope with "<project> <goal>" targets that project; everywhere else, the active one.
@@ -718,7 +734,12 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             setSel((s) => (flat.length ? (Math.min(s, flat.length - 1) - 1 + flat.length) % flat.length : 0));
         } else if (e.key === "Enter") {
             e.preventDefault();
-            fire(selected);
+            if (e.ctrlKey && selected?.alt != null) {
+                const alt = selected.alt;
+                fire({ ...selected, run: alt.run });
+            } else {
+                fire(selected);
+            }
         } else if (e.key === "Tab") {
             e.preventDefault();
             setNav(cycleScope(nav, e.shiftKey ? -1 : 1));
@@ -856,16 +877,34 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                             </div>
                         ) : null}
                     </div>
-                    <div className="flex shrink-0 items-center gap-3 border-t border-border px-4 py-[9px]">
-                        <span className="shrink-0 font-mono text-[11px] text-accent-soft">⏎</span>
-                        <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">
-                            {selected?.echo ?? "Nothing to run"}
-                        </span>
-                        <span className="flex shrink-0 items-center gap-3 font-mono text-[10.5px] text-muted">
-                            <span>↑↓ move</span>
-                            <span>Tab scope</span>
-                            <span>esc close</span>
-                        </span>
+                    <div className="flex shrink-0 flex-col gap-1 border-t border-border px-4 py-[9px]">
+                        <div className="flex items-center gap-3">
+                            {/* widened only to line up with a ctrl ⏎ line below it */}
+                            <span
+                                className={cn(
+                                    "shrink-0 font-mono text-[11px] text-accent-soft",
+                                    selected?.alt != null && "w-[44px]"
+                                )}
+                            >
+                                ⏎
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">
+                                {selected?.echo ?? "Nothing to run"}
+                            </span>
+                            <span className="flex shrink-0 items-center gap-3 font-mono text-[10.5px] text-muted">
+                                <span>↑↓ move</span>
+                                <span>Tab scope</span>
+                                <span>esc close</span>
+                            </span>
+                        </div>
+                        {selected?.alt != null ? (
+                            <div className="flex items-center gap-3">
+                                <span className="w-[44px] shrink-0 font-mono text-[11px] text-accent-soft">ctrl ⏎</span>
+                                <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">
+                                    {selected.alt.echo}
+                                </span>
+                            </div>
+                        ) : null}
                     </div>
                 </>
             ) : null}

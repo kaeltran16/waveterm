@@ -109,6 +109,7 @@ row below expands into the same choices.
 | `i` | Focus the composer |
 | `/` | Filter the Brief's rows (`Esc` clears) |
 | `Enter` | Open the row under the cursor |
+| `w` | Work on the initiative under the cursor in a new agent, or go to the agent already open on it |
 | `Alt`+`↑` / `Alt`+`↓` | Move the chunk under the cursor up / down within its stage |
 | `d` | Toggle the context rail |
 | `e` | Expand / collapse the record band |

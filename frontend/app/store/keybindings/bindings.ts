@@ -603,6 +603,14 @@ export function buildJarvisBindings(): Binding[] {
             run: () => clickThrough("[data-jarvis-new-initiative]"),
         },
         {
+            id: "jarvis:work-on",
+            keys: "w",
+            group: "Jarvis",
+            label: "Work on the initiative under the cursor, or go to its open agent",
+            when: onStage,
+            run: () => clickThrough('[data-jarvis-brief-cursor="true"] [data-jarvis-work-on]'),
+        },
+        {
             id: "jarvis:record-band",
             keys: "e",
             group: "Jarvis",

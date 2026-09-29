@@ -11,11 +11,15 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { effortDetailAtom, loadEffortDetail } from "@/app/view/jarvis/effortstore";
+import { initiativeLinkText } from "@/app/view/jarvis/initiativework";
+import { openTarget } from "@/app/view/jarvis/openref";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { CircleStop, Maximize2, Minimize2, PanelRight, X } from "lucide-react";
 import { motion } from "motion/react";
+import { useEffect } from "react";
 import { confirmCloseSession } from "./agentactions";
 import { contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
@@ -68,6 +72,29 @@ function useRunLineage(model: AgentsViewModel, agent: AgentVM) {
         task,
         lead,
     };
+}
+
+// The initiative this session works on, linking back to it on the Brief.
+function InitiativeLink({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
+    const oref = "effort:" + agent.effortId;
+    const effort = useAtomValue(effortDetailAtom).get(oref);
+    useEffect(() => {
+        // the title is decoration: a failed load leaves the plain link, which still opens the initiative
+        loadEffortDetail(oref).catch(() => {});
+    }, [oref]);
+    return (
+        <>
+            {" · "}
+            <button
+                type="button"
+                onClick={() => fireAndForget(() => openTarget(model, { kind: "effort", effortId: agent.effortId! }))}
+                title={`Open ${effort?.title ?? "this initiative"} in Jarvis`}
+                className="cursor-pointer text-accent-soft hover:underline"
+            >
+                {initiativeLinkText(agent.name, effort)}
+            </button>
+        </>
+    );
 }
 
 export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
@@ -187,6 +214,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                 </div>
                 <div className="mt-[2px] whitespace-nowrap font-mono text-[11px] font-medium text-muted">
                     {project || "—"}
+                    {agent.effortId != null ? <InitiativeLink model={model} agent={agent} /> : null}
                     {lineage?.kind === "lead" ? <> · orchestrator run {lineage.runId.slice(0, 8)}</> : null}
                     {lineage?.kind === "worker" || lineage?.kind === "stage" ? (
                         <>

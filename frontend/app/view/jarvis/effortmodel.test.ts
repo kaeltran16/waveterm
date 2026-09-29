@@ -30,6 +30,12 @@ const base = {
 } as EffortSummary;
 
 describe("buildEffortCard", () => {
+    it("carries the newest note, where the initiative was left", () => {
+        const lastnote = { ts: 5, text: "merged to LOCAL DEV", session: "agent:t1" };
+        expect(buildEffortCard({ ...base, lastnote }).lastnote).toEqual(lastnote);
+        expect(buildEffortCard(base).lastnote).toBeUndefined();
+    });
+
     it("projects tones and progress with the skip-shrinking denominator", () => {
         const m = buildEffortCard(base);
         expect(m.done).toBe(2);

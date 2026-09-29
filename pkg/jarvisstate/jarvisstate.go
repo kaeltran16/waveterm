@@ -261,7 +261,39 @@ func EffortSummaryOf(e *waveobj.Effort) wshrpc.EffortSummary {
 			}
 		}
 	}
+	s.LastNote = lastNoteOf(e)
 	return s
+}
+
+// LastNoteMaxChars caps the newest note a summary carries. Agent notes run to several paragraphs, and every
+// summary ships in every ledger snapshot; the Brief shows one truncated line of it.
+const LastNoteMaxChars = 240
+
+func lastNoteOf(e *waveobj.Effort) *wshrpc.EffortLastNote {
+	var newest *waveobj.EffortNote
+	chunk := ""
+	consider := func(notes []waveobj.EffortNote, label string) {
+		for i := range notes {
+			if newest == nil || notes[i].Ts > newest.Ts {
+				newest = &notes[i]
+				chunk = label
+			}
+		}
+	}
+	consider(e.Notes, "")
+	for _, c := range e.Chunks {
+		consider(c.Notes, c.Label)
+	}
+	if newest == nil {
+		return nil
+	}
+	text, _, _ := strings.Cut(strings.TrimSpace(newest.Text), "\n")
+	if r := []rune(text); len(r) > LastNoteMaxChars {
+		text = string(r[:LastNoteMaxChars])
+	}
+	return &wshrpc.EffortLastNote{
+		Ts: newest.Ts, Text: strings.TrimSpace(text), Chunk: chunk, Author: newest.Author, Session: newest.Session,
+	}
 }
 
 // Efforts projects the non-archived efforts, newest-updated first (input already sorted).
