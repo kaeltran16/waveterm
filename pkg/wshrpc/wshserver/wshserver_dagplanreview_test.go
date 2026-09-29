@@ -104,7 +104,7 @@ func TestDagSubmitReviewsThePlanBeforeAnyWorkerStarts(t *testing.T) {
 		if err := (&WshServer{}).DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "planreview-accept", Notes: "go"}); err == nil {
 			t.Fatal("accept while the reviewer works must be refused")
 		}
-		if err := orchestrate.RecordPlanReviewVerdict(ctx, g.OID, g.PlanReview.RunID, orchestrate.ReviewVerdict_Fail, "spec 4.1 has no task"); err != nil {
+		if err := orchestrate.RecordPlanReviewVerdict(ctx, g.OID, g.PlanReview.RunID, orchestrate.ReviewVerdict_Fail, "spec 4.1 has no task", nil); err != nil {
 			t.Fatal(err)
 		}
 		g2, err := submit(channelId, runId, writePlan(t, revised))
@@ -126,7 +126,7 @@ func TestDagSubmitReviewsThePlanBeforeAnyWorkerStarts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := orchestrate.RecordPlanReviewVerdict(ctx, g.OID, g.PlanReview.RunID, orchestrate.ReviewVerdict_Pass, "fine"); err != nil {
+		if err := orchestrate.RecordPlanReviewVerdict(ctx, g.OID, g.PlanReview.RunID, orchestrate.ReviewVerdict_Pass, "fine", nil); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := submit(channelId, runId, writePlan(t, revised)); err == nil || !strings.Contains(err.Error(), "dag conflict") {

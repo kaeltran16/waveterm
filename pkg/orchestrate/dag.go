@@ -261,6 +261,13 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 		if t.LeadGuidance != "" || len(t.LeadNotes) != 0 || len(t.LeadTold) != 0 {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q lead fields must be empty", t.ID)
 		}
+		// only a plan's Model line comes in with the submit; the reviewer's, owner's and escalation's are the engine's
+		if t.ModelSource != "" && t.ModelSource != waveobj.TaskModelSource_Plan {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q modelsource must be empty or %q", t.ID, waveobj.TaskModelSource_Plan)
+		}
+		if t.PickReason != "" {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q pickreason must be empty", t.ID)
+		}
 	}
 	tasksCopy := make([]waveobj.TaskNode, len(tasks))
 	for i, t := range tasks {
@@ -317,7 +324,7 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 				return false
 			}
 		}
-		if ta.RunSpec.Runtime != tb.RunSpec.Runtime || ta.RunSpec.Model != tb.RunSpec.Model || ta.RunSpec.Goal != tb.RunSpec.Goal || ta.RunSpec.Mode != tb.RunSpec.Mode {
+		if ta.RunSpec.Runtime != tb.RunSpec.Runtime || ta.RunSpec.Model != tb.RunSpec.Model || ta.RunSpec.Goal != tb.RunSpec.Goal || ta.RunSpec.Mode != tb.RunSpec.Mode || ta.ModelSource != tb.ModelSource {
 			return false
 		}
 	}

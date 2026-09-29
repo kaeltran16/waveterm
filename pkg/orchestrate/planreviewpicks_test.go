@@ -1,0 +1,247 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+package orchestrate
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
+)
+
+// picksTasks is a plan with two tasks for the reviewer to pick and one the plan pinned with a Model line.
+func picksTasks() []waveobj.TaskNode {
+	return []waveobj.TaskNode{
+		{ID: "t-1", Label: "thread the field through", State: TaskState_Pending},
+		{ID: "t-2", Label: "design the store", State: TaskState_Pending},
+		{ID: "t-3", Label: "pinned by the plan", State: TaskState_Pending, RunSpec: waveobj.RunSpec{Model: "opus"}, ModelSource: waveobj.TaskModelSource_Plan},
+	}
+}
+
+// seedPicksDag is a plan review dag with picksTasks, on Reviewer picks when picks is set, with its reviewer running.
+func seedPicksDag(t *testing.T, picks bool) (context.Context, *waveobj.TaskGroup, string) {
+	t.Helper()
+	ctx, dag := seedPlanReviewDag(t)
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks, g.ReviewerPicks = picksTasks(), picks
+		RecomputeDagStatus(g)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	captureSpawns(t)
+	newFakeLead(t)
+	allowWorkerHarnessForTest(t)
+	return ctx, dag, startPlanReview(t, ctx, dag.OID)
+}
+
+func goodPicks() []wshrpc.DagModelPick {
+	return []wshrpc.DagModelPick{
+		{TaskId: "t-1", Model: PickModel_Sonnet, Reason: "a field threaded through"},
+		{TaskId: "t-2", Model: PickModel_Lead, Reason: "the store shape is a design choice"},
+	}
+}
+
+func TestPlanReviewPromptAsksForPicks(t *testing.T) {
+	g := &waveobj.TaskGroup{RunID: "run-1", PlanPath: "p.md", ReviewerPicks: true, Tasks: picksTasks()}
+	prompt := planReviewPrompt(g, "tree")
+	for _, want := range []string{
+		"t-1: thread the field through",
+		"t-2: design the store",
+		"`sonnet` only for a mechanical, tightly specified task",
+		"`lead` for anything with a design choice",
+		`--pick "t-1=<sonnet|lead>: <one-line reason>" --pick "t-2=<sonnet|lead>: <one-line reason>"`,
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the brief must contain %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "t-3") {
+		t.Errorf("a task with a Model line is not the reviewer's to pick:\n%s", prompt)
+	}
+}
+
+func TestPlanReviewPromptUnchangedWithoutPicks(t *testing.T) {
+	g := &waveobj.TaskGroup{RunID: "run-1", SpecPath: "s.md", PlanPath: "p.md", Tasks: picksTasks()}
+	want := "You are the plan reviewer for run run-1. Before any worker starts, judge whether the plan can be run as written.\n" +
+		"Read the spec at " + DocPath(g, "tree", "s.md") + ", the plan at " + DocPath(g, "tree", "p.md") + ", and the files they name.\n" +
+		"Check that:\n" +
+		"- every requirement in the spec has a task;\n" +
+		"- no two tasks edit the same file without a Depends between them, since tasks with nothing between them run at the same time;\n" +
+		"- types, functions and flags have the same names in every task that mentions them;\n" +
+		"- each task names its tests;\n" +
+		"- the commands the plan names (its Verify, Setup and Check lines, and those in its tasks) exist.\n" +
+		"Also report gaps in the spec, and places where the spec and the plan contradict each other.\n" +
+		"Only read: never edit, stage or commit, and ask no questions, since nobody answers a reviewer.\n" +
+		"Finish with exactly one command, which ends your session:\n" +
+		"- `wsh jarvis dag planreview pass \"<summary>\"`;\n" +
+		"- `wsh jarvis dag planreview fail \"<findings: each problem, where it is, and the fix>\"`.\n" +
+		fmt.Sprintf("Keep the text within %d characters; a longer one is refused.", MaxReviewNoteLen)
+	if got := planReviewPrompt(g, "tree"); got != want {
+		t.Fatalf("a group not on Reviewer picks gets today's brief:\n%s\nwant:\n%s", got, want)
+	}
+	zero := &waveobj.TaskGroup{RunID: "run-1", SpecPath: "s.md", PlanPath: "p.md"}
+	if planReviewPrompt(zero, "tree") != want {
+		t.Fatal("the tasks must not change the brief of a group not on Reviewer picks")
+	}
+}
+
+func TestPlanReviewPassAppliesPicks(t *testing.T) {
+	ctx, dag, reviewer := seedPicksDag(t, true)
+	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "fine", goodPicks()); err != nil {
+		t.Fatal(err)
+	}
+	g := loadDag(t, ctx, dag.OID)
+	if g.PlanReview.State != PlanReviewState_Passed {
+		t.Fatalf("want passed, got %+v", g.PlanReview)
+	}
+	t1, t2, t3 := taskByID(g, "t-1"), taskByID(g, "t-2"), taskByID(g, "t-3")
+	if t1.RunSpec.Runtime != LightPickRoute.Runtime || t1.RunSpec.Model != LightPickRoute.Model ||
+		t1.ModelSource != waveobj.TaskModelSource_Reviewer || t1.PickReason != "a field threaded through" {
+		t.Fatalf("a sonnet pick puts the task on the light route, got %+v", t1)
+	}
+	if t2.RunSpec.Runtime != "" || t2.RunSpec.Model != "" ||
+		t2.ModelSource != waveobj.TaskModelSource_Reviewer || t2.PickReason != "the store shape is a design choice" {
+		t.Fatalf("a lead pick leaves the task on the lead's route, got %+v", t2)
+	}
+	if t3.RunSpec.Model != "opus" || t3.ModelSource != waveobj.TaskModelSource_Plan || t3.PickReason != "" {
+		t.Fatalf("a task with a Model line keeps it, got %+v", t3)
+	}
+}
+
+func TestPlanReviewPassRefusesBadPicks(t *testing.T) {
+	with := func(edit func(p []wshrpc.DagModelPick) []wshrpc.DagModelPick) []wshrpc.DagModelPick {
+		return edit(goodPicks())
+	}
+	cases := []struct {
+		name    string
+		picks   bool
+		verdict string
+		sent    []wshrpc.DagModelPick
+		harness error
+		want    string
+	}{
+		{"missing", true, ReviewVerdict_Pass, with(func(p []wshrpc.DagModelPick) []wshrpc.DagModelPick { return p[:1] }), nil, "t-2"},
+		{"extra for a Model-line task", true, ReviewVerdict_Pass, with(func(p []wshrpc.DagModelPick) []wshrpc.DagModelPick {
+			return append(p, wshrpc.DagModelPick{TaskId: "t-3", Model: PickModel_Lead, Reason: "x"})
+		}), nil, "t-3"},
+		{"unknown", true, ReviewVerdict_Pass, with(func(p []wshrpc.DagModelPick) []wshrpc.DagModelPick {
+			return append(p, wshrpc.DagModelPick{TaskId: "t-9", Model: PickModel_Lead, Reason: "x"})
+		}), nil, "t-9"},
+		{"repeated", true, ReviewVerdict_Pass, with(func(p []wshrpc.DagModelPick) []wshrpc.DagModelPick { return append(p, p[0]) }), nil, "t-1"},
+		{"bad model", true, ReviewVerdict_Pass, with(func(p []wshrpc.DagModelPick) []wshrpc.DagModelPick { p[0].Model = "opus"; return p }), nil, "opus"},
+		{"empty reason", true, ReviewVerdict_Pass, with(func(p []wshrpc.DagModelPick) []wshrpc.DagModelPick { p[0].Reason = "  "; return p }), nil, "t-1"},
+		{"multiline reason", true, ReviewVerdict_Pass, with(func(p []wshrpc.DagModelPick) []wshrpc.DagModelPick { p[0].Reason = "one\ntwo"; return p }), nil, "t-1"},
+		{"overlong reason", true, ReviewVerdict_Pass, with(func(p []wshrpc.DagModelPick) []wshrpc.DagModelPick {
+			p[0].Reason = strings.Repeat("é", MaxPickReasonLen+1)
+			return p
+		}), nil, "t-1"},
+		{"sonnet the harness cannot run", true, ReviewVerdict_Pass, goodPicks(), errors.New("claude is not installed"), "pick lead"},
+		{"picks on a non-picks group", false, ReviewVerdict_Pass, goodPicks(), nil, "Reviewer picks"},
+		{"picks on fail", true, ReviewVerdict_Fail, goodPicks(), nil, "pass"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, dag, reviewer := seedPicksDag(t, c.picks)
+			before := loadDag(t, ctx, dag.OID).Tasks
+			if c.harness != nil {
+				validateWorkerHarness = func(string) error { return c.harness }
+			}
+			err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, c.verdict, "the text", c.sent)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("want refused naming %q, got %v", c.want, err)
+			}
+			g := loadDag(t, ctx, dag.OID)
+			if g.PlanReview.State != PlanReviewState_Reviewing || !reflect.DeepEqual(g.Tasks, before) {
+				t.Fatalf("a refused verdict changes nothing, got %+v with tasks %+v", g.PlanReview, g.Tasks)
+			}
+		})
+	}
+}
+
+func TestPlanReviewPassRecordsPicksEvent(t *testing.T) {
+	ctx, dag, reviewer := seedPicksDag(t, true)
+	var details []map[string]any
+	old := appendRunEvent
+	appendRunEvent = func(_ context.Context, _, _, kind string, _ *int, detail any) {
+		if d, ok := detail.(map[string]any); ok && kind == waveobj.RunEventKindPlanReviewed {
+			details = append(details, d)
+		}
+	}
+	restoreAfterStages(t, func() { appendRunEvent = old })
+	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "fine", goodPicks()); err != nil {
+		t.Fatal(err)
+	}
+	if len(details) != 1 || details[0]["state"] != PlanReviewState_Passed {
+		t.Fatalf("want one plan-reviewed pass event, got %+v", details)
+	}
+	if got := details[0]["picks"]; !reflect.DeepEqual(got, goodPicks()) {
+		t.Fatalf("the pass event must carry the picks, got %#v", got)
+	}
+}
+
+func TestPlanReviewPassWithoutPicksRecordsNoPicks(t *testing.T) {
+	ctx, dag, reviewer := seedPicksDag(t, false)
+	before := loadDag(t, ctx, dag.OID).Tasks
+	var details []map[string]any
+	old := appendRunEvent
+	appendRunEvent = func(_ context.Context, _, _, kind string, _ *int, detail any) {
+		if d, ok := detail.(map[string]any); ok && kind == waveobj.RunEventKindPlanReviewed {
+			details = append(details, d)
+		}
+	}
+	restoreAfterStages(t, func() { appendRunEvent = old })
+	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "fine", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(details) != 1 {
+		t.Fatalf("want one plan-reviewed event, got %+v", details)
+	}
+	if _, ok := details[0]["picks"]; ok {
+		t.Fatalf("a pass with no picks omits them, got %+v", details[0])
+	}
+	if g := loadDag(t, ctx, dag.OID); !reflect.DeepEqual(g.Tasks, before) {
+		t.Fatalf("a pass off Reviewer picks leaves the tasks alone, got %+v", g.Tasks)
+	}
+}
+
+// run-sheet edits reach the group only, and the resubmitted proposal carries the run's launch snapshot
+func TestReplaceProposalKeepsReviewerSettings(t *testing.T) {
+	ctx, dag, reviewer := seedPicksDag(t, true)
+	route := &waveobj.RoutePin{Runtime: "claude", Model: "opus"}
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.ReviewerRoute, g.WorkerRoute = route, nil
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "no task for 4.1", nil); err != nil {
+		t.Fatal(err)
+	}
+	proposed := &waveobj.TaskGroup{Title: "revised", Parallelism: 1, PlanPath: "p2.md", Tasks: picksTasks(),
+		WorkerRoute: &waveobj.RoutePin{Runtime: "claude", Model: "haiku"}, ReviewerPicks: false, ReviewerRoute: nil}
+	g, err := ReplacePlanReviewProposal(ctx, dag.OID, proposed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := loadDag(t, ctx, dag.OID)
+	for _, got := range []*waveobj.TaskGroup{g, stored} {
+		if !got.ReviewerPicks || got.WorkerRoute != nil || got.ReviewerRoute == nil || *got.ReviewerRoute != *route {
+			t.Fatalf("the group keeps its workers setting and reviewer route, got picks=%v workers=%+v reviewer=%+v",
+				got.ReviewerPicks, got.WorkerRoute, got.ReviewerRoute)
+		}
+	}
+	if stored.Title != "revised" || stored.PlanReview.Round != 2 {
+		t.Fatalf("the proposal is still replaced, got %q round %d", stored.Title, stored.PlanReview.Round)
+	}
+	if prompt := planReviewPrompt(stored, "tree"); !strings.Contains(prompt, "--pick") {
+		t.Fatalf("the next round's reviewer is asked for picks again:\n%s", prompt)
+	}
+}

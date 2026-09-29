@@ -290,6 +290,11 @@ func TestDagPlanPreview(t *testing.T) {
 			Verify: "task test",
 			Check:  "task check:ts",
 			Shape:  wshrpc.DagPlanShape{Tasks: 3, Lanes: 3, LongestChain: 2},
+			Tasks: []wshrpc.DagPlanPreviewTask{
+				{Id: "t-1", Title: "input", Lane: 1},
+				{Id: "t-2", Title: "totals", Lane: 2},
+				{Id: "t-3", Title: "tests", Lane: 3, Deps: []string{"t-1", "t-2"}},
+			},
 		}
 		if !reflect.DeepEqual(*got, want) {
 			t.Fatalf("preview = %+v, want %+v", *got, want)

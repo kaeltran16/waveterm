@@ -122,7 +122,7 @@ func TestAReplacedPlanChecksItsNewCheckOnTheBase(t *testing.T) {
 				t.Fatal(err)
 			}
 			reviewer := startPlanReview(t, ctx, dag.OID)
-			if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "no task for 4.1"); err != nil {
+			if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "no task for 4.1", nil); err != nil {
 				t.Fatal(err)
 			}
 			revised := &waveobj.TaskGroup{Title: "revised", Parallelism: 1, PlanPath: "p2.md", Check: c.check,
