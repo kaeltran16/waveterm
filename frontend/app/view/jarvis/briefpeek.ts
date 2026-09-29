@@ -4,14 +4,14 @@
 // What the record peek says. The peek is deliberately the smaller half of a line the meta spec draws: what
 // is running against a record and what you set it to are Brief business, so they are here; its full
 // history, its decision log and every past correction belong to the record as a Brief subject. So this
-// module derives exactly those two things plus the sentences that state the split, and nothing else the
-// record carries.
+// module derives exactly those two things, and nothing else the record carries.
 //
 // Pure: DossierDetail + the runs attributed to it + the fleet rollup in, strings and rows out. Every
 // number here is derived from the rows beneath it (invariant 5), and nothing claims a reading the record
 // does not carry (invariant 7) — see updatedLabel.
 
 import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
+import { headline, kilo } from "./effortfeed";
 import { fleetCountsLine, type RecordFleet } from "./fleetscope";
 import { ageLabel } from "./recallderive";
 import { runRow } from "./recordrunrow";
@@ -45,14 +45,15 @@ export interface RecordPeek {
     updatedLabel: string;
     statusLabel: string;
     statusRows: PeekStatusRow[];
-    body: string;
+    // null when the objective is one sentence: the title already says all of it
+    body: string | null;
+    // the link that opens a clamped body, or null when the body is short enough to show whole
+    bodyMore: string | null;
     fleetMeta: string;
     runs: PeekRunRow[];
     // absence is a written sentence, never an empty frame (invariant 3)
     runsAbsent: string;
     logLine: string;
-    absenceChip: string;
-    footer: string;
 }
 
 // What each status changes about where the record turns up. Deliberately about listing and focus rather
@@ -67,13 +68,8 @@ const STATUS_NOTE: Record<string, string> = {
 
 const STATUS_ORDER = ["active", "paused", "completed", "archived"];
 
-// You cannot message a record. Stated once, here, rather than leaving the reader hunting for a composer
-// that was never going to appear.
-export const PEEK_ABSENCE_CHIP = "Record · you cannot message one.";
-
-export const PEEK_FOOTER =
-    "What runs against it and what you set it to are brief business, so they are here. Its full history, " +
-    "its decision log and every past correction live on the Brief, with the record as its subject.";
+// past this many characters the body is clamped behind a link to the rest; 20 of the user's records cross it
+const BODY_CLAMP_CHARS = 400;
 
 const RUNS_ABSENT = "No session has ever been attributed to this record.";
 
@@ -100,13 +96,17 @@ export function statusPickerRows(status: string): PeekStatusRow[] {
     return rows;
 }
 
-function peekBody(detail: DossierDetail): string {
+function peekBody(detail: DossierDetail): { body: string | null; bodyMore: string | null } {
     const objective = detail.objective?.trim() ?? "";
-    if (objective !== "") {
-        return objective;
+    if (objective === "") {
+        const notes = detail.notes?.trim() ?? "";
+        return { body: notes !== "" ? notes : "This record states no objective yet.", bodyMore: null };
     }
-    const notes = detail.notes?.trim() ?? "";
-    return notes !== "" ? notes : "This record states no objective yet.";
+    if (headline(objective) === objective) {
+        return { body: null, bodyMore: null };
+    }
+    const bodyMore = objective.length > BODY_CLAMP_CHARS ? `Show the full objective · ${kilo(objective.length)}` : null;
+    return { body: objective, bodyMore };
 }
 
 function logLine(n: number): string {
@@ -131,11 +131,11 @@ export function buildRecordPeek(input: RecordPeekInput): RecordPeek {
     const { detail, runs, fleet, counts, harnesses, now } = input;
     const objective = detail.objective?.trim() ?? "";
     return {
-        title: objective !== "" ? objective : detail.id,
+        title: objective !== "" ? headline(objective) : detail.id,
         updatedLabel: detail.updated > 0 ? `updated ${ageLabel(Math.max(0, now - detail.updated))}` : "never updated",
         statusLabel: detail.status ?? "",
         statusRows: statusPickerRows(detail.status ?? ""),
-        body: peekBody(detail),
+        ...peekBody(detail),
         // the record variant of the shared line, so the peek counts workers across channels rather than
         // counting the rows below it — a record's fleet crosses channels by construction (spec §4a fidelity
         // note), and the rows are runs, which is a different number on purpose.
@@ -157,7 +157,5 @@ export function buildRecordPeek(input: RecordPeekInput): RecordPeek {
         }),
         runsAbsent: RUNS_ABSENT,
         logLine: logLine(detail.decisions?.length ?? 0),
-        absenceChip: PEEK_ABSENCE_CHIP,
-        footer: PEEK_FOOTER,
     };
 }
