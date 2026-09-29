@@ -66,6 +66,16 @@ func TestCreateRunReviewerPicksInheritance(t *testing.T) {
 		t.Fatalf("sent false: picks=%v worker=%+v, want Same as lead though the profile names a route", run.ReviewerPicks, run.WorkerRoute)
 	}
 
+	// a sent route with picks false beats a profile on Reviewer picks (wsh runs start --worker-runtime)
+	sentWorker := &waveobj.RoutePin{Runtime: "pi", Model: "anthropic/claude-sonnet-5-5"}
+	run, err = createEngineRun(t, ctx, &waveobj.ProfileOverride{ReviewerPicks: boolPtr(true)}, wshrpc.CommandCreateRunData{WorkerRoute: sentWorker, ReviewerPicks: boolPtr(false)})
+	if err != nil {
+		t.Fatalf("CreateRunCommand: %v", err)
+	}
+	if run.ReviewerPicks || !samePin(run.WorkerRoute, sentWorker) {
+		t.Fatalf("sent route: picks=%v worker=%+v, want the sent route and no picks", run.ReviewerPicks, run.WorkerRoute)
+	}
+
 	// with nothing sent, the profile's route still hydrates as before
 	run, err = createEngineRun(t, ctx, &waveobj.ProfileOverride{WorkerRoute: profileRoute}, wshrpc.CommandCreateRunData{})
 	if err != nil {

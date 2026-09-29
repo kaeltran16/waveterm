@@ -32,6 +32,14 @@ func TestRunsStartDataReviewerFlags(t *testing.T) {
 				t.Fatalf("picks = %v worker = %+v, want &true and no route", d.ReviewerPicks, d.WorkerRoute)
 			}
 		}},
+		{name: "a worker runtime owns the workers setting", opts: runsStartOpts{goal: "g", mode: orch, workerRuntime: "pi", workerModel: "m"}, check: func(t *testing.T, d wshrpc.CommandCreateRunData) {
+			if d.WorkerRoute == nil || *d.WorkerRoute != (waveobj.RoutePin{Runtime: "pi", Model: "m"}) {
+				t.Fatalf("worker route = %+v, want {pi m}", d.WorkerRoute)
+			}
+			if d.ReviewerPicks == nil || *d.ReviewerPicks {
+				t.Fatalf("picks = %v, want &false so the profile's picks cannot fill in the workers setting", d.ReviewerPicks)
+			}
+		}},
 		{name: "no workers flag leaves the profile's setting", opts: runsStartOpts{goal: "g", mode: orch}, check: func(t *testing.T, d wshrpc.CommandCreateRunData) {
 			if d.ReviewerPicks != nil || d.ReviewerRoute != nil {
 				t.Fatalf("picks = %v reviewer = %+v, want nil for the profile to decide", d.ReviewerPicks, d.ReviewerRoute)

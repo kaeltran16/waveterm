@@ -274,6 +274,8 @@ func runsStartData(o runsStartOpts) (wshrpc.CommandCreateRunData, error) {
 	s.Goal, s.Mode, s.PlanPath, s.Parallelism, s.Landing = o.goal, mode, o.plan, o.parallelism, o.landing
 	if o.workerRuntime != "" {
 		s.WorkerRoute = &waveobj.RoutePin{Runtime: o.workerRuntime, Model: o.workerModel}
+		noPicks := false
+		s.ReviewerPicks = &noPicks // a worker route is the whole workers setting; the profile's picks must not fill it in
 	}
 	if o.reviewerPicks {
 		s.ReviewerPicks = &o.reviewerPicks
