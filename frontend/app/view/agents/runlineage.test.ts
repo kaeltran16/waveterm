@@ -16,6 +16,7 @@ import {
     leadRunTabIds,
     leadStandingBy,
     runAgentsOf,
+    runEngineBusy,
     runProgress,
     runRoleOf,
     runTitle,
@@ -282,6 +283,40 @@ describe("leadStandingBy", () => {
             false
         );
         expect(leadStandingBy({ atPrompt: true }, { ...run, dag: undefined })).toBe(false);
+    });
+});
+
+describe("runEngineBusy", () => {
+    const runOf = (over: Partial<TaskGroup>) => ({
+        runId: "lead-run",
+        channelId: "c",
+        title: "",
+        project: "",
+        dag: { ...dag, status: "running", tasks: [], ...over } as TaskGroup,
+    });
+    const tasks = (...states: string[]) => states.map((state, i) => ({ id: `t-${i}`, state }) as TaskNode);
+
+    it("is busy while a worker, reviewer or merge Verify is at work", () => {
+        for (const state of ["running", "reviewing", "verifying"]) {
+            expect(runEngineBusy(runOf({ tasks: tasks("done", state) }))).toBe(true);
+        }
+    });
+
+    it("is busy while the plan is reviewed or the final stage runs", () => {
+        expect(runEngineBusy(runOf({ planreview: { state: "reviewing", round: 1 } }))).toBe(true);
+        for (const state of ["checking", "final", "verifying"]) {
+            expect(runEngineBusy(runOf({ final: { state, round: 1 } }))).toBe(true);
+        }
+    });
+
+    it("is not busy when every task waits, ended, or needs a judgment", () => {
+        expect(runEngineBusy(runOf({ tasks: tasks("pending", "failed", "stalled", "review-failed", "done") }))).toBe(
+            false
+        );
+        expect(
+            runEngineBusy(runOf({ planreview: { state: "failed", round: 1 }, final: { state: "passed", round: 1 } }))
+        ).toBe(false);
+        expect(runEngineBusy({ ...runOf({}), dag: undefined })).toBe(false);
     });
 });
 

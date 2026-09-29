@@ -305,3 +305,22 @@ export function leadStandingBy(agent: Pick<AgentVM, "atPrompt">, run: RunInfo): 
     const status = run.dag?.status;
     return agent.atPrompt === true && run.dag != null && status !== "done" && status !== "cancelled";
 }
+
+// states in which the engine has a session or command at work: tasks.state, planreview.state, final.state
+const TASK_IN_FLIGHT = new Set(["running", "reviewing", "verifying"]);
+const PLAN_REVIEW_IN_FLIGHT = "reviewing";
+const FINAL_IN_FLIGHT = new Set(["checking", "final", "verifying"]);
+
+// runEngineBusy reports the engine at work on a run while its lead may be idle: a worker or reviewer on a task, a
+// merge under Verify, the plan's review, or the final stage. A task waiting on a judgment does not count.
+export function runEngineBusy(run: RunInfo): boolean {
+    const dag = run.dag;
+    if (dag == null) {
+        return false;
+    }
+    return (
+        (dag.tasks ?? []).some((t) => TASK_IN_FLIGHT.has(t.state)) ||
+        dag.planreview?.state === PLAN_REVIEW_IN_FLIGHT ||
+        FINAL_IN_FLIGHT.has(dag.final?.state ?? "")
+    );
+}

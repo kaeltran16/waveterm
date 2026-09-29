@@ -14,6 +14,7 @@ import {
     formatLeft,
     laneLabel,
     leadStandingBy,
+    runEngineBusy,
     runFinished,
     runProgress,
     taskAgentOf,
@@ -318,14 +319,22 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
 
 export type LeadMarkTone = "success" | "accent" | "warning" | "muted";
 
-/** Pure: the lead's Workflow mark, coloured as the agent tree colours it (agenttree.tsx MARK_COLOR): green only when
- *  the run is complete. */
+export const LEAD_MARK_CLASS: Record<LeadMarkTone, string> = {
+    success: "text-success",
+    accent: "text-accent",
+    warning: "text-warning",
+    muted: "text-muted",
+};
+
+/** Pure: a run's Workflow mark, on its lead card and its agent tree row: green only when the run is complete. The
+ *  pulse is the lead's own work; a lead that is down or standing by while the engine works leaves the mark accent
+ *  and still, so the run does not read as stopped. */
 export function leadMark(run: RunInfo, lead: AgentVM | undefined): { tone: LeadMarkTone; pulse: boolean } {
     if (runComplete(run)) {
         return { tone: "success", pulse: false };
     }
     if (lead == null || leadStandingBy(lead, run)) {
-        return { tone: "muted", pulse: false };
+        return { tone: runEngineBusy(run) ? "accent" : "muted", pulse: false };
     }
     if (lead.state === "working") {
         return { tone: "accent", pulse: true };

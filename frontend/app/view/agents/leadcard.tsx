@@ -36,12 +36,12 @@ import type { CardShare } from "./cardgridlayout";
 import { dagAction, rowAction, runCardAction, runCardErrorAtom, tellingRowAtom } from "./leadcardactions";
 import {
     foldOpen,
+    LEAD_MARK_CLASS,
     leadMark,
     REVIEW_ACTIONS,
     reviewFindings,
     runningCount,
     type LeadCardVM,
-    type LeadMarkTone,
     type RowAction,
     type RowTone,
     type TaskRowVM,
@@ -64,12 +64,6 @@ const BTN =
 const ROW_BTN =
     "flex h-6 cursor-pointer items-center gap-1.5 rounded-[6px] border border-edge-strong bg-transparent pl-1.5 pr-2.5 text-[11.5px] font-semibold text-secondary hover:bg-surface-hover";
 const PULSE = "animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none";
-const MARK_TONE: Record<LeadMarkTone, string> = {
-    success: "text-success",
-    accent: "text-accent",
-    warning: "text-warning",
-    muted: "text-muted",
-};
 
 // below this body height the lead's pane would squeeze the tasks, so a card that small starts it collapsed
 const LEAD_PANE_MIN_BODY_PX = 320;
@@ -160,7 +154,7 @@ export function LeadCard(p: LeadCardProps) {
     const parValue = par ?? run.dag?.parallelism ?? 1;
     const mark = leadMark(run, lead);
     const leadIcon = (
-        <Workflow size={13} aria-hidden className={cn("shrink-0", MARK_TONE[mark.tone], mark.pulse && PULSE)} />
+        <Workflow size={13} aria-hidden className={cn("shrink-0", LEAD_MARK_CLASS[mark.tone], mark.pulse && PULSE)} />
     );
 
     return (

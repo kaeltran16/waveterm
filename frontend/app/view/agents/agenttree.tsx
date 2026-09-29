@@ -29,11 +29,11 @@ import type { AgentsViewModel } from "./agents";
 import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
-import { displayAgeMs, formatAgeShort, type AgentState, type AgentVM } from "./agentsviewmodel";
+import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
+import { LEAD_MARK_CLASS, leadMark } from "./leadcardmodel";
 import {
     endedWorkerId,
     laneLabel,
-    leadStandingBy,
     runAgentsOf,
     runProgress,
     stageLabel,
@@ -136,13 +136,6 @@ function RenameBox({ tabId }: { tabId: string }) {
 }
 
 const PULSE = "animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none";
-
-// the lead's Workflow mark takes the colour its status dot would have had (see StatusDot)
-const MARK_COLOR: Record<AgentState, string> = {
-    asking: "text-warning",
-    working: "text-accent",
-    idle: "text-muted",
-};
 
 // Every row's leading mark sits in one column, so dots, icons and fold marks line up down the tree.
 function Slot({ children }: { children: React.ReactNode }) {
@@ -289,8 +282,7 @@ function ParentRow({
     const expanded = subagentExpanded(subs, expandOverride);
     const selected = focusId === agent.id;
     const asking = agent.state === "asking";
-    const standingBy = lead != null && leadStandingBy(agent, lead.run);
-    const complete = lead != null && runComplete(lead.run);
+    const mark = lead != null ? leadMark(lead.run, agent) : null;
     // m4: one-shot settle when this agent reaches idle (working/asking -> idle)
     const settling = useSettle(agent.state === "idle");
 
@@ -347,14 +339,11 @@ function ParentRow({
                 )}
             >
                 <Slot>
-                    {lead ? (
+                    {mark ? (
                         <Workflow
                             size={13}
                             aria-hidden
-                            className={cn(
-                                complete ? "text-success" : standingBy ? "text-muted" : MARK_COLOR[agent.state],
-                                !complete && !standingBy && agent.state !== "idle" && PULSE
-                            )}
+                            className={cn(LEAD_MARK_CLASS[mark.tone], mark.pulse && PULSE)}
                         />
                     ) : (
                         <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
@@ -469,7 +458,7 @@ function RunRow({ model, run, open, live }: { model: AgentsViewModel; run: RunIn
             className="relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[9px] transition-colors duration-[140ms] hover:bg-surface-hover"
         >
             <Slot>
-                <Workflow size={13} aria-hidden className={runComplete(run) ? "text-success" : "text-muted"} />
+                <Workflow size={13} aria-hidden className={LEAD_MARK_CLASS[leadMark(run, undefined).tone]} />
             </Slot>
             <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] font-medium text-ink-hi">{run.title}</div>

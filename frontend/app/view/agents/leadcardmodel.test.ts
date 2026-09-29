@@ -466,11 +466,14 @@ describe("leadMark", () => {
         });
         expect(leadMark(ended("done", "done", { state: "held" } as RunLand), leadOf({ state: "idle" }))).toEqual(MUTED);
     });
-    it("is muted with no lead", () => {
-        expect(leadMark(runInfo([task("t-1", "running")]), undefined)).toEqual(MUTED);
+    it("is accent and still while the engine works without its lead", () => {
+        const STILL_ACCENT = { tone: "accent", pulse: false };
+        expect(leadMark(runInfo([task("t-1", "running")]), undefined)).toEqual(STILL_ACCENT);
+        expect(leadMark(runInfo([task("t-1", "reviewing")]), leadOf({ atPrompt: true }))).toEqual(STILL_ACCENT);
     });
-    it("is muted while the lead stands by", () => {
-        expect(leadMark(runInfo([task("t-1", "running")]), leadOf({ atPrompt: true }))).toEqual(MUTED);
+    it("is muted when neither the lead nor the engine works", () => {
+        expect(leadMark(runInfo([task("t-1", "pending")]), undefined)).toEqual(MUTED);
+        expect(leadMark(runInfo([task("t-1", "failed")]), leadOf({ atPrompt: true }))).toEqual(MUTED);
     });
     it("pulses accent while working and warning while asking", () => {
         const run = runInfo([task("t-1", "running")]);

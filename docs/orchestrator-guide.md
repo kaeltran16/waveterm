@@ -430,7 +430,8 @@ A landing doesn't wake the lead. Each task that passes review queues a line (`t-
 the lead's next wake, and the run-finished wake carries whatever is left, so the lead learns what landed without a
 turn per task. A wake reads its action first, then the questions, then `Unverified:` (what passed reviews could
 not verify), and the recaps last under `Since your last wake:`. `wsh jarvis dag status` shows each task's result and latest review. While the lead
-waits at its prompt, its row reads `standing by`.
+waits at its prompt, its row reads `standing by`; its Workflow mark stays accent, without the pulse, while a worker,
+reviewer or Verify is at work, and goes muted only when nothing is.
 
 ---
 
