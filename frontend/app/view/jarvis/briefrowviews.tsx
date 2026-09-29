@@ -7,6 +7,7 @@
 // Behind you is two lines under a wording column.
 
 import { cn } from "@/util/util";
+import { ChevronDown, ChevronRight, CornerDownRight } from "lucide-react";
 import type { ReactNode } from "react";
 import type { QueueAct } from "./briefingmodel";
 import type { BriefLine, RunRowFace } from "./briefrows";
@@ -154,9 +155,11 @@ export function InitiativeRow({
             >
                 {line.state}
             </span>
-            <span aria-hidden className="w-2.5 flex-none text-center text-[10px] text-muted">
-                {expanded ? "▾" : "▸"}
-            </span>
+            {expanded ? (
+                <ChevronDown size={12} aria-hidden className="flex-none text-muted" />
+            ) : (
+                <ChevronRight size={12} aria-hidden className="flex-none text-muted" />
+            )}
         </div>
     );
 }
@@ -216,7 +219,7 @@ export function RunRowView({
                 <div className="flex min-w-0 items-center gap-2">
                     <span
                         className={cn(
-                            "flex-none rounded-[5px] border px-[5px] font-mono text-[10px] leading-4",
+                            "flex-none rounded-[5px] border px-1.5 font-mono text-[10.5px] leading-[17px]",
                             TYPE_BADGE[face.type]
                         )}
                     >
@@ -238,9 +241,10 @@ export function RunRowView({
                             type="button"
                             title="Open this chunk"
                             onClick={stop(onOpenChunk)}
-                            className="min-w-0 cursor-pointer truncate font-mono text-[10.5px] text-muted hover:text-accent-soft"
+                            className="flex min-w-0 cursor-pointer items-center gap-1 font-mono text-[10.5px] text-muted hover:text-accent-soft"
                         >
-                            ↳ {face.chunkLabel}
+                            <CornerDownRight size={11} aria-hidden className="flex-none" />
+                            <span className="truncate">{face.chunkLabel}</span>
                         </button>
                     ) : null}
                 </div>
@@ -344,14 +348,14 @@ export function ShippedRowView({
                         {line.title}
                     </span>
                     {line.fresh ? (
-                        <span className="flex-none rounded-[5px] border border-accent/40 px-[5px] font-mono text-[9.5px] leading-[15px] text-accent-soft">
+                        <span className="flex-none rounded-[5px] border border-accent/40 px-1.5 font-mono text-[10.5px] leading-4 text-accent-soft">
                             new
                         </span>
                     ) : null}
                 </div>
                 {line.detail ? <span className={cn("truncate", MONO_FAINT)}>{line.detail}</span> : null}
             </div>
-            {line.hasReport ? <span className="flex-none font-mono text-[10px] text-ink-mid">report</span> : null}
+            {line.hasReport ? <span className="flex-none font-mono text-[10.5px] text-ink-mid">report</span> : null}
             <span className="w-12 flex-none text-right font-mono text-[11px] text-ink-mid">{line.state}</span>
         </div>
     );

@@ -6194,6 +6194,247 @@ const runSheetPolish = {
     },
 };
 
+// --- brief-initiatives-polish: a staged and a flat initiative, their sidebar and activity ---------
+// Two throwaway efforts made over RPC: one staged (with an unstaged tail), one flat whose feed holds a
+// note-carrying status change, a bare one, and a long note. Every surface it opens is swept for text
+// under MIN_FONT_PX.
+const POLISH_STAGED = "verify initiatives polish · staged";
+const POLISH_FLAT = "verify initiatives polish · flat";
+const POLISH_ADDED = "F4 added by the scenario";
+const polishNap = (ms) => new Promise((r) => setTimeout(r, ms));
+const polishRow = (title) =>
+    `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].find((r) => r.innerText.includes(${JSON.stringify(title)}))`;
+const polishDetail = (title) => `${polishRow(title)}?.parentElement?.querySelector('[data-jarvis-initiative-detail="true"]')`;
+
+// every element whose own text is under the floor; svg is drawn, not read
+const polishSweep = (rootExpr) => `(() => {
+    const root = ${rootExpr};
+    if (!root) return null;
+    const offenders = [];
+    let seen = 0;
+    for (const el of [root, ...root.querySelectorAll('*')]) {
+        if (el.closest('svg')) continue;
+        const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.data.trim() !== '');
+        if (!own) continue;
+        seen++;
+        if (parseFloat(getComputedStyle(el).fontSize) < ${MIN_FONT_PX}) {
+            const text = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.data).join('').trim();
+            offenders.push({ tag: el.tagName.toLowerCase(), cls: String(el.className).slice(0, 80), text: text.slice(0, 40) });
+        }
+    }
+    return { seen, offenders: offenders.slice(0, 5), count: offenders.length };
+})()`;
+const sweptOk = (s) => s != null && s.seen > 0 && s.count === 0;
+
+async function polishWaitFor(h, expr, ms) {
+    for (let waited = 0; waited < ms; waited += 250) {
+        if (await h.ev(expr).catch(() => false)) return true;
+        await polishNap(250);
+    }
+    return false;
+}
+
+async function polishReload(h) {
+    try {
+        await h.ev("location.reload()");
+    } catch {
+        /* the evaluate is cut off by the navigation it just started */
+    }
+    await polishWaitFor(h, "!!window.TabRpcClient && !!document.querySelector('nav button')", 30000);
+    await h.goto("jarvis");
+}
+
+const briefInitiativesPolish = {
+    name: "brief-initiatives-polish",
+    surface: "jarvis",
+    async arrange(h) {
+        const ctx = { oids: [] };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            const staged = await h.rpc("effortcreate", {
+                title: POLISH_STAGED,
+                chunks: [{ label: "S1" }, { label: "S2" }, { label: "U1" }],
+            });
+            ctx.staged = staged.effortoid;
+            ctx.oids.push(ctx.staged);
+            await h.rpc("effortmutate", {
+                effortoid: ctx.staged,
+                author: "you",
+                ops: [
+                    { op: "setChunkStage", chunk: "S1", stage: "Stage one" },
+                    { op: "setChunkStage", chunk: "S2", stage: "Stage one" },
+                ],
+            });
+            const flat = await h.rpc("effortcreate", {
+                title: POLISH_FLAT,
+                chunks: [{ label: "F1" }, { label: "F2" }, { label: "F3" }],
+            });
+            ctx.flat = flat.effortoid;
+            ctx.oids.push(ctx.flat);
+            await h.rpc("effortmutate", {
+                effortoid: ctx.flat,
+                author: "you",
+                ops: [
+                    {
+                        op: "setChunkStatus",
+                        chunk: "F1",
+                        status: "done",
+                        note: "Landed the first slice. The rest waits on review. Nothing else moved.",
+                    },
+                    { op: "setChunkStatus", chunk: "F2", status: "active" },
+                    {
+                        op: "appendNote",
+                        chunk: "F2",
+                        note:
+                            "Started on the second slice. " +
+                            "It touches the feed model, the view and the scenario, and each of those reads the others. ".repeat(12),
+                    },
+                ],
+            });
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. the two initiatives were made", false, ctx.arrangeError);
+            return steps;
+        }
+        await h.goto("jarvis");
+        // a briefing fixture another scenario left on hides the live data, and only a reload clears it
+        const fixtureOn = await h.ev(
+            `[...document.querySelectorAll('[data-briefing-fixture]')].some((b) => b.className.includes('bg-accentbg'))`
+        );
+        if (fixtureOn) await polishReload(h);
+        const both = `!!${polishRow(POLISH_STAGED)} && !!${polishRow(POLISH_FLAT)}`;
+        // the Brief may hold a snapshot from before the efforts existed; one reload picks them up
+        if (!(await polishWaitFor(h, both, 8000))) {
+            await polishReload(h);
+        }
+        const rows = await polishWaitFor(h, both, 15000);
+        rec("0. both initiatives show on the Brief", rows, JSON.stringify({ staged: ctx.staged, flat: ctx.flat }));
+        if (!rows) return steps;
+
+        // 1. the staged plan keeps its stage header
+        await h.ev(`${polishRow(POLISH_STAGED)}?.click()`);
+        await polishWaitFor(h, `!!${polishDetail(POLISH_STAGED)}`, 3000);
+        await polishNap(400);
+        const stagedHeads = await h.ev(`${polishDetail(POLISH_STAGED)}?.querySelectorAll('[data-jarvis-tracker-stage]').length ?? 0`);
+        const stagedSweep = await h.ev(polishSweep(polishDetail(POLISH_STAGED)));
+        await h.shot("cdp-shots/brief-initiatives-polish-1-staged.png");
+        rec(
+            "1. a staged initiative draws a stage header, and nothing in it is under 10.5px",
+            stagedHeads >= 1 && sweptOk(stagedSweep),
+            JSON.stringify({ stagedHeads, sweep: stagedSweep })
+        );
+
+        // 2. the flat plan draws no header, every chunk, and "+ Add chunk" after the last one
+        await h.ev(`${polishRow(POLISH_FLAT)}?.click()`);
+        await polishWaitFor(h, `!!${polishDetail(POLISH_FLAT)}`, 3000);
+        await polishNap(400);
+        const flat = await h.ev(`(() => {
+            const d = ${polishDetail(POLISH_FLAT)};
+            if (!d) return null;
+            const chunks = [...d.querySelectorAll('[data-jarvis-tracker-chunk]')];
+            const add = d.querySelector('[data-jarvis-add-chunk]');
+            const last = chunks[chunks.length - 1];
+            return {
+                stages: d.querySelectorAll('[data-jarvis-tracker-stage]').length,
+                chunks: chunks.length,
+                add: add != null,
+                afterLast: add != null && last != null && !!(last.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING),
+            };
+        })()`);
+        const flatSweep = await h.ev(polishSweep(polishDetail(POLISH_FLAT)));
+        await h.shot("cdp-shots/brief-initiatives-polish-2-flat.png");
+        rec(
+            "2. a flat initiative draws no stage header, all 3 chunks and + Add chunk after the last, nothing under 10.5px",
+            flat != null && flat.stages === 0 && flat.chunks === 3 && flat.add && flat.afterLast && sweptOk(flatSweep),
+            JSON.stringify({ flat, sweep: flatSweep })
+        );
+
+        // 2b. that "+ Add chunk" adds to stage "" (the add is a real write on a throwaway effort)
+        let added = null;
+        if (flat?.add) {
+            await h.ev(`${polishDetail(POLISH_FLAT)}?.querySelector('[data-jarvis-add-chunk]')?.click()`);
+            await polishNap(200);
+            await h.ev(`(() => {
+                const input = ${polishDetail(POLISH_FLAT)}?.querySelector('input');
+                if (!input) return false;
+                const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+                set.call(input, ${JSON.stringify(POLISH_ADDED)});
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                return true;
+            })()`);
+            for (let waited = 0; waited < 5000 && added == null; waited += 250) {
+                await polishNap(250);
+                const { effort } = (await h.rpc("effortget", { effortoid: ctx.flat })) ?? {};
+                const chunks = effort?.chunks ?? [];
+                const at = chunks.findIndex((c) => c.label === POLISH_ADDED);
+                if (at >= 0) added = { at, of: chunks.length, stage: chunks[at].stage ?? "" };
+            }
+        }
+        rec(
+            "2b. + Add chunk on a flat initiative adds the chunk at the end, to stage \"\"",
+            added != null && added.stage === "" && added.at === added.of - 1,
+            JSON.stringify(added)
+        );
+
+        // 3. a flat chunk's sidebar names no stage
+        await h.ev(
+            `${polishDetail(POLISH_FLAT)}?.querySelector('[data-jarvis-tracker-chunk="F1"]')?.click()`
+        );
+        const sidebarUp = await polishWaitFor(h, `!!document.querySelector('[data-jarvis-chunk-sidebar]')`, 3000);
+        await polishNap(300);
+        const crumb = await h.ev(`document.querySelector('[data-jarvis-chunk-sidebar]')?.innerText ?? ''`);
+        const sidebarSweep = await h.ev(polishSweep(`document.querySelector('[data-jarvis-chunk-sidebar]')`));
+        await h.shot("cdp-shots/brief-initiatives-polish-3-sidebar.png");
+        rec(
+            "3. a flat chunk opens the Chunk sidebar with no \"unstaged\" crumb, nothing under 10.5px",
+            sidebarUp && !/unstaged/i.test(crumb) && sweptOk(sidebarSweep),
+            JSON.stringify({ sidebarUp, unstaged: /unstaged/i.test(crumb), sweep: sidebarSweep })
+        );
+
+        // 4. its activity link opens the grouped feed
+        await h.ev(
+            `[...(document.querySelector('[data-jarvis-chunk-sidebar]')?.querySelectorAll('button') ?? [])].find((b) => /^activity/i.test(b.innerText.trim()) || /activity/i.test(b.getAttribute('aria-label') ?? ''))?.click()`
+        );
+        const SHEET = `document.querySelector('[data-jarvis-brief-sheet="effort"]')`;
+        const sheetUp = await polishWaitFor(h, `!!${SHEET}?.querySelector('[data-jarvis-effort-note]')`, 5000);
+        await polishNap(300);
+        const feed = await h.ev(`(() => {
+            const s = ${SHEET};
+            return s ? { today: s.textContent.includes('Today'), notes: s.querySelectorAll('[data-jarvis-effort-note]').length } : null;
+        })()`);
+        const sheetSweep = await h.ev(polishSweep(SHEET));
+        await h.shot("cdp-shots/brief-initiatives-polish-4-activity.png");
+        rec(
+            "4. the activity sheet opens on a Today divider with note lines, nothing under 10.5px",
+            sheetUp && feed != null && feed.today && feed.notes >= 1 && sweptOk(sheetSweep),
+            JSON.stringify({ feed, sweep: sheetSweep })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h
+            .ev(`document.querySelector('[data-jarvis-brief-sheet] button[aria-label="Close detail sheet"]')?.click()`)
+            .catch(() => {});
+        await h
+            .ev(
+                `[...(document.querySelector('[data-jarvis-chunk-sidebar]')?.querySelectorAll('button') ?? [])].find((b) => b.innerText.trim() === 'Close')?.click()`
+            )
+            .catch(() => {});
+        for (const effortoid of ctx.oids ?? []) {
+            await h.rpc("effortdelete", { effortoid }).catch(() => {});
+        }
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     briefContextualMap,
     briefRestore,
@@ -6233,4 +6474,5 @@ export const SCENARIOS = [
     agentTreeRail,
     cockpitPolish,
     runSheetPolish,
+    briefInitiativesPolish,
 ];

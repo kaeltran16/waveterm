@@ -38,7 +38,7 @@ export function sidebarNotes(feed: FeedEntry[], label: string, now: number, expa
             edited: f.edited === true,
             text,
             open,
-            chev: newestShort ? "" : open ? "less ▴" : "more ▾",
+            chev: newestShort ? "" : open ? "less" : "more",
             // an agent's note is its record of what it did; yours and legacy ones stay editable
             editable: f.noteAt != null && who !== "agent",
             runOid: (f.run ?? "").replace(/^run:/, ""),

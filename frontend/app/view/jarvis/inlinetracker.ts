@@ -8,7 +8,8 @@
 // rows of an expanded initiative are spliced INTO that list instead — j/k falls into the plan and
 // back out of it, and Enter on a chunk opens its notes the same way Enter on a line opens its target.
 //
-// Stage headers render but are not navigable: they carry no content of their own, and stopping the
+// Stage headers are drawn only for a staged plan; a flat plan (no chunk has a stage) lists its chunks
+// bare. They render but are not navigable: they carry no content of their own, and stopping the
 // cursor on them would put two dead rows between every group of chunks.
 //
 // Pure: no React.
@@ -71,6 +72,14 @@ export function stageStartsOpen(group: { rows: ChunkRowModel[] }): boolean {
 }
 
 /**
+ * A plan with no staged chunk is flat. It draws no stage header: one header over the whole plan would
+ * only repeat the initiative row's own fraction, and its folding would hide the plan the row just opened.
+ */
+export function isFlatPlan(chunks: { stage: string }[]): boolean {
+    return chunks.every((c) => c.stage === "");
+}
+
+/**
  * The Brief's visible lines with the open initiative's plan spliced in after its row.
  *
  * `chunks` is null while the effort detail is still loading — the row still expands, so the click
@@ -108,6 +117,19 @@ export function trackerRows(args: {
             count: `${chunks.length} chunk${chunks.length === 1 ? "" : "s"} · ${doneN} done`,
         });
         const next = nextChunk(chunks);
+        const pushChunk = (row: ChunkRowModel) =>
+            out.push({
+                kind: "chunk",
+                id: chunkRowId(line.id, row.label),
+                oref,
+                row,
+                notes: noteCounts.get(row.label) ?? 0,
+                next: next != null && row.label === next.label,
+            });
+        if (isFlatPlan(chunks)) {
+            chunks.forEach(pushChunk);
+            continue;
+        }
         groupChunksByStage(chunks).forEach((group, at) => {
             const id = stageRowId(line.id, group.stage, at);
             const open = stageOverrides[id] ?? stageStartsOpen(group);
@@ -126,16 +148,7 @@ export function trackerRows(args: {
             if (!open) {
                 return;
             }
-            for (const row of group.rows) {
-                out.push({
-                    kind: "chunk",
-                    id: chunkRowId(line.id, row.label),
-                    oref,
-                    row,
-                    notes: noteCounts.get(row.label) ?? 0,
-                    next: next != null && row.label === next.label,
-                });
-            }
+            group.rows.forEach(pushChunk);
         });
     }
     return out;

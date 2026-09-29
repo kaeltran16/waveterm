@@ -7,6 +7,7 @@ import type { ChunkRowModel } from "./effortstore";
 import {
     chunkRowId,
     expandableORef,
+    isFlatPlan,
     stageRowId,
     stageStartsOpen,
     trackerNavIds,
@@ -201,5 +202,50 @@ describe("trackerRows facts row", () => {
         expect(facts).toMatchObject({ count: "3 chunks · 1 done" });
         const stages = rows.filter((r) => r.kind === "stage");
         expect(stages.map((s) => (s as { first: boolean }).first)).toEqual([true, false]);
+    });
+});
+
+const FLAT: ChunkRowModel[] = [
+    chunk("F1 schema", "done", ""),
+    chunk("F2 writer", "done", ""),
+    chunk("F3 reader", "done", ""),
+];
+
+describe("isFlatPlan", () => {
+    it("is flat when no chunk has a stage", () => {
+        expect(isFlatPlan(FLAT)).toBe(true);
+    });
+    it("is staged as soon as one chunk has a stage", () => {
+        expect(isFlatPlan([...FLAT, chunk("S1", "pending", "Ticket #1")])).toBe(false);
+    });
+});
+
+describe("trackerRows on a flat plan", () => {
+    it("draws no stage header and shows every chunk, even when all are done", () => {
+        const rows = trackerRows({ ...base, chunks: FLAT });
+        expect(rows.some((r) => r.kind === "stage")).toBe(false);
+        expect(rows.filter((r) => r.kind === "chunk").map((r) => r.id)).toEqual(
+            FLAT.map((c) => chunkRowId("initiatives:" + OREF, c.label))
+        );
+    });
+
+    it("ignores a stage override that says folded", () => {
+        const folded = { [stageRowId("initiatives:" + OREF, "", 0)]: false };
+        const rows = trackerRows({ ...base, chunks: FLAT, stageOverrides: folded });
+        expect(rows.filter((r) => r.kind === "chunk")).toHaveLength(3);
+    });
+
+    it("keeps the unstaged run's header once any chunk is staged", () => {
+        const mixed = [chunk("S1", "active", "Ticket #1"), chunk("U1", "pending", "")];
+        const rows = trackerRows({ ...base, chunks: mixed });
+        expect(rows.filter((r) => r.kind === "stage").map((r) => (r.kind === "stage" ? r.stage : ""))).toEqual([
+            "Ticket #1",
+            "",
+        ]);
+    });
+
+    it("still walks the flat plan's chunks with the one cursor", () => {
+        const nav = trackerNavIds(trackerRows({ ...base, chunks: FLAT }));
+        expect(nav).toEqual(["initiatives:" + OREF, ...FLAT.map((c) => chunkRowId("initiatives:" + OREF, c.label))]);
     });
 });

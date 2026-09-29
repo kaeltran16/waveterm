@@ -9,6 +9,22 @@
 
 import { cn } from "@/util/util";
 import { useAtom } from "jotai";
+import {
+    ArrowDown,
+    ArrowRight,
+    ArrowUp,
+    Check,
+    ChevronDown,
+    ChevronRight,
+    Circle,
+    CircleAlert,
+    Ellipsis,
+    Minus,
+    Pause,
+    Play,
+    Plus,
+    type LucideIcon,
+} from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 import { chunkTone, type ChunkTone } from "./effortmodel";
 import type { DetailRow } from "./inlinetracker";
@@ -16,16 +32,30 @@ import { trackerMenuAtom } from "./jarvisstore";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
-// the sans stack, deliberately: the mono face ships no ▸/▾/▶, so a mono caret renders the same
-// fallback box in both states and the disclosure stops saying anything.
-export const GLYPH: Record<ChunkTone, string> = {
-    done: "✓",
-    active: "▶",
-    blocked: "!",
-    deferred: "❙❙",
-    skipped: "–",
-    pending: "·",
+const TONE_ICON: Record<ChunkTone, LucideIcon> = {
+    done: Check,
+    active: Play,
+    blocked: CircleAlert,
+    deferred: Pause,
+    skipped: Minus,
+    // pending reads as an empty circle
+    pending: Circle,
 };
+
+// play and circle fill more of their box than the rest, so they draw smaller to read at the same weight
+const TONE_SIZE: Partial<Record<ChunkTone, number>> = { active: 11, pending: 10 };
+
+export function ToneIcon({ tone, size, className }: { tone: ChunkTone; size?: number; className?: string }) {
+    const Icon = TONE_ICON[tone];
+    return (
+        <Icon
+            size={size ?? TONE_SIZE[tone] ?? 12}
+            strokeWidth={2.25}
+            aria-hidden
+            className={cn("flex-none", TONE_FG[tone], className)}
+        />
+    );
+}
 
 export const TONE_FG: Record<ChunkTone, string> = {
     done: "text-success",
@@ -144,7 +174,7 @@ export function InitiativeDetail({
             />
         ) : null;
     // the last row each open stage header owns, so "+ Add chunk" lands at the end of the right run
-    const addAfter = new Map<number, Extract<DetailRow, { kind: "stage" }>>();
+    const addAfter = new Map<number, { stage: string; at: number }>();
     let openStage: Extract<DetailRow, { kind: "stage" }> | null = null;
     for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
@@ -153,6 +183,13 @@ export function InitiativeDetail({
         }
         if (openStage != null && (i + 1 === rows.length || rows[i + 1].kind === "stage")) {
             addAfter.set(i, openStage);
+        }
+    }
+    // a flat plan has no header to own its run, so its one run ends at its last chunk
+    if (!rows.some((r) => r.kind === "stage")) {
+        const last = rows.map((r) => r.kind).lastIndexOf("chunk");
+        if (last >= 0) {
+            addAfter.set(last, { stage: "", at: 0 });
         }
     }
 
@@ -197,9 +234,16 @@ export function InitiativeDetail({
                                     type="button"
                                     aria-label="Toggle stage"
                                     onClick={() => onToggleStage(row.id, row.collapsed)}
-                                    className={cn("w-3.5 flex-none cursor-pointer text-[10px] text-ink-mid", FOCUS)}
+                                    className={cn(
+                                        "flex w-3.5 flex-none cursor-pointer items-center justify-center text-ink-mid",
+                                        FOCUS
+                                    )}
                                 >
-                                    {row.collapsed ? "▸" : "▾"}
+                                    {row.collapsed ? (
+                                        <ChevronRight size={12} aria-hidden />
+                                    ) : (
+                                        <ChevronDown size={12} aria-hidden />
+                                    )}
                                 </button>
                                 {renameInput(
                                     row.id,
@@ -229,25 +273,36 @@ export function InitiativeDetail({
                                     aria-label="Stage actions"
                                     onClick={() => setMenu(menu === menuId ? null : menuId)}
                                     className={cn(
-                                        "h-5 w-[22px] flex-none cursor-pointer rounded-[5px] border text-[12px] leading-none text-ink-mid hover:border-edge-mid hover:text-ink-hi",
+                                        "flex h-5 w-[22px] flex-none cursor-pointer items-center justify-center rounded-[5px] border text-ink-mid hover:border-edge-mid hover:text-ink-hi",
                                         menu === menuId ? "border-edge-strong" : "border-transparent",
                                         FOCUS
                                     )}
                                 >
-                                    ⋯
+                                    <Ellipsis size={14} aria-hidden />
                                 </button>
                                 {menu === menuId ? (
                                     <Menu className="right-1 top-[calc(100%-2px)] w-40">
-                                        <MenuItem onClick={() => startEdit(row.id, row.stage)}>Rename stage</MenuItem>
-                                        <MenuItem
-                                            danger
-                                            onClick={() => {
-                                                setMenu(null);
-                                                edits.onDeleteStage(row.at);
-                                            }}
-                                        >
-                                            Delete stage
-                                        </MenuItem>
+                                        {/* the unstaged run has no name to rename or label to delete */}
+                                        {row.stage === "" ? (
+                                            <MenuItem onClick={() => startEdit(row.id, row.stage)}>
+                                                Name this stage
+                                            </MenuItem>
+                                        ) : (
+                                            <>
+                                                <MenuItem onClick={() => startEdit(row.id, row.stage)}>
+                                                    Rename stage
+                                                </MenuItem>
+                                                <MenuItem
+                                                    danger
+                                                    onClick={() => {
+                                                        setMenu(null);
+                                                        edits.onDeleteStage(row.at);
+                                                    }}
+                                                >
+                                                    Delete stage
+                                                </MenuItem>
+                                            </>
+                                        )}
                                     </Menu>
                                 ) : null}
                             </div>
@@ -275,12 +330,7 @@ export function InitiativeDetail({
                                     selected ? "bg-surface-selected" : "hover:bg-surface-hover"
                                 )}
                             >
-                                <span
-                                    aria-hidden
-                                    className={cn("w-3 flex-none text-center text-[10px]", TONE_FG[row.row.tone])}
-                                >
-                                    {GLYPH[row.row.tone]}
-                                </span>
+                                <ToneIcon tone={row.row.tone} />
                                 {renameInput(
                                     row.id,
                                     label,
@@ -324,7 +374,7 @@ export function InitiativeDetail({
                                     )}
                                 >
                                     {row.row.status}
-                                    <span className="text-[8px] text-muted">▾</span>
+                                    <ChevronDown size={11} aria-hidden className="text-muted" />
                                 </button>
                             </div>
                             {menu === menuId ? (
@@ -334,7 +384,7 @@ export function InitiativeDetail({
                                         <MenuItem
                                             key={s}
                                             active={s === row.row.status}
-                                            glyph={<span className={TONE_FG[chunkTone(s)]}>{GLYPH[chunkTone(s)]}</span>}
+                                            glyph={<ToneIcon tone={chunkTone(s)} />}
                                             onClick={() => {
                                                 setMenu(null);
                                                 if (s !== row.row.status) {
@@ -348,7 +398,7 @@ export function InitiativeDetail({
                                     <MenuRule />
                                     <MenuItem onClick={() => startEdit(row.id, label)}>Rename</MenuItem>
                                     <MenuItem
-                                        glyph="↑"
+                                        glyph={<ArrowUp size={12} aria-hidden />}
                                         hint="alt ↑"
                                         disabled={!edits.canMove(label, "up")}
                                         onClick={() => {
@@ -359,7 +409,7 @@ export function InitiativeDetail({
                                         Move up
                                     </MenuItem>
                                     <MenuItem
-                                        glyph="↓"
+                                        glyph={<ArrowDown size={12} aria-hidden />}
                                         hint="alt ↓"
                                         disabled={!edits.canMove(label, "down")}
                                         onClick={() => {
@@ -376,7 +426,7 @@ export function InitiativeDetail({
                                             {otherStages.map((s) => (
                                                 <MenuItem
                                                     key={s || "~"}
-                                                    glyph="→"
+                                                    glyph={<ArrowRight size={12} aria-hidden />}
                                                     onClick={() => {
                                                         setMenu(null);
                                                         edits.onMoveToStage(label, s);
@@ -411,7 +461,9 @@ export function InitiativeDetail({
                         data-jarvis-tracker-stage={newStage.name}
                         className={stageHeadClass(!rows.some((r) => r.kind === "stage"))}
                     >
-                        <span className="w-3.5 flex-none text-center text-[10px] text-ink-mid">▾</span>
+                        <span className="flex w-3.5 flex-none justify-center text-ink-mid">
+                            <ChevronDown size={12} aria-hidden />
+                        </span>
                         <span className="min-w-0 flex-1 truncate text-[11.5px] font-semibold text-primary">
                             {newStage.name}
                         </span>
@@ -504,7 +556,7 @@ function MenuItem({
                 FOCUS
             )}
         >
-            <span className="w-3 flex-none text-center text-[10px] text-ink-mid">{glyph}</span>
+            <span className="flex w-3 flex-none justify-center text-ink-mid">{glyph}</span>
             <span className="min-w-0 flex-1 truncate">{children}</span>
             {hint != null ? <span className="font-mono text-[10.5px] text-muted">{hint}</span> : null}
         </button>
@@ -535,7 +587,8 @@ function AddChunkRow({
                     FOCUS
                 )}
             >
-                <span className="w-3 text-center text-ink-mid">+</span>Add chunk
+                <Plus size={12} aria-hidden className="w-3 flex-none text-ink-mid" />
+                Add chunk
             </button>
         );
     }
@@ -554,7 +607,7 @@ function AddChunkRow({
     };
     return (
         <div className="flex items-center gap-2 py-[3px] pl-[7px] pr-1.5">
-            <span className="w-3 text-center text-[10px] text-muted">+</span>
+            <Plus size={12} aria-hidden className="w-3 flex-none text-muted" />
             <input
                 autoFocus
                 value={draft}
@@ -600,7 +653,8 @@ function NewStageRow({
                         FOCUS
                     )}
                 >
-                    <span className="w-3 text-center">+</span>New stage
+                    <Plus size={12} aria-hidden className="w-3 flex-none" />
+                    New stage
                 </button>
             ) : (
                 <div className="flex items-center gap-2">
