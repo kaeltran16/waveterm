@@ -99,6 +99,32 @@ func TestExtractClaudeSession_SkipsCaveatForTitle(t *testing.T) {
 	}
 }
 
+// A session opened by /clear is titled by the prompt after it; the bare command titles it only when
+// nothing follows, and a command with arguments is already a title.
+func TestExtractClaudeSession_BareCommandYieldsToNextPrompt(t *testing.T) {
+	clear := `{"type":"user","cwd":"/repo","entrypoint":"cli","message":{"content":"<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>"}}`
+	cases := []struct {
+		name  string
+		lines []string
+		want  string
+	}{
+		{"the prompt after /clear wins", []string{clear, `{"type":"user","cwd":"/repo","entrypoint":"cli","message":{"content":"why is the donut stale?"}}`}, "why is the donut stale?"},
+		{"a lone /clear still titles the session", []string{clear}, "/clear"},
+		{"a command with arguments is a title", []string{`{"type":"user","cwd":"/repo","entrypoint":"cli","message":{"content":"<command-name>/review</command-name>\n<command-args>123</command-args>"}}`, `{"type":"user","cwd":"/repo","entrypoint":"cli","message":{"content":"later"}}`}, "/review 123"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := extractClaudeSession("id5", c.lines)
+			if s == nil {
+				t.Fatal("session should be kept")
+			}
+			if s.Task != c.want {
+				t.Errorf("Task = %q, want %q", s.Task, c.want)
+			}
+		})
+	}
+}
+
 // The directory prune is the cheap first line of defense: the backend's own runs execute in
 // wavebase.GetHeadlessAgentDir, so the scanner skips that whole directory without reading a file. The
 // transcript planted there looks entirely human, so nothing but the directory skip can exclude it.

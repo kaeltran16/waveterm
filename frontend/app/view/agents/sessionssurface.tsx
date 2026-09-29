@@ -12,8 +12,10 @@ import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import * as WOS from "@/app/store/wos";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
+import { Activity, Workflow } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { useEffect, useMemo, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -350,20 +352,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                     : "border-border bg-surface hover:bg-surface-hover"
                             )}
                         >
-                            <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="flex-none text-ink-mid"
-                                aria-hidden="true"
-                            >
-                                <path d="M3 12h4l3-8 4 16 3-8h4" />
-                            </svg>
+                            <Activity size={14} strokeWidth={1.8} className="flex-none text-ink-mid" aria-hidden />
                             <span className="flex-1 text-[12.5px] font-semibold text-secondary">All activity</span>
                             <span className="font-mono text-[10.5px] text-muted">
                                 {totalEvents(scopedSessions)} events
@@ -403,11 +392,9 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                             groups.map((g) => (
                                 <div key={g.key} className="flex flex-col gap-1.5">
                                     <div className="flex items-center gap-2.5 px-1 pb-0.5 pt-3">
-                                        <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.13em] text-muted">
-                                            {g.label}
-                                        </span>
+                                        <span className={cn(REGION_LABEL, "text-muted")}>{g.label}</span>
                                         <div className="h-px flex-1 bg-edge-faint" />
-                                        <span className="font-mono text-[10px] text-muted">{g.items.length}</span>
+                                        <span className="font-mono text-[10.5px] text-muted">{g.items.length}</span>
                                     </div>
                                     <AnimatePresence initial={false} mode="popLayout">
                                         {g.items.map((r) =>
@@ -511,22 +498,7 @@ function RunCard({
                 className="flex w-full cursor-pointer flex-col gap-2 rounded-[10px] px-3 pb-[11px] pt-2.5 text-left"
             >
                 <span className="flex w-full items-center gap-2">
-                    <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="flex-none text-ink-mid"
-                        aria-hidden="true"
-                    >
-                        <rect width="8" height="8" x="3" y="3" rx="2" />
-                        <path d="M7 11v4a2 2 0 0 0 2 2h4" />
-                        <rect width="8" height="8" x="13" y="13" rx="2" />
-                    </svg>
+                    <Workflow size={13} strokeWidth={1.8} className="flex-none text-ink-mid" aria-hidden />
                     <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">{view.title}</span>
                     <StatusMark status={head} />
                 </span>
@@ -618,10 +590,16 @@ function SoloCard({
             </span>
             <span className="flex w-full items-center gap-2 font-mono text-[10.5px] text-muted">
                 <span className={rt.text}>{rt.glyph}</span>
-                <span className="text-secondary">{session.projectname}</span>
-                <span className="truncate">{session.branch || "—"}</span>
+                <span className="min-w-0 truncate text-secondary" title={session.projectname}>
+                    {session.projectname}
+                </span>
+                <span className="min-w-0 truncate" title={session.branch || undefined}>
+                    {session.branch || "—"}
+                </span>
                 <span className="flex-1" />
-                {session.tokenstotal > 0 ? <span>{formatTokens(session.tokenstotal)} tok</span> : null}
+                {session.tokenstotal > 0 ? (
+                    <span className="flex-none whitespace-nowrap">{formatTokens(session.tokenstotal)} tok</span>
+                ) : null}
             </span>
         </motion.button>
     );
@@ -642,11 +620,9 @@ function MergedFeed({
     return (
         <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="mb-1.5 flex items-center gap-2.5">
-                <h2 className="font-mono text-[9.5px] font-bold uppercase tracking-[0.13em] text-muted">
-                    All activity
-                </h2>
+                <h2 className={cn(REGION_LABEL, "text-muted")}>All activity</h2>
                 <div className="h-px flex-1 bg-edge-faint" />
-                <span className="font-mono text-[10px] text-muted">{feed.length} events</span>
+                <span className="font-mono text-[10.5px] text-muted">{feed.length} events</span>
             </div>
             {feed.length === 0 ? (
                 <div className="mt-8 text-center text-[13px] text-muted">No recent activity.</div>

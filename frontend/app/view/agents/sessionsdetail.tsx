@@ -8,9 +8,11 @@ import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
+import { Check } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
@@ -74,21 +76,7 @@ export function StatusMark({ status, className }: { status: Status; className?: 
                     style={{ backgroundColor: st.color }}
                 />
             ) : null}
-            {st.mark === "check" ? (
-                <svg
-                    width="11"
-                    height="11"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                >
-                    <path d="M20 6 9 17l-5-5" />
-                </svg>
-            ) : null}
+            {st.mark === "check" ? <Check size={11} strokeWidth={2.6} aria-hidden /> : null}
             {st.mark === "ring" ? <span className="h-[5px] w-[5px] rounded-full border border-muted" /> : null}
             <span className="truncate">{status.text}</span>
         </span>
@@ -238,7 +226,7 @@ function ActivityList({ events }: { events: SessionEvent[] }) {
                     <span className="min-w-0">
                         <span className="block text-[13px] leading-[1.5] text-secondary">{e.text}</span>
                         <span
-                            className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.06em]"
+                            className="mt-0.5 block font-mono text-[10.5px] uppercase tracking-[0.06em]"
                             style={{ color: eventColor(e.type) }}
                         >
                             {e.type}
@@ -484,11 +472,9 @@ export function RunDetail({
             <div className="flex min-h-0 flex-1 flex-col gap-3.5">
                 <div role="group" aria-label="Sessions in this run" className="flex flex-none flex-col">
                     <div className="flex items-center gap-2.5 pb-1.5">
-                        <h3 className="font-mono text-[9.5px] font-bold uppercase tracking-[0.13em] text-muted">
-                            In this run
-                        </h3>
+                        <h3 className={cn(REGION_LABEL, "text-muted")}>In this run</h3>
                         <div className="h-px flex-1 bg-edge-faint" />
-                        <span className="font-mono text-[10px] text-muted">
+                        <span className="font-mono text-[10.5px] text-muted">
                             {view.total > 0 ? `${view.landed}/${view.total} landed` : "planning"}
                         </span>
                     </div>

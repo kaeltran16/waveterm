@@ -151,6 +151,7 @@ func extractClaudeSession(id string, lines []string) *SessionInfo {
 func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 	s := &SessionInfo{ID: id}
 	hasTask := false
+	fallback := ""
 	for _, rec := range recs {
 		if agentobserve.IsHeadlessEntrypoint(rec.Entrypoint) {
 			return nil
@@ -170,16 +171,34 @@ func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 			s.TokensTotal += u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 		}
 		if !hasTask && rec.Type == "user" {
-			if title := sessionTitle(stringContent(rec.Message.Content)); title != "" {
+			raw := stringContent(rec.Message.Content)
+			if title := sessionTitle(raw); title == "" {
+				continue
+			} else if isBareCommand(raw, title) {
+				if fallback == "" {
+					fallback = title
+				}
+			} else {
 				s.Task = trimTo(title, maxTaskLen)
 				hasTask = true
 			}
 		}
 	}
+	if !hasTask && fallback != "" {
+		s.Task = trimTo(fallback, maxTaskLen)
+		hasTask = true
+	}
 	if !hasTask {
 		return nil
 	}
 	return s
+}
+
+// isBareCommand reports a slash command with no arguments. /clear or /compact names what was done to the
+// session rather than the work in it, so the first real prompt after it titles the session instead; the
+// command is kept only when nothing follows it.
+func isBareCommand(raw, title string) bool {
+	return commandNameRe.MatchString(raw) && !strings.Contains(title, " ")
 }
 
 type claudeBlock struct {
