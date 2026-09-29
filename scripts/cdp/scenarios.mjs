@@ -5948,6 +5948,63 @@ const agentTreeRail = {
     },
 };
 
+// Leaving the Agent surface and coming straight back must not replay a slide on the tree. The switch commit that
+// hides the surface (display:none) used to re-render the tree, so motion measured every layout="position" row at
+// (0,0) and began tweening it there; back within ~400ms, the list visibly shrank into place. Needs a roster with
+// at least two rows (live, or a cockpit fixture).
+const QUICK_RETURN_DWELL_MS = 250;
+const QUICK_RETURN_SAMPLE_MS = 600;
+
+const agentTreeQuickReturn = {
+    name: "agent-tree-quick-return",
+    surface: "agent",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const rows = await h.ev(`document.querySelectorAll("[data-agent-tree] .overflow-y-auto > div").length`);
+        if (rows < 2) {
+            return [
+                skipStep(
+                    "rows hold still on a quick return",
+                    `${rows} tree rows; seed a roster (npm run cockpit:fixtures -- mixed)`
+                ),
+            ];
+        }
+        const r = await h.ev(`new Promise((resolve) => {
+            const nav = (label) => [...document.querySelectorAll("nav button")]
+                .find((x) => x.getAttribute("aria-label") === label || (x.textContent || "").trim() === label)
+                .click();
+            nav(${JSON.stringify(SURFACE_LABEL.code)});
+            setTimeout(() => {
+                nav(${JSON.stringify(SURFACE_LABEL.agent)});
+                let max = 0;
+                const t0 = performance.now();
+                const tick = () => {
+                    for (const el of document.querySelectorAll("[data-agent-tree] .overflow-y-auto > div")) {
+                        const tf = getComputedStyle(el).transform;
+                        if (tf && tf !== "none") {
+                            const m = new DOMMatrix(tf);
+                            max = Math.max(max, Math.abs(m.m41), Math.abs(m.m42));
+                        }
+                    }
+                    if (performance.now() - t0 < ${QUICK_RETURN_SAMPLE_MS}) requestAnimationFrame(tick);
+                    else resolve(Math.round(max * 10) / 10);
+                };
+                requestAnimationFrame(tick);
+            }, ${QUICK_RETURN_DWELL_MS});
+        })`);
+        return [
+            {
+                step: `rows hold still on a return within ${QUICK_RETURN_DWELL_MS}ms`,
+                ok: r < 1,
+                detail: `${rows} rows; max row offset ${r}px over ${QUICK_RETURN_SAMPLE_MS}ms`,
+            },
+        ];
+    },
+    async teardown() {},
+};
+
 // The Cockpit on the brief type scale (docs/superpowers/specs/2026-09-29-cockpit-polish-design.md): nothing under
 // 10.5px, and the lead card leads with the Workflow icon. Same setup as agent-tree-rail: a fixture roster whose lead
 // carries a real orchestrator run held in planning. No dagsubmit (see TREE_RAIL_FIXTURE), so the card has no plan
@@ -6472,6 +6529,7 @@ export const SCENARIOS = [
     focusDivergenceRejoin,
     narrationFeed,
     agentTreeRail,
+    agentTreeQuickReturn,
     cockpitPolish,
     runSheetPolish,
     briefInitiativesPolish,

@@ -22,7 +22,7 @@ import {
     X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
@@ -727,7 +727,10 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
     );
 }
 
-export function AgentTree({ model }: { model: AgentsViewModel }) {
+// memo: a surface switch re-renders AgentSurface in the same commit that flips it to display:none, and a
+// render there has motion measure every layout="position" row at (0,0) and start sliding it there, so
+// returning within the ~400ms tween shows the whole list shrinking back into place.
+export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const terminals = useAtomValue(model.terminalsAtom);
     const order = useAtomValue(model.orderAtom);
@@ -919,4 +922,4 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
             </div>
         </div>
     );
-}
+});
