@@ -6,6 +6,7 @@ package jarvis
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -42,9 +43,31 @@ func aQuestion() baseds.AgentAskQuestion {
 	}
 }
 
+func aQuestions() []baseds.AgentAskQuestion {
+	return []baseds.AgentAskQuestion{aQuestion()}
+}
+
+func TestBuildClassifyPrompt_RendersEveryQuestionAndMode(t *testing.T) {
+	c := &waveobj.Channel{Name: "payments-api"}
+	qs := []baseds.AgentAskQuestion{
+		aQuestion(),
+		{Question: "Which regions?", MultiSelect: true, Options: []baseds.AgentAskOption{{Label: "eu-west"}, {Label: "us-east"}}},
+	}
+	p := BuildClassifyPrompt(qs, "harden webhooks", c, nil)
+	for _, want := range []string{
+		"Question 1 (pick exactly one): Which migration?", "0: Use existing", "1: Create new",
+		"Question 2 (pick one or more): Which regions?", "0: eu-west", "1: us-east",
+		`"answers"`, `"text"`,
+	} {
+		if !contains(p, want) {
+			t.Fatalf("prompt missing %q\n---\n%s", want, p)
+		}
+	}
+}
+
 func TestBuildClassifyPrompt_Contents(t *testing.T) {
 	c := &waveobj.Channel{Name: "payments-api"}
-	p := BuildClassifyPrompt(aQuestion(), "harden webhooks", c, nil)
+	p := BuildClassifyPrompt(aQuestions(), "harden webhooks", c, nil)
 	for _, want := range []string{"Which migration?", "0", "Use existing", "1", "Create new", "harden webhooks", "JSON"} {
 		if !contains(p, want) {
 			t.Fatalf("prompt missing %q\n---\n%s", want, p)
@@ -54,7 +77,7 @@ func TestBuildClassifyPrompt_Contents(t *testing.T) {
 
 func TestBuildClassifyPrompt_IncludesPrinciples(t *testing.T) {
 	c := &waveobj.Channel{Name: "payments-api"}
-	p := BuildClassifyPrompt(aQuestion(), "harden webhooks", c, waveobj.PrincipleList{{ID: "clean", Text: "prefer the clean fix"}})
+	p := BuildClassifyPrompt(aQuestions(), "harden webhooks", c, waveobj.PrincipleList{{ID: "clean", Text: "prefer the clean fix"}})
 	if !contains(p, "prefer the clean fix") {
 		t.Fatalf("prompt missing principles\n---\n%s", p)
 	}
@@ -70,7 +93,7 @@ func TestBuildClassifyPromptRendersEffectivePrinciplesOnly(t *testing.T) {
 			Additions:    waveobj.PrincipleList{{ID: "project", Text: "Preserve compatibility."}},
 		},
 	)
-	p := BuildClassifyPrompt(aQuestion(), "harden webhooks", c, resolved)
+	p := BuildClassifyPrompt(aQuestions(), "harden webhooks", c, resolved)
 	if contains(p, "Prefer simple.") || contains(p, "Measure first.") {
 		t.Fatalf("prompt contains superseded principles\n---\n%s", p)
 	}
@@ -81,27 +104,29 @@ func TestBuildClassifyPromptRendersEffectivePrinciplesOnly(t *testing.T) {
 
 func TestBuildClassifyPrompt_OmitsEmptyPrinciples(t *testing.T) {
 	c := &waveobj.Channel{Name: "payments-api"}
-	p := BuildClassifyPrompt(aQuestion(), "harden webhooks", c, nil)
+	p := BuildClassifyPrompt(aQuestions(), "harden webhooks", c, nil)
 	if contains(p, "principles") {
 		t.Fatalf("empty principles should add no principles text\n---\n%s", p)
 	}
 }
 
 func TestParseDecision_ValidAnswer(t *testing.T) {
-	d := ParseDecision(`{"action":"answer","optionindex":0,"reason":"routine"}`)
-	if d.Action != "answer" || d.OptionIndex == nil || *d.OptionIndex != 0 {
-		t.Fatalf("want answer/0, got %+v", d)
+	d := ParseDecision(`{"action":"answer","answers":[{"selectedindexes":[0]},{"selectedindexes":[1,2]},{"text":"use blue"}],"reason":"routine"}`)
+	want := []baseds.AgentAnswerItem{{SelectedIndexes: []int{0}}, {SelectedIndexes: []int{1, 2}}, {Text: "use blue"}}
+	if d.Action != "answer" || !reflect.DeepEqual(d.Answers, want) {
+		t.Fatalf("want answer/%+v, got %+v", want, d)
 	}
 }
 
 func TestParseDecision_FailsSafe(t *testing.T) {
 	cases := []string{
-		``,                                      // empty
-		`not json at all`,                       // prose
-		`{"action":"answer"}`,                   // missing optionindex
-		`{"optionindex":0,"reason":"x"}`,        // missing action
-		`{"action":"answer","optionindex":"a"}`, // non-numeric index
-		`{"action":"maybe","optionindex":0}`,    // unknown action
+		``,                                 // empty
+		`not json at all`,                  // prose
+		`{"action":"answer"}`,              // missing answers
+		`{"action":"answer","answers":[]}`, // empty answers
+		`{"answers":[{"text":"x"}],"reason":"x"}`,                   // missing action
+		`{"action":"answer","answers":[{"selectedindexes":["a"]}]}`, // non-numeric index
+		`{"action":"maybe","answers":[{"text":"x"}]}`,               // unknown action
 	}
 	for _, in := range cases {
 		if d := ParseDecision(in); d.Action != "escalate" {

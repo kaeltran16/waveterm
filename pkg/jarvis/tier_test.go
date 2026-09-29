@@ -42,7 +42,7 @@ func assertCheapTier(t *testing.T, spec consult.RuntimeSpec) {
 func TestClassifyRunsOnTheCheapTier(t *testing.T) {
 	withConfigHome(t, t.TempDir())
 	spec := captureSpec(t, `{"action":"escalate","reason":"n/a"}`)
-	Classify(context.Background(), &waveobj.Channel{Name: "payments-api"}, aQuestion(), "some task")
+	Classify(context.Background(), &waveobj.Channel{Name: "payments-api"}, aQuestions(), "some task")
 	assertCheapTier(t, *spec)
 }
 

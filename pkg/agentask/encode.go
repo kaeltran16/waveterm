@@ -37,13 +37,10 @@ const KeystrokeDelay = 60 * time.Millisecond
 // EncodeAnswer returns the keystrokes that drive the native picker to the given answer, one
 // keystroke per element so the caller delivers them with KeystrokeDelay between each. Supports one
 // question (single- or multi-select) or a multi-question batch (see encodeMultiQuestion). Returns an
-// error for shapes it cannot encode; callers then fall back to answering in the terminal.
+// error (from ValidateAnswers) for shapes it cannot encode; callers then fall back to answering in the terminal.
 func EncodeAnswer(questions []baseds.AgentAskQuestion, answers []baseds.AgentAnswerItem) ([][]byte, error) {
-	if len(questions) == 0 {
-		return nil, fmt.Errorf("no questions to answer")
-	}
-	if len(answers) != len(questions) {
-		return nil, fmt.Errorf("expected %d answers, got %d", len(questions), len(answers))
+	if err := ValidateAnswers(questions, answers, false); err != nil {
+		return nil, err
 	}
 	if len(questions) == 1 {
 		return encodeSingleQuestion(questions[0], answers[0])
@@ -56,29 +53,15 @@ func EncodeAnswer(questions []baseds.AgentAskQuestion, answers []baseds.AgentAns
 // review. Select output is unchanged from the original.
 func encodeSingleQuestion(q baseds.AgentAskQuestion, a baseds.AgentAnswerItem) ([][]byte, error) {
 	if a.Text != "" {
-		if len(a.SelectedIndexes) > 0 {
-			return nil, fmt.Errorf("answer has both text and selected indexes")
-		}
-		if err := validateFreeText(a.Text); err != nil {
-			return nil, err
-		}
 		if previewLayout(q) {
 			return chatThenPromptKeys(len(q.Options), a.Text), nil
 		}
 		return freeTextKeys(len(q.Options), a.Text), nil
 	}
-	sel := a.SelectedIndexes
 	if q.MultiSelect {
-		return encodeMultiSelect(q, sel)
+		return encodeMultiSelect(q, a.SelectedIndexes)
 	}
-	if len(sel) != 1 {
-		return nil, fmt.Errorf("single-select expects exactly one selected index, got %d", len(sel))
-	}
-	idx := sel[0]
-	if idx < 0 || idx >= len(q.Options) {
-		return nil, fmt.Errorf("selected index %d out of range (%d options)", idx, len(q.Options))
-	}
-	return singleSelectKeys(idx), nil
+	return singleSelectKeys(a.SelectedIndexes[0]), nil
 }
 
 // validateFreeText rejects shapes we can't drive: empty text, or any control character. A literal Tab
@@ -186,8 +169,8 @@ func sortedUniqueIndexes(sel []int, nOpts int) ([]int, error) {
 	sort.Ints(idxs)
 	uniq := make([]int, 0, len(idxs))
 	for _, i := range idxs {
-		if i < 0 || i >= nOpts {
-			return nil, fmt.Errorf("selected index %d out of range (%d options)", i, nOpts)
+		if err := validateIndex(i, nOpts); err != nil {
+			return nil, err
 		}
 		if len(uniq) == 0 || uniq[len(uniq)-1] != i {
 			uniq = append(uniq, i)
@@ -245,15 +228,6 @@ func encodeMultiQuestion(questions []baseds.AgentAskQuestion, answers []baseds.A
 	for i, q := range questions {
 		a := answers[i]
 		if a.Text != "" {
-			if len(a.SelectedIndexes) > 0 {
-				return nil, fmt.Errorf("question %d: answer has both text and selected indexes", i)
-			}
-			if err := validateFreeText(a.Text); err != nil {
-				return nil, fmt.Errorf("question %d: %w", i, err)
-			}
-			if previewLayout(q) {
-				return nil, fmt.Errorf("question %d shows previews, so its picker has no free-text row: pick an option", i)
-			}
 			for d := 0; d < len(q.Options); d++ {
 				keys = append(keys, downArrow) // -> "Type something" (index len(options))
 			}
@@ -261,9 +235,8 @@ func encodeMultiQuestion(questions []baseds.AgentAskQuestion, answers []baseds.A
 			keys = append(keys, []byte{enter}) // Enter confirms the text AND auto-advances (like single-select)
 			continue
 		}
-		sel := a.SelectedIndexes
 		if q.MultiSelect {
-			toggles, _, err := multiToggleKeys(sel, len(q.Options))
+			toggles, _, err := multiToggleKeys(a.SelectedIndexes, len(q.Options))
 			if err != nil {
 				return nil, fmt.Errorf("question %d: %w", i, err)
 			}
@@ -271,14 +244,7 @@ func encodeMultiQuestion(questions []baseds.AgentAskQuestion, answers []baseds.A
 			keys = append(keys, []byte{tab})
 			continue
 		}
-		if len(sel) != 1 {
-			return nil, fmt.Errorf("question %d: single-select expects exactly one selected index, got %d", i, len(sel))
-		}
-		idx := sel[0]
-		if idx < 0 || idx >= len(q.Options) {
-			return nil, fmt.Errorf("question %d: selected index %d out of range (%d options)", i, idx, len(q.Options))
-		}
-		keys = append(keys, singleSelectKeys(idx)...)
+		keys = append(keys, singleSelectKeys(a.SelectedIndexes[0])...)
 	}
 	return append(keys, []byte{enter}), nil
 }
