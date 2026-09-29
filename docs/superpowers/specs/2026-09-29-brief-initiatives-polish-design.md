@@ -1,6 +1,6 @@
 # Brief initiatives polish
 
-**Status:** Approved, not built.
+**Status:** Built (run e696008f, 2026-09-29).
 
 The initiative side of the Brief moves onto the Jarvis brief type scale (`frontend/app/view/jarvis/briefstyle.ts`):
 the Brief's row views (`briefrowviews.tsx`), the inline initiative tracker (`inlinetrackerview.tsx` over
