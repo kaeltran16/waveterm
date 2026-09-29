@@ -25,6 +25,15 @@ export function isFinishTransition(prev: AgentState, next: AgentState): boolean 
     return prev === "working" && next === "idle";
 }
 
+// a chip says what it counts
+export function subagentsLabel(n: number): string {
+    return `${n} subagent${n === 1 ? "" : "s"}`;
+}
+
+export function tasksLabel(done: number, total: number): string {
+    return `${done}/${total} tasks`;
+}
+
 export type AgentRowMenuItem =
     | { key: "open" | "terminal" | "diff" | "mute" | "copy" | "close"; label: string; danger?: boolean }
     | { separator: true };

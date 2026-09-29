@@ -7,9 +7,10 @@ import { PopoverReveal } from "@/app/element/popoverreveal";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, type Atom } from "jotai";
-import { Copy, GitCompare, Minimize2, PanelRight, SquareTerminal, X } from "lucide-react";
+import { ArrowUpRight, Check, Copy, GitCompare, Minimize2, PanelRight, Plus, SquareTerminal, X } from "lucide-react";
 import { motion } from "motion/react";
 import { memo, useEffect, useRef, useState } from "react";
 import { confirmCloseSession, driveAgent, NUDGE_INPUT } from "./agentactions";
@@ -20,6 +21,8 @@ import {
     entriesToShow,
     isFinishTransition,
     muteMode,
+    subagentsLabel,
+    tasksLabel,
     type AgentRowMenuItem,
 } from "./agentrowmodel";
 import {
@@ -37,6 +40,7 @@ import { diffStatsByIdAtom } from "./cardgitstore";
 import type { CardShare } from "./cardgridlayout";
 import { entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
+import { SubLabel } from "./sectionlabel";
 import type { SubagentState, SubagentVM } from "./session-models/sessionviewmodel";
 import { ActivityLine, StatusLine } from "./statusline";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
@@ -45,6 +49,10 @@ import { subagentsByIdAtom } from "./subagentsstore";
 // uniform 25x23 control box (handoff header buttons)
 const CTL_BOX =
     "flex h-[23px] w-[25px] shrink-0 cursor-pointer items-center justify-center rounded-sm border border-edge-mid text-secondary hover:border-edge-strong hover:bg-white/[0.04]";
+
+// the header's count chips (subagents, tasks, diff); each adds its own hover
+const CHIP =
+    "flex h-5 shrink-0 cursor-pointer items-center gap-1 rounded-[5px] border border-edge-mid px-[7px] font-mono text-[10.5px] font-semibold text-ink-mid";
 
 const SUB_COLOR: Record<SubagentState, string> = {
     working: "var(--color-accent)",
@@ -68,9 +76,9 @@ function TaskChip({ done, total, onClick }: { done: number; total: number; onCli
                 onClick();
             }}
             title="Show task list"
-            className="flex shrink-0 cursor-pointer items-center gap-1 rounded-[5px] border border-edge-mid bg-surface-raised px-1.5 py-0.5 font-mono text-[9.5px] text-secondary hover:border-edge-strong"
+            className={cn(CHIP, "hover:border-edge-strong")}
         >
-            {done}/{total}
+            {tasksLabel(done, total)}
         </button>
     );
 }
@@ -91,8 +99,8 @@ function TaskPopover({
     return (
         <div onClick={(e) => e.stopPropagation()}>
             <div className="mb-2.5 flex items-center gap-2">
-                <span className="font-mono text-xxxs font-bold uppercase tracking-[0.1em] text-muted">Task list</span>
-                <span className="rounded-[5px] border border-edge-mid bg-surface px-1.5 py-px font-mono text-[9.5px] text-secondary">
+                <SubLabel>Task list</SubLabel>
+                <span className="rounded-[5px] border border-edge-mid bg-surface px-1.5 py-px font-mono text-[10.5px] text-secondary">
                     {done}/{total}
                 </span>
                 <div className="flex-1" />
@@ -100,9 +108,9 @@ function TaskPopover({
                     type="button"
                     onClick={onClose}
                     title="Close"
-                    className="cursor-pointer text-[12px] text-muted hover:text-secondary"
+                    className="flex cursor-pointer text-muted hover:text-secondary"
                 >
-                    ✕
+                    <X size={13} aria-hidden />
                 </button>
             </div>
             <Meter pct={pct} fill="bg-success" height={5} radius={3} track="bg-edge-faint" className="mb-3" />
@@ -111,13 +119,13 @@ function TaskPopover({
                     <div key={i} className="flex items-start gap-2.5 py-1">
                         <span
                             className={cn(
-                                "mt-px flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-xxxs",
+                                "mt-px flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border",
                                 t.done
                                     ? "border-success/40 bg-success/15 text-success"
                                     : "border-edge-mid bg-surface text-muted"
                             )}
                         >
-                            {t.done ? "✓" : ""}
+                            {t.done ? <Check size={10} aria-hidden /> : null}
                         </span>
                         <span
                             className={cn(
@@ -134,7 +142,7 @@ function TaskPopover({
     );
 }
 
-// A ⑃ N fan-out badge for the cockpit card: count of the agent's subagents, with a hover peek listing
+// A "N subagents" fan-out chip for the cockpit card, with a hover peek listing
 // each child's type + state dot. Read-only; clicking opens the focused view (where the tree/interior live).
 function FanoutBadge({ subs, onOpen }: { subs: SubagentVM[]; onOpen: () => void }) {
     const [peek, setPeek] = useState(false);
@@ -146,11 +154,9 @@ function FanoutBadge({ subs, onOpen }: { subs: SubagentVM[]; onOpen: () => void 
                     e.stopPropagation();
                     onOpen();
                 }}
-                title={`${subs.length} subagent${subs.length === 1 ? "" : "s"}`}
-                className="flex cursor-pointer items-center gap-1 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-muted hover:border-accent hover:text-accent-soft"
+                className={cn(CHIP, "hover:border-accent hover:text-accent-soft")}
             >
-                <span className="text-[10px] leading-none">⑃</span>
-                {subs.length}
+                {subagentsLabel(subs.length)}
             </button>
             <PopoverReveal
                 open={peek}
@@ -161,13 +167,18 @@ function FanoutBadge({ subs, onOpen }: { subs: SubagentVM[]; onOpen: () => void 
                     {subs.map((s) => (
                         <div key={s.id} className="flex items-center gap-2">
                             <span
-                                className="h-[5px] w-[5px] shrink-0 rounded-full"
+                                className="h-[7px] w-[7px] shrink-0 rounded-full"
                                 style={{ background: SUB_COLOR[s.state] }}
                             />
                             <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-secondary">
                                 {s.type || "subagent"}
                             </span>
-                            <span className="font-mono text-[9px] text-muted">{s.state}</span>
+                            <span
+                                className="font-mono text-[10.5px] font-semibold"
+                                style={{ color: SUB_COLOR[s.state] }}
+                            >
+                                {s.state === "failure" ? "failed" : s.state}
+                            </span>
                         </div>
                     ))}
                 </div>
@@ -322,7 +333,7 @@ export const AgentRow = memo(function AgentRow({
                             onOpenDiff();
                         }}
                         title="Review changes in Diff"
-                        className="flex shrink-0 cursor-pointer items-center gap-1 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] font-bold hover:border-accent hover:bg-accent/10"
+                        className={cn(CHIP, "hover:border-accent hover:bg-accent/10")}
                     >
                         <span className="text-diff-added">+{diff.adds}</span>
                         <span className="text-diff-removed">−{diff.dels}</span>
@@ -335,9 +346,9 @@ export const AgentRow = memo(function AgentRow({
                         onOpenTerminal();
                     }}
                     title="Open terminal (T)"
-                    className={cn(CTL_BOX, "font-mono text-[9px] font-bold")}
+                    className={CTL_BOX}
                 >
-                    {">_"}
+                    <SquareTerminal size={13} aria-hidden />
                 </button>
                 {muteAction ? (
                     <button
@@ -378,7 +389,8 @@ export const AgentRow = memo(function AgentRow({
             {asking ? (
                 <>
                     <AttentionBanner
-                        glyph="diamond"
+                        glyph="dot"
+                        pulse
                         label="Waiting on you"
                         meta={formatAge(displayAgeMs(agent))}
                         right={
@@ -392,9 +404,7 @@ export const AgentRow = memo(function AgentRow({
                                     title="Show task list"
                                     className="cursor-pointer"
                                 >
-                                    <BannerChip>
-                                        {prog.done}/{prog.total}
-                                    </BannerChip>
+                                    <BannerChip>{tasksLabel(prog.done, prog.total)}</BannerChip>
                                 </button>
                             ) : null
                         }
@@ -418,11 +428,9 @@ export const AgentRow = memo(function AgentRow({
                     onClick={(e) => e.stopPropagation()}
                     className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-accent/[0.06] py-[5px] pl-3.5 pr-2"
                 >
-                    <span className="text-[11px] leading-none text-accent-soft">✓</span>
-                    <span className="font-mono text-[9px] font-bold uppercase tracking-[0.09em] text-accent-soft">
-                        Finished
-                    </span>
-                    <span className="min-w-0 flex-1 font-mono text-[9.5px] font-semibold text-muted">
+                    <Check size={12} aria-hidden className="shrink-0 text-accent-soft" />
+                    <span className={cn(REGION_LABEL, "text-accent-soft")}>Finished</span>
+                    <span className="min-w-0 flex-1 font-mono text-[10.5px] text-muted">
                         <FinishedAge agent={agent} nowAtom={nowAtom} />
                     </span>
                     {diff ? (
@@ -432,7 +440,7 @@ export const AgentRow = memo(function AgentRow({
                             className="flex h-[23px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[6px] border border-accent/45 bg-transparent px-[9px] text-[11.5px] font-semibold text-accent-soft hover:bg-accent/10"
                         >
                             Review changes
-                            <span className="font-mono text-[10px]">
+                            <span className="font-mono text-[10.5px]">
                                 <span className="text-diff-added">+{diff.adds}</span>{" "}
                                 <span className="text-diff-removed">−{diff.dels}</span>
                             </span>
@@ -441,9 +449,10 @@ export const AgentRow = memo(function AgentRow({
                     <button
                         type="button"
                         onClick={onOpen}
-                        className="h-[23px] shrink-0 cursor-pointer rounded-[6px] border border-edge-mid bg-transparent px-[9px] text-[11.5px] text-secondary hover:border-edge-strong"
+                        className="flex h-[23px] shrink-0 cursor-pointer items-center gap-1 rounded-[6px] border border-edge-mid bg-transparent px-[9px] text-[11.5px] text-secondary hover:border-edge-strong"
                     >
-                        Open ↗
+                        Open
+                        <ArrowUpRight size={11} aria-hidden />
                     </button>
                 </div>
             ) : null}
@@ -554,11 +563,9 @@ export const AgentRow = memo(function AgentRow({
                                 }}
                                 className="flex cursor-text items-center gap-2 px-3 py-1.5 hover:bg-surface-hover"
                             >
-                                <span className="flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[5px] border border-edge-mid text-[10px] leading-none text-muted">
-                                    +
-                                </span>
+                                <Plus size={13} aria-hidden className="shrink-0 text-muted" />
                                 <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">{`message ${agent.name}…`}</span>
-                                <span className="shrink-0 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] text-muted">
+                                <span className="shrink-0 rounded-[5px] border border-edge-mid px-1.5 py-px font-mono text-[10.5px] text-muted">
                                     R
                                 </span>
                             </div>
