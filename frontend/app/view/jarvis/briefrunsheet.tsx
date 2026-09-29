@@ -6,9 +6,9 @@
 // specific to a run's configuration.
 //
 // Two rules decide what is a control and what is a fact. Shape, machine and the lead route are immutable
-// after launch, so they are printed, not offered. Parallelism and the worker route are genuinely mutable, so
-// they carry real controls — but only once asked for: until then the configuration is one printed line, and
-// a run with nothing to reconfigure states its reason in the slot where the dials would be.
+// after launch, so they are printed, not offered. Parallelism, the workers setting and the reviewer route are
+// genuinely mutable, so they carry real controls — but only once asked for: until then the configuration is
+// one printed line, and a run with nothing to reconfigure states its reason in the slot where the dials would be.
 //
 // A third rule decides *when* any of it is offered. A run that links a DAG has mutable settings, but never
 // from the launch snapshot: until the linked TaskGroup is here the sheet cannot know what the scheduler is
@@ -36,6 +36,8 @@ import {
     runSettingsDraft,
     runSettingsPanelState,
     settingsPayload,
+    withWorkers,
+    workersLabel,
     type LinkedGroupRead,
     type RunSettingsDraft,
 } from "./runsettings";
@@ -222,8 +224,8 @@ function LoadedConfig({
     const dials = (
         <>
             <p className="text-[11.5px] leading-[1.5] text-muted">
-                Shape, machine and the lead route are fixed after launch. These two apply to workers dispatched from now
-                on. Nothing already running changes.
+                Shape, machine and the lead route are fixed after launch. These apply to workers and reviewers
+                dispatched from now on. Nothing already running changes.
             </p>
             <div className="flex items-start gap-4">
                 <label className="flex flex-col gap-[5px]">
@@ -246,7 +248,22 @@ function LoadedConfig({
                         canInherit
                         inheritedLabel="Inherit the lead"
                         disabled={busy}
-                        onChange={(route) => setDraft({ ...draft, workerRoute: route })}
+                        onChange={(route) => setDraft(withWorkers(draft, route))}
+                        extraOption={{
+                            label: "Reviewer picks",
+                            selected: draft.reviewerPicks,
+                            onSelect: () => setDraft(withWorkers(draft, "picks")),
+                        }}
+                    />
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col gap-[5px]">
+                    <span className="text-[11.5px] font-semibold text-secondary">Reviewers</span>
+                    <RoutePicker
+                        value={draft.reviewerRoute}
+                        canInherit
+                        inheritedLabel="Inherit the lead"
+                        disabled={busy}
+                        onChange={(route) => setDraft({ ...draft, reviewerRoute: route })}
                     />
                 </div>
             </div>
@@ -289,10 +306,11 @@ function LoadedConfig({
 
     if (inline) {
         const tone = notSaved ? "text-error" : "text-ink-mid";
-        const workers =
-            (shown.workerRoute?.runtime ?? "") === ""
-                ? "workers inherit the lead"
-                : `workers on ${routeLabel(shown.workerRoute)}`;
+        const workers = shown.reviewerPicks
+            ? `workers ${workersLabel(shown)}`
+            : (shown.workerRoute?.runtime ?? "") === ""
+              ? "workers inherit the lead"
+              : `workers on ${routeLabel(shown.workerRoute)}`;
         return (
             <>
                 <div data-jarvis-brief-sheet-config="editable" className={META_ROW}>
@@ -301,6 +319,9 @@ function LoadedConfig({
                     {/* a run launched before widths were resolved at launch stores 0: the engine picks at submit */}
                     {shown.parallelism > 0 ? <span className={tone}>{shown.parallelism} workers</span> : null}
                     <span className={tone}>{workers}</span>
+                    {shown.reviewerRoute != null ? (
+                        <span className={tone}>reviewers on {routeLabel(shown.reviewerRoute)}</span>
+                    ) : null}
                     {notSaved ? <span className="text-error">not saved</span> : null}
                     <button
                         type="button"

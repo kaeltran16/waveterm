@@ -28,6 +28,7 @@ import { workerSortKey } from "../orchestrate/workertasksort";
 import {
     routeLabel,
     runMachine,
+    workersLabel,
     type LinkedGroupRead,
     type RunSettingsDraft,
     type RunSettingsPanelState,
@@ -681,7 +682,9 @@ export function configLine(run: Run, draft: RunSettingsDraft, notSaved: boolean)
         `lead ${[run.runtime || "claude", run.model || "default"].join("/")}`,
         // a run launched before widths were resolved at launch stores 0: the engine picks at submit
         draft.parallelism > 0 ? `parallelism ${draft.parallelism}` : "parallelism set at submit",
-        `workers ${routeLabel(draft.workerRoute)}`,
+        `workers ${workersLabel(draft)}`,
+        // only when set, so a run that never chose one prints the line it always did
+        ...(draft.reviewerRoute != null ? [`reviewers ${routeLabel(draft.reviewerRoute)}`] : []),
     ].join(" · ");
 }
 

@@ -582,19 +582,21 @@ describe("taskRow", () => {
 
 describe("configLine", () => {
     it("prints the running configuration as one line", () => {
-        expect(configLine(run(), { parallelism: 2, workerRoute: null }, false)).toBe(
-            "engine · orchestrator · lead pi/deepseek-v4-flash · parallelism 2 · workers inherit the lead"
-        );
+        expect(
+            configLine(run(), { parallelism: 2, workerRoute: null, reviewerPicks: false, reviewerRoute: null }, false)
+        ).toBe("engine · orchestrator · lead pi/deepseek-v4-flash · parallelism 2 · workers inherit the lead");
     });
 
     it("says when a run's width is left to its submit", () => {
-        expect(configLine(run(), { parallelism: 0, workerRoute: null }, false)).toContain("parallelism set at submit");
+        expect(
+            configLine(run(), { parallelism: 0, workerRoute: null, reviewerPicks: false, reviewerRoute: null }, false)
+        ).toContain("parallelism set at submit");
     });
 
     it("carries a refused value with not saved", () => {
-        expect(configLine(run(), { parallelism: 9, workerRoute: null }, true)).toBe(
-            "engine · orchestrator · parallelism 9 — not saved"
-        );
+        expect(
+            configLine(run(), { parallelism: 9, workerRoute: null, reviewerPicks: false, reviewerRoute: null }, true)
+        ).toBe("engine · orchestrator · parallelism 9 — not saved");
     });
 });
 

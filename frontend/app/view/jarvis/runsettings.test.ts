@@ -100,7 +100,12 @@ describe("runSettingsDraft", () => {
     it("reads the run's own launch form before submission", () => {
         const route = { runtime: "pi" } as RoutePin;
         const run = engineRun({ parallelism: 4, workerroute: route });
-        expect(runSettingsDraft(run, null)).toEqual({ parallelism: 4, workerRoute: route });
+        expect(runSettingsDraft(run, null)).toEqual({
+            parallelism: 4,
+            workerRoute: route,
+            reviewerPicks: false,
+            reviewerRoute: null,
+        });
     });
 
     // the group, not the run, is what the scheduler will read
@@ -108,27 +113,38 @@ describe("runSettingsDraft", () => {
         const route = { runtime: "claude" } as RoutePin;
         const run = engineRun({ parallelism: 4 });
         const group = submittedGroup({ parallelism: 2, workerroute: route });
-        expect(runSettingsDraft(run, group)).toEqual({ parallelism: 2, workerRoute: route });
+        expect(runSettingsDraft(run, group)).toEqual({
+            parallelism: 2,
+            workerRoute: route,
+            reviewerPicks: false,
+            reviewerRoute: null,
+        });
     });
 });
 
 describe("draftIsDirty", () => {
     it("compares the effective values", () => {
-        const base = { parallelism: 2, workerRoute: null };
-        expect(draftIsDirty(base, { parallelism: 2, workerRoute: null })).toBe(false);
-        expect(draftIsDirty(base, { parallelism: 3, workerRoute: null })).toBe(true);
-        expect(draftIsDirty(base, { parallelism: 2, workerRoute: { runtime: "pi" } as RoutePin })).toBe(true);
+        const base = { parallelism: 2, workerRoute: null, reviewerPicks: false, reviewerRoute: null };
+        expect(draftIsDirty(base, { ...base })).toBe(false);
+        expect(draftIsDirty(base, { ...base, parallelism: 3 })).toBe(true);
+        expect(draftIsDirty(base, { ...base, workerRoute: { runtime: "pi" } as RoutePin })).toBe(true);
     });
 });
 
 describe("settingsPayload", () => {
     it("sends only the mutable settings, addressed to the run", () => {
-        const draft = { parallelism: 3, workerRoute: { runtime: "pi" } as RoutePin };
+        const draft = {
+            parallelism: 3,
+            workerRoute: { runtime: "pi" } as RoutePin,
+            reviewerPicks: false,
+            reviewerRoute: null,
+        };
         expect(settingsPayload("c1", "r1", draft)).toEqual({
             channelid: "c1",
             runid: "r1",
             parallelism: 3,
             workerroute: { runtime: "pi" },
+            reviewerpicks: false,
         });
     });
 });
@@ -216,12 +232,19 @@ describe("effectiveRunConfig", () => {
         const lead = { runtime: "claude", model: "opus" } as RoutePin;
         const worker = { runtime: "pi" } as RoutePin;
         const run = engineRun({ runtime: "claude", model: "opus", workerroute: lead });
-        const got = effectiveRunConfig(run, { parallelism: 4, workerRoute: worker });
+        const got = effectiveRunConfig(run, {
+            parallelism: 4,
+            workerRoute: worker,
+            reviewerPicks: false,
+            reviewerRoute: null,
+        });
         expect(got).toEqual({
             shape: "orchestrator",
             parallelism: 4,
             leadRoute: { runtime: "claude", model: "opus" },
             workerRoute: worker,
+            reviewerPicks: false,
+            reviewerRoute: null,
         });
     });
 });
@@ -236,6 +259,8 @@ describe("engineDefaultsPatch", () => {
             parallelism: 5,
             leadRoute: { runtime: "claude", model: "opus" } as RoutePin,
             workerRoute: { runtime: "pi" } as RoutePin,
+            reviewerPicks: false,
+            reviewerRoute: null,
         };
         expect(engineDefaultsPatch(existing, config)).toEqual({
             principles: { disabled: ["p1"] },
@@ -253,6 +278,8 @@ describe("engineDefaultsPatch", () => {
             parallelism: 2,
             leadRoute: null,
             workerRoute: null,
+            reviewerPicks: false,
+            reviewerRoute: null,
         });
         expect(patched.route).toBeUndefined();
         expect(patched.workerroute).toBeUndefined();
