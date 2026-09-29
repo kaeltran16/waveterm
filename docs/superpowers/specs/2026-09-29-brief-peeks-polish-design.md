@@ -1,6 +1,6 @@
 # Brief peeks polish
 
-**Status:** Approved, not built.
+**Status:** Built (run dc7d6de0, 2026-09-29).
 
 The Brief's two peeks move onto the Jarvis brief type scale (`frontend/app/view/jarvis/briefstyle.ts`): the record
 peek (`frontend/app/view/jarvis/briefpeekview.tsx` over `briefpeek.ts`) and the graph peek (`graphpeek.tsx` and the
@@ -116,6 +116,11 @@ the fleet derivation (`fleetForRecord`, `fleetCountsLine`, `runRow`), the canvas
 legend, search matching and `MAX_MATCHES`, the Open run / Open record actions, keybindings. `briefsurface.tsx` mounts
 the peeks and needs no change.
 
+**Fix round 1 (the human’s call after Final round 1):** the graph peek refetches the vault graph every time it opens,
+not only while it has never loaded, with the cached graph on screen until the refetch lands. Before, a record created
+after the first open (every new run captures one) had no node until the app restarted, so its map button landed on an
+empty panel.
+
 ## Verification
 
 - Unit: `npx vitest run frontend/app/view/jarvis/briefpeek.test.ts`.
@@ -137,7 +142,10 @@ the peeks and needs no change.
     "Open record" button lies inside the viewport; `[data-jarvis-graph-canvas]`'s DOM text does not contain the
     headline (no selection card).
   - teardown: Escape both peeks; remove the seeded run if one was made.
-- The engine's Final stage runs `brief-peeks-polish`, `brief-peek` and `brief-contextual-map` on the merged result.
+- The engine's Final stage runs `brief-peeks-polish` and `brief-contextual-map` on the merged result. `brief-peek` left
+  Final in fix round 1 (the human’s call): its step 3 needs a record with an attributed run on a live channel, which a
+  fresh Final store lacks, and this work does not touch that step. Its steps 2, 2b, 4 and 5 passed in both Final rounds
+  (round 2 still ran it, on the original plan's Final line).
 
 ## Work split
 
