@@ -463,6 +463,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         <MotionConfig reducedMotion="user">
         <div
             ref={containerRef}
+            data-cockpit-surface
             tabIndex={0}
             onKeyDown={onKeyDown}
             className="relative flex h-full w-full text-secondary outline-none"

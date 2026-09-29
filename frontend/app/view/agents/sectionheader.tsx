@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn } from "@/util/util";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 
-// Handoff section header: optional caret + colored dot + mono uppercase label + count pill + gradient
-// divider + an optional right slot. Shared by LIVE AGENTS (accent, pulsing) and IDLE (muted, collapsible).
+// Handoff section header: optional caret + colored dot + mono uppercase label + optional note + count pill +
+// gradient divider + an optional right slot. Shared by Idle, Backgrounded and Background (muted, collapsible).
 export function SectionHeader({
     label,
     labelClassName,
@@ -13,8 +14,9 @@ export function SectionHeader({
     dotClassName,
     countPillClassName,
     dividerClassName,
+    note,
     right,
-    caret,
+    open,
     onClick,
     className,
 }: {
@@ -24,18 +26,25 @@ export function SectionHeader({
     dotClassName: string;
     countPillClassName: string;
     dividerClassName: string;
+    note?: string;
     right?: ReactNode;
-    caret?: string;
+    // undefined draws no caret
+    open?: boolean;
     onClick?: () => void;
     className?: string;
 }) {
     return (
         <div className={cn("flex items-center gap-2.5", onClick && "cursor-pointer", className)} onClick={onClick}>
-            {caret ? <span className="w-3 text-center font-mono text-[9px] text-muted">{caret}</span> : null}
+            {open == null ? null : open ? (
+                <ChevronDown size={12} aria-hidden className="w-3 shrink-0 text-muted" />
+            ) : (
+                <ChevronRight size={12} aria-hidden className="w-3 shrink-0 text-muted" />
+            )}
             <span className={cn("h-[9px] w-[9px] shrink-0 rounded-full", dotClassName)} />
             <h2 className={cn("font-mono text-[12px] font-semibold uppercase tracking-[0.1em]", labelClassName)}>
                 {label}
             </h2>
+            {note ? <span className="text-[12px] text-muted">{note}</span> : null}
             <span className={cn("rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold", countPillClassName)}>
                 {count}
             </span>

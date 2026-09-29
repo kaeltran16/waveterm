@@ -5680,12 +5680,13 @@ const RAIL_VISIBLE_KEY = "agent.rail.visible";
 // the text glyphs the polish replaced with lucide icons
 const TREE_RAIL_GLYPHS = ["↳", "◆", "▸", "▾", "›_", "↗", "‹"];
 const MIN_FONT_PX = 10.5;
+const TREE_RAIL_LEAD_ID = "fx-lead";
 
-function treeRailRoster(runId, now) {
+function treeRailRoster(runId, now, leadName = TREE_RAIL_LEAD) {
     return [
         {
-            id: "fx-lead",
-            name: TREE_RAIL_LEAD,
+            id: TREE_RAIL_LEAD_ID,
+            name: leadName,
             project: "waveterm",
             task: "verify tree rail",
             state: "working",
@@ -5728,22 +5729,49 @@ function treeRailRoster(runId, now) {
     ];
 }
 
-async function arrangeTreeRail(h, ctx) {
+// a real orchestrator run held in planning, and the fixture roster whose lead carries its id
+async function arrangeFixtureRun(h, ctx, label, leadName) {
     const wslist = await h.rpc("workspacelist", null);
-    const ch = await h.rpc("createchannel", { name: "verify-tree-rail", projectpath: ctx.cwd });
+    const ch = await h.rpc("createchannel", { name: `verify-${label}`, projectpath: ctx.cwd });
     ctx.channelId = ch.oid;
     const created = await h.rpc("createrun", {
         channelid: ctx.channelId,
         workspaceid: wslist[0].workspacedata.oid,
-        goal: "verify tree rail: do nothing",
+        goal: `verify ${label}: do nothing`,
         runtime: "claude",
         mode: "orchestrator",
         deferstart: true,
     });
     ctx.runId = created.run.id;
     mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
-    writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(treeRailRoster(ctx.runId, Date.now()), null, 2));
+    writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(treeRailRoster(ctx.runId, Date.now(), leadName), null, 2));
     ctx.wroteFixture = true;
+}
+
+// best-effort, so one failed step does not strand the rest
+async function teardownFixtureRun(h, ctx, name, restore) {
+    const step = async (what, fn) => {
+        try {
+            await fn();
+        } catch (e) {
+            console.error(`${name} teardown: ${what} failed: ${e?.message ?? e}`);
+        }
+    };
+    if (ctx.wroteFixture) await step("remove the fixture roster", () => rmSync(TREE_RAIL_FIXTURE, { force: true }));
+    if (restore) await step(restore.what, restore.fn);
+    if (ctx.runId) {
+        await step("cancel the run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId }));
+    }
+    if (ctx.channelId) await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
+    await step("reload onto the live roster", async () => {
+        await h.ev("location.reload()");
+        await new Promise((r) => setTimeout(r, 2500));
+    });
+    await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
+}
+
+async function arrangeTreeRail(h, ctx) {
+    await arrangeFixtureRun(h, ctx, "tree-rail", TREE_RAIL_LEAD);
     // the rail is off by default and persisted, and the fixture roster is read once at boot
     await h.ev(`localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "true")`);
     await h.ev("location.reload()");
@@ -5908,30 +5936,123 @@ const agentTreeRail = {
         return steps;
     },
     async teardown(h, ctx) {
-        const step = async (what, fn) => {
-            try {
-                await fn();
-            } catch (e) {
-                console.error(`agent-tree-rail teardown: ${what} failed: ${e?.message ?? e}`);
-            }
-        };
-        if (ctx.wroteFixture) await step("remove the fixture roster", () => rmSync(TREE_RAIL_FIXTURE, { force: true }));
-        await step("restore the rail preference", () =>
-            h.ev(
-                ctx.prevRail == null
-                    ? `localStorage.removeItem(${JSON.stringify(RAIL_VISIBLE_KEY)})`
-                    : `localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, ${JSON.stringify(ctx.prevRail)})`
-            )
-        );
-        if (ctx.runId) {
-            await step("cancel the run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId }));
-        }
-        if (ctx.channelId) await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
-        await step("reload onto the live roster", async () => {
-            await h.ev("location.reload()");
-            await new Promise((r) => setTimeout(r, 2500));
+        await teardownFixtureRun(h, ctx, "agent-tree-rail", {
+            what: "restore the rail preference",
+            fn: () =>
+                h.ev(
+                    ctx.prevRail == null
+                        ? `localStorage.removeItem(${JSON.stringify(RAIL_VISIBLE_KEY)})`
+                        : `localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, ${JSON.stringify(ctx.prevRail)})`
+                ),
         });
-        await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
+    },
+};
+
+// The Cockpit on the brief type scale (docs/superpowers/specs/2026-09-29-cockpit-polish-design.md): nothing under
+// 10.5px, and the lead card leads with the Workflow icon. Same setup as agent-tree-rail: a fixture roster whose lead
+// carries a real orchestrator run held in planning. No dagsubmit (see TREE_RAIL_FIXTURE), so the card has no plan
+// and no bar; the bar is covered by leadcardmodel.test.ts.
+const COCKPIT_POLISH_LEAD = "cockpit-polish lead";
+const COCKPIT = `document.querySelector("[data-cockpit-surface]")`;
+const COCKPIT_LEAD_CARD = `${COCKPIT}?.querySelector('[data-agent-id="${TREE_RAIL_LEAD_ID}"]')`;
+
+// the first thing the lead card's header draws: an svg, or the element holding the first text
+const LEAD_MARK_EXPR = `(() => {
+    const header = ${COCKPIT_LEAD_CARD}?.firstElementChild;
+    if (!header) return null;
+    const walk = (el) => {
+        for (const c of el.children) {
+            if (c.tagName.toLowerCase() === "svg") return "svg";
+            const text = [...c.childNodes].find((n) => n.nodeType === Node.TEXT_NODE && n.data.trim());
+            if (text) return "text:" + text.data.trim().slice(0, 20);
+            const found = walk(c);
+            if (found) return found;
+        }
+        return null;
+    };
+    return walk(header);
+})()`;
+
+const cockpitPolish = {
+    name: "cockpit-polish",
+    surface: "cockpit",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-cockpit-polish-"));
+        const ctx = { cwd };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            await arrangeFixtureRun(h, ctx, "cockpit-polish", COCKPIT_POLISH_LEAD);
+            // the fixture roster is read once at boot
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+            await h.goto("cockpit");
+            // the fixture lead first renders as a plain agent card; it becomes the lead card once its run loads
+            ctx.leadCard = await h.ev(`(async () => {
+                for (let i = 0; i < 60; i++) {
+                    const card = ${COCKPIT_LEAD_CARD};
+                    if (card && (${LEAD_MARK_EXPR} === "svg" || card.textContent.includes("no plan submitted"))) {
+                        return true;
+                    }
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                return false;
+            })()`);
+            // let the card's enter motion settle
+            await new Promise((r) => setTimeout(r, 800));
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec(
+            "0. the fixture lead renders as its run's lead card on the Cockpit",
+            ctx.arrangeError == null && ctx.leadCard === true,
+            ctx.arrangeError ?? `runId=${ctx.runId}`
+        );
+
+        const small = await h.ev(`(() => {
+            const root = ${COCKPIT};
+            if (!root) return null;
+            const min = ${MIN_FONT_PX};
+            const offenders = [];
+            let seen = 0;
+            const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+            for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+                const text = n.data.trim();
+                if (!text) continue;
+                const range = document.createRange();
+                range.selectNodeContents(n);
+                const r = range.getBoundingClientRect();
+                if (r.width === 0 || r.height === 0) continue;
+                const cs = getComputedStyle(n.parentElement);
+                if (cs.visibility === "hidden" || Number(cs.opacity) === 0) continue;
+                seen++;
+                const px = parseFloat(cs.fontSize);
+                if (px < min) offenders.push(text.slice(0, 40) + " @" + cs.fontSize);
+            }
+            return { seen, offenders };
+        })()`);
+        rec(
+            "1. no visible text on the Cockpit is under 10.5px",
+            small != null && small.seen > 0 && small.offenders.length === 0,
+            small == null
+                ? "no [data-cockpit-surface]"
+                : `checked ${small.seen} text nodes; offenders=${JSON.stringify(small.offenders)}`
+        );
+
+        const mark = await h.ev(LEAD_MARK_EXPR);
+        rec("2. the lead card's header leads with an svg (the Workflow icon)", mark === "svg", `mark=${mark}`);
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "cockpit-polish");
     },
 };
 
@@ -5972,4 +6093,5 @@ export const SCENARIOS = [
     focusDivergenceRejoin,
     narrationFeed,
     agentTreeRail,
+    cockpitPolish,
 ];
