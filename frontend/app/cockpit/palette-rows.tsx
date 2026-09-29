@@ -5,6 +5,7 @@
 // owns selection. One column, no preview pane — what a preview earned (an asking agent's question) is
 // that row's second line, and the footer spells out what Enter does.
 
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { formatChord } from "@/util/keysym";
 import { cn } from "@/util/util";
 import {
@@ -210,7 +211,7 @@ function PlainRow({ it, idx, active, query, onHover, onFire }: RowProps) {
                 </span>
             ) : null}
             {it.archived ? (
-                <span className="shrink-0 rounded-[5px] border border-edge-mid px-1.5 py-px font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
+                <span className="shrink-0 rounded-[5px] border border-edge-mid px-1.5 py-px font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted">
                     archived
                 </span>
             ) : null}
@@ -253,18 +254,14 @@ export function PaletteGroupView({ group, indexOf, selected, query, onHover, onF
         // the one block that acts on your typed goal, so it is the one tinted with the accent
         return (
             <div className="my-1.5 rounded-[10px] bg-accent/5 px-1 pb-1 pt-0.5">
-                <div className="px-2 pb-[5px] pt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-accent-soft">
-                    {group.label}
-                </div>
+                <div className={cn(REGION_LABEL, "px-2 pb-[5px] pt-2 text-accent-soft")}>{group.label}</div>
                 {rows}
             </div>
         );
     }
     return (
         <div>
-            <div className="px-2.5 pb-1 pt-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-                {group.label}
-            </div>
+            <div className={cn(REGION_LABEL, "px-2.5 pb-1 pt-2.5 text-muted")}>{group.label}</div>
             {group.emptyText ? (
                 <div className="px-2.5 pb-3.5 pt-6 text-center text-[13px] text-muted">{group.emptyText}</div>
             ) : null}

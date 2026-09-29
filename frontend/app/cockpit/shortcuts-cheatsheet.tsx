@@ -8,6 +8,7 @@ import { ModalShell } from "@/app/modals/modalshell";
 import { bindingsAtom } from "@/app/store/keybindings/store";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { formatChord } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
@@ -59,7 +60,7 @@ export function ShortcutsCheatSheet({ model }: { model: AgentsViewModel }) {
                 <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
                     {groups.map(([group, items]) => (
                         <div key={group} className="mb-4">
-                            <div className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
+                            <div className={cn(REGION_LABEL, "mb-1 text-muted")}>
                                 {group}
                             </div>
                             {items.map((b) => (

@@ -25,9 +25,9 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                     <div className="h-[7px] w-[7px] rounded-full bg-surface" />
                 </div>
                 <span className="text-[14.5px] font-bold tracking-[-0.01em] text-primary">Arc</span>
-                <span className="text-[13px] text-ink-faint">/</span>
+                <span className="text-[13px] text-muted">/</span>
                 <ProjectSwitcher model={model} variant="bar" />
-                <span className="text-[13px] text-ink-faint">/</span>
+                <span className="text-[13px] text-muted">/</span>
                 <FocusSwitcher model={model} />
             </div>
 
