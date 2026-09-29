@@ -7,10 +7,14 @@
 
 import { modalBackdrop } from "@/app/element/motiontokens";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { SubLabel } from "@/app/view/agents/sectionlabel";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { Search, Waypoints } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
+import { SHEET_BTN } from "./briefrunsheet";
+import { REGION_LABEL } from "./briefstyle";
 import type { PeekFocus } from "./graphfocus";
 import { GraphSkeleton } from "./graphskeleton";
 import { JarvisGraph } from "./jarvisgraph";
@@ -39,15 +43,7 @@ const KIND_TONE: Record<string, string> = {
 // reported rather than dropped silently.
 const MAX_MATCHES = 12;
 
-function ActionButton({
-    label,
-    primary,
-    onClick,
-}: {
-    label: string;
-    primary?: boolean;
-    onClick: () => void;
-}) {
+function ActionButton({ label, primary, onClick }: { label: string; primary?: boolean; onClick: () => void }) {
     return (
         <button
             type="button"
@@ -145,25 +141,21 @@ export function GraphPeek({
             data-jarvis-graph-peek
             className="absolute inset-0 z-20 flex flex-col bg-background/95 backdrop-blur-[3px]"
         >
-            <div className="flex h-11 flex-none items-center gap-2.5 border-b border-border bg-surface px-4">
-                <span className="font-mono text-[13px] font-semibold text-accent-soft">◇</span>
-                <span className="text-[13px] font-bold text-primary">Graph peek</span>
-                <span className="font-mono text-[11px] text-muted">
-                    {merged.nodes.length} nodes{node != null ? ` · ${node.kind} · ${node.label}` : ""}
-                </span>
+            <div className="flex flex-none items-center gap-2.5 border-b border-edge-faint bg-surface px-4 py-2.5">
+                <Waypoints size={14} className="flex-none text-accent-soft" />
+                <span className={cn(REGION_LABEL, "text-accent-soft")}>graph</span>
+                {/* the count only: a task node's label is its record's whole objective, up to 10k characters */}
+                <span className="font-mono text-[10.5px] text-muted">{merged.nodes.length} nodes</span>
                 <div className="flex-1" />
                 {/* no legend here: the canvas draws one in its bottom-left, sitting with the nodes it
                     labels. Two legends disagreed on case and order for the same four kinds. */}
-                <button
-                    type="button"
-                    onClick={onClose}
-                    className="cursor-pointer rounded-[7px] border border-border bg-surface px-2.5 py-1 text-[11px] font-semibold text-secondary hover:text-primary"
-                >
-                    Close · Esc
+                <button type="button" onClick={onClose} className={cn(SHEET_BTN, "inline-flex items-center gap-2")}>
+                    Close
+                    <span className="font-mono text-[10.5px] font-normal text-muted">Esc</span>
                 </button>
             </div>
             <div className="flex min-h-0 flex-1">
-                <div className="relative min-w-0 flex-1">
+                <div data-jarvis-graph-canvas className="relative min-w-0 flex-1">
                     {!loaded ? (
                         <GraphSkeleton />
                     ) : error ? (
@@ -182,20 +174,26 @@ export function GraphPeek({
                     )}
                 </div>
                 <div className="flex w-[288px] flex-none flex-col gap-3 border-l border-border bg-surface p-3.5">
-                    <input
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Find a node…"
-                        aria-label="Find a node"
-                        className="flex-none rounded-[7px] border border-edge-mid bg-background px-2.5 py-1.5 text-[12px] text-primary placeholder:text-muted focus:border-accent focus:outline-none"
-                    />
+                    <div className="relative flex-none">
+                        <Search
+                            size={13}
+                            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
+                        />
+                        <input
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Find a node…"
+                            aria-label="Find a node"
+                            className="w-full rounded-[7px] border border-edge-mid bg-background py-1.5 pl-[30px] pr-2.5 text-[12px] text-primary placeholder:text-muted focus:border-accent focus:outline-none"
+                        />
+                    </div>
                     {q !== "" ? (
                         <div className="flex min-h-0 flex-col gap-1 overflow-y-auto">
-                            <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
+                            <SubLabel>
                                 {matches.length === 0
                                     ? "No node matches"
                                     : `${matches.length} match${matches.length === 1 ? "" : "es"}`}
-                            </span>
+                            </SubLabel>
                             {matches.slice(0, MAX_MATCHES).map((n) => (
                                 <button
                                     key={n.id}
@@ -208,7 +206,7 @@ export function GraphPeek({
                                 >
                                     <span
                                         className={cn(
-                                            "flex-none font-mono text-[9.5px]",
+                                            "min-w-10 flex-none font-mono text-[10.5px]",
                                             KIND_TONE[n.kind] ?? "text-muted"
                                         )}
                                     >
@@ -220,36 +218,39 @@ export function GraphPeek({
                                 </button>
                             ))}
                             {matches.length > MAX_MATCHES ? (
-                                <span className="px-2 font-mono text-[10px] text-muted">
-                                    +{matches.length - MAX_MATCHES} more — narrow the filter
+                                <span className="px-2 font-mono text-[10.5px] text-muted">
+                                    +{matches.length - MAX_MATCHES} more · narrow the filter
                                 </span>
                             ) : null}
                         </div>
                     ) : node == null ? (
-                        <span className="text-[12px] leading-[1.5] text-muted">
-                            Click a node to open it, or find one above. The peek closes into whatever you open.
-                        </span>
+                        <span className="text-[12px] leading-[1.5] text-muted">Click a node, or find one above.</span>
                     ) : (
                         <>
                             <div className="flex flex-col gap-1.5">
-                                <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
-                                    Selected node
+                                <SubLabel>Selected node</SubLabel>
+                                <span className="flex gap-2">
+                                    <span
+                                        className={cn(
+                                            "font-mono text-[10.5px] font-semibold",
+                                            KIND_TONE[node.kind] ?? "text-muted"
+                                        )}
+                                    >
+                                        {node.kind}
+                                    </span>
+                                    {node.status ? (
+                                        <span className="font-mono text-[10.5px] text-muted">{node.status}</span>
+                                    ) : null}
                                 </span>
-                                <span className={cn("font-mono text-[11px]", KIND_TONE[node.kind] ?? "text-muted")}>
-                                    {node.kind}
-                                </span>
-                                <span className="text-[13.5px] font-semibold leading-[1.35] text-primary">
+                                {/* clamped: a task's label is its record's whole objective, which pushed Edges and
+                                    the Open button off the panel */}
+                                <span className="line-clamp-3 text-[13.5px] font-semibold leading-[1.35] text-primary [overflow-wrap:anywhere]">
                                     {node.label}
                                 </span>
-                                {node.status ? (
-                                    <span className="font-mono text-[10.5px] text-muted">{node.status}</span>
-                                ) : null}
                             </div>
                             <div className="h-px bg-border" />
                             <div className="flex flex-col gap-2">
-                                <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
-                                    Edges
-                                </span>
+                                <SubLabel>Edges</SubLabel>
                                 {edges.length === 0 ? (
                                     <span className="text-[11.5px] text-muted">No edge reaches this node.</span>
                                 ) : (
@@ -270,7 +271,7 @@ export function GraphPeek({
                                                 <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
                                                     {merged.nodes.find((n) => n.id === other)?.label ?? other}
                                                 </span>
-                                                <span className="flex-none font-mono text-[10px] text-muted">
+                                                <span className="flex-none font-mono text-[10.5px] text-muted">
                                                     {l.kind === "attribution" ? `${l.state} · ${l.bucket}` : "wikilink"}
                                                 </span>
                                             </div>
@@ -280,9 +281,7 @@ export function GraphPeek({
                             </div>
                             <div className="h-px bg-border" />
                             <div className="flex flex-col gap-1.5">
-                                <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
-                                    Leave the graph by opening something
-                                </span>
+                                <SubLabel>Open</SubLabel>
                                 {node.kind === "run" && canOpenRuns ? (
                                     <ActionButton label="Open run" primary onClick={() => openRun(node.id)} />
                                 ) : null}
@@ -299,10 +298,6 @@ export function GraphPeek({
                             </div>
                         </>
                     )}
-                    <p className="mt-auto text-[11px] leading-[1.5] text-muted">
-                        The peek is never a destination: it opens from an object and closes into one. There is no
-                        graph entry in the nav rail.
-                    </p>
                 </div>
             </div>
         </motion.div>

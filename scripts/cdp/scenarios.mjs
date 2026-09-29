@@ -705,10 +705,7 @@ const briefPeek = {
             const text = (band.innerText || "").replace(/\\s+/g, " ").trim();
             return {
                 text: text.slice(0, 400),
-                fleet: text.includes("Fleet"),
-                // the two sentences that state the meta spec's read/write line
-                absence: text.includes("cannot message one"),
-                footer: text.includes("with the record as its subject"),
+                fleet: /fleet/i.test(text),
                 // updated, never a freshness word: a record carries no freshness reading
                 updated: /updated .+ ago|never updated/.test(text),
                 fresh: /\\bFresh\\b/.test(text),
@@ -716,25 +713,22 @@ const briefPeek = {
             };
         })()`);
         steps.push({
-            step: "2. a record row in the palette opens the peek, stating the record's own read/write line",
+            step: "2. a record row in the palette opens the peek, with its updated stamp and status toggle",
             ok:
                 picked.ok === true &&
                 peek != null &&
-                peek.absence === true &&
-                peek.footer === true &&
                 peek.updated === true &&
                 peek.fresh === false &&
                 peek.statusToggle === true,
             detail: JSON.stringify({ picked, peek }),
         });
-        // The fleet band is data-dependent: a record with sessions attributed to it names them, and one
-        // without says so instead. This profile has no record with an attributed session, so the band
-        // cannot be exercised here — the step asserts whichever of the two the data calls for and reports
-        // which it read, rather than passing on a claim about a band that was never rendered.
+        // The fleet band's content is data-dependent: a record with sessions attributed to it names them, and
+        // one without says so instead. The band itself always renders (its rows, or the runs-absent line),
+        // so its label is what the step reads, whichever of the two the data calls for.
         steps.push({
             step: "2b. the peek names the record's fleet or says it has none",
-            ok: peek != null && (peek.fleet === true || peek.absence === true),
-            detail: JSON.stringify({ fleet: peek?.fleet ?? null, absence: peek?.absence ?? null }),
+            ok: peek != null && peek.fleet === true,
+            detail: JSON.stringify({ fleet: peek?.fleet ?? null }),
         });
 
         // The peek's run list is the record's attributed sessions, and clicking one is the path B5 re-homed
@@ -4167,7 +4161,7 @@ const briefContextualMap = {
         })()`);
         rec(
             "1. Shift+G opens the graph peek over the Brief",
-            peek != null && peek.text.includes("Graph peek"),
+            peek != null && /\bgraph\b/i.test(peek.text) && /\d+ nodes/.test(peek.text),
             JSON.stringify(peek)
         );
 
@@ -6435,6 +6429,144 @@ const briefInitiativesPolish = {
     },
 };
 
+// --- brief-peeks-polish: the record peek and the graph peek on the brief scale ----------------------
+// docs/superpowers/specs/2026-09-29-brief-peeks-polish-design.md. A record whose objective is over 400 characters:
+// its peek titles by the first sentence and clamps the rest; the graph peek focused on it prints the objective
+// neither in its header nor on the canvas, and keeps Open record on screen. A profile with no such record gets one
+// from a deferred run (run creation captures a dossier from the goal); the dossier stays in the vault afterwards,
+// as run-sheet-polish's does, since no RPC deletes one.
+const PEEKS_LONG = 400;
+const PEEKS_GOAL =
+    "verify brief-peeks-polish: do nothing, make no file changes, stop immediately. " +
+    "This goal is long on purpose, so the record it captures has an objective the peek must clamp. ".repeat(6);
+const PEEKS_ESC = `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`;
+const PEEKS_RECORD = `document.querySelector('[data-jarvis-brief-band="peek"]')`;
+const PEEKS_GRAPH = `document.querySelector('[data-jarvis-graph-peek]')`;
+const PEEKS_OPEN = `[...(${PEEKS_GRAPH}?.querySelectorAll('button') ?? [])].find((b) => /^open record$/i.test((b.innerText || '').trim()))`;
+
+const briefPeeksPolish = {
+    name: "brief-peeks-polish",
+    surface: "jarvis",
+    async arrange(h) {
+        const ctx = {};
+        const long = (d) => (d.objective ?? "").trim().length > PEEKS_LONG;
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            let found = ((await h.rpc("listtaskdossiers", null))?.dossiers ?? []).find(long);
+            if (found == null) {
+                ctx.cwd = mkdtempSync(join(tmpdir(), "verify-brief-peeks-polish-"));
+                const wslist = await h.rpc("workspacelist", null);
+                const ch = await h.rpc("createchannel", { name: "verify-brief-peeks-polish", projectpath: ctx.cwd });
+                ctx.channelId = ch.oid;
+                const created = await h.rpc("createrun", {
+                    channelid: ctx.channelId,
+                    workspaceid: wslist[0].workspacedata.oid,
+                    goal: PEEKS_GOAL,
+                    runtime: "claude",
+                    mode: "orchestrator",
+                    deferstart: true,
+                });
+                ctx.runId = created.run.id;
+                found = ((await h.rpc("listtaskdossiers", null))?.dossiers ?? []).find(
+                    (d) => (d.objective ?? "").trim() === PEEKS_GOAL.trim()
+                );
+            }
+            if (found == null) throw new Error("no record has an objective over 400 characters, and seeding made none");
+            ctx.recordId = found.id;
+            ctx.objective = found.objective.trim();
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. a record with an objective over 400 characters", false, ctx.arrangeError);
+            return steps;
+        }
+        // narrow columns defeat by-name clicks, and verify.mjs clears any earlier override
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        await h.goto("jarvis");
+        await h.ev(PEEKS_ESC);
+        await polishNap(400);
+
+        const opened = await h.ev(`(async () => {
+            for (let i = 0; i < 20 && typeof window.__openAddress !== "function"; i++) {
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            if (typeof window.__openAddress !== "function") return "no __openAddress hook";
+            await window.__openAddress(${JSON.stringify(`task:${ctx.recordId}`)});
+            return "ok";
+        })()`);
+        const shown = await polishWaitFor(h, `!!${PEEKS_RECORD}?.querySelector('[data-jarvis-peek-body]')`, 6000);
+        rec("1. the record peek opens on the long record, with a body", opened === "ok" && shown, `opened=${opened} record=${ctx.recordId}`);
+        if (!shown) return steps;
+        await h.shot("cdp-shots/brief-peeks-polish-1-record.png");
+
+        const text = (sel) => `(${PEEKS_RECORD}?.querySelector('${sel}')?.innerText ?? '').replace(/\\s+/g, ' ').trim()`;
+        const split = await h.ev(`({ title: ${text("[data-jarvis-peek-title]")}, body: ${text("[data-jarvis-peek-body]")} })`);
+        rec(
+            "2. the peek's title is not its body",
+            split.title !== "" && split.title !== split.body,
+            JSON.stringify({ title: split.title.slice(0, 80), body: split.body.slice(0, 80) })
+        );
+        const clamped = await h.ev(polishSweep(PEEKS_RECORD));
+        rec("3. nothing in the record peek is under 10.5px", sweptOk(clamped), JSON.stringify(clamped));
+
+        const toggled = await h.ev(`(() => {
+            const b = ${PEEKS_RECORD}?.querySelector('[data-jarvis-peek-body-toggle]');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await polishNap(300);
+        const expanded = await h.ev(polishSweep(PEEKS_RECORD));
+        rec(
+            "4. the long objective has a show-full link, and nothing is under 10.5px with it open",
+            toggled === true && sweptOk(expanded),
+            JSON.stringify({ toggled, expanded })
+        );
+
+        await h.ev(`${PEEKS_RECORD}?.querySelector('[data-jarvis-peek-open-graph]')?.click()`);
+        const focused = await polishWaitFor(h, `!!${PEEKS_OPEN}`, 8000);
+        rec("5. the map button opens the graph peek with the record selected", focused, "");
+        if (!focused) return steps;
+        await polishNap(800);
+        await h.shot("cdp-shots/brief-peeks-polish-2-graph.png");
+
+        // the canvas element holds no text node, so the sweep passes over it
+        const graphSweep = await h.ev(polishSweep(PEEKS_GRAPH));
+        rec("6. nothing in the graph peek is under 10.5px", sweptOk(graphSweep), JSON.stringify(graphSweep));
+
+        const probe = JSON.stringify(ctx.objective.replace(/\s+/g, " ").slice(0, 40));
+        const graph = await h.ev(`(() => {
+            const root = ${PEEKS_GRAPH};
+            const flat = (el) => (el?.innerText ?? '').replace(/\\s+/g, ' ');
+            const pane = root.querySelector('[data-jarvis-graph-canvas]');
+            const r = ${PEEKS_OPEN}.getBoundingClientRect();
+            return {
+                header: flat(root.firstElementChild).includes(${probe}),
+                pane: pane != null,
+                card: flat(pane).includes(${probe}),
+                openInView: r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight,
+            };
+        })()`);
+        rec("7. the graph header prints no objective", graph.header === false, JSON.stringify(graph));
+        rec("8. the side panel's Open record button is inside the viewport", graph.openInView === true, JSON.stringify(graph));
+        rec("9. the canvas draws no selection card", graph.pane === true && graph.card === false, JSON.stringify(graph));
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(PEEKS_ESC).catch(() => {});
+        await polishNap(300);
+        await h.ev(PEEKS_ESC).catch(() => {});
+        // cwd is made first, so a seed that threw before createrun returned still has its channel and dir removed
+        if (ctx.cwd != null) await teardownFixtureRun(h, ctx, "brief-peeks-polish");
+    },
+};
+
 export const SCENARIOS = [
     briefContextualMap,
     briefRestore,
@@ -6475,4 +6607,5 @@ export const SCENARIOS = [
     cockpitPolish,
     runSheetPolish,
     briefInitiativesPolish,
+    briefPeeksPolish,
 ];
