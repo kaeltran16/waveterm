@@ -266,6 +266,27 @@ still assumes pi on the other side.
   nobody calling `wait`. The lead-liveness check R10 asks for cannot come from the control channel
   on this runtime; it needs the lead block's own status or a merge-gate age, surfaced in `health`.
 
+## Live check — run 02d0840e (2026-09-29)
+
+A 3-task claude run (lead, workers, reviewers and verifier all `claude-opus-5-5`, parallelism 3), on the
+installed build of 2026-09-29 08:55 (`15553268`), read from `db_runevent` and every session's transcript.
+It ran 26 min end to end and landed on `main` as `4dda4b54`.
+
+- **Seen working:**
+  - **F1, F2, F7:** t-3 raised a two-question ask instead of guessing. The lead was woken with it and answered both in
+    one `dag answer` 15 s later, and t-3 went on.
+  - **F5, F8:** the lead read `wsh jarvis dag status` with no flags.
+  - **F6:** the workers followed the plan's pinned rules. Their file sets were disjoint, though t-1 also
+    edited `maintest_test.go`, which the plan gave to no task.
+  - **F15:** all three tasks spawned within 4 s at width 3.
+  - **F18:** three claude children, running 4-14 min each, raised no stall or suspect event.
+  - **F19:** each merge's brief `cleanup-pending` produced no false stop.
+- **Not exercised:**
+  - F12, F13 and F14.
+  - F16: no gate went stale, since the engine merges by itself.
+- **Not in that build:** today's flaky Verify reporting (`8b322aa0`), multi-question Gatekeeper (`ac04d587`) and lane
+  rewind (`69abf62e`), and the run's own three changes. They need a rebuilt Arc and another run.
+
 ## Constraints carried into the redesign
 
 - KISS/YAGNI: no new subsystems, no per-task timeout policies, no message bus. Only the failure modes
