@@ -48,8 +48,8 @@ describe("overlayLive", () => {
         const [s] = overlayLive([mk()], [mkAgent({ state: "asking" })], 1000);
         expect(s.needsAttention).toBe(true);
     });
-    it("marks needsAttention for an ended failed session", () => {
-        const [s] = overlayLive([mk({ status: "failed" })], [], 1000);
+    it("marks needsAttention for an ended waiting session", () => {
+        const [s] = overlayLive([mk({ status: "waiting" })], [], 1000);
         expect(s.live).toBe(false);
         expect(s.needsAttention).toBe(true);
     });
@@ -59,7 +59,7 @@ describe("session filters and selection", () => {
     const list = overlayLive(
         [
             mk({ id: "a", projectname: "alpha", status: "done", transcriptpath: "/other.jsonl" }),
-            mk({ id: "b", projectname: "beta", status: "failed", transcriptpath: "/nope.jsonl" }),
+            mk({ id: "b", projectname: "beta", status: "waiting", transcriptpath: "/nope.jsonl" }),
             mk({ id: "c", projectname: "alpha" }), // live (matches mkAgent path)
         ],
         [mkAgent()],
@@ -79,7 +79,7 @@ describe("session filters and selection", () => {
         expect(filterByStatus(list, "done").map((s) => s.id)).toEqual(["a"]);
     });
 
-    it("needs keeps failed/waiting/asking", () => {
+    it("needs keeps waiting/asking", () => {
         expect(filterByStatus(list, "needs").map((s) => s.id)).toEqual(["b"]);
     });
 

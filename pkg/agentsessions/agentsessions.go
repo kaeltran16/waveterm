@@ -102,7 +102,7 @@ type SessionInfo struct {
 	ResumeArgs    []string // exact argv to resume, when a tokenized command would not survive (pi)
 
 	TranscriptPath string // on-disk JSONL path; FE matches this against the live roster
-	Status         string // "done" | "failed" | "waiting" (FE overlays "running" for live)
+	Status         string // "done" | "waiting" (FE overlays "running" for live)
 	StartedTs      int64  // first event ts, UnixMilli
 	DurationMs     int64  // last event ts - first event ts
 	Events         []SessionEvent
@@ -586,6 +586,8 @@ func commitSubject(cmd string) string {
 
 // assembleEvents sorts the raw events, derives status from the last real event, prepends a synthetic
 // "started" and (only for done sessions) appends a synthetic "finished", and computes duration.
+// a tool error does not fail a session: agents recover from nearly all of them, and a transcript scan
+// found the rest were almost all the user rejecting a call or a known client-side timeout.
 func assembleEvents(raw []SessionEvent, firstTs, lastTs int64, startedText, finishedText string) sessionEvents {
 	var real []SessionEvent
 	for _, e := range raw {
@@ -597,11 +599,8 @@ func assembleEvents(raw []SessionEvent, firstTs, lastTs int64, startedText, fini
 
 	status := "done"
 	if n := len(real); n > 0 {
-		switch real[n-1].Type {
-		case "asked":
+		if real[n-1].Type == "asked" {
 			status = "waiting"
-		case "errored":
-			status = "failed"
 		}
 	}
 

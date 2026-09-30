@@ -289,7 +289,7 @@ export function unmetDeps(dag: TaskGroup | undefined, task: TaskNode): string[] 
 
 // runProgress counts a run's finished tasks: done or skipped, out of every task in the plan.
 /** Pure: the run has ended, by its dag's status or, before a dag exists, its own. */
-export function runFinished(run: RunInfo): boolean {
+export function runFinished(run: Pick<RunInfo, "dag" | "status">): boolean {
     const status = run.dag?.status ?? run.status;
     return status === "done" || status === "cancelled";
 }

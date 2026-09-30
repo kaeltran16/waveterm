@@ -7,6 +7,7 @@
 
 import { formatAge, type AgentVM } from "./agentsviewmodel";
 import { runTitle, stageLabel, unmetDeps } from "./runlineage";
+import { runComplete } from "./runmodel";
 import type { LiveSession } from "./sessionsarchivestore";
 
 export const LEAD_MEMBER = "lead";
@@ -170,6 +171,8 @@ export interface RunView {
     runtime: string;
     live: boolean;
     head: Status;
+    // nothing left to happen: the plan done, the lead finished and the run landed (the Agents tree's green check)
+    complete: boolean;
     segs: StatusKey[];
     landed: number;
     total: number;
@@ -319,6 +322,7 @@ export function runView(input: RunViewInput): RunView {
         runtime: run?.runtime || lead?.runtime || "claude",
         live: group.live,
         head: headStatus(members, group.live, dag, group.lastactivets, now),
+        complete: runComplete({ dag, status: run?.status, land: run?.land }),
         segs: taskMembers.map((m) => m.status.key),
         landed: taskMembers.filter((m) => m.status.key === "done").length,
         total: taskMembers.length,

@@ -107,19 +107,22 @@ func TestExtractClaudeEvents(t *testing.T) {
 	}
 }
 
-func TestExtractClaudeEvents_errorMarksFailedWithFinished(t *testing.T) {
+func TestExtractClaudeEvents_errorKeepsSessionDone(t *testing.T) {
 	lines := []string{
 		`{"type":"user","timestamp":"2026-07-10T09:00:00.000Z","message":{"content":"Migrate session store"}}`,
 		`{"type":"assistant","timestamp":"2026-07-10T09:00:03.000Z","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"redis-cli ping"}}]}}`,
 		`{"type":"user","timestamp":"2026-07-10T09:00:05.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true}]}}`,
 	}
 	got := extractClaudeEvents(lines)
-	if got.Status != "failed" {
-		t.Errorf("status = %q, want failed", got.Status)
+	if got.Status != "done" {
+		t.Errorf("status = %q, want done", got.Status)
 	}
-	last := got.Events[len(got.Events)-1]
-	if last.Type != "errored" || last.Text != "failed: redis-cli ping" {
-		t.Errorf("last event = %+v, want errored 'failed: redis-cli ping'", last)
+	n := len(got.Events)
+	if errored := got.Events[n-2]; errored.Type != "errored" || errored.Text != "failed: redis-cli ping" {
+		t.Errorf("event = %+v, want errored 'failed: redis-cli ping'", errored)
+	}
+	if got.Events[n-1].Type != "finished" {
+		t.Errorf("last event = %+v, want finished", got.Events[n-1])
 	}
 }
 
@@ -131,15 +134,15 @@ func TestExtractCodexEvents(t *testing.T) {
 		`{"type":"response_item","timestamp":"2026-07-10T09:00:12.000Z","payload":{"type":"function_call_output","call_id":"c1","output":"Exit code: 1\nECONNREFUSED"}}`,
 	}
 	got := extractCodexEvents(lines)
-	if got.Status != "failed" {
-		t.Errorf("status = %q, want failed", got.Status)
+	if got.Status != "done" {
+		t.Errorf("status = %q, want done", got.Status)
 	}
 	if got.Events[0].Type != "started" || got.Events[0].Text != "Migrate to redis" {
 		t.Errorf("first event = %+v", got.Events[0])
 	}
-	last := got.Events[len(got.Events)-1]
-	if last.Type != "errored" || last.Text != "failed: redis-cli ping" {
-		t.Errorf("last event = %+v", last)
+	errored := got.Events[len(got.Events)-2]
+	if errored.Type != "errored" || errored.Text != "failed: redis-cli ping" {
+		t.Errorf("event = %+v", errored)
 	}
 }
 

@@ -15,7 +15,7 @@ import * as WOS from "@/app/store/wos";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
-import { Activity, Workflow } from "lucide-react";
+import { Activity, Check, Workflow } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { useEffect, useMemo, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -98,9 +98,7 @@ function soloStatus(s: LiveSession, now: number): Status {
     if (s.live) {
         return s.needsAttention ? { key: "asking", text: "asking" } : { key: "running", text: "running" };
     }
-    return s.status === "failed"
-        ? { key: "failed", text: "failed" }
-        : { key: "muted", text: formatAge(now - s.lastactivets) };
+    return { key: "muted", text: formatAge(now - s.lastactivets) };
 }
 
 // the session a member opens: its own, else the live agent of its run the scan has not picked up yet
@@ -509,12 +507,19 @@ function RunCard({
                                 <span
                                     key={i}
                                     className="h-1 w-3.5 rounded-[2px]"
-                                    style={{ backgroundColor: SEG_COLOR[k] }}
+                                    style={{ backgroundColor: view.complete ? "var(--color-success)" : SEG_COLOR[k] }}
                                 />
                             ))}
                         </span>
                     ) : null}
-                    <span>{view.total > 0 ? `${view.landed}/${view.total} landed` : "planning"}</span>
+                    {view.complete ? (
+                        <span className="flex items-center gap-[5px] text-success">
+                            <Check size={11} aria-hidden className="flex-none" />
+                            {view.total > 0 ? `${view.landed}/${view.total} landed` : "complete"}
+                        </span>
+                    ) : (
+                        <span>{view.total > 0 ? `${view.landed}/${view.total} landed` : "planning"}</span>
+                    )}
                     <span className="flex-1" />
                     <span className="truncate">
                         <span className={rt.text}>{rt.glyph}</span>{" "}

@@ -21,7 +21,7 @@ import (
 var runTerminalStatuses = map[string]bool{"done": true, "cancelled": true}
 
 // ActiveWork derives the per-project needs-you surface: in-flight runs with status, live sessions
-// (Status is "done"/"failed" only after the transcript finished), attention items (project resolved
+// (Status is "done" only after the transcript finished), attention items (project resolved
 // through the run they wait on), and dossier blockers (dossiers carry no project label — they group
 // under "").
 // workerORefsFor returns the sorted, deduplicated union of a run's phase worker orefs. Runs carry no
@@ -93,7 +93,7 @@ func ActiveWork(runs []*waveobj.Run, sessions []agentsessions.SessionInfo, atten
 		})
 	}
 	for _, s := range sessions {
-		if s.Status == "done" || s.Status == "failed" {
+		if s.Status == "done" {
 			continue
 		}
 		title := s.Task

@@ -25,7 +25,7 @@ function landView(land: RunLand): { label: string; tone: RunStatusTone } | undef
 
 /** Pure: what a run whose plan finished is still doing. The dag finishing is not the run finishing: its lead
  *  wraps up and completes it, and only then does a run on its own branch land. */
-export function finishedRunLabel(run: RunInfo): string {
+export function finishedRunLabel(run: Pick<RunInfo, "dag" | "status" | "land">): string {
     if (run.dag?.status === "cancelled" || run.status === "cancelled") {
         return "run cancelled";
     }
@@ -40,7 +40,7 @@ const COMPLETE_LABELS = new Set(["landed", "run complete"]);
 // runComplete is a run with nothing left to happen: its plan done (or, with no dag, its lead's own work) and the run
 // itself over and landed (or with nothing to land). a lead still wrapping up, a land in flight or held, and a
 // cancelled run are not complete.
-export function runComplete(run: RunInfo): boolean {
+export function runComplete(run: Pick<RunInfo, "dag" | "status" | "land">): boolean {
     return runFinished(run) && COMPLETE_LABELS.has(finishedRunLabel(run));
 }
 

@@ -54,7 +54,7 @@ function norm(p: string): string {
 }
 
 // Overlay the live roster onto the scanned sessions: match on transcript path, strip the synthetic
-// "finished" event for live sessions, and compute needsAttention (live+asking, or ended failed/waiting).
+// "finished" event for live sessions, and compute needsAttention (live+asking, or ended waiting).
 export function overlayLive(base: SessionActivity[], roster: AgentVM[], _now: number): LiveSession[] {
     const liveByPath = new Map<string, { id: string; asking: boolean }>();
     for (const a of roster) {
@@ -66,7 +66,7 @@ export function overlayLive(base: SessionActivity[], roster: AgentVM[], _now: nu
         const hit = s.transcriptpath ? liveByPath.get(norm(s.transcriptpath)) : undefined;
         const live = hit != null;
         const events = live ? s.events.filter((e) => e.type !== "finished") : s.events;
-        const needsAttention = live ? !!hit?.asking : s.status === "waiting" || s.status === "failed";
+        const needsAttention = live ? !!hit?.asking : s.status === "waiting";
         return { ...s, events, live, liveId: hit?.id, needsAttention };
     });
 }

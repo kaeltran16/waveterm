@@ -156,6 +156,21 @@ describe("runView", () => {
         expect(v.members[0].status).toEqual({ key: "done", text: "done" });
     });
 
+    // the Agents tree's green check: the plan done, the lead finished and the branch landed
+    it("is complete only once the run itself is done and landed", () => {
+        const ended = sessions.map((s) => ({ ...s, live: false }));
+        const done = dagOf(
+            dag.tasks.map((t) => ({ ...t, state: "done", merged: true })),
+            { status: "done" }
+        );
+        const complete = (run: Partial<Run>) =>
+            runView({ group: groupRunSessions(ended).runs[0], run: run as Run, dag: done, now: 0 }).complete;
+        expect(complete({ status: "done", land: { state: "landed" } as RunLand })).toBe(true);
+        expect(complete({ status: "finalizing" })).toBe(false);
+        expect(complete({ status: "done", land: { state: "held" } as RunLand })).toBe(false);
+        expect(runView({ group: groupRunSessions(ended).runs[0], dag, now: 0 }).complete).toBe(false);
+    });
+
     it("lists the tasks its sessions worked when the dag is missing", () => {
         const v = runView({ group: groupRunSessions(sessions).runs[0], now: 0 });
         expect(v.members.map((m) => m.key)).toEqual([LEAD_MEMBER, "t-1", "t-3"]);

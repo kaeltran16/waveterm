@@ -318,9 +318,7 @@ export function SoloDetail({ model, session }: { model: AgentsViewModel; session
         ? session.needsAttention
             ? { key: "asking", text: "asking" }
             : { key: "running", text: "running" }
-        : session.status === "failed"
-          ? { key: "failed", text: "failed" }
-          : { key: "done", text: "done" };
+        : { key: "done", text: "done" };
     return (
         <div className="flex h-full min-h-0 flex-col">
             <div className="mb-1 flex flex-none items-start gap-3.5 border-b border-edge-faint pb-4">
