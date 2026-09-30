@@ -4,15 +4,9 @@
 import type { BlockNodeModel } from "@/app/block/blocktypes";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { TabModel } from "@/app/store/tab-model";
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { sentAskIdsAtom } from "./agentaskstore";
 import {
-    askSentKey,
-    buildAskAnswers,
-    canSubmitAsk,
     cycleId,
     groupAgents,
     mergePendingLaunches,
@@ -21,6 +15,7 @@ import {
     type AgentVM,
     type PendingLaunch,
 } from "./agentsviewmodel";
+import { answerAgentAsk } from "./askanswer";
 import { CockpitSurface } from "./cockpitsurface";
 import { devRosterAtom, loadDevMockRoster } from "./devmock";
 import { diffScopeAtom } from "./diffscopeatom";
@@ -184,24 +179,13 @@ export class AgentsViewModel implements ViewModel {
         }
     }
 
-    // Shared by the cockpit grid and the Agent surface. Validates against the model atoms, fires the RPC
-    // once, and marks the ask sent so the answer bar locks.
+    // Shared by the cockpit grid and the Agent surface: sends the answer held in the model's answer atoms.
     submitAnswer(agentId: string) {
-        const agent = globalStore.get(this.agentsAtom).find((a) => a.id === agentId);
-        const askKey = agent ? askSentKey(agent) : undefined;
-        const sent = globalStore.get(this.sentIdsAtom);
-        if (!agent || askKey == null || sent.has(askKey)) {
-            return;
-        }
-        const qs = agent.ask?.questions ?? [];
         const sel = globalStore.get(this.answerSelAtom)[agentId] ?? {};
         const txt = globalStore.get(this.answerTextAtom)[agentId] ?? {};
-        const oref = agent.ask?.oref;
-        if (!canSubmitAsk(qs, sel, txt) || !oref) {
+        if (!answerAgentAsk(this, agentId, sel, txt)) {
             return;
         }
-        fireAndForget(() => RpcApi.AnswerAgentCommand(TabRpcClient, { oref, answers: buildAskAnswers(qs, sel, txt, agent.ask?.prose ?? false) }));
-        globalStore.set(this.sentIdsAtom, new Set(sent).add(askKey));
         // advance triage to the next asking agent so answering keeps moving without a separate `n` press
         // (T2). The just-answered agent is still in `asking` (state flips later), so nextAskId cycles past
         // it; a lone remaining ask wraps to itself and the cursor stays put.
