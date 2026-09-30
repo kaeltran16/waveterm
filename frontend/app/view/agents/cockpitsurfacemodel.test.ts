@@ -3,7 +3,15 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
-import { cardHasContent, dismissKey, rosterLoadPhase, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
+import {
+    cardHasContent,
+    dismissKey,
+    hiddenAgentIds,
+    rosterLoadPhase,
+    splitRecentlyIdle,
+    toggleInSet,
+} from "./cockpitsurfacemodel";
+import { NO_LINEAGE, type Lineage } from "./runlineage";
 
 function agent(over: Partial<AgentVM>): AgentVM {
     return { id: "t1", name: "claude", task: "", state: "working", ...over };
@@ -85,5 +93,27 @@ describe("cardHasContent", () => {
     });
     it("always shows an asking agent", () => {
         expect(cardHasContent(agent({ state: "asking" }), false)).toBe(true);
+    });
+});
+
+describe("hiddenAgentIds", () => {
+    it("hides a plain agent with nothing to show and keeps one with entries", () => {
+        const roster = [agent({ id: "empty" }), agent({ id: "talking", state: "idle" })];
+        expect([...hiddenAgentIds(roster, new Set(["talking"]), NO_LINEAGE)]).toEqual(["empty"]);
+    });
+    it("never hides a run's lead or worker, whose rows live on the run card", () => {
+        const lineage: Lineage = {
+            roles: {
+                lead: { kind: "lead", runId: "r1" },
+                worker: { kind: "worker", leadRunId: "r1", taskId: "1" },
+            },
+            runs: { r1: { runId: "r1", channelId: "c1", title: "run", project: "p" } },
+        };
+        const roster = [agent({ id: "lead" }), agent({ id: "worker" })];
+        expect(hiddenAgentIds(roster, new Set(), lineage).size).toBe(0);
+    });
+    it("hides an agent whose run is not in the lineage, as the grid shows it as a plain card", () => {
+        const lineage: Lineage = { roles: { orphan: { kind: "worker", leadRunId: "gone", taskId: "1" } }, runs: {} };
+        expect([...hiddenAgentIds([agent({ id: "orphan" })], new Set(), lineage)]).toEqual(["orphan"]);
     });
 });

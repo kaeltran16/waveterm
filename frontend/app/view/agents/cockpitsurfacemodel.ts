@@ -7,6 +7,7 @@
 
 import { isRecentlyIdle, type AgentVM } from "./agentsviewmodel";
 import type { LoadPhase } from "./loadphase";
+import { roleRunId, type Lineage } from "./runlineage";
 
 // a just-finished agent's dismissal is keyed by idle episode (id:idleSince) so a later re-idle re-shows it.
 export function dismissKey(agent: Pick<AgentVM, "id" | "idleSince">): string {
@@ -44,6 +45,20 @@ export function cardHasContent(agent: AgentVM, hasEntries: boolean): boolean {
         agent.state === "asking" ||
         (agent.state === "working" && !!agent.activity)
     );
+}
+
+// the plain agents the grid leaves off, which the counts skip too. a run's lead and workers are rows on the run
+// card, so they are never hidden; the membership test is buildGridCards' own.
+export function hiddenAgentIds(agents: AgentVM[], idsWithEntries: Set<string>, lineage: Lineage): Set<string> {
+    const hidden = new Set<string>();
+    for (const a of agents) {
+        const role = lineage.roles[a.id];
+        const inRun = role != null && lineage.runs[roleRunId(role)] != null;
+        if (!inRun && !cardHasContent(a, idsWithEntries.has(a.id))) {
+            hidden.add(a.id);
+        }
+    }
+    return hidden;
 }
 
 export function toggleInSet(set: Set<string>, id: string): Set<string> {

@@ -39,7 +39,7 @@ import {
     type GridCard,
     type RowTarget,
 } from "./cardgridlayout";
-import { cardHasContent, dismissKey, rosterLoadPhase, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
+import { dismissKey, hiddenAgentIds, rosterLoadPhase, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelsAtom } from "./channelsstore";
@@ -240,7 +240,11 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // one card per plain agent or run; a run's workers are rows of its card. A running run keeps its card while
     // its lead idles between wakes, so its lead is looked up in scope before parking and Live only.
     const runScope = filterByFocus(filterAgents(agents, projectFilter, false), spaceScope, agentRevealed);
+    // agents with nothing to show stay off the grid and out of its counts until their first transcript entry
     const idsWithEntries = useAtomValue(idsWithEntriesAtom);
+    const hidden = hiddenAgentIds(agents, idsWithEntries, lineage);
+    const counted = agents.filter((a) => !hidden.has(a.id));
+    const liveVisible = visibleOrdered.filter((a) => !hidden.has(a.id));
     const allCards = buildGridCards(withActiveRunLeads(visibleOrdered, runScope, lineage), lineage, agents);
     const leadVMs = new Map<string, LeadCardVM & { down: boolean }>();
     for (const c of allCards) {
@@ -266,7 +270,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const shownCards = allCards.filter(
         (c) =>
             !isBackgroundedRun(c, backgroundedIds, cardNeedsYou(c)) &&
-            (c.kind !== "agent" || cardHasContent(c.agent, idsWithEntries.has(c.agent.id)))
+            (c.kind !== "agent" || !hidden.has(c.agent.id))
     );
     const cards = shownCards.filter((c) => cardMatchesChip(c, chip, cardNeedsYou(c)));
     // counted by card, as the tab filters: a run's idle workers and a lead between wakes are not up for review
@@ -301,10 +305,10 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             }
         }
     }
-    const liveCount = visibleOrdered.length;
-    const liveAsking = visibleOrdered.filter((a) => needsHuman(a, answeredAsks)).length;
-    const liveWorking = visibleOrdered.filter((a) => a.state === "working").length;
-    const projectCount = projectsFromAgents(agents).length;
+    const liveCount = liveVisible.length;
+    const liveAsking = liveVisible.filter((a) => needsHuman(a, answeredAsks)).length;
+    const liveWorking = liveVisible.filter((a) => a.state === "working").length;
+    const projectCount = projectsFromAgents(counted).length;
     // idle/backgrounded sections share the project scope; live-only hides the parked-idle section
     const shownParkedIdle = liveOnly ? [] : parkedIdle.filter((a) => matchesProjectFilter(a, projectFilter));
     const shownBackgrounded = backgrounded.filter((a) => matchesProjectFilter(a, projectFilter));
@@ -463,7 +467,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         );
     };
 
-    const phase = rosterLoadPhase(seeded, asking.length + working.length + idle.length);
+    const phase = rosterLoadPhase(seeded, [...asking, ...working, ...idle].filter((a) => !hidden.has(a.id)).length);
 
     return (
         <MotionConfig reducedMotion="user">
@@ -482,7 +486,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                             title="Cockpit"
                             subtitle={
                                 <>
-                                    {agents.length} agents · {projectCount} projects ·{" "}
+                                    {counted.length} agents · {projectCount} projects ·{" "}
                                     <span className="font-semibold text-warning">
                                         <RollingCount value={needsYou} /> need you
                                     </span>
