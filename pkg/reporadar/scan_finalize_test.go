@@ -21,7 +21,7 @@ func TestFinalizePersistsFindingsAndPrunes(t *testing.T) {
 	wstore.UpdateRadarReport(ctx, rpt.OID, func(r *waveobj.RadarReport) { r.Candidates = pool })
 	byID := map[string]waveobj.RadarSignal{s1.ID: s1, s2.ID: s2, s3.ID: s3}
 	resp := &SynthResponse{Findings: []SynthFinding{{
-		RiskKind: RiskTestCoverageGap, Risk: "coupon branches uncovered", Why: "w", Severity: "high",
+		RiskKind: RiskRepeatedFailure, Risk: "coupon validation keeps failing", Why: "w", Severity: "high",
 		SignalIDs: []string{s1.ID, s2.ID}, Files: []string{"src/coupons/validate.ts"}, Mission: "add tests",
 	}}}
 	validated := validateFindings("/repos/pay", ModeCorrectness, resp, byID)

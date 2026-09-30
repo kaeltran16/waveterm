@@ -37,9 +37,13 @@ func collectStructure(ctx context.Context, in collectInput) ([]waveobj.RadarSign
 		files = append(files, f)
 	}
 	testStems := map[string]bool{}
+	goTestDirs := map[string]bool{}
 	for _, f := range files {
 		if isTestPath(f) {
 			testStems[testStemKey(f)] = true
+		}
+		if strings.HasSuffix(f, "_test.go") {
+			goTestDirs[path.Dir(f)] = true
 		}
 	}
 	// one signal per directory, not per file: per-file facts were most of every candidate pool and
@@ -47,6 +51,10 @@ func collectStructure(ctx context.Context, in collectInput) ([]waveobj.RadarSign
 	untestedByDir := map[string][]string{}
 	for _, f := range files {
 		if !isProductionSource(f) || testStems[sourceStemKey(f)] {
+			continue
+		}
+		// a go test covers its package, not only its same-stem file
+		if strings.HasSuffix(f, ".go") && goTestDirs[path.Dir(f)] {
 			continue
 		}
 		dir := path.Dir(f)
@@ -61,7 +69,7 @@ func collectStructure(ctx context.Context, in collectInput) ([]waveobj.RadarSign
 	for _, dir := range dirs {
 		untested := untestedByDir[dir]
 		summary := fmt.Sprintf("%d production source(s) in %s have no adjacent test", len(untested), dir)
-		facts := map[string]any{"classes": []string{"source-without-test"}, "count": len(untested)}
+		facts := map[string]any{"classes": []string{ClassSourceWithoutTest}, "count": len(untested)}
 		paths := untested
 		if len(paths) > maxUntestedPathsPerDir {
 			paths = paths[:maxUntestedPathsPerDir]
@@ -105,13 +113,16 @@ func isTextish(p string) bool {
 	return false
 }
 
+// isProductionSource excludes components (.tsx/.jsx): their logic is extracted into a tested .ts module,
+// never render-tested, so a component without a same-stem test is the convention, not a gap. A .d.ts
+// declares types and holds no logic.
 func isProductionSource(p string) bool {
-	if isTestPath(p) {
+	if isTestPath(p) || strings.HasSuffix(strings.ToLower(p), ".d.ts") {
 		return false
 	}
 	ext := strings.ToLower(path.Ext(p))
 	switch ext {
-	case ".ts", ".tsx", ".js", ".jsx", ".go", ".py", ".rb", ".java", ".rs":
+	case ".ts", ".js", ".go", ".py", ".rb", ".java", ".rs":
 		return true
 	}
 	return false

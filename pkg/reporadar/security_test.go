@@ -29,7 +29,7 @@ func TestSecurityClassifiedAndConsequence(t *testing.T) {
 	dep := waveobj.RadarSignal{Collector: CollectorDependency, Facts: map[string]any{"classes": []string{ClassDependencyPin}}}
 	cfg := waveobj.RadarSignal{Collector: CollectorConfig, Facts: map[string]any{"classes": []string{ClassConfigSecurity}}}
 	churn := waveobj.RadarSignal{Collector: CollectorGit}
-	noise := waveobj.RadarSignal{Collector: CollectorStructure, Facts: map[string]any{"classes": []string{"source-without-test"}}}
+	noise := waveobj.RadarSignal{Collector: CollectorStructure, Facts: map[string]any{"classes": []string{ClassSourceWithoutTest}}}
 
 	// classified: the three security facts; NOT churn or a plain no-test structure fact.
 	for _, s := range []waveobj.RadarSignal{boundary, dep, cfg} {

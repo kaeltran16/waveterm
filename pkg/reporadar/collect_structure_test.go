@@ -41,7 +41,7 @@ func TestCollectStructureClassifies(t *testing.T) {
 			}
 		}
 	}
-	if kinds["source-without-test"] == 0 {
+	if kinds[ClassSourceWithoutTest] == 0 {
 		t.Fatal("expected a source-without-adjacent-test observation")
 	}
 	if !flagged["src/refund.ts"] {
@@ -103,7 +103,7 @@ func TestCollectStructureAggregatesPerDirectory(t *testing.T) {
 	}
 	var noTest []waveobj.RadarSignal
 	for _, s := range sigs {
-		if hasClass(s, "source-without-test") {
+		if hasClass(s, ClassSourceWithoutTest) {
 			noTest = append(noTest, s)
 		}
 		if hasClass(s, ClassSecurityBoundary) {
@@ -117,5 +117,67 @@ func TestCollectStructureAggregatesPerDirectory(t *testing.T) {
 		if s.Paths[0] == "src/a.ts" && (len(s.Paths) != 2 || s.Facts["count"] != 2) {
 			t.Fatalf("src must carry both files and count=2, got paths=%v facts=%v", s.Paths, s.Facts)
 		}
+	}
+}
+
+// flaggedNoTest collects every path a source-without-test signal carries.
+func flaggedNoTest(t *testing.T, dir string) map[string]bool {
+	t.Helper()
+	sigs, err := collectStructure(context.Background(), collectInput{projectPath: dir})
+	if err != nil {
+		t.Fatalf("collectStructure: %v", err)
+	}
+	flagged := map[string]bool{}
+	for _, s := range sigs {
+		if hasClass(s, ClassSourceWithoutTest) {
+			for _, p := range s.Paths {
+				flagged[p] = true
+			}
+		}
+	}
+	return flagged
+}
+
+// Components are covered by extracting their logic into a tested .ts module, never by render tests, and a
+// type declaration holds no logic; neither is an untested source. A plain .ts module still is.
+func TestCollectStructureSkipsComponentsAndDeclarations(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-q")
+	writeFile(t, dir, "src/view/panel.tsx", "export const Panel = () => null\n")
+	writeFile(t, dir, "src/view/legacy.jsx", "export const Legacy = () => null\n")
+	writeFile(t, dir, "src/types/api.d.ts", "declare const x: number\n")
+	writeFile(t, dir, "src/view/model.ts", "export const derive = () => 1\n")
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-q", "-m", "init")
+
+	flagged := flaggedNoTest(t, dir)
+	for _, p := range []string{"src/view/panel.tsx", "src/view/legacy.jsx", "src/types/api.d.ts"} {
+		if flagged[p] {
+			t.Fatalf("%s must not be flagged as an untested source", p)
+		}
+	}
+	if !flagged["src/view/model.ts"] {
+		t.Fatal("an unpaired .ts module must still be flagged")
+	}
+}
+
+// Go tests cover a package, so a file with no same-stem test beside a package test is covered; a package
+// with no test file at all is not.
+func TestCollectStructurePairsGoByPackage(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-q")
+	writeFile(t, dir, "pkg/store/store.go", "package store\n")
+	writeFile(t, dir, "pkg/store/helpers.go", "package store\n")
+	writeFile(t, dir, "pkg/store/store_test.go", "package store\n")
+	writeFile(t, dir, "pkg/bare/bare.go", "package bare\n")
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-q", "-m", "init")
+
+	flagged := flaggedNoTest(t, dir)
+	if flagged["pkg/store/helpers.go"] || flagged["pkg/store/store.go"] {
+		t.Fatalf("files in a package with tests must not be flagged, got %v", flagged)
+	}
+	if !flagged["pkg/bare/bare.go"] {
+		t.Fatal("a Go package with no tests must be flagged")
 	}
 }

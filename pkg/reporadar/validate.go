@@ -60,6 +60,9 @@ func validateFindings(projectPath, mode string, resp *SynthResponse, byID map[st
 		if !filesCoveredBySignals(sf.Files, supporting) {
 			continue // references a file absent from its signals
 		}
+		if !admissibleForKind(sf.RiskKind, supporting) {
+			continue // the label is not backed by the evidence it requires
+		}
 		subsystem := subsystemForSignals(supporting)
 		if subsystem == "unknown" {
 			continue // scope does not resolve from the referenced signals' paths
@@ -94,6 +97,20 @@ func validateFindings(projectPath, mode string, resp *SynthResponse, byID map[st
 		})
 	}
 	return capFindings(out)
+}
+
+// admissibleForKind withholds a finding whose risk kind its evidence cannot support. A test-coverage-gap
+// must cite a signal that observed a source without a test; tool errors alone were being labeled one.
+func admissibleForKind(kind string, supporting []waveobj.RadarSignal) bool {
+	if kind != RiskTestCoverageGap {
+		return true
+	}
+	for _, s := range supporting {
+		if hasClass(s, ClassSourceWithoutTest) {
+			return true
+		}
+	}
+	return false
 }
 
 func filesCoveredBySignals(files []string, sigs []waveobj.RadarSignal) bool {

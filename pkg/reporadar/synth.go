@@ -54,7 +54,10 @@ func buildSynthesisPrompt(projectName, mode string, groups []CandidateGroup) str
 	b.WriteString(" for project ")
 	b.WriteString(projectName)
 	b.WriteString(".\n\nRules:\n")
-	b.WriteString("- Only these risk kinds are allowed: " + strings.Join(RiskKindsByMode[mode], ", ") + ".\n")
+	b.WriteString("- Only these risk kinds are allowed; label each finding by what its evidence shows:\n")
+	for _, k := range RiskKindsByMode[mode] {
+		b.WriteString("  - " + k + ": " + riskKindMeaning[k] + "\n")
+	}
 	b.WriteString("- Every finding must cite supporting signal IDs that appear in the evidence, and only files that appear in those signals.\n")
 	b.WriteString("- Do not invent evidence. Do not propose style, product, or architecture ideas.\n")
 	b.WriteString("- Return ONLY JSON: {\"findings\":[{\"riskkind\",\"boundarylabel\",\"risk\",\"why\",\"severity\"(low|medium|high),\"signalids\":[],\"files\":[],\"mission\"}]}.\n")
