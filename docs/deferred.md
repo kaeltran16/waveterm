@@ -7,6 +7,31 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Run recovery after a restart — dag runs (deferred 2026-09-30)
+
+The restart recovery in `docs/superpowers/plans/2026-09-30-run-restart-recovery.md` covers non-dag runs only: quick, pipeline, and an
+orchestrator lead before `dag submit`.
+
+- **Deferred:** marking a dag run's children and a submitted lead interrupted at boot, and resuming them.
+- **Why:** the watchdog already schedules every dag at boot, and it is unverified that a dead child goes
+  unnoticed. claude children are exempt from the first-token deadline (`firstTokenRuntimes`,
+  `pkg/orchestrate/liveness.go`), so one might, but nobody has seen it happen.
+- **Revive when** a live repro shows a dead child or lead that the engine never notices after an app
+  restart: start a plan run, kill the dev app mid-task, restart it, and watch whether the task is retried or
+  stays running. The boot pass is `orchestrate.MarkInterruptedRuns` (`pkg/orchestrate/interrupted.go`),
+  which skips any run with a `DagORef`.
+
+## Run recovery after a restart — New Agent sessions (deferred 2026-09-30)
+
+- **Deferred:** stopping a New Agent session (a block with no `agent:runid`) from replaying its launch prompt
+  when its tab remounts after a restart. `shouldRelaunchWorker`
+  (`frontend/app/view/agents/session-models/agentresumestore.ts`) still relaunches every such block.
+- **Why:** a transcript scan on 2026-09-30 (798 claude and 353 pi sessions) found no session that re-ran its
+  launch prompt after a restart: resume-on-reopen bakes `--resume`/`--session` into the block's `cmd:args`
+  once the session reports its transcript.
+- **Revive when** a session is seen re-running its prompt after a restart. The gate to change is
+  `shouldRelaunchWorker`; nothing was built for this, so there is nothing to recover from git.
+
 ## Work on an initiative — "Save place and close" (deferred 2026-09-29)
 
 Work on (the Brief's initiative row, `w`, and the palette's ctrl+enter) starts an agent with "where are

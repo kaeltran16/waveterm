@@ -39,6 +39,7 @@ export const ATTENTION_KINDS = new Set<string>([
     "task-forwarded",
     "lead-wake-failed",
     "lead-exited",
+    "interrupted",
     "merge-held",
 ]);
 

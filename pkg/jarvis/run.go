@@ -69,6 +69,7 @@ const (
 // AdvanceRun action (carried on CommandAdvanceRunData.Action).
 const (
 	RunAction_Complete = "complete"
+	RunAction_Resume   = "resume" // restart a failed phase's worker in its own session
 )
 
 // DefaultOrchestratorPlaybook is the orchestrator's single phase: the lead brainstorms the goal with the
@@ -221,6 +222,20 @@ func FailPhase(run waveobj.Run, phaseIdx int, ts int64) (waveobj.Run, error) {
 	}
 	run.Phases[phaseIdx].State = PhaseState_Failed
 	run.Phases[phaseIdx].DoneTs = ts
+	recomputeStatus(&run)
+	return run, nil
+}
+
+// ResumePhase puts a failed phase back to running, for a worker restarted in its own session.
+func ResumePhase(run waveobj.Run, phaseIdx int) (waveobj.Run, error) {
+	if phaseIdx < 0 || phaseIdx >= len(run.Phases) {
+		return run, fmt.Errorf("phase index %d out of range", phaseIdx)
+	}
+	if run.Phases[phaseIdx].State != PhaseState_Failed {
+		return run, fmt.Errorf("phase %d is %q, not failed", phaseIdx, run.Phases[phaseIdx].State)
+	}
+	run.Phases[phaseIdx].State = PhaseState_Running
+	run.Phases[phaseIdx].DoneTs = 0
 	recomputeStatus(&run)
 	return run, nil
 }

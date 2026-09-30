@@ -10,13 +10,14 @@ import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { CircleAlert } from "lucide-react";
+import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { AttentionBanner, AttentionCard } from "./attentioncard";
 import { AskRow, jumpToAgent } from "./channelsprimitives";
 import { PlanPreview } from "./planpreview";
-import { cancellingRunIdsAtom, confirmCancelRun, stopRunWorker, stoppingWorkerIdsAtom } from "./runactions";
-import { cancelSurvivors, resolveArtifactPath, runLiveWorkers, runTree } from "./runmodel";
+import { cancellingRunIdsAtom, confirmCancelRun, resumeRun, stopRunWorker, stoppingWorkerIdsAtom } from "./runactions";
+import { canResume, cancelSurvivors, resolveArtifactPath, runLiveWorkers, runTree } from "./runmodel";
 
 // A run stored before slice 5c deleted the plan gate can still carry status awaiting-review. Nothing can
 // approve it any more — the actions are gone — so this card explains the stall and shows the plan the run
@@ -146,27 +147,58 @@ export function BlockedCard({
     model,
     channelId,
     run,
+    phaseIdx,
     worker,
     agents,
 }: {
     model: AgentsViewModel;
     channelId: string;
     run: Run;
+    phaseIdx: number;
     worker?: AgentVM;
     agents: AgentVM[];
 }) {
+    const [resuming, setResuming] = useState(false);
+    const [resumeError, setResumeError] = useState<string | null>(null);
+    const resumable = canResume(run, phaseIdx);
+    const onResume = () =>
+        fireAndForget(async () => {
+            setResuming(true);
+            setResumeError(null);
+            try {
+                await resumeRun(channelId, run.id, phaseIdx);
+            } catch (e) {
+                setResumeError(e instanceof Error ? e.message : String(e));
+            } finally {
+                setResuming(false);
+            }
+        });
     return (
         <div className="relative mt-3 max-w-[760px] overflow-hidden rounded-lg border border-error/40 bg-error/10 px-4 py-3">
             <div className="mb-2 flex items-center gap-2">
                 <span className="font-mono text-[12px] font-bold text-error">!</span>
                 <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-error">
-                    Blocked · worker exited
+                    Blocked · worker stopped
                 </span>
             </div>
             <p className="mb-3 text-[12.5px] leading-[1.5] text-secondary">
-                The worker for this phase is no longer running. Take control to inspect it, or cancel the run.
+                The worker for this phase stopped before completing it: the app restarted, or its process exited.{" "}
+                {resumable
+                    ? "Resume it in its own session, take control to inspect it, or cancel the run."
+                    : "Take control to inspect it, or cancel the run."}
             </p>
+            {resumeError ? <p className="mb-3 text-[12px] leading-[1.5] text-error">{resumeError}</p> : null}
             <div className="flex items-center gap-2">
+                {resumable ? (
+                    <button
+                        type="button"
+                        disabled={resuming}
+                        onClick={onResume}
+                        className="rounded border border-edge-mid px-3 py-2 text-[12px] font-semibold text-primary hover:border-edge-strong disabled:opacity-60"
+                    >
+                        {resuming ? "Resuming…" : "Resume"}
+                    </button>
+                ) : null}
                 {worker ? (
                     <button
                         type="button"

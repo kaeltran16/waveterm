@@ -63,6 +63,55 @@ func RunWorkerSpecFor(cap runroute.Capability, sessionId, prompt string) (RunWor
 	return RunWorkerSpec{Bin: h.Bin, Args: args, BaseArgs: baseArgs}, true
 }
 
+// resumeNudge is a resumed worker's first turn. It never restates the task: the session already holds it.
+const resumeNudge = "The app restarted or your process stopped mid-task. Check the working tree and your last steps, then continue the task."
+
+// ResumeWorkerArgs is the command line that reopens a run worker's session, launched with --session-id
+// sessionId, and nudges it on: the runtime's resume flag, the worker's launch flags, then the prompt. An empty
+// runtime is a legacy run, which is claude.
+func ResumeWorkerArgs(runtime, sessionId string, baseArgs []string) ([]string, bool) {
+	var flag string
+	switch runtime {
+	case "", "claude":
+		flag = "--resume"
+	case "pi":
+		flag = "--session" // resolves a session id as well as a path
+	default:
+		return nil, false
+	}
+	args := append([]string{flag, sessionId}, baseArgs...)
+	return append(args, resumeNudge), true
+}
+
+// ResumeRunWorker restarts the worker in tabORef in its own session, in the same tab so the human keeps its
+// scrollback. A var so tests can stub the restart.
+var ResumeRunWorker = func(ctx context.Context, tabORef, runtime, sessionId string) error {
+	oref, err := waveobj.ParseORef(tabORef)
+	if err != nil || oref.OType != waveobj.OType_Tab {
+		return fmt.Errorf("bad worker oref %q", tabORef)
+	}
+	tab, err := wstore.DBGet[*waveobj.Tab](ctx, oref.OID)
+	if err != nil {
+		return fmt.Errorf("loading worker tab: %w", err)
+	}
+	if tab == nil || len(tab.BlockIds) == 0 {
+		return fmt.Errorf("the worker's tab is gone")
+	}
+	blockId := tab.BlockIds[0]
+	block, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
+	if err != nil {
+		return fmt.Errorf("loading worker block: %w", err)
+	}
+	if !block.Meta.HasKey("agent:baseargs") {
+		return fmt.Errorf("the worker was launched before resume support")
+	}
+	args, ok := ResumeWorkerArgs(runtime, sessionId, block.Meta.GetStringList("agent:baseargs"))
+	if !ok {
+		return fmt.Errorf("runtime %q cannot resume a session", runtime)
+	}
+	return configureAndStartWorker(ctx, oref.OID, blockId, waveobj.MetaMapType{waveobj.MetaKey_CmdArgs: args})
+}
+
 // SpawnRunWorker creates a background tab running the runtime's unattended worker form in cwd and
 // returns its tab oref ("tab:<id>"). Mirrors the frontend launchAgent path, but the permission-skip
 // flag is mandatory here (opt-in in the launcher): a run worker is headless with no human attached, so

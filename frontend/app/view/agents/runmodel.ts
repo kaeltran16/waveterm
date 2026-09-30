@@ -148,11 +148,11 @@ export function isOrchestrator(run: Run): boolean {
     return run.mode === "orchestrator";
 }
 
-// The phase the view focuses: the first running/blocked phase, else the gated phase awaiting review,
+// The phase the view focuses: the first running/blocked/failed phase, else the gated phase awaiting review,
 // else the last non-skipped phase.
 export function currentPhaseIndex(run: Run): number {
     const phases = run.phases ?? [];
-    const active = phases.findIndex((p) => p.state === "running" || p.state === "blocked");
+    const active = phases.findIndex((p) => p.state === "running" || p.state === "blocked" || p.state === "failed");
     if (active >= 0) {
         return active;
     }
@@ -295,9 +295,26 @@ export function phaseThread(run: Run, idx: number, agents: AgentVM[], liveTabIds
         showWorkers: phase.state === "running" && workers.length > 0 && !asker,
         showGate: reviewGate(run)?.phaseIdx === idx,
         showStarting: phase.state === "running" && starting,
-        showBlocked: phase.state === "blocked" || (phase.state === "running" && recordedButGone),
+        // failed: the phase's worker stopped (the app restarted, or its process exited) before completing it
+        showBlocked:
+            phase.state === "blocked" || phase.state === "failed" || (phase.state === "running" && recordedButGone),
         showShip: idx === phases.length - 1 && phase.state === "done" && run.status === "done",
     };
+}
+
+// the runtimes whose worker reopens its own session on Resume; an empty runtime is a legacy claude run
+const RESUMABLE_RUNTIMES = ["", "claude", "pi"];
+
+// Whether a phase's stopped worker can be resumed in its own session. Mirrors the backend's refusals, so the
+// button shows only where the resume can go through: not a dag run (the engine restarts those), a failed
+// phase, and a session to reopen.
+export function canResume(run: Run, idx: number): boolean {
+    return (
+        !run.dagoref &&
+        run.phases?.[idx]?.state === "failed" &&
+        !!run.sessionid &&
+        RESUMABLE_RUNTIMES.includes(run.runtime ?? "")
+    );
 }
 
 // True when the plan editor holds unsaved changes; Approve must flush these first so no edit is lost.
