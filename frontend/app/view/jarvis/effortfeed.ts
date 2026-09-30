@@ -12,6 +12,8 @@
 //
 // Pure: no React, no Wave runtime imports.
 
+import { chunkTone, type ChunkTone } from "./effortmodel";
+
 export const FEED_PAGE = 25;
 
 const FEED_KINDS = new Set(["effort-note", "chunk-status", "chunk-done", "chunk-added"]);
@@ -196,25 +198,33 @@ export function paragraphs(body: string): Paragraph[] {
 // a chunk added, or a status change with nothing written: the event itself is all there is to read
 const isBookkeeping = (e: FeedEntry) => e.kind === "chunk-added" || (e.kind !== "effort-note" && e.text === "");
 
+// the status a "marked X" entry moved its chunk to, drawn as a pill; any other entry has none
+const markTone = (e: FeedEntry): ChunkTone | null =>
+    e.marked.startsWith("marked ") ? chunkTone(e.marked.slice(7)) : null;
+
+// "removed" is the feed's word for a chunk the plan no longer holds; it reads as skipped
+const headTone = (status: string): ChunkTone => (status === "removed" ? "skipped" : chunkTone(status));
+
 export type FeedGroupRow =
     | { kind: "day"; key: string; label: string }
-    | { kind: "head"; key: string; chunk: string; status: string }
+    // added: the time the chunk was added that day, folded out of the stream because it carries nothing to read
+    | { kind: "head"; key: string; chunk: string; status: string; tone: ChunkTone; added: string }
     | {
           kind: "note";
           key: string;
           entry: FeedEntry;
           time: string;
-          marked: string;
+          mark: ChunkTone | null;
           head: string;
           body: string;
-          size: string;
       }
-    | { kind: "event"; key: string; entry: FeedEntry; time: string; text: string };
+    | { kind: "event"; key: string; entry: FeedEntry; time: string; text: string; mark: ChunkTone | null };
 
 /**
  * The feed as a reader scans it: a divider per local day, and inside a day one group per chunk, the groups
  * ordered by their newest entry. The stream interleaves chunks, so grouping is what stops every line from
- * needing its own chunk tag. Under "only" the chunk is already named, so no headings.
+ * needing its own chunk tag. Under "only" the chunk is already named, so no headings, and a chunk added
+ * stays a line of its own rather than folding into one.
  */
 export function feedGroups(
     feed: FeedEntry[],
@@ -228,14 +238,24 @@ export function feedGroups(
         const inDay = page.filter((e) => localDay(e.ts) === day);
         rows.push({ kind: "day", key: "day:" + day, label: dayLabel(inDay[0].ts, opts.now) });
         for (const chunk of [...new Set(inDay.map((e) => e.chunk))]) {
-            const items = inDay.filter((e) => e.chunk === chunk);
+            let items = inDay.filter((e) => e.chunk === chunk);
             if (opts.only == null) {
-                rows.push({ kind: "head", key: `head:${day}:${chunk}`, chunk, status: items[0].status });
+                const added = items.find((e) => e.kind === "chunk-added");
+                items = items.filter((e) => e.kind !== "chunk-added");
+                const status = (items[0] ?? added).status;
+                rows.push({
+                    kind: "head",
+                    key: `head:${day}:${chunk}`,
+                    chunk,
+                    status,
+                    tone: headTone(status),
+                    added: added != null ? clock(added.ts) : "",
+                });
             }
             for (const e of items) {
                 const key = String(e.seq);
                 if (isBookkeeping(e)) {
-                    rows.push({ kind: "event", key, entry: e, time: clock(e.ts), text: e.marked });
+                    rows.push({ kind: "event", key, entry: e, time: clock(e.ts), text: e.marked, mark: markTone(e) });
                     continue;
                 }
                 const body = noteBody(e);
@@ -244,10 +264,9 @@ export function feedGroups(
                     key,
                     entry: e,
                     time: clock(e.ts),
-                    marked: e.marked,
+                    mark: markTone(e),
                     head: headline(body),
                     body,
-                    size: kilo(body.length),
                 });
             }
         }
@@ -255,7 +274,6 @@ export function feedGroups(
     return { rows, left: Math.max(0, entries.length - opts.limit) };
 }
 
-// the size hint on a folded note
 export function kilo(n: number): string {
     return n < 1000 ? String(n) : (n / 1000).toFixed(1) + "k";
 }

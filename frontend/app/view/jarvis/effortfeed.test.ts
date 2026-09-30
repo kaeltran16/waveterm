@@ -221,28 +221,40 @@ describe("feedGroups", () => {
         expect(left).toBe(2);
     });
 
-    it("sets a chunk added and a bare status change as quiet lines, and keeps a status change with a note readable", () => {
+    it("folds a chunk added into its heading, and pills a status change whether or not it carries a note", () => {
         const feed = [
             entry(3, T + 3 * MIN, "A", { kind: "chunk-done", marked: "marked done", text: "Landed. Details follow." }),
             entry(2, T + 2 * MIN, "A", { kind: "chunk-status", marked: "marked active", text: "" }),
             added(1, T + MIN, "A"),
         ];
         const { rows } = feedGroups(feed, { only: null, limit: 25, now: T });
-        expect(shape(rows)).toEqual(["day Today", "head A", "note 3", "event 2", "event 1"]);
-        expect(rows[3]).toMatchObject({ text: "marked active", time: "09:07" });
-        expect(rows[4]).toMatchObject({ text: "chunk added" });
-        expect(rows[2]).toMatchObject({ marked: "marked done", head: "Landed.", size: "23" });
+        expect(shape(rows)).toEqual(["day Today", "head A", "note 3", "event 2"]);
+        expect(rows[1]).toMatchObject({ kind: "head", tone: "active", added: "09:06" });
+        expect(rows[2]).toMatchObject({ mark: "done", head: "Landed." });
+        expect(rows[3]).toMatchObject({ text: "marked active", time: "09:07", mark: "active" });
     });
 
-    it("heads each note with its first sentence and sizes the whole body", () => {
+    it("keeps a chunk added as its own line under one chunk, where no heading can carry it", () => {
+        const { rows } = feedGroups([entry(2, T + MIN, "A"), added(1, T, "A")], { only: "A", limit: 25, now: T });
+        expect(shape(rows)).toEqual(["day Today", "note 2", "event 1"]);
+        expect(rows[2]).toMatchObject({ text: "chunk added", mark: null });
+    });
+
+    it("heads a chunk whose only entry that day is its adding, with nothing under it", () => {
+        const { rows } = feedGroups([added(1, T, "A")], { only: null, limit: 25, now: T });
+        expect(shape(rows)).toEqual(["day Today", "head A"]);
+        expect(rows[1]).toMatchObject({ added: "09:05" });
+    });
+
+    it("heads each note with its first sentence and keeps the whole body to expand", () => {
         const body = "First. " + "x".repeat(1200);
         const { rows } = feedGroups([entry(0, T, "A", { text: body })], { only: null, limit: 25, now: T });
-        expect(rows[2]).toMatchObject({ kind: "note", head: "First.", size: "1.2k", body });
+        expect(rows[2]).toMatchObject({ kind: "note", head: "First.", body, mark: null });
     });
 
-    it("carries the chunk's status on its heading", () => {
+    it("carries the chunk's status on its heading, a removed chunk reading as skipped", () => {
         const { rows } = feedGroups([entry(0, T, "A", { status: "removed" })], { only: null, limit: 25, now: T });
-        expect(rows[1]).toMatchObject({ kind: "head", chunk: "A", status: "removed" });
+        expect(rows[1]).toMatchObject({ kind: "head", chunk: "A", status: "removed", tone: "skipped", added: "" });
     });
 });
 
