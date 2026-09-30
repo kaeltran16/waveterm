@@ -502,12 +502,7 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 			return err
 		}
 		// the verdict is durable; the tick that applies it can spawn a worker, which outlasts the reviewer's RPC budget
-		dagID := run.DagORef
-		go func() {
-			if err := orchestrate.Schedule(context.Background(), dagID); err != nil {
-				log.Printf("dag schedule after review verdict: %v", err)
-			}
-		}()
+		scheduleDag(run.DagORef)
 		return nil
 	case "planreview-pass", "planreview-fail", "planreview-accept":
 		var err error
@@ -528,11 +523,7 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 			handOffAfterPlanReview(ctx, dagID)
 		}
 		// the verdict is durable; the tick it clears dispatches the first layer, which outlasts the caller's RPC budget
-		go func() {
-			if err := orchestrate.Schedule(context.Background(), dagID); err != nil {
-				log.Printf("dag schedule after plan review: %v", err)
-			}
-		}()
+		scheduleDag(dagID)
 		return nil
 	case "final-pass", "final-fail":
 		// RunId is the verifier's own run, resolved from its terminal as `dag review` does
@@ -540,12 +531,7 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 			return err
 		}
 		// the tick announces the dag done, which totals the run's usage from every transcript
-		dagID := run.DagORef
-		go func() {
-			if err := orchestrate.Schedule(context.Background(), dagID); err != nil {
-				log.Printf("dag schedule after final verdict: %v", err)
-			}
-		}()
+		scheduleDag(run.DagORef)
 		return nil
 	case "final-end-unverified", "final-end-failed":
 		// the human's end: RunId is the orchestrator run, so no verifier run id is needed, and no tab is marked complete
@@ -557,12 +543,7 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 			return err
 		}
 		// the tick announces the dag done, or hands a failed stage to the lead
-		dagID := run.DagORef
-		go func() {
-			if err := orchestrate.Schedule(context.Background(), dagID); err != nil {
-				log.Printf("dag schedule after ending the final stage: %v", err)
-			}
-		}()
+		scheduleDag(run.DagORef)
 		return nil
 	case "amend":
 		return orchestrate.AmendTask(ctx, run.DagORef, data.TaskId, data.Notes)

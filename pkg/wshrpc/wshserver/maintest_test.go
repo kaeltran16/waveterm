@@ -54,6 +54,9 @@ func TestMain(m *testing.M) {
 	// Continuity capture opens the real vault + calls a model; keep it out of the package's run tests.
 	// The dedicated wiring test overrides this locally to observe the dispatch.
 	captureAsync = func(fn func()) {}
+	// a background tick can merge, run Setup and add worktrees in a fixture's temp repo while the test removes it
+	// (a2c2ca6e). Tests that need the tick run it themselves or record the poke.
+	scheduleDag = func(string) {}
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

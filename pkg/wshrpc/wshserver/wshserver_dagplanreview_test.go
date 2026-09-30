@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -219,17 +218,19 @@ func TestPlanReviewHandsOffOnlyOnceThePlanClears(t *testing.T) {
 			t.Fatalf("%s: %v", action, err)
 		}
 	}
-	// the action schedules in the background; wait for its tick so it does not outlive the test's temp dirs
-	awaitDispatch := func(t *testing.T, dagID string) {
-		t.Helper()
-		deadline := time.Now().Add(10 * time.Second)
-		for time.Now().Before(deadline) {
-			if g, err := wstore.GetDag(ctx, dagID); err == nil && g.Tasks[0].RunID != "" {
-				return
-			}
-			time.Sleep(20 * time.Millisecond)
+	// the action's tick runs inline, so it has finished before the action returns and never outlives the temp dirs
+	origSchedule := scheduleDag
+	scheduleDag = func(dagID string) {
+		if err := orchestrate.Schedule(ctx, dagID); err != nil {
+			t.Errorf("schedule %s: %v", dagID, err)
 		}
-		t.Fatal("the first task was never dispatched")
+	}
+	t.Cleanup(func() { scheduleDag = origSchedule })
+	assertDispatched := func(t *testing.T, dagID string) {
+		t.Helper()
+		if g, err := wstore.GetDag(ctx, dagID); err != nil || g.Tasks[0].RunID == "" {
+			t.Fatalf("the action's tick did not dispatch the first task (err %v)", err)
+		}
 	}
 
 	t.Run("a pass hands off; the submit and a failed round do not", func(t *testing.T) {
@@ -240,7 +241,7 @@ func TestPlanReviewHandsOffOnlyOnceThePlanClears(t *testing.T) {
 			t.Fatalf("a plan under review must not be handed off at submit, got %v", handed)
 		}
 		act(t, channelId, g.PlanReview.RunID, "planreview-pass")
-		awaitDispatch(t, g.OID)
+		assertDispatched(t, g.OID)
 		if want := []string{channelId + "/" + leadId}; !reflect.DeepEqual(handed, want) {
 			t.Fatalf("handoffs = %v, want %v", handed, want)
 		}
@@ -255,7 +256,7 @@ func TestPlanReviewHandsOffOnlyOnceThePlanClears(t *testing.T) {
 			t.Fatalf("a failed review goes back to the lead to revise, got handoffs %v", handed)
 		}
 		act(t, channelId, leadId, "planreview-accept")
-		awaitDispatch(t, g.OID)
+		assertDispatched(t, g.OID)
 		if want := []string{channelId + "/" + leadId}; !reflect.DeepEqual(handed, want) {
 			t.Fatalf("handoffs = %v, want %v", handed, want)
 		}

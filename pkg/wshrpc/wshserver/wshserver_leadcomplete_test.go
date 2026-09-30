@@ -87,12 +87,10 @@ func newLeadCompleteFixture(t *testing.T) *leadCompleteFixture {
 	f.git(t, "commit", "-m", "run t-1: task 1", "-m", jarvis.RunTrailerKey+": "+f.owner.ID+"-t-1")
 	f.write(t, ".waveterm/recovery/earlier-attempt-t-1.patch", "")
 
-	origSeal, origCapture, origSchedule := sealAsync, captureAsync, scheduleDag
+	origSeal, origCapture := sealAsync, captureAsync
 	sealAsync = func(fn func()) { f.seal = fn }
 	captureAsync = func(func()) {}
-	// the engine would spawn the fixture's t-1 in a worktree of the temp repo while the test removes it
-	scheduleDag = func(string) {}
-	t.Cleanup(func() { sealAsync, captureAsync, scheduleDag = origSeal, origCapture, origSchedule })
+	t.Cleanup(func() { sealAsync, captureAsync = origSeal, origCapture })
 	return f
 }
 
