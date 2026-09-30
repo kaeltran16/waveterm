@@ -1342,7 +1342,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     <SlidersHorizontal aria-hidden size={14} strokeWidth={1.8} />
                 </button>
                 <span aria-hidden className="mx-0.5 h-[18px] w-px flex-none bg-border" />
-                <NewInitiativeControl />
+                <NewInitiativeControl model={model} />
             </header>
             {/* both bands push the surface down, so height belongs in the animation rather than a cut */}
             <AnimatePresence initial={false}>

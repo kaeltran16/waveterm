@@ -131,6 +131,7 @@ export class AgentsViewModel implements ViewModel {
     newProjectOpenAtom = atom(false);
     newAgentOpenAtom = atom(false);
     newRunOpenAtom = atom(false);
+    newInitiativeOpenAtom = atom(false);
     paletteOpenAtom = atom(false);
 
     // handoff-parity filters + per-card layout (spec §State). Project scope is a single source bound to

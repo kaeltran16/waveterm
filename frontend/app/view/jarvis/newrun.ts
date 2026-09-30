@@ -104,18 +104,21 @@ export function initialPick(names: string[], remembered: string | null): string 
     return names.length === 1 ? names[0] : null;
 }
 
-export type NewRunPrefill = { projectName: string; goal: string; prototype: string };
+export type NewRunPrefill = { projectName: string; goal: string; shape: RunShape; prototype?: string };
 
-// What the window opens on when Build this… filled it: an orchestrator goal start, because a prototype only
-// rides an orchestrator run. The project is picked only if it is registered, as initialPick does.
+// What the window opens on when something filled it (a canvas's Build this…, the palette's Set up the run…):
+// a goal start in the prefill's shape, except that a prototype only rides an orchestrator run, so one that
+// came with a prototype is corrected to orchestrator. The project is picked only if it is registered, as
+// initialPick does.
 export function prefillToLaunch(
     prefill: NewRunPrefill,
     projectNames: string[]
-): { picked: string | null; shape: "orchestrator"; start: "goal"; goal: string; prototype: string } {
-    const { projectName, goal, prototype } = prefill;
+): { picked: string | null; shape: RunShape; start: "goal"; goal: string; prototype: string } {
+    const { projectName, goal } = prefill;
+    const prototype = prefill.prototype ?? "";
     return {
         picked: projectName !== "" && projectNames.includes(projectName) ? projectName : null,
-        shape: "orchestrator",
+        shape: prototype !== "" ? "orchestrator" : prefill.shape,
         start: "goal",
         goal,
         prototype,

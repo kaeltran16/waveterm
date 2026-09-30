@@ -249,6 +249,7 @@ describe("prefillToLaunch", () => {
     const prefill = {
         projectName: "waveterm",
         goal: "Build the design in C:/p/.superpowers/design/t/project (boards: Main)",
+        shape: "orchestrator" as const,
         prototype: "C:/p/.superpowers/design/t/project/Main.dc.html",
     };
 
@@ -274,5 +275,23 @@ describe("prefillToLaunch", () => {
 
     it("picks no project when the agent has none", () => {
         expect(prefillToLaunch({ ...prefill, projectName: "" }, ["waveterm", ""]).picked).toBeNull();
+    });
+
+    it("takes the shape from the prefill", () => {
+        expect(prefillToLaunch({ projectName: "p", goal: "g", shape: "quick" }, ["p"])).toMatchObject({
+            shape: "quick",
+            prototype: "",
+            picked: "p",
+        });
+    });
+
+    it("a prototype keeps the run an orchestrator run", () => {
+        expect(
+            prefillToLaunch({ projectName: "p", goal: "g", shape: "quick", prototype: "/x.html" }, ["p"]).shape
+        ).toBe("orchestrator");
+    });
+
+    it("an unregistered project is not picked", () => {
+        expect(prefillToLaunch({ projectName: "gone", goal: "g", shape: "orchestrator" }, ["p"]).picked).toBeNull();
     });
 });

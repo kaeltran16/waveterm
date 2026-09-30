@@ -77,10 +77,12 @@ import { ProjectPicker } from "./projectpickerview";
 
 // Module scope, not component state: NewRunModalHost unmounts the modal on close, so a project picked for
 // one launch was gone by the next one and every run started by re-picking the same project. Not persisted
-// — where you last started work is a convenience for the session, not a setting.
-const lastPickedProjectAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+// — where you last started work is a convenience for the session, not a setting. Exported for the palette,
+// which offers its launch rows in the same project.
+export const lastPickedProjectAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
-// What the next open of the window starts from, set by a canvas's Build this…; the window clears it once read.
+// What the next open of the window starts from, set by a canvas's Build this… or the palette's Set up the run…;
+// the window clears it once read.
 export const newRunPrefillAtom = atom<NewRunPrefill | null>(null) as PrimitiveAtom<NewRunPrefill | null>;
 
 const FIELD_LABEL = "font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-ink-mid";
