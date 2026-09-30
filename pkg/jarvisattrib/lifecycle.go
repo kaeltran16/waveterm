@@ -7,8 +7,10 @@ package jarvisattrib
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
@@ -219,18 +221,45 @@ func gatherLookups(ctx context.Context) (edgeLookups, []*waveobj.Run, error) {
 			if r.ProjectPath == "" || r.BaseCommit == "" || r.EndCommit == "" {
 				return nil
 			}
-			cs, err := gitinfo.RangeLog(ctx, r.ProjectPath, r.BaseCommit, r.EndCommit)
-			if err != nil {
-				return nil
-			}
-			out := make([]string, len(cs))
-			for i, c := range cs {
-				out[i] = c.Subject
-			}
-			return out
+			return rangeSubjects(ctx, r.ProjectPath, r.BaseCommit, r.EndCommit)
 		},
 	}
 	return lk, runs, nil
+}
+
+// subjectsCache holds each commit range's subjects for the life of the process. base and end are SHAs, so a range
+// never changes, and without it every EdgesFor re-shelled a git log per stored run: 5-10 s on a real profile, past
+// the 5 s RPC budget, which left the record peek saying no session was ever attributed.
+var subjectsCache = struct {
+	sync.Mutex
+	m map[string][]string
+}{m: map[string][]string{}}
+
+func rangeSubjects(ctx context.Context, path, base, end string) []string {
+	key := path + "\x00" + base + "\x00" + end
+	subjectsCache.Lock()
+	cs, ok := subjectsCache.m[key]
+	subjectsCache.Unlock()
+	if ok {
+		return cs
+	}
+	// most stored runs worked in a temp dir that is gone by now, and a git spawn per one of those was most of the cost
+	if _, err := os.Stat(path); err != nil {
+		return nil
+	}
+	commits, err := gitinfo.RangeLog(ctx, path, base, end)
+	if err != nil {
+		// not cached: the repo may be busy or gone for now, and a later call should try again
+		return nil
+	}
+	cs = make([]string, len(commits))
+	for i, c := range commits {
+		cs[i] = c.Subject
+	}
+	subjectsCache.Lock()
+	subjectsCache.m[key] = cs
+	subjectsCache.Unlock()
+	return cs
 }
 
 // memoizeCommits wraps a lookups' commit resolver in a per-run cache. AllEdges runs the extractors over

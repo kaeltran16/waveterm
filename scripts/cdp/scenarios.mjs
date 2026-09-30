@@ -649,11 +649,44 @@ const briefSurface = {
 // extension), because nothing on the Brief itself names a record: the Behind-you rows open runs, channels
 // and initiatives, and the queue's rows address channels, runs and scan reports. So this drives that path.
 // A profile with zero records fails step 2 with that stated in the detail rather than passing vacuously —
-// read it as an environment gap, not a regression.
+// read it as an environment gap, not a regression. A fresh store (the Final stage's) has no run for any record to
+// attribute, so the arrange creates one: CreateRun captures a dossier that references it, and records list newest
+// first, so that dossier is the first row step 2 opens. Held by deferstart, the run spawns nothing.
+const BRIEF_PEEK_GOAL = "verify brief-peek: an attributed run, do nothing";
+// the record CreateRun captures for that goal: jarvisdossier names it by the goal's slug
+const BRIEF_PEEK_RECORD = "verify-brief-peek-an-attributed-run-do-nothing";
+
 const briefPeek = {
     name: "brief-peek",
     surface: "jarvis",
     async arrange(h) {
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-brief-peek-")) };
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-brief-peek", projectpath: ctx.cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: BRIEF_PEEK_GOAL,
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            // the capture names the record by its goal's slug, so a later run finds it already there and its capture
+            // fails ("already exists"): attach this run to the record explicitly
+            await h.rpc("acceptdossieredge", { dossierid: BRIEF_PEEK_RECORD, runoref: `run:${ctx.runId}` });
+            // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
         // the peek is session state, so a scenario that left one open would fail this one's first step.
         // Start from the state the scenario asserts into existence rather than from whatever ran before.
         await h.goto("jarvis");
@@ -661,9 +694,9 @@ const briefPeek = {
             `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
         );
         await h.ev("new Promise((r) => setTimeout(r, 400))");
-        return {};
+        return ctx;
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const steps = [];
         await h.goto("jarvis");
         await h.ev("new Promise((r) => setTimeout(r, 700))");
@@ -699,7 +732,12 @@ const briefPeek = {
             row.click();
             return { ok: true, why: label };
         })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 900))");
+        // the record's detail loads after the peek opens, so wait for its status toggle rather than a fixed sleep
+        await h.ev(`(async () => {
+            for (let i = 0; i < 40 && !document.querySelector('[data-jarvis-brief-band="peek"] [data-jarvis-peek-status-toggle]'); i++) {
+                await new Promise((r) => setTimeout(r, 250));
+            }
+        })()`);
         const peek = await h.ev(`(() => {
             const band = document.querySelector('[data-jarvis-brief-band="peek"]');
             if (!band) return null;
@@ -708,7 +746,7 @@ const briefPeek = {
                 text: text.slice(0, 400),
                 fleet: /fleet/i.test(text),
                 // updated, never a freshness word: a record carries no freshness reading
-                updated: /updated .+ ago|never updated/.test(text),
+                updated: /updated (just now|.+ ago)|never updated/.test(text),
                 fresh: /\\bFresh\\b/.test(text),
                 statusToggle: !!band.querySelector("[data-jarvis-peek-status-toggle]"),
             };
@@ -737,9 +775,22 @@ const briefPeek = {
         // body. Not every record has one, so walk the Records rows the way the retired attribution scenario
         // walked the subjects column, until one opens a peek that lists a session.
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
-        let runRowId = await h.ev(
-            `(() => { const b = document.querySelector('[data-jarvis-peek-run]'); return b ? b.dataset.jarvisPeekRun : null; })()`
-        );
+        // the peek lists its runs only after ResolveFocusScope returns, which reads each stored run's commit range
+        // (about a second cold), so give the seeded record time before walking on
+        let runRowId = await h.ev(`(async () => {
+            for (let i = 0; i < 40; i++) {
+                const b = document.querySelector('[data-jarvis-peek-run]');
+                if (b) return b.dataset.jarvisPeekRun;
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            return null;
+        })()`);
+        const firstPeek =
+            runRowId == null
+                ? await h.ev(
+                      `(document.querySelector('[data-jarvis-brief-band="peek"]')?.innerText || "").replace(/\\s+/g, " ").slice(0, 300)`
+                  )
+                : "";
         let tried = 1;
         for (let attempt = 1; attempt < 6 && runRowId == null; attempt++) {
             await h.ev(
@@ -773,7 +824,7 @@ const briefPeek = {
             steps.push({
                 step: "3. the peek's attributed run opens the run's sheet",
                 ok: false,
-                detail: `no attributed run in the first ${tried} records — seed one before reading this as a pass`,
+                detail: `no attributed run in the first ${tried} records — seed one before reading this as a pass${ctx.arrangeError ? `; seeding failed: ${ctx.arrangeError}` : ""}; first peek: ${firstPeek}`,
             });
         } else {
             await h.ev(`document.querySelector('[data-jarvis-peek-run]').click()`);
@@ -857,7 +908,24 @@ const briefPeek = {
         });
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
+        // best-effort, so one failed step does not strand the rest; the run's dossier stays in the vault
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`brief-peek teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        // detached, so the record keeps one run ref across runs rather than growing one per run
+        if (ctx?.runId) {
+            await step("detach the run from the record", () =>
+                h.rpc("detachdossieredge", { dossierid: BRIEF_PEEK_RECORD, runoref: `run:${ctx.runId}` })
+            );
+            await step("cancel the run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId }));
+        }
+        if (ctx?.channelId) await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
+        if (ctx?.cwd) await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
         await h.goto("cockpit");
     },
 };

@@ -3,6 +3,10 @@ package jarvisattrib
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
@@ -184,4 +188,40 @@ func mustOverrides(t *testing.T, v *wavevault.Vault) map[string]string {
 		t.Fatalf("readOverrides: %v", err)
 	}
 	return ov
+}
+
+func TestRangeSubjectsKeepsARangeOnceReadAndRetriesAFailedOne(t *testing.T) {
+	repo := t.TempDir()
+	gitIn := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	gitIn("init", "-q")
+	gitIn("commit", "-q", "--allow-empty", "-m", "base")
+	base := gitIn("rev-parse", "HEAD")
+	gitIn("commit", "-q", "--allow-empty", "-m", "PROJ-7 add the thing")
+	end := gitIn("rev-parse", "HEAD")
+	ctx := context.Background()
+
+	moved := filepath.Join(t.TempDir(), "moved")
+	if got := rangeSubjects(ctx, moved, base, end); got != nil {
+		t.Fatalf("a range in a missing repo = %v, want nil", got)
+	}
+	if err := os.Rename(repo, moved); err != nil {
+		t.Fatal(err)
+	}
+	if got := rangeSubjects(ctx, moved, base, end); len(got) != 1 || got[0] != "PROJ-7 add the thing" {
+		t.Fatalf("subjects once the repo is there = %v, want the commit's", got)
+	}
+	// the range cannot change, so it is answered without git once read, even with the repo gone
+	if err := os.RemoveAll(filepath.Join(moved, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if got := rangeSubjects(ctx, moved, base, end); len(got) != 1 {
+		t.Fatalf("subjects after the repo was removed = %v, want the cached one", got)
+	}
 }
