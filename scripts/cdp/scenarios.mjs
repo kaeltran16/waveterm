@@ -5994,6 +5994,10 @@ const agentTreeRail = {
             return {
                 strip: lead?.querySelector("[role=img]")?.getAttribute("aria-label") ?? null,
                 workersChip: lead?.querySelector('button[aria-label="Hide workers"]')?.textContent.trim() ?? null,
+                progress: (() => {
+                    const s = lead?.querySelector("span.truncate.text-muted");
+                    return s ? { text: s.textContent.trim(), clipped: s.scrollWidth > s.clientWidth } : null;
+                })(),
                 worker: !!worker,
                 workerGuides: guides(worker),
                 sub: !!sub,
@@ -6001,8 +6005,12 @@ const agentTreeRail = {
             };
         })()`);
         rec(
-            "7. the lead's run line carries its workers chip and the task strip",
-            nested != null && /^\d+ of 3 tasks done/.test(nested.strip ?? "") && /workers?$/.test(nested.workersChip ?? ""),
+            "7. the lead's run line carries its workers chip, unclipped progress and the task strip",
+            nested != null &&
+                /^\d+ of 3 tasks done/.test(nested.strip ?? "") &&
+                /workers?$/.test(nested.workersChip ?? "") &&
+                nested.progress != null &&
+                !nested.progress.clipped,
             JSON.stringify(nested)
         );
         rec(

@@ -377,7 +377,13 @@ function ParentRow({
                     {renaming ? (
                         <RenameBox tabId={agent.id} />
                     ) : (
-                        <div className="truncate text-[13px] font-medium text-ink-hi">{agent.name}</div>
+                        <div className="flex min-w-0 items-center gap-[6px]">
+                            <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-hi">
+                                {agent.name}
+                            </div>
+                            {/* a lead's second line holds its workers chip and progress, which need its full width */}
+                            {lead ? subsChip : null}
+                        </div>
                     )}
                     {lead ? (
                         <RunSubline run={lead.run} open={lead.open} live={lead.live} />
@@ -388,8 +394,6 @@ function ParentRow({
                         </div>
                     )}
                 </div>
-                {/* a lead's second line holds its workers chip, so its subagents chip stays at the row's end */}
-                {lead ? subsChip : null}
                 <CanvasTag id={agent.id} />
                 {/* a row names its state only when it wants something; the dot already says working or idle */}
                 {review ? (
