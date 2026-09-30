@@ -94,6 +94,7 @@ export type TrackerEdits = {
     onAddChunk: (label: string, stage: string, runAt: number | null) => void;
     onRename: (title: string) => void;
     onDetails: () => void;
+    onActivity: () => void;
     onTogglePause: () => void;
     onArchive: () => void;
     onUnarchive: () => void;
@@ -751,6 +752,7 @@ function TrackerFooter({
                 <span className="ml-auto flex items-center gap-1.5">
                     {action("rename", "rename", () => edits.onRename(edits.title))}
                     {action("details", "details", edits.onDetails)}
+                    {action("activity", "activity", edits.onActivity)}
                     {archived
                         ? action("unarchive", "unarchive", edits.onUnarchive)
                         : action("pause", edits.effortStatus === "paused" ? "resume" : "pause", edits.onTogglePause)}

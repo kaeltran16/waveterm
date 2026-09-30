@@ -41,7 +41,7 @@ import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom, type Atom, type PrimitiveAtom } from "jotai";
-import { Copy, Search, SlidersHorizontal, X } from "lucide-react";
+import { ArrowUpRight, Copy, Search, SlidersHorizontal, X } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig, type Variants } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AutonomyLadder } from "./autonomyladderview";
@@ -379,16 +379,23 @@ function NoMatch() {
 // `wsh effort` call, a message to someone. The row is a button, so neither could be dragged out of it:
 // a mousedown inside a button starts a click, not a text selection. The expanded detail's id line
 // (inlinetrackerview) copies the bare id for the same reason.
-function showInitiativeMenu(line: BriefLine, ev: React.MouseEvent): void {
+// A left click expands the row, so the activity sheet is opened from here instead.
+function showInitiativeMenu(line: BriefLine, ev: React.MouseEvent, openActivity: (oref: string) => void): void {
     const target = line.target;
     const oid = target != null && "oref" in target ? target.oref.replace(/^effort:/, "") : "";
-    const items: ContextMenuItem[] = [
-        {
-            label: "Copy name",
-            icon: <Copy size={15} />,
-            click: () => void navigator.clipboard.writeText(line.title),
-        },
-    ];
+    const items: ContextMenuItem[] = [];
+    if (oid !== "") {
+        items.push({
+            label: "Open activity",
+            icon: <ArrowUpRight size={15} />,
+            click: () => openActivity("effort:" + oid),
+        });
+    }
+    items.push({
+        label: "Copy name",
+        icon: <Copy size={15} />,
+        click: () => void navigator.clipboard.writeText(line.title),
+    });
     if (oid !== "") {
         items.push({
             label: "Copy handle",
@@ -911,6 +918,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 ),
             onRename: (title) => setRenamingTitle(title),
             onDetails: () => setDetailsOpen(true),
+            onActivity: () => fireAndForget(() => openAddress(model, oref)),
             onTogglePause: () => {
                 const next = status === "paused" ? "active" : "paused";
                 runMutation(() => setEffortStatus(oref, next));
@@ -928,7 +936,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 briefUndo.schedule([effortKey(oref)], `Deleted “${openEffort.title}”`, () => deleteEffort(oref));
             },
         };
-    }, [openEffortORef, openEffort, planChunks, pendingDeletes, runMutation, setOpenInitiative]);
+    }, [model, openEffortORef, openEffort, planChunks, pendingDeletes, runMutation, setOpenInitiative]);
 
     // Alt+↑/↓: published only while the cursor sits on a chunk of the open plan
     const setChunkMove = useSetAtom(chunkMoveAtom);
@@ -1557,7 +1565,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                         void workOnInitiative(model, c);
                                                                     }
                                                                 }}
-                                                                onContextMenu={(ev) => showInitiativeMenu(l, ev)}
+                                                                onContextMenu={(ev) =>
+                                                                    showInitiativeMenu(l, ev, (oref) =>
+                                                                        openLine({ oref })
+                                                                    )
+                                                                }
                                                                 onOpen={() => {
                                                                     setCursor(l.id);
                                                                     toggleInitiative(l.id);
