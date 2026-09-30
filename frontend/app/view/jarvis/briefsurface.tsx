@@ -151,7 +151,7 @@ import {
     noteChunkAtom,
     readingNoteAtom,
 } from "./jarvisstore";
-import { clearSubject, persistedSubjectAtom, stageRunAtom } from "./jarvissubjectstore";
+import { clearSubject, persistedSubjectAtom, setComposingRun, stageRunAtom } from "./jarvissubjectstore";
 import { NewInitiativeControl } from "./newinitiativecontrol";
 import { radarDraftLanding } from "./newrun";
 import { NewRunControl } from "./newruncontrol";
@@ -542,6 +542,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         fireAndForget(async () => {
             try {
                 const oid = landing.kind === "existing" ? landing.oid : await createChannel(landing.name, landing.path);
+                // composing, as New run does: otherwise a channel with any past run opens on that run's
+                // report, and the launcher holding the draft is one click away and looks like nothing happened
+                setComposingRun(oid, true);
                 await openChannelSheet(oid, null);
             } catch (e) {
                 pushToast({ title: "Couldn't open the investigation's project", message: String(e), level: "error" });

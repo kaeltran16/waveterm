@@ -7021,6 +7021,74 @@ const modelPicks = {
         await h.ev(PEEKS_ESC).catch(() => {});
         await teardownFixtureRun(h, ctx, "model-picks");
     },
+// --- radar-start-investigation: the draft lands on the launcher, not on a past run -----------------
+// Start investigation hands the finding to its project's channel sheet. With a run selected in that channel
+// (one the user had looked at, or a live one) the sheet opened on that run's report and the launcher holding
+// the draft sat behind New run, so the button read as doing nothing. Selecting a past run first is that case.
+const radarStartInvestigation = {
+    name: "radar-start-investigation",
+    surface: "jarvis",
+    async arrange(h) {
+        const norm = (p) => (p || "").replace(/\\/g, "/").replace(/\/+$/, "");
+        const reports = (await h.rpc("listradarreports", { projectpath: "" }))?.reports ?? [];
+        const channels = (await h.rpc("getchannels", null))?.channels ?? [];
+        for (const r of reports) {
+            const finding = (r.findings ?? []).find((f) => f.investigation?.status !== "executing");
+            // the landing resolves the FIRST channel on the project, so the past run has to come from that one
+            const channel = channels.find((c) => norm(c.projectpath) === norm(r.projectpath));
+            if (!finding || !channel) continue;
+            const runs = (await h.rpc("getchannelruns", { channelid: channel.oid }))?.runs ?? [];
+            if (runs.length === 0) continue;
+            return { reportId: r.oid, findingId: finding.id, mission: finding.mission, runId: runs[0].id };
+        }
+        return { reportId: null };
+    },
+    async assert(h, ctx) {
+        const step = "1. Start investigation opens the launcher holding the draft, over a selected past run";
+        if (!ctx.reportId) {
+            return [skipStep(step, "no radar finding whose project channel has a run - scan a project with runs")];
+        }
+        const open = async (address, hint) => {
+            await h.goto("jarvis");
+            await polishWaitFor(h, `typeof window.__openAddress === 'function'`, 5000);
+            return h.ev(`window.__openAddress(${JSON.stringify(address)}, ${JSON.stringify(hint ?? null)})`);
+        };
+        const ranOpen = await open(`run:${ctx.runId}`);
+        await polishNap(1500);
+        const radarOpen = await open(`radarreport:${ctx.reportId}`, { sourceType: "radar", anchor: ctx.findingId });
+        const detail = `[data-radar-finding-detail="${ctx.findingId}"]`;
+        await polishWaitFor(h, `!!document.querySelector(${JSON.stringify(detail)})`, 8000);
+        const clicked = await h.ev(`(() => {
+            const b = [...document.querySelectorAll(${JSON.stringify(`${detail} button`)})]
+                .find((x) => /^(Start investigation|Investigate again)/.test((x.textContent || '').trim()));
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        const want = (ctx.mission || "").slice(0, 40);
+        const landed = await polishWaitFor(
+            h,
+            `[...document.querySelectorAll('[data-jarvis-brief-sheet="channel"] input, [data-jarvis-brief-sheet="channel"] textarea')]
+                .some((x) => x.value.startsWith(${JSON.stringify(want)}))`,
+            8000
+        );
+        const runFace = await h.ev(`!!document.querySelector('[data-jarvis-brief-sheet-face="settings"]')`);
+        const surface = await h.activeSurfaceLabel();
+        await h.shot("cdp-shots/radar-start-investigation.png");
+        return [
+            {
+                step,
+                ok: ranOpen?.ok === true && clicked && landed && !runFace && surface === SURFACE_LABEL.jarvis,
+                detail: JSON.stringify({ ranOpen, radarOpen, clicked, landed, runFace, surface }),
+            },
+        ];
+    },
+    // the draft and the channel's composing flag outlive the sheet by design; a reload drops both
+    async teardown(h) {
+        await polishReload(h);
+    },
+};
+
 };
 
 export const SCENARIOS = [
@@ -7053,6 +7121,7 @@ export const SCENARIOS = [
     jarvisMotion,
     // before brief-inline-tracker, which leaves a briefing fixture on over the seeded data
     briefDesignParity,
+    radarStartInvestigation,
     briefInlineTracker,
     resourceLinking,
     uiApi,
