@@ -82,6 +82,38 @@ export function buildExtraItems(deps: ExtraDeps): CommandItem[] {
     ];
 }
 
+export type StartId = "run" | "agent" | "initiative";
+
+export interface StartDef {
+    id: StartId;
+    title: string;
+    meta?: string;
+    echo: string;
+    binding: string; // the registry binding this row stands in for
+}
+
+// The Start group: opening a creation window is a row on every surface, not a surface-local key. Each row
+// stands in for a registry binding, which Commands leaves out so one action is not listed twice; a Global
+// binding lends the row its chord, a surface-local one works only there so lends none.
+export const START_DEFS: StartDef[] = [
+    {
+        id: "run",
+        title: "New run…",
+        meta: "goal or plan file, workers, models",
+        echo: "Opens the New run window",
+        binding: "jarvis:new-run",
+    },
+    { id: "agent", title: "New agent…", echo: "Opens the New agent window", binding: "new-agent" },
+    {
+        id: "initiative",
+        title: "New initiative…",
+        echo: "Opens the new initiative form",
+        binding: "jarvis:new-initiative",
+    },
+];
+
+export const START_BINDINGS = new Set(START_DEFS.map((d) => d.binding));
+
 // the registry group holding a surface's own bindings
 const SURFACE_GROUP: Partial<Record<SurfaceKey, string>> = {
     cockpit: "Cockpit",

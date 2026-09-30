@@ -1,10 +1,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// The universal search — Ctrl+P on every surface. One overlay with visible scopes (All, Go to, Agents,
-// Runs, Sessions, Records, Projects, Files, Commands): Tab walks them, and the old sigils still work
-// by becoming the chip. In All, text that names something opens it and text that names nothing is a
-// goal the launch rows start. Code's own file finder folded in as the Files scope, preselected there.
+// The universal search — Ctrl+P on every surface. One overlay with visible scopes (All, Needs you, Go to,
+// Agents, Runs, Sessions, Records, Projects, Files, Commands): Tab walks them, and a typed prefix ("r:")
+// or one of the old sigils narrows to one from an empty All. In All, text that names something opens it
+// and text that names nothing is a goal the launch rows start. Code's own file finder folded in as the
+// Files scope, preselected there.
 // This is the ONE palette: a new findable kind is a new entry source here, never a second overlay or a
 // second shortcut. The rules live in the pure palette-*.ts modules; this file wires sources to them.
 
@@ -14,14 +15,19 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { bindingsAtom } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
+import { answerAgentAsk } from "@/app/view/agents/askanswer";
+import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { sendChannelMessage } from "@/app/view/agents/channelactions";
-import { activeChannelAtom, activeChannelRunsAtom, channelsAtom } from "@/app/view/agents/channelsstore";
+import { activeChannelAtom, channelsAtom, primeChannels } from "@/app/view/agents/channelsstore";
+import { docReviewAtom } from "@/app/view/agents/docreview";
 import { activeFocusAtom, enterFocusFor, exitFocus, focusesAtom, loadFocuses } from "@/app/view/agents/focusstore";
 import type { Runtime } from "@/app/view/agents/launch";
 import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectlabel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { createRun, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
+import type { RunShape } from "@/app/view/agents/runconfig";
 import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
+import { openRunDag } from "@/app/view/agents/runrailsections";
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
 import { recentPaths } from "@/app/view/code/codehistory";
@@ -36,12 +42,13 @@ import {
 } from "@/app/view/code/codestore";
 import { buildBriefIndex, rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
 import { workOnInitiative } from "@/app/view/jarvis/initiativeworkaction";
+import { lastPickedProjectAtom, newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
 import { openAddress, openTarget } from "@/app/view/jarvis/openref";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { sameRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtomValue } from "jotai";
-import { Search } from "lucide-react";
+import { useAtomValue, type PrimitiveAtom } from "jotai";
+import { Eye, Flag, GitFork, Search, SlidersHorizontal, SquareTerminal, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { runPaletteAction } from "./palette-action";
 import {
@@ -51,7 +58,11 @@ import {
     commandGroups,
     GOTO_GROUP,
     postCloseContext,
+    START_BINDINGS,
+    START_DEFS,
+    type StartId,
 } from "./palette-commands";
+import { allRunsAtom, loadAllRuns, palettePickChannel } from "./palette-data";
 import { loadPaletteEntities, mergeRanked, paletteEffortsAtom } from "./palette-entities";
 import { assembleFileGroups, fileEcho } from "./palette-files";
 import { buildFocusItems } from "./palette-focus";
@@ -60,6 +71,7 @@ import {
     assembleAllGroups,
     assembleScopeGroups,
     capGroups,
+    groupByKind,
     MAX_IN_ALL,
     MAX_IN_SCOPE,
     type GroupKind,
@@ -68,16 +80,26 @@ import {
 import { buildLaunchItems, type LaunchDeps } from "./palette-launch";
 import { rankPaletteItems } from "./palette-match";
 import { MAX_RECENT, nextMru, paletteMruAtom, recentItems, sortByMru } from "./palette-mru";
+import {
+    inlineSelections,
+    NEEDS_GROUP_LABELS,
+    needsGroups,
+    needsRows,
+    needsTarget,
+    type NeedsRow,
+    type NeedsTarget,
+} from "./palette-needs";
 import { PaletteGroupView, type PaletteItem, type StatusTone } from "./palette-rows";
 import {
     backspaceEmpty,
     cycleScope,
     DRILL_LABELS,
-    DRILL_PLACEHOLDERS,
+    ghostHint,
     initialNav,
     openDrill,
     parseProjectLaunch,
     pickScope,
+    placeholderFor,
     resolveChannelToken,
     scopeDef,
     SCOPES,
@@ -88,6 +110,44 @@ import {
 } from "./palette-scope";
 
 type CommandRow = PaletteItem & { group: string };
+
+const START_ICONS: Record<StartId, LucideIcon> = { run: SlidersHorizontal, agent: SquareTerminal, initiative: Flag };
+
+// the attention kind as the one word a Needs you row's status shows
+const NEEDS_STATUS: Record<string, string> = {
+    ask: "asking",
+    escalation: "escalated",
+    gate: "gate",
+    "dag-gate": "gate",
+    "dag-blocked": "blocked",
+    "run-land-held": "land held",
+    "run-unverified": "unverified",
+};
+
+function needsIcon(row: NeedsRow): LucideIcon {
+    if (row.agent == null) {
+        return GitFork;
+    }
+    return row.review ? Eye : SquareTerminal;
+}
+
+function needsEcho(row: NeedsRow, t: NeedsTarget | null): string {
+    const name = row.agent?.name ?? "";
+    switch (t?.kind) {
+        case "agent":
+            return `Opens ${name}’s terminal at its question`;
+        case "review":
+            return `Opens ${name}’s review`;
+        case "dag":
+            return "Opens the run’s task graph";
+        case "run":
+            return "Opens the run in Jarvis";
+        case "channel":
+            return row.item.channelname ? `Opens #${row.item.channelname} in Jarvis` : "Opens its project in Jarvis";
+        default:
+            return "Nothing to open from here";
+    }
+}
 
 // the kinds each narrowed scope lists, in the order its groups show
 const SCOPE_KINDS: Partial<Record<ScopeId, GroupKind[]>> = {
@@ -120,7 +180,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const sessions = useAtomValue(sessionsArchiveAtom);
     const channel = useAtomValue(activeChannelAtom);
     const channels = useAtomValue(channelsAtom);
-    const runs = useAtomValue(activeChannelRunsAtom);
+    const runs = useAtomValue(allRunsAtom);
+    const attention = useAtomValue(attentionAtom);
+    const lastPicked = useAtomValue(lastPickedProjectAtom);
     const projects = useAtomValue(projectsAtom);
     const spaces = useAtomValue(focusesAtom);
     const activeSpace = useAtomValue(activeFocusAtom);
@@ -161,8 +223,21 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             // records / initiatives: re-read per open (as loadFocuses does) so archiving one in
             // the Jarvis surface is reflected the next time the palette is asked to find it.
             loadPaletteEntities();
+            // only Jarvis loads the channel list, so a palette opened first thing elsewhere had no project to
+            // start in and no runs; primeChannels, not loadChannels, which also selects a channel
+            fireAndForget(primeChannels);
         }
     }, [open]);
+
+    // every project's runs: nothing else keeps them, so the palette fans out per open once channels are in
+    useEffect(() => {
+        if (open && channels != null) {
+            fireAndForget(() => loadAllRuns(channels));
+        }
+    }, [open, channels]);
+
+    // the active project, else the one last started in, else the only one
+    const homeChannel = palettePickChannel(channel, channels, lastPicked, (c) => channelProjectLabel(c, projects));
 
     // Each open starts fresh on the surface's own scope, and focuses the input after paint.
     useEffect(() => {
@@ -181,11 +256,11 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         if (surface === "code" && codeProject != null) {
             return codeProject;
         }
-        if (channel?.projectpath) {
-            return { name: channelProjectLabel(channel, projects), path: channel.projectpath };
+        if (homeChannel?.projectpath) {
+            return { name: channelProjectLabel(homeChannel, projects), path: homeChannel.projectpath };
         }
         return null;
-    }, [surface, codeProject, channel, projects]);
+    }, [surface, codeProject, homeChannel, projects]);
     const codeOwnsTarget = codeProject != null && fileTarget != null && sameRepoPath(codeProject.path, fileTarget.path);
     const needFileLoad = open && nav.scope === "files" && fileTarget != null && !(codeOwnsTarget && codeIndex != null);
     useEffect(() => {
@@ -283,7 +358,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 },
             }));
         const commands: CommandRow[] = all
-            .filter((c) => c.group !== GOTO_GROUP)
+            .filter((c) => c.group !== GOTO_GROUP && !START_BINDINGS.has(c.key))
             .map((c) => {
                 const drill = c.drill;
                 return {
@@ -308,6 +383,29 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         return { gotoItems: goto, commandItems: commands };
     }, [bindings, surface, model, themeItems.length, focusItems.length]);
 
+    const startItems = useMemo<PaletteItem[]>(() => {
+        const opens: Record<StartId, PrimitiveAtom<boolean>> = {
+            run: model.newRunOpenAtom,
+            agent: model.newAgentOpenAtom,
+            initiative: model.newInitiativeOpenAtom,
+        };
+        return START_DEFS.map((d) => ({
+            key: `start:${d.id}`,
+            kind: "start" as const,
+            search: d.title,
+            title: d.title,
+            icon: START_ICONS[d.id],
+            meta: d.meta,
+            chord: bindings.find((b) => b.id === d.binding && b.group === "Global")?.keys,
+            verb: "Open",
+            echo: d.echo,
+            run: () => {
+                close();
+                globalStore.set(opens[d.id], true);
+            },
+        }));
+    }, [bindings, model]);
+
     const agentItems = useMemo<PaletteItem[]>(
         () =>
             agents.map((a) => {
@@ -331,27 +429,127 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         [agents, model]
     );
 
-    const runItems = useMemo<PaletteItem[]>(
-        () =>
-            runs.map((r) => {
-                const view = runStatusView(r.status);
-                const title = r.goal || "(untitled run)";
-                return {
-                    key: `run:${r.id}`,
-                    kind: "run" as const,
-                    search: title,
-                    title,
-                    status: { label: runStatusLabel(r, view.label), tone: runTone(view.tone) },
-                    verb: "Open",
-                    echo: "Opens the run in Jarvis",
-                    run: () => {
-                        fireAndForget(() => openTarget(model, { kind: "run", runId: r.id }));
-                        close();
+    // every project's runs, so each row names its project
+    const runItems = useMemo<PaletteItem[]>(() => {
+        const labels = new Map((channels ?? []).map((c) => [c.oid, channelProjectLabel(c, projects)]));
+        return runs.map(({ channelId, run: r }) => {
+            const view = runStatusView(r.status);
+            const title = r.goal || "(untitled run)";
+            const label = labels.get(channelId);
+            return {
+                key: `run:${r.id}`,
+                kind: "run" as const,
+                search: title,
+                title,
+                status: { label: runStatusLabel(r, view.label), tone: runTone(view.tone) },
+                meta: label ? `#${label}` : undefined,
+                verb: "Open",
+                echo: "Opens the run in Jarvis",
+                run: () => {
+                    fireAndForget(() => openTarget(model, { kind: "run", runId: r.id }));
+                    close();
+                },
+            };
+        });
+    }, [runs, channels, projects, model]);
+
+    // --- Needs you ---------------------------------------------------------------------------------
+    const needs = useMemo(() => needsRows(attention, agents), [attention, agents]);
+    const needsGrouped = useMemo(() => needsGroups(needs), [needs]);
+    const needsByKey = useMemo(() => new Map(needs.map((r) => [`needs:${r.item.key}`, r])), [needs]);
+
+    // Enter's landing for a Needs you row; an item that names nowhere keeps the palette open
+    const openNeeds = (t: NeedsTarget | null) => {
+        switch (t?.kind) {
+            case "agent":
+                model.openTerminal(t.agentId);
+                break;
+            case "review":
+                // as the Agent surface's Review binding: the agent, with its review dialog open
+                model.openTerminal(t.agentId);
+                globalStore.set(docReviewAtom, t.agentId);
+                break;
+            case "dag":
+                // openRunDag reads only the dag's oid off the run's dag
+                openRunDag(
+                    model,
+                    {
+                        runId: t.runId,
+                        channelId: t.channelId,
+                        title: "",
+                        project: "",
+                        dag: { oid: t.dagId } as TaskGroup,
                     },
-                };
-            }),
-        [runs, model]
-    );
+                    t.taskId
+                );
+                break;
+            case "run":
+                fireAndForget(() => openTarget(model, { kind: "channel", channelId: t.channelId, runId: t.runId }));
+                break;
+            case "channel":
+                fireAndForget(() => openTarget(model, { kind: "channel", channelId: t.channelId }));
+                break;
+            default:
+                return;
+        }
+        close();
+    };
+
+    // A digit answers through the Cockpit's own send; one it cannot send opens the agent at its question
+    // rather than guessing.
+    const answerNeeds = (row: NeedsRow, digit: number) => {
+        const agentId = row.agent!.id;
+        const selections = inlineSelections(row, digit - 1);
+        if (selections == null || !answerAgentAsk(model, agentId, selections, {})) {
+            model.openTerminal(agentId);
+        }
+        close();
+    };
+
+    // In the Needs you scope Enter opens a row and digits answer it. On All's empty screen typed digits are
+    // query text, so an ask with options answers by first going to the scope with that ask selected.
+    const needsItems = useMemo(() => {
+        const order = needsGrouped.flatMap((g) => g.rows);
+        const item = (row: NeedsRow): PaletteItem => {
+            const a = row.agent;
+            const t = needsTarget(row);
+            const title = a != null ? (a.task ? `${a.name} — ${a.task}` : a.name) : row.item.text;
+            const sub = a != null ? a.ask?.questions?.[0]?.question?.split("\n")[0] : row.item.source;
+            const meta = row.item.channelname ? `#${row.item.channelname}` : undefined;
+            return {
+                key: `needs:${row.item.key}`,
+                kind: "needs" as const,
+                search: [title, sub, meta].filter(Boolean).join(" "),
+                title,
+                sub: sub || undefined,
+                icon: needsIcon(row),
+                status: { label: row.review ? "review" : (NEEDS_STATUS[row.item.kind] ?? "waiting"), tone: "asking" },
+                meta,
+                verb: row.review ? "Review" : "Open",
+                echo: needsEcho(row, t),
+                run: () => openNeeds(t),
+            };
+        };
+        const inScope = order.map(item);
+        const inAll = order.map((row, idx): PaletteItem => {
+            const base = inScope[idx];
+            if (row.options.length === 0) {
+                return base;
+            }
+            return {
+                ...base,
+                verb: "Answer",
+                echo: `Shows ${row.agent!.name}’s options here, so you answer without leaving`,
+                run: () => {
+                    // the scope lists the same rows in the same order, so the ask keeps its index
+                    setNav((s) => pickScope(s, "needs"));
+                    setSel(idx);
+                },
+                alt: { echo: `Opens ${row.agent!.name}’s terminal at the question instead`, run: base.run },
+            };
+        });
+        return { inScope, inAll };
+    }, [needsGrouped, model]);
 
     const sessionItems = useMemo<PaletteItem[]>(() => {
         const now = Date.now();
@@ -457,7 +655,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     }, [briefIndex, nav.query, model, efforts]);
 
     // --- Launch -----------------------------------------------------------------------------------
-    // Projects scope with "<project> <goal>" targets that project; everywhere else, the active one.
+    // Projects scope with "<project> <goal>" targets that project; everywhere else, the home one.
     const projectLaunch = nav.scope === "projects" && nav.drill == null ? parseProjectLaunch(nav.query) : null;
     const pickedChannel = projectLaunch
         ? (resolveChannelToken(
@@ -465,7 +663,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
               (channels ?? []).map((c) => ({ c, name: channelProjectLabel(c, projects) }))
           )?.c ?? null)
         : null;
-    const targetChannel = projectLaunch ? pickedChannel : channel;
+    const targetChannel = projectLaunch ? pickedChannel : homeChannel;
     const launchGoal = projectLaunch ? projectLaunch.goal : nav.scope === "all" ? nav.query : "";
     const targetLabel = targetChannel ? channelProjectLabel(targetChannel, projects) : "";
 
@@ -474,15 +672,16 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             return [];
         }
         const ch = targetChannel;
-        // a failure keeps the goal in the palette and says why; success surfaces the result, then closes
-        const fireLaunch = (action: () => Promise<unknown>) => {
+        const projectName = channelProjectLabel(ch, projects);
+        // a failure keeps the goal in the palette and says why; success lands on the result, then closes
+        const fireLaunch = (action: () => Promise<unknown>, land: () => void) => {
             setLaunchError(undefined);
             void runPaletteAction(action).then((result) => {
                 if ("error" in result) {
                     setLaunchError(result.error.replace(/^Error:\s*/, ""));
                     return;
                 }
-                globalStore.set(model.surfaceAtom, "jarvis");
+                land();
                 close();
             });
         };
@@ -491,32 +690,51 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 model,
                 channelId: ch.oid,
                 projectPath: ch.projectpath ?? "",
-                projectName: channelProjectLabel(ch, projects) || "agent",
+                projectName: projectName || "agent",
                 roster: agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId })),
                 text,
             });
         // Both starts go through createRun: that is the only path that captures a dossier, so a goal
         // started here lands in the record system like one started from the composer. A missing preferred
-        // runtime blocks before any RPC: the goal stays in the palette, nothing dispatches.
-        const guarded = (action: (route: RoutePin) => Promise<unknown>) => {
-            fireLaunch(async () => action(await resolveChannelLaunchRoute(ch.oid)));
+        // runtime blocks before any RPC: the goal stays in the palette, nothing dispatches. A started run
+        // opens, as the New run window's does.
+        const start = (mode: RunShape) => (goal: string) => {
+            let run: Run | undefined;
+            fireLaunch(
+                async () => {
+                    run = await createRun(ch.oid, goal, await resolveChannelLaunchRoute(ch.oid), { mode });
+                },
+                () => fireAndForget(() => openTarget(model, { kind: "channel", channelId: ch.oid, runId: run!.id }))
+            );
         };
         const deps: LaunchDeps = {
-            quick: (goal) => guarded((route) => createRun(ch.oid, goal, route, { mode: "quick" })),
-            orchestrate: (goal) => guarded((route) => createRun(ch.oid, goal, route, { mode: "orchestrator" })),
+            quick: start("quick"),
+            orchestrate: start("orchestrator"),
+            // the window clears the prefill once its project list loads
+            setup: (goal, shape) => {
+                globalStore.set(newRunPrefillAtom, { projectName, goal, shape });
+                close();
+                globalStore.set(model.newRunOpenAtom, true);
+            },
             // the user never types "ask @"; the transport string is synthesized for sendChannelMessage
-            consult: (runtime, goal) => fireLaunch(() => sendText(`ask @${runtime} ${goal}`)),
+            consult: (runtime, goal) =>
+                fireLaunch(
+                    () => sendText(`ask @${runtime} ${goal}`),
+                    () => globalStore.set(model.surfaceAtom, "jarvis")
+                ),
         };
-        return buildLaunchItems(launchGoal, channelProjectLabel(ch, projects), deps).map((li) => ({
+        return buildLaunchItems(launchGoal, projectName, deps).map((li) => ({
             key: li.key,
             kind: "launch" as const,
             search: "",
             title: li.title,
             desc: li.desc,
             launchIcon: li.icon,
+            chord: li.chord,
             verb: li.verb,
             echo: li.echo,
             run: li.run,
+            alt: li.alt,
         }));
     }, [targetChannel, launchGoal, agents, model, projects]);
 
@@ -562,7 +780,15 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     } else if (nav.scope === "all") {
         cap = MAX_IN_ALL;
         const pool = sortByMru(
-            [...gotoItems, ...agentItems, ...runItems, ...sessionItems, ...channelItems, ...commandItems],
+            [
+                ...gotoItems,
+                ...startItems,
+                ...agentItems,
+                ...runItems,
+                ...sessionItems,
+                ...channelItems,
+                ...commandItems,
+            ],
             mru
         );
         // mergeRanked interleaves by score without re-ranking either side, so the brief rows keep
@@ -590,13 +816,33 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             asGoalItem,
             asGoal: nav.asGoal,
             projectLabel: `#${targetLabel}`,
+            needs: needsItems.inAll,
+            start: startItems,
         });
+    } else if (nav.scope === "needs") {
+        // server order within each group, filtered rather than re-ranked: what waited longest stays first
+        const hits = new Set(rankPaletteItems(needsItems.inScope, nav.query).map((it) => it.key));
+        const byKey = new Map(needsItems.inScope.map((it) => [it.key, it]));
+        groups = needsGrouped
+            .map((g) => {
+                const items = g.rows.map((r) => byKey.get(`needs:${r.item.key}`)!).filter((it) => hits.has(it.key));
+                return {
+                    key: `needs:${g.group}`,
+                    label: `${NEEDS_GROUP_LABELS[g.group]} · ${items.length}`,
+                    asking: g.group === "asks",
+                    items,
+                };
+            })
+            .filter((g) => g.items.length > 0);
+        if (groups.length === 0) {
+            groups = narrowed([], ["needs"]);
+        }
     } else if (nav.scope === "commands") {
         if (q === "") {
-            groups = commandGroups(commandItems, surface);
+            groups = [{ key: "start", label: "Start", items: startItems }, ...commandGroups(commandItems, surface)];
         } else {
-            const hits = rankPaletteItems(commandItems, nav.query);
-            groups = hits.length > 0 ? [{ key: "command", label: "Commands", items: hits }] : narrowed([], ["command"]);
+            const hits = rankPaletteItems([...startItems, ...commandItems], nav.query);
+            groups = hits.length > 0 ? groupByKind(hits, ["start", "command"]) : narrowed([], ["command"]);
         }
     } else if (nav.scope === "projects" && projectLaunch != null) {
         groups =
@@ -696,6 +942,43 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const indexOf = new Map(flat.map((it, i) => [it.key, i]));
     const selected = flat[selClamped];
 
+    // The selected Needs you ask shows its options under it. They join the rows only after the selection is
+    // resolved and never the selection order, so showing them cannot move what ↑↓ lands on.
+    const answering =
+        nav.scope === "needs" && nav.actions == null && selected?.kind === "needs"
+            ? needsByKey.get(selected.key)
+            : undefined;
+    const answerRows: PaletteItem[] = (answering?.options ?? []).map((label, i) => ({
+        key: `answer:${answering!.item.key}:${i + 1}`,
+        kind: "answer" as const,
+        search: "",
+        title: label,
+        digit: i + 1,
+        verb: "Answer",
+        echo: `Answers ${answering!.agent!.name}: “${label}”`,
+        run: () => answerNeeds(answering!, i + 1),
+    }));
+    const shown =
+        answerRows.length === 0
+            ? capped
+            : capped.map((g) => {
+                  const at = g.items.findIndex((it) => it.key === selected.key);
+                  return at < 0
+                      ? g
+                      : { ...g, items: [...g.items.slice(0, at + 1), ...answerRows, ...g.items.slice(at + 1)] };
+              });
+    const footerExtra: { k: string; text: string }[] = [
+        ...(selected?.alt != null ? [{ k: "ctrl ⏎", text: selected.alt.echo }] : []),
+        ...(answerRows.length > 0
+            ? [
+                  {
+                      k: answerRows.length === 1 ? "1" : `1–${answerRows.length}`,
+                      text: `Answers ${answering!.agent!.name} here`,
+                  },
+              ]
+            : []),
+    ];
+
     // Arrow-keying past the visible rows used to move the selection out of view — the scroll container
     // was never told to follow it.
     // The first row goes to the very top, or a group header above it stays scrolled out of view (the
@@ -726,7 +1009,12 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     };
 
     const onKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === "ArrowDown") {
+        // a digit past the ask's options is query text, as in any other scope
+        const digit = /^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey ? Number(e.key) : 0;
+        if (digit > 0 && digit <= answerRows.length) {
+            e.preventDefault();
+            fire(answerRows[digit - 1]);
+        } else if (e.key === "ArrowDown") {
             e.preventDefault();
             setSel((s) => (flat.length ? (Math.min(s, flat.length - 1) + 1) % flat.length : 0));
         } else if (e.key === "ArrowUp") {
@@ -752,19 +1040,29 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }
     };
 
+    const atTop = nav.drill == null && nav.actions == null;
     const placeholder =
-        nav.drill != null
-            ? DRILL_PLACEHOLDERS[nav.drill]
-            : nav.scope === "files" && fileTarget != null
-              ? `Open a file in #${fileTarget.name}, path:line jumps…`
-              : scopeDef(nav.scope).placeholder;
+        atTop && nav.scope === "files" && fileTarget != null
+            ? `Open a file in #${fileTarget.name}, path:line jumps…`
+            : placeholderFor(nav);
+    // a narrowed scope names itself in the box; in All, a lone letter that starts a prefix says where it leads
+    const token = atTop && nav.scope !== "all" ? scopeDef(nav.scope).label : null;
+    const ghost = atTop && nav.scope === "all" ? ghostHint(nav.query) : null;
 
     return (
-        <ModalShell open={open} onClose={close} className="flex h-[min(580px,80vh)] w-[min(640px,93vw)] flex-col">
+        <ModalShell open={open} onClose={close} className="flex h-[min(600px,80vh)] w-[min(820px,93vw)] flex-col">
             {open ? (
                 <>
-                    <div className="flex shrink-0 items-center gap-[11px] px-4 py-[13px]">
+                    <div className="flex shrink-0 items-center gap-2.5 px-4 pb-[7px] pt-[13px]">
                         <Search size={15} strokeWidth={2} className="shrink-0 text-muted" />
+                        {token != null ? (
+                            <span
+                                data-palette-token
+                                className="shrink-0 rounded-[5px] bg-accentbg px-[7px] py-px text-[12px] font-medium text-accent-soft"
+                            >
+                                {token}
+                            </span>
+                        ) : null}
                         {nav.drill != null ? (
                             <button
                                 type="button"
@@ -780,18 +1078,30 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                 <span>{DRILL_LABELS[nav.drill]}</span>
                             </button>
                         ) : null}
-                        <input
-                            ref={inputRef}
-                            data-palette-input
-                            aria-label="Search"
-                            value={nav.query}
-                            onChange={(e) => setNav(typeQuery(nav, e.target.value))}
-                            onKeyDown={onKeyDown}
-                            placeholder={placeholder}
-                            autoComplete="off"
-                            spellCheck={false}
-                            className="min-w-0 flex-1 bg-transparent text-[14px] text-primary outline-none placeholder:text-muted"
-                        />
+                        <div className="relative min-w-0 flex-1">
+                            <input
+                                ref={inputRef}
+                                data-palette-input
+                                aria-label="Search"
+                                value={nav.query}
+                                onChange={(e) => setNav(typeQuery(nav, e.target.value))}
+                                onKeyDown={onKeyDown}
+                                placeholder={placeholder}
+                                autoComplete="off"
+                                spellCheck={false}
+                                className="w-full bg-transparent text-[14px] text-primary outline-none placeholder:text-muted"
+                            />
+                            {ghost != null ? (
+                                // the typed text, invisible, holds the ghost just past the caret
+                                <div
+                                    aria-hidden
+                                    className="pointer-events-none absolute inset-0 flex items-center overflow-hidden whitespace-pre text-[14px]"
+                                >
+                                    <span className="invisible">{nav.query}</span>
+                                    <span className="text-muted">{ghost}</span>
+                                </div>
+                            ) : null}
+                        </div>
                         <span className="shrink-0 rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-muted">
                             esc
                         </span>
@@ -799,10 +1109,11 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                     <div
                         role="group"
                         aria-label="Scope"
-                        className="flex shrink-0 items-center gap-0.5 border-b border-border px-2.5 pb-2"
+                        className="flex shrink-0 items-stretch gap-1 border-b border-border px-2.5"
                     >
                         {SCOPES.map((s) => {
                             const on = s.id === nav.scope;
+                            const count = s.id === "needs" ? needs.length : 0;
                             return (
                                 <button
                                     key={s.id}
@@ -815,28 +1126,19 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                         inputRef.current?.focus();
                                     }}
                                     className={cn(
-                                        "flex cursor-pointer items-center gap-[5px] rounded-[7px] px-2 py-1 text-[12px] font-medium",
-                                        on ? "bg-accentbg text-accent-soft" : "text-muted hover:text-secondary"
+                                        "flex cursor-pointer items-center gap-1.5 px-[7px] pb-[9px] pt-2 text-[12.5px] font-medium",
+                                        on
+                                            ? "text-primary shadow-[inset_0_-2px_0_var(--color-accent)]"
+                                            : "text-muted hover:text-secondary"
                                     )}
                                 >
                                     <span>{s.label}</span>
-                                    {s.sigil ? (
-                                        <span
-                                            className={cn(
-                                                "font-mono text-[10.5px]",
-                                                on ? "text-accent-soft" : "text-muted"
-                                            )}
-                                        >
-                                            {s.sigil}
-                                        </span>
+                                    {count > 0 ? (
+                                        <span className="font-mono text-[10.5px] font-bold text-asking">{count}</span>
                                     ) : null}
                                 </button>
                             );
                         })}
-                        <div className="flex-1" />
-                        <span className="rounded-[5px] border border-edge-mid px-1.5 py-px font-mono text-[10.5px] text-muted">
-                            Tab
-                        </span>
                     </div>
                     {launchError ? (
                         <div
@@ -859,7 +1161,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                     : `Nothing matches “${q}”, and no project to start it in.`}
                             </div>
                         ) : (
-                            capped.map((g) => (
+                            shown.map((g) => (
                                 <PaletteGroupView
                                     key={g.key}
                                     group={g}
@@ -879,11 +1181,11 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                     </div>
                     <div className="flex shrink-0 flex-col gap-1 border-t border-border px-4 py-[9px]">
                         <div className="flex items-center gap-3">
-                            {/* widened only to line up with a ctrl ⏎ line below it */}
+                            {/* widened only to line up with a key line below it */}
                             <span
                                 className={cn(
                                     "shrink-0 font-mono text-[11px] text-accent-soft",
-                                    selected?.alt != null && "w-[44px]"
+                                    footerExtra.length > 0 && "w-[60px]"
                                 )}
                             >
                                 ⏎
@@ -897,14 +1199,12 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                 <span>esc close</span>
                             </span>
                         </div>
-                        {selected?.alt != null ? (
-                            <div className="flex items-center gap-3">
-                                <span className="w-[44px] shrink-0 font-mono text-[11px] text-accent-soft">ctrl ⏎</span>
-                                <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">
-                                    {selected.alt.echo}
-                                </span>
+                        {footerExtra.map((f) => (
+                            <div key={f.k} className="flex items-center gap-3">
+                                <span className="w-[60px] shrink-0 font-mono text-[11px] text-accent-soft">{f.k}</span>
+                                <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">{f.text}</span>
                             </div>
-                        ) : null}
+                        ))}
                     </div>
                 </>
             ) : null}

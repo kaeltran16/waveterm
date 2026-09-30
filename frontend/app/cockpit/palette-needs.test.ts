@@ -3,7 +3,7 @@
 
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
-import { askAgent, inlineSelections, needsGroups, needsRows } from "./palette-needs";
+import { askAgent, inlineSelections, needsGroups, needsRows, needsTarget } from "./palette-needs";
 
 const agent = (over: Partial<AgentVM>) =>
     ({ id: "t1", name: "juno", state: "asking", blockId: "b1", ...over }) as AgentVM;
@@ -86,5 +86,42 @@ describe("palette-needs", () => {
         expect(inlineSelections(row, -1)).toBeNull();
         const [bare] = needsRows([item("ask", "ask:block:none")], [agent({ ask: oneQ })]);
         expect(inlineSelections(bare, 0)).toBeNull();
+    });
+
+    describe("needsTarget", () => {
+        const at = (over: Partial<AttentionItem>) => ({ ...item("gate"), ...over }) as AttentionItem;
+        const target = (it: AttentionItem, agents: AgentVM[] = []) => needsTarget(needsRows([it], agents)[0]);
+
+        it("opens a resolved ask's agent, and a doc review as a review", () => {
+            expect(target(item("ask", "ask:block:b1"), [agent({ ask: oneQ })])).toEqual({
+                kind: "agent",
+                agentId: "t1",
+            });
+            const review = { questions: [{ header: "Plan review", question: "/abs/plan.md", options: [] }] };
+            expect(target(item("ask", "ask:block:b1"), [agent({ ask: review })])).toEqual({
+                kind: "review",
+                agentId: "t1",
+            });
+        });
+
+        it("opens a dag item on its task graph, with the task when the key names one", () => {
+            const gate = at({ kind: "dag-gate", key: "dag-gate:g1:t4", taskid: "t4", channelid: "c1", runid: "r1" });
+            expect(target(gate)).toEqual({ kind: "dag", channelId: "c1", runId: "r1", dagId: "g1", taskId: "t4" });
+            const blocked = at({ kind: "dag-blocked", key: "dag-blocked:g2", channelid: "c1", runid: "r1" });
+            expect(target(blocked)).toEqual({ kind: "dag", channelId: "c1", runId: "r1", dagId: "g2" });
+        });
+
+        it("opens a gate on its run, and falls back to the channel, then to nothing", () => {
+            expect(target(at({ channelid: "c1", runid: "r1" }))).toEqual({ kind: "run", channelId: "c1", runId: "r1" });
+            expect(target(at({ channelid: "c1" }))).toEqual({ kind: "channel", channelId: "c1" });
+            expect(target(at({}))).toBeNull();
+        });
+
+        it("an ask whose agent left the roster opens its channel, never an answer", () => {
+            expect(target({ ...item("ask", "ask:block:gone"), channelid: "c1" } as AttentionItem)).toEqual({
+                kind: "channel",
+                channelId: "c1",
+            });
+        });
     });
 });

@@ -69,6 +69,34 @@ export function needsGroups(rows: NeedsRow[]): { group: NeedsGroup; rows: NeedsR
     );
 }
 
+export type NeedsTarget =
+    | { kind: "agent"; agentId: string } // at its question
+    | { kind: "review"; agentId: string } // the agent, with its doc review open
+    | { kind: "dag"; channelId: string; runId: string; dagId: string; taskId?: string }
+    | { kind: "run"; channelId: string; runId: string }
+    | { kind: "channel"; channelId: string };
+
+// Where Enter on a Needs you row lands. A dag item's key names its dag ("dag-gate:<dag>[:<task>]",
+// "dag-blocked:<dag>", pkg/jarvis/attention.go); an ask whose agent left the roster falls back to its
+// channel, or to nothing, rather than guessing at an agent. null: the item names nowhere to go.
+export function needsTarget(row: NeedsRow): NeedsTarget | null {
+    if (row.agent != null) {
+        return { kind: row.review ? "review" : "agent", agentId: row.agent.id };
+    }
+    const { kind, key, channelid, runid, taskid } = row.item;
+    if (!channelid) {
+        return null;
+    }
+    if (!runid) {
+        return { kind: "channel", channelId: channelid };
+    }
+    const dagId = kind.startsWith("dag-") ? key.split(":")[1] : "";
+    if (dagId) {
+        return { kind: "dag", channelId: channelid, runId: runid, dagId, ...(taskid ? { taskId: taskid } : {}) };
+    }
+    return { kind: "run", channelId: channelid, runId: runid };
+}
+
 export function inlineSelections(row: NeedsRow, optionIndex: number): Record<number, Set<number>> | null {
     if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= row.options.length) {
         return null;
