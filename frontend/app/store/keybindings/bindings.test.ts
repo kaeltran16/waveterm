@@ -726,6 +726,39 @@ describe("agent canvas mode keys", () => {
         expect(getCanvas("a1")!.mode).toBe("terminal");
     });
 
+    describe("Ctrl+Enter sends the marks", () => {
+        const MARK = { x: 0, y: 0, w: 20, h: 20, note: "" };
+        afterEach(() => vi.unstubAllGlobals());
+
+        it("only while marking with at least one mark", () => {
+            setCanvasMode("a1", "canvas", 1);
+            expect(active("agent:canvas-send")).toBe(false);
+            setMarking("a1", true);
+            expect(active("agent:canvas-send")).toBe(false);
+            updateCanvas("a1", (s) => ({ ...s, marks: [MARK] }));
+            expect(active("agent:canvas-send")).toBe(true);
+        });
+
+        it("stays live in a note input, and yields to a modal and other surfaces", () => {
+            setCanvasMode("a1", "canvas", 1);
+            setMarking("a1", true);
+            updateCanvas("a1", (s) => ({ ...s, marks: [MARK] }));
+            expect(active("agent:canvas-send", inTerm)).toBe(true);
+            expect(active("agent:canvas-send", { ...nav, modalOpen: true })).toBe(false);
+            expect(active("agent:canvas-send", { ...nav, surface: "jarvis" })).toBe(false);
+        });
+
+        it("clicks the tray's Send button, and lets the key pass with none on screen", () => {
+            const click = vi.fn();
+            const querySelector = vi.fn((sel: string) => (sel === "[data-canvas-send]" ? { click } : null));
+            vi.stubGlobal("document", { querySelector });
+            find("agent:canvas-send").run(nav);
+            expect(click).toHaveBeenCalledOnce();
+            vi.stubGlobal("document", { querySelector: () => null });
+            expect(find("agent:canvas-send").run(nav)).toBe(false);
+        });
+    });
+
     it("another focused agent without canvas mode keeps its keys", () => {
         setCanvasMode("a1", "canvas", 1);
         globalStore.set(model.focusIdAtom, "a2");

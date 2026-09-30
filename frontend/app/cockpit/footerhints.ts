@@ -38,6 +38,7 @@ export const SURFACE_HINTS: Partial<Record<SurfaceKey, FooterHint[]>> = {
         { ids: ["cycle-agent-next", "cycle-agent-prev"], keys: "Ctrl:Tab", label: "cycle" },
         { ids: ["agent:return-nav"], keys: "Shift:Escape", label: "leave" }, // editable-only via its binding
         // canvas mode hides every chip above but leave; this order serves both canvas mode and marking
+        { ids: ["agent:canvas-send"], keys: "Ctrl:Enter", label: "send" },
         { ids: ["agent:mark-stop"], glyph: "m", label: "stop marking" },
         { ids: ["agent:canvas-close"], glyph: "c", label: "terminal" },
         { ids: ["agent:canvas-prev", "agent:canvas-next"], glyph: "[ ]", label: "board" },

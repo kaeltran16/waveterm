@@ -88,4 +88,11 @@ describe("agent canvas mode chips", () => {
         setMarking("a1", true);
         expect(chips()).toEqual(["m stop marking", "c terminal", ...globals()]);
     });
+
+    it("marking with a mark puts send first", () => {
+        setCanvasMode("a1", "canvas", 1);
+        setMarking("a1", true);
+        updateCanvas("a1", (s) => ({ ...s, marks: [{ x: 0, y: 0, w: 20, h: 20, note: "" }] }));
+        expect(chips()).toEqual(["Ctrl:Enter send", "m stop marking", "c terminal", ...globals()]);
+    });
 });

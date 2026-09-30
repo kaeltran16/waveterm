@@ -23,14 +23,14 @@ import {
     CANVAS_PORT_COUNT,
     CANVAS_PORT_FIRST,
     canvasDesignDir,
-    DEFAULT_BOARD_W,
     fitScale,
     paneState,
     pickFreePort,
+    shownBoard,
     updatedAgo,
-    type CanvasBoard,
 } from "./canvasmodel";
 import { pollAndMerge, probeCanvasPorts, tauriCanvasIO } from "./canvaspoller";
+import { sendCanvasMarks } from "./canvassend";
 import {
     canvasStateAtom,
     clearMarks,
@@ -54,10 +54,6 @@ const START_WAIT_MS = 5000;
 
 const MARK_CHIP =
     "h-[20px] w-[20px] rounded-full bg-accent text-center font-mono text-[11px] font-bold leading-[20px] text-background";
-
-function shownBoard(s: CanvasState): CanvasBoard {
-    return s.boards.find((b) => b.name === s.board) ?? s.boards[0] ?? { name: "Main.dc.html", w: DEFAULT_BOARD_W };
-}
 
 export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const s = useAtomValue(canvasStateAtom(agent.id));
@@ -149,7 +145,7 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
                         </div>
                     </div>
                 )}
-                {marking ? <MarkTray agentId={agent.id} marks={s.marks} /> : null}
+                {marking ? <MarkTray agent={agent} marks={s.marks} /> : null}
             </div>
         </div>
     );
@@ -217,7 +213,24 @@ function MarkLayer({ agentId, marks }: { agentId: string; marks: Mark[] }) {
     );
 }
 
-function MarkTray({ agentId, marks }: { agentId: string; marks: Mark[] }) {
+function MarkTray({ agent, marks }: { agent: AgentVM; marks: Mark[] }) {
+    const agentId = agent.id;
+    const [sending, setSending] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const noMarks = marks.length === 0;
+
+    const send = async () => {
+        setSending(true);
+        setError(null);
+        try {
+            await sendCanvasMarks(agent);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        } finally {
+            setSending(false);
+        }
+    };
+
     return (
         <div className="flex flex-none items-start gap-[16px] border-t border-border bg-surface px-[22px] py-[12px]">
             <div className="flex min-w-0 flex-1 flex-col gap-[6px]">
@@ -254,10 +267,24 @@ function MarkTray({ agentId, marks }: { agentId: string; marks: Mark[] }) {
                     <button type="button" onClick={() => clearMarks(agentId)} className={CANVAS_BTN}>
                         Clear
                     </button>
+                    <button
+                        type="button"
+                        data-canvas-send
+                        title={`Send the marks to the agent (${formatChordString("Ctrl:Enter")})`}
+                        disabled={noMarks || sending}
+                        onClick={() => void send()}
+                        className={cn(
+                            CANVAS_PRIMARY_BTN,
+                            noMarks && "bg-surface-hover text-muted hover:bg-surface-hover disabled:opacity-100"
+                        )}
+                    >
+                        {sending ? "Sending…" : `Send to ${agent.name}`}
+                    </button>
                 </div>
                 <span className="text-[12px] text-muted">
                     Saves a picture of the board with your marks, then types one line into the agent.
                 </span>
+                {error != null ? <span className="max-w-[440px] text-[12px] text-error">{error}</span> : null}
             </div>
         </div>
     );

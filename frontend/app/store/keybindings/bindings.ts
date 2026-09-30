@@ -125,6 +125,16 @@ const navigateStrict = (ctx: KeyContext) => !ctx.editable && !ctx.modalOpen;
 // (owns Escape via buildAgentBindings: exit fullscreen / back), and settings.
 const ESC_HOME_SURFACES = new Set<SurfaceKey>(["jarvis", "radar", "sessions", "files", "usage", "code"]);
 
+// A key that clicks a control the surface already draws, rather than duplicating what the control knows.
+// No control on screen lets the key pass.
+const clickThrough = (selector: string): boolean | void => {
+    const el = document.querySelector<HTMLElement>(selector);
+    if (el == null) {
+        return false;
+    }
+    el.click();
+};
+
 // Canvas mode hides the other surfaces' and agents' targets behind the board, and `[` `]` belong to the
 // boards there, so the surface and agent switches stand down while the focused agent shows its canvas.
 const inAgentCanvas = (model: AgentsViewModel, ctx: KeyContext) =>
@@ -564,14 +574,6 @@ export function buildJarvisBindings(): Binding[] {
         run: () => globalStore.set(trackerMenuAtom, null),
     };
 
-    const clickThrough = (selector: string): boolean | void => {
-        const el = document.querySelector<HTMLElement>(selector);
-        if (el == null) {
-            return false;
-        }
-        el.click();
-    };
-
     // the run switcher, keyboard-side: the same list the Subjects column expands under the selected
     // channel, in the same order, moved with the same clamped cursor the lists use.
     const stepRun = (delta: number): boolean | void => {
@@ -912,6 +914,18 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             label: "Stop marking",
             when: (ctx) => inCanvas(ctx) && canvas()!.marking,
             run: () => setMarking(focusId(), false),
+        },
+        {
+            id: "agent:canvas-send",
+            keys: "Ctrl:Enter",
+            group: "Agent",
+            label: "Send the marks to the agent",
+            // live inside a note input on purpose: the last note is where the user finishes
+            when: (ctx) => {
+                const s = focusedCanvasMode(model);
+                return ctx.surface === "agent" && !ctx.modalOpen && s?.marking === true && s.marks.length > 0;
+            },
+            run: () => clickThrough("[data-canvas-send]"),
         },
     ];
 }

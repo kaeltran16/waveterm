@@ -46,6 +46,11 @@ export function boardsFromCanvasJson(json: unknown): CanvasBoard[] {
     return names.map((name) => ({ name, w: boardWidth(boards[name]) }));
 }
 
+// a board name that isn't in the list (a stale pick, or boards not polled yet) shows the first one
+export function shownBoard(s: CanvasState): CanvasBoard {
+    return s.boards.find((b) => b.name === s.board) ?? s.boards[0] ?? { name: MAIN_BOARD, w: DEFAULT_BOARD_W };
+}
+
 export function boardLabel(name: string): string {
     return name.endsWith(BOARD_EXT) ? name.slice(0, -BOARD_EXT.length) : name;
 }
@@ -145,6 +150,14 @@ export function canvasDir(cwd: string, topic: string): string {
 
 export function canvasProjectDir(dir: string): string {
     return join(dir, "project");
+}
+
+export function canvasFeedbackDir(dir: string): string {
+    return join(dir, "feedback");
+}
+
+export function canvasFeedbackFile(dir: string, name: string): string {
+    return join(canvasFeedbackDir(dir), name);
 }
 
 export function buildGoal(dir: string, boards: CanvasBoard[]): string {
