@@ -43,7 +43,7 @@ var uiActionsCmd = &cobra.Command{
 
 var uiRevealCmd = &cobra.Command{
 	Use:     "reveal <address>",
-	Short:   "take the user to run:<id> channel:<id> agent:<tabid> task:<id> memnote:<id> effort:<id> radarreport:<id> surface:<key>",
+	Short:   "take the user to run:<id> channel:<id> agent:<tabid> task:<id> memnote:<id> effort:<id> radarreport:<id> surface:<key> canvas:<topic>[/<board>]",
 	Args:    cobra.ExactArgs(1),
 	PreRunE: preRunSetupRpcClient,
 	RunE:    uiRevealRun,
@@ -111,10 +111,13 @@ func uiActionsRun(cmd *cobra.Command, args []string) error {
 }
 
 func uiRevealRun(cmd *cobra.Command, args []string) error {
+	// a failed Getwd sends none, and the cockpit then asks for the reveal from the agent's terminal
+	cwd, _ := os.Getwd()
 	notice, err := wshclient.UiRevealCommand(RpcClient, wshrpc.CommandUiRevealData{
 		Address:       args[0],
 		Anchor:        uiRevealAnchor,
 		CallerBlockId: os.Getenv("WAVETERM_BLOCKID"),
+		CallerCwd:     cwd,
 	}, uiOpts())
 	if err != nil {
 		return uiErr(err)

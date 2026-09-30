@@ -387,6 +387,9 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	// quick or pipeline run and refuse it.
 	mode, playbook := resolveRunPlan(data.Mode)
 	engineLaunch := mode == jarvis.RunMode_Orchestrator
+	if data.Prototype != "" && !engineLaunch {
+		return nil, fmt.Errorf("prototype needs an orchestrator run: only the engine's final verifier reads it")
+	}
 	orchestration := ""
 	if engineLaunch {
 		orchestration = jarvis.Orchestration_Engine
@@ -432,6 +435,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		return nil, err
 	}
 	run.Parallelism = data.Parallelism
+	run.Prototype = data.Prototype
 	// capture the repo baseline so the evidence diff survives the worker committing its changes;
 	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
 	if head, herr := gitinfo.HeadCommit(ctx, ch.ProjectPath); herr == nil {

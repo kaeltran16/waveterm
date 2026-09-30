@@ -523,6 +523,7 @@ declare global {
         chunklabel?: string;
         deferstart?: boolean;
         planpath?: string;
+        prototype?: string;
     };
 
     // wshrpc.CommandCreateRunRtnData
@@ -1489,6 +1490,7 @@ declare global {
         address: string;
         anchor?: string;
         callerblockid?: string;
+        callercwd?: string;
     };
 
     // wshrpc.CommandVaultGraphRtnData
@@ -2374,6 +2376,7 @@ declare global {
         reviewerroute?: RoutePin;
         orchestration?: string;
         parallelism?: number;
+        prototype?: string;
         plangatepending?: boolean;
         planfeedback?: string;
     };

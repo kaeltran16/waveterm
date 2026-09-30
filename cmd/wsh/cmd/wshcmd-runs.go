@@ -153,6 +153,7 @@ func init() {
 	f.String("reviewer-model", "", "reviewer model id (needs --reviewer-runtime)")
 	f.Int("parallelism", 0, "orchestrator width (default: the project's profile)")
 	f.String("landing", "", "branch|checkout: where an orchestrator run commits (default: the project's profile, else branch)")
+	f.String("prototype", "", "design canvas the final verifier compares against (orchestrator only)")
 	f.String("effort", "", "initiative to attach the run to (id from 'wsh effort list')")
 	f.String("chunk", "", "the initiative's chunk: its label or 1-based number")
 	f.Bool("json", false, "JSON output")
@@ -188,13 +189,16 @@ func runsStartRun(cmd *cobra.Command, args []string) error {
 		goal: goal, mode: flag("mode"), plan: flag("plan"), parallelism: parallelism, landing: flag("landing"),
 		workerRuntime: flag("worker-runtime"), workerModel: flag("worker-model"), reviewerPicks: reviewerPicks,
 		reviewerRuntime: flag("reviewer-runtime"), reviewerModel: flag("reviewer-model"),
-		effort: flag("effort"), chunk: flag("chunk"),
+		effort: flag("effort"), chunk: flag("chunk"), prototype: flag("prototype"),
 	}
 	data, err := runsStartData(opts)
 	if err != nil {
 		return err
 	}
 	if data.PlanPath, err = runsAbs(data.PlanPath); err != nil {
+		return err
+	}
+	if data.Prototype, err = runsAbs(data.Prototype); err != nil {
 		return err
 	}
 	route, err := runsLeadRoute(ch.OID, flag("runtime"), flag("model"))
@@ -231,6 +235,7 @@ type runsStartOpts struct {
 	reviewerPicks                  bool
 	reviewerRuntime, reviewerModel string
 	effort, chunk                  string
+	prototype                      string
 }
 
 // runsStartData applies the flag rules; the parts that need the RPC client (channel, workspace, route,
@@ -255,8 +260,8 @@ func runsStartData(o runsStartOpts) (wshrpc.CommandCreateRunData, error) {
 	engine := mode == jarvis.RunMode_Orchestrator
 	workerFlags := o.workerRuntime != "" || o.workerModel != ""
 	reviewerFlags := o.reviewerPicks || o.reviewerRuntime != "" || o.reviewerModel != ""
-	if !engine && (o.parallelism != 0 || o.landing != "" || workerFlags || reviewerFlags) {
-		return s, fmt.Errorf("--parallelism, --landing, --worker-runtime/--worker-model, --reviewer-picks and --reviewer-runtime/--reviewer-model need an orchestrator run")
+	if !engine && (o.parallelism != 0 || o.landing != "" || workerFlags || reviewerFlags || o.prototype != "") {
+		return s, fmt.Errorf("--parallelism, --landing, --worker-runtime/--worker-model, --reviewer-picks, --reviewer-runtime/--reviewer-model and --prototype need an orchestrator run")
 	}
 	if o.reviewerPicks && workerFlags {
 		return s, fmt.Errorf("--reviewer-picks and --worker-runtime/--worker-model are both set; the workers setting is one of them")
@@ -272,6 +277,7 @@ func runsStartData(o runsStartOpts) (wshrpc.CommandCreateRunData, error) {
 		return s, fmt.Errorf("--effort and --chunk go together")
 	}
 	s.Goal, s.Mode, s.PlanPath, s.Parallelism, s.Landing = o.goal, mode, o.plan, o.parallelism, o.landing
+	s.Prototype = o.prototype
 	if o.workerRuntime != "" {
 		s.WorkerRoute = &waveobj.RoutePin{Runtime: o.workerRuntime, Model: o.workerModel}
 		noPicks := false

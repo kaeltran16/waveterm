@@ -33,6 +33,7 @@ type CommandUiRevealData struct {
 	Address       string `json:"address"`
 	Anchor        string `json:"anchor,omitempty"`
 	CallerBlockId string `json:"callerblockid,omitempty"`
+	CallerCwd     string `json:"callercwd,omitempty"` // the wsh caller's working dir; a canvas address resolves against it
 }
 
 type CommandUiInvokeData struct {

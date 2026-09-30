@@ -300,6 +300,9 @@ type Run struct {
 	// planning decision, so DagSubmit prefers it over the width the lead asks for. 0 = unset: the lead's
 	// own width stands, which is what every pre-rail run has.
 	Parallelism int `json:"parallelism,omitempty"`
+	// Prototype is the design canvas the run was started with (Build this… on a canvas). It wins over the
+	// plan's **Prototype:** line at DagSubmit; empty = the plan's stands.
+	Prototype string `json:"prototype,omitempty"`
 	// historical: slice 5c removed the plan gate; kept so a stored run still decodes as it was written.
 	PlanGatePending *bool `json:"plangatepending,omitempty"`
 	// historical: what the human wrote when they sent this run's gated plan back. Slice 5c removed the
