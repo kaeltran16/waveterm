@@ -4,10 +4,17 @@
 import { describe, expect, it } from "vitest";
 import {
     backspaceEmpty,
+    caretAtEnd,
     cycleScope,
+    ghostHint,
     initialNav,
+    leaveActions,
+    openActionInput,
+    openActions,
     openDrill,
+    parsePrefix,
     parseProjectLaunch,
+    placeholderFor,
     resolveChannelToken,
     SCOPES,
     typeQuery,
@@ -91,5 +98,98 @@ describe("resolveChannelToken", () => {
     });
     it("returns undefined when nothing matches", () => {
         expect(resolveChannelToken("zzzzz", channels)).toBeUndefined();
+    });
+});
+
+describe("scope prefixes", () => {
+    const all = initialNav("cockpit");
+    it("narrows on a typed prefix, letter by letter", () => {
+        const r = typeQuery(typeQuery(all, "r"), "r:");
+        expect(r).toMatchObject({ scope: "runs", query: "", via: "prefix" });
+    });
+    it("re: is Records, r: is Runs", () => {
+        expect(typeQuery(typeQuery(typeQuery(all, "r"), "re"), "re:").scope).toBe("records");
+        expect(typeQuery(all, "r:fix").scope).toBe("runs");
+    });
+    it("a pasted path stays text", () => {
+        expect(typeQuery(all, "c:\\Users\\x")).toMatchObject({ scope: "all", query: "c:\\Users\\x" });
+        expect(typeQuery(all, "f:/tmp")).toMatchObject({ scope: "all", query: "f:/tmp" });
+    });
+    it("a colon after other text is text", () => {
+        expect(typeQuery({ ...all, query: "fix" }, "fix:").scope).toBe("all");
+        expect(typeQuery({ ...all, query: "x" }, "xr:").scope).toBe("all");
+    });
+    it("sigils still work", () => {
+        expect(typeQuery(all, "@juno")).toMatchObject({ scope: "agents", query: "juno" });
+    });
+    it("n: is Needs you", () => {
+        expect(parsePrefix("n:")).toEqual({ scope: "needs", rest: "" });
+    });
+});
+
+describe("placeholderFor", () => {
+    const all = initialNav("cockpit");
+    const thing = { key: "run:1", title: "palette redesign", noun: "Run" };
+    it("empty All names the prefixes", () => {
+        const p = placeholderFor(all);
+        for (const prefix of ["n:", "r:", "a:", "c:"]) expect(p).toContain(prefix);
+    });
+    it("a scope picked by Tab says which prefix reaches it; one reached by prefix does not", () => {
+        expect(placeholderFor(cycleScope(all, 1))).toContain("n:"); // Tab from All lands on Needs you
+        expect(placeholderFor(typeQuery(all, "n:"))).not.toContain("n:");
+    });
+    it("an action drill filters that thing's actions; an input level shows its label", () => {
+        const drill = openActions(all, thing, 0);
+        expect(placeholderFor(drill)).toBe("Filter Run actions…");
+        expect(
+            placeholderFor(openActionInput(drill, { actionId: "run:message", label: "Message the lead" }))
+        ).toContain("Message the lead");
+    });
+});
+
+describe("ghostHint", () => {
+    it("names the scope a lone prefix letter would narrow to", () => {
+        expect(ghostHint("r")).toBe(": narrows to Runs");
+        expect(ghostHint("re")).toBe(": narrows to Records");
+        expect(ghostHint("n")).toBe(": narrows to Needs you");
+    });
+    it("is silent otherwise", () => {
+        expect(ghostHint("")).toBeNull();
+        expect(ghostHint("ru")).toBeNull();
+        expect(ghostHint("r ")).toBeNull();
+    });
+});
+
+describe("action drill", () => {
+    const base = { ...initialNav("cockpit"), scope: "runs" as const, query: "palette" };
+    const thing = { key: "run:1", title: "palette redesign", noun: "Run" };
+    it("opens with an empty filter and restores query and selection on leave", () => {
+        const open = openActions(base, thing, 3);
+        expect(open.query).toBe("");
+        expect(open.actions?.thing).toEqual(thing);
+        const left = leaveActions(open)!;
+        expect(left.nav).toMatchObject({ scope: "runs", query: "palette", actions: null });
+        expect(left.sel).toBe(3);
+    });
+    it("backspace on an empty filter leaves the input level, then the drill", () => {
+        const withInput = openActionInput(openActions(base, thing, 0), {
+            actionId: "run:message",
+            label: "Message the lead",
+        });
+        const one = backspaceEmpty({ ...withInput, query: "" })!;
+        expect(one.actions?.input).toBeNull();
+        const two = backspaceEmpty(one)!;
+        expect(two).toMatchObject({ actions: null, query: "palette" });
+    });
+    it("backspace with text is ordinary", () => {
+        expect(backspaceEmpty({ ...openActions(base, thing, 0), query: "c" })).toBeNull();
+    });
+    it("→ acts only at the end of the query", () => {
+        expect(caretAtEnd("abc", 3)).toBe(true);
+        expect(caretAtEnd("abc", 1)).toBe(false);
+        expect(caretAtEnd("", 0)).toBe(true);
+    });
+    it("Tab clears an action drill", () => {
+        expect(cycleScope(openActions(base, thing, 0), 1).actions).toBeNull();
     });
 });
