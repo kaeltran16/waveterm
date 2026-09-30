@@ -373,7 +373,3 @@ export function isLikelyOnSameHost(lastCommand: string): boolean {
     const cmd = lastCommand.trimStart();
     return !cmd.startsWith("ssh ");
 }
-
-export function quoteForPosixShell(filePath: string): string {
-    return "'" + filePath.replace(/'/g, "'\\''") + "'";
-}

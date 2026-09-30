@@ -258,6 +258,10 @@ local default. Effort realistically L counting step 1. Full reference design in 
 
 ## 4 · Held — pick up only on the named trigger
 
+Terminal file drop → pasted path (deferred 2026-09-30): the webview gives a dropped file no path, and Tauri's
+native drag-drop needs `dragDropEnabled`, which disables HTML5 drag app-wide. Revive when file drops onto a
+terminal are wanted; full rationale in `docs/deferred.md`.
+
 Work on an initiative — "Save place and close" (held 2026-09-29): the close dialog asking a session linked to an
 initiative to write a left-off note before it closes. Revive when losing a session's place recurs; full
 rationale in `docs/deferred.md`.

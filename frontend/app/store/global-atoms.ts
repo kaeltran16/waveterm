@@ -120,7 +120,7 @@ function getAtoms(): GlobalAtomsType {
     return atoms;
 }
 
-function getApi(): ElectronApi {
+function getApi(): HostApi {
     return (window as any).api;
 }
 

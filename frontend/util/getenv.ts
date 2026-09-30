@@ -9,12 +9,12 @@ function getProcess(): NodeJS.Process {
     return globalThis.process;
 }
 
-function getApi(): ElectronApi {
+function getApi(): HostApi {
     return (window as any).api;
 }
 
 /**
- * Gets an environment variable from the host process, either directly or via IPC if called from the browser.
+ * Gets an environment variable from the native host in the webview, or from process.env outside one (tests).
  * @param paramName The name of the environment variable to attempt to retrieve.
  * @returns The value of the environment variable or null if not present.
  */

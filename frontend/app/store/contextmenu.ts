@@ -24,22 +24,6 @@ export function hasLeadingColumn(items: ContextMenuItem[]): boolean {
     return visibleItems(items).some((it) => it.type === "checkbox" || it.type === "radio" || it.icon != null);
 }
 
-// Parity fallback for role-based items; production callers generally pass explicit click handlers.
-export function roleAction(role?: string): (() => void) | undefined {
-    switch (role?.toLowerCase()) {
-        case "copy":
-            return () => document.execCommand("copy");
-        case "cut":
-            return () => document.execCommand("cut");
-        case "paste":
-            return () => document.execCommand("paste");
-        case "selectall":
-            return () => document.execCommand("selectAll");
-        default:
-            return undefined;
-    }
-}
-
 // --- keyboard navigation --------------------------------------------------
 // MenuPath indexes into the VISIBLE items at each depth (the renderer maps
 // visibleItems, so indices align). The last index is the highlighted item;

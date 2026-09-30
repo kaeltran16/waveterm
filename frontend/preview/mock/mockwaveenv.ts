@@ -11,7 +11,6 @@ import { Atom, atom, PrimitiveAtom, useAtomValue } from "jotai";
 import { showPreviewContextMenu } from "../preview-contextmenu";
 import { DefaultFullConfig } from "./defaultconfig";
 import { DefaultMockFilesystem } from "./mockfilesystem";
-import { previewElectronApi } from "./preview-electron-api";
 
 export const PreviewTabId = crypto.randomUUID();
 export const PreviewWindowId = crypto.randomUUID();
@@ -66,7 +65,6 @@ export type MockEnv = {
     rpcStreaming?: RpcStreamOverrides;
     services?: ServiceOverrides;
     atoms?: Partial<GlobalAtomsType>;
-    electron?: Partial<ElectronApi>;
     showContextMenu?: WaveEnv["showContextMenu"];
     mockWaveObjs?: Record<string, WaveObj>;
 };
@@ -104,10 +102,6 @@ export function mergeMockEnv(base: MockEnv, overrides: MockEnv): MockEnv {
         rpcStreaming: mergeRecords(base.rpcStreaming as any, overrides.rpcStreaming as any) as RpcStreamOverrides,
         services: mergedServices,
         atoms: overrides.atoms != null || base.atoms != null ? { ...base.atoms, ...overrides.atoms } : undefined,
-        electron:
-            overrides.electron != null || base.electron != null
-                ? { ...(base.electron ?? {}), ...(overrides.electron ?? {}) }
-                : undefined,
         showContextMenu: overrides.showContextMenu ?? base.showContextMenu,
         mockWaveObjs: mergeRecords(base.mockWaveObjs, overrides.mockWaveObjs),
     };
@@ -385,14 +379,6 @@ export function makeMockWaveEnv(mockEnv?: MockEnv): MockWaveEnv {
     const env = {
         isMock: true,
         mockEnv: mergedOverrides,
-        electron: {
-            ...previewElectronApi,
-            getPlatform: () => platform,
-            openExternal: (url: string) => {
-                window.open(url, "_blank");
-            },
-            ...mergedOverrides.electron,
-        },
         rpc,
         atoms,
         platform,

@@ -11,7 +11,6 @@ import { PLATFORM } from "@/util/platformutil";
 export function makeWaveEnvImpl(): WaveEnv {
     return {
         isMock: false,
-        electron: (window as any).api,
         rpc: RpcApi,
         platform: PLATFORM,
         isDev,

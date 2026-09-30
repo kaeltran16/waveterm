@@ -7,7 +7,7 @@ Three layers, all part of the running app.
 
 ### 1. Tauri shell — Rust (`src-tauri/`)
 
-Thin native host that replaces the Electron main process. `main.rs` mints a per-launch UUID auth key and **spawns `wavesrv` as a child process**, passing `WAVETERM_AUTH_KEY`, `WAVETERM_APP_PATH`, `WAVETERM_DATA_HOME`, `WAVETERM_CONFIG_HOME` via env. It then **parses the `WAVESRV-ESTART` line off wavesrv's stderr** (`estart.rs`) to discover the dynamically-assigned websocket/web ports. The frontend reaches native code through seven Tauri commands only (`init.rs`: `get_init`, `fe_log`; `commands.rs`: `set_window_init_status`, `set_is_active`, `open_external`; `canvas.rs`: `capture_webview`, `start_canvas_server`). The window is borderless (`decorations: false`) — the titlebar/app-bar is drawn in React.
+Thin native host that replaces the Electron main process. `main.rs` mints a per-launch UUID auth key and **spawns `wavesrv` as a child process**, passing `WAVETERM_AUTH_KEY`, `WAVETERM_APP_PATH`, `WAVETERM_DATA_HOME`, `WAVETERM_CONFIG_HOME` via env. It then **parses the `WAVESRV-ESTART` line off wavesrv's stderr** (`estart.rs`) to discover the dynamically-assigned websocket/web ports. The frontend reaches native code through six Tauri commands only (`init.rs`: `get_init`, `fe_log`; `commands.rs`: `set_window_init_status`, `open_external`; `canvas.rs`: `capture_webview`, `start_canvas_server`). The window is borderless (`decorations: false`) — the titlebar/app-bar is drawn in React.
 
 Migration principle (from prior phases): don't re-port Electron-IPC-shaped contracts; build the Tauri-native primitive and let the old method die.
 
@@ -42,7 +42,7 @@ The **Tauri cockpit (`frontend/tauri/main.tsx`) is the sole shipping frontend** 
 **Boot flow** (`frontend/tauri/main.tsx`):
 
 1. `invoke("get_init")` → fetch `InitData` (endpoints, auth key, identity) from Rust.
-2. `installTauriApi(init)` — builds `window.api` (an `ElectronApi`-shaped shim over Tauri `invoke`/`listen`; unimplemented methods are typed benign stubs).
+2. `installTauriApi(init)` — builds `window.api`, the `HostApi` over Tauri `invoke`/`listen`.
 3. `resolveBootIds()` — HTTP calls to the Go services to find the client/window/workspace/tab IDs (Electron used to supply these via IPC).
 4. `bootWaveCore()` (`frontend/app/boot/boot-core.ts`) — connects the wshrpc **websocket** on the tab route, inits `GlobalModel` + jotai atoms, pins the client/window/tab/workspace objects via WOS, loads config.
 5. Renders `<CockpitRoot/>`.

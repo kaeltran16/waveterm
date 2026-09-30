@@ -57,7 +57,6 @@ declare global {
         platform: NodeJS.Platform;
         windowId: string;
         clientId: string;
-        environment: "electron" | "renderer";
         isPreview?: boolean;
     };
 
@@ -68,32 +67,28 @@ declare global {
         activate: boolean;
     };
 
-    type ElectronApi = {
-        getAuthKey(): string; // get-auth-key
-        getIsDev(): boolean; // get-is-dev
-        getPlatform: () => NodeJS.Platform; // get-platform
-        getEnv: (varName: string) => string; // get-env
-        getUserName: () => string; // get-user-name
-        getHostName: () => string; // get-host-name
-        getZoomFactor: () => number; // get-zoom-factor
-        openExternal: (url: string) => void; // open-external
-        onFullScreenChange: (callback: (isFullScreen: boolean) => void) => void; // fullscreen-change
-        onZoomFactorChange: (callback: (zoomFactor: number) => void) => void; // zoom-factor-change
-        onControlShiftStateUpdate: (callback: (state: boolean) => void) => void; // control-shift-state-update
-        setWindowInitStatus: (status: "ready" | "wave-ready") => void; // set-window-init-status
-        onWaveInit: (callback: (initOpts: WaveInitOpts) => void) => void; // wave-init
-        sendLog: (log: string) => void; // fe-log
-        nativePaste: () => void; // native-paste
-        getPathForFile: (file: File) => string; // webUtils.getPathForFile
-        saveTextFile: (fileName: string, content: string) => Promise<boolean>; // save-text-file
-        setIsActive: () => Promise<void>; // set-is-active
+    // the native host surface installed on window.api (frontend/tauri/api.ts)
+    type HostApi = {
+        getAuthKey(): string;
+        getIsDev(): boolean;
+        getPlatform: () => NodeJS.Platform;
+        getEnv: (varName: string) => string;
+        getUserName: () => string;
+        getHostName: () => string;
+        getZoomFactor: () => number;
+        openExternal: (url: string) => void;
+        onFullScreenChange: (callback: (isFullScreen: boolean) => void) => void;
+        onZoomFactorChange: (callback: (zoomFactor: number) => void) => void;
+        onControlShiftStateUpdate: (callback: (state: boolean) => void) => void;
+        setWindowInitStatus: (status: "ready" | "wave-ready") => void;
+        onWaveInit: (callback: (initOpts: WaveInitOpts) => void) => void;
+        sendLog: (log: string) => void;
     };
 
     type ContextMenuItem = {
         label?: string;
         type?: "separator" | "normal" | "submenu" | "checkbox" | "radio" | "header";
-        role?: string; // electron role (optional)
-        click?: () => void; // not required if role is set
+        click?: () => void;
         submenu?: ContextMenuItem[];
         checked?: boolean;
         visible?: boolean;

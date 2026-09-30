@@ -253,7 +253,7 @@ export function closeGroup(label: string, memberIds: string[]) {
         destructive: true,
         onConfirm: () => {
             for (const tabId of memberIds) {
-                fireAndForget(() => WorkspaceService.CloseTab(ws.oid, tabId, false));
+                fireAndForget(() => WorkspaceService.CloseTab(ws.oid, tabId));
             }
         },
     });

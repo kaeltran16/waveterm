@@ -158,7 +158,7 @@ func DeleteWorkspace(ctx context.Context, workspaceId string, force bool) (bool,
 		if UnclaimedWorkspace != "" {
 			return true, UnclaimedWorkspace, nil
 		} else {
-			err = CloseWindow(ctx, windowId, false)
+			err = CloseWindow(ctx, windowId)
 		}
 
 		if err != nil {
@@ -303,7 +303,7 @@ func DeleteTab(ctx context.Context, workspaceId string, tabId string, recursive 
 		if err != nil {
 			return newActiveTabId, fmt.Errorf("unable to find window for workspace id %v: %w", workspaceId, err)
 		}
-		err = CloseWindow(ctx, windowId, false)
+		err = CloseWindow(ctx, windowId)
 		if err != nil {
 			return newActiveTabId, err
 		}

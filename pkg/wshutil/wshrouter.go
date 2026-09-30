@@ -22,7 +22,6 @@ import (
 
 const (
 	DefaultRoute     = "wavesrv"
-	ElectronRoute    = "electron"
 	ControlRoute     = "$control"      // control plane route
 	ControlRootRoute = "$control:root" // control plane route to root router
 

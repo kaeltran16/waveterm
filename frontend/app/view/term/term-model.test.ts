@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-    nativePaste: vi.fn(),
     globalGet: vi.fn(),
 }));
 
 vi.mock("@/app/store/global", () => ({
     atoms: {},
-    getApi: () => ({ nativePaste: mocks.nativePaste }),
+    getApi: () => ({}),
     getBlockMetaKeyAtom: vi.fn(),
     getOverrideConfigAtom: vi.fn((blockId: string, key: string) => `${blockId}:${key}`),
     getSettingsKeyAtom: vi.fn((key: string) => key),
@@ -55,7 +54,6 @@ function makeModel(pasteHandler = vi.fn()) {
 }
 
 beforeEach(() => {
-    mocks.nativePaste.mockClear();
     mocks.globalGet.mockReturnValue(undefined);
 });
 
@@ -71,7 +69,6 @@ describe("TermViewModel.handleTerminalKeydown", () => {
         expect(event.preventDefault).toHaveBeenCalledOnce();
         expect(event.stopPropagation).toHaveBeenCalledOnce();
         expect(pasteHandler).toHaveBeenCalledOnce();
-        expect(mocks.nativePaste).not.toHaveBeenCalled();
     });
 
     it("routes Ctrl+Shift+V through the terminal paste handler", () => {
@@ -85,6 +82,5 @@ describe("TermViewModel.handleTerminalKeydown", () => {
         expect(event.preventDefault).toHaveBeenCalledOnce();
         expect(event.stopPropagation).toHaveBeenCalledOnce();
         expect(pasteHandler).toHaveBeenCalledOnce();
-        expect(mocks.nativePaste).not.toHaveBeenCalled();
     });
 });

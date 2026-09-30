@@ -95,16 +95,6 @@ describe("onWaveInit", () => {
     });
 });
 
-describe("unported methods degrade to benign defaults", () => {
-    it("stubs do not throw and resolve to benign values", async () => {
-        installTauriApi(INIT);
-        const api = (window as any).api;
-        expect(api.nativePaste()).toBeUndefined();
-        expect(api.getPathForFile({} as File)).toBe("");
-        await expect(api.saveTextFile("a", "b")).resolves.toBe(false);
-    });
-});
-
 describe("phase-2 chrome methods", () => {
     it("getZoomFactor delegates to the chrome controller (starts at 1)", () => {
         installTauriApi(INIT);

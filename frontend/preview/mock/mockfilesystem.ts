@@ -282,7 +282,7 @@ function createMockFilesystemEntries(): MockFsEntryInput[] {
         makeMockFsInput(`${MockHomePath}/waveterm/CHANGELOG.md`),
         makeMockFsInput(
             `${MockHomePath}/waveterm/docs/preview-notes.md`,
-            `# Preview Mocking\n\nUse the preview server to iterate on file previews without Electron.\nRelative markdown assets should resolve through \`FileJoinCommand\`.\n`,
+            `# Preview Mocking\n\nUse the preview server to iterate on file previews without the Tauri shell.\nRelative markdown assets should resolve through \`FileJoinCommand\`.\n`,
             "text/markdown"
         ),
         makeMockFsInput(`${MockHomePath}/waveterm/docs/filesystem-rpc.md`),

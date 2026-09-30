@@ -7,6 +7,17 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Terminal file drop pastes the file's path (deferred 2026-09-30)
+
+- **Deferred:** dropping a file onto a terminal to paste its quoted path. The Electron build read the path with
+  `webUtils.getPathForFile`; the Tauri port stubbed that to return `""`, so the drop handler never pasted anything.
+  The stub and the handler are gone; `termwrap.ts` now only swallows the drop so the webview doesn't navigate to the file.
+- **Why:** a webview `File` carries no path. Tauri's native drag-drop event does, but it needs `dragDropEnabled: true`
+  on the window (`src-tauri/tauri.conf.json`), which takes HTML5 drag-and-drop away from every surface.
+- **Revive when** file drops onto a terminal are wanted: listen to `getCurrentWebview().onDragDropEvent` and hit-test the
+  drop position against the terminal, which needs that flag flipped and every HTML5 drag target re-checked. The old
+  handler: `git show a4b5bd4f:frontend/app/view/term/termwrap.ts` (`dropHandler`).
+
 ## Final stage: a verifier's verdict held during Checking is not persisted (declined 2026-09-30)
 
 - **Declined:** persisting the verdict of a final verifier that finishes before the stage's Check and Final

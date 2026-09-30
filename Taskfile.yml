@@ -57,7 +57,7 @@ tasks:
             - cargo tauri build
 
     preview:
-        desc: Run the standalone component preview server with HMR (no Electron, no backend).
+        desc: Run the standalone component preview server with HMR (no Tauri shell, no backend).
         dir: frontend/preview
         cmd: npx vite
         deps:

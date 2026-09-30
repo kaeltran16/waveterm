@@ -214,7 +214,6 @@ fn main() {
             init::get_init,
             init::fe_log,
             commands::set_window_init_status,
-            commands::set_is_active,
             commands::open_external,
             canvas::capture_webview,
             canvas::start_canvas_server

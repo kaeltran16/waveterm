@@ -15,7 +15,7 @@ import { leadRunTabIds } from "./runlineage";
 function closeTabs(workspaceId: string, tabIds: string[]): void {
     fireAndForget(async () => {
         for (const id of tabIds) {
-            await WorkspaceService.CloseTab(workspaceId, id, false);
+            await WorkspaceService.CloseTab(workspaceId, id);
         }
     });
 }
@@ -58,7 +58,7 @@ export function confirmCloseSession(
             : `End the session for "${vm.name}"? This stops the agent and can't be undone.`,
         confirmLabel: label,
         destructive: true,
-        onConfirm: () => fireAndForget(() => WorkspaceService.CloseTab(ws.oid, vm.id, false)),
+        onConfirm: () => fireAndForget(() => WorkspaceService.CloseTab(ws.oid, vm.id)),
     });
 }
 

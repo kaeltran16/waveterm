@@ -31,7 +31,6 @@ export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
         clientId: initOpts.clientId,
         windowId: initOpts.windowId,
         platform,
-        environment: "renderer",
     };
     globalStore.set(activeTabIdAtom, initOpts.tabId);
     await GlobalModel.getInstance().initialize(globalInitOpts);
@@ -39,7 +38,7 @@ export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
     (window as any).globalAtoms = atoms;
 
     const authKey = getApi().getAuthKey();
-    const globalWS = initWshrpc(makeTabRouteId(initOpts.tabId), authKey ? { authKey } : undefined);
+    const globalWS = initWshrpc(makeTabRouteId(initOpts.tabId), authKey || undefined);
     (window as any).globalWS = globalWS;
     (window as any).TabRpcClient = TabRpcClient;
 

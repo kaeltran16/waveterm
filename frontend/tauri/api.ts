@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import * as chrome from "./chrome";
 
 // mirrors the Rust InitData (serde camelCase): the single boot prefetch that feeds every
-// synchronous getter, so they can satisfy ElectronApi's sync signatures without awaiting.
+// synchronous getter, so they can satisfy HostApi's sync signatures without awaiting.
 export type InitData = {
     wsEndpoint: string;
     webEndpoint: string;
@@ -25,15 +25,8 @@ export function hlog(msg: string) {
     invoke("fe_log", { msg }).catch(noop);
 }
 
-const warnedStubs = new Set<string>();
-function stubWarn(name: string) {
-    if (warnedStubs.has(name)) return;
-    warnedStubs.add(name);
-    console.warn(`[tauri-bridge] stub called: ${name} (not implemented in Phase 1)`);
-}
-
 export function installTauriApi(init: InitData) {
-    const api: Partial<ElectronApi> = {
+    const api: HostApi = {
         // --- boot ---
         getEnv: (varName: string) => {
             if (varName === "WAVE_SERVER_WS_ENDPOINT") return init.wsEndpoint;
@@ -56,9 +49,8 @@ export function installTauriApi(init: InitData) {
         getUserName: () => init.userName,
         getHostName: () => init.hostName,
         sendLog: (log: string) => hlog(log),
-        setIsActive: () => invoke("set_is_active").catch(noop) as Promise<void>,
 
-        // --- terminal basics (day-one) ---
+        // --- external links ---
         openExternal: (url: string) => {
             if (url && typeof url === "string") {
                 invoke("open_external", { url }).catch(noop);
@@ -67,22 +59,12 @@ export function installTauriApi(init: InitData) {
             }
         },
 
-        // --- window chrome + interaction (Phase 2) ---
+        // --- window chrome ---
         getZoomFactor: () => chrome.getZoomFactor(),
         onZoomFactorChange: (cb: (zoomFactor: number) => void) => chrome.onZoomFactorChange(cb),
         onFullScreenChange: (cb: (isFullScreen: boolean) => void) => chrome.onFullScreenChange(cb),
         onControlShiftStateUpdate: (cb: (state: boolean) => void) => chrome.onControlShiftStateUpdate(cb),
     };
 
-    installStubs(api);
     (window as any).api = api;
 }
-
-// methods the frontend still calls but Tauri has no native port for yet: benign-default stubs (not
-// throws), so a call degrades instead of crashing.
-function installStubs(api: Partial<ElectronApi>) {
-    api.nativePaste = () => stubWarn("nativePaste");
-    api.saveTextFile = (..._a: any[]) => { stubWarn("saveTextFile"); return Promise.resolve(false); };
-    api.getPathForFile = (..._a: any[]) => { stubWarn("getPathForFile"); return ""; };
-}
-

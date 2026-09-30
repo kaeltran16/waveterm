@@ -16,7 +16,6 @@ type Subset<T, U> = OmitNever<{
 
 type ComplexWaveEnvKeys = {
     rpc: WaveEnv["rpc"];
-    electron: WaveEnv["electron"];
     atoms: WaveEnv["atoms"];
     wos: WaveEnv["wos"];
     services: WaveEnv["services"];
@@ -40,7 +39,6 @@ export type WaveEnvSubset<T> = WaveEnvMockFields &
 // default implementation for production is in ./waveenvimpl.ts
 export type WaveEnv = {
     isMock: boolean;
-    electron: ElectronApi;
     rpc: RpcApiType;
     platform: NodeJS.Platform;
     isDev: () => boolean;
