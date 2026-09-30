@@ -78,6 +78,29 @@ describe("parseAddress", () => {
         });
     });
 
+    describe("canvas:", () => {
+        it("reads a topic alone", () => {
+            expect(parseAddress("canvas:agent-canvas-mode")).toEqual({ kind: "canvas", topic: "agent-canvas-mode" });
+        });
+
+        it("appends the board extension to a bare board name, and keeps a full one", () => {
+            expect(parseAddress("canvas:t/States")).toEqual({ kind: "canvas", topic: "t", board: "States.dc.html" });
+            expect(parseAddress("canvas:t/States.dc.html")).toEqual({
+                kind: "canvas",
+                topic: "t",
+                board: "States.dc.html",
+            });
+        });
+
+        // a topic and board become path segments, so anything that could walk the tree never parses
+        it.each(["canvas:", "canvas:../x", "canvas:a/b/c", "canvas:a/..", "canvas:.hidden", "canvas:a b", "canvas:a/"])(
+            "refuses %s",
+            (address) => {
+                expect(parseAddress(address)).toEqual({ kind: "unsupported", message: CANNOT_OPEN });
+            }
+        );
+    });
+
     // radar: is the attachment namespace (resolveAttached), not an address
     it.each(["commit:abc", "session:s-1", "radar:f-1", "decision:dec-1"])("leaves %s unsupported", (address) => {
         expect(parseAddress(address)).toEqual({ kind: "unsupported", message: CANNOT_OPEN });

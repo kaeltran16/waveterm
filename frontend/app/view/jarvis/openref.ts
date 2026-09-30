@@ -55,6 +55,8 @@ function targetName(target: OpenTarget): string {
             return `initiative ${target.effortId}`;
         case "radar":
             return `scan report ${target.reportId}`;
+        case "canvas":
+            return `canvas ${target.topic}`;
     }
 }
 
@@ -128,6 +130,8 @@ async function land(model: AgentsViewModel, target: OpenTarget, current: () => b
             return OK;
         case "radar":
             return landRadar(model, target, current);
+        case "canvas":
+            return unavailable("Canvas mode is not wired yet");
     }
 }
 
