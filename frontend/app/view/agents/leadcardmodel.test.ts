@@ -17,6 +17,7 @@ import {
     rowKeyActions,
     runCost,
     runElapsed,
+    runFlowing,
     runningCount,
     stopSelector,
     waitTag,
@@ -494,6 +495,26 @@ describe("leadMark", () => {
         expect(leadMark(run, leadOf({ state: "working" }))).toEqual({ tone: "accent", pulse: true });
         expect(leadMark(run, leadOf({ state: "asking" }))).toEqual({ tone: "warning", pulse: true });
         expect(leadMark(run, leadOf({ state: "idle" }))).toEqual(MUTED);
+    });
+});
+
+describe("runFlowing", () => {
+    const leadOf = (over: Partial<AgentVM> = {}) => ({ id: "l", name: "lead", state: "working", ...over }) as AgentVM;
+    it("flows while the engine works, with the lead standing by or absent", () => {
+        expect(runFlowing(runInfo([task("t-1", "running")]), undefined)).toBe(true);
+        expect(runFlowing(runInfo([task("t-1", "verifying")]), leadOf({ atPrompt: true }))).toBe(true);
+    });
+    it("flows while the lead itself works", () => {
+        expect(runFlowing(runInfo([task("t-1", "pending")]), leadOf())).toBe(true);
+    });
+    it("is still when neither works", () => {
+        expect(runFlowing(runInfo([task("t-1", "pending")]), leadOf({ atPrompt: true }))).toBe(false);
+        expect(runFlowing(runInfo([task("t-1", "pending")]), leadOf({ state: "asking" }))).toBe(false);
+        expect(runFlowing(runInfo([task("t-1", "pending")]), undefined)).toBe(false);
+    });
+    it("is still once the run has finished", () => {
+        const r = runInfo([task("t-1", "done")]);
+        expect(runFlowing({ ...r, status: "done", dag: { ...r.dag!, status: "done" } }, leadOf())).toBe(false);
     });
 });
 

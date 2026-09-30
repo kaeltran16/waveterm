@@ -346,6 +346,15 @@ export function leadMark(run: RunInfo, lead: AgentVM | undefined): { tone: LeadM
     return { tone: "muted", pulse: false };
 }
 
+/** Pure: the flow bar under the lead card's header, a working agent card's sweep. It follows the run, not only
+ *  the lead: the lead mostly stands by while the engine works, and the run is no less active for it. */
+export function runFlowing(run: RunInfo, lead: AgentVM | undefined): boolean {
+    if (runFinished(run)) {
+        return false;
+    }
+    return runEngineBusy(run) || (lead?.state === "working" && !leadStandingBy(lead, run));
+}
+
 /** Pure: the lead's line on its card. A lead at its prompt while the engine runs stands by; its own activity
  *  would read as the last thing it did. */
 export function leadActivity(run: RunInfo, lead: AgentVM | undefined, leadDown: boolean): string {
