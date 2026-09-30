@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
-import { dismissKey, rosterLoadPhase, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
+import { cardHasContent, dismissKey, rosterLoadPhase, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
 
 function agent(over: Partial<AgentVM>): AgentVM {
     return { id: "t1", name: "claude", task: "", state: "working", ...over };
@@ -61,5 +61,29 @@ describe("toggleInSet", () => {
         const input = new Set(["a"]);
         toggleInSet(input, "b");
         expect([...input]).toEqual(["a"]);
+    });
+});
+
+describe("cardHasContent", () => {
+    it("hides a just-launched agent that has reported nothing yet", () => {
+        expect(cardHasContent(agent({ state: "working" }), false)).toBe(false);
+    });
+    it("hides an idle agent that never produced a transcript entry", () => {
+        expect(cardHasContent(agent({ state: "idle" }), false)).toBe(false);
+    });
+    it("shows an agent once its transcript has entries", () => {
+        expect(cardHasContent(agent({ state: "idle" }), true)).toBe(true);
+    });
+    it("shows seeded previous info before the live stream arrives", () => {
+        expect(cardHasContent(agent({ previousInfo: [{ kind: "message", text: "hi" }] }), false)).toBe(true);
+    });
+    it("shows a working agent with a live activity line", () => {
+        expect(cardHasContent(agent({ state: "working", activity: "reading a.ts" }), false)).toBe(true);
+    });
+    it("ignores an idle reason, which the card never renders", () => {
+        expect(cardHasContent(agent({ state: "idle", activity: "done" }), false)).toBe(false);
+    });
+    it("always shows an asking agent", () => {
+        expect(cardHasContent(agent({ state: "asking" }), false)).toBe(true);
     });
 });

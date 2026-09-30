@@ -26,6 +26,18 @@ const entriesFamily = atomFamily((id: string) => selectAtom(liveEntriesByIdAtom,
 const activityFamily = atomFamily((id: string) => selectAtom(lastActivityByIdAtom, (m) => m[id]));
 const tasksFamily = atomFamily((id: string) => selectAtom(tasksByIdAtom, (m) => m[id]));
 
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+    return a.size === b.size && [...a].every((id) => b.has(id));
+}
+
+// ids whose stream has at least one entry; changes only when an id gains or loses its first entry, so a
+// chunk on an already-narrating card does not re-render a whole-grid subscriber
+export const idsWithEntriesAtom: Atom<Set<string>> = selectAtom(
+    liveEntriesByIdAtom,
+    (m) => new Set(Object.keys(m).filter((id) => m[id].length > 0)),
+    sameSet
+);
+
 export const entriesAtomFor = (id: string): Atom<AgentEntry[]> => entriesFamily(id);
 export const activityAtomFor = (id: string): Atom<number | undefined> => activityFamily(id);
 export const tasksAtomFor = (id: string): Atom<CardTask[] | undefined> => tasksFamily(id);

@@ -39,7 +39,7 @@ import {
     type GridCard,
     type RowTarget,
 } from "./cardgridlayout";
-import { dismissKey, rosterLoadPhase, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
+import { cardHasContent, dismissKey, rosterLoadPhase, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelsAtom } from "./channelsstore";
@@ -52,6 +52,7 @@ import { LeadCard } from "./leadcard";
 import { rowAction } from "./leadcardactions";
 import { buildLeadCard, isLeadDown, rowKeyActions, stopSelector, type LeadCardVM } from "./leadcardmodel";
 import { ensurePreviousInfo, rosterSeededAtom } from "./liveagents";
+import { idsWithEntriesAtom } from "./livetranscriptatoms";
 import { CockpitEmptyState } from "./cockpitemptystate";
 import { CockpitRail } from "./cockpitrail";
 import { useRailTracking } from "./cockpiteventsrail";
@@ -239,6 +240,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // one card per plain agent or run; a run's workers are rows of its card. A running run keeps its card while
     // its lead idles between wakes, so its lead is looked up in scope before parking and Live only.
     const runScope = filterByFocus(filterAgents(agents, projectFilter, false), spaceScope, agentRevealed);
+    const idsWithEntries = useAtomValue(idsWithEntriesAtom);
     const allCards = buildGridCards(withActiveRunLeads(visibleOrdered, runScope, lineage), lineage, agents);
     const leadVMs = new Map<string, LeadCardVM & { down: boolean }>();
     for (const c of allCards) {
@@ -261,7 +263,11 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     }
     const cardNeedsYou = (c: GridCard) =>
         c.kind === "agent" ? needsHuman(c.agent, answeredAsks) : leadVMs.get(c.id)!.needsYou;
-    const shownCards = allCards.filter((c) => !isBackgroundedRun(c, backgroundedIds, cardNeedsYou(c)));
+    const shownCards = allCards.filter(
+        (c) =>
+            !isBackgroundedRun(c, backgroundedIds, cardNeedsYou(c)) &&
+            (c.kind !== "agent" || cardHasContent(c.agent, idsWithEntries.has(c.agent.id)))
+    );
     const cards = shownCards.filter((c) => cardMatchesChip(c, chip, cardNeedsYou(c)));
     // counted by card, as the tab filters: a run's idle workers and a lead between wakes are not up for review
     const readyCount = shownCards.filter((c) => cardMatchesChip(c, "idle", cardNeedsYou(c))).length;

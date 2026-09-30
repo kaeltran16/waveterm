@@ -34,6 +34,18 @@ export function splitRecentlyIdle(
     return { recently, parked };
 }
 
+// a card body shows the narration feed, an ask, or a working activity line. an agent with none of them (just
+// launched and not yet prompted, or idle without ever writing a transcript entry) is an empty card, so it stays
+// off the grid until one arrives; its terminal is still in the Agent surface.
+export function cardHasContent(agent: AgentVM, hasEntries: boolean): boolean {
+    return (
+        hasEntries ||
+        (agent.previousInfo?.length ?? 0) > 0 ||
+        agent.state === "asking" ||
+        (agent.state === "working" && !!agent.activity)
+    );
+}
+
 export function toggleInSet(set: Set<string>, id: string): Set<string> {
     const next = new Set(set);
     if (next.has(id)) {
