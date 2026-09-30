@@ -182,12 +182,31 @@ func HandleRunWorkerExit(ctx context.Context, workerORef string) error {
 	if run.DagORef != "" {
 		return nil
 	}
+	failed, mode, err := failRunningPhase(ctx, channelId, runId, func(workers []string) bool {
+		// a worker that exited belongs to an earlier or later phase's roster; only the phase actually
+		// running when it exited is this exit's to fail
+		return slices.Contains(workers, workerORef)
+	})
+	if err != nil || !failed {
+		return err
+	}
+	kind, reason := waveobj.RunEventKindWorkerExited, workerExitedNote
+	if mode == jarvis.RunMode_Orchestrator {
+		kind, reason = waveobj.RunEventKindLeadExited, leadExitedNote
+	}
+	appendRunEvent(ctx, channelId, runId, kind, nil, map[string]any{"reason": reason})
+	sendRunUpdates(channelId, runId)
+	return nil
+}
+
+// failRunningPhase fails a non-dag run's running phase when owns accepts that phase's workers, returning
+// whether it did and the run's mode. Decided under the update: a submit or a completion that lands first wins.
+func failRunningPhase(ctx context.Context, channelId, runId string, owns func(workers []string) bool) (bool, string, error) {
 	failed := false
 	var mode string
-	err = wstore.UpdateRun(ctx, channelId, runId, func(cur *waveobj.Run) error {
+	err := wstore.UpdateRun(ctx, channelId, runId, func(cur *waveobj.Run) error {
 		failed = false
 		mode = cur.Mode
-		// decided under the update: a submit or a completion that lands just before the exit wins
 		if cur.DagORef != "" {
 			return nil
 		}
@@ -195,12 +214,7 @@ func HandleRunWorkerExit(ctx context.Context, workerORef string) error {
 			return nil
 		}
 		i := jarvis.RunningPhaseIndex(*cur)
-		if i < 0 {
-			return nil
-		}
-		// a worker that exited belongs to an earlier or later phase's roster; only the phase actually
-		// running when it exited is this exit's to fail
-		if !slices.Contains(cur.Phases[i].WorkerOrefs, workerORef) {
+		if i < 0 || !owns(cur.Phases[i].WorkerOrefs) {
 			return nil
 		}
 		updated, ferr := jarvis.FailPhase(*cur, i, time.Now().UnixMilli())
@@ -211,17 +225,12 @@ func HandleRunWorkerExit(ctx context.Context, workerORef string) error {
 		failed = true
 		return nil
 	})
-	if err != nil || !failed {
-		return err
-	}
-	kind, reason := waveobj.RunEventKindWorkerExited, workerExitedNote
-	if mode == jarvis.RunMode_Orchestrator {
-		kind, reason = waveobj.RunEventKindLeadExited, leadExitedNote
-	}
-	appendRunEvent(ctx, channelId, runId, kind, nil, map[string]any{"reason": reason})
+	return failed, mode, err
+}
+
+func sendRunUpdates(channelId, runId string) {
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, runId))
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
-	return nil
 }
 
 func taskByRunID(g *waveobj.TaskGroup, runID string) *waveobj.TaskNode {

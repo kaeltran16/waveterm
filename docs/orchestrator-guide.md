@@ -618,7 +618,8 @@ route picker, then **Re-queue on model**). Escalation is one hop per task.
 
 ### The lead is dead
 
-Before `dag submit`: the run goes **Blocked** with a **Lead exited** row. Cancel it and start again.
+Before `dag submit`: the run goes **Blocked** with a **Lead exited** row. **Resume** restarts the lead in its own
+session ([The app restarted mid-run](#the-app-restarted-mid-run)); or cancel the run and start again.
 
 After `dag submit`: the engine keeps merging and verifying, the timeline shows **Lead wake failed**, and every
 judgment event and lead-held question comes to you. Select the **Lead wake failed** row and press **Relaunch
@@ -626,6 +627,22 @@ lead** to start a replacement: it refuses while the lead is still running, and i
 lead missed rather than the original plan. Until then, answer from the sheet and act with the DAG buttons or
 `wsh jarvis dag`. A stalled task with no live lead is retried once by the engine itself, so it no longer parks
 the run; a second stall waits for you.
+
+### The app restarted mid-run
+
+A Quick run, or an orchestrator run before `dag submit`, whose worker was running when the app quit or crashed
+comes back **Blocked** with an **Interrupted by restart** row. A worker whose process exited on its own reads the
+same, with a **Worker exited** row (**Lead exited** for a lead). Opening the worker's tab does not start it again;
+its terminal says the worker stopped. The blocked card offers:
+
+- **Resume** restarts the worker in its own tab and session (`claude --resume`, `pi --session`) with a one-line
+  nudge to check the working tree and continue, never the task again. The run reads Executing and the timeline
+  gains a **Worker resumed** row. Shown for claude and pi runs that recorded a session; a refusal shows its reason
+  on the card.
+- **Take control** opens the worker's terminal as it was left.
+- **Cancel run** ends the run.
+
+A run after `dag submit` is the engine's: its watchdog picks the dag up again at boot.
 
 ---
 
@@ -869,7 +886,9 @@ closed in `docs/open-issues.md` point here.
     passed**; the note came back at 39s, which is the 30s `AnswerClearTimeout` plus one 5s sweep tick.
   - **F26, a killed worker** (`646f032c`): kill a Quick run's worker process. The run should fail with a
     `worker-exited` event. Quitting the app mid-run should not fail it. **Passed.** Note the app was killed,
-    not quit, and nothing reconciles runs at boot, so the run stayed `executing` until cancelled by hand.
+    not quit, and nothing reconciled runs at boot, so the run stayed `executing` until cancelled by hand.
+    Since 2026-09-30 a boot marks that run **Interrupted by restart** and the blocked card offers **Resume**
+    ([The app restarted mid-run](#the-app-restarted-mid-run)).
   - **Chunk 8, the record peek** (`293f55ca`, frontend only): open a record peek, raise its confirm and press
     Escape. Only the confirm should close, and focus should return to the peek. **Passed.**
 - **The hung overlay covers Claude Code only** (F25), and that is now the settled answer rather than an

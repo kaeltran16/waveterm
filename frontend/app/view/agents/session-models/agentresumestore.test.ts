@@ -87,6 +87,11 @@ describe("shouldRelaunchWorker", () => {
         expect(shouldRelaunchWorker(worker, "executing")).toBe(true);
     });
 
+    it("does not relaunch a blocked run's stopped worker: Resume brings it back in its session", () => {
+        expect(shouldRelaunchWorker(worker, "blocked")).toBe(false);
+        expect(shouldRelaunchWorker({ cmd: "claude" }, "blocked")).toBe(true);
+    });
+
     it("relaunches when the run status is unknown", () => {
         expect(shouldRelaunchWorker(worker, undefined)).toBe(true);
     });

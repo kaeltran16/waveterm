@@ -180,3 +180,36 @@ func TestGetRunsBySessionIds(t *testing.T) {
 		t.Fatalf("no ids: want nothing, got %v %v", none, err)
 	}
 }
+
+func TestGetRunsByStatus(t *testing.T) {
+	ctx := context.Background()
+	ch, err := CreateChannel(ctx, "runs-by-status", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []waveobj.Run{
+		{ID: uuid.NewString(), Goal: "executing", Status: "executing"},
+		{ID: uuid.NewString(), Goal: "planning", Status: "planning"},
+		{ID: uuid.NewString(), Goal: "done", Status: "done"},
+	} {
+		if err := AppendRun(ctx, ch.OID, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := GetRunsByStatus(ctx, "executing", "planning")
+	if err != nil {
+		t.Fatal(err)
+	}
+	goals := map[string]bool{}
+	for _, r := range got {
+		if r.ChannelOID == ch.OID {
+			goals[r.Goal] = true
+		}
+	}
+	if len(goals) != 2 || !goals["executing"] || !goals["planning"] {
+		t.Fatalf("want the executing and planning runs only, got %v", goals)
+	}
+	if none, err := GetRunsByStatus(ctx); err != nil || len(none) != 0 {
+		t.Fatalf("no statuses: want nothing, got %v %v", none, err)
+	}
+}

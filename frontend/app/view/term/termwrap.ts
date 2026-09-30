@@ -536,21 +536,27 @@ export class TermWrap {
         }
     }
 
-    // an engine worker whose run is over must not be relaunched by a remount: leave its last frame up
-    async isDeadRunWorker(): Promise<boolean> {
+    // the status of the run an engine worker belongs to when a remount must not relaunch it (the run is over,
+    // or blocked on a stopped worker), so its last frame stays up; null when the block may relaunch
+    async unrelaunchableRunStatus(): Promise<string | null> {
         const meta = WOS.getObjectValue<Block>(WOS.makeORef("block", this.blockId))?.meta;
         const runId = meta?.["agent:runid"];
         if (typeof runId !== "string" || !runId) {
-            return false;
+            return null;
         }
         const run = await WOS.loadAndPinWaveObject<Run>(WOS.makeORef("run", runId)).catch(() => null);
-        return !shouldRelaunchWorker(meta, run?.status);
+        return shouldRelaunchWorker(meta, run?.status) ? null : run.status;
     }
 
     async resyncController(reason: string) {
         dlog("resync controller", this.blockId, reason);
-        if (await this.isDeadRunWorker()) {
-            this.terminal.write("\r\n\x1b[2m[arc] this worker's run is over; it was not relaunched\x1b[0m\r\n");
+        const runStatus = await this.unrelaunchableRunStatus();
+        if (runStatus != null) {
+            const notice =
+                runStatus === "blocked"
+                    ? "this worker stopped; resume it from its run"
+                    : "this worker's run is over; it was not relaunched";
+            this.terminal.write(`\r\n\x1b[2m[arc] ${notice}\x1b[0m\r\n`);
             return;
         }
         const rtOpts: RuntimeOpts = { termsize: { rows: this.terminal.rows, cols: this.terminal.cols } };

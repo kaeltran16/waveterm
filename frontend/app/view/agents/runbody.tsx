@@ -436,7 +436,14 @@ export function OrchestratorBody({
                 ) : null}
                 {thread.showStarting ? <StartingCard /> : null}
                 {thread.showBlocked ? (
-                    <BlockedCard model={model} channelId={channel.oid} run={run} worker={lead} agents={agents} />
+                    <BlockedCard
+                        model={model}
+                        channelId={channel.oid}
+                        run={run}
+                        phaseIdx={idx}
+                        worker={lead}
+                        agents={agents}
+                    />
                 ) : null}
                 {thread.showShip ? <ShipMarker /> : null}
                 {!isTerminal(run.status) ? (
@@ -563,6 +570,7 @@ export function PhaseRail({
                                         model={model}
                                         channelId={channelId}
                                         run={run}
+                                        phaseIdx={i}
                                         worker={workers[0]}
                                         agents={agents}
                                     />

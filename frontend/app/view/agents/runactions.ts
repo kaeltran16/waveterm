@@ -108,6 +108,17 @@ export async function createRun(channelId: string, goal: string, route: RoutePin
     return rtn.run;
 }
 
+// Restart a failed phase's stopped worker in its own session and tab; the backend refuses, with the reason,
+// a run it cannot resume.
+export async function resumeRun(channelId: string, runId: string, phaseIdx: number): Promise<void> {
+    await RpcApi.AdvanceRunCommand(TabRpcClient, {
+        channelid: channelId,
+        runid: runId,
+        phaseidx: phaseIdx,
+        action: "resume",
+    });
+}
+
 export async function cancelRun(channelId: string, runId: string): Promise<void> {
     globalStore.set(cancellingRunIdsAtom, (prev) => new Set(prev).add(runId));
     try {

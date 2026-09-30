@@ -285,12 +285,16 @@ func GetRun(ctx context.Context, channelId, runId string) (*waveobj.Run, error) 
 // GetChannelRuns returns the db_run rows for a channel (indexed on channeloid), in createdts order —
 // the row-backed replacement for reading Channel.Runs off the blob. Pure read (read pool).
 func GetChannelRuns(ctx context.Context, channelId string) ([]*waveobj.Run, error) {
+	return selectRuns(ctx, `SELECT oid, version, data FROM db_run
+		WHERE json_extract(data, '$.channeloid') = ?
+		ORDER BY json_extract(data, '$.createdts') ASC`, channelId)
+}
+
+// selectRuns decodes the db_run rows a query selects (oid, version, data). Pure read (read pool).
+func selectRuns(ctx context.Context, query string, args ...any) ([]*waveobj.Run, error) {
 	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]*waveobj.Run, error) {
-		query := `SELECT oid, version, data FROM db_run
-			WHERE json_extract(data, '$.channeloid') = ?
-			ORDER BY json_extract(data, '$.createdts') ASC`
 		var rows []idDataType
-		tx.Select(&rows, query, channelId)
+		tx.Select(&rows, query, args...)
 		rtn := make([]*waveobj.Run, 0, len(rows))
 		for _, row := range rows {
 			obj, err := waveobj.FromJson(row.Data)
@@ -310,26 +314,25 @@ func GetRunsBySessionIds(ctx context.Context, sessionIds []string) ([]*waveobj.R
 	if len(sessionIds) == 0 {
 		return nil, nil
 	}
-	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]*waveobj.Run, error) {
-		marks := strings.TrimSuffix(strings.Repeat("?,", len(sessionIds)), ",")
-		query := `SELECT oid, version, data FROM db_run WHERE json_extract(data, '$.sessionid') IN (` + marks + `)`
-		args := make([]any, len(sessionIds))
-		for i, id := range sessionIds {
-			args[i] = id
-		}
-		var rows []idDataType
-		tx.Select(&rows, query, args...)
-		rtn := make([]*waveobj.Run, 0, len(rows))
-		for _, row := range rows {
-			obj, err := waveobj.FromJson(row.Data)
-			if err != nil {
-				return nil, err
-			}
-			waveobj.SetVersion(obj, row.Version)
-			rtn = append(rtn, obj.(*waveobj.Run))
-		}
-		return rtn, nil
-	})
+	return selectRunsWhereIn(ctx, "sessionid", sessionIds)
+}
+
+// GetRunsByStatus returns the runs whose status is any of statuses, across channels. Pure read (read pool).
+func GetRunsByStatus(ctx context.Context, statuses ...string) ([]*waveobj.Run, error) {
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+	return selectRunsWhereIn(ctx, "status", statuses)
+}
+
+// selectRunsWhereIn selects the runs whose top-level json field is any of values.
+func selectRunsWhereIn(ctx context.Context, field string, values []string) ([]*waveobj.Run, error) {
+	marks := strings.TrimSuffix(strings.Repeat("?,", len(values)), ",")
+	args := make([]any, len(values))
+	for i, v := range values {
+		args[i] = v
+	}
+	return selectRuns(ctx, `SELECT oid, version, data FROM db_run WHERE json_extract(data, '$.`+field+`') IN (`+marks+`)`, args...)
 }
 
 // DefaultChannelMessageLimit bounds a message-window fetch. Generous default per the design (true

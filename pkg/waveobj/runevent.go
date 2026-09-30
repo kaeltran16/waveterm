@@ -68,12 +68,17 @@ const (
 	//   lead-wake-failed  the lead cannot take wakes; its judgment goes to the human ("reason", "lines")
 	//   lead-exited       the lead exited before submitting a plan, which fails the run ("reason")
 	//   worker-exited     a quick/pipeline run's only worker exited without completing its phase ("reason")
+	//   interrupted       at boot, a non-dag run's running phase was failed because the app stopped under its
+	//                     worker ("reason")
+	//   worker-resumed    the human resumed a failed phase's worker in its own session (phaseidx set)
 	RunEventKindTaskForwarded  = "task-forwarded"
 	RunEventKindLeadWoken      = "lead-woken"
 	RunEventKindLeadLaunched   = "lead-launched"
 	RunEventKindLeadWakeFailed = "lead-wake-failed"
 	RunEventKindLeadExited     = "lead-exited"
 	RunEventKindWorkerExited   = "worker-exited"
+	RunEventKindInterrupted    = "interrupted"
+	RunEventKindWorkerResumed  = "worker-resumed"
 
 	// task-told: a message the human typed into a dag child's own terminal ("taskid", "text"), recorded on the
 	// owning run so the lead reads it in its status. It wakes nobody.

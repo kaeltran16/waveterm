@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import type { Lineage, RunInfo } from "./runlineage";
 import {
+    canResume,
     cancelSurvivors,
     currentPhaseIndex,
     defaultRunId,
@@ -252,6 +253,17 @@ describe("phaseThread", () => {
     it("shows blocked when a running phase's recorded worker is gone", () => {
         const run = base({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:gone"] }] });
         expect(phaseThread(run, 0, []).showBlocked).toBe(true);
+    });
+    it("shows blocked for a failed phase: its worker stopped before completing it", () => {
+        const run = base({
+            status: "blocked",
+            phases: [
+                { kind: "execute", state: "failed", workerorefs: ["tab:t1"] },
+                { kind: "execute", state: "pending" },
+            ],
+        });
+        expect(phaseThread(run, 0, [], new Set(["t1"])).showBlocked).toBe(true);
+        expect(currentPhaseIndex(run)).toBe(0);
     });
     it("shows starting (not blocked) while a recorded worker's tab exists but has not reported status", () => {
         const run = base({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:t1"] }] });
@@ -536,5 +548,35 @@ describe("leadAsker", () => {
         expect(
             leadAsker(r, [agent({ id: "lead", state: "working" }), agent({ id: "w1", state: "asking" })])
         ).toBeUndefined();
+    });
+});
+
+describe("canResume", () => {
+    const failed = (over: Partial<Run>) =>
+        ({
+            id: "r",
+            goal: "g",
+            workspaceid: "w",
+            projectpath: "/p",
+            status: "blocked",
+            runtime: "claude",
+            sessionid: "s-1",
+            phases: [{ kind: "execute", state: "failed", workerorefs: ["tab:t1"] }],
+            createdts: 1,
+            ...over,
+        }) as Run;
+
+    it("offers Resume on a failed phase of a claude, pi or legacy run with a session", () => {
+        expect(canResume(failed({}), 0)).toBe(true);
+        expect(canResume(failed({ runtime: "pi" }), 0)).toBe(true);
+        expect(canResume(failed({ runtime: undefined }), 0)).toBe(true);
+    });
+
+    it("hides Resume where the backend would refuse it", () => {
+        expect(canResume(failed({ sessionid: undefined }), 0)).toBe(false);
+        expect(canResume(failed({ runtime: "codex" }), 0)).toBe(false);
+        expect(canResume(failed({ dagoref: "dag:1" }), 0)).toBe(false);
+        expect(canResume(failed({ phases: [{ kind: "execute", state: "blocked" }] }), 0)).toBe(false);
+        expect(canResume(failed({}), 3)).toBe(false);
     });
 });
