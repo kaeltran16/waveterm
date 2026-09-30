@@ -128,6 +128,25 @@ func TestWakeTreatsWaitingAsAtPrompt(t *testing.T) {
 	}
 }
 
+func TestWakeHeldWhileLeadsOwnQuestionIsOpen(t *testing.T) {
+	f := newFakeLead(t)
+	ctx := context.Background()
+	leadOref := waveobj.MakeORef(waveobj.OType_Block, wakeLeadBlock).String()
+	agentask.GlobalRegistry.Set(leadOref, agentask.PendingAsk{AskId: "lead-ask", BlockId: wakeLeadBlock})
+	f.state.State = baseds.AgentState_Asking
+	PostWake(ctx, wakeChannel, wakeRun, finishedLine)
+	NoteLeadStatus(ctx, f.status(baseds.AgentState_Waiting))
+	tickWakes(ctx)
+	if len(f.sends) != 0 {
+		t.Fatalf("a Notification's waiting must not open the lead's question to typed input, got %q", f.sends)
+	}
+	agentask.GlobalRegistry.Drop(leadOref)
+	tickWakes(ctx)
+	if len(f.sends) != 1 || f.sends[0] != finishedLine {
+		t.Fatalf("the held wake goes out once the question is answered, got %q", f.sends)
+	}
+}
+
 func TestWakeJoinsEventsHeldForBusyLead(t *testing.T) {
 	f := newFakeLead(t)
 	ctx := context.Background()
