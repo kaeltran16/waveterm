@@ -1,7 +1,7 @@
 # Tauri Migration — Phase 5a Boot-the-Real-Cockpit Spec
 
 > Captured 2026-06-24. The fourth phase sub-spec under
-> [`tauri-migration-meta-spec.md`](../../tauri-migration-meta-spec.md), following
+> `tauri-migration-meta-spec.md` (`git show a4b5bd4f:docs/tauri-migration-meta-spec.md`), following
 > [`2026-06-24-tauri-phase2-chrome-design.md`](./2026-06-24-tauri-phase2-chrome-design.md).
 > Covers the **first half** of the meta spec §8 row **"5 · Frontend teardown"**, which is
 > split into **5a (boot the real cockpit on Tauri)** + **5b (teardown + consumer-flips)**.

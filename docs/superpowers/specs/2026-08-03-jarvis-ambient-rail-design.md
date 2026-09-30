@@ -55,7 +55,7 @@ Rejected alternatives, and why:
 
 - **One extracted in-thread strip rendered at five call sites** keeps the placement inside the render branches
   that caused this, and spends the thread's vertical space — which the collapse-order work treats as a hard
-  constraint (never take space from the thread or the composer, `docs/jarvis-tab.md` §1).
+  constraint (never take space from the thread or the composer, `git show a4b5bd4f:docs/jarvis-tab.md` §1).
 - **Patch `RunCompletion` and `OrchestratorBody` only** is the smallest change and leaves the root cause
   intact for the fourth time; a record subject still shows nothing.
 - **Rail section plus a live-run strip** doubles the homes for the same three views.
@@ -193,7 +193,7 @@ scenario under that name or a near-variant.
 | `frontend/app/view/jarvis/stage.tsx` | read `stageRunAtom` instead of resolving inline |
 | `frontend/app/view/agents/runbody.tsx` | delete `ResumeCard`, `ProactiveCard` (`:190-191`) and `RelevantDecisions` (`:574`) |
 | `scripts/cdp/scenarios.mjs` | extend three scenarios; pin the rail in each |
-| `docs/jarvis-tab.md` | §7 (context rail) gains the section; §14 needs no new atom row |
+| `git show a4b5bd4f:docs/jarvis-tab.md` | §7 (context rail) gains the section; §14 needs no new atom row |
 
 **Out of scope.** The other two ambient render sites are untouched: the Memory surface
 (`memorysurface.tsx:368`) and the Radar finding detail (`radarfindingdetail.tsx:116`) both render

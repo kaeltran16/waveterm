@@ -163,7 +163,7 @@ Provider surfacing (one-line map/rank additions): `agentsviewmodel.ts` `PROVIDER
 | `frontend/tailwindsetup.css` | `--color-rt-opencode{,-soft,-line}` tokens. |
 | `frontend/app/view/agents/session-models/agentresumestore.ts` | Provider-generalized resume gate + opencode arg builder. |
 | `cmd/wsh/cmd/wshcmd-installhooks.go` | Idempotent opencode plugin install alongside the Claude hooks. |
-| `docs/agents/channels-reference.md` | `SupportedRuntimes` list, consult transport notes, and the opencode gotchas (positional prompt, shadow path, plugin install). |
+| `git show a4b5bd4f:docs/agents/channels-reference.md` | `SupportedRuntimes` list, consult transport notes, and the opencode gotchas (positional prompt, shadow path, plugin install). |
 
 No `task generate`: no wshrpc/waveobj/wconfig type changes anywhere in this design.
 

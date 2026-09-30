@@ -6,7 +6,6 @@ package wavejwt
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"sync"
 	"time"
@@ -61,20 +60,6 @@ func SetPublicKey(keyData []byte) error {
 	defer globalLock.Unlock()
 	publicKey = ed25519.PublicKey(keyData)
 	return nil
-}
-
-func GetPublicKey() []byte {
-	globalLock.Lock()
-	defer globalLock.Unlock()
-	return publicKey
-}
-
-func GetPublicKeyBase64() string {
-	pubKey := GetPublicKey()
-	if len(pubKey) == 0 {
-		return ""
-	}
-	return base64.StdEncoding.EncodeToString(pubKey)
 }
 
 func SetPrivateKey(keyData []byte) error {

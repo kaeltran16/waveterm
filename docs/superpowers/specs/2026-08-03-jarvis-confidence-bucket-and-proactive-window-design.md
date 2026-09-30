@@ -4,7 +4,7 @@
 no-cost corpus probe and a tracker rewrite.
 
 Closes the *provable* part of the uncalibrated-tuning-constants item (J5) in
-[`docs/jarvis-second-brain-open-issues.md`](../../jarvis-second-brain-open-issues.md). The
+`git show a4b5bd4f:docs/jarvis-second-brain-open-issues.md`. The
 evidence-gated polish item (J7) stays held and is untouched by this slice.
 
 ## Why this slice, and what it deliberately excludes
@@ -195,7 +195,7 @@ is decided after seeing them, not assumed. The already-fitted thresholds are onl
 
 ## Rewriting the tuning-constants tracker entry
 
-Restructure item J5 in `docs/jarvis-second-brain-open-issues.md` so every remaining constant sits in
+Restructure item J5 in `git show a4b5bd4f:docs/jarvis-second-brain-open-issues.md` so every remaining constant sits in
 exactly one of three categories:
 
 1. **Fitted** — with its evidence and the model it is specific to. (`semSeedFloor`,

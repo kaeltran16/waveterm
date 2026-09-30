@@ -194,6 +194,6 @@ lazy "load older" UI is a follow-on, not required for cutover.
 
 ## References
 
-- Brief: `docs/superpowers/briefs/2026-07-21-open-ended-improvement-scan-brief.md` (Theme A, A1–A3).
+- Brief: `git show a4b5bd4f:docs/superpowers/briefs/2026-07-21-open-ended-improvement-scan-brief.md` (Theme A, A1–A3).
 - Backlog: `docs/open-issues.md`.
 - Memory: `improvement-scan-2026-07-21-brief`.

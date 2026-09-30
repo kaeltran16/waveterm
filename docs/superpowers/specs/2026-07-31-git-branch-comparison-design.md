@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-31
 **Status:** design approved, no plan written yet
-**Design source:** `wave-handoff/wave/project/Wave-git-review.dc.html`, the `compare` state (mockup markup at lines 373–450, its design notes at line 935, its hint footer at line 908). The brief is `docs/superpowers/briefs/2026-07-31-git-review-ui-design-brief.md`.
+**Design source:** `wave-handoff/wave/project/Wave-git-review.dc.html`, the `compare` state (mockup markup at lines 373–450, its design notes at line 935, its hint footer at line 908). The brief is `git show a4b5bd4f:docs/superpowers/briefs/2026-07-31-git-review-ui-design-brief.md`.
 
 ## Why
 
@@ -155,7 +155,7 @@ Column widths are unchanged from the history state — 460 for the left column, 
 
 ## Not in this spec
 
-Each is a state or control the mockup declares, so the surface will visibly lack it. All were deferred in the surface plan (`docs/superpowers/plans/2026-07-31-git-review-surface.md`) and stay deferred here:
+Each is a state or control the mockup declares, so the surface will visibly lack it. All were deferred in the surface plan (`git show a4b5bd4f:docs/superpowers/plans/2026-07-31-git-review-surface.md`) and stay deferred here:
 
 - Commit provenance, the "Produced by Run #148" line — excluded by decision 1, gets its own spec.
 - The Fetch button and its freshness clock, which is also the real answer to the stale-local-default caveat in decision 4.

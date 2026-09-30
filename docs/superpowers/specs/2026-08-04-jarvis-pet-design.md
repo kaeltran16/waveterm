@@ -419,7 +419,7 @@ bet loses.
 - **Inline ambient cards per surface.** Reuses `frontend/app/view/agents/ambientcard.tsx` but re-creates the
   per-render-branch drift the ambient rail spec removed (§1).
 - **Promoting the Jarvis context rail to global chrome.** Always-on push, one derivation — but ~300px on
-  every surface and the width collapse-order work in `docs/jarvis-tab.md` §1, derived around a 640px Stage
+  every surface and the width collapse-order work in `git show a4b5bd4f:docs/jarvis-tab.md` §1, derived around a 640px Stage
   floor, would have to be redone globally. Reasonable as a later step, too expensive as the first.
 - **Dropping the Jarvis nav entry to free a chord** (§4 decision 2). The renumbering cost lands on all seven
   entries after it.

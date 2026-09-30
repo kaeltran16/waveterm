@@ -12,7 +12,7 @@ export default defineConfig({
     root: __dirname,
     base: "./",
     // Serve the workspace-root public/ directory so Font Awesome and other
-    // static assets (served by Electron in the real app) are available here too.
+    // static assets the real app serves are available here too.
     publicDir: path.resolve(__dirname, "../../public"),
     plugins: [
         tsconfigPaths(),

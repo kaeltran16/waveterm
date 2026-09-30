@@ -1,12 +1,12 @@
 # Pi Ask Bridge — Design Spec (Workstream F)
 
 > 2026-08-12. Implements Workstream F of the
-> [pi-package-integration meta-spec](../../pi-package-integration-meta-spec.md): pi's ask
+> pi-package-integration meta-spec (`git show a4b5bd4f:docs/pi-package-integration-meta-spec.md`): pi's ask
 > tool routes through the cockpit attention list instead of pi's terminal questionnaire.
 > Reads on the [Part D `pi/` package](../../superpowers/specs/2026-08-11-pi-main-harness-meta-design.md)
 > (provisioning, landed `c916b808`), the [core spec](2026-08-11-pi-harness-opencode-branding-design.md)
 > (waiting-state rule, in flight), and
-> [organic-ask-setup.md](../../agents/organic-ask-setup.md) (the Claude Code ask protocol
+> organic-ask-setup.md (`git show a4b5bd4f:docs/agents/organic-ask-setup.md`) (the Claude Code ask protocol
 > this mirrors).
 
 ## 1. Goal

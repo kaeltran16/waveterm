@@ -3,7 +3,7 @@
 > Living tracker captured 2026-08-16 during the first live DAG run of the "check Evidence snapshot in
 > channel run, how do we improve it" goal (lead run `e6ed1a8d`, DAG `dd172828`, engine parallelism 2).
 > Every flaw below was observed first-hand in that run, with evidence. The redesign
-> (`docs/orchestrator-roadmap.md` + this tracker) closes these rows; resolved rows keep only their
+> (this tracker) closes these rows; resolved rows keep only their
 > summary line.
 > A second capture (2026-09-04, a 13-task plan executed end to end) adds F11-F17 below; the
 > capture-1 sections keep their original scope.
@@ -62,7 +62,7 @@ The redesign must provide (one per flaw cluster):
 
 ## Capture 2 — executing a 13-task plan (2026-09-04)
 
-> Second live capture, evidence in `docs/jarvis-orchestrator-plan-e2e.md`: lead run
+> Second live capture, evidence in `git show a4b5bd4f:docs/jarvis-orchestrator-plan-e2e.md`: lead run
 > `e4a54512`, DAG `f2347178`, `mode=orchestrator runtime=pi model=openai-codex/gpt-5.6-sol`,
 > project `.claude/worktrees/git-compare-viewer-parity`, engine parallelism 2. Plan under execution:
 > `git show edf0132b:docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md` (13 numbered tasks).
@@ -189,7 +189,7 @@ Closed later:
 
 > Not a live run. A read of `pkg/orchestrate`, `pkg/jarvis/run.go`, `wshcmd-jarvisdag.go` and
 > `wshserver_dag.go` at 409ea04a, prompted by the Claude-lead e2e
-> (`docs/jarvis-claude-lead-e2e.md`). Unit tests for `pkg/orchestrate` and `pkg/jarvis` pass at this
+> (`git show a4b5bd4f:docs/jarvis-claude-lead-e2e.md`). Unit tests for `pkg/orchestrate` and `pkg/jarvis` pass at this
 > commit (cgo via zig, as the Taskfile builds wavesrv). Every row below is inferred from source and
 > cross-checked against the e2e's wake log; none has been reproduced in the dev app.
 

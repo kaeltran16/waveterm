@@ -11,7 +11,7 @@ It is **not** purely a frontend re-composition, which is what an earlier draft o
 It does not re-decide what is already settled in:
 
 - [v1 meta spec](2026-07-23-jarvis-second-brain-meta-spec.md) — the nine cross-cutting invariants. Invariant 8 (**Presence D**) and invariant 9 (**Wave cockpit design language**) are constraints here, not suggestions.
-- [Jarvis consolidation UI brief](../briefs/2026-07-27-jarvis-consolidation-ui-design-brief.md) — the decision that Jarvis is *one* surface. This file continues that work rather than reopening it.
+- Jarvis consolidation UI brief (`git show a4b5bd4f:docs/superpowers/briefs/2026-07-27-jarvis-consolidation-ui-design-brief.md`) — the decision that Jarvis is *one* surface. This file continues that work rather than reopening it.
 - [v2 meta spec](2026-07-24-jarvis-second-brain-v2-meta-spec.md) — the embedding foundation and its consumers.
 
 ## What this document is
@@ -24,7 +24,7 @@ The tracking table at the bottom is the source of truth for what is built.
 
 ## The design artifact
 
-The Brief design is settled and lives at **`docs/prototype/jarvis-brief-launch.dc.html`** (2,494 lines), served over HTTP and driven over CDP. The B3 Vault destination is settled separately at **`docs/prototype/jarvis-vault-records.html`**. These are not sketches: the Brief states have been exercised, and the audit that closed them is recorded in §4; the Vault artifact carries its own audit checklist.
+The Brief design is settled and lives at **`docs/prototype/jarvis-brief-launch.dc.html`** (2,494 lines), served over HTTP and driven over CDP. The B3 Vault destination is settled separately at **`git show a4b5bd4f:docs/prototype/jarvis-vault-records.html`**. These are not sketches: the Brief states have been exercised, and the audit that closed them is recorded in §4; the Vault artifact carries its own audit checklist.
 
 Read the mockup before starting any sub-project. Where this file and the mockup disagree, the mockup is a *proposal* and this file is the decision — but every disagreement is a bug in one of them and should be reconciled, not worked around.
 

@@ -1,7 +1,7 @@
 # Tauri Migration — Phase 4 Packaging + Sidecar Spec
 
 > Captured 2026-06-24. The fifth phase sub-spec under
-> [`tauri-migration-meta-spec.md`](../../tauri-migration-meta-spec.md), following
+> `tauri-migration-meta-spec.md` (`git show a4b5bd4f:docs/tauri-migration-meta-spec.md`), following
 > [`2026-06-24-tauri-phase2-chrome-design.md`](./2026-06-24-tauri-phase2-chrome-design.md).
 > Covers the meta spec §8 row **"4 · Packaging + updater"**. Per meta spec §12 each phase is
 > `writing-plans → executing-plans`; this spec is the input to the Phase 4 plan.

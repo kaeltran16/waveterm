@@ -10,7 +10,7 @@ It does *not* re-decide product/architecture already settled in:
 
 - [v1 meta spec](2026-07-23-jarvis-second-brain-meta-spec.md) — the invariants, seams, and v1/v2 boundary that named this work.
 - [Jarvis second brain — design](2026-07-22-jarvis-second-brain-design.md) — the four load-bearing v1 decisions, the cost model, and the v1/v2 sequencing (its "v2 — proactive + semantic" paragraph is what this file decomposes).
-- [Wave Vault direction brief](../briefs/2026-07-22-jarvis-second-brain-wave-vault-brief.md) and [UI design brief](../briefs/2026-07-23-jarvis-second-brain-ui-design-brief.md).
+- Wave Vault direction brief (`git show a4b5bd4f:docs/superpowers/briefs/2026-07-22-jarvis-second-brain-wave-vault-brief.md`) and UI design brief (`git show a4b5bd4f:docs/superpowers/briefs/2026-07-23-jarvis-second-brain-ui-design-brief.md`).
 
 Read those first; everything here assumes them.
 

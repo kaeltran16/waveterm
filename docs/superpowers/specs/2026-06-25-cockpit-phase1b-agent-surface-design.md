@@ -3,7 +3,7 @@
 Date: 2026-06-25
 Status: approved-design
 
-> The second sub-spec under [`docs/redesign-meta-spec.md`](../../redesign-meta-spec.md)
+> The second sub-spec under `git show a4b5bd4f:docs/redesign-meta-spec.md`
 > (§3 shell, §4 Agent surface, §8 Phase 1). Builds on
 > [`2026-06-25-cockpit-phase1a-shell-cockpit-design.md`](./2026-06-25-cockpit-phase1a-shell-cockpit-design.md),
 > which shipped the shell (NavRail + `surfaceAtom` router + state lift) and the Cockpit

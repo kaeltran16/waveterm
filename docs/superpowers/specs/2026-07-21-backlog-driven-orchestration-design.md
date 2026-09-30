@@ -234,7 +234,7 @@ subagents (no regression).
 
 - `docs/superpowers/specs/2026-07-05-channels-runs-orchestrator-mode-design.md` — the in-process-subagent design this
   extends; its "separate workers / worktree workers" non-goal is what this delivers for the backlog case.
-- `docs/orchestrator-roadmap.md` — the manager ladder; child runs keep the "one substrate" principle (each unit is a
+- `git show a4b5bd4f:docs/orchestrator-roadmap.md` — the manager ladder; child runs keep the "one substrate" principle (each unit is a
   normal run the human can see and override).
 - `pkg/jarvis/decompose.go` — the **Chat**-tier delegator fan-out (flat, ≤5, single-level worktree workers). Distinct
   from this Runs-side, first-class-run decomposition; not reused.

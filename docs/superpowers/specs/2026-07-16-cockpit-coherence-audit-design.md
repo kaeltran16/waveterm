@@ -109,7 +109,7 @@ channels-improvements backlog used).
 
 ## Output format
 
-One document: `docs/agents/cockpit-coherence-audit.md` (findings/backlog docs live under `docs/agents/`,
+One document: `git show a4b5bd4f:docs/agents/cockpit-coherence-audit.md` (findings/backlog docs live under `docs/agents/`,
 alongside `channels-improvements.md` and `runs-pipeline-known-issues.md`).
 
 Structure:

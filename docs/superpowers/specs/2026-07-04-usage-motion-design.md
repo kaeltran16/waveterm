@@ -1,6 +1,6 @@
 # Usage surface motion — design
 
-Part of the app-wide animation revamp (`docs/superpowers/motion-system.md`).
+Part of the app-wide animation revamp (`docs/reference/motion-system.md`).
 Feel = Fluid / calm. Reuse the shipped moment vocabulary; add nothing new except one
 CSS custom property the donut sweep requires.
 

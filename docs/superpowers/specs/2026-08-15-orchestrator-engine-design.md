@@ -1,7 +1,7 @@
 # Orchestrator Engine — DAG Scheduling, Managed Worktrees, Graph View
 
 Design captured 2026-08-15 during the orchestrator redesign brainstorm (informed by the
-waveterm-vs-orca comparison in `docs/orca-vs-waveterm-comparison.md`). Not a build plan —
+waveterm-vs-orca comparison in `git show a4b5bd4f:docs/orca-vs-waveterm-comparison.md`). Not a build plan —
 sequencing lives in the rollout section and will be expanded by writing-plans.
 
 ## Context

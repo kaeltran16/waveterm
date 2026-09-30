@@ -208,10 +208,6 @@ func postEscalation(channelId string, data baseds.AgentAskData, reason, workerOR
 	postJarvisData(channelId, "jarvis-escalation", strings.TrimRight(b.String(), "\n"), payload)
 }
 
-func postJarvis(channelId, kind, text string) {
-	postJarvisData(channelId, kind, text, "")
-}
-
 func postJarvisData(channelId, kind, text, data string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

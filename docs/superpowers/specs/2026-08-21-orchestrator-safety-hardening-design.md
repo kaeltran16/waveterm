@@ -9,7 +9,7 @@ Related:
 - `docs/superpowers/specs/2026-08-15-orchestrator-engine-design.md`
 - `docs/superpowers/specs/2026-08-20-route-chain-and-dag-modal-design.md`
 - `docs/superpowers/specs/2026-08-21-orchestrator-fast-approval-design.md`
-- `docs/lead-authored-task-routing-roadmap.md`
+- `docs/superpowers/briefs/2026-08-19-lead-authored-task-routing-roadmap.md`
 
 ## Problem
 

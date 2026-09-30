@@ -6,8 +6,6 @@ illustrates: a sandbox repo built to break on purpose (`orch-guide-demo`), a Qui
 the backlog-cleanup initiative run through a goal-led orchestrator.
 
 The design lives in `docs/superpowers/specs/2026-09-14-orchestrator-redesign-design.md`.
-`docs/orchestrator-howto.md` is the record of the pre-redesign engine (plan gate, adaptive runs) and is
-history, not instructions.
 
 The 2026-09-25 findings fixes changed how a run starts and ends, and the screenshots predate them. An engine
 run now lands on its own branch by default ([Where a run lands](#2-where-a-run-lands)). A reviewer checks the

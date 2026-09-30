@@ -155,15 +155,6 @@ func attribution(run *waveobj.Run) (effortOID string, chunkLabel string) {
 	return run.EffortRef.EffortOID, run.EffortRef.ChunkLabel
 }
 
-// plural is a count plus its noun, singular at one. Every why-line is counts, and "1 tasks planned" on
-// a surface whose whole promise is that the numbers are derived reads as a bug in the number.
-func plural(n int, noun string) string {
-	if n == 1 {
-		return fmt.Sprintf("1 %s", noun)
-	}
-	return fmt.Sprintf("%d %ss", n, noun)
-}
-
 // phaseLabel is a phase's written name. A custom phase's kind says nothing, so it is named by the skill
 // it runs when it has one.
 func phaseLabel(p waveobj.RunPhase) string {

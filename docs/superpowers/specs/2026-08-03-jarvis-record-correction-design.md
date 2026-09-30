@@ -10,7 +10,7 @@ the surface the correction controls attach to.
 
 ## Why this, now
 
-The [2026-07-31 integration brief](../briefs/2026-07-31-jarvis-integration-brief.md) measured its way to a
+The 2026-07-31 integration brief (`git show a4b5bd4f:docs/superpowers/briefs/2026-07-31-jarvis-integration-brief.md`) measured its way to a
 conclusion: Jarvis is not under-distributed, it is **under-fed**. Production held 2 channels, 3
 conversations and 18 runs; re-measured 2026-08-03, the vault on disk holds **17 records, 4 decisions and 1
 vault-owned memory note** (the ~400 memory notes are read-only mirrors federated from `~/.claude` and
@@ -83,7 +83,7 @@ which today it does not.
 `recordthread.tsx:64-87` renders each run attributed to a record as `id.slice(0,8)` · `goal` · status. A
 dossier's objective is seeded from its run's goal, so the widest column in the row repeats the record's own
 title — N identical lines whose only distinguishing datum is an 8-character id. Tracked as JC23 in
-[`docs/jarvis-consolidation-open-issues.md`](../../jarvis-consolidation-open-issues.md), which states the
+`git show a4b5bd4f:docs/jarvis-consolidation-open-issues.md`, which states the
 requirement: *when it ran, how long it took and what changed — the goal belongs in the row only when it
 differs from the record's.*
 
@@ -167,7 +167,7 @@ than fabricated. The projection targets the existing `AmbientEdge` wire shape
 **One accepted limit.** A detached *semantic* edge is not listed. `edgesForDossier` (`lifecycle.go:181`)
 reaches the semantic proposal only when the deterministic layers are silent, and semantic attribution
 emits zero edges in production because that gate never opens — measured in
-[`docs/jarvis-second-brain-open-issues.md`](../../jarvis-second-brain-open-issues.md) item J5. Building for
+`git show a4b5bd4f:docs/jarvis-second-brain-open-issues.md` item J5. Building for
 it would be building for a case the corpus has never produced.
 
 **Two lifecycle functions stay unexposed, deliberately, so the next reader does not think they were
@@ -274,8 +274,8 @@ cannot change it.
 | `frontend/app/view/jarvis/recordthread.tsx` | new run rows, controls, Detached group |
 | `frontend/app/view/jarvis/recordbandview.tsx` | per-edge rows in the panel, attach on the empty case, copy |
 | `scripts/cdp/scenarios.mjs` | two steps (below) |
-| `docs/jarvis-tab.md` | §4 record band, §5 record renderer, §14 state table |
-| `docs/jarvis-consolidation-open-issues.md` | close JC23 |
+| `git show a4b5bd4f:docs/jarvis-tab.md` | §4 record band, §5 record renderer, §14 state table |
+| `git show a4b5bd4f:docs/jarvis-consolidation-open-issues.md` | close JC23 |
 
 No database migration: the override log is a file in the vault and no new `waveobj` type is registered.
 
@@ -290,7 +290,7 @@ fails to build six packages (see `CLAUDE.md`).
 `edgecontrols.ts` (the state→controls table).
 
 **Live, over the Chrome DevTools Protocol.** The defect class here is a bad hop between atoms, which
-`docs/jarvis-tab.md` records as invisible to the unit suite. The `jarvis-attribution` scenario runs the
+`git show a4b5bd4f:docs/jarvis-tab.md` records as invisible to the unit suite. The `jarvis-attribution` scenario runs the
 **detach/restore round trip** on a record's own thread:
 
 1. Detach a run from a record: assert it leaves the record's run list and appears under `Detached · N`.
@@ -304,7 +304,7 @@ is not a net.
 
 *(Corrected during implementation: an earlier draft made step 1 "append a decision to a record, then expand
 that record's band from its channel and assert the decision is present". That is not arrangeable — it needs
-a run carrying a real attribution edge, which `docs/jarvis-tab.md` records as impossible to set up from a
+a run carrying a real attribution edge, which `git show a4b5bd4f:docs/jarvis-tab.md` records as impossible to set up from a
 scenario. The invalidation seam it was meant to prove is covered instead by `recordactions.test.ts`, which
 asserts `afterRecordWrite` replaces the record's detail, scope and runs, drops its graph bloom, and re-reads
 the ambient map. The round trip above exercises that same seam end to end: a detach that does not invalidate

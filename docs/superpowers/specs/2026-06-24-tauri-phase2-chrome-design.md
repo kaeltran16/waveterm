@@ -1,7 +1,7 @@
 # Tauri Migration — Phase 2 Chrome + Interaction Spec
 
 > Captured 2026-06-24. The third phase sub-spec under
-> [`tauri-migration-meta-spec.md`](../../tauri-migration-meta-spec.md), following
+> `tauri-migration-meta-spec.md` (`git show a4b5bd4f:docs/tauri-migration-meta-spec.md`), following
 > [`2026-06-24-tauri-phase1-bridge-design.md`](./2026-06-24-tauri-phase1-bridge-design.md).
 > Covers the meta spec §8 row **"2 · Chrome + interaction"**: custom titlebar, zoom,
 > fullscreen, context menus, chord mode. Per meta spec §12 each phase is

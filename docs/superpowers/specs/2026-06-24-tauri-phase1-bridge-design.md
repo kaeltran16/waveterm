@@ -1,7 +1,7 @@
 # Tauri Migration — Phase 1 Bridge Spec (Day-One Native Bridge)
 
 > Captured 2026-06-24. The second phase sub-spec under
-> [`tauri-migration-meta-spec.md`](../../tauri-migration-meta-spec.md), following
+> `tauri-migration-meta-spec.md` (`git show a4b5bd4f:docs/tauri-migration-meta-spec.md`), following
 > [`2026-06-24-tauri-phase0-spike-design.md`](./2026-06-24-tauri-phase0-spike-design.md).
 > The meta spec §5 deferred "the full tiered table with call sites" to this spec; this is
 > that table plus the bridge's implementation strategy. Per meta spec §12 each phase is

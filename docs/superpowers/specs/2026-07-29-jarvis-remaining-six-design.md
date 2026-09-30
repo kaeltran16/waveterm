@@ -3,8 +3,8 @@
 Design for the six items left open after the 2026-07-29 flow review closed JC1–JC19. Five were deferred or
 declined rather than missed; this spec records what changed about that judgement and what to build.
 
-**Sources.** [`docs/jarvis-consolidation-open-issues.md`](../../jarvis-consolidation-open-issues.md) (JC17,
-JC8's cancel half, JC16 step 4) and [`docs/jarvis-tab.md`](../../jarvis-tab.md) § Known gaps (12b, 12c,
+**Sources.** `git show a4b5bd4f:docs/jarvis-consolidation-open-issues.md` (JC17,
+JC8's cancel half, JC16 step 4) and `git show a4b5bd4f:docs/jarvis-tab.md` § Known gaps (12b, 12c,
 last-subject). Every file:line below was read, not inferred.
 
 ## What the investigation changed
@@ -232,7 +232,7 @@ Deliberately **not** in this spec:
 
 ## Documentation
 
-`docs/jarvis-tab.md` § 1 (the collapse ladder), § 2 (thread lifecycle), § 5 (the `cancelled` terminal), § 13
+`git show a4b5bd4f:docs/jarvis-tab.md` § 1 (the collapse ladder), § 2 (thread lifecycle), § 5 (the `cancelled` terminal), § 13
 (unchanged keys, changed commit timing) and § 14 (persistence) all describe behaviour this changes, and gap
-11b, 12b and 12c and the last-subject row all move. `docs/jarvis-consolidation-open-issues.md` closes JC17,
+11b, 12b and 12c and the last-subject row all move. `git show a4b5bd4f:docs/jarvis-consolidation-open-issues.md` closes JC17,
 JC8's cancel half and JC16 step 4. Both are part of the implementation, not a follow-up.

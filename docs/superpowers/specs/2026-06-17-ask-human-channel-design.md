@@ -16,7 +16,7 @@ The original 3b design chose a blocking `ask_human` MCP tool the agent had to ex
 - **Organic.** CC's system prompt instructs agents to end turns with `AskUserQuestion` for clarifications; skills like `superpowers:brainstorming` invoke it unprompted. The hook fires on the agent's own built-in path — no special tool registration or CLAUDE.md steering needed.
 - **Works under `--dangerously-skip-permissions`.** The PreToolUse hook fires even in `bypassPermissions` mode; permission-tier hooks that require approval do not.
 - **Answer delivery without terminal prompt.** Returning `{permissionDecision:"deny", permissionDecisionReason:"<answer>"}` from the hook suppresses the interactive terminal prompt and feeds the answer string directly to the model. Verified end-to-end: agent printed *"You chose Ship — proceeding"* from the deny-reason.
-- **In-repo logic.** The hook script (`docs/agents/ask-hook.js`) is versioned with Wave. Only the tiny `.claude/settings.json` registration snippet lives outside the repo.
+- **In-repo logic.** The hook script (`git show a4b5bd4f:docs/agents/ask-hook.js`) is versioned with Wave. Only the tiny `.claude/settings.json` registration snippet lives outside the repo.
 
 **Why the MCP approach was dropped:** See Plan 3c §1 for the full reasoning. Elicitation hooks were also evaluated (they only fire for MCP-server `elicitation/create`, not the agent's own questions — not viable here).
 
@@ -25,13 +25,13 @@ For the implementation, see Plan 3c (`docs/superpowers/plans/2026-06-17-agents-p
 ## 3. Scope / non-goals
 
 **In scope (shipped)**
-- A PreToolUse hook (`docs/agents/ask-hook.js`) matching `AskUserQuestion` that intercepts the agent's built-in question mechanism.
+- A PreToolUse hook (`git show a4b5bd4f:docs/agents/ask-hook.js`) matching `AskUserQuestion` that intercepts the agent's built-in question mechanism.
 - `wsh ask` (hidden subcommand): reads the AUQ `{questions[]}` payload on stdin, resolves the block oref, invokes `AskCommand` RPC, and prints the answer to stdout (which the hook returns as the deny-reason).
 - Two `wshrpc` commands: `AskCommand` (blocking; registers the ask, publishes `Event_AgentAsk`, returns the answer) and `AnswerAgentCommand` (resolves a pending ask).
 - A backend ask-registry + `Event_AgentAsk` WPS event (scoped to the block oref).
 - Frontend: per-block ask store, merge onto `AgentVM.ask` in `liveAgentsAtom` (asking agents only), `AskCard.onAnswer` → `AnswerAgentCommand`.
 - **Catching the agent's organic questions** — this is the whole point. AUQ fires unprompted when agents genuinely need clarification.
-- **Enforcement as opt-in docs:** `docs/agents/organic-ask-setup.md` — the `.claude/settings.json` hook registration snippet (opt-in only; Wave does not auto-install it).
+- **Enforcement as opt-in docs:** `git show a4b5bd4f:docs/agents/organic-ask-setup.md` — the `.claude/settings.json` hook registration snippet (opt-in only; Wave does not auto-install it).
 
 **Non-goals (deferred or out of scope)**
 - Bare prose questions (agent ends its turn with a question in text, no `AskUserQuestion` tool) — would need a Stop hook with question-vs-done detection; deferred.
@@ -65,7 +65,7 @@ agent calls AskUserQuestion
 
 ### 4.1 Components
 
-1. **PreToolUse hook (`docs/agents/ask-hook.js`).** Node, no dependencies. If `tool_name !== "AskUserQuestion"` or the Wave env vars are absent → exits 0, no output (graceful fallback to the terminal prompt). Otherwise resolves `wsh` from `$WAVETERM_WSHBINDIR`, spawns `wsh ask` synchronously feeding the AskUserQuestion `tool_input` (a `{questions: [...]}` object) on stdin, captures stdout. On success → returns the deny+reason JSON. On any failure → exits 0, falls back to terminal.
+1. **PreToolUse hook (`git show a4b5bd4f:docs/agents/ask-hook.js`).** Node, no dependencies. If `tool_name !== "AskUserQuestion"` or the Wave env vars are absent → exits 0, no output (graceful fallback to the terminal prompt). Otherwise resolves `wsh` from `$WAVETERM_WSHBINDIR`, spawns `wsh ask` synchronously feeding the AskUserQuestion `tool_input` (a `{questions: [...]}` object) on stdin, captures stdout. On success → returns the deny+reason JSON. On any failure → exits 0, falls back to terminal.
 
 2. **`wsh ask` (hidden subcommand).** Reads `{questions[]}` JSON on stdin, resolves the block oref via `resolveBlockArg()`, calls `AskCommand` with a 1-hour timeout, prints the answer to stdout on success or exits non-zero on error.
 
@@ -115,7 +115,7 @@ The Go types in `baseds.AgentAskData` carry this shape exactly (see Task 1 of Pl
 - **New:** `wsh ask` subcommand; `AskCommand` / `AnswerAgentCommand` RPCs; backend ask-registry + `Event_AgentAsk`; frontend ask store + `withAsk` merge; the PreToolUse hook script.
 - **Removed from Plan 3b:** `wsh ask-server` (the MCP stdio server), `AskHumanCommand` / `CommandAskHumanData` RPC names, the `ask_human` tool definition, the `.mcp.json` registration convention.
 - **Reuse:** `RpcContext.BlockId` block-keying (same as `wsh agentstatus`), the WPS per-block event/subscription pattern, the `AskCard` / `AgentAsk` / `AgentVM.ask` UI from 3a, `liveAgentsAtom`, the agentask registry from 3b (same structure, renamed RPC surface).
-- **Docs (opt-in):** `docs/agents/organic-ask-setup.md` — the hook registration snippet and behavior notes.
+- **Docs (opt-in):** `git show a4b5bd4f:docs/agents/organic-ask-setup.md` — the hook registration snippet and behavior notes.
 
 ## 9. Phased path
 

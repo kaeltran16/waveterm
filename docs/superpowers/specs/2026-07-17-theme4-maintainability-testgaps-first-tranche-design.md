@@ -2,7 +2,7 @@
 
 Date: 2026-07-17
 Scope: Theme 4 items #1, #3, and #6 only — run lifecycle tests, cwd-resolution tests, and session terminal-block rule deduplication.
-Related: `docs/deferred.md` Theme 4; `docs/superpowers/briefs/2026-07-17-theme4-maintainability-testgaps-brief.md`.
+Related: `docs/deferred.md` Theme 4; `git show a4b5bd4f:docs/superpowers/briefs/2026-07-17-theme4-maintainability-testgaps-brief.md`.
 
 ## Problem
 

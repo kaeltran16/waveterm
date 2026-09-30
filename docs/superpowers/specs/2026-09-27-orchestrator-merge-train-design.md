@@ -1,6 +1,6 @@
 # Orchestrator merge train, sharded Go tests, and what was dropped
 
-Finishes the speed work finding 27 deferred (`docs/orchestrator-findings-2026-09-25.md`, findings 23 and 27,
+Finishes the speed work finding 27 deferred (`docs/superpowers/briefs/2026-09-25-orchestrator-findings.md`, findings 23 and 27,
 the Handoff and "Fixes after the handoff"). Already shipped and not repeated here: the scoped per-merge Verify
 (`ARC_VERIFY_CHANGED`, `scripts/verify.mjs`), dependencies satisfied at merge, and the `waitingOn` merge order.
 

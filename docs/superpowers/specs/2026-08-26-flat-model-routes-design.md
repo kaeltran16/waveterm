@@ -41,7 +41,7 @@ Three problems:
   goes through to the harness, which is the ultimate authority.
 - **Escalate becomes judged, model-explicit.** The automatic `cheap→mid→capable` hop is
   already a deliberate non-goal on token-cost grounds (prompt-cache miss; see
-  `docs/lead-authored-task-routing-roadmap.md`). In the flat world, `escalate` re-queues a
+  `docs/superpowers/briefs/2026-08-19-lead-authored-task-routing-roadmap.md`). In the flat world, `escalate` re-queues a
   failed/stalled task on any model the human picks, still capped at one hop per task.
 - **Consult and openrouter-headless tiering are untouched.** `consult.Tier` and the
   `headless:openrouter*` model keys are a separate difficulty axis for one-shot calls; this
@@ -104,7 +104,7 @@ installed harness). The lead inherits the Run route by default and may pin a per
 `{runtime, model}`; `routeAllowed` and submit validation key on model exactly as they key on
 tier today. `wshserver_jarvis.go` builds the allowed list from `runroute`'s catalog instead
 of the legacy pin list, and the `RunSpec` picker writes `Model` — the axis the roadmap
-(`docs/lead-authored-task-routing-roadmap.md`) always intended.
+(`docs/superpowers/briefs/2026-08-19-lead-authored-task-routing-roadmap.md`) always intended.
 
 ### 5. Escalate
 

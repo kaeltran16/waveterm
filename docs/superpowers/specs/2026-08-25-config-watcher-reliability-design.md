@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-25
 **Status:** Implemented; pending commit
-**Source:** `docs/superpowers/briefs/2026-08-25-reliability-improvement-scan.md` R2
+**Source:** `git show a4b5bd4f:docs/superpowers/briefs/2026-08-25-reliability-improvement-scan.md` R2
 
 ## Problem
 

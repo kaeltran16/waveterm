@@ -1,7 +1,7 @@
 # Pi Tasks Feed — Design Spec (Workstream E)
 
 > 2026-08-11. Implements Workstream E of the
-> [pi-package-integration meta-spec](../../pi-package-integration-meta-spec.md): pi-tasks'
+> pi-package-integration meta-spec (`git show a4b5bd4f:docs/pi-package-integration-meta-spec.md`): pi-tasks'
 > file-resident task lists as a read-only cockpit surface. Placement decision (2026-08-11):
 > render in the **Agent surface detail rail** (`agentdetailsrail.tsx`), compacting existing
 > rail info to make room — no dedicated surface, no Sessions/Jarvis fold-in.

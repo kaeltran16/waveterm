@@ -2,7 +2,7 @@
 
 Date: 2026-07-01
 Scope: feature (a new Channels participant + a headless-CLI summarizer seam). Spec only — hands off to writing-plans.
-Related: `docs/orchestrator-roadmap.md` (Jarvis is the manager; Concierge/Gatekeeper/Delegator are its capability
+Related: `git show a4b5bd4f:docs/orchestrator-roadmap.md` (Jarvis is the manager; Concierge/Gatekeeper/Delegator are its capability
 tiers), `docs/superpowers/specs/2026-06-30-channels-tab-design.md` (the substrate), `pkg/consult` (the headless-CLI
 exec primitive Jarvis reuses).
 

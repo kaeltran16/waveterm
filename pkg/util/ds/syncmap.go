@@ -52,17 +52,6 @@ func (sm *SyncMap[T]) SetUnless(key string, value T) bool {
 	return true
 }
 
-func (sm *SyncMap[T]) TestAndSet(key string, newValue T, testFn func(T, bool) bool) bool {
-	sm.lock.Lock()
-	defer sm.lock.Unlock()
-	currentValue, exists := sm.m[key]
-	if testFn(currentValue, exists) {
-		sm.m[key] = newValue
-		return true
-	}
-	return false
-}
-
 func (sm *SyncMap[T]) GetOrCreate(key string, createFn func() T) T {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()

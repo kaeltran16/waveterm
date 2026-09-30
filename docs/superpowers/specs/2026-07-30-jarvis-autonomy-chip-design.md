@@ -92,7 +92,7 @@ panel: w-[300px] rounded-[11px] border border-border bg-surface p-[5px]
 **Tier rows.** One per tier: the same bar glyph, the name at `12.5px` semibold, and the blurb at
 `11px text-muted` as *visible text* — today the blurbs exist only in `title` tooltips. Active row
 `bg-surface-raised` with the name in accent and a `✓`; hover `bg-surface-hover`. Copy keeps the `+` form
-already used in `docs/jarvis-tab.md`, so the nesting is stated and not merely implied by fill.
+already used in `git show a4b5bd4f:docs/jarvis-tab.md`, so the nesting is stated and not merely implied by fill.
 
 **Dispatch mode.** Still Delegator-only (`showsDispatchMode`), below a `border-t` divider with its own mono
 caption, keeping the existing `bg-success/15 text-success` tone for the active mode. It stays *conditional*
@@ -163,16 +163,16 @@ its own channel, so writing a tier leaves no residue. `jarvis-collapse-order`, `
 
 Six files: `autonomyladder.ts`, `autonomyladder.test.ts`, `autonomyladderview.tsx` (rewritten),
 `stageheader.tsx` (deletes a comment that is now false — the call site is byte-identical),
-`scripts/cdp/scenarios.mjs`, `docs/jarvis-tab.md` §8. Plus the JC12 note in
-`docs/jarvis-consolidation-open-issues.md`.
+`scripts/cdp/scenarios.mjs`, `git show a4b5bd4f:docs/jarvis-tab.md` §8. Plus the JC12 note in
+`git show a4b5bd4f:docs/jarvis-consolidation-open-issues.md`.
 
 The filename and the `AutonomyLadder` export are kept: the ladder still exists, it just lives in the panel
 now, and renaming a frontend module while the dev app runs blanks the page.
 
 **Coordination.** Nine files are dirty from in-flight work at the time of writing, three of which this
-touches — `stageheader.tsx`, `scenarios.mjs`, `docs/jarvis-tab.md` — in different regions of each. Stage only
+touches — `stageheader.tsx`, `scenarios.mjs`, `git show a4b5bd4f:docs/jarvis-tab.md` — in different regions of each. Stage only
 this change's own hunks; leave the ⚙-into-the-rail work, `collapsiblerail.tsx`, `stagerail.tsx`,
-`profilepanel.tsx`, `jarvisstore.ts`, `stage.tsx` and `docs/jarvis-tour.md` untouched.
+`profilepanel.tsx`, `jarvisstore.ts`, `stage.tsx` and `git show a4b5bd4f:docs/jarvis-tour.md` untouched.
 
 **Out of scope.** No optimistic tier write — add it only if the refetch reads as lag. Not consolidating the
 two duplicate `Segmented` components in `usagesurface.tsx` and `settingssurface.tsx`: real duplication,

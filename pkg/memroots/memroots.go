@@ -8,7 +8,6 @@ package memroots
 
 import (
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -107,29 +106,6 @@ func LabelFromHash(hash string, projects map[string]string) string {
 // ScopeForHubDir labels a Claude per-project hub dir against the live Projects registry.
 func ScopeForHubDir(hubDir string) string {
 	return LabelFromHash(hubDir, RegistryProjects())
-}
-
-// RegistryPathForLabel resolves a project label back to its registered path via live config.
-func RegistryPathForLabel(label string) string {
-	return registryPathForLabel(label, RegistryProjects())
-}
-
-// registryPathForLabel is the pure core (testable without config). The label is either a registry
-// name or a leaf folder; ambiguous leaf matches resolve deterministically to the alphabetically
-// first registered path.
-func registryPathForLabel(label string, projects map[string]string) string {
-	names := make([]string, 0, len(projects))
-	for name := range projects {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		p := projects[name]
-		if name == label || filepath.Base(filepath.Clean(p)) == label {
-			return p
-		}
-	}
-	return ""
 }
 
 // ScopeForPath derives a note's cluster: the first path segment below rootPath (a Claude hub dir is

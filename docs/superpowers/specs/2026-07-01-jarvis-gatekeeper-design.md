@@ -2,7 +2,7 @@
 
 Date: 2026-07-01
 Scope: feature (a per-channel autonomy toggle + a server-side ask watcher/classifier/actuator). Spec only — hands off to writing-plans.
-Related: `docs/orchestrator-roadmap.md` (Gatekeeper is the second manager tier), `docs/superpowers/specs/2026-07-01-jarvis-concierge-design.md` (the tier this builds on), `pkg/agentask` + `docs/agents/organic-ask-setup.md` (the ask/answer channel Gatekeeper reuses), `pkg/consult` (the headless-CLI exec primitive).
+Related: `git show a4b5bd4f:docs/orchestrator-roadmap.md` (Gatekeeper is the second manager tier), `docs/superpowers/specs/2026-07-01-jarvis-concierge-design.md` (the tier this builds on), `pkg/agentask` + `git show a4b5bd4f:docs/agents/organic-ask-setup.md` (the ask/answer channel Gatekeeper reuses), `pkg/consult` (the headless-CLI exec primitive).
 
 ## Naming
 

@@ -3,7 +3,7 @@
 - **Date:** 2026-07-27
 - **Status:** Awaiting review
 - **Design source:** `wave-handoff/wave/project/Wave-jarvis-consolidated.dc.html` — revision 2, 13 live states (Claude Design project `wave`)
-- **Briefs:** `docs/superpowers/briefs/2026-07-27-jarvis-consolidation-ui-design-brief.md`, `…-design-addendum.md`
+- **Briefs:** `git show a4b5bd4f:docs/superpowers/briefs/2026-07-27-jarvis-consolidation-ui-design-brief.md`, `…-design-addendum.md`
 - **Supersedes visually:** `Wave-channels-merged.dc.html`, `Wave-jarvis-second-brain.dc.html`, `Wave-jarvis-presence.dc.html`
 
 ## 1. What this changes

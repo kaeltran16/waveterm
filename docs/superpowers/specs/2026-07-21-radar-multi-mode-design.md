@@ -7,7 +7,7 @@
 **Related:**
 - `docs/superpowers/specs/2026-07-10-repo-radar-design.md` — Repo Radar v1 (the foundation this extends).
 - `docs/superpowers/specs/2026-07-16-radar-outcome-loop-design.md` — the finding → Run → outcome loop (mode-agnostic; unchanged by this work).
-- `docs/superpowers/briefs/2026-07-21-open-ended-improvement-scan-brief.md` — finding D3 (surfaces coerce failure to empty); this spec closes D3 for Radar via per-mode degradation.
+- `git show a4b5bd4f:docs/superpowers/briefs/2026-07-21-open-ended-improvement-scan-brief.md` — finding D3 (surfaces coerce failure to empty); this spec closes D3 for Radar via per-mode degradation.
 
 ---
 

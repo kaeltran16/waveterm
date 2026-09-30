@@ -234,7 +234,7 @@ accepts any state.
 | Submit | A task carrying `StackedOn` is rejected. |
 | Prompt | The engine prompt contains the chain rule and the `merge-ready` vocabulary; the adaptive prompt is byte-identical to today. |
 | Frontend | `dagstore.test.ts`: merge offered on a tip, not on a stacked step, offered again when the successor is skipped. |
-| Live | A Claude lead on a scratch repo: one three-step chain, one independent task, one join. Assert one merge per lane, the join's worktree at integrated HEAD, and the lead's wake log showing `action:merge-ready` and `terminal:done` only. Recorded beside `docs/jarvis-claude-lead-e2e.md`. |
+| Live | A Claude lead on a scratch repo: one three-step chain, one independent task, one join. Assert one merge per lane, the join's worktree at integrated HEAD, and the lead's wake log showing `action:merge-ready` and `terminal:done` only. Recorded beside `git show a4b5bd4f:docs/jarvis-claude-lead-e2e.md`. |
 
 The live run is the only test that proves the wake loop closes over a lane; every unit test above
 stays green on a digest the lead never reads.

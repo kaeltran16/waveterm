@@ -7,7 +7,7 @@
 **Builds on (read first):**
 - [Jarvis second brain — v1 meta spec](2026-07-23-jarvis-second-brain-meta-spec.md) — decomposition, invariants, seams, build order.
 - [Jarvis second brain — design](2026-07-22-jarvis-second-brain-design.md) — recall/attribution/write-ownership/presence + cost model.
-- [Jarvis second brain — UI design brief](../briefs/2026-07-23-jarvis-second-brain-ui-design-brief.md) — product/interaction design, realized as `Wave-jarvis-second-brain.dc.html` in the `wave` Claude Design project (the **visual source of truth** for the 12 states; this spec is its engineering realization, not a redraw).
+- Jarvis second brain — UI design brief (`git show a4b5bd4f:docs/superpowers/briefs/2026-07-23-jarvis-second-brain-ui-design-brief.md`) — product/interaction design, realized as `Wave-jarvis-second-brain.dc.html` in the `wave` Claude Design project (the **visual source of truth** for the 12 states; this spec is its engineering realization, not a redraw).
 
 This spec does not restate the meta spec's invariants or the design's decisions. It records the decisions that were left to G, the engineering architecture, and the scope of this cycle.
 

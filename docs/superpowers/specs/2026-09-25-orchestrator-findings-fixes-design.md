@@ -1,6 +1,6 @@
 # Orchestrator findings fixes: reporting, landing, final verification, pre-submit review
 
-Fixes the findings of `docs/orchestrator-findings-2026-09-25.md` (untracked; the essentials are restated
+Fixes the findings of `docs/superpowers/briefs/2026-09-25-orchestrator-findings.md` (untracked; the essentials are restated
 here). Numbers in brackets are the finding numbers. Finding 3 (attention row) is out of scope.
 
 ## Decisions (human, 2026-09-25)

@@ -1,6 +1,6 @@
 # Jarvis J6 — memory root unification design
 
-**Issue:** [J6 in `docs/jarvis-second-brain-open-issues.md`](../../jarvis-second-brain-open-issues.md) —
+**Issue:** J6 in `git show a4b5bd4f:docs/jarvis-second-brain-open-issues.md` —
 two durable-knowledge roots. **Date:** 2026-07-27. **Effort:** M.
 
 ## Problem

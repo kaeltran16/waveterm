@@ -6,9 +6,9 @@
 
 **Scope.** This file sequences the build of the full **v1** Jarvis second brain into independent sub-projects. It does *not* re-decide the product and architecture already settled in:
 
-- [Wave Vault direction brief](../briefs/2026-07-22-jarvis-second-brain-wave-vault-brief.md) — the storage substrate (approved).
+- Wave Vault direction brief (`git show a4b5bd4f:docs/superpowers/briefs/2026-07-22-jarvis-second-brain-wave-vault-brief.md`) — the storage substrate (approved).
 - [Jarvis second brain — design](2026-07-22-jarvis-second-brain-design.md) — the four load-bearing decisions (recall, attribution, write-ownership, presence), the cost model, and the v1/v2 sequencing.
-- [Jarvis second brain — UI design brief](../briefs/2026-07-23-jarvis-second-brain-ui-design-brief.md) — realized as `Wave-jarvis-second-brain.dc.html` in the `wave` Claude Design project (4 frames, all 12 required states).
+- Jarvis second brain — UI design brief (`git show a4b5bd4f:docs/superpowers/briefs/2026-07-23-jarvis-second-brain-ui-design-brief.md`) — realized as `Wave-jarvis-second-brain.dc.html` in the `wave` Claude Design project (4 frames, all 12 required states).
 
 Read those first; everything here assumes them.
 

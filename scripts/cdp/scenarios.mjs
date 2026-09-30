@@ -2363,7 +2363,7 @@ const jarvisPeek = {
 //
 // It injects the pet event rather than arranging a real utterance. A real one needs a headless CLI judge
 // run (up to 90s) behind a 45-minute quiet window, which is the same live-model limit that keeps the
-// cancel path and the thread-archive path unit-only (docs/jarvis-tab.md). The hook is dev-only, exposed
+// cancel path and the thread-archive path unit-only (git show a4b5bd4f:docs/jarvis-tab.md). The hook is dev-only, exposed
 // by petstore.ts under import.meta.env.DEV.
 const jarvisVolunteer = {
     name: "jarvis-volunteer",
@@ -6166,8 +6166,8 @@ const agentTreeQuickReturn = {
     async teardown() {},
 };
 
-// A lead's Spec review ask opens as the review dialog over whatever agent is focused (docs/superpowers/plans/
-// 2026-09-30-doc-review-dialog.md). Same setup as agent-tree-rail, with a roster of a working agent and a lead
+// A lead's Spec review ask opens as the review dialog over whatever agent is focused (git show a4b5bd4f:
+// docs/superpowers/plans/2026-09-30-doc-review-dialog.md). Same setup as agent-tree-rail, with a roster of a working agent and a lead
 // asking a Spec review whose document the scenario writes. The working agent comes in through its Cockpit card, so
 // the Agent surface never defaults onto the lead and spends its one auto-open before step 4. Nothing is answered:
 // the fixture ask has no live block.

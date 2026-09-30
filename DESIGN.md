@@ -320,10 +320,6 @@ content is always fluid.
   `relative min-w-0 flex-1` shell; each surface is `flex flex-col bg-background`.
   The Agent surface stays mounted-but-hidden across nav switches so its xterm
   never remounts; other surfaces unmount on switch.
-- **Jarvis stage** — canonical three-pane surface: `SubjectsColumn`
-  (continuous 56→272px, icons below 140px) + fluid `Stage` (640px floor) +
-  overlay `StageRail` (300px, 44px collapsed), geometry computed by the pure
-  `jarvislayout.layoutFor`.
 - **Modals** — `fixed inset-0 z-[70]` overlay with backdrop; focus is
   trapped (`modalfocus.ts`).
 - **Z-index** — tokenized: `--z-window-drag: 100`; legacy `--zindex-*` vars
@@ -452,7 +448,7 @@ The cockpit's structural conventions (state, component shape, theming
 engine):
 
 - **Pure logic + thin render.** Testable logic lives in pure `.ts` files
-  (`agentsviewmodel.ts`, `cardgridlayout.ts`, `jarvislayout.ts`,
+  (`agentsviewmodel.ts`, `cardgridlayout.ts`, `difflayout.ts`,
   `navrailwidth.ts`) with `.test.ts` beside them; `.tsx` components render.
   169 test files, zero render/snapshot tests. Files carry a react-freedom
   header comment ("Pure view-model logic … No React, no Wave runtime
@@ -490,7 +486,7 @@ engine):
 | Color/type/radius/spacing tokens | `frontend/tailwindsetup.css` (`@theme` block) |
 | Runtime theming engine | `frontend/app/view/agents/themes.ts` (+ `themes.test.ts`) |
 | Theme persistence/apply | `frontend/app/view/agents/themestore.ts` |
-| Motion tokens | `frontend/app/element/motiontokens.ts` (+ test), `docs/superpowers/motion-system.md` |
+| Motion tokens | `frontend/app/element/motiontokens.ts` (+ test), `docs/reference/motion-system.md` |
 | Keybinding registry | `frontend/app/store/keybindings/` (`bindings.ts`) |
 | Keyboard design spec | `docs/superpowers/specs/2026-07-03-keyboard-operability-design.md` |
 | Fonts | `frontend/util/fontutil.ts`, `frontend/app/view/agents/fonts.ts` |

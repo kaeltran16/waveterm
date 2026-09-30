@@ -1,6 +1,6 @@
 # Orchestrator small findings: attention source, Verify failure excerpt, WOS race, evidence labels
 
-Fixes four findings from `docs/orchestrator-findings-2026-09-25.md` (numbers in brackets). Each is
+Fixes four findings from `docs/superpowers/briefs/2026-09-25-orchestrator-findings.md` (numbers in brackets). Each is
 independent of the others. Finding 10 (edit with the Edit tool) is already shipped: `workerContract`
 (`pkg/orchestrate/engine.go:697`) carries the line since a9650e6c, and `engine_test.go:1465` covers it.
 No UI code changes; what the UI shows changes only through the data (a shorter source, a `ran` result).
