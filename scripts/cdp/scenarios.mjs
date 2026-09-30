@@ -7451,7 +7451,264 @@ const newRunWindow = {
     },
 };
 
-const PICKS_BANNER = `document.querySelector('[data-dag-modal-kind] [data-model-picks-banner]')`;
+// --- palette-actions, palette-goal: Ctrl+P acting on things (docs/superpowers/specs/2026-09-30-palette-actions-design.md)
+// Every query is scoped to the palette's own dialog: the app bar's search button and the Brief also render rows.
+const PALETTE_INPUT = `document.querySelector('input[data-palette-input]')`;
+const PALETTE = `${PALETTE_INPUT}?.closest('[role="dialog"]')`;
+// React reads keys off the input's own keydown, so they are dispatched there rather than relying on page focus
+const paletteKey = (key) => `(() => {
+    const el = ${PALETTE_INPUT};
+    if (!el) return false;
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true }));
+    return true;
+})()`;
+const PALETTE_TOGGLE = `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`;
+// the listbox's children are its groups, each led by its label; a row is a data-idx button
+const PALETTE_STATE = `(() => {
+    const d = ${PALETTE};
+    if (!d) return null;
+    const flat = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
+    const input = d.querySelector('input[data-palette-input]');
+    const list = d.querySelector('[role="listbox"][aria-label="Results"]');
+    const sel = list?.querySelector('button[data-idx][aria-selected="true"]');
+    return {
+        token: d.querySelector('[data-palette-token]') ? flat(d.querySelector('[data-palette-token]')) : null,
+        drill: d.querySelector('[data-palette-drill]') ? flat(d.querySelector('[data-palette-drill]')) : null,
+        query: input?.value ?? null,
+        placeholder: input?.placeholder ?? null,
+        groups: [...(list?.children ?? [])].map((g) => ({
+            label: flat(g.firstElementChild),
+            rows: [...g.querySelectorAll('button[data-idx]')].map((b) => flat(b)),
+        })),
+        selected: sel ? flat(sel) : null,
+        chip: sel ? /→ \\d+ actions/.test(flat(sel)) : false,
+        text: (d.innerText ?? '').replace(/\\s+/g, ' ').trim(),
+    };
+})()`;
+
+async function openPalette(h) {
+    // Ctrl+P toggles, so a palette an earlier step left open is closed first
+    if (await h.ev(`!!${PALETTE_INPUT}`)) {
+        await h.ev(PEEKS_ESC);
+        await polishWaitFor(h, `!${PALETTE_INPUT}`, 2000);
+    }
+    await h.ev(PALETTE_TOGGLE);
+    return polishWaitFor(h, `!!${PALETTE_INPUT}`, 3000);
+}
+
+async function paletteStateWhen(h, ok, ms) {
+    let state = null;
+    for (let waited = 0; waited <= ms; waited += 250) {
+        state = await h.ev(PALETTE_STATE).catch(() => null);
+        if (state != null && ok(state)) break;
+        await polishNap(250);
+    }
+    return state;
+}
+
+// A run held in planning by deferstart is only a record: no worker spawns, so no lead joins the roster and none
+// of Steer's actions (message, focus, workers, relaunch, resume) applies. Its list is Open and Stop, and Steer's
+// actions are named on the Not now line instead.
+const paletteActions = {
+    name: "palette-actions",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-palette-actions-"));
+        const stamp = `palacts${Date.now() % 100000}`;
+        const ctx = { cwd, stamp };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-palette-actions", projectpath: cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: `verify ${stamp}: do nothing, make no file changes, stop immediately`,
+                runtime: "claude",
+                mode: "orchestrator",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            // the palette lists runs from the boot-primed channel list
+            await polishReload(h);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. a channel with one planning run was made", false, ctx.arrangeError);
+            return steps;
+        }
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        await h.goto("jarvis");
+        const opened = await openPalette(h);
+        rec("1. Ctrl+P opens the palette", opened, `open=${opened}`);
+        if (!opened) return steps;
+
+        await h.ev(setInputExpr(PALETTE_INPUT, "r:"));
+        const scoped = await paletteStateWhen(h, (s) => s.token === "Runs", 2000);
+        const runsTab = await h.ev(`${PALETTE}?.querySelector('[data-palette-scope="runs"]')?.getAttribute('aria-pressed')`);
+        rec(
+            "2. typing r: narrows to Runs: the token names it, the field empties",
+            scoped?.token === "Runs" && scoped.query === "" && runsTab === "true",
+            JSON.stringify({ token: scoped?.token, query: scoped?.query, runsTab })
+        );
+
+        // the row's action count shows only once the kinds' sources load, so wait for it rather than sleep
+        await h.ev(setInputExpr(PALETTE_INPUT, ctx.stamp));
+        const listed = await paletteStateWhen(h, (s) => (s.selected ?? "").includes(ctx.stamp) && s.chip, 8000);
+        rec(
+            "3. the run's row is selected and says → N actions",
+            (listed?.selected ?? "").includes(ctx.stamp) && listed.chip === true,
+            JSON.stringify({ selected: listed?.selected, groups: listed?.groups })
+        );
+
+        await h.ev(paletteKey("ArrowRight"));
+        const acts = await paletteStateWhen(h, (s) => s.drill != null && s.groups.length > 0, 3000);
+        await h.shot("cdp-shots/palette-actions-list.png");
+        const labels = acts?.groups.map((g) => g.label) ?? [];
+        const rows = acts?.groups.flatMap((g) => g.rows) ?? [];
+        rec(
+            "4. → opens the run's actions: Open then Stop, Cancel run among them, Steer's under Not now",
+            acts != null &&
+                acts.token == null &&
+                acts.drill.startsWith("Run") &&
+                acts.drill.includes(ctx.stamp) &&
+                acts.placeholder === "Filter Run actions…" &&
+                labels.join(",") === "Open,Stop" &&
+                rows.some((r) => r.startsWith("Open in Jarvis")) &&
+                rows.some((r) => r.startsWith("Cancel run")) &&
+                /Not now: .*Message the lead/.test(acts.text),
+            JSON.stringify({ drill: acts?.drill, placeholder: acts?.placeholder, groups: acts?.groups })
+        );
+
+        await h.ev(paletteKey("Backspace"));
+        const back = await paletteStateWhen(h, (s) => s.drill == null, 2000);
+        rec(
+            "5. Backspace on the empty filter returns to the run list, the query and the run's selection kept",
+            back != null &&
+                back.drill == null &&
+                back.token === "Runs" &&
+                back.query === ctx.stamp &&
+                (back.selected ?? "").includes(ctx.stamp),
+            JSON.stringify({ token: back?.token, query: back?.query, selected: back?.selected })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(PEEKS_ESC).catch(() => {});
+        await teardownFixtureRun(h, ctx, "palette-actions");
+    },
+};
+
+const PALETTE_GOAL_PROJECT = "verify-palette-goal";
+
+// Firing Orchestrate would spawn a real lead, so this asserts Ctrl+Enter's footer line and drives Set up the run…
+// instead; the Ctrl+Enter handler itself is covered by palette-launch.test.ts.
+const paletteGoal = {
+    name: "palette-goal",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-palette-goal-"));
+        const ctx = { cwd };
+        try {
+            await h.rpc("createproject", { name: PALETTE_GOAL_PROJECT, path: cwd });
+            ctx.project = PALETTE_GOAL_PROJECT;
+            const ch = await h.rpc("createchannel", { name: "verify-palette-goal", projectpath: cwd });
+            ctx.channelId = ch.oid;
+            await polishReload(h);
+            // the launch block starts in the active project, so the channel is made active the way an agent's
+            // reveal does, and the sheet that opens with it is closed again
+            await h.rpc("uireveal", { address: `channel:${ctx.channelId}` }, UI_ROUTE);
+            await polishNap(600);
+            await h.ev(PEEKS_ESC);
+            await polishNap(300);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. an active project with no runs was made", false, ctx.arrangeError);
+            return steps;
+        }
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        await h.goto("jarvis");
+        const runsBefore = await channelRunCount(h, ctx.channelId);
+        const opened = await openPalette(h);
+        rec("1. Ctrl+P opens the palette", opened, `open=${opened}`);
+        if (!opened) return steps;
+
+        // a goal that names nothing: a made-up first word, so no verb row and no name match either
+        const goal = `zqvx${Date.now() % 100000} tidy the palette fixture`;
+        await h.ev(setInputExpr(PALETTE_INPUT, goal));
+        const launch = await paletteStateWhen(h, (s) => s.groups[0]?.label.startsWith("Start in"), 3000);
+        await h.shot("cdp-shots/palette-goal-launch.png");
+        const block = launch?.groups[0];
+        rec(
+            "2. the launch block leads, in the active project, with Quick selected",
+            block != null &&
+                block.label === `Start in #${PALETTE_GOAL_PROJECT}` &&
+                (block.rows[0] ?? "").startsWith("Quick") &&
+                (launch.selected ?? "").startsWith("Quick") &&
+                block.rows.some((r) => r.startsWith("Set up the run…")),
+            JSON.stringify({ groups: launch?.groups, selected: launch?.selected })
+        );
+        rec(
+            "3. the footer names Ctrl+Enter's Orchestrate",
+            launch != null && launch.text.includes("ctrl ⏎") && launch.text.includes("Starts an orchestrator run instead"),
+            launch?.text.slice(-240) ?? ""
+        );
+
+        // Quick → Orchestrate → Set up the run…
+        await h.ev(paletteKey("ArrowDown"));
+        await h.ev(paletteKey("ArrowDown"));
+        const onSetup = await paletteStateWhen(h, (s) => (s.selected ?? "").startsWith("Set up the run…"), 2000);
+        await h.ev(paletteKey("Enter"));
+        const windowOpen = await polishWaitFor(h, `!!${NEW_RUN}`, 5000);
+        // the window fills the goal once its project list loads
+        await polishWaitFor(
+            h,
+            `${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value === ${JSON.stringify(goal)}`,
+            3000
+        );
+        const filled = await h.ev(`({
+            palette: !!${PALETTE_INPUT},
+            goal: ${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value ?? null,
+            project: ${flatText(NEW_RUN_FIELD)},
+        })`);
+        const runsAfter = await channelRunCount(h, ctx.channelId);
+        await h.shot("cdp-shots/palette-goal-window.png");
+        rec(
+            "4. Set up the run… opens the New run window with the goal and project filled, and starts nothing",
+            (onSetup?.selected ?? "").startsWith("Set up the run…") &&
+                windowOpen &&
+                filled.palette === false &&
+                filled.goal === goal &&
+                filled.project.startsWith(PALETTE_GOAL_PROJECT) &&
+                runsAfter === runsBefore,
+            JSON.stringify({ selected: onSetup?.selected, windowOpen, ...filled, runsBefore, runsAfter })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(PEEKS_ESC).catch(() => {});
+        await teardownFixtureRun(h, ctx, "palette-goal", {
+            what: "delete the project",
+            fn: () => (ctx.project ? h.rpc("deleteproject", { name: ctx.project }) : null),
+        });
+    },
+};
+
+const PICKS_BANNER =`document.querySelector('[data-dag-modal-kind] [data-model-picks-banner]')`;
 const PICKS_PANEL = `document.querySelector('[data-dag-modal-kind] [data-model-picks]')`;
 const pickRowExpr = (id) => `${PICKS_PANEL}?.querySelector('[data-model-pick="${id}"]')`;
 const pickToggleExpr = (id, sonnet) =>
@@ -8153,6 +8410,8 @@ export const SCENARIOS = [
     briefInitiativesPolish,
     briefPeeksPolish,
     newRunWindow,
+    paletteActions,
+    paletteGoal,
     modelPicks,
     canvasSwap,
     canvasTabsScenario,

@@ -122,6 +122,19 @@ describe("assembleAllGroups", () => {
         expect(groups.map((g) => g.key)).toEqual(["agent", "start"]);
     });
 
+    it("ranks a verb row by name, so 'cancel' lists runs to cancel above the goal block", () => {
+        const cancel = item("action:run:cancel:run:1", "action", "Cancel run fix flaky verify");
+        const groups = assembleAllGroups(input({ query: "cancel", ranked: [cancel], launch, asGoalItem }));
+        expect(groups.map((g) => g.key)).toEqual(["action", "as-goal"]);
+        expect(groups[0].label).toBe("Actions");
+        expect(groups[0].items[0].key).toBe("action:run:cancel:run:1"); // Enter cancels, not a Quick run
+    });
+
+    it("leads 'cancel' with the goal block when nothing can be cancelled", () => {
+        const groups = assembleAllGroups(input({ query: "cancel", ranked: [], launch, asGoalItem }));
+        expect(groups.map((g) => g.key)).toEqual(["launch"]);
+    });
+
     it("leads with the kind holding the best match", () => {
         const cmd = item("c1", "command", "Usage stats");
         const surface = item("surface:usage", "surface", "Usage");

@@ -18,6 +18,7 @@ export type GroupKind =
     | "record"
     | "effort"
     | "channel"
+    | "action" // a verb row: one of a thing's actions, "Cancel run · <run>"
     | "command"
     | "file"
     | "theme"
@@ -45,6 +46,7 @@ export interface PaletteGroup<T> {
     asking?: boolean; // waiting on the user: the label takes the asking tone
     hidden?: number; // rows left out before capping, counted in the overflow line
     more?: string; // where the overflow can be seen in full; default "keep typing"
+    note?: string; // a closing line under the rows: an action list's "Not now: …"
 }
 
 export const KIND_LABELS: Partial<Record<GroupKind, string>> = {
@@ -57,6 +59,7 @@ export const KIND_LABELS: Partial<Record<GroupKind, string>> = {
     record: "Records",
     effort: "Initiatives", // the user-facing word for an effort (briefpalette's BRIEF_KIND_LABELS)
     channel: "Projects",
+    action: "Actions",
     command: "Commands",
     theme: "Themes",
     "focus-task": "Tasks",
@@ -69,6 +72,7 @@ export const ALL_KIND_ORDER: GroupKind[] = [
     "start",
     "agent",
     "run",
+    "action",
     "session",
     "record",
     "effort",

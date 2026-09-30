@@ -50,6 +50,8 @@ export interface PaletteItem {
     archived?: boolean;
     desc?: string; // launch rows: mono subtitle
     launchIcon?: LaunchIcon; // launch rows
+    danger?: boolean; // a destructive action: the error tone
+    actions?: number; // a thing's applicable actions, which → opens
     verb: string; // what Enter does, shown on the selected row
     echo: string; // the whole action, shown in the footer
     run: () => void;
@@ -74,6 +76,7 @@ const KIND_ICONS: Partial<Record<GroupKind, LucideIcon>> = {
     "as-goal": Zap,
     widen: Search,
     line: CornerDownRight,
+    action: Play,
 };
 
 const LAUNCH_ICONS: Record<LaunchIcon, LucideIcon> = {
@@ -127,6 +130,7 @@ interface RowProps {
     query: string;
     onHover: (idx: number) => void;
     onFire: (it: PaletteItem) => void;
+    onActions?: (idx: number) => void;
 }
 
 function RichRow({ it, idx, active, onHover, onFire }: RowProps) {
@@ -194,7 +198,7 @@ function AnswerRow({ it, onFire }: Pick<RowProps, "it" | "onFire">) {
     );
 }
 
-function PlainRow({ it, idx, active, query, onHover, onFire }: RowProps) {
+function PlainRow({ it, idx, active, query, onHover, onFire, onActions }: RowProps) {
     const Icon = it.icon ?? KIND_ICONS[it.kind] ?? Play;
     const plainTitle = it.kind === "as-goal" || it.kind === "widen" || it.kind === "line";
     return (
@@ -214,13 +218,23 @@ function PlainRow({ it, idx, active, query, onHover, onFire }: RowProps) {
             <Icon
                 size={14}
                 strokeWidth={1.8}
-                className={cn("shrink-0", it.sub && "mt-px", active ? "text-accent-soft" : "text-ink-mid")}
+                className={cn(
+                    "shrink-0",
+                    it.sub && "mt-px",
+                    it.danger ? "text-error" : active ? "text-accent-soft" : "text-ink-mid"
+                )}
             />
             <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                 <span
                     className={cn(
                         "truncate text-[13px]",
-                        active ? "text-primary" : it.archived ? "text-muted" : "text-secondary"
+                        it.danger
+                            ? "text-error-soft"
+                            : active
+                              ? "text-primary"
+                              : it.archived
+                                ? "text-muted"
+                                : "text-secondary"
                     )}
                 >
                     {plainTitle ? it.title : <Highlighted text={it.title} query={it.hl ?? query} />}
@@ -260,7 +274,31 @@ function PlainRow({ it, idx, active, query, onHover, onFire }: RowProps) {
             ) : null}
             {it.chord ? <Chord keys={it.chord} /> : null}
             {active ? <VerbHint verb={it.verb} /> : null}
+            {it.actions ? <ActionsHint count={it.actions} active={active} onOpen={() => onActions?.(idx)} /> : null}
         </button>
+    );
+}
+
+// the selected row says it has actions and opens them on click; the others carry a dim › that they do
+function ActionsHint({ count, active, onOpen }: { count: number; active: boolean; onOpen: () => void }) {
+    if (!active) {
+        return (
+            <span aria-hidden className="shrink-0 font-mono text-[12px] text-ink-faint">
+                ›
+            </span>
+        );
+    }
+    return (
+        <span
+            role="button"
+            onClick={(e) => {
+                e.stopPropagation();
+                onOpen();
+            }}
+            className="shrink-0 cursor-pointer rounded-[5px] border border-accent-700 px-1.5 py-px font-mono text-[10.5px] text-accent-soft"
+        >
+            → {count} actions
+        </span>
     );
 }
 
@@ -271,15 +309,16 @@ export interface GroupViewProps {
     query: string;
     onHover: (idx: number) => void;
     onFire: (it: PaletteItem) => void;
+    onActions?: (idx: number) => void;
 }
 
-export function PaletteGroupView({ group, indexOf, selected, query, onHover, onFire }: GroupViewProps) {
+export function PaletteGroupView({ group, indexOf, selected, query, onHover, onFire, onActions }: GroupViewProps) {
     const rows = group.items.map((it) => {
         if (it.kind === "answer") {
             return <AnswerRow key={it.key} it={it} onFire={onFire} />;
         }
         const idx = indexOf.get(it.key)!;
-        const props = { it, idx, active: idx === selected, query, onHover, onFire };
+        const props = { it, idx, active: idx === selected, query, onHover, onFire, onActions };
         return group.rich ? <RichRow key={it.key} {...props} /> : <PlainRow key={it.key} {...props} />;
     });
     if (group.rich) {
@@ -310,6 +349,11 @@ export function PaletteGroupView({ group, indexOf, selected, query, onHover, onF
             {group.overflow > 0 ? (
                 <div className="py-0.5 pl-[34px] pr-2.5 font-mono text-[10.5px] text-muted">
                     +{group.overflow} more{group.more ? ` · ${group.more}` : ", keep typing"}
+                </div>
+            ) : null}
+            {group.note ? (
+                <div className="mx-1 mt-2 border-t border-border px-2.5 py-2 text-[12px] leading-normal text-muted">
+                    {group.note}
                 </div>
             ) : null}
         </div>

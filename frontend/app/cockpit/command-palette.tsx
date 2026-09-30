@@ -47,10 +47,31 @@ import { openAddress, openTarget } from "@/app/view/jarvis/openref";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { sameRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtomValue, type PrimitiveAtom } from "jotai";
-import { Eye, Flag, GitFork, Search, SlidersHorizontal, SquareTerminal, type LucideIcon } from "lucide-react";
+import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
+import {
+    ArrowUpRight,
+    CircleX,
+    Eye,
+    Flag,
+    GitFork,
+    Search,
+    SlidersHorizontal,
+    Square,
+    SquareTerminal,
+    type LucideIcon,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { THING_KINDS } from "./actions";
+import {
+    verbRows,
+    type ActionGroup,
+    type ThingAction,
+    type ThingEntry,
+    type ThingKindDef,
+    type VerbRow,
+} from "./actions/types";
 import { runPaletteAction } from "./palette-action";
+import { actionListGroups, verbGroupLabel, verbLeads } from "./palette-actionrows";
 import {
     buildCommandItems,
     buildExtraItems,
@@ -92,10 +113,14 @@ import {
 import { PaletteGroupView, type PaletteItem, type StatusTone } from "./palette-rows";
 import {
     backspaceEmpty,
+    caretAtEnd,
     cycleScope,
     DRILL_LABELS,
     ghostHint,
     initialNav,
+    leaveActions,
+    openActionInput,
+    openActions,
     openDrill,
     parseProjectLaunch,
     pickScope,
@@ -110,6 +135,29 @@ import {
 } from "./palette-scope";
 
 type CommandRow = PaletteItem & { group: string };
+
+// a thing the palette can act on: its kind's definition and its current entry
+interface ActionTarget {
+    def: ThingKindDef<any>;
+    entry: ThingEntry<any>;
+}
+
+const ACTION_ICONS: Record<ActionGroup, LucideIcon> = { open: ArrowUpRight, steer: SlidersHorizontal, stop: Square };
+
+function actionIcon(a: ThingAction<any>): LucideIcon {
+    return a.destructive ? CircleX : ACTION_ICONS[a.group];
+}
+
+// what Enter does on an action's row: an input is written or picked first, else the label's own verb
+function actionVerb(a: ThingAction<any>): string {
+    if (a.input != null) {
+        return a.input.kind === "text" ? "Write" : "Pick";
+    }
+    return a.label.split(" ", 1)[0];
+}
+
+// the input level's chip and placeholder add their own "…"
+const bareLabel = (a: ThingAction<any>) => a.label.replace(/…$/, "");
 
 const START_ICONS: Record<StartId, LucideIcon> = { run: SlidersHorizontal, agent: SquareTerminal, initiative: Flag };
 
@@ -195,9 +243,18 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const codeProject = useAtomValue(codeProjectAtom);
     const codeIndex = useAtomValue(codeIndexAtom);
     const codeHistory = useAtomValue(codeHistoryAtom);
+    // every thing the palette can act on, per kind; computed only while open, as its sources move often
+    const thingsAtom = useMemo(
+        () =>
+            atom((get) =>
+                get(model.paletteOpenAtom) ? THING_KINDS.map((def) => ({ def, entries: def.entries(get, model) })) : []
+            ),
+        [model]
+    );
+    const things = useAtomValue(thingsAtom);
     const [nav, setNavState] = useState<NavState>(() => initialNav(surface));
     const [sel, setSel] = useState(0);
-    const [launchError, setLaunchError] = useState<string | undefined>(undefined);
+    const [paletteError, setPaletteError] = useState<string | undefined>(undefined);
     // Files off Code: the active project's index, loaded on first use of the scope
     const [loadedFiles, setLoadedFiles] = useState<{ path: string; index?: CodeIndex; error?: string } | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -208,7 +265,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const setNav = (next: NavState | ((s: NavState) => NavState)) => {
         setNavState(next);
         setSel(0);
-        setLaunchError(undefined);
+        setPaletteError(undefined);
     };
     const q = nav.query.trim();
 
@@ -675,10 +732,10 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         const projectName = channelProjectLabel(ch, projects);
         // a failure keeps the goal in the palette and says why; success lands on the result, then closes
         const fireLaunch = (action: () => Promise<unknown>, land: () => void) => {
-            setLaunchError(undefined);
+            setPaletteError(undefined);
             void runPaletteAction(action).then((result) => {
                 if ("error" in result) {
-                    setLaunchError(result.error.replace(/^Error:\s*/, ""));
+                    setPaletteError(`Launch failed: ${result.error.replace(/^Error:\s*/, "")}`);
                     return;
                 }
                 land();
@@ -738,6 +795,146 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }));
     }, [targetChannel, launchGoal, agents, model, projects]);
 
+    // --- Actions ----------------------------------------------------------------------------------
+    const targetByKey = useMemo(() => {
+        const m = new Map<string, ActionTarget>();
+        for (const { def, entries } of things) {
+            for (const entry of entries) {
+                m.set(entry.key, { def, entry });
+            }
+        }
+        return m;
+    }, [things]);
+    const allVerbs = useMemo(
+        () => things.flatMap(({ def, entries }) => verbRows(def, entries).map((v) => ({ def, v }))),
+        [things]
+    );
+    // a verb row borrows its thing's meta (a run's project), so two runs with one goal stay apart
+    const thingMeta = useMemo(
+        () => new Map([...agentItems, ...runItems, ...sessionItems, ...channelItems].map((it) => [it.key, it.meta])),
+        [agentItems, runItems, sessionItems, channelItems]
+    );
+
+    // a failure keeps the palette open on the error, as a launch does; success closes
+    const runThingAction = (t: ActionTarget, action: ThingAction<any>, value?: string) => {
+        setPaletteError(undefined);
+        void runPaletteAction(async () => action.run(t.entry.thing, { model }, value)).then((result) => {
+            if ("error" in result) {
+                setPaletteError(`${bareLabel(action)} failed: ${result.error.replace(/^Error:\s*/, "")}`);
+                return;
+            }
+            close();
+        });
+    };
+    const drillThing = (t: ActionTarget) => ({ key: t.entry.key, title: t.entry.title, noun: t.def.noun });
+    // an action that takes a value opens its input level, inside the thing's action list, first
+    const startAction = (t: ActionTarget, action: ThingAction<any>) => {
+        if (action.input == null) {
+            runThingAction(t, action);
+            return;
+        }
+        const inList = nav.actions?.thing.key === t.entry.key ? nav : openActions(nav, drillThing(t), selClamped);
+        setNav(openActionInput(inList, { actionId: action.id, label: bareLabel(action) }));
+    };
+    const actionItem = (t: ActionTarget, action: ThingAction<any>, over: Partial<PaletteItem> = {}): PaletteItem => ({
+        key: `act:${action.id}`,
+        kind: "action",
+        search: action.label,
+        title: action.input?.kind === "text" ? `${bareLabel(action)}…` : action.label,
+        icon: actionIcon(action),
+        danger: action.destructive,
+        verb: actionVerb(action),
+        echo:
+            action.input == null
+                ? `${bareLabel(action)}: “${t.entry.title}”`
+                : action.input.kind === "pick"
+                  ? `Lists the choices, for “${t.entry.title}”`
+                  : `Takes the text here, for “${t.entry.title}”`,
+        run: () => startAction(t, action),
+        ...over,
+    });
+
+    // "cancel" lists Cancel run once per cancellable run; a thing's name alone lists no verb rows
+    const verbLabels = new Set(
+        q === "" ? [] : [...new Set(allVerbs.map(({ v }) => v.action.label))].filter((l) => verbLeads(q, l))
+    );
+    const verbHits = allVerbs.filter(({ v }) => verbLabels.has(v.action.label));
+    const verbByKey = new Map<string, VerbRow<any>>(verbHits.map(({ v }) => [v.key, v]));
+    const verbItems: PaletteItem[] = verbHits.map(({ def, v }) =>
+        actionItem({ def, entry: v.entry }, v.action, {
+            key: v.key,
+            search: v.search,
+            title: `${v.action.label} · ${v.entry.title}`,
+            meta: thingMeta.get(v.entry.key),
+        })
+    );
+
+    // → on a thing's row: its action list, or the input level of the action picked there
+    function actionDrillGroups(): PaletteGroup<PaletteItem>[] {
+        const { thing, input } = nav.actions!;
+        const t = targetByKey.get(thing.key);
+        if (t == null) {
+            return [{ key: "empty", label: thing.noun, items: [], emptyText: "It is no longer listed." }];
+        }
+        const action = input != null ? t.def.actions.find((a) => a.id === input.actionId) : undefined;
+        if (action?.input?.kind === "pick") {
+            const options = action.input.options(t.entry.thing).map((o) =>
+                actionItem(t, action, {
+                    key: `opt:${o.value}`,
+                    search: o.label,
+                    title: o.label,
+                    icon: undefined,
+                    verb: "Pick",
+                    echo: `${bareLabel(action)}: ${o.label}`,
+                    run: () => runThingAction(t, action, o.value),
+                })
+            );
+            const hits = rankPaletteItems(options, nav.query);
+            return [
+                {
+                    key: "pick",
+                    label: bareLabel(action),
+                    items: hits,
+                    ...(hits.length === 0
+                        ? { emptyText: q === "" ? "Nothing to pick." : `Nothing matches “${q}”.` }
+                        : {}),
+                },
+            ];
+        }
+        if (action?.input?.kind === "text") {
+            const text = nav.query;
+            const submit = actionItem(t, action, {
+                key: "submit",
+                search: "",
+                title: q === "" ? action.input.placeholder : text,
+                hl: "",
+                verb: "Send",
+                echo: q === "" ? "Type it here, then Enter sends it" : `${bareLabel(action)}: “${q}”`,
+                // an empty field has nothing to send, so Enter stays put
+                run: q === "" ? () => {} : () => runThingAction(t, action, text),
+            });
+            return [{ key: "text", label: bareLabel(action), items: [submit] }];
+        }
+        const { groups: sections, notNow } = actionListGroups(t.def, t.entry, nav.query);
+        const out: PaletteGroup<PaletteItem>[] = sections.map((g) => ({
+            key: `act:${g.key}`,
+            label: g.label,
+            items: g.actions.map((a) => actionItem(t, a)),
+        }));
+        if (out.length === 0) {
+            out.push({
+                key: "empty",
+                label: "Actions",
+                items: [],
+                emptyText: q === "" ? "Nothing applies right now." : `No actions match “${q}”.`,
+            });
+        }
+        if (notNow != null) {
+            out[out.length - 1] = { ...out[out.length - 1], note: notNow };
+        }
+        return out;
+    }
+
     // --- Groups -----------------------------------------------------------------------------------
     const widenItem: PaletteItem | null =
         q === ""
@@ -766,7 +963,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     let groups: PaletteGroup<PaletteItem>[];
     let cap = MAX_IN_SCOPE;
     let fileHighlight: string | undefined;
-    if (nav.drill != null) {
+    if (nav.actions != null) {
+        groups = actionDrillGroups();
+    } else if (nav.drill != null) {
         const rows = nav.drill === "theme" ? themeItems : focusItems;
         const hits = rankPaletteItems(rows, nav.query);
         groups = [
@@ -788,6 +987,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 ...sessionItems,
                 ...channelItems,
                 ...commandItems,
+                // last, so a tie with the thing's own row keeps the thing first
+                ...verbItems,
             ],
             mru
         );
@@ -841,8 +1042,15 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         if (q === "") {
             groups = [{ key: "start", label: "Start", items: startItems }, ...commandGroups(commandItems, surface)];
         } else {
-            const hits = rankPaletteItems([...startItems, ...commandItems], nav.query);
-            groups = hits.length > 0 ? groupByKind(hits, ["start", "command"]) : narrowed([], ["command"]);
+            const hits = rankPaletteItems([...startItems, ...verbItems, ...commandItems], nav.query);
+            groups =
+                hits.length > 0
+                    ? groupByKind(hits, ["start", "action", "command"]).map((g) =>
+                          g.key === "action"
+                              ? { ...g, label: verbGroupLabel(g.items.map((it) => verbByKey.get(it.key)!)) }
+                              : g
+                      )
+                    : narrowed([], ["command"]);
         }
     } else if (nav.scope === "projects" && projectLaunch != null) {
         groups =
@@ -936,7 +1144,13 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         return { groups: rows, fileHighlight: fg.text };
     }
 
-    const capped = capGroups(groups, cap);
+    // a thing's row says how many of its actions apply now; → opens them
+    const withActions = (it: PaletteItem): PaletteItem => {
+        const t = nav.actions == null ? targetByKey.get(it.key) : undefined;
+        const n = t == null ? 0 : t.def.actions.filter((a) => a.applies(t.entry.thing)).length;
+        return n > 0 ? { ...it, actions: n } : it;
+    };
+    const capped = capGroups(groups, cap).map((g) => ({ ...g, items: g.items.map(withActions) }));
     const flat = capped.flatMap((g) => g.items);
     const selClamped = flat.length === 0 ? 0 : Math.min(sel, flat.length - 1);
     const indexOf = new Map(flat.map((it, i) => [it.key, i]));
@@ -977,6 +1191,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                   },
               ]
             : []),
+        ...(selected?.actions ? [{ k: "→", text: `Its ${selected.actions} actions` }] : []),
     ];
 
     // Arrow-keying past the visible rows used to move the selection out of view — the scroll container
@@ -989,15 +1204,16 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             return;
         }
         listRef.current?.querySelector(`[data-idx="${selClamped}"]`)?.scrollIntoView({ block: "nearest" });
-    }, [selClamped, capped.length, nav.asGoal, nav.scope, nav.drill]);
+    }, [selClamped, capped.length, nav.asGoal, nav.scope, nav.drill, nav.actions]);
 
     // Only rows All can list are recorded: the launch, goal, widen and file rows are not things to
-    // float back up under Recent (files have Code's own history).
+    // float back up under Recent (files have Code's own history), and neither are actions, so a Cancel
+    // run never waits on the empty screen.
     const fire = (it: PaletteItem | undefined) => {
         if (it == null) {
             return;
         }
-        if (ALL_KIND_ORDER.includes(it.kind)) {
+        if (ALL_KIND_ORDER.includes(it.kind) && it.kind !== "action") {
             globalStore.set(paletteMruAtom, (prev) => nextMru(prev, it.key));
         }
         it.run();
@@ -1008,9 +1224,29 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }
     };
 
+    const openRowActions = (idx: number) => {
+        const t = targetByKey.get(flat[idx]?.key);
+        if (t != null) {
+            setNav(openActions(nav, drillThing(t), idx));
+        }
+    };
+    // back one level: an action's input to its thing's list, the list to the results it came from
+    const leaveLevel = () => {
+        if (nav.actions?.input != null) {
+            setNav({ ...nav, query: "", actions: { ...nav.actions, input: null } });
+            return;
+        }
+        const back = leaveActions(nav);
+        if (back != null) {
+            setNav(back.nav);
+            setSel(back.sel);
+        }
+    };
+
     const onKeyDown = (e: React.KeyboardEvent) => {
         // a digit past the ask's options is query text, as in any other scope
         const digit = /^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey ? Number(e.key) : 0;
+        const bare = !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
         if (digit > 0 && digit <= answerRows.length) {
             e.preventDefault();
             fire(answerRows[digit - 1]);
@@ -1031,7 +1267,24 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         } else if (e.key === "Tab") {
             e.preventDefault();
             setNav(cycleScope(nav, e.shiftKey ? -1 : 1));
+        } else if (e.key === "ArrowRight") {
+            // mid-query, → moves the caret as it always has
+            const caret = inputRef.current?.selectionStart ?? null;
+            if (bare && nav.actions == null && selected?.actions && caretAtEnd(nav.query, caret)) {
+                e.preventDefault();
+                openRowActions(selClamped);
+            }
+        } else if (e.key === "ArrowLeft") {
+            if (bare && nav.actions != null && nav.query === "") {
+                e.preventDefault();
+                leaveLevel();
+            }
         } else if (e.key === "Backspace") {
+            if (nav.actions != null && nav.query === "") {
+                e.preventDefault();
+                leaveLevel();
+                return;
+            }
             const next = backspaceEmpty(nav);
             if (next != null) {
                 e.preventDefault();
@@ -1076,6 +1329,28 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                 <span className="text-muted">Commands</span>
                                 <span className="text-muted">›</span>
                                 <span>{DRILL_LABELS[nav.drill]}</span>
+                            </button>
+                        ) : null}
+                        {nav.actions != null ? (
+                            <button
+                                type="button"
+                                data-palette-drill
+                                aria-label="Back to results"
+                                onClick={() => {
+                                    leaveLevel();
+                                    inputRef.current?.focus();
+                                }}
+                                className="flex min-w-0 max-w-[55%] shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-edge-mid bg-surface-raised px-2 py-0.5 text-[12px] text-secondary"
+                            >
+                                <span className="shrink-0 text-muted">{nav.actions.thing.noun}</span>
+                                <span className="shrink-0 text-muted">›</span>
+                                <span className="truncate">{nav.actions.thing.title}</span>
+                                {nav.actions.input != null ? (
+                                    <>
+                                        <span className="shrink-0 text-muted">›</span>
+                                        <span className="shrink-0">{nav.actions.input.label}</span>
+                                    </>
+                                ) : null}
                             </button>
                         ) : null}
                         <div className="relative min-w-0 flex-1">
@@ -1140,12 +1415,12 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                             );
                         })}
                     </div>
-                    {launchError ? (
+                    {paletteError ? (
                         <div
                             role="alert"
                             className="shrink-0 border-b border-error/30 bg-error/10 px-4 py-2 text-[12px] text-error-soft"
                         >
-                            Launch failed: {launchError}
+                            {paletteError}
                         </div>
                     ) : null}
                     <div
@@ -1170,6 +1445,10 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                     query={fileHighlight ?? nav.query}
                                     onHover={setSel}
                                     onFire={fire}
+                                    onActions={(idx) => {
+                                        openRowActions(idx);
+                                        inputRef.current?.focus();
+                                    }}
                                 />
                             ))
                         )}
@@ -1195,7 +1474,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                             </span>
                             <span className="flex shrink-0 items-center gap-3 font-mono text-[10.5px] text-muted">
                                 <span>↑↓ move</span>
-                                <span>Tab scope</span>
+                                <span>{nav.actions != null ? "← back" : "Tab scope"}</span>
                                 <span>esc close</span>
                             </span>
                         </div>
