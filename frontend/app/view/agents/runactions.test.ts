@@ -131,6 +131,17 @@ describe("createRun", () => {
         );
     });
 
+    it("sends an orchestrator run's prototype, and drops it from any other mode", async () => {
+        const prototype = "C:/p/.superpowers/design/t/project/Main.dc.html";
+        createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
+        await createRun("channel-1", "build", { runtime: "pi" }, { mode: "orchestrator", prototype });
+        expect(createRunCommand.mock.calls[0][1]).toMatchObject({ mode: "orchestrator", prototype });
+
+        createRunCommand.mockResolvedValueOnce({ run: { id: "run-2" } });
+        await createRun("channel-1", "build", { runtime: "pi" }, { mode: "quick", prototype });
+        expect(createRunCommand.mock.calls[1][1]).not.toHaveProperty("prototype");
+    });
+
     it("sends a budget that covers a whole engine launch", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
         await createRun("channel-1", "ship", { runtime: "pi" }, { mode: "orchestrator", planPath: "plan.md" });

@@ -3,6 +3,14 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import {
+    attachCanvas,
+    canvasStateAtom,
+    detachCanvas,
+    setCanvasMode,
+    setMarking,
+    updateCanvas,
+} from "@/app/view/agents/canvasstore";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
@@ -11,6 +19,7 @@ import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
+import { atom, type PrimitiveAtom } from "jotai";
 import { describe, expect, it } from "vitest";
 import {
     buildAgentBindings,
@@ -26,6 +35,25 @@ import { listNavAtom } from "./listnav";
 import { bindingsAtom, registerBindings, unregisterBindings } from "./store";
 import type { Binding, KeyContext, SurfaceKey } from "./types";
 import { PREDICATE_ATOMS } from "./whenstate";
+
+// the canvas guards read the focused agent id from the model
+function stubModel(focusId?: string): any {
+    return { focusIdAtom: atom<string | undefined>(focusId) as PrimitiveAtom<string | undefined> };
+}
+
+// a1 focused with a ready two-board canvas, in terminal mode; callers move it into canvas/marking
+function withCanvas(): any {
+    attachCanvas("a1", { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" }, 0);
+    updateCanvas("a1", (s) => ({
+        ...s,
+        status: "ready",
+        boards: [
+            { name: "Main.dc.html", w: 1440 },
+            { name: "States.dc.html", w: 1440 },
+        ],
+    }));
+    return stubModel("a1");
+}
 
 function b(id: string, keys = "j"): Binding {
     return { id, keys, group: "g", label: id, run: () => {} };
@@ -104,24 +132,39 @@ describe("keybindings store", () => {
 describe("keybinding conflict invariant", () => {
     it("has no two active-in-same-context bindings sharing keys", () => {
         // A stub model is enough: bindings only read atoms at run(), not at build().
-        const model = { surfaceAtom: {}, paletteOpenAtom: {}, newAgentOpenAtom: {} } as any;
+        const model = { ...stubModel(), surfaceAtom: {}, paletteOpenAtom: {}, newAgentOpenAtom: {} };
         expect(() => assertNoConflicts(buildGlobalBindings(model))).not.toThrow();
     });
 
     it("global + agent-surface bindings do not conflict", () => {
-        const model = {} as any; // build() reads no atoms; run()/when() do, and are not called here
+        const model = stubModel();
         expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildAgentBindings(model)])).not.toThrow();
     });
 
+    // c, m, [ and ] each carry two meanings on the agent surface, split by the canvas's state
+    it("global + list-nav + agent bindings do not conflict in any canvas state", () => {
+        const model = withCanvas();
+        const all = [...buildGlobalBindings(model), ...buildListNavBindings(), ...buildAgentBindings(model)];
+        try {
+            expect(() => assertNoConflicts(all)).not.toThrow();
+            setCanvasMode("a1", "canvas", 1);
+            expect(() => assertNoConflicts(all)).not.toThrow();
+            setMarking("a1", true);
+            expect(() => assertNoConflicts(all)).not.toThrow();
+        } finally {
+            detachCanvas("a1");
+        }
+    });
+
     it("global + list-nav (controller active on a plain surface) has no key conflicts", () => {
-        const model = {} as any;
+        const model = stubModel();
         globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor() {} });
         expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings()])).not.toThrow();
         globalStore.set(listNavAtom, null);
     });
 
     it("global + list-nav + agent bindings do not conflict (no controller)", () => {
-        const model = {} as any;
+        const model = stubModel();
         globalStore.set(listNavAtom, null);
         expect(() =>
             assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(), ...buildAgentBindings(model)])
@@ -129,7 +172,7 @@ describe("keybinding conflict invariant", () => {
     });
 
     it("Escape stays unambiguous on the Diff surface with filters active", () => {
-        const model = {} as any;
+        const model = stubModel();
         globalStore.set(listNavAtom, null);
         globalStore.set(diffScopeAtom, null);
         globalStore.set(historyFiltersAtom, { author: "dana", path: "", text: "" });
@@ -142,7 +185,7 @@ describe("keybinding conflict invariant", () => {
     // landed; this is the guard — and it is what would catch Code re-claiming Ctrl+P for files
     // now that the global palette binding owns that key on every surface.
     it("global + code-surface bindings do not conflict, editable or not", () => {
-        const model = {} as any;
+        const model = stubModel();
         globalStore.set(listNavAtom, null);
         expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildCodeBindings()])).not.toThrow();
     });
@@ -152,7 +195,7 @@ describe("keybinding conflict invariant", () => {
     // controller published for another surface, which is the state the shared j/k bindings need to
     // be inert in.
     it("global + list-nav + code tree keys (tree focused) do not conflict", () => {
-        const model = {} as any;
+        const model = stubModel();
         globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor() {} });
         globalStore.set(codeTreeFocusedAtom, true);
         try {
@@ -167,13 +210,13 @@ describe("keybinding conflict invariant", () => {
 
 
     it("global + cockpit-grid documentation bindings do not conflict", () => {
-        const model = {} as any;
+        const model = stubModel();
         globalStore.set(listNavAtom, null);
         expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildCockpitBindings()])).not.toThrow();
     });
 
     it("global + channels ask bindings (with an active asking worker) do not conflict", () => {
-        const model = {} as any;
+        const model = stubModel();
         globalStore.set(listNavAtom, null);
         const askRef = { current: { id: "w1", state: "asking" } as AgentVM };
         expect(() =>
@@ -182,7 +225,7 @@ describe("keybinding conflict invariant", () => {
     });
 
     it("global + list-nav + jarvis-surface bindings do not conflict (the Subjects cursor published)", () => {
-        const model = {} as any;
+        const model = stubModel();
         globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor() {} });
         globalStore.set(graphPeekOpenAtom, false);
         expect(() =>
@@ -192,7 +235,7 @@ describe("keybinding conflict invariant", () => {
     });
 
     it("global + ask + jarvis-surface bindings do not conflict (a worker asking, no list cursor)", () => {
-        const model = {} as any;
+        const model = stubModel();
         globalStore.set(listNavAtom, null);
         globalStore.set(graphPeekOpenAtom, false);
         const askRef = { current: { id: "w1", state: "asking" } as AgentVM };
@@ -212,7 +255,7 @@ describe("keybinding conflict invariant", () => {
     // Jarvis keys added here; fixing it means either dispatcher fall-through (a global semantic change) or a
     // precedence rule between the two. When it is fixed, this expectation flips to .not.toThrow.
     it("documents the Enter overlap between the list cursor and an ask (pre-existing)", () => {
-        const model = {} as any;
+        const model = stubModel();
         globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor() {} });
         const askRef = { current: { id: "w1", state: "asking" } as AgentVM };
         expect(() =>
@@ -226,7 +269,7 @@ describe("keybinding conflict invariant", () => {
     });
 
     it("hands Escape to the files surface while compare is on, without conflicting", () => {
-        const model = {} as any;
+        const model = stubModel();
         const filesCtx = { surface: "files" as const, editable: false, modalOpen: false, leader: null };
         const all = [...buildGlobalBindings(model), ...buildFilesBindings()];
         const backHome = all.find((b) => b.id === "surface:back-home")!;
@@ -249,7 +292,7 @@ describe("keybinding conflict invariant", () => {
     });
 
     it("global + agent + jarvis + files bindings do not conflict in leader posture either", () => {
-        const model = {} as any;
+        const model = stubModel();
         expect(() =>
             assertNoConflicts([
                 ...buildGlobalBindings(model),
@@ -261,7 +304,7 @@ describe("keybinding conflict invariant", () => {
     });
 
     it("registers agent:return-nav on Shift:Escape, active only in the terminal", () => {
-        const model = {} as any;
+        const model = stubModel();
         const b = buildAgentBindings(model).find((x) => x.id === "agent:return-nav");
         expect(b?.keys).toBe("Shift:Escape");
         // fires only while the TUI owns focus (editable) on the agent surface
@@ -278,7 +321,8 @@ describe("keybinding conflict invariant", () => {
 // trusted to whoever last edited bindings.ts.
 describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
     it("matches exactly the atoms a when() predicate can read — no more, no less", () => {
-        const model = {} as any;
+        // a focused canvas, so the canvas guards read its atom rather than stopping at an empty focus id
+        const model = withCanvas();
         const askRef = { current: { id: "w1", state: "asking" } as AgentVM };
         const all: Binding[] = [
             ...buildGlobalBindings(model),
@@ -316,9 +360,11 @@ describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
             (globalStore as { get: typeof globalStore.get }).get = realGet;
             globalStore.set(diffScopeAtom, null);
             globalStore.set(renamingRowAtom, null);
+            detachCanvas("a1");
         }
 
-        const registered = new Set<unknown>(PREDICATE_ATOMS);
+        // the focus id and the focused agent's canvas atom are watched by watchFocusedCanvas, not listed
+        const registered = new Set<unknown>([...PREDICATE_ATOMS, model.focusIdAtom, canvasStateAtom("a1")]);
         const missing = [...seen].filter((a) => !registered.has(a));
         const unused = PREDICATE_ATOMS.filter((a) => !seen.has(a));
         expect(missing).toEqual([]); // a when() predicate reads an atom whenstate.ts doesn't watch

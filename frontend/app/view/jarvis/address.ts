@@ -12,12 +12,14 @@ export type OpenTarget =
     | { kind: "agent"; tabId: string }
     | { kind: "record"; dossierId: string; anchor?: string }
     | { kind: "effort"; effortId: string }
-    | { kind: "radar"; reportId: string; findingId?: string };
+    | { kind: "radar"; reportId: string; findingId?: string }
+    | { kind: "canvas"; topic: string; board?: string };
 
 export type Unsupported = { kind: "unsupported"; message: string };
 
-// what a citation knows beyond its address: the source type, and the sub-object to land on within it
-export type AddressHint = { sourceType?: string; anchor?: string };
+// what a citation knows beyond its address: the source type, and the sub-object to land on within it. A
+// reveal from an agent's terminal also knows which agent asked, and where it was standing.
+export type AddressHint = { sourceType?: string; anchor?: string; caller?: { blockId: string; cwd: string } };
 
 export const CANNOT_OPEN = "This item can't be opened";
 export const CANNOT_LOCATE_RECORD = "This citation can't locate its record";
@@ -52,6 +54,8 @@ export function parseAddress(address: string, hint?: AddressHint): OpenTarget | 
             return { kind: "radar", reportId: id, findingId: anchor };
         case "vault":
             return parseVaultNode(id, hint?.sourceType);
+        case "canvas":
+            return parseCanvas(id);
         default:
             return { kind: "unsupported", message: CANNOT_OPEN };
     }
@@ -70,4 +74,27 @@ function parseVaultNode(id: string, sourceType: string | undefined): OpenTarget 
         return { kind: "unsupported", message: CANNOT_LOCATE_RECORD };
     }
     return { kind: "unsupported", message: CANNOT_OPEN };
+}
+
+// a design-local topic and board are single path segments; anything that could walk the tree is refused here
+const CANVAS_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const BOARD_EXT = ".dc.html";
+
+// exported for the router, which also lands canvas targets built in code rather than parsed here
+export function isCanvasSegment(s: string): boolean {
+    return CANVAS_SEGMENT.test(s) && !s.includes("..");
+}
+
+function parseCanvas(id: string): OpenTarget | Unsupported {
+    const [topic, board, ...rest] = id.split("/");
+    if (rest.length > 0 || !isCanvasSegment(topic)) {
+        return { kind: "unsupported", message: CANNOT_OPEN };
+    }
+    if (board == null) {
+        return { kind: "canvas", topic };
+    }
+    if (!isCanvasSegment(board)) {
+        return { kind: "unsupported", message: CANNOT_OPEN };
+    }
+    return { kind: "canvas", topic, board: board.endsWith(BOARD_EXT) ? board : board + BOARD_EXT };
 }

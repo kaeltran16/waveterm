@@ -67,7 +67,14 @@ class CockpitUiClient extends WshClient {
             this.trail(data.callerblockid, data.address);
             return "";
         }
-        const result = await openAddress(this.model, data.address, { anchor: data.anchor || undefined }, reportNothing);
+        // an empty cwd (Getwd failed) still names the caller, so a canvas reveal says where to run it from
+        const caller = data.callerblockid ? { blockId: data.callerblockid, cwd: data.callercwd ?? "" } : undefined;
+        const result = await openAddress(
+            this.model,
+            data.address,
+            { anchor: data.anchor || undefined, caller },
+            reportNothing
+        );
         // narrowed with `in`: the tsconfig is not strict, so the `ok` literal does not discriminate the union
         if ("reason" in result) {
             throw new Error(revealError(data.address, result.reason, result.message));

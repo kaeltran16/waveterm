@@ -28,6 +28,7 @@ import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
+import { canvasStateAtom } from "./canvasstore";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
@@ -184,6 +185,20 @@ function FoldChip({
             {open ? <ChevronDown size={10} aria-hidden /> : <ChevronRight size={10} aria-hidden />}
             {label}
         </button>
+    );
+}
+
+function CanvasTag({ id }: { id: string }) {
+    if (useAtomValue(canvasStateAtom(id)) == null) {
+        return null;
+    }
+    return (
+        <span
+            title="Has a design canvas"
+            className="flex-none rounded-[5px] border border-edge-mid px-[6px] py-[1px] font-mono text-[10.5px] font-semibold text-accent-soft"
+        >
+            canvas
+        </span>
     );
 }
 
@@ -381,6 +396,7 @@ function ParentRow({
                 </div>
                 {/* a lead's second line holds its workers chip, so its subagents chip stays at the row's end */}
                 {lead ? subsChip : null}
+                <CanvasTag id={agent.id} />
                 {/* a row names its state only when it wants something; the dot already says working or idle */}
                 {review ? (
                     // opens the dialog over whatever agent is focused, so the click must not reach the row
@@ -603,6 +619,7 @@ function WorkerRow({
                     </span>
                 </div>
             </div>
+            {agent != null ? <CanvasTag id={agent.id} /> : null}
             {ask?.owner === "lead" ? (
                 <span className="flex items-center gap-[3px] whitespace-nowrap font-mono text-[10.5px] font-medium text-muted">
                     <ArrowRight size={10} aria-hidden />
@@ -754,6 +771,7 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
                     <div className="truncate text-[13px] font-medium text-ink-hi">{terminal.name}</div>
                 )}
             </div>
+            <CanvasTag id={terminal.id} />
         </div>
     );
 }

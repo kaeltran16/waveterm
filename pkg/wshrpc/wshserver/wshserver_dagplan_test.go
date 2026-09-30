@@ -20,7 +20,8 @@ import (
 
 func TestDagSubmitFromPlanPath(t *testing.T) {
 	ctx := context.Background()
-	newRun := func(t *testing.T) (string, string) {
+	// prototype, when given, is the canvas the run was started with
+	newRun := func(t *testing.T, prototype ...string) (string, string) {
 		t.Helper()
 		ch, err := wstore.CreateChannel(ctx, "dag-plan-test", t.TempDir())
 		if err != nil {
@@ -28,6 +29,9 @@ func TestDagSubmitFromPlanPath(t *testing.T) {
 		}
 		run := jarvis.NewRun("ship coupons", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 		run.Status = jarvis.RunStatus_Planning
+		if len(prototype) > 0 {
+			run.Prototype = prototype[0]
+		}
 		if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 			t.Fatalf("AppendRun: %v", err)
 		}
@@ -137,6 +141,18 @@ func TestDagSubmitFromPlanPath(t *testing.T) {
 		}
 		if g.FinalCmd != "node scripts/cdp/final-verify.mjs board" || g.Prototype != ".superpowers/design/board/board.dc.html" {
 			t.Fatalf("final %q, prototype %q", g.FinalCmd, g.Prototype)
+		}
+	})
+
+	t.Run("the run's prototype wins over the plan's", func(t *testing.T) {
+		channelId, runId := newRun(t, "C:/canvas/Main.dc.html")
+		src := "**Prototype:** .superpowers/design/other/Main.dc.html\n\n### Task 1: input\n"
+		g, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: channelId, RunId: runId, PlanPath: writePlan(t, "plan.md", src)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g.Prototype != "C:/canvas/Main.dc.html" {
+			t.Fatalf("prototype = %q, want the run's", g.Prototype)
 		}
 	})
 

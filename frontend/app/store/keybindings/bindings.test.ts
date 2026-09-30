@@ -3,10 +3,18 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
-import { atom } from "jotai";
+import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
+import {
+    attachCanvas,
+    detachCanvas,
+    getCanvas,
+    setCanvasMode,
+    setMarking,
+    updateCanvas,
+} from "@/app/view/agents/canvasstore";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { docReviewAtom } from "@/app/view/agents/docreview";
 import { graphOnAtom, historyFiltersAtom, historyScrollAtom } from "@/app/view/agents/githistorystore";
@@ -31,6 +39,11 @@ import {
 } from "./bindings";
 import { listNavAtom } from "./listnav";
 import type { KeyContext } from "./types";
+
+// the canvas guards read the focused agent id from the model
+const stubModel = (focusId?: string): any => ({
+    focusIdAtom: atom<string | undefined>(focusId) as PrimitiveAtom<string | undefined>,
+});
 
 const ctx = (surface: SurfaceKey = "cockpit"): KeyContext => ({
     surface,
@@ -315,7 +328,7 @@ describe("jarvis surface bindings", () => {
 
 describe("subagent vs agent Escape", () => {
     it("routes Escape to subagent-back only while a subagent is focused, else to agent-back", () => {
-        const bindings = buildAgentBindings({} as any);
+        const bindings = buildAgentBindings(stubModel());
         const sub = bindings.find((b) => b.id === "subagent:back")!;
         const back = bindings.find((b) => b.id === "agent:back")!;
         expect(sub.keys).toBe("Escape");
@@ -337,7 +350,7 @@ describe("subagent vs agent Escape", () => {
     // dispatcher runs on window capture — if this binding claims the key the input never sees it, and
     // the box commits on the following blur instead of discarding.
     it("yields Escape to an open row rename, even with a subagent focused", () => {
-        const sub = buildAgentBindings({} as any).find((b) => b.id === "subagent:back")!;
+        const sub = buildAgentBindings(stubModel()).find((b) => b.id === "subagent:back")!;
         const editingCtx: KeyContext = { surface: "agent", editable: true, modalOpen: false, leader: null };
         globalStore.set(focusSubagentAtom, { parentId: "p", agentId: "s" } as any);
 
@@ -559,7 +572,7 @@ describe("code surface bindings", () => {
 });
 
 describe("leader reachability and the fullscreen chord", () => {
-    const model = {} as any;
+    const model = stubModel();
     const inTerm: KeyContext = { surface: "agent", editable: true, modalOpen: false, leader: null };
     const inTermLeader: KeyContext = { ...inTerm, leader: "g" };
 
@@ -647,5 +660,149 @@ describe("destructive bindings", () => {
 
     it("leaves actions that confirm themselves, or can be undone, unflagged", () => {
         expect(buildCodeBindings().find((b) => b.id === "code:delete")?.destructive).toBeUndefined();
+    });
+});
+
+describe("agent canvas mode keys", () => {
+    const nav: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+    const inTerm: KeyContext = { ...nav, editable: true };
+    let model: any;
+    const all = () => [...buildGlobalBindings(model), ...buildAgentBindings(model)];
+    const find = (id: string) => all().find((b) => b.id === id)!;
+    const active = (id: string, c: KeyContext = nav) => find(id).when!(c);
+
+    beforeEach(() => {
+        model = { ...stubModel("a1"), surfaceAtom: atom<SurfaceKey>("agent") };
+        attachCanvas("a1", { topic: "t", dir: "C:\\p\\.superpowers\\design\\t", projectDir: "C:\\p" }, 0);
+        updateCanvas("a1", (s) => ({
+            ...s,
+            status: "ready",
+            boards: [
+                { name: "Main.dc.html", w: 1440 },
+                { name: "States.dc.html", w: 1440 },
+            ],
+        }));
+    });
+
+    afterEach(() => {
+        detachCanvas("a1");
+    });
+
+    it("c opens the canvas from the nav, not with no canvas or from inside the terminal", () => {
+        expect(active("agent:canvas-open")).toBe(true);
+        expect(active("agent:canvas-open", inTerm)).toBe(false);
+        detachCanvas("a1");
+        expect(active("agent:canvas-open")).toBe(false);
+    });
+
+    it("running c switches the focused agent to canvas mode", () => {
+        find("agent:canvas-open").run(nav);
+        expect(getCanvas("a1")!.mode).toBe("canvas");
+    });
+
+    it("in canvas mode: c, [ ], m are live; the surface, agent, rail, fullscreen and back keys stand down", () => {
+        setCanvasMode("a1", "canvas", 1);
+        for (const id of ["agent:canvas-close", "agent:canvas-prev", "agent:canvas-next", "agent:mark-start"]) {
+            expect(active(id), id).toBe(true);
+        }
+        expect(active("agent:canvas-open")).toBe(false);
+        expect(active("agent:mark-stop")).toBe(false);
+        for (const id of [
+            "surface:next",
+            "surface:prev",
+            "agent:prev",
+            "agent:next",
+            "agent:prev-k",
+            "agent:next-j",
+            "agent:toggle-rail",
+            "agent:fullscreen",
+            "agent:fullscreen-chord",
+            "agent:back",
+            "cycle-agent-next",
+            "cycle-agent-prev",
+        ]) {
+            expect(active(id), id).toBe(false);
+        }
+    });
+
+    it("the surface switch still works on other surfaces while an agent is in canvas mode", () => {
+        setCanvasMode("a1", "canvas", 1);
+        expect(active("surface:next", { ...nav, surface: "jarvis" })).toBe(true);
+    });
+
+    it("board keys wait for the board to load", () => {
+        setCanvasMode("a1", "canvas", 1);
+        updateCanvas("a1", (s) => ({ ...s, status: "probing" }));
+        expect(active("agent:canvas-next")).toBe(false);
+        expect(active("agent:mark-start")).toBe(false);
+        expect(active("agent:canvas-close")).toBe(true);
+    });
+
+    it("while marking: m stops marking, and the board keys and m-to-mark stand down", () => {
+        setCanvasMode("a1", "canvas", 1);
+        setMarking("a1", true);
+        expect(active("agent:mark-stop")).toBe(true);
+        expect(active("agent:mark-start")).toBe(false);
+        expect(active("agent:canvas-prev")).toBe(false);
+        expect(active("agent:canvas-next")).toBe(false);
+        expect(active("agent:canvas-close")).toBe(true);
+        find("agent:mark-stop").run(nav);
+        expect(getCanvas("a1")!.marking).toBe(false);
+    });
+
+    it("] steps to the next board", () => {
+        setCanvasMode("a1", "canvas", 1);
+        find("agent:canvas-next").run(nav);
+        expect(getCanvas("a1")!.board).toBe("States.dc.html");
+        find("agent:canvas-prev").run(nav);
+        expect(getCanvas("a1")!.board).toBe("Main.dc.html");
+    });
+
+    it("c from canvas mode goes back to the terminal", () => {
+        setCanvasMode("a1", "canvas", 1);
+        find("agent:canvas-close").run(nav);
+        expect(getCanvas("a1")!.mode).toBe("terminal");
+    });
+
+    describe("Ctrl+Enter sends the marks", () => {
+        const MARK = { x: 0, y: 0, w: 20, h: 20, note: "" };
+        afterEach(() => vi.unstubAllGlobals());
+
+        it("only while marking with at least one mark", () => {
+            setCanvasMode("a1", "canvas", 1);
+            expect(active("agent:canvas-send")).toBe(false);
+            setMarking("a1", true);
+            expect(active("agent:canvas-send")).toBe(false);
+            updateCanvas("a1", (s) => ({ ...s, marks: [MARK] }));
+            expect(active("agent:canvas-send")).toBe(true);
+        });
+
+        it("stays live in a note input, and yields to a modal and other surfaces", () => {
+            setCanvasMode("a1", "canvas", 1);
+            setMarking("a1", true);
+            updateCanvas("a1", (s) => ({ ...s, marks: [MARK] }));
+            expect(active("agent:canvas-send", inTerm)).toBe(true);
+            expect(active("agent:canvas-send", { ...nav, modalOpen: true })).toBe(false);
+            expect(active("agent:canvas-send", { ...nav, surface: "jarvis" })).toBe(false);
+        });
+
+        it("clicks the tray's Send button, and lets the key pass with none on screen", () => {
+            const click = vi.fn();
+            const querySelector = vi.fn((sel: string) => (sel === "[data-canvas-send]" ? { click } : null));
+            vi.stubGlobal("document", { querySelector });
+            find("agent:canvas-send").run(nav);
+            expect(click).toHaveBeenCalledOnce();
+            vi.stubGlobal("document", { querySelector: () => null });
+            expect(find("agent:canvas-send").run(nav)).toBe(false);
+        });
+    });
+
+    it("another focused agent without canvas mode keeps its keys", () => {
+        setCanvasMode("a1", "canvas", 1);
+        globalStore.set(model.focusIdAtom, "a2");
+        expect(active("agent:toggle-rail")).toBe(true);
+        expect(active("surface:next")).toBe(true);
+        expect(active("agent:canvas-close")).toBe(false);
+        expect(getCanvas("a1")!.mode).toBe("canvas");
     });
 });

@@ -50,6 +50,9 @@ type CommandCreateRunData struct {
 	// channel's project: the engine submits it at start and no lead runs until something needs judgment.
 	// Goal defaults to the plan's name.
 	PlanPath string `json:"planpath,omitempty"`
+	// Prototype is the design canvas the run's final verifier compares against. It wins over the plan's
+	// **Prototype:** line; an orchestrator run only.
+	Prototype string `json:"prototype,omitempty"`
 }
 
 type CommandCreateRunRtnData struct {

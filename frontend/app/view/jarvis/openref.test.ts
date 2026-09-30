@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const rpc = vi.hoisted(() => ({
     GetDossierCommand: vi.fn(),
@@ -11,6 +11,7 @@ const rpc = vi.hoisted(() => ({
     GetChannelMessagesCommand: vi.fn(),
     SetChannelReadCommand: vi.fn(),
     EffortGetCommand: vi.fn(),
+    FileInfoCommand: vi.fn(),
 }));
 const loadAndPin = vi.hoisted(() => vi.fn());
 const pushToast = vi.hoisted(() => vi.fn());
@@ -31,6 +32,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { atom } from "jotai";
 import type { AgentsViewModel, SurfaceKey } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
+import { attachCanvas, detachCanvas, getCanvas } from "../agents/canvasstore";
 import {
     currentReportIdAtom,
     loadReports,
@@ -47,13 +49,13 @@ import { taskListAtom, tasksErrorAtom } from "./tasksstore";
 
 const objects = new Map<string, unknown>();
 
-function makeModel(roster: string[] = []): AgentsViewModel {
-    const agents = roster.map((id) => ({ id, name: id, task: "", state: "working" }) as AgentVM);
+function makeModel(roster: string[] = [], terminals: string[] = []): AgentsViewModel {
+    const vm = (id: string) => ({ id, name: id, task: "", state: "working", blockId: `block-${id}` }) as AgentVM;
     return {
         surfaceAtom: atom<SurfaceKey>("cockpit"),
         focusIdAtom: atom<string | undefined>(undefined),
-        agentsAtom: atom(agents),
-        terminalsAtom: atom<AgentVM[]>([]),
+        agentsAtom: atom(roster.map(vm)),
+        terminalsAtom: atom<AgentVM[]>(terminals.map(vm)),
     } as unknown as AgentsViewModel;
 }
 
@@ -371,5 +373,106 @@ describe("unsupported addresses", () => {
             message: "This citation can't locate its record",
         });
         expect(pushToast).not.toHaveBeenCalled();
+    });
+});
+
+describe("canvas landing", () => {
+    const CWD = "C:\\p";
+    const DIR = "C:\\p\\.superpowers\\design\\t";
+    const caller = { blockId: "block-a1", cwd: CWD };
+    const noReport = () => {};
+
+    afterEach(() => {
+        for (const id of ["a1", "a2", "t9"]) {
+            detachCanvas(id);
+        }
+    });
+
+    it("refuses a caller that is no roster agent, and changes nothing", async () => {
+        const model = makeModel(["a1"]);
+        const result = await openAddress(model, "canvas:t", { caller: { ...caller, blockId: "block-x" } }, noReport);
+        expect("reason" in result ? result.reason : null).toBe("unavailable");
+        expect("reason" in result ? result.message : "").toContain("wsh ui reveal canvas:t");
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+        expect(getCanvas("a1")).toBeNull();
+        expect(rpc.FileInfoCommand).not.toHaveBeenCalled();
+    });
+
+    it("refuses a caller whose working directory is unknown", async () => {
+        const model = makeModel(["a1"]);
+        const result = await openAddress(model, "canvas:t", { caller: { ...caller, cwd: "" } }, noReport);
+        expect("reason" in result ? result.message : "").toContain("wsh ui reveal canvas:t");
+        expect(getCanvas("a1")).toBeNull();
+    });
+
+    it("refuses a canvas folder that does not exist, naming it", async () => {
+        const model = makeModel(["a1"]);
+        rpc.FileInfoCommand.mockResolvedValue({ notfound: true });
+        const result = await openAddress(model, "canvas:t", { caller }, noReport);
+        expect("reason" in result ? result.reason : null).toBe("unavailable");
+        expect("reason" in result ? result.message : "").toContain(`${DIR}\\project`);
+        expect(rpc.FileInfoCommand).toHaveBeenCalledWith(expect.anything(), {
+            info: { path: `${DIR}\\project` },
+        });
+        expect(getCanvas("a1")).toBeNull();
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+
+    it("attaches the caller's canvas, switches it to canvas mode and lands on the agent", async () => {
+        const model = makeModel(["a1"]);
+        rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
+        expect(await openAddress(model, "canvas:t", { caller }, noReport)).toEqual({ ok: true });
+        const s = getCanvas("a1");
+        expect(s?.topic).toBe("t");
+        expect(s?.dir).toBe(DIR);
+        expect(s?.projectDir).toBe(CWD);
+        expect(s?.mode).toBe("canvas");
+        expect(globalStore.get(model.focusIdAtom)).toBe("a1");
+        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+    });
+
+    it("attaches a background terminal as readily as an agent", async () => {
+        const model = makeModel(["a1"], ["t9"]);
+        rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
+        const result = await openAddress(model, "canvas:t", { caller: { ...caller, blockId: "block-t9" } }, noReport);
+        expect(result).toEqual({ ok: true });
+        expect(getCanvas("t9")?.mode).toBe("canvas");
+        expect(globalStore.get(model.focusIdAtom)).toBe("t9");
+    });
+
+    it("sets the board a reveal names", async () => {
+        const model = makeModel(["a1"]);
+        rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
+        expect(await openAddress(model, "canvas:t/States", { caller }, noReport)).toEqual({ ok: true });
+        expect(getCanvas("a1")?.board).toBe("States.dc.html");
+    });
+
+    it("without a caller, lands on the agent that already has the canvas", async () => {
+        const model = makeModel(["a1", "a2"]);
+        attachCanvas("a2", { topic: "t", dir: DIR, projectDir: CWD }, 1);
+        expect(await openAddress(model, "canvas:t", undefined, noReport)).toEqual({ ok: true });
+        expect(getCanvas("a2")?.mode).toBe("canvas");
+        expect(globalStore.get(model.focusIdAtom)).toBe("a2");
+        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+        expect(rpc.FileInfoCommand).not.toHaveBeenCalled();
+    });
+
+    it("without a caller or an owner, says no agent has it open", async () => {
+        const model = makeModel(["a1"]);
+        expect(await openAddress(model, "canvas:t", undefined, noReport)).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "No agent has the canvas t open",
+        });
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+
+    it("refuses a target built in code with a path in its topic", async () => {
+        const model = makeModel(["a1"]);
+        rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
+        const result = await openTarget(model, { kind: "canvas", topic: ".." }, noReport, caller);
+        expect(result.ok).toBe(false);
+        expect(rpc.FileInfoCommand).not.toHaveBeenCalled();
+        expect(getCanvas("a1")).toBeNull();
     });
 });

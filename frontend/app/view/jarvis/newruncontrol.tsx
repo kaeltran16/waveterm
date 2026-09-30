@@ -23,6 +23,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
+import { X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import { channelsAtom, createChannel, primeChannels } from "../agents/channelsstore";
@@ -53,6 +54,7 @@ import {
     setReviewerPicks,
     setReviewerRoute,
     setRunRoute,
+    setRunShape,
     setStart,
     setWorkerRoute,
     startAtom,
@@ -61,7 +63,14 @@ import {
 } from "../agents/runconfigstore";
 import { ShapeCards, WorkerStepper, usePlanPreview } from "../agents/runlauncher";
 import { planShapeText, planWarnings } from "../orchestrate/dagdigest";
-import { initialPick, launchGoal, launchOptsFromConfig, resolveChannelTarget } from "./newrun";
+import {
+    initialPick,
+    launchGoal,
+    launchOptsFromConfig,
+    prefillToLaunch,
+    resolveChannelTarget,
+    type NewRunPrefill,
+} from "./newrun";
 import { planMixLine, planModelRows, workersModelName, type PlanModelTone, type WorkersSetting } from "./newrunplan";
 import { openTarget } from "./openref";
 import { ProjectPicker } from "./projectpickerview";
@@ -70,6 +79,9 @@ import { ProjectPicker } from "./projectpickerview";
 // one launch was gone by the next one and every run started by re-picking the same project. Not persisted
 // — where you last started work is a convenience for the session, not a setting.
 const lastPickedProjectAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
+// What the next open of the window starts from, set by a canvas's Build this…; the window clears it once read.
+export const newRunPrefillAtom = atom<NewRunPrefill | null>(null) as PrimitiveAtom<NewRunPrefill | null>;
 
 const FIELD_LABEL = "font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-ink-mid";
 const CANCEL_BTN =
@@ -304,11 +316,21 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         )
     );
     const [goal, setGoal] = useState("");
+    const [prototype, setPrototype] = useState("");
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const goalRef = useRef<HTMLTextAreaElement>(null);
     const planRef = useRef<HTMLInputElement>(null);
-    const config = { shape, parallelism, workerRoute, start: startFrom, planPath, reviewerPicks, reviewerRoute };
+    const config = {
+        shape,
+        parallelism,
+        workerRoute,
+        start: startFrom,
+        planPath,
+        reviewerPicks,
+        reviewerRoute,
+        prototype,
+    };
     const orchestrator = shape === "orchestrator";
     // a plan start is named by its plan, so it has no goal field to fill
     const planStart = orchestrator && startFrom === "plan";
@@ -339,6 +361,24 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
             globalStore.set(runRouteAtom, profileRoute);
         }
     }, [pickedOid, profileRoute, routeTouched]);
+
+    // Waits for the project list: read while it is still loading, the prefill's project would not be found and
+    // the pick would be dropped for good, since the atom is cleared on read.
+    useEffect(() => {
+        const prefill = globalStore.get(newRunPrefillAtom);
+        if (prefill == null || projects == null) {
+            return;
+        }
+        globalStore.set(newRunPrefillAtom, null);
+        const p = prefillToLaunch(prefill, Object.keys(projects));
+        if (p.picked != null) {
+            setPicked(p.picked);
+        }
+        setRunShape(p.shape);
+        setStart(p.start);
+        setGoal(p.goal);
+        setPrototype(p.prototype);
+    }, [projects]);
 
     const select = (project: string) => {
         setPicked(project);
@@ -466,6 +506,24 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                     className="min-h-0 w-full flex-1 resize-none rounded-[7px] border border-edge-mid bg-background px-3 py-2.5 text-[13px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent/60"
                                 />
                             )}
+                            {orchestrator && prototype !== "" ? (
+                                <div className="flex items-center gap-1.5">
+                                    <span
+                                        title={prototype}
+                                        className="min-w-0 truncate font-mono text-[11px] text-muted"
+                                    >
+                                        Prototype · {prototype}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        aria-label="Remove prototype"
+                                        onClick={() => setPrototype("")}
+                                        className="flex flex-none cursor-pointer items-center text-muted hover:text-primary"
+                                    >
+                                        <X size={12} aria-hidden />
+                                    </button>
+                                </div>
+                            ) : null}
                         </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2 border-t border-border px-[18px] py-3">

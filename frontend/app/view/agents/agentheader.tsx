@@ -7,6 +7,7 @@
 
 import { useSettle } from "@/app/element/motionhooks";
 import { MOTION } from "@/app/element/motiontokens";
+import { Segmented } from "@/app/element/segmented";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -24,6 +25,8 @@ import { confirmCloseSession } from "./agentactions";
 import { contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
+import { isUnseen } from "./canvasmodel";
+import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { DOC_REVIEW_HEADERS, docReviewAtom, parseDocReview } from "./docreview";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { agentProject, isEndedWorkerId, leadAgentOf } from "./runlineage";
@@ -101,6 +104,7 @@ function InitiativeLink({ model, agent }: { model: AgentsViewModel; agent: Agent
 export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const railVisible = useAtomValue(railVisibleAtom);
     const fullscreen = useAtomValue(terminalFullscreenAtom);
+    const canvas = useAtomValue(canvasStateAtom(agent.id));
     const lineage = useRunLineage(model, agent);
     const project = agentProject(useAtomValue(model.lineageAtom), useAtomValue(model.agentsAtom), agent);
     const name =
@@ -256,6 +260,32 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         {DOC_REVIEW_HEADERS[review.kind]}
                         <ChevronLeft size={12} strokeWidth={2} aria-hidden />
                     </button>
+                ) : null}
+                {canvas != null ? (
+                    <Segmented
+                        role="group"
+                        ariaLabel="Show terminal or canvas"
+                        value={canvas.mode}
+                        options={[
+                            { key: "terminal", label: "Terminal", title: `Terminal (${formatChordString("c")})` },
+                            {
+                                key: "canvas",
+                                label: (
+                                    <>
+                                        Canvas
+                                        {isUnseen(canvas) ? (
+                                            <span
+                                                aria-label="updated since you last looked"
+                                                className="h-[6px] w-[6px] rounded-full bg-accent"
+                                            />
+                                        ) : null}
+                                    </>
+                                ),
+                                title: `Canvas (${formatChordString("c")})`,
+                            },
+                        ]}
+                        onChange={(m) => setCanvasMode(agent.id, m, Date.now())}
+                    />
                 ) : null}
                 {blockId != null ? (
                     <>

@@ -64,6 +64,7 @@ export interface CreateRunOpts {
     planPath?: string;
     reviewerPicks?: boolean;
     reviewerRoute?: RoutePin | null;
+    prototype?: string;
 }
 
 export function createRunPayload(
@@ -87,6 +88,7 @@ export function createRunPayload(
         // false is sent too: unset means "the profile's", which is not what a launcher showing false chose
         ...(orchestrator && opts.reviewerPicks != null ? { reviewerpicks: opts.reviewerPicks } : {}),
         ...(orchestrator && opts.reviewerRoute ? { reviewerroute: opts.reviewerRoute } : {}),
+        ...(orchestrator && opts.prototype ? { prototype: opts.prototype } : {}),
         mode: opts?.mode,
         deferstart: opts?.deferStart,
         ...(opts?.radarOrigin ? { radarorigin: opts.radarOrigin } : {}),
