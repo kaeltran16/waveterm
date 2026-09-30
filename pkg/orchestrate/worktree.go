@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -28,6 +29,18 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %v: %w: %s", args, err, strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// repoAdminMu serializes the engine's git commands that change a repo's worktree registry and its branches. git does
+// not lock the registry: an add or a list reads every registered tree's admin dir and fails when a concurrent remove
+// has half-deleted one ("failed to read .git/worktrees/<name>/commondir"), which stopped a bisect and blamed the
+// wrong lane.
+var repoAdminMu sync.Mutex
+
+func gitLocked(ctx context.Context, dir string, args ...string) (string, error) {
+	repoAdminMu.Lock()
+	defer repoAdminMu.Unlock()
+	return git(ctx, dir, args...)
 }
 
 // IsGitRepo reports whether projectPath is inside a git working tree.
@@ -58,7 +71,7 @@ func CreateRunWorktree(ctx context.Context, projectPath, runID, baseCommit strin
 	if baseCommit != "" {
 		args = append(args, baseCommit)
 	}
-	if _, err := git(ctx, projectPath, args...); err != nil {
+	if _, err := gitLocked(ctx, projectPath, args...); err != nil {
 		return "", fmt.Errorf("creating worktree: %w", err)
 	}
 	return wt, nil
@@ -73,10 +86,12 @@ func RemoveRunWorktree(ctx context.Context, projectPath, runID string) error {
 		err = removeWorktreeDir(ctx, projectPath, wt)
 	}
 	// a process holding the directory fails its delete after git has unregistered the tree, which frees the
-	// branch; git refuses to delete a branch a still-registered tree has checked out
+	// branch; a still-registered tree keeps it checked out, so it stays
 	branch := "wave/" + runID
-	if _, serr := git(ctx, projectPath, "show-ref", "--verify", "-q", "refs/heads/"+branch); serr == nil {
-		if _, berr := git(ctx, projectPath, "branch", "-D", branch); berr != nil && err == nil {
+	if _, serr := git(ctx, projectPath, "show-ref", "--verify", "-q", "refs/heads/"+branch); serr == nil && !isWorktreeRegistered(ctx, projectPath, wt) {
+		// update-ref, not branch -D: branch -D rewrites .git/config to drop the branch's section, which a wave
+		// branch never has, and on Windows that rewrite fails any git reading the config at that moment
+		if _, berr := gitLocked(ctx, projectPath, "update-ref", "-d", "refs/heads/"+branch); berr != nil && err == nil {
 			log.Printf("removed worktree %s; deleting its branch %s: %v", wt, branch, berr)
 		}
 	}
@@ -89,7 +104,7 @@ func removeWorktreeDir(ctx context.Context, projectPath, wt string) error {
 	if err := unlinkReparsePoints(wt); err != nil {
 		return fmt.Errorf("removing worktree: %w", err)
 	}
-	if _, err := git(ctx, projectPath, "worktree", "remove", "--force", wt); err != nil {
+	if _, err := gitLocked(ctx, projectPath, "worktree", "remove", "--force", wt); err != nil {
 		// On Windows the dir can remain locked by an idle child shell or by
 		// junctioned node_modules/src-tauri/target/dist/bin. Git unregisters the
 		// worktree before it deletes the tree, so a still-registered worktree is
@@ -111,7 +126,7 @@ func removeWorktreeDir(ctx context.Context, projectPath, wt string) error {
 }
 
 func isWorktreeRegistered(ctx context.Context, projectPath, wt string) bool {
-	out, err := git(ctx, projectPath, "worktree", "list", "--porcelain")
+	out, err := gitLocked(ctx, projectPath, "worktree", "list", "--porcelain")
 	if err != nil {
 		return true // can't tell — assume registered so caller surfaces the error
 	}
@@ -181,10 +196,10 @@ func EnsureRunWorktree(ctx context.Context, projectPath, runID, baseCommit strin
 		}
 	}
 	// a registration whose directory is already gone makes the add refuse
-	if _, err := git(ctx, projectPath, "worktree", "prune"); err != nil {
+	if _, err := gitLocked(ctx, projectPath, "worktree", "prune"); err != nil {
 		return "", "", false, fmt.Errorf("pruning worktrees: %w", err)
 	}
-	if _, err := git(ctx, projectPath, "worktree", "add", wt, "wave/"+runID); err != nil {
+	if _, err := gitLocked(ctx, projectPath, "worktree", "add", wt, "wave/"+runID); err != nil {
 		return "", "", false, fmt.Errorf("checking out worktree from wave/%s: %w", runID, err)
 	}
 	return wt, head, true, nil

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -346,5 +347,48 @@ func TestRemoveRunWorktreeDeletesAnUnregisteredDir(t *testing.T) {
 	}
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
 		t.Fatalf("unregistered worktree dir must be deleted, stat err = %v", err)
+	}
+}
+
+// git does not lock its worktree registry: an add reads every registered tree's admin dir, and fails when a
+// concurrent remove has half-deleted one ("failed to read .git/worktrees/<name>/commondir"). A lane's cleanup racing
+// a bisect tree's creation stopped a bisect this way and blamed the wrong lane.
+func TestConcurrentWorktreeAddAndRemoveDoNotFail(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	ctx := context.Background()
+	const rounds = 15
+	errs := make(chan error, 2*rounds)
+	var wg sync.WaitGroup
+	for _, key := range []string{"lane", "other"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < rounds; i++ {
+				if _, err := CreateRunWorktree(ctx, dir, key, base); err != nil {
+					errs <- err
+					return
+				}
+				if err := RemoveRunWorktree(ctx, dir, key); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			if err := withDetachedTree(ctx, dir, "bisect", "bisect tree", base, "", func(string) error { return nil }); err != nil {
+				errs <- err
+				return
+			}
+		}
+	}()
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
 	}
 }

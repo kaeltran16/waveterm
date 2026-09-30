@@ -86,7 +86,7 @@ func dropSkippedAttempt(ctx context.Context, g *waveobj.TaskGroup, taskID string
 		}
 	}
 	// a registration whose directory is gone still holds the branch
-	if _, err := git(ctx, project, "worktree", "prune"); err != nil {
+	if _, err := gitLocked(ctx, project, "worktree", "prune"); err != nil {
 		return fmt.Errorf("dropping task %s's work from %s: %w", taskID, branch, err)
 	}
 	if _, err := git(ctx, project, "branch", "-f", branch, base); err != nil {

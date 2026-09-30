@@ -77,7 +77,9 @@ func TestBisectFindsTheMiddleLaneAndLandsTheOneBefore(t *testing.T) {
 	g := f.dag(t)
 	want := []string{TaskState_Done, TaskState_VerifyFailed, TaskState_Verifying}
 	if got := states(g); !reflect.DeepEqual(got, want) {
-		t.Fatalf("states = %v, want %v", got, want)
+		// the wake carries a stopped bisect's reason, and the outputs which step judged what
+		outputs := []string{g.Tasks[0].VerifyOutput, g.Tasks[1].VerifyOutput, g.Tasks[2].VerifyOutput}
+		t.Fatalf("states = %v, want %v\nwake: %q\noutputs: %q", got, want, lead.sends, outputs)
 	}
 	if !strings.Contains(g.Tasks[1].VerifyOutput, "t-1.txt") || g.Tasks[2].VerifyOutput != heldLine("t-1") {
 		t.Fatalf("the blamed lane keeps its failing run's output, the later one is held: %q / %q", g.Tasks[1].VerifyOutput, g.Tasks[2].VerifyOutput)
