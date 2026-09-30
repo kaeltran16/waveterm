@@ -752,8 +752,8 @@ func HistoryLog(ctx context.Context, cwd string, opts HistoryOpts) (*History, er
 	// Full form carries the refs/heads/ | refs/remotes/ | refs/tags/ namespace, which classifyRef
 	// (frontend historyrows.ts) keys off. Labels are stripped back to the short name there.
 	args := []string{"log", "--date-order", "--no-color", "--decorate=full",
-		"--pretty=format:%H" + fieldSep + "%P" + fieldSep + "%an" + fieldSep + "%ae" +
-			fieldSep + "%ct" + fieldSep + "%D" + fieldSep + "%s" + recordSep,
+		// git's %x escapes rather than the raw bytes, so a failure's command reads cleanly in the panel
+		"--pretty=format:%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%D%x1f%s%x1e",
 		"--max-count=" + strconv.Itoa(limit)}
 	if opts.Skip > 0 {
 		args = append(args, "--skip="+strconv.Itoa(opts.Skip))

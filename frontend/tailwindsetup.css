@@ -86,14 +86,6 @@
     --color-feed-glyph: #454c55; /* drag handle glyph */
     --color-working: #54c79a;
 
-    /* Channel avatar identity palette (deterministic per author; see channelderive.ts) */
-    --color-avatar-1: #7c95ff;
-    --color-avatar-2: #54c79a;
-    --color-avatar-3: #e0726c;
-    --color-avatar-4: #e6b450;
-    --color-avatar-5: #c98fe6;
-    --color-avatar-6: #9aa3ad;
-
     /* Connection status icon palette (legacy block/connectionbutton; identity, never theme-derived) */
     --color-conn-1: #53b4ea;
     --color-conn-2: #aa67ff;

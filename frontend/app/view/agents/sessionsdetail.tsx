@@ -421,7 +421,9 @@ export function RunDetail({
         { k: "time", v: formatAgeShort(elapsed) },
         { k: "tokens", v: view.tokens > 0 ? `${formatTokens(view.tokens)} tok` : "—" },
     ];
-    const title = member.key === LEAD_MEMBER ? "Lead" : `Task ${member.num} · ${member.label}`;
+    // a stage member has no task number: its label names it
+    const title =
+        member.key === LEAD_MEMBER ? "Lead" : member.num ? `Task ${member.num} · ${member.label}` : member.label;
     return (
         <div className="flex h-full min-h-0 flex-col gap-4">
             <div className="flex flex-none items-start gap-3.5 border-b border-edge-faint pb-4">

@@ -2,20 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Pure run grouping for the Sessions surface. A session an orchestrator run launched (the backend stamps its
-// run, task and role) folds into one entry for that run; the entry lists the lead and every task of the run's
-// dag, and surfaces only the members that need you. No React, no Wave runtime.
+// run, task and role) folds into one entry for that run; the entry lists the lead, every task of the run's
+// dag and its stage sessions, and surfaces only the members that need you. No React, no Wave runtime.
 
 import { formatAge, type AgentVM } from "./agentsviewmodel";
-import { runTitle, unmetDeps } from "./runlineage";
+import { runTitle, stageLabel, unmetDeps } from "./runlineage";
 import type { LiveSession } from "./sessionsarchivestore";
 
 export const LEAD_MEMBER = "lead";
+
+// the sessions that judge the whole dag, in the order they run; each is its own member, keyed by its role
+const STAGE_ROLES = ["plan-reviewer", "verifier"];
 
 export interface RunSessions {
     runId: string;
     channelId: string;
     lead: LiveSession[]; // newest first
     tasks: Record<string, LiveSession[]>; // by task id, newest first
+    stages: Record<string, LiveSession[]>; // by stage role, newest first
     sessions: LiveSession[];
     live: boolean;
     lastactivets: number;
@@ -53,6 +57,7 @@ export function groupRunSessions(list: LiveSession[]): { runs: RunSessions[]; so
                 channelId: s.channelid ?? "",
                 lead: [],
                 tasks: {},
+                stages: {},
                 sessions: [],
                 live: false,
                 lastactivets: 0,
@@ -65,13 +70,15 @@ export function groupRunSessions(list: LiveSession[]): { runs: RunSessions[]; so
         run.lastactivets = Math.max(run.lastactivets, s.lastactivets);
         if (s.role === "lead") {
             run.lead.push(s);
+        } else if (STAGE_ROLES.includes(s.role)) {
+            (run.stages[s.role] ??= []).push(s);
         } else if (s.taskid) {
             (run.tasks[s.taskid] ??= []).push(s);
         }
     }
     for (const run of byRun.values()) {
         run.lead.sort(newestFirst);
-        for (const list of Object.values(run.tasks)) {
+        for (const list of [...Object.values(run.tasks), ...Object.values(run.stages)]) {
             list.sort(newestFirst);
         }
     }
@@ -142,7 +149,7 @@ export function needsYou(status: Status): boolean {
 }
 
 export interface RunMember {
-    key: string; // LEAD_MEMBER or a task id
+    key: string; // LEAD_MEMBER, a task id or a stage role
     num: string;
     label: string;
     status: Status;
@@ -203,6 +210,23 @@ function leadStatus(input: RunViewInput): Status {
             : { key: "running", text: "working" };
     }
     return lead ? { key: "done", text: "done" } : { key: "pending", text: "no session" };
+}
+
+const STAGE_VERDICTS: Record<string, Status> = {
+    passed: { key: "done", text: "passed" },
+    failed: { key: "failed", text: "failed" },
+    // the review failed and the lead went ahead anyway
+    accepted: { key: "muted", text: "accepted" },
+    unverified: { key: "muted", text: "unverified" },
+};
+
+// stageStatus reads the dag's current round of a stage: the round its newest session judged
+function stageStatus(role: string, session: LiveSession | undefined, dag: TaskGroup | undefined): Status {
+    if (session?.live) {
+        return { key: "review", text: role === "verifier" ? "verifying" : "reviewing" };
+    }
+    const state = (role === "verifier" ? dag?.final : dag?.planreview)?.state;
+    return STAGE_VERDICTS[state] ?? { key: "done", text: "done" };
 }
 
 function headStatus(
@@ -270,7 +294,21 @@ export function runView(input: RunViewInput): RunView {
             waitsOn: unmetDeps(dag, task)?.map(taskNum),
         });
     }
+    // a stage session is listed, but the run's counts and needs-you rows are its tasks'
     const taskMembers = members.slice(1);
+    const stageMembers: RunMember[] = STAGE_ROLES.filter((role) => group.stages[role]?.length).map((role) => {
+        const sessions = group.stages[role];
+        const session = memberSession(sessions);
+        return {
+            key: role,
+            num: "",
+            label: stageLabel(role),
+            status: stageStatus(role, session, dag),
+            session,
+            tokens: sum(sessions, (s) => s.tokenstotal),
+            durationMs: sum(sessions, (s) => s.durationms),
+        };
+    });
     const askTask = taskMembers.find((m) => m.status.key === "asking");
     const askText = askTask ? digest?.tasks?.find((t) => t.taskid === askTask.key)?.asksummary : undefined;
     return {
@@ -284,7 +322,7 @@ export function runView(input: RunViewInput): RunView {
         segs: taskMembers.map((m) => m.status.key),
         landed: taskMembers.filter((m) => m.status.key === "done").length,
         total: taskMembers.length,
-        members,
+        members: [...members, ...stageMembers],
         needs: members.filter((m) => needsYou(m.status)),
         ask: askTask ? { member: askTask.key, num: askTask.num, text: askText || "" } : undefined,
         tokens: sum(group.sessions, (s) => s.tokenstotal),
@@ -300,6 +338,9 @@ export function defaultMember(view: RunView): string {
 
 // memberOfSession is where a session sits in its run, for a click that names a session (a feed event)
 export function memberOfSession(s: Pick<SessionActivity, "role" | "taskid">): string {
+    if (STAGE_ROLES.includes(s.role)) {
+        return s.role;
+    }
     return s.role === "lead" || !s.taskid ? LEAD_MEMBER : s.taskid;
 }
 
@@ -311,6 +352,9 @@ export function sessionLabel(s: LiveSession, runTitles: Record<string, string>):
     }
     if (s.role === "lead") {
         return `${title} · lead`;
+    }
+    if (STAGE_ROLES.includes(s.role)) {
+        return `${title} · ${stageLabel(s.role).toLowerCase()}`;
     }
     return s.taskid ? `${title} · task ${taskNum(s.taskid)}${s.role === "review" ? " review" : ""}` : title;
 }
