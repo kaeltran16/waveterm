@@ -6,9 +6,12 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -174,7 +177,7 @@ func init() {
 }
 
 func runsStartRun(cmd *cobra.Command, args []string) error {
-	ch, err := runsChannel(cmd)
+	ch, err := runsChannel(cmd, true)
 	if err != nil {
 		return err
 	}
@@ -388,9 +391,14 @@ func runsChannels() ([]*waveobj.Channel, error) {
 	return rtn.Channels, nil
 }
 
-// runsChannel resolves the project a command acts on: --channel by id, else the channel whose project is
-// the main checkout of the repository at --project (or the current directory).
-func runsChannel(cmd *cobra.Command) (*waveobj.Channel, error) {
+// errRunsNoChannel is a registered project that has never run: the cockpit mints a project's channel at
+// its first run, so there is nothing to list yet, and only start creates one
+var errRunsNoChannel = errors.New("no runs yet in project")
+
+// runsChannel resolves the project a command acts on: --channel by id, else the registered project holding
+// --project (or the current directory). mint is start's find-or-create, the + Run launcher's: a project
+// that has never run gets its channel here. The other commands only read, and must not add a channel.
+func runsChannel(cmd *cobra.Command, mint bool) (*waveobj.Channel, error) {
 	chans, err := runsChannels()
 	if err != nil {
 		return nil, err
@@ -409,20 +417,94 @@ func runsChannel(cmd *cobra.Command) (*waveobj.Channel, error) {
 			return nil, err
 		}
 	}
-	root, err := runsProjectRoot(context.Background(), dir)
+	here, err := runsMainCheckoutPath(context.Background(), dir)
 	if err != nil {
 		return nil, err
 	}
-	if ch := wstore.MatchChannelAtPath(chans, root); ch != nil {
-		return ch, nil
+	cfg, err := wshclient.GetFullConfigCommand(RpcClient, &wshrpc.RpcOpts{Timeout: runsReadTimeoutMs})
+	if err != nil {
+		return nil, fmt.Errorf("reading the registered projects: %w", err)
 	}
-	return nil, fmt.Errorf("%s is not an Arc project: add it in the cockpit, or pass --channel", root)
+	p := runsResolveProject(runsProjects(chans, cfg.Projects), here)
+	if p == nil {
+		return nil, fmt.Errorf("%s is in no Arc project: register it in the cockpit, or pass --channel", here)
+	}
+	if p.ch != nil {
+		return p.ch, nil
+	}
+	if !mint {
+		return nil, fmt.Errorf("%w %s", errRunsNoChannel, p.name)
+	}
+	// the server's create is find-or-create, so a launcher racing this lands on the same channel
+	ch, err := wshclient.CreateChannelCommand(RpcClient, wshrpc.CommandCreateChannelData{Name: p.name, ProjectPath: p.path},
+		&wshrpc.RpcOpts{Timeout: runsReadTimeoutMs})
+	if err != nil {
+		return nil, fmt.Errorf("creating the channel for project %s: %w", p.name, err)
+	}
+	return ch, nil
 }
 
-// runsProjectRoot is the main checkout of the repository holding dir: a channel is registered at the main
-// checkout, so an agent working in one of its worktrees must still land on it. Outside a repository it
-// is dir itself.
-func runsProjectRoot(ctx context.Context, dir string) (string, error) {
+// runsProject is one project wsh can act on: a registered one (projects.json), with its channel once it
+// has run, or a channel whose project was never registered
+type runsProject struct {
+	name string
+	path string
+	ch   *waveobj.Channel
+}
+
+func runsProjects(chans []*waveobj.Channel, registered map[string]wconfig.ProjectKeywords) []runsProject {
+	var out []runsProject
+	for name, proj := range registered {
+		if strings.TrimSpace(proj.Path) == "" {
+			continue
+		}
+		out = append(out, runsProject{name: name, path: proj.Path, ch: wstore.MatchChannelAtPath(chans, proj.Path)})
+	}
+	for _, ch := range chans {
+		if strings.TrimSpace(ch.ProjectPath) == "" {
+			continue
+		}
+		known := slices.ContainsFunc(out, func(p runsProject) bool { return runsNormPath(p.path) == runsNormPath(ch.ProjectPath) })
+		if !known {
+			out = append(out, runsProject{name: ch.Name, path: ch.ProjectPath, ch: ch})
+		}
+	}
+	return out
+}
+
+// runsResolveProject is the project holding dir: the deepest one whose path contains it. A monorepo
+// registers projects at subfolders (SIEM/src/cyber_ai/cyber_anomaly_detector), so matching only the
+// repository root would find none of them.
+func runsResolveProject(projects []runsProject, dir string) *runsProject {
+	var best *runsProject
+	for i := range projects {
+		p := &projects[i]
+		if runsPathWithin(dir, p.path) && (best == nil || len(runsNormPath(p.path)) > len(runsNormPath(best.path))) {
+			best = p
+		}
+	}
+	return best
+}
+
+// runsNormPath compares paths across the registry (backslashes on windows) and git (forward slashes)
+func runsNormPath(p string) string {
+	n := strings.TrimRight(strings.ReplaceAll(strings.TrimSpace(p), `\`, "/"), "/")
+	if runtime.GOOS == "windows" {
+		n = strings.ToLower(n)
+	}
+	return n
+}
+
+// runsPathWithin reports dir is root or below it; a sibling sharing a name prefix (app, application) is not
+func runsPathWithin(dir, root string) bool {
+	d, r := runsNormPath(dir), runsNormPath(root)
+	return r != "" && (d == r || strings.HasPrefix(d, r+"/"))
+}
+
+// runsMainCheckoutPath is dir's place in the repository's main checkout: projects are registered there, so
+// an agent in a linked worktree, or in a subfolder of one, must still land on the same project. Outside a
+// repository it is dir itself.
+func runsMainCheckoutPath(ctx context.Context, dir string) (string, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return "", err
@@ -431,10 +513,25 @@ func runsProjectRoot(ctx context.Context, dir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("reading the repository at %s: %w", abs, err)
 	}
-	if len(wts) > 0 && wts[0].IsMain {
-		return wts[0].Path, nil
+	if len(wts) == 0 || !wts[0].IsMain {
+		return abs, nil
 	}
-	return abs, nil
+	// the deepest checkout holding dir: a linked worktree can sit inside the main one (.worktrees/<name>)
+	holder := ""
+	for _, wt := range wts {
+		if runsPathWithin(abs, wt.Path) && len(runsNormPath(wt.Path)) > len(runsNormPath(holder)) {
+			holder = wt.Path
+		}
+	}
+	main := filepath.FromSlash(wts[0].Path)
+	if holder == "" {
+		return main, nil
+	}
+	rel, err := filepath.Rel(filepath.FromSlash(holder), abs)
+	if err != nil {
+		return main, nil
+	}
+	return filepath.Join(main, rel), nil
 }
 
 type runsRow struct {
@@ -465,7 +562,14 @@ func runsListRun(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	} else {
-		ch, err := runsChannel(cmd)
+		ch, err := runsChannel(cmd, false)
+		if errors.Is(err, errRunsNoChannel) {
+			if isJSON(cmd) {
+				return jsonOut([]runsRow{})
+			}
+			fmt.Println(err)
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -534,7 +638,7 @@ func runsFind(cmd *cobra.Command, runId string) (*waveobj.Channel, *waveobj.Run,
 	if err != nil {
 		return nil, nil, err
 	}
-	if here, herr := runsChannel(cmd); herr == nil {
+	if here, herr := runsChannel(cmd, false); herr == nil {
 		chans = append([]*waveobj.Channel{here}, chans...)
 	}
 	seen := map[string]bool{}

@@ -492,6 +492,9 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	case data.PlanPath != "":
 		// the engine starts on the plan now; the lead comes at the first judgment event (spec §1, G5)
 		if _, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: data.ChannelId, RunId: run.ID, PlanPath: data.PlanPath}); err != nil {
+			if handSetupToLead(ctx, data.ChannelId, run, data.PlanPath, err) {
+				break
+			}
 			// a run with no dag and no lead would wait in planning forever
 			if cerr := ws.CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: data.ChannelId, RunId: run.ID}); cerr != nil {
 				log.Printf("CreateRun: cancelling run %s after its plan was refused: %v", run.ID, cerr)
@@ -530,6 +533,34 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		out = &run
 	}
 	return &wshrpc.CommandCreateRunRtnData{Run: out}, nil
+}
+
+// handSetupToLead starts a plan start's lead on its failed Setup, and reports whether it did. The run and its
+// landing tree stay for the lead's resubmit. Any other refusal, or a lead that cannot start, stays a refusal.
+func handSetupToLead(ctx context.Context, channelId string, run waveobj.Run, planPath string, err error) bool {
+	var failed *setupFailedError
+	if !errors.As(err, &failed) {
+		return false
+	}
+	wake := setupRepairWake(planPath, failed)
+	if lerr := LaunchPlanLead(ctx, channelId, run.ID, jarvis.PlanLeadPrompt(run.Principles, run.ID, "", planPath, wake)); lerr != nil {
+		log.Printf("CreateRun: no lead to take run %s's failed setup: %v", run.ID, lerr)
+		return false
+	}
+	appendRunEvent(ctx, channelId, run.ID, waveobj.RunEventKindLeadLaunched, nil, map[string]any{"text": wake})
+	return true
+}
+
+// setupRepairWake is the lead's brief: nothing has started, and whether the fix is the plan's Setup line or
+// the project is the lead's call, or the user's when the lead cannot tell
+func setupRepairWake(planPath string, failed *setupFailedError) string {
+	return fmt.Sprintf("The plan's Setup failed in the landing tree %s, so no task has started.\n"+
+		"Setup: `%s`\nIts output ends:\n%s\n\n"+
+		"Find the cause. If the Setup line is wrong for this project, change that line (and only that line: the "+
+		"tasks stay as written) in the plan at %s and resubmit with `wsh jarvis dag submit --plan %s`, then stop; "+
+		"a resubmit runs Setup again in the same tree, and the engine wakes you when something needs judgment. "+
+		"If the project itself needs a fix, or you cannot tell which, ask the human rather than guess.",
+		failed.landPath, failed.command, failed.tail, planPath, planPath)
 }
 
 func (ws *WshServer) CreateChildRunCommand(ctx context.Context, data wshrpc.CommandCreateChildRunData) (*wshrpc.CommandCreateChildRunRtnData, error) {

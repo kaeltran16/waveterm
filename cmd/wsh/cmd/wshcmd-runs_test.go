@@ -7,9 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -21,7 +23,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
-	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func TestRunsStartData(t *testing.T) {
@@ -136,8 +137,9 @@ func TestRunsPickWorkspace(t *testing.T) {
 	}
 }
 
-// An agent working in a worktree must land on the channel registered at the main checkout.
-func TestRunsProjectRootResolvesWorktreeToMainCheckout(t *testing.T) {
+// An agent working in a worktree must land on the project registered at the main checkout, and one in a
+// subfolder of a worktree on the project registered at that subfolder of the main checkout.
+func TestRunsMainCheckoutPathMapsWorktreesOntoTheMainCheckout(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
@@ -153,21 +155,107 @@ func TestRunsProjectRootResolvesWorktreeToMainCheckout(t *testing.T) {
 	git(main, "commit", "-q", "--allow-empty", "-m", "init")
 	wt := filepath.Join(t.TempDir(), "wt")
 	git(main, "worktree", "add", "-q", wt)
+	// a worktree nested inside the main checkout, the way .worktrees/<name> sits
+	nested := filepath.Join(main, ".worktrees", "n")
+	git(main, "worktree", "add", "-q", nested)
+	sub := filepath.Join("src", "app")
 
-	chans := []*waveobj.Channel{{OID: "other", ProjectPath: t.TempDir()}, {OID: "proj", ProjectPath: main}}
-	for _, dir := range []string{main, wt, filepath.Join(wt, ".")} {
-		root, err := runsProjectRoot(context.Background(), dir)
+	projects := []runsProject{
+		{name: "other", path: t.TempDir()},
+		{name: "repo", path: main},
+		{name: "app", path: filepath.Join(main, sub)},
+	}
+	cases := []struct{ dir, want string }{
+		{main, "repo"},
+		{wt, "repo"},
+		{filepath.Join(wt, "."), "repo"},
+		{filepath.Join(main, sub), "app"},
+		{filepath.Join(wt, sub, "pkg"), "app"},
+		{filepath.Join(nested, sub), "app"},
+		{filepath.Join(wt, "src"), "repo"},
+	}
+	for _, c := range cases {
+		// git runs in dir, and a working directory always exists
+		if err := os.MkdirAll(c.dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		here, err := runsMainCheckoutPath(context.Background(), c.dir)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ch := wstore.MatchChannelAtPath(chans, root); ch == nil || ch.OID != "proj" {
-			t.Fatalf("%s resolved to %q, which matches no project channel", dir, root)
+		if p := runsResolveProject(projects, here); p == nil || p.name != c.want {
+			t.Fatalf("%s mapped to %q and resolved to %+v, want project %q", c.dir, here, p, c.want)
 		}
 	}
 
 	plain := t.TempDir()
-	if root, err := runsProjectRoot(context.Background(), plain); err != nil || root != plain {
-		t.Fatalf("outside a repository the root is the dir itself: %q %v", root, err)
+	if here, err := runsMainCheckoutPath(context.Background(), plain); err != nil || here != plain {
+		t.Fatalf("outside a repository the path is the dir itself: %q %v", here, err)
+	}
+}
+
+// A monorepo registers projects at subfolders, so the deepest registered path holding the directory wins,
+// and a sibling that merely shares a name prefix is not inside.
+func TestRunsResolveProjectPicksTheDeepestContainingPath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "SIEM")
+	app := filepath.Join(root, "src", "app")
+	projects := []runsProject{{name: "app", path: app}, {name: "root", path: root}}
+	cases := []struct{ dir, want string }{
+		{root, "root"},
+		{app, "app"},
+		{filepath.Join(app, "pkg", "x"), "app"},
+		{filepath.Join(root, "src", "application"), "root"},
+		{filepath.Join(root, "docs"), "root"},
+		{t.TempDir(), ""},
+	}
+	for _, c := range cases {
+		p := runsResolveProject(projects, c.dir)
+		got := ""
+		if p != nil {
+			got = p.name
+		}
+		if got != c.want {
+			t.Fatalf("%s resolved to %q, want %q", c.dir, got, c.want)
+		}
+	}
+	// the registry writes backslashes on windows, git prints forward slashes
+	if p := runsResolveProject(projects, filepath.ToSlash(filepath.Join(app, "pkg"))+"/"); p == nil || p.name != "app" {
+		t.Fatalf("a forward-slash path with a trailing slash resolved to %+v", p)
+	}
+	if runtime.GOOS == "windows" {
+		if p := runsResolveProject(projects, strings.ToUpper(app)); p == nil || p.name != "app" {
+			t.Fatalf("windows paths are case-insensitive, got %+v", p)
+		}
+	}
+}
+
+// The cockpit mints a project's channel at its first run, so a registered project with no run yet has no
+// channel: it must still resolve, carrying no channel, rather than read as "not a project".
+func TestRunsProjectsJoinsRegisteredProjectsToTheirChannels(t *testing.T) {
+	ran := filepath.Join(t.TempDir(), "ran")
+	fresh := filepath.Join(t.TempDir(), "fresh")
+	legacy := filepath.Join(t.TempDir(), "legacy")
+	chans := []*waveobj.Channel{
+		{OID: "c-ran", Name: "ran", ProjectPath: ran},
+		{OID: "c-legacy", Name: "legacy", ProjectPath: legacy},
+		{OID: "c-pathless", Name: "scratch"},
+	}
+	registered := map[string]wconfig.ProjectKeywords{
+		"ran":   {Path: ran},
+		"fresh": {Path: fresh},
+		"blank": {Path: "  "},
+	}
+	got := map[string]string{}
+	for _, p := range runsProjects(chans, registered) {
+		oid := ""
+		if p.ch != nil {
+			oid = p.ch.OID
+		}
+		got[p.name] = oid
+	}
+	want := map[string]string{"ran": "c-ran", "fresh": "", "legacy": "c-legacy"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("projects = %v, want %v", got, want)
 	}
 }
 

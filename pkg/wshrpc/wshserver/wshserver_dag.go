@@ -34,6 +34,19 @@ func resolvePlanPath(projectPath, path string) string {
 	return filepath.Join(projectPath, path)
 }
 
+// setupFailedError is a plan's Setup failing in the landing tree. A plan start hands it to the run's lead
+// (handSetupToLead) rather than refusing: the Setup line is often wrong for a project the engine is new to.
+type setupFailedError struct {
+	landPath, command, tail string
+	err                     error
+}
+
+func (e *setupFailedError) Error() string {
+	return fmt.Sprintf("running setup in the landing tree %s: %v\n%s", e.landPath, e.err, e.tail)
+}
+
+func (e *setupFailedError) Unwrap() error { return e.err }
+
 // readPlanFile reads and parses the plan at path. wavesrv does not share the caller's cwd, so only an
 // absolute path names the file the caller meant.
 func readPlanFile(path string) (jarvis.Plan, error) {
@@ -294,7 +307,7 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	if run.LandPath != "" && run.DagORef == "" && plan.Setup != "" {
 		ctx = context.WithoutCancel(ctx)
 		if tail, err := orchestrate.RunSetup(ctx, run.LandPath, plan.Setup); err != nil {
-			return nil, fmt.Errorf("running setup in the landing tree %s: %w\n%s", run.LandPath, err, tail)
+			return nil, &setupFailedError{landPath: run.LandPath, command: plan.Setup, tail: tail, err: err}
 		}
 	}
 	// a branch-landed run commits its spec and plan before any lane is cut, so every task reads the version

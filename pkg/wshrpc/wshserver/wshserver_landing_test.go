@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,8 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -380,31 +383,56 @@ func createLandingRun(t *testing.T, ctx context.Context, projectDir, mode string
 	return ch, rtn.Run, nil
 }
 
-// a plan the engine refused leaves a cancelled run with no dag and no work; its landing tree and branch
-// would otherwise pile up with every retry
-func TestCreateRunRemovesTheLandingTreeOfARefusedPlan(t *testing.T) {
+// newSetupPlanRun is a branch-landed channel on a fresh repository and a plan whose Setup line is setup
+func newSetupPlanRun(t *testing.T, setup string) (ch *waveobj.Channel, projectDir, plan string, execGit func(args ...string) string) {
+	t.Helper()
 	ctx := context.Background()
-	projectDir, execGit := newLandingRepo(t)
+	projectDir, execGit = newLandingRepo(t)
 	stubRunServer(t, "pi", nil)
 	ch, err := wstore.CreateChannel(ctx, "landing", projectDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{Landing: strPtr(jarvis.Landing_Branch)})
-	plan := filepath.Join(t.TempDir(), "plan.md")
-	if err := os.WriteFile(plan, []byte("**Setup:** `exit 3`\n\n### Task 1: input\n"), 0o644); err != nil {
+	plan = filepath.Join(t.TempDir(), "plan.md")
+	if err := os.WriteFile(plan, []byte("**Setup:** `"+setup+"`\n\n### Task 1: input\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return ch, projectDir, plan, execGit
+}
 
-	_, err = (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+// stubLeadSpawn replaces the lead's spawn: it records the prompt, and fails when fail is set
+func stubLeadSpawn(t *testing.T, fail error) *string {
+	t.Helper()
+	prompt := new(string)
+	stubbed := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, p string, _ jarvis.RunWorkerOptions) (string, error) {
+		*prompt = p
+		if fail != nil {
+			return "", fail
+		}
+		return waveobj.MakeORef(waveobj.OType_Tab, "lead-tab").String(), nil
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker = stubbed })
+	return prompt
+}
+
+func startPlanRun(ctx context.Context, ch *waveobj.Channel, plan string) (*wshrpc.CommandCreateRunRtnData, error) {
+	return (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
 		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi", Mode: jarvis.RunMode_Orchestrator, PlanPath: plan,
 	})
-	if err == nil {
-		t.Fatal("a plan whose Setup fails must be refused")
-	}
-	runs, err := wstore.GetChannelRuns(ctx, ch.OID)
+}
+
+// assertRunTornDown checks the one run is cancelled, with its landing tree and branch gone: they would
+// otherwise pile up with every retry
+func assertRunTornDown(t *testing.T, ch *waveobj.Channel, projectDir string, execGit func(args ...string) string) {
+	t.Helper()
+	runs, err := wstore.GetChannelRuns(context.Background(), ch.OID)
 	if err != nil || len(runs) != 1 {
 		t.Fatalf("runs = %+v, %v; want the one cancelled run", runs, err)
+	}
+	if runs[0].Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("status = %q, want cancelled", runs[0].Status)
 	}
 	if _, err := os.Stat(filepath.Join(projectDir, ".waveterm", "worktrees", runs[0].ID)); !os.IsNotExist(err) {
 		t.Fatalf("the landing tree is still there: %v", err)
@@ -412,6 +440,77 @@ func TestCreateRunRemovesTheLandingTreeOfARefusedPlan(t *testing.T) {
 	if branches := execGit("branch", "--list", "wave/*"); branches != "" {
 		t.Fatalf("branches left behind: %q", branches)
 	}
+}
+
+// a plan the engine refused leaves a cancelled run with no dag and no work. The refusal is a task pin the
+// harness rejects once the run exists, the one refusal that lands only after the landing tree is made.
+func TestCreateRunRemovesTheLandingTreeOfARefusedPlan(t *testing.T) {
+	ctx := context.Background()
+	ch, projectDir, plan, execGit := newSetupPlanRun(t, "echo ok")
+	oldValidate := validateHarness
+	validateHarness = func(runtime string, op harness.Operation) (harness.Spec, error) {
+		if runs, _ := wstore.GetChannelRuns(ctx, ch.OID); len(runs) > 0 {
+			return harness.Spec{}, fmt.Errorf("harness %q cannot run workers here", runtime)
+		}
+		spec, _ := harness.Lookup(runtime)
+		return spec, nil
+	}
+	t.Cleanup(func() { validateHarness = oldValidate })
+
+	if _, err := startPlanRun(ctx, ch, plan); err == nil || !strings.Contains(err.Error(), "submitting plan") {
+		t.Fatalf("the refused plan must be reported, got %v", err)
+	}
+	assertRunTornDown(t, ch, projectDir, execGit)
+}
+
+// A Setup that fails in the landing tree is a judgment, not a refusal: a new project's Setup line is often
+// wrong for it (a stale lockfile, a missing tool), and a run that vanished with one error line showed the
+// user nothing to act on. The run stays, its landing tree stays for the retry, and its lead starts on the
+// failure: it can fix the Setup line and resubmit, or ask the user.
+func TestCreateRunHandsAFailedSetupToTheLead(t *testing.T) {
+	ctx := context.Background()
+	setup := "echo lockfile is stale && exit 3"
+	ch, _, plan, execGit := newSetupPlanRun(t, setup)
+	prompt := stubLeadSpawn(t, nil)
+
+	rtn, err := startPlanRun(ctx, ch, plan)
+	if err != nil {
+		t.Fatalf("a failed Setup goes to the lead, not back to the launcher as a failed start: %v", err)
+	}
+	run, err := wstore.GetRun(ctx, ch.OID, rtn.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status == jarvis.RunStatus_Cancelled || run.DagORef != "" {
+		t.Fatalf("the run waits on its lead with no dag yet: status %q dag %q", run.Status, run.DagORef)
+	}
+	if leadORef(run) != "tab:lead-tab" {
+		t.Fatalf("the lead is attached to the run, got %q", leadORef(run))
+	}
+	for _, want := range []string{setup, "lockfile is stale", run.LandPath, "wsh jarvis dag submit --plan " + plan} {
+		if !strings.Contains(*prompt, want) {
+			t.Fatalf("the lead's prompt must name %q:\n%s", want, *prompt)
+		}
+	}
+	if _, err := os.Stat(run.LandPath); err != nil {
+		t.Fatalf("the landing tree is kept for the retry: %v", err)
+	}
+	if got := execGit("branch", "--list", "wave/"+run.ID); got == "" {
+		t.Fatal("the landing branch is kept for the retry")
+	}
+}
+
+// with no lead to judge it, a failed Setup is the refusal it was before
+func TestCreateRunCancelsAFailedSetupWhenNoLeadStarts(t *testing.T) {
+	ctx := context.Background()
+	ch, projectDir, plan, execGit := newSetupPlanRun(t, "exit 3")
+	stubLeadSpawn(t, fmt.Errorf("no harness"))
+
+	_, err := startPlanRun(ctx, ch, plan)
+	if err == nil || !strings.Contains(err.Error(), "running setup") {
+		t.Fatalf("the Setup failure must be reported, got %v", err)
+	}
+	assertRunTornDown(t, ch, projectDir, execGit)
 }
 
 func TestCreateRunLandsOnItsOwnBranch(t *testing.T) {
