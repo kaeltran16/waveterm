@@ -6,7 +6,7 @@
 // view + run selection. No React, no jotai — unit-tested in runmodel.test.ts.
 
 import type { AgentVM } from "./agentsviewmodel";
-import type { Lineage, RunInfo } from "./runlineage";
+import { runFinished, type Lineage, type RunInfo } from "./runlineage";
 
 export type RunStatusTone = "planning" | "review" | "running" | "blocked" | "done" | "failed" | "cancelled";
 
@@ -37,10 +37,11 @@ export function finishedRunLabel(run: RunInfo): string {
 
 const COMPLETE_LABELS = new Set(["landed", "run complete"]);
 
-// runComplete is a run with nothing left to happen: its plan done and the run itself over and landed (or with nothing
-// to land). a lead still wrapping up, a land in flight or held, and a cancelled run are not complete.
+// runComplete is a run with nothing left to happen: its plan done (or, with no dag, its lead's own work) and the run
+// itself over and landed (or with nothing to land). a lead still wrapping up, a land in flight or held, and a
+// cancelled run are not complete.
 export function runComplete(run: RunInfo): boolean {
-    return run.dag?.status === "done" && COMPLETE_LABELS.has(finishedRunLabel(run));
+    return runFinished(run) && COMPLETE_LABELS.has(finishedRunLabel(run));
 }
 
 export function runStatusView(status: string, land?: RunLand): { label: string; tone: RunStatusTone } {

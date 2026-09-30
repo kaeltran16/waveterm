@@ -298,8 +298,9 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
         done: all.filter((r) => r.kind === "done"),
         askCount,
         needsYou: askCount > 0 || lead?.state === "asking",
-        planning: dag == null,
-        finished: dag != null && runFinished(run),
+        // no dag on a finished run means its lead did the goal itself, not that a plan is still coming
+        planning: dag == null && !runFinished(run),
+        finished: runFinished(run),
         complete: runComplete(run),
         bar: strip ? { strip, label: taskStripLabel(dag, run.digest) } : undefined,
         progress: runProgress(dag),
