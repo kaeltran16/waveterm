@@ -5,10 +5,14 @@ package wshserver
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -79,6 +83,83 @@ func TestSealingARunNoReviewerWaitsOnSchedulesNothing(t *testing.T) {
 				t.Fatalf("scheduled dags = %v, want none", *dags)
 			}
 		})
+	}
+}
+
+// End to end: a finished task worker's seal pokes a real tick, and that tick starts the task's reviewer. The
+// halves above and orchestrate's TestReviewWaitsForTheWorkersEvidence each stub the other side.
+func TestSealingATaskWorkerStartsItsReviewer(t *testing.T) {
+	ctx := context.Background()
+	dir, git := newLandingRepo(t)
+	base := git("rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(dir, "work.txt"), []byte("work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-m", "t-1: work")
+	end := git("rev-parse", "HEAD")
+
+	ch, err := wstore.CreateChannel(ctx, "seal-starts-reviewer", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("ship it", "ws-1", dir, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	owner.Runtime = "claude"
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	dag, err := orchestrate.NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-1", Label: "work"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &dag); err != nil {
+		t.Fatal(err)
+	}
+	worker := jarvis.NewRun("work", "ws-1", dir, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	worker.Status = jarvis.RunStatus_Done
+	worker.BaseCommit, worker.EndCommit = base, end
+	worker.DagORef, worker.TaskId = dag.OID, "t-1"
+	worker.Report = "Added work.txt."
+	worker.Phases[0].DoneTs = time.Now().UnixMilli()
+	if err := wstore.AppendRun(ctx, ch.OID, worker); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks[0].State = orchestrate.TaskState_Running
+		g.Tasks[0].RunID = worker.ID
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	spawned := stubDagSpawns(t)
+	orig := scheduleDag
+	scheduleDag = func(dagID string) {
+		if err := orchestrate.Schedule(ctx, dagID); err != nil {
+			t.Errorf("schedule %s: %v", dagID, err)
+		}
+	}
+	t.Cleanup(func() { scheduleDag = orig })
+
+	// before the seal the reviewer has no worker note to read, so a tick must not start it
+	if err := orchestrate.Schedule(ctx, dag.OID); err != nil {
+		t.Fatal(err)
+	}
+	if len(*spawned) != 0 {
+		t.Fatalf("a reviewer started before the worker's evidence was sealed: %+v", *spawned)
+	}
+
+	sealDoneRunEvidence(ch.OID, worker.ID)
+
+	if len(*spawned) != 1 || (*spawned)[0].TaskId != "t-1" || (*spawned)[0].Label != "review t-1" {
+		t.Fatalf("the seal's tick must start t-1's reviewer, got %+v", *spawned)
+	}
+	got, err := wstore.GetDag(ctx, dag.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tasks[0].ReviewRunID == "" {
+		t.Fatal("the task does not record its reviewer's run")
 	}
 }
 
