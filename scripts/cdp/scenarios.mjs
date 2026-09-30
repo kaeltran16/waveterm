@@ -7021,6 +7021,8 @@ const modelPicks = {
         await h.ev(PEEKS_ESC).catch(() => {});
         await teardownFixtureRun(h, ctx, "model-picks");
     },
+};
+
 // --- radar-start-investigation: the draft lands on the launcher, not on a past run -----------------
 // Start investigation hands the finding to its project's channel sheet. With a run selected in that channel
 // (one the user had looked at, or a live one) the sheet opened on that run's report and the launcher holding
@@ -7089,8 +7091,6 @@ const radarStartInvestigation = {
     },
 };
 
-};
-
 export const SCENARIOS = [
     briefContextualMap,
     briefRestore,
@@ -7121,9 +7121,9 @@ export const SCENARIOS = [
     jarvisMotion,
     // before brief-inline-tracker, which leaves a briefing fixture on over the seeded data
     briefDesignParity,
-    radarStartInvestigation,
     briefInlineTracker,
     resourceLinking,
+    radarStartInvestigation,
     uiApi,
     focusReaimsSurfaces,
     focusDivergenceRejoin,
