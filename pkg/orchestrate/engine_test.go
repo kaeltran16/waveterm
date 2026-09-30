@@ -941,7 +941,7 @@ func TestSchedulePersistsSpawnedWorkerOwnership(t *testing.T) {
 	const subscriber = "schedule-child-run-updates"
 	wps.Broker.Subscribe(subscriber, wps.SubscriptionRequest{Event: wps.Event_WaveObjUpdate, AllScopes: true})
 	t.Cleanup(func() { wps.Broker.Unsubscribe(subscriber, wps.Event_WaveObjUpdate) })
-	workerTabID := "12121212-1212-4212-8212-121212121212"
+	workerTabID := uuid.NewString()
 	worker := waveobj.MakeORef(waveobj.OType_Tab, workerTabID).String()
 	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: workerTabID}); err != nil {
 		t.Fatal(err)

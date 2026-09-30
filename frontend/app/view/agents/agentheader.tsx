@@ -17,7 +17,7 @@ import { openTarget } from "@/app/view/jarvis/openref";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { CircleStop, Maximize2, Minimize2, PanelRight, X } from "lucide-react";
+import { CircleStop, Maximize2, Minimize2, PanelRight, Workflow, X } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect } from "react";
 import { confirmCloseSession } from "./agentactions";
@@ -158,6 +158,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
 
     return (
         <div
+            data-agent-header
             onContextMenu={onContextMenu}
             className="flex shrink-0 items-center gap-[13px] border-b border-border bg-background px-[22px] py-[14px]"
         >
@@ -170,7 +171,11 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                 <div className="flex items-center gap-[9px]">
                     <span className="min-w-0 truncate font-mono text-[15px] font-semibold text-foreground">
                         {lineage?.kind === "lead" ? (
-                            <span className="mr-[5px] text-[12px] text-accent-soft">◆</span>
+                            <Workflow
+                                size={13}
+                                aria-hidden
+                                className="mr-[5px] inline-block align-[-1px] text-accent-soft"
+                            />
                         ) : null}
                         {name}
                     </span>

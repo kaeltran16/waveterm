@@ -3971,21 +3971,7 @@ const dagLifecycle = {
     },
     async teardown(h, ctx) {
         try {
-            const res = await h.rpc("getchannels", null);
-            const cc = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
-            for (const run of cc.runs || []) {
-                for (const phase of run.phases || []) {
-                    for (const oref of phase.workerorefs || []) {
-                        try {
-                            const tab = await h.rpc("gettab", oref.slice(4));
-                            const bid = tab && tab.blockids && tab.blockids[0];
-                            if (bid) await h.rpc("deleteblock", { blockid: bid });
-                        } catch {
-                            // best-effort cleanup
-                        }
-                    }
-                }
-            }
+            await deleteChannelWorkerBlocks(h, ctx.channelId);
             await h.rpc("deletechannel", { channelid: ctx.channelId });
         } catch {
             // best-effort cleanup
@@ -5741,6 +5727,24 @@ async function arrangeFixtureRun(h, ctx, label, leadName) {
 }
 
 // best-effort, so one failed step does not strand the rest
+async function deleteChannelWorkerBlocks(h, channelId) {
+    const res = await h.rpc("getchannels", null);
+    const cc = (res.channels || []).find((x) => x.oid === channelId) || {};
+    for (const run of cc.runs || []) {
+        for (const phase of run.phases || []) {
+            for (const oref of phase.workerorefs || []) {
+                try {
+                    const tab = await h.rpc("gettab", oref.slice(4));
+                    const bid = tab && tab.blockids && tab.blockids[0];
+                    if (bid) await h.rpc("deleteblock", { blockid: bid });
+                } catch {
+                    // best-effort cleanup
+                }
+            }
+        }
+    }
+}
+
 async function teardownFixtureRun(h, ctx, name, restore) {
     const step = async (what, fn) => {
         try {
@@ -5754,7 +5758,11 @@ async function teardownFixtureRun(h, ctx, name, restore) {
     if (ctx.runId) {
         await step("cancel the run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId }));
     }
-    if (ctx.channelId) await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
+    if (ctx.channelId) {
+        // cancelling a run stops its workers but leaves their blocks
+        await step("delete the worker blocks", () => deleteChannelWorkerBlocks(h, ctx.channelId));
+        await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
+    }
     await step("reload onto the live roster", async () => {
         await h.ev("location.reload()");
         await new Promise((r) => setTimeout(r, 2500));
@@ -5815,6 +5823,7 @@ const agentTreeRail = {
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const RAIL = `document.querySelector('aside[aria-label="Agent details"]')`;
         const TREE = `document.querySelector("[data-agent-tree]")`;
+        const HEADER = `document.querySelector("[data-agent-header]")`;
         rec(
             "0. the lead row nested under its run and was focused",
             ctx.arrangeError == null && ctx.leadFocused === true,
@@ -5837,18 +5846,18 @@ const agentTreeRail = {
         const glyphs = await h.ev(`(() => {
             const glyphs = ${JSON.stringify(TREE_RAIL_GLYPHS)};
             const hits = [];
-            for (const root of [${TREE}, ${RAIL}]) {
+            for (const root of [${TREE}, ${RAIL}, ${HEADER}]) {
                 if (!root) continue;
                 const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
                 for (let n = walk.nextNode(); n; n = walk.nextNode()) {
                     if (glyphs.some((g) => n.data.includes(g))) hits.push(n.data.trim());
                 }
             }
-            return { tree: !!${TREE}, rail: !!${RAIL}, hits };
+            return { tree: !!${TREE}, rail: !!${RAIL}, header: !!${HEADER}, hits };
         })()`);
         rec(
-            "2. no text glyph survives in the tree or the rail",
-            glyphs.tree && glyphs.rail && glyphs.hits.length === 0,
+            "2. no text glyph survives in the tree, the rail or the focused lead's header",
+            glyphs.tree && glyphs.rail && glyphs.header && glyphs.hits.length === 0,
             JSON.stringify(glyphs)
         );
 
@@ -6226,7 +6235,7 @@ const runSheetPolish = {
         const bar = await h.ev(`document.querySelector("[data-run-sheet] [role=img]")?.getAttribute("aria-label") ?? null`);
         rec(
             "2. the task strip under the verb carries its done/total label",
-            typeof bar === "string" && /^\d+ of \d+ tasks (done|finished)/.test(bar),
+            typeof bar === "string" && /^\d+ of \d+ tasks done/.test(bar),
             `aria-label=${JSON.stringify(bar)}`
         );
 

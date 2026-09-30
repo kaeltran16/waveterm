@@ -392,8 +392,8 @@ await step("13-dispatch", "Real dispatch — TaskGroup + workers (engine)", asyn
     let taskCount = 0;
     for (let i=0;i<10;i++) {
         await sleep(1500);
-        hasTasks = await h.ev(`(() => !!document.querySelector('[data-dag-node-route]'))()`);
-        taskCount = await h.ev(`(() => document.querySelectorAll('[data-dag-node-route]').length)()`);
+        hasTasks = await h.ev(`(() => !!document.querySelector('[data-dag-node]'))()`);
+        taskCount = await h.ev(`(() => document.querySelectorAll('[data-dag-node]').length)()`);
         const runState = await h.ev(`(() => (document.body.innerText||'').slice(0,800))()`);
         if (hasTasks || /TaskGroup|DAG|workers/i.test(runState)) break;
     }
@@ -403,7 +403,7 @@ await step("13-dispatch", "Real dispatch — TaskGroup + workers (engine)", asyn
         return m ? m[0] : null;
     })()`);
     if (hasTasks) {
-        await h.ev(`(() => { const n=document.querySelector('[data-dag-node-route]'); if(n) n.click(); return true; })()`);
+        await h.ev(`(() => { const n=document.querySelector('[data-dag-node]'); if(n) n.click(); return true; })()`);
         await sleep(600);
     }
     return hasTasks ? `tasks=${taskCount}, hint=${runInfo ?? "TaskGroup"} — engine scheduled workers` : `lead still decomposing (no TaskGroup yet, hint=${runInfo ?? "none"}) — dispatch is real, just pending`;
