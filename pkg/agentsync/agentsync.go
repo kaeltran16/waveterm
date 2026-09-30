@@ -5,12 +5,14 @@ package agentsync
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
+	"github.com/wavetermdev/waveterm/skills"
 )
 
 // Paths are the locations one sync run reads and writes. Passed explicitly rather than read from
@@ -19,6 +21,9 @@ type Paths struct {
 	Home        string
 	SteeringDoc string
 	SkillsRoot  string
+	// Shipped holds the skills Arc ships, one top-level directory each, seeded into SkillsRoot.
+	// nil seeds nothing.
+	Shipped fs.FS
 }
 
 func DefaultPaths() Paths {
@@ -26,6 +31,7 @@ func DefaultPaths() Paths {
 		Home:        wavebase.GetHomeDir(),
 		SteeringDoc: memroots.SteeringDocPath(),
 		SkillsRoot:  memroots.SkillsRoot(),
+		Shipped:     skills.FS,
 	}
 }
 
