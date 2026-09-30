@@ -84,9 +84,13 @@ func advancePlanReview(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owne
 func planReviewPrompt(g *waveobj.TaskGroup, tree string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are the plan reviewer for run %s. Before any worker starts, judge whether the plan can be run as written.\n", g.RunID)
-	if g.SpecPath != "" {
+	switch {
+	case g.SpecPath != "":
 		fmt.Fprintf(&b, "Read the spec at %s, ", DocPath(g, tree, g.SpecPath))
-	} else {
+	case g.Prototype != "":
+		// a mockup-driven lead writes no spec (leadprompt.go): the canvas is the design the plan answers to
+		fmt.Fprintf(&b, "There is no spec file: the design canvas at %s is the spec. Read it, ", DocPath(g, tree, g.Prototype))
+	default:
 		b.WriteString("There is no spec file. Read ")
 	}
 	fmt.Fprintf(&b, "the plan at %s, and the files they name.\n", DocPath(g, tree, g.PlanPath))
@@ -94,7 +98,7 @@ func planReviewPrompt(g *waveobj.TaskGroup, tree string) string {
 	b.WriteString("- every requirement in the spec has a task;\n")
 	b.WriteString("- no two tasks edit the same file without a Depends between them, since tasks with nothing between them run at the same time;\n")
 	b.WriteString("- types, functions and flags have the same names in every task that mentions them;\n")
-	b.WriteString("- each task names its tests;\n")
+	b.WriteString("- each task states its acceptance criteria and names the tests that prove them;\n")
 	b.WriteString("- the commands the plan names (its Verify, Setup and Check lines, and those in its tasks) exist.\n")
 	b.WriteString("Also report gaps in the spec, and places where the spec and the plan contradict each other.\n")
 	b.WriteString("Only read: never edit, stage or commit, and ask no questions, since nobody answers a reviewer.\n")

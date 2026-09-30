@@ -65,7 +65,9 @@ func depSatisfied(g *waveobj.TaskGroup, taskID, depID string) bool {
 }
 
 // NextToSpawn returns ready tasks the engine should spawn now: ready minus busy,
-// capped so busy+new <= Parallelism, ordered by id. stalled workers still hold their slot — the
+// capped so busy+new <= Parallelism, the task with the longest chain of dependents first (ties by id):
+// a slot spent on a leaf while a chain waits delays the whole run (8e755abf lost ~14 min that way).
+// stalled workers still hold their slot — the
 // stall flag does not stop the child process, so counting only Running would overshoot Parallelism.
 // The circuit-break is enforced here rather than only derived into the status: "blocked" that still
 // dispatches spends the whole DAG on the fault the human was supposed to be asked about. Already-
@@ -95,8 +97,11 @@ func NextToSpawn(g *waveobj.TaskGroup) []string {
 			lanes[LaneWorktreeKey(g, g.Tasks[i].ID)] = true
 		}
 	}
+	ready := ReadyTasks(g)
+	behind := chainBehind(g)
+	slices.SortStableFunc(ready, func(a, b string) int { return behind[b] - behind[a] })
 	var out []string
-	for _, id := range ReadyTasks(g) {
+	for _, id := range ready {
 		key := LaneWorktreeKey(g, id)
 		if lanes[key] {
 			continue
@@ -108,6 +113,34 @@ func NextToSpawn(g *waveobj.TaskGroup) []string {
 		}
 	}
 	return out
+}
+
+// chainBehind maps each task to the number of tasks on the longest path of dependents below it.
+// Tasks must be acyclic, as jarvis.LongestChain assumes.
+func chainBehind(g *waveobj.TaskGroup) map[string]int {
+	dependents := map[string][]string{}
+	for _, t := range g.Tasks {
+		for _, d := range t.Deps {
+			dependents[d] = append(dependents[d], t.ID)
+		}
+	}
+	behind := map[string]int{}
+	var walk func(id string) int
+	walk = func(id string) int {
+		if n, ok := behind[id]; ok {
+			return n
+		}
+		best := 0
+		for _, d := range dependents[id] {
+			best = max(best, walk(d)+1)
+		}
+		behind[id] = best
+		return best
+	}
+	for _, t := range g.Tasks {
+		walk(t.ID)
+	}
+	return behind
 }
 
 // MarkRunning assigns a spawned child run to a ready task.

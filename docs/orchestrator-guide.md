@@ -226,6 +226,14 @@ path only when it is genuinely unclear, and finishes accordingly:
 The Spec review is the one approval: the lead does not ask section by section, and after `dag submit` it does not
 ask you to review the plan or pick an execution mode, since the engine reviews the plan.
 
+When the goal names a mockup or design canvas that settles the design, the lead writes no spec. Its Spec review
+carries the mockup's path on the first line and one line per decision beyond the mockup. The plan names the mockup
+on its `**Prototype:**` line and is submitted without `--spec`, and the plan reviewer reads the canvas as the spec.
+
+A plan's tasks carry the design decisions, the files each owns, the interfaces other tasks rely on, and acceptance
+criteria with their tests, but not the implementation: the prompt overrides `writing-plans`' complete-code rule,
+since pasted code made the lead's plan-writing the longest phase of a small run (7 to 14 min for 17 to 88 KB plans).
+
 Once the plan review passes, or you accept a plan it failed, the engine waits for the lead to go idle and types a
 `/compact` that keeps what you said and drops code it read. A plan submitted as JSON, with no review, is handed
 over at `dag submit`. A failed review sends the plan back to a lead that still has its context to revise it. Every compaction of a lead re-injects its orchestration rules (`wsh jarvis dag rules`), so
@@ -364,7 +372,9 @@ The longest chain also sets how a run ends. The backlog chain is Task 2 → 3 �
 independent tasks had landed, the run went one task at a time, with two of its three slots empty. `dag status`
 reports such a stretch as `dependency-wait`, naming the task each waiter needs (the rail's Run section reads
 "… waiting on …"). `parallelism-wait` ("waiting for a slot") means every slot is busy. To shorten that tail, cut
-Depends lines in the plan. Raising parallelism won't help.
+Depends lines in the plan. Raising parallelism won't help. When slots are short, the engine gives a free one to
+the ready task with the longest chain of tasks waiting behind it, then by task id, so a chain does not queue behind
+tasks nothing depends on.
 
 ![The backlog plan in the launcher](images/orchestrator-guide/24-plan-dialog-backlog.png)
 
@@ -401,12 +411,12 @@ Both flows submit a plan file, and the engine reviews it before any worker start
 submitted as JSON, with no plan file, and a fix round skip it.
 
 The engine starts a fresh plan-reviewer session in the tree where lanes land, on the reviewer route. It reads the
-spec, the plan and the files they name, and checks that:
+spec (or, with no spec, the plan's design canvas), the plan and the files they name, and checks that:
 
 - every requirement in the spec has a task;
 - no two tasks edit the same file without a Depends between them;
 - types, functions and flags have the same names in every task that mentions them;
-- each task names its tests;
+- each task states its acceptance criteria and names the tests that prove them;
 - the commands the plan names exist.
 
 It also reports gaps in the spec and places where the spec and plan contradict each other. It only reads, and

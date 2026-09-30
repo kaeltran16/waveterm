@@ -172,6 +172,44 @@ func TestEngineLaunchPromptCutsTheCeremony(t *testing.T) {
 	}
 }
 
+// leads spent 7 to 14 min writing 17 to 88 KB plans that pasted each task's code (runs 09-29 and 09-30);
+// writing-plans asks for complete code, so the prompt overrides that one rule and keeps what a worker cannot decide
+func TestEngineLaunchPromptPlansCarryDecisionsNotCode(t *testing.T) {
+	for _, runtime := range []string{"claude", "pi"} {
+		p := BuildOrchestratePrompt("ship auth", nil, runtime)
+		for _, want := range []string{
+			"except its complete-code rule",
+			"the design decisions it makes",
+			"the files it owns",
+			"any interface or signature another task relies on",
+			"its acceptance criteria with the focused tests that prove them",
+			"not the implementation, which its worker writes",
+		} {
+			if !strings.Contains(p, want) {
+				t.Fatalf("%s launch prompt missing %q:\n%s", runtime, want, p)
+			}
+		}
+	}
+}
+
+// a mockup-driven run still wrote a 9 to 19 KB spec restating the mockup; the mockup is the design, and the
+// human's one approval moves to the decisions made beyond it
+func TestEngineLaunchPromptSkipsTheSpecWhenAMockupSettlesTheDesign(t *testing.T) {
+	for _, runtime := range []string{"claude", "pi"} {
+		p := BuildOrchestratePrompt("ship auth", nil, runtime)
+		for _, want := range []string{
+			"When the goal names a mockup or design canvas that settles the design, write no spec file",
+			"the `Spec review` question is the mockup's absolute path on its first line, then one `- ` line per decision you make beyond it",
+			"its absolute path on the plan's `**Prototype:**` line",
+			"submit without `--spec`",
+		} {
+			if !strings.Contains(p, want) {
+				t.Fatalf("%s launch prompt missing %q:\n%s", runtime, want, p)
+			}
+		}
+	}
+}
+
 // a principle like "merge back when done" had the lead doing what the engine owns (finding 1)
 func TestEngineRunPromptsPutTheContractOverPrinciples(t *testing.T) {
 	ps := waveobj.PrincipleList{{ID: "wt", Text: "Use worktree"}}

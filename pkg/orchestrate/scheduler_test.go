@@ -58,6 +58,31 @@ func TestNextToSpawnParallelismCap(t *testing.T) {
 	}
 }
 
+// run 8e755abf: a slot went to leaf tasks by id order while a ready task with a chain behind it waited
+// 7.8 min, and its dependent another 6.5
+func TestNextToSpawnStartsTheLongestChainFirst(t *testing.T) {
+	tasks := []waveobj.TaskNode{
+		{ID: "t-1", Label: "leaf"},
+		{ID: "t-2", Label: "fan", Deps: nil},
+		{ID: "t-3", Label: "chain"},
+		{ID: "t-4", Label: "fan a", Deps: []string{"t-2"}},
+		{ID: "t-5", Label: "fan b", Deps: []string{"t-2"}},
+		{ID: "t-6", Label: "chain a", Deps: []string{"t-3"}},
+		{ID: "t-7", Label: "chain b", Deps: []string{"t-6"}},
+	}
+	g, err := NewTaskGroup("run-1", "ch-1", "g", 1, false, tasks, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := NextToSpawn(&g); !reflect.DeepEqual(got, []string{"t-3"}) {
+		t.Fatalf("width 1 must start the task with the longest chain behind it, want [t-3], got %v", got)
+	}
+	g.Parallelism = 3
+	if got := NextToSpawn(&g); !reflect.DeepEqual(got, []string{"t-3", "t-2", "t-1"}) {
+		t.Fatalf("want [t-3 t-2 t-1], got %v", got)
+	}
+}
+
 func TestNextToSpawnStalledHoldsSlot(t *testing.T) {
 	// a stalled child is still an alive process: it must keep its parallelism slot until
 	// retried or stopped, or actual concurrency overshoots Parallelism during stalls.

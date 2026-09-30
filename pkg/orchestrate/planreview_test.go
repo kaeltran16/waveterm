@@ -78,7 +78,7 @@ func TestPlanReviewHoldsDispatchAndSpawnsOneReviewerInTheLandingTree(t *testing.
 		"every requirement in the spec has a task",
 		"no two tasks edit the same file without a Depends",
 		"the same names in every task",
-		"each task names its tests",
+		"each task states its acceptance criteria and names the tests that prove them",
 		"the commands the plan names",
 		"Only read: never edit, stage or commit, and ask no questions",
 		"`wsh jarvis dag planreview pass \"<summary>\"`",
