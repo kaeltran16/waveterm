@@ -235,7 +235,7 @@ export interface WorkerLine {
 }
 
 // workerSubtext is a worker row's second line, led by its task id since the row's title is the task's label:
-// what it came to, what it waits on, whose turn its question is, else its lane and age.
+// what it came to, what it waits on, whose turn its question is, what state it is in, else its lane and age.
 export function workerSubtext(w: WorkerLine): string {
     const lane = w.lane ? `lane ${w.lane}` : "";
     let tail: string[];
@@ -248,7 +248,8 @@ export function workerSubtext(w: WorkerLine): string {
     } else if (w.ask?.owner === "you") {
         tail = ["asks you", w.age];
     } else if (w.state) {
-        tail = [lane, w.state];
+        // the state leads: the lane is what truncation should cut
+        tail = [w.state, lane];
     } else {
         tail = [lane, w.age];
     }

@@ -359,9 +359,12 @@ describe("a task past its worker", () => {
         }
     });
 
-    it("shows the state on the worker row in place of its age", () => {
+    it("leads the worker row with its state in place of its age, so truncation drops the lane first", () => {
         expect(workerSubtext({ taskId: "t-1", lane: "A", age: "3m", state: "verifying 2m" })).toBe(
-            "t-1 · lane A · verifying 2m"
+            "t-1 · verifying 2m · lane A"
+        );
+        expect(workerSubtext({ taskId: "t-2", lane: "B", age: "1m", state: "reviewing" })).toBe(
+            "t-2 · reviewing · lane B"
         );
     });
 

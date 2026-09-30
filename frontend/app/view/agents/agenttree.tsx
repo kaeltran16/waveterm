@@ -559,7 +559,7 @@ function WorkerRow({
                     <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-success" />
                 ) : waits ? (
                     <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
-                ) : task.state === "verifying" && !nested ? (
+                ) : (task.state === "verifying" || task.state === "reviewing") && !nested ? (
                     <StatusDot state="working" pulse className="!h-[7px] !w-[7px]" />
                 ) : agent == null ? (
                     <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-muted" />
