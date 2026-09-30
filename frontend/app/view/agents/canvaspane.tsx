@@ -8,6 +8,8 @@
 import { Segmented } from "@/app/element/segmented";
 import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { getApi } from "@/app/store/global";
+import { globalStore } from "@/app/store/jotaiStore";
+import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
 import { formatChordString } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { invoke } from "@tauri-apps/api/core";
@@ -15,17 +17,19 @@ import { useAtomValue } from "jotai";
 import { SquareDashed, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import type { AgentsViewModel } from "./agents";
-import type { AgentVM } from "./agentsviewmodel";
+import { projectOf, type AgentVM } from "./agentsviewmodel";
 import { addMark, removeMark, setMarkNote, type Box, type Mark } from "./canvasmarks";
 import {
     boardLabel,
     boardUrl,
+    buildGoal,
     CANVAS_PORT_COUNT,
     CANVAS_PORT_FIRST,
     canvasDesignDir,
     fitScale,
     paneState,
     pickFreePort,
+    prototypePath,
     shownBoard,
     updatedAgo,
 } from "./canvasmodel";
@@ -54,6 +58,16 @@ const START_WAIT_MS = 5000;
 
 const MARK_CHIP =
     "h-[20px] w-[20px] rounded-full bg-accent text-center font-mono text-[11px] font-bold leading-[20px] text-background";
+
+// New run opens as an orchestrator run on the agent's project, with this canvas as the run's prototype
+function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasState): void {
+    globalStore.set(newRunPrefillAtom, {
+        projectName: projectOf(agent),
+        goal: buildGoal(s.dir, s.boards),
+        prototype: prototypePath(s.dir, s.boards),
+    });
+    globalStore.set(model.newRunOpenAtom, true);
+}
 
 export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const s = useAtomValue(canvasStateAtom(agent.id));
@@ -109,6 +123,11 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
                                 className={CANVAS_BTN}
                             >
                                 Open in browser
+                            </button>
+                        ) : null}
+                        {s.boards.length > 0 ? (
+                            <button type="button" onClick={() => openBuildRun(model, agent, s)} className={CANVAS_BTN}>
+                                Build this…
                             </button>
                         ) : null}
                     </div>
