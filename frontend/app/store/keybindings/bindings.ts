@@ -592,7 +592,7 @@ export function buildJarvisBindings(): Binding[] {
             group: "Jarvis",
             label: "New run",
             when: onStage,
-            run: () => clickThrough("[data-jarvis-new-run]"),
+            run: () => clickThrough("[data-new-run]"),
         },
         {
             id: "jarvis:new-initiative",

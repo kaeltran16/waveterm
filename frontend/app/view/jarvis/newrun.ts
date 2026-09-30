@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The pure half of starting a run from the Brief header. A project is the only thing the user names: the
+// The pure half of starting a run from the New run window. A project is the only thing the user names: the
 // channel a run needs is storage (CreateRunCommand requires a channelid, and copies the worker cwd and the
 // resolved profile off it), so it is resolved by path or minted on the spot rather than created by hand.
 // That is why this is a decision and not a create call — a create call cannot be unit-tested, and getting

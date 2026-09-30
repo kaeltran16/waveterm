@@ -127,9 +127,10 @@ export class AgentsViewModel implements ViewModel {
     // Date.now() at compute time, so it stays fresh when any bucket/filter dependency changes.
     usageStatsAtom = atom((get) => aggregateBuckets(get(usageBucketsAtom), Date.now(), get(this.usageHarnessFilterAtom)));
 
-    // New Project / New Agent modal + command-palette visibility (gated overlays rendered from the cockpit root).
+    // New Project / New Agent / New run modal + command-palette visibility (gated overlays rendered from the cockpit root).
     newProjectOpenAtom = atom(false);
     newAgentOpenAtom = atom(false);
+    newRunOpenAtom = atom(false);
     paletteOpenAtom = atom(false);
 
     // handoff-parity filters + per-card layout (spec §State). Project scope is a single source bound to

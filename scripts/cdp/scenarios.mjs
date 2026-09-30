@@ -4795,14 +4795,13 @@ const briefDesignParity = {
                 tier: at('[data-jarvis-autonomy="chip"]'),
                 profile: at('[data-jarvis-brief-profile]'),
                 initiative: at('[data-jarvis-new-initiative]'),
-                run: at('[data-jarvis-new-run]'),
             };
         })()`);
-        const seq = order ? [order.fleet, order.filter, order.tier, order.profile, order.initiative, order.run] : [];
+        const seq = order ? [order.fleet, order.filter, order.tier, order.profile, order.initiative] : [];
         await h.shot("cdp-shots/brief-design-parity-b-header.png");
         steps.push({
-            step: "b. the header runs fleet line, filter, autonomy, Profile, New initiative, New run",
-            ok: seq.length === 6 && seq.every((i, n) => i >= 0 && (n === 0 || i > seq[n - 1])),
+            step: "b. the header runs fleet line, filter, autonomy, Profile, New initiative",
+            ok: seq.length === 5 && seq.every((i, n) => i >= 0 && (n === 0 || i > seq[n - 1])),
             detail: JSON.stringify(order),
         });
 
@@ -6642,8 +6641,8 @@ const setInputExpr = (elExpr, value) => `(() => {
 })()`;
 const flatText = (elExpr) => `(${elExpr}?.textContent ?? '').replace(/\\s+/g, ' ').trim()`;
 
-// the window renders beside the button that opens it, so the button's wrapper scopes every query to it
-const NEW_RUN = `document.querySelector('[data-jarvis-new-run]')?.parentElement?.querySelector('[role="dialog"]')`;
+// the window's header carries the marker, so its dialog scopes every query to it
+const NEW_RUN = `document.querySelector('[data-new-run-window]')?.closest('[role="dialog"]')`;
 const NEW_RUN_FIELD = `${NEW_RUN}?.querySelector('button[aria-haspopup="listbox"]')`;
 const NEW_RUN_LIST = `${NEW_RUN}?.querySelector('[role="listbox"][aria-label="Projects"]')`;
 const NEW_RUN_WORKERS = `${NEW_RUN}?.querySelector('[data-testid="route-picker"][aria-label="Workers model"]')`;
@@ -6738,10 +6737,11 @@ const newRunWindow = {
             return steps;
         }
         await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
-        await h.goto("jarvis");
-        await h.ev(`document.querySelector('[data-jarvis-new-run]')?.click()`);
+        // off the Brief on purpose: the app-bar button has to work where the Brief never loaded the channels
+        await h.goto("files");
+        await h.ev(`document.querySelector('[data-new-run]')?.click()`);
         const opened = await polishWaitFor(h, `!!${NEW_RUN}`, 5000);
-        rec("1. New run opens the window", opened, `dialog=${opened}`);
+        rec("1. New run opens the window from the app bar", opened, `dialog=${opened}`);
         if (!opened) return steps;
 
         await h.ev(`${NEW_RUN_FIELD}?.click()`);

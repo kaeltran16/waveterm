@@ -41,7 +41,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                         <circle cx="5.5" cy="5.5" r="4" />
                         <path d="M9 9l3 3" strokeLinecap="round" />
                     </svg>
-                    <span className="flex-1 text-left text-[13px]">Search, or type a goal…</span>
+                    <span className="min-w-0 flex-1 truncate text-left text-[13px]">Search, or type a goal…</span>
                     <span className="rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[11px]">
                         {formatChordString("Ctrl:p")}
                     </span>
@@ -50,6 +50,17 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
 
             <div className="flex h-full shrink-0 items-center gap-2.5">
                 <VersionMismatchPill />
+                {/* secondary, so New agent stays the one primary action. data-new-run: the Brief's `r` key
+                    presses this (buildJarvisBindings). */}
+                <button
+                    type="button"
+                    data-new-run
+                    aria-haspopup="dialog"
+                    onClick={() => globalStore.set(model.newRunOpenAtom, true)}
+                    className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[8px] border border-edge-mid bg-surface-raised px-[clamp(9px,1.3vw,12px)] py-[6px] text-[clamp(11px,1.35vw,12.5px)] font-semibold text-primary hover:border-edge-strong hover:bg-surface-hover"
+                >
+                    <span className="-mt-px text-[15px] leading-none">+</span>New run
+                </button>
                 <button
                     type="button"
                     onClick={() => globalStore.set(model.newAgentOpenAtom, true)}

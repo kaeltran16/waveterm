@@ -154,7 +154,6 @@ import {
 import { clearSubject, persistedSubjectAtom, setComposingRun, stageRunAtom } from "./jarvissubjectstore";
 import { NewInitiativeControl } from "./newinitiativecontrol";
 import { radarDraftLanding } from "./newrun";
-import { NewRunControl } from "./newruncontrol";
 import { openAddress, openChannelSheet, openTarget } from "./openref";
 import { loadTaskList, taskListAtom } from "./tasksstore";
 import {
@@ -1336,7 +1335,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 </button>
                 <span aria-hidden className="mx-0.5 h-[18px] w-px flex-none bg-border" />
                 <NewInitiativeControl />
-                <NewRunControl model={model} />
             </header>
             {/* both bands push the surface down, so height belongs in the animation rather than a cut */}
             <AnimatePresence initial={false}>

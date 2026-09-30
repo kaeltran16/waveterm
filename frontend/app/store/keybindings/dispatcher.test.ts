@@ -46,16 +46,20 @@ describe("deriveKeyContext", () => {
         vi.unstubAllGlobals();
     });
 
-    function bindModel(surface: SurfaceKey): () => void {
+    function stubModel(surface: SurfaceKey): AgentsViewModel {
         vi.stubGlobal("window", { addEventListener: () => {}, removeEventListener: () => {} });
         vi.stubGlobal("document", { activeElement: null });
-        const model = {
+        return {
             surfaceAtom: atom<SurfaceKey>(surface),
             paletteOpenAtom: atom(false),
             newAgentOpenAtom: atom(false),
+            newRunOpenAtom: atom(false),
             newProjectOpenAtom: atom(false),
         } as unknown as AgentsViewModel;
-        return initKeybindingDispatcher(model);
+    }
+
+    function bindModel(surface: SurfaceKey): () => void {
+        return initKeybindingDispatcher(stubModel(surface));
     }
 
     function openDag(): void {
@@ -82,6 +86,17 @@ describe("deriveKeyContext", () => {
         const unbind = bindModel("agent");
         openDag();
         expect(deriveKeyContext().modalOpen).toBe(false);
+        unbind();
+    });
+
+    // the New run window opens from the app bar over any surface; uncounted, the Brief's bare-letter keys
+    // stayed live behind it
+    it("counts the New run window as a modal", () => {
+        const model = stubModel("jarvis");
+        const unbind = initKeybindingDispatcher(model);
+        expect(deriveKeyContext().modalOpen).toBe(false);
+        globalStore.set(model.newRunOpenAtom, true);
+        expect(deriveKeyContext().modalOpen).toBe(true);
         unbind();
     });
 });

@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// + Run: the Brief's way to start work. It was + Channel, which asked you to create a container and then
+// + New run: the app bar's way to start work, from any surface. It was + Channel, which asked you to create a container and then
 // find the goal box somewhere else — two steps because the Subjects column owned channel creation and the
 // Stage owned composition, and B5 rescued each affordance to wherever it would still mount rather than
 // asking whether they were one thing. They are: a project is what you pick, a goal is what you write, and
@@ -14,7 +14,8 @@
 // two panes (Main.dc.html) but every control writes the launcher's own atoms, which is what keeps one answer
 // to what a launch dispatches with: the same atoms, the same profile hydration, the same route.
 //
-// The `r` binding presses this button by its data attribute (buildJarvisBindings), which is why the
+// The window's open state is model.newRunOpenAtom, so deriveKeyContext sees it as a modal. The Brief's `r`
+// binding presses the app-bar button by its data attribute (buildJarvisBindings), which is why the
 // attribute matters more than the label.
 
 import { ModalShell } from "@/app/modals/modalshell";
@@ -24,7 +25,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentsViewModel } from "../agents/agents";
-import { channelsAtom, createChannel } from "../agents/channelsstore";
+import { channelsAtom, createChannel, primeChannels } from "../agents/channelsstore";
 import { projectsAtom } from "../agents/projectsstore";
 import { RoutePicker } from "../agents/routepicker";
 import {
@@ -65,7 +66,7 @@ import { planMixLine, planModelRows, workersModelName, type PlanModelTone, type 
 import { openTarget } from "./openref";
 import { ProjectPicker } from "./projectpickerview";
 
-// Module scope, not component state: NewRunControl unmounts the modal on close, so a project picked for
+// Module scope, not component state: NewRunModalHost unmounts the modal on close, so a project picked for
 // one launch was gone by the next one and every run started by re-picking the same project. Not persisted
 // — where you last started work is a convenience for the session, not a setting.
 const lastPickedProjectAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
@@ -342,8 +343,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const select = (project: string) => {
         setPicked(project);
         globalStore.set(lastPickedProjectAtom, project);
-        // back to the field, so focus never rests on a non-editable target: a locally mounted modal is
-        // invisible to deriveKeyContext, so every bare-letter Jarvis binding stays live behind it
+        // back to the field, so the next keystroke types into the launch rather than landing on the picker
         (goalRef.current ?? planRef.current)?.focus();
     };
 
@@ -384,7 +384,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
             // The run exists, so the launch has succeeded and the modal's work is done. Landing on it is a
             // separate concern that reports its own failures (openTarget toasts) — holding the modal open
             // over a run that is already running told the user their launch had failed. openTarget rather
-            // than openChannelSheet because + Run is on the app bar: a launch from any surface has to
+            // than openChannelSheet because + New run is on the app bar: a launch from any surface has to
             // switch to the Brief, or the sheet opens where nobody is looking.
             onClose();
             await openTarget(model, { kind: "channel", channelId: oid, runId: run.id });
@@ -398,7 +398,10 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
             onSubmit={start}
             className={cn("flex w-[min(960px,94vw)] flex-col", entries.length > 0 && "h-[min(720px,88vh)]")}
         >
-            <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
+            <div
+                data-new-run-window
+                className="flex shrink-0 items-center gap-[11px] border-b border-border px-[18px] py-[15px]"
+            >
                 <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-accentbg font-mono text-[10.5px] font-bold text-accent-soft">
                     ▸
                 </div>
@@ -496,24 +499,14 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     );
 }
 
-export function NewRunControl({ model }: { model: AgentsViewModel }) {
-    const [open, setOpen] = useState(false);
-    return (
-        <div className="flex-none">
-            {/* data-jarvis-new-run: the `r` key presses this rather than owning a second copy of the
-                modal's open state (buildJarvisBindings). */}
-            <button
-                type="button"
-                data-jarvis-new-run
-                aria-haspopup="dialog"
-                aria-expanded={open}
-                onClick={() => setOpen(true)}
-                className="flex h-[28px] cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[8px] bg-accent px-[11px] text-[12px] font-semibold text-background shadow-inset-highlight hover:bg-accenthover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-soft focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
-            >
-                New run
-                <kbd className="font-mono text-[10px] font-normal opacity-55">R</kbd>
-            </button>
-            {open ? <NewRunModal model={model} onClose={() => setOpen(false)} /> : null}
-        </div>
-    );
+export function NewRunModalHost({ model }: { model: AgentsViewModel }) {
+    const open = useAtomValue(model.newRunOpenAtom);
+    // only the Brief loads the channel list, so a window opened from any other surface before the Brief
+    // has mounted would wait on it forever; primeChannels, not loadChannels, which also selects a channel
+    useEffect(() => {
+        if (open) {
+            fireAndForget(primeChannels);
+        }
+    }, [open]);
+    return open ? <NewRunModal model={model} onClose={() => globalStore.set(model.newRunOpenAtom, false)} /> : null;
 }
