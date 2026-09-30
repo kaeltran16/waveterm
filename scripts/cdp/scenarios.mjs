@@ -7718,6 +7718,7 @@ const CANVAS_TOPIC = "verify-canvas";
 const CANVAS_BOARD = "Main.dc.html";
 const CANVAS_PANE = `document.querySelector("[data-canvas-pane]")`;
 const CANVAS_SWAP = `document.querySelector('[role="group"][aria-label="Show terminal or canvas"]')`;
+const CANVAS_TREE_TAG = `[...document.querySelectorAll("[data-agent-tree] button[aria-pressed]")].find((b) => (b.textContent || "").trim().startsWith("canvas"))`;
 // the poller ticks every 3s (CANVAS_POLL_MS), so one tick always lands inside this
 const CANVAS_REMOVED_WAIT_MS = 5000;
 const CANVAS_ROSTER_WAIT_MS = 10000;
@@ -7828,18 +7829,23 @@ const canvasSwap = {
         } catch (e) {
             revealError = String(e?.message ?? e);
         }
+        // an agent's reveal only attaches; the user opens the canvas from the row's tag
+        const attached = await polishWaitFor(h, `!!${CANVAS_TREE_TAG}`, 3000);
+        const paneAfterReveal = await h.ev(`!!${CANVAS_PANE}`);
+        rec(
+            "1. uireveal canvas:<topic> from the terminal attaches the canvas without switching to it",
+            revealError == null && attached && !paneAfterReveal,
+            `tag=${attached} pane=${paneAfterReveal} error=${revealError}`
+        );
+        await h.ev(`${CANVAS_TREE_TAG}?.click()`);
         const paneUp = await polishWaitFor(h, `!!${CANVAS_PANE}`, 3000);
         const swap = await h.ev(`(() => {
             const g = ${CANVAS_SWAP};
             return g ? [...g.querySelectorAll("button")].map((b) => (b.textContent || "").trim()) : null;
         })()`);
-        const treeGone = await h.ev(`!document.querySelector("[data-agent-tree]")`);
-        rec(
-            "1. uireveal canvas:<topic> from the terminal shows the canvas pane in its place",
-            revealError == null && paneUp,
-            `pane=${paneUp} error=${revealError}`
-        );
-        rec("2. canvas mode hides the agent tree", treeGone === true, `treeGone=${treeGone}`);
+        const treeKept = await h.ev(`!!document.querySelector("[data-agent-tree]")`);
+        rec("1b. the row's canvas tag shows the canvas pane in the terminal's place", paneUp, `pane=${paneUp}`);
+        rec("2. canvas mode keeps the agent tree", treeKept === true, `treeKept=${treeKept}`);
         rec(
             "3. the header swaps between Terminal and Canvas",
             JSON.stringify(swap) === JSON.stringify(["Terminal", "Canvas"]),
@@ -7892,9 +7898,7 @@ const canvasSwap = {
             back.sameNode && (tagged.xterm ? back.sameXterm === true : true),
             JSON.stringify({ taggedXterm: tagged.xterm, sameNode: back.sameNode, sameXterm: back.sameXterm })
         );
-        const tag = await h.ev(
-            `!!document.querySelector('[data-agent-tree] span[title="Has a design canvas"]')?.textContent?.includes("canvas")`
-        );
+        const tag = await h.ev(`!!${CANVAS_TREE_TAG}`);
         rec("6. the agent tree tags the terminal's row canvas", tag === true, `tag=${tag}`);
         if (!delivered) {
             steps.push(skipStep("4b. the c key itself", "CDP key events never reached the page; drove the header instead"));

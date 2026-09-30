@@ -678,8 +678,8 @@ describe("agent canvas mode keys", () => {
             ...s,
             status: "ready",
             boards: [
-                { name: "Main.dc.html", w: 1440 },
-                { name: "States.dc.html", w: 1440 },
+                { name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 },
+                { name: "States.dc.html", x: 0, y: 0, w: 1440, h: 900 },
             ],
         }));
     });
@@ -700,9 +700,20 @@ describe("agent canvas mode keys", () => {
         expect(getCanvas("a1")!.mode).toBe("canvas");
     });
 
-    it("in canvas mode: c, [ ], m are live; the surface, agent, rail, fullscreen and back keys stand down", () => {
+    it("in canvas mode: c, [ ], m and the agent switches are live; the surface, rail, fullscreen and back keys stand down", () => {
         setCanvasMode("a1", "canvas", 1);
-        for (const id of ["agent:canvas-close", "agent:canvas-prev", "agent:canvas-next", "agent:mark-start"]) {
+        for (const id of [
+            "agent:canvas-close",
+            "agent:canvas-prev",
+            "agent:canvas-next",
+            "agent:mark-start",
+            "agent:prev",
+            "agent:next",
+            "agent:prev-k",
+            "agent:next-j",
+            "cycle-agent-next",
+            "cycle-agent-prev",
+        ]) {
             expect(active(id), id).toBe(true);
         }
         expect(active("agent:canvas-open")).toBe(false);
@@ -710,16 +721,10 @@ describe("agent canvas mode keys", () => {
         for (const id of [
             "surface:next",
             "surface:prev",
-            "agent:prev",
-            "agent:next",
-            "agent:prev-k",
-            "agent:next-j",
             "agent:toggle-rail",
             "agent:fullscreen",
             "agent:fullscreen-chord",
             "agent:back",
-            "cycle-agent-next",
-            "cycle-agent-prev",
         ]) {
             expect(active(id), id).toBe(false);
         }

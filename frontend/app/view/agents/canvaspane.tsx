@@ -26,13 +26,14 @@ import {
     CANVAS_PORT_COUNT,
     CANVAS_PORT_FIRST,
     canvasDesignDir,
-    fitScale,
+    canvasLayout,
     paneState,
     pickFreePort,
     prototypePath,
     serverDownText,
     shownBoard,
     updatedAgo,
+    type BoardFrame,
 } from "./canvasmodel";
 import { pollAndMerge, probeCanvasPorts, tauriCanvasIO } from "./canvaspoller";
 import { sendCanvasMarks } from "./canvassend";
@@ -57,6 +58,10 @@ export const CANVAS_PRIMARY_BTN =
 const START_POLL_MS = 500;
 const START_WAIT_MS = 5000;
 
+// room above a board's frame for its label; the scroll pane's top padding
+const CANVAS_TOP_PAD = 36;
+const LABEL_OFFSET = 22;
+
 const MARK_CHIP =
     "h-[20px] w-[20px] rounded-full bg-accent text-center font-mono text-[11px] font-bold leading-[20px] text-background";
 
@@ -73,13 +78,28 @@ function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasState): v
 export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const s = useAtomValue(canvasStateAtom(agent.id));
     const now = useAtomValue(model.nowAtom);
-    const [measureRef, , rect] = useDimensionsWithCallbackRef<HTMLDivElement>();
+    const [measureRef, scrollRef, rect] = useDimensionsWithCallbackRef<HTMLDivElement>();
+    const selected = s != null ? shownBoard(s).name : null;
+    // a tab, [ or ] can pick a board below the fold. Only its top edge is brought into view, label included:
+    // scrollIntoView top-aligns any board taller than the pane, which scrolled the labels away on every pick
+    useEffect(() => {
+        const pane = scrollRef.current;
+        const frame = pane?.querySelector(`[data-canvas-frame="${CSS.escape(selected ?? "")}"]`);
+        if (pane == null || frame == null) {
+            return;
+        }
+        const top = frame.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+        if (top < CANVAS_TOP_PAD || top > pane.clientHeight - CANVAS_TOP_PAD) {
+            pane.scrollTop += top - CANVAS_TOP_PAD;
+        }
+    }, [selected]);
     if (s == null) {
         return null;
     }
     const pane = paneState(s);
     const board = shownBoard(s);
-    const scale = fitScale(rect?.width ?? 0, board.w);
+    const layout = canvasLayout(s.boards, rect?.width ?? 0);
+    const scale = layout.scale;
     const marking = s.marking && pane === "board";
     const meta = [updatedAgo(now, s.lastModifiedMs), `${Math.round(scale * 100)}%`].filter(Boolean).join(" · ");
 
@@ -140,41 +160,119 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
                 ) : pane === "removed" ? (
                     <Removed agent={agent} topic={s.topic} />
                 ) : (
-                    // the iframe gets the board's full height, so a board taller than the pane scrolls here, in Arc,
-                    // instead of showing the board page's own scrollbars. The gutter is reserved so the scrollbar
-                    // appearing can't narrow the pane, change the fit scale, and make itself disappear again
+                    // every board at its canvas.json frame, each iframe at the board's full size, so the canvas
+                    // scrolls here, in Arc, instead of showing the board pages' own scrollbars. The gutter is
+                    // reserved so the scrollbar appearing can't narrow the pane, change the fit scale, and make
+                    // itself disappear again
                     <div
                         ref={measureRef}
                         data-canvas-scroll
-                        className="flex min-h-0 flex-1 justify-center overflow-y-auto overflow-x-hidden py-[16px] [scrollbar-gutter:stable]"
+                        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-[24px] pb-[24px] [scrollbar-gutter:stable]"
+                        style={{ paddingTop: CANVAS_TOP_PAD }}
                     >
-                        <div
-                            data-canvas-board
-                            className="relative flex-none overflow-hidden rounded-[8px] border border-edge-mid bg-background"
-                            style={{ width: board.w * scale, height: board.h != null ? board.h * scale : undefined }}
-                        >
-                            {pane === "board" && s.port != null ? (
-                                <iframe
-                                    key={`${s.reloadKey}:${board.name}`}
-                                    src={boardUrl(s.port, s.topic, board.name)}
-                                    title={board.name}
-                                    sandbox="allow-scripts allow-same-origin"
-                                    className="absolute left-0 top-0 border-0"
-                                    style={{
-                                        width: board.w,
-                                        height: board.h ?? (rect?.height ?? 0) / scale,
-                                        transform: `scale(${scale})`,
-                                        transformOrigin: "0 0",
-                                    }}
-                                />
-                            ) : null}
-                            {marking ? <MarkLayer agentId={agent.id} marks={s.marks} /> : null}
+                        <div className="relative mx-auto" style={{ width: layout.width, height: layout.height }}>
+                            {layout.frames.map((f) => (
+                                <BoardFrameView
+                                    key={f.board.name}
+                                    frame={f}
+                                    scale={scale}
+                                    selected={f.board.name === board.name}
+                                    single={layout.frames.length === 1}
+                                    src={
+                                        pane === "board" && s.port != null
+                                            ? boardUrl(s.port, s.topic, f.board.name)
+                                            : null
+                                    }
+                                    reloadKey={s.reloadKey}
+                                    onSelect={() => selectCanvasBoard(agent.id, f.board.name)}
+                                >
+                                    {marking && f.board.name === board.name ? (
+                                        <MarkLayer agentId={agent.id} marks={s.marks} />
+                                    ) : null}
+                                </BoardFrameView>
+                            ))}
                         </div>
                     </div>
                 )}
                 {marking ? <MarkTray agent={agent} marks={s.marks} /> : null}
             </div>
         </div>
+    );
+}
+
+// A board the user hasn't picked wears a transparent cover: its iframe would swallow the click, and the first
+// click on a board should pick it (the one marks and Open in browser act on), not operate it
+function BoardFrameView({
+    frame,
+    scale,
+    selected,
+    single,
+    src,
+    reloadKey,
+    onSelect,
+    children,
+}: {
+    frame: BoardFrame;
+    scale: number;
+    selected: boolean;
+    single: boolean;
+    src: string | null;
+    reloadKey: number;
+    onSelect: () => void;
+    children?: ReactNode;
+}) {
+    const { board } = frame;
+    const label = boardLabel(board.name);
+    return (
+        <>
+            <button
+                type="button"
+                onClick={onSelect}
+                title={board.title ?? label}
+                className={cn(
+                    "absolute flex cursor-pointer items-baseline gap-[8px] truncate text-left font-mono text-[11px]",
+                    selected ? "text-accent-soft" : "text-muted hover:text-secondary"
+                )}
+                style={{ left: frame.left, top: frame.top - LABEL_OFFSET, maxWidth: frame.width }}
+            >
+                <span className="flex-none font-semibold">{label}</span>
+                {board.title != null ? <span className="truncate">{board.title}</span> : null}
+            </button>
+            <div
+                data-canvas-frame={board.name}
+                data-canvas-board={selected ? "" : undefined}
+                className={cn(
+                    "absolute overflow-hidden rounded-[8px] border bg-background",
+                    selected && !single ? "border-accent" : "border-edge-mid"
+                )}
+                style={{ left: frame.left, top: frame.top, width: frame.width, height: frame.height }}
+            >
+                {src != null ? (
+                    <iframe
+                        key={`${reloadKey}:${board.name}`}
+                        src={src}
+                        title={board.name}
+                        sandbox="allow-scripts allow-same-origin"
+                        className="absolute left-0 top-0 border-0"
+                        style={{
+                            width: board.w,
+                            height: board.h,
+                            transform: `scale(${scale})`,
+                            transformOrigin: "0 0",
+                        }}
+                    />
+                ) : null}
+                {!selected ? (
+                    <button
+                        type="button"
+                        aria-label={`Select ${label}`}
+                        onClick={onSelect}
+                        className="absolute inset-0 cursor-pointer hover:bg-accentbg"
+                    />
+                ) : null}
+                {children}
+            </div>
+        </>
     );
 }
 

@@ -58,7 +58,7 @@ describe("agent canvas mode chips", () => {
 
     beforeEach(() => {
         attachCanvas("a1", { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" }, 0);
-        updateCanvas("a1", (s) => ({ ...s, status: "ready", boards: [{ name: "Main.dc.html", w: 1440 }] }));
+        updateCanvas("a1", (s) => ({ ...s, status: "ready", boards: [{ name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 }] }));
     });
 
     afterEach(() => {
@@ -78,21 +78,21 @@ describe("agent canvas mode chips", () => {
         ]);
     });
 
-    it("canvas mode shows only terminal, board and mark before the globals", () => {
+    it("canvas mode shows the agent switches, then terminal, board and mark before the globals", () => {
         setCanvasMode("a1", "canvas", 1);
-        expect(chips()).toEqual(["c terminal", "[ ] board", "m mark", ...globals()]);
+        expect(chips()).toEqual(["↑↓ move", "Ctrl:Tab cycle", "c terminal", "[ ] board", "m mark", ...globals()]);
     });
 
     it("marking shows stop marking, then terminal", () => {
         setCanvasMode("a1", "canvas", 1);
         setMarking("a1", true);
-        expect(chips()).toEqual(["m stop marking", "c terminal", ...globals()]);
+        expect(chips()).toEqual(["↑↓ move", "Ctrl:Tab cycle", "m stop marking", "c terminal", ...globals()]);
     });
 
     it("marking with a mark puts send first", () => {
         setCanvasMode("a1", "canvas", 1);
         setMarking("a1", true);
         updateCanvas("a1", (s) => ({ ...s, marks: [{ x: 0, y: 0, w: 20, h: 20, note: "" }] }));
-        expect(chips()).toEqual(["Ctrl:Enter send", "m stop marking", "c terminal", ...globals()]);
+        expect(chips()).toEqual(["↑↓ move", "Ctrl:Tab cycle", "Ctrl:Enter send", "m stop marking", "c terminal", ...globals()]);
     });
 });

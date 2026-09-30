@@ -26,8 +26,8 @@ elements inside the iframe, and persisting a canvas across an Arc restart.
 | 1 | Address `canvas:<topic>[/<board>]`, parsed in `address.ts`, landed by `openref.ts`, reachable as `wsh ui reveal canvas:<topic>`. | One router; reveal already carries the caller's block id. |
 | 2 | `wsh ui reveal` also sends the caller's working directory (`callercwd`). The canvas directory is `<callercwd>/.superpowers/design/<topic>`. | design-local writes the canvas relative to the agent's cwd; the frontend has no other reliable way to find it on disk. |
 | 3 | Per-agent canvas state is a jotai atom family keyed by agent id, in memory only. After an Arc restart the agent re-runs reveal. | Chosen by the user: session-only. |
-| 4 | Canvas mode swaps the terminal for the canvas; it doesn't dock. The tree and rail hide, the header stays, the xterm stays mounted and hidden. | Mockup; the xterm must never remount. |
-| 5 | The board iframe is scaled to fit the pane width, never above 100%. The toolbar shows the scale. | Chosen by the user: fit to width. |
+| 4 | Canvas mode swaps the terminal for the canvas; it doesn't dock. The rail hides; the tree and the header stay, so another agent is one click away; the xterm stays mounted and hidden. | Mockup; the xterm must never remount. The tree first hid too, which made every trip to another agent a round trip through the terminal. |
+| 5 | Every board is drawn at its canvas.json frame (x, y, w, h), the whole canvas scaled to fit the pane width, never above 100%. The toolbar shows the scale. | Chosen by the user. One board at a time left a narrow board (a 640 px sheet) in a pane of empty space while its sibling variants sat behind tabs. |
 | 6 | Server port: probe 8766 upward for the topic's `Main.dc.html`, as the skill does, through `@tauri-apps/plugin-http` **without** Arc's auth key. | The plugin bypasses CORS (python's server sends none). `fetchutil.fetch` adds `X-AuthKey`, which must not reach a third-party local server. |
 | 7 | Updates come from polling the served files' `Last-Modified` every 3 s, for the focused agent only, while the Agent surface is mounted. | Decided in the goal; one agent is on screen at a time. |
 | 8 | "Canvas folder deleted" comes from disk (`FileInfoCommand` on the canvas dir, not-found), not HTTP. | A 404 can mean a server rooted elsewhere; the disk is the truth. |
@@ -57,10 +57,12 @@ Regenerate with `task generate`. The reveal help text lists `canvas:<topic>[/<bo
    (`FileInfoCommand`, not-found): unavailable, "No canvas at <dir>/project".
 2. **Without a caller** (a palette or citation open): the first agent whose canvas state has this
    topic. None: unavailable, "No agent has the canvas <topic> open".
-3. Attach: write the agent's canvas state (topic, dir, the board if given, else keep the current
-   one), set its mode to `canvas`, mark it viewed, then `jumpToAgent` (focus + surface `agent`).
-   Returns OK. A reveal therefore switches to canvas mode, because the agent asked. Nothing else
-   switches the surface on its own.
+3. With a caller, attach only: write the agent's canvas state (topic, dir, the board if given,
+   else keep the current one) and return OK. The mode, the focus and the surface stay as they are:
+   the agent reveals on every revision, and switching the user to it each time pulled them off
+   whatever they were doing. The reveal's trail toast and the header's Canvas toggle say it is
+   there. Without a caller (the user asked), set the owner's mode to `canvas`, then `jumpToAgent`
+   (focus + surface `agent`).
 
 ## Canvas state (`canvasstore.ts`)
 
@@ -80,7 +82,7 @@ type CanvasState = {
     lastViewedMs: number;  // set on entering canvas mode and on every poll while in it
     marking: boolean;
     marks: Mark[];
-    reloadKey: number;      // bumped when the shown board's Last-Modified moves, to reload the iframe
+    reloadKey: number;      // bumped when any board's Last-Modified moves, to reload the iframes
 };
 ```
 
@@ -95,8 +97,8 @@ mounted and the focused agent has a canvas, every 3 s (`CANVAS_POLL_MS`):
    `CANVAS_PORT_COUNT = 20`) with `HEAD /<topic>/project/Main.dc.html`. The first `200` is the
    port. None → `status: "server-down"`.
 3. `GET /<topic>/project/canvas.json` → `boards` (the model below), then `HEAD` each board →
-   `lastModifiedMs` = newest `Last-Modified`. If the shown board's own `Last-Modified` moved while
-   in canvas mode, bump `reloadKey`. `status: "ready"`.
+   `lastModifiedMs` = newest `Last-Modified`. If that moved past the previous newest while in canvas
+   mode, bump `reloadKey`: every board is on screen, so any change reloads them. `status: "ready"`.
 4. In canvas mode, `lastViewedMs = now`.
 
 ## Pure models (each with a `.test.ts` beside it)
@@ -105,8 +107,11 @@ mounted and the focused agent has a canvas, every 3 s (`CANVAS_POLL_MS`):
 
 - `boardsFromCanvasJson(json)`: `order` filtered to names present in `boards` and ending in
   `.dc.html`; with no usable `order`, the `boards` keys with `Main.dc.html` first; malformed →
-  `[{ name: "Main.dc.html", w: 1440 }]`. Each entry is `{ name, w, h? }` (`w` from the board, default
-  1440; `h` only when the board has a positive one). `boardLabel(name)` strips `.dc.html`.
+  the one Main board. Each entry is `{ name, x, y, w, h, title? }`: `w`/`h` default to 1440/900 when
+  missing or not positive; a board with no `x`/`y` goes 80 px right of every board placed before it.
+  `boardLabel(name)` strips `.dc.html`.
+- `canvasLayout(boards, paneWidth)`: every board's frame in screen px, shifted so the top-left board
+  sits at the origin and scaled by `fitScale(paneWidth, canvas width)`.
 - `stepBoard(boards, current, delta)`: wraps.
 - `classifyProbe(result)`: `200` → `serving`, network error → `free`, any other status → `taken`.
   `pickServingPort(results)` / `pickFreePort(results)`.
@@ -114,8 +119,7 @@ mounted and the focused agent has a canvas, every 3 s (`CANVAS_POLL_MS`):
   `server-down`, which wins over `probing`; a `ready` status shows the `board`.
 - `isUnseen(state)`: `mode === "terminal" && lastModifiedMs != null && lastModifiedMs > lastViewedMs`.
 - `updatedAgo(now, ms)`: "updated 12s ago" / "4m" / "2h", matching the mockup's copy.
-- `fitScale(paneWidth, boardWidth)`: `min(1, paneWidth / boardWidth)`. The board width is the
-  board's `w` from canvas.json (default 1440). The toolbar shows `Math.round(scale*100)%`.
+- `fitScale(paneWidth, width)`: `min(1, paneWidth / width)`. The toolbar shows `Math.round(scale*100)%`.
 - `boardUrl(port, topic, board)`: `http://127.0.0.1:<port>/<topic>/project/<board>`.
 - `buildGoal(dir, boards)`: `Build the design in <dir>/project (boards: Main, States)`.
 - `prototypePath(dir, boards)`: `<dir>/project/<first board>`, absolute (a worktree has no copy of
@@ -137,8 +141,8 @@ mounted and the focused agent has a canvas, every 3 s (`CANVAS_POLL_MS`):
 
 ## UI
 
-**AgentSurface.** `canvasMode = state?.mode === "canvas"`. The tree and details rail render only
-when `!fullscreen && !canvasMode`. The terminal stack keeps rendering, with the focused pane
+**AgentSurface.** `canvasMode = state?.mode === "canvas"`. The tree renders when `!fullscreen`, the
+details rail when `!fullscreen && !canvasMode`. The terminal stack keeps rendering, with the focused pane
 `hidden` in canvas mode, and `CanvasPane` renders below the header in its place. The terminal
 wrapper is never unmounted.
 
@@ -149,18 +153,23 @@ Canvas when `isUnseen`. `Segmented` gains `ReactNode` labels, a per-option `titl
 header is exactly today's (States 1).
 
 **AgentTree row.** A `canvas` tag (mockup line 87: mono 10.5, `border-edge-mid`,
-`text-accent-soft`, title "Has a design canvas") when the agent has a canvas.
+`text-accent-soft`) when the agent has a canvas. It is a toggle button: it focuses the agent and shows
+its canvas, or, when that canvas is the one showing, goes back to the terminal. It carries the
+`isUnseen` dot too.
 
 **CanvasPane** (`canvaspane.tsx`, thin; logic in the models):
 
 - Toolbar: topic, board tabs (`Segmented`, `role=tablist`, title "Previous and next board ([ and
   ])"), spacer, "updated Ns ago · NN%", the Mark toggle, and, while not marking, Open in browser
   (`openExternal(boardUrl)`) and Build this….
-- Board: an `<iframe src={boardUrl} key={reloadKey}>` at the board's natural size, scaled by
-  `fitScale`, centred, with `sandbox="allow-scripts allow-same-origin"` (its own origin, never
-  Arc's). With an `h`, the iframe gets the board's full height and a board taller than the pane
-  scrolls in the pane (`scrollbar-gutter: stable`, so the scrollbar can't change the fit scale),
-  never inside the iframe; without one it fills the pane's height. Send captures only the part of
+- Boards: `canvasLayout` places one frame per board, each an `<iframe src={boardUrl}
+  key={reloadKey}>` at the board's natural size scaled by the layout's scale, with
+  `sandbox="allow-scripts allow-same-origin"` (its own origin, never Arc's), and a label above it
+  (name and canvas.json title). The canvas scrolls in the pane (`scrollbar-gutter: stable`, so the
+  scrollbar can't change the fit scale), never inside an iframe. One board is selected (`board`):
+  the one the tabs, `[` `]`, Mark and Open in browser act on, outlined in accent. The others wear a
+  transparent cover, so the first click on one selects it rather than operating it. Picking a board
+  whose top edge is off screen scrolls it into view, label included. Send captures only the part of
   the board inside the pane (`visibleRect`). CSP: add `frame-src http://127.0.0.1:*` in `src-tauri/tauri.conf.json`.
 - Mark mode: an absolutely positioned overlay over the board: crosshair, accent outline, the
   "Drag a box around what you want changed" pill when empty, numbered boxes, a dashed draft. It
@@ -210,8 +219,9 @@ New in `buildAgentBindings`; `canvasOf(focused agent)` reads the atom:
 
 No terminal chord for `c`, as decided. `surface:next` / `surface:prev` (`[` `]`) get
 `&& focusedCanvasMode(model) == null` on the Agent surface, so the board keys can fire. While in canvas mode, the bindings
-whose targets are hidden are gated off: `agent:prev/next/prev-k/next-j`, `agent:toggle-rail`,
-`agent:fullscreen`, `agent:fullscreen-chord`, `agent:back`, and `cycle-agent-next/prev`. The
+whose targets are hidden are gated off: `agent:toggle-rail`, `agent:fullscreen`,
+`agent:fullscreen-chord` and `agent:back`. The agent switches (`agent:prev/next/prev-k/next-j`,
+`cycle-agent-next/prev`) stay live, since the tree stays. The
 footer then matches the mockup exactly (Main.dc.html `hints`).
 
 `SURFACE_HINTS.agent` gains chips: `c canvas` (canvas-open), `c terminal` (canvas-close),
@@ -254,7 +264,7 @@ footer then matches the mockup exactly (Main.dc.html `hints`).
 ## Skill
 
 `skills/design-local/SKILL.md`, loop step 3: after serving, run `wsh ui reveal canvas:<topic>`
-from the agent's terminal, which opens the canvas beside the agent in Arc. If `wsh` is missing or
+from the agent's terminal, which attaches the canvas to the agent in Arc. If `wsh` is missing or
 the command fails (not in Arc), fall back to listing the URLs as today. The line about each board,
 the assumptions, and the states mapping stay.
 
@@ -281,6 +291,7 @@ state.
 - CDP `verify:ui` scenario `canvas-swap`: it writes a fixture canvas (`canvas.json` + a trivial
   `Main.dc.html`) under a temp dir, opens a plain terminal tab in the (isolated, agent-less) app,
   waits for it in the roster, and sends `uireveal` with that terminal's block id.
-  It asserts: the tree hides, the swap control shows, and `c` returns to the terminal with the same
+  It asserts: the reveal attaches without switching (the row's tag shows, the pane doesn't), the
+  tag opens the pane, the tree stays, the swap control shows, and `c` returns to the terminal with the same
   xterm element (same DOM node). It then deletes the fixture and asserts the removed state. It
   reports it could not verify only if the terminal launch fails.

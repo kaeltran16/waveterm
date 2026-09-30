@@ -105,7 +105,7 @@ row below expands into the same choices.
 
 ### Agent: canvas mode
 
-`c` works when the focused agent has a canvas. In canvas mode, `[` / `]`, `j` / `k`, `d`, `f`, `F11`, `Esc` and `Ctrl`+`Tab` do not do their usual jobs.
+`c` works when the focused agent has a canvas. In canvas mode, `[` / `]`, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the canvas.
 
 | Keys | Action |
 |---|---|

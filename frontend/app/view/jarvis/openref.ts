@@ -195,9 +195,10 @@ function landAgent(model: AgentsViewModel, tabId: string): OpenResult {
     return OK;
 }
 
-// A reveal names its caller: the canvas is that agent's, in its cwd. A palette or citation open has no caller, so
-// it lands on whichever agent already has the topic open. Either way the reveal switches to canvas mode, because
-// someone asked to see it.
+// A reveal names its caller: the canvas is that agent's, in its cwd. The agent reveals on every revision, so its
+// reveal only attaches: the user may be anywhere, and moving them there each time pulls them off their work. The
+// trail toast and the header's Canvas toggle say it is there. A palette or citation open has no caller, so it is
+// the user asking to see it: it lands on whichever agent already has the topic open, in canvas mode.
 async function landCanvas(
     model: AgentsViewModel,
     target: CanvasTarget,
@@ -236,8 +237,6 @@ async function landCanvas(
         return unavailable(`No canvas at ${project}`);
     }
     attachCanvas(agent.id, { topic, dir, projectDir: caller.cwd, board }, Date.now());
-    setCanvasMode(agent.id, "canvas", Date.now());
-    jumpToAgent(model, agent.id);
     return OK;
 }
 

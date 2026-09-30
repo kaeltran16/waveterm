@@ -8,6 +8,7 @@ import {
     boardUrl,
     buildGoal,
     canvasDir,
+    canvasLayout,
     classifyProbe,
     fitScale,
     isUnseen,
@@ -23,8 +24,8 @@ import {
 import type { CanvasState } from "./canvasstore";
 
 const BOARDS: CanvasBoard[] = [
-    { name: "Main.dc.html", w: 1440 },
-    { name: "States.dc.html", w: 1440 },
+    { name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 },
+    { name: "States.dc.html", x: 1520, y: 0, w: 1440, h: 900 },
 ];
 
 function state(over: Partial<CanvasState>): CanvasState {
@@ -47,41 +48,94 @@ function state(over: Partial<CanvasState>): CanvasState {
 }
 
 describe("boardsFromCanvasJson", () => {
+    const MAIN = { name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 };
+
     it("reads the design-local shape in its order", () => {
         const json = {
-            boards: { "Main.dc.html": { w: 1440 }, "States.dc.html": { w: 1440 } },
+            boards: {
+                "Main.dc.html": { x: 0, y: 0, w: 1440, h: 900 },
+                "States.dc.html": { x: 1520, y: 0, w: 1440, h: 900 },
+            },
             order: ["Main.dc.html", "States.dc.html"],
         };
         expect(boardsFromCanvasJson(json)).toEqual(BOARDS);
     });
 
+    it("keeps a board's title", () => {
+        const json = { boards: { "Main.dc.html": { x: 0, y: 0, w: 640, h: 960, title: "A — Thread" } } };
+        expect(boardsFromCanvasJson(json)[0].title).toBe("A — Thread");
+    });
+
     it("drops an order entry naming a board that isn't there", () => {
-        const json = { boards: { "Main.dc.html": { w: 1440 } }, order: ["Gone.dc.html", "Main.dc.html"] };
-        expect(boardsFromCanvasJson(json)).toEqual([{ name: "Main.dc.html", w: 1440 }]);
+        const json = { boards: { "Main.dc.html": { x: 0, y: 0 } }, order: ["Gone.dc.html", "Main.dc.html"] };
+        expect(boardsFromCanvasJson(json)).toEqual([MAIN]);
     });
 
     it("falls back to the board keys with Main first when there is no order", () => {
-        const json = { boards: { "States.dc.html": { w: 800 }, "Main.dc.html": { w: 1440 } } };
-        expect(boardsFromCanvasJson(json)).toEqual([
-            { name: "Main.dc.html", w: 1440 },
-            { name: "States.dc.html", w: 800 },
-        ]);
+        const json = { boards: { "States.dc.html": { x: 0, y: 1000, w: 800 }, "Main.dc.html": { x: 0, y: 0 } } };
+        expect(boardsFromCanvasJson(json).map((b) => b.name)).toEqual(["Main.dc.html", "States.dc.html"]);
     });
 
     it.each([null, "x", 3, {}, { boards: "x" }])("reads malformed %j as the one Main board", (json) => {
-        expect(boardsFromCanvasJson(json)).toEqual([{ name: "Main.dc.html", w: 1440 }]);
+        expect(boardsFromCanvasJson(json)).toEqual([MAIN]);
     });
 
-    it("gives a board with no width the default", () => {
-        expect(boardsFromCanvasJson({ boards: { "Main.dc.html": {} } })).toEqual([{ name: "Main.dc.html", w: 1440 }]);
-    });
-
-    it("reads a board's height, and leaves it out when missing or bad", () => {
+    it("gives a board with no size, or a bad one, the defaults", () => {
         const json = {
-            boards: { "Main.dc.html": { w: 1440, h: 900 }, "A.dc.html": { h: 0 }, "B.dc.html": { h: "900" } },
+            boards: { "Main.dc.html": {}, "A.dc.html": { w: 0, h: "900" } },
+            order: ["Main.dc.html", "A.dc.html"],
+        };
+        expect(boardsFromCanvasJson(json).map((b) => [b.w, b.h])).toEqual([
+            [1440, 900],
+            [1440, 900],
+        ]);
+    });
+
+    it("places a board with no position to the right of those before it", () => {
+        const json = {
+            boards: { "Main.dc.html": { x: 0, y: 0, w: 640 }, "A.dc.html": { w: 640 }, "B.dc.html": { x: 5 } },
             order: ["Main.dc.html", "A.dc.html", "B.dc.html"],
         };
-        expect(boardsFromCanvasJson(json).map((b) => b.h)).toEqual([900, undefined, undefined]);
+        expect(boardsFromCanvasJson(json).map((b) => [b.x, b.y])).toEqual([
+            [0, 0],
+            [720, 0],
+            [1440, 0],
+        ]);
+    });
+});
+
+describe("canvasLayout", () => {
+    const board = (name: string, x: number, y: number, w: number, h: number) => ({ name, x, y, w, h });
+
+    it("draws side-by-side boards at full size when the row fits", () => {
+        const layout = canvasLayout([board("A", 0, 0, 640, 960), board("B", 720, 0, 640, 960)], 1700);
+        expect(layout.scale).toBe(1);
+        expect([layout.width, layout.height]).toEqual([1360, 960]);
+        expect(layout.frames.map((f) => [f.left, f.top, f.width, f.height])).toEqual([
+            [0, 0, 640, 960],
+            [720, 0, 640, 960],
+        ]);
+    });
+
+    it("shrinks the whole canvas so its widest row fits the pane", () => {
+        const layout = canvasLayout([board("A", 0, 0, 1440, 900), board("B", 1520, 0, 1440, 900)], 1480);
+        expect(layout.scale).toBe(0.5);
+        expect(layout.frames[1]).toMatchObject({ left: 760, top: 0, width: 720, height: 450 });
+        expect(layout.height).toBe(450);
+    });
+
+    it("stacks rows and shifts the canvas so its top-left board sits at the origin", () => {
+        const layout = canvasLayout([board("A", 100, 50, 640, 400), board("B", 100, 570, 640, 14)], 2000);
+        expect(layout.frames.map((f) => [f.left, f.top])).toEqual([
+            [0, 0],
+            [0, 520],
+        ]);
+        expect([layout.width, layout.height]).toEqual([640, 534]);
+    });
+
+    it("lays out the one Main board before any boards are read", () => {
+        const layout = canvasLayout([], 2000);
+        expect(layout.frames.map((f) => f.board.name)).toEqual(["Main.dc.html"]);
     });
 });
 
@@ -102,7 +156,7 @@ describe("boardLabel", () => {
 });
 
 describe("stepBoard", () => {
-    const three = [...BOARDS, { name: "C.dc.html", w: 1440 }];
+    const three = [...BOARDS, { name: "C.dc.html", x: 0, y: 1020, w: 1440, h: 900 }];
 
     it("wraps forward and back", () => {
         expect(stepBoard(three, "C.dc.html", 1)).toBe("Main.dc.html");

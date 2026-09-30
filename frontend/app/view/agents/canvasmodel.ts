@@ -9,28 +9,58 @@ export const CANVAS_PORT_FIRST = 8766;
 export const CANVAS_PORT_COUNT = 20;
 export const CANVAS_POLL_MS = 3000;
 export const DEFAULT_BOARD_W = 1440;
+export const DEFAULT_BOARD_H = 900;
+// the skill's gap between frames in a row, used to place a board canvas.json gives no position
+const BOARD_GAP = 80;
 
 const BOARD_EXT = ".dc.html";
 const MAIN_BOARD = "Main.dc.html";
 const HTTP_OK = 200;
 
-// h is absent when canvas.json has none; the board then fills the pane's height
-export type CanvasBoard = { name: string; w: number; h?: number };
+// x/y/w/h are the board's frame on the canvas, in CSS px, as canvas.json lays it out
+export type CanvasBoard = { name: string; x: number; y: number; w: number; h: number; title?: string };
 export type ProbeResult = { port: number; status: number | "error" };
+
+const MAIN_FALLBACK: CanvasBoard = { name: MAIN_BOARD, x: 0, y: 0, w: DEFAULT_BOARD_W, h: DEFAULT_BOARD_H };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
     return v != null && typeof v === "object" && !Array.isArray(v);
 }
 
+function finite(entry: unknown, key: string): number | undefined {
+    const v = isRecord(entry) ? entry[key] : undefined;
+    return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
 function boardSide(entry: unknown, side: "w" | "h"): number | undefined {
-    const v = isRecord(entry) ? entry[side] : undefined;
-    return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
+    const v = finite(entry, side);
+    return v != null && v > 0 ? v : undefined;
+}
+
+// a board with no position goes to the right of everything placed before it
+function placeBoards(entries: { name: string; entry: unknown }[]): CanvasBoard[] {
+    const boards: CanvasBoard[] = [];
+    for (const { name, entry } of entries) {
+        const x = finite(entry, "x");
+        const y = finite(entry, "y");
+        const right = boards.reduce((m, b) => Math.max(m, b.x + b.w + BOARD_GAP), 0);
+        const title = isRecord(entry) && typeof entry.title === "string" && entry.title ? entry.title : undefined;
+        boards.push({
+            name,
+            x: x != null && y != null ? x : right,
+            y: x != null && y != null ? y : 0,
+            w: boardSide(entry, "w") ?? DEFAULT_BOARD_W,
+            h: boardSide(entry, "h") ?? DEFAULT_BOARD_H,
+            ...(title != null ? { title } : {}),
+        });
+    }
+    return boards;
 }
 
 // canvas.json is written by the design-local skill, not by Arc, so anything malformed reads as the one board
 // every canvas has rather than as an error
 export function boardsFromCanvasJson(json: unknown): CanvasBoard[] {
-    const fallback = [{ name: MAIN_BOARD, w: DEFAULT_BOARD_W }];
+    const fallback = [MAIN_FALLBACK];
     if (!isRecord(json) || !isRecord(json.boards)) {
         return fallback;
     }
@@ -44,16 +74,39 @@ export function boardsFromCanvasJson(json: unknown): CanvasBoard[] {
     if (names.length === 0) {
         return fallback;
     }
-    return names.map((name) => ({
-        name,
-        w: boardSide(boards[name], "w") ?? DEFAULT_BOARD_W,
-        h: boardSide(boards[name], "h"),
-    }));
+    return placeBoards(names.map((name) => ({ name, entry: boards[name] })));
 }
 
-// a board name that isn't in the list (a stale pick, or boards not polled yet) shows the first one
+// the selected board: the one marks, Open in browser and the tabs act on. A name that isn't in the list (a
+// stale pick, or boards not polled yet) selects the first one
 export function shownBoard(s: CanvasState): CanvasBoard {
-    return s.boards.find((b) => b.name === s.board) ?? s.boards[0] ?? { name: MAIN_BOARD, w: DEFAULT_BOARD_W };
+    return s.boards.find((b) => b.name === s.board) ?? s.boards[0] ?? MAIN_FALLBACK;
+}
+
+export type BoardFrame = { board: CanvasBoard; left: number; top: number; width: number; height: number };
+export type CanvasLayout = { scale: number; width: number; height: number; frames: BoardFrame[] };
+
+// Every board at its canvas.json frame, shifted so the top-left board sits at the origin and shrunk (never
+// grown) so the widest row fits the pane. Sizes are screen px.
+export function canvasLayout(boards: CanvasBoard[], paneWidth: number): CanvasLayout {
+    const all = boards.length > 0 ? boards : [MAIN_FALLBACK];
+    const minX = Math.min(...all.map((b) => b.x));
+    const minY = Math.min(...all.map((b) => b.y));
+    const spanW = Math.max(...all.map((b) => b.x + b.w)) - minX;
+    const spanH = Math.max(...all.map((b) => b.y + b.h)) - minY;
+    const scale = fitScale(paneWidth, spanW);
+    return {
+        scale,
+        width: spanW * scale,
+        height: spanH * scale,
+        frames: all.map((board) => ({
+            board,
+            left: (board.x - minX) * scale,
+            top: (board.y - minY) * scale,
+            width: board.w * scale,
+            height: board.h * scale,
+        })),
+    };
 }
 
 export function boardLabel(name: string): string {

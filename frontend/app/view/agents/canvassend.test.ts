@@ -50,8 +50,8 @@ beforeEach(() => {
         ...s,
         status: "ready",
         boards: [
-            { name: "Main.dc.html", w: 1440 },
-            { name: "States.dc.html", w: 1440 },
+            { name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 },
+            { name: "States.dc.html", x: 0, y: 0, w: 1440, h: 900 },
         ],
         marking: true,
         marks: MARKS,
@@ -155,7 +155,7 @@ describe("sendCanvasMarks", () => {
     });
 
     it("names the first board when none is picked", async () => {
-        updateCanvas("a1", (s) => ({ ...s, board: null, boards: [{ name: "Main.dc.html", w: 1440 }] }));
+        updateCanvas("a1", (s) => ({ ...s, board: null, boards: [{ name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 }] }));
         const io = fakeIO({ list: async () => [] });
         await sendCanvasMarks(AGENT, io);
         expect(io.typed[0][1]).toBe(

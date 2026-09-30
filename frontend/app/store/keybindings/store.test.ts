@@ -48,8 +48,8 @@ function withCanvas(): any {
         ...s,
         status: "ready",
         boards: [
-            { name: "Main.dc.html", w: 1440 },
-            { name: "States.dc.html", w: 1440 },
+            { name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 },
+            { name: "States.dc.html", x: 0, y: 0, w: 1440, h: 900 },
         ],
     }));
     return stubModel("a1");

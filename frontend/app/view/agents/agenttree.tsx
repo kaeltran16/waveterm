@@ -28,7 +28,8 @@ import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
-import { canvasStateAtom } from "./canvasstore";
+import { isUnseen } from "./canvasmodel";
+import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
@@ -188,17 +189,34 @@ function FoldChip({
     );
 }
 
-function CanvasTag({ id }: { id: string }) {
-    if (useAtomValue(canvasStateAtom(id)) == null) {
+// One click from anywhere on the surface to an agent's canvas, and back to its terminal when that canvas is the
+// one showing. The click must not reach the row, which would only focus the agent in whatever mode it was left
+function CanvasTag({ model, id }: { model: AgentsViewModel; id: string }) {
+    const canvas = useAtomValue(canvasStateAtom(id));
+    const showing = useAtomValue(model.focusIdAtom) === id && canvas?.mode === "canvas";
+    if (canvas == null) {
         return null;
     }
     return (
-        <span
-            title="Has a design canvas"
-            className="flex-none rounded-[5px] border border-edge-mid px-[6px] py-[1px] font-mono text-[10.5px] font-semibold text-accent-soft"
+        <button
+            type="button"
+            aria-pressed={showing}
+            onClick={(e) => {
+                e.stopPropagation();
+                globalStore.set(model.focusIdAtom, id);
+                setCanvasMode(id, showing ? "terminal" : "canvas", Date.now());
+            }}
+            title={showing ? "Back to the terminal" : "Show the canvas"}
+            className={cn(
+                "flex flex-none cursor-pointer items-center gap-[4px] rounded-[5px] border px-[6px] py-[1px] font-mono text-[10.5px] font-semibold text-accent-soft",
+                showing ? "border-accent bg-accentbg" : "border-edge-mid hover:border-edge-strong"
+            )}
         >
             canvas
-        </span>
+            {isUnseen(canvas) ? (
+                <span aria-label="updated since you last looked" className="h-[5px] w-[5px] rounded-full bg-accent" />
+            ) : null}
+        </button>
     );
 }
 
@@ -394,7 +412,7 @@ function ParentRow({
                         </div>
                     )}
                 </div>
-                <CanvasTag id={agent.id} />
+                <CanvasTag model={model} id={agent.id} />
                 {/* a row names its state only when it wants something; the dot already says working or idle */}
                 {review ? (
                     // opens the dialog over whatever agent is focused, so the click must not reach the row
@@ -617,7 +635,7 @@ function WorkerRow({
                     </span>
                 </div>
             </div>
-            {agent != null ? <CanvasTag id={agent.id} /> : null}
+            {agent != null ? <CanvasTag model={model} id={agent.id} /> : null}
             {ask?.owner === "lead" ? (
                 <span className="flex items-center gap-[3px] whitespace-nowrap font-mono text-[10.5px] font-medium text-muted">
                     <ArrowRight size={10} aria-hidden />
@@ -769,7 +787,7 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
                     <div className="truncate text-[13px] font-medium text-ink-hi">{terminal.name}</div>
                 )}
             </div>
-            <CanvasTag id={terminal.id} />
+            <CanvasTag model={model} id={terminal.id} />
         </div>
     );
 }

@@ -39,7 +39,8 @@ automatically a visual question.
    - Any other code: a stale server with another root holds the port; try the next one.
    One server serves every topic.
 3. If you run inside Arc (`wsh` is on PATH), run `wsh ui reveal canvas:<topic>` from your
-   terminal: it opens the canvas beside you on the Agent surface, and the user marks it and sends
+   terminal: it attaches the canvas to you on the Agent surface without switching the user to it;
+   they open it when ready, mark it, and send
    the marks back to you as one line. If that command fails or `wsh` is missing, list the URLs:
    tell the user the URL of each artboard you added or changed
    (`http://127.0.0.1:<port>/<topic>/project/<Name>.dc.html`, `Main.dc.html` first), a line on

@@ -57,11 +57,11 @@ function fakeIO(served: Served | null, opts: { dirExists?: boolean } = {}): Canv
 
 const JSON_TWO = {
     order: ["Main.dc.html", "States.dc.html"],
-    boards: { "Main.dc.html": {}, "States.dc.html": { w: 900 } },
+    boards: { "Main.dc.html": { x: 0, y: 0 }, "States.dc.html": { x: 1520, y: 0, w: 900, h: 600 } },
 };
 const BOARDS_TWO = [
-    { name: "Main.dc.html", w: 1440 },
-    { name: "States.dc.html", w: 900 },
+    { name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 },
+    { name: "States.dc.html", x: 1520, y: 0, w: 900, h: 600 },
 ];
 
 describe("pollCanvasOnce", () => {
@@ -99,7 +99,7 @@ describe("pollCanvasOnce", () => {
         expect(patch.status).toBe("ready");
     });
 
-    it("reloads the board when the shown board's Last-Modified moves in canvas mode", async () => {
+    it("reloads the boards when any board's Last-Modified moves in canvas mode, since all are on screen", async () => {
         const io = fakeIO({
             port: 8766,
             files: { "Main.dc.html": 1000, "States.dc.html": 5000, "canvas.json": 500 },
@@ -108,7 +108,9 @@ describe("pollCanvasOnce", () => {
         const shownMoved = state({ port: 8766, board: "States.dc.html", lastModifiedMs: 1000, reloadKey: 4 });
         expect((await pollCanvasOnce(shownMoved, io, NOW)).reloadKey).toBe(5);
         const otherMoved = state({ port: 8766, board: "Main.dc.html", lastModifiedMs: 1000, reloadKey: 4 });
-        expect((await pollCanvasOnce(otherMoved, io, NOW)).reloadKey).toBeUndefined();
+        expect((await pollCanvasOnce(otherMoved, io, NOW)).reloadKey).toBe(5);
+        const unchanged = state({ port: 8766, lastModifiedMs: 5000, reloadKey: 4 });
+        expect((await pollCanvasOnce(unchanged, io, NOW)).reloadKey).toBeUndefined();
         const inTerminal = state({ port: 8766, board: "States.dc.html", lastModifiedMs: 1000, mode: "terminal" });
         expect((await pollCanvasOnce(inTerminal, io, NOW)).reloadKey).toBeUndefined();
     });

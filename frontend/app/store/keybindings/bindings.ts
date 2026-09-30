@@ -136,8 +136,8 @@ const clickThrough = (selector: string): boolean | void => {
     el.click();
 };
 
-// Canvas mode hides the other surfaces' and agents' targets behind the board, and `[` `]` belong to the
-// boards there, so the surface and agent switches stand down while the focused agent shows its canvas.
+// `[` `]` belong to the boards in canvas mode, so the surface switch stands down while the focused agent shows
+// its canvas. The agent switches stay live: the tree stays on screen beside the canvas.
 const inAgentCanvas = (model: AgentsViewModel, ctx: KeyContext) =>
     ctx.surface === "agent" && focusedCanvasMode(model) != null;
 
@@ -296,7 +296,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "Ctrl:Tab",
             group: "Agent",
             label: "Next agent",
-            when: (ctx) => ctx.surface === "agent" && !inAgentCanvas(model, ctx),
+            when: (ctx) => ctx.surface === "agent",
             run: () => model.cycleFocus(false),
         },
         {
@@ -304,7 +304,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "Ctrl:Shift:Tab",
             group: "Agent",
             label: "Previous agent",
-            when: (ctx) => ctx.surface === "agent" && !inAgentCanvas(model, ctx),
+            when: (ctx) => ctx.surface === "agent",
             run: () => model.cycleFocus(true),
         },
         {
@@ -815,7 +815,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "ArrowLeft",
             group: "Agent",
             label: "Previous agent",
-            when: nav,
+            when: agentNav,
             run: () => step(-1),
         },
         {
@@ -823,11 +823,11 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "ArrowRight",
             group: "Agent",
             label: "Next agent",
-            when: nav,
+            when: agentNav,
             run: () => step(1),
         },
-        { id: "agent:prev-k", keys: "k", group: "Agent", label: "Previous agent", when: nav, run: () => step(-1) },
-        { id: "agent:next-j", keys: "j", group: "Agent", label: "Next agent", when: nav, run: () => step(1) },
+        { id: "agent:prev-k", keys: "k", group: "Agent", label: "Previous agent", when: agentNav, run: () => step(-1) },
+        { id: "agent:next-j", keys: "j", group: "Agent", label: "Next agent", when: agentNav, run: () => step(1) },
         {
             id: "agent:toggle-rail",
             keys: "d",

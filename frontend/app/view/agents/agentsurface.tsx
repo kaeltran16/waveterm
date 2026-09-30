@@ -143,7 +143,8 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     return (
         <MotionConfig reducedMotion="user">
             <div ref={wrapRef} tabIndex={0} data-cockpit-surface-wrap className="flex h-full w-full bg-background outline-none">
-                {!fullscreen && !canvasMode ? <AgentTree model={model} /> : null}
+                {/* the tree stays in canvas mode: hiding it made reaching another agent a round trip through the terminal */}
+                {!fullscreen ? <AgentTree model={model} /> : null}
                 <div className="flex min-w-0 flex-1 flex-col">
                     {/* terminal stack stays mounted (hidden) while a subagent interior is shown, so
                         returning to the parent never remounts/replays the live TUI (frame-stacking) */}

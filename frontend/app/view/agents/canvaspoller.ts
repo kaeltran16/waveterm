@@ -36,7 +36,7 @@ export type CanvasIO = {
     head(url: string): Promise<{ status: HttpStatus; lastModified: number | null }>;
 };
 
-type ServerRead = { boards: CanvasBoard[]; lastModifiedMs: number | null; shownMs: number | null };
+type ServerRead = { boards: CanvasBoard[]; lastModifiedMs: number | null };
 
 export async function probeCanvasPorts(topic: string, io: CanvasIO): Promise<ProbeResult[]> {
     const ports = Array.from({ length: CANVAS_PORT_COUNT }, (_, i) => CANVAS_PORT_FIRST + i);
@@ -56,20 +56,12 @@ async function readServer(s: CanvasState, io: CanvasIO, port: number): Promise<S
         return null;
     }
     const boards = boardsFromCanvasJson(res.status === HTTP_OK ? res.json : undefined);
-    const shown = boards.find((b) => b.name === s.board)?.name ?? boards[0].name;
     const heads = await Promise.all(boards.map((b) => io.head(boardUrl(port, s.topic, b.name))));
     if (heads.some((h) => h.status === "error")) {
         return null;
     }
-    let lastModifiedMs = res.lastModified;
-    let shownMs: number | null = null;
-    heads.forEach((h, i) => {
-        lastModifiedMs = newest(lastModifiedMs, h.lastModified);
-        if (boards[i].name === shown) {
-            shownMs = h.lastModified;
-        }
-    });
-    return { boards, lastModifiedMs, shownMs };
+    const lastModifiedMs = heads.reduce((m, h) => newest(m, h.lastModified), res.lastModified);
+    return { boards, lastModifiedMs };
 }
 
 export async function pollCanvasOnce(s: CanvasState, io: CanvasIO, now: number): Promise<Partial<CanvasState>> {
@@ -93,8 +85,8 @@ export async function pollCanvasOnce(s: CanvasState, io: CanvasIO, now: number):
     };
     if (s.mode === "canvas") {
         patch.lastViewedMs = now;
-        // the previous newest covers every board, so the shown one passing it means the shown one moved
-        if (read.shownMs != null && s.lastModifiedMs != null && read.shownMs > s.lastModifiedMs) {
+        // every board is on screen, so any file passing the previous newest reloads them
+        if (read.lastModifiedMs != null && s.lastModifiedMs != null && read.lastModifiedMs > s.lastModifiedMs) {
             patch.reloadKey = s.reloadKey + 1;
         }
     }

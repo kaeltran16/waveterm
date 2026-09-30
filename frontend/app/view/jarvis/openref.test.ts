@@ -32,7 +32,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { atom } from "jotai";
 import type { AgentsViewModel, SurfaceKey } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
-import { attachCanvas, detachCanvas, getCanvas } from "../agents/canvasstore";
+import { attachCanvas, detachCanvas, getCanvas, setCanvasMode } from "../agents/canvasstore";
 import {
     currentReportIdAtom,
     loadReports,
@@ -418,17 +418,27 @@ describe("canvas landing", () => {
         expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
     });
 
-    it("attaches the caller's canvas, switches it to canvas mode and lands on the agent", async () => {
-        const model = makeModel(["a1"]);
+    it("attaches the caller's canvas without moving the user or leaving the terminal", async () => {
+        const model = makeModel(["a1", "a2"]);
+        globalStore.set(model.focusIdAtom, "a2");
         rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
         expect(await openAddress(model, "canvas:t", { caller }, noReport)).toEqual({ ok: true });
         const s = getCanvas("a1");
         expect(s?.topic).toBe("t");
         expect(s?.dir).toBe(DIR);
         expect(s?.projectDir).toBe(CWD);
-        expect(s?.mode).toBe("canvas");
-        expect(globalStore.get(model.focusIdAtom)).toBe("a1");
-        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+        expect(s?.mode).toBe("terminal");
+        expect(globalStore.get(model.focusIdAtom)).toBe("a2");
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+
+    it("leaves a canvas the user is already looking at in canvas mode", async () => {
+        const model = makeModel(["a1"]);
+        rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
+        attachCanvas("a1", { topic: "t", dir: DIR, projectDir: CWD }, 1);
+        setCanvasMode("a1", "canvas", 2);
+        expect(await openAddress(model, "canvas:t", { caller }, noReport)).toEqual({ ok: true });
+        expect(getCanvas("a1")?.mode).toBe("canvas");
     });
 
     it("attaches a background terminal as readily as an agent", async () => {
@@ -436,8 +446,7 @@ describe("canvas landing", () => {
         rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
         const result = await openAddress(model, "canvas:t", { caller: { ...caller, blockId: "block-t9" } }, noReport);
         expect(result).toEqual({ ok: true });
-        expect(getCanvas("t9")?.mode).toBe("canvas");
-        expect(globalStore.get(model.focusIdAtom)).toBe("t9");
+        expect(getCanvas("t9")?.topic).toBe("t");
     });
 
     it("sets the board a reveal names", async () => {

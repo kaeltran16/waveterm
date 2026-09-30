@@ -23,8 +23,8 @@ const IDS = ["a1", "a2"];
 const A = { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" };
 const MARK: Mark = { x: 0, y: 0, w: 20, h: 20, note: "n" };
 const BOARDS = [
-    { name: "Main.dc.html", w: 1440 },
-    { name: "States.dc.html", w: 1440 },
+    { name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 },
+    { name: "States.dc.html", x: 0, y: 0, w: 1440, h: 900 },
 ];
 
 function withMarks(id: string): void {
