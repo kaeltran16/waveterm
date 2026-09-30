@@ -3,7 +3,8 @@
 // Asserts are RPC-based (backend state) or DOM-based (h.ev) — NOT jotai atom reads (globalStore is not
 // exposed on window). steps are { step, ok, detail }.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7952,6 +7953,160 @@ const canvasSwap = {
     },
 };
 
+// --- canvas board tabs: each board on its own tab, and All lays them side by side -------------------------
+// Unlike canvas-swap, the boards are under test, so Node serves the canvas on a port the pane probes (the
+// design-local server's range, top first, so a real one on 8766 keeps its port).
+const CANVAS_TABS_TOPIC = "verify-canvas-tabs";
+const CANVAS_TABS = `document.querySelector('[role="tablist"][aria-label="Boards"]')`;
+const CANVAS_TABS_PORTS = Array.from({ length: 20 }, (_, i) => 8785 - i);
+// a probe, a canvas.json read and the board HEADs all land inside one 3s poll tick; two ticks is the margin
+const CANVAS_TABS_WAIT_MS = 8000;
+
+function listenCanvas(root, port) {
+    const server = createServer((req, res) => {
+        const file = join(root, decodeURIComponent((req.url ?? "/").split("?")[0]));
+        if (!file.startsWith(root) || !existsSync(file)) {
+            res.writeHead(404).end();
+            return;
+        }
+        res.writeHead(200, {
+            "content-type": file.endsWith(".json") ? "application/json" : "text/html",
+            "last-modified": statSync(file).mtime.toUTCString(),
+        });
+        res.end(req.method === "HEAD" ? undefined : readFileSync(file));
+    });
+    return new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(port, "127.0.0.1", () => resolve(server));
+    });
+}
+
+async function serveCanvas(root) {
+    for (const port of CANVAS_TABS_PORTS) {
+        try {
+            return await listenCanvas(root, port);
+        } catch {
+            // taken: try the next one down
+        }
+    }
+    throw new Error("no free port in the design-local range");
+}
+
+const canvasTabFrames = (h) =>
+    h.ev(`(() => ({
+        tabs: [...(${CANVAS_TABS}?.querySelectorAll('[role="tab"]') ?? [])].map((b) => (b.textContent || "").trim()),
+        frames: [...document.querySelectorAll("[data-canvas-frame]")].map((f) => f.getAttribute("data-canvas-frame")),
+    }))()`);
+
+const clickCanvasTab = async (h, label) => {
+    await h.ev(`[...(${CANVAS_TABS}?.querySelectorAll('[role="tab"]') ?? [])].find((b) => (b.textContent || "").trim() === ${JSON.stringify(label)})?.click()`);
+    await polishNap(400);
+    return canvasTabFrames(h);
+};
+
+const canvasTabsScenario = {
+    name: "canvas-tabs",
+    surface: "agent",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-canvas-tabs-"));
+        const design = join(cwd, ".superpowers", "design");
+        const project = join(design, CANVAS_TABS_TOPIC, "project");
+        mkdirSync(project, { recursive: true });
+        writeFileSync(
+            join(project, "canvas.json"),
+            JSON.stringify({
+                boards: {
+                    "Main.dc.html": { x: 0, y: 0, w: 640, h: 480, title: "A" },
+                    "Cards.dc.html": { x: 720, y: 0, w: 640, h: 480, title: "B" },
+                },
+                order: ["Main.dc.html", "Cards.dc.html"],
+            })
+        );
+        for (const name of ["Main", "Cards"]) {
+            writeFileSync(join(project, `${name}.dc.html`), `<!doctype html><title>${name}</title><p>${name} board</p>`);
+        }
+        const ctx = { cwd };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            ctx.server = await serveCanvas(design);
+            await openCanvasTerminal(h, ctx);
+        } catch (e) {
+            ctx.launchError = String(e?.message ?? e);
+            return ctx;
+        }
+        await h.goto("agent");
+        ctx.inRoster = await polishWaitFor(
+            h,
+            `!!document.querySelector('[data-agent-terminal="${ctx.tabId}"]')`,
+            CANVAS_ROSTER_WAIT_MS
+        );
+        return ctx;
+    },
+    async assert(h, ctx) {
+        if (ctx.launchError != null) {
+            return [skipStep("canvas tabs", `could not verify: ${ctx.launchError}`)];
+        }
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec("0. the launched terminal is in the roster", ctx.inRoster === true, `tab=${ctx.tabId}`);
+        if (!ctx.inRoster) return steps;
+
+        await h.rpc(
+            "uireveal",
+            { address: `canvas:${CANVAS_TABS_TOPIC}`, callerblockid: ctx.blockId, callercwd: ctx.cwd },
+            UI_ROUTE
+        );
+        await polishWaitFor(h, `!!${CANVAS_TREE_TAG}`, 3000);
+        await h.ev(`${CANVAS_TREE_TAG}?.click()`);
+        const loaded = await polishWaitFor(
+            h,
+            `(${CANVAS_TABS}?.querySelectorAll('[role="tab"]').length ?? 0) === 3`,
+            CANVAS_TABS_WAIT_MS
+        );
+        const first = await canvasTabFrames(h);
+        rec(
+            "1. the header offers All and one tab per board, and opens on the first board alone",
+            loaded && JSON.stringify(first.tabs) === JSON.stringify(["All", "Main", "Cards"]) &&
+                JSON.stringify(first.frames) === JSON.stringify(["Main.dc.html"]),
+            JSON.stringify({ loaded, ...first })
+        );
+        const all = await clickCanvasTab(h, "All");
+        await h.shot("cdp-shots/canvas-tabs-all.png");
+        rec(
+            "2. All lays every board out side by side",
+            JSON.stringify(all.frames) === JSON.stringify(["Main.dc.html", "Cards.dc.html"]),
+            JSON.stringify(all)
+        );
+        const cards = await clickCanvasTab(h, "Cards");
+        await h.shot("cdp-shots/canvas-tabs-cards.png");
+        rec(
+            "3. a board's tab shows that board alone",
+            JSON.stringify(cards.frames) === JSON.stringify(["Cards.dc.html"]),
+            JSON.stringify(cards)
+        );
+        return steps;
+    },
+    // best-effort, so one failed step does not strand the rest
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`canvas-tabs teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("leave the canvas", () => clickCanvasSwap(h, "Terminal"));
+        if (ctx.tabId) {
+            await step("close the terminal tab", () =>
+                waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false])
+            );
+        }
+        await step("stop the canvas server", () => new Promise((r) => (ctx.server ? ctx.server.close(r) : r())));
+        await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
+        await step("go home", () => h.goto("cockpit"));
+    },
+};
+
 export const SCENARIOS = [
     briefContextualMap,
     briefRestore,
@@ -8000,4 +8155,5 @@ export const SCENARIOS = [
     newRunWindow,
     modelPicks,
     canvasSwap,
+    canvasTabsScenario,
 ];

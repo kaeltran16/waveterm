@@ -14,6 +14,8 @@ export const DEFAULT_BOARD_H = 900;
 const BOARD_GAP = 80;
 
 const BOARD_EXT = ".dc.html";
+// the All tab's key: never a board name, which always ends in .dc.html
+export const ALL_TAB = "all";
 const MAIN_BOARD = "Main.dc.html";
 const HTTP_OK = 200;
 
@@ -83,6 +85,21 @@ export function shownBoard(s: CanvasState): CanvasBoard {
     return s.boards.find((b) => b.name === s.board) ?? s.boards[0] ?? MAIN_FALLBACK;
 }
 
+// the header's tabs: All first, and only when there is more than one board to lay side by side
+export function canvasTabs(boards: CanvasBoard[]): string[] {
+    const names = boards.map((b) => b.name);
+    return names.length > 1 ? [ALL_TAB, ...names] : names;
+}
+
+export function currentTab(s: CanvasState): string {
+    return s.all && s.boards.length > 1 ? ALL_TAB : shownBoard(s).name;
+}
+
+// the boards on screen, and the ones Build this… builds: every board under All, else the selected one
+export function shownBoards(s: CanvasState): CanvasBoard[] {
+    return s.all && s.boards.length > 1 ? s.boards : [shownBoard(s)];
+}
+
 export type BoardFrame = { board: CanvasBoard; left: number; top: number; width: number; height: number };
 export type CanvasLayout = { scale: number; width: number; height: number; frames: BoardFrame[] };
 
@@ -113,16 +130,13 @@ export function boardLabel(name: string): string {
     return name.endsWith(BOARD_EXT) ? name.slice(0, -BOARD_EXT.length) : name;
 }
 
-export function stepBoard(boards: CanvasBoard[], current: string | null, delta: number): string | null {
-    const n = boards.length;
+export function stepTab(tabs: string[], current: string | null, delta: number): string | null {
+    const n = tabs.length;
     if (n === 0) {
         return null;
     }
-    const at = Math.max(
-        0,
-        boards.findIndex((b) => b.name === current)
-    );
-    return boards[(((at + delta) % n) + n) % n].name;
+    const at = Math.max(0, tabs.indexOf(current));
+    return tabs[(((at + delta) % n) + n) % n];
 }
 
 // a refused connection means nothing listens there; any other answer is someone else's server
