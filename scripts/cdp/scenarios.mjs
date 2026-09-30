@@ -6124,48 +6124,59 @@ const RUN_SHEET_POLISH_TASKS = [
     { id: "t-3", label: "noop 3", description: "do nothing, stop immediately", deps: ["t-2"], gate: false, state: "" },
 ];
 
+// A deferred orchestrator run in a temp dir, given a plan, with its sheet opened on the Brief. A throw lands in
+// ctx.arrangeError and still returns ctx, so teardown removes whatever was already made.
+async function arrangeSheetDagRun(h, label, tasks) {
+    const cwd = mkdtempSync(join(tmpdir(), `verify-${label}-`));
+    const ctx = { cwd };
+    try {
+        const wslist = await h.rpc("workspacelist", null);
+        const ch = await h.rpc("createchannel", { name: `verify-${label}`, projectpath: cwd });
+        ctx.channelId = ch.oid;
+        const created = await h.rpc("createrun", {
+            channelid: ctx.channelId,
+            workspaceid: wslist[0].workspacedata.oid,
+            goal: `verify ${label}: do nothing, make no file changes, stop immediately`,
+            runtime: "claude",
+            mode: "orchestrator",
+            deferstart: true,
+        });
+        ctx.runId = created.run.id;
+        await h.rpc("dagsubmit", {
+            channelid: ctx.channelId,
+            runid: ctx.runId,
+            title: `verify ${label}`,
+            parallelism: 1,
+            tasks,
+        });
+        // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
+        await h.ev("location.reload()");
+        await h.ev(`(async () => {
+            for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                await new Promise((r) => setTimeout(r, 500));
+            }
+        })()`);
+        await h.goto("jarvis");
+        ctx.opened = await h.ev(`(async () => {
+            for (let i = 0; i < 20 && typeof window.__openAddress !== "function"; i++) {
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            if (typeof window.__openAddress !== "function") return { ok: false, why: "no __openAddress hook" };
+            return window.__openAddress(${JSON.stringify(`run:${ctx.runId}`)});
+        })()`);
+    } catch (e) {
+        ctx.arrangeError = String(e?.message ?? e);
+    }
+    return ctx;
+}
+
 const runSheetPolish = {
     name: "run-sheet-polish",
     surface: "jarvis",
     async arrange(h) {
-        const cwd = mkdtempSync(join(tmpdir(), "verify-run-sheet-polish-"));
-        const ctx = { cwd };
-        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        const ctx = await arrangeSheetDagRun(h, "run-sheet-polish", RUN_SHEET_POLISH_TASKS);
+        if (ctx.arrangeError != null) return ctx;
         try {
-            const wslist = await h.rpc("workspacelist", null);
-            const ch = await h.rpc("createchannel", { name: "verify-run-sheet-polish", projectpath: cwd });
-            ctx.channelId = ch.oid;
-            const created = await h.rpc("createrun", {
-                channelid: ctx.channelId,
-                workspaceid: wslist[0].workspacedata.oid,
-                goal: "verify run-sheet-polish: do nothing, make no file changes, stop immediately",
-                runtime: "claude",
-                mode: "orchestrator",
-                deferstart: true,
-            });
-            ctx.runId = created.run.id;
-            await h.rpc("dagsubmit", {
-                channelid: ctx.channelId,
-                runid: ctx.runId,
-                title: "verify run-sheet-polish",
-                parallelism: 1,
-                tasks: RUN_SHEET_POLISH_TASKS,
-            });
-            // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
-            await h.ev("location.reload()");
-            await h.ev(`(async () => {
-                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
-                    await new Promise((r) => setTimeout(r, 500));
-                }
-            })()`);
-            await h.goto("jarvis");
-            ctx.opened = await h.ev(`(async () => {
-                for (let i = 0; i < 20 && typeof window.__openAddress !== "function"; i++) {
-                    await new Promise((r) => setTimeout(r, 250));
-                }
-                if (typeof window.__openAddress !== "function") return { ok: false, why: "no __openAddress hook" };
-                return window.__openAddress(${JSON.stringify(`run:${ctx.runId}`)});
-            })()`);
             ctx.timelineOpened = await h.ev(`(async () => {
                 for (let i = 0; i < 60 && !document.querySelector('[data-run-sheet] [role="img"]'); i++) {
                     await new Promise((r) => setTimeout(r, 250));
@@ -6249,6 +6260,203 @@ const runSheetPolish = {
     },
     async teardown(h, ctx) {
         await teardownFixtureRun(h, ctx, "run-sheet-polish");
+    },
+};
+
+// --- dag-observability: what the run sheet and the DAG modal claim about a live DAG ------------------
+// The orchestrator observability checks (spec 10.3, once scripts/cdp/orchestrator-observability-e2e.mjs) on
+// today's surfaces: a run reads on the Jarvis run sheet, and the DAG opens from its dock. The chained plan
+// dispatches only t-1, so t-3 is the undispatched task; teardown cancels the run and deletes t-1's worker.
+// Open in Agent leaves the Brief, so it runs last.
+const OBS_WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+// below TIMELINE_RAIL_MIN_PX (1100), where the lifecycle rail collapses into a drawer
+const OBS_NARROW = { width: 1000, height: 900, deviceScaleFactor: 1, mobile: false };
+// t-1's dispatch has taken anywhere from 0.2s to 28s on the dev app, the slow ones right after another scenario
+const OBS_DISPATCH_MS = 60_000;
+const OBS_MODAL = `document.querySelector('[data-dag-modal-kind]')`;
+const OBS_RAIL = `document.querySelector('[data-timeline-rail]')`;
+// a row that renders its raw event kind means the projection is missing that kind's title
+const OBS_RAW_KIND = /\b(task|dag|child|lead)-[a-z-]+\b/;
+
+const dagObservability = {
+    name: "dag-observability",
+    surface: "jarvis",
+    async arrange(h) {
+        await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+        const ctx = await arrangeSheetDagRun(h, "dag-observability", RUN_SHEET_POLISH_TASKS);
+        if (ctx.arrangeError != null) return ctx;
+        try {
+            const start = Date.now();
+            while (!ctx.dispatched && Date.now() - start < OBS_DISPATCH_MS) {
+                const group = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group;
+                ctx.dispatched = !!group?.tasks?.find((t) => t.id === "t-1")?.runid;
+                if (!ctx.dispatched) await new Promise((r) => setTimeout(r, 500));
+            }
+            ctx.dispatchMs = Date.now() - start;
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec(
+            "0. the run's sheet opened and t-1 dispatched",
+            ctx.arrangeError == null && ctx.opened?.ok === true && ctx.dispatched === true,
+            ctx.arrangeError ??
+                JSON.stringify({ runId: ctx.runId, opened: ctx.opened, dispatched: ctx.dispatched, dispatchMs: ctx.dispatchMs })
+        );
+
+        const sheet = await h.ev(`(async () => {
+            for (let i = 0; i < 40 && !document.querySelector("[data-run-sheet] [data-run-sheet-row]"); i++) {
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            const root = document.querySelector("[data-run-sheet]");
+            if (!root) return null;
+            const nextEl = [...root.querySelectorAll("div")].find(
+                (d) => d.children.length === 1 && d.firstElementChild.textContent === "next: "
+            );
+            return {
+                strip: root.querySelector("[role=img]")?.getAttribute("aria-label") ?? null,
+                rows: root.querySelectorAll("[data-run-sheet-row]").length,
+                verb: root.querySelector("[data-run-sheet-verb]")?.textContent.trim() ?? null,
+                next: nextEl ? nextEl.textContent.slice("next: ".length).trim() : null,
+            };
+        })()`);
+        rec(
+            "1. the sheet reads the real task group: a done/total strip and one row per task",
+            sheet != null && /^\d+ of 3 tasks done/.test(sheet.strip ?? "") && sheet.rows === 3,
+            JSON.stringify(sheet)
+        );
+        const degraded = sheet?.verb === "Status is stale";
+        rec(
+            "2. the sheet states the engine's next move, and a stale read calls it unknown",
+            sheet != null && !!sheet.next && (!degraded || sheet.next.startsWith("unknown")),
+            JSON.stringify({ verb: sheet?.verb, next: sheet?.next })
+        );
+
+        const modalOpened = await h.ev(`(async () => {
+            const btn = [...(document.querySelector("[data-run-sheet]")?.querySelectorAll("button") ?? [])].find(
+                (b) => b.textContent.trim() === "Open DAG"
+            );
+            if (!btn) return false;
+            btn.click();
+            for (let i = 0; i < 20 && !document.querySelector("[data-dag-modal-kind] [data-dag-node]"); i++) {
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            return !!document.querySelector("[data-dag-modal-kind] [data-dag-node]");
+        })()`);
+
+        const history = await h.ev(`(async () => {
+            for (let i = 0; i < 40 && !${OBS_RAIL}?.querySelector("[data-timeline-row][data-timeline-task]"); i++) {
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            const rail = ${OBS_RAIL};
+            if (!rail) return null;
+            const rows = [...rail.querySelectorAll("[data-timeline-row]")].map((b) => (b.innerText || "").trim());
+            return { layout: rail.getAttribute("data-timeline-rail"), rows };
+        })()`);
+        const rawRows = (history?.rows ?? []).filter((r) => OBS_RAW_KIND.test(r));
+        rec(
+            "3. Open DAG shows the lifecycle as a rail of titled history rows",
+            modalOpened === true &&
+                history?.layout === "rail" &&
+                history.rows.length > 0 &&
+                rawRows.length === 0,
+            JSON.stringify({ modalOpened, layout: history?.layout, rows: history?.rows.length, rawRows })
+        );
+
+        const deeplink = await h.ev(`(async () => {
+            const row = ${OBS_RAIL}?.querySelector("[data-timeline-row][data-timeline-task]");
+            if (!row) return null;
+            const task = row.getAttribute("data-timeline-task");
+            row.click();
+            await new Promise((r) => setTimeout(r, 500));
+            const chip = [...${OBS_RAIL}.querySelectorAll("button")].find((b) => /^Task/.test((b.innerText || "").trim()));
+            return { task, chip: chip ? chip.innerText.trim() : null };
+        })()`);
+        rec(
+            "4. a task-scoped event selects its task",
+            deeplink != null && (deeplink.chip ?? "").includes(deeplink.task),
+            JSON.stringify(deeplink)
+        );
+
+        const explicit = await h.ev(`(async () => {
+            const node = ${OBS_MODAL}?.querySelector('[data-dag-node="t-3"]');
+            if (!node) return null;
+            node.click();
+            await new Promise((r) => setTimeout(r, 500));
+            const text = ${OBS_MODAL}.innerText || "";
+            return {
+                pending: text.includes("Not dispatched yet"),
+                live: text.includes("● live"),
+                failed: text.includes("load failed"),
+            };
+        })()`);
+        rec(
+            "5. the undispatched t-3 says so, and the rail names its connection state",
+            explicit != null && explicit.pending && (explicit.live || explicit.failed),
+            JSON.stringify(explicit)
+        );
+
+        await h.cdp("Emulation.setDeviceMetricsOverride", OBS_NARROW);
+        await new Promise((r) => setTimeout(r, 900));
+        const drawer = await h.ev(`(() => {
+            const rail = ${OBS_RAIL};
+            if (!rail) return null;
+            const toggle = rail.querySelector('button[aria-label$="lifecycle"]');
+            return { layout: rail.getAttribute("data-timeline-rail"), toggle: toggle?.getAttribute("aria-label") ?? null };
+        })()`);
+        await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+        await new Promise((r) => setTimeout(r, 900));
+        rec(
+            "6. a narrow window collapses the lifecycle into a drawer with an expand control",
+            drawer != null && drawer.layout === "drawer" && drawer.toggle != null,
+            JSON.stringify(drawer)
+        );
+
+        const worker = await h.ev(`(async () => {
+            const node = ${OBS_MODAL}?.querySelector('[data-dag-node="t-1"]');
+            if (!node) return null;
+            node.click();
+            const openBtn = () =>
+                [...(${OBS_MODAL}?.querySelectorAll("button") ?? [])].find((b) => /open in agent/i.test(b.innerText || ""));
+            for (let i = 0; i < 40 && !openBtn(); i++) {
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            const text = ${OBS_MODAL}?.innerText || "";
+            return {
+                openable: !!openBtn(),
+                pending: text.includes("Not dispatched yet"),
+                unavailable: text.includes("Worker session unavailable"),
+            };
+        })()`);
+        rec(
+            "7. the dispatched t-1 resolves its own worker, with Open in Agent",
+            worker != null && worker.openable,
+            JSON.stringify(worker)
+        );
+
+        const landed = await h.ev(`(async () => {
+            const btn = [...(${OBS_MODAL}?.querySelectorAll("button") ?? [])].find((b) => /open in agent/i.test(b.innerText || ""));
+            if (!btn) return null;
+            btn.click();
+            await new Promise((r) => setTimeout(r, 1200));
+            return {
+                modalGone: ${OBS_MODAL} == null,
+                onAgent: !!document.querySelector('nav button[aria-label="Agent"]')?.classList.contains("text-accent-soft"),
+            };
+        })()`);
+        rec(
+            "8. Open in Agent closes the modal and lands on the Agent surface",
+            landed != null && landed.modalGone && landed.onAgent,
+            JSON.stringify(landed)
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "dag-observability");
     },
 };
 
@@ -7139,6 +7347,7 @@ export const SCENARIOS = [
     agentTreeQuickReturn,
     cockpitPolish,
     runSheetPolish,
+    dagObservability,
     briefInitiativesPolish,
     briefPeeksPolish,
     newRunWindow,
