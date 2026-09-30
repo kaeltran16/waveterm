@@ -211,7 +211,7 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 		return nil, fmt.Errorf("dag requires an orchestrator-mode run")
 	}
 	if data.Round {
-		return submitFixRound(ctx, run, data)
+		return submitFixRound(ctx, run, data, plan)
 	}
 	// a plan written without a Setup line still gets prepared trees: the project's checked-in default fills it,
 	// read from the landing tree, which is at the commit the run builds from
@@ -358,8 +358,9 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 }
 
 // submitFixRound appends a fix plan's tasks to the run's dag after its final stage failed. Only the tasks are
-// taken: the dag keeps its Verify, Setup, Check, Final and effort, and the round is not plan-reviewed.
-func submitFixRound(ctx context.Context, run *waveobj.Run, data wshrpc.CommandDagSubmitData) (*waveobj.TaskGroup, error) {
+// taken: the dag keeps its Verify, Setup, Check, Final and effort, and the round is not plan-reviewed. A fix plan that
+// names a different command is refused, not ignored.
+func submitFixRound(ctx context.Context, run *waveobj.Run, data wshrpc.CommandDagSubmitData, plan jarvis.Plan) (*waveobj.TaskGroup, error) {
 	if data.PlanPath == "" {
 		return nil, fmt.Errorf("a fix round is submitted as a plan file: pass planpath")
 	}
@@ -373,6 +374,9 @@ func submitFixRound(ctx context.Context, run *waveobj.Run, data wshrpc.CommandDa
 	// checked before the snapshot too: a refused round must not commit its plan into a landing tree the final
 	// stage may be running in
 	if err := orchestrate.CheckFixRound(g); err != nil {
+		return nil, err
+	}
+	if err := orchestrate.CheckFixPlanCommands(g, plan.Verify, plan.Setup, plan.Check, plan.Final); err != nil {
 		return nil, err
 	}
 	if err := checkDagEffort(ctx, g.EffortOID, data.Tasks); err != nil {

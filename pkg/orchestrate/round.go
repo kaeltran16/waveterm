@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -37,6 +38,24 @@ func CheckFixRound(g *waveobj.TaskGroup) error {
 	}
 	if g.Final.Round >= MaxFinalRounds {
 		return fmt.Errorf("no fix rounds left; forward to the human: the final stage failed round %d of %d", g.Final.Round, MaxFinalRounds)
+	}
+	return nil
+}
+
+// CheckFixPlanCommands refuses a fix plan whose Verify, Setup, Check or Final line differs from the run's. A round
+// runs the run's own commands, so a changed one would otherwise be dropped without a word, and a round that could
+// replace them could also weaken the check it has to pass. A line the fix plan leaves out, or repeats, is fine.
+func CheckFixPlanCommands(g *waveobj.TaskGroup, verify, setup, check, final string) error {
+	for _, c := range []struct{ label, plan, run string }{
+		{"Verify", verify, g.Verify},
+		{"Setup", setup, g.Setup},
+		{"Check", check, g.Check},
+		{"Final", final, g.FinalCmd},
+	} {
+		plan := strings.TrimSpace(c.plan)
+		if plan != "" && plan != strings.TrimSpace(c.run) {
+			return fmt.Errorf("a fix round runs the run's own commands, and the fix plan's **%s:** line `%s` differs from the run's `%s`: drop the line from the fix plan. If the run's %s cannot pass for a reason outside the code, put that to the human, who can end the final stage", c.label, plan, c.run, c.label)
+		}
 	}
 	return nil
 }

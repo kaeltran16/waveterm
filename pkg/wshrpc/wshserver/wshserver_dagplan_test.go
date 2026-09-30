@@ -258,8 +258,18 @@ func TestDagSubmitRoundExtendsTheDag(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// a round runs the run's own commands: a fix plan naming others is refused, not silently ignored
+	if _, err := submit(wshrpc.CommandDagSubmitData{PlanPath: fixPlan, Round: true}); err == nil || !strings.Contains(err.Error(), "**Verify:** line") {
+		t.Fatalf("a fix plan with its own commands: want a refusal naming the line, got %v", err)
+	}
+	if cur, err := wstore.GetDag(ctx, g.OID); err != nil || len(cur.Tasks) != 3 {
+		t.Fatalf("a refused round leaves the dag alone, got %v", err)
+	}
+	// repeating the run's own line is fine
+	tasksOnly := write("fix-tasks.md", "**Final:** `echo final`\n\n### Task 1: widen\nwiden the column\n\n### Task 2: cover\n**Depends on:** Task 1\n")
+
 	// a spec passed with the round is ignored: the round implements the run's spec
-	got, err := submit(wshrpc.CommandDagSubmitData{PlanPath: fixPlan, SpecPath: write("other-spec.md", "# other\n"), Round: true})
+	got, err := submit(wshrpc.CommandDagSubmitData{PlanPath: tasksOnly, SpecPath: write("other-spec.md", "# other\n"), Round: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +281,7 @@ func TestDagSubmitRoundExtendsTheDag(t *testing.T) {
 		t.Fatalf("the fix tasks are t-4 and t-5, t-5 after t-4, got %d tasks %v", len(got.Tasks), shape)
 	}
 	if got.Verify != "echo verify" || got.Setup != "" || got.Check != "echo check" || got.FinalCmd != "echo final" {
-		t.Fatalf("the fix plan's commands are ignored for the dag's, got verify %q setup %q check %q final %q", got.Verify, got.Setup, got.Check, got.FinalCmd)
+		t.Fatalf("the dag keeps its commands, got verify %q setup %q check %q final %q", got.Verify, got.Setup, got.Check, got.FinalCmd)
 	}
 	if got.PlanPath != planPath || got.SpecPath != specPath || got.PlanReview.State != orchestrate.PlanReviewState_Passed {
 		t.Fatalf("the dag keeps its plan, spec and passed plan review, got %q %q %+v", got.PlanPath, got.SpecPath, got.PlanReview)
@@ -279,7 +289,7 @@ func TestDagSubmitRoundExtendsTheDag(t *testing.T) {
 	if got.Final == nil || got.Final.Round != 2 || got.Final.State != "" {
 		t.Fatalf("round 2 is set up, not started, got %+v", got.Final)
 	}
-	if !strings.HasPrefix(got.Tasks[3].Description, "Fix round 2: this is task 1 of the fix plan at "+fixPlan+";") {
+	if !strings.HasPrefix(got.Tasks[3].Description, "Fix round 2: this is task 1 of the fix plan at "+tasksOnly+";") {
 		t.Fatalf("a checkout-landed round names its fix plan by its absolute path, got %q", got.Tasks[3].Description)
 	}
 }

@@ -545,7 +545,7 @@ you.
 | **Worker hung** (15 min silent, process alive, no ask pending) | same as a failure | same |
 | **Worker may be stuck** (worktree unchanged 20 min while active, or the same failure 3x) | `dag tell`, `dag retry`, `dag escalate`, or lets it run | same |
 | **Worker never started** (5 min after spawn, its terminal's shell never came up) | `dag retry` | same |
-| **Final stage failed** | writes a fix plan and runs `dag submit --round --plan <fix plan>`; puts it to you when no round is left or the fix is a product call | a failed last round, or a product call |
+| **Final stage failed** | writes a fix plan and runs `dag submit --round --plan <fix plan>` (tasks only: the round runs the run's own Verify, Setup, Check and Final, and a fix plan naming different ones is refused); puts it to you when no round is left or the fix is a product call | a failed last round, or a product call |
 | **Run finished** | fixes and commits what the landed tasks left behind, writes the report to a file, adds open issues to the initiative, then completes on its own with `wsh jarvis complete --report <file>` | a question only when a decision is needed (a failed verification, a deviation, a proposed fix round), then the Done face |
 
 In `dag status`, a running worker that has written nothing lately reads `idle Nm`, or `running a command Nm · <tool>`

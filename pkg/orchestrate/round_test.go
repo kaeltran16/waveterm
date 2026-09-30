@@ -186,3 +186,33 @@ func TestRoundDescriptionResolvesThePlanInTheReadersTree(t *testing.T) {
 		}
 	}
 }
+
+// a round runs the run's own commands, so a fix plan that names different ones is refused rather than silently
+// ignored (run dc7d6de0's round 2 re-ran the Final its fix plan had replaced)
+func TestCheckFixPlanCommandsRefusesADifferentCommand(t *testing.T) {
+	g := &waveobj.TaskGroup{Verify: "node scripts/verify.mjs ./pkg/...", Setup: ".arc/setup", Check: "go vet ./...", FinalCmd: "node scripts/cdp/final-verify.mjs brief-peek"}
+	for name, c := range map[string]struct {
+		verify, setup, check, final string
+		refused                     string
+	}{
+		"no command lines":    {},
+		"the run's own lines": {verify: g.Verify, setup: " " + g.Setup + " ", check: g.Check, final: g.FinalCmd},
+		"a different Final":   {final: "node scripts/cdp/final-verify.mjs", refused: "Final"},
+		"a different Verify":  {verify: "go test ./...", refused: "Verify"},
+		"a different Setup":   {setup: "npm ci", refused: "Setup"},
+		"a different Check":   {check: "go build ./...", refused: "Check"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := CheckFixPlanCommands(g, c.verify, c.setup, c.check, c.final)
+			if c.refused == "" {
+				if err != nil {
+					t.Fatalf("want accepted, got %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "**"+c.refused+":**") {
+				t.Fatalf("want the %s line refused, got %v", c.refused, err)
+			}
+		})
+	}
+}
