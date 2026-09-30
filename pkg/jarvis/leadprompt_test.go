@@ -72,6 +72,7 @@ func TestOrchestrationRulesNameRunSpecPlanAndCommands(t *testing.T) {
 		"wsh jarvis dag merge <task> --continue",
 		"wsh jarvis dag status",
 		"wsh jarvis complete",
+		"header `Plan review`",
 		"Never re-plan and never do a task's own work.",
 	} {
 		if !strings.Contains(r, want) {
