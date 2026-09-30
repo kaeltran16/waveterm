@@ -53,6 +53,8 @@ export interface RunConfig {
     planPath: string;
     reviewerPicks: boolean;
     reviewerRoute: RoutePin | null;
+    // a canvas's board, from Build this…; absolute, since a run's worktree has no copy of the design folder
+    prototype?: string;
 }
 
 export interface LaunchOpts {
@@ -62,6 +64,7 @@ export interface LaunchOpts {
     planPath?: string;
     reviewerPicks?: boolean;
     reviewerRoute?: RoutePin;
+    prototype?: string;
 }
 
 // What the launcher's controls mean as CreateRun's arguments. The mode cannot simply be omitted: the server
@@ -69,7 +72,7 @@ export interface LaunchOpts {
 // is the server's to set. reviewerPicks goes out even when false: the server reads an unset one as the
 // profile's, and the launcher has already shown the user the profile's answer and let them change it.
 export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
-    const { shape, parallelism, workerRoute, start, planPath, reviewerPicks, reviewerRoute } = config;
+    const { shape, parallelism, workerRoute, start, planPath, reviewerPicks, reviewerRoute, prototype } = config;
     if (shape !== "orchestrator") {
         return { mode: shape };
     }
@@ -80,6 +83,7 @@ export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
         ...(start === "plan" ? { planPath: planPath.trim() } : {}),
         reviewerPicks,
         ...(reviewerRoute != null ? { reviewerRoute } : {}),
+        ...(prototype ? { prototype } : {}),
     };
 }
 
@@ -98,6 +102,24 @@ export function initialPick(names: string[], remembered: string | null): string 
         return remembered;
     }
     return names.length === 1 ? names[0] : null;
+}
+
+export type NewRunPrefill = { projectName: string; goal: string; prototype: string };
+
+// What the window opens on when Build this… filled it: an orchestrator goal start, because a prototype only
+// rides an orchestrator run. The project is picked only if it is registered, as initialPick does.
+export function prefillToLaunch(
+    prefill: NewRunPrefill,
+    projectNames: string[]
+): { picked: string | null; shape: "orchestrator"; start: "goal"; goal: string; prototype: string } {
+    const { projectName, goal, prototype } = prefill;
+    return {
+        picked: projectName !== "" && projectNames.includes(projectName) ? projectName : null,
+        shape: "orchestrator",
+        start: "goal",
+        goal,
+        prototype,
+    };
 }
 
 // Which projects a typed query leaves, best first. Reuses the palette's scorer so one query language

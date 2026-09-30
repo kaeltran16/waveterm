@@ -7,6 +7,7 @@ import {
     initialPick,
     launchGoal,
     launchOptsFromConfig,
+    prefillToLaunch,
     radarDraftLanding,
     rankProjects,
     resolveChannelTarget,
@@ -129,6 +130,25 @@ describe("launchOptsFromConfig", () => {
             "planPath"
         );
     });
+
+    it("carries a canvas prototype on an orchestrator run", () => {
+        const prototype = "C:/p/x/project/Main.dc.html";
+        expect(launchOptsFromConfig({ ...base, shape: "orchestrator", prototype })).toEqual({
+            mode: "orchestrator",
+            reviewerPicks: false,
+            parallelism: 3,
+            prototype,
+        });
+    });
+
+    // the server rejects a prototype on a quick run
+    it("drops the prototype from quick", () => {
+        expect(launchOptsFromConfig({ ...base, prototype: "C:/p/x/project/Main.dc.html" })).toEqual({ mode: "quick" });
+    });
+
+    it("sends no prototype when none is set", () => {
+        expect(launchOptsFromConfig({ ...base, shape: "orchestrator", prototype: "" })).not.toHaveProperty("prototype");
+    });
 });
 
 describe("launchGoal", () => {
@@ -222,5 +242,37 @@ describe("initialPick", () => {
     it("picks nothing when there is a choice and nothing is remembered", () => {
         expect(initialPick(names, null)).toBeNull();
         expect(initialPick([], null)).toBeNull();
+    });
+});
+
+describe("prefillToLaunch", () => {
+    const prefill = {
+        projectName: "waveterm",
+        goal: "Build the design in C:/p/.superpowers/design/t/project (boards: Main)",
+        prototype: "C:/p/.superpowers/design/t/project/Main.dc.html",
+    };
+
+    it("opens an orchestrator goal start on the canvas's project, goal and prototype", () => {
+        expect(prefillToLaunch(prefill, ["waveterm", "other"])).toEqual({
+            picked: "waveterm",
+            shape: "orchestrator",
+            start: "goal",
+            goal: prefill.goal,
+            prototype: prefill.prototype,
+        });
+    });
+
+    it("picks no project when the canvas's project is not registered", () => {
+        expect(prefillToLaunch(prefill, ["other"])).toEqual({
+            picked: null,
+            shape: "orchestrator",
+            start: "goal",
+            goal: prefill.goal,
+            prototype: prefill.prototype,
+        });
+    });
+
+    it("picks no project when the agent has none", () => {
+        expect(prefillToLaunch({ ...prefill, projectName: "" }, ["waveterm", ""]).picked).toBeNull();
     });
 });

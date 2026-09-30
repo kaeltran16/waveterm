@@ -275,6 +275,10 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	}
 	proposed.Verify, proposed.Setup, proposed.Check, proposed.Preamble = plan.Verify, plan.Setup, plan.Check, plan.Preamble
 	proposed.FinalCmd, proposed.Prototype = plan.Final, plan.Prototype
+	// a prototype the run was started with (Build this… on a canvas) is the human's, not the lead's
+	if run.Prototype != "" {
+		proposed.Prototype = run.Prototype
+	}
 	proposed.EffortOID = plan.EffortOID
 	proposed.PlanPath, proposed.SpecPath = data.PlanPath, data.SpecPath
 	proposed.ReviewerPicks, proposed.ReviewerRoute = run.ReviewerPicks, run.ReviewerRoute

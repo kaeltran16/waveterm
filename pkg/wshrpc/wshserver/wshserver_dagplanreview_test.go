@@ -135,6 +135,51 @@ func TestDagSubmitReviewsThePlanBeforeAnyWorkerStarts(t *testing.T) {
 	})
 }
 
+// A run started from a canvas (Build this…) carries the human's prototype; a lead revising its plan after a
+// failed review must not swap it for the one its plan names.
+func TestPlanReviewResubmitKeepsTheRunsPrototype(t *testing.T) {
+	ctx := context.Background()
+	stubDagSpawns(t)
+	ch, err := wstore.CreateChannel(ctx, "dag-planreview-prototype", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := jarvis.NewRun("ship coupons", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	run.Status = jarvis.RunStatus_Planning
+	run.Prototype = "C:/canvas/Main.dc.html"
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatal(err)
+	}
+	submit := func(src string) (*waveobj.TaskGroup, error) {
+		path := filepath.Join(t.TempDir(), "plan.md")
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: ch.OID, RunId: run.ID, PlanPath: path})
+	}
+	g, err := submit("**Prototype:** .superpowers/design/first/Main.dc.html\n\n### Task 1: input\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := orchestrate.RecordPlanReviewVerdict(ctx, g.OID, g.PlanReview.RunID, orchestrate.ReviewVerdict_Fail, "spec 4.1 has no task", nil); err != nil {
+		t.Fatal(err)
+	}
+	g2, err := submit("**Prototype:** .superpowers/design/other/Main.dc.html\n\n### Task 1: input\n\n### Task 2: spec 4.1\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g2.OID != g.OID || g2.PlanReview.Round != 2 {
+		t.Fatalf("want the same dag in round 2, got %s round %d", g2.OID, g2.PlanReview.Round)
+	}
+	stored, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g2.Prototype != run.Prototype || stored.Prototype != run.Prototype {
+		t.Fatalf("prototype = %q (stored %q), want the run's %q", g2.Prototype, stored.Prototype, run.Prototype)
+	}
+}
+
 // A lead compacts when its plan is handed over for good: once the review passes or the human accepts it,
 // never at submit, when a failed review would send the plan back to a lead that had dropped its context.
 func TestPlanReviewHandsOffOnlyOnceThePlanClears(t *testing.T) {

@@ -51,6 +51,12 @@ func TestRunsStartData(t *testing.T) {
 				t.Fatalf("landing = %q, want %q", d.Landing, jarvis.Landing_Checkout)
 			}
 		}},
+		{name: "prototype needs orchestrator", opts: runsStartOpts{goal: "g", prototype: "Main.dc.html"}, wantErr: "--prototype"},
+		{name: "prototype is sent", opts: runsStartOpts{goal: "g", mode: jarvis.RunMode_Orchestrator, prototype: "Main.dc.html"}, check: func(t *testing.T, d wshrpc.CommandCreateRunData) {
+			if d.Prototype != "Main.dc.html" {
+				t.Fatalf("prototype = %q, want Main.dc.html", d.Prototype)
+			}
+		}},
 		{name: "worker model needs worker runtime", opts: runsStartOpts{goal: "g", mode: jarvis.RunMode_Orchestrator, workerModel: "m"}, wantErr: "--worker-model needs --worker-runtime"},
 		{name: "effort without chunk", opts: runsStartOpts{goal: "g", effort: "e"}, wantErr: "--effort and --chunk go together"},
 		{name: "chunk without effort", opts: runsStartOpts{goal: "g", chunk: "2"}, wantErr: "--effort and --chunk go together"},

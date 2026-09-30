@@ -33,9 +33,16 @@ export const SURFACE_HINTS: Partial<Record<SurfaceKey, FooterHint[]>> = {
         { ids: ["agent:toggle-rail"], glyph: "d", label: "rail" },
         { ids: ["agent:fullscreen"], glyph: "f", label: "full" },
         { ids: ["agent:fullscreen-chord"], keys: "F11", label: "full" }, // reachable in the terminal
+        { ids: ["agent:canvas-open"], glyph: "c", label: "canvas" }, // terminal mode with a canvas
         { ids: ["agent:back"], glyph: "esc", label: "back" },
         { ids: ["cycle-agent-next", "cycle-agent-prev"], keys: "Ctrl:Tab", label: "cycle" },
         { ids: ["agent:return-nav"], keys: "Shift:Escape", label: "leave" }, // editable-only via its binding
+        // canvas mode hides every chip above but leave; this order serves both canvas mode and marking
+        { ids: ["agent:canvas-send"], keys: "Ctrl:Enter", label: "send" },
+        { ids: ["agent:mark-stop"], glyph: "m", label: "stop marking" },
+        { ids: ["agent:canvas-close"], glyph: "c", label: "terminal" },
+        { ids: ["agent:canvas-prev", "agent:canvas-next"], glyph: "[ ]", label: "board" },
+        { ids: ["agent:mark-start"], glyph: "m", label: "mark" },
     ],
     // ↑↓, ⏎ and g g left the footer for room; they still work and are in ? help.
     files: [

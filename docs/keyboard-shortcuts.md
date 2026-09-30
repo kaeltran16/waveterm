@@ -102,6 +102,17 @@ row below expands into the same choices.
 | `Esc` | Back to Cockpit, or exit fullscreen first |
 | `Shift`+`Esc` | Return focus to the nav (from inside the terminal) |
 
+### Agent: canvas mode
+
+`c` works when the focused agent has a canvas. In canvas mode, `[` / `]`, `j` / `k`, `d`, `f`, `F11`, `Esc` and `Ctrl`+`Tab` do not do their usual jobs.
+
+| Keys | Action |
+|---|---|
+| `c` | Show the agent's canvas; from the canvas, back to the terminal |
+| `[` / `]` | Previous / next board |
+| `m` | Mark parts of the board; in mark mode, stop marking |
+| `Ctrl`+`Enter` | Send the marks to the agent (from mark mode) |
+
 ### Jarvis
 
 | Keys | Action |

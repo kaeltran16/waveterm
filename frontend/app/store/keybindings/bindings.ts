@@ -7,6 +7,14 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, projectOf, type AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { paneState } from "@/app/view/agents/canvasmodel";
+import {
+    focusedCanvas,
+    focusedCanvasMode,
+    setCanvasMode,
+    setMarking,
+    stepCanvasBoard,
+} from "@/app/view/agents/canvasstore";
 import { enterFocusFor, exitFocus } from "@/app/view/agents/focusstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
@@ -117,6 +125,21 @@ const navigateStrict = (ctx: KeyContext) => !ctx.editable && !ctx.modalOpen;
 // (owns Escape via buildAgentBindings: exit fullscreen / back), and settings.
 const ESC_HOME_SURFACES = new Set<SurfaceKey>(["jarvis", "radar", "sessions", "files", "usage", "code"]);
 
+// A key that clicks a control the surface already draws, rather than duplicating what the control knows.
+// No control on screen lets the key pass.
+const clickThrough = (selector: string): boolean | void => {
+    const el = document.querySelector<HTMLElement>(selector);
+    if (el == null) {
+        return false;
+    }
+    el.click();
+};
+
+// Canvas mode hides the other surfaces' and agents' targets behind the board, and `[` `]` belong to the
+// boards there, so the surface and agent switches stand down while the focused agent shows its canvas.
+const inAgentCanvas = (model: AgentsViewModel, ctx: KeyContext) =>
+    ctx.surface === "agent" && focusedCanvasMode(model) != null;
+
 // Spec §5 (agent-tab-fixes): the second Ctrl+C closes the *focused* session — agent or plain
 // terminal alike (the UI labels both "terminal": "Close terminal — ends the agent"). Returns null
 // only when nothing focusable is targeted, so the press falls through to the PTY instead.
@@ -198,7 +221,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "]",
             group: "Navigation",
             label: "Next surface",
-            when: navigate,
+            when: (ctx) => navigate(ctx) && !inAgentCanvas(model, ctx),
             run: () => cycleSurface(1),
         },
         {
@@ -206,7 +229,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "[",
             group: "Navigation",
             label: "Previous surface",
-            when: navigate,
+            when: (ctx) => navigate(ctx) && !inAgentCanvas(model, ctx),
             run: () => cycleSurface(-1),
         },
         {
@@ -272,7 +295,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "Ctrl:Tab",
             group: "Agent",
             label: "Next agent",
-            when: (ctx) => ctx.surface === "agent",
+            when: (ctx) => ctx.surface === "agent" && !inAgentCanvas(model, ctx),
             run: () => model.cycleFocus(false),
         },
         {
@@ -280,7 +303,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "Ctrl:Shift:Tab",
             group: "Agent",
             label: "Previous agent",
-            when: (ctx) => ctx.surface === "agent",
+            when: (ctx) => ctx.surface === "agent" && !inAgentCanvas(model, ctx),
             run: () => model.cycleFocus(true),
         },
         {
@@ -551,14 +574,6 @@ export function buildJarvisBindings(): Binding[] {
         run: () => globalStore.set(trackerMenuAtom, null),
     };
 
-    const clickThrough = (selector: string): boolean | void => {
-        const el = document.querySelector<HTMLElement>(selector);
-        if (el == null) {
-            return false;
-        }
-        el.click();
-    };
-
     // the run switcher, keyboard-side: the same list the Subjects column expands under the selected
     // channel, in the same order, moved with the same clamped cursor the lists use.
     const stepRun = (delta: number): boolean | void => {
@@ -746,6 +761,13 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         globalStore.set(model.focusIdAtom, moveCursor(order, fid, delta) ?? fid);
         globalStore.set(model.focusReplyAtom, false);
     };
+    // canvas mode hides the rail, the terminal and the other agents, so their keys stand down there
+    const noCanvas = () => focusedCanvasMode(model) == null;
+    const nav = (ctx: KeyContext) => agentNav(ctx) && noCanvas();
+    const canvas = () => focusedCanvas(model);
+    const inCanvas = (ctx: KeyContext) => agentNav(ctx) && canvas()?.mode === "canvas";
+    const boardReady = (ctx: KeyContext) => inCanvas(ctx) && !canvas()!.marking && paneState(canvas()!) === "board";
+    const focusId = () => globalStore.get(model.focusIdAtom);
     return [
         {
             id: "subagent:back",
@@ -773,7 +795,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "Escape",
             group: "Agent",
             label: "Back to Cockpit (or exit fullscreen)",
-            when: (ctx) => agentNavStrict(ctx) && globalStore.get(focusSubagentAtom) == null,
+            when: (ctx) => agentNavStrict(ctx) && globalStore.get(focusSubagentAtom) == null && noCanvas(),
             run: () => {
                 if (globalStore.get(terminalFullscreenAtom)) {
                     globalStore.set(terminalFullscreenAtom, false);
@@ -787,7 +809,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "ArrowLeft",
             group: "Agent",
             label: "Previous agent",
-            when: agentNav,
+            when: nav,
             run: () => step(-1),
         },
         {
@@ -795,17 +817,17 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "ArrowRight",
             group: "Agent",
             label: "Next agent",
-            when: agentNav,
+            when: nav,
             run: () => step(1),
         },
-        { id: "agent:prev-k", keys: "k", group: "Agent", label: "Previous agent", when: agentNav, run: () => step(-1) },
-        { id: "agent:next-j", keys: "j", group: "Agent", label: "Next agent", when: agentNav, run: () => step(1) },
+        { id: "agent:prev-k", keys: "k", group: "Agent", label: "Previous agent", when: nav, run: () => step(-1) },
+        { id: "agent:next-j", keys: "j", group: "Agent", label: "Next agent", when: nav, run: () => step(1) },
         {
             id: "agent:toggle-rail",
             keys: "d",
             group: "Agent",
             label: "Toggle agent rail",
-            when: agentNav,
+            when: nav,
             run: () => globalStore.set(railVisibleAtom, !globalStore.get(railVisibleAtom)),
         },
         {
@@ -813,7 +835,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "f",
             group: "Agent",
             label: "Toggle terminal fullscreen",
-            when: agentNav,
+            when: nav,
             run: () => globalStore.set(terminalFullscreenAtom, !globalStore.get(terminalFullscreenAtom)),
         },
         {
@@ -828,7 +850,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             // not show two rows with one label; the parenthetical is what distinguishes this door
             label: "Toggle terminal fullscreen (works inside the terminal)",
             paletteHidden: true, // duplicates agent:fullscreen, which already has a palette row
-            when: (ctx) => ctx.surface === "agent" && !ctx.modalOpen,
+            when: (ctx) => ctx.surface === "agent" && !ctx.modalOpen && noCanvas(),
             run: () => globalStore.set(terminalFullscreenAtom, !globalStore.get(terminalFullscreenAtom)),
         },
         {
@@ -842,6 +864,68 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 // refocus the surface wrapper (tabIndex=0) so ↑↓/j/k/d/f resume
                 document.querySelector<HTMLElement>("[data-cockpit-surface-wrap]")?.focus();
             },
+        },
+        // c and m change meaning with the canvas's state, so each is two bindings with exclusive when()s
+        // and every footer chip keeps a static label
+        {
+            id: "agent:canvas-open",
+            keys: "c",
+            group: "Agent",
+            label: "Show the agent's canvas",
+            when: (ctx) => agentNav(ctx) && canvas()?.mode === "terminal",
+            run: () => setCanvasMode(focusId(), "canvas", Date.now()),
+        },
+        {
+            id: "agent:canvas-close",
+            keys: "c",
+            group: "Agent",
+            label: "Back to the terminal",
+            when: inCanvas,
+            run: () => setCanvasMode(focusId(), "terminal", Date.now()),
+        },
+        {
+            id: "agent:canvas-prev",
+            keys: "[",
+            group: "Agent",
+            label: "Previous board",
+            when: boardReady,
+            run: () => stepCanvasBoard(focusId(), -1),
+        },
+        {
+            id: "agent:canvas-next",
+            keys: "]",
+            group: "Agent",
+            label: "Next board",
+            when: boardReady,
+            run: () => stepCanvasBoard(focusId(), 1),
+        },
+        {
+            id: "agent:mark-start",
+            keys: "m",
+            group: "Agent",
+            label: "Mark parts of the board",
+            when: boardReady,
+            run: () => setMarking(focusId(), true),
+        },
+        {
+            id: "agent:mark-stop",
+            keys: "m",
+            group: "Agent",
+            label: "Stop marking",
+            when: (ctx) => inCanvas(ctx) && canvas()!.marking,
+            run: () => setMarking(focusId(), false),
+        },
+        {
+            id: "agent:canvas-send",
+            keys: "Ctrl:Enter",
+            group: "Agent",
+            label: "Send the marks to the agent",
+            // live inside a note input on purpose: the last note is where the user finishes
+            when: (ctx) => {
+                const s = focusedCanvasMode(model);
+                return ctx.surface === "agent" && !ctx.modalOpen && s?.marking === true && s.marks.length > 0;
+            },
+            run: () => clickThrough("[data-canvas-send]"),
         },
     ];
 }

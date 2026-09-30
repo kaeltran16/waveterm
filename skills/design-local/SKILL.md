@@ -38,7 +38,10 @@ automatically a visual question.
      background and probe again until `200`.
    - Any other code: a stale server with another root holds the port; try the next one.
    One server serves every topic.
-3. Tell the user the URL of each artboard you added or changed
+3. If you run inside Arc (`wsh` is on PATH), run `wsh ui reveal canvas:<topic>` from your
+   terminal: it opens the canvas beside you on the Agent surface, and the user marks it and sends
+   the marks back to you as one line. If that command fails or `wsh` is missing, list the URLs:
+   tell the user the URL of each artboard you added or changed
    (`http://127.0.0.1:<port>/<topic>/project/<Name>.dc.html`, `Main.dc.html` first), a line on
    what each shows, and the assumptions you made. When the brief asks for states, derive the
    state list from the component and its stores, not the brief, and map each state to the

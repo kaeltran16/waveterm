@@ -7306,6 +7306,246 @@ const radarStartInvestigation = {
     },
 };
 
+// --- canvas mode swaps with the terminal, which stays mounted ----------------------------------------
+// final-verify boots a fresh store with no agents, so the scenario opens its own plain terminal tab the way
+// launchAgent does (CreateTab, then the terminal meta) and reveals a temp canvas as that terminal's. CreateTab is
+// a wavesrv service call, which the page cannot reach cross-origin, so Node makes it with the page's auth key.
+// No python server serves the canvas, so the pane sits in its server-down state: the swap is under test, not the
+// board.
+const CANVAS_TOPIC = "verify-canvas";
+const CANVAS_BOARD = "Main.dc.html";
+const CANVAS_PANE = `document.querySelector("[data-canvas-pane]")`;
+const CANVAS_SWAP = `document.querySelector('[role="group"][aria-label="Show terminal or canvas"]')`;
+// the poller ticks every 3s (CANVAS_POLL_MS), so one tick always lands inside this
+const CANVAS_REMOVED_WAIT_MS = 5000;
+const CANVAS_ROSTER_WAIT_MS = 10000;
+const CANVAS_KEYS = { c: { key: "c", code: "KeyC", keyCode: 67 }, x: { key: "x", code: "KeyX", keyCode: 88 } };
+
+async function waveService(h, service, method, args) {
+    const [endpoint, key] = await h.ev(`[window.api.getEnv("WAVE_SERVER_WEB_ENDPOINT"), window.api.getAuthKey()]`);
+    const res = await fetch(`http://${endpoint}/wave/service?service=${service}&method=${method}`, {
+        method: "POST",
+        headers: { "x-authkey": key },
+        body: JSON.stringify({ service, method, args, uicontext: null }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || body == null || body.error) {
+        throw new Error(`${service}.${method}: ${body?.error ?? `HTTP ${res.status}`}`);
+    }
+    return body.data;
+}
+
+// the workspace of the page's own tab, so the terminal lands in the window under test
+async function openCanvasTerminal(h, ctx) {
+    const bootTab = String(await h.ev("window.TabRpcClient.routeId")).replace(/^tab:/, "");
+    const wslist = await h.rpc("workspacelist", null);
+    const ws = wslist.find((w) => (w.workspacedata?.tabids ?? []).includes(bootTab)) ?? wslist[0];
+    ctx.workspaceId = ws.workspacedata.oid;
+    ctx.tabId = await waveService(h, "workspace", "CreateTab", [ctx.workspaceId, CANVAS_TOPIC, false]);
+    const tab = await waveService(h, "object", "GetObject", [`tab:${ctx.tabId}`]);
+    ctx.blockId = tab?.blockids?.[0];
+    if (!ctx.blockId) throw new Error("the new tab has no block");
+    // the shell starts in ~, not the temp dir: something in the app tree keeps its cwd locked until the app exits,
+    // so teardown could not delete it. The reveal names its cwd itself (callercwd), so this changes nothing tested
+    await h.rpc("setmeta", {
+        oref: `block:${ctx.blockId}`,
+        meta: { view: "term", controller: "shell", "cmd:cwd": "~" },
+    });
+    await h.rpc("setmeta", { oref: `tab:${ctx.tabId}`, meta: { "session:project": CANVAS_TOPIC } });
+}
+
+const pressCanvasKey = async (h, { key, code, keyCode }) => {
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key, code, text: key, windowsVirtualKeyCode: keyCode });
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: keyCode });
+    await polishNap(500);
+};
+
+const clickCanvasSwap = (h, label) =>
+    h.ev(`(() => {
+        const b = [...(${CANVAS_SWAP}?.querySelectorAll("button") ?? [])]
+            .find((x) => (x.textContent || "").trim() === ${JSON.stringify(label)});
+        if (!b) return false;
+        b.click();
+        return true;
+    })()`);
+
+const canvasSwap = {
+    name: "canvas-swap",
+    surface: "agent",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-canvas-"));
+        const project = join(cwd, ".superpowers", "design", CANVAS_TOPIC, "project");
+        mkdirSync(project, { recursive: true });
+        writeFileSync(
+            join(project, "canvas.json"),
+            JSON.stringify({ boards: { [CANVAS_BOARD]: { w: 1440 } }, order: [CANVAS_BOARD] })
+        );
+        writeFileSync(join(project, CANVAS_BOARD), "<!doctype html><title>verify canvas</title><p>verify canvas</p>");
+        const ctx = { cwd };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            await openCanvasTerminal(h, ctx);
+        } catch (e) {
+            ctx.launchError = String(e?.message ?? e);
+            return ctx;
+        }
+        await h.goto("agent");
+        ctx.inRoster = await polishWaitFor(
+            h,
+            `!!document.querySelector('[data-agent-terminal="${ctx.tabId}"]')`,
+            CANVAS_ROSTER_WAIT_MS
+        );
+        return ctx;
+    },
+    async assert(h, ctx) {
+        if (ctx.launchError != null) {
+            return [skipStep("canvas swap", `could not verify: the terminal launch failed: ${ctx.launchError}`)];
+        }
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const TERM = `document.querySelector('[data-agent-terminal="${ctx.tabId}"]')`;
+        rec("0. the launched terminal is in the roster", ctx.inRoster === true, `tab=${ctx.tabId}`);
+        if (!ctx.inRoster) return steps;
+
+        // tagged before any swap: a remount would drop the attribute with the node
+        const tagged = await h.ev(`(() => {
+            const t = ${TERM};
+            t.setAttribute("data-verify-mark", "canvas-swap");
+            const x = t.querySelector(".xterm");
+            if (x) x.setAttribute("data-verify-mark", "canvas-swap");
+            return { xterm: !!x };
+        })()`);
+
+        let revealError = null;
+        try {
+            await h.rpc(
+                "uireveal",
+                { address: `canvas:${CANVAS_TOPIC}`, callerblockid: ctx.blockId, callercwd: ctx.cwd },
+                UI_ROUTE
+            );
+        } catch (e) {
+            revealError = String(e?.message ?? e);
+        }
+        const paneUp = await polishWaitFor(h, `!!${CANVAS_PANE}`, 3000);
+        const swap = await h.ev(`(() => {
+            const g = ${CANVAS_SWAP};
+            return g ? [...g.querySelectorAll("button")].map((b) => (b.textContent || "").trim()) : null;
+        })()`);
+        const treeGone = await h.ev(`!document.querySelector("[data-agent-tree]")`);
+        rec(
+            "1. uireveal canvas:<topic> from the terminal shows the canvas pane in its place",
+            revealError == null && paneUp,
+            `pane=${paneUp} error=${revealError}`
+        );
+        rec("2. canvas mode hides the agent tree", treeGone === true, `treeGone=${treeGone}`);
+        rec(
+            "3. the header swaps between Terminal and Canvas",
+            JSON.stringify(swap) === JSON.stringify(["Terminal", "Canvas"]),
+            `buttons=${JSON.stringify(swap)}`
+        );
+        await h.shot("cdp-shots/canvas-swap-canvas.png");
+
+        // a real click puts the page in focus, which CDP key events need to reach it at all
+        const box = await h.ev(`(() => {
+            const r = ${CANVAS_PANE}?.querySelector("span")?.getBoundingClientRect();
+            return r ? { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } : null;
+        })()`);
+        if (box) {
+            for (const type of ["mousePressed", "mouseReleased"]) {
+                await h.cdp("Input.dispatchMouseEvent", { type, x: box.x, y: box.y, button: "left", clickCount: 1 });
+            }
+        }
+        // x is bound nowhere, so the probe seeing it proves key events arrive: a c that then does nothing is a
+        // real failure, not an undelivered key
+        await h.ev(`(() => {
+            window.__canvasSeen = [];
+            window.__canvasProbe = (e) => window.__canvasSeen.push(e.key);
+            window.addEventListener("keydown", window.__canvasProbe, true);
+            return true;
+        })()`);
+        await pressCanvasKey(h, CANVAS_KEYS.x);
+        const delivered = await h.ev(`window.__canvasSeen.includes("x")`);
+        await h.ev(`window.removeEventListener("keydown", window.__canvasProbe, true)`);
+
+        const toTerminal = delivered ? await pressCanvasKey(h, CANVAS_KEYS.c) : await clickCanvasSwap(h, "Terminal");
+        await polishNap(300);
+        const back = await h.ev(`(() => {
+            const t = ${TERM};
+            const x = t?.querySelector(".xterm");
+            return {
+                pane: !!${CANVAS_PANE},
+                visible: !!t && !t.classList.contains("hidden"),
+                sameNode: t?.getAttribute("data-verify-mark") === "canvas-swap",
+                sameXterm: x == null ? null : x.getAttribute("data-verify-mark") === "canvas-swap",
+            };
+        })()`);
+        const keyed = delivered ? "c" : "the Terminal button (CDP keys did not reach the page)";
+        rec(
+            `4. ${keyed} returns to the terminal`,
+            toTerminal !== false && !back.pane && back.visible,
+            JSON.stringify({ delivered, ...back })
+        );
+        rec(
+            "5. the terminal was hidden, not remounted",
+            back.sameNode && (tagged.xterm ? back.sameXterm === true : true),
+            JSON.stringify({ taggedXterm: tagged.xterm, sameNode: back.sameNode, sameXterm: back.sameXterm })
+        );
+        const tag = await h.ev(
+            `!!document.querySelector('[data-agent-tree] span[title="Has a design canvas"]')?.textContent?.includes("canvas")`
+        );
+        rec("6. the agent tree tags the terminal's row canvas", tag === true, `tag=${tag}`);
+        if (!delivered) {
+            steps.push(skipStep("4b. the c key itself", "CDP key events never reached the page; drove the header instead"));
+        }
+
+        // back in the terminal the xterm holds focus and would take the c; leave it the way Esc does
+        await h.ev(`(() => {
+            document.activeElement?.blur?.();
+            document.querySelector("[data-cockpit-surface-wrap]")?.focus();
+            return true;
+        })()`);
+        if (delivered) await pressCanvasKey(h, CANVAS_KEYS.c);
+        else await clickCanvasSwap(h, "Canvas");
+        const again = await polishWaitFor(h, `!!${CANVAS_PANE}`, 2000);
+        rec(`7. ${delivered ? "c" : "the Canvas button"} brings the canvas back`, again, `pane=${again}`);
+
+        rmSync(join(ctx.cwd, ".superpowers", "design", CANVAS_TOPIC), { recursive: true, force: true });
+        const removed = await polishWaitFor(
+            h,
+            `(${CANVAS_PANE}?.textContent || "").includes(${JSON.stringify(`${CANVAS_TOPIC} was removed`)})`,
+            CANVAS_REMOVED_WAIT_MS
+        );
+        rec("8. deleting the canvas folder shows the removed state", removed, `removed=${removed}`);
+        await h.shot("cdp-shots/canvas-swap-removed.png");
+        return steps;
+    },
+    // best-effort, so one failed step does not strand the rest
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`canvas-swap teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("leave the canvas", () =>
+            h.ev(`(() => {
+                const b = [...(${CANVAS_PANE}?.querySelectorAll("button") ?? [])]
+                    .find((x) => (x.textContent || "").trim() === "Back to terminal");
+                if (b) b.click();
+                return true;
+            })()`)
+        );
+        if (ctx.tabId) {
+            await step("close the terminal tab", () =>
+                waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false])
+            );
+        }
+        await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
+        await step("go home", () => h.goto("cockpit"));
+    },
+};
+
 export const SCENARIOS = [
     briefContextualMap,
     briefRestore,
@@ -7352,4 +7592,5 @@ export const SCENARIOS = [
     briefPeeksPolish,
     newRunWindow,
     modelPicks,
+    canvasSwap,
 ];
