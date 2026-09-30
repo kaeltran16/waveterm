@@ -202,13 +202,14 @@ func channelHasOutcome(t *testing.T, channelOID string) bool {
 
 func TestOnWorkerExitPostsTheOutcomeWhenTheHookOutlivesTheDeadline(t *testing.T) {
 	blockOID, channelOID := seedDispatchedWorker(t)
+	// wide enough for the exit's own reads, which include a cold scan of every channel; only the hook may outlive it
 	oldTimeout := exitReadTimeout
-	exitReadTimeout = 50 * time.Millisecond
+	exitReadTimeout = time.Second
 	t.Cleanup(func() { exitReadTimeout = oldTimeout })
 	oldHook := ChildOutcomeHook
 	t.Cleanup(func() { ChildOutcomeHook = oldHook })
-	ChildOutcomeHook = func(context.Context, string, OutcomeData) error {
-		time.Sleep(4 * exitReadTimeout) // a dag lock held past the exit's deadline
+	ChildOutcomeHook = func(ctx context.Context, _ string, _ OutcomeData) error {
+		<-ctx.Done() // a dag lock held past the exit's deadline
 		return nil
 	}
 
