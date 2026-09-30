@@ -239,7 +239,7 @@ It also states two constraints up front, which is new for both runtimes:
   returns the existing group when `run.DagORef != ""`, and a differing proposal fails with `dag
   conflict`), so a two-phase import is not available.
 
-The live pi run captured in `docs/jarvis-orchestrator-plan-e2e.md` burned a blocking human escalation
+The live pi run captured in `git show a4b5bd4f:docs/jarvis-orchestrator-plan-e2e.md` burned a blocking human escalation
 discovering both facts at submit time, and its own recommended remedy was the two-phase import that
 cannot work. A lead told up front simply plans within the limits.
 
@@ -281,7 +281,7 @@ introducing a lone persisted atom for one control.
 
 The live run is the only test that proves the loop closes. Everything above is unit-testable and none
 of it demonstrates a Claude lead actually reaching a merge gate — the same reason
-`docs/jarvis-orchestrator-plan-e2e.md` exists for pi. There is no jsdom render harness for the
+`git show a4b5bd4f:docs/jarvis-orchestrator-plan-e2e.md` exists for pi. There is no jsdom render harness for the
 composer control; `surface-smoke` covers that it renders.
 
 Note that `dag wait` cannot be exercised against a stale backend: `task build:backend` must run in the

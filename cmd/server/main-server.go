@@ -208,7 +208,7 @@ func maybeStartPprofServer() {
 }
 
 func main() {
-	log.SetFlags(0) // disable timestamp since electron's winston logger already wraps with timestamp
+	log.SetFlags(0) // disable timestamp since the tauri host's applog already timestamps each stderr line
 	log.SetPrefix("[wavesrv] ")
 	wavebase.WaveVersion = WaveVersion
 	wavebase.BuildTime = BuildTime

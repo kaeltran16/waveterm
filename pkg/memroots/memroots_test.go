@@ -48,21 +48,6 @@ func TestIndexFileConst(t *testing.T) {
 	}
 }
 
-func TestRegistryPathForLabel(t *testing.T) {
-	// registry name match
-	if p := registryPathForLabel("Krypton API", map[string]string{"Krypton API": `C:\Users\k\krypton`}); p != `C:\Users\k\krypton` {
-		t.Fatalf("name match = %q", p)
-	}
-	// leaf folder match
-	if p := registryPathForLabel("waveterm", map[string]string{"Krypton API": `C:\Users\k\krypton`}); p != "" {
-		t.Fatalf("unregistered leaf should resolve empty, got %q", p)
-	}
-	// ambiguous leaves: first registered path wins
-	if p := registryPathForLabel("app", map[string]string{"a": `C:\x\app`, "b": `C:\y\app`}); p != `C:\x\app` {
-		t.Fatalf("ambiguous leaf = %q, want first", p)
-	}
-}
-
 func TestMigrateVaultToConfiguredRootCopies(t *testing.T) {
 	src := t.TempDir()
 	dstRoot := t.TempDir()

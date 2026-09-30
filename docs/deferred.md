@@ -7,6 +7,17 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Terminal file drop pastes the file's path (deferred 2026-09-30)
+
+- **Deferred:** dropping a file onto a terminal to paste its quoted path. The Electron build read the path with
+  `webUtils.getPathForFile`; the Tauri port stubbed that to return `""`, so the drop handler never pasted anything.
+  The stub and the handler are gone; `termwrap.ts` now only swallows the drop so the webview doesn't navigate to the file.
+- **Why:** a webview `File` carries no path. Tauri's native drag-drop event does, but it needs `dragDropEnabled: true`
+  on the window (`src-tauri/tauri.conf.json`), which takes HTML5 drag-and-drop away from every surface.
+- **Revive when** file drops onto a terminal are wanted: listen to `getCurrentWebview().onDragDropEvent` and hit-test the
+  drop position against the terminal, which needs that flag flipped and every HTML5 drag target re-checked. The old
+  handler: `git show a4b5bd4f:frontend/app/view/term/termwrap.ts` (`dropHandler`).
+
 ## Final stage: a verifier's verdict held during Checking is not persisted (declined 2026-09-30)
 
 - **Declined:** persisting the verdict of a final verifier that finishes before the stage's Check and Final
@@ -21,7 +32,7 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 
 ## Run recovery after a restart — dag runs (deferred 2026-09-30)
 
-The restart recovery in `docs/superpowers/plans/2026-09-30-run-restart-recovery.md` covers non-dag runs only: quick, pipeline, and an
+The restart recovery in `git show a4b5bd4f:docs/superpowers/plans/2026-09-30-run-restart-recovery.md` covers non-dag runs only: quick, pipeline, and an
 orchestrator lead before `dag submit`.
 
 - **Deferred:** marking a dag run's children and a submitted lead interrupted at boot, and resuming them.
@@ -124,7 +135,7 @@ deleted it outright rather than re-home it, since nothing in the cockpit still m
 
 ## Lead-authored task routing — Phase 4 measurement gate (2026-09-17)
 
-Phases 1–3 of `docs/lead-authored-task-routing-roadmap.md` are now shipped: the DAG-graph route display
+Phases 1–3 of `docs/superpowers/briefs/2026-08-19-lead-authored-task-routing-roadmap.md` are now shipped: the DAG-graph route display
 (`551f76ee`) and run-evidence recording of the effective `(harness, model)` per task (`96fa3254` —
 `RunEvidence` gains `Harness`/`Model`, sealed from the run's actual route and its last worker transcript's
 reported model). Phase 4, the cost/outcome measurement gate, stays held.
@@ -135,7 +146,7 @@ reported model). Phase 4, the cost/outcome measurement gate, stays held.
   where it matters (easy-rated-but-hard tasks), and misrouting hard-as-easy is strictly worse than not
   routing at all (YAGNI unless evidence shows cheap-first waste actually biting). No such evidence exists
   yet.
-- **Where it plugs in:** `docs/lead-authored-task-routing-roadmap.md` §"Phase 4 — Measurement gate" states
+- **Where it plugs in:** `docs/superpowers/briefs/2026-08-19-lead-authored-task-routing-roadmap.md` §"Phase 4 — Measurement gate" states
   the fix shape (cost/outcome per `(stampTier, runTier, cached%)` via `usagestats`) and stays valid; Phase 4
   may be skipped entirely.
 - **To resume:** on evidence that cheap-first routing waste is common (a hard task run cheap, cost or outcome
@@ -273,7 +284,7 @@ which answers each question with picks or one line of text, all or nothing; `age
 `EncodeAnswer` and the prose path, checks an answer before delivery; cards gain `Questions` and `Answers`.
 
 Found while designing the orchestrator redesign
-(`docs/superpowers/briefs/2026-09-14-orchestrator-redesign-measurements.md`). Deferred by the user: the
+(`git show a4b5bd4f:docs/superpowers/briefs/2026-09-14-orchestrator-redesign-measurements.md`). Deferred by the user: the
 redesign's high-level decisions come first. The fix shape below was reviewed in chat and is **not approved**.
 
 - **What is limited:** `handleAsk` (`pkg/jarvis/watcher.go`) escalates every ask that `askAutoAnswerable`
@@ -636,7 +647,7 @@ PLACEHOLDER tuning (calibrate against a populated, embedded vault):
   the real 424-node corpus: replaced by `kSemPerCollection = 6` (a per-collection KNN — measured requirement
   is ≥2, kept at 6 for headroom) plus `semSeedFloor = 0.325`, a floor L3 previously lacked entirely. Both are
   specific to `text-embedding-3-small`. Measurement and the floor sweep are in
-  `docs/jarvis-second-brain-open-issues.md` § J5; harness is `pkg/jarvisrecall/liveprobe_test.go`.
+  § J5 of `git show a4b5bd4f:docs/jarvis-second-brain-open-issues.md`; harness is `pkg/jarvisrecall/liveprobe_test.go`.
 - `semCandidateN = 20` (window-overlapping runs considered per orphan dossier, `pkg/jarvisattrib/semantic.go`).
 - `semThreshold = 0.75` (cosine floor to propose a semantic edge).
 - `weightLayer4 = 0.2` (semantic edge confidence). It renders "weak" because layer 4 maps to "weak"
@@ -697,7 +708,7 @@ Decided during the C brainstorming (spec `docs/superpowers/specs/2026-07-24-jarv
 
 ## Jarvis sub-project A (Wave Vault) — memory vault coexists, unify later (2026-07-23) — ✅ RESOLVED 2026-07-27
 
-**Resolved by J6**, spec `docs/superpowers/specs/2026-07-27-jarvis-j6-memory-root-unification-design.md`. `pkg/memroots` is now the single registry of durable-knowledge roots; the agent-native memory dirs are federated into the vault's `memory/` collection as read-only mirrors; the legacy `~/.waveterm/memory` root is migrated under the vault on first open. The one item below deliberately **not** done is folding the Memory surface onto the vault read API — memvault's typed projection drives the review/prune/archive UI, and both APIs now read the same bytes from the same roots anyway. The deferral discovered one thing this entry got wrong: coexistence was **not** cheap, because the vault's `memory/` had no writer, so every vault-backed consumer was reading an empty collection. See J6 in `docs/jarvis-second-brain-open-issues.md`.
+**Resolved by J6**, spec `docs/superpowers/specs/2026-07-27-jarvis-j6-memory-root-unification-design.md`. `pkg/memroots` is now the single registry of durable-knowledge roots; the agent-native memory dirs are federated into the vault's `memory/` collection as read-only mirrors; the legacy `~/.waveterm/memory` root is migrated under the vault on first open. The one item below deliberately **not** done is folding the Memory surface onto the vault read API — memvault's typed projection drives the review/prune/archive UI, and both APIs now read the same bytes from the same roots anyway. The deferral discovered one thing this entry got wrong: coexistence was **not** cheap, because the vault's `memory/` had no writer, so every vault-backed consumer was reading an empty collection. See J6 in `git show a4b5bd4f:docs/jarvis-second-brain-open-issues.md`.
 
 Decided during the A brainstorming (spec in progress: `docs/superpowers/specs/2026-07-23-jarvis-a-wave-vault-*.md`). Sub-project A stands up a **new** git-backed Wave Vault at `~/.waveterm/vault/` (`tasks/`, `decisions/`, `attachments/`, and its own `memory/`). The pre-existing memory vault (`pkg/memvault`, `~/.waveterm/memory`, scanned alongside `~/.claude/projects` + `~/.codex/memories`) and the cockpit **Memory** surface are left **untouched** — two "durable knowledge" roots coexist for now.
 
@@ -730,14 +741,14 @@ Not deferred / tracked elsewhere (recorded so a reader isn't left guessing): **c
 
 A four-lane read-only scan (product/UX friction · performance · reliability/correctness · tech-debt/test-gaps)
 for improvements **not** already on any backlog. Excluded by construction: the coherence audit
-(`docs/agents/cockpit-coherence-audit.md` F1–F14), `channels-improvements.md`, `runs-pipeline-known-issues.md`,
+(`git show a4b5bd4f:docs/agents/cockpit-coherence-audit.md` F1–F14), `channels-improvements.md`, `runs-pipeline-known-issues.md`,
 every entry below in this file, and the named open threads (Jarvis fan-out v1.1, usage backend parts 2&3,
 dual-answer ask, cursor-row composer, new-agent-tab integration). **Nothing here is chosen or built** — this is
 a captured menu so the scan need not be re-run. Effort: S (localized FE) / M (FE+wiring or store) / L (backend+FE).
 
 ### Theme 1 — "Answer in place" triage flow dead-ends (flagship promise; all confirmed) — SHIPPED 2026-07-17
 
-**Shipped:** T1, T2, T4, C1, C2 (T3 declined). Plan: `docs/superpowers/plans/2026-07-17-theme1-triage-flow-hardening.md`.
+**Shipped:** T1, T2, T4, C1, C2 (T3 declined). Plan: `git show a4b5bd4f:docs/superpowers/plans/2026-07-17-theme1-triage-flow-hardening.md`.
 The T1 stale-draft cleanup runs in the always-mounted `CockpitShell` (`useResetAnswerDraftsOnAskChange`), so
 it fires on every surface that answers asks — the cockpit grid AND the Channels `AskRow` — not just the
 cockpit.
@@ -824,7 +835,7 @@ cockpit.
 ### Theme 3 — Ask-channel correctness (backend)
 
 > **Resolved 2026-07-17 (theme3-ask-channel-correctness).** Both fixes shipped, TDD'd under `-race`
-> (spec via the brief; plan `docs/superpowers/plans/2026-07-17-theme3-ask-channel-correctness.md`):
+> (spec via the brief; plan `git show a4b5bd4f:docs/superpowers/plans/2026-07-17-theme3-ask-channel-correctness.md`):
 > - **A1** — `Registry.Claim(oref, askid)` (atomic look-up-and-delete) now gates `DeliverAnswer`, so
 >   exactly one concurrent caller injects; the loser returns `delivered=false`. `DeliverAnswer(oref, askid,
 >   answers)` restores the pending on an encode error (nothing sent) but not on a mid-inject error (partial
@@ -886,12 +897,12 @@ plan (`docs/superpowers/{specs,plans}/2026-07-17-theme4-maintainability-testgaps
 **Design briefs (resolved decisions, per theme)** live under `docs/superpowers/briefs/`; a downstream agent
 expands each into a formal spec + plan and executes. Status:
 - Theme 1 — SHIPPED 2026-07-17 (T1, T2, T4, C1, C2; T3 declined). Brief:
-  `docs/superpowers/briefs/2026-07-17-theme1-triage-flow-hardening-brief.md`; plan:
-  `docs/superpowers/plans/2026-07-17-theme1-triage-flow-hardening.md`.
-- Theme 2 — `docs/superpowers/briefs/2026-07-17-theme2-streaming-core-brief.md` (S1 client+server; S2 full refactor).
-- Theme 3 — `docs/superpowers/briefs/2026-07-17-theme3-backend-correctness-brief.md` (A1 no-wire-change; A2 guarded). **SHIPPED 2026-07-17.**
+  `git show a4b5bd4f:docs/superpowers/briefs/2026-07-17-theme1-triage-flow-hardening-brief.md`; plan:
+  `git show a4b5bd4f:docs/superpowers/plans/2026-07-17-theme1-triage-flow-hardening.md`.
+- Theme 2 — `git show a4b5bd4f:docs/superpowers/briefs/2026-07-17-theme2-streaming-core-brief.md` (S1 client+server; S2 full refactor).
+- Theme 3 — `git show a4b5bd4f:docs/superpowers/briefs/2026-07-17-theme3-backend-correctness-brief.md` (A1 no-wire-change; A2 guarded). **SHIPPED 2026-07-17.**
 - Theme 4 — PARTIALLY SHIPPED 2026-07-17 (#1,#2,#3,#6; #4,#5 deferred pending Theme 2). Brief:
-  `docs/superpowers/briefs/2026-07-17-theme4-maintainability-testgaps-brief.md`; spec/plan:
+  `git show a4b5bd4f:docs/superpowers/briefs/2026-07-17-theme4-maintainability-testgaps-brief.md`; spec/plan:
   `docs/superpowers/{specs,plans}/2026-07-17-theme4-maintainability-testgaps-first-tranche*.md`.
 
 **To resume any of these:** read the theme's brief (or, for un-briefed themes, this entry) and run the
@@ -1384,7 +1395,7 @@ it is editor theming, not cockpit light mode.
   firing layer (`jarvisattrib.BucketFor`), so there is nothing left to calibrate. They were never
   calibratable — `confidenceFor` returns the max of four fixed layer weights and never blends them, so
   the reachable confidence set is `{0.2, 0.3, 0.8, 1.0}` and no edge could land in the `[0.4, 0.75)`
-  "medium" band. See J10 in `docs/jarvis-second-brain-open-issues.md`.
+  "medium" band. See J10 in `git show a4b5bd4f:docs/jarvis-second-brain-open-issues.md`.
 
 ## Jarvis U3 — graph edge/node visual tunables (2026-07-27)
 

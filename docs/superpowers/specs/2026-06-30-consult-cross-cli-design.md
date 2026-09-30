@@ -3,7 +3,7 @@
 Date: 2026-06-30
 Scope: feature (one new streaming wshrpc command + a detect-installed command + a Channels composer gesture and
 two message types). Spec only — hands off to writing-plans.
-Related: `docs/orchestrator-roadmap.md` (step 2 — the documented fast-follow on Channels; also the future
+Related: `git show a4b5bd4f:docs/orchestrator-roadmap.md` (step 2 — the documented fast-follow on Channels; also the future
 Delegator's "review the combined diff" tool), the Channels tab (`2026-06-30-channels-tab-design.md`, the substrate
 this layers onto — `consult-reply` is message type #5, deferred there), and the inspiration
 `~/.codex/skills/1devtool-orchestrator/SKILL.md` (a reference contract, **not** a runtime dependency).
@@ -85,7 +85,7 @@ Settled interactively; recorded so the plan doesn't relitigate them.
 ```
 
 The consult is a backend primitive the composer calls today and the future manager calls later — same command, no
-new substrate. See `docs/orchestrator-roadmap.md`.
+new substrate. See `git show a4b5bd4f:docs/orchestrator-roadmap.md`.
 
 ## Backend — verbs as commands (manager-ready seam)
 

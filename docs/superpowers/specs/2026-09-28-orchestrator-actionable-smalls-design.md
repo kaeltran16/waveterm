@@ -212,7 +212,7 @@ that route.
     the log has no `jarvis onexit` line.
   - `TestADispatchedWorkersOutcomeSurvivesTheReap`: `seedDispatchedWorker`, with the hook deleting the tab.
     The outcome is posted to the dispatching channel.
-- `docs/orchestrator-findings-2026-09-25.md`, row 49: the detail row gains one sentence. The "outcome not
+- `docs/superpowers/briefs/2026-09-25-orchestrator-findings.md`, row 49: the detail row gains one sentence. The "outcome not
   posted" lines of run `6c7652be` (t-2, t-3) were not a second route: engine workers never get a channel
   outcome, and those tasks had merged. The log line was removed. The row's test list gains the two tests.
   The summary row is unchanged.

@@ -2,7 +2,7 @@
 
 > Captured 2026-06-26. A **Phase 2** surface of the agent-cockpit redesign, sibling to the
 > [Activity surface](./2026-06-26-cockpit-activity-surface-design.md). Reads on top of
-> [`redesign-meta-spec.md`](../../redesign-meta-spec.md) (§4 surface inventory, §6 data
+> `redesign-meta-spec.md` (`git show a4b5bd4f:docs/redesign-meta-spec.md`) (§4 surface inventory, §6 data
 > flow, §9 open questions). Source of truth for the visual:
 > `wave-handoff/wave/project/Wave-cockpit-live.dc.html:733-804` (the `isFiles` block).
 

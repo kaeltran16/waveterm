@@ -13,7 +13,7 @@ import { Provider } from "jotai";
 import React, { lazy, Suspense, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { makeMockWaveEnv, PreviewClientId, PreviewTabId, PreviewWindowId } from "./mock/mockwaveenv";
-import { installPreviewElectronApi } from "./mock/preview-electron-api";
+import { installPreviewHostApi } from "./mock/preview-host-api";
 import { PreviewContextMenu } from "./preview-contextmenu";
 
 import "overlayscrollbars/overlayscrollbars.css";
@@ -142,12 +142,11 @@ function PreviewApp() {
 }
 
 function initPreview() {
-    installPreviewElectronApi();
+    installPreviewHostApi();
     const initOpts = {
         tabId: PreviewTabId,
         windowId: PreviewWindowId,
         clientId: PreviewClientId,
-        environment: "renderer",
         platform: "darwin",
         isPreview: true,
     } as GlobalInitOptions;

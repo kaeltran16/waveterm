@@ -183,7 +183,7 @@ evidence to compare cost/outcome per stamp, harness and model).
 - **Exit lane:** chunk 3, no dependency.
 - **Frontend lane:** chunks 10, 11, 14, 15, 8, no dependencies, no shared files.
 - **Docs:** one final task depends on every code task and writes every `docs/open-issues.md`,
-  `docs/deferred.md` and `docs/lead-authored-task-routing-roadmap.md` update from the chunk notes, citing
+  `docs/deferred.md` and `docs/superpowers/briefs/2026-08-19-lead-authored-task-routing-roadmap.md` update from the chunk notes, citing
   commits — including the three chunks closed without a task and the new deferred entries (attachments,
   threads, Phase 4).
 - **Verify:** `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit && npx vitest run &&

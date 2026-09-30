@@ -1,7 +1,7 @@
 # Tauri Migration — Phase 5b Frontend-Teardown Spec
 
 > Captured 2026-06-25. The fifth phase sub-spec under
-> [`tauri-migration-meta-spec.md`](../../tauri-migration-meta-spec.md), following
+> `tauri-migration-meta-spec.md` (`git show a4b5bd4f:docs/tauri-migration-meta-spec.md`), following
 > [`2026-06-24-tauri-phase5a-boot-cockpit-design.md`](./2026-06-24-tauri-phase5a-boot-cockpit-design.md).
 > Covers the **second half** of meta spec §8 row **"5 · Frontend teardown"**: 5a booted the
 > real cockpit with the old machinery *dormant*; 5b deletes the now-provably-dead machinery,

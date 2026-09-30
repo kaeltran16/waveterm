@@ -7,8 +7,8 @@ import "errors"
 
 // protect/unprotect are the at-rest encryption seam for the secrets file, implemented per platform.
 //
-// These used to be an RPC round-trip to the Electron shell's safeStorage over wshutil.ElectronRoute.
-// Under Tauri nothing serves that route (only senders exist — see the backend-legacy-cleanup plan), so
+// These used to be an RPC round-trip to the Electron shell's safeStorage over the "electron" route.
+// Under Tauri nothing served that route (only senders existed), so
 // every write failed and no secrets file was ever produced: secrets lived in wavesrv's memory and died
 // with the process. Doing the encryption in-process removes the dead hop rather than reviving it, which
 // is the same call the rest of the Tauri migration made.

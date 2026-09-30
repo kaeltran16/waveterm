@@ -5,9 +5,9 @@
 > *know the operator's work* — status, history, decisions, bring-up — and make it askable
 > from the jarvis tab, the avatar, and pi agents. Reads on the
 > [07-31 integration brief](../../briefs/2026-07-31-jarvis-integration-brief.md) (the
-> measurement that set this direction), [`docs/jarvis-tab.md`](../../jarvis-tab.md) (the
+> measurement that set this direction), `git show a4b5bd4f:docs/jarvis-tab.md` (the
 > surface), and the open-issues entries J3/J5/J9/J11
-> ([`docs/jarvis-second-brain-open-issues.md`](../../jarvis-second-brain-open-issues.md)).
+> (`git show a4b5bd4f:docs/jarvis-second-brain-open-issues.md`).
 
 ## 1. Goal
 

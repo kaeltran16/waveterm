@@ -15,7 +15,7 @@ import { splitInsightBlocks } from "./insightblocks";
 // so transcript text cannot inject markup.
 
 // links open through the app helper (external/internal routing), matching element/markdown.tsx —
-// NOT target=_blank, which is wrong under Electron. tables are wrapped so wide ones scroll inside
+// NOT target=_blank, which bypasses that routing. tables are wrapped so wide ones scroll inside
 // the panel instead of breaking its width.
 const MD_COMPONENTS: Components = {
     a: ({ href, children }) => (

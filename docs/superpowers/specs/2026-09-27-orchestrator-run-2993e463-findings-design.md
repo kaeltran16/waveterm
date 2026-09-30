@@ -1,7 +1,7 @@
 # Orchestrator findings from run 2993e463
 
 Source: watching run 2993e463 (landed as `63ce6a224`) and dag 9b17c7e9 (run bf3a2fe3). Four findings, each
-with its cause in the code and the change. The fixes are recorded in `docs/orchestrator-findings-2026-09-25.md`.
+with its cause in the code and the change. The fixes are recorded in `docs/superpowers/briefs/2026-09-25-orchestrator-findings.md`.
 
 This run (c84aa179) goes through the engine on purpose, although the work is small: it is also the live check of
 the plan review, the merge train, the stuck flags and the Agent tree rows, which that doc lists as not verified
@@ -158,7 +158,7 @@ and in `attention_dag_test.go` `TestBuildAttentionKeepsTheFailureCountForFailedT
 
 ## 5. The findings doc
 
-A new section `## Fixes: run 2993e463` in `docs/orchestrator-findings-2026-09-25.md`, a `| # | Fix | Test |`
+A new section `## Fixes: run 2993e463` in `docs/superpowers/briefs/2026-09-25-orchestrator-findings.md`, a `| # | Fix | Test |`
 table like the others, one row per finding above, with the test names as they landed. Findings are numbered on
 from the doc's last (37 to 40), each row saying what it fixed in the style of the existing rows. The four also
 get rows in the doc's Summary table, marked fixed.

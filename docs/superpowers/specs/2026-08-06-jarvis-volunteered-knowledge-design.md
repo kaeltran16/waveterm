@@ -233,7 +233,7 @@ No new scheduler, no new daemon.
 ### The one calibration risk, named
 
 The `loose-end` "untouched past a threshold" number is exactly what the second-brain backlog's calibration
-item (**J5**, `docs/jarvis-second-brain-open-issues.md`) exists to warn about: it inventories every tuning
+item (**J5**, `git show a4b5bd4f:docs/jarvis-second-brain-open-issues.md`) exists to warn about: it inventories every tuning
 constant in the feature as an uncalibrated placeholder.
 
 **Mitigation, and it is a required step of the plan, not a nicety:** fit the threshold by measuring the
@@ -378,7 +378,7 @@ failure this week in the same package — is **not built here**. It gets its own
 It is the only one of the four that fails §2's bar. The other three read committed state through an engine
 that already computes; this one needs a new derivation over run history, and with it a genuinely hard
 calibration question — how many repeats over what window constitutes a pattern rather than a coincidence?
-J5 in `docs/jarvis-second-brain-open-issues.md` is a standing record of what shipping uncalibrated
+J5 in `git show a4b5bd4f:docs/jarvis-second-brain-open-issues.md` is a standing record of what shipping uncalibrated
 constants against a thin corpus costs.
 
 Splitting it out is cheap because the spine is built for it: it arrives as a fourth `Producer`
@@ -432,12 +432,12 @@ to the browser-driven smoke scenario.
 
 **Browser-driven scenario** — one new entry in `scripts/cdp/scenarios.mjs`. It must **inject a pet event
 directly** rather than arrange a real utterance: a real one needs a live headless CLI run, and
-`docs/jarvis-tab.md` already records that as the reason the cancel path and the thread-archive path have no
+`git show a4b5bd4f:docs/jarvis-tab.md` already records that as the reason the cancel path and the thread-archive path have no
 live steps. It asserts the delivery chain — bubble appears, peek lists it, clicking through lands on the
 right surface with the right subject selected, and the decision anchor highlights the right card.
 
 Each scenario step must be checked by breaking the fix and watching the right step go red. A green scenario
-that cannot fail is not a net — the standard `docs/jarvis-tab.md` already holds its five regression
+that cannot fail is not a net — the standard `git show a4b5bd4f:docs/jarvis-tab.md` already holds its five regression
 scenarios to.
 
 ### Verification commands
@@ -476,4 +476,4 @@ package do nothing in a running dev app until `wavesrv` is rebuilt.
 | `frontend/app/view/jarvis/jarvissubjectstore.ts` | `askAboutRecord` → `askAboutSource`. |
 | `frontend/app/view/agents/memstore.ts` | Nothing — `selectNote` already does the job. |
 | `scripts/cdp/scenarios.mjs` | One new scenario. |
-| `docs/jarvis-tab.md` | Document the volunteered register. |
+| `git show a4b5bd4f:docs/jarvis-tab.md` | Document the volunteered register. |

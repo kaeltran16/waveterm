@@ -7,7 +7,7 @@
 > (Part B sections), the core spec
 > [`2026-08-11-pi-harness-opencode-branding-design.md`](./2026-08-11-pi-harness-opencode-branding-design.md)
 > (launch/consult/transcript/usage/live-status, landed), and
-> [`docs/pi-package-integration-meta-spec.md`](../../pi-package-integration-meta-spec.md).
+> `git show a4b5bd4f:docs/pi-package-integration-meta-spec.md`.
 
 ## Summary
 

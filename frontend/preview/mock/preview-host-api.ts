@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-const previewElectronApi: ElectronApi = {
+const previewHostApi: HostApi = {
     getAuthKey: () => "",
     getIsDev: () => false,
     getPlatform: () => "darwin",
@@ -16,14 +16,10 @@ const previewElectronApi: ElectronApi = {
     setWindowInitStatus: (_status: "ready" | "wave-ready") => {},
     onWaveInit: (_callback: (initOpts: WaveInitOpts) => void) => {},
     sendLog: (_log: string) => {},
-    nativePaste: () => {},
-    getPathForFile: (_file: File) => "",
-    saveTextFile: (_fileName: string, _content: string) => Promise.resolve(false),
-    setIsActive: async () => {},
 };
 
-function installPreviewElectronApi() {
-    (window as any).api = previewElectronApi;
+function installPreviewHostApi() {
+    (window as any).api = previewHostApi;
 }
 
-export { installPreviewElectronApi, previewElectronApi };
+export { installPreviewHostApi };

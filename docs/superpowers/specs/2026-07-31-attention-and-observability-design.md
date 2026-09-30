@@ -8,9 +8,9 @@ it ran, so nobody can tell whether it works.
 Both are about making an existing signal trustworthy rather than adding a capability, and they share one
 verification pass.
 
-**Sources.** [`docs/superpowers/briefs/2026-07-31-jarvis-integration-brief.md`](../briefs/2026-07-31-jarvis-integration-brief.md)
+**Sources.** `git show a4b5bd4f:docs/superpowers/briefs/2026-07-31-jarvis-integration-brief.md`
 (the session that found both, including the database measurement quoted in part 2) and
-[`docs/jarvis-consolidation-open-issues.md`](../../jarvis-consolidation-open-issues.md). Every file:line
+`git show a4b5bd4f:docs/jarvis-consolidation-open-issues.md`. Every file:line
 below was read, not inferred.
 
 ---
@@ -281,8 +281,8 @@ Deliberately **not** in this spec:
 
 ## Documentation
 
-`docs/jarvis-tab.md` § 12 (entry points from other surfaces) describes the attention list's single home and
-changes. `docs/jarvis-consolidation-open-issues.md` gains no new item — the review-gate gap was never tracked
+`git show a4b5bd4f:docs/jarvis-tab.md` § 12 (entry points from other surfaces) describes the attention list's single home and
+changes. `git show a4b5bd4f:docs/jarvis-consolidation-open-issues.md` gains no new item — the review-gate gap was never tracked
 there. The source brief's "what to do next" list has items 1 and 2 closed by this spec; item 3 (dispatch real
 work, then re-run the measurement) becomes possible once this ships. Both edits are part of the
 implementation, not a follow-up.

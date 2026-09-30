@@ -1,7 +1,7 @@
 # Orchestrator–Jarvis UI (Light Seam A) — Design
 
 Date: 2026-08-20. Status: draft, awaiting review.
-Author: lead + engine review. Companion to `docs/lead-authored-task-routing-roadmap.md` (routing foundation + §5 typed `blocked`/`escalate`).
+Author: lead + engine review. Companion to `docs/superpowers/briefs/2026-08-19-lead-authored-task-routing-roadmap.md` (routing foundation + §5 typed `blocked`/`escalate`).
 
 ## Goal
 
@@ -104,6 +104,6 @@ Recall retrieval is synchronous, pure-Go (`pkg/jarvisrecall`), bounded to top 2;
 
 ## Related
 
-- Routing: `docs/lead-authored-task-routing-roadmap.md`
+- Routing: `docs/superpowers/briefs/2026-08-19-lead-authored-task-routing-roadmap.md`
 - Engine: `pkg/orchestrate/engine.go`, `pkg/orchestrate/dag.go`, `pkg/jarvis/attention.go`
 - Prior UI surfaces: `frontend/app/view/agents/` DAG graph, `frontend/app/view/jarvis/` run card

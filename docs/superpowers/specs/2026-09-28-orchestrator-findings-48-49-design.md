@@ -1,7 +1,7 @@
 # Orchestrator findings 48 and 49: an unprepared landing tree, and an outcome lost behind cleanup
 
 Source: run c84aa179 (dag 44b3e104), 2026-09-27. Both gaps are written up under "Also seen in this run" in
-`docs/orchestrator-findings-2026-09-25.md`; this spec gives each a cause in the code and a change. They are
+`docs/superpowers/briefs/2026-09-25-orchestrator-findings.md`; this spec gives each a cause in the code and a change. They are
 recorded there as findings 48 and 49.
 
 ## Scope
@@ -183,7 +183,7 @@ is, and recording a result takes milliseconds.
 
 ## Findings doc
 
-`docs/orchestrator-findings-2026-09-25.md` gains:
+`docs/superpowers/briefs/2026-09-25-orchestrator-findings.md` gains:
 
 - two Summary rows after 47:
   - `| 48 | A merge Verify fails on an unprepared landing tree: no plan Setup line, so no tree is prepared (c84aa179 t-1) | medium | fixed: a project default Setup in .arc/setup |`

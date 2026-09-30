@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-22
 **Status:** Design complete; pending spec review, then implementation planning.
-**Scope:** Resolves the four open design questions from the [Wave Vault brief](../briefs/2026-07-22-jarvis-second-brain-wave-vault-brief.md) — recall, attribution, write-ownership, and presence — plus the cost model and the v1/v2 sequencing. It builds on that brief's approved storage direction (Wave Vault: canonical Markdown, its own git repo, the memory/tasks collection boundary) and does not restate decisions already settled there.
+**Scope:** Resolves the four open design questions from the Wave Vault brief (`git show a4b5bd4f:docs/superpowers/briefs/2026-07-22-jarvis-second-brain-wave-vault-brief.md`) — recall, attribution, write-ownership, and presence — plus the cost model and the v1/v2 sequencing. It builds on that brief's approved storage direction (Wave Vault: canonical Markdown, its own git repo, the memory/tasks collection boundary) and does not restate decisions already settled there.
 
 ## Design principle: the determinism boundary is the cost boundary
 

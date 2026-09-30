@@ -8,7 +8,7 @@
 > spine this extends — its §9 explicitly reserved this shape: "a fourth `Producer`
 > implementation and a fourth `PetEvent` kind"), the
 > [work-ledger spec](2026-08-12-jarvis-work-ledger-memory-design.md) (the engine it
-> reads), and [`docs/jarvis-tab.md`](../../jarvis-tab.md).
+> reads), and `git show a4b5bd4f:docs/jarvis-tab.md`.
 
 ## 1. Why
 

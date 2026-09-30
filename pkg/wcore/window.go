@@ -73,7 +73,7 @@ func CreateWindow(ctx context.Context, winSize *waveobj.WinSize, workspaceId str
 }
 
 // CloseWindow closes a window and deletes its workspace if it is empty and not named.
-func CloseWindow(ctx context.Context, windowId string, fromElectron bool) error {
+func CloseWindow(ctx context.Context, windowId string) error {
 	log.Printf("CloseWindow %s\n", windowId)
 	window, err := GetWindow(ctx, windowId)
 	if err == nil {
@@ -116,7 +116,7 @@ func CheckAndFixWindow(ctx context.Context, windowId string) *waveobj.Window {
 	ws, err := GetWorkspace(ctx, window.WorkspaceId)
 	if err != nil {
 		log.Printf("error getting workspace %q (in checkAndFixWindow): %v\n", window.WorkspaceId, err)
-		CloseWindow(ctx, windowId, false)
+		CloseWindow(ctx, windowId)
 		return nil
 	}
 	if len(ws.TabIds) == 0 {

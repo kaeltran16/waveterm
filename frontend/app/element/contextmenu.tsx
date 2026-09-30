@@ -11,7 +11,6 @@ import {
     type MenuPath,
     moveHighlight,
     openSubmenu,
-    roleAction,
     visibleItems,
     type ContextMenuState,
 } from "@/app/store/contextmenu";
@@ -34,8 +33,7 @@ function runClick(item: ContextMenuItem) {
     if (item.enabled === false) {
         return;
     }
-    const act = item.click ?? roleAction(item.role);
-    act?.();
+    item.click?.();
     closeContextMenu();
 }
 

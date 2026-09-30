@@ -3,7 +3,7 @@
 **Date:** 2026-07-03
 **Scope:** Batch A of the Channels-tab improvement backlog (items #5 and #7; that backlog has since
 been removed as fully shipped). Trivial scope — this document is both the design and the plan.
-**Companion:** `docs/agents/channels-reference.md` (flow reference).
+**Companion:** `git show a4b5bd4f:docs/agents/channels-reference.md` (flow reference).
 
 ## Problem
 

@@ -203,12 +203,3 @@ func GetSecretNames() ([]string, error) {
 	}
 	return names, nil
 }
-
-// GetLinuxStorageBackend reported which OS keyring the Electron shell's safeStorage had selected
-// (gnome-libsecret, kwallet, basic_text). Under Tauri there is no shell-side keyring to ask — at-rest
-// encryption is now in-process, per platform — so there is no backend to name and this reports empty.
-// It is kept rather than deleted because it backs a generated wshrpc command; retiring that is a
-// codegen change tracked in the backend-legacy-cleanup plan.
-func GetLinuxStorageBackend() (string, error) {
-	return "", nil
-}

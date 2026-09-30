@@ -121,7 +121,7 @@ pays the miss only when the lead has evidence it's worth it.
 ## Dependencies
 
 - The orchestrator engine (DAG + worktrees + graph) is merged and green (`pkg/orchestrate`).
-- The 2026-08-16 orchestrator-redesign plan (`docs/superpowers/plans/2026-08-16-orchestrator-redesign.md`,
+- The 2026-08-16 orchestrator-redesign plan (`git show a4b5bd4f:docs/superpowers/plans/2026-08-16-orchestrator-redesign.md`,
   27 unchecked steps) is NOT done. It is not a hard prerequisite for this work — `RunSpec` +
   passthrough stand alone — but its headless-child contract + child-ask forwarding improve the
   lead↔worker relationship this routing piggybacks on. Sequence this roadmap to not collide with it.

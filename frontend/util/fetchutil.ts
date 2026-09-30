@@ -5,7 +5,7 @@
 
 export function fetch(input: string | Request | URL, init?: RequestInit): Promise<Response> {
     // Tauri webview: globalThis.fetch is CORS-blocked (wavesrv is a different origin) and there is
-    // no session-level authkey injection (Electron does that via onBeforeSendHeaders). Route through
+    // no session-level authkey injection. Route through
     // the http plugin (Rust-side reqwest, no CORS) and carry the authkey header ourselves.
     if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ != null) {
         return tauriFetch(input, init);

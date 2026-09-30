@@ -1,6 +1,6 @@
 # Task-Routing Phase 2 — same-tier retry, typed blocked, explicit `escalate`
 
-Status: approved design (2026-08-25). Phase 2 of `docs/lead-authored-task-routing-roadmap.md`.
+Status: approved design (2026-08-25). Phase 2 of `docs/superpowers/briefs/2026-08-19-lead-authored-task-routing-roadmap.md`.
 Source of truth for the roadmap's §5 + Phase 2 section; the roadmap holds the "why".
 
 ## Grounding discovery

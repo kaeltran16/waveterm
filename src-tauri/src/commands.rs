@@ -29,11 +29,6 @@ pub fn set_window_init_status(app: AppHandle, status: String) {
     }
 }
 
-#[tauri::command]
-pub fn set_is_active() {
-    // Phase 1: acknowledge only (Electron sets an internal wasActive flag).
-}
-
 // The webview renders model-controlled markdown; the OS opener (ShellExecute "open" on Windows)
 // launches executables and file:// paths, so only schemes the model can legitimately want are
 // allowed. Anything else is rejected and logged rather than handed to the opener.

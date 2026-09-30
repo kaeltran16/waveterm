@@ -185,7 +185,7 @@ projection-via-native-store idea was dropped in favor of projection-via-steering
 
 ## Prior art / references
 
-- `docs/redesign-meta-spec.md` (line ~99) — original Memory scope (Graph/List toggle, node
+- `git show a4b5bd4f:docs/redesign-meta-spec.md` (line ~99) — original Memory scope (Graph/List toggle, node
   types, clusters, detail rail). This design supersedes its "net-new (graph is the costly
   half)" framing by using a plain markdown vault as the store.
 - NavRail slot: `frontend/app/view/agents/navrail.tsx` (`memory` item + glyph already

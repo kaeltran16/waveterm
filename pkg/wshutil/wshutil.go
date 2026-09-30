@@ -238,13 +238,6 @@ func ExtractUnverifiedSocketName(tokenStr string) (string, error) {
 	return sockName, nil
 }
 
-func SendErrCh[T any](err error) <-chan wshrpc.RespOrErrorUnion[T] {
-	ch := make(chan wshrpc.RespOrErrorUnion[T], 1)
-	ch <- RespErr[T](err)
-	close(ch)
-	return ch
-}
-
 func RespErr[T any](err error) wshrpc.RespOrErrorUnion[T] {
 	return wshrpc.RespOrErrorUnion[T]{Error: err}
 }

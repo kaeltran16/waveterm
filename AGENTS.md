@@ -87,7 +87,7 @@ before working in an area you don't already know.
 
 - **Tauri shell — Rust (`src-tauri/`)** — thin native host replacing the Electron main process. Mints
   a per-launch auth key, spawns `wavesrv` as a child, parses its `WAVESRV-ESTART` stderr line for the
-  dynamic ports, and runs `wsh install-agent-hooks` on every launch. Five Tauri commands only; the
+  dynamic ports, and runs `wsh install-agent-hooks` on every launch. Six Tauri commands only; the
   window is borderless and the titlebar is drawn in React.
 - **Go backend (`cmd/`, `pkg/`)** — `wavesrv` (SQLite object store + HTTP + websocket RPC) and `wsh`
   (CLI helper shipped into terminals). **Agents report into and drive the cockpit through `wsh`**
@@ -120,8 +120,7 @@ Load-bearing rules:
 - **`pkg/orchestrate`** is the deterministic DAG engine behind orchestrator runs (worktrees, lanes,
   merges, Setup/Verify); UI in `frontend/app/view/orchestrate`. The plan gate, task cap, adaptive
   orchestration, and pipeline mode were deleted (1e4bb179) and run workers are claude + pi only —
-  older specs and `docs/orchestrator-howto.md` still describe the removed model;
-  `docs/orchestrator-guide.md` is current.
+  older specs still describe the removed model; `docs/orchestrator-guide.md` is current.
 
 ### Frontend conventions
 
@@ -135,8 +134,8 @@ Load-bearing rules:
 
 ## Design docs
 
-- Specs and plans: `docs/superpowers/specs/` and `docs/superpowers/plans/`, named `YYYY-MM-DD-<topic>[-design].md`. Not paired: a plan backed by a spec is deleted once shipped. Standalone briefs and meta-specs: `docs/superpowers/briefs/`.
-- Live issue trackers: `docs/open-issues.md` (the single "what's left" list) and `docs/orchestrator-redesign-flaws.md` (the orchestrator engine). The `docs/jarvis-*-open-issues.md` files are archived. `docs/README.md` maps the rest of `docs/`.
+- Specs and plans: `docs/superpowers/specs/` and `docs/superpowers/plans/`, named `YYYY-MM-DD-<topic>[-design].md`. Specs are kept; a plan is deleted once it ships (git history keeps it). Briefs (`docs/superpowers/briefs/`) are kept only while something live cites them.
+- Live issue trackers: `docs/open-issues.md` (the single "what's left" list) and `docs/orchestrator-redesign-flaws.md` (the orchestrator engine). `docs/README.md` maps the rest of `docs/`.
 - Deliberately-deferred items and fabricated placeholder data: `docs/deferred.md`.
 - Agent-cockpit integration notes (hooks, ask protocol, usage reporting): `docs/agents/`.
 - **Plans the engine runs** (`wsh runs start --plan <file>`, or + Run → Orchestrator → A plan file; a lead hands its own plan over with `wsh jarvis dag submit --plan`) follow `jarvis.PlanFormat` (`pkg/jarvis/plan.go`): optional `**Verify:**`, `**Setup:**`, `**Check:**` and `**Final:**` commands in backticks before the first task, which run in a POSIX shell (Git Bash on Windows), and an optional `**Prototype:**` design-canvas path (not in backticks). A plan with no Setup line runs the project's checked-in `.arc/setup` (one command) instead; this repo's junctions the main checkout's `node_modules`, `src-tauri/target` and `dist/bin`. Final runs once on the merged result with `ARC_FINAL_OUT` set: exit 0 passes, exit 3 means it could not verify (its last output line says why), anything else fails; for this repo it is `node scripts/cdp/final-verify.mjs [scenario...]`. For this repo, Verify is `node scripts/verify.mjs <go package patterns>`: at each merge it tests only what the merge changed (the engine's `ARC_VERIFY_CHANGED`), and in the final stage everything the patterns name plus vitest. Tasks are `### Task N: <title>` (or `##`) headings numbered 1, 2, 3…, with, as a task's first line, an optional `**Depends on:**` — `none`, or `Task 1, Task 3`; left out, the task runs after the previous one, so a plan with no Depends lines is serial. The engine runs tasks with nothing between them at the same time, so split a plan by what can proceed independently — the Depends lines are what set its width. At submit an engine plan reviewer checks the plan against the spec before any worker starts; a failed review goes back to the lead to revise and resubmit.

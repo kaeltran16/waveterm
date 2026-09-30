@@ -24,7 +24,7 @@ import (
 // touched a week or so ago is routine here) does not trip it, while still catching the 14.9-day tail.
 // 7 days would have called 60% of open work "going quiet"; 21 days would never have fired on this
 // corpus at all. Re-measure if the vault grows substantially — a constant that cannot say where it came
-// from is the defect J5 tracks (docs/jarvis-second-brain-open-issues.md).
+// from is the defect J5 tracks (docs/open-issues.md).
 const stalenessMs int64 = 14 * 24 * 60 * 60 * 1000
 
 // resurfaceBucketMs quantises a dossier's Updated stamp so an unchanged dossier keeps producing a

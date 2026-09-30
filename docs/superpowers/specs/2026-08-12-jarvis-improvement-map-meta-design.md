@@ -8,7 +8,7 @@
 > the delivery axis can be specced later without re-deriving the reasoning. It reads on
 > the [2026-07-31 integration brief](../../briefs/2026-07-31-jarvis-integration-brief.md)
 > (the decision record this supersedes) and on
-> [`docs/jarvis-tab.md`](../../jarvis-tab.md) (the surface's own documentation).
+> `git show a4b5bd4f:docs/jarvis-tab.md` (the surface's own documentation).
 
 ## 1. The question
 

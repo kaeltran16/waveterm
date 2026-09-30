@@ -548,7 +548,7 @@ export class TermViewModel implements ViewModel {
             label: "Paste",
             icon: mIcon(ClipboardPaste),
             click: () => {
-                getApi().nativePaste();
+                this.termRef.current?.pasteHandler();
             },
         });
 
@@ -577,10 +577,15 @@ export class TermViewModel implements ViewModel {
                     if (content) {
                         fireAndForget(async () => {
                             try {
-                                const success = await getApi().saveTextFile("session.log", content);
-                                if (!success) {
-                                    console.log("Save scrollback cancelled by user");
+                                const { save } = await import("@tauri-apps/plugin-dialog");
+                                const path = await save({ defaultPath: "session.log", title: "Save session" });
+                                if (!path) {
+                                    return;
                                 }
+                                await RpcApi.FileWriteCommand(TabRpcClient, {
+                                    info: { path },
+                                    data64: stringToBase64(content),
+                                });
                             } catch (error) {
                                 console.error("Failed to save scrollback:", error);
                                 const errorMessage = error?.message || "An unknown error occurred";

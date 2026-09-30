@@ -24,8 +24,6 @@ out
 .kilocode/package-lock.json
 public/cockpit-fixtures/active.json
 cdp-shots/
-docs/handoff/images/2026-07-27-jarvis-second-brain-verification/
-docs/images/jarvis-tour/
 
 # Yarn Modern
 .pnp.*

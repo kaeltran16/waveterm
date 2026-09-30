@@ -9,7 +9,6 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { shouldRelaunchWorker } from "@/app/view/agents/session-models/agentresumestore";
 import {
     fetchWaveFile,
-    getApi,
     getOverrideConfigAtom,
     getSettingsKeyAtom,
     globalStore,
@@ -41,7 +40,6 @@ import {
     createTempFileFromBlob,
     extractAllClipboardData,
     normalizeCursorStyle,
-    quoteForPosixShell,
     trimTerminalSelection,
 } from "./termutil";
 
@@ -273,35 +271,15 @@ export class TermWrap {
         this.handleResize_debounced = debounce(50, this.handleResize.bind(this));
         this.terminal.open(this.connectElem);
 
-        const dragoverHandler = (e: DragEvent) => {
-            e.preventDefault();
-            if (e.dataTransfer) {
-                e.dataTransfer.dropEffect = "copy";
-            }
-        };
-        const dropHandler = (e: DragEvent) => {
-            e.preventDefault();
-            if (!e.dataTransfer || e.dataTransfer.files.length === 0) {
-                return;
-            }
-            const paths: string[] = [];
-            for (let i = 0; i < e.dataTransfer.files.length; i++) {
-                const file = e.dataTransfer.files[i];
-                const filePath = getApi().getPathForFile(file);
-                if (filePath) {
-                    paths.push(quoteForPosixShell(filePath));
-                }
-            }
-            if (paths.length > 0) {
-                this.terminal.paste(paths.join(" ") + " ");
-            }
-        };
-        this.connectElem.addEventListener("dragover", dragoverHandler);
-        this.connectElem.addEventListener("drop", dropHandler);
+        // a dropped file carries no path in the webview (native drag-drop is off so HTML5 drag works),
+        // so there is nothing to paste; swallow the drop so the webview doesn't navigate to the file.
+        const dropGuard = (e: DragEvent) => e.preventDefault();
+        this.connectElem.addEventListener("dragover", dropGuard);
+        this.connectElem.addEventListener("drop", dropGuard);
         this.toDispose.push({
             dispose: () => {
-                this.connectElem.removeEventListener("dragover", dragoverHandler);
-                this.connectElem.removeEventListener("drop", dropHandler);
+                this.connectElem.removeEventListener("dragover", dropGuard);
+                this.connectElem.removeEventListener("drop", dropGuard);
             },
         });
         this.handleResize();

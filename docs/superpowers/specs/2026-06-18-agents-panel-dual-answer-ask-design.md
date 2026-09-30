@@ -84,13 +84,13 @@ CLEAR (unified):  PostToolUse hook ─> wsh ask --clear ─> publish agent:ask{c
 Each is a single-purpose unit. The brittle, CC-coupled logic is quarantined in one
 pure function (the encoder).
 
-### 5.1 PreToolUse hook — `docs/agents/ask-hook.js` (modified)
+### 5.1 PreToolUse hook — `git show a4b5bd4f:docs/agents/ask-hook.js` (modified)
 - **Does:** on `AskUserQuestion`, POSTs the questions to Wave (`wsh ask`) and exits 0.
   No `permissionDecision`. No blocking, no 55-min timeout.
 - **Depends on:** `WAVETERM_BLOCKID`, `WAVETERM_WSHBINDIR`, the `wsh ask` command.
 - **Fail-safe:** any failure → exit 0 → native terminal picker is the user's path.
 
-### 5.2 PostToolUse hook — `docs/agents/ask-clear-hook.js` (new)
+### 5.2 PostToolUse hook — `git show a4b5bd4f:docs/agents/ask-clear-hook.js` (new)
 - **Does:** on `AskUserQuestion`, runs `wsh ask --clear` to remove the panel copy.
 - **Depends on:** `WAVETERM_BLOCKID`, `wsh ask --clear`. Fail-safe: exit 0 (card lingers
   until superseded; see §7).

@@ -1,8 +1,7 @@
 # The Diff tab — end to end
 
-How to use the Diff surface: what every control does, in the order you would reach for it. The
-companion reference for Jarvis is [`docs/jarvis-tab.md`](jarvis-tab.md); this file plays the same
-role for Diff, and folds the tour into itself because the surface is small enough not to need two.
+How to use the Diff surface: what every control does, in the order you would reach for it. It is
+both the reference and the tour, because the surface is small enough not to need two.
 
 Source of truth for behaviour is the code: `frontend/app/view/agents/filessurface.tsx` and the
 stores beside it (`filesstore.ts`, `githistorystore.ts`, `comparestore.ts`). Keybindings come from

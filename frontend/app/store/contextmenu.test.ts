@@ -11,7 +11,6 @@ import {
     isActionable,
     moveHighlight,
     openSubmenu,
-    roleAction,
     hasLeadingColumn,
     siblingsAt,
     visibleItems,
@@ -36,13 +35,6 @@ describe("contextMenuAtom helpers", () => {
             { label: "AlsoShown", visible: true },
         ];
         expect(visibleItems(items).map((i) => i.label)).toEqual(["Shown", "AlsoShown"]);
-    });
-
-    it("roleAction returns a function for known roles and undefined otherwise", () => {
-        expect(typeof roleAction("copy")).toBe("function");
-        expect(typeof roleAction("Paste")).toBe("function");
-        expect(roleAction("bogus")).toBeUndefined();
-        expect(roleAction(undefined)).toBeUndefined();
     });
 });
 

@@ -189,7 +189,7 @@ function useBlockAtom<T>(blockId: string, name: string, makeFn: () => Atom<T>): 
 /**
  * Get the preload api.
  */
-function getApi(): ElectronApi {
+function getApi(): HostApi {
     return (window as any).api;
 }
 

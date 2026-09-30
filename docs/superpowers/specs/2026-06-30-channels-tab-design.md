@@ -2,7 +2,7 @@
 
 Date: 2026-06-30
 Scope: feature (new cockpit NavRail surface + a dispatch/consult backend seam). Spec only — hands off to writing-plans.
-Related: `docs/orchestrator-roadmap.md` (the future manager layers onto this substrate), the Sessions tab
+Related: `git show a4b5bd4f:docs/orchestrator-roadmap.md` (the future manager layers onto this substrate), the Sessions tab
 (`2026-06-30-sessions-tab-design.md`, shares the provider-registry / runtime-agnostic philosophy), and the existing
 `pkg/agentask` ask/answer channel (reused here).
 
@@ -35,7 +35,7 @@ Settled interactively; recorded so the plan doesn't relitigate them.
 - **A channel is bound to a project.** Dispatches launch in that project's repo, in a worktree by default (the
   parallel-safe choice). Reuses the existing Projects registry + New Agent launcher. An unbound channel's first dispatch
   pops the New Agent launcher pre-filled (runtime + task) to bind it.
-- **Two non-negotiables that make it manager-ready for free** (see `docs/orchestrator-roadmap.md`):
+- **Two non-negotiables that make it manager-ready for free** (see `git show a4b5bd4f:docs/orchestrator-roadmap.md`):
   1. **Verbs-as-commands.** Every human action — post, dispatch, answer-ask, steer — is backed by a backend command
      (wshrpc / `wsh` subcommand), not just a UI click handler. These become the manager's MCP tool surface later.
   2. **Channel-as-object.** A channel is a persisted, addressable object (id + message log), so a manager can be
@@ -64,7 +64,7 @@ Settled interactively; recorded so the plan doesn't relitigate them.
 ```
 
 The channel is the **substrate**; the future orchestrator is a participant that reads the message log and emits the same
-commands (`Dispatch` / `Steer` / answer-ask) a human does — no new substrate. See `docs/orchestrator-roadmap.md`.
+commands (`Dispatch` / `Steer` / answer-ask) a human does — no new substrate. See `git show a4b5bd4f:docs/orchestrator-roadmap.md`.
 
 ## What flows into a channel (message types)
 
@@ -143,7 +143,7 @@ table; either satisfies "addressable id + message log."
   persistent workers only. Inspired by `1devtool-orchestrator`; ship our own native `claude -p` / `codex exec` provider
   rather than hard-coupling the external shim.
 - **The orchestrator/manager itself.** v1 is manually driven. The manager is a participant that calls the same verbs;
-  see `docs/orchestrator-roadmap.md` for the Concierge → Gatekeeper → Delegator progression.
+  see `git show a4b5bd4f:docs/orchestrator-roadmap.md` for the Concierge → Gatekeeper → Delegator progression.
 - **Live progress in-channel.** Deliberately Cockpit's job; channel rows link out.
 - **Cross-channel / DM / multi-human.** One project-bound channel model in v1; no per-agent DMs or multi-user.
 - **Agent-initiated posting** (a worker spontaneously posting to the channel via a new bus). v1's agent-sourced rows

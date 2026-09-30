@@ -6,7 +6,7 @@
 ## Goal
 
 Finish the backend legacy-cleanup residue (the three items held back from the
-2026-07-13 cleanup, `docs/superpowers/plans/2026-07-13-backend-legacy-cleanup.md`):
+2026-07-13 cleanup, `git show a4b5bd4f:docs/superpowers/plans/2026-07-13-backend-legacy-cleanup.md`):
 
 1. Retire the builder/tsunami "widget-app" subsystem **in full** — the wavesrv/frontend
    host integration **and** the standalone `tsunami/` Go module (CLAUDE.md's "Layer 4").

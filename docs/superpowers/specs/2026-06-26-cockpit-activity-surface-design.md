@@ -1,7 +1,7 @@
 # Activity Surface — Design Spec (Phase 2)
 
 > Captured 2026-06-26. The first **Phase 2** surface of the agent-cockpit redesign.
-> Reads on top of [`redesign-meta-spec.md`](../../redesign-meta-spec.md) (§4 surface
+> Reads on top of `redesign-meta-spec.md` (`git show a4b5bd4f:docs/redesign-meta-spec.md`) (§4 surface
 > inventory, §6 data flow, §9 open questions). Source of truth for the visual:
 > `wave-handoff/wave/project/Wave-cockpit-live.dc.html:543-575` (the `isActivity` block).
 

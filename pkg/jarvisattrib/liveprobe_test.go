@@ -4,7 +4,7 @@
 //go:build liveprobe
 
 // Corpus probe for the attribution engine (sub-project D). It measures the shape of the real edge
-// corpus so the tuning-constants entry (J5) in docs/jarvis-second-brain-open-issues.md can be
+// corpus so the J5 tuning constants (docs/open-issues.md) can be
 // re-checked cheaply instead of by another ad-hoc pass — which matters because timeBoxMs becomes
 // measurable by waiting rather than by collecting more data.
 //

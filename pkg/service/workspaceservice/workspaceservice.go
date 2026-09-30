@@ -70,13 +70,13 @@ type CloseTabRtnType struct {
 
 func (svc *WorkspaceService) CloseTab_Meta() tsgenmeta.MethodMeta {
 	return tsgenmeta.MethodMeta{
-		ArgNames:   []string{"ctx", "workspaceId", "tabId", "fromElectron"},
+		ArgNames:   []string{"ctx", "workspaceId", "tabId"},
 		ReturnDesc: "CloseTabRtn",
 	}
 }
 
 // returns the new active tabid
-func (svc *WorkspaceService) CloseTab(ctx context.Context, workspaceId string, tabId string, fromElectron bool) (*CloseTabRtnType, waveobj.UpdatesRtnType, error) {
+func (svc *WorkspaceService) CloseTab(ctx context.Context, workspaceId string, tabId string) (*CloseTabRtnType, waveobj.UpdatesRtnType, error) {
 	ctx = waveobj.ContextWithUpdates(ctx)
 	tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
 	if err == nil && tab != nil {

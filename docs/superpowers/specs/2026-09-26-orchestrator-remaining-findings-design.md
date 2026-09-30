@@ -1,6 +1,6 @@
 # Orchestrator remaining findings: 20, 22, 26, 28 and test hygiene
 
-Source: `docs/orchestrator-findings-2026-09-25.md`, findings 20, 22, 26 and 28, the "run auditor" proposal,
+Source: `docs/superpowers/briefs/2026-09-25-orchestrator-findings.md`, findings 20, 22, 26 and 28, the "run auditor" proposal,
 and the "new" rows of "Re-validation: run 18d08579" about test hygiene and `dag answer`. Each section below
 names the finding, the cause found in the code, and the change.
 
@@ -298,7 +298,7 @@ Display:
 
 ## 6. Docs
 
-- `docs/orchestrator-findings-2026-09-25.md`: a new section after "Fixes after the handoff", in the same
+- `docs/superpowers/briefs/2026-09-25-orchestrator-findings.md`: a new section after "Fixes after the handoff", in the same
   `| # | Fix | Test |` table form, with one row per fix: 20, 28, 26, 22, and the three test-hygiene items.
   - It adds a "Not verified live" note: none of this has run in a live orchestrator run.
   - The note says what the next run after an Arc rebuild should show: staggered `task-spawned` stamps,

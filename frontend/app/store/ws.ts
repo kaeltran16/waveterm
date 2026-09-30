@@ -35,10 +35,6 @@ function removeWSReconnectHandler(handler: () => void) {
 
 type WSEventCallback = (arg0: WSEventType) => void;
 
-type ElectronOverrideOpts = {
-    authKey: string;
-};
-
 class WSControl {
     wsConn: WebSocket;
     open: boolean;
@@ -49,22 +45,17 @@ class WSControl {
     messageCallback: WSEventCallback;
     baseHostPort: string;
     lastReconnectTime: number = 0;
-    eoOpts: ElectronOverrideOpts;
+    authKey: string;
     noReconnect: boolean = false;
     onOpenTimeoutId: NodeJS.Timeout = null;
     pingIntervalId: NodeJS.Timeout = null;
 
-    constructor(
-        baseHostPort: string,
-        stableId: string,
-        messageCallback: WSEventCallback,
-        electronOverrideOpts?: ElectronOverrideOpts
-    ) {
+    constructor(baseHostPort: string, stableId: string, messageCallback: WSEventCallback, authKey?: string) {
         this.baseHostPort = baseHostPort;
         this.messageCallback = messageCallback;
         this.stableId = stableId;
         this.open = false;
-        this.eoOpts = electronOverrideOpts;
+        this.authKey = authKey;
         this.pingIntervalId = setInterval(this.sendPing.bind(this), 5000);
     }
 
@@ -84,10 +75,7 @@ class WSControl {
         this.lastReconnectTime = Date.now();
         dlog("try reconnect:", desc);
         this.opening = true;
-        this.wsConn = newWebSocket(
-            buildWsConnUrl(this.baseHostPort, this.stableId, this.eoOpts ? this.eoOpts.authKey : null),
-            null
-        );
+        this.wsConn = newWebSocket(buildWsConnUrl(this.baseHostPort, this.stableId, this.authKey ?? null), null);
         this.wsConn.onopen = (e: Event) => {
             this.onopen(e);
         };
@@ -256,13 +244,8 @@ class WSControl {
 }
 
 let globalWS: WSControl;
-function initGlobalWS(
-    baseHostPort: string,
-    stableId: string,
-    messageCallback: WSEventCallback,
-    electronOverrideOpts?: ElectronOverrideOpts
-) {
-    globalWS = new WSControl(baseHostPort, stableId, messageCallback, electronOverrideOpts);
+function initGlobalWS(baseHostPort: string, stableId: string, messageCallback: WSEventCallback, authKey?: string) {
+    globalWS = new WSControl(baseHostPort, stableId, messageCallback, authKey);
 }
 
 function sendRawRpcMessage(msg: RpcMessage) {
@@ -282,5 +265,4 @@ export {
     removeWSReconnectHandler,
     sendRawRpcMessage,
     sendWSCommand,
-    type ElectronOverrideOpts,
 };

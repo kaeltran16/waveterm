@@ -1,7 +1,7 @@
 # Tauri Migration — Phase 0 Spike Spec (Tracer Bullet)
 
 > Captured 2026-06-24. The first phase sub-spec under
-> [`tauri-migration-meta-spec.md`](../../tauri-migration-meta-spec.md). The meta spec defines
+> `tauri-migration-meta-spec.md` (`git show a4b5bd4f:docs/tauri-migration-meta-spec.md`). The meta spec defines
 > the runtime port at large; this defines the **tracer bullet** that exposes its biggest
 > unknown first. Per the meta spec §12, each phase is `writing-plans → executing-plans`;
 > this spec is the input to the Phase 0 plan.

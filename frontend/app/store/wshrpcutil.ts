@@ -5,20 +5,19 @@ import { setWpsRpcClient, wpsReconnectHandler } from "@/app/store/wps";
 import { TabClient } from "@/app/store/tabrpcclient";
 import { WshRouter } from "@/app/store/wshrouter";
 import { getWSServerEndpoint } from "@/util/endpoints";
-import { addWSReconnectHandler, type ElectronOverrideOpts, globalWS, initGlobalWS, WSControl } from "./ws";
+import { addWSReconnectHandler, globalWS, initGlobalWS, WSControl } from "./ws";
 import { DefaultRouter, setDefaultRouter } from "./wshrpcutil-base";
 
 let TabRpcClient: TabClient;
 
-// eoOpts carries the authkey when the host can't inject it session-wide (Tauri webview). Electron
-// leaves it undefined — its main process injects X-AuthKey via onBeforeSendHeaders.
-function initWshrpc(routeId: string, eoOpts?: ElectronOverrideOpts): WSControl {
+// a browser WebSocket can't set an X-AuthKey header, so the key rides the connect URL.
+function initWshrpc(routeId: string, authKey?: string): WSControl {
     const router = new WshRouter(new UpstreamWshRpcProxy());
     setDefaultRouter(router);
     const handleFn = (event: WSEventType) => {
         DefaultRouter.recvRpcMessage(event.data);
     };
-    initGlobalWS(getWSServerEndpoint(), routeId, handleFn, eoOpts);
+    initGlobalWS(getWSServerEndpoint(), routeId, handleFn, authKey);
     globalWS.connectNow("connectWshrpc");
     TabRpcClient = new TabClient(routeId);
     setWpsRpcClient(TabRpcClient);
@@ -38,4 +37,4 @@ class UpstreamWshRpcProxy implements AbstractWshClient {
 }
 
 export { DefaultRouter, initWshrpc, TabRpcClient };
-export { initElectronWshrpc, sendRpcCommand, sendRpcResponse, shutdownWshrpc } from "./wshrpcutil-base";
+export { sendRpcCommand, sendRpcResponse, shutdownWshrpc } from "./wshrpcutil-base";

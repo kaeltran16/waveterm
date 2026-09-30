@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-03
 **Status:** design approved, no plan written yet
-**Design source:** `wave-handoff/wave/project/Wave-git-review.dc.html` — the `filtered` state (filter-row markup at lines 166–190, design notes at line 950), `notrepo` (line 897), `failed` (lines 902, 970), `loading` (line 976), `restored` (lines 880, 980). The brief is `docs/superpowers/briefs/2026-07-31-git-review-ui-design-brief.md`.
+**Design source:** `wave-handoff/wave/project/Wave-git-review.dc.html` — the `filtered` state (filter-row markup at lines 166–190, design notes at line 950), `notrepo` (line 897), `failed` (lines 902, 970), `loading` (line 976), `restored` (lines 880, 980). The brief is `git show a4b5bd4f:docs/superpowers/briefs/2026-07-31-git-review-ui-design-brief.md`.
 
 ## Why
 

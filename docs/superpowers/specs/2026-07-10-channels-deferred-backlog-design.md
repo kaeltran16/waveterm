@@ -2,7 +2,7 @@
 
 Date: 2026-07-10
 Scope: feature batch (four independent deferred usability items on the mature Channels surface). Spec only — hands off to writing-plans.
-Related: the Channels improvement backlog this closes out (since removed as fully shipped), `docs/superpowers/plans/2026-07-09-channels-realworld-report-fixes.md` (the prior batch that deferred these four), `docs/agents/channels-reference.md`.
+Related: the Channels improvement backlog this closes out (since removed as fully shipped), `git show a4b5bd4f:docs/superpowers/plans/2026-07-09-channels-realworld-report-fixes.md` (the prior batch that deferred these four), `git show a4b5bd4f:docs/agents/channels-reference.md`.
 
 ## Problem
 

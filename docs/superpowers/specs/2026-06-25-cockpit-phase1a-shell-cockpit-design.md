@@ -3,9 +3,9 @@
 Date: 2026-06-25
 Status: approved-design
 
-> The first sub-spec under [`docs/redesign-meta-spec.md`](../../redesign-meta-spec.md)
+> The first sub-spec under `git show a4b5bd4f:docs/redesign-meta-spec.md`
 > (§3 shell, §4 Cockpit, §8 Phase 1). Reads on top of
-> [`docs/redesign-brief.md`](../../redesign-brief.md). **Source of truth:**
+> `git show a4b5bd4f:docs/redesign-brief.md`. **Source of truth:**
 > `wave-handoff/wave/project/Wave-cockpit-live.dc.html` (`isCockpit` branch + nav rail).
 >
 > Phase 1 was split 1a / 1b. **1a** (this doc) = the shell (NavRail + surface router +

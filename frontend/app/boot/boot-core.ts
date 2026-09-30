@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Shell-agnostic boot: connect wshrpc on the real tab route, init global model/atoms, pin the
-// client/window/tab/workspace objects, load config. Extracted from wave.ts initWave so both the
-// Electron entry (renders App) and the Tauri cockpit entry (renders CockpitRoot) share it.
+// client/window/tab/workspace objects, load config.
 import { loadBadges } from "@/app/store/badge";
 import { GlobalModel } from "@/app/store/global-model";
 import { registerControlShiftStateUpdateHandler } from "@/app/store/keymodel";
@@ -32,7 +31,6 @@ export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
         clientId: initOpts.clientId,
         windowId: initOpts.windowId,
         platform,
-        environment: "renderer",
     };
     globalStore.set(activeTabIdAtom, initOpts.tabId);
     await GlobalModel.getInstance().initialize(globalInitOpts);
@@ -40,7 +38,7 @@ export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
     (window as any).globalAtoms = atoms;
 
     const authKey = getApi().getAuthKey();
-    const globalWS = initWshrpc(makeTabRouteId(initOpts.tabId), authKey ? { authKey } : undefined);
+    const globalWS = initWshrpc(makeTabRouteId(initOpts.tabId), authKey || undefined);
     (window as any).globalWS = globalWS;
     (window as any).TabRpcClient = TabRpcClient;
 

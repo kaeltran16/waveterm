@@ -116,37 +116,6 @@ func FileStream(ctx context.Context, data wshrpc.CommandFileStreamData) (*wshrpc
 	return wshclient.RemoteFileStreamCommand(RpcClient, remoteData, &wshrpc.RpcOpts{Route: wshutil.MakeConnectionRouteId(conn.Host)})
 }
 
-func ListEntries(ctx context.Context, path string, opts *wshrpc.FileListOpts) ([]*wshrpc.FileInfo, error) {
-	log.Printf("ListEntries: %v", path)
-	conn, err := parseConnection(ctx, path)
-	if err != nil {
-		return nil, err
-	}
-	var entries []*wshrpc.FileInfo
-	rtnCh := listEntriesStream(conn, opts)
-	for respUnion := range rtnCh {
-		if respUnion.Error != nil {
-			return nil, respUnion.Error
-		}
-		resp := respUnion.Response
-		entries = append(entries, resp.FileInfo...)
-	}
-	return entries, nil
-}
-
-func ListEntriesStream(ctx context.Context, path string, opts *wshrpc.FileListOpts) <-chan wshrpc.RespOrErrorUnion[wshrpc.CommandRemoteListEntriesRtnData] {
-	log.Printf("ListEntriesStream: %v", path)
-	conn, err := parseConnection(ctx, path)
-	if err != nil {
-		return wshutil.SendErrCh[wshrpc.CommandRemoteListEntriesRtnData](err)
-	}
-	return listEntriesStream(conn, opts)
-}
-
-func listEntriesStream(conn *connparse.Connection, opts *wshrpc.FileListOpts) <-chan wshrpc.RespOrErrorUnion[wshrpc.CommandRemoteListEntriesRtnData] {
-	return wshclient.RemoteListEntriesCommand(RpcClient, wshrpc.CommandRemoteListEntriesData{Path: conn.Path, Opts: opts}, &wshrpc.RpcOpts{Route: wshutil.MakeConnectionRouteId(conn.Host)})
-}
-
 func Stat(ctx context.Context, path string) (*wshrpc.FileInfo, error) {
 	log.Printf("Stat: %v", path)
 	conn, err := parseConnection(ctx, path)
@@ -213,24 +182,6 @@ func Move(ctx context.Context, data wshrpc.CommandFileCopyData) error {
 		return delete_(srcConn, opts.Recursive && isDir)
 	}
 	return moveInternal(srcConn, destConn, opts)
-}
-
-func Copy(ctx context.Context, data wshrpc.CommandFileCopyData) error {
-	opts := data.Opts
-	if opts == nil {
-		opts = &wshrpc.FileCopyOpts{}
-	}
-	log.Printf("Copy: srcuri: %v, desturi: %v, opts: %v", data.SrcUri, data.DestUri, opts)
-	srcConn, err := parseConnection(ctx, data.SrcUri)
-	if err != nil {
-		return fmt.Errorf("error parsing source connection: %w", err)
-	}
-	destConn, err := parseConnection(ctx, data.DestUri)
-	if err != nil {
-		return fmt.Errorf("error parsing destination connection: %w", err)
-	}
-	_, err = copyInternal(srcConn, destConn, opts)
-	return err
 }
 
 func Delete(ctx context.Context, data wshrpc.CommandDeleteFileData) error {

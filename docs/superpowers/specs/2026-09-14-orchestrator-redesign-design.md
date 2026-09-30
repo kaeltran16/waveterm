@@ -4,7 +4,7 @@
 
 **Status:** Design approved in conversation 2026-09-14. Slices 1-3 built (b3540636, e9e480b3, 2ce4161b). Slice 4 is split into 4a-4d (§13), all built: 4a and 4b (eb5a3654, 48d5d5bd), 4c (f7c2b9c3) from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`, and 4d from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4d-lanes.md`. Slice 5a is built (117b4272) from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s5a-lead-prompt-compaction.md`, and 5b from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s5b-run-shapes-plan-start.md`.
 
-**Evidence:** `docs/superpowers/briefs/2026-09-14-orchestrator-redesign-measurements.md` (commit 835f40e7), plus the transcript and run-event probes summarized under [Measurements](#measurements-that-shaped-the-design).
+**Evidence:** `git show a4b5bd4f:docs/superpowers/briefs/2026-09-14-orchestrator-redesign-measurements.md` (commit 835f40e7), plus the transcript and run-event probes summarized under [Measurements](#measurements-that-shaped-the-design).
 
 **Supersedes:**
 - `docs/superpowers/specs/2026-09-09-orchestrator-plan-gate-design.md` (the plan gate is deleted)
@@ -417,7 +417,7 @@ Run workers (leads and task workers) support Claude Code and pi only.
 - Update the assertions in `pkg/harness/catalog_test.go:29` and `pkg/wshrpc/wshserver/wshserver_harness_test.go:46`.
 - The frontend already filters on `runworkercapable` (`harnesspicker.tsx:36`, `harnessstore.ts:30-33`) and route capabilities (`route.ts:104`). No frontend change is needed for scope.
 - Add a `docs/deferred.md` entry for codex/opencode run workers, with the `git show <commit>:<path>` recovery commands for the deleted arms.
-- `docs/orchestrator-howto.md` states the pi ask tool package, `@juicesharp/rpiv-ask-user-question`, and the superpowers package. pi leads need the latter for `brainstorming` and `writing-plans`, because pi's `skills` setting (`~/.claude/skills`) doesn't hold plugin skills.
+- `git show a4b5bd4f:docs/orchestrator-howto.md` states the pi ask tool package, `@juicesharp/rpiv-ask-user-question`, and the superpowers package. pi leads need the latter for `brainstorming` and `writing-plans`, because pi's `skills` setting (`~/.claude/skills`) doesn't hold plugin skills.
 - **G6:** the owner adds the superpowers package back to `~/.pi/agent/settings.json`. Nothing in this design builds a fallback.
 
 ## 9. Tier deletion
