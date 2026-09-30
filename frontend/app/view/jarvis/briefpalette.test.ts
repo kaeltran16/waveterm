@@ -4,7 +4,13 @@
 import type { GroupableItem } from "@/app/cockpit/palette-groups";
 import { fuzzyScore } from "@/app/cockpit/palette-match";
 import { describe, expect, it } from "vitest";
-import { BRIEF_PALETTE_CAP, buildBriefIndex, rankBriefRows, type BriefPaletteInput } from "./briefpalette";
+import {
+    BRIEF_PALETTE_CAP,
+    buildBriefIndex,
+    isArchivedStatus,
+    rankBriefRows,
+    type BriefPaletteInput,
+} from "./briefpalette";
 
 const MIN = 60_000;
 const T0 = 1_800_000_000_000;
@@ -235,5 +241,13 @@ describe("brief palette highlighting", () => {
         const res = rankBriefRows(rows, "goat");
         expect(res.confident).toBe(false);
         expect(res.rows[0].titleRuns.some((r) => r.hit)).toBe(true);
+    });
+});
+
+describe("isArchivedStatus", () => {
+    it("reads only the archived status as archived, for records and initiatives alike", () => {
+        expect(isArchivedStatus("archived")).toBe(true);
+        expect(isArchivedStatus("completed")).toBe(false);
+        expect(isArchivedStatus("done")).toBe(false);
     });
 });

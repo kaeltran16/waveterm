@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { allowedTransitions, groupDossiers, isTerminalTransition, validateDecisionDraft } from "./tasksderive";
+import {
+    allowedTransitions,
+    groupDossiers,
+    isFocusTarget,
+    isTerminalTransition,
+    validateDecisionDraft,
+} from "./tasksderive";
 
 const mk = (id: string, status: string): SpaceSummary => ({
     id,
@@ -49,5 +55,11 @@ describe("validateDecisionDraft", () => {
     });
     it("passes a complete draft", () => {
         expect(validateDecisionDraft("chose b", "b needs no migration")).toBeNull();
+    });
+});
+
+describe("isFocusTarget", () => {
+    it("offers active and paused records as a focus, as ListDossiers does", () => {
+        expect(["active", "paused", "completed", "archived"].map(isFocusTarget)).toEqual([true, true, false, false]);
     });
 });

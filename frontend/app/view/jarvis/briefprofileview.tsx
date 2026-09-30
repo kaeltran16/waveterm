@@ -323,10 +323,19 @@ function SectionHeader({ title, meta, metaTitle }: { title: string; meta: string
     );
 }
 
-export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+// initialChannelId "" opens on the first project; the caller keys the modal by it so a new one takes effect
+export function BriefProfileModal({
+    open,
+    initialChannelId = "",
+    onClose,
+}: {
+    open: boolean;
+    initialChannelId?: string;
+    onClose: () => void;
+}) {
     const channels = useAtomValue(channelsAtom);
     const projects = useAtomValue(projectsAtom);
-    const [channelId, setChannelId] = useState("");
+    const [channelId, setChannelId] = useState(initialChannelId);
     const [scope, setScope] = useState<Scope>("project");
     const [loaded, setLoaded] = useState<Loaded | null>(null);
     const [draft, setDraft] = useState<ProfileOverride>({});

@@ -11,6 +11,8 @@ import {
     memberSession,
     runView,
     sessionLabel,
+    sessionPrimary,
+    sessionSelection,
     taskStatus,
 } from "./sessionsruns";
 
@@ -246,5 +248,25 @@ describe("stage sessions", () => {
         expect(sessionLabel(mk({ runid: "r1", role: "plan-reviewer" }), { r1: "Port the header" })).toBe(
             "Port the header · plan review"
         );
+    });
+});
+
+describe("sessionPrimary", () => {
+    it("jumps to a live session, resumes an ended resumable one, and offers nothing otherwise", () => {
+        expect(sessionPrimary(mk({ live: true, liveId: "tab-1" }))).toBe("jump");
+        expect(sessionPrimary(mk({ resumecommand: "claude --resume x" }))).toBe("resume");
+        expect(sessionPrimary(mk())).toBeNull();
+    });
+});
+
+describe("sessionSelection", () => {
+    it("lands a run member on its run with it in view", () => {
+        expect(sessionSelection(mk({ runid: "r1", role: "task", taskid: "t-2" }))).toEqual({
+            sel: "run:r1",
+            member: "t-2",
+        });
+    });
+    it("lands a session on its own entry", () => {
+        expect(sessionSelection(mk({ id: "s9", runtime: "pi" }))).toEqual({ sel: "pi:s9" });
     });
 });

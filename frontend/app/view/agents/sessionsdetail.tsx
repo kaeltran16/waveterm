@@ -21,7 +21,7 @@ import type { Runtime } from "./launch";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
 import type { LiveSession } from "./sessionsarchivestore";
-import { LEAD_MEMBER, type RunMember, type RunView, type Status, type StatusKey } from "./sessionsruns";
+import { LEAD_MEMBER, sessionPrimary, type RunMember, type RunView, type Status, type StatusKey } from "./sessionsruns";
 import { projectorFor } from "./transcriptregistry";
 import { TranscriptSkeleton } from "./transcriptskeleton";
 
@@ -110,7 +110,8 @@ export function runSessionPrimary(model: AgentsViewModel, session: LiveSession) 
 }
 
 function PrimaryButton({ model, session, strong }: { model: AgentsViewModel; session: LiveSession; strong?: boolean }) {
-    if (!session.live && !session.resumecommand) {
+    const primary = sessionPrimary(session);
+    if (primary == null) {
         return null;
     }
     return (
@@ -124,7 +125,7 @@ function PrimaryButton({ model, session, strong }: { model: AgentsViewModel; ses
                     : "border border-edge-strong bg-surface-raised px-[11px] py-[5px] text-secondary hover:border-accent hover:text-accent-soft"
             )}
         >
-            {session.live ? "Jump →" : "Resume →"}
+            {primary === "jump" ? "Jump →" : "Resume →"}
         </button>
     );
 }

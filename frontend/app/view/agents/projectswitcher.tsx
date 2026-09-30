@@ -3,8 +3,6 @@
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -12,7 +10,7 @@ import { ChevronDown, Plus } from "lucide-react";
 import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsFromAgents } from "./agentsviewmodel";
-import { mergeSwitcherProjects, projectsAtom } from "./projectsstore";
+import { mergeSwitcherProjects, projectsAtom, removeProject } from "./projectsstore";
 import { projectControlCopy } from "./surfacecontext";
 
 // Project scope dropdown bound to projectFilterAtom. "bar" = the app-bar `/ name ▾` trigger;
@@ -35,19 +33,9 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
         globalStore.set(model.projectFilterAtom, v);
         close();
     };
-    // Deregisters from projects.json; the registry atom refreshes and the row drops out. If the
-    // removed project was the active scope, fall back to "all".
     const remove = async (name: string) => {
-        try {
-            await RpcApi.DeleteProjectCommand(TabRpcClient, { name });
-            if (filter === name) {
-                globalStore.set(model.projectFilterAtom, "all");
-            }
-        } catch (e) {
-            console.error("failed to remove project", e);
-        } finally {
-            setConfirming(null);
-        }
+        await removeProject(model, name);
+        setConfirming(null);
     };
     return (
         <div className="relative">

@@ -6,6 +6,7 @@
 // having to import each other. Mirrors view/agents/runactions.ts.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { modalsModel } from "@/app/store/modalmodel";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { reloadAmbient } from "@/app/view/agents/ambientstore";
@@ -13,6 +14,7 @@ import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import { invalidateBloom } from "./jarvisgraphstore";
 import { reloadRecordDetail, reloadRecordScope } from "./jarvissubjectstore";
+import { isTerminalTransition } from "./tasksderive";
 import { loadTaskList, tasksErrorAtom } from "./tasksstore";
 
 // Refresh every cache of this record that a write can invalidate. The ambient re-read is deliberately not
@@ -62,6 +64,22 @@ export function setDossierStatus(dossierId: string, status: string): void {
             loadTaskList();
         })
     );
+}
+
+// setDossierStatus behind the guard the peek and the record detail apply: a terminal status confirms first.
+// For callers with no dialog of their own to render (the palette).
+export function confirmDossierStatus(dossierId: string, status: string): void {
+    if (!isTerminalTransition(status)) {
+        setDossierStatus(dossierId, status);
+        return;
+    }
+    modalsModel.pushModal("ConfirmModal", {
+        title: `Mark this record ${status}?`,
+        message: `This sets the record's status to "${status}". You can reactivate it later.`,
+        confirmLabel: `Yes, ${status}`,
+        destructive: status === "archived",
+        onConfirm: () => setDossierStatus(dossierId, status),
+    });
 }
 
 // One suppressed edge. Deliberately not AmbientTag: that shape has a taskId and no run oref, so a
