@@ -3919,6 +3919,20 @@ const dagLifecycle = {
         );
         await h.shot("cdp-shots/dag-modal.png");
 
+        // the graph column once had no min-w-0, so its header's min-content width shoved the rail past the
+        // panel's clipped right edge
+        const railFit = await h.ev(`(() => {
+            const panel = document.querySelector('[data-dag-modal-kind] [role="dialog"]');
+            const rail = document.querySelector('[data-dag-modal-kind] [data-timeline-rail]');
+            if (!panel || !rail) return null;
+            return { panelRight: panel.getBoundingClientRect().right, railRight: rail.getBoundingClientRect().right };
+        })()`);
+        rec(
+            "5f. The timeline rail sits inside the modal panel",
+            railFit != null && railFit.railRight <= railFit.panelRight + 1,
+            JSON.stringify(railFit)
+        );
+
         // spec D7: a native title inside a node opens over the hover peek
         const titledInNode = await h.ev(
             `(() => document.querySelectorAll('[data-dag-modal-kind] .react-flow__node [title]').length)()`

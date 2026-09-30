@@ -45,6 +45,7 @@ import {
     REVIEW_ACTIONS,
     reviewFindings,
     runAdjustable,
+    runFlowing,
     runningCount,
     type LeadCardVM,
     type RowAction,
@@ -260,6 +261,12 @@ export function LeadCard(p: LeadCardProps) {
                     </button>
                 ) : null}
             </div>
+
+            {runFlowing(run, lead) ? (
+                <div className="h-[2px] shrink-0 overflow-hidden bg-lane">
+                    <div className="h-full w-[26%] bg-gradient-to-r from-transparent via-accent to-transparent animate-[flowBar_1.9s_linear_infinite] motion-reduce:animate-none" />
+                </div>
+            ) : null}
 
             {leadAsking ? (
                 <AttentionBanner glyph="dot" pulse label="Waiting on you" meta={formatAge(displayAgeMs(lead))} />

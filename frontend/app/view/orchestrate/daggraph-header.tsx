@@ -59,8 +59,8 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
     const label = status.split("-").join(" ");
     const done = group.tasks.filter((t) => t.state === "done").length;
     return (
-        <div className="flex items-center gap-3 border-b border-border bg-background px-4 py-2.5">
-            <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-background px-4 py-2.5">
+            <div className="min-w-48 flex-1">
                 <div className="truncate text-[15px] font-bold tracking-[-0.01em] text-primary">
                     {group.title || "orchestration dag"}
                 </div>

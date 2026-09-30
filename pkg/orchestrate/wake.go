@@ -274,10 +274,20 @@ func tickWakes(ctx context.Context) {
 }
 
 // atPrompt reports a lead that can take typed input. A Claude lead left at its prompt reports waiting
-// through the idle Notification hook, and run workers skip permission prompts, so waiting is not a
-// dialog. asking is the lead's own question to the human, which typed text would answer.
+// through the idle Notification hook, and run workers skip permission prompts. asking is the lead's own
+// question to the human, which typed text would answer; the status alone cannot be trusted to still say
+// so, which is why flushLocked also checks leadAsking.
 func atPrompt(state string) bool {
 	return state == baseds.AgentState_Idle || state == baseds.AgentState_Waiting
+}
+
+// leadAsking reports the lead's own question still open in its terminal. Claude Code fires a Notification
+// a few seconds into the dialog, and agent-hook reports it as waiting over asking; a wake typed then has
+// its Enter pick the dialog's preselected option. The registry entry lasts until the ask is cleared or the
+// lead resumes work, whatever order the hook statuses arrive in.
+func leadAsking(blockId string) bool {
+	_, asking := agentask.GlobalRegistry.Get(waveobj.MakeORef(waveobj.OType_Block, blockId).String())
+	return asking
 }
 
 func (w *waker) flushLocked(ctx context.Context, runId string, rw *runWake) {
@@ -309,7 +319,7 @@ func (w *waker) flushLocked(ctx context.Context, runId string, rw *runWake) {
 		w.leadDiedLocked(ctx, runId, rw, leadNotRunningNote)
 		return
 	}
-	if !atPrompt(st.State) {
+	if !atPrompt(st.State) || leadAsking(st.BlockId) {
 		return
 	}
 	if rw.handoff {

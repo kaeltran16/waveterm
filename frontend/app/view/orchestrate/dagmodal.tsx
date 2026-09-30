@@ -78,7 +78,7 @@ export function DagModal() {
                             aria-labelledby={DAG_MODAL_HEADING_ID}
                             tabIndex={-1}
                             onMouseDown={(event) => event.stopPropagation()}
-                            className="flex h-full max-h-[90vh] w-full max-w-[1200px] flex-col overflow-hidden rounded-lg border border-edge-strong bg-modalbg shadow-popover outline-none"
+                            className="flex h-full w-full flex-col overflow-hidden rounded-lg border border-edge-strong bg-modalbg shadow-popover outline-none"
                         >
                             <div className="flex flex-none items-center gap-3 border-b border-border bg-surface px-4 py-3">
                                 <div className="min-w-0 flex-1">
