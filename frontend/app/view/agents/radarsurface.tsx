@@ -44,6 +44,7 @@ import {
     initRadarScopeFromNewest,
     lastRadarProjectAtom,
     pickInitialScope,
+    radarLensPickAtom,
     radarLoadErrorAtom,
     radarReportsAtom,
     radarScopeAtom,
@@ -352,7 +353,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
 
     const state = classifyScanState(report);
     const isResults = isResultsState(state);
-    const [lensPick, setLensPick] = useState<LensKey>("all");
+    const [lensPick, setLensPick] = useAtom(radarLensPickAtom);
     // a lens that vanished or failed empty after a re-scan falls back to All, so the list is never stuck empty
     const lens = resolveLens(lensTabs(report), lensPick);
     const findings = filterByMode(report?.findings ?? [], lens);

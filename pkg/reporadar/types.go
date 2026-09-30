@@ -89,13 +89,29 @@ var V1SecurityRiskKinds = []string{
 	RiskInputValidationGap, RiskDependencyExposure,
 }
 
+// riskKindMeaning is what each kind means, spelled out in the clustering prompt so the model labels by
+// evidence instead of by name. test-coverage-gap is also gated in validateFindings.
+var riskKindMeaning = map[string]string{
+	RiskTestCoverageGap:            "production code no test exercises; must cite a structure signal that observed a source without a test (tool errors or failures alone are repeated-failure-boundary)",
+	RiskMigrationSafety:            "schema or data migrations that can fail, lose data, or not roll back",
+	RiskConfigContractDrift:        "configuration keys, defaults, or schemas that disagree with the code reading them",
+	RiskRepeatedFailure:            "the same boundary keeps failing: repeated run failures, tool errors, or fix-after-fix commits",
+	RiskRuntimeOnlyBehavior:        "behavior that only shows at runtime (timing, environment, platform), so static checks and unit tests miss it",
+	RiskCrossLayerMismatch:         "two layers (frontend/backend, client/server, generated/hand-written) disagree on a shared contract",
+	RiskAuthBoundaryFragility:      "an authentication or authorization boundary that keeps changing or failing",
+	RiskSecretHandlingBoundaryRisk: "secrets or credentials handled at a boundary that keeps changing or failing",
+	RiskInputValidationGap:         "external input reaching logic without validation at a boundary that keeps changing or failing",
+	RiskDependencyExposure:         "a dependency pinned or configured so that it exposes the project",
+}
+
 // signal fact-class tags (RadarSignal.Facts["classes"]). Distinct from risk kinds: a class labels
 // evidence, a risk kind labels a finding. ClassDependencyPin intentionally does NOT reuse the
 // dependency-exposure risk-kind string.
 const (
-	ClassSecurityBoundary = "security-boundary"
-	ClassConfigSecurity   = "config-security"
-	ClassDependencyPin    = "dependency-pin"
+	ClassSecurityBoundary  = "security-boundary"
+	ClassConfigSecurity    = "config-security"
+	ClassDependencyPin     = "dependency-pin"
+	ClassSourceWithoutTest = "source-without-test"
 )
 
 // scan modes (RadarFinding.Mode). Correctness is the only mode wired in Plan 1; the security and

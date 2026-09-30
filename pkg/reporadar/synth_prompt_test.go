@@ -36,3 +36,20 @@ func TestPromptContainsTaxonomyAndDelimiters(t *testing.T) {
 		t.Fatal("prompt must delimit untrusted data")
 	}
 }
+
+// The model can only label a finding correctly if the prompt says what each kind means.
+func TestPromptDefinesEveryRiskKind(t *testing.T) {
+	groups, _ := prepareCandidates(nil, DefaultRadarPayloadBudget)
+	for mode, kinds := range RiskKindsByMode {
+		p := buildSynthesisPrompt("payments-api", mode, groups)
+		for _, k := range kinds {
+			meaning := riskKindMeaning[k]
+			if meaning == "" {
+				t.Fatalf("risk kind %q has no meaning", k)
+			}
+			if !strings.Contains(p, "- "+k+": "+meaning) {
+				t.Fatalf("%s prompt must define %q", mode, k)
+			}
+		}
+	}
+}

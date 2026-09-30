@@ -5,13 +5,13 @@ import { composerReveal } from "@/app/element/motiontokens";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
+import { useAtom } from "jotai";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ambientRefForFinding } from "./ambient";
 import { AmbientTags } from "./ambientviews";
 import {
-    DEFAULT_OPEN_GROUPS,
     findingMode,
     GROUP_ORDER,
     groupFindings,
@@ -24,6 +24,7 @@ import {
     subsystemLabel,
     type RadarGroup,
 } from "./radarmodel";
+import { radarOpenGroupsAtom } from "./radarstore";
 import { INVESTIGATION_TEXT, modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
 
 export function StrengthPips({ strength, tall }: { strength: string; tall?: boolean }) {
@@ -66,7 +67,7 @@ export function RadarFindingsList({
     activateLabel?: string;
 }) {
     const grouped = useMemo(() => groupFindings(findings), [findings]);
-    const [open, setOpen] = useState<Set<RadarGroup>>(() => new Set(DEFAULT_OPEN_GROUPS));
+    const [open, setOpen] = useAtom(radarOpenGroupsAtom);
     const toggle = (g: RadarGroup) =>
         setOpen((prev) => {
             const next = new Set(prev);

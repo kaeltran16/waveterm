@@ -7,6 +7,7 @@ import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
+import { DEFAULT_OPEN_GROUPS, type LensKey, type RadarGroup } from "./radarmodel";
 
 export interface RadarScope {
     name: string;
@@ -84,6 +85,13 @@ export const currentReportIdAtom = atom<string | undefined>(undefined) as Primit
 // Selected finding id. An atom (not surface-local useState) so the selection survives RadarSurface
 // unmounting on nav-rail switch — mirrors Sessions/Files (see docs cockpit coherence audit).
 export const radarSelectedIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
+
+// The picked lens and the open finding groups: atoms for the same reason as the selection. The pick is
+// what the user chose, not what shows; resolveLens falls back to All when the picked lens is gone.
+export const radarLensPickAtom = atom<LensKey>("all") as PrimitiveAtom<LensKey>;
+export const radarOpenGroupsAtom = atom<Set<RadarGroup>>(new Set(DEFAULT_OPEN_GROUPS)) as PrimitiveAtom<
+    Set<RadarGroup>
+>;
 
 // DEV-ONLY: when set, fully replaces the live current report (see radardevmock.ts). null in prod.
 export const radarDevMockAtom = atom<RadarReport | null>(null) as PrimitiveAtom<RadarReport | null>;

@@ -21,10 +21,10 @@ func TestValidateRejectsBadFindings(t *testing.T) {
 		byID[s.ID] = s
 	}
 	resp := &SynthResponse{Findings: []SynthFinding{
-		{RiskKind: RiskTestCoverageGap, Risk: "ok", Why: "w", Severity: "high",
+		{RiskKind: RiskRepeatedFailure, Risk: "ok", Why: "w", Severity: "high",
 			SignalIDs: []string{sigs[0].ID, sigs[1].ID, sigs[2].ID}, Files: []string{"src/coupons/validate.ts"}, Mission: "m"},
-		{RiskKind: "style-nit", Risk: "bad kind", SignalIDs: []string{sigs[0].ID}}, // unknown kind -> reject
-		{RiskKind: RiskTestCoverageGap, Risk: "ghost", SignalIDs: []string{"nope"}}, // unknown signal -> reject
+		{RiskKind: "style-nit", Risk: "bad kind", SignalIDs: []string{sigs[0].ID}},                                           // unknown kind -> reject
+		{RiskKind: RiskRepeatedFailure, Risk: "ghost", SignalIDs: []string{"nope"}},                                          // unknown signal -> reject
 		{RiskKind: RiskMigrationSafety, Risk: "wrongfile", SignalIDs: []string{sigs[0].ID}, Files: []string{"src/other.ts"}}, // file not in signals -> reject
 	}}
 	findings := validateFindings("/repos/pay", ModeCorrectness, resp, byID)
@@ -54,7 +54,7 @@ func TestValidateEnforcesTenCap(t *testing.T) {
 		s := newSignal(CollectorRuns, "run:x"+string(rune('a'+i))+":phase:0", int64(i), []string{"src/m" + string(rune('a'+i)) + "/f.ts"}, "s", nil, "")
 		byID[s.ID] = s
 		findings = append(findings, SynthFinding{
-			RiskKind: RiskTestCoverageGap, Risk: "r", Why: "w", Severity: "low",
+			RiskKind: RiskRepeatedFailure, Risk: "r", Why: "w", Severity: "low",
 			SignalIDs: []string{s.ID}, Files: s.Paths, Mission: "m",
 		})
 	}
@@ -75,7 +75,7 @@ func TestValidateStampsModeAndRejectsForeignKind(t *testing.T) {
 		byID[s.ID] = s
 	}
 	resp := &SynthResponse{Findings: []SynthFinding{
-		{RiskKind: RiskTestCoverageGap, Risk: "ok", Why: "w", Severity: "high",
+		{RiskKind: RiskRepeatedFailure, Risk: "ok", Why: "w", Severity: "high",
 			SignalIDs: []string{sigs[0].ID, sigs[1].ID, sigs[2].ID}, Files: []string{"src/pay/a.ts"}, Mission: "m"},
 	}}
 	// validated under correctness: kept, and stamped correctness.
@@ -96,8 +96,8 @@ func TestValidateMergesSameFingerprint(t *testing.T) {
 	c := newSignal(CollectorTranscript, "tx:1", 3, []string{"src/pay/b.ts"}, "z", nil, "")
 	byID := map[string]waveobj.RadarSignal{a.ID: a, b.ID: b, c.ID: c}
 	resp := &SynthResponse{Findings: []SynthFinding{
-		{RiskKind: RiskTestCoverageGap, Risk: "first", Why: "w", Severity: "low", SignalIDs: []string{a.ID}, Files: []string{"src/pay/a.ts"}, Mission: "m"},
-		{RiskKind: RiskTestCoverageGap, Risk: "second", Why: "w", Severity: "high", SignalIDs: []string{b.ID, c.ID}, Files: []string{"src/pay/b.ts"}, Mission: "m"},
+		{RiskKind: RiskRepeatedFailure, Risk: "first", Why: "w", Severity: "low", SignalIDs: []string{a.ID}, Files: []string{"src/pay/a.ts"}, Mission: "m"},
+		{RiskKind: RiskRepeatedFailure, Risk: "second", Why: "w", Severity: "high", SignalIDs: []string{b.ID, c.ID}, Files: []string{"src/pay/b.ts"}, Mission: "m"},
 	}}
 	out := validateFindings("/repos/pay", ModeCorrectness, resp, byID)
 	if len(out) != 1 {
@@ -120,5 +120,26 @@ func TestSubsystemForSignalsIgnoresWideSignal(t *testing.T) {
 	// with only wide signals there is nothing to vote with; the common prefix stands
 	if got := subsystemForSignals([]waveobj.RadarSignal{wide}); got != subsystemForPaths(wide.Paths) {
 		t.Fatalf("want the common prefix %q, got %q", subsystemForPaths(wide.Paths), got)
+	}
+}
+
+// A test-coverage-gap label is only trustworthy when a cited signal actually observed a source without a
+// test; a proposal backed by tool errors alone is mislabeled and withheld.
+func TestValidateTestCoverageGapNeedsNoTestSignal(t *testing.T) {
+	tx1 := newSignal(CollectorTranscript, "tx:1", 1, []string{"src/pay/a.ts"}, "tool error", nil, "")
+	tx2 := newSignal(CollectorTranscript, "tx:2", 2, []string{"src/pay/a.ts"}, "tool error", nil, "")
+	run := newSignal(CollectorRuns, "run:1:phase:0", 3, []string{"src/pay/a.ts"}, "failed", nil, "")
+	// classes as []any: the shape a signal has after a store round trip (the retry path)
+	noTest := newSignal(CollectorStructure, "struct:no-test:src/pay", 4, []string{"src/pay/a.ts"}, "no test", map[string]any{"classes": []any{ClassSourceWithoutTest}}, "")
+	byID := map[string]waveobj.RadarSignal{tx1.ID: tx1, tx2.ID: tx2, run.ID: run, noTest.ID: noTest}
+	gap := func(ids ...string) *SynthResponse {
+		return &SynthResponse{Findings: []SynthFinding{{RiskKind: RiskTestCoverageGap, Risk: "r", Why: "w", Severity: "high",
+			SignalIDs: ids, Files: []string{"src/pay/a.ts"}, Mission: "m"}}}
+	}
+	if out := validateFindings("/repos/pay", ModeCorrectness, gap(tx1.ID, tx2.ID, run.ID), byID); len(out) != 0 {
+		t.Fatalf("a test-coverage-gap citing no source-without-test signal must be rejected, got %+v", out)
+	}
+	if out := validateFindings("/repos/pay", ModeCorrectness, gap(tx1.ID, run.ID, noTest.ID), byID); len(out) != 1 {
+		t.Fatalf("a test-coverage-gap citing a source-without-test signal must survive, got %d", len(out))
 	}
 }

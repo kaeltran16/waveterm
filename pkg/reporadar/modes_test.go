@@ -41,7 +41,7 @@ func TestModeTaskLineDefaultsToCorrectness(t *testing.T) {
 
 func TestCandidatesForSecurityFiltersPool(t *testing.T) {
 	boundary := newSignal(CollectorStructure, "struct:security-boundary:src/auth/s.ts", 1, []string{"src/auth/s.ts"}, "b", map[string]any{"classes": []string{ClassSecurityBoundary}}, "")
-	noTest := newSignal(CollectorStructure, "struct:no-test:src/x.ts", 1, []string{"src/x.ts"}, "n", map[string]any{"classes": []string{"source-without-test"}}, "")
+	noTest := newSignal(CollectorStructure, "struct:no-test:src/x.ts", 1, []string{"src/x.ts"}, "n", map[string]any{"classes": []string{ClassSourceWithoutTest}}, "")
 	churn := newSignal(CollectorGit, "commit:1", 2, []string{"src/auth/s.ts"}, "c", nil, "")
 	dep := newSignal(CollectorDependency, "dep:floating:package.json:jsonwebtoken", 1, []string{"package.json"}, "d", map[string]any{"classes": []string{ClassDependencyPin}}, "")
 
