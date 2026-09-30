@@ -218,6 +218,15 @@ function TaskStripBar({ run }: { run: RunInfo }) {
     );
 }
 
+function RunCompleteLabel({ run }: { run: RunInfo }) {
+    return (
+        <span className="flex min-w-0 items-center gap-[5px] text-success">
+            <Check size={11} aria-hidden className="flex-none" />
+            <span className="truncate">{finishedRunLabel(run)}</span>
+        </span>
+    );
+}
+
 // RunSubline is a run row's second line: a chip folding its workers away, and how far the plan is.
 function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean; live: number; leadless?: boolean }) {
     if (run.dag == null) {
@@ -226,8 +235,14 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
         // a finished bounded run's lead row reading planning for good, the same misreading of an absent
         // dag the engine had in ShouldCloseOrchestratorLead.
         return (
-            <div className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
-                {runStatusView(run.status ?? "planning").label}
+            <div className="mt-[3px] flex min-w-0 font-mono text-[10.5px]">
+                {runComplete(run) ? (
+                    <RunCompleteLabel run={run} />
+                ) : (
+                    <span className="truncate text-muted">
+                        {runStatusView(run.status ?? "planning", run.land).label}
+                    </span>
+                )}
             </div>
         );
     }
@@ -251,10 +266,7 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
                     ariaHide="Hide workers"
                 />
                 {runComplete(run) ? (
-                    <span className="flex min-w-0 items-center gap-[5px] text-success">
-                        <Check size={11} aria-hidden className="flex-none" />
-                        <span className="truncate">{finishedRunLabel(run)}</span>
-                    </span>
+                    <RunCompleteLabel run={run} />
                 ) : (
                     <span className="truncate text-muted">{progress}</span>
                 )}

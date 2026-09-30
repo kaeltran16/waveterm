@@ -238,6 +238,13 @@ describe("buildLeadCard", () => {
         expect(vm.rows.map((r) => r.age)).toEqual(["8m", undefined]);
     });
 
+    // a lead that did the goal itself never submits a dag; once it lands the card is complete, not planning
+    it("reads a finished run with no dag as complete, not planning", () => {
+        const done: RunInfo = { runId: "R", channelId: "C", title: "t", project: "arc", status: "done" };
+        const vm = buildLeadCard(input({ ...done, land: { state: "landed" } as RunLand }));
+        expect(vm).toMatchObject({ planning: false, finished: true, complete: true, activity: "landed" });
+    });
+
     it("is planning with no dag, and names lead and worker models in the settings line", () => {
         const planning = buildLeadCard(input({ runId: "R", channelId: "C", title: "t", project: "arc" }));
         expect(planning.planning).toBe(true);
@@ -454,6 +461,13 @@ describe("leadMark", () => {
             pulse: false,
         });
         expect(leadMark(ended("done", "done"), leadOf({ state: "working" }))).toEqual({
+            tone: "success",
+            pulse: false,
+        });
+    });
+    it("is green for a run its lead finished without a dag", () => {
+        const dagless: RunInfo = { runId: "R", channelId: "C", title: "t", project: "arc", status: "done" };
+        expect(leadMark({ ...dagless, land: { state: "landed" } as RunLand }, leadOf({ state: "idle" }))).toEqual({
             tone: "success",
             pulse: false,
         });

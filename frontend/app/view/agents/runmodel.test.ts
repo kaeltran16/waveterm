@@ -127,8 +127,14 @@ describe("runComplete", () => {
         expect(runComplete(info("cancelled"))).toBe(false);
         expect(runComplete(info("done", undefined, "running"))).toBe(false);
     });
-    it("is not complete without a dag", () => {
-        expect(runComplete({ ...info("done"), dag: undefined })).toBe(false);
+    // no dag means the lead did the goal itself without workers: the run's own status and land are the only truth
+    it("follows the run's own status and land without a dag", () => {
+        const dagless = (status: string, land?: RunLand) => ({ ...info(status, land), dag: undefined });
+        expect(runComplete(dagless("done", { state: "landed" }))).toBe(true);
+        expect(runComplete(dagless("done"))).toBe(true);
+        expect(runComplete(dagless("planning"))).toBe(false);
+        expect(runComplete(dagless("done", { state: "pending" }))).toBe(false);
+        expect(runComplete(dagless("cancelled"))).toBe(false);
     });
 });
 
