@@ -3,6 +3,7 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel, SurfaceKey } from "@/app/view/agents/agents";
+import { docReviewAtom } from "@/app/view/agents/docreview";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import { atom } from "jotai";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -43,6 +44,7 @@ describe("isEditableTarget", () => {
 describe("deriveKeyContext", () => {
     afterEach(() => {
         globalStore.set(dagModalStateAtom, null);
+        globalStore.set(docReviewAtom, null);
         vi.unstubAllGlobals();
     });
 
@@ -96,6 +98,15 @@ describe("deriveKeyContext", () => {
         const unbind = initKeybindingDispatcher(model);
         expect(deriveKeyContext().modalOpen).toBe(false);
         globalStore.set(model.newRunOpenAtom, true);
+        expect(deriveKeyContext().modalOpen).toBe(true);
+        unbind();
+    });
+
+    // the review dialog opens over any surface, the Agent surface's terminal included
+    it("counts the doc-review dialog as a modal on every surface", () => {
+        const unbind = bindModel("agent");
+        expect(deriveKeyContext().modalOpen).toBe(false);
+        globalStore.set(docReviewAtom, "agent-1");
         expect(deriveKeyContext().modalOpen).toBe(true);
         unbind();
     });

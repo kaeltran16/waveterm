@@ -1,11 +1,13 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
-import { Check, X } from "lucide-react";
-import { useState } from "react";
+import { ArrowUpRight, Check, FileText, X } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { answerHint, nextUnansweredQuestion, type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
 import { activePreview, previewMode } from "./answerbarpreview";
+import { DOC_REVIEW_HEADERS, docReviewAtom, parseDocReview, type DocReview, type DocReviewKind } from "./docreview";
 import { MarkdownMessage } from "./markdownmessage";
 
 // The answer surface tracks the agent's status, mirroring the handoff (Wave-answer.dc.html: the
@@ -43,13 +45,53 @@ const ACCENT_DEFAULT: Accent = {
 // the literal "(Recommended)" marker to the option label, so this substring is the only signal. The
 // handoff shows it as a separate pill, so strip the marker from the label and badge it instead.
 const isRec = (label: string) => /\(recommended\)/i.test(label);
-const cleanLabel = (label: string) => label.replace(/\s*\(recommended\)\s*/i, " ").trim();
+export const cleanLabel = (label: string) => label.replace(/\s*\(recommended\)\s*/i, " ").trim();
+
+const REVIEW_ITEM_NOUN: Record<DocReviewKind, [string, string]> = {
+    spec: ["decision", "decisions"],
+    plan: ["finding", "findings"],
+};
+
+// A doc-review ask in a card, in place of its question text: the document's full text belongs in the dialog.
+export function DocReviewSummary({ agentId, review }: { agentId: string; review: DocReview }) {
+    const file = review.path.split(/[\\/]/).pop() ?? review.path;
+    const n = review.items.length;
+    const [one, many] = REVIEW_ITEM_NOUN[review.kind];
+    return (
+        <div className="flex items-center gap-2.5 rounded-[7px] border border-edge-mid bg-background px-2.5 py-2">
+            <FileText size={15} strokeWidth={1.8} aria-hidden className="flex-none text-ink-mid" />
+            <div className="min-w-0 flex-1">
+                <div className="truncate font-mono text-[10.5px] text-muted">
+                    <span className="font-bold uppercase tracking-[0.1em] text-warning">
+                        {DOC_REVIEW_HEADERS[review.kind]}
+                    </span>{" "}
+                    · {n} {n === 1 ? one : many}
+                </div>
+                <div title={review.path} className="truncate font-mono text-[12px] font-semibold text-primary">
+                    {file}
+                </div>
+            </div>
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    globalStore.set(docReviewAtom, agentId);
+                }}
+                className="inline-flex h-[25px] shrink-0 cursor-pointer items-center gap-[5px] rounded-[6px] border border-accent/45 bg-transparent px-2.5 text-[11.5px] font-semibold text-accent-soft hover:bg-accent/10"
+            >
+                Review
+                <ArrowUpRight size={11} aria-hidden />
+            </button>
+        </div>
+    );
+}
 
 function QuestionGroup({
     question,
     accent,
     numbered,
     hideQuestion,
+    summary,
     selections,
     onClickOption,
     text,
@@ -60,6 +102,7 @@ function QuestionGroup({
     accent: Accent;
     numbered?: boolean;
     hideQuestion?: boolean;
+    summary?: ReactNode;
     selections: Set<number>;
     onClickOption: (oi: number) => void;
     text?: string;
@@ -147,12 +190,20 @@ function QuestionGroup({
     );
     return (
         <div className={hideQuestion ? "" : "mt-3"}>
-            {!hideQuestion && question.header ? (
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                    {question.header}
-                </div>
-            ) : null}
-            {!hideQuestion ? <div className="text-[13px] font-semibold text-primary">{question.question}</div> : null}
+            {hideQuestion ? null : summary != null ? (
+                summary
+            ) : (
+                <>
+                    {question.header ? (
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                            {question.header}
+                        </div>
+                    ) : null}
+                    <div className="whitespace-pre-line text-[13px] font-semibold text-primary">
+                        {question.question}
+                    </div>
+                </>
+            )}
             {options.length === 0 ? null : withPreview ? (
                 <div className="mt-2.5 flex gap-3">
                     <div className="min-w-0 flex-1">{optionList}</div>
@@ -319,12 +370,14 @@ export function AnswerBar({
         }
     };
 
+    const review = hideQuestion ? null : parseDocReview(agent.ask);
     const renderGroup = (qi: number) => (
         <QuestionGroup
             question={questions[qi]}
             accent={accent}
             numbered={numbered}
             hideQuestion={hideQuestion}
+            summary={review ? <DocReviewSummary agentId={agent.id} review={review} /> : undefined}
             selections={selections[qi] ?? new Set()}
             text={texts?.[qi]}
             onText={onText ? (value: string) => onText(qi, value) : undefined}

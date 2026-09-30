@@ -15,6 +15,7 @@ import { CockpitFocusPane } from "@/app/cockpit/focus-pane";
 import { Skeleton, SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildAgentBindings } from "@/app/store/keybindings/bindings";
+import { isEditableTarget } from "@/app/store/keybindings/dispatcher";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -27,6 +28,7 @@ import { AgentLaunchHero } from "./agentlaunchhero";
 import { AgentTree } from "./agenttree";
 import { projectOf } from "./agentsviewmodel";
 import { rosterLoadPhase } from "./cockpitsurfacemodel";
+import { autoOpenedAskIdsAtom, docReviewAtom, shouldAutoOpen } from "./docreview";
 import { EndedTranscript } from "./endedtranscript";
 import { DivergenceBanner } from "./focusbanner";
 import { subjectDecision } from "./focussubject";
@@ -69,6 +71,19 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
             globalStore.set(focusSubagentAtom, null);
         }
     }, [agent?.id, focusSub]);
+
+    // a lead's Spec/Plan review opens by itself once per ask, only while you are on that lead and not typing
+    const surface = useAtomValue(model.surfaceAtom);
+    const askId = agent?.ask?.askId;
+    useEffect(() => {
+        const opened = globalStore.get(autoOpenedAskIdsAtom);
+        const editable = isEditableTarget(document.activeElement);
+        if (!shouldAutoOpen({ surface, focusedId: focusId, agent, opened, editable })) {
+            return;
+        }
+        globalStore.set(docReviewAtom, agent.id);
+        globalStore.set(autoOpenedAskIdsAtom, new Set(opened).add(askId));
+    }, [surface, focusId, agent?.id, askId]);
 
     // only pull focus to the wrapper for the no-terminal fallback (so esc/←→/d work without a click).
     // when the live terminal is shown it must own focus for immediate typing — stealing it back to the

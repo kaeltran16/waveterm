@@ -17,13 +17,14 @@ import { openTarget } from "@/app/view/jarvis/openref";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { CircleStop, Maximize2, Minimize2, PanelRight, Workflow, X } from "lucide-react";
+import { ChevronLeft, CircleStop, Maximize2, Minimize2, PanelRight, Workflow, X } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect } from "react";
 import { confirmCloseSession } from "./agentactions";
 import { contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
+import { DOC_REVIEW_HEADERS, docReviewAtom, parseDocReview } from "./docreview";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { agentProject, isEndedWorkerId, leadAgentOf } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
@@ -45,7 +46,7 @@ const CTX_TEXT: Record<"ok" | "warn" | "hot", string> = {
 };
 
 // shared compact icon-button (matches the rail-toggle's resting style)
-const ICON_BTN =
+export const ICON_BTN =
     "cursor-pointer rounded-[7px] border border-edge-mid bg-surface-raised px-[9px] py-[6px] text-secondary";
 
 // useRunLineage reads what the header says about an agent a run spawned: a lead's run, a worker's task and
@@ -115,6 +116,8 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const stateColor = ended ? "var(--color-success)" : STATE_COLOR[agent.state];
     // m4: one-shot settle on the state pill when the focused agent reaches idle
     const settling = useSettle(!ended && agent.state === "idle");
+    const review = parseDocReview(agent.ask);
+    const reviewOpen = useAtomValue(docReviewAtom) != null;
 
     // Esc cancels the current Claude turn — same PTY-write path as the composer (ControllerInputCommand).
     const interrupt = () => {
@@ -242,6 +245,18 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
             </div>
             <div className="flex-1" />
             <div className="flex items-center gap-[7px]">
+                {review && !reviewOpen ? (
+                    <button
+                        type="button"
+                        onClick={() => globalStore.set(docReviewAtom, agent.id)}
+                        title={`Show the review (${formatChordString("r")})`}
+                        className="flex cursor-pointer items-center gap-[7px] rounded-[7px] border border-warning/45 bg-askingbg px-[11px] py-[6px] font-mono text-[11px] font-semibold text-warning hover:border-warning"
+                    >
+                        <span className="h-[6px] w-[6px] rounded-full bg-warning" aria-hidden />
+                        {DOC_REVIEW_HEADERS[review.kind]}
+                        <ChevronLeft size={12} strokeWidth={2} aria-hidden />
+                    </button>
+                ) : null}
                 {blockId != null ? (
                     <>
                         <motion.button

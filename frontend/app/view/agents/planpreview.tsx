@@ -8,10 +8,11 @@
 import { SkeletonLine } from "@/app/element/skeleton";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { base64ToString, cn, fireAndForget, stringToBase64 } from "@/util/util";
+import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useEffect, useState } from "react";
 import { MarkdownMessage } from "./markdownmessage";
 import { planDirty } from "./runmodel";
+import { fileTextOf, useFileText } from "./usefiletext";
 
 // Above this many lines, the plan preview starts collapsed (with a line-count hint) so a long plan
 // (plans run to ~2000 lines) doesn't render its whole DOM eagerly on every gate — you expand on
@@ -22,48 +23,22 @@ const PLAN_PREVIEW_COLLAPSE_LINES = 400;
 // can review it without leaving Runs. Read-only and non-blocking: a missing/unreadable file shows a
 // subtle line and never disables the gate's actions. One read per gate (only one gate is ever live).
 export function PlanPreview({ path, onEditorReady }: { path: string; onEditorReady?: (flush: () => Promise<void>) => void }) {
-    const [load, setLoad] = useState<{ status: "loading" | "error" | "ok"; text: string; lines: number }>({
-        status: "loading",
-        text: "",
-        lines: 0,
-    });
+    const [load, setLoad] = useFileText(path);
     const [override, setOverride] = useState<boolean | null>(null); // user's explicit collapse toggle; null = auto
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState("");
     const [saveErr, setSaveErr] = useState(false);
 
     useEffect(() => {
-        let alive = true;
-        setLoad({ status: "loading", text: "", lines: 0 });
         setOverride(null);
         setEditing(false);
         setSaveErr(false);
-        fireAndForget(async () => {
-            try {
-                const fileData = await RpcApi.FileReadCommand(TabRpcClient, { info: { path } });
-                const text = fileData?.data64 ? base64ToString(fileData.data64) : "";
-                if (alive) {
-                    setLoad(
-                        text.trim()
-                            ? { status: "ok", text, lines: text.split("\n").length }
-                            : { status: "error", text: "", lines: 0 }
-                    );
-                }
-            } catch {
-                if (alive) {
-                    setLoad({ status: "error", text: "", lines: 0 });
-                }
-            }
-        });
-        return () => {
-            alive = false;
-        };
     }, [path]);
 
     const save = async () => {
         try {
             await RpcApi.FileWriteCommand(TabRpcClient, { info: { path }, data64: stringToBase64(draft) });
-            setLoad({ status: "ok", text: draft, lines: draft.split("\n").length });
+            setLoad(fileTextOf(draft));
             setSaveErr(false);
             setEditing(false);
         } catch {

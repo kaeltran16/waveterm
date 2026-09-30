@@ -13,6 +13,7 @@ import { primeChannels } from "./channelsstore";
 import { initHarnessPreference, loadHarnesses } from "./harnessstore";
 import { CodeSurface } from "@/app/view/code/codesurface";
 import { CockpitSurface } from "./cockpitsurface";
+import { DocReviewDialog } from "./docreviewdialog";
 import { FilesSurface } from "./filessurface";
 import { reresolveFocus } from "./focusstore";
 import { setupRosterSeededLatch } from "./liveagents";
@@ -142,6 +143,8 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                     </div>
                 ) : null}
             </div>
+            {/* outside the surface switch: a lead's review opens over whichever surface is showing */}
+            <DocReviewDialog model={model} />
         </div>
     );
 }

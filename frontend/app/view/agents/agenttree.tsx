@@ -10,6 +10,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import {
     ArrowRight,
+    ArrowUpRight,
     Check,
     ChevronDown,
     ChevronRight,
@@ -30,6 +31,7 @@ import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from 
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
+import { docReviewAtom, parseDocReview } from "./docreview";
 import { LEAD_MARK_CLASS, leadMark } from "./leadcardmodel";
 import {
     endedWorkerId,
@@ -294,6 +296,7 @@ function ParentRow({
     const expanded = subagentExpanded(subs, expandOverride);
     const selected = focusId === agent.id;
     const asking = agent.state === "asking";
+    const review = asking ? parseDocReview(agent.ask) : null;
     const mark = lead != null ? leadMark(lead.run, agent) : null;
     // m4: one-shot settle when this agent reaches idle (working/asking -> idle)
     const settling = useSettle(agent.state === "idle");
@@ -379,7 +382,23 @@ function ParentRow({
                 {/* a lead's second line holds its workers chip, so its subagents chip stays at the row's end */}
                 {lead ? subsChip : null}
                 {/* a row names its state only when it wants something; the dot already says working or idle */}
-                {asking ? <span className="font-mono text-[10.5px] font-semibold text-warning">asking</span> : null}
+                {review ? (
+                    // opens the dialog over whatever agent is focused, so the click must not reach the row
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            globalStore.set(docReviewAtom, agent.id);
+                        }}
+                        title={`Open the ${review.kind} review`}
+                        className="flex cursor-pointer items-center gap-1 rounded-[5px] border border-warning/45 bg-askingbg px-[6px] py-[1px] font-mono text-[10.5px] font-semibold text-warning hover:border-warning"
+                    >
+                        review
+                        <ArrowUpRight size={10} strokeWidth={2.2} aria-hidden />
+                    </button>
+                ) : asking ? (
+                    <span className="font-mono text-[10.5px] font-semibold text-warning">asking</span>
+                ) : null}
             </div>
             {/* subagent reveal: the children block expands/collapses via composerReveal (height+opacity).
                 It is not a layout node itself, so its height animation and the row-list reflow don't fight. */}
