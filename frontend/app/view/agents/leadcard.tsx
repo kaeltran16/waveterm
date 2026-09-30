@@ -8,10 +8,7 @@
 import { cardVariants, composerReveal } from "@/app/element/motiontokens";
 import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { globalStore } from "@/app/store/jotaiStore";
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
-import { settingsChangePayload } from "@/app/view/jarvis/runsettings";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type Atom, type PrimitiveAtom } from "jotai";
 import { ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, SquareTerminal, Workflow } from "lucide-react";
@@ -33,13 +30,21 @@ import { AnswerBar, DocReviewSummary } from "./answerbar";
 import { AttentionBanner } from "./attentioncard";
 import { diffStatsByIdAtom } from "./cardgitstore";
 import type { CardShare } from "./cardgridlayout";
-import { dagAction, rowAction, runCardAction, runCardErrorAtom, tellingRowAtom } from "./leadcardactions";
+import {
+    dagAction,
+    rowAction,
+    runCardAction,
+    runCardErrorAtom,
+    setRunParallelism,
+    tellingRowAtom,
+} from "./leadcardactions";
 import {
     foldOpen,
     LEAD_MARK_CLASS,
     leadMark,
     REVIEW_ACTIONS,
     reviewFindings,
+    runAdjustable,
     runningCount,
     type LeadCardVM,
     type RowAction,
@@ -483,7 +488,7 @@ export function LeadCard(p: LeadCardProps) {
                 >
                     {vm.settings}
                 </span>
-                {run.dag && !vm.finished ? (
+                {runAdjustable(run) ? (
                     <button
                         type="button"
                         onClick={() => setPanel((v) => (v === "adjust" ? null : "adjust"))}
@@ -535,14 +540,7 @@ export function LeadCard(p: LeadCardProps) {
                         <button
                             type="button"
                             onClick={() => {
-                                act("Parallelism", () =>
-                                    RpcApi.SetRunSettingsCommand(
-                                        TabRpcClient,
-                                        settingsChangePayload(run.channelId, run.runId, null, run.dag ?? null, {
-                                            parallelism: parValue,
-                                        })
-                                    )
-                                );
+                                act("Parallelism", () => setRunParallelism(run, parValue));
                                 setPanel(null);
                             }}
                             className="h-[23px] cursor-pointer rounded-[6px] border-0 bg-accent px-[11px] text-[11.5px] font-semibold text-background"

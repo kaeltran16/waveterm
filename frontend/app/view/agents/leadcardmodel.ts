@@ -379,6 +379,11 @@ export function runCost(workerMs: number | undefined, tokens: number | undefined
         .join(" · ");
 }
 
+/** Pure: an engine run's dials (worker parallelism) can change until it finishes. */
+export function runAdjustable(run: Pick<RunInfo, "dag" | "status">): boolean {
+    return run.dag != null && !runFinished(run);
+}
+
 /** Pure: the lead cannot take wakes. The newest wake failure stands until a lead is launched after it. */
 export function isLeadDown(events: RunEvent[]): boolean {
     const failed = events.filter((e) => e.kind === "lead-wake-failed").sort((a, b) => b.ts - a.ts)[0];

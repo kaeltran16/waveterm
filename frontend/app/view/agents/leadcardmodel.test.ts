@@ -15,6 +15,7 @@ import {
     rowCardId,
     rowKey,
     rowKeyActions,
+    runAdjustable,
     runCost,
     runElapsed,
     runningCount,
@@ -521,5 +522,13 @@ describe("runCost", () => {
         expect(runCost(1_440_000, undefined)).toBe("24m worker");
         expect(runCost(undefined, 410_000)).toBe("410k tokens");
         expect(runCost(0, 0)).toBe("");
+    });
+});
+
+describe("runAdjustable", () => {
+    it("adjusts an engine run until it finishes", () => {
+        expect(runAdjustable(runInfo([]))).toBe(true);
+        expect(runAdjustable({ ...runInfo([]), dag: { ...runInfo([]).dag, status: "done" } })).toBe(false);
+        expect(runAdjustable({ ...runInfo([]), dag: undefined })).toBe(false);
     });
 });

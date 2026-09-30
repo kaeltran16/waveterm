@@ -32,7 +32,7 @@ function matches(query: string, ...fields: string[]): boolean {
 
 // Runs come off the live roster (an agent carries the run it works for) rather than a new RPC: the runs
 // worth focusing are the ones with a worker on screen, which is exactly this set.
-function runRows(agents: AgentVM[]): FocusRowVM[] {
+export function runRows(agents: AgentVM[]): FocusRowVM[] {
     const byId = new Map<string, FocusRowVM & { count: number }>();
     for (const a of agents) {
         if (!a.runId) {

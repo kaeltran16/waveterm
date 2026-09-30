@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { taskStripLabel } from "@/app/view/agents/runstrip";
 import { describe, expect, it } from "vitest";
 import type { DigestState } from "../orchestrate/dagdigest";
@@ -8,10 +9,13 @@ import type { TaskWorkerView } from "../orchestrate/taskcorrelate";
 import {
     configLine,
     configNote,
+    doneBody,
+    doneBodyHasDiff,
     finalStageEndable,
     launcherReading,
     orderedTasks,
     runGraphRef,
+    sheetLead,
     sheetRoute,
     sheetStatus,
     taskRow,
@@ -648,5 +652,38 @@ describe("finalStageEndable", () => {
     });
     it("is false on a cancelled dag, whatever the stage last recorded", () => {
         expect(finalStageEndable(group("cancelled", "final"))).toBe(false);
+    });
+});
+
+describe("sheetLead", () => {
+    const lead = { id: "lead", name: "lead", state: "working" } as AgentVM;
+    const withLead = { phases: [{ kind: "orchestrate", state: "running", workerorefs: ["tab:lead"] }] };
+    it("is a live orchestrator's lead", () => {
+        expect(sheetLead(run(withLead), [lead])?.id).toBe("lead");
+    });
+    it("is none on a finished run or a quick run", () => {
+        expect(sheetLead(run({ ...withLead, status: "done" }), [lead])).toBeUndefined();
+        expect(sheetLead(run({ ...withLead, mode: "" }), [lead])).toBeUndefined();
+    });
+});
+
+describe("doneBody", () => {
+    it("is the filed report, else the sealed evidence, on a done run only", () => {
+        expect(doneBody(run({ status: "done", report: "# Report" }))).toBe("report");
+        expect(doneBody(run({ status: "done", report: "  " }))).toBe("evidence");
+        expect(doneBody(run())).toBeNull();
+    });
+});
+
+describe("doneBodyHasDiff", () => {
+    it("offers the diff from a sealed evidence body", () => {
+        expect(doneBodyHasDiff(run({ status: "done", evidence: {} as RunEvidence }))).toBe(true);
+        expect(doneBodyHasDiff(run({ status: "done" }))).toBe(false);
+    });
+    it("offers it from a filed report", () => {
+        expect(doneBodyHasDiff(run({ status: "done", report: "the lead's summary" }))).toBe(true);
+    });
+    it("offers none before the run is done", () => {
+        expect(doneBodyHasDiff(run({ evidence: {} as RunEvidence }))).toBe(false);
     });
 });

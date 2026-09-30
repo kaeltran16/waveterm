@@ -7,6 +7,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
+import { settingsChangePayload } from "../jarvis/runsettings";
 import { dagActionRoute } from "../orchestrate/dagstore";
 import type { RowAction, TaskRowVM } from "./leadcardmodel";
 import type { RunInfo } from "./runlineage";
@@ -47,6 +48,18 @@ export function dagAction(
             action,
             ...(notes ? { notes } : {}),
         })
+    );
+}
+
+// setRunParallelism is the Adjust panel's Save. SetRunSettings applies every dial it is sent, so the rest go as
+// the dag holds them.
+export function setRunParallelism(
+    run: Pick<RunInfo, "runId" | "channelId" | "dag">,
+    parallelism: number
+): Promise<void> {
+    return RpcApi.SetRunSettingsCommand(
+        TabRpcClient,
+        settingsChangePayload(run.channelId, run.runId, null, run.dag ?? null, { parallelism })
     );
 }
 
