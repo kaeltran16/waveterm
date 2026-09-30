@@ -3870,16 +3870,19 @@ const dagLifecycle = {
         await h.ev("location.reload()");
         await h.ev("new Promise((r) => setTimeout(r, 4500))");
         await h.goto("jarvis");
-        await clickRetry(
-            `[...document.querySelectorAll('[data-jarvis-brief-more="more"]')].find((b) => b.closest('[data-jarvis-brief-region="sessions"]'))`,
-            2
-        );
-        const runClicked = await clickRetry(
-            `[...document.querySelectorAll('[data-jarvis-brief-row="session"]')]
-                .find((x) => (x.textContent || '').includes(${JSON.stringify(parentGoal)}))`,
-            // the Brief reloads its snapshot after the page reload; a loaded machine has missed an 8s window
-            30
-        );
+        // the overflow is expanded in the same loop as the row is looked for: on a loaded machine the region renders
+        // after a separate short "more" retry gave up, and the run then sat past the cap for every try
+        const runClicked = await h.ev(`(async () => {
+            for (let i = 0; i < 30; i++) {
+                const row = [...document.querySelectorAll('[data-jarvis-brief-row="session"]')]
+                    .find((x) => (x.textContent || '').includes(${JSON.stringify(parentGoal)}));
+                if (row) { row.click(); return true; }
+                [...document.querySelectorAll('[data-jarvis-brief-more="more"]')]
+                    .find((b) => b.closest('[data-jarvis-brief-region="sessions"]'))?.click();
+                await new Promise((r) => setTimeout(r, 500));
+            }
+            return false;
+        })()`);
         const sessionRows = await h.ev(
             `[...document.querySelectorAll('[data-jarvis-brief-row="session"]')].map((x) => (x.textContent || '').slice(0, 60))`
         );
