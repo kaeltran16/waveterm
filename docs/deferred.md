@@ -7,6 +7,18 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Final stage: a verifier's verdict held during Checking is not persisted (declined 2026-09-30)
+
+- **Declined:** persisting the verdict of a final verifier that finishes before the stage's Check and Final
+  commands. It lives in `finalRuns.verdicts` (`pkg/orchestrate/final.go`), so a wavesrv restart in that window
+  loses it, and the next tick restarts the commands and replaces the verifier.
+- **Why:** the commands restart anyway and take longer (the Final command is bounded at 30 min, and every final
+  verifier since `0c1e4523` gave its verdict in 0.7 to 2.6 min), so the respawned verifier costs one session's
+  tokens and no wall-clock. Persisting needs a `FinalStage` field and restart handling for a window no run has been
+  seen to hit.
+- **Revive when** a run's history shows a final verifier replaced after a restart, or restarts during Checking
+  become routine (auto-update mid-run, for example).
+
 ## Run recovery after a restart — dag runs (deferred 2026-09-30)
 
 The restart recovery in `docs/superpowers/plans/2026-09-30-run-restart-recovery.md` covers non-dag runs only: quick, pipeline, and an
