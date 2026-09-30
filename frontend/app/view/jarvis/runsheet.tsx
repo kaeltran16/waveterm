@@ -821,6 +821,10 @@ function Dock({ ctx, group }: { ctx: SheetCtx; group: TaskGroup | null }) {
     const [result, setResult] = useState<{ failed: boolean; text: string } | null>(null);
     const [ending, setEnding] = useState(false);
     const endable = finalStageEndable(group);
+    // a stage that stops being endable closes the form, or a later round's final stage would open on it
+    if (ending && !endable) {
+        setEnding(false);
+    }
     const lead = run.mode === "orchestrator" && !isTerminal(run.status) ? leadWorker(run, agents) : undefined;
     // a live quick run's one worker, opened where it is watched (design L576)
     const worker = run.mode !== "orchestrator" && !isTerminal(run.status) ? leadWorker(run, agents) : undefined;
