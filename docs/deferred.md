@@ -605,10 +605,12 @@ Also confirmed NOT deferred (deliberately included in v1 after review): control-
   `gitinfo.RevertFile` / `gitinfo.RevertHunk` with no caller. Kept deliberately — tested Go code
   (`TestRevertFileSubdir`, `TestRevertHunkSubdir`), zero runtime cost, and a cleanup candidate rather than a
   defect. Same precedent as the orphaned standalone WaveAI chat block.
-- **`reloadChanges` is orphaned too** (`frontend/app/view/agents/filesstore.ts`). Its only caller was
+- ~~**`reloadChanges` is orphaned too** (`frontend/app/view/agents/filesstore.ts`). Its only caller was
   `reviewstore.ts`'s apply path, which refreshed the Browse file list after a revert mutated the tree. Nothing
   in the read-only surface mutates, so nothing needs to re-read. Kept for symmetry with the revert backend
-  above; delete both together or neither.
+  above; delete both together or neither.~~ No longer orphaned: `aa9ba8e8` (2026-09-05) calls it from
+  `startChangesPoll` while the surface is on screen and from `files:refresh` (`r`), since agents change the
+  tree under the surface. The revert backend above stays orphaned on its own.
 
 ## Jarvis S2 — semantic consumers L3 + L4 (2026-07-24)
 
