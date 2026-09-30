@@ -13,6 +13,7 @@ import {
     focusedCanvasMode,
     getCanvas,
     selectCanvasBoard,
+    selectCanvasTab,
     setCanvasMode,
     setMarking,
     stepCanvasBoard,
@@ -42,6 +43,7 @@ describe("attachCanvas", () => {
             ...A,
             mode: "terminal",
             board: null,
+            all: false,
             boards: [],
             port: null,
             status: "probing",
@@ -132,6 +134,44 @@ describe("board switches", () => {
         selectCanvasBoard("a1", "States.dc.html");
         expect(getCanvas("a1").board).toBe("States.dc.html");
         expect(getCanvas("a1").marks).toEqual([]);
+    });
+
+    it("opens on the first board's own tab, and All keeps the selected board", () => {
+        attachCanvas("a1", A, 100);
+        withMarks("a1");
+        expect(getCanvas("a1").all).toBe(false);
+        selectCanvasBoard("a1", "States.dc.html");
+        withMarks("a1");
+        selectCanvasTab("a1", "all");
+        expect(getCanvas("a1")).toMatchObject({ all: true, board: "States.dc.html", marks: [] });
+        selectCanvasTab("a1", "Main.dc.html");
+        expect(getCanvas("a1")).toMatchObject({ all: false, board: "Main.dc.html" });
+    });
+
+    it("picking a board on the All canvas keeps the All view", () => {
+        attachCanvas("a1", A, 100);
+        withMarks("a1");
+        selectCanvasTab("a1", "all");
+        selectCanvasBoard("a1", "States.dc.html");
+        expect(getCanvas("a1")).toMatchObject({ all: true, board: "States.dc.html" });
+    });
+
+    it("steps from the last board to All and on to the first", () => {
+        attachCanvas("a1", { ...A, board: "States.dc.html" }, 100);
+        withMarks("a1");
+        stepCanvasBoard("a1", 1);
+        expect(getCanvas("a1")).toMatchObject({ all: true, marks: [] });
+        stepCanvasBoard("a1", 1);
+        expect(getCanvas("a1")).toMatchObject({ all: false, board: "Main.dc.html" });
+    });
+
+    it("a reveal naming a board opens its tab; one naming none keeps the view", () => {
+        attachCanvas("a1", A, 100);
+        selectCanvasTab("a1", "all");
+        attachCanvas("a1", A, 200);
+        expect(getCanvas("a1").all).toBe(true);
+        attachCanvas("a1", { ...A, board: "States.dc.html" }, 300);
+        expect(getCanvas("a1")).toMatchObject({ all: false, board: "States.dc.html" });
     });
 });
 

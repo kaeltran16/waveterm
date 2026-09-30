@@ -3,13 +3,16 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    ALL_TAB,
     boardLabel,
     boardsFromCanvasJson,
     boardUrl,
     buildGoal,
     canvasDir,
     canvasLayout,
+    canvasTabs,
     classifyProbe,
+    currentTab,
     fitScale,
     isUnseen,
     paneState,
@@ -17,7 +20,8 @@ import {
     pickServingPort,
     prototypePath,
     serverDownText,
-    stepBoard,
+    shownBoards,
+    stepTab,
     updatedAgo,
     type CanvasBoard,
 } from "./canvasmodel";
@@ -35,6 +39,7 @@ function state(over: Partial<CanvasState>): CanvasState {
         projectDir: "/p",
         mode: "terminal",
         board: null,
+        all: false,
         boards: [],
         port: null,
         status: "ready",
@@ -155,22 +160,58 @@ describe("boardLabel", () => {
     });
 });
 
-describe("stepBoard", () => {
-    const three = [...BOARDS, { name: "C.dc.html", x: 0, y: 1020, w: 1440, h: 900 }];
+describe("stepTab", () => {
+    const tabs = [ALL_TAB, "Main.dc.html", "C.dc.html"];
 
-    it("wraps forward and back", () => {
-        expect(stepBoard(three, "C.dc.html", 1)).toBe("Main.dc.html");
-        expect(stepBoard(three, "Main.dc.html", -1)).toBe("C.dc.html");
-        expect(stepBoard(three, "Main.dc.html", 1)).toBe("States.dc.html");
+    it("wraps forward and back, through All", () => {
+        expect(stepTab(tabs, "C.dc.html", 1)).toBe(ALL_TAB);
+        expect(stepTab(tabs, ALL_TAB, -1)).toBe("C.dc.html");
+        expect(stepTab(tabs, ALL_TAB, 1)).toBe("Main.dc.html");
     });
 
-    it("treats no current board as the first", () => {
-        expect(stepBoard(three, null, 1)).toBe("States.dc.html");
-        expect(stepBoard(three, null, -1)).toBe("C.dc.html");
+    it("treats an unknown current tab as the first", () => {
+        expect(stepTab(tabs, null, 1)).toBe("Main.dc.html");
+        expect(stepTab(tabs, "Gone.dc.html", -1)).toBe("C.dc.html");
     });
 
-    it("has nothing to step to with no boards", () => {
-        expect(stepBoard([], null, 1)).toBeNull();
+    it("has nothing to step to with no tabs", () => {
+        expect(stepTab([], null, 1)).toBeNull();
+    });
+});
+
+describe("board tabs", () => {
+    it("offers All first only when there are boards to lay side by side", () => {
+        expect(canvasTabs(BOARDS)).toEqual([ALL_TAB, "Main.dc.html", "States.dc.html"]);
+        expect(canvasTabs([BOARDS[0]])).toEqual(["Main.dc.html"]);
+        expect(canvasTabs([])).toEqual([]);
+    });
+
+    it("shows the selected board alone on its tab, and every board under All", () => {
+        const one = state({ boards: BOARDS, board: "States.dc.html" });
+        expect(shownBoards(one)).toEqual([BOARDS[1]]);
+        expect(currentTab(one)).toBe("States.dc.html");
+        const all = state({ boards: BOARDS, board: "States.dc.html", all: true });
+        expect(shownBoards(all)).toEqual(BOARDS);
+        expect(currentTab(all)).toBe(ALL_TAB);
+    });
+
+    it("reads All with a single board as that board, since there is no All tab", () => {
+        const s = state({ boards: [BOARDS[0]], all: true });
+        expect(shownBoards(s)).toEqual([BOARDS[0]]);
+        expect(currentTab(s)).toBe("Main.dc.html");
+    });
+
+    it("builds the board on its tab, and every board under All", () => {
+        const dir = "/p/.superpowers/design/t";
+        expect(buildGoal(dir, shownBoards(state({ boards: BOARDS, board: "States.dc.html" })))).toBe(
+            "Build the design in /p/.superpowers/design/t/project (boards: States)"
+        );
+        expect(prototypePath(dir, shownBoards(state({ boards: BOARDS, board: "States.dc.html" })))).toBe(
+            "/p/.superpowers/design/t/project/States.dc.html"
+        );
+        expect(buildGoal(dir, shownBoards(state({ boards: BOARDS, all: true })))).toBe(
+            "Build the design in /p/.superpowers/design/t/project (boards: Main, States)"
+        );
     });
 });
 

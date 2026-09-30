@@ -27,7 +27,7 @@ elements inside the iframe, and persisting a canvas across an Arc restart.
 | 2 | `wsh ui reveal` also sends the caller's working directory (`callercwd`). The canvas directory is `<callercwd>/.superpowers/design/<topic>`. | design-local writes the canvas relative to the agent's cwd; the frontend has no other reliable way to find it on disk. |
 | 3 | Per-agent canvas state is a jotai atom family keyed by agent id, in memory only. After an Arc restart the agent re-runs reveal. | Chosen by the user: session-only. |
 | 4 | Canvas mode swaps the terminal for the canvas; it doesn't dock. The rail hides; the tree and the header stay, so another agent is one click away; the xterm stays mounted and hidden. | Mockup; the xterm must never remount. The tree first hid too, which made every trip to another agent a round trip through the terminal. |
-| 5 | Every board is drawn at its canvas.json frame (x, y, w, h), the whole canvas scaled to fit the pane width, never above 100%. The toolbar shows the scale. | Chosen by the user. One board at a time left a narrow board (a 640 px sheet) in a pane of empty space while its sibling variants sat behind tabs. |
+| 5 | Each board has its own tab showing it alone, and with two or more boards an All tab draws every board at its canvas.json frame (x, y, w, h). Either way the boards on screen are scaled to fit the pane width, never above 100%, and the toolbar shows the scale. A canvas opens on its first board. | Chosen by the user. All alone read as one design split by a tab header that did not separate anything; one board at a time alone left sibling variants out of sight. |
 | 6 | Server port: probe 8766 upward for the topic's `Main.dc.html`, as the skill does, through `@tauri-apps/plugin-http` **without** Arc's auth key. | The plugin bypasses CORS (python's server sends none). `fetchutil.fetch` adds `X-AuthKey`, which must not reach a third-party local server. |
 | 7 | Updates come from polling the served files' `Last-Modified` every 3 s, for the focused agent only, while the Agent surface is mounted. | Decided in the goal; one agent is on screen at a time. |
 | 8 | "Canvas folder deleted" comes from disk (`FileInfoCommand` on the canvas dir, not-found), not HTTP. | A 404 can mean a server rooted elsewhere; the disk is the truth. |
@@ -75,6 +75,7 @@ type CanvasState = {
     projectDir: string;     // the caller cwd, for the relative feedback path and Start server
     mode: "terminal" | "canvas";
     board: string | null;   // file name; null = first in order
+    all: boolean;           // the All tab: every board side by side; a reveal naming a board clears it
     boards: CanvasBoard[];  // { name, w } in canvas.json order; w defaults to 1440
     port: number | null;
     status: "probing" | "ready" | "server-down" | "removed";
@@ -112,7 +113,9 @@ mounted and the focused agent has a canvas, every 3 s (`CANVAS_POLL_MS`):
   `boardLabel(name)` strips `.dc.html`.
 - `canvasLayout(boards, paneWidth)`: every board's frame in screen px, shifted so the top-left board
   sits at the origin and scaled by `fitScale(paneWidth, canvas width)`.
-- `stepBoard(boards, current, delta)`: wraps.
+- `canvasTabs(boards)`: `[ALL_TAB, ...names]` with two or more boards, else the names. `currentTab(s)` and
+  `shownBoards(s)`: under All every board, else the selected one alone.
+- `stepTab(tabs, current, delta)`: wraps, All included.
 - `classifyProbe(result)`: `200` → `serving`, network error → `free`, any other status → `taken`.
   `pickServingPort(results)` / `pickFreePort(results)`.
 - `paneState(state)` → `"removed" | "server-down" | "probing" | "board"`: `removed` wins over
@@ -162,7 +165,7 @@ its canvas, or, when that canvas is the one showing, goes back to the terminal. 
 - Toolbar: topic, board tabs (`Segmented`, `role=tablist`, title "Previous and next board ([ and
   ])"), spacer, "updated Ns ago · NN%", the Mark toggle, and, while not marking, Open in browser
   (`openExternal(boardUrl)`) and Build this….
-- Boards: `canvasLayout` places one frame per board, each an `<iframe src={boardUrl}
+- Boards: `canvasLayout(shownBoards(s))` places one frame per shown board, each an `<iframe src={boardUrl}
   key={reloadKey}>` at the board's natural size scaled by the layout's scale, with
   `sandbox="allow-scripts allow-same-origin"` (its own origin, never Arc's), and a label above it
   (name and canvas.json title). The canvas scrolls in the pane (`scrollbar-gutter: stable`, so the
@@ -197,7 +200,8 @@ Any failure shows the error in the tray and stops **before** typing anything. Th
 so the user can retry.
 
 **Build this…** writes `newRunPrefillAtom = { projectName: agent's project, goal:
-buildGoal(...), prototype: prototypePath(...) }` and opens `newRunOpenAtom`. On mount,
+buildGoal(dir, shownBoards(s)), prototype: prototypePath(dir, shownBoards(s)) }`: the board on screen, or every
+board under All, and opens `newRunOpenAtom`. On mount,
 `NewRunModal` consumes the prefill (then clears it): it picks that project, sets shape
 `orchestrator` and start `goal`, and fills the goal. It shows one muted line under the goal,
 "Prototype · <path>", with a remove ×. `launchOptsFromConfig`'s result carries `prototype`

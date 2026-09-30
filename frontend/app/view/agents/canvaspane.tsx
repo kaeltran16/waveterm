@@ -20,6 +20,7 @@ import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 import { addMark, removeMark, setMarkNote, type Box, type Mark } from "./canvasmarks";
 import {
+    ALL_TAB,
     boardLabel,
     boardUrl,
     buildGoal,
@@ -27,11 +28,14 @@ import {
     CANVAS_PORT_FIRST,
     canvasDesignDir,
     canvasLayout,
+    canvasTabs,
+    currentTab,
     paneState,
     pickFreePort,
     prototypePath,
     serverDownText,
     shownBoard,
+    shownBoards,
     updatedAgo,
     type BoardFrame,
 } from "./canvasmodel";
@@ -43,6 +47,7 @@ import {
     detachCanvas,
     getCanvas,
     selectCanvasBoard,
+    selectCanvasTab,
     setMarking,
     updateCanvas,
     type CanvasState,
@@ -69,8 +74,8 @@ const MARK_CHIP =
 function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasState): void {
     globalStore.set(newRunPrefillAtom, {
         projectName: projectOf(agent),
-        goal: buildGoal(s.dir, s.boards),
-        prototype: prototypePath(s.dir, s.boards),
+        goal: buildGoal(s.dir, shownBoards(s)),
+        prototype: prototypePath(s.dir, shownBoards(s)),
     });
     globalStore.set(model.newRunOpenAtom, true);
 }
@@ -98,7 +103,7 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
     }
     const pane = paneState(s);
     const board = shownBoard(s);
-    const layout = canvasLayout(s.boards, rect?.width ?? 0);
+    const layout = canvasLayout(shownBoards(s), rect?.width ?? 0);
     const scale = layout.scale;
     const marking = s.marking && pane === "board";
     const meta = [updatedAgo(now, s.lastModifiedMs), `${Math.round(scale * 100)}%`].filter(Boolean).join(" · ");
@@ -112,9 +117,12 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
                         role="tablist"
                         ariaLabel="Boards"
                         title={`Previous and next board (${formatChordString("[")} and ${formatChordString("]")})`}
-                        value={board.name}
-                        options={s.boards.map((b) => ({ key: b.name, label: boardLabel(b.name) }))}
-                        onChange={(name) => selectCanvasBoard(agent.id, name)}
+                        value={currentTab(s)}
+                        options={canvasTabs(s.boards).map((t) => ({
+                            key: t,
+                            label: t === ALL_TAB ? "All" : boardLabel(t),
+                        }))}
+                        onChange={(tab) => selectCanvasTab(agent.id, tab)}
                     />
                 ) : null}
                 <div className="flex-1" />
@@ -160,7 +168,7 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
                 ) : pane === "removed" ? (
                     <Removed agent={agent} topic={s.topic} />
                 ) : (
-                    // every board at its canvas.json frame, each iframe at the board's full size, so the canvas
+                    // the shown boards (every one under All) at their canvas.json frames, each iframe at the board's full size, so the canvas
                     // scrolls here, in Arc, instead of showing the board pages' own scrollbars. The gutter is
                     // reserved so the scrollbar appearing can't narrow the pane, change the fit scale, and make
                     // itself disappear again

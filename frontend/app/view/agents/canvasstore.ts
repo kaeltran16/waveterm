@@ -9,7 +9,7 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { atomFamily } from "jotai/utils";
 import type { AgentsViewModel } from "./agents";
 import type { Mark } from "./canvasmarks";
-import { stepBoard, type CanvasBoard } from "./canvasmodel";
+import { ALL_TAB, canvasTabs, currentTab, stepTab, type CanvasBoard } from "./canvasmodel";
 
 export type CanvasState = {
     topic: string;
@@ -17,6 +17,8 @@ export type CanvasState = {
     projectDir: string;
     mode: "terminal" | "canvas";
     board: string | null;
+    // every board side by side (the All tab), rather than the selected one alone
+    all: boolean;
     boards: CanvasBoard[];
     port: number | null;
     status: "probing" | "ready" | "server-down" | "removed";
@@ -55,7 +57,10 @@ export function attachCanvas(
     let next: CanvasState;
     if (prev != null && prev.topic === a.topic) {
         const board = a.board ?? prev.board;
-        next = { ...prev, dir: a.dir, projectDir: a.projectDir, board, marks: board === prev.board ? prev.marks : [] };
+        // a reveal naming a board opens that board's own tab
+        const all = a.board != null ? false : prev.all;
+        const keep = board === prev.board && all === prev.all;
+        next = { ...prev, dir: a.dir, projectDir: a.projectDir, board, all, marks: keep ? prev.marks : [] };
     } else {
         next = {
             topic: a.topic,
@@ -63,6 +68,7 @@ export function attachCanvas(
             projectDir: a.projectDir,
             mode: "terminal",
             board: a.board ?? null,
+            all: false,
             boards: [],
             port: null,
             status: "probing",
@@ -97,10 +103,21 @@ export function setCanvasMode(agentId: string, mode: "terminal" | "canvas", now:
     );
 }
 
-// marks are drawn over one board, so any board switch drops them
-export function stepCanvasBoard(agentId: string, delta: number): void {
-    updateCanvas(agentId, (s) => ({ ...s, board: stepBoard(s.boards, s.board, delta), marks: [] }));
+// marks are drawn over one board where it sits on screen, so any board or view switch drops them
+function withTab(s: CanvasState, tab: string | null): CanvasState {
+    return tab === ALL_TAB ? { ...s, all: true, marks: [] } : { ...s, all: false, board: tab ?? s.board, marks: [] };
 }
+
+// [ and ] walk the tabs, All included
+export function stepCanvasBoard(agentId: string, delta: number): void {
+    updateCanvas(agentId, (s) => withTab(s, stepTab(canvasTabs(s.boards), currentTab(s), delta)));
+}
+
+export function selectCanvasTab(agentId: string, tab: string): void {
+    updateCanvas(agentId, (s) => withTab(s, tab));
+}
+
+// a board picked on the All canvas: the view stays, the selection moves
 
 export function selectCanvasBoard(agentId: string, board: string): void {
     updateCanvas(agentId, (s) => ({ ...s, board, marks: [] }));

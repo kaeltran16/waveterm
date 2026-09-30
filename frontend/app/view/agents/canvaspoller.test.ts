@@ -18,6 +18,7 @@ function state(over: Partial<CanvasState> = {}): CanvasState {
         projectDir: "/p",
         mode: "canvas",
         board: null,
+        all: false,
         boards: [],
         port: null,
         status: "probing",
