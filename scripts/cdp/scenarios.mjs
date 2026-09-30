@@ -5649,9 +5649,10 @@ const focusDivergenceRejoin = {
 
 // The Agent tree and the details rail on the brief type scale (docs/superpowers/specs/2026-09-29-agent-tree-rail-
 // polish-design.md): lucide marks instead of text glyphs, and nothing smaller than 10.5px. The roster is a dev
-// fixture, so nothing runs; the lead's run is a real orchestrator run held in planning by deferstart, which spawns
-// no worker, so the tree nests the fixture lead under it and the rail shows its Run section. No dagsubmit: with the
-// plan gate gone it would start real workers.
+// fixture; the lead's run is a real orchestrator run held by deferstart, so the tree nests the fixture lead under it
+// and the rail shows its Run section. agent-tree-rail also gives that run a chained plan, which dispatches one real
+// worker (t-1) that teardown deletes, and gives the lead a temp transcript with one working subagent, so the worker
+// row, its guide, the task strip and the subagent row are all rendered for the sweeps.
 const TREE_RAIL_FIXTURE = new URL("../../public/cockpit-fixtures/active.json", import.meta.url);
 const TREE_RAIL_LEAD = "tree-rail lead";
 const RAIL_VISIBLE_KEY = "agent.rail.visible";
@@ -5660,7 +5661,7 @@ const TREE_RAIL_GLYPHS = ["↳", "◆", "▸", "▾", "›_", "↗", "‹"];
 const MIN_FONT_PX = 10.5;
 const TREE_RAIL_LEAD_ID = "fx-lead";
 
-function treeRailRoster(runId, now, leadName = TREE_RAIL_LEAD) {
+function treeRailRoster(runId, now, leadName = TREE_RAIL_LEAD, leadExtra = {}) {
     return [
         {
             id: TREE_RAIL_LEAD_ID,
@@ -5673,6 +5674,7 @@ function treeRailRoster(runId, now, leadName = TREE_RAIL_LEAD) {
             activeMs: 240_000,
             runId,
             blockId: "fx-blk-lead",
+            ...leadExtra,
         },
         {
             id: "fx-ask-wave",
@@ -5708,7 +5710,7 @@ function treeRailRoster(runId, now, leadName = TREE_RAIL_LEAD) {
 }
 
 // a real orchestrator run held in planning, and the fixture roster whose lead carries its id
-async function arrangeFixtureRun(h, ctx, label, leadName) {
+async function arrangeFixtureRun(h, ctx, label, leadName, leadExtra) {
     const wslist = await h.rpc("workspacelist", null);
     const ch = await h.rpc("createchannel", { name: `verify-${label}`, projectpath: ctx.cwd });
     ctx.channelId = ch.oid;
@@ -5722,8 +5724,25 @@ async function arrangeFixtureRun(h, ctx, label, leadName) {
     });
     ctx.runId = created.run.id;
     mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
-    writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(treeRailRoster(ctx.runId, Date.now(), leadName), null, 2));
+    writeFileSync(
+        TREE_RAIL_FIXTURE,
+        JSON.stringify(treeRailRoster(ctx.runId, Date.now(), leadName, leadExtra), null, 2)
+    );
     ctx.wroteFixture = true;
+}
+
+// t-1's dispatch has taken anywhere from 0.2s to 28s on the dev app, the slow ones right after another scenario
+const DISPATCH_WAIT_MS = 60_000;
+
+// polls the run's DAG until the task has a worker run, recording the outcome and the wait on ctx
+async function waitForDispatch(h, ctx, taskId) {
+    const start = Date.now();
+    while (!ctx.dispatched && Date.now() - start < DISPATCH_WAIT_MS) {
+        const group = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group;
+        ctx.dispatched = !!group?.tasks?.find((t) => t.id === taskId)?.runid;
+        if (!ctx.dispatched) await new Promise((r) => setTimeout(r, 500));
+    }
+    ctx.dispatchMs = Date.now() - start;
 }
 
 // best-effort, so one failed step does not strand the rest
@@ -5770,8 +5789,30 @@ async function teardownFixtureRun(h, ctx, name, restore) {
     await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
 }
 
+const TREE_RAIL_SUBAGENT_PROMPT = "survey the tree rail";
+
+// a parent transcript with one subagent file whose last record is not an assistant turn, so it reads as working
+function writeLeadTranscript(cwd) {
+    const parent = join(cwd, "lead.jsonl");
+    const subs = join(cwd, "lead", "subagents");
+    mkdirSync(subs, { recursive: true });
+    const userTurn = (content) => JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n";
+    writeFileSync(parent, userTurn("verify tree rail"));
+    writeFileSync(join(subs, "agent-fxsub.jsonl"), userTurn(TREE_RAIL_SUBAGENT_PROMPT));
+    return parent;
+}
+
 async function arrangeTreeRail(h, ctx) {
-    await arrangeFixtureRun(h, ctx, "tree-rail", TREE_RAIL_LEAD);
+    await arrangeFixtureRun(h, ctx, "tree-rail", TREE_RAIL_LEAD, { transcriptPath: writeLeadTranscript(ctx.cwd) });
+    await h.rpc("dagsubmit", {
+        channelid: ctx.channelId,
+        runid: ctx.runId,
+        title: "verify tree-rail",
+        parallelism: 1,
+        tasks: RUN_SHEET_POLISH_TASKS,
+    });
+    // a queued task folds away, so t-1 has a worker row only once it dispatches
+    await waitForDispatch(h, ctx, "t-1");
     // the rail is off by default and persisted, and the fixture roster is read once at boot
     await h.ev(`localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "true")`);
     await h.ev("location.reload()");
@@ -5825,9 +5866,9 @@ const agentTreeRail = {
         const TREE = `document.querySelector("[data-agent-tree]")`;
         const HEADER = `document.querySelector("[data-agent-header]")`;
         rec(
-            "0. the lead row nested under its run and was focused",
-            ctx.arrangeError == null && ctx.leadFocused === true,
-            ctx.arrangeError ?? `runId=${ctx.runId}`
+            "0. the lead row nested under its run and was focused, and t-1 dispatched",
+            ctx.arrangeError == null && ctx.leadFocused === true && ctx.dispatched === true,
+            ctx.arrangeError ?? JSON.stringify({ runId: ctx.runId, dispatched: ctx.dispatched, dispatchMs: ctx.dispatchMs })
         );
 
         const badges = await h.ev(`(() => {
@@ -5934,6 +5975,46 @@ const agentTreeRail = {
             return b ? !!b.querySelector("svg") : null;
         })()`);
         rec("6. the rail's collapse control is an icon", collapse === true, `svg=${collapse}`);
+
+        // the rows the sweeps above only cover when they render: a nested row's guide is a 1px line in its first column
+        const nested = await h.ev(`(() => {
+            const tree = ${TREE};
+            if (!tree) return null;
+            const rowOf = (text) => {
+                const name = [...tree.querySelectorAll("div")].find(
+                    (d) => d.textContent.trim() === text && d.children.length === 0
+                );
+                return name ? name.closest(".relative") : null;
+            };
+            const guides = (row) =>
+                row ? [...row.children].filter((c) => c.tagName === "SPAN" && getComputedStyle(c).width === "1px").length : 0;
+            const lead = rowOf(${JSON.stringify(TREE_RAIL_LEAD)});
+            const worker = rowOf(${JSON.stringify(RUN_SHEET_POLISH_TASKS[0].label)});
+            const sub = rowOf(${JSON.stringify(TREE_RAIL_SUBAGENT_PROMPT)});
+            return {
+                strip: lead?.querySelector("[role=img]")?.getAttribute("aria-label") ?? null,
+                workersChip: lead?.querySelector('button[aria-label="Hide workers"]')?.textContent.trim() ?? null,
+                worker: !!worker,
+                workerGuides: guides(worker),
+                sub: !!sub,
+                subGuides: guides(sub),
+            };
+        })()`);
+        rec(
+            "7. the lead's run line carries its workers chip and the task strip",
+            nested != null && /^\d+ of 3 tasks done/.test(nested.strip ?? "") && /workers?$/.test(nested.workersChip ?? ""),
+            JSON.stringify(nested)
+        );
+        rec(
+            "8. t-1's worker row sits under the lead with one guide line",
+            nested != null && nested.worker && nested.workerGuides === 1,
+            JSON.stringify(nested)
+        );
+        rec(
+            "9. the lead's working subagent is listed under it with one guide line",
+            nested != null && nested.sub && nested.subGuides === 1,
+            JSON.stringify(nested)
+        );
         return steps;
     },
     async teardown(h, ctx) {
@@ -6514,8 +6595,6 @@ const runSheetPolish = {
 const OBS_WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 // below TIMELINE_RAIL_MIN_PX (1100), where the lifecycle rail collapses into a drawer
 const OBS_NARROW = { width: 1000, height: 900, deviceScaleFactor: 1, mobile: false };
-// t-1's dispatch has taken anywhere from 0.2s to 28s on the dev app, the slow ones right after another scenario
-const OBS_DISPATCH_MS = 60_000;
 const OBS_MODAL = `document.querySelector('[data-dag-modal-kind]')`;
 const OBS_RAIL = `document.querySelector('[data-timeline-rail]')`;
 // a row that renders its raw event kind means the projection is missing that kind's title
@@ -6529,13 +6608,7 @@ const dagObservability = {
         const ctx = await arrangeSheetDagRun(h, "dag-observability", RUN_SHEET_POLISH_TASKS);
         if (ctx.arrangeError != null) return ctx;
         try {
-            const start = Date.now();
-            while (!ctx.dispatched && Date.now() - start < OBS_DISPATCH_MS) {
-                const group = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group;
-                ctx.dispatched = !!group?.tasks?.find((t) => t.id === "t-1")?.runid;
-                if (!ctx.dispatched) await new Promise((r) => setTimeout(r, 500));
-            }
-            ctx.dispatchMs = Date.now() - start;
+            await waitForDispatch(h, ctx, "t-1");
         } catch (e) {
             ctx.arrangeError = String(e?.message ?? e);
         }
