@@ -7680,6 +7680,8 @@ const paletteGoal = {
             `${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value === ${JSON.stringify(goal)}`,
             3000
         );
+        // the palette closes before the window opens, but its exit animation keeps the input mounted briefly
+        const paletteGone = await polishWaitFor(h, `!${PALETTE_INPUT}`, 2000);
         const filled = await h.ev(`({
             palette: !!${PALETTE_INPUT},
             goal: ${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value ?? null,
@@ -7691,11 +7693,12 @@ const paletteGoal = {
             "4. Set up the run… opens the New run window with the goal and project filled, and starts nothing",
             (onSetup?.selected ?? "").startsWith("Set up the run…") &&
                 windowOpen &&
+                paletteGone &&
                 filled.palette === false &&
                 filled.goal === goal &&
                 filled.project.startsWith(PALETTE_GOAL_PROJECT) &&
                 runsAfter === runsBefore,
-            JSON.stringify({ selected: onSetup?.selected, windowOpen, ...filled, runsBefore, runsAfter })
+            JSON.stringify({ selected: onSetup?.selected, windowOpen, paletteGone, ...filled, runsBefore, runsAfter })
         );
         return steps;
     },
