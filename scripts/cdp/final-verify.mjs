@@ -17,7 +17,7 @@
 // The user's packaged Arc shares the dev app's image names, so only the PID this script spawned is ever killed.
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, lstatSync, mkdirSync, openSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -40,6 +40,7 @@ const FINAL_BASE = join(process.env.LOCALAPPDATA || join(homedir(), ".cache"), "
 // one target dir for every final stage, outside any checkout: only the first pays the cold cargo build
 const FINAL_TARGET_DIR = join(FINAL_BASE, "target");
 const STORE_ID_LEN = 8;
+const STORES_DIR = join(FINAL_BASE, "stores");
 // with the 10 min boot and the verify run, a stage that waited this long still ends inside the engine's 30 min
 // FinalTimeout (pkg/orchestrate/final.go)
 const DEFAULT_LOCK_WAIT_MS = 600_000;
@@ -47,7 +48,7 @@ const DEFAULT_LOCK_WAIT_MS = 600_000;
 // the dev app's store. wavesrv binds <store>/data/wave.sock and windows caps a unix socket path at 108 bytes, which
 // a store under ARC_FINAL_OUT (itself under %TEMP%) can pass, so it lives under a short path keyed by the out dir
 function storeDir(out) {
-    return join(FINAL_BASE, "stores", createHash("sha1").update(out).digest("hex").slice(0, STORE_ID_LEN));
+    return join(STORES_DIR, createHash("sha1").update(out).digest("hex").slice(0, STORE_ID_LEN));
 }
 
 // keeps the dev app's log for whoever reads the result, then drops the throwaway store
@@ -59,6 +60,19 @@ function dropStore(store, out) {
         rmSync(store, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
     } catch (e) {
         console.log(`could not keep the log and drop the dev app's store ${store}: ${e.message}`);
+    }
+}
+
+// drops every store under dir. Called holding the build lock, when no other stage is running, so each one is a stage's
+// that was killed before its finally ran or whose drop hit a file its dev app still held. Best-effort, like dropStore.
+export function sweepStaleStores(dir) {
+    if (!existsSync(dir)) return;
+    for (const name of readdirSync(dir)) {
+        try {
+            rmSync(join(dir, name), { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+        } catch (e) {
+            console.log(`could not drop the stale dev app store ${name}: ${e.message}`);
+        }
     }
 }
 
@@ -240,7 +254,7 @@ async function main() {
     const devCmd = process.env.ARC_FINAL_DEV_CMD || `task dev -- --config "${configPath}"`;
     unlinkBuildJunctions(process.cwd());
     const store = storeDir(out);
-    rmSync(store, { recursive: true, force: true });
+    sweepStaleStores(STORES_DIR);
 
     const port = await pickPort();
     const profile = join(out, "webview2-profile");

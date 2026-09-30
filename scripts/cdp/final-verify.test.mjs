@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { EXIT_UNVERIFIED, acquireBuildLock, buildLockPath, inUse, pickPort, pickVitePort, unlinkBuildJunctions } from "./final-verify.mjs";
+import { EXIT_UNVERIFIED, acquireBuildLock, buildLockPath, inUse, pickPort, pickVitePort, sweepStaleStores, unlinkBuildJunctions } from "./final-verify.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./final-verify.mjs", import.meta.url));
 
@@ -295,5 +295,31 @@ describe("unlinkBuildJunctions", () => {
         writeFileSync(join(dir, "dist", "bin", "wavesrv.x64.exe"), "x");
         unlinkBuildJunctions(dir);
         expect(existsSync(join(dir, "dist", "bin", "wavesrv.x64.exe"))).toBe(true);
+    });
+});
+
+describe("sweepStaleStores", () => {
+    let dir;
+    afterEach(() => {
+        if (dir) rmSync(dir, { recursive: true, force: true });
+        dir = undefined;
+    });
+
+    it("drops every store a killed or half-cleaned stage left", () => {
+        dir = mkdtempSync(join(tmpdir(), "final-stores-"));
+        for (const id of ["aaaa1111", "bbbb2222"]) {
+            mkdirSync(join(dir, id, "data", "db"), { recursive: true });
+            writeFileSync(join(dir, id, "data", "db", "waveterm.db"), "x");
+        }
+
+        sweepStaleStores(dir);
+
+        expect(existsSync(join(dir, "aaaa1111"))).toBe(false);
+        expect(existsSync(join(dir, "bbbb2222"))).toBe(false);
+    });
+
+    it("is a no-op when no stage has made a store yet", () => {
+        dir = mkdtempSync(join(tmpdir(), "final-stores-"));
+        expect(() => sweepStaleStores(join(dir, "missing"))).not.toThrow();
     });
 });
