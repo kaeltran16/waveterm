@@ -180,3 +180,56 @@ describe("session placement", () => {
         expect(sessionLabel(mk({ task: "solo work" }), titles)).toBe("solo work");
     });
 });
+
+describe("stage sessions", () => {
+    const sessions = [
+        mk({ id: "lead", runid: "r1", role: "lead", tokenstotal: 100 }),
+        mk({ id: "pr1", runid: "r1", role: "plan-reviewer", lastactivets: 1, tokenstotal: 5 }),
+        mk({ id: "pr2", runid: "r1", role: "plan-reviewer", lastactivets: 2, tokenstotal: 7 }),
+        mk({ id: "w1", runid: "r1", role: "worker", taskid: "t-1", tokenstotal: 40 }),
+        mk({ id: "fv", runid: "r1", role: "verifier", lastactivets: 9, tokenstotal: 20 }),
+    ];
+    const dag = dagOf([task("t-1", "done", { merged: true })], {
+        status: "done",
+        planreview: { state: "passed", round: 2 },
+        final: { state: "failed", round: 1 },
+    });
+
+    it("lists the plan review and the final verification after the tasks, newest session first", () => {
+        const v = runView({ group: groupRunSessions(sessions).runs[0], dag, now: 0 });
+        expect(v.members.map((m) => m.key)).toEqual([LEAD_MEMBER, "t-1", "plan-reviewer", "verifier"]);
+        const [, , review, verify] = v.members;
+        expect(review.label).toBe("Plan review");
+        expect(review.session?.id).toBe("pr2");
+        expect(review.tokens).toBe(12);
+        expect(review.status).toEqual({ key: "done", text: "passed" });
+        expect(verify.label).toBe("Final verification");
+        expect(verify.status).toEqual({ key: "failed", text: "failed" });
+    });
+
+    it("leaves the run's task counts and needs-you rows to its tasks", () => {
+        const v = runView({ group: groupRunSessions(sessions).runs[0], dag, now: 0 });
+        expect(v.total).toBe(1);
+        expect(v.landed).toBe(1);
+        expect(v.segs).toEqual(["done"]);
+        expect(v.needs).toEqual([]);
+    });
+
+    it("reads a live stage session as judging, and one with no dag as done", () => {
+        const live = sessions.map((s) => (s.id === "fv" ? { ...s, live: true } : s));
+        const running = runView({ group: groupRunSessions(live).runs[0], dag, now: 0 });
+        expect(running.members[3].status).toEqual({ key: "review", text: "verifying" });
+        const bare = runView({ group: groupRunSessions(sessions).runs[0], now: 0 });
+        expect(bare.members.slice(2).map((m) => m.status)).toEqual([
+            { key: "done", text: "done" },
+            { key: "done", text: "done" },
+        ]);
+    });
+
+    it("places and labels a stage session by its stage", () => {
+        expect(memberOfSession({ role: "verifier" })).toBe("verifier");
+        expect(sessionLabel(mk({ runid: "r1", role: "plan-reviewer" }), { r1: "Port the header" })).toBe(
+            "Port the header · plan review"
+        );
+    });
+});

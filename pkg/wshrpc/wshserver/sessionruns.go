@@ -28,13 +28,18 @@ type sessionRunLink struct {
 }
 
 // runLinkOf places a run launched under a session: the lead of an orchestrator run, or a child working one of
-// its dag's tasks. A plain run, or a child whose dag is gone, is not placed.
+// its dag's tasks, or a stage session judging the whole dag. A plain run, or a child whose dag is gone, is not placed.
 func runLinkOf(run *waveobj.Run, dag *waveobj.TaskGroup) (sessionRunLink, bool) {
 	if run.DagORef != "" && dag != nil {
 		if dag.RunID == run.OID {
 			return sessionRunLink{RunId: run.OID, ChannelId: run.ChannelOID, Role: sessionRole_Lead}, true
 		}
 		link := sessionRunLink{RunId: dag.RunID, ChannelId: dag.ChannelId, TaskId: run.TaskId, Role: sessionRole_Worker}
+		if run.StageRole != "" {
+			// a plan reviewer or final verifier works no task: its stage is its place in the run
+			link.Role = run.StageRole
+			return link, true
+		}
 		if run.Review {
 			link.Role = sessionRole_Review
 		}

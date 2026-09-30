@@ -57,12 +57,6 @@ colors:
   pill: "rgba(255, 255, 255, 0.05)"
   # identity (theme-agnostic by design)
   skill: "#c58cff"
-  avatar-1: "#7c95ff"
-  avatar-2: "#54c79a"
-  avatar-3: "#e0726c"
-  avatar-4: "#e6b450"
-  avatar-5: "#c98fe6"
-  avatar-6: "#9aa3ad"
   conn-1: "#53b4ea"
   conn-2: "#aa67ff"
   conn-3: "#fda7fd"
@@ -252,8 +246,7 @@ Don'ts): `ink-faint 3.54:1 < muted 5.18:1 < ink-mid 7.56:1 < secondary
 ### Identity palettes (theme-agnostic by design)
 
 These stay at `@theme` defaults across all runtime themes so identity stays
-recognizable: **avatar** `avatar-1..6` (deterministic per author), **commit
-graph lanes** `graphlane-1..6` + `graphlane-fold` (positional, never
+recognizable: **commit graph lanes** `graphlane-1..6` + `graphlane-fold` (positional, never
 identity), **runtime accents** `rt-claude` `#d97757` / `rt-codex` `#ececec` /
 `rt-opencode` `#a78bfa` / `rt-pi` `#ececec` / `rt-terminal` (with `-soft` and
 `-line` variants), **memory note types** (`mem-project` blue, `mem-reference`

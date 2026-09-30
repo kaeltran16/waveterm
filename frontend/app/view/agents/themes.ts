@@ -10,7 +10,7 @@
 import { colord } from "colord";
 
 // The base roles we theme. A deliberately small set: the identity-carrying "chrome". Subtle greys
-// (muted-foreground, ink-mid, lane, feed-*) and identity colors (avatar/mem/rt/ansi) are left at their
+// (muted-foreground, ink-mid, lane, feed-*) and identity colors (mem/rt/ansi) are left at their
 // tailwindsetup.css @theme defaults — safe across all dark themes (light mode was declined; see
 // docs/deferred.md).
 export interface ThemePalette {

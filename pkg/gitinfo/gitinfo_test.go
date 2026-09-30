@@ -1598,6 +1598,10 @@ func TestHistoryLogReportsFailureDetail(t *testing.T) {
 	if !strings.Contains(h.Failure.Command, "log") {
 		t.Errorf("Command = %q, want it to name the log invocation", h.Failure.Command)
 	}
+	// the failure panel prints the command verbatim, where a raw separator byte draws as a box
+	if strings.ContainsAny(h.Failure.Command, fieldSep+recordSep) {
+		t.Errorf("Command = %q, want git's %%x escapes, not raw separator bytes", h.Failure.Command)
+	}
 	if !strings.Contains(h.Failure.Stderr, "no-such-ref-anywhere") {
 		t.Errorf("Stderr = %q, want git's own message naming the bad revision", h.Failure.Stderr)
 	}
