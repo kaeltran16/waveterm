@@ -6,6 +6,7 @@ package agentsync
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -198,9 +199,7 @@ func collectTree(dir string, skip func(rel string) bool) (map[string][]byte, err
 // sidecar files overlaid. A skill with no delta renders identically for every harness.
 func renderSkill(skillsRoot, name, runtime string) (map[string][]byte, error) {
 	skillDir := filepath.Join(skillsRoot, name)
-	files, err := collectTree(skillDir, func(rel string) bool {
-		return rel == deltaDirName || strings.HasPrefix(rel, deltaDirName+string(filepath.Separator))
-	})
+	files, err := collectTree(skillDir, isDeltaPath)
 	if err != nil {
 		return nil, err
 	}
@@ -236,12 +235,27 @@ func treeMatches(dir string, want map[string][]byte) bool {
 	return true
 }
 
+// isDeltaPath reports whether rel is a skill's .arc per-harness delta directory or lies inside it.
+func isDeltaPath(rel string) bool {
+	return rel == deltaDirName || strings.HasPrefix(rel, deltaDirName+string(filepath.Separator))
+}
+
 // writeTree makes dir hold exactly want plus the ownership mark, removing files the render dropped.
 func writeTree(dir, source string, want map[string][]byte) error {
+	if err := mirrorTree(dir, want, func(rel string) bool { return rel == managedMarkName }); err != nil {
+		return err
+	}
+	mark := []byte("canonical: " + source + "\n")
+	return os.WriteFile(filepath.Join(dir, managedMarkName), mark, 0o644)
+}
+
+// mirrorTree makes dir hold exactly want, leaving any path skip reports alone. Only files whose
+// bytes differ are written, so an identical tree is left untouched.
+func mirrorTree(dir string, want map[string][]byte, skip func(rel string) bool) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", dir, err)
 	}
-	have, err := collectTree(dir, func(rel string) bool { return rel == managedMarkName })
+	have, err := collectTree(dir, skip)
 	if err != nil {
 		return err
 	}
@@ -264,8 +278,54 @@ func writeTree(dir, source string, want map[string][]byte) error {
 			return fmt.Errorf("writing %s: %w", path, err)
 		}
 	}
-	mark := []byte("canonical: " + source + "\n")
-	return os.WriteFile(filepath.Join(dir, managedMarkName), mark, 0o644)
+	return nil
+}
+
+// ---- shipped skills ----
+
+// shippedTree reads one shipped skill into relative-path -> bytes, keyed like collectTree.
+func shippedTree(shipped fs.FS, name string) (map[string][]byte, error) {
+	out := map[string][]byte{}
+	err := fs.WalkDir(shipped, name, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, readErr := fs.ReadFile(shipped, path)
+		if readErr != nil {
+			return readErr
+		}
+		out[filepath.FromSlash(strings.TrimPrefix(path, name+"/"))] = data
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reading shipped skill %s: %w", name, err)
+	}
+	return out, nil
+}
+
+// seedShippedSkills makes each shipped skill in the vault match what Arc ships, so the reconcile
+// that follows projects the shipped copy. The .arc delta directory is the user's and survives.
+func seedShippedSkills(skillsRoot string, shipped fs.FS) error {
+	if shipped == nil {
+		return nil
+	}
+	entries, err := fs.ReadDir(shipped, ".")
+	if err != nil {
+		return fmt.Errorf("listing shipped skills: %w", err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		want, err := shippedTree(shipped, e.Name())
+		if err != nil {
+			return err
+		}
+		if err := mirrorTree(filepath.Join(skillsRoot, e.Name()), want, isDeltaPath); err != nil {
+			return fmt.Errorf("seeding shipped skill %s: %w", e.Name(), err)
+		}
+	}
+	return nil
 }
 
 // ---- reconcile ----
@@ -396,11 +456,17 @@ func reconcileSkills(p Paths, dryRun bool) ([]Action, error) {
 }
 
 // Apply runs both projections. Steering first: a harness that starts mid-sync should see the rules
-// before it sees new skills.
+// before it sees new skills. The shipped skills are seeded into the vault just before the skills
+// projection, so it renders them; a dry run leaves the vault alone.
 func Apply(p Paths, dryRun bool) ([]Action, error) {
 	actions, err := projectSteering(p, dryRun)
 	if err != nil {
 		return actions, err
+	}
+	if !dryRun {
+		if err := seedShippedSkills(p.SkillsRoot, p.Shipped); err != nil {
+			return actions, err
+		}
 	}
 	skillActions, err := reconcileSkills(p, dryRun)
 	return append(actions, skillActions...), err

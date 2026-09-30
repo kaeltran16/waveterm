@@ -47,7 +47,8 @@ Other useful commands:
 - **`npx tsc` stack-overflows on this repo.** Typecheck with `task check:ts` (it runs `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`). It takes ~2 minutes — give the command a longer timeout than the 2-minute default. The baseline is clean (exit 0) — any error it reports is yours.
 - **Task resolves the global `VERSION` var once per `task` process.** Bumping the version and building in the same invocation stamps the Go binaries (and the `wsh-<version>-*` filenames) with the *pre-bump* version. That is why `tauri:build` shells out to `tauri:build:post-bump` instead of using a nested `task:` call — and why the callee can't be marked `internal`.
 - **Never hand-edit generated files, including merge conflicts.** Go is the source of truth for the wire protocol and object types; `task generate` writes `frontend/app/store/wshclientapi.ts`, `frontend/app/store/services.ts`, `frontend/types/gotypes.d.ts`, `frontend/types/waveevent.d.ts`, `pkg/wshrpc/wshclient/wshclient.go`, and `pkg/{waveobj,wconfig}/metaconsts.go`. Edit the Go definitions, then regenerate.
-- **`pi/` is the source for the pi artifacts `wsh` embeds.** `task sync:piartifacts` (run by every dev and backend build) copies `pi/extensions/*` and `pi/themes/arc.json` over `cmd/wsh/cmd/pi-*-extension.ts` and `cmd/wsh/cmd/arc-theme.json` — edit `pi/`, never the copies. The same task overwrites `~/.claude/skills/effort-tracking/SKILL.md` from `pi/skills/`.
+- **`pi/` is the source for the pi artifacts `wsh` embeds.** `task sync:piartifacts` (run by every dev and backend build) copies `pi/extensions/*` and `pi/themes/arc.json` over `cmd/wsh/cmd/pi-*-extension.ts` and `cmd/wsh/cmd/arc-theme.json` — edit `pi/`, never the copies.
+- **Arc's own skills live in `skills/`** (cockpit-runs, cockpit-ui, design-local, effort-tracking), embedded into `wavesrv` by `skills/skills.go`. Every agent-sync apply (each agent launch) seeds them into the vault's skills root, which then projects them into each harness's skills dir — edit `skills/`, never the vault or `~/.claude/skills` copies, which the next launch overwrites. A skill's `.arc/` delta directory in the vault is kept. `pi/skills/arc-dev` belongs to the pi package and stays there.
 - **A new registered `waveobj` type needs a SQL migration** in `db/migrations-wstore/NNNNNN.{up,down}.sql`, or it fails at runtime with "no such table".
 - **Stop the dev app by PID, never by image name.** The dev app and the user's packaged Arc share the
   image names `wave-tauri.exe` and `wavesrv.x64.exe`, so `taskkill /IM wave-tauri.exe` also kills the
@@ -67,7 +68,7 @@ Other useful commands:
   `beforeDevCommand` with `--port N --strictPort`), store (`ARC_DEV_DATA_DIR`, a short path: wavesrv binds
   `data\wave.sock` under it, and Windows caps a unix socket path at 108 bytes), and its own `CARGO_TARGET_DIR`
   and `dist/bin` instead of the junctions, which a build writes through into the main checkout.
-  `ARC_DEV_NO_GLOBAL_INSTALL=1` keeps it from installing its hooks, `~/.arc/bin/wsh` and skills over yours.
+  `ARC_DEV_NO_GLOBAL_INSTALL=1` keeps it from installing its hooks and `~/.arc/bin/wsh` over yours.
   `scripts/cdp/final-verify.mjs` does all of it; then `CDP_PORT=<port> task verify:ui`.
 
 ### Visual verification (dev)

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"testing/fstest"
+	"time"
 )
 
 // seedSkill creates a canonical skill tree in the vault.
@@ -300,5 +302,99 @@ func TestSkillRowsSurvivesAMissingSkillDoc(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Description != "" {
 		t.Fatalf("rows = %+v, want one row with an empty description", rows)
+	}
+}
+
+// ---- shipped skills ----
+
+func shippedFS() fstest.MapFS {
+	return fstest.MapFS{
+		"cockpit-runs/SKILL.md":            {Data: []byte("---\nname: cockpit-runs\n---\nshipped\n")},
+		"design-local/SKILL.md":            {Data: []byte("---\nname: design-local\n---\nshipped\n")},
+		"design-local/reference/format.md": {Data: []byte("format\n")},
+	}
+}
+
+func TestSeedShippedSkillsFillsAnEmptyRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skills")
+	if err := seedShippedSkills(root, shippedFS()); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(root, "design-local", "reference", "format.md")); got != "format\n" {
+		t.Errorf("format.md = %q", got)
+	}
+	if got := readFile(t, filepath.Join(root, "cockpit-runs", skillFile)); got != "---\nname: cockpit-runs\n---\nshipped\n" {
+		t.Errorf("cockpit-runs SKILL.md = %q", got)
+	}
+	// the ownership mark belongs to harness dirs, never the vault
+	if _, err := os.Stat(filepath.Join(root, "cockpit-runs", managedMarkName)); !os.IsNotExist(err) {
+		t.Error("seeding must not write the ownership mark into the vault")
+	}
+}
+
+func TestSeedShippedSkillsOverwritesAStaleCopyAndDropsExtraFiles(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skills")
+	writeFile(t, filepath.Join(root, "design-local", skillFile), "old\n")
+	writeFile(t, filepath.Join(root, "design-local", "retired.md"), "gone\n")
+	if err := seedShippedSkills(root, shippedFS()); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(root, "design-local", skillFile)); got != "---\nname: design-local\n---\nshipped\n" {
+		t.Errorf("SKILL.md = %q, want the shipped copy", got)
+	}
+	if _, err := os.Stat(filepath.Join(root, "design-local", "retired.md")); !os.IsNotExist(err) {
+		t.Error("a file the shipped tree does not have must be removed")
+	}
+}
+
+func TestSeedShippedSkillsKeepsTheDeltaDir(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skills")
+	delta := filepath.Join(root, "cockpit-runs", deltaDirName, "codex.yaml")
+	writeFile(t, delta, "description: codex wording\n")
+	if err := seedShippedSkills(root, shippedFS()); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, delta); got != "description: codex wording\n" {
+		t.Errorf("delta = %q, want it preserved", got)
+	}
+}
+
+func TestSeedShippedSkillsWritesNothingWhenIdentical(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skills")
+	if err := seedShippedSkills(root, shippedFS()); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "cockpit-runs", skillFile)
+	past := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(path, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedShippedSkills(root, shippedFS()); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.ModTime().Equal(past) {
+		t.Errorf("mtime = %v, want %v: an identical skill must not be rewritten", st.ModTime(), past)
+	}
+}
+
+func TestApplySeedsShippedSkillsOnlyWhenNotDryRun(t *testing.T) {
+	p := testPaths(t, "canonical\n", ".claude")
+	p.Shipped = shippedFS()
+	if _, err := Apply(p, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(p.SkillsRoot, "cockpit-runs")); !os.IsNotExist(err) {
+		t.Fatal("a dry run must not seed the vault")
+	}
+	if _, err := Apply(p, false); err != nil {
+		t.Fatal(err)
+	}
+	// seeded before the reconcile, so the same Apply projects it into the harness
+	if got := readFile(t, filepath.Join(p.Home, ".claude", "skills", "cockpit-runs", skillFile)); got != "---\nname: cockpit-runs\n---\nshipped\n" {
+		t.Errorf("claude cockpit-runs SKILL.md = %q", got)
 	}
 }

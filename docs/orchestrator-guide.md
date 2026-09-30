@@ -748,7 +748,7 @@ tauri.final.json`), a fresh store under `%LOCALAPPDATA%\arc-final\stores\` (a sh
 `wave.sock` must stay under Windows' 108-byte socket path limit; dropped after the run),
 the cargo target dir `%LOCALAPPDATA%\arc-final\target` (shared by final stages, so only the first pays the cold
 build), and its own `dist/bin`: it unlinks the tree's `dist/bin` and `src-tauri/target` junctions first. It sets
-`ARC_DEV_NO_GLOBAL_INSTALL`, so the run's branch installs no agent hooks, `~/.arc/bin/wsh` or skills. Two final
+`ARC_DEV_NO_GLOBAL_INSTALL`, so the run's branch installs no agent hooks or `~/.arc/bin/wsh`. Two final
 stages at once share the target dir, so the second should fail to replace a `wave-tauri.exe` the first is running
 and report unverified (not tested). It stops only the processes it started. It exits 3 with a reason when the app does not
 come up within its boot budget (`ARC_FINAL_BOOT_MS`, default 10 minutes). Otherwise it exits with verify.mjs's
