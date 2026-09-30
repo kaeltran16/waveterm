@@ -57,6 +57,15 @@ export function canvasHandoffLine(relPath: string, board: string, marks: Mark[])
     return handoffLine({ rel: relPath, note: `marks on ${board}: ${parts.join("; ")}` });
 }
 
+// a board taller than its pane scrolls, so only the part inside the pane is on screen to capture
+export function visibleRect(board: DOMRectLike, clip: DOMRectLike): DOMRectLike {
+    const left = Math.max(board.left, clip.left);
+    const top = Math.max(board.top, clip.top);
+    const right = Math.min(board.left + board.width, clip.left + clip.width);
+    const bottom = Math.min(board.top + board.height, clip.top + clip.height);
+    return { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+}
+
 // the window capture is in device pixels; the board rect is in CSS pixels
 export function cropRect(
     board: DOMRectLike,

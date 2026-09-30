@@ -11,6 +11,7 @@ import {
     nextFeedbackName,
     removeMark,
     setMarkNote,
+    visibleRect,
     type Mark,
 } from "./canvasmarks";
 
@@ -105,5 +106,28 @@ describe("cropRect", () => {
         expect(
             cropRect({ left: 1200, top: 800, width: 640, height: 400 }, 1600, { width: 3200, height: 1900 })
         ).toEqual({ sx: 2400, sy: 1600, sw: 800, sh: 300 });
+    });
+});
+
+describe("visibleRect", () => {
+    const clip = { left: 100, top: 200, width: 800, height: 500 };
+
+    it("is the board itself when it is all in view", () => {
+        const board = { left: 150, top: 220, width: 600, height: 400 };
+        expect(visibleRect(board, clip)).toEqual(board);
+    });
+
+    it("cuts a board scrolled under the toolbar and past the bottom to the part in view", () => {
+        expect(visibleRect({ left: 100, top: 50, width: 800, height: 900 }, clip)).toEqual({
+            left: 100,
+            top: 200,
+            width: 800,
+            height: 500,
+        });
+    });
+
+    it("is empty when the board is out of view", () => {
+        const r = visibleRect({ left: 100, top: 800, width: 800, height: 300 }, clip);
+        expect(r.width * r.height).toBe(0);
     });
 });

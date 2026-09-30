@@ -30,6 +30,7 @@ import {
     paneState,
     pickFreePort,
     prototypePath,
+    serverDownText,
     shownBoard,
     updatedAgo,
 } from "./canvasmodel";
@@ -139,11 +140,18 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
                 ) : pane === "removed" ? (
                     <Removed agent={agent} topic={s.topic} />
                 ) : (
-                    <div ref={measureRef} className="flex min-h-0 flex-1 justify-center overflow-hidden py-[16px]">
+                    // the iframe gets the board's full height, so a board taller than the pane scrolls here, in Arc,
+                    // instead of showing the board page's own scrollbars. The gutter is reserved so the scrollbar
+                    // appearing can't narrow the pane, change the fit scale, and make itself disappear again
+                    <div
+                        ref={measureRef}
+                        data-canvas-scroll
+                        className="flex min-h-0 flex-1 justify-center overflow-y-auto overflow-x-hidden py-[16px] [scrollbar-gutter:stable]"
+                    >
                         <div
                             data-canvas-board
                             className="relative flex-none overflow-hidden rounded-[8px] border border-edge-mid bg-background"
-                            style={{ width: board.w * scale }}
+                            style={{ width: board.w * scale, height: board.h != null ? board.h * scale : undefined }}
                         >
                             {pane === "board" && s.port != null ? (
                                 <iframe
@@ -154,7 +162,7 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
                                     className="absolute left-0 top-0 border-0"
                                     style={{
                                         width: board.w,
-                                        height: (rect?.height ?? 0) / scale,
+                                        height: board.h ?? (rect?.height ?? 0) / scale,
                                         transform: `scale(${scale})`,
                                         transformOrigin: "0 0",
                                     }}
@@ -365,7 +373,7 @@ function ServerDown({ agent, s }: { agent: AgentVM; s: CanvasState }) {
         <EdgeState>
             <span className="flex items-center gap-[8px] text-[14px] font-semibold text-primary">
                 <span className="h-[7px] w-[7px] rounded-full bg-error" />
-                Can't reach 127.0.0.1:{s.port ?? CANVAS_PORT_FIRST}
+                {serverDownText(s.port)}
             </span>
             <span className={EXPLAINER}>
                 The canvas files are on disk, but nothing is serving them. Start the server, or press{" "}

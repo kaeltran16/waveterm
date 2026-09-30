@@ -14,16 +14,17 @@ const BOARD_EXT = ".dc.html";
 const MAIN_BOARD = "Main.dc.html";
 const HTTP_OK = 200;
 
-export type CanvasBoard = { name: string; w: number };
+// h is absent when canvas.json has none; the board then fills the pane's height
+export type CanvasBoard = { name: string; w: number; h?: number };
 export type ProbeResult = { port: number; status: number | "error" };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
     return v != null && typeof v === "object" && !Array.isArray(v);
 }
 
-function boardWidth(entry: unknown): number {
-    const w = isRecord(entry) ? entry.w : undefined;
-    return typeof w === "number" && Number.isFinite(w) && w > 0 ? w : DEFAULT_BOARD_W;
+function boardSide(entry: unknown, side: "w" | "h"): number | undefined {
+    const v = isRecord(entry) ? entry[side] : undefined;
+    return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
 }
 
 // canvas.json is written by the design-local skill, not by Arc, so anything malformed reads as the one board
@@ -43,7 +44,11 @@ export function boardsFromCanvasJson(json: unknown): CanvasBoard[] {
     if (names.length === 0) {
         return fallback;
     }
-    return names.map((name) => ({ name, w: boardWidth(boards[name]) }));
+    return names.map((name) => ({
+        name,
+        w: boardSide(boards[name], "w") ?? DEFAULT_BOARD_W,
+        h: boardSide(boards[name], "h"),
+    }));
 }
 
 // a board name that isn't in the list (a stale pick, or boards not polled yet) shows the first one
@@ -124,6 +129,14 @@ export function fitScale(paneWidth: number, boardWidth: number): number {
         return 1;
     }
     return Math.min(1, paneWidth / boardWidth);
+}
+
+// the poller keeps the last port when its server stops answering; null means no port ever served this canvas
+export function serverDownText(port: number | null): string {
+    if (port != null) {
+        return `Can't reach 127.0.0.1:${port}`;
+    }
+    return `Nothing serves this canvas on 127.0.0.1:${CANVAS_PORT_FIRST}–${CANVAS_PORT_FIRST + CANVAS_PORT_COUNT - 1}`;
 }
 
 export function boardUrl(port: number, topic: string, board: string): string {

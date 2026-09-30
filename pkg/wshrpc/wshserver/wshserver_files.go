@@ -10,9 +10,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/wshfs"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
@@ -119,5 +121,66 @@ func sweepTempAttachments(dir string, retention time.Duration) {
 			continue
 		}
 		_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+	}
+}
+
+// The canvas Send writes <project>/.superpowers/design/<topic>/feedback/NNN.png and nothing else deletes them.
+// The agent reads its picture right after the line is typed, so one older than this is done with.
+const canvasFeedbackRetention = 7 * 24 * time.Hour
+
+// the names nextFeedbackName (canvasmarks.ts) writes
+var canvasFeedbackName = regexp.MustCompile(`^\d{3,}\.png$`)
+
+// SweepCanvasFeedback removes stale canvas feedback pictures in every registered project. A canvas in an
+// unregistered folder is not swept.
+func SweepCanvasFeedback() {
+	projects := memroots.RegistryProjects()
+	roots := make([]string, 0, len(projects))
+	for _, p := range projects {
+		roots = append(roots, p)
+	}
+	sweepCanvasFeedback(roots, canvasFeedbackRetention)
+}
+
+func sweepCanvasFeedback(roots []string, retention time.Duration) {
+	cutoff := time.Now().Add(-retention)
+	for _, root := range roots {
+		design := filepath.Join(root, ".superpowers", "design")
+		// most projects have no canvas, so a missing dir is not worth a log line
+		topics, err := os.ReadDir(design)
+		if err != nil {
+			continue
+		}
+		for _, t := range topics {
+			if t.IsDir() {
+				sweepFeedbackDir(filepath.Join(design, t.Name(), "feedback"), cutoff)
+			}
+		}
+	}
+}
+
+// Only regular files with a Send name are removed, never a dir, and a feedback dir that is a link or junction
+// is skipped, so a sweep cannot reach outside the canvas folder.
+func sweepFeedbackDir(dir string, cutoff time.Time) {
+	info, err := os.Lstat(dir)
+	if err != nil || !info.IsDir() {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.Printf("SweepCanvasFeedback: reading %s: %v\n", dir, err)
+		return
+	}
+	for _, e := range entries {
+		if !e.Type().IsRegular() || !canvasFeedbackName.MatchString(e.Name()) {
+			continue
+		}
+		fi, err := e.Info()
+		if err != nil || !fi.ModTime().Before(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+			log.Printf("SweepCanvasFeedback: %v\n", err)
+		}
 	}
 }

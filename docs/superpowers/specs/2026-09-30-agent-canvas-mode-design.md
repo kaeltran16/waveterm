@@ -105,8 +105,8 @@ mounted and the focused agent has a canvas, every 3 s (`CANVAS_POLL_MS`):
 
 - `boardsFromCanvasJson(json)`: `order` filtered to names present in `boards` and ending in
   `.dc.html`; with no usable `order`, the `boards` keys with `Main.dc.html` first; malformed →
-  `[{ name: "Main.dc.html", w: 1440 }]`. Each entry is `{ name, w }` (`w` from the board, default
-  1440). `boardLabel(name)` strips `.dc.html`.
+  `[{ name: "Main.dc.html", w: 1440 }]`. Each entry is `{ name, w, h? }` (`w` from the board, default
+  1440; `h` only when the board has a positive one). `boardLabel(name)` strips `.dc.html`.
 - `stepBoard(boards, current, delta)`: wraps.
 - `classifyProbe(result)`: `200` → `serving`, network error → `free`, any other status → `taken`.
   `pickServingPort(results)` / `pickFreePort(results)`.
@@ -158,14 +158,18 @@ header is exactly today's (States 1).
   (`openExternal(boardUrl)`) and Build this….
 - Board: an `<iframe src={boardUrl} key={reloadKey}>` at the board's natural size, scaled by
   `fitScale`, centred, with `sandbox="allow-scripts allow-same-origin"` (its own origin, never
-  Arc's). CSP: add `frame-src http://127.0.0.1:*` in `src-tauri/tauri.conf.json`.
+  Arc's). With an `h`, the iframe gets the board's full height and a board taller than the pane
+  scrolls in the pane (`scrollbar-gutter: stable`, so the scrollbar can't change the fit scale),
+  never inside the iframe; without one it fills the pane's height. Send captures only the part of
+  the board inside the pane (`visibleRect`). CSP: add `frame-src http://127.0.0.1:*` in `src-tauri/tauri.conf.json`.
 - Mark mode: an absolutely positioned overlay over the board: crosshair, accent outline, the
   "Drag a box around what you want changed" pill when empty, numbered boxes, a dashed draft. It
   covers the iframe, so the iframe can't take focus while marking. The tray below has one note
   input per mark, remove, Clear, "Send to <agent name>" (disabled with no marks), and the one-line
   explainer. All of it is copied from the mockup.
 - Edge states (States 3 and 4), in place of the board:
-  - **server-down:** "Can't reach 127.0.0.1:<port or 8766>", the explainer, and **Start server**
+  - **server-down:** `serverDownText(port)`: "Can't reach 127.0.0.1:<port>" for a port that
+    stopped answering, "Nothing serves this canvas on 127.0.0.1:8766–8785" when none ever did; the explainer, and **Start server**
     (accent). It picks the first `free` port, calls `start_canvas_server`, then re-probes every
     500 ms for up to 5 s. On failure the message shows the error.
   - **removed:** "<topic> was removed", the explainer, **Back to terminal**. That button clears
@@ -242,6 +246,10 @@ footer then matches the mockup exactly (Main.dc.html `hints`).
   as `--parallelism`), and is validated in `runsStartData`.
 - `wshrpc.CommandUiRevealData.CallerCwd`; `wsh ui reveal` sets it.
 - `task generate` after the type changes.
+- `SweepCanvasFeedback` (`wshserver_files.go`), in wavesrv's startup-then-every-4h cleanup loop:
+  in each registered project, removes `.superpowers/design/*/feedback/NNN.png` older than 7 days.
+  Only regular files with that name; a `feedback` dir that is a link or junction is skipped. A
+  canvas in an unregistered folder is not swept. Nothing else deletes the pictures.
 
 ## Skill
 

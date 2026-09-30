@@ -106,14 +106,15 @@ func startConfigWatcher() error {
 	return nil
 }
 
-// sweeps stale channel-composer attachment temp dirs. First iteration runs immediately (startup sweep
-// of dirs left by prior sessions), then periodically for very long-running sessions.
+// sweeps stale channel-composer attachment temp dirs and canvas feedback pictures. First iteration runs
+// immediately (startup sweep of files left by prior sessions), then periodically for very long-running sessions.
 func tempAttachmentCleanupLoop() {
 	defer func() {
 		panichandler.PanicHandler("tempAttachmentCleanupLoop", recover())
 	}()
 	for {
 		wshserver.SweepTempAttachments()
+		wshserver.SweepCanvasFeedback()
 		time.Sleep(TempAttachmentSweepInterval)
 	}
 }

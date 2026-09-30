@@ -15,6 +15,7 @@ import {
     pickFreePort,
     pickServingPort,
     prototypePath,
+    serverDownText,
     stepBoard,
     updatedAgo,
     type CanvasBoard,
@@ -73,6 +74,24 @@ describe("boardsFromCanvasJson", () => {
 
     it("gives a board with no width the default", () => {
         expect(boardsFromCanvasJson({ boards: { "Main.dc.html": {} } })).toEqual([{ name: "Main.dc.html", w: 1440 }]);
+    });
+
+    it("reads a board's height, and leaves it out when missing or bad", () => {
+        const json = {
+            boards: { "Main.dc.html": { w: 1440, h: 900 }, "A.dc.html": { h: 0 }, "B.dc.html": { h: "900" } },
+            order: ["Main.dc.html", "A.dc.html", "B.dc.html"],
+        };
+        expect(boardsFromCanvasJson(json).map((b) => b.h)).toEqual([900, undefined, undefined]);
+    });
+});
+
+describe("serverDownText", () => {
+    it("names the port that stopped answering", () => {
+        expect(serverDownText(8767)).toBe("Can't reach 127.0.0.1:8767");
+    });
+
+    it("names the probed range when no port ever served the canvas", () => {
+        expect(serverDownText(null)).toBe("Nothing serves this canvas on 127.0.0.1:8766–8785");
     });
 });
 

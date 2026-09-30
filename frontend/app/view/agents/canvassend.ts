@@ -9,7 +9,14 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { arrayToBase64, makeConnRoute, stringToBase64 } from "@/util/util";
 import { invoke } from "@tauri-apps/api/core";
 import type { AgentVM } from "./agentsviewmodel";
-import { canvasHandoffLine, cropRect, feedbackRelPath, nextFeedbackName, type DOMRectLike } from "./canvasmarks";
+import {
+    canvasHandoffLine,
+    cropRect,
+    feedbackRelPath,
+    nextFeedbackName,
+    visibleRect,
+    type DOMRectLike,
+} from "./canvasmarks";
 import { canvasFeedbackDir, canvasFeedbackFile, shownBoard } from "./canvasmodel";
 import { getCanvas, setCanvasMode } from "./canvasstore";
 
@@ -54,7 +61,9 @@ export const tauriSendIO: SendIO = {
         }
     },
     boardRect() {
-        return document.querySelector("[data-canvas-board]")?.getBoundingClientRect() ?? null;
+        const board = document.querySelector("[data-canvas-board]")?.getBoundingClientRect();
+        const pane = document.querySelector("[data-canvas-scroll]")?.getBoundingClientRect();
+        return board == null || pane == null ? null : visibleRect(board, pane);
     },
     // FileMkdirCommand fails on a directory that already exists
     async mkdir(path) {
