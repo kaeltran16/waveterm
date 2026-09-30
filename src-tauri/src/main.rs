@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod applog;
+mod canvas;
 mod estart;
 mod init;
 mod commands;
@@ -214,7 +215,9 @@ fn main() {
             init::fe_log,
             commands::set_window_init_status,
             commands::set_is_active,
-            commands::open_external
+            commands::open_external,
+            canvas::capture_webview,
+            canvas::start_canvas_server
         ])
         .setup(move |app| {
             // seed the static identity fields before wavesrv parsing fills in the endpoints.
