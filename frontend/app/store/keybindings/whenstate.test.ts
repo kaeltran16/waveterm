@@ -8,6 +8,7 @@
 // flipping diffScopeAtom directly when the picker jumps to a different agent).
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { attachCanvas, detachCanvas, setCanvasMode } from "@/app/view/agents/canvasstore";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
@@ -17,9 +18,10 @@ import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
+import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, describe, expect, it } from "vitest";
 import { listNavAtom } from "./listnav";
-import { whenVersionAtom } from "./whenstate";
+import { watchFocusedCanvas, whenVersionAtom } from "./whenstate";
 
 afterEach(() => {
     globalStore.set(diffScopeAtom, null);
@@ -121,5 +123,46 @@ describe("whenVersionAtom", () => {
             label: "child",
         });
         expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
+    });
+});
+
+describe("watchFocusedCanvas", () => {
+    const A = { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" };
+
+    afterEach(() => {
+        detachCanvas("a1");
+        detachCanvas("a2");
+    });
+
+    it("bumps on the focused agent's canvas changes and on a focus switch, and stops when unsubscribed", () => {
+        const model = { focusIdAtom: atom<string | undefined>("a1") as PrimitiveAtom<string | undefined> } as any;
+        attachCanvas("a1", A, 0);
+        attachCanvas("a2", A, 0);
+        const stop = watchFocusedCanvas(model);
+        try {
+            let before = globalStore.get(whenVersionAtom);
+            setCanvasMode("a1", "canvas", 1);
+            expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
+
+            before = globalStore.get(whenVersionAtom);
+            setCanvasMode("a2", "canvas", 1); // not focused: nothing a predicate reads changed
+            expect(globalStore.get(whenVersionAtom)).toBe(before);
+
+            before = globalStore.get(whenVersionAtom);
+            globalStore.set(model.focusIdAtom, "a2");
+            expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
+            before = globalStore.get(whenVersionAtom);
+            setCanvasMode("a2", "terminal", 2); // now the focused one
+            expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
+            before = globalStore.get(whenVersionAtom);
+            setCanvasMode("a1", "terminal", 2); // the one focus left
+            expect(globalStore.get(whenVersionAtom)).toBe(before);
+        } finally {
+            stop();
+        }
+        const before = globalStore.get(whenVersionAtom);
+        setCanvasMode("a2", "canvas", 3);
+        globalStore.set(model.focusIdAtom, "a1");
+        expect(globalStore.get(whenVersionAtom)).toBe(before);
     });
 });

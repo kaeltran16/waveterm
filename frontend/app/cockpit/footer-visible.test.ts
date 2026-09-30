@@ -1,10 +1,13 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import type { Binding, KeyContext } from "@/app/store/keybindings/types";
-import { describe, expect, it } from "vitest";
-import type { FooterHint } from "./footerhints";
+import { buildAgentBindings, buildGlobalBindings } from "@/app/store/keybindings/bindings";
+import type { Binding, KeyContext, SurfaceKey } from "@/app/store/keybindings/types";
+import { attachCanvas, detachCanvas, setCanvasMode, setMarking, updateCanvas } from "@/app/view/agents/canvasstore";
+import { atom, type PrimitiveAtom } from "jotai";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { visibleHints } from "./footer-visible";
+import { GLOBAL_HINTS, SURFACE_HINTS, type FooterHint } from "./footerhints";
 
 const nav = (c: KeyContext) => !c.editable && !c.modalOpen && c.surface === "agent";
 const bindings: Binding[] = [
@@ -40,5 +43,49 @@ describe("visibleHints", () => {
         const s: FooterHint[] = [{ ids: ["palette"], glyph: "⌃P", label: "palette" }];
         const g: FooterHint[] = [{ ids: ["palette"], glyph: "⌃P", label: "palette" }];
         expect(visibleHints(rest, bindings, s, g).filter((c) => c.label === "palette").length).toBe(1);
+    });
+});
+
+describe("agent canvas mode chips", () => {
+    const model = {
+        focusIdAtom: atom<string | undefined>("a1") as PrimitiveAtom<string | undefined>,
+        surfaceAtom: atom<SurfaceKey>("agent"),
+    } as any;
+    const real = [...buildGlobalBindings(model), ...buildAgentBindings(model)];
+    const chips = () =>
+        visibleHints(rest, real, SURFACE_HINTS.agent!, GLOBAL_HINTS).map((c) => `${c.glyph ?? c.keys} ${c.label}`);
+    const globals = () => visibleHints(rest, real, [], GLOBAL_HINTS).map((c) => `${c.glyph ?? c.keys} ${c.label}`);
+
+    beforeEach(() => {
+        attachCanvas("a1", { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" }, 0);
+        updateCanvas("a1", (s) => ({ ...s, status: "ready", boards: [{ name: "Main.dc.html", w: 1440 }] }));
+    });
+
+    afterEach(() => {
+        detachCanvas("a1");
+    });
+
+    it("terminal mode with a canvas offers c canvas between full and back", () => {
+        expect(chips()).toEqual([
+            "↑↓ move",
+            "d rail",
+            "f full",
+            "F11 full",
+            "c canvas",
+            "esc back",
+            "Ctrl:Tab cycle",
+            ...globals(),
+        ]);
+    });
+
+    it("canvas mode shows only terminal, board and mark before the globals", () => {
+        setCanvasMode("a1", "canvas", 1);
+        expect(chips()).toEqual(["c terminal", "[ ] board", "m mark", ...globals()]);
+    });
+
+    it("marking shows stop marking, then terminal", () => {
+        setCanvasMode("a1", "canvas", 1);
+        setMarking("a1", true);
+        expect(chips()).toEqual(["m stop marking", "c terminal", ...globals()]);
     });
 });
