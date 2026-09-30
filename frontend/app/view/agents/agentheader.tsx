@@ -10,18 +10,16 @@ import { MOTION } from "@/app/element/motiontokens";
 import { Segmented } from "@/app/element/segmented";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { effortDetailAtom, loadEffortDetail } from "@/app/view/jarvis/effortstore";
 import { initiativeLinkText } from "@/app/view/jarvis/initiativework";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { formatChordString } from "@/util/keysym";
-import { cn, fireAndForget, stringToBase64 } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ChevronLeft, CircleStop, Maximize2, Minimize2, PanelRight, Workflow, X } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect } from "react";
-import { confirmCloseSession } from "./agentactions";
+import { confirmCloseSession, interruptAgent } from "./agentactions";
 import { contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
@@ -124,14 +122,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const reviewOpen = useAtomValue(docReviewAtom) != null;
 
     // Esc cancels the current Claude turn — same PTY-write path as the composer (ControllerInputCommand).
-    const interrupt = () => {
-        if (blockId == null) {
-            return;
-        }
-        fireAndForget(() =>
-            RpcApi.ControllerInputCommand(TabRpcClient, { blockid: blockId, inputdata64: stringToBase64("\x1b") })
-        );
-    };
+    const interrupt = () => interruptAgent(blockId);
 
     // Close the whole session (a tab, per launchAgent) — shared with the double-Ctrl+C handler. The
     // header also fronts background terminals, so the noun follows what is actually focused.
