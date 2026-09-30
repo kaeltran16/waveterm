@@ -6,7 +6,7 @@
 // view + run selection. No React, no jotai — unit-tested in runmodel.test.ts.
 
 import type { AgentVM } from "./agentsviewmodel";
-import { runFinished, type Lineage, type RunInfo } from "./runlineage";
+import { runFinished, runProgress, type Lineage, type RunInfo } from "./runlineage";
 
 export type RunStatusTone = "planning" | "review" | "running" | "blocked" | "done" | "failed" | "cancelled";
 
@@ -33,6 +33,26 @@ export function finishedRunLabel(run: Pick<RunInfo, "dag" | "status" | "land">):
         return "lead wrapping up";
     }
     return (run.land && landView(run.land)?.label) || "run complete";
+}
+
+/** Pure: a dag run's progress line in the Agents tree. Every task done is not the run done: the final stage
+ *  still verifies the merged result, and a bare "5/5 done" there read as finished. */
+export function dagProgressLabel(
+    run: Pick<RunInfo, "dag" | "status" | "land" | "leadStarted">,
+    leadless: boolean
+): string {
+    const { done, total } = runProgress(run.dag);
+    if (run.dag?.status === "done") {
+        return finishedRunLabel(run);
+    }
+    if (run.dag?.status === "finalizing") {
+        return `${done}/${total} · verifying the merged result`;
+    }
+    if (leadless) {
+        // a plan-path run gets its lead only at its first judgment event, so no lead yet is the normal case
+        return `${done}/${total} · ${run.leadStarted ? "lead closed" : "lead starts if needed"}`;
+    }
+    return `${done}/${total} done`;
 }
 
 const COMPLETE_LABELS = new Set(["landed", "run complete"]);

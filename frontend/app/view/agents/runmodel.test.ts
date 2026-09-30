@@ -5,6 +5,7 @@ import {
     canResume,
     cancelSurvivors,
     currentPhaseIndex,
+    dagProgressLabel,
     defaultRunId,
     defaultView,
     finishedRunLabel,
@@ -98,6 +99,34 @@ describe("finishedRunLabel", () => {
     });
     it("says a cancelled run is cancelled", () => {
         expect(finishedRunLabel(info("executing", undefined, "cancelled"))).toBe("run cancelled");
+    });
+});
+
+describe("dagProgressLabel", () => {
+    const tasks = [{ state: "done" }, { state: "done" }, { state: "running" }];
+    const info = (dagStatus: string, taskList = tasks, leadStarted?: boolean): RunInfo => ({
+        runId: "r",
+        channelId: "ch",
+        title: "t",
+        project: "p",
+        status: "executing",
+        leadStarted,
+        dag: { status: dagStatus, tasks: taskList } as TaskGroup,
+    });
+    it("counts done tasks while the plan executes", () => {
+        expect(dagProgressLabel(info("running"), false)).toBe("2/3 done");
+    });
+    it("does not read as done while the final stage verifies, even with every task done", () => {
+        const allDone = [{ state: "done" }, { state: "done" }] as TaskGroup["tasks"];
+        expect(dagProgressLabel(info("finalizing", allDone), false)).toBe("2/2 · verifying the merged result");
+        expect(dagProgressLabel(info("finalizing", allDone), true)).toBe("2/2 · verifying the merged result");
+    });
+    it("says whether a leadless run's lead has started", () => {
+        expect(dagProgressLabel(info("running"), true)).toBe("2/3 · lead starts if needed");
+        expect(dagProgressLabel(info("running", tasks, true), true)).toBe("2/3 · lead closed");
+    });
+    it("hands a done dag to the finished-run label", () => {
+        expect(dagProgressLabel(info("done"), false)).toBe("lead wrapping up");
     });
 });
 

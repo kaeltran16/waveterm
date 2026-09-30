@@ -53,7 +53,7 @@ import {
     treeFoldsAtom,
     useRunDigests,
 } from "./runlineagestore";
-import { finishedRunLabel, runComplete, runStatusView } from "./runmodel";
+import { dagProgressLabel, finishedRunLabel, runComplete, runStatusView } from "./runmodel";
 import { SEG_FILL, taskStrip, taskStripLabel } from "./runstrip";
 import {
     getSubagentExpandAtom,
@@ -261,15 +261,9 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
             </div>
         );
     }
-    const { done, total } = runProgress(run.dag);
+    const { done } = runProgress(run.dag);
     const chip = live > 0 || done === 0 ? `${live} ${live === 1 ? "worker" : "workers"}` : `${done} done`;
-    let progress = `${done}/${total} done`;
-    if (run.dag.status === "done") {
-        progress = finishedRunLabel(run);
-    } else if (leadless) {
-        // a plan-path run gets its lead only at its first judgment event, so no lead yet is the normal case
-        progress = `${done}/${total} · ${run.leadStarted ? "lead closed" : "lead starts if needed"}`;
-    }
+    const progress = dagProgressLabel(run, leadless ?? false);
     return (
         <>
             <div className="mt-[3px] flex min-w-0 items-center gap-[6px] font-mono text-[10.5px]">
