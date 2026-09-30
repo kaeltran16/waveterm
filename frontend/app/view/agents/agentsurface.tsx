@@ -26,6 +26,9 @@ import { AgentHeader } from "./agentheader";
 import { AgentLaunchHero } from "./agentlaunchhero";
 import { AgentTree } from "./agenttree";
 import { projectOf } from "./agentsviewmodel";
+import { CanvasPane } from "./canvaspane";
+import { useCanvasPoller } from "./canvaspoller";
+import { canvasStateAtom } from "./canvasstore";
 import { rosterLoadPhase } from "./cockpitsurfacemodel";
 import { EndedTranscript } from "./endedtranscript";
 import { DivergenceBanner } from "./focusbanner";
@@ -55,6 +58,8 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const focused = focusId != null ? (mountable.find((a) => a.id === focusId) ?? ended?.agent) : undefined;
     const agent = focused ?? agents.find((a) => a.id === order[0]) ?? agents[0] ?? terminals[0];
     const showSub = focusSub != null && focusSub.parentId === agent?.id;
+    const canvasMode = useAtomValue(canvasStateAtom(agent?.id ?? ""))?.mode === "canvas";
+    useCanvasPoller(model, agent);
 
     // sync focusId to the defaulted agent so the tree highlights it and ←/→ start from the right place
     useEffect(() => {
@@ -79,6 +84,22 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
             wrapRef.current?.focus();
         }
     }, [agent?.id]);
+
+    // canvas mode hides the terminal, and a hidden xterm can still hold focus and eat c/[/]/m, so entering it
+    // pulls focus to the wrapper; returning to the same agent's terminal hands focus back to its xterm
+    const lastCanvas = useRef<{ id: string; on: boolean } | null>(null);
+    useEffect(() => {
+        const prev = lastCanvas.current;
+        lastCanvas.current = agent != null ? { id: agent.id, on: canvasMode } : null;
+        if (agent == null || prev == null) {
+            return;
+        }
+        if (canvasMode && (!prev.on || prev.id !== agent.id)) {
+            wrapRef.current?.focus();
+        } else if (!canvasMode && prev.on && prev.id === agent.id) {
+            wrapRef.current?.querySelector<HTMLElement>(`[data-agent-terminal="${agent.id}"] .xterm-helper-textarea`)?.focus();
+        }
+    }, [agent?.id, canvasMode]);
 
     // Agent-surface keys live in the registry (bindings.ts). Stable array — run() reads live atoms.
     const agentBindings = useMemo(() => buildAgentBindings(model), [model]);
@@ -107,7 +128,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     return (
         <MotionConfig reducedMotion="user">
             <div ref={wrapRef} tabIndex={0} data-cockpit-surface-wrap className="flex h-full w-full bg-background outline-none">
-                {!fullscreen ? <AgentTree model={model} /> : null}
+                {!fullscreen && !canvasMode ? <AgentTree model={model} /> : null}
                 <div className="flex min-w-0 flex-1 flex-col">
                     {/* terminal stack stays mounted (hidden) while a subagent interior is shown, so
                         returning to the parent never remounts/replays the live TUI (frame-stacking) */}
@@ -119,13 +140,19 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                             .map((a) => (
                                 <div
                                     key={a.id}
-                                    className={cn("min-h-0 flex-1", a.id === agent.id ? "flex flex-col" : "hidden")}
+                                    data-agent-terminal={a.id}
+                                    className={cn(
+                                        "min-h-0 flex-1",
+                                        a.id === agent.id && !canvasMode ? "flex flex-col" : "hidden"
+                                    )}
                                 >
                                     <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
                                 </div>
                             ))}
                         {isEndedWorkerId(agent.id) ? (
                             <EndedTranscript model={model} agent={agent} />
+                        ) : canvasMode ? (
+                            <CanvasPane model={model} agent={agent} />
                         ) : agent.blockId == null ? (
                             <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
                                 No live terminal for this agent.
@@ -134,7 +161,9 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                     </div>
                     {showSub ? <SubagentInterior sub={focusSub!} parentName={agent.name} /> : null}
                 </div>
-                {!fullscreen && agent.kind !== "terminal" ? <AgentDetailsRail model={model} agent={agent} /> : null}
+                {!fullscreen && !canvasMode && agent.kind !== "terminal" ? (
+                    <AgentDetailsRail model={model} agent={agent} />
+                ) : null}
             </div>
         </MotionConfig>
     );

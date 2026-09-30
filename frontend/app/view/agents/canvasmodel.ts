@@ -134,12 +134,21 @@ function join(base: string, ...parts: string[]): string {
     return [base.replace(/[\\/]+$/, ""), ...parts].join(sep);
 }
 
+// the folder the canvas server is rooted at, which start_canvas_server requires
+export function canvasDesignDir(cwd: string): string {
+    return join(cwd, ".superpowers", "design");
+}
+
 export function canvasDir(cwd: string, topic: string): string {
-    return join(cwd, ".superpowers", "design", topic);
+    return join(canvasDesignDir(cwd), topic);
+}
+
+export function canvasProjectDir(dir: string): string {
+    return join(dir, "project");
 }
 
 export function buildGoal(dir: string, boards: CanvasBoard[]): string {
-    return `Build the design in ${join(dir, "project")} (boards: ${boards.map((b) => boardLabel(b.name)).join(", ")})`;
+    return `Build the design in ${canvasProjectDir(dir)} (boards: ${boards.map((b) => boardLabel(b.name)).join(", ")})`;
 }
 
 // absolute, because a run's worktree has no copy of the gitignored design folder

@@ -80,15 +80,20 @@ function parseVaultNode(id: string, sourceType: string | undefined): OpenTarget 
 const CANVAS_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const BOARD_EXT = ".dc.html";
 
+// exported for the router, which also lands canvas targets built in code rather than parsed here
+export function isCanvasSegment(s: string): boolean {
+    return CANVAS_SEGMENT.test(s) && !s.includes("..");
+}
+
 function parseCanvas(id: string): OpenTarget | Unsupported {
     const [topic, board, ...rest] = id.split("/");
-    if (rest.length > 0 || !CANVAS_SEGMENT.test(topic) || topic.includes("..")) {
+    if (rest.length > 0 || !isCanvasSegment(topic)) {
         return { kind: "unsupported", message: CANNOT_OPEN };
     }
     if (board == null) {
         return { kind: "canvas", topic };
     }
-    if (!CANVAS_SEGMENT.test(board) || board.includes("..")) {
+    if (!isCanvasSegment(board)) {
         return { kind: "unsupported", message: CANNOT_OPEN };
     }
     return { kind: "canvas", topic, board: board.endsWith(BOARD_EXT) ? board : board + BOARD_EXT };

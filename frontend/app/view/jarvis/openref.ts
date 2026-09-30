@@ -10,12 +10,16 @@
 import { pushToast } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/global";
 import * as WOS from "@/app/store/wos";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import type { AgentsViewModel } from "../agents/agents";
+import { canvasDir, canvasProjectDir } from "../agents/canvasmodel";
+import { attachCanvas, canvasOwner, getCanvas, selectCanvasBoard, setCanvasMode } from "../agents/canvasstore";
 import { jumpToAgent } from "../agents/channelsprimitives";
 import { selectChannel } from "../agents/channelsstore";
 import { initRadarScope, radarScopeAtom, radarSelectedIdAtom, scopeOfReport, selectReport } from "../agents/radarstore";
-import { parseAddress, type AddressHint, type OpenTarget } from "./address";
+import { isCanvasSegment, parseAddress, type AddressHint, type OpenTarget } from "./address";
 import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
 import { loadRecordDetail, selectSubject, setActiveRunId } from "./jarvissubjectstore";
 import { pendingDecisionAnchorAtom } from "./petstore";
@@ -29,6 +33,8 @@ export type ReportOpen = (result: OpenResult) => void;
 
 type RecordTarget = Extract<OpenTarget, { kind: "record" }>;
 type RadarTarget = Extract<OpenTarget, { kind: "radar" }>;
+type CanvasTarget = Extract<OpenTarget, { kind: "canvas" }>;
+type Caller = AddressHint["caller"];
 
 const OK: OpenResult = { ok: true };
 const SUPERSEDED: OpenResult = { ok: false, reason: "superseded", message: "" };
@@ -67,13 +73,14 @@ let openSeq = 0;
 export async function openTarget(
     model: AgentsViewModel,
     target: OpenTarget,
-    report: ReportOpen = toast
+    report: ReportOpen = toast,
+    caller?: Caller
 ): Promise<OpenResult> {
     const token = ++openSeq;
     const current = () => token === openSeq;
     let result: OpenResult;
     try {
-        result = await land(model, target, current);
+        result = await land(model, target, current, caller);
     } catch (e) {
         result = current() ? failed(target, e instanceof Error ? e.message : String(e)) : SUPERSEDED;
     }
@@ -89,7 +96,7 @@ export async function openAddress(
 ): Promise<OpenResult> {
     const parsed = parseAddress(address, hint);
     if (parsed.kind !== "unsupported") {
-        return openTarget(model, parsed, report);
+        return openTarget(model, parsed, report, hint?.caller);
     }
     // a click on a dead address is still the user's latest; a slower landing must not arrive over its toast
     ++openSeq;
@@ -114,7 +121,12 @@ function toast(result: OpenResult): void {
     pushToast({ title: result.notice ?? "", message: "", level: "info" });
 }
 
-async function land(model: AgentsViewModel, target: OpenTarget, current: () => boolean): Promise<OpenResult> {
+async function land(
+    model: AgentsViewModel,
+    target: OpenTarget,
+    current: () => boolean,
+    caller: Caller
+): Promise<OpenResult> {
     switch (target.kind) {
         case "channel":
             return landChannel(model, target.channelId, target.runId, current);
@@ -131,7 +143,7 @@ async function land(model: AgentsViewModel, target: OpenTarget, current: () => b
         case "radar":
             return landRadar(model, target, current);
         case "canvas":
-            return unavailable("Canvas mode is not wired yet");
+            return landCanvas(model, target, current, caller);
     }
 }
 
@@ -180,6 +192,52 @@ function landAgent(model: AgentsViewModel, tabId: string): OpenResult {
         return unavailable("That agent session has ended");
     }
     jumpToAgent(model, tabId);
+    return OK;
+}
+
+// A reveal names its caller: the canvas is that agent's, in its cwd. A palette or citation open has no caller, so
+// it lands on whichever agent already has the topic open. Either way the reveal switches to canvas mode, because
+// someone asked to see it.
+async function landCanvas(
+    model: AgentsViewModel,
+    target: CanvasTarget,
+    current: () => boolean,
+    caller: Caller
+): Promise<OpenResult> {
+    const { topic, board } = target;
+    // parseAddress refuses path characters, but a target built in code never went through it
+    if (!isCanvasSegment(topic) || (board != null && !isCanvasSegment(board))) {
+        return { ok: false, reason: "unsupported", message: `Not a canvas name: ${topic}` };
+    }
+    if (caller == null) {
+        const owner = canvasOwner(topic);
+        if (owner == null) {
+            return unavailable(`No agent has the canvas ${topic} open`);
+        }
+        if (board != null && board !== getCanvas(owner)?.board) {
+            selectCanvasBoard(owner, board);
+        }
+        setCanvasMode(owner, "canvas", Date.now());
+        jumpToAgent(model, owner);
+        return OK;
+    }
+    const roster = [...globalStore.get(model.agentsAtom), ...globalStore.get(model.terminalsAtom)];
+    const agent = roster.find((a) => a.blockId != null && a.blockId === caller.blockId);
+    if (agent == null || !caller.cwd) {
+        return unavailable(`Run wsh ui reveal canvas:${topic} from the agent's terminal`);
+    }
+    const dir = canvasDir(caller.cwd, topic);
+    const project = canvasProjectDir(dir);
+    const info = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: project } });
+    if (!current()) {
+        return SUPERSEDED;
+    }
+    if (info == null || info.notfound) {
+        return unavailable(`No canvas at ${project}`);
+    }
+    attachCanvas(agent.id, { topic, dir, projectDir: caller.cwd, board }, Date.now());
+    setCanvasMode(agent.id, "canvas", Date.now());
+    jumpToAgent(model, agent.id);
     return OK;
 }
 
