@@ -181,7 +181,12 @@ this entry is open. Only the Sessions half of its project and Space scope moved 
     `git diff eb5a3654 09e86573 -- frontend/app/view/jarvis/briefsurface.tsx`.
   - Back needs its own chord: Code's Back/Forward owns `Alt+ArrowLeft/Right`.
 
-## Lanes: a skipped task's commits land with its lane, and a retry's evidence starts at the branch head (2026-09-15)
+## Lanes: a skipped task's commits land with its lane, and a retry's evidence starts at the branch head (2026-09-15) — ✅ RESOLVED 2026-09-29
+
+**Resolved by `720ba0e1`** (run f9d2a919, merged in 443c5f66): a task's first dispatch stamps `StartBase`; skip writes
+a recovery patch and resets the lane to it without cleaning the tree, and a retry's run starts from it, so its evidence
+covers the failed attempt's commits. Tests: `pkg/orchestrate/laneskip_test.go`. The third bullet (a lane's first task
+retried after a Setup failure keeps its original base) was not part of that change.
 
 Slice 4d of the orchestrator redesign (`git show edf0132b:docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4d-lanes.md`)
 runs a chain of tasks as one lane: one worktree and branch, and one squash merge once the last task is done.
@@ -249,7 +254,11 @@ still run on codex and opencode; only the unattended run path lost them.
   runtime also needs the redesign's per-harness pieces (wake, compaction rules, ask delivery) before it can
   lead. codex additionally needs its `livenessRuntimes` entry back.
 
-## Jarvis Gatekeeper — every multi-question or multi-select ask escalates unjudged (2026-09-14)
+## Jarvis Gatekeeper — every multi-question or multi-select ask escalates unjudged (2026-09-14) — ✅ RESOLVED 2026-09-29
+
+**Resolved by `1dcf0a88`** (run f9d2a919, merged in 443c5f66), on the fix shape below: every ask reaches the judge,
+which answers each question with picks or one line of text, all or nothing; `agentask.ValidateAnswers`, shared with
+`EncodeAnswer` and the prose path, checks an answer before delivery; cards gain `Questions` and `Answers`.
 
 Found while designing the orchestrator redesign
 (`docs/superpowers/briefs/2026-09-14-orchestrator-redesign-measurements.md`). Deferred by the user: the
