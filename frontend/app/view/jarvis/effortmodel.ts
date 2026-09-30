@@ -131,49 +131,67 @@ export function nextChunk<T extends { status: string }>(chunks: T[]): T | undefi
     );
 }
 
-const TALLY_STATUSES = ["pending", "active", "blocked", "deferred", "skipped"];
+// the bar's order: settled work first, then what is moving, then what is waiting
+const BAR_TONES: ChunkTone[] = ["done", "active", "blocked", "pending", "deferred"];
 
-export type EffortFacts = { facts: [string, string][]; next: string };
+// an initiative's own status, read in the chunk icon set: a paused initiative is parked like a deferred chunk
+const EFFORT_TONES: Record<string, ChunkTone> = { active: "active", paused: "deferred", completed: "done" };
 
-// The quiet line under the sheet's title, and the sentence that says what comes next. Parent and children
-// come off the briefing's summaries because that is the one list holding every effort; the updated age is
-// left to the caller, which owns the clock.
+function effortTone(status: string): ChunkTone {
+    return EFFORT_TONES[status] ?? "pending";
+}
+
+export type EffortChild = { oref: string; title: string; status: string; tone: ChunkTone; done: number; total: number };
+
+export type EffortFacts = {
+    // the quiet line under the title; the updated age is left to the caller, which owns the clock
+    meta: [string, string][];
+    done: number;
+    // skips shrink the total, as on the Brief's row and the stage headers
+    counted: number;
+    skipped: number;
+    // the statuses present, in bar order
+    segments: { tone: ChunkTone; n: number }[];
+    next: { label: string; stage: string; tone: ChunkTone } | null;
+    // what the Next card says when there is no chunk to name
+    idle: string;
+    children: EffortChild[];
+};
+
+// The sheet's header block: the facts, the progress, the chunk picked up next, and the children still in
+// play. Parent and children come off the briefing's summaries because that is the one list holding every effort.
 export function effortFacts(effort: Effort, all: EffortSummary[]): EffortFacts {
     const chunks = effort.chunks ?? [];
-    const facts: [string, string][] = [["project", effort.project ?? "none"]];
+    const meta: [string, string][] = [["project", effort.project ?? "none"]];
     if (effort.ticket != null && effort.ticket !== "") {
-        facts.push(["ticket", effort.ticket]);
-    }
-    const done = chunks.filter((c) => c.status === "done").length;
-    const skipped = chunks.filter((c) => c.status === "skipped").length;
-    const tally = TALLY_STATUSES.map((s) => [s, chunks.filter((c) => c.status === s).length] as const).filter(
-        ([, n]) => n > 0
-    );
-    // skips shrink the total, as on the Brief's row and the stage headers
-    facts.push([
-        "chunks",
-        `${done} of ${chunks.length - skipped} done` + tally.map(([s, n]) => ` · ${n} ${s}`).join(""),
-    ]);
-    const next = nextChunk(chunks);
-    if (next?.stage) {
-        facts.push(["stage", next.stage]);
+        meta.push(["ticket", effort.ticket]);
     }
     const parent = effort.parentoid ? all.find((e) => e.oref === "effort:" + effort.parentoid) : undefined;
     if (parent != null) {
-        facts.push(["parent", parent.title]);
+        meta.push(["parent", parent.title]);
     }
-    for (const k of all) {
-        if (k.parentoid === effort.oid && k.status !== "archived") {
-            facts.push(["child", `${k.title} · ${k.done} of ${k.total} · ${k.status}`]);
-        }
-    }
-    const nextLine =
-        next != null
-            ? (next.status === "deferred" ? "Next (deferred): " : "Next: ") + next.label
-            : chunks.length === 0
-              ? "No chunks yet."
-              : "No open chunk.";
-    return { facts, next: nextLine };
+    const count = (tone: ChunkTone) => chunks.filter((c) => chunkTone(c.status) === tone).length;
+    const skipped = count("skipped");
+    const next = nextChunk(chunks);
+    return {
+        meta,
+        done: count("done"),
+        counted: chunks.length - skipped,
+        skipped,
+        segments: BAR_TONES.map((tone) => ({ tone, n: count(tone) })).filter((s) => s.n > 0),
+        next: next != null ? { label: next.label, stage: next.stage ?? "", tone: chunkTone(next.status) } : null,
+        idle: next != null ? "" : chunks.length === 0 ? "No chunks yet." : "No open chunk.",
+        children: all
+            .filter((k) => k.parentoid === effort.oid && k.status !== "archived")
+            .map((k) => ({
+                oref: k.oref,
+                title: k.title,
+                status: k.status,
+                tone: effortTone(k.status),
+                done: k.done,
+                total: k.total,
+            })),
+    };
 }
 
 const EFFORT_DELTA_KINDS = new Set(["effort-created", "chunk-done", "chunk-added", "chunk-status", "effort-status", "effort-note"]);

@@ -1,8 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// An initiative's ACTIVITY: one newest-first feed over the effort's events, divided by day and grouped by
-// chunk within a day, one line per entry (effortfeed.ts), under the facts as one quiet line.
+// An initiative's ACTIVITY: the facts, a progress bar over its chunks, the chunk picked up next and its
+// child initiatives, then one newest-first feed over the effort's events, divided by day and grouped by
+// chunk within a day on a rail, one line per entry (effortfeed.ts).
 //
 // This is no longer how an initiative is opened. The Brief expands it in place and the plan, its chunks and
 // their per-chunk note trails live there (inlinetracker.ts) — so the plan section that used to fold below
@@ -10,32 +11,80 @@
 // hatch the inline tracker links to as "initiative activity": every note on every chunk, in one stream,
 // which the per-chunk sidebar deliberately does not show.
 
+import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { SectionLabel } from "@/app/view/agents/sectionlabel";
-import { cn } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { briefingStateAtom } from "./briefingstore";
 import { MONO_FAINT, REGION_LABEL } from "./briefstyle";
-import { effortFeed, FEED_PAGE, feedGroups, paragraphs, type FeedEntry, type FeedGroupRow } from "./effortfeed";
-import { chunkTone, effortFacts, type ChunkTone } from "./effortmodel";
+import {
+    codeSegments,
+    effortFeed,
+    FEED_PAGE,
+    feedGroups,
+    paragraphs,
+    type FeedEntry,
+    type FeedGroupRow,
+} from "./effortfeed";
+import { effortFacts, type ChunkTone, type EffortFacts } from "./effortmodel";
 import { effortDetailAtom, loadEffortDetail } from "./effortstore";
 import { TONE_FG, ToneIcon } from "./inlinetrackerview";
 import { activeSubjectAtom } from "./jarvissubjectstore";
+import { openAddress } from "./openref";
 import { STAGE_SCROLLER } from "./stagemeasure";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const TIME = cn("w-[38px] flex-none", MONO_FAINT);
+const ROW_HOVER = "rounded-[6px] hover:bg-surface-hover";
 
-// "removed" is the feed's word for a chunk the plan no longer holds; it reads as skipped
-const headTone = (status: string): ChunkTone => (status === "removed" ? "skipped" : chunkTone(status));
+// pending is the bar's empty track, so it draws no fill of its own; deferred is parked work, so it takes a
+// neutral rather than blocked's amber, and the legend words carry the meaning
+const BAR_FILL: Record<ChunkTone, string> = {
+    done: "bg-success",
+    active: "bg-accent",
+    blocked: "bg-warning",
+    pending: "bg-transparent",
+    deferred: "bg-ink-faint",
+    skipped: "bg-transparent",
+};
+const SWATCH: Record<ChunkTone, string> = {
+    done: "border-success bg-success",
+    active: "border-accent bg-accent",
+    blocked: "border-warning bg-warning",
+    pending: "border-edge-strong bg-edge-mid",
+    deferred: "border-ink-faint bg-ink-faint",
+    skipped: "border-edge-strong bg-transparent",
+};
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-// Row controls reveal on hover but stay IN FLOW: `hidden` -> `group-hover:block` reflowed the row
-// (measured at 118.7px of label shrink), which reads as a jitter under the cursor. Opacity also
-// keeps them focusable — a display:none button cannot be tabbed to.
+// the icon in the 14px box every row aligns its first column to
+function Tone({ tone }: { tone: ChunkTone }) {
+    return (
+        <span className="flex w-[14px] flex-none justify-center">
+            <ToneIcon tone={tone} />
+        </span>
+    );
+}
+
+function Segments({ text }: { text: string }) {
+    return (
+        <>
+            {codeSegments(text).map((s, i) =>
+                s.code ? (
+                    <span key={i} className="font-mono text-[11.5px] text-accent-soft">
+                        {s.text}
+                    </span>
+                ) : (
+                    <Fragment key={i}>{s.text}</Fragment>
+                )
+            )}
+        </>
+    );
+}
 
 function NoteParagraphs({ body }: { body: string }) {
     return (
@@ -57,6 +106,131 @@ function NoteParagraphs({ body }: { body: string }) {
     );
 }
 
+// the status an entry moved its chunk to
+function MarkPill({ tone }: { tone: ChunkTone }) {
+    return (
+        <span
+            className={cn(
+                "mr-1.5 inline-flex items-center gap-1 rounded-full bg-pill pl-[3px] pr-1.5 align-[1px] font-mono text-[10.5px] font-semibold leading-[17px]",
+                TONE_FG[tone]
+            )}
+        >
+            <Tone tone={tone} />
+            {tone}
+        </span>
+    );
+}
+
+function Progress({ facts }: { facts: EffortFacts }) {
+    const { done, counted, skipped, segments } = facts;
+    if (counted + skipped === 0) {
+        return null;
+    }
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex items-baseline gap-2">
+                <span className="text-[13px] font-semibold text-ink-hi">
+                    {done} of {counted} done
+                </span>
+                {skipped > 0 ? <span className={MONO_FAINT}>{skipped} skipped, not counted</span> : null}
+            </div>
+            <div
+                role="img"
+                aria-label={segments.map((s) => `${s.n} ${s.tone}`).join(", ")}
+                className="flex h-1.5 gap-[2px] overflow-hidden rounded-[3px] bg-edge-mid"
+            >
+                {segments.map((s) => (
+                    <span key={s.tone} className={BAR_FILL[s.tone]} style={{ flexGrow: s.n, flexBasis: 0 }} />
+                ))}
+            </div>
+            <div className="flex flex-wrap gap-x-3.5 gap-y-1">
+                {segments.map((s) => (
+                    <span
+                        key={s.tone}
+                        className="inline-flex items-center gap-1.5 font-mono text-[10.5px] text-ink-mid"
+                    >
+                        <span className={cn("box-border h-2 w-2 rounded-[2px] border", SWATCH[s.tone])} />
+                        {s.n} {s.tone}
+                    </span>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function NextCard({ facts }: { facts: EffortFacts }) {
+    const { next } = facts;
+    return (
+        <div
+            data-jarvis-effort-section="next"
+            className="flex flex-col gap-1.5 rounded-[10px] border border-edge-mid bg-surface-raised px-[13px] py-[11px]"
+        >
+            <div className="flex items-baseline gap-2.5">
+                <span className={cn(REGION_LABEL, "text-accent-soft")}>Next</span>
+                {next?.stage ? (
+                    <span className={cn("min-w-0 flex-1 truncate", MONO_FAINT)}>stage · {next.stage}</span>
+                ) : null}
+            </div>
+            {next != null ? (
+                <div className="flex items-center gap-2">
+                    <Tone tone={next.tone} />
+                    <span className="text-[13px] font-medium leading-[1.45] text-ink-hi">{next.label}</span>
+                </div>
+            ) : (
+                <span className="text-[13px] leading-[1.45] text-ink-mid">{facts.idle}</span>
+            )}
+        </div>
+    );
+}
+
+function ChildInitiatives({ facts, onOpen }: { facts: EffortFacts; onOpen: (oref: string) => void }) {
+    if (facts.children.length === 0) {
+        return null;
+    }
+    return (
+        <section data-jarvis-effort-section="children" className="flex flex-col gap-0.5">
+            <SectionLabel className="mb-1.5">Child initiatives</SectionLabel>
+            {facts.children.map((k) => (
+                <button
+                    key={k.oref}
+                    type="button"
+                    title="Open this initiative"
+                    onClick={() => onOpen(k.oref)}
+                    className={cn(
+                        "flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-t-[6px] border-b border-edge-faint px-1.5 py-[5px] text-left hover:bg-surface-hover",
+                        FOCUS
+                    )}
+                >
+                    <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary">{k.title}</span>
+                    <span className="h-1 w-14 flex-none overflow-hidden rounded-[2px] bg-edge-mid">
+                        <span
+                            className="block h-full bg-success"
+                            style={{ width: `${k.total > 0 ? (k.done / k.total) * 100 : 0}%` }}
+                        />
+                    </span>
+                    {/* wide enough for "34 of 41", so the columns line up down the list */}
+                    <span className={cn("w-[52px] flex-none", MONO_FAINT)}>
+                        {k.done} of {k.total}
+                    </span>
+                    <span
+                        className={cn(
+                            "inline-flex flex-none items-center gap-[5px] font-mono text-[10.5px] font-semibold",
+                            TONE_FG[k.tone]
+                        )}
+                    >
+                        <Tone tone={k.tone} />
+                        {k.status}
+                    </span>
+                    <ChevronRight size={11} strokeWidth={2.4} aria-hidden className="flex-none text-muted" />
+                </button>
+            ))}
+        </section>
+    );
+}
+
+// one segment of the rail that runs down a chunk's entries; consecutive entries join into one line
+const Rail = () => <span aria-hidden className="absolute bottom-0 left-[7px] top-0 w-px bg-edge-mid" />;
+
 function FeedGroupLine({
     row,
     open,
@@ -66,64 +240,71 @@ function FeedGroupLine({
     row: FeedGroupRow;
     open: boolean;
     onToggle: () => void;
-    onOnly: (chunk: string) => void;
+    onOnly: (chunk: string, tone: ChunkTone) => void;
 }) {
     switch (row.kind) {
         case "day":
             return (
-                <div className="flex items-center gap-2.5 pb-1 pt-3.5">
+                <div className="sticky top-0 z-[1] flex items-center gap-2.5 bg-background pb-1 pt-3">
                     <span className={cn(REGION_LABEL, "text-ink-mid")}>{row.label}</span>
                     <span className="flex-1 border-t border-edge-faint" />
                 </div>
             );
-        case "head": {
-            const tone = headTone(row.status);
+        case "head":
             return (
                 <button
                     type="button"
-                    onClick={() => onOnly(row.chunk)}
+                    onClick={() => onOnly(row.chunk, row.tone)}
                     title="Show only this chunk"
-                    className={cn("flex w-full min-w-0 cursor-pointer items-center gap-2 pb-0.5 pt-2 text-left", FOCUS)}
+                    className={cn(
+                        "mt-1.5 flex w-full min-w-0 cursor-pointer items-center gap-2 py-1 pr-1.5 text-left",
+                        ROW_HOVER,
+                        FOCUS
+                    )}
                 >
-                    <span className="flex w-[14px] flex-none justify-center">
-                        <ToneIcon tone={tone} />
-                    </span>
+                    <Tone tone={row.tone} />
                     <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-ink-hi">{row.chunk}</span>
-                    <span className={cn("flex-none font-mono text-[10.5px] font-semibold", TONE_FG[tone])}>
+                    {row.added !== "" ? <span className={cn("flex-none", MONO_FAINT)}>added {row.added}</span> : null}
+                    <span className={cn("flex-none font-mono text-[10.5px] font-semibold", TONE_FG[row.tone])}>
                         {row.status}
                     </span>
                 </button>
             );
-        }
         case "note":
             return (
-                <div className="pl-[22px]">
+                <div className="relative pl-[22px]">
+                    <Rail />
                     <button
                         type="button"
                         onClick={onToggle}
                         aria-expanded={open}
                         data-jarvis-effort-note={row.key}
                         className={cn(
-                            "flex w-full min-w-0 cursor-pointer items-baseline gap-2.5 py-[3px] text-left",
+                            "flex w-full min-w-0 cursor-pointer items-baseline gap-2.5 py-[3px] pr-1.5 text-left",
+                            ROW_HOVER,
+                            open && "bg-surface-hover",
                             FOCUS
                         )}
                     >
                         <span className={TIME}>{row.time}</span>
-                        <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink-mid">
-                            {row.marked !== "" ? <span className={MONO_FAINT}>{row.marked} · </span> : null}
-                            {row.head}
-                        </span>
-                        <span className={cn("inline-flex flex-none items-center gap-[3px]", MONO_FAINT)}>
-                            {row.size}
-                            {open ? (
-                                <ChevronDown size={11} strokeWidth={2.4} aria-hidden />
-                            ) : (
-                                <ChevronRight size={10} strokeWidth={2.6} aria-hidden />
+                        <span
+                            className={cn(
+                                "line-clamp-2 min-w-0 flex-1 text-[12.5px] leading-[1.5]",
+                                open ? "text-ink-hi" : "text-ink-mid"
                             )}
+                        >
+                            {row.mark != null ? <MarkPill tone={row.mark} /> : null}
+                            <Segments text={row.head} />
                         </span>
+                        <ChevronRight
+                            size={11}
+                            strokeWidth={2.4}
+                            aria-hidden
+                            className={cn("flex-none self-center text-muted", open && "rotate-90")}
+                        />
                     </button>
                     {open ? (
-                        <div className="mb-2.5 ml-[48px] mt-0.5 flex flex-col gap-1.5 text-[12.5px] leading-[1.65] text-secondary">
+                        <div className="mb-2 ml-[48px] mt-0.5 flex flex-col gap-1.5 rounded-lg border border-edge-faint bg-surface px-3 py-2.5 text-[12.5px] leading-[1.65] text-secondary">
                             <NoteParagraphs body={row.body} />
                         </div>
                     ) : null}
@@ -131,43 +312,49 @@ function FeedGroupLine({
             );
         case "event":
             return (
-                <div className="flex items-baseline gap-2.5 py-[3px] pl-[22px]">
+                <div className="relative flex items-baseline gap-2.5 py-[3px] pl-[22px]">
+                    <Rail />
                     <span className={TIME}>{row.time}</span>
-                    <span className={cn("min-w-0 flex-1 truncate", MONO_FAINT)}>{row.text}</span>
+                    <span className="min-w-0 flex-1 truncate text-[12.5px] leading-[1.5]">
+                        {row.mark != null ? (
+                            <MarkPill tone={row.mark} />
+                        ) : (
+                            <span className={MONO_FAINT}>{row.text}</span>
+                        )}
+                    </span>
                 </div>
             );
     }
 }
 
 function NotesFeed({ feed }: { feed: FeedEntry[] }) {
-    const [only, setOnly] = useState<string | null>(null);
+    const [only, setOnly] = useState<{ chunk: string; tone: ChunkTone } | null>(null);
     const [limit, setLimit] = useState(FEED_PAGE);
     const [opened, setOpened] = useState<Record<string, boolean>>({});
-    const { rows, left } = feedGroups(feed, { only, limit, now: Date.now() });
+    const { rows, left } = feedGroups(feed, { only: only?.chunk ?? null, limit, now: Date.now() });
     const notes = feed.filter((e) => e.text !== "").length;
-    const narrow = (chunk: string | null) => {
-        setOnly(chunk);
+    const narrow = (next: { chunk: string; tone: ChunkTone } | null) => {
+        setOnly(next);
         setOpened({});
     };
     return (
         <section data-jarvis-effort-section="notes" className="flex flex-col">
-            <div className="flex items-baseline gap-2.5 pb-1.5">
+            <div className="flex items-baseline gap-2.5 pb-1">
                 <SectionLabel>Notes</SectionLabel>
                 <span className={MONO_FAINT}>
                     {feed.length === 0 ? "none yet" : `${plural(notes, "note")} · newest first`}
                 </span>
             </div>
             {only != null ? (
-                <div className="flex items-baseline gap-2 pb-1.5 pt-0.5">
+                <div className="mb-0.5 mt-1 flex items-center gap-2 rounded-lg bg-pill py-1.5 pl-2.5 pr-2">
                     <span className={cn("flex-none", MONO_FAINT)}>only</span>
-                    <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] font-medium text-secondary">
-                        {only}
-                    </span>
+                    <Tone tone={only.tone} />
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-ink-hi">{only.chunk}</span>
                     <button
                         type="button"
                         onClick={() => narrow(null)}
                         className={cn(
-                            "flex-none cursor-pointer font-mono text-[10.5px] text-accent hover:text-accenthover",
+                            "flex-none cursor-pointer px-1 py-0.5 font-mono text-[10.5px] text-accent hover:text-accenthover",
                             FOCUS
                         )}
                     >
@@ -183,7 +370,7 @@ function NotesFeed({ feed }: { feed: FeedEntry[] }) {
                         row={row}
                         open={open}
                         onToggle={() => setOpened({ ...opened, [row.key]: !open })}
-                        onOnly={narrow}
+                        onOnly={(chunk, tone) => narrow({ chunk, tone })}
                     />
                 );
             })}
@@ -192,7 +379,7 @@ function NotesFeed({ feed }: { feed: FeedEntry[] }) {
                     type="button"
                     onClick={() => setLimit(limit + FEED_PAGE)}
                     className={cn(
-                        // lines up with the entry text, past the indent and the time column
+                        // lines up with the entry text, past the rail indent and the time column
                         "ml-[70px] mt-2.5 cursor-pointer self-start rounded-[6px] border border-border px-2.5 py-1 font-mono text-[10.5px] text-ink-mid hover:text-ink-hi",
                         FOCUS
                     )}
@@ -204,7 +391,7 @@ function NotesFeed({ feed }: { feed: FeedEntry[] }) {
     );
 }
 
-export function EffortDetailView() {
+export function EffortDetailView({ model }: { model: AgentsViewModel }) {
     const subject = useAtomValue(activeSubjectAtom);
     const cache = useAtomValue(effortDetailAtom);
     const briefing = useAtomValue(briefingStateAtom);
@@ -243,10 +430,11 @@ export function EffortDetailView() {
     };
 
     const facts = effort != null ? effortFacts(effort, summaries ?? []) : null;
+    const openChild = (child: string) => fireAndForget(() => openAddress(model, child));
 
     return (
         <div className={cn(STAGE_SCROLLER, "min-h-0 flex-1")} aria-live="polite">
-            <div className="flex flex-col gap-[18px] px-5 py-[22px]">
+            <div className="flex flex-col gap-5 px-5 pb-7 pt-5">
                 {error != null ? (
                     <div className="flex flex-col gap-2 rounded-[10px] border border-border bg-surface px-4 py-3">
                         <span className="text-[13px] font-semibold text-primary">Couldn't load this initiative.</span>
@@ -272,12 +460,12 @@ export function EffortDetailView() {
                 ) : null}
                 {effort != null && facts != null ? (
                     <>
-                        <div className="flex flex-col gap-2">
-                            <span className="text-pretty text-[19px] font-semibold leading-[1.3] tracking-[-.01em] text-ink-hi">
+                        <div className="flex flex-col gap-1.5">
+                            <h1 className="m-0 text-pretty text-[19px] font-semibold leading-[1.3] tracking-[-.01em] text-ink-hi">
                                 {effort.title}
-                            </span>
-                            <div className="flex flex-wrap gap-x-3.5 gap-y-0.5 font-mono text-[10.5px] leading-[1.55] text-ink-mid">
-                                {[...facts.facts, ["updated", formatAge(Date.now() - effort.updatedts) + " ago"]].map(
+                            </h1>
+                            <div className="flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-[10.5px] text-ink-mid">
+                                {[...facts.meta, ["updated", formatAge(Date.now() - effort.updatedts) + " ago"]].map(
                                     ([k, v], i) => (
                                         <span key={k + ":" + i}>
                                             <span className="text-muted">{k}</span> {v}
@@ -286,7 +474,9 @@ export function EffortDetailView() {
                                 )}
                             </div>
                         </div>
-                        <span className="text-pretty text-[13px] leading-[1.6] text-ink-mid">{facts.next}</span>
+                        <Progress facts={facts} />
+                        <NextCard facts={facts} />
+                        <ChildInitiatives facts={facts} onOpen={openChild} />
                         <NotesFeed key={"notes:" + effort.oid} feed={feed} />
                     </>
                 ) : null}

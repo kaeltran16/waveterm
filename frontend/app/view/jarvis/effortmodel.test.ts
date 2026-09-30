@@ -218,61 +218,75 @@ describe("effortFacts", () => {
             ...over,
         }) as Effort;
 
-    it("states the project, the ticket and a tally of only the statuses present", () => {
-        const { facts } = effortFacts(
-            effort({
-                project: "cad",
-                ticket: "SIEM-1707",
-                chunks: [chunk("A", "done"), chunk("B", "active"), chunk("C", "pending"), chunk("D", "pending")],
-            }),
-            []
-        );
-        expect(facts).toEqual([
+    it("states the project, the ticket and the parent as the meta line", () => {
+        const all = [
+            { oref: "effort:p1", title: "Part III", status: "active", done: 19, total: 34, updatedts: 0 },
+        ] as EffortSummary[];
+        const { meta } = effortFacts(effort({ project: "cad", ticket: "SIEM-1707", parentoid: "p1" }), all);
+        expect(meta).toEqual([
             ["project", "cad"],
             ["ticket", "SIEM-1707"],
-            ["chunks", "1 of 4 done · 2 pending · 1 active"],
+            ["parent", "Part III"],
         ]);
     });
 
     // the row's progress and the stage headers shrink the denominator by skips; the sheet must name the same total
-    it("counts done over the chunks not skipped", () => {
-        const { facts } = effortFacts(
-            effort({ chunks: [chunk("A", "done"), chunk("B", "pending"), chunk("C", "skipped")] }),
+    it("counts done over the chunks not skipped, and draws only the statuses present in bar order", () => {
+        const f = effortFacts(
+            effort({
+                chunks: [
+                    chunk("A", "pending"),
+                    chunk("B", "done"),
+                    chunk("C", "skipped"),
+                    chunk("D", "deferred"),
+                    chunk("E", "done"),
+                    chunk("F", "active"),
+                ],
+            }),
             []
         );
-        expect(facts).toContainEqual(["chunks", "1 of 2 done · 1 pending · 1 skipped"]);
+        expect([f.done, f.counted, f.skipped]).toEqual([2, 5, 1]);
+        expect(f.segments).toEqual([
+            { tone: "done", n: 2 },
+            { tone: "active", n: 1 },
+            { tone: "pending", n: 1 },
+            { tone: "deferred", n: 1 },
+        ]);
     });
 
-    it("names the next chunk and its stage, and says when that chunk is deferred", () => {
+    it("names the next chunk with its stage and tone, a deferred one included", () => {
         const staged = effortFacts(
             effort({ chunks: [chunk("A", "done", "S1"), chunk("B", "active", "S2 engine")] }),
             []
         );
-        expect(staged.next).toBe("Next: B");
-        expect(staged.facts).toContainEqual(["stage", "S2 engine"]);
-        expect(effortFacts(effort({ chunks: [chunk("A", "done"), chunk("M1", "deferred")] }), []).next).toBe(
-            "Next (deferred): M1"
-        );
+        expect(staged.next).toEqual({ label: "B", stage: "S2 engine", tone: "active" });
+        expect(staged.idle).toBe("");
+        expect(effortFacts(effort({ chunks: [chunk("A", "done"), chunk("M1", "deferred")] }), []).next).toEqual({
+            label: "M1",
+            stage: "",
+            tone: "deferred",
+        });
     });
 
-    it("links the parent and lists the children still in play with their progress", () => {
+    it("lists the children still in play with their progress, a paused one parked", () => {
         const all = [
-            { oref: "effort:p1", title: "Part III", status: "active", done: 19, total: 34, updatedts: 0 },
             { oref: "effort:k1", title: "Scoring", status: "active", parentoid: "e1", done: 5, total: 8, updatedts: 0 },
             { oref: "effort:k2", title: "Old", status: "archived", parentoid: "e1", done: 1, total: 1, updatedts: 0 },
+            { oref: "effort:k3", title: "Cards", status: "paused", parentoid: "e1", done: 7, total: 8, updatedts: 0 },
+            { oref: "effort:x", title: "Other", status: "active", parentoid: "e9", done: 0, total: 1, updatedts: 0 },
         ] as EffortSummary[];
-        const { facts } = effortFacts(effort({ parentoid: "p1" }), all);
-        expect(facts.filter(([k]) => k === "parent" || k === "child")).toEqual([
-            ["parent", "Part III"],
-            ["child", "Scoring · 5 of 8 · active"],
+        expect(effortFacts(effort({}), all).children).toEqual([
+            { oref: "effort:k1", title: "Scoring", status: "active", tone: "active", done: 5, total: 8 },
+            { oref: "effort:k3", title: "Cards", status: "paused", tone: "deferred", done: 7, total: 8 },
         ]);
     });
 
     it("says when there is nothing left to pick up", () => {
-        expect(effortFacts(effort({}), []).next).toBe("No chunks yet.");
-        expect(effortFacts(effort({ chunks: [chunk("A", "done"), chunk("B", "skipped")] }), []).next).toBe(
-            "No open chunk."
-        );
+        expect(effortFacts(effort({}), [])).toMatchObject({ next: null, idle: "No chunks yet." });
+        expect(effortFacts(effort({ chunks: [chunk("A", "done"), chunk("B", "skipped")] }), [])).toMatchObject({
+            next: null,
+            idle: "No open chunk.",
+        });
     });
 });
 

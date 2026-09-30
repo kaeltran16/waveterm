@@ -7069,13 +7069,20 @@ const briefInitiativesPolish = {
         await polishNap(300);
         const feed = await h.ev(`(() => {
             const s = ${SHEET};
-            return s ? { today: s.textContent.includes('Today'), notes: s.querySelectorAll('[data-jarvis-effort-note]').length } : null;
+            return s
+                ? {
+                      today: s.textContent.includes('Today'),
+                      notes: s.querySelectorAll('[data-jarvis-effort-note]').length,
+                      next: !!s.querySelector('[data-jarvis-effort-section="next"]'),
+                      bar: !!s.querySelector('[role="img"][aria-label*="done"]'),
+                  }
+                : null;
         })()`);
         const sheetSweep = await h.ev(polishSweep(SHEET));
         await h.shot("cdp-shots/brief-initiatives-polish-4-activity.png");
         rec(
-            "4. the activity sheet opens on a Today divider with note lines, nothing under 10.5px",
-            sheetUp && feed != null && feed.today && feed.notes >= 1 && sweptOk(sheetSweep),
+            "4. the activity sheet opens on its progress bar, a Next card, a Today divider and note lines, nothing under 10.5px",
+            sheetUp && feed != null && feed.today && feed.notes >= 1 && feed.next && feed.bar && sweptOk(sheetSweep),
             JSON.stringify({ feed, sweep: sheetSweep })
         );
         return steps;
