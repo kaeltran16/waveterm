@@ -34,10 +34,11 @@ import {
     type AgentVM,
     type CardTask,
 } from "./agentsviewmodel";
-import { AnswerBar } from "./answerbar";
+import { AnswerBar, DocReviewSummary } from "./answerbar";
 import { AttentionBanner, BannerChip } from "./attentioncard";
 import { diffStatsByIdAtom } from "./cardgitstore";
 import type { CardShare } from "./cardgridlayout";
+import { parseDocReview } from "./docreview";
 import { entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
 import { SubLabel } from "./sectionlabel";
@@ -251,6 +252,7 @@ export const AgentRow = memo(function AgentRow({
     const qs = agent.ask?.questions ?? [];
     const qIdx = clampQuestionIndex(activeQuestion, qs.length);
     const question = qs[qIdx]?.question;
+    const review = parseDocReview(agent.ask);
     const diff = useAtomValue(diffStatsByIdAtom)[agent.id];
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const tasks = useAtomValue(tasksAtomFor(agent.id));
@@ -414,8 +416,12 @@ export const AgentRow = memo(function AgentRow({
                             {agent.ask.note}
                         </div>
                     ) : null}
-                    {question ? (
-                        <p className="shrink-0 border-b border-edge-mid px-3.5 py-2.5 text-[14px] font-semibold leading-[1.5] text-primary">
+                    {review ? (
+                        <div className="shrink-0 border-b border-edge-mid px-3.5 py-2.5">
+                            <DocReviewSummary agentId={agent.id} review={review} />
+                        </div>
+                    ) : question ? (
+                        <p className="shrink-0 whitespace-pre-line border-b border-edge-mid px-3.5 py-2.5 text-[14px] font-semibold leading-[1.5] text-primary">
                             {question}
                         </p>
                     ) : null}

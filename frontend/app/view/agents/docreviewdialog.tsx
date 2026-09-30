@@ -1,0 +1,323 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+//
+// A lead's Spec review / Plan review ask as one dialog: the document on the left, what the lead asks you to
+// accept on the right, the answer at the bottom. Mounted once in CockpitShell so it opens over any surface;
+// docReviewAtom names the asking agent. Hiding it leaves the ask open, and it closes itself once the ask is
+// answered or cleared.
+
+import { openFileInCode } from "@/app/cockpit/openfilestore";
+import { SkeletonLine } from "@/app/element/skeleton";
+import { ModalShell } from "@/app/modals/modalshell";
+import { globalStore } from "@/app/store/jotaiStore";
+import { formatChordString } from "@/util/keysym";
+import { cn, fireAndForget } from "@/util/util";
+import { useAtomValue } from "jotai";
+import { ArrowUpRight, Check, FileText, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ICON_BTN } from "./agentheader";
+import type { AgentsViewModel } from "./agents";
+import { askSentKey, type AgentVM } from "./agentsviewmodel";
+import { cleanLabel } from "./answerbar";
+import { docReviewAtom, parseDocReview, type DocReview, type DocReviewKind } from "./docreview";
+import { MarkdownMessage } from "./markdownmessage";
+import { useFileText } from "./usefiletext";
+
+// a doc review is always the ask's only question
+const QI = 0;
+
+const COPY: Record<
+    DocReviewKind,
+    { eyebrow: string; title: string; list: string; approve: string; placeholder: string }
+> = {
+    spec: {
+        eyebrow: "Spec review",
+        title: "Review the spec before I write the plan",
+        list: "Decisions in it",
+        approve: "Approve",
+        placeholder: "What to change in the spec",
+    },
+    plan: {
+        eyebrow: "Plan review · round 2 failed",
+        title: "The plan review failed twice. Proceed with these fixes?",
+        list: "Findings",
+        approve: "Accept all and proceed",
+        placeholder: "Which finding to handle differently, and how",
+    },
+};
+
+const REQUEST_SENT = "Request changes, with your note";
+
+const PRIMARY_BTN =
+    "flex cursor-pointer items-center gap-2 rounded-[8px] bg-accent px-3.5 py-[7px] text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-50";
+const SECONDARY_BTN =
+    "flex cursor-pointer items-center gap-2 rounded-[8px] border border-edge-mid bg-surface-raised px-3 py-[6px] text-[12.5px] font-semibold text-secondary hover:border-edge-strong hover:bg-surface-hover";
+
+const closeDialog = () => globalStore.set(docReviewAtom, null);
+
+export function DocReviewDialog({ model }: { model: AgentsViewModel }) {
+    const id = useAtomValue(docReviewAtom);
+    const agents = useAtomValue(model.agentsAtom);
+    const sentIds = useAtomValue(model.sentIdsAtom);
+    const selections = useAtomValue(model.answerSelAtom);
+    const texts = useAtomValue(model.answerTextAtom);
+    const agent = id != null ? agents.find((a) => a.id === id) : undefined;
+    const review = parseDocReview(agent?.ask);
+    const askId = agent?.ask?.askId;
+    const [requesting, setRequesting] = useState(false);
+    const [note, setNote] = useState("");
+
+    // the ask was answered or cleared (or the agent is gone): nothing left to review
+    useEffect(() => {
+        if (id != null && review == null) {
+            closeDialog();
+        }
+    }, [id, review == null]);
+
+    useEffect(() => {
+        setRequesting(false);
+        setNote("");
+    }, [askId]);
+
+    const sent = agent != null && sentIds.has(askSentKey(agent) ?? "");
+    const approve = () => {
+        if (!agent || !review || sent || review.approveIndex < 0) {
+            return;
+        }
+        if (!selections[agent.id]?.[QI]?.has(review.approveIndex)) {
+            model.toggleAnswer(agent.id, QI, review.approveIndex);
+        }
+        model.submitAnswer(agent.id);
+    };
+    const sendNote = () => {
+        if (!agent || sent || !note.trim()) {
+            return;
+        }
+        model.setAnswerText(agent.id, QI, note.trim());
+        model.submitAnswer(agent.id);
+        setRequesting(false);
+    };
+
+    let sentLabel = "";
+    if (sent && agent && review) {
+        const text = (texts[agent.id]?.[QI] ?? "").trim();
+        const oi = [...(selections[agent.id]?.[QI] ?? [])][0];
+        sentLabel = text ? REQUEST_SENT : cleanLabel(agent.ask?.questions?.[QI]?.options?.[oi]?.label ?? "");
+    }
+
+    return (
+        <ModalShell
+            open={agent != null && review != null}
+            onClose={closeDialog}
+            onSubmit={requesting ? sendNote : approve}
+            variant="dialog"
+            align="center"
+            className="flex h-[min(780px,calc(100vh-5rem))] w-[min(1160px,calc(100vw-5rem))] flex-col"
+        >
+            {agent && review ? (
+                <>
+                    <Header agent={agent} review={review} />
+                    <div className="flex min-h-0 flex-1">
+                        <DocumentPane
+                            path={review.path}
+                            onOpen={() => {
+                                closeDialog();
+                                fireAndForget(() => openFileInCode(model, review.path));
+                            }}
+                        />
+                        <AskPane review={review} />
+                    </div>
+                    <Footer
+                        review={review}
+                        approveLabel={cleanLabel(
+                            agent.ask?.questions?.[QI]?.options?.[review.approveIndex]?.label ??
+                                COPY[review.kind].approve
+                        )}
+                        sentLabel={sent ? sentLabel || "Answered" : null}
+                        requesting={requesting}
+                        note={note}
+                        onNote={setNote}
+                        onApprove={approve}
+                        onRequest={() => setRequesting(true)}
+                        onCancel={() => setRequesting(false)}
+                        onSend={sendNote}
+                    />
+                </>
+            ) : null}
+        </ModalShell>
+    );
+}
+
+function Header({ agent, review }: { agent: AgentVM; review: DocReview }) {
+    const copy = COPY[review.kind];
+    return (
+        <div
+            data-doc-review={review.kind}
+            className="flex flex-none flex-col gap-2 border-b border-edge-mid px-[22px] pb-3.5 pt-4"
+        >
+            <div className="flex items-center gap-2">
+                <span className="h-[7px] w-[7px] rounded-full bg-warning" aria-hidden />
+                <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-warning">
+                    {copy.eyebrow}
+                </span>
+                <span className="truncate font-mono text-[10.5px] text-muted">· waiting on you · {agent.name}</span>
+                <div className="flex-1" />
+                <button
+                    type="button"
+                    onClick={closeDialog}
+                    aria-label="Hide the review (Esc)"
+                    title="Hide the review (Esc)"
+                    className={cn(ICON_BTN, "px-[7px] py-[5px] leading-none hover:border-edge-strong")}
+                >
+                    <X size={14} aria-hidden />
+                </button>
+            </div>
+            <div className="text-[18px] font-semibold leading-[1.35] text-primary">{copy.title}</div>
+        </div>
+    );
+}
+
+function DocumentPane({ path, onOpen }: { path: string; onOpen: () => void }) {
+    const [load] = useFileText(path);
+    const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+    const file = path.slice(cut + 1);
+    const dir = cut > 0 ? path.slice(0, cut) : "";
+    return (
+        <div className="flex min-w-0 flex-1 flex-col border-r border-edge-mid">
+            <div className="flex-none border-b border-edge-faint px-[22px] py-3">
+                <div className="flex items-center gap-2.5 rounded-[7px] border border-edge-mid bg-background px-2.5 py-2">
+                    <FileText size={15} strokeWidth={1.8} aria-hidden className="flex-none text-ink-mid" />
+                    <div className="min-w-0 flex-1">
+                        <div className="truncate font-mono text-[12px] font-semibold text-primary">{file}</div>
+                        <div className="truncate font-mono text-[10.5px] text-muted">{dir}</div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onOpen}
+                        className="inline-flex h-[25px] shrink-0 cursor-pointer items-center gap-[5px] rounded-[6px] border border-accent/45 bg-transparent px-2.5 text-[11.5px] font-semibold text-accent-soft hover:bg-accent/10"
+                    >
+                        Open in Code
+                        <ArrowUpRight size={11} aria-hidden />
+                    </button>
+                </div>
+            </div>
+            <div className="sc min-h-0 flex-1 overflow-y-auto px-7 pb-7 pt-[18px]">
+                {load.status === "loading" ? (
+                    <div aria-hidden="true" className="flex flex-col gap-2.5 pt-1">
+                        {["w-[45%]", "w-[85%]", "w-[75%]", "w-[60%]", "w-[80%]"].map((w, i) => (
+                            <SkeletonLine key={i} className={cn("h-[12px]", w)} />
+                        ))}
+                    </div>
+                ) : load.status === "error" ? (
+                    <div className="flex flex-col gap-1">
+                        <span className="text-[13px] text-secondary">Couldn't read {file}</span>
+                        <span className="break-all font-mono text-[11px] text-muted">{path}</span>
+                    </div>
+                ) : (
+                    <MarkdownMessage text={load.text} className="text-[14px] leading-[1.65] text-secondary" />
+                )}
+            </div>
+        </div>
+    );
+}
+
+function AskPane({ review }: { review: DocReview }) {
+    const numbered = review.kind === "spec";
+    return (
+        <div className="flex w-[380px] flex-none flex-col bg-surface-raised">
+            <div className="sc flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-5 pb-5 pt-4">
+                <div className="font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted">
+                    {COPY[review.kind].list} · {review.items.length}
+                </div>
+                {review.intro.length > 0 ? (
+                    <MarkdownMessage
+                        text={review.intro.join("\n\n")}
+                        className="text-[12.5px] leading-[1.5] text-secondary"
+                    />
+                ) : null}
+                <ol className={cn("m-0 flex list-none flex-col p-0", numbered ? "gap-2.5" : "gap-3")}>
+                    {review.items.map((item, i) => (
+                        <li key={i} className={cn(numbered && "grid grid-cols-[22px_minmax(0,1fr)]")}>
+                            {numbered ? <span className="pt-0.5 font-mono text-[11px] text-muted">{i + 1}</span> : null}
+                            <MarkdownMessage text={item} className="text-[13px] leading-[1.5] text-secondary" />
+                        </li>
+                    ))}
+                </ol>
+            </div>
+        </div>
+    );
+}
+
+function Footer(p: {
+    review: DocReview;
+    approveLabel: string;
+    sentLabel: string | null;
+    requesting: boolean;
+    note: string;
+    onNote: (v: string) => void;
+    onApprove: () => void;
+    onRequest: () => void;
+    onCancel: () => void;
+    onSend: () => void;
+}) {
+    if (p.sentLabel != null) {
+        return (
+            <div className="flex flex-none items-center gap-2 border-t border-edge-mid bg-modalbg px-[22px] pb-3.5 pt-3 text-[12.5px] text-success">
+                <Check size={14} strokeWidth={2.2} aria-hidden />
+                <span className="font-semibold">Sent: {p.sentLabel}</span>
+                <span className="text-muted">· this closes when the lead picks it up</span>
+            </div>
+        );
+    }
+    return (
+        <div className="flex flex-none flex-col gap-2.5 border-t border-edge-mid bg-modalbg px-[22px] pb-3.5 pt-3">
+            {p.requesting ? (
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="doc-review-note" className="text-[12px] font-semibold text-secondary">
+                        What should change?
+                    </label>
+                    <textarea
+                        id="doc-review-note"
+                        rows={3}
+                        autoFocus
+                        value={p.note}
+                        onChange={(e) => p.onNote(e.target.value)}
+                        placeholder={COPY[p.review.kind].placeholder}
+                        className="w-full resize-none rounded-[7px] border border-accent bg-background px-2.5 py-2 text-[13px] leading-[1.5] text-primary outline-none placeholder:text-muted"
+                    />
+                </div>
+            ) : null}
+            <div className="flex items-center gap-2">
+                {p.requesting ? (
+                    <>
+                        <button type="button" onClick={p.onSend} disabled={!p.note.trim()} className={PRIMARY_BTN}>
+                            Send to the lead
+                        </button>
+                        <button type="button" onClick={p.onCancel} className={SECONDARY_BTN}>
+                            Cancel
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <button
+                            type="button"
+                            onClick={p.onApprove}
+                            disabled={p.review.approveIndex < 0}
+                            className={PRIMARY_BTN}
+                        >
+                            {p.approveLabel}
+                            <span className="rounded-[4px] bg-background/20 px-[5px] font-mono text-[10.5px]">
+                                {formatChordString("Ctrl:Enter")}
+                            </span>
+                        </button>
+                        <button type="button" onClick={p.onRequest} className={SECONDARY_BTN}>
+                            Request changes
+                        </button>
+                    </>
+                )}
+                <div className="flex-1" />
+                <span className="text-[11.5px] text-muted">Esc hides this; the question stays open</span>
+            </div>
+        </div>
+    );
+}

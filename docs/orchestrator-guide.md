@@ -197,6 +197,17 @@ on you** on the Brief instead of scrolling past in a terminal. The Jarvis nav ic
   sheet today; see [Rough edges](#rough-edges-found-while-writing-this).
 - **✕** dismisses the question.
 
+**The review dialog.** The lead's **Spec review**, and its round-2 **Plan review**
+([The plan review](#the-plan-review)), open as one dialog over whatever surface you are on: the document
+rendered on the left, the decisions (or findings) it asks you to accept on the right, and **Approve** (the
+plan's is **Accept all and proceed**, `Ctrl Enter`) or **Request changes** at the bottom. Request changes
+takes a note and sends it to the lead as your answer. Everywhere else the ask shows as a one-line summary with
+a **Review** button: the Cockpit lead card, the Brief's card, the run sheet. On the Agent surface the lead's
+tree row carries a `review` tag, the lead's header an amber `Spec review` / `Plan review` chip, and `r` opens
+it on the focused lead. It opens by itself only once per ask, when you focus the lead itself on the Agent
+surface and are not typing in its terminal; never from another agent or another surface. `Esc` hides it and
+leaves the question open, and it closes once the lead picks up your answer.
+
 Push back when an option rests on something you know is wrong. On the backlog run the lead's first question
 recommended deleting four channel RPCs; the answer "delete them, but grep `scripts/` for callers first" made
 it find that `deletechannel` is the teardown of the CDP scenarios, and it came back with a narrower option.
@@ -407,8 +418,10 @@ with the reason, and the same plan can be submitted again.
 - **Fail:** the lead wakes with the findings. It revises the plan, puts any spec change to you, and runs
   `wsh jarvis dag submit` again. While no task has dispatched, a resubmit replaces the failed proposal and opens
   review round 2. A plan run started without a lead gets one launched by this wake.
-- **Round 2 fails:** the lead must put it to you. If you say to proceed anyway, it runs
-  `wsh jarvis dag planreview accept "<your reason>"`, and dispatch starts on the plan as it stands.
+- **Round 2 fails:** the lead must put it to you, as a **Plan review** ask: the plan's path and one line per
+  finding, which opens as the review dialog ([Answering the lead](#answering-the-lead)). If you say to proceed
+  anyway, it runs `wsh jarvis dag planreview accept "<your reason>"`, and dispatch starts on the plan as it
+  stands.
 
 A lead's resubmit replaces the plan, not your settings: the run's workers setting and reviewer route stay, a change
 you made in the run sheet before it included, and on Reviewer picks the next round's reviewer is asked for picks

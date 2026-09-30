@@ -16,6 +16,7 @@ import {
     updateCanvas,
 } from "@/app/view/agents/canvasstore";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
+import { docReviewAtom } from "@/app/view/agents/docreview";
 import { graphOnAtom, historyFiltersAtom, historyScrollAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
@@ -611,6 +612,43 @@ describe("leader reachability and the fullscreen chord", () => {
         expect(b.keys).toBe("F11");
         expect(b.when!(inTerm)).toBe(true);
         expect(b.when!({ ...inTerm, surface: "cockpit" })).toBe(false);
+    });
+});
+
+describe("agent:review", () => {
+    const reviewAsk = {
+        askId: "a1",
+        questions: [{ header: "Spec review", question: "/r/spec.md\n- one", options: [{ label: "Approve" }] }],
+    };
+    const plainAsk = { askId: "a2", questions: [{ header: "Flake fix", question: "Retry?", options: [] }] };
+    const modelFocusing = (id: string) =>
+        ({
+            focusIdAtom: atom<string>(id),
+            agentsAtom: atom([
+                { id: "lead", state: "asking", ask: reviewAsk },
+                { id: "worker", state: "asking", ask: plainAsk },
+            ]),
+        }) as any;
+    const review = (model: any) => buildAgentBindings(model).find((b) => b.id === "agent:review")!;
+
+    afterEach(() => globalStore.set(docReviewAtom, null));
+
+    it("is r on the Agent surface, off while typing", () => {
+        const b = review(modelFocusing("lead"));
+        expect(b.keys).toBe("r");
+        expect(b.when!(ctx("agent"))).toBe(true);
+        expect(b.when!({ ...ctx("agent"), editable: true })).toBe(false);
+        expect(b.when!(ctx("cockpit"))).toBe(false);
+    });
+
+    it("opens the focused agent's doc review", () => {
+        expect(review(modelFocusing("lead")).run(ctx("agent"))).not.toBe(false);
+        expect(globalStore.get(docReviewAtom)).toBe("lead");
+    });
+
+    it("lets the key pass when the focused agent's ask is not a doc review", () => {
+        expect(review(modelFocusing("worker")).run(ctx("agent"))).toBe(false);
+        expect(globalStore.get(docReviewAtom)).toBeNull();
     });
 });
 

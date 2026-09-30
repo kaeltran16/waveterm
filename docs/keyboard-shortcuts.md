@@ -99,6 +99,7 @@ row below expands into the same choices.
 | `j` / `k` (or `←` / `→`) | Previous / next agent |
 | `d` | Toggle the agent rail |
 | `f` | Toggle terminal fullscreen |
+| `r` | Review: open the focused lead's Spec review or Plan review dialog |
 | `Esc` | Back to Cockpit, or exit fullscreen first |
 | `Shift`+`Esc` | Return focus to the nav (from inside the terminal) |
 

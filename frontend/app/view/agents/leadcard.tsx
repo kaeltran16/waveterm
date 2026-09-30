@@ -5,7 +5,6 @@
 // review answered inside its row, and the run's controls. The rows come from leadcardmodel.ts; this renders
 // them and sends the actions.
 
-import { openFileInCode } from "@/app/cockpit/openfilestore";
 import { cardVariants, composerReveal } from "@/app/element/motiontokens";
 import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -30,7 +29,7 @@ import {
     type AgentEntry,
     type AgentVM,
 } from "./agentsviewmodel";
-import { AnswerBar } from "./answerbar";
+import { AnswerBar, DocReviewSummary } from "./answerbar";
 import { AttentionBanner } from "./attentioncard";
 import { diffStatsByIdAtom } from "./cardgitstore";
 import type { CardShare } from "./cardgridlayout";
@@ -54,7 +53,7 @@ import type { RunInfo } from "./runlineage";
 import { openRunDag } from "./runrailsections";
 import { SEG_FILL, type TaskStrip } from "./runstrip";
 import { SubLabel } from "./sectionlabel";
-import { parseSpecReview, type SpecReview } from "./specreview";
+import { parseDocReview } from "./docreview";
 import { StatusLine } from "./statusline";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 
@@ -150,7 +149,7 @@ export function LeadCard(p: LeadCardProps) {
     );
 
     const leadAsking = lead?.state === "asking";
-    const spec = leadAsking ? parseSpecReview(lead.ask) : null;
+    const review = leadAsking ? parseDocReview(lead.ask) : null;
     const question = lead?.ask?.questions?.[answerTab[lead.id] ?? 0]?.question;
     const parValue = par ?? run.dag?.parallelism ?? 1;
     const mark = leadMark(run, lead);
@@ -318,13 +317,12 @@ export function LeadCard(p: LeadCardProps) {
 
                     {leadAsking && lead ? (
                         <div onClick={(e) => e.stopPropagation()} className="mb-2 flex flex-col gap-2">
-                            {spec ? (
-                                <SpecReviewBlock
-                                    spec={spec}
-                                    onOpen={() => fireAndForget(() => openFileInCode(model, spec.path))}
-                                />
+                            {review ? (
+                                <DocReviewSummary agentId={lead.id} review={review} />
                             ) : question ? (
-                                <p className="m-0 text-[14px] font-semibold leading-[1.45] text-primary">{question}</p>
+                                <p className="m-0 whitespace-pre-line text-[14px] font-semibold leading-[1.45] text-primary">
+                                    {question}
+                                </p>
                             ) : null}
                             {answerBarFor(lead, "px-0 py-0")}
                         </div>
@@ -774,45 +772,6 @@ function Fold({
                 )}
             </div>
             {open ? children : null}
-        </>
-    );
-}
-
-function SpecReviewBlock({ spec, onOpen }: { spec: SpecReview; onOpen: () => void }) {
-    const file = spec.path.split(/[\\/]/).pop() ?? spec.path;
-    return (
-        <>
-            <p className="m-0 text-[14px] font-semibold leading-[1.45] text-primary">
-                Review the spec before I write the plan
-            </p>
-            <div className="flex items-center gap-2.5 rounded-[7px] border border-edge-mid bg-background px-2.5 py-2">
-                <div className="min-w-0 flex-1">
-                    <div className="truncate font-mono text-[12px] font-semibold text-primary">{file}</div>
-                    <div className="truncate font-mono text-[10.5px] text-muted">{spec.path}</div>
-                </div>
-                <button
-                    type="button"
-                    onClick={onOpen}
-                    className="inline-flex h-[25px] shrink-0 cursor-pointer items-center gap-[5px] rounded-[6px] border border-accent/45 bg-transparent px-2.5 text-[11.5px] font-semibold text-accent-soft hover:bg-accent/10"
-                >
-                    Open in Code
-                    <ArrowUpRight size={11} aria-hidden />
-                </button>
-            </div>
-            {spec.decisions.length > 0 ? (
-                <div className="flex flex-col gap-1">
-                    <SubLabel>Decisions in it</SubLabel>
-                    {spec.decisions.map((d, i) => (
-                        <div
-                            key={i}
-                            className="grid grid-cols-[10px_minmax(0,1fr)] text-[12.5px] leading-[1.45] text-secondary"
-                        >
-                            <span className="text-muted">·</span>
-                            <span>{d}</span>
-                        </div>
-                    ))}
-                </div>
-            ) : null}
         </>
     );
 }

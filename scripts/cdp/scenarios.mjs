@@ -6006,6 +6006,249 @@ const agentTreeQuickReturn = {
     async teardown() {},
 };
 
+// A lead's Spec review ask opens as the review dialog over whatever agent is focused (docs/superpowers/plans/
+// 2026-09-30-doc-review-dialog.md). Same setup as agent-tree-rail, with a roster of a working agent and a lead
+// asking a Spec review whose document the scenario writes. The working agent comes in through its Cockpit card, so
+// the Agent surface never defaults onto the lead and spends its one auto-open before step 4. Nothing is answered:
+// the fixture ask has no live block.
+const DOC_REVIEW_LEAD = "doc-review lead";
+const DOC_REVIEW_LEAD_ID = "fx-doc-lead";
+const DOC_REVIEW_WORKER = "doc-review worker";
+const DOC_REVIEW_WORKER_ID = "fx-doc-worker";
+const DOC_REVIEW_HEADING = "Doc review fixture spec";
+const DOC_REVIEW_DECISIONS = [
+    "The dialog opens over any focused agent",
+    "Esc hides it and the ask stays open",
+    "It auto-opens once on the lead",
+];
+const DOC_REVIEW_TAG_TITLE = "Open the spec review";
+const DOC_REVIEW_CHIP = "Spec review";
+const DOC_REVIEW_PANEL = `document.querySelector("[data-doc-review]")?.closest('[role="dialog"]')`;
+
+function docReviewRoster(runId, specPath) {
+    return [
+        {
+            id: DOC_REVIEW_WORKER_ID,
+            name: DOC_REVIEW_WORKER,
+            project: "waveterm",
+            task: "keep working",
+            state: "working",
+            agent: "claude",
+            model: "opus",
+            activeMs: 90_000,
+            blockId: "fx-blk-doc-worker",
+            // the Cockpit leaves an agent with nothing to show off its grid (cardHasContent)
+            previousInfo: [{ kind: "message", text: "Working through the fixture task." }],
+        },
+        {
+            id: DOC_REVIEW_LEAD_ID,
+            name: DOC_REVIEW_LEAD,
+            project: "waveterm",
+            task: "verify doc review",
+            state: "asking",
+            agent: "claude",
+            model: "opus",
+            blockedMs: 60_000,
+            runId,
+            blockId: "fx-blk-doc-lead",
+            ask: {
+                askId: `fx-doc-review-${Date.now()}`,
+                oref: "block:fx-blk-doc-lead",
+                questions: [
+                    {
+                        header: DOC_REVIEW_CHIP,
+                        question: [specPath, ...DOC_REVIEW_DECISIONS.map((d) => `- ${d}`)].join("\n"),
+                        options: [{ label: "Approve" }, { label: "Request changes" }],
+                    },
+                ],
+            },
+        },
+    ];
+}
+
+// the lead's row in the Agent tree, found by its name leaf as agent-tree-rail does
+const docReviewTreeRow = (name) => `(() => {
+    const tree = document.querySelector("[data-agent-tree]");
+    const leaf = tree && [...tree.querySelectorAll("div")].find(
+        (d) => d.textContent.trim() === ${JSON.stringify(name)} && d.children.length === 0
+    );
+    return leaf ? leaf.closest(".cursor-pointer") : null;
+})()`;
+
+// polls a boolean page expression; resolves to its last value
+const docReviewWait = (h, expr, ms = 5000) =>
+    h.ev(`(async () => {
+        const t0 = performance.now();
+        for (;;) {
+            const v = !!(${expr});
+            if (v || performance.now() - t0 > ${ms}) return v;
+            await new Promise((r) => setTimeout(r, 150));
+        }
+    })()`);
+
+// Escape where the user's focus is, so ModalShell's window listener sees it the way a keypress would reach it
+const docReviewEscape = (h) =>
+    h.ev(`(document.activeElement || document.body).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true })
+    )`);
+
+const docReviewHeaderNames = (h) =>
+    h.ev(`(() => {
+        const t = document.querySelector("[data-agent-header]")?.textContent ?? "";
+        return { worker: t.includes(${JSON.stringify(DOC_REVIEW_WORKER)}), lead: t.includes(${JSON.stringify(DOC_REVIEW_LEAD)}) };
+    })()`);
+
+// focus the lead through its tree row with nothing editable focused, so auto-open is allowed to fire
+const docReviewFocusRow = (h, name) =>
+    h.ev(`(() => {
+        document.activeElement?.blur?.();
+        document.querySelector("[data-cockpit-surface-wrap]")?.focus();
+        const row = ${docReviewTreeRow(name)};
+        if (!row) return false;
+        row.click();
+        return true;
+    })()`);
+
+const docReview = {
+    name: "doc-review",
+    surface: "cockpit",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-doc-review-"));
+        const ctx = { cwd };
+        try {
+            await arrangeFixtureRun(h, ctx, "doc-review", DOC_REVIEW_LEAD);
+            ctx.specPath = join(cwd, "doc-review-spec.md");
+            writeFileSync(
+                ctx.specPath,
+                `# ${DOC_REVIEW_HEADING}\n\nA small spec the doc-review scenario writes for the dialog to render.\n`
+            );
+            writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(docReviewRoster(ctx.runId, ctx.specPath), null, 2));
+            // the fixture roster is read once at boot
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+            await h.goto("cockpit");
+            ctx.rosterLoaded = await docReviewWait(
+                h,
+                `document.querySelector('[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"]')`,
+                15000
+            );
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const nap = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        const dialogOpen = () => h.ev(`!!${DOC_REVIEW_PANEL}`);
+        const dialogGone = (ms) => docReviewWait(h, `!${DOC_REVIEW_PANEL}`, ms);
+        if (ctx.arrangeError != null || !ctx.rosterLoaded) {
+            return [{ step: "0. the fixture roster loaded", ok: false, detail: ctx.arrangeError ?? "no worker card" }];
+        }
+
+        // the card's terminal button focuses the worker and switches to the Agent surface in one step
+        const opened = await h.ev(`(() => {
+            const b = document.querySelector(
+                '[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"] button[title="Open terminal (T)"]'
+            );
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        const tagged = await docReviewWait(
+            h,
+            `${docReviewTreeRow(DOC_REVIEW_LEAD)}?.querySelector('button[title="${DOC_REVIEW_TAG_TITLE}"]')`
+        );
+        await nap(500);
+        const names1 = await docReviewHeaderNames(h);
+        const anyDialog1 = await h.ev(`!!document.querySelector('[role="dialog"]')`);
+        rec(
+            "1. on the working agent: no dialog, and the lead's tree row has the review tag",
+            opened && names1.worker && !anyDialog1 && tagged,
+            JSON.stringify({ opened, header: names1, dialog: anyDialog1, tagged })
+        );
+
+        await h.ev(`${docReviewTreeRow(DOC_REVIEW_LEAD)}?.querySelector('button[title="${DOC_REVIEW_TAG_TITLE}"]')?.click()`);
+        const open2 = await docReviewWait(h, DOC_REVIEW_PANEL);
+        // the document is read over RPC, so its heading lands after the panel
+        await docReviewWait(h, `${DOC_REVIEW_PANEL}?.querySelector("h1")`);
+        const panel2 = await h.ev(`(() => {
+            const p = ${DOC_REVIEW_PANEL};
+            if (!p) return null;
+            return {
+                kind: p.querySelector("[data-doc-review]").getAttribute("data-doc-review"),
+                heading: p.querySelector("h1")?.textContent.trim() ?? null,
+                items: p.querySelectorAll("ol > li").length,
+            };
+        })()`);
+        const names2 = await docReviewHeaderNames(h);
+        await h.shot("cdp-shots/doc-review-dialog.png");
+        rec(
+            "2. the tag opens the dialog over the working agent: the spec on the left, 3 decisions on the right",
+            open2 &&
+                panel2?.kind === "spec" &&
+                panel2?.heading === DOC_REVIEW_HEADING &&
+                panel2?.items === DOC_REVIEW_DECISIONS.length &&
+                names2.worker &&
+                !names2.lead,
+            JSON.stringify({ panel: panel2, header: names2 })
+        );
+
+        await docReviewEscape(h);
+        const gone3 = await dialogGone(3000);
+        const names3 = await docReviewHeaderNames(h);
+        rec(
+            "3. Escape hides the dialog and leaves the working agent focused",
+            gone3 && names3.worker && !names3.lead,
+            JSON.stringify({ gone: gone3, header: names3 })
+        );
+
+        const clicked4 = await docReviewFocusRow(h, DOC_REVIEW_LEAD);
+        const auto4 = await docReviewWait(h, DOC_REVIEW_PANEL);
+        const names4 = await docReviewHeaderNames(h);
+        rec(
+            "4a. focusing the lead with nothing editable focused opens the dialog by itself",
+            clicked4 && auto4 && names4.lead,
+            JSON.stringify({ clicked: clicked4, open: auto4, header: names4 })
+        );
+
+        await docReviewEscape(h);
+        const gone4 = await dialogGone(3000);
+        await docReviewFocusRow(h, DOC_REVIEW_WORKER);
+        await nap(400);
+        await docReviewFocusRow(h, DOC_REVIEW_LEAD);
+        await nap(1200);
+        const reopened = await dialogOpen();
+        const names4b = await docReviewHeaderNames(h);
+        rec(
+            "4b. after Escape, refocusing the lead does not reopen it",
+            gone4 && !reopened && names4b.lead,
+            JSON.stringify({ gone: gone4, reopened, header: names4b })
+        );
+
+        const chipped = await h.ev(`(() => {
+            const b = [...(document.querySelector("[data-agent-header]")?.querySelectorAll("button") ?? [])]
+                .find((x) => x.textContent.trim() === ${JSON.stringify(DOC_REVIEW_CHIP)});
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        const open4 = await docReviewWait(h, DOC_REVIEW_PANEL);
+        rec("4c. the header chip reopens it", chipped && open4, JSON.stringify({ chip: chipped, open: open4 }));
+        await docReviewEscape(h);
+        await dialogGone(3000);
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "doc-review");
+    },
+};
+
 // The Cockpit on the brief type scale (docs/superpowers/specs/2026-09-29-cockpit-polish-design.md): nothing under
 // 10.5px, and the lead card leads with the Workflow icon. Same setup as agent-tree-rail: a fixture roster whose lead
 // carries a real orchestrator run held in planning. No dagsubmit (see TREE_RAIL_FIXTURE), so the card has no plan
@@ -7585,6 +7828,7 @@ export const SCENARIOS = [
     narrationFeed,
     agentTreeRail,
     agentTreeQuickReturn,
+    docReview,
     cockpitPolish,
     runSheetPolish,
     dagObservability,

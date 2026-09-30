@@ -22,6 +22,7 @@ import { compareOnAtom, compareSelectionAtom, leaveCompare, swapCompareRefs } fr
 import { historyCollapsedAtom } from "@/app/view/agents/difflayout";
 import { gotoChange } from "@/app/view/agents/diffnav";
 import { ignoreWsAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
+import { docReviewAtom, parseDocReview } from "@/app/view/agents/docreview";
 import { filesStateAtom, reloadChanges } from "@/app/view/agents/filesstore";
 import {
     clearHistoryFilters,
@@ -761,6 +762,11 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         globalStore.set(model.focusIdAtom, moveCursor(order, fid, delta) ?? fid);
         globalStore.set(model.focusReplyAtom, false);
     };
+    const reviewableId = (): string | null => {
+        const id = globalStore.get(model.focusIdAtom);
+        const agent = globalStore.get(model.agentsAtom).find((a) => a.id === id);
+        return agent != null && parseDocReview(agent.ask) != null ? agent.id : null;
+    };
     // canvas mode hides the rail, the terminal and the other agents, so their keys stand down there
     const noCanvas = () => focusedCanvasMode(model) == null;
     const nav = (ctx: KeyContext) => agentNav(ctx) && noCanvas();
@@ -837,6 +843,24 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             label: "Toggle terminal fullscreen",
             when: nav,
             run: () => globalStore.set(terminalFullscreenAtom, !globalStore.get(terminalFullscreenAtom)),
+        },
+        {
+            id: "agent:review",
+            keys: "r",
+            group: "Agent",
+            label: "Review",
+            // the focused agent lives in model atoms, which a when() cannot read (whenstate.ts watches
+            // module atoms only), so run() checks it and lets the key pass when there is nothing to review.
+            // Hidden from the palette for the same reason: its row would be dead on most agents.
+            paletteHidden: true,
+            when: agentNav,
+            run: () => {
+                const id = reviewableId();
+                if (id == null) {
+                    return false;
+                }
+                globalStore.set(docReviewAtom, id);
+            },
         },
         {
             // The leader letter `f` is taken by the Diff surface (GO_TARGETS), so fullscreen needs a
