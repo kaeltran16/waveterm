@@ -29,19 +29,13 @@ describe("briefRestorePlan", () => {
         expect(briefRestorePlan({ kind: "dossier", id: "gone" }, LOADED)).toEqual({ action: "clear" });
     });
 
-    // B5 gave the channel somewhere to land, so a stored channel is now decided like every other kind:
-    // it waits on the channel list the way a dossier waits on the dossier list.
-    it("sends a stored channel to its own sheet", () => {
-        expect(briefRestorePlan({ kind: "channel", id: "c1" }, LOADED)).toEqual({ action: "channel", id: "c1" });
+    it("forgets a stored channel rather than reopening its sheet", () => {
+        expect(briefRestorePlan({ kind: "channel", id: "c1" }, LOADED)).toEqual({ action: "clear" });
     });
 
-    it("waits on the channel list before deciding a stored channel", () => {
+    it("forgets a stored channel without waiting on the channel list", () => {
         expect(briefRestorePlan({ kind: "channel", id: "c1" }, { ...LOADED, channels: null })).toEqual({
-            action: "wait",
+            action: "clear",
         });
-    });
-
-    it("clears a stored channel the loaded list no longer holds", () => {
-        expect(briefRestorePlan({ kind: "channel", id: "gone" }, LOADED)).toEqual({ action: "clear" });
     });
 });

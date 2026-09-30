@@ -552,8 +552,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         });
     }, [pendingDraft, channels, setPendingDraft]);
 
-    // Boot restore, Brief edition. A subject stored by the three-pane composition has no Stage to land on
-    // here, so it lands on the record peek or a channel's sheet instead (briefrestore.ts). One-shot: this
+    // Boot restore, Brief edition. A stored record lands on the record peek; a stored channel is forgotten
+    // (briefrestore.ts). One-shot: this
     // surface unmounts on every nav switch, and a restore that re-ran would re-open a peek the user had closed.
     const storedSubject = useAtomValue(persistedSubjectAtom);
     const dossiers = useAtomValue(taskListAtom);
@@ -564,8 +564,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             return;
         }
         const plan = briefRestorePlan(storedSubject, {
-            // channels included: a stored channel now lands on its own sheet, so the restore has to be able
-            // to tell "that channel is gone" from "the list has not arrived"
             channels: channels?.map((c) => c.oid) ?? null,
             dossiers: dossiers?.map((d) => d.id) ?? null,
         });
@@ -575,10 +573,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         consumeRestore(true);
         if (plan.action === "record") {
             globalStore.set(briefPeekRecordAtom, plan.id);
-            return;
-        }
-        if (plan.action === "channel") {
-            void openChannelSheet(plan.id, null);
             return;
         }
         globalStore.set(persistedSubjectAtom, null);

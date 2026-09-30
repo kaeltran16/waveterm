@@ -4293,8 +4293,8 @@ const briefComposerSteerOnly = {
 };
 
 // --- brief-restore: the stored subject, landed three different ways -------------------------------
-// What the same stored value means now (briefrestore.ts): a dossier opens the record peek, a channel opens
-// its own sheet, and a conversation left over from before Ask was retired is cleared. Each case needs its
+// What the same stored value means now (briefrestore.ts): a dossier opens the record peek, while a channel
+// and a conversation left over from before Ask was retired are cleared. Each case needs its
 // own reload, because the restore is once per frontend load by design.
 const briefRestore = {
     name: "brief-restore",
@@ -4370,13 +4370,13 @@ const briefRestore = {
             JSON.stringify(cleared)
         );
 
-        // 3. the channel opens its OWN sheet: B5 gave a stored channel a destination, so it is now decided
-        //    like every other kind — the id still existing is exactly what decides it.
+        // 3. a stored channel is forgotten: reopening its sheet on launch covered the Brief with a run that
+        //    had usually ended days ago. A live channel is the case that proves it, not a deleted one.
         const chans = await h.rpc("getchannels", null);
         const channel = (chans?.channels ?? [])[0];
         if (channel == null) {
             rec(
-                "3. a stored channel restores onto its sheet",
+                "3. a stored channel is cleared, its sheet left closed",
                 false,
                 "no channel in this profile — seed one before reading this as a pass"
             );
@@ -4386,17 +4386,14 @@ const briefRestore = {
                 stored: localStorage.getItem('jarvis.subject.last'),
                 brief: !!document.querySelector('[data-jarvis-region="brief"]'),
                 peek: !!document.querySelector('[data-jarvis-brief-band="peek"]'),
-                sheet: !!document.querySelector('[data-jarvis-brief-sheet="channel"]'),
+                sheet: !!document.querySelector('[data-jarvis-brief-sheet]'),
             }))()`);
-            let stored = null;
-            try {
-                stored = JSON.parse(after.stored ?? "null");
-            } catch {
-                stored = null;
-            }
             rec(
-                "3. a stored channel restores onto its own sheet",
-                after.brief === true && after.sheet === true && after.peek === false && stored?.kind === "channel",
+                "3. a stored channel is cleared, its sheet left closed",
+                after.brief === true &&
+                    after.sheet === false &&
+                    after.peek === false &&
+                    (after.stored == null || after.stored === "null"),
                 JSON.stringify({ channel: channel.oid, ...after })
             );
         }
@@ -4936,8 +4933,8 @@ const jarvisMotion = {
 
         // 1. ModalShell variant="sheet" is `absolute z-20`, not the dialog's `fixed z-[70]` — that is
         //    what keeps a detail sheet scoped to the Brief and the nav rail reachable underneath it.
-        //    Driven through the boot restore because no fixture state carries a queue `nav`, so no
-        //    fixture row is a button that opens anything; this is the same driver brief-restore uses.
+        //    Driven through the router because no fixture state carries a queue `nav`, so no fixture
+        //    row is a button that opens anything.
         const chans = await h.rpc("getchannels", null);
         const channel = (chans?.channels ?? [])[0];
         if (channel == null) {
@@ -4947,11 +4944,12 @@ const jarvisMotion = {
                 "no channel in this profile — seed one before reading this as a pass"
             );
         } else {
-            const stored = JSON.stringify(JSON.stringify({ kind: "channel", id: channel.oid }));
-            await h.ev(`localStorage.setItem('jarvis.subject.last', ${stored})`);
-            await h.ev("location.reload()");
-            await settle(2800);
-            await h.goto("jarvis");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 20 && typeof window.__openAddress !== "function"; i++) {
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                return window.__openAddress?.(${JSON.stringify(`channel:${channel.oid}`)});
+            })()`);
             await settle(1200);
             const scoped = await h.ev(`(() => {
                 const sheet = document.querySelector('[data-jarvis-brief-sheet]');
