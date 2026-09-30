@@ -10,7 +10,7 @@ export type TimelineFilter = "all" | "task" | "attention";
 
 export type TimelineLayout = "rail" | "drawer";
 
-// TIMELINE_RAIL_MIN_PX: the DAG modal is at most 1200px wide and the rail takes 300 of it. Below this
+// TIMELINE_RAIL_MIN_PX: the DAG modal fills the window and the rail takes 300px of it. Below this
 // the graph loses more room than a permanently-visible history is worth, so history collapses into a
 // drawer and the live work keeps the space (spec 6.4).
 export const TIMELINE_RAIL_MIN_PX = 1100;

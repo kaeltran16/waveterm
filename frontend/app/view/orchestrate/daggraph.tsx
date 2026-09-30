@@ -342,7 +342,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
         ? (built.find((n) => n.id === selectedTask.id)?.data as unknown as DagCardData | undefined)?.view
         : undefined;
     return (
-        <div className="relative flex h-full min-h-0 w-full flex-col bg-background">
+        <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col bg-background">
             <DagGraphHeader group={group} owner={owner} />
             <div className="flex flex-none items-center gap-[18px] border-b border-border bg-surface px-4 py-1.5 font-mono text-[10.5px] text-ink-mid">
                 <span>
