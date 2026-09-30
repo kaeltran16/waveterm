@@ -50,7 +50,8 @@ Regenerate with `task generate`. The reveal help text lists `canvas:<topic>[/<bo
 
 `landCanvas(model, target, caller)`:
 
-1. **With a caller:** the agent is the roster entry whose `blockId` equals the caller's block id.
+1. **With a caller:** the agent is the roster entry (agents and background terminals, as the
+   agent landing reads it) whose `blockId` equals the caller's block id.
    None: unavailable, "Run wsh ui reveal canvas:<topic> from the agent's terminal". The canvas dir
    is `join(caller.cwd, ".superpowers/design", topic)`. If `<dir>/project` doesn't exist
    (`FileInfoCommand`, not-found): unavailable, "No canvas at <dir>/project".
@@ -91,7 +92,7 @@ mounted and the focused agent has a canvas, every 3 s (`CANVAS_POLL_MS`):
 
 1. `FileInfoCommand(<dir>/project)`: not-found → `status: "removed"`, stop.
 2. With no port, or after a failed request: probe ports `8766 … 8785` (`CANVAS_PORT_FIRST`,
-   `CANVAS_PORT_COUNT = 20`) with `GET /<topic>/project/Main.dc.html`. The first `200` is the
+   `CANVAS_PORT_COUNT = 20`) with `HEAD /<topic>/project/Main.dc.html`. The first `200` is the
    port. None → `status: "server-down"`.
 3. `GET /<topic>/project/canvas.json` → `boards` (the model below), then `HEAD` each board →
    `lastModifiedMs` = newest `Last-Modified`. If the shown board's own `Last-Modified` moved while
@@ -204,7 +205,7 @@ New in `buildAgentBindings`; `canvasOf(focused agent)` reads the atom:
 | `agent:canvas-send` | `Ctrl:Enter` | surface `agent`, `!modalOpen`, marking, ≥ 1 mark (live in a note input on purpose) |
 
 No terminal chord for `c`, as decided. `surface:next` / `surface:prev` (`[` `]`) get
-`&& !canvasModeOnAgentSurface()`, so the board keys can fire. While in canvas mode, the bindings
+`&& focusedCanvasMode(model) == null` on the Agent surface, so the board keys can fire. While in canvas mode, the bindings
 whose targets are hidden are gated off: `agent:prev/next/prev-k/next-j`, `agent:toggle-rail`,
 `agent:fullscreen`, `agent:fullscreen-chord`, `agent:back`, and `cycle-agent-next/prev`. The
 footer then matches the mockup exactly (Main.dc.html `hints`).
@@ -270,7 +271,8 @@ state.
   run has none, and it holds across a plan-review resubmit.
 - Rust: `start_canvas_server` validation; a `capture_webview` test is not practical headless.
 - CDP `verify:ui` scenario `canvas-swap`: it writes a fixture canvas (`canvas.json` + a trivial
-  `Main.dc.html`) under a temp dir and sends `uireveal` for the first live agent with a block id.
+  `Main.dc.html`) under a temp dir, opens a plain terminal tab in the (isolated, agent-less) app,
+  waits for it in the roster, and sends `uireveal` with that terminal's block id.
   It asserts: the tree hides, the swap control shows, and `c` returns to the terminal with the same
-  xterm element (same DOM node). It then deletes the fixture and asserts the removed state. With no
-  live agent it reports it could not verify.
+  xterm element (same DOM node). It then deletes the fixture and asserts the removed state. It
+  reports it could not verify only if the terminal launch fails.
