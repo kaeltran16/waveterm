@@ -12,9 +12,10 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { loadAttention } from "@/app/view/agents/attentionstore";
-import { openAddress } from "./openref";
+import { openAddress, openOrPeekAddress, type OpenGesture } from "./openref";
+import { closePeek } from "./peekstore";
 import type { PetAct } from "./petacts";
-import { petErrandAtom, petPeekOpenAtom, setActState } from "./petstore";
+import { petErrandAtom, setActState } from "./petstore";
 
 // The same budget the Channels surface gives a consult (CONSULT_RPC_TIMEOUT_MS in channelactions.ts): the
 // backend's consultTimeout is 120s and the rpc layer's 5s default would kill the stream long before a reply
@@ -27,16 +28,25 @@ function errText(e: unknown): string {
 
 // An escort closes the peek only once the landing succeeds: an overlay anchored to the creature, left open over
 // a surface it just navigated away from, is stranded — but a landing that cannot open leaves the user where
-// they were, and its failure is set on the act, which only an open peek shows.
-async function escort(model: AgentsViewModel, act: Extract<PetAct, { verb: "open" }>): Promise<void> {
+// they were, and its failure is set on the act, which only an open peek shows. A Ctrl+click peeks instead, into
+// this same popup, so the popup stays and a failed load is the peek's own toast.
+async function escort(
+    model: AgentsViewModel,
+    act: Extract<PetAct, { verb: "open" }>,
+    gesture?: OpenGesture
+): Promise<void> {
     const target = act.target;
+    if (gesture?.ctrlKey) {
+        await openOrPeekAddress(model, target.ref, gesture, { anchor: target.anchor });
+        return;
+    }
     const result = await openAddress(model, target.ref, { anchor: target.anchor }, (r) => {
         if ("reason" in r) {
             setActState(act.id, { status: "error", text: r.message });
         }
     });
     if (result.ok) {
-        globalStore.set(petPeekOpenAtom, false);
+        closePeek();
     }
 }
 
@@ -53,17 +63,18 @@ async function ack(act: Extract<PetAct, { verb: "ack" }>): Promise<void> {
     }
 }
 
-export async function runAct(model: AgentsViewModel, act: PetAct): Promise<void> {
+export async function runAct(model: AgentsViewModel, act: PetAct, gesture?: OpenGesture): Promise<void> {
     if (act.verb === "ack") {
         await ack(act);
         return;
     }
-    await escort(model, act);
+    await escort(model, act, gesture);
 }
 
-// only an escort leaves the peek; the caller drops focus-return for it and nothing else
-export function actNavigates(act: PetAct): boolean {
-    return act.verb === "open";
+// only an escort leaves the peek, and not when Ctrl turns it into a peek; the caller drops focus-return for it
+// and nothing else
+export function actNavigates(act: PetAct, gesture?: { ctrlKey: boolean }): boolean {
+    return act.verb === "open" && !gesture?.ctrlKey;
 }
 
 // The errand reuses the Channels surface's consult path exactly (channelactions.ts): post the question as a

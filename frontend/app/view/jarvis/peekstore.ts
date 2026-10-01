@@ -6,6 +6,7 @@
 // destination's selection, which is the point of a peek.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import type { ActiveFocus } from "@/app/view/agents/focusstore";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { OpenTarget } from "./address";
 import { petPeekOpenAtom } from "./petstore";
@@ -17,6 +18,41 @@ export type PeekTarget = Exclude<OpenTarget, { kind: "channel" } | { kind: "canv
 export type PeekItem = { target: PeekTarget; status: "loading" | "ready"; from: "closed" | "hub" };
 
 export const peekItemAtom = atom<PeekItem | null>(null) as PrimitiveAtom<PeekItem | null>;
+
+// What only the item's body knows: whether the target is still there, and what focusing it would set. The body
+// reports them; the item view's buttons read them. null until the body has said.
+export type PeekFacts = { gone: boolean; focus: ActiveFocus | null };
+
+export const peekFactsAtom = atom<PeekFacts | null>(null) as PrimitiveAtom<PeekFacts | null>;
+
+// Every field, so two peeks at one record with different anchors are different items.
+export function peekTargetKey(target: PeekTarget | null | undefined): string {
+    if (target == null) {
+        return "";
+    }
+    return Object.keys(target)
+        .sort()
+        .map((k) => `${k}=${(target as Record<string, unknown>)[k] ?? ""}`)
+        .join("&");
+}
+
+// a body still mounted on the item it replaced must not speak for the new one
+export function reportPeekFacts(target: PeekTarget, facts: PeekFacts): void {
+    if (peekTargetKey(globalStore.get(peekItemAtom)?.target) !== peekTargetKey(target)) {
+        return;
+    }
+    globalStore.set(peekFactsAtom, facts);
+}
+
+// subscribed rather than reset in each setter, so an item set from anywhere drops the facts of the one before
+let factsKey = "";
+globalStore.sub(peekItemAtom, () => {
+    const key = peekTargetKey(globalStore.get(peekItemAtom)?.target);
+    if (key !== factsKey) {
+        factsKey = key;
+        globalStore.set(peekFactsAtom, null);
+    }
+});
 
 type PeekBase = { item: PeekItem | null; open: boolean };
 

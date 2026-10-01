@@ -38,7 +38,7 @@ export type ReportOpen = (result: OpenResult) => void;
 type Loaded<T = undefined> = { ok: true; facts: T; notice?: string } | OpenFailure;
 
 // the click (or key) that asked; Ctrl turns an open into a peek
-type OpenGesture = { ctrlKey: boolean; preventDefault(): void; stopPropagation(): void };
+export type OpenGesture = { ctrlKey: boolean; preventDefault(): void; stopPropagation(): void };
 
 type ChannelTarget = Extract<OpenTarget, { kind: "channel" }>;
 type RecordTarget = Extract<OpenTarget, { kind: "record" }>;

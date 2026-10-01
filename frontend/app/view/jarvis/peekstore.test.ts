@@ -7,9 +7,12 @@ import {
     backToHub,
     clearLoadingPeek,
     closePeek,
+    peekFactsAtom,
     peekItemAtom,
+    reportPeekFacts,
     settlePeek,
     startPeek,
+    type PeekFacts,
     type PeekItem,
 } from "./peekstore";
 import { petPeekOpenAtom } from "./petstore";
@@ -101,5 +104,44 @@ describe("a peek's lifecycle", () => {
         startPeek(AGENT);
         settlePeek(first);
         expect(globalStore.get(peekItemAtom)).toEqual({ target: AGENT, status: "loading", from: "closed" });
+    });
+});
+
+describe("the facts a body reports", () => {
+    const FACTS: PeekFacts = { gone: false, focus: { ref: { kind: "run", id: "r1" }, label: "Ship", project: "arc" } };
+
+    it("are kept for the current item, through its settle", () => {
+        const item = startPeek(RUN);
+        settlePeek(item);
+        reportPeekFacts({ kind: "run", runId: "r1" }, FACTS);
+        expect(globalStore.get(peekFactsAtom)).toEqual(FACTS);
+        settlePeek(item);
+        expect(globalStore.get(peekFactsAtom)).toEqual(FACTS);
+    });
+
+    it("from a stale target are ignored", () => {
+        settlePeek(startPeek(RUN));
+        reportPeekFacts(AGENT, { gone: true, focus: null });
+        expect(globalStore.get(peekFactsAtom)).toBeNull();
+        reportPeekFacts({ kind: "record", dossierId: "d1" }, { gone: true, focus: null });
+        closePeek();
+        reportPeekFacts(RUN, FACTS);
+        expect(globalStore.get(peekFactsAtom)).toBeNull();
+    });
+
+    it("reset when the item changes target, however it is set", () => {
+        settlePeek(startPeek(RUN));
+        reportPeekFacts(RUN, FACTS);
+        startPeek(AGENT);
+        expect(globalStore.get(peekFactsAtom)).toBeNull();
+        reportPeekFacts(AGENT, FACTS);
+        globalStore.set(peekItemAtom, { target: RUN, status: "ready", from: "hub" });
+        expect(globalStore.get(peekFactsAtom)).toBeNull();
+    });
+
+    it("a record anchor is part of the target", () => {
+        globalStore.set(peekItemAtom, { target: { kind: "record", dossierId: "d1" }, status: "ready", from: "hub" });
+        reportPeekFacts({ kind: "record", dossierId: "d1", anchor: "a" }, FACTS);
+        expect(globalStore.get(peekFactsAtom)).toBeNull();
     });
 });

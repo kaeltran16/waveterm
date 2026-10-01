@@ -1,8 +1,8 @@
+import { focusForRecord } from "@/app/view/agents/focusfor";
 import { enterFocusFor } from "@/app/view/agents/focusstore";
 import { statusPickerRows } from "@/app/view/jarvis/briefpeek";
 import { openAddress } from "@/app/view/jarvis/openref";
 import { confirmDossierStatus } from "@/app/view/jarvis/recordactions";
-import { isFocusTarget } from "@/app/view/jarvis/tasksderive";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { fireAndForget } from "@/util/util";
 import type { ThingKindDef } from "./types";
@@ -47,10 +47,8 @@ export const RECORD_KIND: ThingKindDef<RecordThing> = {
             id: "record:focus",
             label: "Focus on it",
             group: "steer",
-            applies: (r) => isFocusTarget(r.status),
-            // a record summary carries no project, so the project filter is left alone
-            run: (r, { model }) =>
-                enterFocusFor(model, { ref: { kind: "task", id: r.id }, label: r.objective, project: "" }),
+            applies: (r) => focusForRecord(r) != null,
+            run: (r, { model }) => enterFocusFor(model, focusForRecord(r)),
         },
     ],
     entries: (get) =>

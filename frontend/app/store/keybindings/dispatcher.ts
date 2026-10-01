@@ -6,6 +6,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { docReviewAtom } from "@/app/view/agents/docreview";
+import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import * as keyutil from "@/util/keyutil";
 import { CHORD_TIMEOUT } from "@/util/sharedconst";
@@ -81,6 +82,9 @@ export function deriveKeyContext(): KeyContext {
         // outlives a switch away, since opening a worker from the graph lands on the Agent surface.
         (surface === "jarvis" && globalStore.get(dagModalStateAtom) != null) ||
         globalStore.get(docReviewAtom) != null ||
+        // the avatar popup is window chrome over any surface, and its own keys (Enter, f, Space, Escape) are
+        // surface keys too; uncounted, the Agent surface's f toggled fullscreen under an open item
+        globalStore.get(petPeekOpenAtom) ||
         globalStore.get(modalsModel.modalsAtom).length > 0;
     return {
         surface,

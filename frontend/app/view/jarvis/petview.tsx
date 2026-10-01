@@ -22,6 +22,7 @@ import { useEffect, useRef, useState } from "react";
 import { drawSceneToCanvas, resolveTone } from "./avatarcanvas";
 import { approachMood, buildAvatarScene, settledMood, type AvatarScene, type RenderMood } from "./avatarscene";
 import type { AvatarThree } from "./avatarthree";
+import { closePeek } from "./peekstore";
 import { PetBubble } from "./petbubble";
 import { expressionFor, postureFor, type PetSignals } from "./petcondition";
 import {
@@ -397,7 +398,7 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                         return;
                     }
                     if (peekOpen) {
-                        globalStore.set(petPeekOpenAtom, false);
+                        closePeek();
                         return;
                     }
                     openPeek();

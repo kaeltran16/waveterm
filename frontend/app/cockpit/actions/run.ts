@@ -10,6 +10,7 @@ import { diffScopeOfRun, openDiff } from "@/app/view/agents/agentdiffnav";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { steerWorker } from "@/app/view/agents/channelactions";
 import { jumpToAgent } from "@/app/view/agents/channelsprimitives";
+import { focusForRun } from "@/app/view/agents/focusfor";
 import { enterFocusFor } from "@/app/view/agents/focusstore";
 import { runRows, type FocusRowVM } from "@/app/view/agents/focusswitchermodel";
 import { setRunParallelism } from "@/app/view/agents/leadcardactions";
@@ -178,12 +179,7 @@ const RUN_ACTIONS: ThingAction<RunThing>[] = [
         label: "Focus the cockpit on it",
         group: "steer",
         applies: (t) => t.focus != null,
-        run: (t, { model }) =>
-            enterFocusFor(model, {
-                ref: { kind: "run", id: t.run.id },
-                label: t.focus.label,
-                project: t.focus.project,
-            }),
+        run: (t, { model }) => enterFocusFor(model, focusForRun(t.focus)),
     },
     {
         id: "run:resume",

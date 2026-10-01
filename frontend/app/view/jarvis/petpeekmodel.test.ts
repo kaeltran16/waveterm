@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
     dedupeUpdates,
     enterHintLabel,
+    eventPeekTarget,
     peekActForCommand,
     peekConditions,
     peekKeyCommand,
     queueRows,
     rowKindLabel,
+    rowPeekTarget,
 } from "./petpeekmodel";
 import type { PetEvent } from "./petvoice";
 
@@ -161,6 +163,7 @@ describe("peekKeyCommand", () => {
         expect(peekKeyCommand("k")).toBe("previous");
         expect(peekKeyCommand("ArrowUp")).toBe("previous");
         expect(peekKeyCommand("Enter")).toBe("open");
+        expect(peekKeyCommand(" ")).toBe("peek");
     });
 
     it("maps panel controls", () => {
@@ -246,5 +249,37 @@ describe("rowKindLabel — a row names its kind in a word", () => {
             "Blocked",
             "Question",
         ]);
+    });
+});
+
+describe("what the hub peeks", () => {
+    it("an update peeks its first source", () => {
+        const event = {
+            sources: [
+                { ref: "task:d1", anchor: "dec-2", title: "the record", sourceType: "dossier" },
+                { ref: "run:r1", title: "the run", sourceType: "run" },
+            ],
+        };
+        expect(eventPeekTarget(event)).toEqual({ kind: "oref", ref: "task:d1", anchor: "dec-2" });
+    });
+
+    it("an update with no source is not peekable", () => {
+        expect(eventPeekTarget({})).toBeNull();
+        expect(eventPeekTarget({ sources: [] })).toBeNull();
+        expect(eventPeekTarget(undefined)).toBeNull();
+    });
+
+    it("a queue row peeks where its escort lands, past an in-place ack", () => {
+        const [unverified] = queueRows([item({ kind: "run-unverified", key: "run-unverified:x" })]);
+        expect(unverified.primary?.verb).toBe("ack");
+        expect(rowPeekTarget(unverified)).toEqual({ kind: "oref", ref: `run:${RUN}` });
+        const [gate] = queueRows([item({ kind: "gate", key: "gate:x" })]);
+        expect(rowPeekTarget(gate)).toEqual({ kind: "oref", ref: `run:${RUN}` });
+    });
+
+    it("a row with nothing behind it is not peekable", () => {
+        const [bare] = queueRows([item({ kind: "gate", key: "gate:x", runid: "" })]);
+        expect(rowPeekTarget(bare)).toBeNull();
+        expect(rowPeekTarget(undefined)).toBeNull();
     });
 });

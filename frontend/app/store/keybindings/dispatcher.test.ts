@@ -5,6 +5,7 @@ import { registerModal } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel, SurfaceKey } from "@/app/view/agents/agents";
 import { docReviewAtom } from "@/app/view/agents/docreview";
+import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import { atom } from "jotai";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -78,6 +79,7 @@ describe("deriveKeyContext", () => {
     afterEach(() => {
         globalStore.set(dagModalStateAtom, null);
         globalStore.set(docReviewAtom, null);
+        globalStore.set(petPeekOpenAtom, false);
         vi.unstubAllGlobals();
     });
 
@@ -142,6 +144,15 @@ describe("deriveKeyContext", () => {
         const unbind = initKeybindingDispatcher(model);
         expect(deriveKeyContext().modalOpen).toBe(false);
         globalStore.set(model.newInitiativeOpenAtom, true);
+        expect(deriveKeyContext().modalOpen).toBe(true);
+        unbind();
+    });
+
+    // the avatar popup's item view takes f, Enter and Backspace, which the Agent surface binds too
+    it("counts the avatar popup as a modal on every surface", () => {
+        const unbind = bindModel("agent");
+        expect(deriveKeyContext().modalOpen).toBe(false);
+        globalStore.set(petPeekOpenAtom, true);
         expect(deriveKeyContext().modalOpen).toBe(true);
         unbind();
     });

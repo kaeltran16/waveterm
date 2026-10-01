@@ -32,10 +32,15 @@ import {
     useRef,
     useState,
     type KeyboardEvent,
+    type MouseEvent,
     type ReactNode,
 } from "react";
+import { peekAddress } from "./openref";
+import { PeekItemView, runItemCommand, type ItemChrome } from "./peekitem";
+import { itemHints, itemKeyCommand } from "./peekitemmodel";
+import { backToHub, closePeek, peekFactsAtom, peekItemAtom, peekTargetKey } from "./peekstore";
 import { actNavigates, runAct } from "./petactrun";
-import { actsForEvent, type PetAct } from "./petacts";
+import { actsForEvent, type PetAct, type PetTarget } from "./petacts";
 import { EventLabel, eventTone } from "./petbubble";
 import { conditionLine, type PetExpression, type PetSignals } from "./petcondition";
 import { PetErrand } from "./peterrand";
@@ -43,11 +48,13 @@ import { resolveDestination } from "./peterrandmodel";
 import {
     dedupeUpdates,
     enterHintLabel,
+    eventPeekTarget,
     peekActForCommand,
     peekConditions,
     peekKeyCommand,
     queueRows,
     rowKindLabel,
+    rowPeekTarget,
     type PeekRow,
 } from "./petpeekmodel";
 import { petActStateAtom, petPeekDestAtom, petPeekOpenAtom, petSaidAtom, type PetCorner } from "./petstore";
@@ -150,14 +157,15 @@ function ActButton({
         <button
             type="button"
             data-pet-act={act.id}
+            data-peek={act.verb === "open" ? "" : undefined}
             disabled={running}
             aria-busy={running || undefined}
-            onClick={() => {
+            onClick={(event) => {
                 // an escort navigates, so the peek would cover the destination it just sent you to
-                if (actNavigates(act)) {
+                if (actNavigates(act, event)) {
                     onLeave();
                 }
-                fireAndForget(() => runAct(model, act));
+                fireAndForget(() => runAct(model, act, event));
             }}
             // only the cursor row's act is filled, so one button in the queue reads as "Enter does this"
             className={cn(
@@ -209,9 +217,12 @@ function ActLinks({ model, acts, onLeave }: { model: AgentsViewModel; acts: PetA
                     key={act.id}
                     type="button"
                     data-pet-act={act.id}
-                    onClick={() => {
-                        onLeave();
-                        fireAndForget(() => runAct(model, act));
+                    data-peek={act.verb === "open" ? "" : undefined}
+                    onClick={(event) => {
+                        if (actNavigates(act, event)) {
+                            onLeave();
+                        }
+                        fireAndForget(() => runAct(model, act, event));
                     }}
                     className={cn(
                         "whitespace-nowrap text-[11px] font-semibold text-accent-soft hover:text-accenthover hover:underline",
@@ -295,20 +306,44 @@ function EventMeta({ event, now, className }: { event: PetEvent; now: number; cl
     );
 }
 
+// A click on an update peeks what it is about. Its own controls (the Open links, Show all) keep their meaning,
+// so a click that lands on one of them is theirs, not the row's.
+function peekOnClick(target: PetTarget | null, onPeek: (target: PetTarget) => void) {
+    if (target == null) {
+        return undefined;
+    }
+    return (event: MouseEvent<HTMLDivElement>) => {
+        if ((event.target as HTMLElement).closest("button, a") != null) {
+            return;
+        }
+        onPeek(target);
+    };
+}
+
 function UpdateRow({
     model,
     event,
     now,
     onLeave,
+    onPeek,
 }: {
     model: AgentsViewModel;
     event: PetEvent;
     now: number;
     onLeave: () => void;
+    onPeek: (target: PetTarget) => void;
 }) {
     const acts = actsForEvent(event);
+    const onClick = peekOnClick(eventPeekTarget(event), onPeek);
     return (
-        <div className="border-b border-border px-3.5 pb-2.5 pt-2 last:border-b-0">
+        <div
+            data-pet-update-peekable={onClick != null ? "true" : undefined}
+            onClick={onClick}
+            className={cn(
+                "border-b border-border px-3.5 pb-2.5 pt-2 last:border-b-0",
+                onClick != null && "cursor-pointer hover:bg-surface-hover"
+            )}
+        >
             <div className="text-[11.5px] leading-[1.45] text-secondary [overflow-wrap:anywhere]">
                 <InlineMarkdown text={event.text} />
             </div>
@@ -333,15 +368,22 @@ function LatestUpdate({
     event,
     now,
     onLeave,
+    onPeek,
 }: {
     model: AgentsViewModel;
     event: PetEvent;
     now: number;
     onLeave: () => void;
+    onPeek: (target: PetTarget) => void;
 }) {
     const acts = actsForEvent(event);
+    const onClick = peekOnClick(eventPeekTarget(event), onPeek);
     return (
-        <div data-pet-latest-update className="px-3.5 pb-3 pt-2.5">
+        <div
+            data-pet-latest-update
+            onClick={onClick}
+            className={cn("px-3.5 pb-3 pt-2.5", onClick != null && "cursor-pointer hover:bg-surface-hover")}
+        >
             <div className="mb-1 flex items-center gap-1.5 font-mono text-[9.5px] text-muted">
                 <EventLabel event={event} />
                 <span>· {ageLabel(Math.max(0, now - event.at))}</span>
@@ -457,6 +499,8 @@ export function PetPeek({
     signals: PetSignals;
 }) {
     const open = useAtomValue(petPeekOpenAtom);
+    const peekItem = useAtomValue(peekItemAtom);
+    const facts = useAtomValue(peekFactsAtom);
     const said = useAtomValue(petSaidAtom);
     const items = useAtomValue(attentionAtom);
     const agents = useAtomValue(model.agentsAtom);
@@ -477,10 +521,23 @@ export function PetPeek({
     const close = useCallback(() => {
         returnFocusRef.current = anchor;
         setReturnFocusEnabled(true);
-        globalStore.set(petPeekOpenAtom, false);
+        closePeek();
     }, [anchor]);
     const leavePeek = () => {
         setReturnFocusEnabled(false);
+    };
+    const item = open ? peekItem : null;
+    const itemKey = peekTargetKey(item?.target);
+    const itemChrome: ItemChrome = {
+        close,
+        back: () => {
+            backToHub();
+            panelRef.current?.focus();
+        },
+        leave: leavePeek,
+    };
+    const peekAt = (target: PetTarget) => {
+        fireAndForget(() => peekAddress(model, target.ref, { anchor: target.anchor }));
     };
 
     const { refs, floatingStyles, context } = useFloating({
@@ -524,6 +581,14 @@ export function PetPeek({
         return () => document.removeEventListener("focusin", onFocusIn);
     }, [open, anchor]);
 
+    // the control that asked for the item (an update's Show all, an Open link) unmounts with the hub, which would
+    // drop focus out of the dialog and take its keys with it
+    useEffect(() => {
+        if (open) {
+            panelRef.current?.focus();
+        }
+    }, [itemKey]);
+
     // only the rows scroll, so j/k has to bring the cursor row into view itself
     useEffect(() => {
         panelRef.current?.querySelector('[data-pet-cursor="true"]')?.scrollIntoView({ block: "nearest" });
@@ -537,6 +602,8 @@ export function PetPeek({
     // the quiet card's Enter opens what its headline offers, the way a busy row's Enter opens that row
     const latestAct = quiet && updates[0] != null ? (actsForEvent(updates[0])[0] ?? null) : null;
     const enterAct = quiet ? latestAct : peekActForCommand(focusedRow, "open");
+    // Space shows what Enter would open, without going there
+    const spaceTarget = quiet ? eventPeekTarget(updates[0]) : rowPeekTarget(focusedRow);
     // quiet: the headline is the newest update and Earlier holds the rest. busy: every update is news that
     // arrived since you looked, behind the queue.
     const drawerUpdates = quiet ? updates.slice(1) : updates;
@@ -553,7 +620,7 @@ export function PetPeek({
     const openJarvis = () => {
         leavePeek();
         globalStore.set(model.surfaceAtom, "jarvis");
-        globalStore.set(petPeekOpenAtom, false);
+        closePeek();
     };
 
     const runKeyboardAct = (act: PetAct | null | undefined) => {
@@ -567,7 +634,28 @@ export function PetPeek({
         return true;
     };
 
+    // Escape closes from anywhere in the item; its other keys belong to whatever control holds focus, and a
+    // modified key (Ctrl+F) is not the bare one
+    const onItemKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        const command = itemKeyCommand(event.key);
+        if (command == null) {
+            return;
+        }
+        const own = event.target === event.currentTarget && !event.repeat;
+        const bare = !event.ctrlKey && !event.metaKey && !event.altKey;
+        if (command !== "close" && !(own && bare)) {
+            return;
+        }
+        if (runItemCommand(model, item, facts, command, itemChrome)) {
+            event.preventDefault();
+        }
+    };
+
     const onPanelKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        if (item != null) {
+            onItemKeyDown(event);
+            return;
+        }
         const command = peekKeyCommand(event.key);
         if (command === "close") {
             event.preventDefault();
@@ -594,17 +682,28 @@ export function PetPeek({
             panelRef.current?.querySelector<HTMLInputElement>("[data-pet-errand-input]")?.focus();
             return;
         }
+        if (command === "peek") {
+            if (spaceTarget != null) {
+                event.preventDefault();
+                peekAt(spaceTarget);
+            }
+            return;
+        }
         if (runKeyboardAct(enterAct)) {
             event.preventDefault();
         }
     };
 
-    const hints = [
-        ...(quiet ? [] : [{ keys: ["j", "k"], label: "move" }]),
-        ...(!quiet || latestAct != null ? [{ keys: ["↵"], label: enterHintLabel(enterAct) }] : []),
-        { keys: ["/"], label: "ask" },
-        { keys: ["esc"], label: "close" },
-    ];
+    const hints =
+        item != null
+            ? itemHints(item.target.kind, facts)
+            : [
+                  ...(quiet ? [] : [{ keys: ["j", "k"], label: "move" }]),
+                  ...(spaceTarget != null ? [{ keys: ["space"], label: "peek" }] : []),
+                  ...(!quiet || latestAct != null ? [{ keys: ["↵"], label: enterHintLabel(enterAct) }] : []),
+                  { keys: ["/"], label: "ask" },
+                  { keys: ["esc"], label: "close" },
+              ];
 
     return (
         <>
@@ -630,7 +729,7 @@ export function PetPeek({
                                     style={{ transformOrigin: ORIGIN[corner] }}
                                     className={cn(
                                         "flex max-h-[calc(100vh-16px)] w-[calc(100vw-16px)] flex-col overflow-hidden rounded-[12px] border border-border bg-surface-raised shadow-popover",
-                                        quiet ? "max-w-[300px]" : "max-w-[420px]"
+                                        item != null ? "max-w-[560px]" : quiet ? "max-w-[300px]" : "max-w-[420px]"
                                     )}
                                 >
                                     {/* mark the dialog as the focus-managed element: without it FloatingFocusManager
@@ -640,7 +739,9 @@ export function PetPeek({
                                     <div
                                         ref={panelRef}
                                         data-pet-peek="1"
-                                        data-pet-peek-shape={quiet ? "quiet" : "busy"}
+                                        data-pet-peek-shape={item != null ? "item" : quiet ? "quiet" : "busy"}
+                                        data-pet-peek-item={item?.target.kind}
+                                        data-pet-peek-status={item?.status}
                                         data-floating-ui-focusable
                                         role="dialog"
                                         aria-modal="true"
@@ -649,141 +750,165 @@ export function PetPeek({
                                         onKeyDown={onPanelKeyDown}
                                         className="flex min-h-0 flex-1 flex-col focus:outline-none"
                                     >
-                                        {/* sections draw their own top border, so an absent one leaves no
+                                        {item != null ? (
+                                            <PeekItemView
+                                                model={model}
+                                                item={item}
+                                                facts={facts}
+                                                titleId={titleId}
+                                                onCommand={(command) =>
+                                                    runItemCommand(model, item, facts, command, itemChrome)
+                                                }
+                                            />
+                                        ) : (
+                                            <>
+                                                {/* sections draw their own top border, so an absent one leaves no
                                             doubled line behind */}
-                                        <div
-                                            data-pet-peek-header
-                                            className="flex min-h-11 flex-none items-center gap-1 pl-3.5 pr-2"
-                                        >
-                                            <h2
-                                                id={titleId}
-                                                className="min-w-0 flex-1 truncate text-[13px] font-bold text-primary"
-                                            >
-                                                {quiet ? "Nothing waiting on you" : `${rows.length} waiting on you`}
-                                            </h2>
-                                            <button
-                                                type="button"
-                                                aria-label="Open full Jarvis view"
-                                                onClick={openJarvis}
-                                                className={cn(
-                                                    "flex h-7 flex-none items-center gap-1 whitespace-nowrap rounded-[7px] px-2 text-[11px] font-medium text-muted hover:bg-surface-hover hover:text-primary",
-                                                    FOCUS_RING
-                                                )}
-                                            >
-                                                Full view
-                                                <ArrowUpRight aria-hidden="true" size={11} strokeWidth={2} />
-                                            </button>
-                                            <button
-                                                type="button"
-                                                aria-label="Close Jarvis panel"
-                                                onClick={close}
-                                                className={cn(
-                                                    "flex h-7 w-7 flex-none items-center justify-center rounded-[7px] text-muted hover:bg-surface-hover hover:text-primary",
-                                                    FOCUS_RING
-                                                )}
-                                            >
-                                                <X aria-hidden="true" size={14} strokeWidth={2} />
-                                            </button>
-                                        </div>
-
-                                        {conditions.map((condition) => (
-                                            <div
-                                                key={condition.expr.kind}
-                                                data-pet-condition={condition.expr.kind}
-                                                className="flex flex-none items-start gap-2 border-t border-border px-3.5 py-[9px]"
-                                            >
-                                                <span
-                                                    className={cn(
-                                                        "mt-[5px] h-1.5 w-1.5 flex-none rounded-full",
-                                                        conditionDot(condition.expr)
-                                                    )}
-                                                />
-                                                <span className="min-w-0 flex-1 text-[11.5px] leading-[1.4] text-secondary">
-                                                    {conditionLine(condition.expr, now)}
-                                                </span>
-                                                {condition.readout ? (
-                                                    <span
-                                                        title="this condition has no remedy — it is a readout"
-                                                        className="mt-px flex-none font-mono text-[9.5px] text-muted"
+                                                <div
+                                                    data-pet-peek-header
+                                                    className="flex min-h-11 flex-none items-center gap-1 pl-3.5 pr-2"
+                                                >
+                                                    <h2
+                                                        id={titleId}
+                                                        className="min-w-0 flex-1 truncate text-[13px] font-bold text-primary"
                                                     >
-                                                        no action
-                                                    </span>
-                                                ) : null}
-                                            </div>
-                                        ))}
+                                                        {quiet
+                                                            ? "Nothing waiting on you"
+                                                            : `${rows.length} waiting on you`}
+                                                    </h2>
+                                                    <button
+                                                        type="button"
+                                                        aria-label="Open full Jarvis view"
+                                                        onClick={openJarvis}
+                                                        className={cn(
+                                                            "flex h-7 flex-none items-center gap-1 whitespace-nowrap rounded-[7px] px-2 text-[11px] font-medium text-muted hover:bg-surface-hover hover:text-primary",
+                                                            FOCUS_RING
+                                                        )}
+                                                    >
+                                                        Full view
+                                                        <ArrowUpRight aria-hidden="true" size={11} strokeWidth={2} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        aria-label="Close Jarvis panel"
+                                                        onClick={close}
+                                                        className={cn(
+                                                            "flex h-7 w-7 flex-none items-center justify-center rounded-[7px] text-muted hover:bg-surface-hover hover:text-primary",
+                                                            FOCUS_RING
+                                                        )}
+                                                    >
+                                                        <X aria-hidden="true" size={14} strokeWidth={2} />
+                                                    </button>
+                                                </div>
 
-                                        <div
-                                            data-pet-peek-body
-                                            data-pet-queue
-                                            className={cn(
-                                                "min-h-0 flex-1 overflow-y-auto overflow-x-hidden",
-                                                (!quiet || updates[0] != null) && "border-t border-border"
-                                            )}
-                                        >
-                                            {quiet ? (
-                                                updates[0] != null ? (
-                                                    <LatestUpdate
-                                                        model={model}
-                                                        event={updates[0]}
-                                                        now={now}
-                                                        onLeave={leavePeek}
-                                                    />
-                                                ) : null
-                                            ) : (
-                                                <AnimatePresence initial={false}>
-                                                    {/* no `layout` on rows: the panel is pinned by its bottom edge, so
+                                                {conditions.map((condition) => (
+                                                    <div
+                                                        key={condition.expr.kind}
+                                                        data-pet-condition={condition.expr.kind}
+                                                        className="flex flex-none items-start gap-2 border-t border-border px-3.5 py-[9px]"
+                                                    >
+                                                        <span
+                                                            className={cn(
+                                                                "mt-[5px] h-1.5 w-1.5 flex-none rounded-full",
+                                                                conditionDot(condition.expr)
+                                                            )}
+                                                        />
+                                                        <span className="min-w-0 flex-1 text-[11.5px] leading-[1.4] text-secondary">
+                                                            {conditionLine(condition.expr, now)}
+                                                        </span>
+                                                        {condition.readout ? (
+                                                            <span
+                                                                title="this condition has no remedy — it is a readout"
+                                                                className="mt-px flex-none font-mono text-[9.5px] text-muted"
+                                                            >
+                                                                no action
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                ))}
+
+                                                <div
+                                                    data-pet-peek-body
+                                                    data-pet-queue
+                                                    className={cn(
+                                                        "min-h-0 flex-1 overflow-y-auto overflow-x-hidden",
+                                                        (!quiet || updates[0] != null) && "border-t border-border"
+                                                    )}
+                                                >
+                                                    {quiet ? (
+                                                        updates[0] != null ? (
+                                                            <LatestUpdate
+                                                                model={model}
+                                                                event={updates[0]}
+                                                                now={now}
+                                                                onLeave={leavePeek}
+                                                                onPeek={peekAt}
+                                                            />
+                                                        ) : null
+                                                    ) : (
+                                                        <AnimatePresence initial={false}>
+                                                            {/* no `layout` on rows: the panel is pinned by its bottom edge, so
                                                         a drawer opening below grows it upward and moves every row on
                                                         screen. layout reads that as a move and drags the rows back
                                                         down. Collapsing height on enter/exit reflows siblings without
                                                         measuring anything. */}
-                                                    {rows.map((row, index) => (
-                                                        <motion.div
-                                                            key={row.key}
-                                                            variants={paneReveal}
-                                                            initial={entering.has(`row:${row.key}`) ? "initial" : false}
-                                                            animate="animate"
-                                                            exit="exit"
-                                                            className="overflow-hidden"
-                                                        >
-                                                            <QueueRow
+                                                            {rows.map((row, index) => (
+                                                                <motion.div
+                                                                    key={row.key}
+                                                                    variants={paneReveal}
+                                                                    initial={
+                                                                        entering.has(`row:${row.key}`)
+                                                                            ? "initial"
+                                                                            : false
+                                                                    }
+                                                                    animate="animate"
+                                                                    exit="exit"
+                                                                    className="overflow-hidden"
+                                                                >
+                                                                    <QueueRow
+                                                                        model={model}
+                                                                        row={row}
+                                                                        now={now}
+                                                                        focused={
+                                                                            index === Math.min(cursor, rows.length - 1)
+                                                                        }
+                                                                        onLeave={leavePeek}
+                                                                    />
+                                                                </motion.div>
+                                                            ))}
+                                                        </AnimatePresence>
+                                                    )}
+                                                </div>
+
+                                                {drawerUpdates.length > 0 ? (
+                                                    <UpdatesDrawer
+                                                        label={quiet ? "Earlier" : "Since you looked"}
+                                                        updates={drawerUpdates}
+                                                        open={drawerOpen}
+                                                        onToggle={() => setDrawerOpen((prior) => !prior)}
+                                                        opening={opening}
+                                                    >
+                                                        {drawerUpdates.map((event) => (
+                                                            <UpdateRow
+                                                                key={event.id}
                                                                 model={model}
-                                                                row={row}
+                                                                event={event}
                                                                 now={now}
-                                                                focused={index === Math.min(cursor, rows.length - 1)}
                                                                 onLeave={leavePeek}
+                                                                onPeek={peekAt}
                                                             />
-                                                        </motion.div>
-                                                    ))}
-                                                </AnimatePresence>
-                                            )}
-                                        </div>
+                                                        ))}
+                                                    </UpdatesDrawer>
+                                                ) : null}
 
-                                        {drawerUpdates.length > 0 ? (
-                                            <UpdatesDrawer
-                                                label={quiet ? "Earlier" : "Since you looked"}
-                                                updates={drawerUpdates}
-                                                open={drawerOpen}
-                                                onToggle={() => setDrawerOpen((prior) => !prior)}
-                                                opening={opening}
-                                            >
-                                                {drawerUpdates.map((event) => (
-                                                    <UpdateRow
-                                                        key={event.id}
-                                                        model={model}
-                                                        event={event}
-                                                        now={now}
-                                                        onLeave={leavePeek}
-                                                    />
-                                                ))}
-                                            </UpdatesDrawer>
-                                        ) : null}
-
-                                        <PetErrand
-                                            dest={dest}
-                                            channels={channels}
-                                            compact={quiet}
-                                            onPick={(oid) => globalStore.set(petPeekDestAtom, oid)}
-                                        />
+                                                <PetErrand
+                                                    dest={dest}
+                                                    channels={channels}
+                                                    compact={quiet}
+                                                    onPick={(oid) => globalStore.set(petPeekDestAtom, oid)}
+                                                />
+                                            </>
+                                        )}
 
                                         <KeyHints hints={hints} />
                                     </div>

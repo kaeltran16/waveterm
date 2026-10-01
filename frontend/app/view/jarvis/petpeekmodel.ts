@@ -6,10 +6,10 @@
 // that decides.
 
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { actsForAttention, type PetAct } from "./petacts";
+import { actsForAttention, type PetAct, type PetTarget } from "./petacts";
 import { conditionsFor, type PetExpression, type PetSignals } from "./petcondition";
 import { askAgent } from "./petjoin";
-import type { PetEvent } from "./petvoice";
+import type { PetEvent, PetEventSource } from "./petvoice";
 
 export interface PeekRow {
     key: string;
@@ -98,7 +98,7 @@ export function dedupeUpdates(events: PetEvent[], items: AttentionItem[]): PetEv
     );
 }
 
-export type PeekKeyCommand = "next" | "previous" | "open" | "composer" | "close";
+export type PeekKeyCommand = "next" | "previous" | "open" | "peek" | "composer" | "close";
 
 export function peekKeyCommand(key: string): PeekKeyCommand | null {
     switch (key) {
@@ -110,6 +110,8 @@ export function peekKeyCommand(key: string): PeekKeyCommand | null {
             return "previous";
         case "Enter":
             return "open";
+        case " ":
+            return "peek";
         case "/":
             return "composer";
         case "Escape":
@@ -124,6 +126,19 @@ export function peekActForCommand(row: PeekRow | undefined, command: PeekKeyComm
         return null;
     }
     return command === "open" ? row.primary : null;
+}
+
+// What a click on an update shows in the popup: the first thing it carries. An update with nothing to open has
+// nothing to peek either.
+export function eventPeekTarget(event: { sources?: PetEventSource[] } | undefined): PetTarget | null {
+    const source = event?.sources?.[0];
+    return source != null ? { kind: "oref", ref: source.ref, anchor: source.anchor } : null;
+}
+
+// What Space on a queue row shows: where its escort would land, without landing there.
+export function rowPeekTarget(row: PeekRow | undefined): PetTarget | null {
+    const escort = [row?.primary, row?.secondary].find((act) => act?.verb === "open");
+    return escort?.verb === "open" ? escort.target : null;
 }
 
 // The Enter hint names what Enter does to the focused row, which is not always a navigation.

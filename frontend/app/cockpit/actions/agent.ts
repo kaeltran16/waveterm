@@ -10,8 +10,9 @@ import {
 import { agentDiffScope, openDiff } from "@/app/view/agents/agentdiffnav";
 import { contextLevel, offersContextReset, railAction } from "@/app/view/agents/agentrailmodel";
 import { muteMode } from "@/app/view/agents/agentrowmodel";
-import { projectOf, type AgentVM } from "@/app/view/agents/agentsviewmodel";
+import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { diffStatsByIdAtom } from "@/app/view/agents/cardgitstore";
+import { focusForAgent } from "@/app/view/agents/focusfor";
 import { enterFocusFor } from "@/app/view/agents/focusstore";
 import { isEndedWorkerId } from "@/app/view/agents/runlineage";
 import type { ThingAction, ThingKindDef } from "./types";
@@ -106,12 +107,7 @@ const actions: ThingAction<AgentThing>[] = [
         label: "Focus the cockpit on it",
         group: "steer",
         applies: () => true,
-        run: ({ agent }, { model }) =>
-            enterFocusFor(model, {
-                ref: { kind: "agent", id: agent.id },
-                label: agent.name,
-                project: projectOf(agent),
-            }),
+        run: ({ agent }, { model }) => enterFocusFor(model, focusForAgent(agent)),
     },
     {
         id: "agent:close",

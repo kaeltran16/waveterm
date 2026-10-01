@@ -5,12 +5,16 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const openAddress = vi.fn();
+const openOrPeekAddress = vi.fn();
 const postMessage = vi.fn();
 const consult = vi.fn();
 const ackRun = vi.fn();
 const getAttention = vi.fn();
 
-vi.mock("./openref", () => ({ openAddress: (...a: any[]) => openAddress(...a) }));
+vi.mock("./openref", () => ({
+    openAddress: (...a: any[]) => openAddress(...a),
+    openOrPeekAddress: (...a: any[]) => openOrPeekAddress(...a),
+}));
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         PostChannelMessageCommand: (...a: any[]) => postMessage(...a),
@@ -23,7 +27,7 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { atom } from "jotai";
-import { runAct, sendErrand } from "./petactrun";
+import { actNavigates, runAct, sendErrand } from "./petactrun";
 import type { PetAct } from "./petacts";
 import { petActStateAtom, petErrandAtom, petPeekOpenAtom } from "./petstore";
 
@@ -68,6 +72,30 @@ describe("runAct — escorts", () => {
             status: "error",
             text: "That record no longer exists",
         });
+    });
+});
+
+describe("runAct — Ctrl+click", () => {
+    it("peeks the escort's address and leaves the popup open for the item", async () => {
+        globalStore.set(petPeekOpenAtom, true);
+        openOrPeekAddress.mockResolvedValue({ ok: true });
+        const act: PetAct = {
+            id: "x",
+            verb: "open",
+            label: "Open",
+            target: { kind: "oref", ref: "run:r1", anchor: "a" },
+        };
+        const gesture = { ctrlKey: true, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+        await runAct(model, act, gesture);
+        expect(openOrPeekAddress).toHaveBeenCalledWith(model, "run:r1", gesture, { anchor: "a" });
+        expect(openAddress).not.toHaveBeenCalled();
+        expect(globalStore.get(petPeekOpenAtom)).toBe(true);
+    });
+
+    it("a peek does not leave the popup, so focus-return stays", () => {
+        const act: PetAct = { id: "x", verb: "open", label: "Open", target: { kind: "oref", ref: "run:r1" } };
+        expect(actNavigates(act)).toBe(true);
+        expect(actNavigates(act, { ctrlKey: true })).toBe(false);
     });
 });
 
