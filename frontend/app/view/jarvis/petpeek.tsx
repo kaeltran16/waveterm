@@ -19,7 +19,15 @@ import { InlineMarkdown } from "@/app/view/agents/inlinemarkdown";
 import { MarkdownMessage } from "@/app/view/agents/markdownmessage";
 import { projectListAtom, rowsWithChannel } from "@/app/view/agents/projectsstore";
 import { cn, fireAndForget } from "@/util/util";
-import { autoUpdate, FloatingFocusManager, offset, shift, useFloating, type Placement } from "@floating-ui/react";
+import {
+    autoUpdate,
+    FloatingFocusManager,
+    FloatingPortal,
+    offset,
+    shift,
+    useFloating,
+    type Placement,
+} from "@floating-ui/react";
 import { useAtomValue } from "jotai";
 import { ArrowUpRight, ChevronDown, ChevronRight, X } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
@@ -705,8 +713,10 @@ export function PetPeek({
                   { keys: ["esc"], label: "close" },
               ];
 
+    // portaled, so a menu a control in here portals (the harness picker) nests in this portal node, which the focus
+    // manager counts as inside the dialog: it is not hidden from assistive tech, and focus in it is not outside
     return (
-        <>
+        <FloatingPortal>
             {open ? <div data-pet-peek-backdrop className="fixed inset-0 z-[64]" onClick={close} /> : null}
             <div ref={refs.setFloating} style={floatingStyles} className="z-[65]">
                 <FloatingFocusManager
@@ -918,6 +928,6 @@ export function PetPeek({
                     </MotionConfig>
                 </FloatingFocusManager>
             </div>
-        </>
+        </FloatingPortal>
     );
 }
