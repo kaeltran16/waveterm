@@ -78,7 +78,7 @@ func TestPlanReviewPromptUnchangedWithoutPicks(t *testing.T) {
 		"- types, functions and flags have the same names in every task that mentions them;\n" +
 		"- each task states its acceptance criteria and names the tests that prove them;\n" +
 		"- the commands the plan names (its Verify, Setup, Check and Final lines, and those in its tasks) exist;\n" +
-		"- every behavior the spec says to check by hand or in the running app is exercised by the Final command: a task that changes rendered UI adds or names the scenario that reaches it, and Final runs it. A manual check has no owner in a run, so a plan that leaves one is a finding.\n" +
+		"- the Final command checks the running app: every task that adds or changes a rendered view, a visual state (loading, empty, error, gone) or an interaction names in its acceptance the scenario step that shows that view or performs that interaction, and Final runs that scenario. A scenario that only opens the surface or panel the view sits in does not count. A check left to a person has no owner in a run, so a plan that leaves one is a finding.\n" +
 		"Also report gaps in the spec, and places where the spec and the plan contradict each other.\n" +
 		"Only read: never edit, stage or commit, and ask no questions, since nobody answers a reviewer.\n" +
 		"Finish with exactly one command, which ends your session:\n" +
@@ -101,9 +101,15 @@ func TestPlanReviewPromptReadsTheCanvasWhenThereIsNoSpec(t *testing.T) {
 	if !strings.Contains(prompt, "There is no spec file: the design canvas at C:/repo/.superpowers/design/x/board.dc.html is the spec. Read it, the plan at") {
 		t.Fatalf("the brief must send the reviewer to the canvas:\n%s", prompt)
 	}
+	if !strings.Contains(prompt, "- every `.dc.html` board in the folder of C:/repo/.superpowers/design/x/board.dc.html has a step in a scenario Final runs") {
+		t.Fatalf("with a canvas the reviewer maps every board to a Final scenario step:\n%s", prompt)
+	}
 	bare := planReviewPrompt(&waveobj.TaskGroup{RunID: "run-1", PlanPath: "p.md"}, "tree")
 	if !strings.Contains(bare, "There is no spec file. Read the plan at") {
 		t.Fatalf("with neither spec nor canvas the brief reads the plan alone:\n%s", bare)
+	}
+	if strings.Contains(bare, "`.dc.html` board") {
+		t.Fatalf("with no canvas there are no boards to map:\n%s", bare)
 	}
 }
 

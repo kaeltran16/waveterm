@@ -31,8 +31,10 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"An optional Final line, also one command in backticks, runs once on the merged result after every task landed and Check " +
 	"passed, with ARC_FINAL_OUT set to a directory for its screenshots and reports: exit 0 passes, exit 3 means it could not " +
 	"verify and its last output line says why, and any other exit fails the run. " +
-	"Final is the only check of the running app: every behavior the spec says to check by hand or in the running app must be " +
-	"exercised by it, so a task that changes rendered UI adds or names the scenario that reaches that UI, and the Final line runs it. " +
+	"Final is the only check of the running app, so every task that adds or changes a rendered view, a visual state (loading, " +
+	"empty, error, gone) or an interaction names in its acceptance the scenario step that shows that view or performs that " +
+	"interaction, adding the step if none does, and the Final line runs that scenario. A scenario that only opens the surface " +
+	"or panel the view sits in does not count. With a Prototype line, each board in the canvas's folder needs such a step. " +
 	"Never leave a check as manual: nobody in a run performs one. " +
 	"An optional Prototype line names the design " +
 	"canvas the result should match (a path, not in backticks; at most one), for the engine's final verifier. " +
