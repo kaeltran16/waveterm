@@ -56,20 +56,6 @@ tasks:
             - task: build:backend
             - cargo tauri build
 
-    preview:
-        desc: Run the standalone component preview server with HMR (no Tauri shell, no backend).
-        dir: frontend/preview
-        cmd: npx vite
-        deps:
-            - npm:install
-
-    build:preview:
-        desc: Build the component preview server for static deployment.
-        dir: frontend/preview
-        cmd: npx vite build
-        deps:
-            - npm:install
-
     verify:ui:
         desc: Run the CDP verification harness against the running dev app (scripts/cdp/). Pass scenario names after --, e.g. `task verify:ui -- surface-smoke`. CDP_PORT env overrides the attach port (default 9222) for a worktree dev app on another port.
         cmd: node scripts/cdp/verify.mjs {{.CLI_ARGS}}

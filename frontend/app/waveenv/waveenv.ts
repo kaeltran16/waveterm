@@ -21,24 +21,16 @@ type ComplexWaveEnvKeys = {
     services: WaveEnv["services"];
 };
 
-type WaveEnvMockFields = {
-    isMock: WaveEnv["isMock"];
-    mockSetWaveObj: WaveEnv["mockSetWaveObj"];
-    mockModels: WaveEnv["mockModels"];
-};
-
-export type WaveEnvSubset<T> = WaveEnvMockFields &
-    OmitNever<{
-        [K in keyof T]: K extends keyof ComplexWaveEnvKeys
-            ? Subset<T[K], ComplexWaveEnvKeys[K]>
-            : K extends keyof WaveEnv
-              ? T[K]
-              : never;
-    }>;
+export type WaveEnvSubset<T> = OmitNever<{
+    [K in keyof T]: K extends keyof ComplexWaveEnvKeys
+        ? Subset<T[K], ComplexWaveEnvKeys[K]>
+        : K extends keyof WaveEnv
+          ? T[K]
+          : never;
+}>;
 
 // default implementation for production is in ./waveenvimpl.ts
 export type WaveEnv = {
-    isMock: boolean;
     rpc: RpcApiType;
     platform: NodeJS.Platform;
     isDev: () => boolean;
@@ -52,10 +44,6 @@ export type WaveEnv = {
         isWaveObjectNullAtom: (oref: string) => Atom<boolean>;
         useWaveObjectValue: <T extends WaveObj>(oref: string) => [T, boolean];
     };
-
-    // the mock fields are only usable in the preview server (may be be null or throw errors in production)
-    mockSetWaveObj: <T extends WaveObj>(oref: string, obj: T) => void;
-    mockModels: Map<any, any>;
 };
 
 export const WaveEnvContext = React.createContext<WaveEnv>(null);

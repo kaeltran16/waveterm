@@ -30,7 +30,6 @@ The build is orchestrated by [Task](https://taskfile.dev) (`Taskfile.yml`), a `m
 | `npm test` / `npx vitest` | Frontend unit tests (vitest). |
 | `task tauri:build` (alias `build:app`, and what `npm run build` now runs) | Production build: syncs the version into every version site, builds the backend, then `cargo tauri build`. It does not bump by default (`BUMP=none`); for a release pass `BUMP=patch\|minor\|major` and commit the bump. |
 | `task check:version` | Fail if `package.json`'s version has drifted from `src-tauri/tauri.conf.json` or `src-tauri/Cargo.toml`. `package.json` is the single source of truth; `scripts/sync-tauri-version.mjs` holds the list of sites. |
-| `task preview` | Standalone component preview server (no backend, no shell). |
 | `npm run cockpit:fixtures -- <scenario>` | Inject a fixture roster into the dev app: writes the scenario (source: `scripts/cockpit-fixtures/`) to `public/cockpit-fixtures/active.json`; reload the app to load it. `--clear` returns to live data; no argument lists scenarios. |
 
 Other useful commands:
