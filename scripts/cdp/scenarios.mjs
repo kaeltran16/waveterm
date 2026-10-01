@@ -8478,8 +8478,108 @@ const cockpitKeysOnArrival = {
     },
 };
 
+// The Agent surface stays mounted, so its focus effects never re-run on a switch back: arriving left focus on
+// <body> and typing reached the agent only after a click on its terminal.
+const agentTerminalFocused = `(() => {
+    const t = [...document.querySelectorAll('.xterm-helper-textarea')].find((x) => x.checkVisibility());
+    if (!t) return { terminal: false, focused: false, active: document.activeElement?.tagName };
+    return { terminal: true, focused: document.activeElement === t, active: document.activeElement?.tagName };
+})()`;
+
+const agentTerminalOnArrival = {
+    name: "agent-terminal-on-arrival",
+    surface: "agent",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        await h.goto("agent");
+        if (!(await h.ev(agentTerminalFocused)).terminal) {
+            return [skipStep("the Agent surface shows a live terminal", "no agent terminal: launch one agent first")];
+        }
+
+        await h.goto("cockpit");
+        await h.goto("agent");
+        const viaNav = await h.ev(agentTerminalFocused);
+        steps.push({
+            step: "Cockpit -> nav click Agent: the terminal has focus",
+            ok: viaNav.focused === true,
+            detail: `active=${viaNav.active}`,
+        });
+
+        await h.goto("cockpit");
+        const opened = await openPalette(h);
+        await h.ev(setInputExpr(PALETTE_INPUT, "agent"));
+        await polishNap(300);
+        // "New agent…" outranks the go-to row, so step down to the row that is the surface itself
+        const goRow = await h.ev(
+            `[...(${PALETTE}?.querySelectorAll('button[data-idx]') ?? [])].findIndex((b) => /^Agent\\s*ga$/.test((b.textContent || '').replace(/\\s+/g, '')))`
+        );
+        for (let i = 0; i < goRow; i++) {
+            await h.ev(paletteKey("ArrowDown"));
+        }
+        const row = await h.ev(`(${PALETTE_STATE})?.selected ?? null`);
+        await h.ev(paletteKey("Enter"));
+        await polishWaitFor(h, `(${agentTerminalFocused}).terminal`, 3000);
+        await polishNap(300);
+        const viaPalette = await h.ev(agentTerminalFocused);
+        steps.push({
+            step: "Cockpit -> Ctrl+P 'agent' -> Enter: the terminal has focus",
+            ok: opened === true && viaPalette.focused === true,
+            detail: `row=${row} active=${viaPalette.active}`,
+        });
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
+// The Code tree's keys are gated on the tree holding focus (codeTreeFocusedAtom); arriving left it on
+// <body>, so j/k/arrows/Enter were dead until a click or Alt+T.
+const codeTreeOnArrival = {
+    name: "code-tree-on-arrival",
+    surface: "code",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        // the tree learns it has focus from its focus event, which Chromium holds back while the dev
+        // window is behind another one
+        await h.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
+        await h.goto("code");
+        if (!(await h.ev(`document.querySelector('[data-code-tree]')?.checkVisibility() ?? false`))) {
+            return [skipStep("the Code surface shows its file tree", "no tree: pick a project on Code first")];
+        }
+        await h.goto("agent");
+        await h.ev(focusAgentXterm);
+        await h.goto("code");
+        const r = await h.ev(`(() => {
+            const a = document.activeElement;
+            const e = new KeyboardEvent('keydown', { key: 'j', code: 'KeyJ', bubbles: true, cancelable: true });
+            (a ?? document.body).dispatchEvent(e);
+            return { inTree: a?.closest?.('[data-code-tree]') != null, claimed: e.defaultPrevented, active: a?.tagName };
+        })()`);
+        return [
+            {
+                step: "Agent -> nav click Code: the tree has focus and j moves its cursor",
+                ok: r.inTree === true && r.claimed === true,
+                detail: `active=${r.active} inTree=${r.inTree} claimed=${r.claimed}`,
+            },
+        ];
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     cockpitKeysOnArrival,
+    agentTerminalOnArrival,
+    codeTreeOnArrival,
     briefContextualMap,
     briefRestore,
     briefComposerSteerOnly,

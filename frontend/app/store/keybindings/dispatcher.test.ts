@@ -1,13 +1,14 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { registerModal } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel, SurfaceKey } from "@/app/view/agents/agents";
 import { docReviewAtom } from "@/app/view/agents/docreview";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import { atom } from "jotai";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deriveKeyContext, initKeybindingDispatcher, isEditableTarget } from "./dispatcher";
+import { deriveKeyContext, focusClaimed, initKeybindingDispatcher, isEditableTarget } from "./dispatcher";
 
 // Element stubs rather than jsdom: the suite runs in vitest's node environment, and the three fields
 // this predicate reads are the whole contract.
@@ -38,6 +39,38 @@ describe("isEditableTarget", () => {
     // refreshed the file index out of the middle of a word.
     it("reports Monaco's EditContext host as editable", () => {
         expect(isEditableTarget(el("DIV", { inMonaco: true }))).toBe(true);
+    });
+});
+
+describe("focusClaimed", () => {
+    const withVisibility = (e: Element, visible: boolean) => Object.assign(e, { checkVisibility: () => visible });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("is claimed by a visible field, so an arriving surface leaves it alone", () => {
+        vi.stubGlobal("document", { activeElement: withVisibility(el("INPUT"), true) });
+        expect(focusClaimed()).toBe(true);
+    });
+
+    // the regression: the Agent surface's xterm textarea, display:none after a switch away, is still
+    // activeElement when the next surface mounts, and counting it kept the Cockpit from taking focus
+    it("is not claimed by a field on a surface that was just hidden", () => {
+        vi.stubGlobal("document", { activeElement: withVisibility(el("TEXTAREA"), false) });
+        expect(focusClaimed()).toBe(false);
+    });
+
+    it("is not claimed by <body> or a non-field", () => {
+        vi.stubGlobal("document", { activeElement: el("BODY") });
+        expect(focusClaimed()).toBe(false);
+    });
+
+    it("is claimed while a modal is open", () => {
+        vi.stubGlobal("document", { activeElement: el("BODY") });
+        const unregister = registerModal("focus-claimed-test");
+        try {
+            expect(focusClaimed()).toBe(true);
+        } finally {
+            unregister();
+        }
     });
 });
 

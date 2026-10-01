@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { anyModalOpen } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
@@ -53,6 +54,14 @@ export function isEditableTarget(el: Element | null): boolean {
     // opened the leader, and Escape left the surface. Matching the container covers both edit-context
     // implementations and any future swap of the focus target.
     return el.closest?.(".monaco-editor") != null;
+}
+
+// Whether a surface just switched to should leave focus where it is: a visible field or an open modal
+// already took it. Visibility matters because a field on the surface just hidden is still activeElement
+// until Chromium's next rendering update.
+export function focusClaimed(): boolean {
+    const active = document.activeElement as HTMLElement | null;
+    return (isEditableTarget(active) && active.checkVisibility()) || anyModalOpen();
 }
 
 export function deriveKeyContext(): KeyContext {

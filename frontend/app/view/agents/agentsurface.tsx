@@ -15,7 +15,7 @@ import { CockpitFocusPane } from "@/app/cockpit/focus-pane";
 import { Skeleton, SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildAgentBindings } from "@/app/store/keybindings/bindings";
-import { isEditableTarget } from "@/app/store/keybindings/dispatcher";
+import { focusClaimed, isEditableTarget } from "@/app/store/keybindings/dispatcher";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -115,6 +115,24 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
             wrapRef.current?.querySelector<HTMLElement>(`[data-agent-terminal="${agent.id}"] .xterm-helper-textarea`)?.focus();
         }
     }, [agent?.id, canvasMode]);
+
+    // the surface stays mounted, so the effects above never run on a switch back to it, and arriving left
+    // focus on <body>: typing reached the agent only after a click. Arriving hands focus to the live
+    // terminal, or the wrapper when none is showing (canvas, subagent interior, no terminal).
+    useEffect(() => {
+        const wrap = wrapRef.current;
+        if (
+            surface !== "agent" ||
+            agent == null ||
+            wrap == null ||
+            wrap.contains(document.activeElement) ||
+            focusClaimed()
+        ) {
+            return;
+        }
+        const term = wrap.querySelector<HTMLElement>(`[data-agent-terminal="${agent.id}"] .xterm-helper-textarea`);
+        (term?.checkVisibility() ? term : wrap).focus({ preventScroll: true });
+    }, [surface]);
 
     // Agent-surface keys live in the registry (bindings.ts). Stable array — run() reads live atoms.
     const agentBindings = useMemo(() => buildAgentBindings(model), [model]);

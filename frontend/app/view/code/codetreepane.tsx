@@ -13,6 +13,7 @@
 
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
+import { focusClaimed } from "@/app/store/keybindings/dispatcher";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { joinRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
@@ -60,6 +61,15 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
     const index = useAtomValue(codeIndexAtom);
     const openFile = file.kind === "none" ? null : file.path;
     const rowRefs = useRef(new Map<string, HTMLDivElement>());
+    const treeRef = useRef<HTMLDivElement>(null);
+
+    // the tree keys (j/k, arrows, Enter, n) need the tree focused, and arriving on Code left focus on
+    // <body>, so they were dead until a click or Alt+T
+    useEffect(() => {
+        if (!focusClaimed()) {
+            treeRef.current?.focus({ preventScroll: true });
+        }
+    }, []);
 
     const paths = index?.paths ?? [];
     const provisional = edit?.kind === "create" ? provisionalIndex(rows, edit.dir) : -1;
@@ -214,6 +224,7 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
                 </div>
             ) : null}
             <div
+                ref={treeRef}
                 role="tree"
                 tabIndex={0}
                 data-code-tree
