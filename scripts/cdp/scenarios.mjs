@@ -931,6 +931,169 @@ const briefPeek = {
     },
 };
 
+// --- peek-ctrl-click: Ctrl+click on a Brief run row peeks it in the avatar popup and writes no selection ---
+// A peek is a look, not a landing: the host surface, its active subject, the open-sheet flag and the Brief list's
+// scroll must be exactly what they were, both while the item view is up and after Escape closes it.
+// The row is selected on the bare [data-peek] attribute, never a value: the Brief's rows set it as "" and the
+// fleet row as "true".
+const PEEK_CTRL_BRIEF = `document.querySelector('[data-jarvis-region="brief"]')`;
+const PEEK_CTRL_GOAL = "verify peek-ctrl-click: do nothing";
+
+const peekCtrlClick = {
+    name: "peek-ctrl-click",
+    surface: "jarvis",
+    async arrange(h) {
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-peek-ctrl-")) };
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-peek-ctrl", projectpath: ctx.cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: PEEK_CTRL_GOAL,
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        await h.goto("jarvis");
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
+        );
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        // a wide window: the popup's 560px cap only shows when the viewport leaves room for it
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        await h.goto("jarvis");
+        await settle(900);
+
+        // the probe is installed by the Brief once it mounts
+        const probeReady = await h.ev(`(async () => {
+            for (let i = 0; i < 20 && typeof window.__peekProbe !== "function"; i++) {
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            return typeof window.__peekProbe === "function";
+        })()`);
+        const hostState = () =>
+            h.ev(`(() => {
+                const scroller = ${PEEK_CTRL_BRIEF}?.querySelector(".overflow-y-auto");
+                const p = window.__peekProbe();
+                return JSON.stringify({
+                    surface: p.surface,
+                    subject: p.subject,
+                    sheetOpen: p.sheetOpen,
+                    scrollTop: scroller ? scroller.scrollTop : null,
+                });
+            })()`);
+
+        const box = await h.ev(`(() => {
+            const region = ${PEEK_CTRL_BRIEF};
+            const row =
+                region?.querySelector('[data-jarvis-brief-row="session"][data-peek]') ??
+                region?.querySelector("[data-peek]");
+            if (!row) return null;
+            row.scrollIntoView({ block: "nearest" });
+            const r = row.getBoundingClientRect();
+            return { x: Math.round(r.x + 40), y: Math.round(r.y + r.height / 2), row: row.dataset.jarvisBriefRow ?? null };
+        })()`);
+        steps.push({
+            step: "1. the Brief shows a peekable run row",
+            ok: probeReady === true && box != null,
+            detail: JSON.stringify({ probeReady, box, arrangeError: ctx.arrangeError ?? null }),
+        });
+        if (box == null || probeReady !== true) return steps;
+
+        await settle(200);
+        const before = await hostState();
+        const ctrlMod = 2;
+        await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: box.x, y: box.y, modifiers: ctrlMod });
+        for (const type of ["mousePressed", "mouseReleased"]) {
+            await h.cdp("Input.dispatchMouseEvent", {
+                type,
+                x: box.x,
+                y: box.y,
+                button: "left",
+                clickCount: 1,
+                modifiers: ctrlMod,
+            });
+        }
+        const ready = await h.ev(`(async () => {
+            for (let i = 0; i < 40; i++) {
+                const el = document.querySelector('[data-pet-peek-item="run"][data-pet-peek-status="ready"]');
+                if (el) return true;
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            return false;
+        })()`);
+        // let the reveal and size-layout animations finish before measuring
+        await settle(600);
+        // the 560px cap is on the dialog's parent (the popup's outer box); the dialog itself is 2px narrower
+        const panel = await h.ev(`(() => {
+            const el = document.querySelector('[data-pet-peek-item="run"]');
+            const outer = el?.parentElement;
+            return el && outer ? { status: el.dataset.petPeekStatus, shape: el.dataset.petPeekShape, width: Math.round(outer.getBoundingClientRect().width) } : null;
+        })()`);
+        await h.shot("cdp-shots/peek-ctrl-click.png");
+        steps.push({
+            step: "2. Ctrl+click opens a ready run item view in the 560px popup",
+            ok: ready === true && panel?.shape === "item" && panel?.width === 560,
+            detail: JSON.stringify(panel),
+        });
+
+        const during = await hostState();
+        steps.push({
+            step: "3. the host surface, subject, sheet flag and scroll are unchanged while the peek is up",
+            ok: before === during,
+            detail: JSON.stringify({ before, during }),
+        });
+
+        // a real key event: the popup handles Escape on its dialog, which holds focus, not on the document
+        for (const type of ["keyDown", "keyUp"]) {
+            await h.cdp("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+        }
+        await settle(500);
+        const closed = await h.ev(`!document.querySelector('[data-pet-peek-item]')`);
+        const after = await hostState();
+        steps.push({
+            step: "4. Escape closes the popup and the host's state still matches",
+            ok: closed === true && before === after,
+            detail: JSON.stringify({ closed, before, after }),
+        });
+        return steps;
+    },
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`peek-ctrl-click teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
+        if (ctx?.runId) {
+            await step("cancel the run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId }));
+        }
+        if (ctx?.channelId) await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
+        if (ctx?.cwd) await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
+        await h.goto("cockpit");
+    },
+};
+
 // The two layers added on top of the collapse order: the nav rail collapsing itself below a narrow window
 // (navrailwidth.ts, the design's step 4) and the context rail leaving the flow entirely once collapsing
 // both regions to strips is still not enough (jarvislayout.ts's railOverlay). jarvis-collapse-order owns
@@ -8789,6 +8952,7 @@ export const SCENARIOS = [
     jarvisAvatar,
     briefSurface,
     briefPeek,
+    peekCtrlClick,
     briefProfile,
     jarvisPeek,
     jarvisVolunteer,

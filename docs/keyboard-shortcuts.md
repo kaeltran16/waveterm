@@ -80,7 +80,24 @@ cancelled now, in All and in Commands, so it never starts a run named "cancel".
 | `[` / `]` | Previous / next surface (cycles `SURFACE_ORDER`, wraps) |
 | `j` / `k` (or `↓` / `↑`) | Move the cursor within the active region |
 | `Enter` | Open / activate the item under the cursor |
+| `Space` | Peek the item under the cursor in the avatar popup, without leaving the surface (see Peek below) |
 | `Esc` | On a deep surface (Jarvis, Radar, Sessions, Files, Usage, Code), return to the Cockpit. In a composer or text field, leave Type posture first. |
+
+## Peek (the avatar popup's item view)
+
+A peek shows a run, agent, record, initiative, radar finding or memory note in the avatar popup. It writes no
+selection on the surface underneath and never changes the cockpit focus. `Space` on a row cursor peeks it;
+holding `Ctrl` underlines every link that can be peeked, and `Ctrl`+click on one peeks it instead of opening it.
+`Space` never peeks while focus is in a text field.
+
+| Keys | Action |
+|---|---|
+| `Enter` | Open the item on its own surface (absent for a memory note, which opens nowhere else) |
+| `f` | Focus this: narrow the cockpit to the item |
+| `Backspace` | Back to the avatar popup's hub |
+| `Esc` | Close the popup, or return to the hub if the item was opened from it |
+
+A link inside an item view does a full open, even with `Ctrl` held.
 
 ## Per-surface actions (Navigate posture)
 

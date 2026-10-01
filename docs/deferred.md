@@ -7,6 +7,17 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Sessions "All activity" feed rows peeking a run, agent or initiative (deferred 2026-10-01)
+
+- **Deferred:** the peek gesture on the Sessions "All activity" feed, where `Main.dc.html` in the cockpit-peek mockup
+  shows each row peeking a run, agent or initiative.
+- **Why:** those rows link sessions today, not runs, and giving them targets was scoped out of the cockpit-peek run.
+  The gesture is demonstrated on the Brief's run rows instead (CDP scenario `peek-ctrl-click`). No feed-row-to-target
+  mapping was built.
+- **Revive when** the feed rows carry a target (a run oref, an agent tab id or an effort id). Wire each row through
+  `openOrPeek` in `frontend/app/view/jarvis/openref.ts`, the way the Brief's `openLine` does, and mark it `data-peek`.
+  Nothing was built for this, so there is nothing to recover from git.
+
 ## Terminal file drop pastes the file's path (deferred 2026-09-30)
 
 - **Deferred:** dropping a file onto a terminal to paste its quoted path. The Electron build read the path with
