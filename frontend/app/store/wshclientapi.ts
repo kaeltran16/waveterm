@@ -810,6 +810,12 @@ export class RpcApiType {
         return client.wshRpcCall("runtranscriptpath", data, opts);
     }
 
+    // command "runusage" [call]
+    RunUsageCommand(client: WshClient, data: CommandRunUsageData, opts?: RpcOpts): Promise<CommandRunUsageRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "runusage", data, opts);
+        return client.wshRpcCall("runusage", data, opts);
+    }
+
     // command "sealrunevidence" [call]
     SealRunEvidenceCommand(client: WshClient, data: CommandSealRunEvidenceData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "sealrunevidence", data, opts);

@@ -24,6 +24,7 @@ type RunCommands interface {
 	CreateChildRunCommand(ctx context.Context, data CommandCreateChildRunData) (*CommandCreateChildRunRtnData, error) // orchestrator lead spawns a hands-off child run for one backlog unit; parent resolved from the caller's oref
 	SetRunSettingsCommand(ctx context.Context, data CommandSetRunSettingsData) error                                  // change a live engine run's scheduler settings (pending on the Run before a DAG exists, live on its TaskGroup after)
 	RunTranscriptPathCommand(ctx context.Context, data CommandRunTranscriptPathData) (string, error)                  // the transcript of a run launched under a session id, "" when none was written
+	RunUsageCommand(ctx context.Context, data CommandRunUsageData) (*CommandRunUsageRtnData, error)                   // a run's tokens per role, task and model: sealed when the run has evidence, else read from its transcripts now
 }
 
 type CommandCreateRunData struct {
@@ -86,6 +87,16 @@ type CommandStopRunWorkerData struct {
 type CommandRunTranscriptPathData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
+}
+
+type CommandRunUsageData struct {
+	ChannelId string `json:"channelid"`
+	RunId     string `json:"runid"`
+}
+
+type CommandRunUsageRtnData struct {
+	Usage  []waveobj.UsageRow `json:"usage,omitempty"`
+	Sealed bool               `json:"sealed,omitempty"` // the total is the sealed one and will not change
 }
 
 type CommandSealRunEvidenceData struct {

@@ -24,6 +24,7 @@ import { ArrowRight, ArrowUp, ArrowUpRight, Check } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
+import { formatTokens } from "./agentsviewmodel";
 import { ASK_OWNER_USER, childAskKey } from "./childaskmodel";
 import { bindChildAsks, childAskErrorAtom, childAsksAtom, takeOverChildAsk } from "./childaskstore";
 import { useRunEvents } from "./runeventstore";
@@ -41,6 +42,8 @@ import {
 } from "./runrail";
 import { SEG_FILL } from "./runstrip";
 import { tsLabel } from "./runtimeline";
+import { useRunUsage } from "./runtokenstore";
+import { summarizeUsage, usageText, type UsageSummary } from "./runusage";
 import { SectionLabel, SubLabel } from "./sectionlabel";
 
 const LANE_DOT: Record<LaneState, string> = {
@@ -87,6 +90,20 @@ function FactRow({ label, children }: { label: string; children: React.ReactNode
                 {children}
             </span>
         </div>
+    );
+}
+
+// the tokens a run or task has spent, then each model's share
+function UsageRows({ spent, sealed }: { spent: UsageSummary; sealed: boolean }) {
+    return (
+        <>
+            <FactRow label="Tokens">{usageText(spent, sealed)}</FactRow>
+            {spent.byModel.map((m) => (
+                <FactRow key={m.model} label={m.model}>
+                    {formatTokens(m.tokens)}
+                </FactRow>
+            ))}
+        </>
     );
 }
 
@@ -456,6 +473,8 @@ export function RunSection({ model, run, asks }: { model: AgentsViewModel; run: 
     const finished = !digestStale(digest, run.dag?.version) && digest?.health === "done";
     const report = digest?.report;
     const elapsed = runElapsedMs(run.dag, digest, now);
+    const usage = useRunUsage(run.channelId, run.runId);
+    const spent = summarizeUsage(usage?.rows);
     const leadAsks = asks.filter((a) => a.owner !== ASK_OWNER_USER);
     const laneTasks = new Set(laneRows(run.dag, digest).map((r) => r.taskId));
     // a lead question whose task is not any lane's task in play still needs somewhere to be taken over
@@ -480,15 +499,20 @@ export function RunSection({ model, run, asks }: { model: AgentsViewModel; run: 
             ) : (
                 <RunStatus run={run} waitingOnYou={asks.some((a) => a.owner === ASK_OWNER_USER)} />
             )}
-            {finished && report ? (
+            {(finished && report) || spent ? (
                 <div>
-                    <FactRow label="Landed">
-                        {report.commits?.length ?? 0} {report.commits?.length === 1 ? "commit" : "commits"}
-                    </FactRow>
-                    {elapsed ? <FactRow label="Elapsed">{formatElapsed(elapsed)}</FactRow> : null}
-                    <FactRow label="Worker time">{formatElapsed(report.workerms)}</FactRow>
-                    <FactRow label="Answered">{report.answered}</FactRow>
-                    <FactRow label="Forwarded">{report.forwarded}</FactRow>
+                    {finished && report ? (
+                        <>
+                            <FactRow label="Landed">
+                                {report.commits?.length ?? 0} {report.commits?.length === 1 ? "commit" : "commits"}
+                            </FactRow>
+                            {elapsed ? <FactRow label="Elapsed">{formatElapsed(elapsed)}</FactRow> : null}
+                            <FactRow label="Worker time">{formatElapsed(report.workerms)}</FactRow>
+                            <FactRow label="Answered">{report.answered}</FactRow>
+                            <FactRow label="Forwarded">{report.forwarded}</FactRow>
+                        </>
+                    ) : null}
+                    {spent ? <UsageRows spent={spent} sealed={usage.sealed} /> : null}
                 </div>
             ) : null}
             <Lanes model={model} run={run} leadAsks={leadAsks} />
@@ -524,6 +548,8 @@ export function TaskSection({
     const leadAsk = asks.find((a) => a.taskid === taskId && a.owner !== ASK_OWNER_USER);
     const facts = taskFacts(run.dag, run.digest, taskId, now);
     const lead = leadAgentOf(lineage, agents, run.runId);
+    const usage = useRunUsage(run.channelId, run.runId);
+    const spent = summarizeUsage(usage?.rows, taskId);
 
     return (
         <div className="flex flex-col gap-[12px]">
@@ -563,6 +589,7 @@ export function TaskSection({
                         <span className={facts.landed ? "text-success" : undefined}>{facts.result}</span>
                     </FactRow>
                 ) : null}
+                {spent ? <UsageRows spent={spent} sealed={usage.sealed} /> : null}
             </div>
             <AnimatePresence initial={false}>
                 {leadAsk ? (

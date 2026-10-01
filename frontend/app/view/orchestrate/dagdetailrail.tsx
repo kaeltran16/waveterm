@@ -10,6 +10,8 @@ import type { AgentsViewModel } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
 import { runAtom } from "../agents/channelsstore";
 import { RoutePicker } from "../agents/routepicker";
+import { useRunUsage } from "../agents/runtokenstore";
+import { modelsText, summarizeUsage, usageText } from "../agents/runusage";
 import { StatusLine } from "../agents/statusline";
 import { closeDagModal, dagModalAgentsContextAtom } from "./dagmodalstate";
 import { dagActionError, dagActionRoute, routeSourceLabel, type DagViewNode } from "./dagstore";
@@ -45,6 +47,8 @@ export function DagDetailRail({
     const [escalateRoute, setEscalateRoute] = useState<RoutePin | null>(null);
     const [actionError, setActionError] = useState<{ taskId: string; text: string } | null>(null);
     const agentsCtx = useAtomValue(dagModalAgentsContextAtom);
+    const usage = useRunUsage(group.channelid, group.runid);
+    const spent = summarizeUsage(usage?.rows, task.id);
 
     // selecting another task closes a half-open picker instead of carrying it over to the new task
     useEffect(() => {
@@ -88,6 +92,12 @@ export function DagDetailRail({
                     <div className="truncate font-mono text-[10.5px] text-secondary">
                         <span className="text-ink-mid">review</span> · {view.reviewLine}
                     </div>
+                    {spent ? (
+                        <div className="truncate font-mono text-[10.5px] text-secondary">
+                            <span className="text-ink-mid">tokens</span> · {usageText(spent, usage.sealed)} ·{" "}
+                            {modelsText(spent)}
+                        </div>
+                    ) : null}
                 </div>
                 <div className="flex flex-none gap-1.5">
                     {hasDesc ? (

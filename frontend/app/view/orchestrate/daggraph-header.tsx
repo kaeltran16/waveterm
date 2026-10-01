@@ -2,6 +2,8 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useAtomValue } from "jotai";
+import { useRunUsage } from "../agents/runtokenstore";
+import { modelsText, summarizeUsage, usageText } from "../agents/runusage";
 import { chipGroups, pickNext, type ChipGroup } from "./dagcanvas";
 import { selectedTaskIdAtom } from "./dagstore";
 import { reviewersChip, workersChip } from "./taskroute";
@@ -58,6 +60,8 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
                 : "border-accent/50 bg-accent/10 text-accent-soft";
     const label = status.split("-").join(" ");
     const done = group.tasks.filter((t) => t.state === "done").length;
+    const usage = useRunUsage(group.channelid, group.runid);
+    const spent = summarizeUsage(usage?.rows);
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-background px-4 py-2.5">
             <div className="min-w-48 flex-1">
@@ -66,7 +70,11 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
                 </div>
                 <div className="font-mono text-[10.5px] text-ink-mid">
                     parallelism {group.parallelism} · {done}/{group.tasks.length} done
+                    {spent ? ` · ${usageText(spent, usage.sealed)}` : ""}
                 </div>
+                {spent ? (
+                    <div className="truncate font-mono text-[10.5px] text-ink-mid">{modelsText(spent)}</div>
+                ) : null}
             </div>
             <SummaryChips tasks={group.tasks} />
             <span className={ROUTE_CHIP}>{workersChip(group, owner)}</span>

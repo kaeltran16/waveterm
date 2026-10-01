@@ -95,7 +95,7 @@ export interface LeadCardInput {
     // the lead cannot take wakes (isLeadDown); its judgment falls to you
     leadDown: boolean;
     now: number;
-    // the workers' transcripts summed (runtokenstore); absent until loaded
+    // every session of the run summed (runtokenstore); absent until loaded
     tokens?: number;
 }
 

@@ -804,6 +804,12 @@ func RunTranscriptPathCommand(w *wshutil.WshRpc, data wshrpc.CommandRunTranscrip
 	return resp, err
 }
 
+// command "runusage", wshserver.RunUsageCommand
+func RunUsageCommand(w *wshutil.WshRpc, data wshrpc.CommandRunUsageData, opts *wshrpc.RpcOpts) (*wshrpc.CommandRunUsageRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandRunUsageRtnData](w, "runusage", data, opts)
+	return resp, err
+}
+
 // command "sealrunevidence", wshserver.SealRunEvidenceCommand
 func SealRunEvidenceCommand(w *wshutil.WshRpc, data wshrpc.CommandSealRunEvidenceData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "sealrunevidence", data, opts)

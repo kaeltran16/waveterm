@@ -1273,6 +1273,18 @@ declare global {
         runid: string;
     };
 
+    // wshrpc.CommandRunUsageData
+    type CommandRunUsageData = {
+        channelid: string;
+        runid: string;
+    };
+
+    // wshrpc.CommandRunUsageRtnData
+    type CommandRunUsageRtnData = {
+        usage?: UsageRow[];
+        sealed?: boolean;
+    };
+
     // wshrpc.CommandSealRunEvidenceData
     type CommandSealRunEvidenceData = {
         channelid: string;

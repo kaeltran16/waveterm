@@ -60,7 +60,8 @@ import { useRailTracking } from "./cockpiteventsrail";
 import { HintsBar } from "./cockpithelp";
 import { RollingCount } from "./rollingcount";
 import { ensureRunEvents, runEventsAtom } from "./runeventstore";
-import { loadRunTokens, runTokensAtom } from "./runtokenstore";
+import { loadRunUsage, runUsageAtom } from "./runtokenstore";
+import { summarizeUsage } from "./runusage";
 import { useRunDigests } from "./runlineagestore";
 import { useCockpitKeyboard } from "./usecockpitkeyboard";
 import { useCardStreams } from "./usecardstreams";
@@ -233,9 +234,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     );
     const runEvents = useAtomValue(runEventsAtomForView) as Record<string, RunEvent[]>;
     useRailTracking(agents, lineage);
-    const runTokens = useAtomValue(runTokensAtom);
+    const runUsage = useAtomValue(runUsageAtom);
     useEffect(() => {
-        runsInView.forEach((r) => fireAndForget(() => loadRunTokens(r, Date.now())));
+        runsInView.forEach((r) => fireAndForget(() => loadRunUsage(r.channelId, r.runId, Date.now())));
     }, [runKey, structuralNow]);
 
     // one card per plain agent or run; a run's workers are rows of its card. A running run keeps its card while
@@ -260,7 +261,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     lineage,
                     leadDown: down,
                     now: structuralNow,
-                    tokens: runTokens[c.run.runId],
+                    tokens: summarizeUsage(runUsage[c.run.runId]?.rows)?.total,
                 }),
                 down,
             });

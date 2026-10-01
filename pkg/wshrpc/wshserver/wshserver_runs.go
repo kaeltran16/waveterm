@@ -1047,6 +1047,23 @@ func (ws *WshServer) RunTranscriptPathCommand(ctx context.Context, data wshrpc.C
 	return jarvis.SessionTranscriptPath(run), nil
 }
 
+// RunUsageCommand totals a run's tokens the way its sealed evidence does, so a live run and a finished one
+// read from one accounting.
+func (ws *WshServer) RunUsageCommand(ctx context.Context, data wshrpc.CommandRunUsageData) (*wshrpc.CommandRunUsageRtnData, error) {
+	if data.ChannelId == "" || data.RunId == "" {
+		return nil, fmt.Errorf("channelid and runid are required")
+	}
+	run, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
+	if err != nil {
+		return nil, fmt.Errorf("loading run: %w", err)
+	}
+	if run.Evidence != nil && len(run.Evidence.Usage) > 0 {
+		return &wshrpc.CommandRunUsageRtnData{Usage: run.Evidence.Usage, Sealed: true}, nil
+	}
+	children := jarvis.DagChildRuns(ctx, data.ChannelId, run.DagORef, run.ID)
+	return &wshrpc.CommandRunUsageRtnData{Usage: jarvis.RunUsage(ctx, run, children)}, nil
+}
+
 // LandRunCommand merges a done branch-landed run's branch back into its base, the retry for a held land. It
 // runs detached from the caller's budget: a land can re-run Check and Verify, and a merge cut off halfway
 // would leave the human's checkout mid-merge.
