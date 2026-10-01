@@ -253,6 +253,59 @@ func TestPredecessorHandoffCarriesDepCommitFilesAndNote(t *testing.T) {
 	}
 }
 
+// every done ancestor's For later tasks reaches a task at dispatch; its commit and files stay a direct dependency's
+func TestPredecessorHandoffCarriesEveryAncestorsForLaterTasks(t *testing.T) {
+	report := func(forLater string) string {
+		return "## Done\nAdded it.\n\n## Differs from plan\nNone\n\n## Not verified\nNone\n\n## For later tasks\n" + forLater + "\n\n## Found not fixed\nNone"
+	}
+	g := &waveobj.TaskGroup{Tasks: []waveobj.TaskNode{
+		{ID: "t-1", Label: "add fmtDate", State: TaskState_Done, RunID: "run-1", Merged: true},
+		{ID: "t-2", Label: "use fmtDate", State: TaskState_Done, RunID: "run-2", Merged: true, Deps: []string{"t-1"}},
+		{ID: "t-3", Label: "document it", Deps: []string{"t-2"}},
+	}}
+	runs := map[string]*waveobj.Run{
+		"run-1": {EndCommit: "aaa1111", Evidence: &waveobj.RunEvidence{
+			Summary: report("fmtDate lives in util/date.ts"),
+			Files:   []waveobj.EvidenceFile{{Path: "util/date.ts", Add: 12, Del: 2}},
+		}},
+		"run-2": {EndCommit: "bbb2222", Evidence: &waveobj.RunEvidence{
+			Summary: report("the header now calls fmtDate"),
+			Files:   []waveobj.EvidenceFile{{Path: "ui/header.tsx", Add: 3, Del: 1}},
+		}},
+	}
+	h := predecessorHandoff(taskByID(g, "t-3"), g, runs)
+	for _, want := range []string{"fmtDate lives in util/date.ts", "the header now calls fmtDate", "bbb2222", "ui/header.tsx", "add fmtDate"} {
+		if !strings.Contains(h, want) {
+			t.Fatalf("handoff missing %q: %q", want, h)
+		}
+	}
+	for _, absent := range []string{"aaa1111", "util/date.ts (+12/-2)", "It reported", "Added it."} {
+		if strings.Contains(h, absent) {
+			t.Fatalf("handoff must not carry %q: %q", absent, h)
+		}
+	}
+}
+
+// a report from before the format: a direct dependency keeps its bounded note, a transitive one adds nothing
+func TestPredecessorHandoffKeepsALegacyDirectNoteOnly(t *testing.T) {
+	g := &waveobj.TaskGroup{Tasks: []waveobj.TaskNode{
+		{ID: "t-1", Label: "add fmtDate", State: TaskState_Done, RunID: "run-1", Merged: true},
+		{ID: "t-2", Label: "use fmtDate", State: TaskState_Done, RunID: "run-2", Merged: true, Deps: []string{"t-1"}},
+		{ID: "t-3", Label: "document it", Deps: []string{"t-2"}},
+	}}
+	runs := map[string]*waveobj.Run{
+		"run-1": {EndCommit: "aaa1111", Evidence: &waveobj.RunEvidence{Summary: "transitive legacy note"}},
+		"run-2": {EndCommit: "bbb2222", Evidence: &waveobj.RunEvidence{Summary: "direct legacy note"}},
+	}
+	h := predecessorHandoff(taskByID(g, "t-3"), g, runs)
+	if !strings.Contains(h, "It reported: direct legacy note") {
+		t.Fatalf("a legacy direct dependency keeps its note: %q", h)
+	}
+	if strings.Contains(h, "transitive legacy note") || strings.Contains(h, "add fmtDate") {
+		t.Fatalf("a legacy transitive ancestor adds nothing: %q", h)
+	}
+}
+
 func TestPredecessorHandoffEmptyWithoutDepsOrCommit(t *testing.T) {
 	g := &waveobj.TaskGroup{Tasks: []waveobj.TaskNode{
 		{ID: "t-1", Label: "dep", State: TaskState_Done, RunID: "run-dep"},

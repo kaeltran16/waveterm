@@ -28,17 +28,21 @@ type WorkerReportSection struct {
 // the keys readers compare against: Done is the one section never sent inline, and a report that predates the
 // format is a single section of its own.
 const (
-	ReportKeyDone         = "done"
-	ReportKeyUnstructured = "unstructured"
+	ReportKeyDone          = "done"
+	ReportKeyDiffers       = "differs"
+	ReportKeyNotVerified   = "not-verified"
+	ReportKeyForLater      = "for-later"
+	ReportKeyFoundNotFixed = "found-not-fixed"
+	ReportKeyUnstructured  = "unstructured"
 )
 
 // WorkerReportSections lists the sections in report order. It is the one place a heading or key is spelled.
 var WorkerReportSections = []WorkerReportSection{
 	{Key: ReportKeyDone, Heading: "Done"},
-	{Key: "differs", Heading: "Differs from plan"},
-	{Key: "not-verified", Heading: "Not verified"},
-	{Key: "for-later", Heading: "For later tasks"},
-	{Key: "found-not-fixed", Heading: "Found not fixed"},
+	{Key: ReportKeyDiffers, Heading: "Differs from plan"},
+	{Key: ReportKeyNotVerified, Heading: "Not verified"},
+	{Key: ReportKeyForLater, Heading: "For later tasks"},
+	{Key: ReportKeyFoundNotFixed, Heading: "Found not fixed"},
 }
 
 // WorkerReportTemplate is the report shape handed to the worker and repeated in the refusal.
@@ -69,13 +73,13 @@ func (r *WorkerReport) field(key string) *string {
 	switch key {
 	case ReportKeyDone:
 		return &r.Done
-	case "differs":
+	case ReportKeyDiffers:
 		return &r.Differs
-	case "not-verified":
+	case ReportKeyNotVerified:
 		return &r.NotVerified
-	case "for-later":
+	case ReportKeyForLater:
 		return &r.ForLater
-	case "found-not-fixed":
+	case ReportKeyFoundNotFixed:
 		return &r.FoundNotFixed
 	}
 	return nil

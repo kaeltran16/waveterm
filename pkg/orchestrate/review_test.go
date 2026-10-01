@@ -255,7 +255,8 @@ func TestReviewPassPrintsTheUnverifiedCaveatWholeAheadOfTheNote(t *testing.T) {
 	}
 }
 
-func TestReviewPassWithDownstreamWakesTheLead(t *testing.T) {
+// with no task after it, a reviewer's note has nobody to reach but the lead
+func TestReviewDownstreamWithNoLaterTaskWakesTheLead(t *testing.T) {
 	ctx, dag, worker := seedReviewDag(t)
 	stubReviewTree(t, worker.EndCommit)
 	captureSpawns(t)
@@ -347,6 +348,9 @@ func TestVerdictsAreRefusedWhenTheyCannotApply(t *testing.T) {
 		}
 		if c.name == "unverified on a fail" && !strings.Contains(err.Error(), "--unverified goes with a pass") {
 			t.Fatalf("a fail's caveat must be refused with the reason, got %v", err)
+		}
+		if c.name == "targets without a note" && err.Error() != forLaterNoneRefusal {
+			t.Fatalf("--for alone with no report to forward must say so, got %v", err)
 		}
 	}
 	// the limit counts runes, not bytes, and a note at it is kept whole
@@ -633,8 +637,265 @@ func TestReviewerBriefCarriesTheWholeReportAndTheUnverifiedFlag(t *testing.T) {
 	if utf8.RuneCountInString(report) != 1500 || !strings.Contains(p, "The worker reported: "+report) {
 		t.Fatalf("the brief must carry the whole %d-rune report, got %q", utf8.RuneCountInString(report), p)
 	}
-	if !strings.Contains(p, "`--unverified \"<what was not verified, and why>\"` when the task asked for a check (a test, a screenshot, a live run) that the diff and the worker's report show was not done") {
+	if !strings.Contains(p, "`--unverified \"<what was not verified, and why>\"` only for a check the task asked for (a test, a screenshot, a live run) that Not verified omits") {
 		t.Fatalf("the brief must say when to use --unverified, got %q", p)
+	}
+}
+
+// the worker's sections reach the lead and later tasks without the reviewer, so it checks them instead of relaying
+func TestReviewerBriefChecksTheReportAndDoesNotRelayIt(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Pending, Deps: []string{"t-0"}})
+	stubReviewTree(t, worker.EndCommit)
+	calls := captureSpawns(t)
+	schedule(t, ctx, dag.OID)
+	if len(*calls) != 1 {
+		t.Fatalf("want the reviewer spawned, got %d spawns", len(*calls))
+	}
+	p := (*calls)[0].prompt
+	for _, want := range []string{
+		"Done matches the diff",
+		"Differs from plan names every departure the diff shows",
+		"Not verified names every check the task asked for that neither the diff nor Done shows done",
+		"already reach the lead and later tasks whole",
+		"`--downstream \"<what a later task must know>\"` only for what For later tasks omits or gets wrong",
+		"`--for <task ids>` alone forwards the worker's For later tasks to the tasks you name",
+		"Tasks not finished yet, which --for can name: t-1 (b).",
+	} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("reviewer brief missing %q:\n%s", want, p)
+		}
+	}
+	if strings.Contains(p, "waits for the lead") {
+		t.Fatalf("the brief must not ask the reviewer to relay through the lead:\n%s", p)
+	}
+}
+
+func TestDescendantsWalksTheReverseClosureInDagOrder(t *testing.T) {
+	diamond := &waveobj.TaskGroup{Tasks: []waveobj.TaskNode{
+		{ID: "t-3", Deps: []string{"t-1", "t-2"}},
+		{ID: "t-0"},
+		{ID: "t-1", Deps: []string{"t-0"}},
+		{ID: "t-2", Deps: []string{"t-0"}},
+		{ID: "t-4"},
+	}}
+	if got := strings.Join(descendants(diamond, "t-0"), ","); got != "t-3,t-1,t-2" {
+		t.Fatalf("diamond from t-0: got %q", got)
+	}
+	if got := strings.Join(descendants(diamond, "t-1"), ","); got != "t-3" {
+		t.Fatalf("diamond from t-1: got %q", got)
+	}
+	chain := &waveobj.TaskGroup{Tasks: []waveobj.TaskNode{
+		{ID: "t-0"},
+		{ID: "t-1", Deps: []string{"t-0"}},
+		{ID: "t-2", Deps: []string{"t-1"}},
+	}}
+	if got := strings.Join(descendants(chain, "t-0"), ","); got != "t-1,t-2" {
+		t.Fatalf("chain from t-0: got %q", got)
+	}
+	if got := descendants(chain, "t-2"); len(got) != 0 {
+		t.Fatalf("the last task has no descendants, got %q", got)
+	}
+}
+
+func setWorkerReport(t *testing.T, ctx context.Context, channelId, runID, report string) {
+	t.Helper()
+	if err := wstore.UpdateRun(ctx, channelId, runID, func(r *waveobj.Run) error {
+		r.Evidence = &waveobj.RunEvidence{Summary: report}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// addRunningTask puts a task with a live worker in a seeded dag and returns its worker's block.
+func addRunningTask(t *testing.T, ctx context.Context, dag *waveobj.TaskGroup, task waveobj.TaskNode) string {
+	t.Helper()
+	other := jarvis.NewRun("other goal", "ws-1", t.TempDir(), nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	other.DagORef = dag.OID
+	if err := wstore.AppendRun(ctx, dag.ChannelId, other); err != nil {
+		t.Fatal(err)
+	}
+	task.State, task.RunID = TaskState_Running, other.ID
+	addTask(t, ctx, dag, task)
+	block := waveobj.MakeORef(waveobj.OType_Block, "11111111-1111-1111-1111-111111111111").String()
+	old := runBlockORefs
+	runBlockORefs = func(_ context.Context, r *waveobj.Run) []string {
+		if r.ID != other.ID {
+			return nil
+		}
+		return []string{block}
+	}
+	restoreAfterStages(t, func() { runBlockORefs = old })
+	return block
+}
+
+// passPlain reviews t-0 and passes it with no note for later tasks, forwarding to the named tasks.
+func passPlain(t *testing.T, ctx context.Context, dag *waveobj.TaskGroup, downstreamFor ...string) {
+	t.Helper()
+	schedule(t, ctx, dag.OID)
+	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate", "", "", downstreamFor); err != nil {
+		t.Fatal(err)
+	}
+	schedule(t, ctx, dag.OID)
+}
+
+const forLaterText = "fmtDate lives in util/date.go"
+
+func passedRow(t *testing.T, f *fakeLead) map[string]any {
+	t.Helper()
+	for _, r := range f.rows {
+		if r["eventkind"] == waveobj.RunEventKindTaskReviewPassed {
+			return r
+		}
+	}
+	t.Fatalf("no task-review-passed row in %v", f.rows)
+	return nil
+}
+
+// a task not started reads its ancestors' For later tasks at dispatch, so nothing is stored on it
+func TestReviewPassLeavesForLaterTasksToPendingDescendantsDispatch(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Pending, Deps: []string{"t-0"}})
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-2", Label: "c", State: TaskState_Pending, Deps: []string{"t-1"}})
+	setWorkerReport(t, ctx, dag.ChannelId, worker.ID, structuredReport("Added fmtDate.", "None", "None", forLaterText, "None"))
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	passPlain(t, ctx, dag)
+	for _, id := range []string{"t-1", "t-2"} {
+		if got := taskNamed(t, ctx, dag.OID, id).LeadNotes; len(got) != 0 {
+			t.Fatalf("%s must read the section at dispatch, not hold a copy, got %q", id, got)
+		}
+	}
+	if _, ok := passedRow(t, f)["forlead"]; ok {
+		t.Fatal("a section that reached later tasks is not the lead's")
+	}
+	PostWake(ctx, dag.ChannelId, dag.RunID, "wake: next")
+	joined := strings.Join(f.sends, "\n")
+	if want := "t-0's For later tasks reached t-1 (at dispatch), t-2 (at dispatch)"; !strings.Contains(joined, want) {
+		t.Fatalf("the lead's next wake must carry %q, got %q", want, f.sends)
+	}
+	if strings.Contains(joined, forLaterText) {
+		t.Fatalf("the section itself must not reach the lead, got %q", f.sends)
+	}
+}
+
+func TestReviewPassTypesForLaterTasksToARunningDescendant(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	addRunningTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", Deps: []string{"t-0"}})
+	setWorkerReport(t, ctx, dag.ChannelId, worker.ID, structuredReport("Added fmtDate.", "None", "None", forLaterText, "None"))
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	passPlain(t, ctx, dag)
+	want := "t-0 passed review; its worker's For later tasks: " + forLaterText
+	if !strings.Contains(strings.Join(f.sends, "\n"), want) {
+		t.Fatalf("want %q typed to t-1's worker, got %q", want, f.sends)
+	}
+	if got := taskNamed(t, ctx, dag.OID, "t-1").LeadTold; len(got) != 1 || got[0] != want {
+		t.Fatalf("the typed section must be recorded as the engine's, got %q", got)
+	}
+}
+
+func TestReviewPassForLaterTasksSkipsADescendantWaitingOnAQuestion(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	block := addRunningTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", Deps: []string{"t-0"}})
+	setWorkerReport(t, ctx, dag.ChannelId, worker.ID, structuredReport("Added fmtDate.", "None", "None", forLaterText, "None"))
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	agentask.GlobalRegistry.Set(block, agentask.PendingAsk{AskId: "a1", BlockId: "11111111-1111-1111-1111-111111111111"})
+	passPlain(t, ctx, dag)
+	if got := taskNamed(t, ctx, dag.OID, "t-1").LeadTold; len(got) != 0 {
+		t.Fatalf("nothing may be typed into a worker's open question, got %q", got)
+	}
+	joined := strings.Join(f.sends, "\n")
+	want := "wake: task t-0 passed review; its worker's For later tasks (not delivered to t-1, which is waiting on a question): " + forLaterText + ". wsh jarvis dag status"
+	if !strings.Contains(joined, want) {
+		t.Fatalf("want %q, got %q", want, f.sends)
+	}
+}
+
+// with no task after it the section is the lead's, beside the other sections it acts on
+func TestReviewPassWithNoDescendantPostsForLaterTasksToTheLead(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Done})
+	setWorkerReport(t, ctx, dag.ChannelId, worker.ID, structuredReport("Added fmtDate.", "Used time.Format.", "None", forLaterText, "None"))
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	passPlain(t, ctx, dag)
+	if got := passedRow(t, f)["forlead"]; got != true {
+		t.Fatalf("the pass row must say the section went to the lead, got %v", got)
+	}
+	want := "Unverified:\nt-0 Differs from plan: Used time.Format.\nt-0 For later tasks: " + forLaterText
+	if !strings.Contains(strings.Join(f.sends, "\n"), want) {
+		t.Fatalf("want %q, got %q", want, f.sends)
+	}
+}
+
+// --for alone names tasks off the plan's edges; they get the worker's section through the same delivery
+func TestReviewForAloneForwardsForLaterTasksToANonDescendant(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Pending})
+	setWorkerReport(t, ctx, dag.ChannelId, worker.ID, structuredReport("Added fmtDate.", "None", "None", forLaterText, "None"))
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	passPlain(t, ctx, dag, "t-1")
+	if got := taskNamed(t, ctx, dag.OID, "t-1").LeadNotes; len(got) != 1 || got[0] != "t-0's worker, For later tasks: "+forLaterText {
+		t.Fatalf("want the section in t-1's prompt, got %q", got)
+	}
+	if _, ok := passedRow(t, f)["forlead"]; ok {
+		t.Fatal("a section forwarded with --for is not the lead's")
+	}
+}
+
+const forLaterNoneRefusal = "the worker's For later tasks is None; give --downstream with what they must know"
+
+func TestReviewForAloneIsRefusedWithNothingToForward(t *testing.T) {
+	for _, c := range []struct{ name, report string }{
+		{"a None section", structuredReport("Added fmtDate.", "None", "None", "None", "None")},
+		{"a legacy report", "Added fmtDate; util/date.go has it."},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, dag, worker := seedReviewDag(t)
+			addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Pending})
+			setWorkerReport(t, ctx, dag.ChannelId, worker.ID, c.report)
+			stubReviewTree(t, worker.EndCommit)
+			captureSpawns(t)
+			schedule(t, ctx, dag.OID)
+			reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
+			err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate", "", "", []string{"t-1"})
+			if err == nil || err.Error() != forLaterNoneRefusal {
+				t.Fatalf("want %q, got %v", forLaterNoneRefusal, err)
+			}
+			if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate", "fmtDate lives in util/date.go", "", []string{"t-1"}); err != nil {
+				t.Fatalf("--for with a note stands, got %v", err)
+			}
+		})
+	}
+}
+
+// a reviewer's note follows the plan's edges like the worker's section; it no longer waits for the lead
+func TestReviewDownstreamWithoutForReachesDescendants(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Pending, Deps: []string{"t-0"}})
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-2", Label: "c", State: TaskState_Pending})
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	passWithDownstream(t, ctx, dag)
+	if got := taskNamed(t, ctx, dag.OID, "t-1").LeadNotes; len(got) != 1 || got[0] != "t-0's reviewer: fmtDate lives in util/date.go" {
+		t.Fatalf("want the note in t-1's prompt, got %q", got)
+	}
+	if got := taskNamed(t, ctx, dag.OID, "t-2").LeadNotes; len(got) != 0 {
+		t.Fatalf("a task off the plan's edges gets nothing, got %q", got)
+	}
+	if strings.Contains(strings.Join(f.sends, "\n"), "note for later tasks") {
+		t.Fatalf("a note that reached a descendant must not wake the lead, got %q", f.sends)
 	}
 }
 

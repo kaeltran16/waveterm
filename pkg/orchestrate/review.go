@@ -234,8 +234,21 @@ func applyReviewVerdict(ctx context.Context, g *waveobj.TaskGroup, t *waveobj.Ta
 		t.LeadGuidance = ""
 		line := fmt.Sprintf("%s passed review: %s", taskID, truncateNote(note, handoffMaxSummaryLen))
 		sections := leadSectionLines(taskID, worker)
+		later, named := unfinishedDescendants(g, taskID), t.ReviewDownstreamFor
+		detail := map[string]any{"taskid": taskID, "note": note, "downstream": downstream, "unverified": unverified}
+		rep, _ := workerReportOf(worker)
+		forLater := ""
+		if rep.ForLater != "" {
+			forLater = capSection(taskID, jarvis.ReportKeyForLater, rep.ForLater)
+		}
+		// nobody after this task to read it, so it is the lead's to act on with the rest
+		forLead := forLater != "" && len(later) == 0 && len(named) == 0
+		if forLead {
+			sections = append(sections, fmt.Sprintf("%s %s: %s", taskID, sectionHeading(jarvis.ReportKeyForLater), forLater))
+			detail["forlead"] = true
+		}
 		*afterCommit = append(*afterCommit, func() {
-			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskReviewPassed, nil, map[string]any{"taskid": taskID, "note": note, "downstream": downstream, "unverified": unverified})
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskReviewPassed, nil, detail)
 			PostQuiet(ctx, g.ChannelId, g.RunID, line)
 			// the caveats are what the lead must act on, so they travel whole apart from the recap's cut
 			for _, s := range sections {
@@ -245,8 +258,11 @@ func applyReviewVerdict(ctx context.Context, g *waveobj.TaskGroup, t *waveobj.Ta
 				PostCaveat(ctx, g.ChannelId, g.RunID, fmt.Sprintf("%s reviewer: %s", taskID, flatLine(unverified)))
 			}
 		})
+		if forLater != "" && !forLead {
+			routeForLater(ctx, g, taskID, forLater, later, named, afterCommit)
+		}
 		if downstream != "" {
-			routeDownstream(ctx, g, taskID, downstream, t.ReviewDownstreamFor, afterCommit)
+			routeDownstream(ctx, g, taskID, downstream, unionIDs(later, named), afterCommit)
 		}
 		return
 	}
@@ -264,52 +280,147 @@ func applyReviewVerdict(ctx context.Context, g *waveobj.TaskGroup, t *waveobj.Ta
 	})
 }
 
-// routeDownstream delivers a passed review's note for later tasks to the tasks its reviewer named: into the prompt of one
-// not started, typed to the worker or reviewer of one at work. The lead hears where it went on its next wake; what
-// could not be delivered, and a note that named no task, wakes it to route by hand. The lead was the only relay once,
-// and a note it did not act on never reached the task that needed it (run ad78cbcb).
+// descendants is every task that transitively depends on id, in dag order.
+func descendants(g *waveobj.TaskGroup, id string) []string {
+	in := map[string]bool{id: true}
+	// dag order need not be topological, so sweep until nothing joins
+	for grew := true; grew; {
+		grew = false
+		for i := range g.Tasks {
+			t := &g.Tasks[i]
+			if in[t.ID] {
+				continue
+			}
+			for _, d := range t.Deps {
+				if in[d] {
+					in[t.ID], grew = true, true
+					break
+				}
+			}
+		}
+	}
+	var out []string
+	for i := range g.Tasks {
+		if g.Tasks[i].ID != id && in[g.Tasks[i].ID] {
+			out = append(out, g.Tasks[i].ID)
+		}
+	}
+	return out
+}
+
+// unfinishedDescendants are the descendants a note for later tasks can still reach.
+func unfinishedDescendants(g *waveobj.TaskGroup, id string) []string {
+	var out []string
+	for _, d := range descendants(g, id) {
+		if t := taskByID(g, d); amendable(t.State) || tellRunID(t) != "" {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func unionIDs(a, b []string) []string {
+	out := append([]string{}, a...)
+	for _, id := range b {
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// laterNote is one note for a later task as each delivery spells it.
+type laterNote struct {
+	amend string // joins the prompt of a task not started
+	typed string // is typed to the worker of a task at work
+}
+
+// deliverLater hands a note to one later task: into the prompt of one not started, typed to the worker or reviewer of
+// one at work. It says where the note went, or why it could not go, for the lead.
+func deliverLater(ctx context.Context, g *waveobj.TaskGroup, from, id string, n laterNote, afterCommit *[]func()) (reached, missed string) {
+	target := taskByID(g, id)
+	if target == nil {
+		return "", id + ", which is not in the dag"
+	}
+	if amendable(target.State) {
+		target.LeadNotes = append(target.LeadNotes, n.amend)
+		*afterCommit = append(*afterCommit, func() {
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskAmended, nil, map[string]any{"taskid": id, "text": toldText(n.amend), "from": from})
+		})
+		return id + " (added to its prompt)", ""
+	}
+	if tellRunID(target) == "" {
+		return "", fmt.Sprintf("%s, which is %s", id, target.State)
+	}
+	// typed text and its enter would land in the question's picker and choose for the worker
+	if _, _, asking := taskPendingAsk(ctx, g, target); asking && target.State != TaskState_Reviewing {
+		return "", id + ", which is waiting on a question"
+	}
+	blockId, err := taskTerminal(ctx, g, target)
+	if err != nil {
+		return "", id + ", which has no live terminal"
+	}
+	target.LeadTold = append(target.LeadTold, n.typed)
+	*afterCommit = append(*afterCommit, func() {
+		sendWakeFn(blockId, n.typed)
+		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskLeadTold, nil, map[string]any{"taskid": id, "text": toldText(n.typed), "from": from})
+	})
+	return id + " (typed to its worker)", ""
+}
+
+// routeForLater delivers a passed worker's For later tasks to its unfinished descendants and the tasks its reviewer
+// named. A descendant not started reads it from the report at dispatch (predecessorHandoff), so nothing is stored on it;
+// a named task off the plan's edges has no such read, so the section joins its prompt.
+func routeForLater(ctx context.Context, g *waveobj.TaskGroup, from, section string, later, named []string, afterCommit *[]func()) {
+	heading := sectionHeading(jarvis.ReportKeyForLater)
+	n := laterNote{
+		amend: fmt.Sprintf("%s's worker, %s: %s", from, heading, section),
+		typed: fmt.Sprintf("%s passed review; its worker's %s: %s", from, heading, section),
+	}
+	var reached, missed []string
+	for _, id := range unionIDs(later, named) {
+		if t := taskByID(g, id); t != nil && amendable(t.State) && slices.Contains(later, id) {
+			reached = append(reached, id+" (at dispatch)")
+			continue
+		}
+		r, m := deliverLater(ctx, g, from, id, n, afterCommit)
+		if r != "" {
+			reached = append(reached, r)
+		} else {
+			missed = append(missed, m)
+		}
+	}
+	*afterCommit = append(*afterCommit, func() {
+		if len(reached) > 0 {
+			PostQuiet(ctx, g.ChannelId, g.RunID, fmt.Sprintf("%s's %s reached %s", from, heading, strings.Join(reached, ", ")))
+		}
+		if len(missed) > 0 {
+			PostWake(ctx, g.ChannelId, g.RunID, forLaterMissedWake(from, heading, section, missed))
+		}
+	})
+}
+
+// routeDownstream delivers a passed review's note for later tasks to its targets, the task's unfinished descendants
+// and the tasks its reviewer named. The lead hears where it went on its next wake; what could not be delivered, and a
+// note with no task to reach, wakes it to route by hand. The lead was the only relay once, and a note it did not act
+// on never reached the task that needed it (run ad78cbcb).
 func routeDownstream(ctx context.Context, g *waveobj.TaskGroup, from, note string, targets []string, afterCommit *[]func()) {
 	if len(targets) == 0 {
 		*afterCommit = append(*afterCommit, func() { PostWake(ctx, g.ChannelId, g.RunID, downstreamWake(from, note)) })
 		return
 	}
+	n := laterNote{
+		amend: toldText(from + "'s reviewer: " + note),
+		typed: fmt.Sprintf("%s passed review with a note for your task: %s", from, note),
+	}
 	var reached, missed []string
 	for _, id := range targets {
-		target := taskByID(g, id)
-		if target == nil {
-			missed = append(missed, id+", which is not in the dag")
-			continue
+		r, m := deliverLater(ctx, g, from, id, n, afterCommit)
+		if r != "" {
+			reached = append(reached, r)
+		} else {
+			missed = append(missed, m)
 		}
-		if amendable(target.State) {
-			text := toldText(from + "'s reviewer: " + note)
-			target.LeadNotes = append(target.LeadNotes, text)
-			reached = append(reached, id+" (added to its prompt)")
-			*afterCommit = append(*afterCommit, func() {
-				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskAmended, nil, map[string]any{"taskid": id, "text": text, "from": from})
-			})
-			continue
-		}
-		if tellRunID(target) == "" {
-			missed = append(missed, fmt.Sprintf("%s, which is %s", id, target.State))
-			continue
-		}
-		// typed text and its enter would land in the question's picker and choose for the worker
-		if _, _, asking := taskPendingAsk(ctx, g, target); asking && target.State != TaskState_Reviewing {
-			missed = append(missed, id+", which is waiting on a question")
-			continue
-		}
-		blockId, err := taskTerminal(ctx, g, target)
-		if err != nil {
-			missed = append(missed, id+", which has no live terminal")
-			continue
-		}
-		text := fmt.Sprintf("%s passed review with a note for your task: %s", from, note)
-		target.LeadTold = append(target.LeadTold, text)
-		reached = append(reached, id+" (typed to its worker)")
-		*afterCommit = append(*afterCommit, func() {
-			sendWakeFn(blockId, text)
-			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskLeadTold, nil, map[string]any{"taskid": id, "text": toldText(text), "from": from})
-		})
 	}
 	*afterCommit = append(*afterCommit, func() {
 		if len(reached) > 0 {
@@ -346,8 +457,6 @@ func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, not
 		return fmt.Errorf("--downstream goes with a pass; put what later tasks need in the findings")
 	case verdict == ReviewVerdict_Fail && unverified != "":
 		return fmt.Errorf("--unverified goes with a pass; a fail's findings already say what is missing")
-	case len(downstreamFor) > 0 && downstream == "":
-		return fmt.Errorf("--for names the tasks a --downstream note is for; give the note")
 	}
 	// refused rather than clipped: a clipped note silently drops the findings the next worker must fix
 	for _, n := range []struct{ name, text string }{{"note", note}, {"--downstream note", downstream}, {"--unverified note", unverified}} {
@@ -370,6 +479,16 @@ func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, not
 		targets, err := downstreamTargets(g, t.ID, downstreamFor)
 		if err != nil {
 			return err
+		}
+		// --for alone forwards the worker's For later tasks, so there must be one to forward
+		if len(targets) > 0 && downstream == "" {
+			worker, err := wstore.GetRun(ctx, g.ChannelId, t.RunID)
+			if err != nil {
+				return fmt.Errorf("loading the worker's run %s: %w", t.RunID, err)
+			}
+			if rep, _ := workerReportOf(worker); rep.ForLater == "" {
+				return fmt.Errorf("the worker's %s is None; give --downstream with what they must know", sectionHeading(jarvis.ReportKeyForLater))
+			}
 		}
 		t.ReviewDownstreamFor = targets
 		t.ReviewVerdict = verdict
@@ -428,9 +547,12 @@ func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.
 	b.WriteString(". A worker finished it; judge its change against what the task asked for before it lands.\n")
 	fmt.Fprintf(&b, "The change: `git diff %s..%s` in this directory.\n", task.ReviewBase, worker.EndCommit)
 	b.WriteString("Check it against the task below and the spec: every requirement met, nothing that contradicts the spec, no corners cut (stubs, skipped cases, weakened or deleted tests, TODOs), nothing outside the task's scope. The plan's Verify runs the tests after the merge, so don't run the full suite; run a focused test only to settle a doubt.\n")
+	done, differs := sectionHeading(jarvis.ReportKeyDone), sectionHeading(jarvis.ReportKeyDiffers)
+	notVerified, forLater := sectionHeading(jarvis.ReportKeyNotVerified), sectionHeading(jarvis.ReportKeyForLater)
+	fmt.Fprintf(&b, "Check the worker's report against the diff too: %s matches the diff; %s names every departure the diff shows; %s names every check the task asked for that neither the diff nor %s shows done.\n", done, differs, notVerified, done)
 	b.WriteString("Only read: never edit, stage or commit, and ask no questions, since nobody answers a reviewer.\n")
 	b.WriteString("Finish with exactly one command, which ends your session:\n")
-	b.WriteString("- `wsh jarvis dag review pass \"<one paragraph: what landed>\"`, adding `--downstream \"<what a later task must know>\" --for <task ids>` when the change affects later tasks (a renamed API, a plan assumption that turned out wrong). The engine hands the note to the tasks you name; without --for it waits for the lead. Also add `--unverified \"<what was not verified, and why>\"` when the task asked for a check (a test, a screenshot, a live run) that the diff and the worker's report show was not done: the lead reads it whole, ahead of your note;\n")
+	fmt.Fprintf(&b, "- `wsh jarvis dag review pass \"<one paragraph: what landed>\"`. The worker's report sections already reach the lead and later tasks whole (%s to every unfinished task that depends on this one), so don't restate them. Add `--unverified \"<what was not verified, and why>\"` only for a check the task asked for (a test, a screenshot, a live run) that %s omits: the lead reads it whole, ahead of your note. Add `--downstream \"<what a later task must know>\"` only for what %s omits or gets wrong (a renamed API, a plan assumption that turned out wrong): the engine hands it to the tasks that depend on this one, and to the tasks `--for <task ids>` names. `--for <task ids>` alone forwards the worker's %s to the tasks you name;\n", forLater, notVerified, forLater, forLater)
 	b.WriteString("- `wsh jarvis dag review fail \"<findings: each problem, where it is, and the fix>\"`.\n")
 	fmt.Fprintf(&b, "Keep each note within %d characters; a longer one is refused.\n", MaxReviewNoteLen)
 	if ahead := tasksAhead(g, task.ID); ahead != "" {

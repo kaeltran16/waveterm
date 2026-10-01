@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -741,15 +742,30 @@ const (
 // project branch the dependent's tree branches from (depSatisfied).
 // Evidence can still be nil — cleanup or the seal may have failed and the backfill retries — so the
 // files and the note degrade to the commit line alone.
+//
+// Every done ancestor, not only a direct dependency, adds its report's For later tasks: that section is where a
+// worker writes what a later task must know, and this read at dispatch is how a task not started when the
+// ancestor passed review gets it. A report from before the format keeps its bounded note, for a direct
+// dependency only.
 func predecessorHandoff(task *waveobj.TaskNode, g *waveobj.TaskGroup, runs map[string]*waveobj.Run) string {
 	var b strings.Builder
-	for _, depID := range task.Deps {
+	heading := sectionHeading(jarvis.ReportKeyForLater)
+	for _, depID := range ancestors(g, task) {
 		dep := taskByID(g, depID)
 		if dep == nil || dep.RunID == "" {
 			continue
 		}
 		depRun := runs[dep.RunID]
-		if depRun == nil || depRun.EndCommit == "" {
+		if depRun == nil {
+			continue
+		}
+		rep, unstructured := workerReportOf(depRun)
+		forLater := ""
+		if rep.ForLater != "" {
+			forLater = capSection(dep.ID, jarvis.ReportKeyForLater, rep.ForLater)
+		}
+		landed := slices.Contains(task.Deps, depID) && depRun.EndCommit != ""
+		if !landed && forLater == "" {
 			continue
 		}
 		if b.Len() == 0 {
@@ -758,6 +774,11 @@ func predecessorHandoff(task *waveobj.TaskNode, g *waveobj.TaskGroup, runs map[s
 		label := dep.Label
 		if label == "" {
 			label = dep.ID
+		}
+		if !landed {
+			fmt.Fprintf(&b, "\n- %s (task %s), which this one builds on through its dependencies:\n", label, dep.ID)
+			fmt.Fprintf(&b, "  Its %s: %s\n", heading, indentLines(forLater, "  "))
+			continue
 		}
 		fmt.Fprintf(&b, "\n- %s (task %s) landed as commit %s — inspect it with `git show --stat %s`.\n", label, dep.ID, depRun.EndCommit, depRun.EndCommit)
 		if depRun.Evidence == nil {
@@ -777,11 +798,42 @@ func predecessorHandoff(task *waveobj.TaskNode, g *waveobj.TaskGroup, runs map[s
 			}
 			b.WriteString("\n")
 		}
-		if note := truncateNote(depRun.Evidence.Summary, handoffMaxSummaryLen); note != "" {
+		if forLater != "" {
+			fmt.Fprintf(&b, "  Its %s: %s\n", heading, indentLines(forLater, "  "))
+		} else if note := truncateNote(unstructured, handoffMaxSummaryLen); note != "" {
 			fmt.Fprintf(&b, "  It reported: %s\n", note)
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// ancestors is every task a task transitively depends on, in dag order.
+func ancestors(g *waveobj.TaskGroup, task *waveobj.TaskNode) []string {
+	in := map[string]bool{}
+	queue := append([]string{}, task.Deps...)
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if in[id] || id == task.ID {
+			continue
+		}
+		in[id] = true
+		if t := taskByID(g, id); t != nil {
+			queue = append(queue, t.Deps...)
+		}
+	}
+	var out []string
+	for i := range g.Tasks {
+		if in[g.Tasks[i].ID] {
+			out = append(out, g.Tasks[i].ID)
+		}
+	}
+	return out
+}
+
+// indentLines indents every line after the first, so a multi-line section stays under its bullet.
+func indentLines(s, indent string) string {
+	return strings.ReplaceAll(s, "\n", "\n"+indent)
 }
 
 // truncateNote collapses a child's closing note to one bounded run of text. A worker's final message

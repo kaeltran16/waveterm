@@ -164,6 +164,11 @@ func downstreamMissedWake(taskID, note string, missed []string) string {
 	return fmt.Sprintf("wake: task %s passed review with a note for later tasks (not delivered to %s): %s. wsh jarvis dag status", taskID, strings.Join(missed, "; "), flatLine(note))
 }
 
+// forLaterMissedWake hands the lead a passed worker's section for later tasks that the engine could not deliver, with why.
+func forLaterMissedWake(taskID, heading, section string, missed []string) string {
+	return fmt.Sprintf("wake: task %s passed review; its worker's %s (not delivered to %s): %s. wsh jarvis dag status", taskID, heading, strings.Join(missed, "; "), flatLine(section))
+}
+
 // flatLine joins a note onto one line, since a wake or quiet line is typed as one.
 func flatLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
