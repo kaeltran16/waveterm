@@ -409,17 +409,17 @@ func recordFinalLocked(ctx, spawnCtx context.Context, dagID string, owner *waveo
 		if res.onStage && !held && f.VerifierRunID != "" {
 			stopReviewer(ctx, g, f.VerifierRunID, &afterCommit)
 		}
-		finishFinal(g, false, &afterCommit)
+		finishFinal(ctx, g, false, &afterCommit)
 		releaseFinalTree(g, owner, &afterCommit)
 	case !res.onStage:
 		f.State = FinalState_Verifying
 		startVerifier(ctx, spawnCtx, g, owner, &afterCommit)
 	case held:
 		applyFinalVerdict(f, verdict)
-		finishFinal(g, true, &afterCommit)
+		finishFinal(ctx, g, true, &afterCommit)
 		releaseFinalTree(g, owner, &afterCommit)
 	case verifierGaveUp(f):
-		finishFinal(g, false, &afterCommit)
+		finishFinal(ctx, g, false, &afterCommit)
 		releaseFinalTree(g, owner, &afterCommit)
 	default:
 		// the verifier alongside has not given its verdict; RecordFinalVerdict ends the stage on it
@@ -443,7 +443,7 @@ var startVerifier = startVerifierSession
 // With no tree there is nothing for it to read, and why is already an unverified reason, so the stage ends on it.
 func startVerifierSession(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, afterCommit *[]func()) {
 	if g.Final.Tree == "" {
-		finishFinal(g, false, afterCommit)
+		finishFinal(ctx, g, false, afterCommit)
 		return
 	}
 	tendVerifier(ctx, spawnCtx, g, owner, time.Now().UnixMilli(), afterCommit)
@@ -454,11 +454,11 @@ const finalVerifyWhere = "in the final stage's Verify on the merged result"
 
 // finishFinal decides the stage's outcome: failed on a Detail, unverified when anything could not be verified,
 // else passed. The tests a merge Verify reported flaky and a plan with no Verify are reasons too, since nothing
-// checked them cleanly. The reviewers' caveats are reasons only when no verifier judged the result: the verifier
-// is briefed with them, so its verdict, and its own --unverified, already answer them. A done outcome wakes the
+// checked them cleanly. The tasks' caveats (taskCaveats) are reasons only when no verifier judged the result: the
+// verifier is briefed with them, so its verdict, and its own --unverified, already answer them. A done outcome wakes the
 // lead from the tick that announces the dag done; a failure wakes it here, with the Detail whole, because the fix
 // plan is written from it.
-func finishFinal(g *waveobj.TaskGroup, judged bool, afterCommit *[]func()) {
+func finishFinal(ctx context.Context, g *waveobj.TaskGroup, judged bool, afterCommit *[]func()) {
 	f := g.Final
 	// a batch's tips each keep the one Verify's output
 	seen := map[string]bool{}
@@ -473,10 +473,8 @@ func finishFinal(g *waveobj.TaskGroup, judged bool, afterCommit *[]func()) {
 			}
 		}
 	}
-	for _, t := range g.Tasks {
-		if !judged && t.ReviewUnverified != "" {
-			f.Unverified = append(f.Unverified, t.ID+": "+t.ReviewUnverified)
-		}
+	if !judged {
+		f.Unverified = append(f.Unverified, dagCaveatLines(ctx, g)...)
 	}
 	if g.Verify == "" {
 		f.Unverified = append(f.Unverified, "the plan has no Verify")
@@ -502,7 +500,7 @@ func finishFinal(g *waveobj.TaskGroup, judged bool, afterCommit *[]func()) {
 // settleFinalLocked ends a stage whose outcome is decided and persists the dag: the verifier's verdict (judged)
 // and a human's end both finish through it. The caller holds the dag mutation lock and runs afterCommit after it.
 func settleFinalLocked(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, judged bool, afterCommit *[]func()) error {
-	finishFinal(g, judged, afterCommit)
+	finishFinal(ctx, g, judged, afterCommit)
 	releaseFinalTree(g, owner, afterCommit)
 	RecomputeDagStatus(g)
 	return persistDag(ctx, g)

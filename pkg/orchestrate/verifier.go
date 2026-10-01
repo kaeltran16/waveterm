@@ -29,7 +29,7 @@ const fixRoundPrefix = "Fix round "
 func tendVerifier(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, now int64, afterCommit *[]func()) {
 	f := g.Final
 	session := func() StageSession {
-		return StageSession{Role: jarvis.UsageRole_Verifier, Label: "final verifier", Tree: f.Tree, Prompt: verifierPrompt(g, owner)}
+		return StageSession{Role: jarvis.UsageRole_Verifier, Label: "final verifier", Tree: f.Tree, Prompt: verifierPrompt(ctx, g, owner)}
 	}
 	reason := tendStageSession(ctx, spawnCtx, g, owner, session, &f.VerifierRunID, &f.StartedTs, &f.Respawns, now, afterCommit)
 	if reason == "" {
@@ -39,13 +39,13 @@ func tendVerifier(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *wa
 	if f.State == FinalState_Checking {
 		return
 	}
-	finishFinal(g, false, afterCommit)
+	finishFinal(ctx, g, false, afterCommit)
 	releaseFinalTree(g, owner, afterCommit)
 }
 
 // verifierPrompt is the verifier's brief. It reads the docs in the final tree, where a branch-landed dag
 // committed them at submit.
-func verifierPrompt(g *waveobj.TaskGroup, owner *waveobj.Run) string {
+func verifierPrompt(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run) string {
 	f := g.Final
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are the final verifier for run %s. Every task has landed; judge the combined result in this tree, %s, before the run is done.\n", g.RunID, f.Tree)
@@ -94,13 +94,7 @@ func verifierPrompt(g *waveobj.TaskGroup, owner *waveobj.Run) string {
 		// a canvas is usually a gitignored mockup, so it is in the checkout, not in the final tree
 		fmt.Fprintf(&b, "The design canvas is at %s. Compare each screenshot to its board structurally: which elements are there, their order, their copy, and the controls at that width. Do not compare pixels: the data in the screenshots is invented.\n", DocPath(g, owner.ProjectPath, g.Prototype))
 	}
-	var notes []string
-	for _, t := range g.Tasks {
-		if t.ReviewUnverified != "" {
-			notes = append(notes, t.ID+": "+t.ReviewUnverified)
-		}
-	}
-	notes = append(notes, f.Unverified...)
+	notes := append(dagCaveatLines(ctx, g), f.Unverified...)
 	if len(notes) > 0 {
 		b.WriteString("Earlier checks could not verify these; check them here where you can:\n")
 		for _, n := range notes {

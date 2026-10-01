@@ -5,7 +5,6 @@ package orchestrate
 
 import (
 	"encoding/json"
-	"sort"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
@@ -60,7 +59,7 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 	d.Shape = PlanShapeOf(g.Tasks)
 	d.Final = g.Final
 	d.Lanes = jarvis.Lanes(g.Tasks)
-	d.Told = toldMessages(sn.Retained)
+	d.Told = jarvis.TallyDagEvents(sn.Retained).Told
 	runByID := map[string]*waveobj.Run{}
 	for _, r := range sn.Runs {
 		if r != nil {
@@ -709,58 +708,33 @@ func buildDurations(sn DagDigestSnapshot) wshrpc.DagDurationDigest {
 }
 
 // buildReport gathers the run-end numbers. Worker time sums the per-task run time already derived for
-// Durations, so the two cannot disagree.
+// Durations, and the counts are the sealed record's own tally, so neither can disagree.
 func buildReport(sn DagDigestSnapshot, durations wshrpc.DagDurationDigest) wshrpc.DagReportDigest {
 	g := sn.Group
 	r := wshrpc.DagReportDigest{Unverified: !g.MergeRequired || g.Verify == "", Usage: g.Usage}
 	for _, td := range durations.Tasks {
 		r.WorkerMs += td.RunMs
 	}
-	endCommit := map[string]string{}
+	runByID := map[string]*waveobj.Run{}
 	for _, run := range sn.Runs {
 		if run != nil {
-			endCommit[run.ID] = run.EndCommit
+			runByID[run.ID] = run
 		}
 	}
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
+		worker := runByID[t.RunID]
 		// a lane lands one squash commit, recorded on its tip; earlier tasks keep the commits they reported
-		if c := endCommit[t.RunID]; t.Merged && c != "" && laneTip(g, laneOf(g, t.ID)).ID == t.ID {
-			r.Commits = append(r.Commits, wshrpc.DagLandedCommit{TaskId: t.ID, Commit: c})
+		if t.Merged && worker != nil && worker.EndCommit != "" && laneTip(g, laneOf(g, t.ID)).ID == t.ID {
+			r.Commits = append(r.Commits, wshrpc.DagLandedCommit{TaskId: t.ID, Commit: worker.EndCommit})
 		}
-		if t.ReviewUnverified != "" {
-			r.UnverifiedNotes = append(r.UnverifiedNotes, wshrpc.DagUnverifiedNote{TaskId: t.ID, Text: t.ReviewUnverified})
-		}
-	}
-	for _, ev := range sn.Retained {
-		switch ev.Kind {
-		case waveobj.RunEventKindChildAnswered:
-			r.Answered++
-		case waveobj.RunEventKindTaskForwarded:
-			r.Forwarded++
+		for _, c := range taskCaveats(t, worker) {
+			r.UnverifiedNotes = append(r.UnverifiedNotes, wshrpc.DagUnverifiedNote{TaskId: t.ID, Text: c})
 		}
 	}
+	tally := jarvis.TallyDagEvents(sn.Retained)
+	r.Answered, r.Forwarded = tally.Answered, tally.Forwarded
 	return r
-}
-
-// toldMessages is what the human typed to the workers, read from the retained task-told rows, oldest first.
-func toldMessages(retained []waveobj.RunEvent) []wshrpc.DagTold {
-	var out []wshrpc.DagTold
-	for _, ev := range retained {
-		if ev.Kind != waveobj.RunEventKindTaskTold {
-			continue
-		}
-		var d struct {
-			TaskId string `json:"taskid"`
-			Text   string `json:"text"`
-		}
-		if json.Unmarshal(ev.Detail, &d) != nil || d.Text == "" {
-			continue
-		}
-		out = append(out, wshrpc.DagTold{TaskId: d.TaskId, Ts: ev.Ts, Text: d.Text})
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Ts < out[j].Ts })
-	return out
 }
 
 // taskDuration derives one task's duration row. Tasks without a child run and without merge/cleanup

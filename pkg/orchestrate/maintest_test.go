@@ -47,7 +47,7 @@ func skipVerifier(_, _ context.Context, g *waveobj.TaskGroup, owner *waveobj.Run
 		holdFinalVerdict(g.OID, finalVerdict{round: g.Final.Round, verdict: ReviewVerdict_Pass, text: "skipped"})
 		return
 	}
-	finishFinal(g, true, afterCommit)
+	finishFinal(context.Background(), g, true, afterCommit)
 	releaseFinalTree(g, owner, afterCommit)
 }
 

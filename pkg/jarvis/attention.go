@@ -49,6 +49,7 @@ const (
 const (
 	taskStateDone          = "done"
 	taskStateSkipped       = "skipped"
+	taskStateFailed        = "failed"
 	taskStatePending       = "pending"
 	taskStateReviewFailed  = "review-failed"
 	maxConsecutiveFailures = 3 // mirrors orchestrate.MaxConsecutiveFailures

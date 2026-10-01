@@ -4,11 +4,15 @@
 package orchestrate
 
 import (
+	"context"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func TestCapSectionLeavesTextAtOrUnderTheLimit(t *testing.T) {
@@ -67,4 +71,56 @@ func TestWorkerReportOfIsEmptyForANilRunOrEvidence(t *testing.T) {
 			t.Fatalf("want no lines, got %q", lines)
 		}
 	}
+}
+
+func TestTaskCaveatsListTheWorkersThenTheReviewers(t *testing.T) {
+	done := &waveobj.TaskNode{ID: "t-1", State: TaskState_Done, ReviewUnverified: "no screenshot"}
+	structured := &waveobj.Run{Evidence: &waveobj.RunEvidence{Summary: caveatTestReport}}
+	legacy := &waveobj.Run{Evidence: &waveobj.RunEvidence{Summary: " Added fmtDate. \n"}}
+	cases := []struct {
+		name   string
+		task   *waveobj.TaskNode
+		worker *waveobj.Run
+		want   []string
+	}{
+		{"structured", done, structured, []string{"The CRLF path has no test.", "reviewer: no screenshot"}},
+		{"legacy", done, legacy, []string{"Added fmtDate.", "reviewer: no screenshot"}},
+		{"no worker run", done, nil, []string{"reviewer: no screenshot"}},
+		{"nothing unverified", &waveobj.TaskNode{ID: "t-1", State: TaskState_Done}, &waveobj.Run{Evidence: &waveobj.RunEvidence{Summary: digestTestReport}}, nil},
+		{"did not land", &waveobj.TaskNode{ID: "t-1", State: TaskState_Skipped, ReviewUnverified: "x"}, structured, nil},
+	}
+	for _, c := range cases {
+		if got := taskCaveats(c.task, c.worker); !slices.Equal(got, c.want) {
+			t.Errorf("%s: want %q, got %q", c.name, c.want, got)
+		}
+	}
+}
+
+// caveatDag stores a landed dag whose workers left caveats: t-1 a structured report and a reviewer's addition, t-2
+// a legacy report, t-3 skipped. The final stage and the verifier read the workers' runs from the store.
+func caveatDag(t *testing.T) (context.Context, *waveobj.TaskGroup) {
+	t.Helper()
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "caveats-"+uuid.NewString(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, summary := range map[string]string{"w-1": caveatTestReport, "w-2": "Added fmtDate; did not run the e2e.", "w-3": caveatTestReport} {
+		run := waveobj.Run{ID: id + "-" + ch.OID, Status: jarvis.RunStatus_Done, Evidence: &waveobj.RunEvidence{Summary: summary}}
+		if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g := &waveobj.TaskGroup{RunID: "run-1", ChannelId: ch.OID, Tasks: []waveobj.TaskNode{
+		{ID: "t-1", Label: "a", State: TaskState_Done, RunID: "w-1-" + ch.OID, ReviewUnverified: "no screenshot"},
+		{ID: "t-2", Label: "b", State: TaskState_Done, RunID: "w-2-" + ch.OID},
+		{ID: "t-3", Label: "c", State: TaskState_Skipped, RunID: "w-3-" + ch.OID},
+	}}
+	return ctx, g
+}
+
+var caveatDagLines = []string{
+	"t-1: The CRLF path has no test.",
+	"t-1: reviewer: no screenshot",
+	"t-2: Added fmtDate; did not run the e2e.",
 }

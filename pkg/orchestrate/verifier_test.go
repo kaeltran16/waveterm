@@ -4,6 +4,7 @@
 package orchestrate
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -82,7 +83,7 @@ func TestTheVerifierJudgesTheMergedResultOnceTheStepsPass(t *testing.T) {
 		"`git diff " + base + ".." + g.Final.Commit + "`",
 		g.Final.OutDir,
 		filepath.Join(f.project, ".superpowers/design/board.dc.html"),
-		"t-0: the empty state was not screenshotted",
+		"t-0: reviewer: the empty state was not screenshotted",
 		"structurally: which elements are there, their order, their copy, and the controls at that width",
 		"Do not compare pixels",
 		"allowed, when the spec's Deviations section lists it, or as a defect",
@@ -205,12 +206,27 @@ func TestAFixRoundVerifierIsToldTheFixTasks(t *testing.T) {
 			{ID: "t-2", Label: "fix order", Description: "Fix round 2: this is task 1 of the fix plan at docs/fix.md; re-read it there before you start."},
 		},
 	}
-	p := verifierPrompt(g, &waveobj.Run{ProjectPath: "/project"})
+	p := verifierPrompt(context.Background(), g, &waveobj.Run{ProjectPath: "/project"})
 	if !strings.Contains(p, "This is fix round 2") || !strings.Contains(p, "- t-2 fix order: Fix round 2: this is task 1 of the fix plan at docs/fix.md\n") || strings.Contains(p, "t-1 build") {
 		t.Fatalf("the brief must name the fix tasks and their plan, and only them:\n%s", p)
 	}
-	if first := verifierPrompt(&waveobj.TaskGroup{Final: &waveobj.FinalStage{Round: 1}}, &waveobj.Run{}); strings.Contains(first, "fix round") {
+	if first := verifierPrompt(context.Background(), &waveobj.TaskGroup{Final: &waveobj.FinalStage{Round: 1}}, &waveobj.Run{}); strings.Contains(first, "fix round") {
 		t.Fatalf("a first round has no fix tasks:\n%s", first)
+	}
+}
+
+// the verifier checks what the workers and their reviewers could not, then what the stage's own steps could not
+func TestTheVerifierBriefListsTheTasksCaveats(t *testing.T) {
+	ctx, g := caveatDag(t)
+	g.Final = &waveobj.FinalStage{Round: 1, Tree: "/tree", Unverified: []string{"no dev app: cargo missing"}}
+	prompt := verifierPrompt(ctx, g, &waveobj.Run{})
+	var want strings.Builder
+	want.WriteString("Earlier checks could not verify these; check them here where you can:\n")
+	for _, l := range append(slices.Clone(caveatDagLines), "no dev app: cargo missing") {
+		want.WriteString("- " + l + "\n")
+	}
+	if !strings.Contains(prompt, want.String()) {
+		t.Fatalf("the brief must list\n%s\ngot:\n%s", want.String(), prompt)
 	}
 }
 
@@ -230,7 +246,7 @@ func TestTheVerifierBriefNamesWhatPassedAndItsBudget(t *testing.T) {
 		RunID: "run-1", Check: "go vet ./...", Verify: "node scripts/verify.mjs ./pkg/...", FinalCmd: "node scripts/cdp/final-verify.mjs",
 		Final: &waveobj.FinalStage{Round: 1, Tree: "/tree", Commit: "0123456789abcdef", OutDir: "/out"},
 	}
-	prompt := verifierPrompt(g, &waveobj.Run{BaseCommit: "base"})
+	prompt := verifierPrompt(context.Background(), g, &waveobj.Run{BaseCommit: "base"})
 	for _, want := range []string{
 		"Before you started, the engine ran Check `go vet ./...`, Verify `node scripts/verify.mjs ./pkg/...` and Final `node scripts/cdp/final-verify.mjs` on `0123456`, and they passed, apart from anything listed below as not verified. Do not run them again.",
 		verifierSuiteGuidance,
@@ -244,7 +260,7 @@ func TestTheVerifierBriefNamesWhatPassedAndItsBudget(t *testing.T) {
 
 func TestTheVerifierBriefNamesNoCommandsWhenThePlanHasNone(t *testing.T) {
 	g := &waveobj.TaskGroup{RunID: "run-1", Final: &waveobj.FinalStage{Round: 1, Tree: "/tree", Commit: "0123456789abcdef"}}
-	prompt := verifierPrompt(g, &waveobj.Run{})
+	prompt := verifierPrompt(context.Background(), g, &waveobj.Run{})
 	if strings.Contains(prompt, "the engine ran") || strings.Contains(prompt, "Do not run them again") {
 		t.Fatalf("a plan with no commands ran none:\n%s", prompt)
 	}
@@ -258,7 +274,7 @@ func TestTheVerifierBriefNamesNoCommandsWhenThePlanHasNone(t *testing.T) {
 
 func TestTheVerifierBriefNamesOnlyThePlansCommands(t *testing.T) {
 	g := &waveobj.TaskGroup{RunID: "run-1", Verify: "task test", Final: &waveobj.FinalStage{Round: 1, Tree: "/tree", Commit: "0123456789abcdef"}}
-	prompt := verifierPrompt(g, &waveobj.Run{})
+	prompt := verifierPrompt(context.Background(), g, &waveobj.Run{})
 	if !strings.Contains(prompt, "the engine ran Verify `task test` on `0123456`") || strings.Contains(prompt, "Check `") {
 		t.Fatalf("only the plan's own commands are named:\n%s", prompt)
 	}

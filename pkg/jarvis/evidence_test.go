@@ -956,6 +956,110 @@ func TestSealEvidenceRecordsTheFinalStageOutcome(t *testing.T) {
 	}
 }
 
+func structuredReport(differs, notVerified, forLater, foundNotFixed string) string {
+	return "## Done\nlanded it\n\n## Differs from plan\n" + differs + "\n\n## Not verified\n" + notVerified +
+		"\n\n## For later tasks\n" + forLater + "\n\n## Found not fixed\n" + foundNotFixed + "\n"
+}
+
+// the record is what the workers reported, by task, whole: the lead's 2500-rune cap is for prompts, not this
+func TestSealEvidenceRecordsTheDagsTasks(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "dag-record", "/p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerID, dagID := uuid.NewString(), uuid.NewString()
+	w1, w2, w3, w4, w5 := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	long := strings.TrimSpace(strings.Repeat("é the timeout path has no test\n", 120))
+	if n := len([]rune(long)); n <= 2500 {
+		t.Fatalf("the fixture must run past the cap, it is %d runes", n)
+	}
+	workers := []waveobj.Run{
+		{ID: w1, TaskId: "t-1", EndCommit: "c1", Evidence: &waveobj.RunEvidence{Summary: structuredReport("Put it in util/date.go.", long, "Call fmtDate, not Format.", "TestOld fails on main.")}},
+		{ID: w2, TaskId: "t-2", EndCommit: "c2", Evidence: &waveobj.RunEvidence{Summary: "Added fmtDate and its tests.\nAll green."}},
+		{ID: w3, TaskId: "t-3", Evidence: &waveobj.RunEvidence{Summary: structuredReport("None", "None", "None", "None")}},
+		{ID: w4, TaskId: "t-4"},
+		{ID: w5, TaskId: "t-5", EndCommit: "c5", Evidence: &waveobj.RunEvidence{Summary: structuredReport("None", "None", "Use the new helper.", "None")}},
+	}
+	for _, w := range workers {
+		w.DagORef, w.Status = dagID, RunStatus_Done
+		if err := wstore.AppendRun(ctx, ch.OID, w); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g := &waveobj.TaskGroup{OID: dagID, RunID: ownerID, ChannelId: ch.OID, Tasks: []waveobj.TaskNode{
+		{ID: "t-1", Label: "dates", State: "done", RunID: w1, ReviewRound: 1, ReviewUnverified: "no screenshot of the card"},
+		{ID: "t-2", Label: "legacy", State: "skipped", RunID: w2, CleanupError: "worktree locked"},
+		{ID: "t-3", Label: "broke", State: "failed", RunID: w3},
+		{ID: "t-4", Label: "still going", State: "running", RunID: w4},
+		{ID: "t-5", Label: "helper", State: "done", RunID: w5},
+	}}
+	g.ID = g.OID
+	if err := wstore.AppendDag(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	// the newest pass decides: t-1's last pass sent For later tasks to the lead, t-5's last one did not
+	for _, ev := range []struct {
+		kind   string
+		detail map[string]any
+	}{
+		{waveobj.RunEventKindTaskReviewPassed, map[string]any{"taskid": "t-1", "forlead": false}},
+		{waveobj.RunEventKindTaskReviewPassed, map[string]any{"taskid": "t-5", "forlead": true}},
+		{waveobj.RunEventKindTaskReviewPassed, map[string]any{"taskid": "t-1", "forlead": true}},
+		{waveobj.RunEventKindTaskReviewPassed, map[string]any{"taskid": "t-5", "forlead": false}},
+		{waveobj.RunEventKindChildAnswered, nil},
+		{waveobj.RunEventKindTaskForwarded, map[string]any{"taskid": "t-1"}},
+		{waveobj.RunEventKindTaskTold, map[string]any{"taskid": "t-5", "text": "stop and commit"}},
+	} {
+		appendVerifyEvent(t, ch.OID, ownerID, ev.kind, ev.detail)
+	}
+	owner := &waveobj.Run{ID: ownerID, OID: ownerID, ChannelOID: ch.OID, DagORef: dagID, Status: RunStatus_Done, ProjectPath: t.TempDir(), CreatedTs: 1000}
+	if err := SealEvidence(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
+	want := &waveobj.EvidenceDag{
+		Tasks: []waveobj.EvidenceDagTask{
+			{TaskId: "t-1", Label: "dates", State: "done", Commit: "c1", ReviewRounds: 1, Differs: "Put it in util/date.go.",
+				NotVerified: long, ReviewerUnverified: "no screenshot of the card", FoundNotFixed: "TestOld fails on main.", ForLead: "Call fmtDate, not Format."},
+			{TaskId: "t-2", Label: "legacy", State: "skipped", Commit: "c2", Unstructured: "Added fmtDate and its tests.\nAll green."},
+			{TaskId: "t-3", Label: "broke", State: "failed"},
+			{TaskId: "t-5", Label: "helper", State: "done", Commit: "c5"},
+		},
+		Answered:   1,
+		Forwarded:  1,
+		Told:       []string{"t-5: stop and commit"},
+		LeftBehind: []string{"t-2"},
+	}
+	if !reflect.DeepEqual(owner.Evidence.Dag, want) {
+		got, _ := json.MarshalIndent(owner.Evidence.Dag, "", "  ")
+		t.Fatalf("dag record:\n%s", got)
+	}
+	if strings.Contains(string(mustJSON(t, owner.Evidence.Dag)), "landed it") {
+		t.Fatalf("Done is never stored in the record")
+	}
+
+	child, err := wstore.GetRun(ctx, ch.OID, w1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.Evidence = nil
+	if err := SealEvidence(ctx, child); err != nil {
+		t.Fatal(err)
+	}
+	if child.Evidence.Dag != nil {
+		t.Fatalf("a worker's run carries no record, got %+v", child.Evidence.Dag)
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
 // verificationCommands scans a transcript for Bash verification calls and pairs each with its result.
 // Deduped by command (last result wins). Order preserved by first appearance.
 func verificationCommands(lines []string) []waveobj.EvidenceVerif {

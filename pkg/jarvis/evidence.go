@@ -465,6 +465,82 @@ func dagVerification(ctx context.Context, run *waveobj.Run) (*waveobj.RunVerific
 	return nil, nil
 }
 
+// dagRecord is the dag owner's account of its tasks, snapshotted so a later change to the dag cannot rewrite it.
+// Sections are whole: this is the record, not a prompt. Done is left out; `wsh jarvis dag report` reads it. A
+// worker's run gets none, and read errors fail the seal, as dagVerifs' do.
+func dagRecord(ctx context.Context, run *waveobj.Run) (*waveobj.EvidenceDag, error) {
+	if run.DagORef == "" || run.TaskId != "" {
+		return nil, nil
+	}
+	g, err := wstore.GetDag(ctx, run.DagORef)
+	if errors.Is(err, wstore.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("evidence: loading dag %s: %w", run.DagORef, err)
+	}
+	if g.RunID != run.ID {
+		return nil, nil
+	}
+	kinds := []string{waveobj.RunEventKindChildAnswered, waveobj.RunEventKindTaskForwarded, waveobj.RunEventKindTaskTold, waveobj.RunEventKindTaskReviewPassed}
+	events, err := wstore.QueryRunEventsByKind(ctx, run.ChannelOID, run.ID, kinds, 0)
+	if err != nil {
+		return nil, fmt.Errorf("evidence: reading the dag's events: %w", err)
+	}
+	tally := TallyDagEvents(events)
+	rec := &waveobj.EvidenceDag{Answered: tally.Answered, Forwarded: tally.Forwarded}
+	for _, m := range tally.Told {
+		rec.Told = append(rec.Told, m.TaskId+": "+m.Text)
+	}
+	// the newest pass decides whether For later tasks went to the lead: a sendback's later pass may route it elsewhere
+	forLead := map[string]bool{}
+	for _, ev := range events { // newest first
+		var d struct {
+			TaskId  string `json:"taskid"`
+			ForLead bool   `json:"forlead"`
+		}
+		if ev.Kind != waveobj.RunEventKindTaskReviewPassed || json.Unmarshal(ev.Detail, &d) != nil || d.TaskId == "" {
+			continue
+		}
+		if _, seen := forLead[d.TaskId]; !seen {
+			forLead[d.TaskId] = d.ForLead
+		}
+	}
+	workers := map[string]*waveobj.Run{}
+	for _, r := range DagChildRuns(ctx, run.ChannelOID, run.DagORef, run.ID) {
+		workers[r.ID] = r
+	}
+	for i := range g.Tasks {
+		t := &g.Tasks[i]
+		if t.CleanupError != "" {
+			rec.LeftBehind = append(rec.LeftBehind, t.ID)
+		}
+		switch t.State {
+		case taskStateDone, taskStateSkipped, taskStateFailed:
+			rec.Tasks = append(rec.Tasks, dagRecordTask(t, workers[t.RunID], forLead[t.ID]))
+		}
+	}
+	return rec, nil
+}
+
+func dagRecordTask(t *waveobj.TaskNode, worker *waveobj.Run, forLead bool) waveobj.EvidenceDagTask {
+	row := waveobj.EvidenceDagTask{TaskId: t.ID, Label: t.Label, State: t.State, ReviewRounds: t.ReviewRound, ReviewerUnverified: t.ReviewUnverified}
+	if worker == nil {
+		return row
+	}
+	row.Commit = worker.EndCommit
+	if worker.Evidence == nil {
+		return row
+	}
+	rep, unstructured := ReadWorkerReport(worker.Evidence.Summary)
+	row.Unstructured = unstructured
+	row.Differs, row.NotVerified, row.FoundNotFixed = rep.Differs, rep.NotVerified, rep.FoundNotFixed
+	if forLead {
+		row.ForLead = rep.ForLater
+	}
+	return row
+}
+
 // RunTrailerKey is the commit trailer that marks a commit as a run's own: the engine writes
 // `Arc-Run: <runId>-t-N` on each lane it lands and the lead ends its own commits with `Arc-Run: <runId>`.
 const RunTrailerKey = "Arc-Run"
@@ -517,6 +593,10 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 	}
 	verifs = append(verifs, dv...)
 	verification, err := dagVerification(ctx, run)
+	if err != nil {
+		return err
+	}
+	record, err := dagRecord(ctx, run)
 	if err != nil {
 		return err
 	}
@@ -586,6 +666,7 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 		DurationMs: completedTs - run.CreatedTs,
 	}
 	ev.Verification = verification
+	ev.Dag = record
 	// recomputed here rather than copied from the dag, whose total froze before the lead wrote its report
 	if run.DagORef != "" && UsageRole(run) == UsageRole_Lead {
 		ev.Usage = RunUsage(ctx, run, DagChildRuns(ctx, run.ChannelOID, run.DagORef, run.ID))

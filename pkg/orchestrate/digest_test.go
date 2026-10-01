@@ -979,9 +979,55 @@ func TestDigestCarriesAReviewersUnverifiedCaveat(t *testing.T) {
 	if d.Tasks[0].ReviewUnverified != "" || d.Tasks[1].ReviewUnverified != "no screenshot of the run card was taken" {
 		t.Fatalf("the task digest must carry the caveat, got %+v", d.Tasks)
 	}
-	want := []wshrpc.DagUnverifiedNote{{TaskId: "t-7", Text: "no screenshot of the run card was taken"}}
+	want := []wshrpc.DagUnverifiedNote{{TaskId: "t-7", Text: "reviewer: no screenshot of the run card was taken"}}
 	if !reflect.DeepEqual(d.Report.UnverifiedNotes, want) {
 		t.Fatalf("the report must list the caveat, got %+v", d.Report.UnverifiedNotes)
+	}
+}
+
+// caveatTestReport is digestTestReport with something the worker could not verify
+var caveatTestReport = strings.Replace(digestTestReport, "## Not verified\nNone", "## Not verified\nThe CRLF path has no test.", 1)
+
+// the run-end report lists each landed task's caveats in dag order: the worker's own (a legacy report whole, since
+// its caveats can't be told apart), then the reviewer's addition. A task that did not land has none.
+func TestDigestReportListsTheWorkersAndTheReviewersCaveats(t *testing.T) {
+	g := digestGroup(t, false, []waveobj.TaskNode{{ID: "t-1", Label: "a"}, {ID: "t-2", Label: "b"}, {ID: "t-3", Label: "c"}})
+	setTaskStates(g, map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done})
+	g.Tasks[2].State, g.Tasks[2].RunID = TaskState_Skipped, "run-t-3"
+	g.Tasks[0].ReviewUnverified = "no screenshot of the run card was taken"
+	runs := []*waveobj.Run{
+		{ID: "run-t-1", Evidence: &waveobj.RunEvidence{Summary: caveatTestReport}},
+		{ID: "run-t-2", Evidence: &waveobj.RunEvidence{Summary: "Added fmtDate; did not run the e2e."}},
+		{ID: "run-t-3", Evidence: &waveobj.RunEvidence{Summary: caveatTestReport}},
+	}
+	d := BuildDigest(digestSnapshot(g, runs, nil, nil, time.UnixMilli(10_000)))
+	want := []wshrpc.DagUnverifiedNote{
+		{TaskId: "t-1", Text: "The CRLF path has no test."},
+		{TaskId: "t-1", Text: "reviewer: no screenshot of the run card was taken"},
+		{TaskId: "t-2", Text: "Added fmtDate; did not run the e2e."},
+	}
+	if !reflect.DeepEqual(d.Report.UnverifiedNotes, want) {
+		t.Fatalf("want %+v, got %+v", want, d.Report.UnverifiedNotes)
+	}
+}
+
+// the report's counts and the told list come from the one tally the sealed record uses
+func TestDigestCountsAnswersForwardsAndTold(t *testing.T) {
+	g := digestGroup(t, false, []waveobj.TaskNode{{ID: "t-1", Label: "a"}})
+	told := retainedEvent(waveobj.RunEventKindTaskTold, "t-1", 50)
+	told.Detail = []byte(`{"taskid":"t-1","text":"stop and commit"}`)
+	retained := []waveobj.RunEvent{
+		told,
+		retainedDagEvent(waveobj.RunEventKindChildAnswered, 40),
+		retainedDagEvent(waveobj.RunEventKindChildAnswered, 30),
+		retainedEvent(waveobj.RunEventKindTaskForwarded, "t-1", 20),
+	}
+	d := BuildDigest(digestSnapshot(g, nil, nil, retained, time.UnixMilli(10_000)))
+	if d.Report.Answered != 2 || d.Report.Forwarded != 1 {
+		t.Fatalf("want 2 answered and 1 forwarded, got %+v", d.Report)
+	}
+	if want := []wshrpc.DagTold{{TaskId: "t-1", Ts: 50, Text: "stop and commit"}}; !reflect.DeepEqual(d.Told, want) {
+		t.Fatalf("want %+v, got %+v", want, d.Told)
 	}
 }
 

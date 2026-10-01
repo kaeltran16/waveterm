@@ -293,17 +293,31 @@ func TestReviewCaveatsCountWhenNoVerifierJudged(t *testing.T) {
 	g.Final = &waveobj.FinalStage{State: FinalState_Verifying, Round: 1}
 	var afterCommit []func()
 
-	finishFinal(g, false, &afterCommit)
+	finishFinal(context.Background(), g, false, &afterCommit)
 
-	want := []string{"t-0: the timeout path has no test"}
+	want := []string{"t-0: reviewer: the timeout path has no test"}
 	if g.Final.State != FinalState_Unverified || !reflect.DeepEqual(g.Final.Unverified, want) {
 		t.Fatalf("want unverified with %q, got %s %q", want, g.Final.State, g.Final.Unverified)
 	}
 
 	g.Final = &waveobj.FinalStage{State: FinalState_Verifying, Round: 1}
-	finishFinal(g, true, &afterCommit)
+	finishFinal(context.Background(), g, true, &afterCommit)
 	if g.Final.State != FinalState_Passed || len(g.Final.Unverified) != 0 {
 		t.Fatalf("a verifier's verdict settles the caveats, got %s %q", g.Final.State, g.Final.Unverified)
+	}
+}
+
+// what the workers could not verify counts as much as what their reviewers could not
+func TestWorkerCaveatsCountWhenNoVerifierJudged(t *testing.T) {
+	ctx, g := caveatDag(t)
+	g.Verify = verifyCmd
+	g.Final = &waveobj.FinalStage{State: FinalState_Verifying, Round: 1}
+	var afterCommit []func()
+
+	finishFinal(ctx, g, false, &afterCommit)
+
+	if g.Final.State != FinalState_Unverified || !reflect.DeepEqual(g.Final.Unverified, caveatDagLines) {
+		t.Fatalf("want unverified with %q, got %s %q", caveatDagLines, g.Final.State, g.Final.Unverified)
 	}
 }
 

@@ -4,11 +4,14 @@
 package orchestrate
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 // capSection bounds one report section to reportSectionMaxLen runes. Over it, the text is cut at the last line
@@ -64,4 +67,49 @@ func sectionHeading(key string) string {
 		}
 	}
 	return key
+}
+
+// taskCaveats are what could not be verified about a landed task: the worker's Not verified (a legacy report whole,
+// since its caveats can't be told apart from the rest), then the reviewer's addition. The run-end report, the final
+// stage and the verifier's brief all read it, so the three can't drift. A task that did not land has none: nothing
+// of it reached the result.
+func taskCaveats(t *waveobj.TaskNode, worker *waveobj.Run) []string {
+	if t.State != TaskState_Done {
+		return nil
+	}
+	rep, unstructured := workerReportOf(worker)
+	var out []string
+	for _, c := range []string{rep.NotVerified, unstructured} {
+		if c != "" {
+			out = append(out, c)
+		}
+	}
+	if t.ReviewUnverified != "" {
+		out = append(out, "reviewer: "+t.ReviewUnverified)
+	}
+	return out
+}
+
+// dagCaveatLines are every landed task's caveats, each prefixed with its task id, in dag order. A worker run that
+// can't be read leaves the task's reviewer caveat alone.
+func dagCaveatLines(ctx context.Context, g *waveobj.TaskGroup) []string {
+	var out []string
+	for i := range g.Tasks {
+		t := &g.Tasks[i]
+		if t.State != TaskState_Done {
+			continue
+		}
+		var worker *waveobj.Run
+		if t.RunID != "" {
+			run, err := wstore.GetRun(ctx, g.ChannelId, t.RunID)
+			if err != nil {
+				log.Printf("dag %s: reading %s's worker run for its caveats: %v", g.OID, t.ID, err)
+			}
+			worker = run
+		}
+		for _, c := range taskCaveats(t, worker) {
+			out = append(out, t.ID+": "+c)
+		}
+	}
+	return out
 }
