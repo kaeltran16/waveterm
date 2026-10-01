@@ -412,20 +412,10 @@ func runsChannel(cmd *cobra.Command, mint bool) (*waveobj.Channel, error) {
 		return nil, fmt.Errorf("no channel %s", id)
 	}
 	dir, _ := cmd.Flags().GetString("project")
-	if dir == "" {
-		if dir, err = os.Getwd(); err != nil {
-			return nil, err
-		}
-	}
-	here, err := runsMainCheckoutPath(context.Background(), dir)
+	p, here, err := runsProjectAt(chans, dir)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := wshclient.GetFullConfigCommand(RpcClient, &wshrpc.RpcOpts{Timeout: runsReadTimeoutMs})
-	if err != nil {
-		return nil, fmt.Errorf("reading the registered projects: %w", err)
-	}
-	p := runsResolveProject(runsProjects(chans, cfg.Projects), here)
 	if p == nil {
 		return nil, fmt.Errorf("%s is in no Arc project: register it in the cockpit, or pass --channel", here)
 	}
@@ -442,6 +432,24 @@ func runsChannel(cmd *cobra.Command, mint bool) (*waveobj.Channel, error) {
 		return nil, fmt.Errorf("creating the channel for project %s: %w", p.name, err)
 	}
 	return ch, nil
+}
+
+// runsProjectAt is the project holding dir (the current directory when empty), nil when none does; here is
+// the main-checkout path it looked up
+func runsProjectAt(chans []*waveobj.Channel, dir string) (p *runsProject, here string, err error) {
+	if dir == "" {
+		if dir, err = os.Getwd(); err != nil {
+			return nil, "", err
+		}
+	}
+	if here, err = runsMainCheckoutPath(context.Background(), dir); err != nil {
+		return nil, "", err
+	}
+	cfg, err := wshclient.GetFullConfigCommand(RpcClient, &wshrpc.RpcOpts{Timeout: runsReadTimeoutMs})
+	if err != nil {
+		return nil, "", fmt.Errorf("reading the registered projects: %w", err)
+	}
+	return runsResolveProject(runsProjects(chans, cfg.Projects), here), here, nil
 }
 
 // runsProject is one project wsh can act on: a registered one (projects.json), with its channel once it

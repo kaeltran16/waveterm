@@ -6,6 +6,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -49,9 +50,13 @@ var effortCreateCmd = &cobra.Command{
 		for _, c := range chunks {
 			seed = append(seed, wshrpc.CommandEffortChunkSeed{Label: c})
 		}
+		project, err := effortCreateProject(cmd)
+		if err != nil {
+			return err
+		}
 		rtn, err := wshclient.EffortCreateCommand(RpcClient, wshrpc.CommandEffortCreateData{
 			Title:     args[0],
-			Project:   mustFlagString(cmd, "project"),
+			Project:   project,
 			Ticket:    mustFlagString(cmd, "ticket"),
 			ParentOID: parent,
 			Chunks:    seed,
@@ -65,6 +70,27 @@ var effortCreateCmd = &cobra.Command{
 		fmt.Printf("created effort %s\n", rtn.EffortOID)
 		return nil
 	},
+}
+
+// effortCreateProject is --project, else the project holding the current directory: an agent filing
+// follow-ups routinely leaves the flag off, and a projectless effort cannot launch an agent from the Brief
+func effortCreateProject(cmd *cobra.Command) (string, error) {
+	if p := mustFlagString(cmd, "project"); p != "" {
+		return p, nil
+	}
+	chans, err := runsChannels()
+	if err != nil {
+		return "", err
+	}
+	p, here, err := runsProjectAt(chans, "")
+	if err != nil {
+		return "", err
+	}
+	if p == nil {
+		fmt.Fprintf(os.Stderr, "note: %s is in no Arc project, so the effort has none; set one with `wsh effort project`\n", here)
+		return "", nil
+	}
+	return p.name, nil
 }
 
 var effortListCmd = &cobra.Command{
@@ -460,7 +486,7 @@ func timeStr(ms int64) string {
 }
 
 func init() {
-	effortCreateCmd.Flags().String("project", "", "project name")
+	effortCreateCmd.Flags().String("project", "", "project name (default: the project holding the current directory)")
 	effortCreateCmd.Flags().String("ticket", "", "ticket id")
 	effortCreateCmd.Flags().StringArray("chunk", nil, "chunk label (repeatable)")
 	effortCreateCmd.Flags().String("parent", "", "parent effort oid")
