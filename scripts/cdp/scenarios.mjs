@@ -8415,7 +8415,71 @@ const canvasTabsScenario = {
     },
 };
 
+// The Cockpit's j/k/n/Enter are the container's own onKeyDown (usecockpitkeyboard.ts), so they work only
+// while focus is inside it. Arriving from the Agent surface left focus on <body> (the palette's restore
+// target, the xterm, is display:none by then) or on the nav button, and every Cockpit key was dead until a
+// click. A key is dispatched at whatever holds focus, which is where a real keypress would land.
+const COCKPIT_SURFACE = `document.querySelector('[data-cockpit-surface]')`;
+const cockpitKeyReach = `(() => {
+    const c = ${COCKPIT_SURFACE};
+    if (!c) return { reached: false, active: 'no cockpit surface' };
+    let reached = false;
+    const probe = (e) => { if (e.key === 'j') reached = true; };
+    c.addEventListener('keydown', probe, true);
+    const target = document.activeElement ?? document.body;
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', code: 'KeyJ', bubbles: true, cancelable: true }));
+    c.removeEventListener('keydown', probe, true);
+    return { reached, active: target.tagName + (target.getAttribute('data-cockpit-surface') != null ? '[cockpit]' : '') };
+})()`;
+const focusAgentXterm = `(() => {
+    const t = [...document.querySelectorAll('.xterm-helper-textarea')].find((x) => x.checkVisibility());
+    t?.focus();
+    return t != null;
+})()`;
+
+const cockpitKeysOnArrival = {
+    name: "cockpit-keys-on-arrival",
+    surface: "cockpit",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+
+        await h.goto("agent");
+        await h.ev(focusAgentXterm);
+        const opened = await openPalette(h);
+        await h.ev(setInputExpr(PALETTE_INPUT, "cockpit"));
+        await polishNap(300);
+        await h.ev(paletteKey("Enter"));
+        await polishWaitFor(h, `!!${COCKPIT_SURFACE}`, 3000);
+        await polishNap(300);
+        const viaPalette = await h.ev(cockpitKeyReach);
+        steps.push({
+            step: "Agent -> Ctrl+P 'cockpit' -> Enter: j reaches the Cockpit",
+            ok: opened === true && viaPalette.reached === true,
+            detail: `palette=${opened} active=${viaPalette.active}`,
+        });
+
+        await h.goto("agent");
+        await h.ev(focusAgentXterm);
+        await h.goto("cockpit");
+        const viaNav = await h.ev(cockpitKeyReach);
+        steps.push({
+            step: "Agent -> nav click Cockpit: j reaches the Cockpit",
+            ok: viaNav.reached === true,
+            detail: `active=${viaNav.active}`,
+        });
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
+    cockpitKeysOnArrival,
     briefContextualMap,
     briefRestore,
     briefComposerSteerOnly,

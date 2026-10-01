@@ -1,15 +1,15 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { focusTrapTarget, takeModalFocus } from "./modalfocus";
 
 function fakePanel(contains: boolean) {
     return { focus: vi.fn(), contains: vi.fn(() => contains) } as unknown as HTMLElement;
 }
 
-function fakeNode(isConnected: boolean) {
-    return { focus: vi.fn(), isConnected } as unknown as HTMLElement;
+function fakeNode(isConnected: boolean, visible = true) {
+    return { focus: vi.fn(), blur: vi.fn(), isConnected, checkVisibility: () => visible } as unknown as HTMLElement;
 }
 
 describe("focusTrapTarget", () => {
@@ -31,6 +31,9 @@ describe("focusTrapTarget", () => {
 });
 
 describe("takeModalFocus", () => {
+    beforeEach(() => vi.stubGlobal("document", { activeElement: null }));
+    afterEach(() => vi.unstubAllGlobals());
+
     it("focuses the panel when focus is outside it", () => {
         const panel = fakePanel(false);
         takeModalFocus(panel, fakeNode(true));
@@ -53,6 +56,28 @@ describe("takeModalFocus", () => {
         const previous = fakeNode(false);
         takeModalFocus(fakePanel(false), previous)();
         expect(previous.focus).not.toHaveBeenCalled();
+    });
+
+    it("does not refocus an element hidden since the modal opened", () => {
+        const previous = fakeNode(true, false);
+        takeModalFocus(fakePanel(false), previous)();
+        expect(previous.focus).not.toHaveBeenCalled();
+    });
+
+    // the palette stays in the DOM through its exit animation; focus left in it blocked the surface the
+    // pick navigated to from claiming focus, and then fell to <body>
+    it("drops focus from the closing panel when there is nowhere to restore it", () => {
+        const input = fakeNode(true);
+        vi.stubGlobal("document", { activeElement: input });
+        takeModalFocus(fakePanel(true), fakeNode(true, false))();
+        expect(input.blur).toHaveBeenCalledOnce();
+    });
+
+    it("leaves focus that already moved outside the panel alone", () => {
+        const elsewhere = fakeNode(true);
+        vi.stubGlobal("document", { activeElement: elsewhere });
+        takeModalFocus(fakePanel(false), fakeNode(false))();
+        expect(elsewhere.blur).not.toHaveBeenCalled();
     });
 
     it("is a no-op when the panel ref is not attached yet", () => {

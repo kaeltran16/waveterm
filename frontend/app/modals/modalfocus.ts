@@ -31,9 +31,17 @@ export function takeModalFocus(panel: HTMLElement | null, previous: HTMLElement 
     }
     return () => {
         // a confirmed close tears down what had focus; refocusing a detached node would silently
-        // land focus on <body> instead of leaving it where the browser already put it
-        if (previous?.isConnected) {
+        // land focus on <body> instead of leaving it where the browser already put it. A hidden one
+        // (the Agent surface's xterm after a palette pick navigated away) cannot take focus either.
+        if (previous?.isConnected && previous.checkVisibility()) {
             previous.focus();
+            return;
+        }
+        // with nowhere to hand focus back, don't leave it in this panel: it outlives the close through
+        // the exit animation, and a surface mounting in the same commit cannot claim focus past it
+        const active = document.activeElement as HTMLElement | null;
+        if (panel?.contains(active)) {
+            active.blur();
         }
     };
 }

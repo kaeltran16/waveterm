@@ -7,7 +7,9 @@ import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
 import { AnimatePresence, MotionConfig } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { anyModalOpen } from "@/app/modals/modalstack";
 import { buildCockpitBindings } from "@/app/store/keybindings/bindings";
+import { isEditableTarget } from "@/app/store/keybindings/dispatcher";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { dismissAgent, toggleAgentBackground } from "./agentactions";
@@ -189,6 +191,17 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const [pulseId, setPulseId] = useState<string>();
     const lastJumpRef = useRef<string>(undefined);
     const containerRef = useRef<HTMLDivElement>(null);
+    // the keys are this container's own onKeyDown, so arriving without focus inside it (palette pick,
+    // nav click, Escape home) left them dead until a click. A field or modal that already took focus keeps
+    // it. Visibility is checked because the Agent surface's xterm, display:none by now, is still
+    // activeElement here: Chromium only drops focus from a hidden element at its next rendering update.
+    useEffect(() => {
+        const el = containerRef.current;
+        const active = document.activeElement as HTMLElement | null;
+        const fieldHasFocus = isEditableTarget(active) && active.checkVisibility();        if (el && !el.contains(active) && !fieldHasFocus && !anyModalOpen()) {
+            el.focus({ preventScroll: true });
+        }
+    }, []);
     const gridScrollRef = useRef<HTMLDivElement>(null);
     const [gridViewportPx, setGridViewportPx] = useState(0);
     useEffect(() => {
