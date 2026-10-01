@@ -202,6 +202,18 @@ Resting the pointer on a task shows its peek: the full title, the description's 
 it touches), what it is waiting on, its latest activity, and why it failed. Drag a task to move it (its place is
 kept for that run until Reset layout); drag empty canvas to pan. A dashed band marks a lane: tasks that merge as one.
 
+### Final check viewer (a run's Final check screenshots, opened from its run sheet)
+
+| Keys | Action |
+|---|---|
+| `↑` / `↓` | Previous / next scenario |
+| `←` / `→` | Previous / next screenshot of the scenario |
+| `z` | Fit / actual size |
+| `s` | Show or hide the steps |
+| `Esc` | Close the viewer; the run sheet stays open |
+
+While the viewer is open these are the only cockpit keys: the surface underneath does not move.
+
 ## Help
 
 | Keys | Action |

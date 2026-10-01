@@ -21,6 +21,7 @@ import { graphOnAtom, historyFiltersAtom, historyScrollAtom } from "@/app/view/a
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
+import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
 import { graphPeekOpenAtom, briefPeekRecordAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import { peekTarget } from "@/app/view/jarvis/openref";
@@ -32,6 +33,7 @@ import {
     buildAgentBindings,
     buildCodeBindings,
     buildFilesBindings,
+    buildFinalShotsBindings,
     buildGlobalBindings,
     buildJarvisBindings,
     buildJarvisGraphBindings,
@@ -853,5 +855,38 @@ describe("agent canvas mode keys", () => {
         expect(active("surface:next")).toBe(true);
         expect(active("agent:canvas-close")).toBe(false);
         expect(getCanvas("a1")!.mode).toBe("canvas");
+    });
+});
+
+describe("final shots viewer bindings", () => {
+    afterEach(() => globalStore.set(finalShotsViewerOpenAtom, false));
+
+    function build() {
+        const calls: string[] = [];
+        const bindings = buildFinalShotsBindings({
+            scenario: (d) => calls.push(`scenario ${d}`),
+            shot: (d) => calls.push(`shot ${d}`),
+            zoom: () => calls.push("zoom"),
+            steps: () => calls.push("steps"),
+            close: () => calls.push("close"),
+        });
+        return { bindings, calls };
+    }
+
+    it("maps the arrows, z, s and Escape onto their handlers", () => {
+        const { bindings, calls } = build();
+        const byKey = new Map(bindings.map((b) => [b.keys, b]));
+        for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "z", "s", "Escape"]) {
+            byKey.get(key)!.run(ctx("jarvis"));
+        }
+        expect(calls).toEqual(["scenario -1", "scenario 1", "shot -1", "shot 1", "zoom", "steps", "close"]);
+        expect(bindings).toHaveLength(7);
+    });
+
+    it("is active only while the viewer is open, whatever the context says", () => {
+        const { bindings } = build();
+        expect(bindings.some((b) => b.when!(ctx("jarvis")))).toBe(false);
+        globalStore.set(finalShotsViewerOpenAtom, true);
+        expect(bindings.every((b) => b.when!({ ...ctx("jarvis"), modalOpen: true }))).toBe(true);
     });
 });

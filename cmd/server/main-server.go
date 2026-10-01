@@ -117,6 +117,7 @@ func tempAttachmentCleanupLoop() {
 	for {
 		wshserver.SweepTempAttachments()
 		wshserver.SweepCanvasFeedback()
+		orchestrate.SweepFinalShots(time.Now())
 		time.Sleep(TempAttachmentSweepInterval)
 	}
 }

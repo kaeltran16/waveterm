@@ -6,6 +6,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { docReviewAtom } from "@/app/view/agents/docreview";
+import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import * as keyutil from "@/util/keyutil";
@@ -85,6 +86,8 @@ export function deriveKeyContext(): KeyContext {
         // the avatar popup is window chrome over any surface, and its own keys (Enter, f, Space, Escape) are
         // surface keys too; uncounted, the Agent surface's f toggled fullscreen under an open item
         globalStore.get(petPeekOpenAtom) ||
+        // the Final check viewer over the run sheet: its arrows and Escape are its own, not the Brief's list
+        globalStore.get(finalShotsViewerOpenAtom) ||
         globalStore.get(modalsModel.modalsAtom).length > 0;
     return {
         surface,

@@ -1879,6 +1879,20 @@ declare global {
         append?: boolean;
     };
 
+    // waveobj.FinalShot
+    type FinalShot = {
+        name: string;
+        files: string[];
+        steps?: FinalShotStep[];
+    };
+
+    // waveobj.FinalShotStep
+    type FinalShotStep = {
+        step: string;
+        state: string;
+        detail?: string;
+    };
+
     // waveobj.FinalStage
     type FinalStage = {
         state: string;
@@ -1894,6 +1908,8 @@ declare global {
         step?: string;
         stepts?: number;
         output?: string;
+        shots?: FinalShot[];
+        shotsmanifest?: boolean;
     };
 
     // wconfig.FullConfigType
@@ -2671,6 +2687,7 @@ declare global {
         specpath?: string;
         planreview?: PlanReviewStage;
         final?: FinalStage;
+        pastfinals?: FinalStage[];
     };
 
     // waveobj.TaskNode

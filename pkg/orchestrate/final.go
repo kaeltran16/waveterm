@@ -132,10 +132,11 @@ func finalTerminal(state string) bool {
 	return state == FinalState_Passed || state == FinalState_Unverified || state == FinalState_Failed
 }
 
-// finalOutDir is ARC_FINAL_OUT for one round, outside every tree so nothing it writes can be committed. Forward
-// slashes, because Git Bash eats the backslashes of an unquoted Windows path.
+// finalOutDir is ARC_FINAL_OUT for one round, in the app's data dir so the cockpit can show its screenshots until
+// SweepFinalShots removes them, and outside every tree so nothing it writes can be committed. Forward slashes,
+// because Git Bash eats the backslashes of an unquoted Windows path.
 func finalOutDir(dagID string, round int) string {
-	return filepath.ToSlash(filepath.Join(os.TempDir(), "arc-final", dagID, fmt.Sprint(round)))
+	return filepath.ToSlash(filepath.Join(finalShotsRoot(), dagID, fmt.Sprint(round)))
 }
 
 // finalTreeFailed opens the unverified reason of a stage that could not make its tree.
@@ -247,16 +248,18 @@ func startFinalCommands(dagID string, owner *waveobj.Run) {
 	})
 }
 
-// finalResult is what the deterministic steps found: a failure's Detail, or what they could not verify. onStage
-// is set once the stage recorded the tree for a verifier working alongside the commands: from then on the stage
-// releases it, not the commands' goroutine.
+// finalResult is what the deterministic steps found: a failure's Detail, or what they could not verify, and the
+// screenshots the Final command wrote. onStage is set once the stage recorded the tree for a verifier working
+// alongside the commands: from then on the stage releases it, not the commands' goroutine.
 type finalResult struct {
-	round      int
-	tree       string
-	commit     string
-	detail     string
-	unverified []string
-	onStage    bool
+	round         int
+	tree          string
+	commit        string
+	detail        string
+	unverified    []string
+	onStage       bool
+	shots         []waveobj.FinalShot
+	shotsManifest bool
 }
 
 // runFinalSteps runs Check, Verify, then the Final command, in the final tree. With no Final command it starts
@@ -338,6 +341,8 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 		exit, tail, err = runFinalCommand(ctx, tree, g.FinalCmd, g.Final.OutDir, finalCommandTimeout, progress)
 		return err == nil && exit == 0
 	})
+	// whatever the exit: a failing scenario's screenshots are the ones worth seeing
+	res.shots, res.shotsManifest = readFinalShots(dagID, g.Final.OutDir)
 	switch {
 	case err != nil:
 		res.detail = fmt.Sprintf("Final `%s` failed (%s):\n%s", g.FinalCmd, err, tail)
@@ -478,6 +483,7 @@ func recordFinalLocked(ctx, spawnCtx context.Context, dagID string, owner *waveo
 		return !res.onStage, nil
 	}
 	f.Tree, f.Commit = res.tree, res.commit
+	f.Shots, f.ShotsManifest = res.shots, res.shotsManifest
 	f.Unverified = append(f.Unverified, res.unverified...)
 	clearFinalStep(f)
 	var afterCommit []func()

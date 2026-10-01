@@ -44,7 +44,10 @@ import { ArrowUpRight, ChevronDown, ChevronRight, CornerDownRight } from "lucide
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { RunComposer } from "./briefcomposer";
 import { RunSettingsPanel, saveRunAsDefaults, SHEET_BTN } from "./briefrunsheet";
+import { finalCheckEntry, shotPath, shotRounds, type FinalCheckEntry, type ShotRound } from "./finalshotsmodel";
+import { FinalShotsViewer, VERDICT_DOT } from "./finalshotsviewer";
 import { briefEffortIndexAtom, briefRevealChunkAtom } from "./jarvisstore";
+import { useLocalImage } from "./localimage";
 import { RunReportView } from "./runreportview";
 import { runSettingsDraft, type LinkedGroupRead } from "./runsettings";
 import {
@@ -95,6 +98,14 @@ const TONE_BG: Record<SheetTone, string> = {
     faint: "bg-edge-strong",
     accent: "bg-accent",
 };
+
+const FINAL_TONE_BG: Record<FinalCheckEntry["tone"], string> = {
+    pass: "bg-success",
+    fail: "bg-error",
+    warn: "bg-warning",
+};
+
+type OpenShots = (at: { round: number; scenario?: string }) => void;
 
 const ROW_ACTION_LABEL: Record<Exclude<SheetRowAction, null>, string> = {
     "open-agent": "Open in Agent",
@@ -165,6 +176,10 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
     const survivors = cancelSurvivors(run, agents).length;
     const status = sheetStatus({ run, nowMs: now, dag, userAsks, workerAsking: asker != null, survivors });
     const body = doneBody(run);
+    const group = dag?.group ?? null;
+    const finalEntry = finalCheckEntry(group);
+    // the viewer mounts only while open: mounting is what claims the keys and the modal stack
+    const [shotsAt, setShotsAt] = useState<{ round: number; scenario?: string } | null>(null);
 
     return (
         <div data-run-sheet={run.status} className="flex min-h-0 flex-1 flex-col bg-background">
@@ -172,6 +187,9 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
             <div className="sc min-h-0 flex-1 overflow-y-auto px-4 pb-2.5">
                 {dag != null ? (
                     <RunTimingSection run={run} digest={dag.digest.digest} tasks={dag.group?.tasks} now={now} />
+                ) : null}
+                {group != null && finalEntry != null ? (
+                    <FinalCheckRow key={run.id} group={group} entry={finalEntry} onOpen={setShotsAt} />
                 ) : null}
                 {survivors > 0 ? (
                     <CancelSurvivorsCard model={ctx.model} channelId={channel.oid} run={run} agents={agents} />
@@ -196,10 +214,106 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
             {/* the settings face's selector is kept on the dock: checks read it as "a run face is showing". The
                 configuration moved up into the reading; the composer sits under the dock (design L571-587). */}
             <footer data-jarvis-brief-sheet-face="settings" className="flex-none border-t border-edge-faint bg-surface">
-                <Dock ctx={ctx} group={dag?.group ?? null} />
+                <Dock ctx={ctx} group={group} finalEntry={finalEntry} onOpenShots={setShotsAt} />
                 <RunComposer model={ctx.model} channel={channel} run={run} onClose={ctx.onClose} />
             </footer>
+            {group != null && shotsAt != null ? (
+                <FinalShotsViewer group={group} initial={shotsAt} onClose={() => setShotsAt(null)} />
+            ) : null}
         </div>
+    );
+}
+
+// The Final check's latest finished round, collapsed by default (.superpowers/design/final-shots: Main, States).
+function FinalCheckRow({ group, entry, onOpen }: { group: TaskGroup; entry: FinalCheckEntry; onOpen: OpenShots }) {
+    const [open, setOpen] = useState(false);
+    const latest = shotRounds(group).find((r) => r.round === entry.latestRound);
+    const openViewer = () => onOpen({ round: entry.latestRound });
+    return (
+        <div data-run-sheet-final-shots className="border-b border-edge-mid">
+            <button
+                type="button"
+                aria-expanded={open}
+                onClick={() => setOpen((o) => !o)}
+                className="flex min-h-11 w-full cursor-pointer items-center gap-2 text-left text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+            >
+                <ChevronRight
+                    size={14}
+                    aria-hidden
+                    className={cn("flex-none text-ink-mid transition-transform", open && "rotate-90")}
+                />
+                <span className="flex-none text-[12px] font-semibold">Final check</span>
+                <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-[10.5px] text-secondary">
+                    <span className={cn("size-1.5 flex-none rounded-full", FINAL_TONE_BG[entry.tone])} />
+                    <span className="truncate">{entry.head}</span>
+                </span>
+                <span className="ml-auto flex-none font-mono text-[11px] text-secondary">{entry.right}</span>
+            </button>
+            {open ? (
+                <div className="flex flex-col gap-2 pb-3 pl-[22px]">
+                    {latest != null && entry.strip.length > 0 ? (
+                        <div className="grid grid-cols-5 gap-2">
+                            {entry.strip.map((s) => (
+                                <FinalThumb
+                                    key={`${s.name}:${s.file}`}
+                                    round={latest}
+                                    shot={s}
+                                    onOpen={() => onOpen({ round: entry.latestRound, scenario: s.name })}
+                                />
+                            ))}
+                        </div>
+                    ) : null}
+                    {/* with no shots there is nothing to view, as the disabled dock button says */}
+                    {entry.dockDisabled ? (
+                        entry.caption != null ? (
+                            <span className="text-[11px] text-ink-mid">{entry.caption}</span>
+                        ) : null
+                    ) : (
+                        <span className="text-[11px] text-ink-mid">
+                            {entry.caption != null ? `${entry.caption} ` : null}
+                            <button
+                                type="button"
+                                onClick={openViewer}
+                                className="cursor-pointer text-accent-soft hover:text-accent"
+                            >
+                                Open the viewer
+                            </button>
+                            {entry.caption != null ? " to compare rounds." : null}
+                        </span>
+                    )}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+function FinalThumb({
+    round,
+    shot,
+    onOpen,
+}: {
+    round: ShotRound;
+    shot: FinalCheckEntry["strip"][number];
+    onOpen: () => void;
+}) {
+    const img = useLocalImage(shotPath(round, shot.file));
+    return (
+        <button
+            type="button"
+            aria-label={`Open ${shot.name}`}
+            onClick={onOpen}
+            className="flex min-w-0 cursor-pointer flex-col gap-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+        >
+            <span className="block h-[58px] w-full overflow-hidden rounded-[5px] border border-edge-mid bg-background">
+                {img.url != null ? (
+                    <img src={img.url} alt="" className="block size-full object-cover object-left-top" />
+                ) : null}
+            </span>
+            <span className="flex min-w-0 items-center gap-[5px]">
+                <span className={cn("size-1.5 flex-none rounded-full", VERDICT_DOT[shot.verdict])} />
+                <span className="min-w-0 truncate font-mono text-[10px] text-secondary">{shot.name}</span>
+            </span>
+        </button>
     );
 }
 
@@ -821,7 +935,17 @@ function Evidence({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }) {
     );
 }
 
-function Dock({ ctx, group }: { ctx: SheetCtx; group: TaskGroup | null }) {
+function Dock({
+    ctx,
+    group,
+    finalEntry,
+    onOpenShots,
+}: {
+    ctx: SheetCtx;
+    group: TaskGroup | null;
+    finalEntry: FinalCheckEntry | null;
+    onOpenShots: OpenShots;
+}) {
     const { model, channel, run, agents } = ctx;
     const [saving, setSaving] = useState(false);
     const [result, setResult] = useState<{ failed: boolean; text: string } | null>(null);
@@ -865,6 +989,22 @@ function Dock({ ctx, group }: { ctx: SheetCtx; group: TaskGroup | null }) {
                         className={carryForward ? DOCK_BTN : DOCK_ACCENT}
                     >
                         Open DAG
+                    </button>
+                ) : null}
+                {finalEntry != null ? (
+                    <button
+                        type="button"
+                        data-run-sheet-final-shots-dock
+                        disabled={finalEntry.dockDisabled}
+                        onClick={() => onOpenShots({ round: finalEntry.latestRound })}
+                        className={cn(
+                            DOCK_BTN,
+                            "inline-flex items-center gap-1.5",
+                            finalEntry.dockAccent && "border-accent text-accent-soft"
+                        )}
+                    >
+                        <span className={cn("size-1.5 flex-none rounded-full", FINAL_TONE_BG[finalEntry.tone])} />
+                        {finalEntry.dockLabel}
                     </button>
                 ) : null}
                 {endable && !ending ? (

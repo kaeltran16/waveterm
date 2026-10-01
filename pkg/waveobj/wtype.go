@@ -527,6 +527,10 @@ type TaskGroup struct {
 	// command, then a verifier session. The dag is done only once it passed or came out unverified. Nil
 	// until the stage first starts.
 	Final *FinalStage `json:"final,omitempty"`
+
+	// PastFinals are the finished earlier rounds of the final stage, oldest first: a fix round keeps the round it
+	// fixes here instead of overwriting it.
+	PastFinals []FinalStage `json:"pastfinals,omitempty"`
 }
 
 // PlanReviewStage is one dag's plan review: its round, the reviewer session judging it, and the verdict's text.
@@ -561,6 +565,24 @@ type FinalStage struct {
 	Step          string   `json:"step,omitempty"`      // the command running: tree | check | verify | final; empty when none is
 	StepTs        int64    `json:"stepts,omitempty"`    // when Step started
 	Output        string   `json:"output,omitempty"`    // the running command's output tail
+	// Shots is what the Final command wrote into OutDir, read once it exited
+	Shots         []FinalShot `json:"shots,omitempty"`
+	ShotsManifest bool        `json:"shotsmanifest,omitempty"` // Shots came from shots.json (verdicts and steps); false is a plain PNG listing
+}
+
+// FinalShot is one scenario of a Final command's screenshots: its files, and the steps it ran when the command
+// wrote a shots.json manifest.
+type FinalShot struct {
+	Name  string          `json:"name"`
+	Files []string        `json:"files"` // relative to FinalStage.OutDir, forward slashes
+	Steps []FinalShotStep `json:"steps,omitempty"`
+}
+
+// FinalShotStep is one step of a FinalShot's scenario.
+type FinalShotStep struct {
+	Step   string `json:"step"`
+	State  string `json:"state"` // pass | fail | skip
+	Detail string `json:"detail,omitempty"`
 }
 
 func (*TaskGroup) GetOType() string {

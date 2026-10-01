@@ -724,9 +724,18 @@ Final line, and alongside Check and Verify when it has none:
 2. **Verify**, the plan's Verify line with `ARC_VERIFY_CHANGED` unset, on the merged result (20-minute limit). A
    non-zero exit fails the stage. Each test it reports flaky in `ARC_VERIFY_FLAKY` becomes an unverified reason.
 3. **Final**, the plan's `**Final:**` command, in a POSIX shell with `ARC_FINAL_OUT` set to a fresh directory
-   for its screenshots and reports (`<temp>/arc-final/<dag>/<round>`, outside every tree). Exit 0 passes. Exit
-   3 means it could not verify, and its last output line becomes an unverified reason. Any other exit, or
-   running past 30 minutes ("timed out"), fails the stage with the output tail.
+   for its screenshots and reports (`<data dir>/final-shots/<dag>/<round>`, outside every tree). Exit 0 passes.
+   Exit 3 means it could not verify, and its last output line becomes an unverified reason. Any other exit, or
+   running past 30 minutes ("timed out"), fails the stage with the output tail. Whatever the exit, the engine
+   then stores the round's screenshots on the stage (`shots`), from an optional manifest
+   `$ARC_FINAL_OUT/shots.json`: a JSON array of
+   `{ "name": string, "files": string[], "steps": [{ "step": string, "state": "pass"|"fail"|"skip", "detail"?: string }] }`,
+   one entry per scenario, file paths relative to `ARC_FINAL_OUT` with forward slashes (`shotsmanifest` is
+   set). Without one, or with one over 1 MiB, unparseable, or with another state (logged as `dag <id>: reading
+   shots.json: <why>`), every `*.png` under `ARC_FINAL_OUT` becomes an entry of its own, sorted by path, named
+   for its file, with no steps. A file path that is absolute, on a drive, or climbs out with `..` is dropped. A
+   fix round keeps the finished round, shots included, in the dag's `pastfinals`. The round directories stay
+   30 days: wavesrv sweeps older ones at startup and every 4 hours.
 4. **The verifier**, a fresh session in the final tree on the reviewer route. Its brief names the spec and plan,
    `git diff <base>..<head>` of the run, `ARC_FINAL_OUT`, the `**Prototype:**` canvas, and every unverified
    note so far. It checks that the combined change does what the spec asks, and looks for breaks where tasks
@@ -788,7 +797,8 @@ when the fix is a product call.
 
 **This repo's Final command** is `node scripts/cdp/final-verify.mjs [scenario...]`. It starts a dev app from the
 final tree, runs the named `verify:ui` scenarios (all of them with none named) and writes into `ARC_FINAL_OUT`:
-`cdp-shots/` (with `index.html` as the contact sheet), `dev-app.log`, `waveapp.log` (the app's own log),
+`cdp-shots/` (with `index.html` as the contact sheet), `shots.json` (the manifest above, one entry per
+scenario with its screenshots and steps), `dev-app.log`, `waveapp.log` (the app's own log),
 `webview2-profile/` and `tauri.final.json`. A dev app from the main checkout is usually running, so the final one
 shares nothing with it: its own CDP port, a Vite port from 5175 up (passed as `task dev -- --config
 tauri.final.json`), a fresh store under `%LOCALAPPDATA%\arc-final\stores\` (a short path, since wavesrv's

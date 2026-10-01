@@ -55,6 +55,7 @@ import {
 } from "@/app/view/code/codestore";
 import { treeKeyAction, type TreeKey } from "@/app/view/code/codetreekeys";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
+import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
 import {
     briefPeekRecordAtom,
     chunkMoveAtom,
@@ -1415,5 +1416,36 @@ export function buildCodeBindings(): Binding[] {
                 host.focus();
             },
         },
+    ];
+}
+
+// The Final check viewer's keys, registered by the viewer itself while it is mounted. Gated on the viewer's own
+// atom rather than on !modalOpen: that atom is what makes modalOpen true, which is how these win over the Jarvis
+// list's arrows registered before them, and over Escape on the run sheet underneath.
+export function buildFinalShotsBindings(handlers: {
+    scenario(d: 1 | -1): void;
+    shot(d: 1 | -1): void;
+    zoom(): void;
+    steps(): void;
+    close(): void;
+}): Binding[] {
+    const open = () => globalStore.get(finalShotsViewerOpenAtom);
+    const bind = (id: string, keys: string, label: string, run: () => void): Binding => ({
+        id: `final-shots:${id}`,
+        keys,
+        group: "Final check viewer",
+        label,
+        when: open,
+        paletteHidden: true,
+        run,
+    });
+    return [
+        bind("prev-scenario", "ArrowUp", "Previous scenario", () => handlers.scenario(-1)),
+        bind("next-scenario", "ArrowDown", "Next scenario", () => handlers.scenario(1)),
+        bind("prev-shot", "ArrowLeft", "Previous screenshot", () => handlers.shot(-1)),
+        bind("next-shot", "ArrowRight", "Next screenshot", () => handlers.shot(1)),
+        bind("zoom", "z", "Fit / actual size", handlers.zoom),
+        bind("steps", "s", "Show or hide the steps", handlers.steps),
+        bind("close", "Escape", "Close the viewer", handlers.close),
     ];
 }

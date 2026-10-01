@@ -5,11 +5,15 @@ import { registerModal } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel, SurfaceKey } from "@/app/view/agents/agents";
 import { docReviewAtom } from "@/app/view/agents/docreview";
+import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import { atom } from "jotai";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildFinalShotsBindings, buildGlobalBindings, buildJarvisBindings, buildListNavBindings } from "./bindings";
 import { deriveKeyContext, focusClaimed, initKeybindingDispatcher, isEditableTarget } from "./dispatcher";
+import { listNavAtom } from "./listnav";
+import { matchBinding } from "./matcher";
 
 // Element stubs rather than jsdom: the suite runs in vitest's node environment, and the three fields
 // this predicate reads are the whole contract.
@@ -163,6 +167,80 @@ describe("deriveKeyContext", () => {
         expect(deriveKeyContext().modalOpen).toBe(false);
         globalStore.set(docReviewAtom, "agent-1");
         expect(deriveKeyContext().modalOpen).toBe(true);
+        unbind();
+    });
+});
+
+describe("the Final check viewer over the Jarvis surface", () => {
+    afterEach(() => {
+        globalStore.set(finalShotsViewerOpenAtom, false);
+        globalStore.set(listNavAtom, null);
+        vi.unstubAllGlobals();
+    });
+
+    function ev(key: string): WaveKeyboardEvent {
+        return {
+            key,
+            code: "",
+            type: "keydown",
+            control: false,
+            shift: false,
+            cmd: false,
+            option: false,
+            meta: false,
+            alt: false,
+            location: 0,
+            repeat: false,
+        } as WaveKeyboardEvent;
+    }
+
+    // the Jarvis list's cursor and the Brief's Escape-home, registered first as the surface mounts before the
+    // viewer; matchBinding runs the first active binding for a key, so without the viewer counting as a modal
+    // the arrows would move the row selection under it and Escape would leave the surface
+    function setup() {
+        vi.stubGlobal("window", { addEventListener: () => {}, removeEventListener: () => {} });
+        vi.stubGlobal("document", { activeElement: null });
+        const model = {
+            surfaceAtom: atom<SurfaceKey>("jarvis"),
+            paletteOpenAtom: atom(false),
+            newAgentOpenAtom: atom(false),
+            newRunOpenAtom: atom(false),
+            newInitiativeOpenAtom: atom(false),
+            newProjectOpenAtom: atom(false),
+            focusIdAtom: atom<string | undefined>(undefined),
+        } as unknown as AgentsViewModel;
+        globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: ["a", "b"], cursorId: "a", setCursor() {} });
+        const finalShots = buildFinalShotsBindings({ scenario() {}, shot() {}, zoom() {}, steps() {}, close() {} });
+        const bindings = [
+            ...buildGlobalBindings(model),
+            ...buildListNavBindings(model),
+            ...buildJarvisBindings(),
+            ...finalShots,
+        ];
+        const unbind = initKeybindingDispatcher(model);
+        const picked = (key: string) => {
+            const r = matchBinding(ev(key), deriveKeyContext(), bindings);
+            return r.kind === "run" ? r.binding.id : r.kind;
+        };
+        return { picked, unbind };
+    }
+
+    it("takes the arrows and Escape while it is open", () => {
+        const { picked, unbind } = setup();
+        globalStore.set(finalShotsViewerOpenAtom, true);
+        expect(deriveKeyContext().modalOpen).toBe(true);
+        expect(picked("ArrowUp")).toBe("final-shots:prev-scenario");
+        expect(picked("ArrowDown")).toBe("final-shots:next-scenario");
+        expect(picked("Escape")).toBe("final-shots:close");
+        unbind();
+    });
+
+    it("leaves them to the surface once it is closed", () => {
+        const { picked, unbind } = setup();
+        expect(picked("ArrowUp")).toBe("list:prev");
+        expect(picked("ArrowDown")).toBe("list:next");
+        expect(picked("Escape")).toBe("surface:back-home");
+        expect(picked("z")).not.toBe("final-shots:zoom");
         unbind();
     });
 });

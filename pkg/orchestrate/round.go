@@ -84,6 +84,8 @@ func AppendRound(ctx context.Context, dagID, planPath string, tasks []waveobj.Ta
 			return err
 		}
 		g.Tasks = all
+		// the round switch shows the failed round beside the new one
+		g.PastFinals = append(g.PastFinals, *g.Final)
 		// an empty State is a round not started: the final stage starts it again when the new tasks land
 		g.Final = &waveobj.FinalStage{Round: round}
 		RecomputeDagStatus(g)

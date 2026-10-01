@@ -7722,6 +7722,538 @@ const dagObservability = {
     },
 };
 
+// --- final-shots: the Final check row, dock button and viewer (.superpowers/design/final-shots) ------------
+// A deferred run's dag is rewritten through object.UpdateObject with a Final command, a failed round 1 kept in
+// pastfinals and an unverified round 2, both carrying the Viewer board's manifest. Their out dirs are temp dirs of
+// PNGs captured from the app itself, with round 1's jarvis-peek-narrow left off disk. The dag is then re-seeded for
+// the States board's rows. Nothing touches its tasks or status, so it is never finalizing and the engine never
+// starts a final stage on it; the chained plan dispatches t-1, which teardown's run cancel stops.
+const FINAL_SHOTS_CMD = "node scripts/cdp/final-verify.mjs final-shots";
+const FINAL_SHOTS_SEED_KEY = "verify:finalshots-seed";
+const FINAL_SHOTS_UICTX = { windowid: "", activetabid: "" };
+const FINAL_SHOTS_MISSING = "jarvis-peek-narrow";
+// the fix round's row counts one shot more than round 1 had (States board: 17 shots)
+const FINAL_SHOTS_EXTRA = { "surface-smoke": ["surface-agent"] };
+const FINAL_SHOTS_PLAIN = ["checkout-empty", "checkout-filled", "receipt"];
+// the fixture PNGs, by the surface each is captured on. Never through h.shot, which records evidence shots
+const FINAL_SHOTS_CAPTURES = {
+    cockpit: ["surface-smoke", "surface-cockpit"],
+    jarvis: [
+        "surface-jarvis",
+        "brief-peek",
+        "peek-ctrl-click",
+        "jarvis-peek",
+        "jarvis-peek-narrow",
+        "jarvis-peek-busy",
+        "jarvis-peek-empty",
+        "resource-linking",
+    ],
+    radar: ["surface-radar", "receipt"],
+    usage: ["surface-usage", "checkout-filled"],
+    files: ["surface-files"],
+    settings: ["surface-settings", "checkout-empty"],
+    code: ["surface-code"],
+    setup: ["surface-setup"],
+    agent: ["surface-agent"],
+};
+// crops, so the shots differ in size the way real ones do; the rest are the whole viewport
+const FINAL_SHOTS_CLIPS = {
+    "brief-peek": { x: 800, y: 0, width: 800, height: 950 },
+    "peek-ctrl-click": { x: 520, y: 150, width: 560, height: 640 },
+    "jarvis-peek-narrow": { x: 1160, y: 530, width: 440, height: 420 },
+    "jarvis-peek-busy": { x: 0, y: 0, width: 1200, height: 760 },
+    receipt: { x: 400, y: 100, width: 800, height: 600 },
+};
+const FS_P = "pass";
+const FS_F = "fail";
+const FS_S = "skip";
+// the Viewer board's five scenarios; round 2 passed the two jarvis-peek steps the fix round fixed
+const FINAL_SHOTS_BOARD = [
+    {
+        name: "surface-smoke",
+        shots: ["surface-smoke", "surface-cockpit", "surface-jarvis", "surface-radar", "surface-usage", "surface-files", "surface-settings", "surface-code", "surface-setup"],
+        steps: [
+            [FS_P, 'goto cockpit -> active nav "Cockpit", content non-empty', "active=Cockpit contentLen=1643"],
+            [FS_P, 'goto jarvis -> active nav "Jarvis", content non-empty', "active=Jarvis contentLen=1378"],
+            [FS_P, 'goto radar -> active nav "Radar", content non-empty', "active=Radar contentLen=1775"],
+            [FS_P, 'goto usage -> active nav "Usage", content non-empty', "active=Usage contentLen=1909"],
+            [FS_P, 'goto files -> active nav "Diff", content non-empty', "active=Diff contentLen=1349"],
+            [FS_P, 'goto settings -> active nav "Settings", content non-empty', "active=Settings contentLen=2036"],
+            [FS_P, 'goto code -> active nav "Code", content non-empty', "active=Code contentLen=1377"],
+            [FS_P, 'goto setup -> active nav "Setup", content non-empty', "active=Setup contentLen=2123"],
+            [FS_P, "wsh notify -> the avatar says it once, with no toast, and the bubble leaves", "bubble=true toast=false gone=true"],
+            [FS_S, "steer input visible on a pi session card", "no pi session focused in this run - focus one before reading this as a pass (the manual round-trip covers it)"],
+        ],
+    },
+    {
+        name: "brief-peek",
+        shots: ["brief-peek"],
+        steps: [
+            [FS_P, "1. the Brief is showing and no peek is open yet"],
+            [FS_P, "2. a record row in the palette opens the peek, with its updated stamp and status toggle"],
+            [FS_P, "2b. the peek names the record's fleet or says it has none"],
+            [FS_P, "3. the peek's attributed run opens the run's sheet, resolved rather than pending"],
+            [FS_P, "4. the status picker offers only legal transitions, and the current status is a label"],
+            [FS_P, "5. Escape closes the peek and leaves the Brief behind it"],
+        ],
+    },
+    {
+        name: "peek-ctrl-click",
+        shots: ["peek-ctrl-click"],
+        steps: [
+            [FS_P, "1. the Brief shows a peekable run row"],
+            [FS_P, "2. Ctrl+click opens a ready run item view in the 560px popup"],
+            [FS_P, "3. the host surface, subject, sheet flag and scroll are unchanged while the peek is up"],
+            [FS_P, "4. Escape closes the popup and the host's state still matches"],
+        ],
+    },
+    {
+        name: "jarvis-peek",
+        shots: ["jarvis-peek", "jarvis-peek-narrow", "jarvis-peek-busy", "jarvis-peek-empty"],
+        steps: [
+            [FS_P, "1. keyboard open renders a labelled dialog of header/queue/composer and focuses its container"],
+            [FS_P, "2. Tab starts at Full view and reverse traversal stays inside the dialog"],
+            [FS_P, "3. the quiet card states queue absence once, and the composer is live wherever there is a destination"],
+            [FS_F, "4. the narrow panel stays bounded with a pinned header, no horizontal overflow, and an unclipped harness picker"],
+            [FS_F, "5. attention expands the card and keyboard navigation moves the cursor then focuses the composer"],
+            [FS_P, "6. Escape, close, and backdrop dismiss only the peek and return focus to the creature"],
+            [FS_P, "7. dismissing the global peek stays on the current surface"],
+        ],
+    },
+    {
+        name: "resource-linking",
+        shots: ["resource-linking"],
+        steps: [
+            [FS_P, "1. the DEV hook that opens an address is installed on the Brief"],
+            [FS_P, "2. a record address opens the record's peek"],
+            [FS_S, "3. a decision address opens its record's peek"],
+            [FS_P, "4. a memory address opens nothing and leaves the surface where it was"],
+            [FS_S, "5. a finding address lands on that finding on a first Radar visit"],
+            [FS_S, "6. Radar's Open run lands on the run's sheet"],
+            [FS_P, "7. an address nothing can open shows the toast and leaves the surface where it was"],
+        ],
+    },
+];
+
+function finalShotsManifest(round, extra = {}) {
+    return FINAL_SHOTS_BOARD.map((sc) => ({
+        name: sc.name,
+        files: [...sc.shots, ...(extra[sc.name] ?? [])].map((f) => `cdp-shots/${f}.png`),
+        steps: sc.steps.map(([state, step, detail]) => ({
+            step,
+            state: round === 2 && state === FS_F ? FS_P : state,
+            ...(detail ? { detail } : {}),
+        })),
+    }));
+}
+
+async function captureFinalShotsFixture(h) {
+    const pngs = {};
+    for (const [surface, names] of Object.entries(FINAL_SHOTS_CAPTURES)) {
+        await h.goto(surface);
+        for (const name of names) {
+            const clip = FINAL_SHOTS_CLIPS[name];
+            const { data } = await h.cdp("Page.captureScreenshot", {
+                format: "png",
+                ...(clip ? { clip: { ...clip, scale: 1 } } : {}),
+            });
+            pngs[name] = Buffer.from(data, "base64");
+        }
+    }
+    return pngs;
+}
+
+// the out dirs the engine would have made: <out>/<round>/cdp-shots/*.png, and the plain listing's PNGs at its top
+function writeFinalShotsFixture(out, pngs) {
+    for (const round of [1, 2]) {
+        mkdirSync(join(out, String(round), "cdp-shots"), { recursive: true });
+        for (const sc of finalShotsManifest(round, FINAL_SHOTS_EXTRA)) {
+            for (const file of sc.files) {
+                const name = file.slice("cdp-shots/".length, -".png".length);
+                if (round === 1 && name === FINAL_SHOTS_MISSING) continue;
+                writeFileSync(join(out, String(round), file), pngs[name]);
+            }
+        }
+    }
+    mkdirSync(join(out, "plain"), { recursive: true });
+    for (const name of FINAL_SHOTS_PLAIN) writeFileSync(join(out, "plain", `${name}.png`), pngs[name]);
+    mkdirSync(join(out, "empty"), { recursive: true });
+}
+
+// the stages of every seed, by the board row each one draws
+function finalShotsStages(out) {
+    const dir = (sub) => `${out.replace(/\\/g, "/")}/${sub}`;
+    const round1 = (extra) => ({
+        state: "failed",
+        round: 1,
+        outdir: dir(1),
+        shots: finalShotsManifest(1, extra),
+        shotsmanifest: true,
+    });
+    return {
+        main: {
+            final: { state: "unverified", round: 2, outdir: dir(2), shots: finalShotsManifest(2), shotsmanifest: true },
+            pastfinals: [round1()],
+        },
+        fixing: { final: { state: "", round: 2 }, pastfinals: [round1(FINAL_SHOTS_EXTRA)] },
+        passed: {
+            final: { state: "passed", round: 1, outdir: dir(2), shots: finalShotsManifest(2), shotsmanifest: true },
+            pastfinals: [],
+        },
+        empty: { final: { state: "unverified", round: 1, outdir: dir("empty"), shotsmanifest: false }, pastfinals: [] },
+        plain: {
+            final: {
+                state: "passed",
+                round: 1,
+                outdir: dir("plain"),
+                shots: FINAL_SHOTS_PLAIN.map((name) => ({ name, files: [`${name}.png`] })),
+                shotsmanifest: false,
+            },
+            pastfinals: [],
+        },
+    };
+}
+
+const finalFingerprint = (final, past) =>
+    JSON.stringify([final?.state, final?.round, final?.shots?.length ?? 0, (past ?? []).map((p) => p.shots?.length ?? 0)]);
+
+async function seedFinalShots(h, ctx, { final, pastfinals }) {
+    const oref = `dag:${ctx.dagId}`;
+    const want = finalFingerprint(final, pastfinals);
+    let stored = null;
+    // the watchdog ticks a running dag, and a tick that read the dag before this write lands over it
+    for (let i = 0; i < 3 && finalFingerprint(stored?.final, stored?.pastfinals) !== want; i++) {
+        const dag = await waveService(h, "object", "GetObject", [oref]);
+        const next = { ...dag, otype: "dag", finalcmd: FINAL_SHOTS_CMD, final, pastfinals };
+        await waveService(h, "object", "UpdateObject", [next, false], FINAL_SHOTS_UICTX);
+        stored = await waveService(h, "object", "GetObject", [oref]);
+    }
+    if (finalFingerprint(stored?.final, stored?.pastfinals) !== want) {
+        throw new Error(`the dag did not keep its seed: want ${want}, stored ${finalFingerprint(stored?.final, stored?.pastfinals)}`);
+    }
+    // UpdateObject publishes nothing; a meta write sends the whole stored dag to the page
+    ctx.seeds = (ctx.seeds ?? 0) + 1;
+    await h.rpc("setmeta", { oref, meta: { [FINAL_SHOTS_SEED_KEY]: ctx.seeds } });
+}
+
+const FS_ROW = `document.querySelector("[data-run-sheet] [data-run-sheet-final-shots]")`;
+const FS_DOCK = `document.querySelector("[data-run-sheet] [data-run-sheet-final-shots-dock]")`;
+const FS_VIEWER = `document.querySelector("[data-final-shots-viewer]")`;
+// the viewer is portaled to body, so it is read on its own, not inside the run sheet
+const FS_READ = `(() => {
+    const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+    const row = ${FS_ROW};
+    const header = row?.querySelector(":scope > button[aria-expanded]");
+    const dock = ${FS_DOCK};
+    const v = ${FS_VIEWER};
+    let viewer = null;
+    if (v) {
+        const film = [...v.querySelectorAll('button[aria-pressed][aria-label$=".png"]')];
+        const zoom = [...v.querySelectorAll("button[aria-pressed]")].find((b) => /^(Fit|Actual size)$/.test(flat(b)));
+        const steps = v.querySelector("button[aria-expanded]");
+        const drawer = v.querySelector('aside[aria-label="Steps"]');
+        const img = v.querySelector("img[alt]:not([alt=''])");
+        viewer = {
+            text: flat(v.firstElementChild),
+            rounds: [...v.querySelectorAll('[role="group"][aria-label="Round"] button')].map((b) => ({
+                text: flat(b),
+                on: b.getAttribute("aria-pressed") === "true",
+            })),
+            tabs: [...v.querySelectorAll('[role="tab"]')].map((t) => ({
+                text: flat(t),
+                on: t.getAttribute("aria-selected") === "true",
+                hollow: t.querySelector("span.border-muted") != null,
+            })),
+            film: film.map((b) => ({ name: b.getAttribute("aria-label"), on: b.getAttribute("aria-pressed") === "true" })),
+            path: film[0]?.parentElement?.querySelector(":scope > span")?.textContent ?? null,
+            zoom: zoom ? { text: flat(zoom), on: zoom.getAttribute("aria-pressed") === "true" } : null,
+            steps: steps ? { text: flat(steps), expanded: steps.getAttribute("aria-expanded") } : null,
+            drawer: drawer ? { fails: [...drawer.querySelectorAll("span")].filter((s) => s.textContent === "FAIL").length } : null,
+            img: img ? { loaded: img.complete && img.naturalWidth > 0, alt: img.alt } : null,
+            missing: flat(v.querySelector("[data-final-shots-missing]")) || null,
+        };
+    }
+    const link = row ? [...row.querySelectorAll("button")].find((b) => b.textContent.trim() === "Open the viewer") : null;
+    return {
+        sheet: document.querySelector("[data-run-sheet]") != null,
+        row: header ? { expanded: header.getAttribute("aria-expanded"), text: flat(header) } : null,
+        thumbs: row
+            ? [...row.querySelectorAll('button[aria-label^="Open "]')].map((b) => ({
+                  name: b.getAttribute("aria-label").slice("Open ".length),
+                  img: b.querySelector("img") != null,
+              }))
+            : [],
+        caption: link ? flat(link.parentElement) : null,
+        dock: dock ? { text: flat(dock), disabled: dock.disabled, accent: dock.classList.contains("border-accent") } : null,
+        viewer,
+    };
+})()`;
+// what the Jarvis surface under the viewer has selected: its list cursor and the run its sheet shows
+const FS_JARVIS = `(() => ({
+    cursor: document.querySelector("[data-jarvis-brief-cursor]")?.textContent.trim().slice(0, 80) ?? null,
+    sheet: (document.querySelector("[data-jarvis-brief-sheet] > header")?.innerText ?? "").replace(/\\s+/g, " ").trim().slice(0, 160),
+}))()`;
+const FS_KEYS = {
+    ArrowUp: "ArrowUp",
+    ArrowDown: "ArrowDown",
+    ArrowRight: "ArrowRight",
+    z: "KeyZ",
+    s: "KeyS",
+    Escape: "Escape",
+};
+const FS_WAIT_MS = 8000;
+
+// polls the run sheet and viewer until ok holds or the wait runs out, and returns the last read either way
+async function finalShotsUntil(h, ok, ms = FS_WAIT_MS) {
+    for (let waited = 0; ; waited += 250) {
+        const s = await h.ev(FS_READ).catch(() => null);
+        if ((s != null && ok(s)) || waited >= ms) return s;
+        await polishNap(250);
+    }
+}
+
+const finalShotsClick = (h, expr) =>
+    h.ev(`(() => {
+        const el = ${expr};
+        if (!el) return false;
+        el.click();
+        return true;
+    })()`);
+
+// a DOM key event at the focused element: CDP's Input.dispatchKeyEvent often never reaches the WebView, and the
+// keybinding dispatcher and the run sheet's Escape both listen on window, which this reaches the same way
+const finalShotsKey = (h, key) =>
+    h.ev(`(() => {
+        const target = document.activeElement ?? document.body;
+        const init = { key: ${JSON.stringify(key)}, code: ${JSON.stringify(FS_KEYS[key])}, bubbles: true, cancelable: true };
+        const down = new KeyboardEvent("keydown", init);
+        target.dispatchEvent(down);
+        target.dispatchEvent(new KeyboardEvent("keyup", init));
+        return down.defaultPrevented;
+    })()`);
+
+const FS_BOARD_ORDER = ["surface-smoke", "brief-peek", "peek-ctrl-click", "jarvis-peek", "resource-linking"];
+
+const finalShotsScenario = {
+    name: "final-shots",
+    surface: "jarvis",
+    async arrange(h) {
+        const out = mkdtempSync(join(tmpdir(), "verify-final-shots-out-"));
+        let pngs;
+        try {
+            // before the run exists: arrangeSheetDagRun ends on the Brief with the sheet open
+            pngs = await captureFinalShotsFixture(h);
+            writeFinalShotsFixture(out, pngs);
+        } catch (e) {
+            return { out, arrangeError: String(e?.message ?? e) };
+        }
+        const ctx = await arrangeSheetDagRun(h, "final-shots", RUN_SHEET_POLISH_TASKS);
+        ctx.out = out;
+        ctx.stages = finalShotsStages(out);
+        if (ctx.arrangeError != null) return ctx;
+        try {
+            ctx.dagId = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.oid;
+            if (!ctx.dagId) throw new Error("the run has no dag");
+            await seedFinalShots(h, ctx, ctx.stages.main);
+            ctx.rowShown = (await finalShotsUntil(h, (s) => s.row != null, 15_000))?.row != null;
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec(
+            "0. the run's sheet opened on a dag seeded with two finished rounds",
+            ctx.arrangeError == null && ctx.opened?.ok === true && ctx.rowShown === true,
+            ctx.arrangeError ?? JSON.stringify({ runId: ctx.runId, dagId: ctx.dagId, opened: ctx.opened })
+        );
+        if (ctx.arrangeError != null) return steps;
+
+        let s = await finalShotsUntil(h, (x) => x.row?.text.includes("16 shots") && x.dock != null);
+        rec(
+            "1. the row is collapsed with unverified · 5 scenarios and 16 shots · 2 rounds; the dock reads Screenshots · 16",
+            s?.row?.expanded === "false" &&
+                s.row.text.includes("unverified · 5 scenarios") &&
+                s.row.text.includes("16 shots · 2 rounds") &&
+                s.dock?.text === "Screenshots · 16" &&
+                !s.dock.disabled &&
+                !s.dock.accent,
+            JSON.stringify({ row: s?.row, dock: s?.dock })
+        );
+        await h.shot("cdp-shots/final-shots-1-row-closed.png");
+
+        await finalShotsClick(h, `${FS_ROW}?.querySelector(":scope > button[aria-expanded]")`);
+        s = await finalShotsUntil(h, (x) => x.row?.expanded === "true" && x.thumbs.length > 0 && x.thumbs.every((t) => t.img));
+        rec(
+            "2. the opened row shows one thumbnail per scenario and the round-1 caption",
+            s?.row?.expanded === "true" &&
+                JSON.stringify(s.thumbs.map((t) => t.name)) === JSON.stringify(FS_BOARD_ORDER) &&
+                s.thumbs.every((t) => t.img) &&
+                (s.caption ?? "").includes("Round 1 failed on jarvis-peek steps 4 and 5."),
+            JSON.stringify({ thumbs: s?.thumbs, caption: s?.caption })
+        );
+        await h.shot("cdp-shots/final-shots-2-row-open.png");
+        // the States rows below are drawn collapsed
+        await finalShotsClick(h, `${FS_ROW}?.querySelector(":scope > button[aria-expanded]")`);
+
+        await finalShotsClick(h, FS_DOCK);
+        s = await finalShotsUntil(h, (x) => x.viewer?.img?.loaded === true && x.viewer.film.length > 0);
+        let v = s?.viewer;
+        rec(
+            "3. the dock opens the viewer on round 2: tabs, shot, filmstrip and path, the drawer closed on a passing scenario",
+            v != null &&
+                v.rounds.length === 2 &&
+                v.rounds.find((r) => r.on)?.text === "Round 2 unverified" &&
+                v.tabs.length === 5 &&
+                v.tabs[0].on &&
+                v.tabs[0].text.startsWith("surface-smoke") &&
+                v.img?.loaded === true &&
+                v.film.length === 9 &&
+                v.film[0].on &&
+                (v.path ?? "").endsWith("/2/cdp-shots/surface-smoke.png") &&
+                v.steps?.expanded === "false" &&
+                v.drawer == null,
+            JSON.stringify(v)
+        );
+        await h.shot("cdp-shots/final-shots-3-viewer.png");
+
+        await finalShotsClick(
+            h,
+            `[...(${FS_VIEWER}?.querySelectorAll('[role="group"][aria-label="Round"] button') ?? [])].find((b) => b.innerText.trim().startsWith("Round 1"))`
+        );
+        s = await finalShotsUntil(
+            h,
+            (x) => x.viewer?.tabs[0]?.text.startsWith("jarvis-peek") && x.viewer.drawer != null && x.viewer.img?.loaded === true
+        );
+        v = s?.viewer;
+        rec(
+            "4. round 1 puts jarvis-peek first with the drawer open on its two failing steps",
+            v != null &&
+                v.rounds.find((r) => r.on)?.text === "Round 1 failed" &&
+                v.tabs[0].on &&
+                v.tabs[0].text.startsWith("jarvis-peek") &&
+                v.steps?.expanded === "true" &&
+                v.drawer?.fails === 2,
+            JSON.stringify({ rounds: v?.rounds, tab: v?.tabs[0], steps: v?.steps, drawer: v?.drawer })
+        );
+        await h.shot("cdp-shots/final-shots-4-round-1.png");
+
+        // ArrowUp/Down are the Jarvis list's keys too, and with the sheet open they would open the next run
+        const before = await h.ev(FS_JARVIS);
+        const keys = {};
+        await finalShotsKey(h, "ArrowDown");
+        keys.down = (await finalShotsUntil(h, (x) => x.viewer?.tabs[1]?.on === true, 2000))?.viewer?.tabs.findIndex((t) => t.on);
+        await finalShotsKey(h, "ArrowUp");
+        keys.up = (await finalShotsUntil(h, (x) => x.viewer?.tabs[0]?.on === true, 2000))?.viewer?.tabs.findIndex((t) => t.on);
+        await finalShotsKey(h, "z");
+        keys.zoom = (await finalShotsUntil(h, (x) => x.viewer?.zoom?.on === true, 2000))?.viewer?.zoom;
+        await finalShotsKey(h, "s");
+        s = await finalShotsUntil(h, (x) => x.viewer?.steps?.expanded === "false" && x.viewer.drawer == null, 2000);
+        keys.steps = { steps: s?.viewer?.steps, drawer: s?.viewer?.drawer };
+        await h.shot("cdp-shots/final-shots-5-keys.png");
+        await finalShotsKey(h, "z");
+        keys.fit = (await finalShotsUntil(h, (x) => x.viewer?.zoom?.on === false, 2000))?.viewer?.zoom;
+        await finalShotsKey(h, "ArrowRight");
+        s = await finalShotsUntil(h, (x) => x.viewer?.film[1]?.on === true, 2000);
+        keys.right = s?.viewer?.film.findIndex((f) => f.on);
+        const after = await h.ev(FS_JARVIS);
+        rec(
+            "5. ArrowRight moves the filmstrip, z toggles Actual size, s toggles the drawer, and the Jarvis selection stays put",
+            keys.down === 1 &&
+                keys.up === 0 &&
+                keys.zoom?.text === "Actual size" &&
+                keys.steps.steps?.expanded === "false" &&
+                keys.steps.drawer == null &&
+                keys.fit?.text === "Fit" &&
+                keys.right === 1 &&
+                JSON.stringify(after) === JSON.stringify(before),
+            JSON.stringify({ keys, before, after })
+        );
+
+        s = await finalShotsUntil(h, (x) => x.viewer?.missing != null);
+        rec(
+            "6. the file left off disk shows No longer on disk with its path",
+            (s?.viewer?.missing ?? "").includes("No longer on disk") &&
+                s.viewer.missing.includes(`/1/cdp-shots/${FINAL_SHOTS_MISSING}.png`),
+            JSON.stringify({ missing: s?.viewer?.missing })
+        );
+        await h.shot("cdp-shots/final-shots-6-missing.png");
+        await finalShotsClick(h, `${FS_VIEWER}?.querySelector('button[aria-label="Close"]')`);
+        await finalShotsUntil(h, (x) => x.viewer == null, 3000);
+
+        await seedFinalShots(h, ctx, ctx.stages.fixing);
+        s = await finalShotsUntil(h, (x) => x.row?.text.includes("17 shots") === true);
+        rec(
+            "7. failed during the fix round: failed · jarvis-peek 2 steps, 17 shots · round 1, an accent dock",
+            s?.row?.text.includes("failed · jarvis-peek 2 steps") &&
+                s.row.text.includes("17 shots · round 1") &&
+                s.dock?.text === "Screenshots · 17" &&
+                s.dock.accent &&
+                !s.dock.disabled,
+            JSON.stringify({ row: s?.row, dock: s?.dock })
+        );
+        await h.shot("cdp-shots/final-shots-7-fixing.png");
+
+        await seedFinalShots(h, ctx, ctx.stages.passed);
+        s = await finalShotsUntil(h, (x) => x.row?.text.includes("passed · 5 scenarios") === true);
+        rec(
+            "8a. passed: passed · 5 scenarios, 16 shots, a plain dock",
+            s?.row?.text.endsWith("16 shots") && s.dock?.text === "Screenshots · 16" && !s.dock.accent && !s.dock.disabled,
+            JSON.stringify({ row: s?.row, dock: s?.dock })
+        );
+        await h.shot("cdp-shots/final-shots-8a-passed.png");
+
+        await seedFinalShots(h, ctx, ctx.stages.empty);
+        s = await finalShotsUntil(h, (x) => x.row?.text.includes("no screenshots") === true);
+        rec(
+            "8b. unverified with no shots: unverified · no screenshots, the dock disabled at 0",
+            s?.row?.text.includes("unverified · no screenshots") && s.dock?.text === "Screenshots · 0" && s.dock.disabled === true,
+            JSON.stringify({ row: s?.row, dock: s?.dock })
+        );
+        await h.shot("cdp-shots/final-shots-8b-empty.png");
+
+        await seedFinalShots(h, ctx, ctx.stages.plain);
+        s = await finalShotsUntil(h, (x) => x.row?.text.includes("passed · 3 screenshots") === true);
+        const plainRow = { row: s?.row, dock: s?.dock };
+        await finalShotsClick(h, FS_DOCK);
+        s = await finalShotsUntil(h, (x) => x.viewer?.img?.loaded === true);
+        v = s?.viewer;
+        rec(
+            "8c. a plain PNG listing: passed · 3 screenshots, hollow-dot entries in the viewer, no Steps button",
+            plainRow.row?.text.includes("3 shots") &&
+                plainRow.dock?.text === "Screenshots · 3" &&
+                v != null &&
+                JSON.stringify(v.tabs.map((t) => t.text)) === JSON.stringify(FINAL_SHOTS_PLAIN.map((n) => `${n}.png`)) &&
+                v.tabs.every((t) => t.hollow) &&
+                v.steps == null &&
+                v.drawer == null &&
+                v.rounds.length === 0 &&
+                v.text.includes("Round 1 passed"),
+            JSON.stringify({ ...plainRow, viewer: v })
+        );
+        await h.shot("cdp-shots/final-shots-8c-plain.png");
+
+        await finalShotsKey(h, "Escape");
+        await finalShotsUntil(h, (x) => x.viewer == null, 3000);
+        // the run sheet's own Escape would close it a beat later, so the check waits past that
+        await polishNap(600);
+        s = await h.ev(FS_READ);
+        rec(
+            "9. Esc closes the viewer and leaves the run sheet open",
+            s?.viewer == null && s.sheet === true && s.dock != null,
+            JSON.stringify({ viewer: s?.viewer != null, sheet: s?.sheet, dock: s?.dock })
+        );
+        await h.shot("cdp-shots/final-shots-9-closed.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        if (ctx.cwd) await teardownFixtureRun(h, ctx, "final-shots");
+        rmSync(ctx.out, { recursive: true, force: true });
+    },
+};
+
 // --- brief-initiatives-polish: a staged and a flat initiative, their sidebar and activity ---------
 // Two throwaway efforts made over RPC: one staged (with an unstaged tail), one flat whose feed holds a
 // note-carrying status change, a bare one, and a long note. Every surface it opens is swept for text
@@ -8885,12 +9417,13 @@ const CANVAS_REMOVED_WAIT_MS = 5000;
 const CANVAS_ROSTER_WAIT_MS = 10000;
 const CANVAS_KEYS = { c: { key: "c", code: "KeyC", keyCode: 67 }, x: { key: "x", code: "KeyX", keyCode: 88 } };
 
-async function waveService(h, service, method, args) {
+// a method that takes a UIContext (object.UpdateObject) refuses a call without one
+async function waveService(h, service, method, args, uicontext = null) {
     const [endpoint, key] = await h.ev(`[window.api.getEnv("WAVE_SERVER_WEB_ENDPOINT"), window.api.getAuthKey()]`);
     const res = await fetch(`http://${endpoint}/wave/service?service=${service}&method=${method}`, {
         method: "POST",
         headers: { "x-authkey": key },
-        body: JSON.stringify({ service, method, args, uicontext: null }),
+        body: JSON.stringify({ service, method, args, uicontext }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok || body == null || body.error) {
@@ -9478,6 +10011,7 @@ export const SCENARIOS = [
     runSheetPolish,
     runTimingScenario,
     dagObservability,
+    finalShotsScenario,
     briefInitiativesPolish,
     briefPeeksPolish,
     newRunWindow,
