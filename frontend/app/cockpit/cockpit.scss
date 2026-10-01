@@ -16,7 +16,9 @@
 
 // Empty-cockpit glyph ambience. CSS-driven (not framer): repeat:Infinity keyframe loops don't run
 // when nested under the entrance motion.div's variant tree. step-end gives the caret a hard,
-// terminal-authentic block blink.
+// terminal-authentic block blink. Each runs ~11s after the empty state appears and then rests: an
+// infinite loop keeps the page producing frames for as long as it is on screen (measured +6-10% of a
+// core in the GPU process per loop, whichever one), and every frame competes with typing.
 @keyframes cockpit-empty-float {
     0%,
     100% {
@@ -45,13 +47,14 @@
     }
 }
 .cockpit-empty-glyph {
-    animation: cockpit-empty-float 5.5s ease-in-out infinite;
+    animation: cockpit-empty-float 5.5s ease-in-out 2;
 }
+// forwards holds the keyframes' resting 0.55, which differs from the element's own opacity
 .cockpit-empty-glow {
-    animation: cockpit-empty-glow 3.6s ease-in-out infinite;
+    animation: cockpit-empty-glow 3.6s ease-in-out 3 forwards;
 }
 .cockpit-empty-caret {
-    animation: cockpit-empty-caret 1.1s step-end infinite;
+    animation: cockpit-empty-caret 1.1s step-end 10;
 }
 @media (prefers-reduced-motion: reduce) {
     .cockpit-empty-glyph,
