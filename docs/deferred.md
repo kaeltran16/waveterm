@@ -324,10 +324,10 @@ redesign's high-level decisions come first. The fix shape below was reviewed in 
 
 **2026-09-17 update — held on evidence, not built.** The orchestrator redesign shipped, but it routed DAG
 child asks to the lead instead of making the ask judge their only automated answerer: `handleAsk`
-(`pkg/jarvis/watcher.go`) returns early for `isDagChildRun`, so a DAG child's question waits in its lead's
-queue and never reaches the Gatekeeper at all. That was this deferral's whole urgency — with it gone, the
-Gatekeeper now judges only non-DAG run and concierge workers, and there is no evidence multi-question or
-multi-select asks are common there. Revive when gatekeeper-enabled channels show multi-question escalations
+(`pkg/jarvis/watcher.go`) returns early for `isOrchestratorRun`, so a DAG child's question waits in its
+lead's queue and never reaches the Gatekeeper at all (nor does the lead's own, which is always the human's).
+That was this deferral's whole urgency — with it gone, the Gatekeeper now judges only quick-run and concierge
+workers, and there is no evidence multi-question or multi-select asks are common there. Revive when gatekeeper-enabled channels show multi-question escalations
 the human answers routinely; the fix shape above stays valid.
 
 ## Diff surface — hiding whitespace-only files from the change list (2026-09-11)

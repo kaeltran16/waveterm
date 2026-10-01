@@ -115,9 +115,7 @@ func ResolveAskOwner(ctx context.Context, ownerORef string) (*waveobj.Channel, s
 
 func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 	ownerORef := ChannelOwnerORef(ctx, data.ORef)
-	// a dag child's question waits in its lead's queue: an auto-answer would race the lead's, and an
-	// escalation would put a second card in front of the human for the same question
-	if m := ResolveRunWorkerFromMeta(ctx, ownerORef); m != nil && isDagChildRun(ctx, m.Run) {
+	if m := ResolveRunWorkerFromMeta(ctx, ownerORef); m != nil && isOrchestratorRun(ctx, m.Run) {
 		return
 	}
 	ch, task, _ := ResolveAskOwner(ctx, ownerORef)
@@ -154,9 +152,16 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 	postEscalation(ch.OID, data, reason, ownerORef)
 }
 
-// isDagChildRun reports a run the engine spawned for a dag task. A dag names its lead in RunID, and the
-// lead holds the same DagORef without being a child.
-func isDagChildRun(ctx context.Context, run *waveobj.Run) bool {
+// isOrchestratorRun reports a run whose questions the Gatekeeper must leave alone: an orchestrator lead,
+// or a run the engine spawned for one of its dag tasks. The lead protocol asks only for decisions reserved
+// for the human (spec review, plan approval, plan review, a failed final stage), so its asks go to the
+// cockpit as they are, before dag submit as well as after. A dag child's question waits in its lead's
+// queue: an auto-answer would race the lead's, and an escalation would put a second card in front of the
+// human for the same question. A dag names its lead in RunID; the lead holds the same DagORef.
+func isOrchestratorRun(ctx context.Context, run *waveobj.Run) bool {
+	if run.Mode == RunMode_Orchestrator {
+		return true
+	}
 	if run.DagORef == "" {
 		return false
 	}
