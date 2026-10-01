@@ -227,6 +227,9 @@ func finalLines(f *waveobj.FinalStage) []string {
 		state = "pending"
 	}
 	head := fmt.Sprintf("final   %s  round=%d", state, f.Round)
+	if f.Step != "" {
+		head += fmt.Sprintf("  step=%s (%s)", f.Step, time.Since(time.UnixMilli(f.StepTs)).Round(time.Second))
+	}
 	if f.Commit != "" {
 		head += "  commit=" + f.Commit[:min(7, len(f.Commit))]
 	}

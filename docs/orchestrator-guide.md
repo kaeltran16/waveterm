@@ -763,6 +763,14 @@ when you want no fix round.
 `wsh jarvis dag status` prints the stage as `final <state> round=N commit=… out=<ARC_FINAL_OUT>`, then each
 `final unverified:` reason and a `final failed:` detail, whole.
 
+**Watching it run.** While a command runs, the stage names it in `step` (`tree`, which makes the tree and runs
+Setup when the stage makes its own, then `check`, `verify`, `final`), with when it started and its output tail,
+published at most every 10 seconds as merge Verify's is. Status adds `step=<step> (<elapsed>)` to the stage line.
+In the cockpit the run's row reads `final: running Verify`, `final: running Final`, `final: verifier reviewing`
+(with `· verifier alongside` while a verifier works beside Check and Verify), and the DAG view's stage line adds
+the elapsed time, with the plan's command and the output's last lines on hover. Each step that ends records a
+`final-step` run event (`round`, `step`, `ms`, `ok`), so a run's timeline shows where the stage's minutes went.
+
 **The fix round.** On a failed stage the lead writes a fix plan in the plan format and runs
 `wsh jarvis dag submit --round --plan <fix plan>`. The fix plan's tasks are appended as `t-(n+1)…`, with its
 own numbers and Depends mapped on. Each description opens with `Fix round N: this is task K of the fix plan at

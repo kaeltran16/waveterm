@@ -95,6 +95,10 @@ const (
 	RunEventKindTaskVerifyPassed  = "task-verify-passed"
 	RunEventKindTaskVerifyFailed  = "task-verify-failed"
 
+	// final-step: one step of the final stage finished ("round", "step": tree | check | verify | final, "ms",
+	// "ok"). tree is making the stage's tree, with Setup when the stage makes its own.
+	RunEventKindFinalStep = "final-step"
+
 	// merge-held: the engine is holding every ready merge because the project index is not clean, which
 	// is the human mid-edit in the checkout ("held" int, "reason"). Recorded once per transition, not per
 	// tick. Without it the halt reaches nobody: the tasks stay merge-ready and the digest keeps offering

@@ -32,6 +32,14 @@ const (
 	FinalState_Failed     = "failed"
 )
 
+// Final stage steps (FinalStage.Step): the command running while the stage is checking or final.
+const (
+	FinalStep_Tree   = "tree" // making the stage's tree, with Setup when the stage makes its own
+	FinalStep_Check  = "check"
+	FinalStep_Verify = "verify"
+	FinalStep_Final  = "final"
+)
+
 // FinalExitUnverified is the Final command's exit code for "could not verify": its last output line says why.
 // Any other non-zero exit is a failure.
 const FinalExitUnverified = 3
@@ -260,12 +268,18 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 		return finalResult{round: -1}
 	}
 	res := finalResult{round: g.Final.Round}
+	step := func(name string, run func(planProgress) bool) bool {
+		return runFinalStep(ctx, g, res.round, name, run)
+	}
 	if g.Final.Tree != "" {
 		// the server restarted mid-stage: the verifier alongside may still be reading the tree the stage recorded
 		res.tree, res.commit, res.onStage = g.Final.Tree, g.Final.Commit, true
 	} else {
-		tree, _, err := finalTree(ctx, g, owner)
-		if err != nil {
+		var tree string
+		if !step(FinalStep_Tree, func(planProgress) bool {
+			tree, _, err = finalTree(ctx, g, owner)
+			return err == nil
+		}) {
 			res.unverified = []string{finalTreeFailed + err.Error()}
 			return res
 		}
@@ -287,7 +301,11 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 	}
 	tree := res.tree
 	if g.Check != "" {
-		if out, err := runPlanCommand(ctx, tree, g.Check, nil, VerifyTimeout, nil); err != nil {
+		var out string
+		if !step(FinalStep_Check, func(progress planProgress) bool {
+			out, err = runPlanCommand(ctx, tree, g.Check, nil, VerifyTimeout, progress)
+			return err == nil
+		}) {
 			if !baseCheckFailed(g) {
 				res.detail = fmt.Sprintf("Check `%s` failed (%s):\n%s", g.Check, commandReason(err), out)
 				return res
@@ -298,8 +316,12 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 	}
 	// per merge Verify tested only what each merge changed; the whole suite runs once, here, on the merged result
 	if g.Verify != "" {
-		out, flaky, err := runVerifyCommand(ctx, tree, g.Verify, unscopedEnv, nil)
-		if err != nil {
+		var out string
+		var flaky []string
+		if !step(FinalStep_Verify, func(progress planProgress) bool {
+			out, flaky, err = runVerifyCommand(ctx, tree, g.Verify, unscopedEnv, progress)
+			return err == nil
+		}) {
 			res.detail = fmt.Sprintf("Verify `%s` failed on the merged result (%s):\n%s", g.Verify, commandReason(err), out)
 			return res
 		}
@@ -310,10 +332,12 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 	if g.FinalCmd == "" {
 		return res
 	}
-	if err := WithDagMutation(dagID, func() error { return markFinalCommandLocked(ctx, dagID, res.round) }); err != nil {
-		log.Printf("dag %s: marking the Final command started: %v", dagID, err)
-	}
-	exit, tail, err := runFinalCommand(ctx, tree, g.FinalCmd, g.Final.OutDir, finalCommandTimeout)
+	var exit int
+	var tail string
+	step(FinalStep_Final, func(progress planProgress) bool {
+		exit, tail, err = runFinalCommand(ctx, tree, g.FinalCmd, g.Final.OutDir, finalCommandTimeout, progress)
+		return err == nil && exit == 0
+	})
 	switch {
 	case err != nil:
 		res.detail = fmt.Sprintf("Final `%s` failed (%s):\n%s", g.FinalCmd, err, tail)
@@ -338,13 +362,67 @@ func commandReason(err error) string {
 	return err.Error()
 }
 
-// markFinalCommandLocked shows that Check passed and the Final command is running.
-func markFinalCommandLocked(ctx context.Context, dagID string, round int) error {
+// runFinalStep runs one step of the stage, which run does, reporting whether it passed. The stage shows the step and
+// its output tail while it runs, so the cockpit can say which of the stage's minutes this is, and a final-step event
+// records how long it took.
+func runFinalStep(ctx context.Context, g *waveobj.TaskGroup, round int, step string, run func(planProgress) bool) bool {
+	if err := WithDagMutation(g.OID, func() error { return markFinalStepLocked(ctx, g.OID, round, step) }); err != nil {
+		log.Printf("dag %s: marking the final stage's %s step: %v", g.OID, step, err)
+	}
+	// a tail is cosmetic, so it skips a beat rather than waiting for the lock
+	progress := func(tail string) bool {
+		ran, err := TryWithDagMutation(g.OID, func() error { return recordFinalOutputLocked(ctx, g.OID, round, step, tail) })
+		if err != nil {
+			log.Printf("dag %s: publishing the final stage's %s output: %v", g.OID, step, err)
+		}
+		return ran && err == nil
+	}
+	start := time.Now()
+	ok := run(progress)
+	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindFinalStep, nil, map[string]any{
+		"round": round, "step": step, "ms": time.Since(start).Milliseconds(), "ok": ok,
+	})
+	return ok
+}
+
+// clearFinalStep drops the step of a stage whose commands are no longer running.
+func clearFinalStep(f *waveobj.FinalStage) {
+	f.Step, f.StepTs, f.Output = "", 0, ""
+}
+
+// markFinalStepLocked shows step running, with no output yet. The Final command also moves the stage to final:
+// Check and Verify passed.
+func markFinalStepLocked(ctx context.Context, dagID string, round int, step string) error {
 	err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
 		if cur.Status == DagStatus_Cancelled || cur.Final == nil || cur.Final.Round != round || cur.Final.State != FinalState_Checking {
 			return errVerifyProgressStale
 		}
-		cur.Final.State = FinalState_Final
+		cur.Final.Step, cur.Final.StepTs, cur.Final.Output = step, time.Now().UnixMilli(), ""
+		if step == FinalStep_Final {
+			cur.Final.State = FinalState_Final
+		}
+		cur.UpdatedTs = time.Now().UnixMilli()
+		return nil
+	})
+	if errors.Is(err, errVerifyProgressStale) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))
+	return nil
+}
+
+// recordFinalOutputLocked stores a running step's output tail. A step that is no longer the stage's (it finished,
+// or the stage ended or moved on to another round) takes nothing, so a late tail cannot land on the next step.
+func recordFinalOutputLocked(ctx context.Context, dagID string, round int, step, tail string) error {
+	err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
+		f := cur.Final
+		if cur.Status == DagStatus_Cancelled || f == nil || f.Round != round || f.Step != step || f.Output == tail {
+			return errVerifyProgressStale
+		}
+		f.Output = tail
 		cur.UpdatedTs = time.Now().UnixMilli()
 		return nil
 	})
@@ -401,6 +479,7 @@ func recordFinalLocked(ctx, spawnCtx context.Context, dagID string, owner *waveo
 	}
 	f.Tree, f.Commit = res.tree, res.commit
 	f.Unverified = append(f.Unverified, res.unverified...)
+	clearFinalStep(f)
 	var afterCommit []func()
 	verdict, held := heldFinalVerdict(dagID, f, true)
 	switch {
@@ -460,6 +539,8 @@ const finalVerifyWhere = "in the final stage's Verify on the merged result"
 // plan is written from it.
 func finishFinal(ctx context.Context, g *waveobj.TaskGroup, judged bool, afterCommit *[]func()) {
 	f := g.Final
+	// a human ending the stage stops its commands before they could clear their step
+	clearFinalStep(f)
 	// a batch's tips each keep the one Verify's output
 	seen := map[string]bool{}
 	for _, t := range g.Tasks {
@@ -608,9 +689,9 @@ func finalTree(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run) (s
 }
 
 // runFinalCommand runs the plan's Final command in tree with ARC_FINAL_OUT set to a fresh outDir, and returns
-// its exit code and output tail. err is set only when there is no exit code to judge: the command timed out,
-// or could not start.
-func runFinalCommand(ctx context.Context, tree, cmd, outDir string, timeout time.Duration) (int, string, error) {
+// its exit code and output tail, handing progress the tail while it runs. err is set only when there is no exit
+// code to judge: the command timed out, or could not start.
+func runFinalCommand(ctx context.Context, tree, cmd, outDir string, timeout time.Duration, progress planProgress) (int, string, error) {
 	// a stage the server lost runs again into the same round's directory; the old screenshots would pass for new ones
 	if err := os.RemoveAll(outDir); err != nil {
 		return -1, "", fmt.Errorf("clearing %s %s: %w", finalOutEnv, outDir, err)
@@ -618,7 +699,7 @@ func runFinalCommand(ctx context.Context, tree, cmd, outDir string, timeout time
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return -1, "", fmt.Errorf("creating %s %s: %w", finalOutEnv, outDir, err)
 	}
-	out, err := execPlanCommandEnv(ctx, tree, cmd, []string{finalOutEnv + "=" + outDir}, timeout, nil)
+	out, err := execPlanCommandEnv(ctx, tree, cmd, []string{finalOutEnv + "=" + outDir}, timeout, progress)
 	if err == nil {
 		return 0, out, nil
 	}
