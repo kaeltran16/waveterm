@@ -71,8 +71,10 @@ func vaultRoot() string {
 	return memroots.VaultRoot()
 }
 
-// effortPath rejects an oid that would name a file outside efforts/ (oids arrive over RPC).
+// effortPath rejects an oid that would name a file outside efforts/ (oids arrive over RPC). It takes the
+// oref form too, since that is what `wsh effort list` prints.
 func effortPath(root, oid string) (string, error) {
+	oid = strings.TrimPrefix(oid, waveobj.OType_Effort+":")
 	if oid == "" || oid == "." || oid == ".." || strings.ContainsAny(oid, `/\:`) {
 		return "", fmt.Errorf("invalid effort oid %q", oid)
 	}

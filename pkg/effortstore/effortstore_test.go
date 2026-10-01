@@ -265,6 +265,28 @@ func TestGetReturnsIndependentCopy(t *testing.T) {
 	}
 }
 
+// `wsh effort list` prints each effort as an oref, and agents paste it straight into show/update/delete
+func TestGetUpdateDeleteAcceptTheORef(t *testing.T) {
+	root := useTempRoot(t)
+	e := mustCreate(t, &waveobj.Effort{Title: "by oref"})
+	oref := waveobj.OType_Effort + ":" + e.OID
+	if got, err := Get(context.Background(), oref); err != nil || got.OID != e.OID {
+		t.Fatalf("Get(%q) = %+v, %v", oref, got, err)
+	}
+	if err := Update(context.Background(), oref, func(x *waveobj.Effort) error { x.Title = "renamed"; return nil }); err != nil {
+		t.Fatalf("Update(%q): %v", oref, err)
+	}
+	if got, _ := Get(context.Background(), e.OID); got == nil || got.Title != "renamed" {
+		t.Fatalf("update by oref did not land: %+v", got)
+	}
+	if err := Delete(context.Background(), oref); err != nil {
+		t.Fatalf("Delete(%q): %v", oref, err)
+	}
+	if _, err := os.Stat(effortFile(root, e.OID)); !os.IsNotExist(err) {
+		t.Fatalf("file still present after delete by oref: %v", err)
+	}
+}
+
 func TestDeleteRemovesFile(t *testing.T) {
 	root := useTempRoot(t)
 	e := mustCreate(t, &waveobj.Effort{Title: "gone"})
