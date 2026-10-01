@@ -8,11 +8,8 @@ import { cn } from "@/util/util";
 import { useState } from "react";
 import { shortModel } from "../agents/modelname";
 import { dagActionError, useDagGroup } from "./dagstore";
-import { leadModelsPayload, pickRows, picksBanner, setModelPayload, type PickModel, type PickRow } from "./modelpicks";
+import { leadModelsPayload, pickRows, picksBanner, setModelPayload, type PickModel } from "./modelpicks";
 import { workersRoute } from "./taskroute";
-import type { TimelineLayout } from "./timelinefilter";
-
-const MONO_META = "font-mono text-[10.5px] text-muted";
 
 function usePicksSource(dagOref: string, runId: string): { group: TaskGroup; owner: Run } | null {
     const [group] = useDagGroup(dagOref);
@@ -28,8 +25,16 @@ function leadShort(group: TaskGroup, owner: Run): string {
 
 export function ModelPicksBanner({ dagOref, runId }: { dagOref: string; runId: string }) {
     const src = usePicksSource(dagOref, runId);
+    const [bulkError, setBulkError] = useState<string | null>(null);
     const banner = src ? picksBanner(src.group, src.owner) : null;
-    if (banner == null) return null;
+    if (src == null || banner == null) return null;
+    const { group } = src;
+    const allToLead = () => {
+        setBulkError(null);
+        RpcApi.DagActionCommand(TabRpcClient, leadModelsPayload(group)).catch((e) => {
+            setBulkError(e instanceof Error ? e.message : String(e));
+        });
+    };
     return (
         <div
             data-model-picks-banner
@@ -41,117 +46,47 @@ export function ModelPicksBanner({ dagOref, runId }: { dagOref: string; runId: s
                 <b className="font-semibold">
                     {banner.onLight} of {banner.total} tasks
                 </b>{" "}
-                on sonnet. They run as picked unless you change them.
+                on sonnet. Select a task to change its model.
             </span>
             <span className="flex-1" />
-            <span className={MONO_META}>no need to act</span>
+            {bulkError && <span className="min-w-0 truncate text-[11px] text-error">{bulkError}</span>}
+            <button
+                type="button"
+                onClick={allToLead}
+                className="flex-none cursor-pointer rounded-md border border-edge-mid px-2.5 py-0.5 text-[11px] font-semibold text-secondary hover:border-edge-strong hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+            >
+                Put waiting tasks back on {leadShort(group, src.owner)}
+            </button>
         </div>
     );
 }
 
-export function ModelPicksPanel({
-    dagOref,
-    runId,
-    layout,
-}: {
-    dagOref: string;
-    runId: string;
-    layout: TimelineLayout;
-}) {
-    const src = usePicksSource(dagOref, runId);
-    const [rowError, setRowError] = useState<{ taskId: string; text: string } | null>(null);
-    const [bulkError, setBulkError] = useState<string | null>(null);
-    const rows = src ? pickRows(src.group, src.owner) : [];
-    if (src == null || !rows.some((r) => r.waiting)) return null;
-    const { group } = src;
-    const lead = leadShort(group, src.owner);
-
-    // a refusal (the task started meanwhile, or this machine cannot run the model) stays on the row it came from
-    const setModel = (taskId: string, model: PickModel) => {
-        setRowError(null);
-        RpcApi.DagActionCommand(TabRpcClient, setModelPayload(group, taskId, model)).catch((e) => {
-            setRowError({ taskId, text: dagActionError("setmodel", taskId, e) });
+// the selected task's pick in the detail rail: changeable while the task waits, shown read-only while it runs. A
+// refusal (the task started meanwhile, or this machine cannot run the model) stays on the row; mount it keyed by
+// task so the error does not follow the selection.
+export function TaskModelPick({ group, owner, task }: { group: TaskGroup; owner: Run; task: TaskNode }) {
+    const [error, setError] = useState<string | null>(null);
+    const row = pickRows(group, owner).find((r) => r.id === task.id);
+    if (row == null || (!row.waiting && task.state !== "running")) return null;
+    const lead = leadShort(group, owner);
+    const setModel = (model: PickModel) => {
+        setError(null);
+        RpcApi.DagActionCommand(TabRpcClient, setModelPayload(group, row.id, model)).catch((e) => {
+            setError(dagActionError("setmodel", row.id, e));
         });
     };
-    const allToLead = () => {
-        setBulkError(null);
-        RpcApi.DagActionCommand(TabRpcClient, leadModelsPayload(group)).catch((e) => {
-            setBulkError(e instanceof Error ? e.message : String(e));
-        });
-    };
-
     return (
-        <div
-            data-model-picks
-            className={cn(
-                "flex max-h-[45%] flex-none flex-col border-b border-border bg-surface",
-                layout === "rail" ? "border-l" : "border-t"
-            )}
-        >
-            <div className="flex flex-none items-baseline gap-2.5 px-4 pt-3 pb-2">
-                <span className="text-[13px] font-semibold text-ink-hi">Model picks</span>
-                <span className={MONO_META}>from the plan reviewer</span>
-                <span className="flex-1" />
-                <button
-                    type="button"
-                    onClick={allToLead}
-                    className="cursor-pointer rounded-md border border-edge-mid px-2.5 py-0.5 text-[11px] font-semibold text-secondary hover:border-edge-strong hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
-                >
-                    Put waiting tasks back on {lead}
-                </button>
-            </div>
-            {bulkError && <div className="px-4 pb-1.5 text-[11px] text-error">{bulkError}</div>}
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2">
-                {rows.map((row, i) => (
-                    <PickRowView
-                        key={row.id}
-                        row={row}
-                        lead={lead}
-                        first={i === 0}
-                        error={rowError?.taskId === row.id ? rowError.text : null}
-                        onSet={(model) => setModel(row.id, model)}
-                    />
-                ))}
-            </div>
-            <div className="flex-none border-t border-border px-4 py-2.5 text-[11px] leading-[1.45] text-muted">
-                A task that already started keeps its model. If it fails, retry it on {lead} from its card.
-            </div>
-        </div>
-    );
-}
-
-function PickRowView({
-    row,
-    lead,
-    first,
-    error,
-    onSet,
-}: {
-    row: PickRow;
-    lead: string;
-    first: boolean;
-    error: string | null;
-    onSet: (model: PickModel) => void;
-}) {
-    const note = !row.waiting ? "" : row.changed ? "you changed it" : "waiting";
-    return (
-        <div
-            data-model-pick={row.id}
-            className={cn("flex flex-col gap-1.5 px-2 py-2", !first && "border-t border-edge-faint")}
-        >
-            <div className="flex items-center gap-2">
-                <span className={cn(MONO_META, "w-[34px] flex-none")}>{row.id}</span>
-                <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink-hi" title={row.title}>
-                    {row.title}
-                </span>
+        <div data-model-pick={row.id} className="flex flex-col gap-1 border-t border-border pt-1.5">
+            <div className="flex items-center gap-2.5">
+                <span className="flex-none font-mono text-[10.5px] text-ink-mid">model</span>
                 {row.waiting ? (
                     <div
                         role="group"
                         aria-label={`${row.id} model`}
                         className="flex flex-none gap-0.5 rounded-[7px] border border-border bg-surface-raised p-0.5"
                     >
-                        <ToggleButton on={row.model === "sonnet"} label="sonnet" onClick={() => onSet("sonnet")} />
-                        <ToggleButton on={row.model === "lead"} label={lead} onClick={() => onSet("lead")} />
+                        <ToggleButton on={row.model === "sonnet"} label="sonnet" onClick={() => setModel("sonnet")} />
+                        <ToggleButton on={row.model === "lead"} label={lead} onClick={() => setModel("lead")} />
                     </div>
                 ) : (
                     <span className="flex flex-none items-center gap-1.5 font-mono text-[10.5px] text-success">
@@ -159,14 +94,21 @@ function PickRowView({
                         running on {row.runningModel}
                     </span>
                 )}
-            </div>
-            <div className="flex gap-2 pl-[42px]">
-                <span className="flex-1 text-[11.5px] leading-[1.4] text-ink-mid">{row.reason}</span>
-                <span className={cn("font-mono text-[10.5px]", row.changed ? "text-accent-soft" : "text-muted")}>
-                    {note}
+                <span className="min-w-0 flex-1 truncate text-[11.5px] text-ink-mid" title={row.reason}>
+                    {row.reason ? `Plan reviewer: ${row.reason}` : ""}
+                </span>
+                <span
+                    className={cn("flex-none font-mono text-[10.5px]", row.changed ? "text-accent-soft" : "text-muted")}
+                >
+                    {!row.waiting ? "" : row.changed ? "you changed it" : "waiting"}
                 </span>
             </div>
-            {error && <div className="pl-[42px] text-[11px] text-error">{error}</div>}
+            {!row.waiting && (
+                <div className="text-[11px] text-muted">
+                    A task that already started keeps its model. If it fails, retry it on {lead} from here.
+                </div>
+            )}
+            {error && <div className="text-[11px] text-error">{error}</div>}
         </div>
     );
 }

@@ -14,6 +14,7 @@ import { StatusLine } from "../agents/statusline";
 import { closeDagModal, dagModalAgentsContextAtom } from "./dagmodalstate";
 import { dagActionError, dagActionRoute, routeSourceLabel, type DagViewNode } from "./dagstore";
 import { escalatePayload } from "./escalate";
+import { TaskModelPick } from "./modelpicksview";
 import { openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "./taskcorrelate";
 
 // the mockup's open rail (RAIL_H_DESC 340) minus its closed rail (RAIL_H 108): the description gets exactly
@@ -27,12 +28,14 @@ const ACTION_BTN =
 // full description on demand. The escalate / error state is per task, so it resets when the selection moves.
 export function DagDetailRail({
     group,
+    owner,
     view,
     task,
     descOpen,
     onToggleDesc,
 }: {
     group: TaskGroup;
+    owner: Run;
     view: DagViewNode;
     task: TaskNode;
     descOpen: boolean;
@@ -135,6 +138,7 @@ export function DagDetailRail({
                     )}
                 </div>
             </div>
+            <TaskModelPick key={view.id} group={group} owner={owner} task={task} />
             {escalating && (
                 <div className="flex flex-wrap items-center gap-2 border-t border-border pt-1.5">
                     <RoutePicker

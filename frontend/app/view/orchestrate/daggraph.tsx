@@ -417,6 +417,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
             {selectedTask && selectedView ? (
                 <DagDetailRail
                     group={group}
+                    owner={owner}
                     view={selectedView}
                     task={selectedTask}
                     descOpen={descOpen}

@@ -7739,8 +7739,9 @@ const paletteGoal = {
 };
 
 const PICKS_BANNER = `document.querySelector('[data-dag-modal-kind] [data-model-picks-banner]')`;
-const PICKS_PANEL = `document.querySelector('[data-dag-modal-kind] [data-model-picks]')`;
-const pickRowExpr = (id) => `${PICKS_PANEL}?.querySelector('[data-model-pick="${id}"]')`;
+// the pick row lives in the selected task's rail, so only the selected task's row is ever on screen
+const PICK_ROWS = `[...document.querySelectorAll('[data-dag-modal-kind] [data-model-pick]')]`;
+const pickRowExpr = (id) => `document.querySelector('[data-dag-modal-kind] [data-model-pick="${id}"]')`;
 const pickToggleExpr = (id, sonnet) =>
     `[...(${pickRowExpr(id)}?.querySelectorAll('[role="group"] button') ?? [])].find((b) => (b.textContent.trim() === 'sonnet') === ${sonnet})`;
 const dagCardExpr = (id) => `document.querySelector('[data-dag-modal-kind] [data-dag-node="${id}"]')`;
@@ -7753,7 +7754,7 @@ const railExpr = `({ route: ${DAG_RAIL_ROUTE}?.getAttribute('data-dag-node-route
 // Task 1's Model line leaves it off the picks; one sonnet pick and one lead pick make the banner "1 of 3"
 const MODEL_PICKS = [
     { taskid: "t-2", model: "sonnet", reason: "a noop needs no deep reasoning" },
-    { taskid: "t-3", model: "lead", reason: "kept on the lead, so the panel must not list it" },
+    { taskid: "t-3", model: "lead", reason: "kept on the lead, so its rail must show no pick" },
 ];
 
 async function dagTask(h, ctx, id) {
@@ -7864,22 +7865,28 @@ const modelPicks = {
         await h.shot("cdp-shots/model-picks-1-banner.png");
         rec("1. the banner reads `1 of 3 tasks on sonnet`", banner.includes("1 of 3 tasks on sonnet"), `banner=${JSON.stringify(banner)}`);
 
-        const panel = await h.ev(`(() => {
-            const rows = [...(${PICKS_PANEL}?.querySelectorAll('[data-model-pick]') ?? [])];
-            return {
-                rows: rows.map((r) => r.getAttribute('data-model-pick')),
-                pressed: ${pickRowExpr("t-2")}?.querySelector('[role="group"] button[aria-pressed="true"]')?.textContent.trim() ?? null,
-                reason: ${flatText(pickRowExpr("t-2"))}.includes(${JSON.stringify(MODEL_PICKS[0].reason)}),
-            };
-        })()`);
+        await h.ev(`${dagCardExpr("t-3")}?.click()`);
+        await polishWaitFor(h, `!!${DAG_RAIL_ROUTE}`, 3000);
+        const leadRows = await h.ev(`${PICK_ROWS}.map((r) => r.getAttribute('data-model-pick'))`);
+        await h.ev(`${dagCardExpr("t-2")}?.click()`);
+        await polishWaitFor(h, `!!${pickRowExpr("t-2")}`, 3000);
+        const rail = await h.ev(`({
+            rows: ${PICK_ROWS}.map((r) => r.getAttribute('data-model-pick')),
+            pressed: ${pickRowExpr("t-2")}?.querySelector('[role="group"] button[aria-pressed="true"]')?.textContent.trim() ?? null,
+            reason: ${flatText(pickRowExpr("t-2"))}.includes(${JSON.stringify(MODEL_PICKS[0].reason)}),
+            sideRail: !!document.querySelector('[data-dag-modal-kind] [data-timeline-rail] [data-model-pick]'),
+        })`);
         rec(
-            "2. the panel lists only the sonnet pick, on sonnet, with its reason",
-            panel.rows.length === 1 && panel.rows[0] === "t-2" && panel.pressed === "sonnet" && panel.reason,
-            JSON.stringify(panel)
+            "2. only the sonnet pick shows a model row in the task rail, on sonnet, with its reason",
+            leadRows.length === 0 &&
+                rail.rows.length === 1 &&
+                rail.rows[0] === "t-2" &&
+                rail.pressed === "sonnet" &&
+                rail.reason &&
+                !rail.sideRail,
+            JSON.stringify({ leadRows, ...rail })
         );
 
-        await h.ev(`${dagCardExpr("t-2")}?.click()`);
-        await polishWaitFor(h, `!!${DAG_RAIL_ROUTE}`, 3000);
         const picked = await h.ev(`({
             t1: ${cardTagExpr("t-1")},
             t2: ${cardTagExpr("t-2")},

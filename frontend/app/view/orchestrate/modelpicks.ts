@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The plan reviewer's model picks as the dag modal's banner and panel show them, and the dag actions that change
+// The plan reviewer's model picks as the dag modal's banner and the selected task's rail show them, and the dag actions that change
 // them (setmodel, leadmodels in pkg/orchestrate/modelroute.go).
 
 import { shortModel } from "../agents/modelname";
