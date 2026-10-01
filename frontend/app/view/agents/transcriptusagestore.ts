@@ -5,6 +5,9 @@
 // folded via aggregateSessionUsage. Mirrors tokenstore.ts's stale-load guard so a slow load for a
 // previous focus can't overwrite a newer one. A silent reload (the rail's refresh tick) keeps the
 // last-good value instead of blanking to the skeleton.
+//
+// null is loading and nothing else: an agent with no transcript, or a load that failed, is "unavailable",
+// so the section can say so instead of showing its skeleton forever.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -12,7 +15,10 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { aggregateSessionUsage, type SessionUsage } from "./sessionusage";
 
-export const sessionUsageAtom = atom<SessionUsage | null>(null) as PrimitiveAtom<SessionUsage | null>;
+export const UsageUnavailable = "unavailable";
+export type SessionUsageState = SessionUsage | typeof UsageUnavailable | null;
+
+export const sessionUsageAtom = atom<SessionUsageState>(null) as PrimitiveAtom<SessionUsageState>;
 
 const current = { id: "" };
 
@@ -22,20 +28,22 @@ export async function loadSessionUsage(
     opts?: { silent?: boolean }
 ): Promise<void> {
     current.id = id;
+    if (!transcriptPath) {
+        globalStore.set(sessionUsageAtom, UsageUnavailable);
+        return;
+    }
     if (!opts?.silent) {
         globalStore.set(sessionUsageAtom, null);
-    }
-    if (!transcriptPath) {
-        return;
     }
     try {
         const rtn = await RpcApi.GetTranscriptUsageCommand(TabRpcClient, { path: transcriptPath });
         if (current.id === id) {
             globalStore.set(sessionUsageAtom, aggregateSessionUsage(rtn.buckets ?? []));
         }
-    } catch {
+    } catch (e) {
+        console.warn("session usage load failed", transcriptPath, e);
         if (current.id === id && !opts?.silent) {
-            globalStore.set(sessionUsageAtom, null);
+            globalStore.set(sessionUsageAtom, UsageUnavailable);
         }
     }
 }

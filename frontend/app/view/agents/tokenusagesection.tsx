@@ -16,7 +16,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { prettyModel } from "./modellabel";
 import { usageBreakdownAtom } from "./railstore";
 import { SectionLabel, SubLabel } from "./sectionlabel";
-import { sessionUsageAtom } from "./transcriptusagestore";
+import { sessionUsageAtom, UsageUnavailable } from "./transcriptusagestore";
 import { CLASS_FILL, fmt, usd } from "./usagestats";
 import type { TokenClass } from "./usagestats";
 
@@ -38,6 +38,14 @@ export function TokenUsageSection() {
                 <SkeletonLine className="mt-[12px] h-[24px] w-[120px]" />
                 <SkeletonLine className="mt-[12px] h-[11px] w-full rounded-[5px]" />
                 <SkeletonLine className="mt-[10px] h-[11px] w-full rounded-[5px]" />
+            </div>
+        );
+    }
+    if (usage === UsageUnavailable) {
+        return (
+            <div>
+                <SectionLabel>Token usage</SectionLabel>
+                <div className="mt-[10px] text-[11.5px] text-muted">Token usage unavailable.</div>
             </div>
         );
     }
