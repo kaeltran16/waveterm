@@ -15,7 +15,6 @@ vi.mock("@/app/store/wshclientapi", () => ({
         ListBranchesCommand: (...a: any[]) => listBranches(...a),
         GitFetchCommand: (...a: any[]) => gitFetch(...a),
         GitCommitChangesCommand: vi.fn(),
-        GitCommitDiffCommand: vi.fn(),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));

@@ -93,14 +93,6 @@ func (ws *WshServer) GitChangesCommand(ctx context.Context, data wshrpc.CommandG
 	return &wshrpc.CommandGitChangesRtnData{Branch: ch.Branch, StatusZ: ch.StatusZ, Numstat: ch.Numstat, IsRepo: ch.IsRepo, Ref: ref, Head: ch.Head}, nil
 }
 
-func (ws *WshServer) GitDiffCommand(ctx context.Context, data wshrpc.CommandGitDiffData) (*wshrpc.CommandGitDiffRtnData, error) {
-	d, err := gitinfo.GetDiff(ctx, data.Cwd, data.Path, data.Ref)
-	if err != nil {
-		return nil, fmt.Errorf("git diff: %w", err)
-	}
-	return &wshrpc.CommandGitDiffRtnData{Diff: d.Diff, Content: d.Content, Untracked: d.Untracked, TooLarge: d.TooLarge, Size: d.Size}, nil
-}
-
 func (ws *WshServer) GitRevertCommand(ctx context.Context, data wshrpc.CommandGitRevertData) error {
 	if data.Patch != "" {
 		return gitinfo.RevertHunk(ctx, data.Cwd, data.Path, data.Patch)

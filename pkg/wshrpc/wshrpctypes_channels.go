@@ -16,11 +16,10 @@ type ChannelCommands interface {
 	GetChannelRunsCommand(ctx context.Context, data CommandGetChannelRunsData) (*CommandGetChannelRunsRtnData, error)             // row-backed run list for a channel (Phase-2 active-channel surface)
 	GetChannelMessagesCommand(ctx context.Context, data CommandGetChannelMessagesData) (*CommandGetChannelMessagesRtnData, error) // row-backed message window for a channel (before/limit cursor)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
-	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error               // sets a channel's Jarvis autonomy tier (concierge|gatekeeper)
-	SetChannelReadCommand(ctx context.Context, data CommandSetChannelReadData) error               // stamps a channel's last-read timestamp for unread counts
-	SetChannelMessagePickCommand(ctx context.Context, data CommandSetChannelMessagePickData) error // records the human's chosen option index on a Jarvis card message (escalation answer / answered-override) so it survives a remount
-	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error         // write a channel's per-project profile override (empty clears it)
-	GetAttentionCommand(ctx context.Context) (*CommandGetAttentionRtnData, error)                  // everything waiting on the human across every channel: review gates, Gatekeeper escalations, blocked workers
+	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error       // sets a channel's Jarvis autonomy tier (concierge|gatekeeper)
+	SetChannelReadCommand(ctx context.Context, data CommandSetChannelReadData) error       // stamps a channel's last-read timestamp for unread counts
+	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error // write a channel's per-project profile override (empty clears it)
+	GetAttentionCommand(ctx context.Context) (*CommandGetAttentionRtnData, error)          // everything waiting on the human across every channel: review gates, Gatekeeper escalations, blocked workers
 }
 
 type CommandCreateChannelData struct {
@@ -70,12 +69,6 @@ type CommandSetChannelTierData struct {
 type CommandSetChannelReadData struct {
 	ChannelId string `json:"channelid"`
 	Ts        int64  `json:"ts"`
-}
-
-type CommandSetChannelMessagePickData struct {
-	ChannelId string `json:"channelid"`
-	MessageId string `json:"messageid"`
-	Pick      int    `json:"pick"`
 }
 
 type CommandSetChannelProfileData struct {

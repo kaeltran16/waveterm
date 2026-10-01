@@ -864,16 +864,6 @@ declare global {
         subagents: SubagentFileInfo[];
     };
 
-    // wshrpc.CommandGetTasksData
-    type CommandGetTasksData = {
-        cwd: string;
-    };
-
-    // wshrpc.CommandGetTasksRtnData
-    type CommandGetTasksRtnData = {
-        tasks: PiTask[];
-    };
-
     // wshrpc.CommandGetTranscriptTokensData
     type CommandGetTranscriptTokensData = {
         path: string;
@@ -946,20 +936,6 @@ declare global {
         isrepo: boolean;
     };
 
-    // wshrpc.CommandGitCommitDiffData
-    type CommandGitCommitDiffData = {
-        cwd: string;
-        hash: string;
-        path: string;
-    };
-
-    // wshrpc.CommandGitCommitDiffRtnData
-    type CommandGitCommitDiffRtnData = {
-        diff: string;
-        toolarge?: boolean;
-        size?: number;
-    };
-
     // wshrpc.CommandGitCompareChangesData
     type CommandGitCompareChangesData = {
         cwd: string;
@@ -973,38 +949,6 @@ declare global {
         statusz: string;
         numstat: string;
         isrepo: boolean;
-    };
-
-    // wshrpc.CommandGitCompareDiffData
-    type CommandGitCompareDiffData = {
-        cwd: string;
-        base: string;
-        head: string;
-        path: string;
-        tips?: boolean;
-    };
-
-    // wshrpc.CommandGitCompareDiffRtnData
-    type CommandGitCompareDiffRtnData = {
-        diff: string;
-        toolarge?: boolean;
-        size?: number;
-    };
-
-    // wshrpc.CommandGitDiffData
-    type CommandGitDiffData = {
-        cwd: string;
-        path: string;
-        ref?: string;
-    };
-
-    // wshrpc.CommandGitDiffRtnData
-    type CommandGitDiffRtnData = {
-        diff: string;
-        content: string;
-        untracked: boolean;
-        toolarge?: boolean;
-        size?: number;
     };
 
     // wshrpc.CommandGitDivergenceData
@@ -1132,24 +1076,6 @@ declare global {
         runid?: string;
         dagoid?: string;
         goal?: string;
-    };
-
-    // wshrpc.CommandJarvisData
-    type CommandJarvisData = {
-        channelid: string;
-        prompt: string;
-        requestid: string;
-    };
-
-    // wshrpc.CommandJarvisDecomposeData
-    type CommandJarvisDecomposeData = {
-        channelid: string;
-        goal: string;
-    };
-
-    // wshrpc.CommandJarvisDecomposeRtnData
-    type CommandJarvisDecomposeRtnData = {
-        subtasks: string[];
     };
 
     // wshrpc.CommandJarvisRunEventsData
@@ -1351,13 +1277,6 @@ declare global {
     type CommandSealRunEvidenceData = {
         channelid: string;
         runid: string;
-    };
-
-    // wshrpc.CommandSetChannelMessagePickData
-    type CommandSetChannelMessagePickData = {
-        channelid: string;
-        messageid: string;
-        pick: number;
     };
 
     // wshrpc.CommandSetChannelProfileData
@@ -1971,11 +1890,6 @@ declare global {
         refs?: string[];
     };
 
-    // wshrpc.JarvisChunk
-    type JarvisChunk = {
-        text: string;
-    };
-
     // waveobj.JarvisProfile
     type JarvisProfile = {
         principles?: Principle[];
@@ -2098,19 +2012,6 @@ declare global {
     type PhaseTriage = {
         verdict: string;
         note?: string;
-    };
-
-    // wshrpc.PiTask
-    type PiTask = {
-        id: string;
-        subject: string;
-        description: string;
-        status: string;
-        owner: string;
-        blocks: string[];
-        blockedby: string[];
-        createdat: number;
-        updatedat: number;
     };
 
     // waveobj.PlanReviewStage

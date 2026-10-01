@@ -19,9 +19,9 @@ const classifyTimeout = 120 * time.Second
 const maxTimeline = 12
 const maxTimelineLine = 200
 
-// runFn is the process-runner seam shared by this package's two headless claude calls (Classify and
-// Decompose). Production uses consult.Run; tests override it so nothing shells out and so the spec
-// each call selects — notably its tier — is observable.
+// runFn is the process-runner seam for this package's headless claude call (Classify). Production uses
+// consult.Run; tests override it so nothing shells out and so the spec the call selects — notably its
+// tier — is observable.
 var runFn = consult.Run
 
 // Decision is the classifier's structured verdict. An "answer" carries one AgentAnswerItem per question, in

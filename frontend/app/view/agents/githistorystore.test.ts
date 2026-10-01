@@ -9,15 +9,11 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const gitHistory = vi.fn();
-const gitDiff = vi.fn();
 const gitCommitChanges = vi.fn();
-const gitCommitDiff = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         GitHistoryCommand: (...a: any[]) => gitHistory(...a),
-        GitDiffCommand: (...a: any[]) => gitDiff(...a),
         GitCommitChangesCommand: (...a: any[]) => gitCommitChanges(...a),
-        GitCommitDiffCommand: (...a: any[]) => gitCommitDiff(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
@@ -78,9 +74,7 @@ beforeEach(() => {
         head: "aaa1111",
         commits: [commit("aaa1111", "tip commit"), commit("bbb2222", "older commit")],
     });
-    gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
     gitCommitChanges.mockResolvedValue({ isrepo: true, statusz: "M  x.ts\0", numstat: "1\t0\tx.ts\n" });
-    gitCommitDiff.mockResolvedValue({ diff: "" });
     globalStore.set(filesStateAtom, {
         cwd: CWD,
         branch: "main",
@@ -94,9 +88,7 @@ beforeEach(() => {
 afterEach(() => {
     resetHistory();
     gitHistory.mockReset();
-    gitDiff.mockReset();
     gitCommitChanges.mockReset();
-    gitCommitDiff.mockReset();
     globalStore.set(filesStateAtom, null);
     globalStore.set(selectedCommitAtom, null);
     globalStore.set(selectedFileAtom, null);

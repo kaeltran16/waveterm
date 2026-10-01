@@ -36,37 +36,6 @@ type Changes struct {
 	Head string
 }
 
-type Diff struct {
-	Diff      string
-	Content   string
-	Untracked bool
-	// TooLarge means the patch was produced and then refused: Diff and Content are empty and Size
-	// says how big it was. A silently truncated patch reads as a complete one, which is the whole
-	// reason this is a flag rather than a cut-off string.
-	TooLarge bool
-	Size     int64 // bytes of the patch (or of the untracked file's content)
-}
-
-// maxDiffBytes caps one file's patch. A regenerated lockfile is megabytes of unified diff, every
-// byte of which is pushed over the RPC and then rendered a DOM row per line; nothing in row 40,000
-// tells the reader what row 200 did not. It matches the Code surface's MAX_VIEW_BYTES so that a file
-// that surface will open is a file this one will diff.
-const maxDiffBytes = 2 * 1024 * 1024
-
-// cappedDiff refuses a patch too large to be worth shipping. What it bounds is the wire and the DOM,
-// not the read: git has no cheap way to answer "how big would this diff be", so the patch exists
-// before it can be measured.
-func cappedDiff(d *Diff) *Diff {
-	size := int64(len(d.Diff) + len(d.Content))
-	d.Size = size
-	if size > maxDiffBytes {
-		d.Diff = ""
-		d.Content = ""
-		d.TooLarge = true
-	}
-	return d
-}
-
 func run(ctx context.Context, cwd string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", cwd}, args...)...)
 	out, err := cmd.Output()
@@ -91,13 +60,13 @@ func GetChanges(ctx context.Context, cwd, ref string) (*Changes, error) {
 	}
 	// cwd's path within the repo (e.g. "services/foo/"), empty when cwd is the repo root. When cwd is
 	// a subdirectory — a microservice inside a monorepo — this scopes the surface to cwd's subtree and
-	// makes every path cwd-relative, so a path fed back into GetDiff/RevertFile as a `git -C cwd`
-	// pathspec resolves. Without it, `status` prints repo-root-relative paths that don't round-trip.
+	// makes every path cwd-relative, so a path fed back as a `git -C cwd` pathspec
+	// resolves. Without it, `status` prints repo-root-relative paths that don't round-trip.
 	prefix, _ := run(ctx, cwd, "rev-parse", "--show-prefix")
 	prefix = strings.TrimSpace(prefix)
 	// `-- .` scopes to cwd's subtree; status has no --relative, so we strip the prefix ourselves below.
 	// `-uall` lists untracked files individually instead of collapsing a wholly-new directory into one
-	// "dir/" entry — that collapsed row can't be diffed (GetDiff would os.ReadFile a directory) and
+	// "dir/" entry — that collapsed row can't be diffed (a directory has no file content to diff) and
 	// wedges the Files pane, so we expand it at the source. status drives untracked detection in both modes.
 	statusZ, err := run(ctx, cwd, "status", "--porcelain=v1", "-z", "-uall", "--", ".")
 	if err != nil {
@@ -462,28 +431,6 @@ func untrackedAdds(full string) string {
 		lines++ // a final line without a trailing newline still counts
 	}
 	return strconv.Itoa(lines)
-}
-
-func GetDiff(ctx context.Context, cwd, path, ref string) (*Diff, error) {
-	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
-	defer cancel()
-	st, _ := run(ctx, cwd, "status", "--porcelain=v1", "--", path)
-	if strings.HasPrefix(strings.TrimSpace(st), "??") {
-		content, err := os.ReadFile(filepath.Join(cwd, path))
-		if err != nil {
-			return nil, err
-		}
-		return cappedDiff(&Diff{Content: string(content), Untracked: true}), nil
-	}
-	base := ref
-	if base == "" {
-		base = "HEAD"
-	}
-	diff, err := run(ctx, cwd, "diff", base, "--", path)
-	if err != nil {
-		return nil, err
-	}
-	return cappedDiff(&Diff{Diff: diff}), nil
 }
 
 type BranchInfo struct {
@@ -930,83 +877,6 @@ func CommitChanges(ctx context.Context, cwd, hash string) (*Changes, error) {
 	return &Changes{StatusZ: nameStatusToStatusZ(nameStatus), Numstat: numstat, IsRepo: true}, nil
 }
 
-// CommitDiff returns one file's unified diff as introduced by one commit. The Diff shape is shared
-// with GetDiff so the frontend parses both the same way; Untracked is never set here, because a
-// committed file is by definition tracked.
-func CommitDiff(ctx context.Context, cwd, hash, path string) (*Diff, error) {
-	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
-	defer cancel()
-	base, err := commitBase(ctx, cwd, hash)
-	if err != nil {
-		return nil, err
-	}
-	diff, err := pathDiff(ctx, cwd, path, base, hash)
-	if err != nil {
-		return nil, err
-	}
-	return cappedDiff(&Diff{Diff: diff}), nil
-}
-
-// renameSource returns the path a rename moved from, or "" when this path is a genuine addition. It
-// asks the same whole-diff question the change list asks — deliberately with the same flags, so the
-// two reads cannot disagree about whether a file was renamed.
-func renameSource(ctx context.Context, cwd, path string, revs ...string) string {
-	args := append([]string{"diff", "--name-status", "-z", "--relative"}, revs...)
-	out, err := run(ctx, cwd, args...)
-	if err != nil {
-		return ""
-	}
-	toks := strings.Split(out, "\x00")
-	for i := 0; i < len(toks); i++ {
-		st := toks[i]
-		if st == "" {
-			continue
-		}
-		if st[0] == 'R' || st[0] == 'C' { // Rxxx \0 old \0 new
-			if i+2 >= len(toks) {
-				break
-			}
-			if toks[i+2] == path {
-				return toks[i+1]
-			}
-			i += 2
-			continue
-		}
-		if i+1 >= len(toks) {
-			break
-		}
-		i++
-	}
-	return ""
-}
-
-// pathDiff reads one path's diff over a rev spec. A rename comes back as a whole new file when only
-// the new path is in the pathspec — git has no deletion in view to pair it with — so an addition is
-// re-read with the source path alongside it. Without that, the change list (which reads the whole
-// diff, and does pair them) called a file a rename while this read called it every line added.
-func pathDiff(ctx context.Context, cwd, path string, revs ...string) (string, error) {
-	diffArgs := func(paths ...string) []string {
-		args := append([]string{"diff"}, revs...)
-		return append(append(args, "--"), paths...)
-	}
-	out, err := run(ctx, cwd, diffArgs(path)...)
-	if err != nil {
-		return "", err
-	}
-	if !strings.Contains(out, "\nnew file mode ") {
-		return out, nil
-	}
-	src := renameSource(ctx, cwd, path, revs...)
-	if src == "" {
-		return out, nil
-	}
-	paired, err := run(ctx, cwd, diffArgs(src, path)...)
-	if err != nil {
-		return out, nil // the first read already answered; a failed second one is not worth surfacing
-	}
-	return paired, nil
-}
-
 // rangeSep picks the range form. Two dots is the full tip-to-tip difference; three dots is anchored
 // at the merge base.
 func rangeSep(tips bool) string {
@@ -1044,21 +914,6 @@ func CompareChanges(ctx context.Context, cwd, base, head string, tips bool) (*Ch
 		return nil, err
 	}
 	return &Changes{StatusZ: nameStatusToStatusZ(nameStatus), Numstat: numstat, IsRepo: true}, nil
-}
-
-// CompareDiff returns one file's unified diff between base and head. tips selects the same form
-// CompareChanges took, and must: the file list and the pane beside it reading different ranges is how
-// a file the list calls deleted opens as unchanged. The Diff shape is shared with GetDiff and
-// CommitDiff so the frontend parses all three the same way; Untracked is never set, because a two-ref
-// diff has no working tree.
-func CompareDiff(ctx context.Context, cwd, base, head, path string, tips bool) (*Diff, error) {
-	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
-	defer cancel()
-	diff, err := pathDiff(ctx, cwd, path, base+rangeSep(tips)+head)
-	if err != nil {
-		return nil, err
-	}
-	return cappedDiff(&Diff{Diff: diff}), nil
 }
 
 // FileContent is one file's content at one ref. Binary, Missing and TooLarge are states a caller
