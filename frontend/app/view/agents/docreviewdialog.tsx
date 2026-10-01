@@ -1,11 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// A lead's Spec review / Plan review ask as one dialog: the document on the left, what the lead asks you to
-// accept on the right, the answer at the bottom. Mounted once in CockpitShell so it opens over any surface;
-// docReviewAtom names the asking agent. Hiding it leaves the ask open, and it closes itself once the ask is
+// A lead's Spec review / Plan review ask as one dialog: the document (or, for a mockup-settled spec, the canvas)
+// on the left, what the lead asks you to accept on the right, the answer at the bottom. Mounted once in
+// CockpitShell so it opens over any surface; docReviewAtom names the asking agent. Hiding it leaves the ask open, and it closes itself once the ask is
 // answered or cleared.
 
+import { pushToast } from "@/app/cockpit/notificationstore";
 import { openFileInCode } from "@/app/cockpit/openfilestore";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { ModalShell } from "@/app/modals/modalshell";
@@ -13,12 +14,15 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ArrowUpRight, Check, FileText, X } from "lucide-react";
+import { ArrowUpRight, Check, FileText, SquareDashed, X, type LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { openTarget } from "../jarvis/openref";
 import { ICON_BTN } from "./agentheader";
 import type { AgentsViewModel } from "./agents";
 import { askSentKey, type AgentVM } from "./agentsviewmodel";
 import { cleanLabel } from "./answerbar";
+import { parseCanvasPath } from "./canvasmodel";
+import { canvasOwner } from "./canvasstore";
 import { docReviewAtom, parseDocReview, type DocReview, type DocReviewKind } from "./docreview";
 import { MarkdownMessage } from "./markdownmessage";
 import { useFileText } from "./usefiletext";
@@ -54,6 +58,24 @@ const SECONDARY_BTN =
     "flex cursor-pointer items-center gap-2 rounded-[8px] border border-edge-mid bg-surface-raised px-3 py-[6px] text-[12.5px] font-semibold text-secondary hover:border-edge-strong hover:bg-surface-hover";
 
 const closeDialog = () => globalStore.set(docReviewAtom, null);
+
+// Lands on the agent that already shows the canvas. When none does, the lead's terminal attaches it first, as
+// the lead's own `wsh ui reveal` would, so the open has an agent to land on.
+async function openCanvasBoard(model: AgentsViewModel, lead: AgentVM, path: string): Promise<void> {
+    const canvas = parseCanvasPath(path);
+    if (canvas == null) {
+        pushToast({ title: `Not a design canvas board: ${path}`, message: "", level: "warn" });
+        return;
+    }
+    const target = { kind: "canvas", topic: canvas.topic, board: canvas.board } as const;
+    if (canvasOwner(canvas.topic) == null && lead.blockId != null) {
+        const attached = await openTarget(model, target, undefined, { blockId: lead.blockId, cwd: canvas.cwd });
+        if ("reason" in attached) {
+            return;
+        }
+    }
+    await openTarget(model, target);
+}
 
 export function DocReviewDialog({ model }: { model: AgentsViewModel }) {
     const id = useAtomValue(docReviewAtom);
@@ -118,13 +140,23 @@ export function DocReviewDialog({ model }: { model: AgentsViewModel }) {
                 <>
                     <Header agent={agent} review={review} />
                     <div className="flex min-h-0 flex-1">
-                        <DocumentPane
-                            path={review.path}
-                            onOpen={() => {
-                                closeDialog();
-                                fireAndForget(() => openFileInCode(model, review.path));
-                            }}
-                        />
+                        {review.doc === "canvas" ? (
+                            <CanvasPane
+                                path={review.path}
+                                onOpen={() => {
+                                    closeDialog();
+                                    fireAndForget(() => openCanvasBoard(model, agent, review.path));
+                                }}
+                            />
+                        ) : (
+                            <DocumentPane
+                                path={review.path}
+                                onOpen={() => {
+                                    closeDialog();
+                                    fireAndForget(() => openFileInCode(model, review.path));
+                                }}
+                            />
+                        )}
                         <AskPane review={review} />
                     </div>
                     <Footer
@@ -177,30 +209,56 @@ function Header({ agent, review }: { agent: AgentVM; review: DocReview }) {
     );
 }
 
+function splitPath(path: string): { file: string; dir: string } {
+    const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+    return { file: path.slice(cut + 1), dir: cut > 0 ? path.slice(0, cut) : "" };
+}
+
+function FileCard(p: { path: string; icon: LucideIcon; action: string; onOpen: () => void }) {
+    const { file, dir } = splitPath(p.path);
+    return (
+        <div className="flex-none border-b border-edge-faint px-[22px] py-3">
+            <div className="flex items-center gap-2.5 rounded-[7px] border border-edge-mid bg-background px-2.5 py-2">
+                <p.icon size={15} strokeWidth={1.8} aria-hidden className="flex-none text-ink-mid" />
+                <div className="min-w-0 flex-1">
+                    <div className="truncate font-mono text-[12px] font-semibold text-primary">{file}</div>
+                    <div className="truncate font-mono text-[10.5px] text-muted">{dir}</div>
+                </div>
+                <button
+                    type="button"
+                    onClick={p.onOpen}
+                    className="inline-flex h-[25px] shrink-0 cursor-pointer items-center gap-[5px] rounded-[6px] border border-accent/45 bg-transparent px-2.5 text-[11.5px] font-semibold text-accent-soft hover:bg-accent/10"
+                >
+                    {p.action}
+                    <ArrowUpRight size={11} aria-hidden />
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// a mockup's board is a live canvas: its HTML source rendered as markdown would be noise
+function CanvasPane({ path, onOpen }: { path: string; onOpen: () => void }) {
+    return (
+        <div data-doc-review-canvas className="flex min-w-0 flex-1 flex-col border-r border-edge-mid">
+            <FileCard path={path} icon={SquareDashed} action="Open canvas" onOpen={onOpen} />
+            <div className="flex flex-col gap-1.5 px-7 pt-[18px]">
+                <span className="text-[14px] leading-[1.65] text-secondary">
+                    The mockup settles this design, so there is no spec document: the decisions on the right are the
+                    ones made beyond it. Open the canvas to review its boards.
+                </span>
+                <span className="break-all font-mono text-[11px] text-muted">{path}</span>
+            </div>
+        </div>
+    );
+}
+
 function DocumentPane({ path, onOpen }: { path: string; onOpen: () => void }) {
     const [load] = useFileText(path);
-    const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-    const file = path.slice(cut + 1);
-    const dir = cut > 0 ? path.slice(0, cut) : "";
+    const { file } = splitPath(path);
     return (
         <div className="flex min-w-0 flex-1 flex-col border-r border-edge-mid">
-            <div className="flex-none border-b border-edge-faint px-[22px] py-3">
-                <div className="flex items-center gap-2.5 rounded-[7px] border border-edge-mid bg-background px-2.5 py-2">
-                    <FileText size={15} strokeWidth={1.8} aria-hidden className="flex-none text-ink-mid" />
-                    <div className="min-w-0 flex-1">
-                        <div className="truncate font-mono text-[12px] font-semibold text-primary">{file}</div>
-                        <div className="truncate font-mono text-[10.5px] text-muted">{dir}</div>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={onOpen}
-                        className="inline-flex h-[25px] shrink-0 cursor-pointer items-center gap-[5px] rounded-[6px] border border-accent/45 bg-transparent px-2.5 text-[11.5px] font-semibold text-accent-soft hover:bg-accent/10"
-                    >
-                        Open in Code
-                        <ArrowUpRight size={11} aria-hidden />
-                    </button>
-                </div>
-            </div>
+            <FileCard path={path} icon={FileText} action="Open in Code" onOpen={onOpen} />
             <div className="sc min-h-0 flex-1 overflow-y-auto px-7 pb-7 pt-[18px]">
                 {load.status === "loading" ? (
                     <div aria-hidden="true" className="flex flex-col gap-2.5 pt-1">

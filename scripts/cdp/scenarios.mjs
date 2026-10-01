@@ -6200,7 +6200,7 @@ const DOC_REVIEW_TAG_TITLE = "Open the spec review";
 const DOC_REVIEW_CHIP = "Spec review";
 const DOC_REVIEW_PANEL = `document.querySelector("[data-doc-review]")?.closest('[role="dialog"]')`;
 
-function docReviewRoster(runId, specPath) {
+function docReviewRoster(runId, docPath) {
     return [
         {
             id: DOC_REVIEW_WORKER_ID,
@@ -6232,7 +6232,7 @@ function docReviewRoster(runId, specPath) {
                 questions: [
                     {
                         header: DOC_REVIEW_CHIP,
-                        question: [specPath, ...DOC_REVIEW_DECISIONS.map((d) => `- ${d}`)].join("\n"),
+                        question: [docPath, ...DOC_REVIEW_DECISIONS.map((d) => `- ${d}`)].join("\n"),
                         options: [{ label: "Approve" }, { label: "Request changes" }],
                     },
                 ],
@@ -6421,6 +6421,107 @@ const docReview = {
     },
     async teardown(h, ctx) {
         await teardownFixtureRun(h, ctx, "doc-review");
+    },
+};
+
+// A mockup-settled Spec review names the mockup's .dc.html board, not a spec file: the dialog's left pane is the
+// canvas (its path and Open canvas), not the board's HTML rendered as markdown, and Open canvas lands on the lead
+// in canvas mode. Same roster as doc-review, with the board written under the scenario's own design folder.
+const DOC_REVIEW_CANVAS_TOPIC = "fx-doc-review";
+const DOC_REVIEW_CANVAS_PANE = `${DOC_REVIEW_PANEL}?.querySelector("[data-doc-review-canvas]")`;
+
+const docReviewCanvas = {
+    name: "doc-review-canvas",
+    surface: "cockpit",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-doc-review-canvas-"));
+        const ctx = { cwd };
+        try {
+            await arrangeFixtureRun(h, ctx, "doc-review-canvas", DOC_REVIEW_LEAD);
+            const project = join(cwd, ".superpowers", "design", DOC_REVIEW_CANVAS_TOPIC, "project");
+            mkdirSync(project, { recursive: true });
+            ctx.boardPath = join(project, "Main.dc.html");
+            writeFileSync(ctx.boardPath, `<!doctype html><h1>${DOC_REVIEW_HEADING}</h1>\n`);
+            writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(docReviewRoster(ctx.runId, ctx.boardPath), null, 2));
+            // the fixture roster is read once at boot
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+            await h.goto("cockpit");
+            ctx.rosterLoaded = await docReviewWait(
+                h,
+                `document.querySelector('[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"]')`,
+                15000
+            );
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null || !ctx.rosterLoaded) {
+            return [{ step: "0. the fixture roster loaded", ok: false, detail: ctx.arrangeError ?? "no worker card" }];
+        }
+
+        // through the worker's card, as doc-review does, so the lead's auto-open is not spent before the tag
+        await h.ev(`document.querySelector(
+            '[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"] button[title="Open terminal (T)"]'
+        )?.click()`);
+        const tagged = await docReviewWait(
+            h,
+            `${docReviewTreeRow(DOC_REVIEW_LEAD)}?.querySelector('button[title="${DOC_REVIEW_TAG_TITLE}"]')`
+        );
+        await h.ev(`${docReviewTreeRow(DOC_REVIEW_LEAD)}?.querySelector('button[title="${DOC_REVIEW_TAG_TITLE}"]')?.click()`);
+        const open1 = await docReviewWait(h, DOC_REVIEW_CANVAS_PANE);
+        const panel1 = await h.ev(`(() => {
+            const p = ${DOC_REVIEW_PANEL};
+            if (!p) return null;
+            const pane = p.querySelector("[data-doc-review-canvas]");
+            return {
+                kind: p.querySelector("[data-doc-review]").getAttribute("data-doc-review"),
+                canvas: !!pane,
+                path: pane?.textContent.includes(${JSON.stringify(ctx.boardPath)}) ?? false,
+                open: [...(pane?.querySelectorAll("button") ?? [])].some((b) => b.textContent.trim() === "Open canvas"),
+                rendered: !!p.querySelector("h1"),
+                items: p.querySelectorAll("ol > li").length,
+            };
+        })()`);
+        await h.shot("cdp-shots/doc-review-canvas-dialog.png");
+        rec(
+            "1. the review tag opens the dialog with the canvas pane: its path and Open canvas, no rendered board",
+            tagged &&
+                open1 &&
+                panel1?.kind === "spec" &&
+                panel1.path &&
+                panel1.open &&
+                !panel1.rendered &&
+                panel1.items === DOC_REVIEW_DECISIONS.length,
+            JSON.stringify({ tagged, open: open1, panel: panel1 })
+        );
+
+        await h.ev(`[...(${DOC_REVIEW_CANVAS_PANE}?.querySelectorAll("button") ?? [])]
+            .find((b) => b.textContent.trim() === "Open canvas")?.click()`);
+        const gone2 = await docReviewWait(h, `!${DOC_REVIEW_PANEL}`, 3000);
+        const canvas2 = await docReviewWait(
+            h,
+            `document.querySelector("[data-canvas-pane]")?.textContent.includes(${JSON.stringify(DOC_REVIEW_CANVAS_TOPIC)})`
+        );
+        const names2 = await docReviewHeaderNames(h);
+        await h.shot("cdp-shots/doc-review-canvas-open.png");
+        rec(
+            "2. Open canvas closes the dialog and shows the canvas on the lead",
+            gone2 && canvas2 && names2.lead,
+            JSON.stringify({ gone: gone2, canvas: canvas2, header: names2 })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "doc-review-canvas");
     },
 };
 
@@ -8709,6 +8810,7 @@ export const SCENARIOS = [
     agentTreeRail,
     agentTreeQuickReturn,
     docReview,
+    docReviewCanvas,
     cockpitPolish,
     runSheetPolish,
     runTimingScenario,

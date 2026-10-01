@@ -16,6 +16,7 @@ import {
     fitScale,
     isUnseen,
     paneState,
+    parseCanvasPath,
     pickFreePort,
     pickServingPort,
     prototypePath,
@@ -310,6 +311,22 @@ describe("paths", () => {
         expect(buildGoal("/p/.superpowers/design/t", BOARDS)).toBe(
             "Build the design in /p/.superpowers/design/t/project (boards: Main, States)"
         );
+    });
+
+    it("reads a board path back into the cwd, topic and board", () => {
+        expect(parseCanvasPath("C:\\p\\.superpowers\\design\\t\\project\\Main.dc.html")).toEqual({
+            cwd: "C:\\p",
+            topic: "t",
+            board: "Main.dc.html",
+        });
+        expect(parseCanvasPath(prototypePath("/p/q/.superpowers/design/t", [BOARDS[1]]))).toEqual({
+            cwd: "/p/q",
+            topic: "t",
+            board: "States.dc.html",
+        });
+        expect(parseCanvasPath("/p/elsewhere/Main.dc.html")).toBeNull();
+        expect(parseCanvasPath("/p/.superpowers/design/t/project/notes.md")).toBeNull();
+        expect(parseCanvasPath("/p/.superpowers/design/t/project/sub/Main.dc.html")).toBeNull();
     });
 
     it("points the prototype at the first board", () => {
