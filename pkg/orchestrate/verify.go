@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -581,7 +582,7 @@ func closeLandedChunks(ctx context.Context, g *waveobj.TaskGroup, tipID string) 
 		for _, chunk := range task.Chunks {
 			note := fmt.Sprintf("%s (run %s, task %s)", landed, g.RunID, task.ID)
 			op := wshrpc.EffortOp{Op: "setChunkStatus", Chunk: chunk, Status: "done"}
-			err := wstore.UpdateEffort(ctx, g.EffortOID, func(e *waveobj.Effort) error {
+			err := effortstore.Update(ctx, g.EffortOID, func(e *waveobj.Effort) error {
 				return jarvis.ApplyEffortOps(e, []wshrpc.EffortOp{op}, note, time.Now().UnixMilli())
 			})
 			if err != nil {

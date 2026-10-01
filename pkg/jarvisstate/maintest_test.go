@@ -5,8 +5,10 @@ package jarvisstate
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -25,6 +27,7 @@ func TestMain(m *testing.M) {
 	if err := wstore.InitWStore(); err != nil {
 		panic(err)
 	}
+	defer effortstore.UseRootForTest(filepath.Join(dir, "vault"))()
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

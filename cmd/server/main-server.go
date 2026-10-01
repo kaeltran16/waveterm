@@ -18,6 +18,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/authkey"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisvolunteer"
@@ -275,6 +276,11 @@ func main() {
 	if err != nil {
 		log.Printf("error initializing wstore: %v\n", err)
 		return
+	}
+	if n, err := effortstore.MigrateFromDB(context.Background()); err != nil {
+		log.Printf("error migrating efforts to the vault (moved %d): %v\n", n, err)
+	} else if n > 0 {
+		log.Printf("migrated %d efforts from the db to the vault\n", n)
 	}
 	go func() {
 		defer func() {

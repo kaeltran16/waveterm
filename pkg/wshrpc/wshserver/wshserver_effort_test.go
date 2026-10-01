@@ -5,15 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func cleanupEffort(t *testing.T, oid string) {
 	t.Helper()
 	t.Cleanup(func() {
-		if err := wstore.DBDelete(context.Background(), waveobj.OType_Effort, oid); err != nil {
+		if err := effortstore.Delete(context.Background(), oid); err != nil {
 			t.Errorf("cleanup effort: %v", err)
 		}
 	})
@@ -83,7 +82,7 @@ func TestEffortMutateAtomicBatchRejected(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "EC-UNKNOWN-CHUNK") {
 		t.Fatalf("want EC-UNKNOWN-CHUNK, got %v", err)
 	}
-	got, gerr := wstore.GetEffort(ctx, rtn.EffortOID)
+	got, gerr := effortstore.Get(ctx, rtn.EffortOID)
 	if gerr != nil {
 		t.Fatal(gerr)
 	}

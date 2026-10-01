@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func cleanupEffort(t *testing.T, oid string) {
 	t.Helper()
 	t.Cleanup(func() {
-		if err := wstore.DBDelete(context.Background(), waveobj.OType_Effort, oid); err != nil {
+		if err := effortstore.Delete(context.Background(), oid); err != nil {
 			t.Errorf("cleanup effort: %v", err)
 		}
 	})
@@ -22,7 +22,7 @@ func TestAttachRunToChunk(t *testing.T) {
 	ctx := context.Background()
 	e := &waveobj.Effort{Title: "t", Status: "active",
 		Chunks: []waveobj.EffortChunk{{Label: "Phase 1", Status: "active"}}}
-	if err := wstore.CreateEffort(ctx, e); err != nil {
+	if err := effortstore.Create(ctx, e); err != nil {
 		t.Fatal(err)
 	}
 	cleanupEffort(t, e.OID)
@@ -30,7 +30,7 @@ func TestAttachRunToChunk(t *testing.T) {
 	if err := AttachRunToChunk(ctx, e.OID, "Phase 1", "run:r1"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := wstore.GetEffort(ctx, e.OID)
+	got, err := effortstore.Get(ctx, e.OID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestAttachRunToChunkIdempotent(t *testing.T) {
 	ctx := context.Background()
 	e := &waveobj.Effort{Title: "t", Status: "active",
 		Chunks: []waveobj.EffortChunk{{Label: "Phase 1", Status: "active"}}}
-	if err := wstore.CreateEffort(ctx, e); err != nil {
+	if err := effortstore.Create(ctx, e); err != nil {
 		t.Fatal(err)
 	}
 	cleanupEffort(t, e.OID)
@@ -52,7 +52,7 @@ func TestAttachRunToChunkIdempotent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, _ := wstore.GetEffort(ctx, e.OID)
+	got, _ := effortstore.Get(ctx, e.OID)
 	if len(got.Chunks[0].WorkRefs) != 1 {
 		t.Fatalf("not idempotent: %+v", got.Chunks[0].WorkRefs)
 	}
@@ -69,7 +69,7 @@ func TestAttachRunToChunkUnknownChunk(t *testing.T) {
 	ctx := context.Background()
 	e := &waveobj.Effort{Title: "t", Status: "active",
 		Chunks: []waveobj.EffortChunk{{Label: "Phase 1", Status: "active"}}}
-	if err := wstore.CreateEffort(ctx, e); err != nil {
+	if err := effortstore.Create(ctx, e); err != nil {
 		t.Fatal(err)
 	}
 	cleanupEffort(t, e.OID)
@@ -83,7 +83,7 @@ func TestDetachRunFromChunk(t *testing.T) {
 	ctx := context.Background()
 	e := &waveobj.Effort{Title: "t", Status: "active",
 		Chunks: []waveobj.EffortChunk{{Label: "Phase 1", Status: "active"}}}
-	if err := wstore.CreateEffort(ctx, e); err != nil {
+	if err := effortstore.Create(ctx, e); err != nil {
 		t.Fatal(err)
 	}
 	cleanupEffort(t, e.OID)
@@ -93,7 +93,7 @@ func TestDetachRunFromChunk(t *testing.T) {
 	if err := DetachRunFromChunk(ctx, e.OID, "run:r1"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := wstore.GetEffort(ctx, e.OID)
+	got, err := effortstore.Get(ctx, e.OID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestDetachRunFromChunkIdempotent(t *testing.T) {
 	ctx := context.Background()
 	e := &waveobj.Effort{Title: "t", Status: "active",
 		Chunks: []waveobj.EffortChunk{{Label: "Phase 1", Status: "active"}}}
-	if err := wstore.CreateEffort(ctx, e); err != nil {
+	if err := effortstore.Create(ctx, e); err != nil {
 		t.Fatal(err)
 	}
 	cleanupEffort(t, e.OID)
@@ -141,7 +141,7 @@ func TestNoteRunFinishedStampsTheRunOnceAsAgent(t *testing.T) {
 	ctx := context.Background()
 	e := &waveobj.Effort{Title: "t", Status: "active",
 		Chunks: []waveobj.EffortChunk{{Label: "Phase 1", Status: "active"}}}
-	if err := wstore.CreateEffort(ctx, e); err != nil {
+	if err := effortstore.Create(ctx, e); err != nil {
 		t.Fatal(err)
 	}
 	cleanupEffort(t, e.OID)
@@ -151,7 +151,7 @@ func TestNoteRunFinishedStampsTheRunOnceAsAgent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, _ := wstore.GetEffort(ctx, e.OID)
+	got, _ := effortstore.Get(ctx, e.OID)
 	notes := got.Chunks[0].Notes
 	if len(notes) != 1 {
 		t.Fatalf("want one note, got %+v", notes)

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -170,7 +171,7 @@ func TestDagSubmitFromPlanPath(t *testing.T) {
 
 	t.Run("the plan's effort and chunks are stored, and must exist", func(t *testing.T) {
 		effort := &waveobj.Effort{Title: "tracker", Chunks: []waveobj.EffortChunk{{Label: "#8 first", Status: "pending"}, {Label: "3", Status: "pending"}}}
-		if err := wstore.CreateEffort(ctx, effort); err != nil {
+		if err := effortstore.Create(ctx, effort); err != nil {
 			t.Fatal(err)
 		}
 		src := func(effortOID, label string) string {

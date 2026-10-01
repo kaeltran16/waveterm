@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
@@ -152,7 +153,7 @@ func checkDagEffort(ctx context.Context, effortOID string, tasks []waveobj.TaskN
 		}
 		return nil
 	}
-	effort, err := wstore.GetEffort(ctx, effortOID)
+	effort, err := effortstore.Get(ctx, effortOID)
 	if err != nil {
 		return fmt.Errorf("effort %q: %w", effortOID, err)
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -45,7 +46,7 @@ var defaultSeams = fetchSeams{
 	openVault:       wavevault.OpenVault,
 	loadDossier:     jarvisdossier.LoadDossier,
 	loadDecision:    jarvisdossier.LoadDecision,
-	getEfforts:      wstore.GetAllEfforts,
+	getEfforts:      effortstore.GetAll,
 }
 
 // SetFetchSeamsForTest replaces every leg reader; returns a restore func the caller defers.

@@ -6,11 +6,13 @@ package orchestrate
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -35,6 +37,7 @@ func TestMain(m *testing.M) {
 	workerControllerGone = func(context.Context, *waveobj.Run) bool { return false }
 	// a landed dag's verifier would need a workspace to spawn in; only the verifier's own tests start one
 	startVerifier = skipVerifier
+	defer effortstore.UseRootForTest(filepath.Join(dir, "vault"))()
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

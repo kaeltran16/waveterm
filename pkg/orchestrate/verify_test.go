@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -521,7 +522,7 @@ func (f *mergeFixture) effortFor(t *testing.T, labels ...string) string {
 	for _, label := range labels {
 		e.Chunks = append(e.Chunks, waveobj.EffortChunk{Label: label, Status: "pending"})
 	}
-	if err := wstore.CreateEffort(f.ctx, e); err != nil {
+	if err := effortstore.Create(f.ctx, e); err != nil {
 		t.Fatal(err)
 	}
 	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
@@ -535,7 +536,7 @@ func (f *mergeFixture) effortFor(t *testing.T, labels ...string) string {
 
 func chunkOf(t *testing.T, ctx context.Context, effortOID, label string) waveobj.EffortChunk {
 	t.Helper()
-	e, err := wstore.GetEffort(ctx, effortOID)
+	e, err := effortstore.Get(ctx, effortOID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Effort mutation logic, pure and DB-free: one validation pass, then one apply pass. The handler
-// wraps this in wstore.UpdateEffort so a rejected batch never touches the store.
+// wraps this in effortstore.Update so a rejected batch never touches the store.
 //
 // It lives here rather than in jarvisstate because both the engine and the wsh CLI reach it; wsh builds
 // with CGO_ENABLED=0, so keep this file's imports to waveobj, wshrpc and the standard library.

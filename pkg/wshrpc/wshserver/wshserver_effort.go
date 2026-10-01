@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -27,7 +28,7 @@ func (ws *WshServer) EffortCreateCommand(ctx context.Context, data wshrpc.Comman
 		return nil, fmt.Errorf("EC-INVALID-TITLE: title exceeds 200 chars")
 	}
 	if data.ParentOID != "" {
-		if _, err := wstore.GetEffort(ctx, data.ParentOID); err != nil {
+		if _, err := effortstore.Get(ctx, data.ParentOID); err != nil {
 			return nil, fmt.Errorf("EC-BAD-PARENT: parent effort not found: %v", err)
 		}
 	}
@@ -50,7 +51,7 @@ func (ws *WshServer) EffortCreateCommand(ctx context.Context, data wshrpc.Comman
 		seen[label] = true
 		e.Chunks = append(e.Chunks, waveobj.EffortChunk{Label: label, Status: "pending", Owner: seed.Owner})
 	}
-	if err := wstore.CreateEffort(ctx, e); err != nil {
+	if err := effortstore.Create(ctx, e); err != nil {
 		return nil, err
 	}
 	// the created event is the delta source; the trail note documents it for humans
@@ -60,7 +61,7 @@ func (ws *WshServer) EffortCreateCommand(ctx context.Context, data wshrpc.Comman
 	} else {
 		e.Events = append(e.Events, waveobj.EffortEvent{Ts: e.CreatedTs, Kind: "effort-created"})
 	}
-	if err := wstore.UpdateEffort(ctx, e.OID, func(store *waveobj.Effort) error {
+	if err := effortstore.Update(ctx, e.OID, func(store *waveobj.Effort) error {
 		store.Notes = e.Notes
 		store.Events = e.Events
 		return nil
@@ -71,7 +72,7 @@ func (ws *WshServer) EffortCreateCommand(ctx context.Context, data wshrpc.Comman
 }
 
 func (ws *WshServer) EffortMutateCommand(ctx context.Context, data wshrpc.CommandEffortMutateData) (*wshrpc.CommandEffortMutateRtnData, error) {
-	if _, err := wstore.GetEffort(ctx, data.EffortOID); err != nil {
+	if _, err := effortstore.Get(ctx, data.EffortOID); err != nil {
 		return nil, err
 	}
 	// link op: parent must exist and not be self — pre-validated outside the txn so the error is
@@ -81,14 +82,14 @@ func (ws *WshServer) EffortMutateCommand(ctx context.Context, data wshrpc.Comman
 			if op.ParentOID == data.EffortOID {
 				return nil, fmt.Errorf("EC-BAD-PARENT: cannot link an effort to itself")
 			}
-			if _, err := wstore.GetEffort(ctx, op.ParentOID); err != nil {
+			if _, err := effortstore.Get(ctx, op.ParentOID); err != nil {
 				return nil, fmt.Errorf("EC-BAD-PARENT: parent effort not found")
 			}
 		}
 	}
 	author := noteAuthorFor(ctx, data)
 	var updated *waveobj.Effort
-	err := wstore.UpdateEffort(ctx, data.EffortOID, func(e *waveobj.Effort) error {
+	err := effortstore.Update(ctx, data.EffortOID, func(e *waveobj.Effort) error {
 		if err := jarvis.ApplyEffortOpsAs(e, data.Ops, data.Note, time.Now().UnixMilli(), author); err != nil {
 			return err
 		}
@@ -103,7 +104,7 @@ func (ws *WshServer) EffortMutateCommand(ctx context.Context, data wshrpc.Comman
 }
 
 func (ws *WshServer) EffortListCommand(ctx context.Context, data wshrpc.CommandEffortListData) (*wshrpc.CommandEffortListRtnData, error) {
-	all, err := wstore.GetAllEfforts(ctx)
+	all, err := effortstore.GetAll(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +122,7 @@ func (ws *WshServer) EffortListCommand(ctx context.Context, data wshrpc.CommandE
 }
 
 func (ws *WshServer) EffortGetCommand(ctx context.Context, data wshrpc.CommandEffortGetData) (*wshrpc.CommandEffortGetRtnData, error) {
-	e, err := wstore.GetEffort(ctx, data.EffortOID)
+	e, err := effortstore.Get(ctx, data.EffortOID)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +165,7 @@ func linkSessionToEffort(ctx context.Context, sourceBlock string, effortOID stri
 }
 
 func (ws *WshServer) EffortDeleteCommand(ctx context.Context, data wshrpc.CommandEffortDeleteData) error {
-	return wstore.DBDelete(ctx, waveobj.OType_Effort, data.EffortOID)
+	return effortstore.Delete(ctx, data.EffortOID)
 }
 
 // noteAuthorFor attributes a batch's notes. A source block means `wsh effort` ran in a terminal, which

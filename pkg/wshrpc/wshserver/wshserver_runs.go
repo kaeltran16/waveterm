@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -356,7 +357,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	// effortref validated up front so its error path never depends on harness setup
 	var effortRef *waveobj.RunEffortRef
 	if data.EffortOID != "" {
-		eff, err := wstore.GetEffort(ctx, data.EffortOID)
+		eff, err := effortstore.Get(ctx, data.EffortOID)
 		if err != nil {
 			return nil, fmt.Errorf("EC-UNKNOWN-EFFORT: %v", err)
 		}
