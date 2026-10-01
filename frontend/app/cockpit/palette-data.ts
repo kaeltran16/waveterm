@@ -5,6 +5,8 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { dedupeByProject } from "@/app/view/agents/projectlabel";
+import { ensureRunEvents } from "@/app/view/agents/runeventstore";
+import { isTerminal } from "@/app/view/agents/runmodel";
 import { atom, type PrimitiveAtom } from "jotai";
 
 export interface ProjectRun {
@@ -51,8 +53,16 @@ export async function loadAllRuns(channels: Channel[]): Promise<void> {
             }
         })
     );
-    if (loadId === latestAllRunsLoad) {
-        globalStore.set(allRunsAtom, mergeChannelRuns(globalStore.get(allRunsAtom), results));
+    if (loadId !== latestAllRunsLoad) {
+        return;
+    }
+    const runs = mergeChannelRuns(globalStore.get(allRunsAtom), results);
+    globalStore.set(allRunsAtom, runs);
+    // Relaunch reads a run's events to see its lead is down, and only the grid loads them for its own runs
+    for (const p of runs) {
+        if (!isTerminal(p.run.status)) {
+            ensureRunEvents(p.run.id, p.channelId);
+        }
     }
 }
 

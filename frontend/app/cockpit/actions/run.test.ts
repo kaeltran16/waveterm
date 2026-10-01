@@ -1,11 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { RpcApi } from "@/app/store/wshclientapi";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import type { Lineage, RunInfo } from "@/app/view/agents/runlineage";
 import { atom, createStore } from "jotai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { allRunsAtom } from "../palette-data";
 import { buildRunThing, RUN_KIND, type RunThing } from "./run";
 
@@ -147,6 +148,19 @@ describe("run actions", () => {
         const back = { events: [ev("lead-wake-failed", 10), ev("lead-launched", 20)] };
         expect(applies("run:relaunch", thing(orchestrator(), [lead], lineage(), back))).toBe(false);
         expect(applies("run:relaunch", thing(orchestrator()))).toBe(false);
+    });
+
+    it("a refused relaunch or workers change rejects, so the palette shows it for runs off the grid", async () => {
+        const action = (id: string) => RUN_KIND.actions.find((a) => a.id === id);
+        vi.spyOn(RpcApi, "DagActionCommand").mockRejectedValueOnce(new Error("lead is live"));
+        await expect(action("run:relaunch").run(thing(orchestrator()), { model: null }, undefined)).rejects.toThrow(
+            /lead is live/
+        );
+        vi.spyOn(RpcApi, "SetRunSettingsCommand").mockRejectedValueOnce(new Error("run finished"));
+        const lin = lineage(info());
+        await expect(
+            action("run:workers").run(thing(orchestrator(), [lead], lin), { model: null }, "2")
+        ).rejects.toThrow(/run finished/);
     });
 
     it("focus applies to a run the focus switcher lists: one with a worker in the roster", () => {

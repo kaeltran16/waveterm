@@ -6910,6 +6910,17 @@ async function polishWaitFor(h, expr, ms) {
     return false;
 }
 
+// createproject only writes projects.json; the server's config watcher picks it up a moment later, and a reload
+// before then boots a frontend whose project list lacks it until the next config event
+async function waitForProjectInConfig(h, name) {
+    for (let waited = 0; waited < 10000; waited += 250) {
+        const cfg = await h.rpc("getfullconfig", null);
+        if (cfg?.projects?.[name] != null) return;
+        await polishNap(250);
+    }
+    throw new Error(`project ${name} never reached the config`);
+}
+
 async function polishReload(h) {
     try {
         await h.ev("location.reload()");
@@ -7343,6 +7354,7 @@ const newRunWindow = {
         try {
             await h.rpc("createproject", { name: NEW_RUN_PROJECT, path: cwd });
             ctx.project = NEW_RUN_PROJECT;
+            await waitForProjectInConfig(h, NEW_RUN_PROJECT);
             const wslist = await h.rpc("workspacelist", null);
             const ch = await h.rpc("createchannel", { name: "verify-new-run-window", projectpath: cwd });
             ctx.channelId = ch.oid;
@@ -7633,6 +7645,7 @@ const paletteGoal = {
         try {
             await h.rpc("createproject", { name: PALETTE_GOAL_PROJECT, path: cwd });
             ctx.project = PALETTE_GOAL_PROJECT;
+            await waitForProjectInConfig(h, PALETTE_GOAL_PROJECT);
             const ch = await h.rpc("createchannel", { name: "verify-palette-goal", projectpath: cwd });
             ctx.channelId = ch.oid;
             await polishReload(h);
@@ -7725,7 +7738,7 @@ const paletteGoal = {
     },
 };
 
-const PICKS_BANNER =`document.querySelector('[data-dag-modal-kind] [data-model-picks-banner]')`;
+const PICKS_BANNER = `document.querySelector('[data-dag-modal-kind] [data-model-picks-banner]')`;
 const PICKS_PANEL = `document.querySelector('[data-dag-modal-kind] [data-model-picks]')`;
 const pickRowExpr = (id) => `${PICKS_PANEL}?.querySelector('[data-model-pick="${id}"]')`;
 const pickToggleExpr = (id, sonnet) =>

@@ -5,8 +5,12 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: { GetChannelRunsCommand: vi.fn() } }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
+vi.mock("@/app/view/agents/runeventstore", () => ({ ensureRunEvents: vi.fn() }));
 
-import { mergeChannelRuns, palettePickChannel } from "./palette-data";
+import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { ensureRunEvents } from "@/app/view/agents/runeventstore";
+import { allRunsAtom, loadAllRuns, mergeChannelRuns, palettePickChannel } from "./palette-data";
 
 describe("mergeChannelRuns", () => {
     const r = (id: string) => ({ id }) as Run;
@@ -24,6 +28,33 @@ describe("mergeChannelRuns", () => {
             { channelId: "b", runs: [] },
         ]);
         expect(out.map((p) => p.run.id)).toEqual(["1"]);
+    });
+});
+
+describe("loadAllRuns", () => {
+    it("a superseded load writes nothing, even when it answers first", async () => {
+        const pending: ((runs: Run[]) => void)[] = [];
+        vi.mocked(RpcApi.GetChannelRunsCommand).mockImplementation(
+            () => new Promise((resolve) => pending.push((runs) => resolve({ runs } as any)))
+        );
+        globalStore.set(allRunsAtom, []);
+        const ch = [{ oid: "a" } as Channel];
+        const first = loadAllRuns(ch);
+        const second = loadAllRuns(ch);
+        pending[0]([{ id: "stale" } as Run]);
+        await first;
+        expect(globalStore.get(allRunsAtom)).toEqual([]);
+        pending[1]([{ id: "fresh" } as Run]);
+        await second;
+        expect(globalStore.get(allRunsAtom).map((p) => p.run.id)).toEqual(["fresh"]);
+    });
+    it("loads the events of every unfinished run, which Relaunch reads", async () => {
+        vi.mocked(RpcApi.GetChannelRunsCommand).mockResolvedValue({
+            runs: [{ id: "live", status: "executing" } as Run, { id: "over", status: "done" } as Run],
+        } as any);
+        vi.mocked(ensureRunEvents).mockClear();
+        await loadAllRuns([{ oid: "a" } as Channel]);
+        expect(vi.mocked(ensureRunEvents).mock.calls).toEqual([["live", "a"]]);
     });
 });
 

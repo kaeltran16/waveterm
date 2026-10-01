@@ -4,13 +4,15 @@
 // A run's palette actions. Each `applies` is the condition the button's own view checks and each `run` the
 // handler that button calls, so the palette and the view cannot disagree about when an action exists.
 
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { diffScopeOfRun, openDiff } from "@/app/view/agents/agentdiffnav";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { steerWorker } from "@/app/view/agents/channelactions";
 import { jumpToAgent } from "@/app/view/agents/channelsprimitives";
 import { enterFocusFor } from "@/app/view/agents/focusstore";
 import { runRows, type FocusRowVM } from "@/app/view/agents/focusswitchermodel";
-import { dagAction, runCardAction, setRunParallelism } from "@/app/view/agents/leadcardactions";
+import { setRunParallelism } from "@/app/view/agents/leadcardactions";
 import { isLeadDown, runAdjustable } from "@/app/view/agents/leadcardmodel";
 import {
     cancellingRunIdsAtom,
@@ -154,17 +156,22 @@ const RUN_ACTIONS: ThingAction<RunThing>[] = [
                     label: n === t.info?.dag?.parallelism ? `${n} at a time · now` : `${n} at a time`,
                 })),
         },
-        run: (t, _deps, value) =>
-            runCardAction(t.info.runId, "Parallelism", () =>
-                setRunParallelism(t.info, clampParallelism(Number(value)))
-            ),
+        // straight to the RPC, not runCardAction: that parks a refusal on the lead card, which only grid runs
+        // show, while a rejection here is shown by the palette
+        run: (t, _deps, value) => setRunParallelism(t.info, clampParallelism(Number(value))),
     },
     {
         id: "run:relaunch",
         label: "Relaunch the lead",
         group: "steer",
         applies: (t) => t.leadDown,
-        run: (t) => dagAction({ runId: t.run.id, channelId: t.channelId }, "", "relaunch-lead"),
+        run: (t) =>
+            RpcApi.DagActionCommand(TabRpcClient, {
+                channelid: t.channelId,
+                runid: t.run.id,
+                taskid: "",
+                action: "relaunch-lead",
+            }),
     },
     {
         id: "run:focus",
