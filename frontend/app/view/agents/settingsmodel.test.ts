@@ -78,7 +78,6 @@ describe("settingsSections", () => {
             "headless:runtime",
             "headless:openroutercheapmodel",
             "headless:openroutermidmodel",
-            "headless:openrouterlongmodel",
         ]);
     });
 

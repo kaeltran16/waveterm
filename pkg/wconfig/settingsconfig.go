@@ -65,7 +65,6 @@ type SettingsType struct {
 	HeadlessRuntime              string `json:"headless:runtime,omitempty"`
 	HeadlessOpenRouterCheapModel string `json:"headless:openroutercheapmodel,omitempty"`
 	HeadlessOpenRouterMidModel   string `json:"headless:openroutermidmodel,omitempty"`
-	HeadlessOpenRouterLongModel  string `json:"headless:openrouterlongmodel,omitempty"`
 	JarvisVaultPath              string `json:"jarvis:vaultpath,omitempty"`
 
 	EditorMinimapEnabled      bool    `json:"editor:minimapenabled,omitempty"`

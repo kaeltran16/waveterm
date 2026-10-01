@@ -48,19 +48,6 @@ func cleanupGivenUp(t *waveobj.TaskNode) bool {
 	return t.CleanupAttempts >= MaxCleanupAttempts
 }
 
-// GiveUpCleanupTasks returns the tasks whose cleanup debt is over the retry cap, so the digest can
-// name the trees that need removing by hand.
-func GiveUpCleanupTasks(g *waveobj.TaskGroup) []*waveobj.TaskNode {
-	var out []*waveobj.TaskNode
-	for i := range g.Tasks {
-		t := &g.Tasks[i]
-		if (t.CleanupPending || t.CleanupError != "") && cleanupGivenUp(t) {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
 // HasCleanupDebt reports whether any merged task still owns a worktree waiting
 // on cleanup, so digest health can keep terminal DAGs with debt in needs-you.
 func HasCleanupDebt(g *waveobj.TaskGroup) bool {

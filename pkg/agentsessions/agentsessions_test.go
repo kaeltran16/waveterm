@@ -517,3 +517,24 @@ func TestScanProviders_mergesByGlobalRecency(t *testing.T) {
 		t.Errorf("only the global top-2 candidates may be read, read %d: %v", len(reads), reads)
 	}
 }
+
+// extractClaudeSession folds one transcript file's lines into a SessionInfo. Returns nil when the
+// file carries no human prompt (e.g. a subagent/tool-only file) because those aren't useful to resume,
+// and when the transcript is a print-mode run — every model call Wave's own backend makes is print-mode,
+// so that one field excludes all of them without matching a word of any prompt.
+func extractClaudeSession(id string, lines []string) *SessionInfo {
+	return claudeSessionFrom(id, parseClaudeLines(lines))
+}
+
+// extractClaudeEvents ports frontend/app/view/agents/activityevents.ts:extractClaudeEvents. It does
+// NOT gate the synthetic "finished" on liveness (Go can't know the live roster); assembleEvents only
+// appends "finished" for done sessions, and the frontend strips it for live ones.
+func extractClaudeEvents(lines []string) sessionEvents {
+	return claudeEventsFrom(parseClaudeLines(lines))
+}
+
+// scanProvider returns up to limit sessions from one provider's root, newest-first (single-provider
+// form of the scan; ScanSessions merges providers first so the limit applies globally).
+func scanProvider(p provider, windowDays, limit int) []SessionInfo {
+	return parseCandidates(walkCandidates(p, windowDays), limit)
+}

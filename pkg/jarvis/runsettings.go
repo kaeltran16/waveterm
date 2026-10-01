@@ -76,14 +76,3 @@ func ApplyLiveEngineSettings(g waveobj.TaskGroup, s PendingEngineSettings) waveo
 	g.ReviewerRoute = s.ReviewerRoute
 	return g
 }
-
-// RunEngineSettings is what the sheet starts from: the effective configuration. Before submission that is
-// the run's own launch form; after, it is the group's, because that is what the scheduler will honour.
-func RunEngineSettings(r waveobj.Run, g *waveobj.TaskGroup) PendingEngineSettings {
-	if g != nil {
-		width := g.Parallelism
-		return PendingEngineSettings{Parallelism: &width, WorkerRoute: g.WorkerRoute, ReviewerPicks: g.ReviewerPicks, ReviewerRoute: g.ReviewerRoute}
-	}
-	width := r.Parallelism
-	return PendingEngineSettings{Parallelism: &width, WorkerRoute: r.WorkerRoute, ReviewerPicks: r.ReviewerPicks, ReviewerRoute: r.ReviewerRoute}
-}

@@ -238,19 +238,3 @@ func TestCatalogKeepsStaleOnProbeFailure(t *testing.T) {
 		t.Fatalf("garbage with no usable stale cache must yield free-form-only, got %d", len(got))
 	}
 }
-
-func TestCatalogHasModel(t *testing.T) {
-	origCmd, origNow := catalogCommand, nowFn
-	catalogCommand = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
-		return []byte(opencodeModelsFixture), nil
-	}
-	nowFn = func() time.Time { return time.Unix(1000, 0) }
-	defer func() { catalogCommand, nowFn = origCmd, origNow }()
-
-	if !CatalogHasModel(context.Background(), "opencode", "openai/gpt-5.4") {
-		t.Fatal("listed model must be present")
-	}
-	if CatalogHasModel(context.Background(), "opencode", "does/not-exist") {
-		t.Fatal("unlisted model must be absent")
-	}
-}

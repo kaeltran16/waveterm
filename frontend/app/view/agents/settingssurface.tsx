@@ -1021,7 +1021,6 @@ function HeadlessAISection() {
     const runtime = (useAtomValue(getSettingsKeyAtom("headless:runtime")) as string) ?? "";
     const cheapModel = (useAtomValue(getSettingsKeyAtom("headless:openroutercheapmodel")) as string) ?? "";
     const midModel = (useAtomValue(getSettingsKeyAtom("headless:openroutermidmodel")) as string) ?? "";
-    const longModel = (useAtomValue(getSettingsKeyAtom("headless:openrouterlongmodel")) as string) ?? "";
 
     const [hasKey, setHasKey] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -1212,7 +1211,6 @@ function HeadlessAISection() {
             </SettingRow>
             {modelRow("headless.cheap", cheapModel, "deepseek/deepseek-v4-flash", "headless:openroutercheapmodel")}
             {modelRow("headless.mid", midModel, "deepseek/deepseek-v4-pro", "headless:openroutermidmodel")}
-            {modelRow("headless.long", longModel, "deepseek/deepseek-v4-pro", "headless:openrouterlongmodel")}
             {isOpenRouter && !hasKey ? (
                 <Note>OpenRouter key not set — background AI features stay off until a key is stored.</Note>
             ) : null}

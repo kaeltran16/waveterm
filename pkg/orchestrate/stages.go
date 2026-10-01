@@ -4,7 +4,6 @@
 package orchestrate
 
 import (
-	"sort"
 	"sync"
 )
 
@@ -32,16 +31,4 @@ func goStage(name string, fn func()) {
 		}()
 		fn()
 	}()
-}
-
-// runningStages names the stages still running, sorted.
-func runningStages() []string {
-	stages.Lock()
-	defer stages.Unlock()
-	names := make([]string, 0, len(stages.running))
-	for name := range stages.running {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }

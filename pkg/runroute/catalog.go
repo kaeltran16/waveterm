@@ -242,17 +242,6 @@ func RefreshRouteCatalog() {
 	catalogCache = map[string]catalogEntry{}
 }
 
-// CatalogHasModel reports presence in the cached catalog. Advisory only: callers downgrade a miss
-// to a warning — the cache can be stale and the harness validates at spawn.
-func CatalogHasModel(ctx context.Context, runtime, model string) bool {
-	for _, entry := range modelsForRuntimeLocked(ctx, runtime) {
-		if entry.Model == model {
-			return true
-		}
-	}
-	return false
-}
-
 // SetCatalogCommandForTest replaces the exec seam so wshserver tests feed deterministic
 // catalog fixtures without spawning real CLIs. Returns a restore func.
 func SetCatalogCommandForTest(fn func(ctx context.Context, bin string, args ...string) ([]byte, error)) func() {

@@ -175,21 +175,6 @@ func sessionUsage(role, taskId, path string) []waveobj.UsageRow {
 	return rows
 }
 
-// SumUsage totals rows into one, Missing when any of them is.
-func SumUsage(rows []waveobj.UsageRow) waveobj.UsageRow {
-	var sum waveobj.UsageRow
-	for _, r := range rows {
-		sum.Input += r.Input
-		sum.Output += r.Output
-		sum.CacheRead += r.CacheRead
-		sum.CacheWrite += r.CacheWrite
-		sum.CacheWrite1h += r.CacheWrite1h
-		sum.Msgs += r.Msgs
-		sum.Missing = sum.Missing || r.Missing
-	}
-	return sum
-}
-
 // UsageTokens is a row's total tokens, every class counted once.
 func UsageTokens(r waveobj.UsageRow) int {
 	return r.Input + r.Output + r.CacheRead + r.CacheWrite + r.CacheWrite1h

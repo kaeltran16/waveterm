@@ -33,7 +33,6 @@ const (
 	ConfigKey_HeadlessRuntime                = "headless:runtime"
 	ConfigKey_HeadlessOpenRouterCheapModel   = "headless:openroutercheapmodel"
 	ConfigKey_HeadlessOpenRouterMidModel     = "headless:openroutermidmodel"
-	ConfigKey_HeadlessOpenRouterLongModel    = "headless:openrouterlongmodel"
 
 	ConfigKey_JarvisVaultPath                = "jarvis:vaultpath"
 

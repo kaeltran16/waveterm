@@ -145,11 +145,3 @@ func OpenrouterMidModel() string {
 	}
 	return "deepseek/deepseek-v4-pro"
 }
-
-// OpenrouterLongModel returns the configured long-context model or the default.
-func OpenrouterLongModel() string {
-	if cfg := wconfig.GetWatcher().GetFullConfig(); cfg.Settings.HeadlessOpenRouterLongModel != "" {
-		return cfg.Settings.HeadlessOpenRouterLongModel
-	}
-	return "deepseek/deepseek-v4-pro"
-}

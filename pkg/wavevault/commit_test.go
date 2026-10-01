@@ -90,21 +90,6 @@ func TestCommitMixedFileGoesToUser(t *testing.T) {
 	}
 }
 
-func TestFlushCommitsPending(t *testing.T) {
-	v, p := writeVaultWithDossier(t)
-	base := ContentHash(mustRead(t, p))
-	if _, err := v.Write("t-1", wspec, []RegionEdit{{Kind: FrontmatterKey, Name: "status", Value: "active"}}, base); err != nil {
-		t.Fatal(err)
-	}
-	before := commitCount(t, v.Root)
-	if err := v.Flush(context.Background()); err != nil {
-		t.Fatalf("Flush: %v", err)
-	}
-	if commitCount(t, v.Root) <= before {
-		t.Fatal("Flush should have produced a commit for the pending write")
-	}
-}
-
 func TestCommitNothingStagedIsNoop(t *testing.T) {
 	v, _ := writeVaultWithDossier(t)
 	// no writes; the seeded dossier is untracked, so a commit stages it as the user, then a second

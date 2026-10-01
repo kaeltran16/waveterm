@@ -955,3 +955,11 @@ func TestSealEvidenceRecordsTheFinalStageOutcome(t *testing.T) {
 		t.Fatalf("a child run must not carry its owner's verification, got %+v", child.Evidence.Verification)
 	}
 }
+
+// verificationCommands scans a transcript for Bash verification calls and pairs each with its result.
+// Deduped by command (last result wins). Order preserved by first appearance.
+func verificationCommands(lines []string) []waveobj.EvidenceVerif {
+	acc := newVerifAccum()
+	acc.addTranscript(lines)
+	return acc.out
+}

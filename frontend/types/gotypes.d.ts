@@ -2447,7 +2447,6 @@ declare global {
         "headless:runtime"?: string;
         "headless:openroutercheapmodel"?: string;
         "headless:openroutermidmodel"?: string;
-        "headless:openrouterlongmodel"?: string;
         "jarvis:vaultpath"?: string;
         "editor:minimapenabled"?: boolean;
         "editor:stickyscrollenabled"?: boolean;

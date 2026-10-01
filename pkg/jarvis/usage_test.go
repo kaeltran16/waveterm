@@ -87,21 +87,6 @@ func TestRunUsageFallsBackToTheLastLeadSession(t *testing.T) {
 	}
 }
 
-func TestSumUsage(t *testing.T) {
-	got := SumUsage([]waveobj.UsageRow{
-		{Role: "lead", Input: 1, Output: 2, CacheRead: 3, CacheWrite: 4, CacheWrite1h: 5, Msgs: 1},
-		{Role: "worker", TaskId: "t-1", Input: 10, Output: 20, CacheRead: 30, CacheWrite: 40, CacheWrite1h: 50, Msgs: 2},
-		{Role: "worker", TaskId: "t-2", Missing: true},
-	})
-	want := waveobj.UsageRow{Input: 11, Output: 22, CacheRead: 33, CacheWrite: 44, CacheWrite1h: 55, Msgs: 3, Missing: true}
-	if got != want {
-		t.Errorf("SumUsage = %+v, want %+v", got, want)
-	}
-	if n := UsageTokens(got); n != 165 {
-		t.Errorf("UsageTokens = %d, want 165", n)
-	}
-}
-
 // The seal totals a dag owner's run, the lead's wrap-up included, from the runs sharing its dag; a child's
 // seal totals nothing.
 func TestSealEvidenceTotalsADagOwnersUsage(t *testing.T) {

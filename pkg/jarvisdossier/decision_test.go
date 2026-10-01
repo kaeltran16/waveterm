@@ -47,19 +47,19 @@ func TestAppendDecisionLinksAndIsTraversable(t *testing.T) {
 		t.Fatalf("dossier refs %+v must contain decision id %q", d.Refs, decID)
 	}
 
-	// and the link is a REAL edge: Expand from the task reaches the decision node
-	sg, err := v.Retriever(wavevault.AllScope()).Expand([]string{taskID}, wavevault.ExpandOpts{Depth: 1})
+	// and the link is a REAL edge: the graph holds task -> decision
+	sg, err := v.Retriever(wavevault.AllScope()).Graph()
 	if err != nil {
 		t.Fatal(err)
 	}
 	reached := false
-	for _, n := range sg.Nodes {
-		if n.ID == decID {
+	for _, e := range sg.Edges {
+		if e.From == taskID && e.To == decID {
 			reached = true
 		}
 	}
 	if !reached {
-		t.Fatalf("Expand from %q did not reach decision %q — refs block is not a real edge", taskID, decID)
+		t.Fatalf("no graph edge from %q to decision %q — refs block is not a real edge", taskID, decID)
 	}
 }
 

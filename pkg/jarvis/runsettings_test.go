@@ -113,32 +113,6 @@ func TestApplyLiveEngineSettingsLeavesOmittedWidth(t *testing.T) {
 	}
 }
 
-// The sheet's starting point: what the run will actually dispatch with, before a DAG exists.
-func TestRunEngineSettingsReadsLaunchForm(t *testing.T) {
-	r := engineRun()
-	r.Parallelism = 4
-	route := &waveobj.RoutePin{Runtime: "claude"}
-	r.WorkerRoute = route
-	got := RunEngineSettings(r, nil)
-	if got.Parallelism == nil || *got.Parallelism != 4 {
-		t.Errorf("parallelism = %v, want the run's 4", got.Parallelism)
-	}
-	if got.WorkerRoute == nil || *got.WorkerRoute != *route {
-		t.Errorf("worker route = %+v, want the run's", got.WorkerRoute)
-	}
-}
-
-// Once the group exists it, not the run, is what the scheduler reads.
-func TestRunEngineSettingsPrefersGroupAfterSubmit(t *testing.T) {
-	r := engineRun()
-	r.Parallelism = 4
-	g := &waveobj.TaskGroup{Parallelism: 2}
-	got := RunEngineSettings(r, g)
-	if got.Parallelism == nil || *got.Parallelism != 2 {
-		t.Errorf("parallelism = %v, want the group's 2", got.Parallelism)
-	}
-}
-
 // A stored adaptive lead ran its own subagents: there is no engine scheduler behind it, so its width and
 // worker route are not dials this sheet can move. The frontend's sheetFace applies the same rule, and the
 // server is the one that has to enforce it.
