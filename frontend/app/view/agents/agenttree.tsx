@@ -281,8 +281,9 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
             </div>
         );
     }
-    const { done } = runProgress(run.dag);
-    const chip = live > 0 || done === 0 ? `${live} ${live === 1 ? "worker" : "workers"}` : `${done} done`;
+    const { done, total } = runProgress(run.dag);
+    // not "N done": the done fold under the run says that, and this chip folds the whole run
+    const chip = live > 0 || done === 0 ? `${live} ${live === 1 ? "worker" : "workers"}` : `${total} tasks`;
     const progress = dagProgressLabel(run, leadless ?? false);
     return (
         <>
@@ -804,7 +805,8 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
     const order = useAtomValue(model.orderAtom);
     const lineage = useAtomValue(model.lineageAtom);
     const folds = useAtomValue(treeFoldsAtom);
-    const rows = buildAgentTree(agents, order, lineage, folds);
+    const focusId = useAtomValue(model.focusIdAtom);
+    const rows = buildAgentTree(agents, order, lineage, folds, focusId);
     // the project group only earns a row when several projects are live: with one, its name and count
     // just restate the header, so suppressing it reads the tree at two levels instead of three. Counts
     // come off the unfiltered rows, and the lone group's attention moves to the header with it.
@@ -927,7 +929,7 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                                             .filter(Boolean)
                                             .join(" · ")}
                                         open={r.open}
-                                        onToggle={() => toggleRunDoneOpen(r.run.runId)}
+                                        onToggle={() => toggleRunDoneOpen(r.run.runId, r.open, r.count)}
                                     />
                                 );
                                 break;

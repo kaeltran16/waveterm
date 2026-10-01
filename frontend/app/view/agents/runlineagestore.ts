@@ -32,7 +32,7 @@ export const runDigestsAtom = atom<Record<string, DagStatusDigest>>({}) as Primi
 
 export const treeFoldsAtom = atom<TreeFolds>({
     collapsed: new Set<string>(),
-    doneOpen: new Set<string>(),
+    doneOpen: new Map<string, number>(),
     queuedOpen: new Set<string>(),
     extrasOpen: new Set<string>(),
 }) as PrimitiveAtom<TreeFolds>;
@@ -49,8 +49,17 @@ export function toggleRunCollapsed(runId: string): void {
     globalStore.set(treeFoldsAtom, (f) => ({ ...f, collapsed: toggled(f.collapsed, runId) }));
 }
 
-export function toggleRunDoneOpen(runId: string): void {
-    globalStore.set(treeFoldsAtom, (f) => ({ ...f, doneOpen: toggled(f.doneOpen, runId) }));
+// a fold the next landing closed is still in the map under an older count, so open must come from the row
+export function toggleRunDoneOpen(runId: string, open: boolean, doneCount: number): void {
+    globalStore.set(treeFoldsAtom, (f) => {
+        const doneOpen = new Map(f.doneOpen);
+        if (open) {
+            doneOpen.delete(runId);
+        } else {
+            doneOpen.set(runId, doneCount);
+        }
+        return { ...f, doneOpen };
+    });
 }
 
 export function toggleRunQueuedOpen(runId: string): void {

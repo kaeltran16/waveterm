@@ -7,7 +7,7 @@
 // they stay out of this pure helper.
 
 import { projectOf, type AgentVM } from "./agentsviewmodel";
-import { holdsTask, NO_LINEAGE, workerAsk, type Lineage, type RunInfo } from "./runlineage";
+import { endedWorkerId, holdsTask, NO_LINEAGE, workerAsk, type Lineage, type RunInfo } from "./runlineage";
 
 export const UNGROUPED_PROJECT = "ungrouped";
 
@@ -38,15 +38,16 @@ export type AgentTreeRow =
     | { kind: "queued"; project: string; run: RunInfo; count: number; open: boolean };
 
 // TreeFolds is what the human folded: runs whose workers are hidden, runs whose done or queued tasks are listed,
-// and tasks (by taskFoldKey) whose other tabs are listed.
+// and tasks (by taskFoldKey) whose other tabs are listed. A done fold is keyed to how many tasks were done when it
+// opened, so the next landing closes it: left open, every landing would push the run's live workers further down.
 export interface TreeFolds {
     collapsed: ReadonlySet<string>;
-    doneOpen: ReadonlySet<string>;
+    doneOpen: ReadonlyMap<string, number>;
     queuedOpen: ReadonlySet<string>;
     extrasOpen: ReadonlySet<string>;
 }
 
-const NO_FOLDS: TreeFolds = { collapsed: new Set(), doneOpen: new Set(), queuedOpen: new Set(), extrasOpen: new Set() };
+const NO_FOLDS: TreeFolds = { collapsed: new Set(), doneOpen: new Map(), queuedOpen: new Set(), extrasOpen: new Set() };
 
 export function taskFoldKey(runId: string, taskId: string): string {
     return `${runId}:${taskId}`;
@@ -126,7 +127,8 @@ function runRows(
     item: Extract<TopItem, { kind: "lead" | "run" }>,
     workers: Map<string, AgentVM[]>,
     stages: StageAgent[],
-    folds: TreeFolds
+    folds: TreeFolds,
+    focusId: string | undefined
 ): { rows: AgentTreeRow[]; members: number; attn: number } {
     const { run, project } = item;
     const tasks = run.dag?.tasks ?? [];
@@ -169,7 +171,10 @@ function runRows(
     if (open) {
         // oldest first: what finished, what is running, what is still to come
         if (done.length > 0 || finished.length > 0) {
-            const doneOpen = folds.doneOpen.has(run.runId);
+            // the worker being read keeps its fold open, or a landing would pull its row out from under it
+            const doneOpen =
+                folds.doneOpen.get(run.runId) === done.length ||
+                done.some((t) => endedWorkerId(run.runId, t.id) === focusId);
             rows.push({ kind: "done", project, run, count: done.length, stages: finished.length, open: doneOpen });
             if (doneOpen) {
                 finished.filter((s) => s.stageRole === "plan-reviewer").forEach(pushStage);
@@ -201,7 +206,8 @@ export function buildAgentTree(
     agents: AgentVM[],
     order: string[],
     lineage: Lineage = NO_LINEAGE,
-    folds: TreeFolds = NO_FOLDS
+    folds: TreeFolds = NO_FOLDS,
+    focusId?: string
 ): AgentTreeRow[] {
     const rank = new Map(order.map((id, i) => [id, i] as const));
     const sorted = [...agents].sort(
@@ -277,7 +283,13 @@ export function buildAgentTree(
                 attn += item.agent.state === "asking" ? 1 : 0;
                 continue;
             }
-            const r = runRows(item, workers.get(item.run.runId) ?? new Map(), stages.get(item.run.runId) ?? [], folds);
+            const r = runRows(
+                item,
+                workers.get(item.run.runId) ?? new Map(),
+                stages.get(item.run.runId) ?? [],
+                folds,
+                focusId
+            );
             body.push(...r.rows);
             count += r.members + (item.kind === "lead" ? 1 : 0);
             attn += r.attn + (item.kind === "lead" && item.agent.state === "asking" ? 1 : 0);

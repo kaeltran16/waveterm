@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentTree, stageSubline, treeAgentCount, UNGROUPED_PROJECT, type AgentTreeRow } from "./agenttreemodel";
 import type { AgentVM } from "./agentsviewmodel";
-import type { Lineage, RunInfo } from "./runlineage";
+import { buildAgentTree, stageSubline, treeAgentCount, UNGROUPED_PROJECT, type AgentTreeRow } from "./agenttreemodel";
+import { endedWorkerId, type Lineage, type RunInfo } from "./runlineage";
 
 function vm(id: string, state: AgentVM["state"], path?: string): AgentVM {
     return { id, name: id, task: "", state, transcriptPath: path };
@@ -178,7 +178,7 @@ describe("buildAgentTree with run lineage", () => {
             r.dag.final = { state: "passed", round: 1, verifierrunid: "ver" };
             const folds = {
                 collapsed: new Set<string>(),
-                doneOpen: new Set(["run-1"]),
+                doneOpen: new Map([["run-1", 2]]),
                 queuedOpen: new Set<string>(),
                 extrasOpen: new Set<string>(),
             };
@@ -273,7 +273,7 @@ describe("buildAgentTree with run lineage", () => {
                 lead: { kind: "lead", runId: "run-1" },
                 w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
             }),
-            { collapsed: new Set(), doneOpen: new Set(), queuedOpen: new Set(["run-1"]), extrasOpen: new Set() }
+            { collapsed: new Set(), doneOpen: new Map(), queuedOpen: new Set(["run-1"]), extrasOpen: new Set() }
         );
         expect(shape(rows)).toEqual([
             "group:waveterm:2:0",
@@ -294,11 +294,46 @@ describe("buildAgentTree with run lineage", () => {
                 lead: { kind: "lead", runId: "run-1" },
                 w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
             }),
-            { collapsed: new Set(), doneOpen: new Set(["run-1"]), queuedOpen: new Set(), extrasOpen: new Set() }
+            { collapsed: new Set(), doneOpen: new Map([["run-1", 2]]), queuedOpen: new Set(), extrasOpen: new Set() }
         );
         expect(shape(rows)).toEqual(["group:waveterm:1:0", "lead:run-1:0", "done:2:true", "worker:t-1:w1", "worker:t-2:-"]);
         // the header's total agrees with the group's, so a done worker's open session is counted in neither
         expect(treeAgentCount(rows)).toBe(1);
+    });
+
+    describe("a done fold opened before a task landed", () => {
+        // opened at one done task; t-2 has landed since, and t-3 is still running
+        const landed = (focusId?: string) =>
+            buildAgentTree(
+                [agent("lead", "working"), agent("w3", "working", "")],
+                ["lead", "w3"],
+                lineage([run("run-1", [task("t-1", "done"), task("t-2", "done"), task("t-3", "running")])], {
+                    lead: { kind: "lead", runId: "run-1" },
+                    w3: { kind: "worker", leadRunId: "run-1", taskId: "t-3" },
+                }),
+                {
+                    collapsed: new Set(),
+                    doneOpen: new Map([["run-1", 1]]),
+                    queuedOpen: new Set(),
+                    extrasOpen: new Set(),
+                },
+                focusId
+            );
+
+        it("closes, so the landing does not push the live workers down", () => {
+            expect(shape(landed())).toEqual(["group:waveterm:2:0", "lead:run-1:1", "done:2:false", "worker:t-3:w3"]);
+        });
+
+        it("stays open while the focus is one of its workers", () => {
+            expect(shape(landed(endedWorkerId("run-1", "t-1")))).toEqual([
+                "group:waveterm:2:0",
+                "lead:run-1:1",
+                "done:2:true",
+                "worker:t-1:-",
+                "worker:t-2:-",
+                "worker:t-3:w3",
+            ]);
+        });
     });
 
     it("hides a collapsed run's workers but still counts them", () => {
@@ -310,7 +345,7 @@ describe("buildAgentTree with run lineage", () => {
                 lead: { kind: "lead", runId: "run-1" },
                 w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
             }),
-            { collapsed: new Set(["run-1"]), doneOpen: new Set(), queuedOpen: new Set(), extrasOpen: new Set() }
+            { collapsed: new Set(["run-1"]), doneOpen: new Map(), queuedOpen: new Set(), extrasOpen: new Set() }
         );
         expect(shape(rows)).toEqual(["group:waveterm:2:0", "lead:run-1:1"]);
     });
@@ -405,7 +440,7 @@ describe("buildAgentTree with run lineage", () => {
             ],
             ["lead", "reviewer", "worker"],
             lineage([reviewing()], reviewRoles),
-            { collapsed: new Set(), doneOpen: new Set(), queuedOpen: new Set(), extrasOpen: new Set(["run-1:t-1"]) }
+            { collapsed: new Set(), doneOpen: new Map(), queuedOpen: new Set(), extrasOpen: new Set(["run-1:t-1"]) }
         );
         expect(shape(rows)).toEqual([
             "group:waveterm:2:0",
@@ -442,7 +477,7 @@ describe("buildAgentTree with run lineage", () => {
                 lead: { kind: "lead", runId: "run-1" },
                 reviewer: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
             }),
-            { collapsed: new Set(), doneOpen: new Set(["run-1"]), queuedOpen: new Set(), extrasOpen: new Set() }
+            { collapsed: new Set(), doneOpen: new Map([["run-1", 1]]), queuedOpen: new Set(), extrasOpen: new Set() }
         );
         expect(shape(rows)).toEqual(["group:waveterm:1:0", "lead:run-1:0", "done:1:true", "worker:t-1:-:+1>"]);
     });
