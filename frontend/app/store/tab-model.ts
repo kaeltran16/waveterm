@@ -51,19 +51,10 @@ export class TabModel {
 }
 
 export function getTabModelByTabId(tabId: string, waveEnv?: TabModelEnv): TabModel {
-    if (!waveEnv?.isMock) {
-        let model = tabModelCache.get(tabId);
-        if (model == null) {
-            model = new TabModel(tabId, waveEnv);
-            tabModelCache.set(tabId, model);
-        }
-        return model;
-    }
-    const key = `TabModel:${tabId}`;
-    let model = waveEnv.mockModels.get(key);
+    let model = tabModelCache.get(tabId);
     if (model == null) {
         model = new TabModel(tabId, waveEnv);
-        waveEnv.mockModels.set(key, model);
+        tabModelCache.set(tabId, model);
     }
     return model;
 }

@@ -476,7 +476,7 @@ engine):
   (flat); `element/` shared primitives; `modals/` global overlays; `store/`
   atoms + wshrpc client + WOS; lowercase filenames, PascalCase named exports,
   one component family per file. Legacy terminal-era subsystems (`block/`,
-  `treeview/`, `monaco/`, parts of `element/`) keep their old conventions —
+  `monaco/`, parts of `element/`) keep their old conventions —
   new code follows the `view/agents/` style.
 
 ## Authoritative Sources

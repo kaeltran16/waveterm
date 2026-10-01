@@ -10,7 +10,6 @@ import { PLATFORM } from "@/util/platformutil";
 
 export function makeWaveEnvImpl(): WaveEnv {
     return {
-        isMock: false,
         rpc: RpcApi,
         platform: PLATFORM,
         isDev,
@@ -26,10 +25,5 @@ export function makeWaveEnvImpl(): WaveEnv {
             isWaveObjectNullAtom: WOS.isWaveObjectNullAtom,
             useWaveObjectValue: WOS.useWaveObjectValue,
         },
-
-        mockSetWaveObj: <T extends WaveObj>(_oref: string, _obj: T) => {
-            throw new Error("mockSetWaveObj is only available in the preview server");
-        },
-        mockModels: new Map<any, any>(),
     };
 }
