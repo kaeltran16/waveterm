@@ -678,6 +678,12 @@ export class RpcApiType {
         return client.wshRpcCall("postchannelmessage", data, opts);
     }
 
+    // command "readvaultnote" [call]
+    ReadVaultNoteCommand(client: WshClient, data: CommandReadVaultNoteData, opts?: RpcOpts): Promise<CommandReadVaultNoteRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "readvaultnote", data, opts);
+        return client.wshRpcCall("readvaultnote", data, opts);
+    }
+
     // command "refreshroutecatalog" [call]
     RefreshRouteCatalogCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "refreshroutecatalog", null, opts);

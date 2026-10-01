@@ -15,7 +15,11 @@ const KIND_NOUN: Record<PeekKind, string> = {
     record: "record",
     effort: "initiative",
     radar: "finding",
+    note: "note",
 };
+
+// a note has no surface to open on and nothing to focus, so the peek is all there is of it
+const VIEW_ONLY: ReadonlySet<PeekKind> = new Set<PeekKind>(["note"]);
 
 export function kindNoun(kind: PeekKind): string {
     return KIND_NOUN[kind];
@@ -32,8 +36,11 @@ export function goneLine(kind: PeekKind): string {
 export type ButtonState = "enabled" | "disabled" | "absent";
 
 // Loading (no facts yet) and a vanished target both disable; a target with nothing to focus on has no Focus
-// this at all.
+// this at all, and a view-only kind has neither button.
 export function itemButtons(kind: PeekKind, facts: PeekFacts | null): { open: ButtonState; focus: ButtonState } {
+    if (VIEW_ONLY.has(kind)) {
+        return { open: "absent", focus: "absent" };
+    }
     if (facts == null || facts.gone) {
         return { open: "disabled", focus: "disabled" };
     }

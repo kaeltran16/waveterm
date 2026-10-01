@@ -608,6 +608,35 @@ func vaultGraph(v *wavevault.Vault) (*wshrpc.CommandVaultGraphRtnData, error) {
 	return out, nil
 }
 
+func (ws *WshServer) ReadVaultNoteCommand(ctx context.Context, data wshrpc.CommandReadVaultNoteData) (*wshrpc.CommandReadVaultNoteRtnData, error) {
+	if data.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	v, err := wavevault.OpenVault(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("opening vault: %w", err)
+	}
+	return readVaultNote(v, data.Id)
+}
+
+// readVaultNote is the vault-backed core (testable with an explicit vault).
+func readVaultNote(v *wavevault.Vault, id string) (*wshrpc.CommandReadVaultNoteRtnData, error) {
+	nb, err := v.Retriever(wavevault.AllScope()).Read(id)
+	if err != nil {
+		return nil, fmt.Errorf("reading note %q: %w", id, err)
+	}
+	n := nb.Node
+	title := n.ID
+	if s, ok := n.Frontmatter["title"].(string); ok && s != "" {
+		title = s
+	}
+	out := &wshrpc.CommandReadVaultNoteRtnData{Id: n.ID, Title: title, Body: nb.Body, Updated: n.UpdatedTs}
+	if n.Scope != "shared" {
+		out.Project = n.Scope
+	}
+	return out, nil
+}
+
 func nodeKind(collection string) string {
 	switch collection {
 	case wavevault.CollTasks:

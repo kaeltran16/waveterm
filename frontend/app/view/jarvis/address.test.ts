@@ -2,21 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import {
-    CANNOT_LOCATE_RECORD,
-    CANNOT_OPEN,
-    NO_MEMORY_SURFACE,
-    parseAddress,
-    type AddressHint,
-    type OpenTarget,
-} from "./address";
+import { CANNOT_LOCATE_RECORD, CANNOT_OPEN, parseAddress, type AddressHint, type OpenTarget } from "./address";
 
 describe("parseAddress", () => {
-    // memnote:/memory: still arrive from persisted conversation turns and effort WorkRefs. They name
-    // something real, so they get their own reason rather than the generic "can't be opened".
-    it("refuses a memory address by name, whichever spelling it arrives in", () => {
+    // memory: still arrives from persisted conversation turns and effort WorkRefs
+    it("reads a memory note, whichever spelling it arrives in", () => {
         for (const address of ["memnote:m-1", "memory:m-1"]) {
-            expect(parseAddress(address)).toEqual({ kind: "unsupported", message: NO_MEMORY_SURFACE });
+            expect(parseAddress(address)).toEqual({ kind: "note", noteId: "m-1" });
         }
     });
 
@@ -55,11 +47,8 @@ describe("parseAddress", () => {
             expect(parseAddress("vault:d-1")).toEqual({ kind: "record", dossierId: "d-1" });
         });
 
-        it("names the reason a memory node has nowhere to open, rather than the generic refusal", () => {
-            expect(parseAddress("vault:m-1", { sourceType: "memory" })).toEqual({
-                kind: "unsupported",
-                message: NO_MEMORY_SURFACE,
-            });
+        it("reads a memory node as a note", () => {
+            expect(parseAddress("vault:m-1", { sourceType: "memory" })).toEqual({ kind: "note", noteId: "m-1" });
         });
 
         // the card never recorded which record the decision sits in, so there is nowhere honest to land

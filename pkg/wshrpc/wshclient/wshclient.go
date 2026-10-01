@@ -673,6 +673,12 @@ func PostChannelMessageCommand(w *wshutil.WshRpc, data wshrpc.CommandPostChannel
 	return resp, err
 }
 
+// command "readvaultnote", wshserver.ReadVaultNoteCommand
+func ReadVaultNoteCommand(w *wshutil.WshRpc, data wshrpc.CommandReadVaultNoteData, opts *wshrpc.RpcOpts) (*wshrpc.CommandReadVaultNoteRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandReadVaultNoteRtnData](w, "readvaultnote", data, opts)
+	return resp, err
+}
+
 // command "refreshroutecatalog", wshserver.RefreshRouteCatalogCommand
 func RefreshRouteCatalogCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "refreshroutecatalog", nil, opts)

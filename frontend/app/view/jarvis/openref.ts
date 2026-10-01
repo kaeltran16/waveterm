@@ -44,6 +44,7 @@ type ChannelTarget = Extract<OpenTarget, { kind: "channel" }>;
 type RecordTarget = Extract<OpenTarget, { kind: "record" }>;
 type RadarTarget = Extract<OpenTarget, { kind: "radar" }>;
 type CanvasTarget = Extract<OpenTarget, { kind: "canvas" }>;
+type NoteTarget = Extract<OpenTarget, { kind: "note" }>;
 type Caller = AddressHint["caller"];
 
 const OK: OpenResult = { ok: true };
@@ -77,6 +78,8 @@ function targetName(target: OpenTarget): string {
             return `scan report ${target.reportId}`;
         case "canvas":
             return `canvas ${target.topic}`;
+        case "note":
+            return `note ${target.noteId}`;
     }
 }
 
@@ -99,6 +102,10 @@ export async function openTarget(
     report: ReportOpen = toast,
     caller?: Caller
 ): Promise<OpenResult> {
+    // a note has no surface to land on: opening one is peeking it
+    if (target.kind === "note") {
+        return peekTarget(model, target, report);
+    }
     const current = nextOpen();
     // the peek still loading is superseded, so its spinner goes back to whatever it replaced
     clearLoadingPeek();
@@ -218,7 +225,7 @@ function toast(result: OpenResult): void {
 
 async function land(
     model: AgentsViewModel,
-    target: OpenTarget,
+    target: Exclude<OpenTarget, NoteTarget>,
     current: () => boolean,
     caller: Caller
 ): Promise<OpenResult> {
@@ -284,6 +291,8 @@ function loadPeek(
             return loadEffort(target.effortId, current);
         case "radar":
             return loadRadar(target, current);
+        case "note":
+            return loadNote(target.noteId, current);
     }
 }
 
@@ -505,6 +514,18 @@ function selectEffort(model: AgentsViewModel, effortId: string): OpenResult {
     openEffortSheet(effortId);
     globalStore.set(model.surfaceAtom, "jarvis");
     return OK;
+}
+
+// Any rejected read, a timeout included, reads as gone, as an initiative's does: the server names no cause.
+const NOTE_GONE = "That note no longer exists";
+
+async function loadNote(noteId: string, current: () => boolean): Promise<Loaded> {
+    try {
+        await RpcApi.ReadVaultNoteCommand(TabRpcClient, { id: noteId });
+    } catch {
+        return current() ? unavailable(NOTE_GONE) : SUPERSEDED;
+    }
+    return current() ? loaded() : SUPERSEDED;
 }
 
 // The Brief's detail sheet, opened on a channel. Selecting the channel is what LOADS it: the sheet's body

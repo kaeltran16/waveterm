@@ -14,6 +14,7 @@ type JarvisCommands interface {
 	ListDossiersCommand(ctx context.Context) (*CommandListDossiersRtnData, error)                                                          // list focusable task dossiers (active|paused), newest-updated first
 	ResolveFocusScopeCommand(ctx context.Context, data CommandResolveFocusScopeData) (*SpaceScope, error)                                  // resolve a focus target's scope bundle (runs -> channels + worker tabs)
 	VaultGraphCommand(ctx context.Context) (*CommandVaultGraphRtnData, error)                                                              // whole-vault wikilink graph (U3 base canvas): all vault nodes + resolved [[links]], no runs/attribution
+	ReadVaultNoteCommand(ctx context.Context, data CommandReadVaultNoteData) (*CommandReadVaultNoteRtnData, error)                         // read one vault note's title and body for the avatar popup's note peek; errors on an unknown id
 	ResolveDossierEdgesCommand(ctx context.Context, data CommandResolveDossierEdgesData) (*CommandResolveDossierEdgesRtnData, error)       // a dossier's attributed run nodes + typed attribution edges (U3 focus bloom)
 	ResolveAmbientCommand(ctx context.Context) (*CommandResolveAmbientRtnData, error)                                                      // whole-vault ambient attribution: every dossier, its attributed run orefs, and its decisions
 	GetDossierCommand(ctx context.Context, data CommandGetDossierData) (*DossierDetail, error)                                             // read one task dossier + its decisions for the Tasks surface
@@ -161,6 +162,20 @@ type GraphLink struct {
 type CommandVaultGraphRtnData struct {
 	Nodes []GraphNode `json:"nodes"`
 	Links []GraphLink `json:"links"`
+}
+
+type CommandReadVaultNoteData struct {
+	Id string `json:"id"`
+}
+
+// CommandReadVaultNoteRtnData is one note as the note peek shows it. Title is the frontmatter title, else
+// the id; Project is the note's project scope, absent for a shared note.
+type CommandReadVaultNoteRtnData struct {
+	Id      string `json:"id"`
+	Title   string `json:"title"`
+	Body    string `json:"body"`
+	Updated int64  `json:"updated"`
+	Project string `json:"project,omitempty"`
 }
 
 type CommandResolveDossierEdgesData struct {

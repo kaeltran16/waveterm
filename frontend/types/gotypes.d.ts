@@ -1179,6 +1179,20 @@ declare global {
         reforef?: string;
     };
 
+    // wshrpc.CommandReadVaultNoteData
+    type CommandReadVaultNoteData = {
+        id: string;
+    };
+
+    // wshrpc.CommandReadVaultNoteRtnData
+    type CommandReadVaultNoteRtnData = {
+        id: string;
+        title: string;
+        body: string;
+        updated: number;
+        project?: string;
+    };
+
     // wshrpc.CommandRemoteFileStreamData
     type CommandRemoteFileStreamData = {
         path: string;

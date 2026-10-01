@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvisattrib"
@@ -100,5 +101,41 @@ func TestBuildDossierGraphMapsRunsAndTypedEdges(t *testing.T) {
 	}
 	if byTo["run:r2"].Bucket != "weak" || byTo["run:r2"].State != "informing" || byTo["run:r2"].Provenance != "structural" {
 		t.Fatalf("edge->r2 = %+v, want bucket=weak state=informing provenance=structural", byTo["run:r2"])
+	}
+}
+
+func TestReadVaultNoteReturnsTitleAndBody(t *testing.T) {
+	v := seedGraphVault(t)
+	if err := os.MkdirAll(filepath.Join(v.Root, "memory", "waveterm"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v.Root, "memory", "waveterm", "m-2.md"), []byte("---\nid: m-2\ntitle: EC-TIME lands anyway\n---\n\nNever re-send.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := readVaultNote(v, "m-2")
+	if err != nil {
+		t.Fatalf("readVaultNote(m-2): %v", err)
+	}
+	if got.Id != "m-2" || got.Title != "EC-TIME lands anyway" || got.Project != "waveterm" || got.Updated == 0 {
+		t.Fatalf("m-2 = %+v, want title from frontmatter, project waveterm, an updated time", got)
+	}
+	if !strings.Contains(got.Body, "Never re-send.") || strings.Contains(got.Body, "title:") {
+		t.Fatalf("m-2 body = %q, want the body without its frontmatter", got.Body)
+	}
+
+	got, err = readVaultNote(v, "m-1") // no title frontmatter, at the memory root
+	if err != nil {
+		t.Fatalf("readVaultNote(m-1): %v", err)
+	}
+	if got.Title != "m-1" || got.Project != "" {
+		t.Fatalf("m-1 = %+v, want the id as title and no project", got)
+	}
+}
+
+func TestReadVaultNoteErrorsOnUnknownId(t *testing.T) {
+	v := seedGraphVault(t)
+	if got, err := readVaultNote(v, "no-such-note"); err == nil {
+		t.Fatalf("readVaultNote(no-such-note) = %+v, want an error", got)
 	}
 }

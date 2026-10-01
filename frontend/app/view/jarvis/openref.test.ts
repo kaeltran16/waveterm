@@ -12,6 +12,7 @@ const rpc = vi.hoisted(() => ({
     SetChannelReadCommand: vi.fn(),
     EffortGetCommand: vi.fn(),
     FileInfoCommand: vi.fn(),
+    ReadVaultNoteCommand: vi.fn(),
 }));
 const loadAndPin = vi.hoisted(() => vi.fn());
 const pushToast = vi.hoisted(() => vi.fn());
@@ -41,7 +42,7 @@ import {
     radarScopeAtom,
     radarSelectedIdAtom,
 } from "../agents/radarstore";
-import { NO_MEMORY_SURFACE, type OpenTarget } from "./address";
+import type { OpenTarget } from "./address";
 import { effortDetailAtom } from "./effortstore";
 import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, recordDetailAtom } from "./jarvissubjectstore";
@@ -242,19 +243,45 @@ describe("record landing", () => {
     });
 });
 
-// memnote:/memory: still arrive from persisted turns and effort WorkRefs. They must refuse by name and
-// leave the user where they were, rather than navigating somewhere that no longer exists.
+// a note has no surface, so opening one peeks it: a plain click and wsh ui reveal both show the popup
 describe("memory note landing", () => {
-    it("refuses every memory spelling without moving the surface", async () => {
-        for (const address of ["memnote:n1", "memory:n2"]) {
+    it("opens a note as a ready peek, writing no selection", async () => {
+        for (const open of [
+            (model: AgentsViewModel) => openTarget(model, { kind: "note", noteId: "n1" }),
+            (model: AgentsViewModel) => openAddress(model, "memnote:n1"),
+        ]) {
             const model = makeModel();
-            expect(await openAddress(model, address)).toEqual({
-                ok: false,
-                reason: "unsupported",
-                message: NO_MEMORY_SURFACE,
+            rpc.ReadVaultNoteCommand.mockResolvedValue({ id: "n1", title: "n1", body: "", updated: 1 });
+            seedSelections(model);
+            globalStore.set(peekItemAtom, null);
+            globalStore.set(petPeekOpenAtom, false);
+            const before = selections(model);
+
+            expect(await open(model)).toEqual({ ok: true });
+
+            expect(selections(model)).toEqual(before);
+            expect(globalStore.get(peekItemAtom)).toEqual({
+                target: { kind: "note", noteId: "n1" },
+                status: "ready",
+                from: "closed",
             });
-            expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+            expect(globalStore.get(petPeekOpenAtom)).toBe(true);
+            expect(rpc.ReadVaultNoteCommand).toHaveBeenLastCalledWith({}, { id: "n1" });
         }
+    });
+
+    it("says a missing note no longer exists and opens nothing", async () => {
+        const model = makeModel();
+        rpc.ReadVaultNoteCommand.mockRejectedValue(new Error('wavevault: node "n-gone" not in scope'));
+        expect(await openTarget(model, { kind: "note", noteId: "n-gone" })).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "That note no longer exists",
+        });
+        expect(pushToast).toHaveBeenCalledWith({ title: "That note no longer exists", message: "", level: "warn" });
+        expect(globalStore.get(peekItemAtom)).toBeNull();
+        expect(globalStore.get(petPeekOpenAtom)).toBe(false);
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
     });
 });
 
@@ -599,6 +626,12 @@ const LOADABLE: PeekCase[] = [
         target: { kind: "radar", reportId: "rb-old", findingId: "f-1" },
         shown: { kind: "radar", reportId: "rb-old", findingId: "f-1" },
     },
+    {
+        kind: "note",
+        arrange: () => rpc.ReadVaultNoteCommand.mockResolvedValue({ id: "n1", title: "n1", body: "", updated: 1 }),
+        target: { kind: "note", noteId: "n1" },
+        shown: { kind: "note", noteId: "n1" },
+    },
 ];
 
 const UNLOADABLE: { kind: string; arrange: () => void; target: OpenTarget; message: string }[] = [
@@ -632,6 +665,12 @@ const UNLOADABLE: { kind: string; arrange: () => void; target: OpenTarget; messa
         arrange: () => {},
         target: { kind: "radar", reportId: "rr-gone" },
         message: "That scan report no longer exists",
+    },
+    {
+        kind: "note",
+        arrange: () => rpc.ReadVaultNoteCommand.mockRejectedValue(new Error("not in scope")),
+        target: { kind: "note", noteId: "n-gone" },
+        message: "That note no longer exists",
     },
 ];
 

@@ -9,6 +9,7 @@ import type { ComponentType } from "react";
 import type { PeekTarget } from "../peekstore";
 import { PeekAgentBody } from "./peekagent";
 import { PeekEffortBody } from "./peekeffort";
+import { PeekNoteBody } from "./peeknote";
 import { PeekRadarBody } from "./peekradar";
 import { PeekRecordBody } from "./peekrecord";
 import { PeekRunBody } from "./peekrun";
@@ -19,4 +20,5 @@ export const PEEK_BODIES: Record<PeekTarget["kind"], ComponentType<{ model: Agen
     record: PeekRecordBody,
     effort: PeekEffortBody,
     radar: PeekRadarBody,
+    note: PeekNoteBody,
 };

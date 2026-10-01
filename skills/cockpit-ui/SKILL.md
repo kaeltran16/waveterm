@@ -12,6 +12,7 @@ You run inside Arc. `wsh ui` lets you see and steer the cockpit the user is look
   `agent:<tabId>`, `task:<id>`, `memnote:<id>`, `effort:<id>`, `radarreport:<id> [--anchor <findingId>]`,
   `surface:<cockpit|jarvis|agent|radar|sessions|files|vault|usage|code|settings>`.
   Your own terminal is `agent:$WAVETERM_TABID`. Files: use `wsh view <path>` instead.
+  A `memnote:` has no surface: it shows in the avatar popup and leaves the user where they are.
 - `wsh ui actions` — the actions available right now (they depend on the surface and selection).
 - `wsh ui do <action-id>` — run one, exactly as if the user pressed its key.
 

@@ -24,6 +24,12 @@ describe("itemButtons", () => {
     it("enables both for a present, focusable target", () => {
         expect(itemButtons("run", { gone: false, focus: FOCUS })).toEqual({ open: "enabled", focus: "enabled" });
     });
+
+    it("gives a note neither button, whatever its body reported", () => {
+        for (const facts of [null, { gone: false, focus: null }, { gone: true, focus: null }]) {
+            expect(itemButtons("note", facts)).toEqual({ open: "absent", focus: "absent" });
+        }
+    });
 });
 
 describe("openLabel", () => {
@@ -48,6 +54,11 @@ describe("itemHints", () => {
         expect(labels({ gone: false, focus: null })).toEqual(["↵ open run", "⌫ back", "esc close"]);
         expect(labels(null)).toEqual(["↵ open run", "⌫ back", "esc close"]);
         expect(labels({ gone: true, focus: FOCUS })).toEqual(["↵ open run", "⌫ back", "esc close"]);
+    });
+
+    it("offers a note only back and close", () => {
+        const hints = itemHints("note", { gone: false, focus: null }).map((h) => `${h.keys.join("")} ${h.label}`);
+        expect(hints).toEqual(["⌫ back", "esc close"]);
     });
 });
 

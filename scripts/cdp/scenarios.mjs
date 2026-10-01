@@ -5326,8 +5326,8 @@ const resourceLinking = {
         }
 
         {
-            // persisted work refs still carry memnote: addresses, and what needs proving is that one opens
-            // nothing rather than navigating into a surface that is gone
+            // persisted work refs still carry memnote: addresses; one the vault no longer serves toasts and
+            // opens nothing (a note that exists shows in the avatar popup)
             const result = await open("memnote:a-note-the-vault-no-longer-serves", { sourceType: "memory" });
             const surface = await h.activeSurfaceLabel();
             rec(
