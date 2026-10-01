@@ -19,11 +19,25 @@ describe("parseDocReview", () => {
         expect(parseDocReview(ask("Spec review", q))).toEqual({
             kind: "spec",
             path: "C:/repo/docs/specs/2026-09-24-auth.md",
+            doc: "markdown",
             intro: [],
             items: ["Redis sessions, 14-day sliding TTL", "Accept the legacy sid cookie for one release"],
             approveIndex: 0,
             requestIndex: 1,
         });
+    });
+    it("reads a mockup-settled Spec review whose first line is the canvas board", () => {
+        const q = "C:/repo/.superpowers/design/peek/project/Main.dc.html\n- Peek opens on hover, not click";
+        expect(parseDocReview(ask("Spec review", q))).toEqual({
+            kind: "spec",
+            path: "C:/repo/.superpowers/design/peek/project/Main.dc.html",
+            doc: "canvas",
+            intro: [],
+            items: ["Peek opens on hover, not click"],
+            approveIndex: 0,
+            requestIndex: 1,
+        });
+        expect(parseDocReview(ask("Spec review", "`/r/Main.DC.HTML`"))?.doc).toBe("canvas");
     });
     it("reads a Plan review ask and splits intro from items", () => {
         const q =
@@ -41,6 +55,9 @@ describe("parseDocReview", () => {
         expect(parseDocReview(ask("Flake fix", "/r/spec.md"))).toBeNull();
         expect(parseDocReview(ask("Spec review", "Does the spec look right?"))).toBeNull();
         expect(parseDocReview(ask("Spec review", "/r/spec.txt"))).toBeNull();
+        expect(parseDocReview(ask("Spec review", "/r/board.html"))).toBeNull();
+        // the path must be the first line, not merely somewhere in the question
+        expect(parseDocReview(ask("Spec review", "Please review the mockup\n/r/Main.dc.html\n- one"))).toBeNull();
         expect(parseDocReview(undefined)).toBeNull();
     });
     it("needs exactly one question", () => {

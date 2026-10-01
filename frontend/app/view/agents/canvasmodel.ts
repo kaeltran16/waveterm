@@ -248,3 +248,11 @@ export function buildGoal(dir: string, boards: CanvasBoard[]): string {
 export function prototypePath(dir: string, boards: CanvasBoard[]): string {
     return join(dir, "project", boards[0]?.name ?? MAIN_BOARD);
 }
+
+const BOARD_PATH = /^(.+?)[\\/]\.superpowers[\\/]design[\\/]([^\\/]+)[\\/]project[\\/]([^\\/]+\.dc\.html)$/i;
+
+// the inverse of prototypePath: a lead names the mockup that settles its design by this path
+export function parseCanvasPath(path: string): { cwd: string; topic: string; board: string } | null {
+    const m = BOARD_PATH.exec(path);
+    return m ? { cwd: m[1], topic: m[2], board: m[3] } : null;
+}
