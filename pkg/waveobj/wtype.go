@@ -557,7 +557,10 @@ type FinalStage struct {
 	Unverified    []string `json:"unverified,omitempty"`    // what could not be verified, and why
 	VerifierRunID string   `json:"verifierrunid,omitempty"` // the verifier session's child run
 	Respawns      int      `json:"respawns,omitempty"`
-	StartedTs     int64    `json:"startedts,omitempty"`
+	StartedTs     int64    `json:"startedts,omitempty"` // when the verifier session started
+	Step          string   `json:"step,omitempty"`      // the command running: tree | check | verify | final; empty when none is
+	StepTs        int64    `json:"stepts,omitempty"`    // when Step started
+	Output        string   `json:"output,omitempty"`    // the running command's output tail
 }
 
 func (*TaskGroup) GetOType() string {

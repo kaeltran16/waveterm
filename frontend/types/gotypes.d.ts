@@ -1861,6 +1861,9 @@ declare global {
         verifierrunid?: string;
         respawns?: number;
         startedts?: number;
+        step?: string;
+        stepts?: number;
+        output?: string;
     };
 
     // wconfig.FullConfigType

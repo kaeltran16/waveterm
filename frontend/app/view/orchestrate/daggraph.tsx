@@ -348,8 +348,8 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                 <span>
                     Run route · {owner.runtime || "unavailable"} / {owner.model || "default"}
                 </span>
-                {stageEntries(group, owner).map((s) => (
-                    <span key={s.key} className="flex items-center gap-1.5">
+                {stageEntries(group, owner, tick || Date.now()).map((s) => (
+                    <span key={s.key} title={s.detail} className="flex items-center gap-1.5">
                         <span className={`h-[7px] w-[7px] rounded-full border ${STAGE_DOT[s.tone]}`} />
                         {s.text}
                     </span>

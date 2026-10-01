@@ -22,9 +22,9 @@ const (
 	SetupTimeout = 2 * time.Minute
 	// VerifyTimeout bounds a plan's Verify command at a merge point.
 	VerifyTimeout = 20 * time.Minute
-	// VerifyProgressInterval is how often a running Verify publishes its output tail. Verify is the only
-	// engine step that runs a long command outside a block, so without this its output does not exist
-	// anywhere until it exits and a 20-minute run is opaque for 20 minutes.
+	// VerifyProgressInterval is how often a running Verify, or a final stage command, publishes its output
+	// tail. They are the engine steps that run a long command outside a block, so without this their output
+	// does not exist anywhere until they exit and a 20-minute run is opaque for 20 minutes.
 	VerifyProgressInterval = 10 * time.Second
 	// MaxPlanOutputLen is how much of a plan command's output is kept: the tail. It is sized so a failing
 	// early stage of a chained Verify is still in it after the later stages have run.

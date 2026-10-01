@@ -5,7 +5,9 @@
 // (pkg/orchestrate/modelroute.go) and reviewerRouteOf mirrors reviewerRoute (stagesession.go): the graph names
 // sources the engine does not send, so it derives them by the same rule.
 
+import { formatAgeShort } from "../agents/agentsviewmodel";
 import { shortModel } from "../agents/modelname";
+import { finalStageActivity, finalStepCommand } from "../agents/runlineage";
 
 // the engine's default runtime for a route that names only a model (runroute.DefaultRuntime)
 const DEFAULT_RUNTIME = "claude";
@@ -108,13 +110,21 @@ export function reviewersChip(group: TaskGroup, owner: Run): string {
     return custom ? `reviewers · ${shortModel(r.model)}` : "reviewers · same as lead";
 }
 
-export type StageEntry = { key: "planreview" | "final"; text: string; tone: "done" | "failed" | "open" };
+export type StageEntry = {
+    key: "planreview" | "final";
+    text: string;
+    tone: "done" | "failed" | "open";
+    detail?: string; // the running command and its output tail
+};
+
+// the output tail a stage's tooltip has room for
+const STAGE_DETAIL_LINES = 12;
 
 const STAGE_TONE: Record<string, StageEntry["tone"]> = { passed: "done", accepted: "done", failed: "failed" };
 
 // stageEntries is the graph's stage line: each judging session's state and the model it runs on. A plan review
-// shows only once one ran; every dag ends in a final verify.
-export function stageEntries(group: TaskGroup, owner: Run): StageEntry[] {
+// shows only once one ran; every dag ends in a final verify, which while it runs says which step, for how long.
+export function stageEntries(group: TaskGroup, owner: Run, nowMs: number): StageEntry[] {
     const model = shortModel(reviewerRouteOf(group, owner).route.model);
     const entry = (key: StageEntry["key"], label: string, state: string): StageEntry => ({
         key,
@@ -123,8 +133,24 @@ export function stageEntries(group: TaskGroup, owner: Run): StageEntry[] {
     });
     const out: StageEntry[] = [];
     if (group.planreview != null) out.push(entry("planreview", "plan review", group.planreview.state));
-    out.push(entry("final", "final verify", group.final?.state || "waiting"));
+    out.push(finalEntry(group, nowMs, entry));
     return out;
+}
+
+function finalEntry(
+    group: TaskGroup,
+    nowMs: number,
+    entry: (key: StageEntry["key"], label: string, state: string) => StageEntry
+): StageEntry {
+    const f = group.final;
+    const activity = finalStageActivity(f);
+    if (activity == null) {
+        return entry("final", "final verify", f?.state || "waiting");
+    }
+    const elapsed = f?.step && f.stepts ? ` ${formatAgeShort(nowMs - f.stepts)}` : "";
+    const tail = (f?.output ?? "").split("\n").slice(-STAGE_DETAIL_LINES).join("\n");
+    const detail = [finalStepCommand(group), tail].filter(Boolean).join("\n\n");
+    return { ...entry("final", "final verify", activity + elapsed), ...(detail ? { detail } : {}) };
 }
 
 // isWaiting mirrors taskWaiting: a task nothing has started or touched, whose model can still change.

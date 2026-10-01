@@ -6,7 +6,7 @@
 // view + run selection. No React, no jotai — unit-tested in runmodel.test.ts.
 
 import type { AgentVM } from "./agentsviewmodel";
-import { runFinished, runProgress, type Lineage, type RunInfo } from "./runlineage";
+import { finalStageActivity, runFinished, runProgress, type Lineage, type RunInfo } from "./runlineage";
 
 export type RunStatusTone = "planning" | "review" | "running" | "blocked" | "done" | "failed" | "cancelled";
 
@@ -46,7 +46,8 @@ export function dagProgressLabel(
         return finishedRunLabel(run);
     }
     if (run.dag?.status === "finalizing") {
-        return `${done}/${total} · verifying the merged result`;
+        const activity = finalStageActivity(run.dag.final);
+        return `${done}/${total} · ${activity ? `final: ${activity}` : "verifying the merged result"}`;
     }
     if (leadless) {
         // a plan-path run gets its lead only at its first judgment event, so no lead yet is the normal case

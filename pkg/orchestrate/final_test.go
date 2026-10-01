@@ -5,6 +5,8 @@ package orchestrate
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -436,7 +438,7 @@ func TestFinalCommandGetsAFreshOutDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	exit, tail, err := runFinalCommand(context.Background(), t.TempDir(), `test -d "$ARC_FINAL_OUT" && echo "$ARC_FINAL_OUT"`, out, time.Minute)
+	exit, tail, err := runFinalCommand(context.Background(), t.TempDir(), `test -d "$ARC_FINAL_OUT" && echo "$ARC_FINAL_OUT"`, out, time.Minute, nil)
 
 	if err != nil || exit != 0 || tail != out {
 		t.Fatalf("ARC_FINAL_OUT is set to an existing directory, got exit %d tail %q err %v", exit, tail, err)
@@ -492,5 +494,99 @@ func TestFinalFailedWakeAfterTheLastRoundGoesToTheHuman(t *testing.T) {
 	}
 	if !strings.HasSuffix(w, "Final failed (exit 1):\nFAIL board") {
 		t.Fatalf("the detail is carried whole, got %q", w)
+	}
+}
+
+// finalStepEvents is the run's final-step events, oldest first, each as "<step> <ok>".
+func finalStepEvents(t *testing.T, f *mergeFixture) []string {
+	t.Helper()
+	events := runEventsOfKind(t, f.ctx, f.channel, f.ownerID, waveobj.RunEventKindFinalStep)
+	var out []string
+	for i := len(events) - 1; i >= 0; i-- {
+		var d struct {
+			Step string `json:"step"`
+			OK   bool   `json:"ok"`
+			MS   *int64 `json:"ms"`
+		}
+		if err := json.Unmarshal(events[i].Detail, &d); err != nil || d.MS == nil {
+			t.Fatalf("a final-step event carries its step, ms and ok, got %s (%v)", events[i].Detail, err)
+		}
+		out = append(out, fmt.Sprintf("%s %v", d.Step, d.OK))
+	}
+	return out
+}
+
+func TestFinalShowsTheRunningStepWithItsOutputAndRecordsEachStep(t *testing.T) {
+	stop := filepath.ToSlash(filepath.Join(t.TempDir(), "stop"))
+	f := finalFixture(t, passVerify, "echo checked", "echo booting; while [ ! -f "+stop+" ]; do sleep 0.05; done")
+	// the stage stays verifying, as under a real verifier, so only the commands' own end can clear their step
+	orig := startVerifier
+	startVerifier = func(context.Context, context.Context, *waveobj.TaskGroup, *waveobj.Run, *[]func()) {}
+	restoreAfterStages(t, func() { startVerifier = orig })
+	await := awaitFinal(t)
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		fs := f.dag(t).Final
+		if fs.Step == FinalStep_Final && strings.Contains(fs.Output, "booting") {
+			if fs.State != FinalState_Final || fs.StepTs == 0 {
+				t.Fatalf("the running Final command shows as the final state with its start, got %+v", fs)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the Final command's step and output never showed, got %+v", fs)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := os.WriteFile(stop, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	await()
+
+	fs := f.dag(t).Final
+	if fs.State != FinalState_Verifying || fs.Step != "" || fs.StepTs != 0 || fs.Output != "" {
+		t.Fatalf("passed commands hand over to the verifier with no step showing, got %s step %q ts %d output %q", fs.State, fs.Step, fs.StepTs, fs.Output)
+	}
+	if got, want := finalStepEvents(t, f), []string{"tree true", "check true", "verify true", "final true"}; !slices.Equal(got, want) {
+		t.Fatalf("each step records an event in order: want %v, got %v", want, got)
+	}
+}
+
+func TestAFailedFinalStepIsRecordedAndTheStepsAfterItDoNotRun(t *testing.T) {
+	f := finalFixture(t, "exit 1", "", "echo never")
+
+	g := runFinal(t, f)
+
+	if g.Final.State != FinalState_Failed || g.Final.Step != "" {
+		t.Fatalf("a failed Verify fails the stage with no step left showing, got %s / %q", g.Final.State, g.Final.Step)
+	}
+	if got, want := finalStepEvents(t, f), []string{"tree true", "verify false"}; !slices.Equal(got, want) {
+		t.Fatalf("want %v, got %v", want, got)
+	}
+}
+
+func TestALateTailDoesNotLandOnTheNextStep(t *testing.T) {
+	f := finalFixture(t, passVerify, "", "")
+	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
+		cur.Final = &waveobj.FinalStage{State: FinalState_Checking, Round: 1, Step: FinalStep_Verify}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := recordFinalOutputLocked(f.ctx, f.dagID, 1, FinalStep_Check, "check's last words"); err != nil {
+		t.Fatal(err)
+	}
+	if out := f.dag(t).Final.Output; out != "" {
+		t.Fatalf("a finished step's tail is dropped, got %q", out)
+	}
+	if err := recordFinalOutputLocked(f.ctx, f.dagID, 1, FinalStep_Verify, "ok  pkg/x"); err != nil {
+		t.Fatal(err)
+	}
+	if out := f.dag(t).Final.Output; out != "ok  pkg/x" {
+		t.Fatalf("the running step's tail shows, got %q", out)
 	}
 }

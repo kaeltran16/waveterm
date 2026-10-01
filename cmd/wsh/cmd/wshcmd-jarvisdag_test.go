@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
@@ -704,6 +705,19 @@ func TestDagStatusLinesPrintTheFinalStage(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status must print %q, got:\n%s", want, out)
 		}
+	}
+}
+
+func TestDagStatusLinesPrintTheRunningFinalStep(t *testing.T) {
+	rtn := &wshrpc.CommandDagStatusRtnData{
+		Group: &waveobj.TaskGroup{ID: "d", Status: "finalizing"},
+		Digest: wshrpc.DagStatusDigest{Final: &waveobj.FinalStage{
+			State: "checking", Round: 1, Step: "verify", StepTs: time.Now().Add(-72 * time.Second).UnixMilli(),
+		}},
+	}
+	out := strings.Join(dagStatusLines(rtn, 0), "\n")
+	if !strings.Contains(out, "final   checking  round=1  step=verify (1m12s)") {
+		t.Fatalf("status must name the running step and how long it has run, got:\n%s", out)
 	}
 }
 
