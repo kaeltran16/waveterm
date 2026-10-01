@@ -386,6 +386,59 @@ func TestRunsShowLinesPrintsTheRunsOwnQuestion(t *testing.T) {
 	}
 }
 
+func TestRunsRecordLines(t *testing.T) {
+	dag := &waveobj.EvidenceDag{
+		Tasks: []waveobj.EvidenceDagTask{
+			{
+				TaskId: "t-1", State: "done", Commit: "0123456789abcdef", ReviewRounds: 2,
+				Differs: "kept the old flag", NotVerified: "the CDP scenario\nthe packaged build",
+				ReviewerUnverified: "the windows path", FoundNotFixed: "a stale doc", ForLead: "t-4 reads the new key",
+			},
+			{TaskId: "t-2", State: "done", Commit: "fedcba9876543210", Unstructured: "did it all"},
+			{TaskId: "t-3", State: "skipped"},
+		},
+		Answered: 1, Forwarded: 2,
+		Told:       []string{"t-1: keep the links clickable"},
+		LeftBehind: []string{"t-2", "t-5"},
+	}
+	want := []string{
+		"record",
+		"t-1 done  0123456  review rounds 2",
+		"  differs: kept the old flag",
+		"  not verified: the CDP scenario",
+		"    the packaged build",
+		"  reviewer: the windows path",
+		"  found not fixed: a stale doc",
+		"  for lead: t-4 reads the new key",
+		"t-2 done  fedcba9",
+		"  unstructured: did it all",
+		"t-3 skipped",
+		"answered 1  forwarded 2",
+		"told: t-1: keep the links clickable",
+		"left behind: t-2, t-5",
+	}
+	if got := runsRecordLines(dag); !reflect.DeepEqual(got, want) {
+		t.Fatalf("record lines:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if got := runsRecordLines(nil); got != nil {
+		t.Fatalf("a run with no record prints nothing, got %q", got)
+	}
+}
+
+func TestRunsShowLinesPrintsTheRecordAfterTheReport(t *testing.T) {
+	ch := &waveobj.Channel{OID: "ch-1", Name: "waveterm"}
+	run := &waveobj.Run{ID: "r-1", Status: "done", Mode: "orchestrator", Report: "lead report"}
+	if lines := runsShowLines(ch, run, nil, 2, nil); slices.Contains(lines, "record") {
+		t.Fatalf("a run with no record printed one:\n%s", strings.Join(lines, "\n"))
+	}
+	run.Evidence = &waveobj.RunEvidence{Summary: "lead report", Dag: &waveobj.EvidenceDag{Tasks: []waveobj.EvidenceDagTask{{TaskId: "t-1", State: "done"}}}}
+	lines := runsShowLines(ch, run, nil, 2, nil)
+	report, record := slices.Index(lines, "lead report"), slices.Index(lines, "record")
+	if report < 0 || record < report || !slices.Contains(lines, "t-1 done") {
+		t.Fatalf("show must print the record after the report:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
 func TestRunsClip(t *testing.T) {
 	if got := runsClip("a  b\nc", 10); got != "a b c" {
 		t.Fatalf("whitespace = %q", got)

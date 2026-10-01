@@ -9,6 +9,7 @@
 import { SkeletonLine } from "@/app/element/skeleton";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { runAtom } from "@/app/view/agents/channelsstore";
+import { SectionLabel } from "@/app/view/agents/sectionlabel";
 import { cn } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
 import { ArrowUpRight, ChevronDown, ChevronUp, Copy } from "lucide-react";
@@ -18,6 +19,7 @@ import { REGION_LABEL } from "./briefstyle";
 import { type FeedEntry } from "./effortfeed";
 import { chunkTone } from "./effortmodel";
 import { STATUSES, TONE_FG, ToneIcon } from "./inlinetrackerview";
+import { runRecordRows } from "./runrecord";
 import { RunReportView } from "./runreportview";
 import { sidebarNotes, type NoteCard } from "./sidebarnotes";
 
@@ -27,7 +29,7 @@ const NAV_BUTTON =
 
 const NO_RUN = atom<Run | undefined>(undefined);
 // the report a finished run left on this chunk (Task 2): the structured report when the lead filed one,
-// else the sealed summary
+// else the sealed summary; then the dag's record sealed with it
 function NoteRun({ model, runOid }: { model: AgentsViewModel; runOid: string }) {
     const run = useAtomValue((runOid ? runAtom(runOid) : NO_RUN) as Atom<Run | undefined>);
     if (run == null) {
@@ -38,13 +40,45 @@ function NoteRun({ model, runOid }: { model: AgentsViewModel; runOid: string }) 
             </div>
         );
     }
-    if ((run.report ?? "").trim() !== "") {
-        return <RunReportView model={model} run={run} compact />;
+    return (
+        <div className="flex flex-col gap-3">
+            {(run.report ?? "").trim() !== "" ? (
+                <RunReportView model={model} run={run} compact />
+            ) : (
+                <p className="m-0 text-[12px] leading-[1.55] text-secondary">
+                    {run.evidence?.summary || "The run finished without a report."}
+                </p>
+            )}
+            <RunRecord dag={run.evidence?.dag} />
+        </div>
+    );
+}
+
+function RunRecord({ dag }: { dag: EvidenceDag | undefined }) {
+    const rows = runRecordRows(dag);
+    if (rows.length === 0) {
+        return null;
     }
     return (
-        <p className="m-0 text-[12px] leading-[1.55] text-secondary">
-            {run.evidence?.summary || "The run finished without a report."}
-        </p>
+        <div data-jarvis-run-record className="flex flex-col gap-1">
+            <SectionLabel>record</SectionLabel>
+            {rows.map((row, n) => (
+                <div
+                    key={n}
+                    className={cn(
+                        "whitespace-pre-wrap break-words",
+                        row.kind === "task" && "pt-1 font-mono text-[11px] text-ink-hi",
+                        row.kind === "section" && "pl-3 text-[12px] leading-[1.5] text-secondary",
+                        row.kind === "run" && "pt-1 font-mono text-[11px] text-ink-mid"
+                    )}
+                >
+                    {row.kind !== "task" && row.label != null ? (
+                        <span className="font-mono text-[10.5px] text-muted">{row.label}: </span>
+                    ) : null}
+                    {row.text}
+                </div>
+            ))}
+        </div>
     );
 }
 

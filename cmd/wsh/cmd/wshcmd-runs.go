@@ -761,6 +761,62 @@ func runsShowLines(ch *waveobj.Channel, r *waveobj.Run, digest *wshrpc.CommandDa
 	if report := runsReport(r); report != "" {
 		lines = append(lines, "", "report", report)
 	}
+	if r.Evidence != nil {
+		if record := runsRecordLines(r.Evidence.Dag); len(record) > 0 {
+			lines = append(append(lines, ""), record...)
+		}
+	}
+	return lines
+}
+
+// runsRecordLines is the dag's record sealed with the lead's run: each task's non-empty sections under its line,
+// then the counts, what the human told workers, and the worktrees left behind
+func runsRecordLines(d *waveobj.EvidenceDag) []string {
+	if d == nil {
+		return nil
+	}
+	lines := []string{"record"}
+	for _, t := range d.Tasks {
+		head := t.TaskId + " " + t.State
+		if t.Commit != "" {
+			head += "  " + runsShort(t.Commit)
+		}
+		if t.ReviewRounds > 0 {
+			head += fmt.Sprintf("  review rounds %d", t.ReviewRounds)
+		}
+		lines = append(lines, head)
+		for _, sec := range []struct{ label, body string }{
+			{"differs", t.Differs},
+			{"not verified", t.NotVerified},
+			{"reviewer", t.ReviewerUnverified},
+			{"found not fixed", t.FoundNotFixed},
+			{"for lead", t.ForLead},
+			{"unstructured", t.Unstructured},
+		} {
+			lines = append(lines, runsLabelled("  ", sec.label, sec.body)...)
+		}
+	}
+	lines = append(lines, fmt.Sprintf("answered %d  forwarded %d", d.Answered, d.Forwarded))
+	for _, told := range d.Told {
+		lines = append(lines, runsLabelled("", "told", told)...)
+	}
+	if len(d.LeftBehind) > 0 {
+		lines = append(lines, "left behind: "+strings.Join(d.LeftBehind, ", "))
+	}
+	return lines
+}
+
+// runsLabelled prints a body after its label, its later lines indented below; an empty body prints nothing
+func runsLabelled(indent, label, body string) []string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return nil
+	}
+	parts := strings.Split(body, "\n")
+	lines := []string{indent + label + ": " + parts[0]}
+	for _, p := range parts[1:] {
+		lines = append(lines, indent+"  "+p)
+	}
 	return lines
 }
 
