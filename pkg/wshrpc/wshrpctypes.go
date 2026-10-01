@@ -47,6 +47,7 @@ type WshRpcInterface interface {
 	SecretCommands
 	AskCommands
 	NotifyCommands
+	VaultCommands
 	UiCommands
 	StreamCommands
 	WshRpcRemoteFileInterface

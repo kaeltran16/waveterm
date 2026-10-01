@@ -947,6 +947,24 @@ func VaultGraphCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Command
 	return resp, err
 }
 
+// command "vaultsetremote", wshserver.VaultSetRemoteCommand
+func VaultSetRemoteCommand(w *wshutil.WshRpc, data wshrpc.CommandVaultSetRemoteData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "vaultsetremote", data, opts)
+	return err
+}
+
+// command "vaultstatus", wshserver.VaultStatusCommand
+func VaultStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.VaultStatusRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.VaultStatusRtnData](w, "vaultstatus", nil, opts)
+	return resp, err
+}
+
+// command "vaultsync", wshserver.VaultSyncCommand
+func VaultSyncCommand(w *wshutil.WshRpc, data wshrpc.CommandVaultSyncData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "vaultsync", data, opts)
+	return err
+}
+
 // command "waveinfo", wshserver.WaveInfoCommand
 func WaveInfoCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.WaveInfoData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.WaveInfoData](w, "waveinfo", nil, opts)

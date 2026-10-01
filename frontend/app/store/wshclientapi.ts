@@ -954,6 +954,24 @@ export class RpcApiType {
         return client.wshRpcCall("vaultgraph", null, opts);
     }
 
+    // command "vaultsetremote" [call]
+    VaultSetRemoteCommand(client: WshClient, data: CommandVaultSetRemoteData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "vaultsetremote", data, opts);
+        return client.wshRpcCall("vaultsetremote", data, opts);
+    }
+
+    // command "vaultstatus" [call]
+    VaultStatusCommand(client: WshClient, opts?: RpcOpts): Promise<VaultStatusRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "vaultstatus", null, opts);
+        return client.wshRpcCall("vaultstatus", null, opts);
+    }
+
+    // command "vaultsync" [call]
+    VaultSyncCommand(client: WshClient, data: CommandVaultSyncData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "vaultsync", data, opts);
+        return client.wshRpcCall("vaultsync", data, opts);
+    }
+
     // command "waveinfo" [call]
     WaveInfoCommand(client: WshClient, opts?: RpcOpts): Promise<WaveInfoData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "waveinfo", null, opts);

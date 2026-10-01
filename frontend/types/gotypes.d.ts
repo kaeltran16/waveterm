@@ -1418,6 +1418,16 @@ declare global {
         links: GraphLink[];
     };
 
+    // wshrpc.CommandVaultSetRemoteData
+    type CommandVaultSetRemoteData = {
+        url: string;
+    };
+
+    // wshrpc.CommandVaultSyncData
+    type CommandVaultSyncData = {
+        wait?: boolean;
+    };
+
     // wshrpc.CommandWriteTempFileData
     type CommandWriteTempFileData = {
         filename: string;
@@ -2741,6 +2751,17 @@ declare global {
         cachewrite1h: number;
         msgs: number;
         missing?: boolean;
+    };
+
+    // wshrpc.VaultStatusRtnData
+    type VaultStatusRtnData = {
+        off?: string;
+        remoteurl?: string;
+        lastsuccessts?: number;
+        lasterror?: string;
+        running?: boolean;
+        conflicts?: string[];
+        malformedefforts?: string[];
     };
 
     // baseds.VolunteerData

@@ -31,6 +31,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/util/sigutil"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wavevault"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/web"
@@ -136,6 +137,11 @@ func retryCleanupDebtAtStartup() {
 		// records and logs its own results
 		orchestrate.RetryCleanupDebt(ctx, g.OID)
 	}
+}
+
+// publishVaultNotice raises a vault sync notice through the same event NotifyCommand publishes.
+func publishVaultNotice(title, message, level string) {
+	wps.Broker.Publish(wps.WaveEvent{Event: wps.Event_Notify, Data: wshrpc.NotifyCommandData{Title: title, Message: message, Level: level}})
 }
 
 func createMainWshClient() {
@@ -316,6 +322,8 @@ func main() {
 		log.Printf("error starting config watcher: %v\n", err)
 		return
 	}
+	// after the config watcher: each run resolves the vault path from config
+	wavevault.StartSyncLoop(context.Background(), publishVaultNotice)
 	maybeStartPprofServer()
 	go stdinReadWatch()
 	go tempAttachmentCleanupLoop()
