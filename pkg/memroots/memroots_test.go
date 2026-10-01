@@ -4,9 +4,34 @@
 package memroots
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
 )
+
+func TestVaultRootDelegatesToWconfig(t *testing.T) {
+	configDir := t.TempDir()
+	vaultDir := filepath.Join(t.TempDir(), "vault")
+	barr, err := json.Marshal(map[string]any{wconfig.ConfigKey_MemoryVaultPath: vaultDir})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, wconfig.SettingsFile), barr, 0o644); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+	prev := wavebase.ConfigHome_VarCache
+	wavebase.ConfigHome_VarCache = configDir
+	t.Cleanup(func() { wavebase.ConfigHome_VarCache = prev })
+
+	// no watcher started: the root is read from the local settings file, not the watcher's cached config
+	if got := VaultRoot(); got != wconfig.VaultRoot() || got != filepath.Clean(vaultDir) {
+		t.Fatalf("VaultRoot() = %q, wconfig.VaultRoot() = %q, want %q", got, wconfig.VaultRoot(), vaultDir)
+	}
+}
 
 func TestProjectHash(t *testing.T) {
 	if got := ProjectHash(`C:\Users\kael02\IdeaProjects\waveterm`); got != "C--Users-kael02-IdeaProjects-waveterm" {

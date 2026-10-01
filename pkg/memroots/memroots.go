@@ -19,25 +19,16 @@ import (
 const IndexFile = "MEMORY.md"
 
 const (
-	vaultSubpath  = ".waveterm/vault"
 	legacySubpath = ".waveterm/memory"
 	memoryColl    = "memory"
 	steeringColl  = "steering"
 	skillsColl    = "skills"
 )
 
-// VaultRoot resolves the Wave Vault root from config + home. memory:vaultpath is the single SoT
-// setting (the key Settings > Memory edits); jarvis:vaultpath remains as a legacy fallback so
-// existing jarvis setups keep working; otherwise the default ~/.waveterm/vault.
+// VaultRoot is the Wave Vault root. wconfig owns the resolution because its settings vault layer is
+// located by it.
 func VaultRoot() string {
-	root := filepath.Join(wavebase.GetHomeDir(), vaultSubpath)
-	cfg := wconfig.GetWatcher().GetFullConfig()
-	if cfg.Settings.MemoryVaultPath != "" {
-		root = wavebase.ExpandHomeDirSafe(cfg.Settings.MemoryVaultPath)
-	} else if cfg.Settings.JarvisVaultPath != "" {
-		root = wavebase.ExpandHomeDirSafe(cfg.Settings.JarvisVaultPath)
-	}
-	return root
+	return wconfig.VaultRoot()
 }
 
 // MemoryRoot is the vault's memory collection — the single write target for durable notes.

@@ -28,6 +28,8 @@ type Watcher struct {
 	watcher     *fsnotify.Watcher
 	mutex       sync.Mutex
 	fullConfig  FullConfigType
+	// the watched <vault>/config dir; it moves when the vault path setting changes
+	vaultConfigDir string
 }
 
 type WatcherUpdate struct {
@@ -53,7 +55,34 @@ func newWatcher(factory fsnotifyFactory) (*Watcher, error) {
 			log.Printf(failedStr, dir, err)
 		}
 	}
+	watcher.retargetVaultConfigDir()
 	return watcher, nil
+}
+
+// retargetVaultConfigDir watches the current vault's config dir (creating it, since a missing dir cannot
+// be watched) so a pulled vault-layer change reloads like a local edit, and drops the previous vault's.
+func (w *Watcher) retargetVaultConfigDir() {
+	dir := filepath.Join(VaultRoot(), VaultConfigDir)
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+	if w.watcher == nil || dir == w.vaultConfigDir {
+		return
+	}
+	if w.vaultConfigDir != "" {
+		if err := w.watcher.Remove(w.vaultConfigDir); err != nil {
+			log.Printf("failed to remove path %s from watcher: %v", w.vaultConfigDir, err)
+		}
+		w.vaultConfigDir = ""
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Printf("failed to create vault config dir %s: %v", dir, err)
+		return
+	}
+	if err := w.watcher.Add(dir); err != nil {
+		log.Printf("failed to add path %s to watcher: %v", dir, err)
+		return
+	}
+	w.vaultConfigDir = dir
 }
 
 func InitWatcher() (*Watcher, error) {
@@ -168,6 +197,7 @@ func isValidSubSettingsFileName(fileName string) bool {
 
 func (w *Watcher) handleSettingsFileEvent(_ fsnotify.Event, _ string) {
 	fullConfig := ReadFullConfig()
+	w.retargetVaultConfigDir()
 	w.mutex.Lock()
 	w.fullConfig = fullConfig
 	w.mutex.Unlock()

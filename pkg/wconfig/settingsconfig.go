@@ -216,6 +216,14 @@ func resolveEnvValue(value string) (string, bool) {
 }
 
 func readConfigHelper(fileName string, barr []byte, readErr error) (waveobj.MetaMapType, []ConfigError) {
+	rtn, cerrs := parseConfigHelper(fileName, barr, readErr)
+	if rtn != nil {
+		resolveEnvReplacements(rtn)
+	}
+	return rtn, cerrs
+}
+
+func parseConfigHelper(fileName string, barr []byte, readErr error) (waveobj.MetaMapType, []ConfigError) {
 	var cerrs []ConfigError
 	if readErr != nil && !os.IsNotExist(readErr) {
 		cerrs = append(cerrs, ConfigError{File: fileName, Err: readErr.Error()})
@@ -241,12 +249,6 @@ func readConfigHelper(fileName string, barr []byte, readErr error) (waveobj.Meta
 		}
 		cerrs = append(cerrs, ConfigError{File: fileName, Err: err.Error()})
 	}
-
-	// Resolve environment variable replacements
-	if rtn != nil {
-		resolveEnvReplacements(rtn)
-	}
-
 	return rtn, cerrs
 }
 
@@ -391,6 +393,8 @@ func ReadFullConfig() FullConfigType {
 		var errs []ConfigError
 		if jsonTag == "-" || jsonTag == "" {
 			continue
+		} else if jsonTag == settingsPart {
+			configPart, errs = readSettingsPart()
 		} else {
 			configPart, errs = readConfigPart(jsonTag, simpleMerge)
 		}
@@ -556,47 +560,88 @@ func convertJsonNumber(num json.Number, ctype reflect.Type) (interface{}, error)
 	return nil, fmt.Errorf("cannot convert number to %s", ctype)
 }
 
+func convertConfigValue(configKey string, val any, ctype reflect.Type) (any, error) {
+	rtype := reflect.TypeOf(val)
+	if rtype == reflect.TypeOf(dummyNumber) {
+		convertedVal, err := convertJsonNumber(val.(json.Number), ctype)
+		if err != nil {
+			return nil, fmt.Errorf("cannot convert %s: %v", configKey, err)
+		}
+		val = convertedVal
+		rtype = reflect.TypeOf(val)
+	}
+	if rtype != ctype {
+		if ctype == reflect.PointerTo(rtype) {
+			return &val, nil
+		}
+		return nil, fmt.Errorf("invalid value type for %s: %T", configKey, val)
+	}
+	return val, nil
+}
+
+// SetBaseConfigValue writes each key to the settings layer that owns it: a machine-local key, or one the
+// local file already defines (a per-machine override), goes to the local file; every other key goes to
+// the vault layer, which syncs. A nil value deletes the key from whichever file holds it.
 func SetBaseConfigValue(toMerge waveobj.MetaMapType) error {
+	vaultWritten, err := setBaseConfigValueLocked(toMerge)
+	if vaultWritten {
+		notifyVaultLayerWrite()
+	}
+	return err
+}
+
+func setBaseConfigValueLocked(toMerge waveobj.MetaMapType) (bool, error) {
 	configWriteLock.Lock()
 	defer configWriteLock.Unlock()
-	m, cerrs := ReadWaveHomeConfigFile(SettingsFile)
-	if len(cerrs) > 0 {
-		return fmt.Errorf("error reading config file: %v", cerrs[0])
+	local, err := readSettingsFileRaw(localSettingsPath())
+	if err != nil {
+		return false, err
 	}
-	if m == nil {
-		m = make(waveobj.MetaMapType)
+	vaultPath := VaultSettingsPath()
+	vault, err := readSettingsFileRaw(vaultPath)
+	if err != nil {
+		return false, err
 	}
+	var localDirty, vaultDirty bool
 	for configKey, val := range toMerge {
 		ctype := getConfigKeyType(configKey)
 		if ctype == nil {
-			return fmt.Errorf("invalid config key: %s", configKey)
+			return false, fmt.Errorf("invalid config key: %s", configKey)
 		}
 		if val == nil {
-			delete(m, configKey)
+			if _, ok := local[configKey]; ok {
+				delete(local, configKey)
+				localDirty = true
+			}
+			if _, ok := vault[configKey]; ok {
+				delete(vault, configKey)
+				vaultDirty = true
+			}
 			continue
 		}
-		rtype := reflect.TypeOf(val)
-		if rtype == reflect.TypeOf(dummyNumber) {
-			convertedVal, err := convertJsonNumber(val.(json.Number), ctype)
-			if err != nil {
-				return fmt.Errorf("cannot convert %s: %v", configKey, err)
-			}
-			val = convertedVal
-			rtype = reflect.TypeOf(val)
+		converted, err := convertConfigValue(configKey, val, ctype)
+		if err != nil {
+			return false, err
 		}
-		if rtype != ctype {
-			if ctype == reflect.PointerTo(rtype) {
-				// store a pointer to a per-iteration copy: the range variable is reused, so
-				// taking its address directly would alias all pointer entries to the last key
-				ptrVal := val
-				m[configKey] = &ptrVal
-				continue
-			}
-			return fmt.Errorf("invalid value type for %s: %T", configKey, val)
+		if _, definedLocally := local[configKey]; definedLocally || IsMachineLocalKey(configKey) {
+			local[configKey] = converted
+			localDirty = true
+		} else {
+			vault[configKey] = converted
+			vaultDirty = true
 		}
-		m[configKey] = val
 	}
-	return writeWaveHomeConfigFileLocked(SettingsFile, m)
+	if vaultDirty {
+		if err := writeVaultLayerLocked(vaultPath, vault); err != nil {
+			return false, err
+		}
+	}
+	if localDirty {
+		if err := writeWaveHomeConfigFileLocked(SettingsFile, local); err != nil {
+			return vaultDirty, err
+		}
+	}
+	return vaultDirty, nil
 }
 
 // samePath compares two registered paths. A project stores its path verbatim and a caller passes whatever
