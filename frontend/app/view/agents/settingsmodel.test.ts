@@ -13,10 +13,54 @@ import {
     resolveSelection,
     rowMatches,
     settingsSections,
+    vaultStatusLine,
     type SettingSectionDef,
 } from "./settingsmodel";
 
 const sections = () => settingsSections("claude");
+
+describe("vault sync rows", () => {
+    it("treats the vault path as machine-local", () => {
+        const row = sections()
+            .find((s) => s.id === "memory")!
+            .rows.find((r) => r.id === "memory.vaultpath")!;
+        expect(row.scope).toBe("local");
+    });
+
+    it("offers a sync remote row that stores no setting", () => {
+        const row = sections()
+            .find((s) => s.id === "memory")!
+            .rows.find((r) => r.id === "memory.remote")!;
+        expect(row.key).toBeUndefined();
+        expect(row.config).toBeUndefined();
+    });
+});
+
+describe("vaultStatusLine", () => {
+    it("says nothing until the status loads", () => {
+        expect(vaultStatusLine(null)).toBe("");
+    });
+
+    it("explains why sync is off", () => {
+        expect(vaultStatusLine({ off: "no-remote" })).toBe("Sync off — no remote");
+        expect(vaultStatusLine({ off: "no-git" })).toBe("Sync off — git not found");
+    });
+
+    it("reports a running sync, a failure and a success", () => {
+        expect(vaultStatusLine({ running: true })).toBe("Syncing…");
+        expect(vaultStatusLine({ lasterror: "push rejected" })).toBe("Sync failed: push rejected");
+        expect(vaultStatusLine({ lastsuccessts: Date.now() - 5 * 60_000 })).toBe("Last synced 5m ago");
+        expect(vaultStatusLine({})).toBe("Not synced yet");
+    });
+
+    it("appends conflict and malformed counts only when non-zero", () => {
+        const ok = { lastsuccessts: Date.now() };
+        expect(vaultStatusLine({ ...ok, conflicts: [], malformedefforts: [] })).toBe("Last synced just now");
+        expect(vaultStatusLine({ ...ok, conflicts: ["a", "b"], malformedefforts: ["x"] })).toBe(
+            "Last synced just now, 2 conflict copies, 1 malformed effort"
+        );
+    });
+});
 
 describe("settingsSections", () => {
     it("gives every row a unique id", () => {
@@ -55,7 +99,7 @@ describe("settingsSections", () => {
 
     it("has no embeddings section", () => {
         expect(sections().some((s) => s.id === "embeddings")).toBe(false);
-        const keys = sections().flatMap((s) => s.rows.map((r) => r.key));
+        const keys = sections().flatMap((s) => s.rows.map((r) => r.key ?? ""));
         expect(keys.some((k) => k.startsWith("jarvis:embed"))).toBe(false);
     });
 

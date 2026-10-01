@@ -46,6 +46,7 @@ import {
     OPENROUTER_SECRET_NAME,
     resolveSelection,
     settingsSections,
+    vaultStatusLine,
     type SettingRowDef,
     type SettingSectionDef,
 } from "./settingsmodel";
@@ -419,10 +420,12 @@ function SettingRow({ id, stacked, children }: { id: string; stacked?: boolean; 
                 ) : null}
             </div>
             <div className="mt-[3px] max-w-[440px] text-[12px] leading-[1.5] text-muted">{def.desc}</div>
-            <div className="mt-1.5 flex items-center gap-[7px] font-mono text-[10.5px] text-muted">
-                {def.scope != null ? <ScopeDot scope={def.scope} /> : null}
-                {def.key}
-            </div>
+            {def.key != null ? (
+                <div className="mt-1.5 flex items-center gap-[7px] font-mono text-[10.5px] text-muted">
+                    {def.scope != null ? <ScopeDot scope={def.scope} /> : null}
+                    {def.key}
+                </div>
+            ) : null}
         </div>
     );
     const revert = changed ? (
@@ -962,6 +965,30 @@ function TerminalSection() {
 function MemorySection() {
     const stored = (useAtomValue(getSettingsKeyAtom("memory:vaultpath")) as string) ?? "";
     const [error, setError] = useState<string | null>(null);
+    const [status, setStatus] = useState<VaultStatusRtnData | null>(null);
+    const [remoteError, setRemoteError] = useState<string | null>(null);
+    const loadStatus = () =>
+        fireAndForget(async () => {
+            try {
+                setStatus(await RpcApi.VaultStatusCommand(TabRpcClient));
+            } catch (e) {
+                setRemoteError(String(e));
+            }
+        });
+    useEffect(() => {
+        loadStatus();
+    }, []);
+    const setRemote = (url: string) =>
+        fireAndForget(async () => {
+            setRemoteError(null);
+            try {
+                await RpcApi.VaultSetRemoteCommand(TabRpcClient, { url: url.trim() });
+            } catch (e) {
+                setRemoteError(String(e));
+            }
+            loadStatus();
+        });
+    const statusLine = vaultStatusLine(status);
     // validate before persisting: an empty path clears the override (falls back to the default vault),
     // otherwise the folder must exist and be a directory. reuses FileInfoCommand (bare local path, ~
     // expanded by the backend) instead of a dedicated RPC — mirrors the New Project picker's stat check.
@@ -1013,6 +1040,11 @@ function MemorySection() {
                 </CommitText>
             </SettingRow>
             {error ? <Note tone="error">{error}</Note> : null}
+            <SettingRow id="memory.remote">
+                <CommitText value={status?.remoteurl ?? ""} placeholder="git@host:you/vault.git" onCommit={setRemote} />
+            </SettingRow>
+            {remoteError ? <Note tone="error">{remoteError}</Note> : null}
+            {statusLine ? <div className="px-1 pb-2 font-mono text-[11.5px] text-muted">{statusLine}</div> : null}
         </div>
     );
 }

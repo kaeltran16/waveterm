@@ -6,6 +6,7 @@
 // what lets the left pane count and search rows it does not render, and it is the single source of
 // each row's prose so the index and the detail pane cannot disagree.
 
+import { formatAgo } from "./agentsviewmodel";
 import { RUNTIME_FLAGS, type Runtime } from "./launch";
 
 // Where a row's value lives. "synced" travels with settings.json; "local" stays on this machine
@@ -18,7 +19,8 @@ export type SettingRowDef = {
     title: string;
     desc: string;
     // The real config/storage key, shown under the row so a setting can be found in settings.json.
-    key: string;
+    // Left off by a row that stores no setting (the vault sync remote lives in the vault's git config).
+    key?: string;
     scope?: RowScope;
     // Set when `key` is a wconfig settings key. Those rows get their changed mark by diffing the merged
     // value against the shipped default, and revert by deleting the user's override; every other row's
@@ -251,8 +253,13 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
                     title: "Vault path",
                     desc: "Validated on change — the folder must exist. Empty falls back to the default vault.",
                     key: "memory:vaultpath",
-                    scope: "synced",
+                    scope: "local",
                     config: true,
+                },
+                {
+                    id: "memory.remote",
+                    title: "Sync remote",
+                    desc: "A private git remote that keeps the vault, initiatives and portable settings the same on every machine. Empty turns sync off.",
                 },
             ],
         },
@@ -331,7 +338,39 @@ export function rowMatches(row: SettingRowDef, query: string): boolean {
     if (q === "") {
         return true;
     }
-    return `${row.title} ${row.desc} ${row.key}`.toLowerCase().includes(q);
+    return `${row.title} ${row.desc} ${row.key ?? ""}`.toLowerCase().includes(q);
+}
+
+// The one-line sync state under the Sync remote field. null is "not loaded yet".
+export function vaultStatusLine(s: VaultStatusRtnData | null): string {
+    if (s == null) {
+        return "";
+    }
+    if (s.off === "no-git") {
+        return "Sync off — git not found";
+    }
+    if (s.off === "no-remote") {
+        return "Sync off — no remote";
+    }
+    let line: string;
+    if (s.running) {
+        line = "Syncing…";
+    } else if (s.lasterror) {
+        line = `Sync failed: ${s.lasterror}`;
+    } else if (s.lastsuccessts) {
+        line = `Last synced ${formatAgo(Date.now() - s.lastsuccessts)}`;
+    } else {
+        line = "Not synced yet";
+    }
+    const conflicts = s.conflicts?.length ?? 0;
+    if (conflicts > 0) {
+        line += `, ${conflicts} conflict ${conflicts === 1 ? "copy" : "copies"}`;
+    }
+    const malformed = s.malformedefforts?.length ?? 0;
+    if (malformed > 0) {
+        line += `, ${malformed} malformed ${malformed === 1 ? "effort" : "efforts"}`;
+    }
+    return line;
 }
 
 // Sections with non-matching rows dropped, then empty sections dropped. An empty query returns the

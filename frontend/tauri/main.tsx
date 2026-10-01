@@ -5,6 +5,7 @@ import { bootWaveCore } from "@/app/boot/boot-core";
 import { CockpitRoot } from "@/app/cockpit/cockpit-root";
 import { deriveVersionInfo, versionInfoAtom } from "@/app/cockpit/versioninfo";
 import { globalStore } from "@/app/store/jotaiStore";
+import { installVaultSyncTriggers } from "@/app/store/vaultsync";
 import { hlog, installTauriApi, type InitData } from "./api";
 import { installChromeListeners } from "./chrome";
 import { resolveBootIds } from "./bootids";
@@ -47,6 +48,7 @@ async function boot() {
             activate: true,
         } as WaveInitOpts);
 
+        installVaultSyncTriggers();
         createRoot(document.getElementById("main")).render(<CockpitRoot />);
         hlog("cockpit rendered");
     } catch (e: any) {
