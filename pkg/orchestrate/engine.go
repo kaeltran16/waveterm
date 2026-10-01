@@ -727,6 +727,7 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime, tree 
 const (
 	handoffMaxFiles      = 12
 	handoffMaxSummaryLen = 600
+	reportSectionMaxLen  = 2500
 )
 
 // predecessorHandoff describes what each of a task's satisfied dependencies actually did: the squash

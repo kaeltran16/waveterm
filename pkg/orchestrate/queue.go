@@ -173,10 +173,13 @@ func flatLine(s string) string {
 // never passed the commit to `wsh jarvis complete`. Either way the task reads as done.
 func noCommitLine(taskID string, run *waveobj.Run) string {
 	line := taskID + " finished without reporting a commit"
-	if run != nil && run.Evidence != nil {
-		if note := truncateNote(run.Evidence.Summary, handoffMaxSummaryLen); note != "" {
-			line += ": " + note
-		}
+	// a wake line is typed as one, so the sections are flattened and joined
+	var parts []string
+	for _, l := range leadSectionLines(taskID, run) {
+		parts = append(parts, flatLine(l))
+	}
+	if len(parts) > 0 {
+		line += ": " + strings.Join(parts, "; ")
 	}
 	return line
 }

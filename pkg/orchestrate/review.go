@@ -233,13 +233,17 @@ func applyReviewVerdict(ctx context.Context, g *waveobj.TaskGroup, t *waveobj.Ta
 		t.State = TaskState_Done
 		t.LeadGuidance = ""
 		line := fmt.Sprintf("%s passed review: %s", taskID, truncateNote(note, handoffMaxSummaryLen))
+		sections := leadSectionLines(taskID, worker)
 		*afterCommit = append(*afterCommit, func() {
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskReviewPassed, nil, map[string]any{"taskid": taskID, "note": note, "downstream": downstream, "unverified": unverified})
-			// the caveat is what the lead must act on, so it travels whole and apart from the recap's cut
-			if unverified != "" {
-				PostCaveat(ctx, g.ChannelId, g.RunID, fmt.Sprintf("%s: %s", taskID, flatLine(unverified)))
-			}
 			PostQuiet(ctx, g.ChannelId, g.RunID, line)
+			// the caveats are what the lead must act on, so they travel whole apart from the recap's cut
+			for _, s := range sections {
+				PostCaveat(ctx, g.ChannelId, g.RunID, flatLine(s))
+			}
+			if unverified != "" {
+				PostCaveat(ctx, g.ChannelId, g.RunID, fmt.Sprintf("%s reviewer: %s", taskID, flatLine(unverified)))
+			}
 		})
 		if downstream != "" {
 			routeDownstream(ctx, g, taskID, downstream, t.ReviewDownstreamFor, afterCommit)

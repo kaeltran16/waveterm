@@ -247,7 +247,7 @@ func TestReviewPassPrintsTheUnverifiedCaveatWholeAheadOfTheNote(t *testing.T) {
 	}
 	schedule(t, ctx, dag.OID)
 	joined := strings.Join(f.sends, "\n")
-	if want := "Unverified:\nt-0: " + unverified; !strings.Contains(joined, want) {
+	if want := "Unverified:\nt-0 reviewer: " + unverified; !strings.Contains(joined, want) {
 		t.Fatalf("want the whole caveat under Unverified, got %q", f.sends)
 	}
 	if want := "t-0 passed review: " + strings.Repeat("n", handoffMaxSummaryLen) + "..."; !strings.Contains(joined, want) {
@@ -440,9 +440,77 @@ func TestWorkerWithoutACommitTellsTheLeadQuietly(t *testing.T) {
 	if got := firstTask(t, ctx, dag.OID); got.State != TaskState_Done || len(*calls) != 0 {
 		t.Fatalf("no commit skips review, got state %s and %d spawns", got.State, len(*calls))
 	}
-	want := "Since your last wake:\nt-0 finished without reporting a commit: Nothing to change: fmtDate already exists."
+	want := "Since your last wake:\nt-0 finished without reporting a commit: t-0 unstructured report: Nothing to change: fmtDate already exists."
 	if !strings.Contains(strings.Join(f.sends, "\n"), want) {
 		t.Fatalf("want the quiet line %q, got %q", want, f.sends)
+	}
+}
+
+func TestNoCommitLineCarriesTheSectionsNotTheClippedSummary(t *testing.T) {
+	long := strings.Repeat("x", handoffMaxSummaryLen+100)
+	run := &waveobj.Run{Evidence: &waveobj.RunEvidence{Summary: structuredReport("Nothing to do.", "None", long, "None", "None")}}
+	got := noCommitLine("t-0", run)
+	if want := "t-0 Not verified: " + long; !strings.Contains(got, want) {
+		t.Fatalf("want the whole section, got %q", got)
+	}
+	if strings.Contains(got, "Nothing to do.") || strings.Contains(got, "Differs") {
+		t.Fatalf("only the lead's sections belong in the line, got %q", got)
+	}
+}
+
+// structuredReport builds a report in the five-section format.
+func structuredReport(done, differs, notVerified, forLater, foundNotFixed string) string {
+	return "## Done\n" + done + "\n\n## Differs from plan\n" + differs + "\n\n## Not verified\n" + notVerified +
+		"\n\n## For later tasks\n" + forLater + "\n\n## Found not fixed\n" + foundNotFixed
+}
+
+func TestReviewPassPostsTheWorkersSectionsWholeAndSkipsEmptyOnes(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	report := structuredReport("Added fmtDate.", "Used time.Format, not a table.", "The CDP shot.", "None", "None")
+	if err := wstore.UpdateRun(ctx, dag.ChannelId, worker.ID, func(r *waveobj.Run) error {
+		r.Evidence = &waveobj.RunEvidence{Summary: report}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	schedule(t, ctx, dag.OID)
+	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate", "", "no browser here", nil); err != nil {
+		t.Fatal(err)
+	}
+	schedule(t, ctx, dag.OID)
+	joined := strings.Join(f.sends, "\n")
+	want := "Unverified:\nt-0 Differs from plan: Used time.Format, not a table.\nt-0 Not verified: The CDP shot.\nt-0 reviewer: no browser here"
+	if !strings.Contains(joined, want) {
+		t.Fatalf("want the sections then the reviewer's line, got %q", f.sends)
+	}
+	if strings.Contains(joined, "Found not fixed") || strings.Contains(joined, "Added fmtDate") {
+		t.Fatalf("a None section and Done are not posted, got %q", f.sends)
+	}
+}
+
+func TestReviewPassPostsALegacyReportAsOneUnstructuredLine(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	if err := wstore.UpdateRun(ctx, dag.ChannelId, worker.ID, func(r *waveobj.Run) error {
+		r.Evidence = &waveobj.RunEvidence{Summary: "Added fmtDate.\nDid not run the CDP shot."}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	schedule(t, ctx, dag.OID)
+	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	schedule(t, ctx, dag.OID)
+	if want := "Unverified:\nt-0 unstructured report: Added fmtDate. Did not run the CDP shot."; !strings.Contains(strings.Join(f.sends, "\n"), want) {
+		t.Fatalf("want one unstructured line, got %q", f.sends)
 	}
 }
 
