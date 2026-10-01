@@ -1,9 +1,22 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from "vitest";
-import { enterOpensTask, resolveTaskWorker, workerActivityText, type TaskWorkerView } from "./taskcorrelate";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AgentsViewModel } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
+import { jumpToAgent } from "../agents/channelsprimitives";
+import { openOrPeek } from "../jarvis/openref";
+import {
+    enterOpensTask,
+    openTaskWorker,
+    resolveTaskWorker,
+    taskWorkerTarget,
+    workerActivityText,
+    type TaskWorkerView,
+} from "./taskcorrelate";
+
+vi.mock("../jarvis/openref", () => ({ openOrPeek: vi.fn(async () => ({ ok: true })) }));
+vi.mock("../agents/channelsprimitives", () => ({ jumpToAgent: vi.fn() }));
 
 function agent(id: string): AgentVM {
     return { id, name: id, task: "", state: "working" };
@@ -81,5 +94,50 @@ describe("enterOpensTask", () => {
         expect(enterOpensTask(focused("A"))).toBe(false);
         expect(enterOpensTask(focused("INPUT"))).toBe(false);
         expect(enterOpensTask(focused("TEXTAREA"))).toBe(false);
+    });
+});
+
+describe("taskWorkerTarget", () => {
+    it("is the agent tab when dispatched, the child run when unavailable, and nothing when pending", () => {
+        expect(taskWorkerTarget({ state: "dispatched", tabId: "t1", runId: "r1" })).toEqual({
+            kind: "agent",
+            tabId: "t1",
+        });
+        expect(taskWorkerTarget({ state: "unavailable", runId: "r1" })).toEqual({ kind: "run", runId: "r1" });
+        expect(taskWorkerTarget({ state: "pending" })).toBeNull();
+    });
+});
+
+describe("openTaskWorker", () => {
+    const model = {} as AgentsViewModel;
+    const gesture = (ctrlKey: boolean) => ({ ctrlKey, preventDefault: vi.fn(), stopPropagation: vi.fn() });
+    afterEach(() => {
+        vi.mocked(openOrPeek).mockClear();
+        vi.mocked(jumpToAgent).mockClear();
+    });
+
+    it("jumps to a dispatched worker's agent on a plain click", () => {
+        openTaskWorker({ state: "dispatched", tabId: "t1" }, model, gesture(false));
+        expect(jumpToAgent).toHaveBeenCalledWith(model, "t1");
+        expect(openOrPeek).not.toHaveBeenCalled();
+    });
+
+    it("hands a Ctrl+click on a dispatched worker to openOrPeek, which peeks its agent", () => {
+        const e = gesture(true);
+        openTaskWorker({ state: "dispatched", tabId: "t1" }, model, e);
+        expect(jumpToAgent).not.toHaveBeenCalled();
+        expect(openOrPeek).toHaveBeenCalledWith(model, { kind: "agent", tabId: "t1" }, e);
+    });
+
+    it("routes an unavailable worker's child run through openOrPeek with the click", () => {
+        const e = gesture(false);
+        openTaskWorker({ state: "unavailable", runId: "r1" }, model, e);
+        expect(openOrPeek).toHaveBeenCalledWith(model, { kind: "run", runId: "r1" }, e);
+    });
+
+    it("does nothing for a pending worker", () => {
+        openTaskWorker({ state: "pending" }, model, gesture(true));
+        expect(openOrPeek).not.toHaveBeenCalled();
+        expect(jumpToAgent).not.toHaveBeenCalled();
     });
 });

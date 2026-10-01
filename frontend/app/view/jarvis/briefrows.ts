@@ -9,6 +9,7 @@
 // Pure: no React.
 
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
+import { parseAddress, type OpenTarget } from "./address";
 import {
     ACTIVE_CAP,
     mergeActiveWork,
@@ -56,6 +57,24 @@ export type BriefLine = {
 export type LineGroup = { label: string; lines: BriefLine[] };
 
 export const SHIPPED_LABEL = "Shipped · 7 days";
+
+// What Space peeks on a row: the target its click opens, or null when it has none or names an address
+// the router cannot open (a click on that row still says why).
+export function lineOpenTarget(target: LineTarget): OpenTarget | null {
+    if (target == null) {
+        return null;
+    }
+    let address = "oref" in target ? target.oref : "";
+    if ("queue" in target) {
+        const q = target.queue;
+        if (q.kind === "channel") {
+            return { kind: "channel", channelId: q.channelId, runId: q.runId ?? undefined };
+        }
+        address = q.oref;
+    }
+    const parsed = parseAddress(address);
+    return parsed.kind === "unsupported" ? null : parsed;
+}
 
 const age = (ts: number, now: number) => formatAge(now - ts);
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;

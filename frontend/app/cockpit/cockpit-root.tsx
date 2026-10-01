@@ -31,6 +31,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { CockpitAppBar } from "./app-bar";
 import { CommandPalette } from "./command-palette";
 import "./cockpit.scss";
+import { ctrlHeldAtom, nextCtrlHeld } from "./ctrlheld";
 import { ShortcutsCheatSheet } from "./shortcuts-cheatsheet";
 import { makeSyntheticNodeModel } from "./synthetic-node-model";
 import { HintsFooter } from "./hints-footer";
@@ -101,9 +102,29 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
         window.addEventListener("contextmenu", onContextMenu);
         return () => window.removeEventListener("contextmenu", onContextMenu);
     }, []);
+    // capture phase: a focused xterm stops key events from bubbling to the window
+    useEffect(() => {
+        const track = (e: Event) => {
+            const held = nextCtrlHeld(globalStore.get(ctrlHeldAtom), e as KeyboardEvent);
+            globalStore.set(ctrlHeldAtom, held);
+            if (held) {
+                document.documentElement.dataset.ctrlHeld = "";
+            } else {
+                delete document.documentElement.dataset.ctrlHeld;
+            }
+        };
+        window.addEventListener("keydown", track, true);
+        window.addEventListener("keyup", track, true);
+        window.addEventListener("blur", track);
+        return () => {
+            window.removeEventListener("keydown", track, true);
+            window.removeEventListener("keyup", track, true);
+            window.removeEventListener("blur", track);
+        };
+    }, []);
     const globalBindings = useMemo(() => buildGlobalBindings(model), [model]);
     useKeybindings(globalBindings);
-    const listNavBindings = useMemo(() => buildListNavBindings(), []);
+    const listNavBindings = useMemo(() => buildListNavBindings(model), [model]);
     useKeybindings(listNavBindings);
     return (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

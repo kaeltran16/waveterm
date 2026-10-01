@@ -9,6 +9,7 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import type { SurfaceKey } from "@/app/view/agents/agents";
+import type { OpenTarget } from "@/app/view/jarvis/address";
 import { atom, type PrimitiveAtom } from "jotai";
 import { useEffect } from "react";
 
@@ -20,6 +21,9 @@ export interface ListNavController {
     // Enter on the focused row: fire the row's PRIMARY action (beyond mere selection) — e.g. Jump/Resume
     // a session, investigate a finding. Optional; when absent Enter passes through (bindings.ts).
     activate?: () => void;
+    // Space on the focused row: the target to peek in the avatar popup, or null when the row has none.
+    // Optional; when absent or null Space passes through (bindings.ts list:peek).
+    peekTarget?: () => OpenTarget | null;
     // Optional richer row model, for a surface whose keys need more than an id list — the Diff
     // surface's compare sides, where Tab must know which side a row belongs to. Typed as unknown[]
     // so this module stays free of any surface's row types; the consumer casts. Every other surface

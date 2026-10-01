@@ -54,12 +54,14 @@ function Kbd({ children }: { children: React.ReactNode }) {
 }
 
 export function RadarFindingsList({
+    reportId,
     findings,
     selectedId,
     onSelect,
     onActivate,
     activateLabel,
 }: {
+    reportId: string; // the report the findings belong to, for Space's peek
     findings: RadarFinding[];
     selectedId: string | undefined;
     onSelect: (id: string) => void;
@@ -87,8 +89,9 @@ export function RadarFindingsList({
             cursorId: selectedId,
             setCursor: onSelect,
             activate: onActivate,
+            peekTarget: () => (selectedId != null ? { kind: "radar", reportId, findingId: selectedId } : null),
         }),
-        [navIds, selectedId, onSelect, onActivate]
+        [navIds, selectedId, onSelect, onActivate, reportId]
     );
     useSurfaceListNav(listNav);
     // a lens tag only tells rows apart when the list mixes lenses

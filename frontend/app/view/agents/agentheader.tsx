@@ -12,7 +12,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { effortDetailAtom, loadEffortDetail } from "@/app/view/jarvis/effortstore";
 import { initiativeLinkText } from "@/app/view/jarvis/initiativework";
-import { openTarget } from "@/app/view/jarvis/openref";
+import { openOrPeek } from "@/app/view/jarvis/openref";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -89,7 +89,10 @@ function InitiativeLink({ model, agent }: { model: AgentsViewModel; agent: Agent
             {" · "}
             <button
                 type="button"
-                onClick={() => fireAndForget(() => openTarget(model, { kind: "effort", effortId: agent.effortId! }))}
+                data-peek
+                onClick={(e) =>
+                    fireAndForget(() => openOrPeek(model, { kind: "effort", effortId: agent.effortId! }, e))
+                }
                 title={`Open ${effort?.title ?? "this initiative"} in Jarvis`}
                 className="cursor-pointer text-accent-soft hover:underline"
             >

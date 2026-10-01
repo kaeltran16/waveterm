@@ -123,12 +123,12 @@ export function ChunkSidebar({
     onNext: (() => void) | null;
     onToggle: (key: string) => void;
     onClose: () => void;
-    onActivity: () => void;
+    onActivity: (e: React.MouseEvent) => void;
     onAddNote: (text: string) => void;
     onSetStatus: (status: string) => void;
     onEditNote: (entry: FeedEntry, text: string) => void;
     onDeleteNote: (entry: FeedEntry) => void;
-    onOpenSession: (card: NoteCard) => void;
+    onOpenSession: (card: NoteCard, e: React.MouseEvent) => void;
 }) {
     const cards = sidebarNotes(feed, label, now, expanded);
     const [draft, setDraft] = useState("");
@@ -216,6 +216,7 @@ export function ChunkSidebar({
                         </button>
                         <button
                             type="button"
+                            data-peek
                             onClick={onActivity}
                             className={cn(
                                 "inline-flex flex-none cursor-pointer items-center gap-1 font-mono text-[10.5px] text-accent-soft hover:underline",
@@ -407,7 +408,8 @@ export function ChunkSidebar({
                                         <div className="flex gap-3 border-t border-edge-faint px-[11px] py-1.5">
                                             <button
                                                 type="button"
-                                                onClick={() => onOpenSession(c)}
+                                                data-peek
+                                                onClick={(e) => onOpenSession(c, e)}
                                                 className={cn(
                                                     "inline-flex cursor-pointer items-center gap-1 font-mono text-[10.5px] text-accent-soft hover:underline",
                                                     FOCUS

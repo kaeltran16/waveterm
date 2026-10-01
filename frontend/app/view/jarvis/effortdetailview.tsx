@@ -33,7 +33,7 @@ import { effortFacts, type ChunkTone, type EffortFacts } from "./effortmodel";
 import { effortDetailAtom, loadEffortDetail } from "./effortstore";
 import { TONE_FG, ToneIcon } from "./inlinetrackerview";
 import { activeSubjectAtom } from "./jarvissubjectstore";
-import { openAddress } from "./openref";
+import { openOrPeekAddress } from "./openref";
 import { STAGE_SCROLLER } from "./stagemeasure";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -183,7 +183,13 @@ function NextCard({ facts }: { facts: EffortFacts }) {
     );
 }
 
-function ChildInitiatives({ facts, onOpen }: { facts: EffortFacts; onOpen: (oref: string) => void }) {
+function ChildInitiatives({
+    facts,
+    onOpen,
+}: {
+    facts: EffortFacts;
+    onOpen: (oref: string, e: React.MouseEvent) => void;
+}) {
     if (facts.children.length === 0) {
         return null;
     }
@@ -195,7 +201,8 @@ function ChildInitiatives({ facts, onOpen }: { facts: EffortFacts; onOpen: (oref
                     key={k.oref}
                     type="button"
                     title="Open this initiative"
-                    onClick={() => onOpen(k.oref)}
+                    data-peek
+                    onClick={(e) => onOpen(k.oref, e)}
                     className={cn(
                         "flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-t-[6px] border-b border-edge-faint px-1.5 py-[5px] text-left hover:bg-surface-hover",
                         FOCUS
@@ -430,7 +437,7 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
     };
 
     const facts = effort != null ? effortFacts(effort, summaries ?? []) : null;
-    const openChild = (child: string) => fireAndForget(() => openAddress(model, child));
+    const openChild = (child: string, e: React.MouseEvent) => fireAndForget(() => openOrPeekAddress(model, child, e));
 
     return (
         <div className={cn(STAGE_SCROLLER, "min-h-0 flex-1")} aria-live="polite">

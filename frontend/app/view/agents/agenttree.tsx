@@ -1,11 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { ctrlHeldAtom } from "@/app/cockpit/ctrlheld";
 import { useSettle } from "@/app/element/motionhooks";
 import { cardVariants, composerReveal, computeEntrances, initialEntranceState } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
-import { openTarget } from "@/app/view/jarvis/openref";
+import { openTarget, peekTarget } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import {
@@ -503,7 +504,13 @@ function RunRow({ model, run, open, live }: { model: AgentsViewModel; run: RunIn
             {
                 label: "Open run",
                 icon: <ExternalLink size={15} />,
-                click: () => fireAndForget(() => openTarget(model, { kind: "run", runId: run.runId })),
+                // a menu item's click carries no event, so Ctrl is read from the held flag
+                click: () => {
+                    const target = { kind: "run", runId: run.runId } as const;
+                    fireAndForget(() =>
+                        globalStore.get(ctrlHeldAtom) ? peekTarget(model, target) : openTarget(model, target)
+                    );
+                },
             },
             { type: "separator" },
             {

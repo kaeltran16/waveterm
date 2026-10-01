@@ -8,7 +8,7 @@
 import { paneReveal } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import * as WOS from "@/app/store/wos";
-import { openTarget } from "@/app/view/jarvis/openref";
+import { openOrPeek } from "@/app/view/jarvis/openref";
 import {
     cleanupOnly,
     digestStale,
@@ -108,14 +108,14 @@ function UsageRows({ spent, sealed }: { spent: UsageSummary; sealed: boolean }) 
 }
 
 // openRunDag lands on the run's Brief sheet, where the DAG modal lives, with the modal open on the run or
-// one of its tasks.
-export function openRunDag(model: AgentsViewModel, run: RunInfo, taskId?: string) {
+// one of its tasks. A Ctrl+click peeks the run instead, and the modal stays shut: it belongs to the sheet.
+export function openRunDag(model: AgentsViewModel, run: RunInfo, taskId?: string, event?: React.MouseEvent) {
     const dag = run.dag;
     if (dag == null) {
         return;
     }
-    void openTarget(model, { kind: "channel", channelId: run.channelId, runId: run.runId }).then((res) => {
-        if ("reason" in res) {
+    void openOrPeek(model, { kind: "channel", channelId: run.channelId, runId: run.runId }, event).then((res) => {
+        if ("reason" in res || event?.ctrlKey) {
             return;
         }
         const dagOref = WOS.makeORef("dag", dag.oid);
@@ -162,7 +162,13 @@ function leadAnswering(ask: DagAskItem, now: number): string {
 
 // NeedsYouCard flags a worker's question the human holds, on the lead's rail. It is answered in the worker's own
 // terminal, where Claude Code shows the question with its full picker; the rail is too narrow for a long one.
-function NeedsYouCard({ ask, action }: { ask: DagAskItem; action: { label: string; run: () => void } }) {
+function NeedsYouCard({
+    ask,
+    action,
+}: {
+    ask: DagAskItem;
+    action: { label: string; run: (e: React.MouseEvent) => void; peek?: boolean };
+}) {
     const first = ask.questions[0];
     const more = ask.questions.length - 1;
     return (
@@ -179,6 +185,7 @@ function NeedsYouCard({ ask, action }: { ask: DagAskItem; action: { label: strin
                 <div className="flex-1" />
                 <button
                     type="button"
+                    data-peek={action.peek ? "" : undefined}
                     onClick={action.run}
                     className="inline-flex cursor-pointer items-center gap-[3px] font-semibold text-accent-soft hover:underline"
                 >
@@ -218,12 +225,13 @@ export function NeedsYouSection({ model, run, asks }: { model: AgentsViewModel; 
                                       }
                                     : {
                                           label: "answer in the run",
-                                          run: () =>
-                                              void openTarget(model, {
-                                                  kind: "channel",
-                                                  channelId: run.channelId,
-                                                  runId: run.runId,
-                                              }),
+                                          run: (e: React.MouseEvent) =>
+                                              void openOrPeek(
+                                                  model,
+                                                  { kind: "channel", channelId: run.channelId, runId: run.runId },
+                                                  e
+                                              ),
+                                          peek: true,
                                       };
                                 return (
                                     <Reveal key={childAskKey(a)}>
@@ -408,7 +416,8 @@ function Activity({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
                 {run.dag ? (
                     <button
                         type="button"
-                        onClick={() => openRunDag(model, run)}
+                        data-peek
+                        onClick={(e) => openRunDag(model, run, undefined, e)}
                         className="inline-flex cursor-pointer items-center gap-[3px] rounded-[6px] px-[6px] py-[2px] font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover"
                     >
                         timeline
@@ -557,7 +566,8 @@ export function TaskSection({
                 <SectionLabel>Task</SectionLabel>
                 <button
                     type="button"
-                    onClick={() => openRunDag(model, run, taskId)}
+                    data-peek
+                    onClick={(e) => openRunDag(model, run, taskId, e)}
                     className={cn(LINK, "ml-0 inline-flex items-center gap-[3px]")}
                 >
                     plan · Task {taskId.replace(/^t-/, "")}

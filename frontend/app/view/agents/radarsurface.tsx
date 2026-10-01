@@ -427,6 +427,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                                 <ScanHealthStrip report={report} />
                                 <div className="flex min-h-0 flex-1 border-t border-edge-faint">
                                     <RadarFindingsList
+                                        reportId={report.oid}
                                         findings={findings}
                                         selectedId={effectiveSelected}
                                         onSelect={setSelectedId}

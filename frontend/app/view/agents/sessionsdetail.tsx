@@ -9,7 +9,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
-import { openTarget } from "@/app/view/jarvis/openref";
+import { openOrPeek } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { Check } from "lucide-react";
@@ -434,7 +434,8 @@ export function RunDetail({
                 <div className="flex flex-none gap-2">
                     <button
                         type="button"
-                        onClick={() => fireAndForget(() => openTarget(model, { kind: "run", runId: view.runId }))}
+                        data-peek
+                        onClick={(e) => fireAndForget(() => openOrPeek(model, { kind: "run", runId: view.runId }, e))}
                         className="cursor-pointer rounded-[7px] border border-edge-mid bg-surface-raised px-3 py-[7px] text-[12px] font-semibold text-ink-mid hover:text-primary"
                     >
                         Open in Orchestrate

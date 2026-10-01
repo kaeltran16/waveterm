@@ -5,6 +5,7 @@
 // These keys are cockpit-local — handled here, not by the global keybinding registry. Extracted from
 // cockpitsurface.tsx as a hook taking a single deps object.
 
+import { peekTarget } from "@/app/view/jarvis/openref";
 import { type KeyboardEvent, type MutableRefObject } from "react";
 import type { AgentsViewModel } from "./agents";
 import { answerDigitTarget, canSubmitAsk, hasAnswerableAsk, moveCursor, nextAskId, type AgentVM } from "./agentsviewmodel";
@@ -126,6 +127,11 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
                 submitAnswer(cur.id);
             } else {
                 openFocus(cur.id, false);
+            }
+        } else if (e.key === " ") {
+            if (cur) {
+                e.preventDefault();
+                void peekTarget(model, { kind: "agent", tabId: cur.id });
             }
         } else if (e.key === "r") {
             e.preventDefault();

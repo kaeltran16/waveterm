@@ -273,7 +273,8 @@ function TaskRowSignal({
             {worker.state === "dispatched" ? (
                 <button
                     type="button"
-                    onClick={() => openTaskWorker(worker, nav.model)}
+                    data-peek
+                    onClick={(e) => openTaskWorker(worker, nav.model, e)}
                     className="cursor-pointer rounded-[5px] border border-accent/50 px-1.5 py-0.5 font-mono text-[9.5px] font-semibold text-accent-soft hover:border-accent"
                 >
                     Open in Agent ↗
@@ -286,7 +287,8 @@ function TaskRowSignal({
                     {task.runid ? (
                         <button
                             type="button"
-                            onClick={() => openTaskWorker(worker, nav.model)}
+                            data-peek
+                            onClick={(e) => openTaskWorker(worker, nav.model, e)}
                             className="cursor-pointer rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] text-secondary hover:border-edge-strong"
                         >
                             View child run

@@ -27,12 +27,13 @@ export function WaitingRow({
     line: BriefLine;
     focused: boolean;
     act: QueueAct;
-    onOpen?: () => void;
+    onOpen?: (e: React.MouseEvent) => void;
     onAct: () => void;
 }) {
     return (
         <div
             data-jarvis-brief-row="queue"
+            data-peek={onOpen != null ? "" : undefined}
             {...cursorAttrs(focused)}
             onClick={onOpen}
             className={cn(
@@ -256,7 +257,7 @@ export function RunRowView({
     face: RunRowFace;
     focused: boolean;
     selected: boolean;
-    onOpenSheet?: () => void;
+    onOpenSheet?: (e: React.MouseEvent) => void;
     onOpenChunk: () => void;
     onAnswer: () => void;
     onOpenAgent: () => void;
@@ -269,6 +270,7 @@ export function RunRowView({
     return (
         <div
             data-jarvis-brief-row="session"
+            data-peek={onOpenSheet != null ? "" : undefined}
             {...cursorAttrs(focused)}
             onClick={onOpenSheet}
             className={cn(
@@ -350,10 +352,19 @@ export function RunRowView({
     );
 }
 
-export function DeltaRowView({ line, focused, onOpen }: { line: BriefLine; focused: boolean; onOpen?: () => void }) {
+export function DeltaRowView({
+    line,
+    focused,
+    onOpen,
+}: {
+    line: BriefLine;
+    focused: boolean;
+    onOpen?: (e: React.MouseEvent) => void;
+}) {
     return (
         <div
             data-jarvis-brief-row="delta"
+            data-peek={onOpen != null ? "" : undefined}
             {...cursorAttrs(focused)}
             onClick={onOpen}
             className={cn(
@@ -391,11 +402,12 @@ export function ShippedRowView({
     line: BriefLine;
     focused: boolean;
     selected: boolean;
-    onOpen?: () => void;
+    onOpen?: (e: React.MouseEvent) => void;
 }) {
     return (
         <div
             data-jarvis-brief-row="shipped"
+            data-peek={onOpen != null ? "" : undefined}
             {...cursorAttrs(focused)}
             onClick={onOpen}
             className={cn(

@@ -8,6 +8,7 @@ import {
     filterLines,
     initiativeLine,
     keepsRunKind,
+    lineOpenTarget,
     projectName,
     queueLine,
     runKindLegs,
@@ -509,5 +510,28 @@ describe("the Runs kind filter", () => {
         expect(keepsRunKind("orchestrator", "quick")).toBe(false);
         expect(keepsRunKind("quick", "orchestrator")).toBe(false);
         expect(keepsRunKind("all", "quick")).toBe(true);
+    });
+});
+
+describe("lineOpenTarget", () => {
+    it("is the target a row's click opens: a queue channel, a queue address, or the row's own address", () => {
+        expect(lineOpenTarget({ queue: { kind: "channel", channelId: "c1", runId: "r1" } })).toEqual({
+            kind: "channel",
+            channelId: "c1",
+            runId: "r1",
+        });
+        expect(lineOpenTarget({ queue: { kind: "channel", channelId: "c1", runId: null } })).toEqual({
+            kind: "channel",
+            channelId: "c1",
+            runId: undefined,
+        });
+        expect(lineOpenTarget({ queue: { kind: "oref", oref: "run:r2" } })).toEqual({ kind: "run", runId: "r2" });
+        expect(lineOpenTarget({ oref: "effort:e1" })).toEqual({ kind: "effort", effortId: "e1" });
+    });
+
+    it("is null for a row with no target or an address the router cannot open", () => {
+        expect(lineOpenTarget(null)).toBeNull();
+        expect(lineOpenTarget({ oref: "" })).toBeNull();
+        expect(lineOpenTarget({ oref: "nonsense:x" })).toBeNull();
     });
 });

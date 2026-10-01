@@ -6,7 +6,8 @@ import { fireAndForget } from "@/util/util";
 import type { AgentsViewModel } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
 import { jumpToAgent } from "../agents/channelsprimitives";
-import { openTarget } from "../jarvis/openref";
+import type { OpenTarget } from "../jarvis/address";
+import { openOrPeek, type OpenGesture } from "../jarvis/openref";
 
 // A dag task's worker correlation, resolved purely from the child run + roster. Explicit degradation
 // states match spec 6.2: a pending task (no child run yet) is "pending"; a run with no reachable
@@ -59,17 +60,29 @@ export function workerActivityText(view: TaskWorkerView): string | null {
     return view.state === "pending" ? "Not dispatched yet" : "Activity unavailable";
 }
 
-// openTaskWorker routes a resolved worker view: dispatched jumps to the agent tab; unavailable opens the
-// child run on its own channel's sheet (pending has no navigable target and does nothing).
-export function openTaskWorker(view: TaskWorkerView, model: AgentsViewModel): void {
+// taskWorkerTarget is where a resolved worker view goes: dispatched is the agent tab; unavailable is the
+// child run on its own channel's sheet; pending has no navigable target.
+export function taskWorkerTarget(view: TaskWorkerView): OpenTarget | null {
     if (view.state === "dispatched" && view.tabId) {
-        jumpToAgent(model, view.tabId);
+        return { kind: "agent", tabId: view.tabId };
+    }
+    if (view.state === "unavailable" && view.runId) {
+        return { kind: "run", runId: view.runId };
+    }
+    return null;
+}
+
+// openTaskWorker goes to the worker's target; a Ctrl+click peeks it instead.
+export function openTaskWorker(view: TaskWorkerView, model: AgentsViewModel, event?: OpenGesture): void {
+    const target = taskWorkerTarget(view);
+    if (target == null) {
         return;
     }
-    const runId = view.runId;
-    if (view.state === "unavailable" && runId) {
-        fireAndForget(() => openTarget(model, { kind: "run", runId }));
+    if (target.kind === "agent" && !event?.ctrlKey) {
+        jumpToAgent(model, target.tabId);
+        return;
     }
+    fireAndForget(() => openOrPeek(model, target, event));
 }
 
 // enterOpensTask reports whether Enter in the graph opens the selected task's worker. A focused button or

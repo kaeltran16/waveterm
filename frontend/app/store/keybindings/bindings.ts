@@ -64,6 +64,7 @@ import {
     trackerMenuAtom,
 } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, setActiveRunId } from "@/app/view/jarvis/jarvissubjectstore";
+import { peekTarget } from "@/app/view/jarvis/openref";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import type { MutableRefObject } from "react";
@@ -388,7 +389,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
 
 // One shared set of list-cursor bindings for the plain master-detail surfaces. Active only when the
 // mounted surface has published a controller (listnav.ts) for itself and focus is not in a field.
-export function buildListNavBindings(): Binding[] {
+export function buildListNavBindings(model: AgentsViewModel): Binding[] {
     const active = (ctx: KeyContext): boolean => {
         if (ctx.editable || ctx.modalOpen) {
             return false;
@@ -396,6 +397,7 @@ export function buildListNavBindings(): Binding[] {
         const c = globalStore.get(listNavAtom);
         return c != null && c.surface === ctx.surface;
     };
+    const rowPeek = () => globalStore.get(listNavAtom)?.peekTarget?.() ?? null;
     const move = (delta: number) => {
         const c = globalStore.get(listNavAtom);
         if (c == null) {
@@ -458,6 +460,21 @@ export function buildListNavBindings(): Binding[] {
             when: active,
             paletteHidden: true,
             run: activate,
+        },
+        {
+            id: "list:peek",
+            keys: "Space",
+            group: "Navigation",
+            label: "Peek the item in the avatar popup",
+            when: (ctx) => active(ctx) && rowPeek() != null,
+            paletteHidden: true,
+            run: () => {
+                const target = rowPeek();
+                if (target == null) {
+                    return false;
+                }
+                void peekTarget(model, target);
+            },
         },
     ];
 }
@@ -746,6 +763,7 @@ export function buildCockpitBindings(): Binding[] {
         doc("cockpit:column", "h", "Other column (← → / h l); on a multi-question ask, switch question"),
         doc("cockpit:answer", "1", "Select an answer option (1–9); on a task row with no question, run its action"),
         doc("cockpit:open", "Enter", "Confirm answer, else open focus; on a task row, open its worker"),
+        doc("cockpit:peek", "Space", "Peek the agent in the avatar popup (Ctrl+click a link peeks it too)"),
         doc("cockpit:reply", "r", "Reply inline to the agent"),
         doc("cockpit:terminal", "t", "Open the agent's terminal"),
         doc("cockpit:background", "b", "Background the agent (keeps running)"),

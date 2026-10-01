@@ -16,6 +16,7 @@ import { formatChordString } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
+import { ctrlHeldAtom } from "./ctrlheld";
 import { visibleHints } from "./footer-visible";
 import { GLOBAL_HINTS, SURFACE_HINTS } from "./footerhints";
 
@@ -32,10 +33,16 @@ function FooterBar({ children, dim }: { children?: React.ReactNode; dim?: boolea
     );
 }
 
-function Chip({ glyph, label }: { glyph: string; label: string }) {
+// lit: the chip's key is held right now (Ctrl for peek), so it reads as armed
+function Chip({ glyph, label, lit }: { glyph: string; label: string; lit?: boolean }) {
     return (
-        <span className="flex items-center gap-1.5 text-[12px] text-secondary">
-            <span className="rounded-[5px] border border-edge-mid px-[6px] py-0.5 font-mono text-[10.5px] text-primary">
+        <span className={cn("flex items-center gap-1.5 text-[12px]", lit ? "text-accent-soft" : "text-secondary")}>
+            <span
+                className={cn(
+                    "rounded-[5px] border px-[6px] py-0.5 font-mono text-[10.5px] text-primary",
+                    lit ? "border-accent bg-accentbg" : "border-edge-mid"
+                )}
+            >
                 {glyph}
             </span>
             {label}
@@ -47,6 +54,7 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
     const surface = useAtomValue(model.surfaceAtom);
     const leader = useAtomValue(activeLeaderAtom);
     const bindings = useAtomValue(bindingsAtom);
+    const ctrlHeld = useAtomValue(ctrlHeldAtom);
     // subscribe-only: some when(ctx) predicates read state ctx doesn't carry (see whenstate.ts), so
     // this is what tells React to recompute chips below when that state changes.
     useAtomValue(whenVersionAtom);
@@ -98,6 +106,7 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
                         key={(c.glyph ?? c.keys) + c.label}
                         glyph={c.glyph ?? formatChordString(c.keys!)}
                         label={c.label}
+                        lit={c.ctrlLit && ctrlHeld}
                     />
                 ))}
             </div>

@@ -1,9 +1,17 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { buildAgentBindings, buildGlobalBindings } from "@/app/store/keybindings/bindings";
+import { globalStore } from "@/app/store/jotaiStore";
+import {
+    buildAgentBindings,
+    buildCockpitBindings,
+    buildGlobalBindings,
+    buildListNavBindings,
+} from "@/app/store/keybindings/bindings";
+import { listNavAtom } from "@/app/store/keybindings/listnav";
 import type { Binding, KeyContext, SurfaceKey } from "@/app/store/keybindings/types";
 import { attachCanvas, detachCanvas, setCanvasMode, setMarking, updateCanvas } from "@/app/view/agents/canvasstore";
+import type { OpenTarget } from "@/app/view/jarvis/address";
 import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { visibleHints } from "./footer-visible";
@@ -94,5 +102,42 @@ describe("agent canvas mode chips", () => {
         setMarking("a1", true);
         updateCanvas("a1", (s) => ({ ...s, marks: [{ x: 0, y: 0, w: 20, h: 20, note: "" }] }));
         expect(chips()).toEqual(["↑↓ move", "Ctrl:Tab cycle", "Ctrl:Enter send", "m stop marking", "c terminal", ...globals()]);
+    });
+});
+
+describe("peek chip", () => {
+    const model = { surfaceAtom: atom<SurfaceKey>("jarvis") } as any;
+    const real = [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildCockpitBindings()];
+    const peekChip = (ctx: KeyContext) => visibleHints(ctx, real, [], GLOBAL_HINTS).find((c) => c.label === "peek");
+    const jarvis: KeyContext = { surface: "jarvis", editable: false, modalOpen: false, leader: null };
+    const publish = (peekTarget?: () => OpenTarget | null) =>
+        globalStore.set(listNavAtom, {
+            surface: "jarvis",
+            navigableIds: ["a"],
+            cursorId: "a",
+            setCursor() {},
+            peekTarget,
+        });
+
+    afterEach(() => {
+        globalStore.set(listNavAtom, null);
+    });
+
+    it("shows on a list whose cursor row has a target, lit while ctrl is held", () => {
+        publish(() => ({ kind: "run", runId: "r1" }));
+        expect(peekChip(jarvis)).toEqual({ glyph: "space · ctrl+click", label: "peek", ctrlLit: true });
+    });
+
+    it("hides when the list has nothing to peek, and in a field", () => {
+        publish();
+        expect(peekChip(jarvis)).toBeUndefined();
+        publish(() => null);
+        expect(peekChip(jarvis)).toBeUndefined();
+        publish(() => ({ kind: "run", runId: "r1" }));
+        expect(peekChip({ ...jarvis, editable: true })).toBeUndefined();
+    });
+
+    it("shows on the cockpit through its documented Space, which the surface handles itself", () => {
+        expect(peekChip({ ...jarvis, surface: "cockpit" })?.label).toBe("peek");
     });
 });

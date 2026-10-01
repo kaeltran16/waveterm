@@ -13,6 +13,7 @@ export interface HintChip {
     glyph?: string; // literal glyph for composite/non-modifier hints
     keys?: string; // chord in binding notation; the renderer computes the platform-aware glyph
     label: string;
+    ctrlLit?: boolean;
 }
 
 export function visibleHints(
@@ -32,7 +33,7 @@ export function visibleHints(
             continue; // already rendered (id referenced by both tables)
         }
         h.ids.forEach((id) => shown.add(id));
-        out.push({ glyph: h.glyph, keys: h.keys, label: h.label });
+        out.push({ glyph: h.glyph, keys: h.keys, label: h.label, ctrlLit: h.ctrlLit });
     }
     return out;
 }

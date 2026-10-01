@@ -23,6 +23,7 @@ import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, briefPeekRecordAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
+import { peekTarget } from "@/app/view/jarvis/openref";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
@@ -39,6 +40,11 @@ import {
 } from "./bindings";
 import { listNavAtom } from "./listnav";
 import type { KeyContext } from "./types";
+
+vi.mock("@/app/view/jarvis/openref", async (orig) => ({
+    ...(await orig<typeof import("@/app/view/jarvis/openref")>()),
+    peekTarget: vi.fn(async () => ({ ok: true })),
+}));
 
 // the canvas guards read the focused agent id from the model
 const stubModel = (focusId?: string): any => ({
@@ -193,7 +199,7 @@ describe("list-nav bindings", () => {
 
     it("is inactive with no controller, when editable/modal, or on a mismatched surface", () => {
         globalStore.set(listNavAtom, null);
-        const j = buildListNavBindings().find((b) => b.id === "list:next-j")!;
+        const j = buildListNavBindings(stubModel()).find((b) => b.id === "list:next-j")!;
         expect(j.keys).toBe("j");
         expect(j.when!(chanCtx)).toBe(false); // no controller
 
@@ -213,7 +219,7 @@ describe("list-nav bindings", () => {
             cursorId: "b",
             setCursor: (id) => seen.push(id),
         });
-        const bindings = buildListNavBindings();
+        const bindings = buildListNavBindings(stubModel());
         bindings.find((b) => b.id === "list:next-j")!.run(chanCtx);
         bindings.find((b) => b.id === "list:prev-k")!.run(chanCtx);
         bindings.find((b) => b.id === "list:next")!.run(chanCtx);
@@ -225,9 +231,47 @@ describe("list-nav bindings", () => {
     it("first press from an empty/absent cursor lands on the first id", () => {
         const seen: string[] = [];
         globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: ["a", "b"], cursorId: undefined, setCursor: (id) => seen.push(id) });
-        buildListNavBindings().find((b) => b.id === "list:next-j")!.run(chanCtx);
+        buildListNavBindings(stubModel()).find((b) => b.id === "list:next-j")!.run(chanCtx);
         expect(seen).toEqual(["a"]);
         globalStore.set(listNavAtom, null);
+    });
+
+    describe("list:peek", () => {
+        const run = { kind: "run", runId: "r1" } as const;
+        const publish = (peekTarget?: () => typeof run | null) =>
+            globalStore.set(listNavAtom, {
+                surface: "jarvis",
+                navigableIds: ["a"],
+                cursorId: "a",
+                setCursor() {},
+                peekTarget,
+            });
+        afterEach(() => {
+            globalStore.set(listNavAtom, null);
+            vi.mocked(peekTarget).mockClear();
+        });
+
+        it("is bound to Space and inactive without a peekTarget, when it returns null, in a field, or under a modal", () => {
+            const model = stubModel();
+            const b = buildListNavBindings(model).find((x) => x.id === "list:peek")!;
+            expect(b.keys).toBe("Space");
+            publish();
+            expect(b.when!(chanCtx)).toBe(false);
+            publish(() => null);
+            expect(b.when!(chanCtx)).toBe(false);
+            publish(() => run);
+            expect(b.when!({ ...chanCtx, editable: true })).toBe(false);
+            expect(b.when!({ ...chanCtx, modalOpen: true })).toBe(false);
+            expect(b.when!(chanCtx)).toBe(true);
+        });
+
+        it("peeks the cursor row's target", () => {
+            const model = stubModel();
+            publish(() => run);
+            const peek = buildListNavBindings(model).find((x) => x.id === "list:peek")!;
+            peek.run(chanCtx);
+            expect(peekTarget).toHaveBeenCalledWith(model, run);
+        });
     });
 });
 

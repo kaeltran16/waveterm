@@ -77,7 +77,7 @@ import {
     toggleRecordBand,
 } from "./jarvissubjectstore";
 import { launchGoal, launchOptsFromConfig } from "./newrun";
-import { openAddress } from "./openref";
+import { openOrPeekAddress } from "./openref";
 import { recordBandCase } from "./recordband";
 import { RecordBand } from "./recordbandview";
 import { RunSheet } from "./runsheet";
@@ -365,9 +365,9 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
         prev: at > 0 ? runList[at - 1] : null,
         next: at >= 0 && at < runList.length - 1 ? runList[at + 1] : null,
     };
-    const step = (id: string | null) => {
+    const step = (id: string | null, e: React.MouseEvent) => {
         if (id != null) {
-            fireAndForget(() => openAddress(model, "run:" + id));
+            fireAndForget(() => openOrPeekAddress(model, "run:" + id, e));
         }
     };
 
@@ -405,7 +405,8 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
                                             type="button"
                                             aria-label="Previous run"
                                             title="Previous run (k)"
-                                            onClick={() => step(pos.prev)}
+                                            data-peek={pos.prev ? "" : undefined}
+                                            onClick={(e) => step(pos.prev, e)}
                                             className={cn(STEP_BTN, pos.prev ? "text-secondary" : "text-feed-glyph")}
                                         >
                                             <ChevronUp size={13} aria-hidden />
@@ -414,7 +415,8 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
                                             type="button"
                                             aria-label="Next run"
                                             title="Next run (j)"
-                                            onClick={() => step(pos.next)}
+                                            data-peek={pos.next ? "" : undefined}
+                                            onClick={(e) => step(pos.next, e)}
                                             className={cn(STEP_BTN, pos.next ? "text-secondary" : "text-feed-glyph")}
                                         >
                                             <ChevronDown size={13} aria-hidden />

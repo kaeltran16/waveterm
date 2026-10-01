@@ -507,7 +507,8 @@ export function LeadCard(p: LeadCardProps) {
                 {run.dag ? (
                     <button
                         type="button"
-                        onClick={() => openRunDag(model, run)}
+                        data-peek
+                        onClick={(e) => openRunDag(model, run, undefined, e)}
                         className={cn(BTN, "inline-flex items-center gap-[5px]")}
                     >
                         DAG

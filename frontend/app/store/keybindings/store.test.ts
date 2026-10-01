@@ -145,7 +145,7 @@ describe("keybinding conflict invariant", () => {
     // c, m, [ and ] each carry two meanings on the agent surface, split by the canvas's state
     it("global + list-nav + agent bindings do not conflict in any canvas state", () => {
         const model = withCanvas();
-        const all = [...buildGlobalBindings(model), ...buildListNavBindings(), ...buildAgentBindings(model)];
+        const all = [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildAgentBindings(model)];
         try {
             expect(() => assertNoConflicts(all)).not.toThrow();
             setCanvasMode("a1", "canvas", 1);
@@ -160,7 +160,7 @@ describe("keybinding conflict invariant", () => {
     it("global + list-nav (controller active on a plain surface) has no key conflicts", () => {
         const model = stubModel();
         globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor() {} });
-        expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings()])).not.toThrow();
+        expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(model)])).not.toThrow();
         globalStore.set(listNavAtom, null);
     });
 
@@ -168,7 +168,11 @@ describe("keybinding conflict invariant", () => {
         const model = stubModel();
         globalStore.set(listNavAtom, null);
         expect(() =>
-            assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(), ...buildAgentBindings(model)])
+            assertNoConflicts([
+                ...buildGlobalBindings(model),
+                ...buildListNavBindings(model),
+                ...buildAgentBindings(model),
+            ])
         ).not.toThrow();
     });
 
@@ -201,7 +205,11 @@ describe("keybinding conflict invariant", () => {
         globalStore.set(codeTreeFocusedAtom, true);
         try {
             expect(() =>
-                assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(), ...buildCodeBindings()])
+                assertNoConflicts([
+                    ...buildGlobalBindings(model),
+                    ...buildListNavBindings(model),
+                    ...buildCodeBindings(),
+                ])
             ).not.toThrow();
         } finally {
             globalStore.set(codeTreeFocusedAtom, false);
@@ -230,7 +238,7 @@ describe("keybinding conflict invariant", () => {
         globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor() {} });
         globalStore.set(graphPeekOpenAtom, false);
         expect(() =>
-            assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(), ...buildJarvisBindings()])
+            assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildJarvisBindings()])
         ).not.toThrow();
         globalStore.set(listNavAtom, null);
     });
@@ -262,7 +270,7 @@ describe("keybinding conflict invariant", () => {
         expect(() =>
             assertNoConflicts([
                 ...buildGlobalBindings(model),
-                ...buildListNavBindings(),
+                ...buildListNavBindings(model),
                 ...buildChannelsAskBindings(model, askRef),
             ])
         ).toThrow(/key conflict "Enter" between "list:activate" and "channels:submit"/);
@@ -338,7 +346,7 @@ describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
         const askRef = { current: { id: "w1", state: "asking" } as AgentVM };
         const all: Binding[] = [
             ...buildGlobalBindings(model),
-            ...buildListNavBindings(),
+            ...buildListNavBindings(model),
             ...buildChannelsAskBindings(model, askRef),
             ...buildJarvisBindings(),
             ...buildCockpitBindings(),

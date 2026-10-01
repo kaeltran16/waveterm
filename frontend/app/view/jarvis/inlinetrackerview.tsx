@@ -94,7 +94,7 @@ export type TrackerEdits = {
     onAddChunk: (label: string, stage: string, runAt: number | null) => void;
     onRename: (title: string) => void;
     onDetails: () => void;
-    onActivity: () => void;
+    onActivity: (e: React.MouseEvent) => void;
     onTogglePause: () => void;
     onArchive: () => void;
     onUnarchive: () => void;
@@ -693,10 +693,11 @@ function TrackerFooter({
     onConfirm: (on: boolean) => void;
 }) {
     const archived = edits.effortStatus === "archived";
-    const action = (name: string, label: string, run: () => void, danger = false) => (
+    const action = (name: string, label: string, run: (e: React.MouseEvent) => void, danger = false, peek = false) => (
         <button
             type="button"
             data-jarvis-initiative-action={name}
+            data-peek={peek ? "" : undefined}
             onClick={run}
             className={cn(SMALL_BUTTON, danger && "hover:border-error/50 hover:text-error", FOCUS)}
         >
@@ -752,7 +753,7 @@ function TrackerFooter({
                 <span className="ml-auto flex items-center gap-1.5">
                     {action("rename", "rename", () => edits.onRename(edits.title))}
                     {action("details", "details", edits.onDetails)}
-                    {action("activity", "activity", edits.onActivity)}
+                    {action("activity", "activity", edits.onActivity, false, true)}
                     {archived
                         ? action("unarchive", "unarchive", edits.onUnarchive)
                         : action("pause", edits.effortStatus === "paused" ? "resume" : "pause", edits.onTogglePause)}

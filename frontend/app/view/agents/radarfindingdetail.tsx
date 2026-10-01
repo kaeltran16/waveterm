@@ -5,7 +5,7 @@ import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { openInCode } from "@/app/view/code/codestore";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
-import { openTarget } from "@/app/view/jarvis/openref";
+import { openOrPeek } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
 import { ArrowRight, ChevronDown, Target } from "lucide-react";
 import { useState } from "react";
@@ -33,12 +33,17 @@ import { setDisposition } from "./radarstore";
 import { INVESTIGATION_DOT, INVESTIGATION_TEXT, modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
 import { pendingRunDraftAtom } from "./runactions";
 
-// The finding's one accent action, shared with list-nav Enter: open the live run, or hand the finding to
-// the Run composer.
-export function runPrimaryAction(model: AgentsViewModel, report: RadarReport, finding: RadarFinding): void {
+// The finding's one accent action, shared with list-nav Enter: open the live run (a Ctrl+click peeks it), or
+// hand the finding to the Run composer.
+export function runPrimaryAction(
+    model: AgentsViewModel,
+    report: RadarReport,
+    finding: RadarFinding,
+    event?: React.MouseEvent
+): void {
     const inv = finding.investigation;
     if (primaryAction(finding).kind === "open-run" && inv) {
-        fireAndForget(() => openTarget(model, { kind: "run", runId: inv.runid }));
+        fireAndForget(() => openOrPeek(model, { kind: "run", runId: inv.runid }, event));
         return;
     }
     globalStore.set(pendingRunDraftAtom, toPendingRunDraft(report, finding));
@@ -160,7 +165,8 @@ export function RadarFindingDetail({
 
     const dispose = (action: string, reason?: string, note?: string) =>
         fireAndForget(() => setDisposition(report.oid, finding.id, action, reason, note));
-    const openRun = () => inv && fireAndForget(() => openTarget(model, { kind: "run", runId: inv.runid }));
+    const openRun = (e: React.MouseEvent) =>
+        inv && fireAndForget(() => openOrPeek(model, { kind: "run", runId: inv.runid }, e));
 
     return (
         <div
@@ -233,6 +239,7 @@ export function RadarFindingDetail({
                             {iv.openable ? (
                                 <button
                                     type="button"
+                                    data-peek
                                     onClick={openRun}
                                     className="flex flex-none items-center gap-1.5 rounded-md border border-edge-mid px-2.5 py-1 text-[11.5px] font-semibold text-secondary hover:border-edge-strong"
                                 >
@@ -250,7 +257,8 @@ export function RadarFindingDetail({
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
-                        onClick={() => runPrimaryAction(model, report, finding)}
+                        data-peek={primaryAction(finding).kind === "open-run" ? "" : undefined}
+                        onClick={(e) => runPrimaryAction(model, report, finding, e)}
                         className="flex items-center gap-[7px] rounded-lg bg-accent px-3.5 py-[7px] text-[13px] font-bold text-background hover:bg-accenthover"
                     >
                         {primaryAction(finding).label}

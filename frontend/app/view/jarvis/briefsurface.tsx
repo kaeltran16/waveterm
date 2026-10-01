@@ -81,6 +81,7 @@ import {
     filterLines,
     initiativeLine,
     keepsRunKind,
+    lineOpenTarget,
     projectName,
     queueLine,
     RUN_KIND_FILTERS,
@@ -155,7 +156,7 @@ import {
 import { clearSubject, persistedSubjectAtom, setComposingRun, stageRunAtom } from "./jarvissubjectstore";
 import { NewInitiativeControl } from "./newinitiativecontrol";
 import { radarDraftLanding } from "./newrun";
-import { openAddress, openChannelSheet, openTarget } from "./openref";
+import { openChannelSheet, openOrPeek, openOrPeekAddress } from "./openref";
 import { loadTaskList, taskListAtom } from "./tasksstore";
 import {
     appendInStageAt,
@@ -456,7 +457,7 @@ function BriefRunRow({
     line: BriefLine;
     focused: boolean;
     selected: boolean;
-    onOpenSheet?: () => void;
+    onOpenSheet?: (e?: React.MouseEvent) => void; // the answer button opens the sheet with no gesture
     onOpenChunk: (effortOref: string, chunk: string) => void;
 }) {
     const run = useAtomValue((line.runOid ? runAtom(line.runOid) : NO_RUN) as Atom<Run | undefined>);
@@ -917,7 +918,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 ),
             onRename: (title) => setRenamingTitle(title),
             onDetails: () => setDetailsOpen(true),
-            onActivity: () => fireAndForget(() => openAddress(model, oref)),
+            onActivity: (e) => fireAndForget(() => openOrPeekAddress(model, oref, e)),
             onTogglePause: () => {
                 const next = status === "paused" ? "active" : "paused";
                 runMutation(() => setEffortStatus(oref, next));
@@ -966,8 +967,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         };
     };
     const sheetOpen = useAtomValue(briefSheetOpenAtom);
+    // a click hands its event over, so Ctrl peeks the row's target instead
     const openLine = useCallback(
-        (target: LineTarget) => {
+        (target: LineTarget, e?: React.MouseEvent) => {
             if (target == null) {
                 return;
             }
@@ -975,16 +977,16 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 const queue = target.queue;
                 fireAndForget(() =>
                     queue.kind === "channel"
-                        ? openTarget(model, {
-                              kind: "channel",
-                              channelId: queue.channelId,
-                              runId: queue.runId ?? undefined,
-                          })
-                        : openAddress(model, queue.oref)
+                        ? openOrPeek(
+                              model,
+                              { kind: "channel", channelId: queue.channelId, runId: queue.runId ?? undefined },
+                              e
+                          )
+                        : openOrPeekAddress(model, queue.oref, e)
                 );
                 return;
             }
-            fireAndForget(() => openAddress(model, target.oref));
+            fireAndForget(() => openOrPeekAddress(model, target.oref, e));
         },
         [model]
     );
@@ -1064,8 +1066,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                           cursorId: cursor,
                           setCursor,
                           activate: sheetOpen || cursorRow == null ? undefined : activateCursor,
+                          peekTarget: sheetOpen ? undefined : () => lineOpenTarget(cursorTarget),
                       },
-            [runNav, tracker.navIds, cursor, setCursor, openLine, sheetOpen, cursorRow, activateCursor]
+            [runNav, tracker.navIds, cursor, setCursor, openLine, sheetOpen, cursorRow, activateCursor, cursorTarget]
         )
     );
     // the four regions scroll as one column, so a cursor moved off-screen has to be brought back
@@ -1491,7 +1494,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                             act={queueAction(queueOf(l))}
                                                                             onOpen={
                                                                                 l.target != null
-                                                                                    ? () => openLine(l.target)
+                                                                                    ? (e) => openLine(l.target, e)
                                                                                     : undefined
                                                                             }
                                                                             onAct={() => actOnQueue(queueOf(l), l)}
@@ -1713,7 +1716,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                 selected={sheetOpen && stageRun?.id === l.runOid}
                                                                 onOpenSheet={
                                                                     l.target != null
-                                                                        ? () => openLine(l.target)
+                                                                        ? (e) => openLine(l.target, e)
                                                                         : undefined
                                                                 }
                                                                 onOpenChunk={revealChunk}
@@ -1790,7 +1793,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                 focused={cursor === l.id}
                                                                 onOpen={
                                                                     l.target != null
-                                                                        ? () => openLine(l.target)
+                                                                        ? (e) => openLine(l.target, e)
                                                                         : undefined
                                                                 }
                                                             />
@@ -1825,7 +1828,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                         "oref" in l.target &&
                                                         l.target.oref === "run:" + stageRun.id
                                                     }
-                                                    onOpen={l.target != null ? () => openLine(l.target) : undefined}
+                                                    onOpen={l.target != null ? (e) => openLine(l.target, e) : undefined}
                                                 />
                                             ))}
                                             {shippedAll.length > SHIPPED_CAP && !filtering ? (
@@ -1876,7 +1879,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                             })
                         }
                         onClose={closeNotes}
-                        onActivity={() => openLine({ oref: selectedChunk.oref })}
+                        onActivity={(e) => openLine({ oref: selectedChunk.oref }, e)}
                         onAddNote={(text) =>
                             runMutation(() => appendChunkNote(selectedChunk.oref, selectedChunk.row.label, text))
                         }
@@ -1905,11 +1908,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                 () => removeNote(selectedChunk.oref, chunkRef(planChunks, entry.chunk), at, entry.ts)
                             );
                         }}
-                        onOpenSession={(c) =>
+                        onOpenSession={(c, e) =>
                             fireAndForget(() =>
                                 c.sessionTab !== ""
-                                    ? openTarget(model, { kind: "agent", tabId: c.sessionTab })
-                                    : openAddress(model, "run:" + c.runOid)
+                                    ? openOrPeek(model, { kind: "agent", tabId: c.sessionTab }, e)
+                                    : openOrPeekAddress(model, "run:" + c.runOid, e)
                             )
                         }
                     />

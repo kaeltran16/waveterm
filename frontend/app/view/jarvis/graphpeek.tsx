@@ -30,7 +30,7 @@ import {
     selectBloomedRun,
     selectNode,
 } from "./jarvisgraphstore";
-import { openAddress } from "./openref";
+import { openOrPeekAddress } from "./openref";
 
 const KIND_TONE: Record<string, string> = {
     task: "text-graph-task",
@@ -43,10 +43,21 @@ const KIND_TONE: Record<string, string> = {
 // reported rather than dropped silently.
 const MAX_MATCHES = 12;
 
-function ActionButton({ label, primary, onClick }: { label: string; primary?: boolean; onClick: () => void }) {
+function ActionButton({
+    label,
+    primary,
+    peek,
+    onClick,
+}: {
+    label: string;
+    primary?: boolean;
+    peek?: boolean;
+    onClick: (e: React.MouseEvent) => void;
+}) {
     return (
         <button
             type="button"
+            data-peek={peek ? "" : undefined}
             onClick={onClick}
             className={cn(
                 "w-full cursor-pointer rounded-[8px] px-2 py-2 text-[11.5px] font-bold",
@@ -128,9 +139,12 @@ export function GraphPeek({
     const q = query.trim().toLowerCase();
     const matches = q === "" ? [] : merged.nodes.filter((n) => n.label.toLowerCase().includes(q));
 
-    const openRun = (runORef: string) => {
-        fireAndForget(() => openAddress(model, runORef));
-        onClose();
+    // a peek shows the run over the graph, so the graph stays for the user to come back to
+    const openRun = (runORef: string, e: React.MouseEvent) => {
+        fireAndForget(() => openOrPeekAddress(model, runORef, e));
+        if (!e.ctrlKey) {
+            onClose();
+        }
     };
 
     return (
@@ -284,7 +298,7 @@ export function GraphPeek({
                             <div className="flex flex-col gap-1.5">
                                 <SubLabel>Open</SubLabel>
                                 {node.kind === "run" && canOpenRuns ? (
-                                    <ActionButton label="Open run" primary onClick={() => openRun(node.id)} />
+                                    <ActionButton label="Open run" primary peek onClick={(e) => openRun(node.id, e)} />
                                 ) : null}
                                 {node.kind === "task" ? (
                                     <ActionButton
