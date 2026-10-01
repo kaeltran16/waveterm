@@ -33,6 +33,7 @@ import { atom } from "jotai";
 import type { AgentsViewModel, SurfaceKey } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
 import { attachCanvas, detachCanvas, getCanvas, setCanvasMode } from "../agents/canvasstore";
+import { activeChannelIdAtom } from "../agents/channelsstore";
 import {
     currentReportIdAtom,
     loadReports,
@@ -40,11 +41,13 @@ import {
     radarScopeAtom,
     radarSelectedIdAtom,
 } from "../agents/radarstore";
-import { NO_MEMORY_SURFACE } from "./address";
+import { NO_MEMORY_SURFACE, type OpenTarget } from "./address";
+import { effortDetailAtom } from "./effortstore";
 import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, recordDetailAtom } from "./jarvissubjectstore";
-import { openAddress, openTarget } from "./openref";
-import { pendingDecisionAnchorAtom } from "./petstore";
+import { isPeekable, openAddress, openOrPeek, openOrPeekAddress, openTarget, peekAddress, peekTarget } from "./openref";
+import { peekItemAtom, type PeekItem } from "./peekstore";
+import { pendingDecisionAnchorAtom, petPeekOpenAtom } from "./petstore";
 import { taskListAtom, tasksErrorAtom } from "./tasksstore";
 
 const objects = new Map<string, unknown>();
@@ -103,6 +106,9 @@ beforeEach(() => {
     globalStore.set(activeSubjectAtom, null);
     globalStore.set(activeRunIdAtom, {});
     globalStore.set(recordDetailAtom, {});
+    globalStore.set(effortDetailAtom, new Map());
+    globalStore.set(peekItemAtom, null);
+    globalStore.set(petPeekOpenAtom, false);
 });
 
 describe("run and channel landings", () => {
@@ -313,10 +319,34 @@ describe("radar landing", () => {
 describe("effort landing", () => {
     it("opens the initiative's sheet", async () => {
         const model = makeModel();
+        rpc.EffortGetCommand.mockResolvedValue({ effort: { oid: "e-1" } });
         expect(await openAddress(model, "effort:e-1")).toEqual({ ok: true });
         expect(globalStore.get(activeSubjectAtom)).toEqual({ kind: "effort", id: "e-1" });
         expect(globalStore.get(briefSheetOpenAtom)).toBe(true);
         expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
+    });
+
+    it("reports an initiative the store cannot find, instead of opening an empty sheet", async () => {
+        const model = makeModel();
+        rpc.EffortGetCommand.mockRejectedValue(new Error("effort e-gone: not found"));
+        expect(await openAddress(model, "effort:e-gone")).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "That initiative no longer exists",
+        });
+        expect(globalStore.get(briefSheetOpenAtom)).toBe(false);
+        expect(globalStore.get(activeSubjectAtom)).toBeNull();
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+
+    it("reports an initiative whose fetch returns nothing", async () => {
+        const model = makeModel();
+        expect(await openAddress(model, "effort:e-none")).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "That initiative no longer exists",
+        });
+        expect(globalStore.get(briefSheetOpenAtom)).toBe(false);
     });
 });
 
@@ -483,5 +513,328 @@ describe("canvas landing", () => {
         expect(result.ok).toBe(false);
         expect(rpc.FileInfoCommand).not.toHaveBeenCalled();
         expect(getCanvas("a1")).toBeNull();
+    });
+});
+
+// every atom an open writes to land somewhere; a peek must leave each one where it was
+function selections(model: AgentsViewModel) {
+    return {
+        sheetOpen: globalStore.get(briefSheetOpenAtom),
+        subject: globalStore.get(activeSubjectAtom),
+        runIds: globalStore.get(activeRunIdAtom),
+        channel: globalStore.get(activeChannelIdAtom),
+        record: globalStore.get(briefPeekRecordAtom),
+        anchor: globalStore.get(pendingDecisionAnchorAtom),
+        radarScope: globalStore.get(radarScopeAtom),
+        report: globalStore.get(currentReportIdAtom),
+        finding: globalStore.get(radarSelectedIdAtom),
+        focus: globalStore.get(model.focusIdAtom),
+        surface: globalStore.get(model.surfaceAtom),
+    };
+}
+
+// priors that are not the defaults, so a write of the default would still show
+function seedSelections(model: AgentsViewModel): void {
+    globalStore.set(briefSheetOpenAtom, false);
+    globalStore.set(activeSubjectAtom, { kind: "channel", id: "c-prior" });
+    globalStore.set(activeRunIdAtom, { "c-prior": "r-prior" });
+    globalStore.set(activeChannelIdAtom, "c-prior");
+    globalStore.set(briefPeekRecordAtom, "task-prior");
+    globalStore.set(pendingDecisionAnchorAtom, "dec-prior");
+    globalStore.set(radarScopeAtom, { name: "a", path: "/a" });
+    globalStore.set(currentReportIdAtom, "ra-prior");
+    globalStore.set(radarSelectedIdAtom, "f-prior");
+    globalStore.set(model.focusIdAtom, "t0");
+    globalStore.set(model.surfaceAtom, "code");
+}
+
+type PeekCase = { kind: string; arrange: () => void; target: OpenTarget; shown: PeekItem["target"] };
+
+const LOADABLE: PeekCase[] = [
+    {
+        kind: "run",
+        arrange: () => {
+            objects.set("run:r1", { oid: "r1", channeloid: "c1" });
+            objects.set("channel:c1", { oid: "c1" });
+        },
+        target: { kind: "run", runId: "r1" },
+        shown: { kind: "run", runId: "r1" },
+    },
+    {
+        kind: "channel",
+        arrange: () => {
+            objects.set("channel:c1", { oid: "c1" });
+            objects.set("run:r-new", { oid: "r-new", channeloid: "c1" });
+            rpc.GetChannelRunsCommand.mockResolvedValue({
+                runs: [
+                    { id: "r-old", createdts: 1 },
+                    { id: "r-new", createdts: 2 },
+                ],
+            });
+        },
+        target: { kind: "channel", channelId: "c1" },
+        shown: { kind: "run", runId: "r-new" },
+    },
+    {
+        kind: "agent",
+        arrange: () => {},
+        target: { kind: "agent", tabId: "t1" },
+        shown: { kind: "agent", tabId: "t1" },
+    },
+    {
+        kind: "record",
+        arrange: () => globalStore.set(taskListAtom, [{ id: "task-a" } as SpaceSummary]),
+        target: { kind: "record", dossierId: "task-a", anchor: "dec-1" },
+        shown: { kind: "record", dossierId: "task-a", anchor: "dec-1" },
+    },
+    {
+        kind: "effort",
+        arrange: () => rpc.EffortGetCommand.mockResolvedValue({ effort: { oid: "e-1" } }),
+        target: { kind: "effort", effortId: "e-1" },
+        shown: { kind: "effort", effortId: "e-1" },
+    },
+    {
+        kind: "radar",
+        arrange: seedReports,
+        target: { kind: "radar", reportId: "rb-old", findingId: "f-1" },
+        shown: { kind: "radar", reportId: "rb-old", findingId: "f-1" },
+    },
+];
+
+const UNLOADABLE: { kind: string; arrange: () => void; target: OpenTarget; message: string }[] = [
+    { kind: "run", arrange: () => {}, target: { kind: "run", runId: "r-gone" }, message: "That run no longer exists" },
+    {
+        kind: "channel",
+        arrange: () => objects.set("channel:c1", { oid: "c1" }),
+        target: { kind: "channel", channelId: "c1" },
+        message: "That channel has no run to peek",
+    },
+    {
+        kind: "agent",
+        arrange: () => {},
+        target: { kind: "agent", tabId: "t-gone" },
+        message: "That agent session has ended",
+    },
+    {
+        kind: "record",
+        arrange: () => rpc.ListTaskDossiersCommand.mockResolvedValue({ dossiers: [{ id: "other" }] }),
+        target: { kind: "record", dossierId: "task-gone" },
+        message: "That record no longer exists",
+    },
+    {
+        kind: "effort",
+        arrange: () => rpc.EffortGetCommand.mockRejectedValue(new Error("not found")),
+        target: { kind: "effort", effortId: "e-gone" },
+        message: "That initiative no longer exists",
+    },
+    {
+        kind: "radar",
+        arrange: () => {},
+        target: { kind: "radar", reportId: "rr-gone" },
+        message: "That scan report no longer exists",
+    },
+];
+
+const FROM = [
+    { from: "closed" as const, popupOpen: false },
+    { from: "hub" as const, popupOpen: true },
+];
+
+describe("peek", () => {
+    for (const c of LOADABLE) {
+        for (const { from, popupOpen } of FROM) {
+            it(`shows a ${c.kind} in the popup from ${from}, writing no selection`, async () => {
+                const model = makeModel(["t1"]);
+                c.arrange();
+                seedSelections(model);
+                globalStore.set(petPeekOpenAtom, popupOpen);
+                const before = selections(model);
+
+                expect(await peekTarget(model, c.target)).toEqual({ ok: true });
+
+                expect(selections(model)).toEqual(before);
+                expect(globalStore.get(peekItemAtom)).toEqual({ target: c.shown, status: "ready", from });
+                expect(globalStore.get(petPeekOpenAtom)).toBe(true);
+                expect(pushToast).not.toHaveBeenCalled();
+            });
+        }
+    }
+
+    for (const c of UNLOADABLE) {
+        for (const { from, popupOpen } of FROM) {
+            it(`says a ${c.kind} cannot be peeked and leaves the popup ${from}`, async () => {
+                const model = makeModel(["t1"]);
+                c.arrange();
+                seedSelections(model);
+                globalStore.set(petPeekOpenAtom, popupOpen);
+                const before = selections(model);
+
+                expect(await peekTarget(model, c.target)).toEqual({
+                    ok: false,
+                    reason: "unavailable",
+                    message: c.message,
+                });
+
+                expect(pushToast).toHaveBeenCalledWith({ title: c.message, message: "", level: "warn" });
+                expect(globalStore.get(peekItemAtom)).toBeNull();
+                expect(globalStore.get(petPeekOpenAtom)).toBe(popupOpen);
+                expect(selections(model)).toEqual(before);
+            });
+        }
+    }
+
+    it("opens the popup on a loading item before the load lands", async () => {
+        const model = makeModel();
+        const slow = deferred<unknown>();
+        objects.set("channel:c1", { oid: "c1" });
+        loadAndPin.mockImplementation((oref: string) =>
+            oref === "run:r1" ? slow.promise : Promise.resolve(objects.get(oref) ?? null)
+        );
+        const peeking = peekTarget(model, { kind: "run", runId: "r1" });
+        expect(globalStore.get(peekItemAtom)).toEqual({
+            target: { kind: "run", runId: "r1" },
+            status: "loading",
+            from: "closed",
+        });
+        expect(globalStore.get(petPeekOpenAtom)).toBe(true);
+        slow.resolve({ oid: "r1", channeloid: "c1" });
+        expect(await peeking).toEqual({ ok: true });
+        expect(globalStore.get(peekItemAtom)?.status).toBe("ready");
+    });
+
+    it("peeks the run a channel target names", async () => {
+        const model = makeModel();
+        objects.set("run:r1", { oid: "r1", channeloid: "c1" });
+        objects.set("channel:c1", { oid: "c1" });
+        expect(await peekTarget(model, { kind: "channel", channelId: "c1", runId: "r1" })).toEqual({ ok: true });
+        expect(globalStore.get(peekItemAtom)?.target).toEqual({ kind: "run", runId: "r1" });
+        expect(rpc.GetChannelRunsCommand).not.toHaveBeenCalled();
+    });
+
+    it("a failed peek over an item already shown puts that item back", async () => {
+        const model = makeModel(["t1"]);
+        const shown: PeekItem = { target: { kind: "agent", tabId: "t1" }, status: "ready", from: "hub" };
+        globalStore.set(peekItemAtom, shown);
+        globalStore.set(petPeekOpenAtom, true);
+        await peekTarget(model, { kind: "run", runId: "r-gone" });
+        expect(globalStore.get(peekItemAtom)).toEqual(shown);
+        expect(globalStore.get(petPeekOpenAtom)).toBe(true);
+    });
+
+    it("keeps only the later of two peeks, and says nothing about the first", async () => {
+        const model = makeModel(["t1"]);
+        const slow = deferred<unknown>();
+        loadAndPin.mockImplementation((oref: string) =>
+            oref === "run:r-slow" ? slow.promise : Promise.resolve(objects.get(oref) ?? null)
+        );
+        const first = peekTarget(model, { kind: "run", runId: "r-slow" });
+        expect(await peekTarget(model, { kind: "agent", tabId: "t1" })).toEqual({ ok: true });
+
+        // gone by the time it lands: a current peek would toast this
+        slow.resolve(null);
+        expect(await first).toEqual({ ok: false, reason: "superseded", message: "" });
+        expect(globalStore.get(peekItemAtom)).toEqual({
+            target: { kind: "agent", tabId: "t1" },
+            status: "ready",
+            from: "closed",
+        });
+        expect(globalStore.get(petPeekOpenAtom)).toBe(true);
+        expect(pushToast).not.toHaveBeenCalled();
+    });
+
+    it("an open started while a peek loads clears the loading item", async () => {
+        const model = makeModel(["t1"]);
+        const slow = deferred<unknown>();
+        objects.set("channel:c1", { oid: "c1" });
+        loadAndPin.mockImplementation((oref: string) =>
+            oref === "run:r-slow" ? slow.promise : Promise.resolve(objects.get(oref) ?? null)
+        );
+        const peeking = peekTarget(model, { kind: "run", runId: "r-slow" });
+        expect(globalStore.get(peekItemAtom)?.status).toBe("loading");
+
+        expect(await openTarget(model, { kind: "agent", tabId: "t1" })).toEqual({ ok: true });
+        expect(globalStore.get(peekItemAtom)).toBeNull();
+        expect(globalStore.get(petPeekOpenAtom)).toBe(false);
+
+        slow.resolve({ oid: "r-slow", channeloid: "c1" });
+        expect(await peeking).toEqual({ ok: false, reason: "superseded", message: "" });
+        expect(globalStore.get(peekItemAtom)).toBeNull();
+        expect(globalStore.get(petPeekOpenAtom)).toBe(false);
+        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+    });
+
+    it("a dead address clears a peek still loading", async () => {
+        const model = makeModel();
+        const slow = deferred<unknown>();
+        loadAndPin.mockImplementation(() => slow.promise);
+        const peeking = peekTarget(model, { kind: "run", runId: "r-slow" });
+        expect(await peekAddress(model, "bogus:x")).toEqual({
+            ok: false,
+            reason: "unsupported",
+            message: "This item can't be opened",
+        });
+        expect(globalStore.get(peekItemAtom)).toBeNull();
+        expect(globalStore.get(petPeekOpenAtom)).toBe(false);
+        slow.resolve(null);
+        expect(await peeking).toEqual({ ok: false, reason: "superseded", message: "" });
+    });
+
+    it("hands a canvas to openTarget: there is nothing to peek", async () => {
+        const model = makeModel(["a1"]);
+        attachCanvas("a1", { topic: "t", dir: "C:\\p\\t", projectDir: "C:\\p" }, 1);
+        expect(isPeekable({ kind: "canvas", topic: "t" })).toBe(false);
+        expect(await peekTarget(model, { kind: "canvas", topic: "t" })).toEqual({ ok: true });
+        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+        expect(globalStore.get(peekItemAtom)).toBeNull();
+        detachCanvas("a1");
+    });
+});
+
+describe("openOrPeek", () => {
+    const gesture = (ctrlKey: boolean) => ({ ctrlKey, preventDefault: vi.fn(), stopPropagation: vi.fn() });
+
+    it("peeks on Ctrl and consumes the click", async () => {
+        const model = makeModel(["t1"]);
+        const event = gesture(true);
+        expect(await openOrPeek(model, { kind: "agent", tabId: "t1" }, event)).toEqual({ ok: true });
+        expect(globalStore.get(peekItemAtom)?.target).toEqual({ kind: "agent", tabId: "t1" });
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+        expect(event.preventDefault).toHaveBeenCalled();
+        expect(event.stopPropagation).toHaveBeenCalled();
+    });
+
+    it("opens without Ctrl and leaves the click alone", async () => {
+        const model = makeModel(["t1"]);
+        const event = gesture(false);
+        expect(await openOrPeek(model, { kind: "agent", tabId: "t1" }, event)).toEqual({ ok: true });
+        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+        expect(globalStore.get(peekItemAtom)).toBeNull();
+        expect(event.preventDefault).not.toHaveBeenCalled();
+        expect(event.stopPropagation).not.toHaveBeenCalled();
+    });
+
+    it("opens a canvas even with Ctrl", async () => {
+        const model = makeModel(["a1"]);
+        attachCanvas("a1", { topic: "t", dir: "C:\\p\\t", projectDir: "C:\\p" }, 1);
+        const event = gesture(true);
+        expect(await openOrPeek(model, { kind: "canvas", topic: "t" }, event)).toEqual({ ok: true });
+        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+        expect(globalStore.get(peekItemAtom)).toBeNull();
+        expect(event.preventDefault).not.toHaveBeenCalled();
+        detachCanvas("a1");
+    });
+
+    it("does the same for an address", async () => {
+        const model = makeModel(["t1"]);
+        const ctrl = gesture(true);
+        expect(await openOrPeekAddress(model, "tab:t1", ctrl)).toEqual({ ok: true });
+        expect(globalStore.get(peekItemAtom)?.target).toEqual({ kind: "agent", tabId: "t1" });
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+        expect(ctrl.stopPropagation).toHaveBeenCalled();
+
+        const plain = gesture(false);
+        expect(await openOrPeekAddress(model, "tab:t1", plain)).toEqual({ ok: true });
+        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+        expect(plain.stopPropagation).not.toHaveBeenCalled();
     });
 });
