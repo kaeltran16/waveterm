@@ -165,7 +165,13 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
                                     aria-pressed={item.selected}
                                     disabled={!item.selectable}
                                     data-testid={`harness-option-${item.runtime}`}
-                                    onClick={() => setPreferredHarness(item.runtime)}
+                                    onClick={() => {
+                                        setPreferredHarness(item.runtime);
+                                        // the option unmounts with the menu, and focus would fall to the body,
+                                        // out of a host dialog that owns the keys
+                                        setOpen(false);
+                                        (refs.domReference.current as HTMLElement | null)?.focus();
+                                    }}
                                     className={cn(
                                         "flex w-full items-start gap-2.5 rounded px-[9px] py-2 text-left",
                                         item.selectable

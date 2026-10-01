@@ -3,9 +3,10 @@
 // Asserts are RPC-based (backend state) or DOM-based (h.ev) — NOT jotai atom reads (globalStore is not
 // exposed on window). steps are { step, ok, detail }.
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SURFACE_LABEL } from "./attach.mjs";
@@ -1001,6 +1002,8 @@ const peekCtrlClick = {
                 });
             })()`);
 
+        // the briefing loads after the Brief mounts, and on a freshly booted app its rows can take seconds
+        await polishWaitFor(h, `!!${PEEK_CTRL_BRIEF}?.querySelector("[data-peek]")`, 15000);
         const box = await h.ev(`(() => {
             const region = ${PEEK_CTRL_BRIEF};
             const row =
@@ -1018,9 +1021,58 @@ const peekCtrlClick = {
         });
         if (box == null || probeReady !== true) return steps;
 
+        // Ctrl held over a peekable link (ctrlheld.ts): the [data-peek] rule in tailwindsetup.css underlines it in the
+        // accent and turns the cursor to zoom-in, and the footer lights its peek chip. Colors are compared resolved,
+        // against a probe painted with the accent token.
+        const ctrlMod = 2;
+        const ctrlKey = { key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17 };
+        const affordance = () =>
+            h.ev(`(() => {
+                const region = ${PEEK_CTRL_BRIEF};
+                const row =
+                    region?.querySelector('[data-jarvis-brief-row="session"][data-peek]') ??
+                    region?.querySelector("[data-peek]");
+                const probe = document.createElement("span");
+                probe.style.color = "var(--color-accent)";
+                document.body.appendChild(probe);
+                const accent = getComputedStyle(probe).color;
+                probe.remove();
+                const cs = row ? getComputedStyle(row) : null;
+                const glyph = [...document.querySelectorAll("span")].find((s) => s.textContent.trim() === "space · ctrl+click");
+                return {
+                    flag: document.documentElement.hasAttribute("data-ctrl-held"),
+                    hovered: row?.matches(":hover") ?? false,
+                    underline: cs?.textDecorationLine ?? null,
+                    underlineAccent: cs != null && cs.textDecorationColor === accent,
+                    cursor: cs?.cursor ?? null,
+                    chip: glyph == null ? null : getComputedStyle(glyph).borderTopColor === accent ? "lit" : "unlit",
+                };
+            })()`);
+        await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: box.x, y: box.y });
+        await h.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", ...ctrlKey, modifiers: ctrlMod });
+        await settle(250);
+        const held = await affordance();
+        await h.shot("cdp-shots/peek-ctrl-held.png");
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...ctrlKey });
+        await settle(250);
+        const released = await affordance();
+        steps.push({
+            step: "2. holding Ctrl over the row underlines it in the accent, shows zoom-in and lights the footer's peek chip",
+            ok:
+                held.flag === true &&
+                held.hovered === true &&
+                held.underline === "underline" &&
+                held.underlineAccent === true &&
+                held.cursor === "zoom-in" &&
+                held.chip === "lit" &&
+                released.flag === false &&
+                released.underline !== "underline" &&
+                released.chip === "unlit",
+            detail: JSON.stringify({ held, released }),
+        });
+
         await settle(200);
         const before = await hostState();
-        const ctrlMod = 2;
         await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: box.x, y: box.y, modifiers: ctrlMod });
         for (const type of ["mousePressed", "mouseReleased"]) {
             await h.cdp("Input.dispatchMouseEvent", {
@@ -1050,14 +1102,14 @@ const peekCtrlClick = {
         })()`);
         await h.shot("cdp-shots/peek-ctrl-click.png");
         steps.push({
-            step: "2. Ctrl+click opens a ready run item view in the 560px popup",
+            step: "3. Ctrl+click opens a ready run item view in the 560px popup",
             ok: ready === true && panel?.shape === "item" && panel?.width === 560,
             detail: JSON.stringify(panel),
         });
 
         const during = await hostState();
         steps.push({
-            step: "3. the host surface, subject, sheet flag and scroll are unchanged while the peek is up",
+            step: "4. the host surface, subject, sheet flag and scroll are unchanged while the peek is up",
             ok: before === during,
             detail: JSON.stringify({ before, during }),
         });
@@ -1070,7 +1122,7 @@ const peekCtrlClick = {
         const closed = await h.ev(`!document.querySelector('[data-pet-peek-item]')`);
         const after = await hostState();
         steps.push({
-            step: "4. Escape closes the popup and the host's state still matches",
+            step: "5. Escape closes the popup and the host's state still matches",
             ok: closed === true && before === after,
             detail: JSON.stringify({ closed, before, after }),
         });
@@ -1090,6 +1142,316 @@ const peekCtrlClick = {
         }
         if (ctx?.channelId) await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
         if (ctx?.cwd) await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
+        await h.goto("cockpit");
+    },
+};
+
+// --- peek-item-views: the avatar popup's item view for each peekable kind ----------------------------------
+// The cockpit-peek mockup's PeekAgent, PeekEffort, PeekRadar, PeekNote, PeekRun and States boards. Each kind is
+// peeked through the one router (linkingdevhooks.ts's __peekAddress) on a fixture: the fixture roster's lead for
+// the agent, its deferred orchestrator run for the phase strip, an initiative made here, and a radar report written
+// straight into the dev store, since only a model-backed scan makes one. The note is arrangePeekItemsNote's.
+// __peekLoading holds the loading frame a real
+// load leaves too quickly to photograph, and the gone line is the initiative peeked again after it was deleted: the
+// peek's load trusts the cached entry, and the body's own refetch finds it missing.
+const PEEK_ITEMS_LEAD = "peek-items lead";
+const PEEK_ITEMS_EFFORT = "Peek item views initiative";
+const PEEK_ITEMS_RISK = "Peek fixture: the retry loop swallows a cancelled context";
+const PEEK_ITEMS_FINDING = "f-peek-items";
+
+function peekItemsReport(oid, cwd, now) {
+    const signal = (id, path, summary) => ({
+        id,
+        collector: "git",
+        sourceref: `commit:${id}`,
+        observedts: now - 3_600_000,
+        paths: [path],
+        summary,
+        contenthash: id,
+    });
+    const signals = [
+        signal("s-peek-1", "pkg/orchestrate/retry.go", "retry loop re-enters after ctx.Done() fires"),
+        signal("s-peek-2", "pkg/orchestrate/retry_test.go", "no test cancels mid-backoff"),
+    ];
+    return {
+        otype: "radarreport",
+        oid,
+        version: 1,
+        projectname: "peek-fixture",
+        projectpath: cwd,
+        status: "completed",
+        startedts: now - 120_000,
+        completedts: now - 60_000,
+        signals,
+        findings: [
+            {
+                id: PEEK_ITEMS_FINDING,
+                fingerprint: "peek-items-fp",
+                group: "new",
+                mode: "correctness",
+                riskkind: "error-handling",
+                subsystem: "orchestrate",
+                risk: PEEK_ITEMS_RISK,
+                why: "A cancelled run keeps retrying until the backoff cap, so its worker outlives the cancel.",
+                severity: "high",
+                strength: "strong",
+                signalids: signals.map((s) => s.id),
+                files: signals.map((s) => s.paths[0]),
+                mission: "Check whether the retry loop honours a cancelled context.",
+            },
+        ],
+        meta: {},
+    };
+}
+
+async function peekItemsDb(h) {
+    const { DatabaseSync } = await import("node:sqlite");
+    const info = await h.rpc("waveinfo", null);
+    const path = join(info.datadir, "db", "waveterm.db");
+    if (!existsSync(path)) throw new Error(`no dev store at ${path}`);
+    const db = new DatabaseSync(path);
+    // wavesrv holds the same WAL database open, so a write may have to wait for its lock
+    db.exec("PRAGMA busy_timeout = 5000");
+    return db;
+}
+
+async function seedPeekItemsRadar(h, ctx) {
+    const oid = randomUUID();
+    const db = await peekItemsDb(h);
+    try {
+        db.prepare("INSERT INTO db_radarreport (oid, version, data) VALUES (?, 1, ?)").run(
+            oid,
+            JSON.stringify(peekItemsReport(oid, ctx.cwd, Date.now()))
+        );
+    } finally {
+        db.close();
+    }
+    ctx.radarReportId = oid;
+}
+
+async function dropPeekItemsRadar(h, oid) {
+    const db = await peekItemsDb(h);
+    try {
+        db.prepare("DELETE FROM db_radarreport WHERE oid = ?").run(oid);
+    } finally {
+        db.close();
+    }
+}
+
+const PEEK_ITEMS_NOTE = "peek-items-fixture";
+const PEEK_ITEMS_NOTE_TITLE = "Peek fixture note";
+
+const newestMemoryNote = async (h) => {
+    const nodes = (await h.rpc("vaultgraph", null))?.nodes ?? [];
+    const note = nodes.filter((n) => n.kind === "memory").sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0))[0];
+    return note ? { id: note.id, label: note.label } : null;
+};
+
+// The newest memory note already in the vault, read and never written. A vault with none, which is the fresh
+// profile's default vault under a Final, gets one fixture note, removed in teardown. The root mirrors
+// wconfig.resolveVaultRoot, and the vault graph must then list the note, so a wrong root fails here instead of
+// leaving a stray file.
+async function arrangePeekItemsNote(h, ctx) {
+    ctx.note = await newestMemoryNote(h);
+    if (ctx.note != null) return;
+    const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
+    const configured = settings["memory:vaultpath"] || settings["jarvis:vaultpath"];
+    const root = configured ? configured.replace(/^~(?=$|[\\/])/, homedir()) : join(homedir(), ".waveterm", "vault");
+    ctx.noteFile = join(root, "memory", `${PEEK_ITEMS_NOTE}.md`);
+    mkdirSync(join(root, "memory"), { recursive: true });
+    writeFileSync(
+        ctx.noteFile,
+        `---\ntitle: ${PEEK_ITEMS_NOTE_TITLE}\n---\n\nA memory note the peek-item-views scenario writes into an empty vault and removes after.\n`
+    );
+    ctx.note = await newestMemoryNote(h);
+    if (ctx.note?.id !== PEEK_ITEMS_NOTE) throw new Error(`the vault graph does not list the note written to ${ctx.noteFile}`);
+}
+
+const peekItemViews = {
+    name: "peek-item-views",
+    surface: "jarvis",
+    async arrange(h) {
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-peek-items-")) };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            await arrangeFixtureRun(h, ctx, "peek-items", PEEK_ITEMS_LEAD);
+            const effort = await h.rpc("effortcreate", {
+                title: PEEK_ITEMS_EFFORT,
+                chunks: [{ label: "Fixture" }, { label: "Peek" }, { label: "Verify" }],
+            });
+            ctx.effortId = effort.effortoid;
+            await h.rpc("effortmutate", {
+                effortoid: ctx.effortId,
+                author: "you",
+                ops: [
+                    { op: "setChunkStatus", chunk: "Fixture", status: "done", note: "Fixtures arranged." },
+                    { op: "setChunkStatus", chunk: "Peek", status: "active" },
+                ],
+            });
+            await seedPeekItemsRadar(h, ctx);
+            await arrangePeekItemsNote(h, ctx);
+            // the fixture roster is read once at boot
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        await h.goto("jarvis");
+        const hooks = await polishWaitFor(
+            h,
+            `typeof window.__peekAddress === 'function' && typeof window.__peekLoading === 'function'`,
+            5000
+        );
+        rec(
+            "1. the fixtures are arranged and the Brief installed the peek hooks",
+            ctx.arrangeError == null && hooks === true,
+            JSON.stringify({ arrangeError: ctx.arrangeError ?? null, hooks, note: ctx.note })
+        );
+        if (ctx.arrangeError != null || hooks !== true) return steps;
+
+        const closePopup = async () => {
+            await h.ev(`document.querySelector('[data-pet-peek] button[aria-label="Close Jarvis panel"]')?.click()`);
+            await polishWaitFor(h, `!document.querySelector('[data-pet-peek]')`, 3000);
+        };
+        // ready is the item settled and its body reported; check reads the body's text and DOM as `body`
+        const peek = async (address, hint, kind, check, shot) => {
+            await closePopup();
+            const result = await h.ev(`window.__peekAddress(${JSON.stringify(address)}, ${JSON.stringify(hint ?? null)})`);
+            const ready = await polishWaitFor(
+                h,
+                `(() => {
+                    const el = document.querySelector('[data-pet-peek-item="${kind}"][data-pet-peek-status="ready"]');
+                    const body = el?.querySelector('[data-pet-peek-body]');
+                    if (!body || body.querySelector('[data-pet-peek-gone]')) return false;
+                    const text = body.innerText || '';
+                    return ${check};
+                })()`,
+                10000
+            );
+            // the reveal and the size-layout animation finish before the shot
+            await settle(600);
+            const view = await h.ev(`(() => {
+                const el = document.querySelector('[data-pet-peek-item]');
+                const body = el?.querySelector('[data-pet-peek-body]');
+                return el ? {
+                    kind: el.dataset.petPeekItem,
+                    status: el.dataset.petPeekStatus,
+                    width: Math.round(el.parentElement.getBoundingClientRect().width),
+                    phases: [...el.querySelectorAll('[data-peek-run-phase]')].map((p) => p.dataset.peekRunPhase),
+                    text: (body?.innerText || '').replace(/\\s+/g, ' ').slice(0, 160),
+                } : null;
+            })()`);
+            await h.shot(shot);
+            return { result, ready, view };
+        };
+
+        const agent = await peek(
+            `agent:${TREE_RAIL_LEAD_ID}`,
+            null,
+            "agent",
+            `text.includes(${JSON.stringify(PEEK_ITEMS_LEAD)})`,
+            "cdp-shots/peek-item-agent.png"
+        );
+        rec("2. an agent peeks as its item view", agent.ready === true, JSON.stringify(agent));
+
+        const effort = await peek(
+            `effort:${ctx.effortId}`,
+            null,
+            "effort",
+            `text.includes(${JSON.stringify(PEEK_ITEMS_EFFORT)})`,
+            "cdp-shots/peek-item-initiative.png"
+        );
+        rec("3. an initiative peeks as its item view", effort.ready === true, JSON.stringify(effort));
+
+        const radar = await peek(
+            `radarreport:${ctx.radarReportId}`,
+            { sourceType: "radar", anchor: PEEK_ITEMS_FINDING },
+            "radar",
+            `text.includes(${JSON.stringify(PEEK_ITEMS_RISK)})`,
+            "cdp-shots/peek-item-radar.png"
+        );
+        rec("4. a radar finding peeks as its item view", radar.ready === true, JSON.stringify(radar));
+
+        const note = await peek(
+            `memnote:${ctx.note.id}`,
+            { sourceType: "memory" },
+            "note",
+            `text.includes(${JSON.stringify(ctx.note.label)})`,
+            "cdp-shots/peek-item-note.png"
+        );
+        rec("5. a memory note peeks as its item view", note.ready === true, JSON.stringify(note));
+
+        // an orchestrator run reads Plan, Review, Tasks and Final; a quick run has no strip
+        const run = await peek(
+            `run:${ctx.runId}`,
+            null,
+            "run",
+            `body.querySelectorAll('[data-peek-run-phase]').length === 4`,
+            "cdp-shots/peek-item-run.png"
+        );
+        rec("6. an orchestrator run peeks with its four-phase strip", run.ready === true, JSON.stringify(run));
+
+        await closePopup();
+        await h.ev(`window.__peekLoading({ kind: "effort", effortId: ${JSON.stringify(ctx.effortId)} })`);
+        const loading = await polishWaitFor(
+            h,
+            `(() => {
+                const el = document.querySelector('[data-pet-peek-item="effort"][data-pet-peek-status="loading"]');
+                const skeleton = el?.querySelector('[data-pet-peek-skeleton]');
+                return !!skeleton && /initiative/i.test(skeleton.innerText || '');
+            })()`,
+            3000
+        );
+        await settle(600);
+        await h.shot("cdp-shots/peek-item-loading.png");
+        rec("7. a loading peek shows the skeleton under its kind", loading === true, String(loading));
+
+        await closePopup();
+        await h.rpc("effortdelete", { effortoid: ctx.effortId });
+        ctx.effortDeleted = true;
+        await h.ev(`window.__peekAddress(${JSON.stringify(`effort:${ctx.effortId}`)})`);
+        const gone = await polishWaitFor(
+            h,
+            `(() => {
+                const el = document.querySelector('[data-pet-peek-item="effort"][data-pet-peek-status="ready"]');
+                return (el?.querySelector('[data-pet-peek-gone]')?.innerText || '').trim() === 'That initiative no longer exists';
+            })()`,
+            10000
+        );
+        await settle(600);
+        await h.shot("cdp-shots/peek-item-gone.png");
+        rec("8. a deleted target's peek says it no longer exists", gone === true, String(gone));
+        await closePopup();
+        return steps;
+    },
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`peek-item-views teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("close the popup", () =>
+            h.ev(`document.querySelector('[data-pet-peek] button[aria-label="Close Jarvis panel"]')?.click()`)
+        );
+        if (ctx.effortId && !ctx.effortDeleted) {
+            await step("delete the initiative", () => h.rpc("effortdelete", { effortoid: ctx.effortId }));
+        }
+        if (ctx.radarReportId) await step("delete the radar report", () => dropPeekItemsRadar(h, ctx.radarReportId));
+        if (ctx.noteFile) await step("remove the fixture note", () => rmSync(ctx.noteFile, { force: true }));
+        await teardownFixtureRun(h, ctx, "peek-item-views");
         await h.goto("cockpit");
     },
 };
@@ -2483,8 +2845,66 @@ const jarvisPeek = {
             JSON.stringify({ narrow, pickerOpened, pickerVisibility })
         );
 
+        // the portaled harness menu is inside the dialog's aria scope, and a pick closes it with focus back inside
+        // the dialog, so the popup's keys still reach it and one Escape closes it. Real mouse events, because element.click() moves no focus.
+        const centerOf = (selector) =>
+            h.ev(`(() => {
+                const el = document.querySelector(${JSON.stringify(selector)});
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+            })()`);
+        const clickAt = async (pt) => {
+            await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: pt.x, y: pt.y });
+            for (const type of ["mousePressed", "mouseReleased"]) {
+                await h.cdp("Input.dispatchMouseEvent", { type, x: pt.x, y: pt.y, button: "left", clickCount: 1 });
+            }
+        };
+        const PICKER = '[data-pet-peek] [data-testid="harness-picker"]';
+        ctx.prevHarness = await h.ev(`document.querySelector(${JSON.stringify(PICKER)})?.dataset.harnessRuntime ?? null`);
+        const chip = await centerOf(PICKER);
+        if (chip != null) await clickAt(chip);
+        await settle(400);
+        // the current selection when it can be picked, so the pick leaves the preference as it was
+        const option = await h.ev(`(() => {
+            const options = [...document.querySelectorAll('[data-testid^="harness-option-"]')].filter((o) => !o.disabled);
+            const o = options.find((x) => x.getAttribute('aria-pressed') === 'true') ?? options[0];
+            if (!o) return null;
+            const r = o.getBoundingClientRect();
+            return {
+                runtime: o.dataset.testid.replace('harness-option-', ''),
+                // the modal dialog hides everything outside its scope from assistive tech
+                ariaHidden: o.closest('[aria-hidden="true"]') != null,
+                x: Math.round(r.left + r.width / 2),
+                y: Math.round(r.top + r.height / 2),
+            };
+        })()`);
+        if (option != null) {
+            ctx.harnessPicked = option.runtime;
+            await clickAt(option);
+        }
+        await settle(450);
+        const afterPick = await h.ev(`(() => {
+            const active = document.activeElement;
+            return {
+                focusInDialog: document.querySelector('[data-pet-peek]')?.contains(active) ?? false,
+                focused: active?.getAttribute('data-testid') ?? active?.tagName ?? null,
+                menuExpanded: document.querySelector(${JSON.stringify(PICKER)})?.getAttribute('aria-expanded') ?? null,
+            };
+        })()`);
+        await press("Escape", "Escape", 27);
+        const closedByOneEscape = await h.ev(`document.querySelector('[data-pet-peek]') == null`);
+        rec(
+            "5. the harness menu is in the dialog's aria scope, a pick returns focus inside the dialog, and one Escape then closes the popup",
+            chip != null &&
+                option?.ariaHidden === false &&
+                afterPick.focusInDialog === true &&
+                closedByOneEscape === true,
+            JSON.stringify({ chip, option, afterPick, closedByOneEscape })
+        );
+
         // the Final's fresh profile has no project, so the composer is disabled and `/` cannot focus it. Step 3
-        // covered that branch above; register one now so step 5 exercises a live composer.
+        // covered that branch above; register one now so step 6 exercises a live composer.
         const dest = await arrangeJarvisPeekDest(h, ctx);
         const busyArranged = await h.ev(`(() => {
             const store = globalThis.__wavePetStore;
@@ -2514,7 +2934,7 @@ const jarvisPeek = {
         await press("/", "Slash", 191);
         const composerFocused = await h.ev(`document.activeElement?.hasAttribute('data-pet-errand-input') ?? false`);
         rec(
-            "5. attention expands the card and keyboard navigation moves the cursor then focuses the composer",
+            "6. attention expands the card and keyboard navigation moves the cursor then focuses the composer",
             dest.composerEnabled === true &&
                 busyArranged === true &&
                 busyBefore?.shape === "busy" &&
@@ -2558,7 +2978,7 @@ const jarvisPeek = {
             focusReturned: document.activeElement?.getAttribute('aria-label') === 'Jarvis condition',
         }))()`);
         rec(
-            "6. Escape, close, and backdrop dismiss only the peek and return focus to the creature",
+            "7. Escape, close, and backdrop dismiss only the peek and return focus to the creature",
             escapeDismissed.panelGone === true &&
                 escapeDismissed.focusReturned === true &&
                 closeClicked === true &&
@@ -2570,7 +2990,7 @@ const jarvisPeek = {
             JSON.stringify({ escapeDismissed, closeClicked, closeDismissed, backdropClicked, backdropDismissed })
         );
         const stayed = (await h.activeSurfaceLabel()) === SURFACE_LABEL.cockpit;
-        rec("7. dismissing the global peek stays on the current surface", stayed, String(stayed));
+        rec("8. dismissing the global peek stays on the current surface", stayed, String(stayed));
         return steps;
     },
     async teardown(h, ctx) {
@@ -2585,6 +3005,13 @@ const jarvisPeek = {
             globalThis.__wavePetStore?.setAttention([]);
             return true;
         })()`);
+        if (ctx.harnessPicked != null && ctx.prevHarness != null && ctx.harnessPicked !== ctx.prevHarness) {
+            try {
+                await h.rpc("setconfig", { "harness:preferredruntime": ctx.prevHarness });
+            } catch (e) {
+                console.error(`jarvis-peek teardown: restore the harness preference failed: ${e?.message ?? e}`);
+            }
+        }
         await teardownJarvisPeekDest(h, ctx);
         await h.goto("cockpit");
     },
@@ -9024,6 +9451,7 @@ export const SCENARIOS = [
     briefSurface,
     briefPeek,
     peekCtrlClick,
+    peekItemViews,
     briefProfile,
     jarvisPeek,
     jarvisVolunteer,
