@@ -55,9 +55,11 @@ Under the vault lock (below):
      theirs)`; `git add`.
    - anything else: keep `:2` in place, write `:3` to `conflicts/<original path>` (outside every scanned
      collection, so a conflict copy is never indexed as a duplicate note); `git add` both.
-   - `config/settings.json`: `MergeSettings(base, ours, theirs)` — per key against the base: changed on one
-     side → that side (a deletion counts as a change); changed on both → ours; `git add`. First join (no base)
-     is the union with ours winning a clash, so neither machine's migrated settings are lost.
+   - `config/settings.json`: `MergeSettings(base, ours, theirs)` — per key against the base, compared by
+     parsed value: changed on one side → that side (a deletion counts as a change); changed on both → ours,
+     except that an edit outlives a concurrent delete; `git add`. First join (no base) is the union with ours
+     winning a clash, so neither machine's migrated settings are lost.
+   - modified on one side, deleted on the other: the side that still has the file wins, with no conflict copy.
    - If any stage fails to parse (malformed effort or settings JSON), treat the path as "anything else".
 6. Commit the merge; `git push origin HEAD:main`.
 7. On a non-fast-forward rejection, repeat 3–6 once; a second rejection is a sync failure.
