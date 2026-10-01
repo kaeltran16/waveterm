@@ -559,7 +559,7 @@ you.
 In `dag status`, a running worker that has written nothing lately reads `idle Nm`, or `running a command Nm · <tool>`
 while its processes are busy (a long test writes no transcript); a flagged one reads `stuck? <reason>`. Each done task shows one presence line naming its non-empty report sections and
 the pull command, e.g. `t-3 report: differs, not verified, found not fixed (wsh jarvis dag report t-3)`; a legacy report
-reads `t-3 report: unstructured (wsh jarvis dag report t-3)`. `dag status` no longer prints the 600-character result.
+reads `t-3 report: unstructured (wsh jarvis dag report t-3)`.
 
 ### A task's review
 
