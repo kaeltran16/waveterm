@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The shared harness picker: a fixed-width chip naming the current selection, opening an
-// Autonomy-style popover of one descriptive row per harness. Used by the Run composer (run-worker
-// operation, with the unattended-authority disclosure) and Pet Errand (consult operation, no
-// disclosure). One component so both visible selectors read and write the same preference atom.
+// Autonomy-style popover of one descriptive row per harness. Its one host is Pet Errand (consult
+// operation, no disclosure); the run-worker operation and its unattended-authority disclosure remain
+// for a run composer.
 // The pure derivation functions live here too so the picker and the composer dispatch share one module.
 
 import { PopoverReveal } from "@/app/element/popoverreveal";

@@ -13,8 +13,8 @@ import { petPeekOpenAtom } from "./petstore";
 
 export type PeekTarget = Exclude<OpenTarget, { kind: "channel" } | { kind: "canvas" }>;
 
-// from: where Back and Escape return to. A peek started on a closed popup closes it again; one started from the
-// hub returns there.
+// from: whether the peek started on a closed popup or from the hub. Nothing reads it yet: Escape always closes
+// the popup and Back always returns to the hub.
 export type PeekItem = { target: PeekTarget; status: "loading" | "ready"; from: "closed" | "hub" };
 
 export const peekItemAtom = atom<PeekItem | null>(null) as PrimitiveAtom<PeekItem | null>;
