@@ -262,13 +262,18 @@ func TestHandleAsk_InvalidAnswerEscalatesWithoutDelivery(t *testing.T) {
 	}
 }
 
-// seedDagRunWorker files a worker tab under a run of a dag and returns the channel and the worker's
-// block oref. A child worker belongs to a run the dag's lead spawned; otherwise it is the lead's own.
-func seedDagRunWorker(t *testing.T, ctx context.Context, child bool) (*waveobj.Channel, string) {
+// seedOrchestratorRunWorker files a worker tab under an orchestrator run and returns the channel and the
+// worker's block oref. Before submit the lead has no dag; after it, a child worker belongs to a run the
+// dag's lead spawned, otherwise the worker is the lead's own.
+func seedOrchestratorRunWorker(t *testing.T, ctx context.Context, submitted, child bool) (*waveobj.Channel, string) {
 	t.Helper()
 	ch, err := wstore.CreateChannel(ctx, "gk-dag", t.TempDir())
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
+	}
+	if _, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Channel, ch.OID),
+		waveobj.MetaMapType{MetaKey_GatekeeperEnabled: true}, false); err != nil {
+		t.Fatalf("enable gatekeeper: %v", err)
 	}
 	tabId, blockId := uuid.NewString(), uuid.NewString()
 	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}, Meta: waveobj.MetaMapType{}}); err != nil {
@@ -277,17 +282,20 @@ func seedDagRunWorker(t *testing.T, ctx context.Context, child bool) (*waveobj.C
 	if err := wstore.DBInsert(ctx, &waveobj.Block{OID: blockId, ParentORef: "tab:" + tabId, Meta: waveobj.MetaMapType{}}); err != nil {
 		t.Fatalf("seed worker block: %v", err)
 	}
-	dagId := uuid.NewString()
 	lead := NewRun("lead", "ws-1", ch.ProjectPath, nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(), 1)
-	lead.ID, lead.DagORef = uuid.NewString(), dagId
-	if err := wstore.AppendDag(ctx, &waveobj.TaskGroup{OID: dagId, ID: dagId, RunID: lead.ID, ChannelId: ch.OID, Meta: waveobj.MetaMapType{}}); err != nil {
-		t.Fatalf("seed dag: %v", err)
-	}
+	lead.ID = uuid.NewString()
 	runs := []waveobj.Run{lead}
-	if child {
-		task := NewRun("task", "ws-1", ch.ProjectPath, nil, RunMode_Quick, QuickPlaybook(), 1)
-		task.ID, task.DagORef = uuid.NewString(), dagId
-		runs = append(runs, task)
+	if submitted {
+		dagId := uuid.NewString()
+		runs[0].DagORef = dagId
+		if err := wstore.AppendDag(ctx, &waveobj.TaskGroup{OID: dagId, ID: dagId, RunID: lead.ID, ChannelId: ch.OID, Meta: waveobj.MetaMapType{}}); err != nil {
+			t.Fatalf("seed dag: %v", err)
+		}
+		if child {
+			task := NewRun("task", "ws-1", ch.ProjectPath, nil, RunMode_Quick, QuickPlaybook(), 1)
+			task.ID, task.DagORef = uuid.NewString(), dagId
+			runs = append(runs, task)
+		}
 	}
 	worker := &runs[len(runs)-1]
 	worker.Phases[0].WorkerOrefs = []string{waveobj.MakeORef(waveobj.OType_Tab, tabId).String()}
@@ -299,34 +307,46 @@ func seedDagRunWorker(t *testing.T, ctx context.Context, child bool) (*waveobj.C
 	return ch, waveobj.MakeORef(waveobj.OType_Block, blockId).String()
 }
 
-// A dag child's question waits in its lead's queue, so the Gatekeeper neither answers nor escalates it.
-// The lead's own questions are still the Gatekeeper's to judge.
-func TestHandleAskSkipsDagChildren(t *testing.T) {
+// An orchestrator run's questions are never the Gatekeeper's: the lead asks only for decisions the lead
+// protocol reserves for you (spec review, plan approval, plan review, a failed final stage), before and
+// after it submits its dag, and a dag child's question waits in its lead's queue, where an auto-answer
+// would race the lead's and an escalation would put a second card in front of you. A quick run's worker
+// in the same gatekeeper project is still judged.
+func TestHandleAskLeavesOrchestratorRunsAlone(t *testing.T) {
 	ctx := context.Background()
 	origDeliver := deliverFn
 	defer func() { deliverFn = origDeliver }()
-	stubClassifier(t)
+	gatekeeperOn := waveobj.MetaMapType{MetaKey_GatekeeperEnabled: true}
 	cases := []struct {
 		name        string
-		child       bool
+		seed        func(t *testing.T) (*waveobj.Channel, string)
 		wantHandled bool
 	}{
-		{"dag child", true, false},
-		{"dag lead", false, true},
+		{"lead before dag submit", func(t *testing.T) (*waveobj.Channel, string) { return seedOrchestratorRunWorker(t, ctx, false, false) }, false},
+		{"lead after dag submit", func(t *testing.T) (*waveobj.Channel, string) { return seedOrchestratorRunWorker(t, ctx, true, false) }, false},
+		{"dag child", func(t *testing.T) (*waveobj.Channel, string) { return seedOrchestratorRunWorker(t, ctx, true, true) }, false},
+		{"quick run worker", func(t *testing.T) (*waveobj.Channel, string) { return seedQuickRunWorker(t, ctx, gatekeeperOn) }, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ch, blockORef := seedDagRunWorker(t, ctx, tc.child)
+			classified := 0
+			oldRun := runFn
+			runFn = func(_ context.Context, _ consult.RuntimeSpec, _ string, _ string, _ func(string)) (string, error) {
+				classified++
+				return `{"action":"answer","answers":[{"picks":[0]}],"reason":"routine"}`, nil
+			}
+			t.Cleanup(func() { runFn = oldRun })
 			delivered := 0
 			deliverFn = func(string, string, []baseds.AgentAnswerItem) (bool, error) {
 				delivered++
 				return true, nil
 			}
+			ch, blockORef := tc.seed(t)
 			handleAsk(ctx, baseds.AgentAskData{ORef: blockORef, AskId: uuid.NewString(), Questions: singleSelect(2)})
 			// an answer posts an answered card and an escalation posts its own, so either leaves a message
-			handled := delivered > 0 || len(channelMessages(t, ctx, ch.OID)) > 0
+			handled := classified > 0 || delivered > 0 || len(channelMessages(t, ctx, ch.OID)) > 0
 			if handled != tc.wantHandled {
-				t.Fatalf("gatekeeper handled = %v, want %v", handled, tc.wantHandled)
+				t.Fatalf("gatekeeper handled = %v (classified %d, delivered %d), want %v", handled, classified, delivered, tc.wantHandled)
 			}
 		})
 	}
