@@ -57,10 +57,16 @@ describe("shouldRefreshDigest", () => {
         expect(shouldRefreshDigest("child-ask-cleared")).toBe(true);
     });
 
+    it("refreshes on the boundaries the run timing derives from", () => {
+        expect(shouldRefreshDigest("task-spawned")).toBe(true);
+        expect(shouldRefreshDigest("final-step")).toBe(true);
+        expect(shouldRefreshDigest("dag-done")).toBe(true);
+    });
+
     it("does not refresh on activity ticks or unrelated kinds", () => {
         expect(shouldRefreshDigest(undefined)).toBe(false);
         expect(shouldRefreshDigest("phase-started")).toBe(false);
-        expect(shouldRefreshDigest("task-spawned")).toBe(false);
+        expect(shouldRefreshDigest("task-first-activity")).toBe(false);
     });
 });
 

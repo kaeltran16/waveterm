@@ -35,9 +35,25 @@ export function taskBriefs(group: TaskGroup | undefined): Map<string, TaskBrief>
     return briefs;
 }
 
-// events whose arrival means the current digest may be out of date (ask/answer/clear). Not activity
-// ticks — those never re-request the digest.
-const REFRESH_EVENT_KINDS = new Set(["child-ask", "child-answered", "child-ask-cleared"]);
+// events whose arrival means the current digest may be out of date: ask/answer/clear, and the boundaries
+// digest.timing derives from. Not activity ticks — those never re-request the digest.
+const REFRESH_EVENT_KINDS = new Set([
+    "child-ask",
+    "child-answered",
+    "child-ask-cleared",
+    "task-spawned",
+    "task-done",
+    "task-failed",
+    "task-review-started",
+    "task-review-passed",
+    "task-review-failed",
+    "task-merge-started",
+    "task-merged",
+    "task-verify-passed",
+    "task-verify-failed",
+    "final-step",
+    "dag-done",
+]);
 
 // acceptDigest decides whether candidate may replace the current digest: its DagVersion must equal the
 // observed group version, and it must be the response to the newest outstanding request (an older

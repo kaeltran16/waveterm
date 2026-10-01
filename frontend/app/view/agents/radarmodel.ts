@@ -558,7 +558,7 @@ export function scanHealth(report: RadarReport): HealthLine[] {
     return lines;
 }
 
-function joinAnd(items: string[]): string {
+export function joinAnd(items: string[]): string {
     return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
