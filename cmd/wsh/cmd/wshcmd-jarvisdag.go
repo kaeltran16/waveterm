@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -186,8 +187,8 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 		if !ok {
 			continue
 		}
-		if td.Result != "" {
-			lines = append(lines, fmt.Sprintf("%s result: %s", t.ID, flatText(td.Result)))
+		if len(td.ReportSections) > 0 {
+			lines = append(lines, reportPresenceLine(t.ID, td.ReportSections))
 		}
 		if td.ReviewNote != "" {
 			lines = append(lines, reviewLine(t.ID, td))
@@ -201,6 +202,18 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 		lines = append(lines, fmt.Sprintf("%s the human told this worker %s ago: %s", told.TaskId, durOrZero(now-told.Ts), strings.Join(strings.Fields(told.Text), " ")))
 	}
 	return lines
+}
+
+// reportPresenceLine tells the lead which parts of a worker's report have something in them and how to read
+// them. The sections themselves are pulled, never printed here.
+func reportPresenceLine(taskID string, sections []string) string {
+	what := "done only"
+	if sections[0] == jarvis.ReportKeyUnstructured {
+		what = jarvis.ReportKeyUnstructured
+	} else if sections[0] != jarvis.ReportKeyDone {
+		what = strings.ReplaceAll(strings.Join(sections, ", "), "-", " ")
+	}
+	return fmt.Sprintf("%s report: %s (wsh jarvis dag report %s)", taskID, what, taskID)
 }
 
 // finalLines is the final stage: its state and round, where its output went, and what it found. The lead's fix
@@ -909,6 +922,104 @@ var (
 	dagSendbackCmd = dagNoteCmd("sendback <task-id> [guidance]", "sendback", "send a task whose review failed back for one more round, with your guidance beside the findings", cobra.RangeArgs(1, 2))
 )
 
+// dagReportText is what `dag report` prints: the whole sealed report, or one section of it ("None" when the
+// worker wrote None). A report written before the format has no sections to ask for.
+func dagReportText(summary, section string) (string, error) {
+	if section == "" {
+		return summary, nil
+	}
+	keys := reportSectionKeyNames()
+	rep, unstructured := jarvis.ReadWorkerReport(summary)
+	if !slices.Contains(keys, section) {
+		return "", fmt.Errorf("unknown section %q; sections are %s", section, strings.Join(keys, ", "))
+	}
+	if unstructured != "" {
+		return "", fmt.Errorf("this report predates sections; run without a section")
+	}
+	body, _ := rep.Section(section)
+	if body == "" {
+		return "None", nil
+	}
+	return body, nil
+}
+
+// dagReportSummary finds the sealed report of a task's worker among the channel's runs. taskArg is `3` or `t-3`.
+func dagReportSummary(g *waveobj.TaskGroup, runs []*waveobj.Run, taskArg string) (string, error) {
+	id := strings.TrimSpace(taskArg)
+	if !strings.HasPrefix(id, "t-") {
+		id = "t-" + id
+	}
+	var task *waveobj.TaskNode
+	for i := range g.Tasks {
+		if g.Tasks[i].ID == id {
+			task = &g.Tasks[i]
+		}
+	}
+	if task == nil {
+		return "", fmt.Errorf("the dag has no task %s", id)
+	}
+	if task.RunID == "" {
+		return "", fmt.Errorf("task %s has no worker run yet", id)
+	}
+	for _, r := range runs {
+		if r != nil && r.ID == task.RunID {
+			if r.Evidence == nil {
+				return "", fmt.Errorf("task %s's worker has not sealed a report yet", id)
+			}
+			return r.Evidence.Summary, nil
+		}
+	}
+	return "", fmt.Errorf("task %s's worker run %s is not in this run's channel", id, task.RunID)
+}
+
+var dagReportCmd = &cobra.Command{
+	Use:   "report <task-id> [section]",
+	Short: "print a task's worker report, whole or one section",
+	Long: "Print a task's sealed worker report, whole or one section: " + strings.Join(reportSectionKeyNames(), ", ") + ".\n" +
+		"A section the worker left as None prints None.",
+	Args:    cobra.RangeArgs(1, 2),
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		channelId, runId, err := dagIds(cmd)
+		if err != nil {
+			return err
+		}
+		st, err := wshclient.DagStatusCommand(RpcClient, wshrpc.CommandDagStatusData{ChannelId: channelId, RunId: runId}, &wshrpc.RpcOpts{Timeout: 10_000})
+		if err != nil {
+			return err
+		}
+		if st.Group == nil {
+			return fmt.Errorf("this run holds no dag")
+		}
+		rtn, err := wshclient.GetChannelRunsCommand(RpcClient, wshrpc.CommandGetChannelRunsData{ChannelId: channelId}, &wshrpc.RpcOpts{Timeout: runsReadTimeoutMs})
+		if err != nil {
+			return fmt.Errorf("listing runs: %w", err)
+		}
+		summary, err := dagReportSummary(st.Group, rtn.Runs, args[0])
+		if err != nil {
+			return err
+		}
+		section := ""
+		if len(args) > 1 {
+			section = args[1]
+		}
+		text, err := dagReportText(summary, section)
+		if err != nil {
+			return err
+		}
+		fmt.Println(text)
+		return nil
+	},
+}
+
+func reportSectionKeyNames() []string {
+	keys := make([]string, len(jarvis.WorkerReportSections))
+	for i, sec := range jarvis.WorkerReportSections {
+		keys[i] = sec.Key
+	}
+	return keys
+}
+
 var dagRulesInject bool
 
 // dagRulesCmd prints the orchestration rules for the caller's lead session (spec §7). It runs from a
@@ -990,7 +1101,7 @@ func leadTree() string {
 }
 
 func init() {
-	jarvisDagCmd.AddCommand(dagSubmitCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd, dagReviewCmd, dagPlanReviewCmd, dagFinalCmd, dagAmendCmd, dagTellCmd)
+	jarvisDagCmd.AddCommand(dagSubmitCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd, dagReportCmd, dagReviewCmd, dagPlanReviewCmd, dagFinalCmd, dagAmendCmd, dagTellCmd)
 	jarvisDagCmd.AddCommand(dagAction("approve"), dagSendbackCmd, dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"), dagActionWithin("retry-cleanup", 60_000))
 	for _, c := range jarvisDagCmd.Commands() {
 		c.Flags().String("runid", "", "run id")

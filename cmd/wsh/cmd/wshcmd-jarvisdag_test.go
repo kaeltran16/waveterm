@@ -608,18 +608,80 @@ func TestDagStatusLinesPrintResultAndReview(t *testing.T) {
 	rtn := &wshrpc.CommandDagStatusRtnData{
 		Group: &waveobj.TaskGroup{ID: "d", Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "a", State: "done"}, {ID: "t-2", Label: "b", State: "review-failed"}}},
 		Digest: wshrpc.DagStatusDigest{Tasks: []wshrpc.DagTaskDigest{
-			{TaskId: "t-1", Result: "Added fmtDate.", ReviewVerdict: "pass", ReviewNote: "adds fmtDate", ReviewDownstream: "fmtDate is in util"},
+			{TaskId: "t-1", ReportSections: []string{"differs", "not-verified", "found-not-fixed"}, ReviewVerdict: "pass", ReviewNote: "adds fmtDate", ReviewDownstream: "fmtDate is in util"},
 			{TaskId: "t-2", ReviewVerdict: "fail", ReviewRound: 2, ReviewNote: "misses\nempty input"},
 		}},
 	}
 	out := strings.Join(dagStatusLines(rtn, 0), "\n")
 	for _, want := range []string{
-		"t-1 result: Added fmtDate.",
+		"t-1 report: differs, not verified, found not fixed (wsh jarvis dag report t-1)",
 		"t-1 review pass: adds fmtDate · later tasks: fmtDate is in util",
 		"t-2 review fail (failed rounds 2): misses empty input",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "result:") {
+		t.Fatalf("status must not print a worker's result, got:\n%s", out)
+	}
+}
+
+func TestReportPresenceLine(t *testing.T) {
+	cases := map[string][]string{
+		"t-3 report: done only (wsh jarvis dag report t-3)":    {"done"},
+		"t-3 report: unstructured (wsh jarvis dag report t-3)": {"unstructured"},
+		"t-3 report: for later (wsh jarvis dag report t-3)":    {"for-later"},
+	}
+	for want, sections := range cases {
+		if got := reportPresenceLine("t-3", sections); got != want {
+			t.Errorf("want %q, got %q", want, got)
+		}
+	}
+}
+
+const reportTestSummary = "## Done\nAdded it.\n\n## Differs from plan\nMoved the file.\n\n## Not verified\nNone\n\n## For later tasks\nNone\n\n## Found not fixed\nNone"
+
+func TestDagReportText(t *testing.T) {
+	legacy := "Added it, all good."
+	cases := []struct {
+		name, summary, section, want, wantErr string
+	}{
+		{name: "whole report", summary: reportTestSummary, want: reportTestSummary},
+		{name: "one section", summary: reportTestSummary, section: "differs", want: "Moved the file."},
+		{name: "an empty section", summary: reportTestSummary, section: "not-verified", want: "None"},
+		{name: "unknown section", summary: reportTestSummary, section: "nope", wantErr: "done, differs, not-verified, for-later, found-not-fixed"},
+		{name: "legacy whole", summary: legacy, want: legacy},
+		{name: "legacy with a section", summary: legacy, section: "differs", wantErr: "predates sections; run without a section"},
+	}
+	for _, c := range cases {
+		got, err := dagReportText(c.summary, c.section)
+		if c.wantErr != "" {
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Errorf("%s: want error containing %q, got %v", c.name, c.wantErr, err)
+			}
+			continue
+		}
+		if err != nil || got != c.want {
+			t.Errorf("%s: want %q, got %q (%v)", c.name, c.want, got, err)
+		}
+	}
+}
+
+func TestDagReportSummary(t *testing.T) {
+	g := &waveobj.TaskGroup{Tasks: []waveobj.TaskNode{{ID: "t-1", RunID: "r1"}, {ID: "t-2"}, {ID: "t-3", RunID: "r3"}, {ID: "t-4", RunID: "r4"}}}
+	runs := []*waveobj.Run{
+		{ID: "r1", Evidence: &waveobj.RunEvidence{Summary: "x"}},
+		{ID: "r3"},
+	}
+	if got, err := dagReportSummary(g, runs, "1"); err != nil || got != "x" {
+		t.Fatalf("a bare number must read as t-N, got %q, %v", got, err)
+	}
+	for arg, want := range map[string]string{
+		"t-9": "no task t-9", "t-2": "no worker run yet", "t-3": "not sealed a report", "t-4": "not in this run's channel",
+	} {
+		if _, err := dagReportSummary(g, runs, arg); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want error containing %q, got %v", arg, want, err)
 		}
 	}
 }

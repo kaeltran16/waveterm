@@ -583,6 +583,34 @@ type RunEvidence struct {
 
 	// Verification is a dag owner's final-stage outcome, sealed from TaskGroup.Final.
 	Verification *RunVerification `json:"verification,omitempty"`
+
+	// Dag is a dag owner's account of its tasks, snapshotted at the seal.
+	Dag *EvidenceDag `json:"dag,omitempty"`
+}
+
+// EvidenceDag is what a dag's workers reported, by task, sealed with the lead's run. Sections are whole: this is
+// the record, not a prompt.
+type EvidenceDag struct {
+	Tasks      []EvidenceDagTask `json:"tasks,omitempty"` // dag order; done, skipped and failed tasks
+	Answered   int               `json:"answered"`
+	Forwarded  int               `json:"forwarded"`
+	Told       []string          `json:"told,omitempty"`       // what the human typed to workers
+	LeftBehind []string          `json:"leftbehind,omitempty"` // task ids whose tree is retry-cleanup
+}
+
+// EvidenceDagTask is one task's row of EvidenceDag. Done is left out; `wsh jarvis dag report` reads it.
+type EvidenceDagTask struct {
+	TaskId             string `json:"taskid"`
+	Label              string `json:"label,omitempty"`
+	State              string `json:"state"`
+	Commit             string `json:"commit,omitempty"`
+	ReviewRounds       int    `json:"reviewrounds,omitempty"`
+	Differs            string `json:"differs,omitempty"`
+	NotVerified        string `json:"notverified,omitempty"`
+	ReviewerUnverified string `json:"reviewerunverified,omitempty"`
+	FoundNotFixed      string `json:"foundnotfixed,omitempty"`
+	ForLead            string `json:"forlead,omitempty"`      // For later tasks, only where it went to the lead
+	Unstructured       string `json:"unstructured,omitempty"` // a legacy report, whole
 }
 
 // RunVerification is how the final stage judged a run's merged result.

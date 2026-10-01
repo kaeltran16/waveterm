@@ -1565,7 +1565,7 @@ declare global {
         recoveredretry?: boolean;
         mergestate: string;
         cleanupstate: string;
-        result?: string;
+        reportsections?: string[];
         reviewverdict?: string;
         reviewround?: number;
         reviewnote?: string;
@@ -1724,6 +1724,30 @@ declare global {
         path: string;
         kind: string;
         size: number;
+    };
+
+    // waveobj.EvidenceDag
+    type EvidenceDag = {
+        tasks?: EvidenceDagTask[];
+        answered: number;
+        forwarded: number;
+        told?: string[];
+        leftbehind?: string[];
+    };
+
+    // waveobj.EvidenceDagTask
+    type EvidenceDagTask = {
+        taskid: string;
+        label?: string;
+        state: string;
+        commit?: string;
+        reviewrounds?: number;
+        differs?: string;
+        notverified?: string;
+        reviewerunverified?: string;
+        foundnotfixed?: string;
+        forlead?: string;
+        unstructured?: string;
     };
 
     // waveobj.EvidenceFile
@@ -2322,6 +2346,7 @@ declare global {
         model?: string;
         usage?: UsageRow[];
         verification?: RunVerification;
+        dag?: EvidenceDag;
     };
 
     // waveobj.RunLand

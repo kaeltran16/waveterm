@@ -25,9 +25,16 @@ type WorkerReportSection struct {
 	Heading string
 }
 
+// the keys readers compare against: Done is the one section never sent inline, and a report that predates the
+// format is a single section of its own.
+const (
+	ReportKeyDone         = "done"
+	ReportKeyUnstructured = "unstructured"
+)
+
 // WorkerReportSections lists the sections in report order. It is the one place a heading or key is spelled.
 var WorkerReportSections = []WorkerReportSection{
-	{Key: "done", Heading: "Done"},
+	{Key: ReportKeyDone, Heading: "Done"},
 	{Key: "differs", Heading: "Differs from plan"},
 	{Key: "not-verified", Heading: "Not verified"},
 	{Key: "for-later", Heading: "For later tasks"},
@@ -60,7 +67,7 @@ const (
 
 func (r *WorkerReport) field(key string) *string {
 	switch key {
-	case "done":
+	case ReportKeyDone:
 		return &r.Done
 	case "differs":
 		return &r.Differs

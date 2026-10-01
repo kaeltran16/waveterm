@@ -75,10 +75,31 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 	return d
 }
 
-// withReview adds what the lead reads about a task's outcome: the worker's closing note and the latest review.
+// reportSectionKeys names the sections of a worker's report the lead can pull. Done is always there, so it is
+// not listed unless it is all there is: a nil list would then read as no report at all. A report that predates
+// the format is one unstructured section.
+func reportSectionKeys(summary string) []string {
+	rep, unstructured := jarvis.ReadWorkerReport(summary)
+	if unstructured != "" {
+		return []string{jarvis.ReportKeyUnstructured}
+	}
+	var keys []string
+	for _, sec := range jarvis.WorkerReportSections {
+		if body, _ := rep.Section(sec.Key); body != "" && sec.Key != jarvis.ReportKeyDone {
+			keys = append(keys, sec.Key)
+		}
+	}
+	if len(keys) == 0 && rep.Done != "" {
+		return []string{jarvis.ReportKeyDone}
+	}
+	return keys
+}
+
+// withReview adds what the lead reads about a task's outcome: which sections of the worker's report have
+// content, and the latest review.
 func withReview(td *wshrpc.DagTaskDigest, t *waveobj.TaskNode, worker *waveobj.Run) {
 	if worker != nil && worker.Evidence != nil {
-		td.Result = truncateNote(worker.Evidence.Summary, handoffMaxSummaryLen)
+		td.ReportSections = reportSectionKeys(worker.Evidence.Summary)
 	}
 	td.ReviewVerdict, td.ReviewRound = t.ReviewVerdict, t.ReviewRound
 	td.ReviewNote, td.ReviewDownstream = t.ReviewNote, t.ReviewDownstream

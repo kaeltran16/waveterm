@@ -5,6 +5,7 @@ package orchestrate
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -923,11 +924,47 @@ func TestDigestCarriesTheWorkersResultAndReview(t *testing.T) {
 	g.Tasks[0].ReviewNote = "adds fmtDate"
 	g.Tasks[0].ReviewDownstream = "fmtDate lives in util/date.go"
 	run := childRun("run-1", nil)
-	run.Evidence = &waveobj.RunEvidence{Summary: "Added fmtDate and its tests."}
+	run.Evidence = &waveobj.RunEvidence{Summary: digestTestReport}
 	d := BuildDigest(digestSnapshot(g, []*waveobj.Run{run}, nil, nil, time.UnixMilli(10_000)))
 	td := d.Tasks[0]
-	if td.Result != "Added fmtDate and its tests." || td.ReviewVerdict != ReviewVerdict_Pass || td.ReviewNote != "adds fmtDate" || td.ReviewDownstream != "fmtDate lives in util/date.go" {
-		t.Fatalf("the lead must read what the task did, got %+v", td)
+	if td.ReviewVerdict != ReviewVerdict_Pass || td.ReviewNote != "adds fmtDate" || td.ReviewDownstream != "fmtDate lives in util/date.go" {
+		t.Fatalf("the lead must read the latest review, got %+v", td)
+	}
+	if want := []string{"differs", "found-not-fixed"}; !slices.Equal(td.ReportSections, want) {
+		t.Fatalf("the digest names the sections with content, Done aside: want %v, got %v", want, td.ReportSections)
+	}
+}
+
+const digestTestReport = `## Done
+Added fmtDate and its tests.
+
+## Differs from plan
+Put it in util/date.go.
+
+## Not verified
+None
+
+## For later tasks
+None.
+
+## Found not fixed
+TestOld fails on main.`
+
+func TestReportSectionKeys(t *testing.T) {
+	doneOnly := strings.NewReplacer("Put it in util/date.go.", "None", "TestOld fails on main.", "None").Replace(digestTestReport)
+	cases := []struct {
+		name    string
+		summary string
+		want    []string
+	}{
+		{"legacy report", "Added fmtDate and its tests.", []string{"unstructured"}},
+		{"done only", doneOnly, []string{"done"}},
+		{"no evidence text", "", nil},
+	}
+	for _, c := range cases {
+		if got := reportSectionKeys(c.summary); !slices.Equal(got, c.want) {
+			t.Errorf("%s: want %v, got %v", c.name, c.want, got)
+		}
 	}
 }
 

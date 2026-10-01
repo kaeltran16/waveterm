@@ -234,7 +234,7 @@ type DagTaskDigest struct {
 	RecoveredRetry   bool     `json:"recoveredretry,omitempty"`
 	MergeState       string   `json:"mergestate"`                 // not-required | waiting | ready | blocked | merged
 	CleanupState     string   `json:"cleanupstate"`               // not-required | clear | pending | failed
-	Result           string   `json:"result,omitempty"`           // the worker's closing note, bounded
+	ReportSections   []string `json:"reportsections,omitempty"`   // the worker's report sections with content, Done aside; ["unstructured"] for a legacy report
 	ReviewVerdict    string   `json:"reviewverdict,omitempty"`    // pass | fail: the latest review
 	ReviewRound      int      `json:"reviewround,omitempty"`      // failed reviews so far
 	ReviewNote       string   `json:"reviewnote,omitempty"`       // the reviewer's summary or findings, or why the review failed
