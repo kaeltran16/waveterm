@@ -20,14 +20,7 @@ import { useAtomValue } from "jotai";
 import { motion, useMotionValue, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { drawSceneToCanvas, resolveTone } from "./avatarcanvas";
-import {
-    approachMood,
-    buildAvatarScene,
-    moodSettled,
-    settledMood,
-    type AvatarScene,
-    type RenderMood,
-} from "./avatarscene";
+import { approachMood, buildAvatarScene, settledMood, type AvatarScene, type RenderMood } from "./avatarscene";
 import type { AvatarThree } from "./avatarthree";
 import { PetBubble } from "./petbubble";
 import { expressionFor, postureFor, type PetSignals } from "./petcondition";
@@ -234,23 +227,8 @@ export function PetView({ model }: { model: AgentsViewModel }) {
             const f = frameRef.current;
             const cssSize = f.size;
             const pixels = Math.round(cssSize * dpr);
-
-            const rippleAt = rippleAtRef.current;
-            const rippleElapsed = rippleAt == null ? null : now - rippleAt;
-            const ripple =
-                rippleElapsed == null || rippleElapsed < 0 || rippleElapsed >= RIPPLE_MS
-                    ? null
-                    : rippleElapsed / RIPPLE_MS;
-            const utterance = utteranceEnvelope(now, globalStore.get(petSpokeAtAtom));
-            const jolt = impulseEnvelope(now, joltAtRef.current, JOLT_MS);
-            const transient =
-                pixels !== lastPixels ||
-                ripple != null ||
-                utterance > 0 ||
-                jolt > 0 ||
-                !moodSettled(moodRef.current, f.expression);
-
-            if (pixels !== lastPixels) {
+            const resized = pixels !== lastPixels;
+            if (resized) {
                 lastPixels = pixels;
                 for (const c of [glCanvas, fallbackCanvas]) {
                     c.style.width = cssSize + "px";
@@ -271,6 +249,13 @@ export function PetView({ model }: { model: AgentsViewModel }) {
             // the user does not want any. The register still changes, it just does not travel there.
             moodRef.current = f.reduce ? settledMood(f.expression) : approachMood(moodRef.current, f.expression, dt);
 
+            const rippleAt = rippleAtRef.current;
+            const rippleElapsed = rippleAt == null ? null : now - rippleAt;
+            const ripple =
+                rippleElapsed == null || rippleElapsed < 0 || rippleElapsed >= RIPPLE_MS
+                    ? null
+                    : rippleElapsed / RIPPLE_MS;
+
             const scene: AvatarScene = buildAvatarScene({
                 expression: f.expression,
                 mood: moodRef.current,
@@ -280,9 +265,9 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 yaw: orbit.yaw,
                 pitch: orbit.pitch,
                 breath: breathPhase(now),
-                utterance,
+                utterance: utteranceEnvelope(now, globalStore.get(petSpokeAtAtom)),
                 ripple,
-                jolt,
+                jolt: impulseEnvelope(now, joltAtRef.current, JOLT_MS),
                 quiet: f.quiet,
                 still: f.reduce,
             });
@@ -310,7 +295,7 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                     renderer: live,
                 };
             }
-            const delay = nextFrameDelay(transient, f.reduce);
+            const delay = nextFrameDelay(resized, f.reduce);
             if (delay > 0) {
                 sleep = setTimeout(() => {
                     raf = requestAnimationFrame(frame);

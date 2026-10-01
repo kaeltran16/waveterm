@@ -4,7 +4,6 @@ import {
     buildAvatarScene,
     MOOD_TAU_MS,
     moodFor,
-    moodSettled,
     settledMood,
     STROKE,
     STROKE_WIDTHS,
@@ -426,26 +425,6 @@ describe("approachMood", () => {
         const m = approachMood(settledMood(AT_REST), TIRED, 600_000);
         expect(m.align).toBeGreaterThanOrEqual(moodFor(TIRED).align);
         expect(m.energy).toBeGreaterThanOrEqual(Math.min(moodFor(AT_REST).energy, moodFor(TIRED).energy));
-    });
-});
-
-describe("moodSettled", () => {
-    it("is settled on the mood it was seeded with", () => {
-        expect(moodSettled(settledMood(AT_REST), AT_REST)).toBe(true);
-    });
-
-    it("is unsettled the moment the expression changes, before any step has run", () => {
-        // the frame that notices a new condition must be a full-rate frame, or the ease starts late
-        expect(moodSettled(settledMood(AT_REST), TIRED)).toBe(false);
-    });
-
-    it("stays unsettled through the ease and settles once it arrives", () => {
-        let m = approachMood(settledMood(AT_REST), TIRED, 16);
-        expect(moodSettled(m, TIRED)).toBe(false);
-        for (let i = 0; i < 60; i++) {
-            m = approachMood(m, TIRED, MOOD_TAU_MS / 2);
-        }
-        expect(moodSettled(m, TIRED)).toBe(true);
     });
 });
 

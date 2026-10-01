@@ -9,7 +9,7 @@ import {
     type SceneInput,
     type SceneSegment,
 } from "./avatarscene";
-import { packFills, packLines } from "./avatarthree";
+import { fillTriangles, growCapacity, packFills, packFillsInto, packLines, packLinesInto, picker } from "./avatarthree";
 
 const SIZE = 132;
 
@@ -183,5 +183,51 @@ describe("packFills", () => {
         const packed = packFills([], SIZE, COLOURS);
         expect(packed.triangles).toBe(0);
         expect(packed.positions.length).toBe(0);
+    });
+});
+
+describe("packing into reused buffers", () => {
+    // the renderer keeps one buffer per batch across frames instead of a fresh geometry per frame, so the
+    // in-place packers must produce exactly what the allocating ones do
+    it("writes the same floats into a larger, reused buffer as a fresh pack", () => {
+        const scene = sceneOf({ now: 1234, yaw: 0.7, breath: 0.4 });
+        const fresh = packLines(scene.segments, SIZE, COLOURS);
+        const positions = new Float32Array(scene.segments.length * 6 + 60).fill(9);
+        const colors = new Float32Array(positions.length).fill(9);
+        const count = packLinesInto(scene.segments, SIZE, picker(COLOURS), positions, colors);
+        expect(count).toBe(fresh.segments);
+        expect(positions.subarray(0, count * 6)).toEqual(fresh.positions);
+        expect(colors.subarray(0, count * 6)).toEqual(fresh.colors);
+    });
+
+    it("does the same for fills", () => {
+        const scene = sceneOf({ now: 1234, yaw: 0.7, breath: 0.4 });
+        const fresh = packFills(scene.fills, SIZE, COLOURS);
+        const positions = new Float32Array(fresh.positions.length + 90).fill(9);
+        const colors = new Float32Array(positions.length).fill(9);
+        const triangles = packFillsInto(scene.fills, SIZE, picker(COLOURS), positions, colors);
+        expect(triangles).toBe(fresh.triangles);
+        expect(positions.subarray(0, triangles * 9)).toEqual(fresh.positions);
+        expect(colors.subarray(0, triangles * 9)).toEqual(fresh.colors);
+    });
+
+    it("counts fill triangles without packing them, so the buffer can be sized first", () => {
+        const scene = sceneOf();
+        expect(fillTriangles(scene.fills)).toBe(packFills(scene.fills, SIZE, COLOURS).triangles);
+    });
+});
+
+describe("growCapacity", () => {
+    it("keeps a buffer that already fits", () => {
+        expect(growCapacity(100, 128)).toBe(128);
+    });
+
+    it("grows past the need with headroom, so a stuttering count does not reallocate every frame", () => {
+        const cap = growCapacity(129, 128);
+        expect(cap).toBeGreaterThanOrEqual(129 * 1.5);
+    });
+
+    it("starts from a usable size", () => {
+        expect(growCapacity(0, 0)).toBeGreaterThan(0);
     });
 });

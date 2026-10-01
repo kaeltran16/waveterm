@@ -102,24 +102,21 @@ export function impulseEnvelope(now: number, firedAt: number | null, durationMs:
     return fall * fall;
 }
 
-// Frame budgets for when nothing transient is moving. The avatar shares the UI thread with every terminal,
-// and drawing it at display rate (a scene rebuild, fresh geometry and a bloom pass, 60 times a second) cost
-// about a quarter of that thread at idle — enough to delay keystrokes. The idle drift is a 48s turn and a 4s
-// breath, which 15fps carries without visible stepping; reduced motion has no drift at all, so its budget
-// only bounds how late a theme or posture change shows.
-export const IDLE_FRAME_MS = 1_000 / 15;
+// Reduced motion draws a still form, so redrawing it every display frame would only repeat the same pixels
+// with a bloom pass each time; it redraws at this budget instead, which only bounds how late a theme or
+// posture change shows. With motion on, the form is drawn every display frame (a lower idle rate visibly
+// stepped its drift).
 export const STILL_FRAME_MS = 250;
+// The wait ends in a requestAnimationFrame, which adds up to a display frame on top of it; ending the wait
+// half a 60Hz frame early lands the draw on the intended frame instead of the one after.
+const VSYNC_SLACK_MS = 1_000 / 120;
 
 /**
- * How long the loop waits before its next draw. 0 means the next display frame: transient motion (an ease,
- * a surge, a punctuation) is drawn at full rate. Otherwise the loop sleeps on a timer rather than waking
- * every display frame to skip it, since each wake still runs a frame of the page's lifecycle.
+ * How long the loop waits before its next draw; 0 means the next display frame. Only a still form that has
+ * not just been resized waits, and it waits on a timer rather than waking every display frame to skip it.
  */
-export function nextFrameDelay(transient: boolean, still: boolean): number {
-    if (transient) {
-        return 0;
-    }
-    return still ? STILL_FRAME_MS : IDLE_FRAME_MS;
+export function nextFrameDelay(resized: boolean, still: boolean): number {
+    return still && !resized ? STILL_FRAME_MS - VSYNC_SLACK_MS : 0;
 }
 
 export const BREATH_MS = 4_200;

@@ -25,6 +25,8 @@ import {
     Scene,
     Vector2,
     WebGLRenderer,
+    type InterleavedBuffer,
+    type InterleavedBufferAttribute,
 } from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
@@ -74,11 +76,27 @@ function channels(colour: string): [number, number, number] {
     return [0.5, 0.5, 0.5];
 }
 
-function picker(colours: SceneColours): (tone: SceneTone) => [number, number, number] {
+export type TonePicker = (tone: SceneTone) => [number, number, number];
+
+/** Parses the scene colours once into a tone -> rgb lookup; the renderer keeps it until the colours change. */
+export function picker(colours: SceneColours): TonePicker {
     const body = channels(colours.body);
     const hot = channels(colours.hot);
     const marker = colours.marker == null ? body : channels(colours.marker);
     return (tone) => (tone === "hot" ? hot : tone === "marker" ? marker : body);
+}
+
+// The renderer draws at display rate, so its buffers live across frames rather than being reallocated and
+// re-created on the GPU every frame (that churn was most of the frame's cost). A buffer that is outgrown is
+// replaced with headroom, so a segment count that wobbles with the stutter does not reallocate each frame.
+const MIN_CAPACITY = 64;
+const CAPACITY_GROWTH = 2;
+
+export function growCapacity(needed: number, current: number): number {
+    if (current > 0 && needed <= current) {
+        return current;
+    }
+    return Math.max(MIN_CAPACITY, Math.ceil(needed * CAPACITY_GROWTH));
 }
 
 export interface PackedLines {
@@ -88,7 +106,8 @@ export interface PackedLines {
 }
 
 /**
- * Segments -> flat position/colour arrays for LineSegmentsGeometry.
+ * Segments -> flat position/colour floats for LineSegmentsGeometry, written into the caller's arrays from
+ * index 0; returns the segment count. The arrays must hold at least six floats per segment.
  *
  * Takes a segment list rather than the whole scene because line width is a material uniform in three's
  * fat-line implementation: the renderer draws the scene as one batch per stroke weight, and each batch
@@ -99,16 +118,18 @@ export interface PackedLines {
  * `colour * alpha` to the framebuffer either way — which is why the renderer can stay additive and still
  * reproduce the depth falloff the scene builder folded into alpha.
  */
-export function packLines(segments: readonly SceneSegment[], size: number, colours: SceneColours): PackedLines {
-    const count = segments.length;
-    const positions = new Float32Array(count * 6);
-    const colors = new Float32Array(count * 6);
-    const pick = picker(colours);
-
+export function packLinesInto(
+    segments: readonly SceneSegment[],
+    size: number,
+    pick: TonePicker,
+    positions: Float32Array,
+    colors: Float32Array
+): number {
     // same mapping the old renderer used: screen pixels to a [-1,1] box, y flipped because screen y runs down
     const nx = (x: number) => (x / size) * 2 - 1;
     const ny = (y: number) => 1 - (y / size) * 2;
 
+    const count = segments.length;
     for (let i = 0; i < count; i++) {
         const s = segments[i];
         const rgb = pick(s.tone);
@@ -120,12 +141,17 @@ export function packLines(segments: readonly SceneSegment[], size: number, colou
         positions[p + 3] = nx(s.bx);
         positions[p + 4] = ny(s.by);
         positions[p + 5] = 0;
-        for (const v of [p, p + 3]) {
-            colors[v] = rgb[0] * a;
-            colors[v + 1] = rgb[1] * a;
-            colors[v + 2] = rgb[2] * a;
-        }
+        colors[p] = colors[p + 3] = rgb[0] * a;
+        colors[p + 1] = colors[p + 4] = rgb[1] * a;
+        colors[p + 2] = colors[p + 5] = rgb[2] * a;
     }
+    return count;
+}
+
+export function packLines(segments: readonly SceneSegment[], size: number, colours: SceneColours): PackedLines {
+    const positions = new Float32Array(segments.length * 6);
+    const colors = new Float32Array(segments.length * 6);
+    const count = packLinesInto(segments, size, picker(colours), positions, colors);
     return { positions, colors, segments: count };
 }
 
@@ -135,41 +161,59 @@ export interface PackedFills {
     triangles: number;
 }
 
+export function fillTriangles(fills: readonly SceneFill[]): number {
+    let triangles = 0;
+    for (const f of fills) {
+        triangles += Math.max(0, f.points.length - 2);
+    }
+    return triangles;
+}
+
 /**
- * Fills -> a flat triangle soup, fanned from each polygon's first vertex.
+ * Fills -> a flat triangle soup, fanned from each polygon's first vertex, written into the caller's arrays
+ * (nine floats per triangle, sized from fillTriangles); returns the triangle count.
  *
  * One un-indexed mesh rather than one per fill: the form emits on the order of 150 quads a frame and a
  * draw call each would cost more than the geometry does. Same premultiplied-alpha contract as packLines,
  * for the same reason — these composite additively over the line work.
  */
-export function packFills(fills: readonly SceneFill[], size: number, colours: SceneColours): PackedFills {
-    const pick = picker(colours);
-    let triangles = 0;
-    for (const f of fills) {
-        triangles += Math.max(0, f.points.length - 2);
-    }
-    const positions = new Float32Array(triangles * 9);
-    const colors = new Float32Array(triangles * 9);
-
+export function packFillsInto(
+    fills: readonly SceneFill[],
+    size: number,
+    pick: TonePicker,
+    positions: Float32Array,
+    colors: Float32Array
+): number {
     const nx = (x: number) => (x / size) * 2 - 1;
     const ny = (y: number) => 1 - (y / size) * 2;
 
     let at = 0;
+    const vertex = (v: readonly number[], rgb: [number, number, number], a: number) => {
+        positions[at] = nx(v[0]);
+        positions[at + 1] = ny(v[1]);
+        positions[at + 2] = 0;
+        colors[at] = rgb[0] * a;
+        colors[at + 1] = rgb[1] * a;
+        colors[at + 2] = rgb[2] * a;
+        at += 3;
+    };
     for (const f of fills) {
         const rgb = pick(f.tone);
         const a = Math.max(0, Math.min(1, f.alpha));
         for (let i = 1; i + 1 < f.points.length; i++) {
-            for (const v of [f.points[0], f.points[i], f.points[i + 1]]) {
-                positions[at] = nx(v[0]);
-                positions[at + 1] = ny(v[1]);
-                positions[at + 2] = 0;
-                colors[at] = rgb[0] * a;
-                colors[at + 1] = rgb[1] * a;
-                colors[at + 2] = rgb[2] * a;
-                at += 3;
-            }
+            vertex(f.points[0], rgb, a);
+            vertex(f.points[i], rgb, a);
+            vertex(f.points[i + 1], rgb, a);
         }
     }
+    return at / 9;
+}
+
+export function packFills(fills: readonly SceneFill[], size: number, colours: SceneColours): PackedFills {
+    const triangles = fillTriangles(fills);
+    const positions = new Float32Array(triangles * 9);
+    const colors = new Float32Array(triangles * 9);
+    packFillsInto(fills, size, picker(colours), positions, colors);
     return { positions, colors, triangles };
 }
 
@@ -214,6 +258,34 @@ interface LineBatch {
     material: LineMaterial;
     lines: LineSegments2;
     geometry: LineSegmentsGeometry;
+    /** segments the geometry's buffers hold */
+    capacity: number;
+}
+
+function makeLineGeometry(capacity: number): LineSegmentsGeometry {
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions(new Float32Array(capacity * 6));
+    geometry.setColors(new Float32Array(capacity * 6));
+    return geometry;
+}
+
+function makeFillGeometry(triangles: number): BufferGeometry {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(new Float32Array(triangles * 9), 3));
+    geometry.setAttribute("color", new BufferAttribute(new Float32Array(triangles * 9), 3));
+    return geometry;
+}
+
+// LineSegmentsGeometry keeps each attribute in one interleaved buffer (start and end of a segment share it)
+function interleaved(geometry: LineSegmentsGeometry, name: string): InterleavedBuffer {
+    return (geometry.getAttribute(name) as InterleavedBufferAttribute).data;
+}
+
+/** Uploads only the floats this frame wrote, rather than the buffer's whole capacity. */
+function upload(buffer: InterleavedBuffer | BufferAttribute, floats: number): void {
+    buffer.clearUpdateRanges();
+    buffer.addUpdateRange(0, floats);
+    buffer.needsUpdate = true;
 }
 
 export class AvatarThree {
@@ -224,8 +296,12 @@ export class AvatarThree {
     // the packed scene already lives in a [-1,1] box, so the camera is exactly that box
     private camera = new OrthographicCamera(-1, 1, 1, -1, -10, 10);
     private batches: LineBatch[];
-    private fillGeometry = new BufferGeometry();
+    private fillCapacity = growCapacity(0, 0);
+    private fillGeometry = makeFillGeometry(this.fillCapacity);
     private fillMaterial: MeshBasicMaterial;
+    // the parsed colours, kept until the theme or the mood's tone actually changes
+    private pickKey = "";
+    private pick: TonePicker | null = null;
     private fillMesh: Mesh;
     private composer: EffectComposer | null = null;
     private bloomPass: UnrealBloomPass | null = null;
@@ -253,13 +329,14 @@ export class AvatarThree {
                 depthTest: false,
                 depthWrite: false,
             });
-            const geometry = new LineSegmentsGeometry();
+            const capacity = growCapacity(0, 0);
+            const geometry = makeLineGeometry(capacity);
             const lines = new LineSegments2(geometry, material);
             // the form is rebuilt every frame and its bounds are the camera box anyway; culling it can only
             // ever throw the whole avatar away on a stale bounding sphere
             lines.frustumCulled = false;
             this.scene.add(lines);
-            return { width, material, lines, geometry };
+            return { width, material, lines, geometry, capacity };
         });
 
         this.fillMaterial = new MeshBasicMaterial({
@@ -343,6 +420,13 @@ export class AvatarThree {
             return;
         }
 
+        const pickKey = colours.body + "|" + colours.hot + "|" + colours.marker;
+        if (this.pick == null || pickKey !== this.pickKey) {
+            this.pick = picker(colours);
+            this.pickKey = pickKey;
+        }
+        const pick = this.pick;
+
         for (const batch of this.batches) {
             const slice = scene.segments.filter((s) => s.width === batch.width);
             batch.lines.visible = slice.length > 0;
@@ -353,26 +437,47 @@ export class AvatarThree {
             if (slice.length === 0) {
                 continue;
             }
-            const packed = packLines(slice, size, colours);
-            // a fresh geometry per frame rather than a resized attribute: LineSegmentsGeometry builds
-            // instanced interleaved buffers, and the segment count changes with stutter
-            const next = new LineSegmentsGeometry();
-            next.setPositions(packed.positions);
-            next.setColors(packed.colors);
-            batch.geometry.dispose();
-            batch.geometry = next;
-            batch.lines.geometry = next;
+            // the segment count changes with stutter, so the buffers are sized with headroom and the draw
+            // is limited to this frame's count rather than the buffer's
+            const capacity = growCapacity(slice.length, batch.capacity);
+            if (capacity !== batch.capacity) {
+                const next = makeLineGeometry(capacity);
+                batch.geometry.dispose();
+                batch.geometry = next;
+                batch.lines.geometry = next;
+                batch.capacity = capacity;
+            }
+            const positions = interleaved(batch.geometry, "instanceStart");
+            const colors = interleaved(batch.geometry, "instanceColorStart");
+            const count = packLinesInto(
+                slice,
+                size,
+                pick,
+                positions.array as Float32Array,
+                colors.array as Float32Array
+            );
+            upload(positions, count * 6);
+            upload(colors, count * 6);
+            batch.geometry.instanceCount = count;
         }
 
-        const fills = packFills(scene.fills, size, colours);
-        this.fillMesh.visible = fills.triangles > 0;
-        if (fills.triangles > 0) {
-            const nextFill = new BufferGeometry();
-            nextFill.setAttribute("position", new BufferAttribute(fills.positions, 3));
-            nextFill.setAttribute("color", new BufferAttribute(fills.colors, 3));
-            this.fillGeometry.dispose();
-            this.fillGeometry = nextFill;
-            this.fillMesh.geometry = nextFill;
+        const triangles = fillTriangles(scene.fills);
+        this.fillMesh.visible = triangles > 0;
+        if (triangles > 0) {
+            const capacity = growCapacity(triangles, this.fillCapacity);
+            if (capacity !== this.fillCapacity) {
+                const next = makeFillGeometry(capacity);
+                this.fillGeometry.dispose();
+                this.fillGeometry = next;
+                this.fillMesh.geometry = next;
+                this.fillCapacity = capacity;
+            }
+            const positions = this.fillGeometry.getAttribute("position") as BufferAttribute;
+            const colors = this.fillGeometry.getAttribute("color") as BufferAttribute;
+            packFillsInto(scene.fills, size, pick, positions.array as Float32Array, colors.array as Float32Array);
+            upload(positions, triangles * 9);
+            upload(colors, triangles * 9);
+            this.fillGeometry.setDrawRange(0, triangles * 3);
         }
 
         if (this.bloomPass != null) {

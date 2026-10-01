@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
     BREATH_MS,
     breathPhase,
-    IDLE_FRAME_MS,
     idleOrbit,
     impulseEnvelope,
     nextFrameDelay,
@@ -146,20 +145,19 @@ describe("breathPhase", () => {
 });
 
 describe("nextFrameDelay", () => {
-    it("draws on the next display frame while something transient is moving", () => {
+    it("draws a moving avatar every display frame", () => {
+        // a lower idle rate visibly stepped the form's drift
+        expect(nextFrameDelay(false, false)).toBe(0);
         expect(nextFrameDelay(true, false)).toBe(0);
+    });
+
+    it("holds a still (reduced-motion) avatar to the still rate, on its intended frame", () => {
+        // the wait is followed by a requestAnimationFrame, which lands on the first display frame after it
+        const landsAt = (delay: number, frameMs = 1_000 / 60) => Math.ceil(delay / frameMs) * frameMs;
+        expect(landsAt(nextFrameDelay(false, true))).toBeCloseTo(STILL_FRAME_MS, -1);
+    });
+
+    it("redraws a still avatar at once when it is resized", () => {
         expect(nextFrameDelay(true, true)).toBe(0);
-    });
-
-    it("holds an idle avatar well under display rate", () => {
-        // the idle drift is a 48s turn and a 4s breath; drawing it at display rate cost a quarter of the
-        // UI thread and delayed keystrokes in every terminal
-        expect(nextFrameDelay(false, false)).toBe(IDLE_FRAME_MS);
-        expect(IDLE_FRAME_MS).toBeGreaterThanOrEqual(1_000 / 20);
-    });
-
-    it("holds a reduced-motion avatar to the slower still rate", () => {
-        expect(nextFrameDelay(false, true)).toBe(STILL_FRAME_MS);
-        expect(STILL_FRAME_MS).toBeGreaterThan(IDLE_FRAME_MS);
     });
 });
