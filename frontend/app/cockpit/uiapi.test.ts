@@ -11,6 +11,7 @@ import {
     parseSurfaceAddress,
     resolveAction,
     revealError,
+    revealWaitsForUser,
     selectionFor,
     toUiActions,
     USER_IDLE_MS,
@@ -170,6 +171,20 @@ describe("waitUntilIdle", () => {
         const c = fakeClock(10_000);
         expect(await waitUntilIdle({ ...c, lastKeyTs: () => 0, modalOpen: () => true })).toBe(false);
         expect(c.now()).toBeGreaterThanOrEqual(10_000 + BUSY_WAIT_MS);
+    });
+});
+
+describe("revealWaitsForUser", () => {
+    it("lets an agent attach its canvas while the user is busy", () => {
+        expect(revealWaitsForUser("canvas:dag-activity-rail", "b1")).toBe(false);
+        expect(revealWaitsForUser("canvas:t/States", "b1")).toBe(false);
+    });
+
+    it("waits when the reveal moves the user", () => {
+        // with no caller a canvas reveal jumps to the agent that has it open
+        expect(revealWaitsForUser("canvas:dag-activity-rail", undefined)).toBe(true);
+        expect(revealWaitsForUser("run:abc", "b1")).toBe(true);
+        expect(revealWaitsForUser("surface:files", "b1")).toBe(true);
     });
 });
 

@@ -27,6 +27,7 @@ import {
     parseSurfaceAddress,
     resolveAction,
     revealError,
+    revealWaitsForUser,
     selectionFor,
     toUiActions,
     waitUntilIdle,
@@ -57,7 +58,9 @@ class CockpitUiClient extends WshClient {
     }
 
     async handle_uireveal(rh: RpcResponseHelper, data: CommandUiRevealData): Promise<string> {
-        await this.waitForUser();
+        if (revealWaitsForUser(data.address, data.callerblockid)) {
+            await this.waitForUser();
+        }
         const surfaceTarget = parseSurfaceAddress(data.address);
         if (surfaceTarget != null) {
             if ("error" in surfaceTarget) {

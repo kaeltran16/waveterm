@@ -7,6 +7,7 @@
 
 import type { CommandItem } from "@/app/cockpit/palette-commands";
 import { SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
+import { parseAddress } from "@/app/view/jarvis/address";
 
 // mirrors wshutil.RouteId_Cockpit
 export const COCKPIT_ROUTE_ID = "cockpit";
@@ -137,6 +138,13 @@ export async function waitUntilIdle(deps: IdleDeps): Promise<boolean> {
         await deps.sleep(BUSY_POLL_MS);
     }
     return true;
+}
+
+// the busy wait keeps a reveal from moving the view under the user's hands. An agent's canvas reveal moves
+// nothing, it only attaches the canvas to that agent, so it lands at once; without a caller it jumps to the
+// canvas's agent and waits like any other move.
+export function revealWaitsForUser(address: string, callerBlockId: string | undefined): boolean {
+    return !(callerBlockId && parseAddress(address).kind === "canvas");
 }
 
 export function callerName(roster: readonly { blockId?: string; name: string }[], blockId: string | undefined): string {
