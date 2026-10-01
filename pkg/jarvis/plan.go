@@ -30,7 +30,11 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"package or the full suite: Verify runs those at each merge and in the final stage. " +
 	"An optional Final line, also one command in backticks, runs once on the merged result after every task landed and Check " +
 	"passed, with ARC_FINAL_OUT set to a directory for its screenshots and reports: exit 0 passes, exit 3 means it could not " +
-	"verify and its last output line says why, and any other exit fails the run. An optional Prototype line names the design " +
+	"verify and its last output line says why, and any other exit fails the run. " +
+	"Final is the only check of the running app: every behavior the spec says to check by hand or in the running app must be " +
+	"exercised by it, so a task that changes rendered UI adds or names the scenario that reaches that UI, and the Final line runs it. " +
+	"Never leave a check as manual: nobody in a run performs one. " +
+	"An optional Prototype line names the design " +
 	"canvas the result should match (a path, not in backticks; at most one), for the engine's final verifier. " +
 	"An optional Effort line, also before the first task, names the effort tracker (`effort:<oid>` or a bare oid, not in backticks; " +
 	"at most one). A task may then list `**Chunk:** <exact chunk label>` lines, one per chunk, directly after its Depends on line " +

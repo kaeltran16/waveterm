@@ -77,7 +77,8 @@ func TestPlanReviewPromptUnchangedWithoutPicks(t *testing.T) {
 		"- no two tasks edit the same file without a Depends between them, since tasks with nothing between them run at the same time;\n" +
 		"- types, functions and flags have the same names in every task that mentions them;\n" +
 		"- each task states its acceptance criteria and names the tests that prove them;\n" +
-		"- the commands the plan names (its Verify, Setup and Check lines, and those in its tasks) exist.\n" +
+		"- the commands the plan names (its Verify, Setup, Check and Final lines, and those in its tasks) exist;\n" +
+		"- every behavior the spec says to check by hand or in the running app is exercised by the Final command: a task that changes rendered UI adds or names the scenario that reaches it, and Final runs it. A manual check has no owner in a run, so a plan that leaves one is a finding.\n" +
 		"Also report gaps in the spec, and places where the spec and the plan contradict each other.\n" +
 		"Only read: never edit, stage or commit, and ask no questions, since nobody answers a reviewer.\n" +
 		"Finish with exactly one command, which ends your session:\n" +
