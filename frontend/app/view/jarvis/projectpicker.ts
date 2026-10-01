@@ -5,7 +5,6 @@
 // many projects cannot be chips, so the field opens a searchable list; the "where" beside each name is what
 // tells two same-named checkouts apart.
 
-import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import { rankProjects } from "./newrun";
 
 const DEFAULT_RECENT = 3;
@@ -65,22 +64,9 @@ export function projectWhere(path: string, home: string): string {
     return /^[a-z]:$/i.test(full) ? full + p.sep : full;
 }
 
-// Up to `limit` projects whose channels ran most recently, newest first. The channel is found the way a
-// launch finds it (resolveTargetChannel), so "recent" names the channel the run would actually land on.
-export function recentProjects(
-    projects: { name: string; path: string }[],
-    channels: Channel[],
-    limit = DEFAULT_RECENT
-): string[] {
-    return projects
-        .map((p) => {
-            const runs = resolveTargetChannel(channels, p.path)?.runs ?? [];
-            return { name: p.name, newest: runs.length === 0 ? null : Math.max(...runs.map((r) => r.createdts)) };
-        })
-        .filter((row) => row.newest != null)
-        .sort((a, b) => b.newest - a.newest)
-        .slice(0, limit)
-        .map((row) => row.name);
+// Up to `limit` of the projects most recently used (projectsstore's recentProjectsAtom), newest first.
+export function recentNames(names: string[], recent: string[], limit = DEFAULT_RECENT): string[] {
+    return (recent ?? []).filter((n) => names.includes(n)).slice(0, limit);
 }
 
 const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" });

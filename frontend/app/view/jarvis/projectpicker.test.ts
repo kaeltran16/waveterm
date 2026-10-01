@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { homeFromInfo, pickerSections, projectWhere, recentProjects } from "./projectpicker";
+import { homeFromInfo, pickerSections, projectWhere, recentNames } from "./projectpicker";
 
 describe("homeFromInfo", () => {
     const info = (over: Partial<FileInfo>) => ({ path: "~", dir: "C:/Users", name: "kael02", ...over }) as FileInfo;
@@ -77,36 +77,20 @@ describe("projectWhere", () => {
     });
 });
 
-describe("recentProjects", () => {
-    const run = (createdts: number) => ({ createdts }) as Run;
-    const ch = (projectpath: string, ...ts: number[]): Channel =>
-        ({ oid: projectpath, projectpath, runs: ts.map(run) }) as Channel;
-    const projects = [
-        { name: "a", path: "C:\\p\\a" },
-        { name: "b", path: "C:\\p\\b" },
-        { name: "c", path: "C:\\p\\c" },
-        { name: "d", path: "C:\\p\\d" },
-        { name: "idle", path: "C:\\p\\idle" },
-    ];
+describe("recentNames", () => {
+    const names = ["a", "b", "c", "d"];
 
-    it("orders projects by their channel's newest run, newest first", () => {
-        const channels = [ch("C:\\p\\a", 10, 50), ch("C:\\p\\b", 40), ch("C:\\p\\c", 30)];
-        expect(recentProjects(projects, channels)).toEqual(["a", "b", "c"]);
+    it("keeps the shared recent order, newest first", () => {
+        expect(recentNames(names, ["c", "a"])).toEqual(["c", "a"]);
     });
 
-    it("matches a channel across separator styles", () => {
-        expect(recentProjects(projects, [ch("C:/p/b", 5)])).toEqual(["b"]);
-    });
-
-    it("drops projects with no channel or a channel without runs", () => {
-        const channels = [ch("C:\\p\\a", 1), ch("C:\\p\\idle")];
-        expect(recentProjects(projects, channels)).toEqual(["a"]);
+    it("drops recent names that are no longer registered projects", () => {
+        expect(recentNames(names, ["gone", "b"])).toEqual(["b"]);
     });
 
     it("returns at most the limit, 3 by default", () => {
-        const channels = [ch("C:\\p\\a", 1), ch("C:\\p\\b", 2), ch("C:\\p\\c", 3), ch("C:\\p\\d", 4)];
-        expect(recentProjects(projects, channels)).toEqual(["d", "c", "b"]);
-        expect(recentProjects(projects, channels, 1)).toEqual(["d"]);
+        expect(recentNames(names, ["d", "c", "b", "a"])).toEqual(["d", "c", "b"]);
+        expect(recentNames(names, ["d", "c"], 1)).toEqual(["d"]);
     });
 });
 

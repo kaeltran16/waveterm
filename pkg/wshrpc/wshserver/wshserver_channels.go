@@ -6,11 +6,14 @@ package wshserver
 import (
 	"context"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -22,18 +25,33 @@ func (ws *WshServer) CreateChannelCommand(ctx context.Context, data wshrpc.Comma
 	// tell from the first. Mirrors wconfig.ProjectNameAtPath, which already refuses a second project at
 	// one path. Returning the existing channel rather than an error is deliberate — two windows racing
 	// the frontend's find-or-create both want the same end state, and an error there is a failed launch.
-	existing, err := wstore.ChannelAtPath(ctx, data.ProjectPath)
-	if err != nil {
-		return nil, fmt.Errorf("looking for this project's channel: %w", err)
+	if strings.TrimSpace(data.ProjectPath) == "" {
+		ch, err := wstore.CreateChannel(ctx, data.Name, "")
+		if err != nil {
+			return nil, fmt.Errorf("creating channel: %w", err)
+		}
+		return ch, nil
 	}
-	if existing != nil {
-		return existing, nil
-	}
-	ch, err := wstore.CreateChannel(ctx, data.Name, data.ProjectPath)
+	ch, err := wstore.EnsureChannelAtPath(ctx, data.Name, data.ProjectPath)
 	if err != nil {
 		return nil, fmt.Errorf("creating channel: %w", err)
 	}
 	return ch, nil
+}
+
+// SyncProjectChannels gives every registered project a channel, so the registry is the one project list:
+// surfaces that act on a channel (run defaults, autonomy, Jarvis replies) see a project before its first
+// run. Runs at startup and on every config change; idempotent. A failure is logged per project rather than
+// returned — one bad entry must not stop the rest, and the next config change retries it.
+func SyncProjectChannels(ctx context.Context, projects map[string]wconfig.ProjectKeywords) {
+	for name, p := range projects {
+		if strings.TrimSpace(p.Path) == "" {
+			continue
+		}
+		if _, err := wstore.EnsureChannelAtPath(ctx, name, p.Path); err != nil {
+			log.Printf("project %q: ensuring its channel: %v\n", name, err)
+		}
+	}
 }
 
 func (ws *WshServer) DeleteChannelCommand(ctx context.Context, data wshrpc.CommandDeleteChannelData) error {

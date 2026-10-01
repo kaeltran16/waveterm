@@ -18,8 +18,8 @@
 
 import { ModalShell } from "@/app/modals/modalshell";
 import { channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
-import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectlabel";
-import { projectsAtom } from "@/app/view/agents/projectsstore";
+import { channelProjectLabel } from "@/app/view/agents/projectlabel";
+import { projectListAtom, projectsAtom, rowsWithChannel, type ProjectRow } from "@/app/view/agents/projectsstore";
 import { RoutePicker } from "@/app/view/agents/routepicker";
 import {
     clearResolvedProfiles,
@@ -33,7 +33,7 @@ import { clampParallelism, DEFAULT_PARALLELISM } from "@/app/view/agents/runconf
 import { WorkerStepper } from "@/app/view/agents/runlauncher";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { briefUndo } from "./briefundo";
 import { GlobalPrinciplesEditor } from "./globalprincipleseditor";
 import { PrinciplesEditor, PROFILE_PANEL } from "./principleseditor";
@@ -77,15 +77,9 @@ const LANDINGS = [
 type Scope = "project" | "global";
 type Loaded = { global: JarvisProfile; override: ProfileOverride; diagnostics: PrincipleDiagnostic[] };
 
-// the chips name projects, the modal edits channels: map one to the other, keeping a colliding label
-// distinct so both channels stay reachable
-function channelOptionsOf(channels: Channel[] | null, projects: Record<string, ProjectKeywords>): Map<string, string> {
-    const options = new Map<string, string>();
-    for (const c of dedupeByProject(channels ?? [])) {
-        const label = channelProjectLabel(c, projects) || c.oid.slice(0, 8);
-        options.set(options.has(label) ? `${label} (${c.oid.slice(0, 8)})` : label, c.oid);
-    }
-    return options;
+// the chips name projects, the modal edits channels: project name -> its channel's oid
+function channelOptionsOf(rows: ProjectRow[]): Map<string, string> {
+    return new Map(rowsWithChannel(rows).map((r) => [r.name, r.channel.oid]));
 }
 
 // one row of the run-defaults panel: the label with its explanation, the control, and a right-hand cell
@@ -335,6 +329,9 @@ export function BriefProfileModal({
 }) {
     const channels = useAtomValue(channelsAtom);
     const projects = useAtomValue(projectsAtom);
+    const rows = useAtomValue(projectListAtom);
+    // memoized: the effects below key on it, and a fresh Map per render would refetch every override
+    const channelOptions = useMemo(() => channelOptionsOf(rows), [rows]);
     const [channelId, setChannelId] = useState(initialChannelId);
     const [scope, setScope] = useState<Scope>("project");
     const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -353,16 +350,17 @@ export function BriefProfileModal({
         }
     }, [open]);
 
-    const noProjects = channels != null && channels.length === 0;
+    const noProjects = channels != null && channelOptions.size === 0;
 
     useEffect(() => {
-        if (!open || channels == null || channels.length === 0) {
+        const first = channelOptions.values().next().value;
+        if (!open || first == null) {
             return;
         }
-        if (channelId === "" || !channels.some((c) => c.oid === channelId)) {
-            setChannelId(channels[0].oid);
+        if (channelId === "" || ![...channelOptions.values()].includes(channelId)) {
+            setChannelId(first);
         }
-    }, [open, channels, channelId]);
+    }, [open, channelOptions, channelId]);
 
     // with no projects there is no override to edit, so global is the only scope that means anything.
     useEffect(() => {
@@ -421,7 +419,7 @@ export function BriefProfileModal({
         fireAndForget(async () => {
             try {
                 const list = await Promise.all(
-                    [...channelOptionsOf(channels, projects)].map(async ([name, oid]) => ({
+                    [...channelOptions].map(async ([name, oid]) => ({
                         name,
                         override: (await getJarvisProfile(oid)).override ?? {},
                     }))
@@ -438,7 +436,7 @@ export function BriefProfileModal({
         return () => {
             live = false;
         };
-    }, [open, scope, channels, projects]);
+    }, [open, scope, channels, channelOptions]);
 
     if (!open) {
         return null;
@@ -539,7 +537,6 @@ export function BriefProfileModal({
             </DefaultRow>
         ) : null;
 
-    const channelOptions = channelOptionsOf(channels, projects);
     const pickedLabel = [...channelOptions].find(([, oid]) => oid === channelId)?.[0] ?? null;
     const projectLabel = channelProjectLabel(channel, projects) || "project";
 

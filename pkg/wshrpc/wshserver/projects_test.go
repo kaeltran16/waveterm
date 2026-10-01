@@ -10,6 +10,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func TestCreateProjectCommandRejectsMissingPath(t *testing.T) {
@@ -35,10 +36,16 @@ func TestCreateProjectCommandRejectsEmptyName(t *testing.T) {
 func TestCreateProjectCommandWritesValid(t *testing.T) {
 	wavebase.ConfigHome_VarCache = t.TempDir()
 	ws := &WshServer{}
+	dir := t.TempDir()
 	if err := ws.CreateProjectCommand(context.Background(), wshrpc.CommandCreateProjectData{
-		Name: "proj", Path: t.TempDir(),
+		Name: "proj", Path: dir,
 	}); err != nil {
 		t.Fatalf("expected success, got %v", err)
+	}
+	// the channel exists when the command returns, so the caller's channel refresh finds the new project
+	ch, err := wstore.ChannelAtPath(context.Background(), dir)
+	if err != nil || ch == nil {
+		t.Fatalf("no channel for the registered project (err %v)", err)
 	}
 }
 

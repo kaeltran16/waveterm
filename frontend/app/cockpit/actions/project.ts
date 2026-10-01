@@ -1,7 +1,10 @@
 import { globalStore } from "@/app/store/jotaiStore";
-import { channelsAtom } from "@/app/view/agents/channelsstore";
-import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectlabel";
-import { confirmRemoveProject, projectsAtom } from "@/app/view/agents/projectsstore";
+import {
+    confirmRemoveProject,
+    projectListAtom,
+    rowsWithChannel,
+    type ProjectRow,
+} from "@/app/view/agents/projectsstore";
 import { briefProfileAtom } from "@/app/view/jarvis/jarvisstore";
 import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
 import { openTarget } from "@/app/view/jarvis/openref";
@@ -10,24 +13,16 @@ import type { ThingEntry, ThingKindDef } from "./types";
 
 export interface ProjectThing {
     channel: Channel;
-    name: string; // the name the project is shown and registered under
-    registered: boolean; // in projects.json, so removable (the switcher's `registered`)
+    name: string; // the name the project is registered and shown under
 }
 
 // one entry per project, as the palette's project rows
-export function projectEntries(
-    channels: Channel[],
-    projects: Record<string, ProjectKeywords>
-): ThingEntry<ProjectThing>[] {
-    const registered = new Set(Object.keys(projects ?? {}));
-    return dedupeByProject(channels).map((channel) => {
-        const name = channelProjectLabel(channel, projects);
-        return {
-            key: `channel:${channel.oid}`,
-            title: `#${name}`,
-            thing: { channel, name, registered: registered.has(name) },
-        };
-    });
+export function projectEntries(rows: ProjectRow[]): ThingEntry<ProjectThing>[] {
+    return rowsWithChannel(rows).map(({ name, channel }) => ({
+        key: `channel:${channel.oid}`,
+        title: `#${name}`,
+        thing: { channel, name },
+    }));
 }
 
 export const PROJECT_KIND: ThingKindDef<ProjectThing> = {
@@ -68,9 +63,9 @@ export const PROJECT_KIND: ThingKindDef<ProjectThing> = {
             label: "Remove",
             group: "stop",
             destructive: true,
-            applies: (p) => p.registered,
+            applies: () => true,
             run: (p, { model }) => confirmRemoveProject(model, p.name),
         },
     ],
-    entries: (get) => projectEntries(get(channelsAtom) ?? [], get(projectsAtom)),
+    entries: (get) => projectEntries(get(projectListAtom)),
 };

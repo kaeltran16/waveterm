@@ -66,28 +66,3 @@ export function channelProjectLabel(
     }
     return channel.name || channel.oid;
 }
-
-// One row per project for any list a user picks from. CreateChannelCommand is idempotent per path from
-// Task 7 on, but channels created before that are still out there, and two rows carrying one project's
-// name is exactly the confusion this work removes. First wins, which is newest: GetChannels sorts by
-// CreatedTs descending and channelsAtom preserves that order, so this agrees with resolveTargetChannel
-// and with the server's own ChannelAtPath rather than quietly picking a different duplicate.
-export function dedupeByProject(channels: Channel[]): Channel[] {
-    const seen = new Set<string>();
-    const out: Channel[] = [];
-    for (const c of channels) {
-        const path = c.projectpath ?? "";
-        if (path === "") {
-            // nothing to collapse onto: a pathless channel is not "a project", so it keeps its own row
-            out.push(c);
-            continue;
-        }
-        const key = normProjectPath(path);
-        if (seen.has(key)) {
-            continue;
-        }
-        seen.add(key);
-        out.push(c);
-    }
-    return out;
-}

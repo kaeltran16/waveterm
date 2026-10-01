@@ -30,7 +30,6 @@ import {
     isQuiet,
     isRecentlyIdle,
     latestMessageText,
-    liveProjectsForLaunch,
     liveWindowAgents,
     mergeOrder,
     mergePendingLaunches,
@@ -126,30 +125,6 @@ describe("burstRenderMode", () => {
     });
     it("keeps the streaming path un-animated even if the burst was also user-opened (anti-strobe)", () => {
         expect(burstRenderMode({ userOpened: true, autoOpen: true })).toBe("open");
-    });
-});
-
-describe("liveProjectsForLaunch", () => {
-    it("returns one representative transcriptPath per project, name-sorted", () => {
-        const agents = [
-            mk("1", "working", { project: "vault", transcriptPath: "/v/a.jsonl" }),
-            mk("2", "asking", { project: "vault", transcriptPath: "/v/b.jsonl" }),
-            mk("3", "idle", { project: "docs", transcriptPath: "/d/a.jsonl" }),
-        ];
-        expect(liveProjectsForLaunch(agents)).toEqual([
-            { name: "docs", transcriptPath: "/d/a.jsonl" },
-            { name: "vault", transcriptPath: "/v/a.jsonl" },
-        ]);
-    });
-    it("prefers an agent that has a transcriptPath", () => {
-        const agents = [
-            mk("1", "working", { project: "vault" }), // no transcriptPath
-            mk("2", "working", { project: "vault", transcriptPath: "/v/b.jsonl" }),
-        ];
-        expect(liveProjectsForLaunch(agents)).toEqual([{ name: "vault", transcriptPath: "/v/b.jsonl" }]);
-    });
-    it("skips agents with no resolvable project", () => {
-        expect(liveProjectsForLaunch([mk("1", "working")])).toEqual([]);
     });
 });
 

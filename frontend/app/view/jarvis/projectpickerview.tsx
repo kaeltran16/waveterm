@@ -9,19 +9,19 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { stepPick } from "./newrun";
-import { homeFromInfo, pickerSections, projectWhere, recentProjects } from "./projectpicker";
+import { homeFromInfo, pickerSections, projectWhere, recentNames } from "./projectpicker";
 
 const GROUP_LABEL = "px-3 pb-0.5 pt-2 font-mono text-[10px] uppercase tracking-[.08em] text-muted";
 
 export function ProjectPicker({
     projects,
-    channels,
+    recent,
     picked,
     onPick,
     onRegister,
 }: {
     projects: { name: string; path: string }[];
-    channels: Channel[] | null;
+    recent: string[];
     picked: string | null;
     onPick: (name: string) => void;
     onRegister: () => void;
@@ -78,7 +78,7 @@ export function ProjectPicker({
     const pathOf = new Map(projects.map((p) => [p.name, p.path]));
     const whereOf = (name: string) => projectWhere(pathOf.get(name) ?? "", home);
     const names = projects.map((p) => p.name);
-    const sections = pickerSections(names, recentProjects(projects, channels ?? []), query, whereOf);
+    const sections = pickerSections(names, recentNames(names, recent), query, whereOf);
     const visible = [...sections.recent, ...sections.rest];
 
     const openList = () => {

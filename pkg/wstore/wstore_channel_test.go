@@ -185,3 +185,21 @@ func TestGetRunsByStatus(t *testing.T) {
 		t.Fatalf("no statuses: want nothing, got %v %v", none, err)
 	}
 }
+
+func TestEnsureChannelAtPathCreatesOnceAndRefusesNoPath(t *testing.T) {
+	ctx := context.Background()
+	first, err := EnsureChannelAtPath(ctx, "ensure", "/repo/ensure")
+	if err != nil {
+		t.Fatalf("first ensure: %v", err)
+	}
+	second, err := EnsureChannelAtPath(ctx, "ensure renamed", `\repo\ensure\`)
+	if err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+	if second.OID != first.OID || second.Name != "ensure" {
+		t.Fatalf("second ensure = %s %q, want the existing %s \"ensure\"", second.OID, second.Name, first.OID)
+	}
+	if _, err := EnsureChannelAtPath(ctx, "none", ""); err == nil {
+		t.Fatalf("ensure with no path succeeded; a pathless channel is not a project's")
+	}
+}

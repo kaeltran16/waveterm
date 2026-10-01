@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { DivergenceBanner } from "./focusbanner";
 import { subjectDecision } from "./focussubject";
-import { projectsAtom } from "./projectsstore";
+import { projectListAtom, projectsAtom } from "./projectsstore";
 import { RadarFindingDetail, runPrimaryAction } from "./radarfindingdetail";
 import { RadarFindingsList } from "./radarfindingslist";
 import {
@@ -25,7 +25,6 @@ import {
     lensTabs,
     MODE_META,
     primaryAction,
-    projectsWithPath,
     radarLoadPhase,
     rescanLabel,
     resolveLens,
@@ -72,9 +71,8 @@ const POPOVER =
 // project but explicitly selectable here so the surface is self-contained. Reuses the project registry —
 // no second path validator.
 function ScopeSelector({ scope, onSelect }: { scope: RadarScope | null; onSelect: (s: RadarScope) => void }) {
-    const projects = useAtomValue(projectsAtom);
+    const entries = useAtomValue(projectListAtom);
     const [open, setOpen] = useState(false);
-    const entries = projectsWithPath(projects);
 
     return (
         <div className="relative">
@@ -95,12 +93,12 @@ function ScopeSelector({ scope, onSelect }: { scope: RadarScope | null; onSelect
                 {entries.length === 0 ? (
                     <div className="px-2 py-3 text-center text-xs text-muted">No registered projects.</div>
                 ) : (
-                    entries.map(([name, v]) => (
+                    entries.map(({ name, path }) => (
                         <button
                             key={name}
                             type="button"
                             onClick={() => {
-                                onSelect({ name, path: v.path });
+                                onSelect({ name, path });
                                 setOpen(false);
                             }}
                             className={cn(

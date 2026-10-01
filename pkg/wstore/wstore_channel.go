@@ -95,6 +95,25 @@ func CreateChannel(ctx context.Context, name, projectPath string) (*waveobj.Chan
 	return ch, nil
 }
 
+// EnsureChannelAtPath returns projectPath's channel, creating it if there is none. The lookup and the insert
+// share one write transaction and writes serialize on one connection, so callers racing for a new project's
+// channel (a launch and the registry sync) end up with the same one rather than two.
+func EnsureChannelAtPath(ctx context.Context, name, projectPath string) (*waveobj.Channel, error) {
+	if normProjectPath(projectPath) == "" {
+		return nil, fmt.Errorf("a project channel needs a project path")
+	}
+	return WithTxRtn(ctx, func(tx *TxWrap) (*waveobj.Channel, error) {
+		existing, err := ChannelAtPath(tx.Context(), projectPath)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			return existing, nil
+		}
+		return CreateChannel(tx.Context(), name, projectPath)
+	})
+}
+
 func DeleteChannel(ctx context.Context, channelId string) error {
 	return DBDelete(ctx, waveobj.OType_Channel, channelId)
 }

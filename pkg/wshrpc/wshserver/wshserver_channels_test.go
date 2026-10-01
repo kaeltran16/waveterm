@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -104,5 +105,52 @@ func TestCreateChannelCommandStillCreatesWithoutAProject(t *testing.T) {
 	}
 	if a.OID == b.OID {
 		t.Fatalf("two pathless channels collapsed onto %s; a pathless channel is not a project", a.OID)
+	}
+}
+
+func channelsAt(t *testing.T, path string) int {
+	t.Helper()
+	chans, err := wstore.GetChannels(context.Background())
+	if err != nil {
+		t.Fatalf("GetChannels: %v", err)
+	}
+	n := 0
+	for _, ch := range chans {
+		if wstore.MatchChannelAtPath([]*waveobj.Channel{ch}, path) != nil {
+			n++
+		}
+	}
+	return n
+}
+
+func TestSyncProjectChannelsGivesEachRegisteredProjectOneChannel(t *testing.T) {
+	ctx := context.Background()
+	ws := &WshServer{}
+	existing, err := ws.CreateChannelCommand(ctx, wshrpc.CommandCreateChannelData{Name: "ran-before", ProjectPath: "/sync/ran-before"})
+	if err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	projects := map[string]wconfig.ProjectKeywords{
+		"ran-before": {Path: "/sync/ran-before"},
+		"never-ran":  {Path: "/sync/never-ran"},
+		"no-path":    {},
+	}
+
+	SyncProjectChannels(ctx, projects)
+	SyncProjectChannels(ctx, projects) // the watcher fires on every config change, so it must be idempotent
+
+	if n := channelsAt(t, "/sync/never-ran"); n != 1 {
+		t.Fatalf("never-ran has %d channels, want 1", n)
+	}
+	if n := channelsAt(t, "/sync/ran-before"); n != 1 {
+		t.Fatalf("ran-before has %d channels, want 1 (the existing one)", n)
+	}
+	got, err := wstore.ChannelAtPath(ctx, "/sync/ran-before")
+	if err != nil || got == nil || got.OID != existing.OID {
+		t.Fatalf("ran-before's channel = %v (err %v), want the existing %s", got, err, existing.OID)
+	}
+	created, err := wstore.ChannelAtPath(ctx, "/sync/never-ran")
+	if err != nil || created == nil || created.Name != "never-ran" {
+		t.Fatalf("never-ran's channel = %v (err %v), want one named after the project", created, err)
 	}
 }

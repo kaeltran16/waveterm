@@ -22,8 +22,8 @@ import { activeChannelAtom, channelsAtom, primeChannels } from "@/app/view/agent
 import { docReviewAtom } from "@/app/view/agents/docreview";
 import { activeFocusAtom, enterFocusFor, exitFocus, focusesAtom, loadFocuses } from "@/app/view/agents/focusstore";
 import type { Runtime } from "@/app/view/agents/launch";
-import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectlabel";
-import { projectsAtom } from "@/app/view/agents/projectsstore";
+import { channelProjectLabel } from "@/app/view/agents/projectlabel";
+import { projectListAtom, projectsAtom, recentProjectsAtom, rowsWithChannel } from "@/app/view/agents/projectsstore";
 import { createRun, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
 import type { RunShape } from "@/app/view/agents/runconfig";
 import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
@@ -42,7 +42,7 @@ import {
 } from "@/app/view/code/codestore";
 import { buildBriefIndex, rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
 import { workOnInitiative } from "@/app/view/jarvis/initiativeworkaction";
-import { lastPickedProjectAtom, newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
+import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
 import { openAddress, openTarget } from "@/app/view/jarvis/openref";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { sameRepoPath } from "@/util/paths";
@@ -230,7 +230,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const channels = useAtomValue(channelsAtom);
     const runs = useAtomValue(allRunsAtom);
     const attention = useAtomValue(attentionAtom);
-    const lastPicked = useAtomValue(lastPickedProjectAtom);
+    const recentProjects = useAtomValue(recentProjectsAtom);
+    const projectRows = useAtomValue(projectListAtom);
     const projects = useAtomValue(projectsAtom);
     const spaces = useAtomValue(focusesAtom);
     const activeSpace = useAtomValue(activeFocusAtom);
@@ -293,8 +294,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }
     }, [open, channels]);
 
-    // the active project, else the one last started in, else the only one
-    const homeChannel = palettePickChannel(channel, channels, lastPicked, (c) => channelProjectLabel(c, projects));
+    // the active project, else the one last used, else the only one
+    const homeChannel = palettePickChannel(channel, projectRows, recentProjects[0] ?? null);
 
     // Each open starts fresh on the surface's own scope, and focuses the input after paint.
     useEffect(() => {
@@ -646,8 +647,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     // Enter switches the active project and opens it.
     const channelItems = useMemo<PaletteItem[]>(
         () =>
-            dedupeByProject(channels ?? []).map((c) => {
-                const name = channelProjectLabel(c, projects);
+            rowsWithChannel(projectRows).map(({ name, channel: c }) => {
                 const current = c.oid === channel?.oid;
                 return {
                     key: `channel:${c.oid}`,
@@ -663,7 +663,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                     },
                 };
             }),
-        [channels, channel, model, projects]
+        [projectRows, channel, model]
     );
 
     // Records and initiatives, archived ones included. briefpalette owns the index and the ranking (it

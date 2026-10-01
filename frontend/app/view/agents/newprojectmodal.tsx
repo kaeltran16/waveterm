@@ -4,11 +4,10 @@
 import { DialogButton } from "@/app/modals/dialogbutton";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
+import { registerProject } from "./projectsstore";
 
 export function NewProjectModal({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(model.newProjectOpenAtom);
@@ -27,7 +26,7 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
             return;
         }
         try {
-            await RpcApi.CreateProjectCommand(TabRpcClient, { name: name.trim(), path: path.trim() });
+            await registerProject(name.trim(), path.trim());
             globalStore.set(model.projectFilterAtom, name.trim());
             close();
         } catch (e) {

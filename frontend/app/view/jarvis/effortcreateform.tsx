@@ -7,7 +7,7 @@
 import { ModalShell } from "@/app/modals/modalshell";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { projectsAtom } from "@/app/view/agents/projectsstore";
+import { projectListAtom } from "@/app/view/agents/projectsstore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Fragment, useEffect, useState } from "react";
@@ -61,7 +61,7 @@ export function EffortCreateForm({
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [titleError, setTitleError] = useState<string | null>(null);
-    const projects = useAtomValue(projectsAtom);
+    const projects = useAtomValue(projectListAtom);
 
     // re-parse on text change, keeping ticks by label so a tick survives edits elsewhere in the list
     useEffect(() => {
@@ -168,7 +168,7 @@ export function EffortCreateForm({
                     <span className={fieldLabel}>Project</span>
                     {/* the project is optional, so pressing the picked chip again clears it */}
                     <ProjectChips
-                        names={Object.keys(projects ?? {})}
+                        names={projects.map((p) => p.name)}
                         picked={project || null}
                         recent={null}
                         onPick={(name) => setProject((cur) => (cur === name ? "" : name))}

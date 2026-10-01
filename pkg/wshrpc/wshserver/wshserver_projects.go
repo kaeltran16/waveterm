@@ -14,6 +14,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func (ws *WshServer) CreateProjectCommand(ctx context.Context, data wshrpc.CommandCreateProjectData) error {
@@ -46,7 +47,15 @@ func (ws *WshServer) CreateProjectCommand(ctx context.Context, data wshrpc.Comma
 	if other, ok := wconfig.ProjectNameAtPath(path); ok && other != name {
 		return fmt.Errorf("path is already registered as project %q: %s", other, path)
 	}
-	return wconfig.SetProjectConfigValue(name, waveobj.MetaMapType{"path": path})
+	if err := wconfig.SetProjectConfigValue(name, waveobj.MetaMapType{"path": path}); err != nil {
+		return err
+	}
+	// the config watcher would make the channel too, but asynchronously; the caller refreshes its channel
+	// list as soon as this returns and must find the new project's channel there
+	if _, err := wstore.EnsureChannelAtPath(ctx, name, path); err != nil {
+		return fmt.Errorf("registered project %q, but creating its channel failed: %w", name, err)
+	}
+	return nil
 }
 
 func (ws *WshServer) DeleteProjectCommand(ctx context.Context, data wshrpc.CommandDeleteProjectData) error {

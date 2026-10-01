@@ -16,8 +16,6 @@ import { Check, Plus, SquareTerminal, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
-import { agentCwd } from "./agentcwd";
-import { liveProjectsForLaunch } from "./agentsviewmodel";
 import {
     composeStartupCommand,
     deriveBranch,
@@ -30,9 +28,9 @@ import {
     worktreeOutcome,
     type Runtime,
 } from "./launch";
-import { naFlagsAtom, naRecentProjectsAtom, naRememberFlagsAtom } from "./naflagsstore";
+import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { harnessPreferenceAtom, harnessesAtom, resolveDefaultRuntime } from "./harnessstore";
-import { launchCandidates, projectsAtom, pushRecentProject, recentFirst, type LaunchCandidate } from "./projectsstore";
+import { noteRecentProject, projectListAtom, recentFirst, recentProjectsAtom } from "./projectsstore";
 import { RuntimeMark } from "./runtimemark";
 
 const RUNTIMES: { id: Runtime; name: string }[] = [
@@ -45,15 +43,12 @@ const RUNTIMES: { id: Runtime; name: string }[] = [
 
 const LABEL = "font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted";
 
-const CWD_TAIL_LINES = 200;
-
 export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(model.newAgentOpenAtom);
-    const registry = useAtomValue(projectsAtom);
-    const agents = useAtomValue(model.agentsAtom);
+    const rows = useAtomValue(projectListAtom);
     const naFlags = useAtomValue(naFlagsAtom);
     const remember = useAtomValue(naRememberFlagsAtom);
-    const recentProjects = useAtomValue(naRecentProjectsAtom);
+    const recentProjects = useAtomValue(recentProjectsAtom);
     const harnesses = useAtomValue(harnessesAtom);
     const [runtime, setRuntime] = useState<Runtime>("claude");
     const [project, setProject] = useState<string>("");
@@ -67,7 +62,6 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const [currentBranch, setCurrentBranch] = useState("");
     const [branches, setBranches] = useState<BranchInfo[]>([]);
     const [branchListOpen, setBranchListOpen] = useState(false);
-    const [resolvedPaths, setResolvedPaths] = useState<Record<string, string>>({});
     const [error, setError] = useState<string | null>(null);
     const reqIdRef = useRef(0);
     const launchingRef = useRef(false);
@@ -86,17 +80,12 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             setStartup(runtimeStartupCommand(chosen as Runtime));
         }
     }, [open]);
-    // Launcher targets mirror the project switcher: registered projects ∪ live-derived ones, with the
-    // most recently launched first so the last one is the default.
-    const candidates = useMemo(
-        () => recentFirst(launchCandidates(registry, liveProjectsForLaunch(agents)), recentProjects),
-        [registry, agents, recentProjects]
-    );
+    // the one project list, most recently used first so the last one is the default
+    const candidates = useMemo(() => recentFirst(rows, recentProjects), [rows, recentProjects]);
     const offeredRuntimes = RUNTIMES.filter((r) => isRuntimeOffered(r.id, harnesses));
-    const pathFor = (c: LaunchCandidate | undefined): string => (c ? c.path || resolvedPaths[c.name] || "" : "");
     const selectedProject = project || candidates[0]?.name || "";
     const selectedCandidate = candidates.find((c) => c.name === selectedProject);
-    const selectedPath = pathFor(selectedCandidate);
+    const selectedPath = selectedCandidate?.path ?? "";
     const branchNames = branches.map((b) => b.name);
     // The field shows the project's current branch until the user types/picks their own.
     const effectiveBranch = branchEdited ? branch : currentBranch;
@@ -120,47 +109,6 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
         setError(null);
         reqIdRef.current++;
     };
-    // Resolve a launch cwd for live (un-registered) projects from a representative agent's transcript
-    // (the same source the Files surface uses). Registered projects already carry a stored path.
-    useEffect(() => {
-        if (!open) {
-            return;
-        }
-        const todo = candidates.filter((c) => !c.registered && !c.path && c.transcriptPath && !(c.name in resolvedPaths));
-        if (todo.length === 0) {
-            return;
-        }
-        let cancelled = false;
-        void Promise.all(
-            todo.map(async (c) => {
-                try {
-                    const rtn = await RpcApi.GetAgentTranscriptCommand(TabRpcClient, {
-                        path: c.transcriptPath!,
-                        maxlines: CWD_TAIL_LINES,
-                    });
-                    return [c.name, agentCwd(rtn?.lines ?? []) ?? ""] as const;
-                } catch {
-                    return [c.name, ""] as const;
-                }
-            })
-        ).then((pairs) => {
-            if (cancelled) {
-                return;
-            }
-            setResolvedPaths((prev) => {
-                const next = { ...prev };
-                for (const [name, p] of pairs) {
-                    next[name] = p;
-                }
-                return next;
-            });
-        });
-        return () => {
-            cancelled = true;
-        };
-        // resolvedPaths is read for the dedup filter but kept out of deps: the merge is functional and
-        // re-running on every resolution would loop.
-    }, [open, candidates]);
     // Pull the project's branches (recency-ordered) for the worktree-branch suggestions. Terminal
     // runtime and non-repo projects degrade to free-text (empty list).
     useEffect(() => {
@@ -224,7 +172,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             return;
         }
         const c = candidates.find((p) => p.name === selectedProject);
-        const path = pathFor(c);
+        const path = c?.path ?? "";
         if (!c || !path) {
             setError("Couldn't find a folder for this project. Add it via + New project.");
             return;
@@ -239,10 +187,6 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
         }
         launchingRef.current = true;
         try {
-            // Persist live-derived projects on first launch so they become stable, registered targets.
-            if (!c.registered) {
-                await RpcApi.CreateProjectCommand(TabRpcClient, { name: c.name, path });
-            }
             await launchAgent(model, {
                 runtime,
                 startupCommand: composeStartupCommand(startup, runtime, runtimeFlags),
@@ -255,7 +199,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             if (!globalStore.get(naRememberFlagsAtom)) {
                 globalStore.set(naFlagsAtom, {});
             }
-            globalStore.set(naRecentProjectsAtom, pushRecentProject(globalStore.get(naRecentProjectsAtom), c.name));
+            noteRecentProject(c.name);
             setTask("");
             setTaskOpen(false);
             close();
@@ -337,21 +281,17 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                                 <div className="flex max-h-[236px] flex-col gap-px overflow-y-auto">
                                     {candidates.map((p) => {
                                         const sel = selectedProject === p.name;
-                                        const failed = !p.registered && p.name in resolvedPaths && !resolvedPaths[p.name];
-                                        const resolving = !p.registered && !pathFor(p) && !failed;
                                         return (
                                             <button
                                                 key={p.name}
                                                 type="button"
                                                 role="radio"
                                                 aria-checked={sel}
-                                                disabled={failed}
                                                 onClick={() => setProject(p.name)}
-                                                title={failed ? "No working directory found for this project" : pathFor(p) || undefined}
+                                                title={p.path}
                                                 className={cn(
-                                                    "flex items-center gap-[10px] rounded-[7px] p-2 text-left",
-                                                    failed ? "cursor-not-allowed opacity-40" : "cursor-pointer",
-                                                    sel ? "bg-surface-selected" : failed ? "" : "hover:bg-surface-hover"
+                                                    "flex cursor-pointer items-center gap-[10px] rounded-[7px] p-2 text-left",
+                                                    sel ? "bg-surface-selected" : "hover:bg-surface-hover"
                                                 )}
                                             >
                                                 <span
@@ -362,7 +302,6 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                                                 >
                                                     {p.name}
                                                 </span>
-                                                {resolving ? <span className="font-mono text-[10.5px] text-muted">…</span> : null}
                                             </button>
                                         );
                                     })}

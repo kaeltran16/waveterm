@@ -14,9 +14,10 @@ import { computeEntrances, initialEntranceState, MOTION, paneReveal, popoverReve
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
-import { activeChannelAtom, channelsAtom } from "@/app/view/agents/channelsstore";
+import { activeChannelAtom } from "@/app/view/agents/channelsstore";
 import { InlineMarkdown } from "@/app/view/agents/inlinemarkdown";
 import { MarkdownMessage } from "@/app/view/agents/markdownmessage";
+import { projectListAtom, rowsWithChannel } from "@/app/view/agents/projectsstore";
 import { cn, fireAndForget } from "@/util/util";
 import { autoUpdate, FloatingFocusManager, offset, shift, useFloating, type Placement } from "@floating-ui/react";
 import { useAtomValue } from "jotai";
@@ -27,6 +28,7 @@ import {
     useEffect,
     useId,
     useLayoutEffect,
+    useMemo,
     useRef,
     useState,
     type KeyboardEvent,
@@ -458,7 +460,9 @@ export function PetPeek({
     const said = useAtomValue(petSaidAtom);
     const items = useAtomValue(attentionAtom);
     const agents = useAtomValue(model.agentsAtom);
-    const channels = useAtomValue(channelsAtom);
+    // one channel per project in the shared list: the reply goes to a project, never a leftover channel
+    const projectRows = useAtomValue(projectListAtom);
+    const channels = useMemo(() => rowsWithChannel(projectRows).map((r) => r.channel), [projectRows]);
     const activeChannel = useAtomValue(activeChannelAtom);
     const picked = useAtomValue(petPeekDestAtom);
     const now = useAtomValue(model.nowAtom);
