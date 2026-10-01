@@ -4,8 +4,6 @@
 package jarvis
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -17,13 +15,9 @@ import (
 func TestResolveGatekeeperPrinciplesFreshPerAsk(t *testing.T) {
 	dir := t.TempDir()
 	withConfigHome(t, dir)
-	path := filepath.Join(dir, globalProfileFileName)
 	write := func(text string) {
 		t.Helper()
-		body := `{"principles":[{"id":"live","text":"` + text + `"}]}`
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		writeVaultProfile(t, dir, `{"principles":[{"id":"live","text":"`+text+`"}]}`)
 	}
 
 	write("first")

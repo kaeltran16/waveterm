@@ -25,7 +25,7 @@ type JarvisCommands interface {
 	ListDetachedEdgesCommand(ctx context.Context, data CommandListDetachedEdgesData) (*CommandListDetachedEdgesRtnData, error)             // the human-suppressed edges for one dossier or one run, so a detach can be undone
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error)                // read a channel's Jarvis profile (global + per-project override + resolved)
 	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                                           // read the global Jarvis profile (builtins if unset)
-	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                                   // write the global Jarvis profile to jarvis-profile.json
+	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                                   // write the global Jarvis profile to the vault's config/jarvis-profile.json
 	ListHarnessesCommand(ctx context.Context) (*CommandListHarnessesRtnData, error)                                                        // installed coding-agent harnesses (catalog); excludes API-only backends like OpenRouter
 	// RefreshRouteCatalogCommand clears the cached run-route model catalog; the next
 	// ListHarnessesCommand re-enumerates from the installed harnesses.

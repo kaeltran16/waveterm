@@ -277,6 +277,14 @@ func main() {
 		log.Printf("error initializing wstore: %v\n", err)
 		return
 	}
+	// before the first config read (the watcher inits lazily) and before the efforts, which resolve the vault from config
+	wconfig.OnVaultLayerWrite = wavevault.Poke
+	if err := wconfig.MigrateSettingsToVault(); err != nil {
+		log.Printf("error migrating settings to the vault: %v\n", err)
+	}
+	if err := jarvis.MigrateGlobalProfile(); err != nil {
+		log.Printf("error migrating the jarvis profile to the vault: %v\n", err)
+	}
 	if n, err := effortstore.MigrateFromDB(context.Background()); err != nil {
 		log.Printf("error migrating efforts to the vault (moved %d): %v\n", n, err)
 	} else if n > 0 {

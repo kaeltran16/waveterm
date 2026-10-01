@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
 )
 
 // SettingsSyncPath is the vault's settings layer, the one file sync merges key by key.
-const SettingsSyncPath = "config/settings.json"
+const SettingsSyncPath = wconfig.VaultConfigDir + "/" + wconfig.SettingsFile
 
 // MergeSettings three-way merges two versions of the vault settings file against their common
 // ancestor (base, nil when there is none). Per key: changed on one side → that side, a deletion

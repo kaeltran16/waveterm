@@ -12,8 +12,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wavevault"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
 )
 
 const MetaKey_JarvisProfile = "jarvis:profile"
@@ -44,8 +47,13 @@ func BuiltinProfile() waveobj.JarvisProfile {
 	return waveobj.JarvisProfile{Principles: clonePrinciples(DefaultPrinciples)}
 }
 
+// globalProfilePath is the profile's home in the vault, so it syncs with the rest of the vault's config.
+func globalProfilePath() string {
+	return filepath.Join(memroots.VaultRoot(), wconfig.VaultConfigDir, globalProfileFileName)
+}
+
 func LoadGlobalProfile() waveobj.JarvisProfile {
-	path := filepath.Join(wavebase.GetWaveConfigDir(), globalProfileFileName)
+	path := globalProfilePath()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -66,7 +74,7 @@ func LoadGlobalProfile() waveobj.JarvisProfile {
 }
 
 // SaveGlobalProfile validates and atomically writes the global profile to jarvis-profile.json in the
-// config dir. It is the write counterpart to LoadGlobalProfile; the first save creates the file.
+// vault's config dir, then pokes vault sync. It is the write counterpart to LoadGlobalProfile; the first save creates the file.
 func SaveGlobalProfile(profile waveobj.JarvisProfile) error {
 	if err := ValidateGlobalPrinciples(profile.Principles); err != nil {
 		return fmt.Errorf("invalid principles: %w", err)
@@ -78,11 +86,17 @@ func SaveGlobalProfile(profile waveobj.JarvisProfile) error {
 	if err != nil {
 		return fmt.Errorf("marshaling profile: %w", err)
 	}
-	dir := wavebase.GetWaveConfigDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating config dir: %w", err)
+	if err := writeProfileFile(globalProfilePath(), data); err != nil {
+		return err
 	}
-	path := filepath.Join(dir, globalProfileFileName)
+	wavevault.Poke()
+	return nil
+}
+
+func writeProfileFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating profile dir: %w", err)
+	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("writing profile: %w", err)
@@ -90,6 +104,34 @@ func SaveGlobalProfile(profile waveobj.JarvisProfile) error {
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("finalizing profile: %w", err)
 	}
+	return nil
+}
+
+// MigrateGlobalProfile moves a profile left in the config dir into the vault. When the vault already has
+// one, both stay: the vault's wins and the local file is never deleted.
+func MigrateGlobalProfile() error {
+	old := filepath.Join(wavebase.GetWaveConfigDir(), globalProfileFileName)
+	data, err := os.ReadFile(old)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", old, err)
+	}
+	dst := globalProfilePath()
+	if _, err := os.Stat(dst); err == nil {
+		log.Printf("jarvis profile: both %s and %s exist; using the vault's and leaving %s alone", dst, old, old)
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("checking %s: %w", dst, err)
+	}
+	if err := writeProfileFile(dst, data); err != nil {
+		return err
+	}
+	if err := os.Remove(old); err != nil {
+		return fmt.Errorf("removing migrated %s: %w", old, err)
+	}
+	wavevault.Poke()
 	return nil
 }
 

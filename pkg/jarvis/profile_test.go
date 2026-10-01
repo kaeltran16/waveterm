@@ -13,6 +13,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wavevault"
 )
 
 func principles(items ...waveobj.Principle) waveobj.PrincipleList { return items }
@@ -194,9 +195,7 @@ func TestLoadGlobalProfile(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			withConfigHome(t, dir)
-			if err := os.WriteFile(filepath.Join(dir, globalProfileFileName), []byte(tt.body), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			writeVaultProfile(t, dir, tt.body)
 			if got := LoadGlobalProfile(); !reflect.DeepEqual(got, BuiltinProfile()) {
 				t.Fatalf("invalid file should fall back: %+v", got)
 			}
@@ -206,9 +205,7 @@ func TestLoadGlobalProfile(t *testing.T) {
 	dir := t.TempDir()
 	withConfigHome(t, dir)
 	body := `{"playbook":[{"kind":"execute","state":"pending"}],"principles":"custom\nlegacy"}`
-	if err := os.WriteFile(filepath.Join(dir, globalProfileFileName), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeVaultProfile(t, dir, body)
 	got := LoadGlobalProfile()
 	if RenderPrinciples(got.Principles) != "custom\nlegacy" {
 		t.Fatalf("valid legacy file should parse exactly: %+v", got)
@@ -233,11 +230,112 @@ func TestOverrideFromMeta(t *testing.T) {
 	}
 }
 
+// withConfigHome pins the config dir and, through the home dir, the default vault (<dir>/.waveterm/vault),
+// so a test never reads or writes the real vault.
 func withConfigHome(t *testing.T, dir string) {
 	t.Helper()
 	old := wavebase.ConfigHome_VarCache
 	t.Cleanup(func() { wavebase.ConfigHome_VarCache = old })
 	wavebase.ConfigHome_VarCache = dir
+	t.Setenv("USERPROFILE", dir)
+	t.Setenv("HOME", dir)
+}
+
+func TestProfileLivesInVault(t *testing.T) {
+	dir := t.TempDir()
+	withConfigHome(t, dir)
+	profile := BuiltinProfile()
+	profile.DefaultMode = "orchestrator"
+	if err := SaveGlobalProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, ".waveterm", "vault", "config", globalProfileFileName)
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("profile not in the vault: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, globalProfileFileName)); !os.IsNotExist(err) {
+		t.Fatalf("profile written to the config dir: %v", err)
+	}
+	if got := LoadGlobalProfile(); got.DefaultMode != "orchestrator" {
+		t.Fatalf("round trip lost defaultmode: %+v", got)
+	}
+}
+
+func TestSaveGlobalProfilePokesSync(t *testing.T) {
+	withConfigHome(t, t.TempDir())
+	wavevault.PokedForTest()
+	if err := SaveGlobalProfile(BuiltinProfile()); err != nil {
+		t.Fatal(err)
+	}
+	if !wavevault.PokedForTest() {
+		t.Fatal("save did not poke the sync loop")
+	}
+}
+
+func writeVaultProfile(t *testing.T, home, body string) {
+	t.Helper()
+	path := filepath.Join(home, ".waveterm", "vault", "config", globalProfileFileName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeLocalProfile(t *testing.T, dir, body string) string {
+	t.Helper()
+	path := filepath.Join(dir, globalProfileFileName)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestMigrateGlobalProfileMovesLocal(t *testing.T) {
+	dir := t.TempDir()
+	withConfigHome(t, dir)
+	local := writeLocalProfile(t, dir, `{"defaultmode":"orchestrator"}`)
+	if err := MigrateGlobalProfile(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(local); !os.IsNotExist(err) {
+		t.Fatalf("local profile not moved: %v", err)
+	}
+	if got := LoadGlobalProfile(); got.DefaultMode != "orchestrator" {
+		t.Fatalf("vault profile lost the migrated content: %+v", got)
+	}
+}
+
+func TestMigrateGlobalProfileKeepsBoth(t *testing.T) {
+	dir := t.TempDir()
+	withConfigHome(t, dir)
+	profile := BuiltinProfile()
+	profile.DefaultMode = "quick"
+	if err := SaveGlobalProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	local := writeLocalProfile(t, dir, `{"defaultmode":"orchestrator"}`)
+	if err := MigrateGlobalProfile(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(local); err != nil {
+		t.Fatalf("local profile deleted: %v", err)
+	}
+	if got := LoadGlobalProfile(); got.DefaultMode != "quick" {
+		t.Fatalf("vault profile overwritten: %+v", got)
+	}
+}
+
+func TestMigrateGlobalProfileNoop(t *testing.T) {
+	dir := t.TempDir()
+	withConfigHome(t, dir)
+	if err := MigrateGlobalProfile(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".waveterm", "vault", "config", globalProfileFileName)); !os.IsNotExist(err) {
+		t.Fatalf("migration invented a vault profile: %v", err)
+	}
 }
 
 func TestDefaultPrincipleWordingIsBounded(t *testing.T) {
@@ -275,7 +373,7 @@ func TestSaveGlobalProfileRejectsBlankPrinciple(t *testing.T) {
 	if err := SaveGlobalProfile(profile); err == nil {
 		t.Fatal("expected validation error for blank text")
 	}
-	if _, err := os.Stat(filepath.Join(dir, globalProfileFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(globalProfilePath()); !os.IsNotExist(err) {
 		t.Fatal("must not write the file on validation failure")
 	}
 }
