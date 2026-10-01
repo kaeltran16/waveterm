@@ -162,6 +162,24 @@ type DagStatusDigest struct {
 	Lanes [][]string `json:"lanes,omitempty"`
 	// Told is what the human typed into the workers' own terminals, oldest first
 	Told []DagTold `json:"told,omitempty"`
+	// Timing is where the run's wall clock went; pointer + omitempty keeps the typed digest fixtures in
+	// the frontend tests compiling, like Shape
+	Timing *DagTimingDigest `json:"timing,omitempty"`
+}
+
+// DagTimingDigest is where the run's wall clock went: activities on a since-launch axis.
+type DagTimingDigest struct {
+	StartTs    int64               `json:"startts"`              // the owner run's launch
+	EndTs      int64               `json:"endts,omitempty"`      // the run's end; 0 while it is live
+	Activities []DagTimingActivity `json:"activities,omitempty"` // started activities, in display order
+	Partial    bool                `json:"partial,omitempty"`    // a needed boundary was pruned by retention
+}
+
+// DagTimingActivity is one activity's span; an end of 0 means it is still open.
+type DagTimingActivity struct {
+	Key     string `json:"key"` // planning | execution | review | merge | final | landing
+	StartTs int64  `json:"startts"`
+	EndTs   int64  `json:"endts,omitempty"` // 0 while open
 }
 
 // DagTold is one message the human typed into a task's worker, read from its task-told row.

@@ -1565,6 +1565,7 @@ declare global {
         final?: FinalStage;
         lanes?: string[][];
         told?: DagTold[];
+        timing?: DagTimingDigest;
     };
 
     // wshrpc.DagTaskDigest
@@ -1601,6 +1602,21 @@ declare global {
         runms?: number;
         mergewaitms?: number;
         cleanupms?: number;
+        partial?: boolean;
+    };
+
+    // wshrpc.DagTimingActivity
+    type DagTimingActivity = {
+        key: string;
+        startts: number;
+        endts?: number;
+    };
+
+    // wshrpc.DagTimingDigest
+    type DagTimingDigest = {
+        startts: number;
+        endts?: number;
+        activities?: DagTimingActivity[];
         partial?: boolean;
     };
 
