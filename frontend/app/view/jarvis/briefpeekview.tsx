@@ -8,8 +8,8 @@
 // what you set it to, and nothing else. Its full history, decision log and past corrections belong to the
 // record as a Brief subject.
 //
-// Everything shown is derived in briefpeek.ts. This file mounts it, loads the two caches it reads, and
-// owns the one write on it.
+// Everything shown is derived in briefpeek.ts. RecordPeekBody mounts it, loads the two caches it reads, and
+// owns the one write on it; the Brief's modal and the avatar popup's record item both render it.
 
 import { SkeletonLine } from "@/app/element/skeleton";
 import { ConfirmDialog } from "@/app/modals/confirmdialog";
@@ -20,7 +20,7 @@ import { channelsAtom } from "@/app/view/agents/channelsstore";
 import { harnessesAtom } from "@/app/view/agents/harnessstore";
 import { fleetCounts } from "@/app/view/agents/jarviscards";
 import type { RunStatusTone } from "@/app/view/agents/runmodel";
-import { cn } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Check, ChevronDown, ChevronUp, Waypoints } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -35,7 +35,8 @@ import {
     recordRunsAtom,
     recordScopeAtom,
 } from "./jarvissubjectstore";
-import { openAddress } from "./openref";
+import { openAddress, openOrPeekAddress } from "./openref";
+import { closePeek } from "./peekstore";
 import { setDossierStatus } from "./recordactions";
 
 // Same vocabulary and same tones as taskdetail.tsx's chip, on purpose: the status is the one field scanned
@@ -50,7 +51,7 @@ const STATUS_FG: Record<string, string> = {
 
 // The run's outcome column is scanned as colour rather than read as more grey text. Mirrors recordthread's
 // mapping — the same runs, described the same way.
-const RUN_TONE: Record<RunStatusTone, string> = {
+export const RUN_TONE: Record<RunStatusTone, string> = {
     planning: "text-accent-soft",
     review: "text-warning",
     running: "text-success",
@@ -63,6 +64,10 @@ const RUN_TONE: Record<RunStatusTone, string> = {
 // LINK_BTN's type and hover without its border: a link inside the body, not a control beside it
 const BODY_LINK =
     "inline-flex cursor-pointer items-center gap-1 self-start font-mono text-[10.5px] text-accent-soft hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+// The body's host. The Brief's modal is a destination, so its run links peek on Ctrl+click; the avatar popup is
+// itself a peek, and a link inside one is a plain open (depth 1).
+type Place = "brief" | "popup";
 
 function StatusRow({ row, onPick }: { row: PeekStatusRow; onPick: (status: string) => void }) {
     const fg = STATUS_FG[row.status] ?? "text-muted";
@@ -99,13 +104,28 @@ function StatusRow({ row, onPick }: { row: PeekStatusRow; onPick: (status: strin
     );
 }
 
-function RunRowView({ row, model }: { row: PeekRunRow; model: AgentsViewModel }) {
+// an open from inside the popup leaves it, the way the hub's own escorts do; a failed one keeps it up behind
+// the toast
+async function openFromPopup(model: AgentsViewModel, address: string): Promise<void> {
+    const result = await openAddress(model, address);
+    if (result.ok) {
+        closePeek();
+    }
+}
+
+function RunRowView({ row, model, place }: { row: PeekRunRow; model: AgentsViewModel; place: Place }) {
+    const address = "run:" + row.runId;
     return (
         <button
             type="button"
             data-jarvis-peek-row="run"
             data-jarvis-peek-run={row.runId}
-            onClick={() => void openAddress(model, "run:" + row.runId)}
+            data-peek={place === "brief" ? true : undefined}
+            onClick={(e) =>
+                place === "brief"
+                    ? void openOrPeekAddress(model, address, e)
+                    : fireAndForget(() => openFromPopup(model, address))
+            }
             className="flex w-full min-w-0 cursor-pointer items-center gap-2.5 px-3 py-[7px] text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
             <span className="flex-none font-mono text-[10.5px] font-semibold text-accent-soft">{row.shortId}</span>
@@ -120,9 +140,58 @@ function RunRowView({ row, model }: { row: PeekRunRow; model: AgentsViewModel })
     );
 }
 
-export function BriefPeek({ model }: { model: AgentsViewModel }) {
-    const recordId = useAtomValue(briefPeekRecordAtom);
-    const setRecordId = useSetAtom(briefPeekRecordAtom);
+const confirmTitle = (status: string) => `Mark this record ${status}?`;
+const confirmBody = (status: string) => `This sets the record's status to "${status}". You can reactivate it later.`;
+
+// The popup's terminal-status question. The Brief asks in a ConfirmDialog of its own beside its modal; inside the
+// popup a second modal would sit under the popup's focus trap, so the question is asked in place.
+function InlineConfirm({
+    status,
+    onConfirm,
+    onCancel,
+}: {
+    status: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+}) {
+    return (
+        <div
+            data-jarvis-peek-confirm={status}
+            className="flex flex-none flex-col gap-2 border-b border-border bg-surface-raised px-[17px] py-2.5"
+        >
+            <span className="text-[12px] font-semibold text-ink-hi">{confirmTitle(status)}</span>
+            <span className="text-[11.5px] leading-[1.45] text-muted">{confirmBody(status)}</span>
+            <div className="flex items-center gap-2">
+                <button
+                    type="button"
+                    onClick={onConfirm}
+                    className={cn(SMALL_BTN, status === "archived" ? "text-error" : "text-warning")}
+                >
+                    {`Yes, ${status}`}
+                </button>
+                <button type="button" onClick={onCancel} className={SMALL_BTN}>
+                    Cancel
+                </button>
+            </div>
+        </div>
+    );
+}
+
+export function RecordPeekBody({
+    model,
+    recordId,
+    place,
+    onMap,
+    onAskTerminal,
+}: {
+    model: AgentsViewModel;
+    recordId: string;
+    place: Place;
+    // the map button's exit; each host leaves its own way
+    onMap: () => void;
+    // a completed or archived pick asks first: through the host when it has a dialog of its own, else in place
+    onAskTerminal?: (status: string) => void;
+}) {
     const details = useAtomValue(recordDetailAtom);
     const runsByRecord = useAtomValue(recordRunsAtom);
     const scopes = useAtomValue(recordScopeAtom);
@@ -130,15 +199,12 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const harnesses = useAtomValue(harnessesAtom);
     const [pickerOpen, setPickerOpen] = useState(false);
-    const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+    const [asking, setAsking] = useState<string | null>(null);
     const [objectiveOpen, setObjectiveOpen] = useState(false);
 
     // both caches, because the peek's two halves come from different reads: the record's own fields, and the
     // runs attributed to it (a dossier has no run list of its own — ResolveSpaceScope answers that).
     useEffect(() => {
-        if (recordId == null) {
-            return;
-        }
         loadRecordDetail(recordId);
         loadRecordScope(recordId);
     }, [recordId]);
@@ -147,17 +213,16 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
     // close would reopen the peek mid-write, and a second record would open already expanded
     useEffect(() => {
         setPickerOpen(false);
-        setPendingStatus(null);
+        setAsking(null);
         setObjectiveOpen(false);
     }, [recordId]);
 
-    const close = () => setRecordId(null);
-    const detail = recordId != null ? details[recordId] : undefined;
-    const runs = recordId != null ? (runsByRecord[recordId] ?? []) : [];
+    const detail = details[recordId];
+    const runs = runsByRecord[recordId] ?? [];
     const fleet = fleetForRecord({
         channels: channels ?? [],
         agents,
-        attributedRunORefs: recordId != null ? (scopes[recordId]?.runorefs ?? []) : [],
+        attributedRunORefs: scopes[recordId]?.runorefs ?? [],
     });
     const peek =
         detail != null
@@ -177,135 +242,166 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
         // completed and archived are terminal enough to confirm — the same guard taskdetail applies, kept
         // here rather than re-decided, so the two entry points cannot disagree about what needs a prompt.
         if (row?.terminal) {
-            setPendingStatus(next);
+            if (onAskTerminal != null) {
+                onAskTerminal(next);
+            } else {
+                setAsking(next);
+            }
             return;
         }
-        if (recordId != null) {
-            setDossierStatus(recordId, next);
-        }
+        setDossierStatus(recordId, next);
+    };
+
+    return (
+        <>
+            <div className="flex min-w-0 flex-none items-center gap-2.5 border-b border-border px-[17px] py-3">
+                <span className={cn(REGION_LABEL, "text-accent-soft")}>record</span>
+                <span
+                    data-jarvis-peek-title
+                    className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink-hi"
+                >
+                    {peek != null ? peek.title : <SkeletonLine className="h-[12px] w-[180px]" />}
+                </span>
+                {peek != null ? (
+                    <>
+                        <span className={cn("flex-none", MONO_FAINT)}>{peek.updatedLabel}</span>
+                        <button
+                            type="button"
+                            data-jarvis-peek-status-toggle
+                            aria-label="Change what this record does"
+                            aria-expanded={pickerOpen}
+                            onClick={() => setPickerOpen((v) => !v)}
+                            className={cn(
+                                "inline-flex flex-none cursor-pointer items-center gap-1 rounded-[6px] border border-border bg-surface-raised py-0.5 pl-2 pr-1.5 font-mono text-[10.5px] font-semibold hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                                STATUS_FG[peek.statusLabel] ?? "text-muted"
+                            )}
+                        >
+                            {peek.statusLabel}
+                            <span className="inline-flex text-muted">
+                                {pickerOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                            </span>
+                        </button>
+                    </>
+                ) : null}
+            </div>
+            {pickerOpen && peek != null ? (
+                <div className="flex flex-none flex-col gap-px border-b border-border bg-surface-raised px-2 py-1.5">
+                    {peek.statusRows.map((row) => (
+                        <StatusRow key={row.status} row={row} onPick={applyStatus} />
+                    ))}
+                </div>
+            ) : null}
+            {asking != null ? (
+                <InlineConfirm
+                    status={asking}
+                    onConfirm={() => {
+                        setDossierStatus(recordId, asking);
+                        setAsking(null);
+                    }}
+                    onCancel={() => setAsking(null)}
+                />
+            ) : null}
+            {peek != null ? (
+                <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-[17px] py-4">
+                    {peek.body != null ? (
+                        <div className="flex flex-col gap-1.5">
+                            <p
+                                data-jarvis-peek-body
+                                className={cn(
+                                    "whitespace-pre-line text-[13px] leading-[1.6] text-ink-mid",
+                                    peek.bodyMore != null && !objectiveOpen && "line-clamp-4"
+                                )}
+                            >
+                                {peek.body}
+                            </p>
+                            {peek.bodyMore != null ? (
+                                <button
+                                    type="button"
+                                    data-jarvis-peek-body-toggle
+                                    aria-expanded={objectiveOpen}
+                                    onClick={() => setObjectiveOpen((v) => !v)}
+                                    className={BODY_LINK}
+                                >
+                                    {objectiveOpen ? "Show less" : peek.bodyMore}
+                                    {objectiveOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                                </button>
+                            ) : null}
+                        </div>
+                    ) : null}
+                    <div className="flex flex-col overflow-hidden rounded-[9px] border border-border bg-background">
+                        <div className="flex items-center gap-2.5 border-b border-edge-faint px-3 py-2">
+                            <span className={cn(REGION_LABEL, "text-ink-mid")}>Fleet · on this record</span>
+                            <span className="h-px flex-1 bg-edge-faint" />
+                            <span className={cn("flex-none", MONO_FAINT)}>{peek.fleetMeta}</span>
+                        </div>
+                        {peek.runs.length === 0 ? (
+                            <div className="px-3 py-2.5 font-mono text-[11px] text-muted">{peek.runsAbsent}</div>
+                        ) : (
+                            peek.runs.map((row) => <RunRowView key={row.runId} row={row} model={model} place={place} />)
+                        )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* a label, not a button: the peek reports the count and the Brief owns the log,
+                            so this states it and stops there. */}
+                        <span className={cn("rounded-[6px] border border-edge-faint px-[9px] py-[3px]", MONO_META)}>
+                            {peek.logLine}
+                        </span>
+                        <span className="flex-1" />
+                        <button
+                            type="button"
+                            data-jarvis-peek-open-graph
+                            onClick={onMap}
+                            className={cn(SMALL_BTN, "inline-flex items-center gap-1.5")}
+                        >
+                            <Waypoints size={12} className="text-muted" />
+                            Where it sits on the map
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+        </>
+    );
+}
+
+export function BriefPeek({ model }: { model: AgentsViewModel }) {
+    const recordId = useAtomValue(briefPeekRecordAtom);
+    const setRecordId = useSetAtom(briefPeekRecordAtom);
+    const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+
+    useEffect(() => {
+        setPendingStatus(null);
+    }, [recordId]);
+
+    const close = () => setRecordId(null);
+    // The peek's one exit. It closes the peek first: the graph peek is an overlay on the surface, and leaving the
+    // record modal up over it would stack two modals, both claiming Escape.
+    const openMap = () => {
+        if (recordId == null) return;
+        globalStore.set(briefGraphRecordAtom, recordId);
+        setRecordId(null);
+        globalStore.set(graphPeekOpenAtom, true);
     };
 
     return (
         <>
             <ModalShell open={recordId != null} onClose={close} align="center" className="w-[640px] max-w-full">
                 <div data-jarvis-brief-band="peek" className="flex min-h-0 flex-col">
-                    <div className="flex min-w-0 flex-none items-center gap-2.5 border-b border-border px-[17px] py-3">
-                        <span className={cn(REGION_LABEL, "text-accent-soft")}>record</span>
-                        <span
-                            data-jarvis-peek-title
-                            className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink-hi"
-                        >
-                            {peek != null ? peek.title : <SkeletonLine className="h-[12px] w-[180px]" />}
-                        </span>
-                        {peek != null ? (
-                            <>
-                                <span className={cn("flex-none", MONO_FAINT)}>{peek.updatedLabel}</span>
-                                <button
-                                    type="button"
-                                    data-jarvis-peek-status-toggle
-                                    aria-label="Change what this record does"
-                                    aria-expanded={pickerOpen}
-                                    onClick={() => setPickerOpen((v) => !v)}
-                                    className={cn(
-                                        "inline-flex flex-none cursor-pointer items-center gap-1 rounded-[6px] border border-border bg-surface-raised py-0.5 pl-2 pr-1.5 font-mono text-[10.5px] font-semibold hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                                        STATUS_FG[peek.statusLabel] ?? "text-muted"
-                                    )}
-                                >
-                                    {peek.statusLabel}
-                                    <span className="inline-flex text-muted">
-                                        {pickerOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                                    </span>
-                                </button>
-                            </>
-                        ) : null}
-                    </div>
-                    {pickerOpen && peek != null ? (
-                        <div className="flex flex-none flex-col gap-px border-b border-border bg-surface-raised px-2 py-1.5">
-                            {peek.statusRows.map((row) => (
-                                <StatusRow key={row.status} row={row} onPick={applyStatus} />
-                            ))}
-                        </div>
-                    ) : null}
-                    {peek != null ? (
-                        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-[17px] py-4">
-                            {peek.body != null ? (
-                                <div className="flex flex-col gap-1.5">
-                                    <p
-                                        data-jarvis-peek-body
-                                        className={cn(
-                                            "whitespace-pre-line text-[13px] leading-[1.6] text-ink-mid",
-                                            peek.bodyMore != null && !objectiveOpen && "line-clamp-4"
-                                        )}
-                                    >
-                                        {peek.body}
-                                    </p>
-                                    {peek.bodyMore != null ? (
-                                        <button
-                                            type="button"
-                                            data-jarvis-peek-body-toggle
-                                            aria-expanded={objectiveOpen}
-                                            onClick={() => setObjectiveOpen((v) => !v)}
-                                            className={BODY_LINK}
-                                        >
-                                            {objectiveOpen ? "Show less" : peek.bodyMore}
-                                            {objectiveOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                                        </button>
-                                    ) : null}
-                                </div>
-                            ) : null}
-                            <div className="flex flex-col overflow-hidden rounded-[9px] border border-border bg-background">
-                                <div className="flex items-center gap-2.5 border-b border-edge-faint px-3 py-2">
-                                    <span className={cn(REGION_LABEL, "text-ink-mid")}>Fleet · on this record</span>
-                                    <span className="h-px flex-1 bg-edge-faint" />
-                                    <span className={cn("flex-none", MONO_FAINT)}>{peek.fleetMeta}</span>
-                                </div>
-                                {peek.runs.length === 0 ? (
-                                    <div className="px-3 py-2.5 font-mono text-[11px] text-muted">
-                                        {peek.runsAbsent}
-                                    </div>
-                                ) : (
-                                    peek.runs.map((row) => <RunRowView key={row.runId} row={row} model={model} />)
-                                )}
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                                {/* a label, not a button: the peek reports the count and the Brief owns the log,
-                                    so this states it and stops there. */}
-                                <span
-                                    className={cn(
-                                        "rounded-[6px] border border-edge-faint px-[9px] py-[3px]",
-                                        MONO_META
-                                    )}
-                                >
-                                    {peek.logLine}
-                                </span>
-                                <span className="flex-1" />
-                                {/* The peek's one exit. It closes the peek first: the graph peek is an overlay on the
-                                    surface, and leaving the record modal up over it would stack two modals, both
-                                    claiming Escape. */}
-                                <button
-                                    type="button"
-                                    data-jarvis-peek-open-graph
-                                    onClick={() => {
-                                        if (recordId == null) return;
-                                        globalStore.set(briefGraphRecordAtom, recordId);
-                                        setRecordId(null);
-                                        globalStore.set(graphPeekOpenAtom, true);
-                                    }}
-                                    className={cn(SMALL_BTN, "inline-flex items-center gap-1.5")}
-                                >
-                                    <Waypoints size={12} className="text-muted" />
-                                    Where it sits on the map
-                                </button>
-                            </div>
-                        </div>
+                    {recordId != null ? (
+                        <RecordPeekBody
+                            model={model}
+                            recordId={recordId}
+                            place="brief"
+                            onMap={openMap}
+                            onAskTerminal={setPendingStatus}
+                        />
                     ) : null}
                 </div>
             </ModalShell>
             {pendingStatus != null && recordId != null ? (
                 <ConfirmDialog
                     tone={pendingStatus === "archived" ? "danger" : "warning"}
-                    title={`Mark this record ${pendingStatus}?`}
-                    body={`This sets the record's status to "${pendingStatus}". You can reactivate it later.`}
+                    title={confirmTitle(pendingStatus)}
+                    body={confirmBody(pendingStatus)}
                     confirmLabel={`Yes, ${pendingStatus}`}
                     cancelLabel="Cancel"
                     onConfirm={() => {

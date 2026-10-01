@@ -1,18 +1,38 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
+//
+// The record body (PeekRecord.dc.html) is the Brief's record peek itself, so the two cannot drift; only its exits
+// differ. The list is what says whether the record is still there.
 
+import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { useAtomValue } from "jotai";
 import { useEffect } from "react";
-import { reportPeekFacts, type PeekTarget } from "../peekstore";
+import { RecordPeekBody } from "../briefpeekview";
+import { briefGraphRecordAtom, graphPeekOpenAtom } from "../jarvisstore";
+import { closePeek, reportPeekFacts, type PeekTarget } from "../peekstore";
+import { taskListAtom } from "../tasksstore";
+import { recordPeekFacts } from "./peekrecordmodel";
 
-export function PeekRecordBody({ target }: { model: AgentsViewModel; target: PeekTarget }) {
+export function PeekRecordBody({ model, target }: { model: AgentsViewModel; target: PeekTarget }) {
+    const dossierId = target.kind === "record" ? target.dossierId : "";
+    const summary = useAtomValue(taskListAtom)?.find((d) => d.id === dossierId);
+
     useEffect(() => {
-        reportPeekFacts(target, { gone: false, focus: null });
-    }, [target]);
-    const id = target.kind === "record" ? target.dossierId : "";
+        reportPeekFacts(target, recordPeekFacts(summary));
+    }, [target, summary]);
+
+    // the map is the Brief's overlay, so it is a full open: the popup closes and the Brief comes up on it
+    const openMap = () => {
+        closePeek();
+        globalStore.set(briefGraphRecordAtom, dossierId);
+        globalStore.set(graphPeekOpenAtom, true);
+        globalStore.set(model.surfaceAtom, "jarvis");
+    };
+
     return (
-        <div className="px-3.5 py-3 text-[12px] text-secondary">
-            record <span className="font-mono text-muted">{id}</span>
+        <div className="flex min-h-0 flex-col">
+            <RecordPeekBody model={model} recordId={dossierId} place="popup" onMap={openMap} />
         </div>
     );
 }
