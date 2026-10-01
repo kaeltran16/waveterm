@@ -430,12 +430,16 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 	}
 
 	for _, g := range in.Dags {
+		owner := findRun(in.Channels, g.RunID)
+		// a lead can finish its run past a gate or a failed final stage, and nothing moves the dag off it then
+		if owner != nil && (owner.Status == RunStatus_Done || owner.Status == RunStatus_Cancelled) {
+			continue
+		}
 		// statuses mirror orchestrate.DagStatus_AwaitingReview / DagStatus_Blocked (see AttentionDagGate).
 		switch g.Status {
 		case "awaiting-review":
 			gates = append(gates, dagGateItems(in, g)...)
 		case "blocked":
-			owner := findRun(in.Channels, g.RunID)
 			blockedEffort, blockedChunk := attribution(owner)
 			text, why := dagBlockedReason(g, owner)
 			taskID, retry := blockedTask(g)

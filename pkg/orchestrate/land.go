@@ -105,6 +105,10 @@ func heldLand(reason string) *waveobj.RunLand {
 // Check and Verify, so a held reason the human can fix at once is not minutes away, and again under the checkout
 // claim, since the checkout can change while they run.
 func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force bool) *waveobj.RunLand {
+	if commit := mergedCommit(ctx, run); commit != "" {
+		removeLandedTree(ctx, run.ProjectPath, run.ID)
+		return &waveobj.RunLand{State: LandState_Landed, Commit: commit}
+	}
 	if reason := finalHold(g); reason != "" && !force {
 		return heldLand(reason)
 	}
@@ -147,12 +151,46 @@ func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force 
 	if note := movedBaseNote(ctx, run, pre, checkedBase); note != "" {
 		land.Notes = append(land.Notes, note)
 	}
-	// the evidence keeps the branch's tip, so the tree and the branch are no longer needed
-	if err := RemoveRunWorktree(ctx, project, run.ID); err != nil {
-		log.Printf("run %s landed; removing its landing tree: %v; retrying until its lead lets go of it", run.ID, err)
-		go retryLandTreeRemoval(project, run.ID)
-	}
+	removeLandedTree(ctx, project, run.ID)
 	return land
+}
+
+// removeLandedTree drops a landed run's tree and branch; the evidence keeps the branch's tip, so neither is needed.
+func removeLandedTree(ctx context.Context, project, runID string) {
+	if err := RemoveRunWorktree(ctx, project, runID); err != nil {
+		log.Printf("run %s landed; removing its landing tree: %v; retrying until its lead lets go of it", runID, err)
+		go retryLandTreeRemoval(project, runID)
+	}
+}
+
+// mergedCommit is the base's commit that took in a run's work already there, as when the human merged the branch
+// by hand after a held land; empty when the work is not in the base. The work is the branch's tip, or, once the
+// branch is gone, the commit the run completed on. The commit is the merge that has the tip as a parent, else the
+// tip itself (a fast-forward, or a run with nothing to merge).
+func mergedCommit(ctx context.Context, run *waveobj.Run) string {
+	if run.BaseBranch == "" {
+		return ""
+	}
+	tip, err := WorktreeHeadCommit(ctx, run.ProjectPath, run.ID)
+	if err != nil {
+		tip = run.EndCommit
+	}
+	if tip == "" {
+		return ""
+	}
+	if tip, err = git(ctx, run.ProjectPath, "rev-parse", tip); err != nil {
+		return ""
+	}
+	if _, err := git(ctx, run.ProjectPath, "merge-base", "--is-ancestor", tip, run.BaseBranch); err != nil {
+		return ""
+	}
+	merges, _ := git(ctx, run.ProjectPath, "rev-list", "--merges", "--parents", "--ancestry-path", tip+".."+run.BaseBranch)
+	for _, line := range strings.Split(merges, "\n") {
+		if f := strings.Fields(line); len(f) > 2 && slices.Contains(f[2:], tip) {
+			return f[0]
+		}
+	}
+	return tip
 }
 
 // landTreeRetryEvery and landTreeRetryAttempts pace retryLandTreeRemoval over about five minutes; vars so a test

@@ -638,3 +638,55 @@ func TestLandLeavesACheckoutLandedRunAlone(t *testing.T) {
 		t.Fatalf("stored land = %+v, want none", got)
 	}
 }
+
+// a held land the human merged by hand, after its branch and tree were removed, is landed on the merge that took in
+// the commit the run completed on, whatever the final stage said
+func TestLandRecognizesAHandMergeAfterItsBranchIsGone(t *testing.T) {
+	f, tree := landFixture(t)
+	f.setFinal(t, &waveobj.FinalStage{State: FinalState_Failed, Round: 2})
+	tip := gitCmd(t, tree, "rev-parse", "HEAD")
+	if err := wstore.UpdateRun(f.ctx, f.channel, f.ownerID, func(r *waveobj.Run) error {
+		r.EndCommit = tip
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.assertHeld(t, f.landRun(t, false), gitCmd(t, f.project, "rev-parse", "main"), "final stage failed")
+
+	gitCmd(t, f.project, "merge", "--no-ff", "-m", "by hand", "wave/"+f.ownerID)
+	merge := gitCmd(t, f.project, "rev-parse", "HEAD")
+	commitOnBase(t, f.project, "later.txt", "later\n")
+	if err := RemoveRunWorktree(f.ctx, f.project, f.ownerID); err != nil {
+		t.Fatal(err)
+	}
+	head := gitCmd(t, f.project, "rev-parse", "HEAD")
+
+	land := f.landRun(t, false)
+	if land.State != LandState_Landed || land.Commit != merge || land.Reason != "" || len(land.Notes) != 0 {
+		t.Fatalf("land = %+v, want landed on the hand merge %s", land, merge)
+	}
+	if got := gitCmd(t, f.project, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("main moved from %s to %s", head, got)
+	}
+}
+
+// a branch merged by hand while it still exists lands without a second merge, and its tree and branch go
+func TestLandRecognizesAHandMergedBranch(t *testing.T) {
+	f, tree := landFixture(t)
+	gitCmd(t, f.project, "merge", "--ff-only", "wave/"+f.ownerID)
+	head := gitCmd(t, f.project, "rev-parse", "HEAD")
+
+	land := f.landRun(t, false)
+	if land.State != LandState_Landed || land.Commit != head {
+		t.Fatalf("land = %+v, want landed on the fast-forwarded tip %s", land, head)
+	}
+	if got := gitCmd(t, f.project, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("main moved from %s to %s", head, got)
+	}
+	if _, err := os.Stat(tree); !os.IsNotExist(err) {
+		t.Fatalf("the landing tree is still there: %v", err)
+	}
+	if branchExists(f.project, "wave/"+f.ownerID) {
+		t.Fatal("the run's branch was not deleted")
+	}
+}

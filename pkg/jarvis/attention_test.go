@@ -532,6 +532,27 @@ func TestBlockedFinalStageSaysWhatFailed(t *testing.T) {
 	}
 }
 
+func TestDagItemsLeaveWithTheirFinishedRun(t *testing.T) {
+	dags := []*waveobj.TaskGroup{
+		{ID: "d1", RunID: "r1", ChannelId: "c1", Status: "blocked", UpdatedTs: 5,
+			Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done"}}, Final: &waveobj.FinalStage{State: "failed", Round: 2}},
+		{ID: "d2", RunID: "r2", ChannelId: "c1", Status: "awaiting-review", UpdatedTs: 5,
+			Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done", Gate: true}}},
+		{ID: "d3", RunID: "r3", ChannelId: "c1", Status: "blocked", UpdatedTs: 5,
+			Tasks: []waveobj.TaskNode{{ID: "t-1", State: "failed"}}},
+	}
+	cancelled := finishedRun("r2", nil, nil)
+	cancelled.Status = "cancelled"
+	items := BuildAttention(AttentionInput{Dags: dags, Channels: []AttentionChannel{{OID: "c1", Runs: []*waveobj.Run{
+		finishedRun("r1", nil, &waveobj.RunLand{State: "landed"}),
+		cancelled,
+		{ID: "r3", Status: "executing"},
+	}}}})
+	if len(items) != 1 || items[0].RunId != "r3" {
+		t.Fatalf("items = %+v, want only the executing run's blocked dag", items)
+	}
+}
+
 func finishedRun(id string, ev *waveobj.RunEvidence, land *waveobj.RunLand) *waveobj.Run {
 	return &waveobj.Run{ID: id, Goal: "coupon codes", Status: "done", CompletedTs: 40, Evidence: ev, Land: land}
 }
