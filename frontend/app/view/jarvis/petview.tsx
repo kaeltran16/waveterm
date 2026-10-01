@@ -20,11 +20,26 @@ import { useAtomValue } from "jotai";
 import { motion, useMotionValue, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { drawSceneToCanvas, resolveTone } from "./avatarcanvas";
-import { approachMood, buildAvatarScene, settledMood, type AvatarScene, type RenderMood } from "./avatarscene";
+import {
+    approachMood,
+    buildAvatarScene,
+    moodSettled,
+    settledMood,
+    type AvatarScene,
+    type RenderMood,
+} from "./avatarscene";
 import type { AvatarThree } from "./avatarthree";
 import { PetBubble } from "./petbubble";
 import { expressionFor, postureFor, type PetSignals } from "./petcondition";
-import { breathPhase, idleOrbit, impulseEnvelope, JOLT_MS, RIPPLE_MS, utteranceEnvelope } from "./petmotion";
+import {
+    breathPhase,
+    idleOrbit,
+    impulseEnvelope,
+    JOLT_MS,
+    nextFrameDelay,
+    RIPPLE_MS,
+    utteranceEnvelope,
+} from "./petmotion";
 import { PetPeek } from "./petpeek";
 import {
     markPetSpoke,
@@ -208,6 +223,7 @@ export function PetView({ model }: { model: AgentsViewModel }) {
         const ctx2d = fallbackCanvas.getContext("2d");
 
         let raf = 0;
+        let sleep: ReturnType<typeof setTimeout> | undefined;
         let lastPixels = -1;
         // the declaration is live, so a runtime theme change (themestore.ts rewrites these same custom
         // properties on documentElement) still reads through without re-acquiring it
@@ -218,6 +234,22 @@ export function PetView({ model }: { model: AgentsViewModel }) {
             const f = frameRef.current;
             const cssSize = f.size;
             const pixels = Math.round(cssSize * dpr);
+
+            const rippleAt = rippleAtRef.current;
+            const rippleElapsed = rippleAt == null ? null : now - rippleAt;
+            const ripple =
+                rippleElapsed == null || rippleElapsed < 0 || rippleElapsed >= RIPPLE_MS
+                    ? null
+                    : rippleElapsed / RIPPLE_MS;
+            const utterance = utteranceEnvelope(now, globalStore.get(petSpokeAtAtom));
+            const jolt = impulseEnvelope(now, joltAtRef.current, JOLT_MS);
+            const transient =
+                pixels !== lastPixels ||
+                ripple != null ||
+                utterance > 0 ||
+                jolt > 0 ||
+                !moodSettled(moodRef.current, f.expression);
+
             if (pixels !== lastPixels) {
                 lastPixels = pixels;
                 for (const c of [glCanvas, fallbackCanvas]) {
@@ -239,13 +271,6 @@ export function PetView({ model }: { model: AgentsViewModel }) {
             // the user does not want any. The register still changes, it just does not travel there.
             moodRef.current = f.reduce ? settledMood(f.expression) : approachMood(moodRef.current, f.expression, dt);
 
-            const rippleAt = rippleAtRef.current;
-            const rippleElapsed = rippleAt == null ? null : now - rippleAt;
-            const ripple =
-                rippleElapsed == null || rippleElapsed < 0 || rippleElapsed >= RIPPLE_MS
-                    ? null
-                    : rippleElapsed / RIPPLE_MS;
-
             const scene: AvatarScene = buildAvatarScene({
                 expression: f.expression,
                 mood: moodRef.current,
@@ -255,9 +280,9 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 yaw: orbit.yaw,
                 pitch: orbit.pitch,
                 breath: breathPhase(now),
-                utterance: utteranceEnvelope(now, globalStore.get(petSpokeAtAtom)),
+                utterance,
                 ripple,
-                jolt: impulseEnvelope(now, joltAtRef.current, JOLT_MS),
+                jolt,
                 quiet: f.quiet,
                 still: f.reduce,
             });
@@ -285,12 +310,20 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                     renderer: live,
                 };
             }
-            raf = requestAnimationFrame(frame);
+            const delay = nextFrameDelay(transient, f.reduce);
+            if (delay > 0) {
+                sleep = setTimeout(() => {
+                    raf = requestAnimationFrame(frame);
+                }, delay);
+            } else {
+                raf = requestAnimationFrame(frame);
+            }
         };
         raf = requestAnimationFrame(frame);
 
         return () => {
             cancelAnimationFrame(raf);
+            clearTimeout(sleep);
             // the import may still be in flight; the flag is what stops it building a context into a canvas
             // this effect has already let go of
             dropped = true;

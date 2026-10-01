@@ -218,6 +218,23 @@ export function approachMood(current: RenderMood, expression: PetExpression, dtM
     };
 }
 
+// Below one 8-bit step of any field the ease drives, so a mood this close draws identically to its target.
+const MOOD_SETTLED_EPSILON = 0.002;
+
+/** Whether `current` has finished easing toward `expression`'s mood, so the loop can drop to its idle rate. */
+export function moodSettled(current: RenderMood, expression: PetExpression): boolean {
+    const target = moodFor(expression);
+    const near = (a: number, b: number) => Math.abs(a - b) < MOOD_SETTLED_EPSILON;
+    return (
+        current.toneVar === target.toneVar &&
+        current.toneFromVar == null &&
+        near(current.energy, target.energy) &&
+        near(current.align, target.align) &&
+        near(current.jitter, target.jitter) &&
+        near(current.spin, target.spin)
+    );
+}
+
 // Posture is a bearing marker, never a count: which kind of waiting, not how much of it.
 export const MARKER_VARS: Record<PetPosture, string | null> = {
     "review-gate": "--color-accent",

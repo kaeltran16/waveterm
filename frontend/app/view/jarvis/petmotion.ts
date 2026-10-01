@@ -102,6 +102,26 @@ export function impulseEnvelope(now: number, firedAt: number | null, durationMs:
     return fall * fall;
 }
 
+// Frame budgets for when nothing transient is moving. The avatar shares the UI thread with every terminal,
+// and drawing it at display rate (a scene rebuild, fresh geometry and a bloom pass, 60 times a second) cost
+// about a quarter of that thread at idle — enough to delay keystrokes. The idle drift is a 48s turn and a 4s
+// breath, which 15fps carries without visible stepping; reduced motion has no drift at all, so its budget
+// only bounds how late a theme or posture change shows.
+export const IDLE_FRAME_MS = 1_000 / 15;
+export const STILL_FRAME_MS = 250;
+
+/**
+ * How long the loop waits before its next draw. 0 means the next display frame: transient motion (an ease,
+ * a surge, a punctuation) is drawn at full rate. Otherwise the loop sleeps on a timer rather than waking
+ * every display frame to skip it, since each wake still runs a frame of the page's lifecycle.
+ */
+export function nextFrameDelay(transient: boolean, still: boolean): number {
+    if (transient) {
+        return 0;
+    }
+    return still ? STILL_FRAME_MS : IDLE_FRAME_MS;
+}
+
 export const BREATH_MS = 4_200;
 
 // 0 at rest, 1 at full inhale, back to 0 — a raised cosine so there is no discontinuity at the loop point.

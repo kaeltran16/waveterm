@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
     BREATH_MS,
     breathPhase,
+    IDLE_FRAME_MS,
     idleOrbit,
     impulseEnvelope,
+    nextFrameDelay,
     ORBIT_MS,
     ORBIT_PITCH,
     ORBIT_PITCH_MS,
+    STILL_FRAME_MS,
     UTTERANCE_MS,
     utteranceEnvelope,
 } from "./petmotion";
@@ -139,5 +142,24 @@ describe("breathPhase", () => {
     it("returns zero for a non-finite time or a non-positive period", () => {
         expect(breathPhase(Number.NaN)).toBe(0);
         expect(breathPhase(1000, 0)).toBe(0);
+    });
+});
+
+describe("nextFrameDelay", () => {
+    it("draws on the next display frame while something transient is moving", () => {
+        expect(nextFrameDelay(true, false)).toBe(0);
+        expect(nextFrameDelay(true, true)).toBe(0);
+    });
+
+    it("holds an idle avatar well under display rate", () => {
+        // the idle drift is a 48s turn and a 4s breath; drawing it at display rate cost a quarter of the
+        // UI thread and delayed keystrokes in every terminal
+        expect(nextFrameDelay(false, false)).toBe(IDLE_FRAME_MS);
+        expect(IDLE_FRAME_MS).toBeGreaterThanOrEqual(1_000 / 20);
+    });
+
+    it("holds a reduced-motion avatar to the slower still rate", () => {
+        expect(nextFrameDelay(false, true)).toBe(STILL_FRAME_MS);
+        expect(STILL_FRAME_MS).toBeGreaterThan(IDLE_FRAME_MS);
     });
 });
