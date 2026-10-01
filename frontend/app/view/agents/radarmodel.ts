@@ -201,13 +201,6 @@ export function radarLoadPhase(p: {
     return "ready";
 }
 
-// scan-scope selector entries: registered projects that actually have a path (radar surface).
-export function projectsWithPath<T extends { path?: string }>(
-    projects: Record<string, T> | null | undefined
-): [string, T][] {
-    return Object.entries(projects ?? {}).filter(([, v]) => v?.path) as [string, T][];
-}
-
 export function isResultsState(state: RadarScanState): boolean {
     return state === "results" || state === "partial";
 }

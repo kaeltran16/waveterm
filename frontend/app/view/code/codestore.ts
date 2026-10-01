@@ -12,7 +12,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { parseGitChanges } from "@/app/view/agents/gitstatus";
-import { projectsAtom } from "@/app/view/agents/projectsstore";
+import { buildProjectList, projectsAtom } from "@/app/view/agents/projectsstore";
 import { joinRepoPath, repoBasename, sameRepoPath } from "@/util/paths";
 import { base64ToString, fireAndForget, stringToBase64 } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
@@ -293,11 +293,9 @@ export function codeBodyPhase(p: {
     return p.index.isRepo ? "ready" : "not-repo";
 }
 
+// Code's view of the one project list: name and path only, because a pick is persisted (lastCodeProjectAtom)
 export function registeredProjects(registry: Record<string, ProjectKeywords> | undefined): CodeProject[] {
-    return Object.entries(registry ?? {})
-        .filter(([, v]) => v?.path)
-        .map(([name, v]) => ({ name, path: v.path }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+    return buildProjectList(registry, null).map(({ name, path }) => ({ name, path }));
 }
 
 // Any project's file list, through the same cache Code browses with: the universal search's Files scope

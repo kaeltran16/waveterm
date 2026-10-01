@@ -10,7 +10,7 @@
 
 import { partitionChannels } from "@/app/view/agents/channelderive";
 import { tierFromMeta, type JarvisTier } from "@/app/view/agents/channelmessages";
-import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectlabel";
+import { rowsWithChannel, type ProjectRow } from "@/app/view/agents/projectsstore";
 import { LADDER } from "./autonomyladder";
 
 export interface ChannelAutonomy {
@@ -32,22 +32,18 @@ function tierLabel(tier: JarvisTier): string {
     return LADDER.find((r) => r.tier === tier)?.label ?? tier;
 }
 
-/** Pure: the per-project autonomy rows behind the chip. Archived channels are not work you have a
- *  policy over, so they are excluded; name order keeps the rows stable across refreshes. */
-export function channelAutonomy(
-    channels: Channel[] | null | undefined,
-    projects: Record<string, ProjectKeywords>
-): ChannelAutonomy[] {
-    const active = dedupeByProject(partitionChannels(channels ?? []).active);
-    return active
-        .map((c) => {
-            return {
-                channelId: c.oid,
-                name: channelProjectLabel(c, projects),
-                tier: tierFromMeta(c.meta as Record<string, unknown> | undefined),
-            };
-        })
-        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+/** Pure: the per-project autonomy rows behind the chip, one per project in the shared list. Archived
+ *  channels are not work you have a policy over, so they are excluded. */
+export function channelAutonomy(rows: ProjectRow[]): ChannelAutonomy[] {
+    const ready = rowsWithChannel(rows);
+    const active = new Set(partitionChannels(ready.map((r) => r.channel)).active);
+    return ready
+        .filter((r) => active.has(r.channel))
+        .map((r) => ({
+            channelId: r.channel.oid,
+            name: r.name,
+            tier: tierFromMeta(r.channel.meta as Record<string, unknown> | undefined),
+        }));
 }
 
 export interface AutonomySummary {

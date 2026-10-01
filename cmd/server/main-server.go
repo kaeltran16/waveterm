@@ -310,6 +310,7 @@ func main() {
 	if err := jarvis.MigrateTierPins(context.Background()); err != nil {
 		log.Printf("error migrating route tier pins: %v\n", err)
 	}
+	wconfig.ConfigHook = func(fc wconfig.FullConfigType) { wshserver.SyncProjectChannels(context.Background(), fc.Projects) }
 	err = startConfigWatcher()
 	if err != nil {
 		log.Printf("error starting config watcher: %v\n", err)

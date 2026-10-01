@@ -33,7 +33,6 @@ import {
     missedLatestScan,
     partialCollectors,
     primaryAction,
-    projectsWithPath,
     radarLoadPhase,
     referencedSignals,
     reportSignalCount,
@@ -389,17 +388,6 @@ describe("dismissReasons", () => {
 });
 
 describe("radar surface glue", () => {
-    it("projectsWithPath keeps only registered projects that have a path", () => {
-        const projects = { a: { path: "/a" }, b: { path: "" }, c: {}, d: { path: "/d" } };
-        expect(projectsWithPath(projects)).toEqual([
-            ["a", { path: "/a" }],
-            ["d", { path: "/d" }],
-        ]);
-    });
-    it("projectsWithPath returns [] for null/undefined", () => {
-        expect(projectsWithPath(null)).toEqual([]);
-        expect(projectsWithPath(undefined)).toEqual([]);
-    });
     it("isResultsState is true only for results and partial", () => {
         expect(isResultsState("results")).toBe(true);
         expect(isResultsState("partial")).toBe(true);

@@ -36,7 +36,7 @@ import { historyCollapsedAtom, resolveCollapsed } from "./difflayout";
 import { HistoryRail } from "./historyrail";
 import { peekSessionStart } from "./agentsessionstore";
 import { RangeStrip } from "./rangestrip";
-import { projectsAtom } from "./projectsstore";
+import { projectListAtom } from "./projectsstore";
 import { CommitPane } from "./commitpane";
 import { AggregatePane } from "./aggregatepane";
 import { CompareColumn } from "./comparecolumn";
@@ -99,7 +99,7 @@ import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
 export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const agents = useAtomValue(model.agentsAtom);
-    const registry = useAtomValue(projectsAtom);
+    const projects: FilesProject[] = useAtomValue(projectListAtom);
     const state = useAtomValue(filesStateAtom);
     const loadError = useAtomValue(filesErrorAtom);
     const historyRows = useAtomValue(historyRowsAtom);
@@ -134,12 +134,6 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const surfaceRef = useRef<HTMLDivElement>(null);
     const [surfaceWidth, setSurfaceWidth] = useState(0);
     const collapsed = resolveCollapsed(useAtomValue(historyCollapsedAtom), surfaceWidth);
-
-    // registered projects (name -> path) as a sorted, path-bearing list for the picker
-    const projects: FilesProject[] = Object.entries(registry ?? {})
-        .filter(([, v]) => v?.path)
-        .map(([name, v]) => ({ name, path: v.path }))
-        .sort((a, b) => a.name.localeCompare(b.name));
 
     // Rebuilt from the raw divergence on every render: buildCompareRows is pure and the input is at
     // most a few hundred commits, the same reasoning the history rows use.

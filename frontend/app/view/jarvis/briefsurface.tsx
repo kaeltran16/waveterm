@@ -1327,7 +1327,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         </kbd>
                     )}
                 </label>
-                <AutonomyLadder channels={channels} />
+                <AutonomyLadder />
                 {/* A real control with the control recipe's border: invariant 4 forbids camouflaging it among
                     the status chips above, which are borderless labels. */}
                 <button

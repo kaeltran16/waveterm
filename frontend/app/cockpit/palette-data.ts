@@ -4,7 +4,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { dedupeByProject } from "@/app/view/agents/projectlabel";
+import { rowsWithChannel, type ProjectRow } from "@/app/view/agents/projectsstore";
 import { ensureRunEvents } from "@/app/view/agents/runeventstore";
 import { isTerminal } from "@/app/view/agents/runmodel";
 import { atom, type PrimitiveAtom } from "jotai";
@@ -66,25 +66,19 @@ export async function loadAllRuns(channels: Channel[]): Promise<void> {
     }
 }
 
-// the channel launch rows start in: the active one, else the last-picked project's, else the only project's
+// the channel launch rows start in: the active one, else the most recently used project's, else the only project's
 export function palettePickChannel(
     active: Channel | null,
-    channels: Channel[] | null,
-    lastPicked: string | null,
-    projectLabel: (c: Channel) => string
+    rows: ProjectRow[],
+    lastPicked: string | null
 ): Channel | null {
     if (active != null) {
         return active;
     }
-    if (channels == null) {
-        return null;
+    const ready = rowsWithChannel(rows);
+    const picked = ready.find((r) => r.name === lastPicked);
+    if (picked != null) {
+        return picked.channel;
     }
-    const projects = dedupeByProject(channels);
-    if (lastPicked != null) {
-        const picked = projects.find((c) => projectLabel(c) === lastPicked);
-        if (picked != null) {
-            return picked;
-        }
-    }
-    return projects.length === 1 ? projects[0] : null;
+    return ready.length === 1 ? ready[0].channel : null;
 }

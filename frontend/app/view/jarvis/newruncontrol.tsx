@@ -27,7 +27,7 @@ import { X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import { channelsAtom, createChannel, primeChannels } from "../agents/channelsstore";
-import { projectsAtom } from "../agents/projectsstore";
+import { noteRecentProject, projectListAtom, recentProjectsAtom } from "../agents/projectsstore";
 import { RoutePicker } from "../agents/routepicker";
 import {
     channelOverrideAtom,
@@ -79,7 +79,6 @@ import { ProjectPicker } from "./projectpickerview";
 // one launch was gone by the next one and every run started by re-picking the same project. Not persisted
 // — where you last started work is a convenience for the session, not a setting. Exported for the palette,
 // which offers its launch rows in the same project.
-export const lastPickedProjectAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
 // What the next open of the window starts from, set by a canvas's Build this… or the palette's Set up the run…;
 // the window clears it once read.
@@ -293,7 +292,8 @@ function PlanPane({
 }
 
 function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () => void }) {
-    const projects = useAtomValue(projectsAtom);
+    const rows = useAtomValue(projectListAtom);
+    const recent = useAtomValue(recentProjectsAtom);
     const channels = useAtomValue(channelsAtom);
     const profiles = useAtomValue(resolvedProfileAtom);
     const overrides = useAtomValue(channelOverrideAtom);
@@ -308,15 +308,10 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const preview = useAtomValue(planPreviewAtom);
     const runRoute = useAtomValue(runRouteAtom);
     const routeTouched = useAtomValue(routeTouchedAtom);
-    const entries = Object.entries(projects ?? {});
+    const names = rows.map((r) => r.name);
     // the project you last started work in, else the only one there is — either way the common case is
     // type-a-goal-and-go rather than pick-the-same-project-again
-    const [picked, setPicked] = useState<string | null>(() =>
-        initialPick(
-            entries.map(([name]) => name),
-            globalStore.get(lastPickedProjectAtom)
-        )
-    );
+    const [picked, setPicked] = useState<string | null>(() => initialPick(names, recent[0] ?? null));
     const [goal, setGoal] = useState("");
     const [prototype, setPrototype] = useState("");
     const [starting, setStarting] = useState(false);
@@ -337,7 +332,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     // a plan start is named by its plan, so it has no goal field to fill
     const planStart = orchestrator && startFrom === "plan";
     const blocker = launchBlocker({ shape, start: startFrom, goal, planPath, preview });
-    const projectPath = picked != null ? (projects?.[picked]?.path ?? "") : "";
+    const projectPath = rows.find((r) => r.name === picked)?.path ?? "";
 
     // The project's own channel is where its profile lives, and a project that has never run has no channel
     // yet — hydrating from `undefined` then leaves the launcher on its baselines, which is the right answer
@@ -368,11 +363,11 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     // the pick would be dropped for good, since the atom is cleared on read.
     useEffect(() => {
         const prefill = globalStore.get(newRunPrefillAtom);
-        if (prefill == null || projects == null) {
+        if (prefill == null) {
             return;
         }
         globalStore.set(newRunPrefillAtom, null);
-        const p = prefillToLaunch(prefill, Object.keys(projects));
+        const p = prefillToLaunch(prefill, names);
         if (p.picked != null) {
             setPicked(p.picked);
         }
@@ -380,11 +375,10 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         setStart(p.start);
         setGoal(p.goal);
         setPrototype(p.prototype);
-    }, [projects]);
+    }, [rows]);
 
     const select = (project: string) => {
         setPicked(project);
-        globalStore.set(lastPickedProjectAtom, project);
         // back to the field, so the next keystroke types into the launch rather than landing on the picker
         (goalRef.current ?? planRef.current)?.focus();
     };
@@ -421,6 +415,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                 setStarting(false);
                 return;
             }
+            noteRecentProject(picked);
             // the launch consumed this draft, so the next one starts from the project's saved defaults
             endRunConfigDraft(globalStore.get(resolvedProfileAtom)[oid]);
             // The run exists, so the launch has succeeded and the modal's work is done. Landing on it is a
@@ -438,7 +433,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
             open
             onClose={onClose}
             onSubmit={start}
-            className={cn("flex w-[min(960px,94vw)] flex-col", entries.length > 0 && "h-[min(720px,88vh)]")}
+            className={cn("flex w-[min(960px,94vw)] flex-col", rows.length > 0 && "h-[min(720px,88vh)]")}
         >
             <div
                 data-new-run-window
@@ -452,7 +447,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                     ctrl+⏎ to start
                 </span>
             </div>
-            {entries.length === 0 ? (
+            {rows.length === 0 ? (
                 <div className="flex flex-col items-start gap-2.5 px-[18px] py-4">
                     <span className="text-[12px] text-secondary">
                         A run needs a project, and none are registered yet.
@@ -471,8 +466,8 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                         <div className="flex min-h-0 flex-col gap-5 overflow-y-auto border-r border-border bg-surface px-[18px] py-4">
                             <Field label="Project">
                                 <ProjectPicker
-                                    projects={entries.map(([name, p]) => ({ name, path: p?.path ?? "" }))}
-                                    channels={channels}
+                                    projects={rows}
+                                    recent={recent}
                                     picked={picked}
                                     onPick={select}
                                     onRegister={register}

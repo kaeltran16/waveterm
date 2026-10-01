@@ -124,7 +124,15 @@ func (w *Watcher) Close() {
 	}
 }
 
+// ConfigHook runs on the initial config and on every change, before the broadcast, so anything it derives
+// (a registered project's channel) exists by the time the frontend sees the config that caused it. Set once
+// at startup, before Start.
+var ConfigHook func(FullConfigType)
+
 func (w *Watcher) broadcast(message WatcherUpdate) {
+	if ConfigHook != nil {
+		ConfigHook(message.FullConfig)
+	}
 	wps.Broker.Publish(wps.WaveEvent{
 		Event: wps.Event_Config,
 		Data:  message,

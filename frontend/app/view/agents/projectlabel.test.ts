@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channelProjectLabel, dedupeByProject, projectLabel, registeredProjectFor } from "./projectlabel";
+import { channelProjectLabel, projectLabel, registeredProjectFor } from "./projectlabel";
 
 describe("projectLabel", () => {
     const projects = { "Krypton API": { path: "C:\\Users\\k\\IdeaProjects\\krypton" } };
@@ -79,27 +79,5 @@ describe("channelProjectLabel", () => {
     it("is empty for no channel", () => {
         expect(channelProjectLabel(null, registry({ a: "/repo/a" }))).toBe("");
         expect(channelProjectLabel(undefined, registry({ a: "/repo/a" }))).toBe("");
-    });
-});
-
-describe("dedupeByProject", () => {
-    it("keeps one channel per project path, first wins", () => {
-        const list = [ch("new", "/repo/a"), ch("old", "/repo/a"), ch("b", "/repo/b")];
-        expect(dedupeByProject(list).map((c) => c.oid)).toEqual(["new", "b"]);
-    });
-
-    it("collapses duplicates written with different separators", () => {
-        const list = [ch("new", "C:/Users/k/w"), ch("old", "C:\\Users\\k\\w")];
-        expect(dedupeByProject(list).map((c) => c.oid)).toEqual(["new"]);
-    });
-
-    it("keeps every channel that has no project path — they collapse onto nothing", () => {
-        const list = [ch("a", ""), ch("b", "")];
-        expect(dedupeByProject(list).map((c) => c.oid)).toEqual(["a", "b"]);
-    });
-
-    it("preserves input order", () => {
-        const list = [ch("b", "/repo/b"), ch("a", "/repo/a")];
-        expect(dedupeByProject(list).map((c) => c.oid)).toEqual(["b", "a"]);
     });
 });

@@ -14,7 +14,7 @@
 import { HarnessPicker } from "@/app/view/agents/harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "@/app/view/agents/harnessstore";
 import { MarkdownMessage } from "@/app/view/agents/markdownmessage";
-import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectlabel";
+import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -79,7 +79,7 @@ export function PetErrand({
         saving: pref.saving,
         harnesses,
     });
-    const options = dedupeByProject(channels ?? []);
+    const options = channels ?? [];
     const placeholder =
         dest == null ? "No project to send to yet" : busy ? "Jarvis is thinking" : "Ask Jarvis anything";
     // only a reason that BLOCKS a ready draft earns a line. An empty draft and a missing destination are

@@ -7292,6 +7292,7 @@ const NEW_RUN_FIELD = `${NEW_RUN}?.querySelector('button[aria-haspopup="listbox"
 const NEW_RUN_LIST = `${NEW_RUN}?.querySelector('[role="listbox"][aria-label="Projects"]')`;
 const NEW_RUN_WORKERS = `${NEW_RUN}?.querySelector('[data-testid="route-picker"][aria-label="Workers model"]')`;
 const NEW_RUN_PROJECT = "verify-new-run-window";
+const RECENT_PROJECTS_KEY = "agent.launch.recentprojects";
 
 // the list's group labels in order, and whether the project is listed under Recent
 const newRunListExpr = (name) => `(() => {
@@ -7368,6 +7369,11 @@ const newRunWindow = {
                 deferstart: true,
             });
             ctx.runId = created.run.id;
+            // recent is the shared recent-projects list (projectsstore's recentProjectsAtom), which a launch
+            // writes; seed it rather than launch, and put the developer's own list back in teardown
+            ctx.prevRecent = await h.ev(`localStorage.getItem(${JSON.stringify(RECENT_PROJECTS_KEY)})`);
+            const recent = [NEW_RUN_PROJECT, ...JSON.parse(ctx.prevRecent ?? "[]")];
+            await h.ev(`localStorage.setItem(${JSON.stringify(RECENT_PROJECTS_KEY)}, ${JSON.stringify(JSON.stringify(recent))})`);
             // the window reads the boot-primed channel list
             await polishReload(h);
         } catch (e) {
@@ -7379,7 +7385,7 @@ const newRunWindow = {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         if (ctx.arrangeError != null) {
-            rec("0. the project, its channel and a planning run were made", false, ctx.arrangeError);
+            rec("0. the project, its channel, a planning run and its recent entry were made", false, ctx.arrangeError);
             return steps;
         }
         await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
@@ -7470,6 +7476,14 @@ const newRunWindow = {
     },
     async teardown(h, ctx) {
         await h.ev(PEEKS_ESC).catch(() => {});
+        if (ctx.prevRecent !== undefined) {
+            const key = JSON.stringify(RECENT_PROJECTS_KEY);
+            await h.ev(
+                ctx.prevRecent === null
+                    ? `localStorage.removeItem(${key})`
+                    : `localStorage.setItem(${key}, ${JSON.stringify(ctx.prevRecent)})`
+            );
+        }
         await teardownFixtureRun(h, ctx, "new-run-window", {
             what: "delete the project",
             fn: () => (ctx.project ? h.rpc("deleteproject", { name: ctx.project }) : null),

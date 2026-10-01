@@ -10,7 +10,7 @@ import { ChevronDown, Plus } from "lucide-react";
 import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsFromAgents } from "./agentsviewmodel";
-import { mergeSwitcherProjects, projectsAtom, removeProject } from "./projectsstore";
+import { projectListAtom, removeProject, switcherProjects } from "./projectsstore";
 import { projectControlCopy } from "./surfacecontext";
 
 // Project scope dropdown bound to projectFilterAtom. "bar" = the app-bar `/ name ▾` trigger;
@@ -21,8 +21,8 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
     const surface = useAtomValue(model.surfaceAtom);
     const [open, setOpen] = useState(false);
     const [confirming, setConfirming] = useState<string | null>(null);
-    const registry = useAtomValue(projectsAtom);
-    const projects = mergeSwitcherProjects(projectsFromAgents(agents), registry);
+    const rows = useAtomValue(projectListAtom);
+    const projects = switcherProjects(rows, projectsFromAgents(agents));
     const projectLabel = filter === "all" ? "All projects" : filter;
     const copy = projectControlCopy(variant === "header" ? "cockpit" : surface, projectLabel);
     const close = () => {
@@ -153,7 +153,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                                                 </svg>
                                             </button>
                                         </span>
-                                    ) : p.registered ? (
+                                    ) : (
                                         <button
                                             type="button"
                                             title="Remove project"
@@ -177,8 +177,6 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                                                 <line x1="11.5" y1="8.5" x2="11.5" y2="13.5" />
                                             </svg>
                                         </button>
-                                    ) : (
-                                        <span className="w-5 shrink-0" />
                                     )}
                                 </div>
                             ))}

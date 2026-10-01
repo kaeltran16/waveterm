@@ -7,30 +7,64 @@ import { modalsModel } from "@/app/store/modalmodel";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
+import { resolveTargetChannel } from "./channelderive";
+import { channelsAtom, primeChannels } from "./channelsstore";
 
 // The registered projects (name -> {path}), surfaced live from the full config.
 export const projectsAtom = atom((get) => get(atoms.fullConfigAtom)?.projects ?? {});
+
+// One row per registered project that has a path: the single project list every picker shows. The registry
+// is the source; a folder an agent happens to run in, or a leftover channel, is not a project until it is
+// registered. wavesrv gives every registered project a channel (SyncProjectChannels), so `channel` is
+// absent only until the channel snapshot catches up with a project registered moments ago.
+export interface ProjectRow {
+    name: string;
+    path: string;
+    channel?: Channel;
+}
+
+export function buildProjectList(
+    registry: Record<string, ProjectKeywords> | null | undefined,
+    channels: Channel[] | null | undefined
+): ProjectRow[] {
+    return Object.entries(registry ?? {})
+        .filter(([, v]) => v?.path)
+        .map(([name, v]) => ({ name, path: v.path, channel: resolveTargetChannel(channels ?? [], v.path) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export const projectListAtom = atom((get) => buildProjectList(get(projectsAtom), get(channelsAtom)));
+
+// The rows whose channel has loaded, for the surfaces that act on a project's channel.
+export function rowsWithChannel(rows: ProjectRow[]): (ProjectRow & { channel: Channel })[] {
+    return rows.filter((r): r is ProjectRow & { channel: Channel } => r.channel != null);
+}
 
 export interface SwitcherProject {
     name: string;
     askingCount: number;
     agentCount: number;
-    registered?: boolean; // present in projects.json (so removable)
 }
 
-// Switcher list = live-derived projects (with counts) ∪ registry-only projects (count 0).
-// `registered` marks rows backed by projects.json; only those get a remove control.
-export function mergeSwitcherProjects(
-    live: SwitcherProject[],
-    registry: Record<string, ProjectKeywords>
+// The switcher's rows: every project, with the live roster's counts laid over it.
+export function switcherProjects(
+    rows: ProjectRow[],
+    live: { name: string; askingCount: number; agentCount: number }[]
 ): SwitcherProject[] {
-    const registryNames = new Set(Object.keys(registry ?? {}));
-    const merged = live.map((p) => ({ ...p, registered: registryNames.has(p.name) }));
-    const liveNames = new Set(live.map((p) => p.name));
-    const extra = [...registryNames]
-        .filter((n) => !liveNames.has(n))
-        .map((n) => ({ name: n, askingCount: 0, agentCount: 0, registered: true }));
-    return [...merged, ...extra];
+    const counts = new Map(live.map((p) => [p.name, p]));
+    return rows.map((r) => ({
+        name: r.name,
+        askingCount: counts.get(r.name)?.askingCount ?? 0,
+        agentCount: counts.get(r.name)?.agentCount ?? 0,
+    }));
+}
+
+// A registration happened here, and wavesrv made the project's channel before answering; refresh the
+// channel snapshot so the new row arrives with it.
+export async function registerProject(name: string, path: string): Promise<void> {
+    await RpcApi.CreateProjectCommand(TabRpcClient, { name, path });
+    await primeChannels();
 }
 
 // Deregisters from projects.json; the registry atom refreshes and the row drops out. If the removed
@@ -57,48 +91,23 @@ export function confirmRemoveProject(model: { projectFilterAtom: PrimitiveAtom<s
     });
 }
 
-export interface LaunchCandidate {
-    name: string;
-    path: string; // registry path; "" for a live project until its cwd is resolved
-    transcriptPath?: string; // present for live projects (used to resolve the cwd)
-    registered: boolean;
-}
-
-// New Agent launch targets = registry projects (stored path) ∪ live-derived projects (path resolved
-// lazily from a transcript cwd). Registry wins on a name collision; name-sorted. Mirrors the
-// switcher's merged list so the launcher shows the same projects.
-export function launchCandidates(
-    registry: Record<string, ProjectKeywords>,
-    live: { name: string; transcriptPath?: string }[]
-): LaunchCandidate[] {
-    const out: LaunchCandidate[] = [];
-    const seen = new Set<string>();
-    for (const [name, v] of Object.entries(registry ?? {})) {
-        if (!v?.path) {
-            continue;
-        }
-        out.push({ name, path: v.path, registered: true });
-        seen.add(name);
-    }
-    for (const p of live ?? []) {
-        if (seen.has(p.name)) {
-            continue;
-        }
-        seen.add(p.name);
-        out.push({ name: p.name, path: "", transcriptPath: p.transcriptPath, registered: false });
-    }
-    return out.sort((a, b) => a.name.localeCompare(b.name));
-}
-
 // bounds the list so projects removed long ago don't pile up in storage
 export const RECENT_PROJECTS_CAP = 20;
+
+// Projects most recently launched into or run in, newest first: the one meaning of "recent" every picker
+// orders by. The key predates the New Run window sharing it, when only the agent launcher kept it.
+export const recentProjectsAtom = atomWithStorage<string[]>("agent.launch.recentprojects", []);
+
+export function noteRecentProject(name: string): void {
+    globalStore.set(recentProjectsAtom, pushRecentProject(globalStore.get(recentProjectsAtom), name));
+}
 
 export function pushRecentProject(recent: string[], name: string): string[] {
     return [name, ...(recent ?? []).filter((n) => n !== name)].slice(0, RECENT_PROJECTS_CAP);
 }
 
-// Orders the launcher by recent use, so the head is its default; never-used projects keep their order after.
-export function recentFirst(candidates: LaunchCandidate[], recent: string[]): LaunchCandidate[] {
+// Orders by recent use, so the head is a picker's default; never-used projects keep their order after.
+export function recentFirst<T extends { name: string }>(candidates: T[], recent: string[]): T[] {
     const rank = (name: string) => {
         const i = (recent ?? []).indexOf(name);
         return i < 0 ? Infinity : i;

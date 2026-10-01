@@ -20,7 +20,7 @@
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import type { JarvisTier } from "@/app/view/agents/channelmessages";
 import { setChannelTiers } from "@/app/view/agents/channelsstore";
-import { projectsAtom } from "@/app/view/agents/projectsstore";
+import { projectListAtom } from "@/app/view/agents/projectsstore";
 import { cn, fireAndForget } from "@/util/util";
 import {
     autoUpdate,
@@ -56,14 +56,14 @@ function RungBars({ tier, width }: { tier: JarvisTier; width: number }) {
     );
 }
 
-export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
+export function AutonomyLadder() {
     // one source for "is it open": the atom, because the keybinding layer reads the same state to hand
     // Escape to the panel (see autonomyladder.ts). Reset on unmount, or leaving the surface with the panel
     // open would keep Escape hostage on every other deep surface.
     const [open, setOpen] = useAtom(autonomyPanelOpenAtom);
     useEffect(() => () => setOpen(false), [setOpen]);
-    const projects = useAtomValue(projectsAtom);
-    const rows = useMemo(() => channelAutonomy(channels, projects), [channels, projects]);
+    const projectRows = useAtomValue(projectListAtom);
+    const rows = useMemo(() => channelAutonomy(projectRows), [projectRows]);
     const summary = autonomySummary(rows);
     // every pick writes every project, so a mixed set collapses to one value; the toast's undo puts each
     // project's own tier back

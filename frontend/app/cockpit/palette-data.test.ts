@@ -59,18 +59,17 @@ describe("loadAllRuns", () => {
 });
 
 describe("palettePickChannel", () => {
-    const c = (oid: string, projectpath?: string) => ({ oid, projectpath }) as Channel;
-    const label = (x: Channel) => x.oid;
+    const c = (oid: string) => ({ oid }) as Channel;
+    const row = (name: string, channel?: Channel) => ({ name, path: `/${name}`, channel });
     it("prefers the active channel", () =>
-        expect(palettePickChannel(c("a"), [c("a"), c("b")], "b", label)?.oid).toBe("a"));
-    it("falls back to the last-picked project", () =>
-        expect(palettePickChannel(null, [c("a"), c("b")], "b", label)?.oid).toBe("b"));
-    it("falls back to the only project", () => expect(palettePickChannel(null, [c("a")], null, label)?.oid).toBe("a"));
-    it("counts two channels on one project as the only project", () =>
-        expect(palettePickChannel(null, [c("new", "/p"), c("old", "/p")], null, label)?.oid).toBe("new"));
+        expect(palettePickChannel(c("a"), [row("a", c("a")), row("b", c("b"))], "b")?.oid).toBe("a"));
+    it("falls back to the most recently used project", () =>
+        expect(palettePickChannel(null, [row("a", c("a")), row("b", c("b"))], "b")?.oid).toBe("b"));
+    it("falls back to the only project", () =>
+        expect(palettePickChannel(null, [row("a", c("a"))], null)?.oid).toBe("a"));
     it("picks nothing among several with no memory", () =>
-        expect(palettePickChannel(null, [c("a"), c("b")], null, label)).toBeNull());
-    it("picks nothing before channels load", () => expect(palettePickChannel(null, null, "a", label)).toBeNull());
-    it("ignores a last-picked project that has no channel", () =>
-        expect(palettePickChannel(null, [c("a"), c("b")], "gone", label)).toBeNull());
+        expect(palettePickChannel(null, [row("a", c("a")), row("b", c("b"))], null)).toBeNull());
+    it("picks nothing before channels load", () => expect(palettePickChannel(null, [row("a")], "a")).toBeNull());
+    it("ignores a recent project that is no longer registered", () =>
+        expect(palettePickChannel(null, [row("a", c("a")), row("b", c("b"))], "gone")).toBeNull());
 });
