@@ -36,6 +36,11 @@ export function ownsFocus(stack: string[], id: string): boolean {
     return topId(stack) === id;
 }
 
+/** Whether any shell is open: an open shell's own listener closes it on Escape. */
+export function anyModalOpen(): boolean {
+    return openStack.length > 0;
+}
+
 export function isTopModal(id: string): boolean {
     return ownsFocus(openStack, id);
 }

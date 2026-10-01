@@ -3,6 +3,7 @@
 
 import { launchPiTab } from "@/app/cockpit/cockpit-actions";
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
+import { anyModalOpen } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
@@ -356,6 +357,9 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             when: (ctx) =>
                 navigateStrict(ctx) &&
                 ESC_HOME_SURFACES.has(ctx.surface) &&
+                // any open ModalShell (the Brief's Profile window, its sheet) closes on Escape itself; going
+                // home instead unmounts it with its state still set, so it reopens on the way back
+                !anyModalOpen() &&
                 !globalStore.get(graphPeekOpenAtom) &&
                 !globalStore.get(autonomyPanelOpenAtom) &&
                 // and the pet's peek, for the same reason again — it is global chrome, so it can be open

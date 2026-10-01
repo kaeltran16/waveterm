@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { registerModal } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import {
@@ -289,6 +290,17 @@ describe("keybinding conflict invariant", () => {
         expect(exitCompare.when!(filesCtx)).toBe(true);
         expect(() => assertNoConflicts(all)).not.toThrow();
         globalStore.set(diffScopeAtom, null);
+    });
+
+    it("leaves Escape to an open modal rather than going home under it", () => {
+        const model = stubModel();
+        const jarvisCtx = { surface: "jarvis" as const, editable: false, modalOpen: false, leader: null };
+        const backHome = buildGlobalBindings(model).find((b) => b.id === "surface:back-home")!;
+        expect(backHome.when!(jarvisCtx)).toBe(true);
+        const unregister = registerModal("profile");
+        expect(backHome.when!(jarvisCtx)).toBe(false);
+        unregister();
+        expect(backHome.when!(jarvisCtx)).toBe(true);
     });
 
     it("global + agent + jarvis + files bindings do not conflict in leader posture either", () => {
