@@ -1504,10 +1504,9 @@ func TestWorkerContractSealsTheReportFromAFile(t *testing.T) {
 	for _, want := range []string{
 		"--report " + path,
 		"`wsh jarvis complete --commit $(git rev-parse HEAD) --report " + path + "`",
-		"what you did",
-		"what you did differently from the task and why",
-		"what a later task must know",
-		"what you could not verify and why",
+		jarvis.WorkerReportTemplate,
+		"Nothing goes before the first heading",
+		"a failure that predates your task goes under Found not fixed",
 		"edit tool",
 	} {
 		if !strings.Contains(c, want) {
@@ -1556,13 +1555,16 @@ func TestTaskPromptCarriesReviewFindingsAndGuidance(t *testing.T) {
 func TestWorkerContractNamesABrokenBase(t *testing.T) {
 	g := mustGroup(t, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
 	g.Check = "tsc"
-	if strings.Contains(workerContract(g, &g.Tasks[0], "claude", ""), "on the base") {
+	if strings.Contains(workerContract(g, &g.Tasks[0], "claude", ""), "already fails on the base") {
 		t.Fatal("no base note before the base Check failed")
 	}
 	g.BaseCheck = &waveobj.BaseCheck{State: BaseCheckState_Failed, Detail: "exit 2: error TS2307"}
 	c := workerContract(g, &g.Tasks[0], "claude", "")
 	if !strings.Contains(c, "`tsc` already fails on the base, before any task (exit 2: error TS2307)") {
 		t.Fatalf("the contract names the base failure, got %q", c)
+	}
+	if !strings.Contains(c, "name them under Found not fixed in your report") {
+		t.Fatalf("the base-failure sentence must point at Found not fixed, got %q", c)
 	}
 }
 

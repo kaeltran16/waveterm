@@ -752,7 +752,13 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	}
 	if data.Action == jarvis.RunAction_Complete && preRun != nil && preRun.TaskId != "" && !preRun.Review && strings.TrimSpace(data.Report) == "" {
 		path := orchestrate.WorkerReportPath(preRun.DagORef, preRun.TaskId)
-		return fmt.Errorf("%s: write to %s what you did, what you did differently and why, what a later task must know, and what you could not verify, then run wsh jarvis complete --commit <sha> --report %s", ErrWorkerReportRequired, path, path)
+		return fmt.Errorf("%s: write your report to %s as:\n%s\nthen run wsh jarvis complete --commit <sha> --report %s", ErrWorkerReportRequired, path, jarvis.WorkerReportTemplate, path)
+	}
+	if data.Action == jarvis.RunAction_Complete && preRun != nil && preRun.TaskId != "" && !preRun.Review {
+		if _, perr := jarvis.ParseWorkerReport(data.Report); perr != nil {
+			path := orchestrate.WorkerReportPath(preRun.DagORef, preRun.TaskId)
+			return fmt.Errorf("%s: %s: %v. Rewrite it as:\n%s\nthen run wsh jarvis complete --commit <sha> --report %s", ErrWorkerReportRequired, path, perr, jarvis.WorkerReportTemplate, path)
+		}
 	}
 	// the land runs after complete has closed the lead's tab, so a conflict it would hold on is the lead's to fix now
 	if data.Action == jarvis.RunAction_Complete && !data.HoldLand && preRun != nil && preRun.TaskId == "" && preStatus != jarvis.RunStatus_Done {

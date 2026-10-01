@@ -323,6 +323,8 @@ func TestParentlessRunDoesNotNotify(t *testing.T) {
 	}
 }
 
+const validWorkerReport = "## Done\nlanded\n\n## Differs from plan\nNone\n\n## Not verified\nNone\n\n## For later tasks\nNone\n\n## Found not fixed\nNone"
+
 // a task worker's report is its seal's summary, so the server refuses its complete without one; a
 // reviewer's verdict and a run outside the dag carry their own close
 func TestTaskWorkerCompleteRequiresReport(t *testing.T) {
@@ -345,8 +347,11 @@ func TestTaskWorkerCompleteRequiresReport(t *testing.T) {
 	}{
 		{"a task worker without a report is refused", "t-1", false, "", true},
 		{"a whitespace report is no report", "t-1", false, "  \n", true},
-		{"a task worker with a report completes", "t-1", false, "did the thing", false},
+		{"a task worker with a valid report completes", "t-1", false, validWorkerReport, false},
+		{"a free-form report is refused with the parser's problem", "t-1", false, "did the thing", true},
 		{"a reviewer completes without one", "t-1", true, "", false},
+		{"a reviewer's free-form report completes", "t-1", true, "verdict: pass", false},
+		{"a lead's free-form report completes", "", false, "all landed", false},
 		{"a run outside the dag completes without one", "", false, "", false},
 	}
 	for _, tc := range cases {
@@ -371,7 +376,16 @@ func TestTaskWorkerCompleteRequiresReport(t *testing.T) {
 				if err != nil {
 					t.Fatalf("AdvanceRunCommand: %v", err)
 				}
+				if tc.report != "" {
+					got, _ := wstore.GetRun(ctx, ch.OID, run.ID)
+					if got.Evidence == nil || got.Evidence.Summary != tc.report {
+						t.Fatalf("the report must seal into Evidence.Summary unchanged, got %+v", got.Evidence)
+					}
+				}
 				return
+			}
+			if tc.report == "did the thing" && !strings.Contains(err.Error(), "missing: Done") {
+				t.Fatalf("error %q must carry the parser's problems", err)
 			}
 			if err == nil {
 				t.Fatal("complete without a report must be refused")

@@ -705,7 +705,7 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime, tree 
 	}
 	b.WriteString(" and get them passing before you complete; if you can't, ask.")
 	if baseCheckFailed(g) {
-		fmt.Fprintf(&b, " `%s` already fails on the base, before any task (%s): don't fix those failures or count them as yours, and name them in your report.", g.Check, g.BaseCheck.Detail)
+		fmt.Fprintf(&b, " `%s` already fails on the base, before any task (%s): don't fix those failures or count them as yours, and name them under Found not fixed in your report.", g.Check, g.BaseCheck.Detail)
 	}
 	if g.Verify != "" {
 		// the brief wins over a plan whose task steps name whole-package runs (run 6c7652be spent most worker time on them)
@@ -714,7 +714,7 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime, tree 
 	b.WriteString(" To reproduce a flake, run the one failing test alone (for Go, `-run '^TestX$' -count=N`), never `-count=N` on a whole package.")
 	b.WriteString(" Don't pipe a test into `tail`, `head` or `grep`: a pipe exits with its last command's status, so a failing test reads as passing. If you must pipe, run `set -o pipefail` first.")
 	reportPath := WorkerReportPath(g.OID, task.ID)
-	fmt.Fprintf(&b, " Commit, then write your report with your file-writing tool to `%s`: what you did, what you did differently from the task and why, what a later task must know, and what you could not verify and why. Then run `wsh jarvis complete --commit $(git rev-parse HEAD) --report %s`. ", reportPath, reportPath)
+	fmt.Fprintf(&b, " Commit, then write your report with your file-writing tool to `%s`, with exactly these five sections in this order:\n%s\nNothing goes before the first heading (the commit is already passed with `--commit`). A section with nothing to say holds `None`. Not verified lists only checks the task or plan asked for, never the suite the engine runs after your merge; a failure that predates your task goes under Found not fixed. `wsh jarvis complete` refuses a report that doesn't match. Then run `wsh jarvis complete --commit $(git rev-parse HEAD) --report %s`. ", reportPath, jarvis.WorkerReportTemplate, reportPath)
 	b.WriteString(jarvis.NoAttributionRule)
 	if g.PlanPath != "" {
 		b.WriteString("\nIf your context was compacted, re-read your task from the plan.")
