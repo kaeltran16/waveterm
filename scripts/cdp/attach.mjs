@@ -175,7 +175,7 @@ export async function attach(port = 9222) {
             mkdirSync(dirname(outPath), { recursive: true });
             writeFileSync(outPath, Buffer.from(data, "base64"));
             const png = basename(outPath);
-            shots.push({ name: png.replace(/\.png$/, ""), png });
+            shots.push({ name: png.replace(/\.png$/, ""), png, path: outPath });
         },
         close: () => client.close(),
     };

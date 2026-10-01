@@ -5,7 +5,18 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { EXIT_UNVERIFIED, acquireBuildLock, buildLockPath, inUse, pickPort, pickVitePort, sweepStaleStores, unlinkBuildJunctions } from "./final-verify.mjs";
+import {
+    EXIT_UNVERIFIED,
+    acquireBuildLock,
+    buildLockPath,
+    finalManifest,
+    inUse,
+    pickPort,
+    pickVitePort,
+    sweepStaleStores,
+    unlinkBuildJunctions,
+    writeFinalManifest,
+} from "./final-verify.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./final-verify.mjs", import.meta.url));
 
@@ -321,5 +332,65 @@ describe("sweepStaleStores", () => {
     it("is a no-op when no stage has made a store yet", () => {
         dir = mkdtempSync(join(tmpdir(), "final-stores-"));
         expect(() => sweepStaleStores(join(dir, "missing"))).not.toThrow();
+    });
+});
+
+describe("finalManifest", () => {
+    it("prefixes every file with cdp-shots/ and keeps the rest of the entry", () => {
+        const steps = [{ step: "a", state: "pass" }];
+        expect(
+            finalManifest([
+                { name: "runs", files: ["runs.png", "nested/open.png"], steps },
+                { name: "empty", files: [], steps: [] },
+            ])
+        ).toEqual([
+            { name: "runs", files: ["cdp-shots/runs.png", "cdp-shots/nested/open.png"], steps },
+            { name: "empty", files: [], steps: [] },
+        ]);
+    });
+});
+
+describe("writeFinalManifest", () => {
+    let dir;
+    afterEach(() => {
+        if (dir) rmSync(dir, { recursive: true, force: true });
+        dir = undefined;
+    });
+
+    it("writes the prefixed manifest at the top of the out dir", () => {
+        dir = mkdtempSync(join(tmpdir(), "final-manifest-"));
+        const shots = join(dir, "cdp-shots");
+        const out = join(dir, "out");
+        mkdirSync(shots);
+        mkdirSync(out);
+        writeFileSync(join(shots, "shots.json"), JSON.stringify([{ name: "runs", files: ["runs.png"], steps: [] }]));
+
+        writeFinalManifest(shots, out);
+
+        expect(JSON.parse(readFileSync(join(out, "shots.json"), "utf8"))).toEqual([
+            { name: "runs", files: ["cdp-shots/runs.png"], steps: [] },
+        ]);
+    });
+
+    it("writes nothing when verify never wrote a manifest", () => {
+        dir = mkdtempSync(join(tmpdir(), "final-manifest-"));
+        const out = join(dir, "out");
+        mkdirSync(out);
+
+        writeFinalManifest(join(dir, "cdp-shots"), out);
+
+        expect(existsSync(join(out, "shots.json"))).toBe(false);
+    });
+
+    it("writes nothing and does not throw when the manifest is unreadable", () => {
+        dir = mkdtempSync(join(tmpdir(), "final-manifest-"));
+        const shots = join(dir, "cdp-shots");
+        const out = join(dir, "out");
+        mkdirSync(shots);
+        mkdirSync(out);
+        writeFileSync(join(shots, "shots.json"), "{not json");
+
+        expect(() => writeFinalManifest(shots, out)).not.toThrow();
+        expect(existsSync(join(out, "shots.json"))).toBe(false);
     });
 });

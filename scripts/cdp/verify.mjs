@@ -3,7 +3,7 @@
 // and exits nonzero on any failure. Usage: node scripts/cdp/verify.mjs [name...]
 import { mkdirSync, writeFileSync } from "node:fs";
 import { attach } from "./attach.mjs";
-import { contactSheetHtml, exitCode, formatResults } from "./report.mjs";
+import { contactSheetHtml, exitCode, formatResults, shotsManifest, shotsUnder } from "./report.mjs";
 import { SCENARIOS } from "./scenarios.mjs";
 
 const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
@@ -39,8 +39,12 @@ console.log(rendered ? `nav rendered after ${waited}s` : `nav not rendered after
 const VERIFY_VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 await h.cdp("Emulation.setDeviceMetricsOverride", VERIFY_VIEWPORT);
 
+const SHOTS_DIR = "cdp-shots";
 const results = [];
+// a scenario owns the shots taken from its start to the next one's: the goto shot, then any from assert or teardown
+const shotsByScenario = {};
 for (const scenario of chosen) {
+    const firstShot = h.shots.length;
     let ctx;
     try {
         ctx = await scenario.arrange(h);
@@ -58,13 +62,15 @@ for (const scenario of chosen) {
         }
         // a scenario that drove width leaves the override where it put it; restore the pin for the next one
         await h.cdp("Emulation.setDeviceMetricsOverride", VERIFY_VIEWPORT).catch(() => {});
+        shotsByScenario[scenario.name] = shotsUnder(h.shots.slice(firstShot), SHOTS_DIR);
     }
 }
 await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
 h.close();
 
 console.log(formatResults(results));
-mkdirSync("cdp-shots", { recursive: true });
-writeFileSync("cdp-shots/index.html", contactSheetHtml(h.shots));
-console.log(`\ncontact sheet: cdp-shots/index.html`);
+mkdirSync(SHOTS_DIR, { recursive: true });
+writeFileSync(`${SHOTS_DIR}/index.html`, contactSheetHtml(h.shots));
+writeFileSync(`${SHOTS_DIR}/shots.json`, JSON.stringify(shotsManifest(results, shotsByScenario), null, 2));
+console.log(`\ncontact sheet: ${SHOTS_DIR}/index.html`);
 process.exit(exitCode(results));

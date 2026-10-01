@@ -1,5 +1,6 @@
 // This repo's **Final:** command. The engine runs it in the final tree with ARC_FINAL_OUT set: it starts a dev
-// app from that tree, runs verify.mjs against it, and copies the shots and contact sheet into ARC_FINAL_OUT.
+// app from that tree, runs verify.mjs against it, and copies the shots and contact sheet into ARC_FINAL_OUT, with a
+// shots.json manifest at its top.
 // A dev app from the main checkout is usually running, so this one shares nothing it uses: its own CDP and Vite
 // ports, WebView2 profile, store, cargo target dir and dist/bin, and it installs no global agent hooks or skills.
 // Exit 0 passes, verify.mjs's nonzero code fails, and EXIT_UNVERIFIED with the reason as the last stdout line means
@@ -17,7 +18,7 @@
 // The user's packaged Arc shares the dev app's image names, so only the PID this script spawned is ever killed.
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -41,6 +42,8 @@ const FINAL_BASE = join(process.env.LOCALAPPDATA || join(homedir(), ".cache"), "
 const FINAL_TARGET_DIR = join(FINAL_BASE, "target");
 const STORE_ID_LEN = 8;
 const STORES_DIR = join(FINAL_BASE, "stores");
+// where verify.mjs writes its shots, contact sheet and shots.json, relative to the tree it runs in
+const SHOTS_DIR = "cdp-shots";
 // with the 10 min boot and the verify run, a stage that waited this long still ends inside the engine's 30 min
 // FinalTimeout (pkg/orchestrate/final.go)
 const DEFAULT_LOCK_WAIT_MS = 600_000;
@@ -225,6 +228,25 @@ async function waitForCdp(port, dev, bootMs) {
     return false;
 }
 
+// verify.mjs's manifest lists files relative to cdp-shots/; the engine reads them relative to ARC_FINAL_OUT, where
+// the copied dir keeps its name
+export function finalManifest(manifest) {
+    return manifest.map((entry) => ({ ...entry, files: entry.files.map((f) => `${SHOTS_DIR}/${f}`) }));
+}
+
+// writes nothing when verify.mjs never wrote its manifest: the engine then lists the pngs itself. A manifest that
+// cannot be read is reported and left out the same way, so it never replaces verify's result
+export function writeFinalManifest(shotsDir, out) {
+    const src = join(shotsDir, "shots.json");
+    if (!existsSync(src)) return;
+    try {
+        const manifest = JSON.parse(readFileSync(src, "utf8"));
+        writeFileSync(join(out, "shots.json"), JSON.stringify(finalManifest(manifest), null, 2));
+    } catch (e) {
+        console.log(`could not write ${join(out, "shots.json")} from ${src}: ${e.message}`);
+    }
+}
+
 function runVerify(port, scenarios) {
     const script = fileURLToPath(new URL("./verify.mjs", import.meta.url));
     return new Promise((resolve) => {
@@ -301,7 +323,10 @@ async function main() {
                     : `dev app exited with code ${dev.exitCode} before answering on :${port}`;
         } else {
             code = await runVerify(port, scenarios);
-            if (existsSync("cdp-shots")) cpSync("cdp-shots", join(out, "cdp-shots"), { recursive: true });
+            if (existsSync(SHOTS_DIR)) {
+                cpSync(SHOTS_DIR, join(out, SHOTS_DIR), { recursive: true });
+                writeFinalManifest(SHOTS_DIR, out);
+            }
         }
     } finally {
         stop();

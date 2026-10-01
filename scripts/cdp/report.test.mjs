@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { contactSheetHtml, exitCode, formatResults } from "./report.mjs";
+import { join, resolve } from "node:path";
+import { contactSheetHtml, exitCode, formatResults, shotsManifest, shotsUnder } from "./report.mjs";
 
 const pass = { name: "s1", steps: [{ step: "a", ok: true, detail: "d" }] };
 const fail = { name: "s2", steps: [{ step: "b", ok: false, detail: "boom" }] };
@@ -56,5 +57,74 @@ describe("contactSheetHtml", () => {
     });
     it("emits a doctype even when empty", () => {
         expect(contactSheetHtml([])).toContain("<!doctype html>");
+    });
+});
+
+describe("shotsManifest", () => {
+    it("maps pass, fail and skip, keeping step order and details", () => {
+        const scenario = {
+            name: "runs",
+            steps: [
+                { step: "a", ok: true, detail: "d" },
+                { step: "b", ok: false, detail: "boom" },
+                { step: "c", skip: true, detail: "no scan report" },
+                { step: "e", ok: true },
+            ],
+        };
+        expect(shotsManifest([scenario], { runs: ["runs.png", "runs-open.png"] })).toEqual([
+            {
+                name: "runs",
+                files: ["runs.png", "runs-open.png"],
+                steps: [
+                    { step: "a", state: "pass", detail: "d" },
+                    { step: "b", state: "fail", detail: "boom" },
+                    { step: "c", state: "skip", detail: "no scan report" },
+                    { step: "e", state: "pass" },
+                ],
+            },
+        ]);
+    });
+
+    it("adds a failing step carrying the error after the steps of a scenario that threw", () => {
+        const threw = { name: "s5", steps: [{ step: "a", ok: true }], error: "nav not found" };
+        expect(shotsManifest([threw, errored], {})).toEqual([
+            {
+                name: "s5",
+                files: [],
+                steps: [
+                    { step: "a", state: "pass" },
+                    { step: "the scenario threw", state: "fail", detail: "nav not found" },
+                ],
+            },
+            { name: "s3", files: [], steps: [{ step: "the scenario threw", state: "fail", detail: "attach failed" }] },
+        ]);
+    });
+
+    it("gives a scenario with no shots an empty file list", () => {
+        expect(shotsManifest([pass], { other: ["other.png"] })).toEqual([
+            { name: "s1", files: [], steps: [{ step: "a", state: "pass", detail: "d" }] },
+        ]);
+    });
+});
+
+describe("shotsUnder", () => {
+    it("keeps the shots under the dir, relative to it with forward slashes, in order", () => {
+        const shots = [
+            { path: "cdp-shots/b.png" },
+            { path: "cdp-shots/nested/a.png" },
+            { path: join(resolve("cdp-shots"), "abs.png") },
+        ];
+        expect(shotsUnder(shots, "cdp-shots")).toEqual(["b.png", "nested/a.png", "abs.png"]);
+    });
+
+    it("drops a png a scenario wrote outside the dir", () => {
+        const shots = [
+            { path: "cdp-shots/kept.png" },
+            { path: "fixtures/seed.png" },
+            { path: "cdp-shots/../escaped.png" },
+            { path: "cdp-shots-old/x.png" },
+            { path: resolve("elsewhere", "y.png") },
+        ];
+        expect(shotsUnder(shots, "cdp-shots")).toEqual(["kept.png"]);
     });
 });
