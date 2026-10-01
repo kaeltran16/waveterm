@@ -2214,6 +2214,72 @@ const jarvisAvatar = {
     },
 };
 
+const JARVIS_PEEK_PROJECT = "verify-jarvis-peek";
+
+// a registered project is the composer's destination (petpeek.tsx: projectListAtom's rows with a channel), and
+// createproject makes its channel. The channel snapshot is boot-primed, so the frontend reloads to see it, and
+// the reload closes the hub, so it is reopened from the creature the way step 1 opened it. The existing fixture
+// helpers (arrangeFixtureRun, brief-peek's createchannel) make a channel with no registered project, which is
+// not a destination.
+async function arrangeJarvisPeekDest(h, ctx) {
+    try {
+        ctx.destDir = mkdtempSync(join(tmpdir(), "verify-jarvis-peek-"));
+        await h.rpc("createproject", { name: JARVIS_PEEK_PROJECT, path: ctx.destDir });
+        ctx.destProject = JARVIS_PEEK_PROJECT;
+        await waitForProjectInConfig(h, JARVIS_PEEK_PROJECT);
+        // not polishReload: it lands on the Jarvis surface, whose mount selects a channel
+        try {
+            await h.ev("location.reload()");
+        } catch {
+            /* the evaluate is cut off by the navigation it just started */
+        }
+        await polishWaitFor(h, "!!window.TabRpcClient && !!document.querySelector('nav button')", 30000);
+        await h.goto("cockpit");
+        await h.ev(`(() => {
+            const store = globalThis.__wavePetStore;
+            store?.resetPeek();
+            store?.setAttention([]);
+            document.querySelector('[aria-label="Jarvis condition"]')?.focus();
+        })()`);
+        for (const type of ["keyDown", "keyUp"]) {
+            await h.cdp("Input.dispatchKeyEvent", { type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+        }
+        const composerEnabled = await polishWaitFor(
+            h,
+            `(() => { const i = document.querySelector('[data-pet-peek] [data-pet-errand-input]'); return i != null && !i.disabled; })()`,
+            10000
+        );
+        const destLabel = await h.ev(
+            `document.querySelector('[data-pet-peek] [data-pet-errand-dest]')?.selectedOptions?.[0]?.textContent?.trim() ?? null`
+        );
+        return { composerEnabled, destLabel };
+    } catch (e) {
+        return { composerEnabled: false, error: String(e?.message ?? e) };
+    }
+}
+
+// deleteproject leaves the channel createproject made, so the channel at the project's path goes too
+async function teardownJarvisPeekDest(h, ctx) {
+    const step = async (what, fn) => {
+        try {
+            await fn();
+        } catch (e) {
+            console.error(`jarvis-peek teardown: ${what} failed: ${e?.message ?? e}`);
+        }
+    };
+    if (ctx?.destProject) await step("delete the project", () => h.rpc("deleteproject", { name: ctx.destProject }));
+    if (ctx?.destDir) {
+        await step("delete the project's channel", async () => {
+            const norm = (p) => (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+            const channels = (await h.rpc("getchannels", null))?.channels ?? [];
+            for (const c of channels.filter((c) => norm(c.projectpath) === norm(ctx.destDir))) {
+                await h.rpc("deletechannel", { channelid: c.oid });
+            }
+        });
+        await step("remove the temp dir", () => rmSync(ctx.destDir, { recursive: true, force: true }));
+    }
+}
+
 const jarvisPeek = {
     name: "jarvis-peek",
     surface: "cockpit",
@@ -2417,6 +2483,9 @@ const jarvisPeek = {
             JSON.stringify({ narrow, pickerOpened, pickerVisibility })
         );
 
+        // the Final's fresh profile has no project, so the composer is disabled and `/` cannot focus it. Step 3
+        // covered that branch above; register one now so step 5 exercises a live composer.
+        const dest = await arrangeJarvisPeekDest(h, ctx);
         const busyArranged = await h.ev(`(() => {
             const store = globalThis.__wavePetStore;
             const panel = document.querySelector('[data-pet-peek]');
@@ -2446,14 +2515,15 @@ const jarvisPeek = {
         const composerFocused = await h.ev(`document.activeElement?.hasAttribute('data-pet-errand-input') ?? false`);
         rec(
             "5. attention expands the card and keyboard navigation moves the cursor then focuses the composer",
-            busyArranged === true &&
+            dest.composerEnabled === true &&
+                busyArranged === true &&
                 busyBefore?.shape === "busy" &&
                 busyBefore?.width > 300 &&
                 busyBefore?.cursor === "gate:cdp-1" &&
                 busyBefore?.focused === true &&
                 movedCursor === "ask:cdp-2" &&
                 composerFocused === true,
-            JSON.stringify({ busyArranged, busyBefore, movedCursor, composerFocused })
+            JSON.stringify({ dest, busyArranged, busyBefore, movedCursor, composerFocused })
         );
 
         await press("Escape", "Escape", 27);
@@ -2503,7 +2573,7 @@ const jarvisPeek = {
         rec("7. dismissing the global peek stays on the current surface", stayed, String(stayed));
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.cdp("Emulation.setDeviceMetricsOverride", {
             width: 1600,
             height: 950,
@@ -2515,6 +2585,7 @@ const jarvisPeek = {
             globalThis.__wavePetStore?.setAttention([]);
             return true;
         })()`);
+        await teardownJarvisPeekDest(h, ctx);
         await h.goto("cockpit");
     },
 };
