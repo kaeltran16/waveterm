@@ -75,6 +75,7 @@ function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasState): v
     globalStore.set(newRunPrefillAtom, {
         projectName: projectOf(agent),
         goal: buildGoal(s.dir, shownBoards(s)),
+        shape: "orchestrator",
         prototype: prototypePath(s.dir, shownBoards(s)),
     });
     globalStore.set(model.newRunOpenAtom, true);

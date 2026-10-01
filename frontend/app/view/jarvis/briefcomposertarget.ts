@@ -29,6 +29,14 @@ export interface BriefTargetInput {
     projectName?: string;
 }
 
+/** Pure: the run's live lead a steer reaches, or undefined when there is none to write to. */
+export function runSteerLead(run: Run, agents: AgentVM[]): AgentVM | undefined {
+    const lead = steerTarget(run, agents);
+    // a worker with no blockId has no terminal to write to, so steerWorker would no-op: no composer
+    // rather than one whose send silently does nothing.
+    return lead?.blockId ? lead : undefined;
+}
+
 /** Pure: what the sheet is drawing -> who the composer is talking to, or null for no composer. */
 export function resolveBriefComposerTarget(input: BriefTargetInput): BriefComposerTarget | null {
     const face = input.face;
@@ -36,10 +44,8 @@ export function resolveBriefComposerTarget(input: BriefTargetInput): BriefCompos
     if (!input.sheetOpen || face.kind !== "channel" || face.body !== "run" || input.run == null) {
         return null;
     }
-    const lead = steerTarget(input.run, input.agents);
-    // a worker with no blockId has no terminal to write to, so steerWorker would no-op: no composer
-    // rather than one whose send silently does nothing.
-    if (lead?.blockId == null || lead.blockId === "") {
+    const lead = runSteerLead(input.run, input.agents);
+    if (lead == null) {
         return null;
     }
     return {

@@ -10,6 +10,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget, stringToBase64 } from "@/util/util";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
+import { dismissKey, toggleInSet } from "./cockpitsurfacemodel";
 import { leadRunTabIds } from "./runlineage";
 
 function closeTabs(workspaceId: string, tabIds: string[]): void {
@@ -90,4 +91,20 @@ export function driveAgent(blockId: string | undefined, data: string): void {
     fireAndForget(() =>
         RpcApi.ControllerInputCommand(TabRpcClient, { blockid: blockId, inputdata64: stringToBase64(data) })
     );
+}
+
+// interruptAgent cancels the current turn: Esc typed into the terminal, as the composer would
+export function interruptAgent(blockId: string | undefined): void {
+    driveAgent(blockId, "\x1b");
+}
+
+export function toggleAgentBackground(model: Pick<AgentsViewModel, "backgroundedIdsAtom">, id: string): void {
+    globalStore.set(model.backgroundedIdsAtom, toggleInSet(globalStore.get(model.backgroundedIdsAtom), id));
+}
+
+export function dismissAgent(
+    model: Pick<AgentsViewModel, "dismissedAtom">,
+    agent: Pick<AgentVM, "id" | "idleSince">
+): void {
+    globalStore.set(model.dismissedAtom, new Set(globalStore.get(model.dismissedAtom)).add(dismissKey(agent)));
 }

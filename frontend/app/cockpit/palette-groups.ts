@@ -18,10 +18,14 @@ export type GroupKind =
     | "record"
     | "effort"
     | "channel"
+    | "action" // a verb row: one of a thing's actions, "Cancel run · <run>"
     | "command"
     | "file"
     | "theme"
     | "focus-task"
+    | "needs" // an attention item waiting on the user
+    | "answer" // an inline option under the selected Needs you ask; answered by its digit, never selected
+    | "start" // New run…, New agent…, New initiative…
     | "launch" // the "Start in #project" rows
     | "as-goal" // the one quiet row that expands into the launch rows
     | "widen" // "Search everything for …" in an empty narrowed scope
@@ -39,16 +43,23 @@ export interface PaletteGroup<T> {
     items: T[];
     rich?: boolean; // the launch block: accent-tinted, never capped
     emptyText?: string; // a group with nothing to show says why
+    asking?: boolean; // waiting on the user: the label takes the asking tone
+    hidden?: number; // rows left out before capping, counted in the overflow line
+    more?: string; // where the overflow can be seen in full; default "keep typing"
+    note?: string; // a closing line under the rows: an action list's "Not now: …"
 }
 
 export const KIND_LABELS: Partial<Record<GroupKind, string>> = {
     surface: "Go to",
+    start: "Start",
+    needs: "Needs you",
     agent: "Agents",
     run: "Runs",
     session: "Sessions",
     record: "Records",
     effort: "Initiatives", // the user-facing word for an effort (briefpalette's BRIEF_KIND_LABELS)
     channel: "Projects",
+    action: "Actions",
     command: "Commands",
     theme: "Themes",
     "focus-task": "Tasks",
@@ -58,8 +69,10 @@ export const KIND_LABELS: Partial<Record<GroupKind, string>> = {
 // paths never drown the cockpit's own things; they have their own scope.
 export const ALL_KIND_ORDER: GroupKind[] = [
     "surface",
+    "start",
     "agent",
     "run",
+    "action",
     "session",
     "record",
     "effort",
@@ -105,17 +118,34 @@ export interface AllGroupsInput<T extends GroupableItem> {
     asGoalItem: T | null; // the quiet row that expands into `launch`; null when launch is empty
     asGoal: boolean; // that row was chosen
     projectLabel: string; // "#waveterm"
+    needs: T[]; // everything waiting on the user, in Needs you order; the empty screen leads with a few
+    start: T[]; // New run… and its siblings, always offered on the empty screen
 }
 
+// the empty screen previews Needs you; the scope lists the rest
+export const NEEDS_IN_ALL = 3;
+
 export function assembleAllGroups<T extends GroupableItem>(input: AllGroupsInput<T>): PaletteGroup<T>[] {
-    const { query, ranked, recent, goto, launch, asGoalItem, asGoal, projectLabel } = input;
+    const { query, ranked, recent, goto, launch, asGoalItem, asGoal, projectLabel, needs, start } = input;
     if (query.trim() === "") {
-        // a surface shown under Recent is not repeated under Go to
+        // a row shown under Recent is not repeated under Start or Go to
         const recentKeys = new Set(recent.map((it) => it.key));
-        return [
+        const notRecent = (items: T[]) => items.filter((it) => !recentKeys.has(it.key));
+        const lead = needs.slice(0, NEEDS_IN_ALL);
+        const groups: PaletteGroup<T>[] = [
+            {
+                key: "needs",
+                label: `Needs you · ${needs.length}`,
+                items: lead,
+                asking: true,
+                hidden: needs.length - lead.length,
+                more: "Needs you scope",
+            },
+            { key: "start", label: "Start", items: notRecent(start) },
             { key: "recent", label: "Recent", items: recent },
-            { key: "goto", label: "Go to", items: goto.filter((it) => !recentKeys.has(it.key)) },
-        ].filter((g) => g.items.length > 0);
+            { key: "goto", label: "Go to", items: notRecent(goto) },
+        ];
+        return groups.filter((g) => g.items.length > 0);
     }
     const names = ranked.filter((it) => meetsNameFloor(query, it.search));
     // The kind holding the best match leads, since Enter runs the first row. ranked is best-first.
@@ -163,6 +193,6 @@ export interface CappedGroup<T> extends PaletteGroup<T> {
 export function capGroups<T>(groups: PaletteGroup<T>[], max: number): CappedGroup<T>[] {
     return groups.map((g) => {
         const items = g.rich ? g.items : g.items.slice(0, max);
-        return { ...g, items, overflow: g.items.length - items.length };
+        return { ...g, items, overflow: (g.hidden ?? 0) + g.items.length - items.length };
     });
 }

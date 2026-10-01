@@ -22,6 +22,7 @@ import {
     PanelLeft,
     Play,
     Search,
+    SlidersHorizontal,
     SquareTerminal,
     Zap,
     type LucideIcon,
@@ -38,6 +39,8 @@ export interface PaletteItem {
     kind: GroupKind;
     search: string; // matched text (title + keywords); "" for rows that are never ranked
     title: string;
+    icon?: LucideIcon; // a kind whose rows are not all alike (Needs you, Start); default KIND_ICONS
+    digit?: number; // answer rows: the key that answers with this option
     hl?: string; // what to highlight in the title when it differs from the query (files: the path part)
     sub?: string; // second line: an asking agent's question
     status?: { label: string; tone: StatusTone };
@@ -47,6 +50,8 @@ export interface PaletteItem {
     archived?: boolean;
     desc?: string; // launch rows: mono subtitle
     launchIcon?: LaunchIcon; // launch rows
+    danger?: boolean; // a destructive action: the error tone
+    actions?: number; // a thing's applicable actions, which → opens
     verb: string; // what Enter does, shown on the selected row
     echo: string; // the whole action, shown in the footer
     run: () => void;
@@ -56,6 +61,8 @@ export interface PaletteItem {
 // a play glyph for commands, matching their Run verb: '›' means "opens a sub-list", and ⌘ is a Mac key
 const KIND_ICONS: Partial<Record<GroupKind, LucideIcon>> = {
     surface: PanelLeft,
+    start: SlidersHorizontal,
+    needs: GitFork,
     agent: SquareTerminal,
     run: GitFork,
     session: History,
@@ -69,11 +76,13 @@ const KIND_ICONS: Partial<Record<GroupKind, LucideIcon>> = {
     "as-goal": Zap,
     widen: Search,
     line: CornerDownRight,
+    action: Play,
 };
 
 const LAUNCH_ICONS: Record<LaunchIcon, LucideIcon> = {
     quick: Zap,
     orchestrate: GitFork,
+    setup: SlidersHorizontal,
     ask: MessageCircleQuestionMark,
 };
 
@@ -121,6 +130,7 @@ interface RowProps {
     query: string;
     onHover: (idx: number) => void;
     onFire: (it: PaletteItem) => void;
+    onActions?: (idx: number) => void;
 }
 
 function RichRow({ it, idx, active, onHover, onFire }: RowProps) {
@@ -150,13 +160,46 @@ function RichRow({ it, idx, active, onHover, onFire }: RowProps) {
                 {it.title}
             </span>
             <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-muted">{it.desc}</span>
+            {!active && it.chord ? <Chord keys={it.chord} /> : null}
             {active ? <VerbHint verb={it.verb} /> : null}
         </button>
     );
 }
 
-function PlainRow({ it, idx, active, query, onHover, onFire }: RowProps) {
-    const Icon = KIND_ICONS[it.kind] ?? Play;
+function Chord({ keys }: { keys: string }) {
+    return (
+        <span className="flex shrink-0 gap-[3px]">
+            {formatChord(keys).map((k, i) => (
+                <span
+                    key={i}
+                    className="rounded-[5px] border border-edge-mid px-1.5 py-px font-mono text-[10.5px] text-muted"
+                >
+                    {k}
+                </span>
+            ))}
+        </span>
+    );
+}
+
+// An option of the selected ask, answered by its digit or a click. Not in the selection order: ↑↓ move
+// between the asks themselves, and Enter keeps opening the agent at its question.
+function AnswerRow({ it, onFire }: Pick<RowProps, "it" | "onFire">) {
+    return (
+        <button
+            type="button"
+            onClick={() => onFire(it)}
+            className="flex h-[30px] w-full cursor-pointer items-center gap-2.5 rounded-lg pl-[34px] pr-2.5 text-left transition-colors duration-[140ms] hover:bg-surface-hover"
+        >
+            <span className="shrink-0 rounded-[5px] border border-edge-mid px-1.5 font-mono text-[10.5px] text-ink-mid">
+                {it.digit}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[13px] text-secondary">{it.title}</span>
+        </button>
+    );
+}
+
+function PlainRow({ it, idx, active, query, onHover, onFire, onActions }: RowProps) {
+    const Icon = it.icon ?? KIND_ICONS[it.kind] ?? Play;
     const plainTitle = it.kind === "as-goal" || it.kind === "widen" || it.kind === "line";
     return (
         <button
@@ -175,13 +218,23 @@ function PlainRow({ it, idx, active, query, onHover, onFire }: RowProps) {
             <Icon
                 size={14}
                 strokeWidth={1.8}
-                className={cn("shrink-0", it.sub && "mt-px", active ? "text-accent-soft" : "text-ink-mid")}
+                className={cn(
+                    "shrink-0",
+                    it.sub && "mt-px",
+                    it.danger ? "text-error" : active ? "text-accent-soft" : "text-ink-mid"
+                )}
             />
             <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                 <span
                     className={cn(
                         "truncate text-[13px]",
-                        active ? "text-primary" : it.archived ? "text-muted" : "text-secondary"
+                        it.danger
+                            ? "text-error-soft"
+                            : active
+                              ? "text-primary"
+                              : it.archived
+                                ? "text-muted"
+                                : "text-secondary"
                     )}
                 >
                     {plainTitle ? it.title : <Highlighted text={it.title} query={it.hl ?? query} />}
@@ -219,20 +272,33 @@ function PlainRow({ it, idx, active, query, onHover, onFire }: RowProps) {
             {it.meta ? (
                 <span className="max-w-[190px] shrink-0 truncate font-mono text-[10.5px] text-muted">{it.meta}</span>
             ) : null}
-            {it.chord ? (
-                <span className="flex shrink-0 gap-[3px]">
-                    {formatChord(it.chord).map((k, i) => (
-                        <span
-                            key={i}
-                            className="rounded-[5px] border border-edge-mid px-1.5 py-px font-mono text-[10.5px] text-muted"
-                        >
-                            {k}
-                        </span>
-                    ))}
-                </span>
-            ) : null}
+            {it.chord ? <Chord keys={it.chord} /> : null}
             {active ? <VerbHint verb={it.verb} /> : null}
+            {it.actions ? <ActionsHint count={it.actions} active={active} onOpen={() => onActions?.(idx)} /> : null}
         </button>
+    );
+}
+
+// the selected row says it has actions and opens them on click; the others carry a dim › that they do
+function ActionsHint({ count, active, onOpen }: { count: number; active: boolean; onOpen: () => void }) {
+    if (!active) {
+        return (
+            <span aria-hidden className="shrink-0 font-mono text-[12px] text-ink-faint">
+                ›
+            </span>
+        );
+    }
+    return (
+        <span
+            role="button"
+            onClick={(e) => {
+                e.stopPropagation();
+                onOpen();
+            }}
+            className="shrink-0 cursor-pointer rounded-[5px] border border-accent-700 px-1.5 py-px font-mono text-[10.5px] text-accent-soft"
+        >
+            → {count} actions
+        </span>
     );
 }
 
@@ -243,12 +309,16 @@ export interface GroupViewProps {
     query: string;
     onHover: (idx: number) => void;
     onFire: (it: PaletteItem) => void;
+    onActions?: (idx: number) => void;
 }
 
-export function PaletteGroupView({ group, indexOf, selected, query, onHover, onFire }: GroupViewProps) {
+export function PaletteGroupView({ group, indexOf, selected, query, onHover, onFire, onActions }: GroupViewProps) {
     const rows = group.items.map((it) => {
+        if (it.kind === "answer") {
+            return <AnswerRow key={it.key} it={it} onFire={onFire} />;
+        }
         const idx = indexOf.get(it.key)!;
-        const props = { it, idx, active: idx === selected, query, onHover, onFire };
+        const props = { it, idx, active: idx === selected, query, onHover, onFire, onActions };
         return group.rich ? <RichRow key={it.key} {...props} /> : <PlainRow key={it.key} {...props} />;
     });
     if (group.rich) {
@@ -262,14 +332,28 @@ export function PaletteGroupView({ group, indexOf, selected, query, onHover, onF
     }
     return (
         <div>
-            <div className={cn(REGION_LABEL, "px-2.5 pb-1 pt-2.5 text-muted")}>{group.label}</div>
+            <div
+                className={cn(
+                    REGION_LABEL,
+                    "flex items-center gap-1.5 px-2.5 pb-1 pt-2.5",
+                    group.asking ? "text-asking" : "text-muted"
+                )}
+            >
+                {group.asking ? <span className="h-1.5 w-1.5 rounded-full bg-asking" /> : null}
+                {group.label}
+            </div>
             {group.emptyText ? (
                 <div className="px-2.5 pb-3.5 pt-6 text-center text-[13px] text-muted">{group.emptyText}</div>
             ) : null}
             {rows}
             {group.overflow > 0 ? (
                 <div className="py-0.5 pl-[34px] pr-2.5 font-mono text-[10.5px] text-muted">
-                    +{group.overflow} more, keep typing
+                    +{group.overflow} more{group.more ? ` · ${group.more}` : ", keep typing"}
+                </div>
+            ) : null}
+            {group.note ? (
+                <div className="mx-1 mt-2 border-t border-border px-2.5 py-2 text-[12px] leading-normal text-muted">
+                    {group.note}
                 </div>
             ) : null}
         </div>

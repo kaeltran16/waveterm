@@ -10,6 +10,8 @@
 // A degraded read says what it cannot see. It never falls back to the run's launch snapshot, and a stale
 // digest's figures are dated rather than presented as current.
 
+import type { AgentVM } from "../agents/agentsviewmodel";
+import { isTerminal, leadWorker } from "../agents/runmodel";
 import {
     cleanupOnly,
     firstLine,
@@ -741,4 +743,23 @@ const RUNNING_FINAL_STATES = new Set(["checking", "final", "verifying"]);
 
 export function finalStageEndable(group: TaskGroup | null): boolean {
     return group != null && group.status !== "cancelled" && RUNNING_FINAL_STATES.has(group.final?.state ?? "");
+}
+
+// the dock's Open lead: a live orchestrator's lead, whose terminal the Agent surface shows
+export function sheetLead(run: Run, agents: AgentVM[]): AgentVM | undefined {
+    return run.mode === "orchestrator" && !isTerminal(run.status) ? leadWorker(run, agents) : undefined;
+}
+
+// a done run's body: its filed report, else the sealed evidence (design L508, L539)
+export function doneBody(run: Pick<Run, "status" | "report">): "report" | "evidence" | null {
+    if (run.status !== "done") {
+        return null;
+    }
+    return (run.report ?? "").trim() !== "" ? "report" : "evidence";
+}
+
+// both bodies link the repository diff; evidence still sealing shows a placeholder without one
+export function doneBodyHasDiff(run: Pick<Run, "status" | "report" | "evidence">): boolean {
+    const body = doneBody(run);
+    return body === "report" || (body === "evidence" && run.evidence != null);
 }

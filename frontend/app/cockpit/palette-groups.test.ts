@@ -52,6 +52,8 @@ describe("assembleAllGroups", () => {
         asGoalItem: null,
         asGoal: false,
         projectLabel: "#waveterm",
+        needs: [],
+        start: [],
         ...over,
     });
 
@@ -91,6 +93,48 @@ describe("assembleAllGroups", () => {
         expect(groups.map((g) => g.key)).toEqual(["surface"]);
     });
 
+    it("leads an empty query with at most three Needs you rows, then Start, Recent, Go to", () => {
+        const needs = ["a", "b", "c", "d"].map((k) => item(`needs:${k}`, "needs", ""));
+        const newRun = item("start:new-run", "start", "New run…");
+        const groups = assembleAllGroups(input({ needs, start: [newRun], recent: [radar], goto: [cockpit] }));
+        expect(groups.map((g) => g.key)).toEqual(["needs", "start", "recent", "goto"]);
+        expect(groups[0].items.map((i) => i.key)).toEqual(["needs:a", "needs:b", "needs:c"]);
+        expect(groups[0]).toMatchObject({ label: "Needs you · 4", hidden: 1 });
+    });
+
+    it("does not repeat a Start row already under Recent", () => {
+        const newRun = item("start:new-run", "start", "New run…");
+        const groups = assembleAllGroups(input({ start: [newRun], recent: [newRun] }));
+        expect(groups.map((g) => g.key)).toEqual(["recent"]);
+    });
+
+    it("ranks a start row by name, above the goal block", () => {
+        const newRun = item("start:new-run", "start", "New run…");
+        const groups = assembleAllGroups(input({ query: "new run", ranked: [newRun], launch, asGoalItem }));
+        expect(groups.map((g) => g.key)).toEqual(["start", "as-goal"]);
+        expect(groups[0].items[0].key).toBe("start:new-run"); // Enter opens the window, not a Quick run
+    });
+
+    it("keeps a start row that is not the best match", () => {
+        const newRun = item("start:new-run", "start", "New run…");
+        const runner = item("agent:runner", "agent", "new runner");
+        const groups = assembleAllGroups(input({ query: "new run", ranked: [runner, newRun] }));
+        expect(groups.map((g) => g.key)).toEqual(["agent", "start"]);
+    });
+
+    it("ranks a verb row by name, so 'cancel' lists runs to cancel above the goal block", () => {
+        const cancel = item("action:run:cancel:run:1", "action", "Cancel run fix flaky verify");
+        const groups = assembleAllGroups(input({ query: "cancel", ranked: [cancel], launch, asGoalItem }));
+        expect(groups.map((g) => g.key)).toEqual(["action", "as-goal"]);
+        expect(groups[0].label).toBe("Actions");
+        expect(groups[0].items[0].key).toBe("action:run:cancel:run:1"); // Enter cancels, not a Quick run
+    });
+
+    it("leads 'cancel' with the goal block when nothing can be cancelled", () => {
+        const groups = assembleAllGroups(input({ query: "cancel", ranked: [], launch, asGoalItem }));
+        expect(groups.map((g) => g.key)).toEqual(["launch"]);
+    });
+
     it("leads with the kind holding the best match", () => {
         const cmd = item("c1", "command", "Usage stats");
         const surface = item("surface:usage", "surface", "Usage");
@@ -127,6 +171,10 @@ describe("capGroups", () => {
         const [g] = capGroups([{ key: "session", label: "Sessions", items: many(12) }], 5);
         expect(g.items).toHaveLength(5);
         expect(g.overflow).toBe(7);
+    });
+    it("counts rows left out before capping as overflow", () => {
+        const [g] = capGroups([{ key: "needs", label: "Needs you", items: many(3), hidden: 2 }], 5);
+        expect(g.overflow).toBe(2);
     });
     it("never caps the launch block", () => {
         const [g] = capGroups([{ key: "launch", label: "Start", rich: true, items: many(8) }], 5);

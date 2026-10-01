@@ -3,7 +3,7 @@
 
 import { expect, test } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
-import { buildFocusSections, moveFocusCursor } from "./focusswitchermodel";
+import { buildFocusSections, moveFocusCursor, runRows } from "./focusswitchermodel";
 
 const agent = (id: string, over: Partial<AgentVM> = {}): AgentVM =>
     ({ id, name: id, task: "", state: "working", project: "waveterm", ...over }) as AgentVM;
@@ -62,4 +62,9 @@ test("moveFocusCursor starts at the top, steps, and clamps at both ends", () => 
     expect(moveFocusCursor(keys, "c", 1)).toBe("c");
     expect(moveFocusCursor(keys, "a", -1)).toBe("a");
     expect(moveFocusCursor([], "a", 1)).toBeNull();
+});
+
+test("runRows lists a run once per roster run, labelled by its first worker", () => {
+    const rows = runRows([agent("a1", { runId: "r1", task: "auth" }), agent("a2", { runId: "r1" }), agent("a3")]);
+    expect(rows.map((r) => [r.id, r.label, r.detail, r.project])).toEqual([["r1", "auth", "2 agents", "waveterm"]]);
 });

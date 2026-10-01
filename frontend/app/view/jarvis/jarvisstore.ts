@@ -12,6 +12,10 @@ import type { EffortIndex } from "./briefrows";
 // surface flip that oref triggers.
 export const briefPeekRecordAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
+// The project the Profile window (run defaults) is open on: null closed, "" on the window's own first pick.
+// Module-level for the peek's reason: the palette opens it on a project across the surface flip to Jarvis.
+export const briefProfileAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
 // Whether the Brief's detail sheet is showing. The subject it draws is the surface's active subject, not a
 // second copy of it here: keeping the target in two atoms is how a sheet and the thing it claims to show
 // end up naming different objects. Session-scoped, because the subject is what is persisted and a closed

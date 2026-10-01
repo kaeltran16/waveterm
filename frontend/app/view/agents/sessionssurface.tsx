@@ -46,7 +46,6 @@ import {
     defaultMember,
     groupRunSessions,
     LEAD_MEMBER,
-    memberOfSession,
     memberSession,
     rosterSession,
     runIdOfSel,
@@ -54,6 +53,7 @@ import {
     runView,
     sessionKey,
     sessionLabel,
+    sessionSelection,
     type RunMember,
     type RunSessions,
     type RunView,
@@ -241,10 +241,10 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     };
     const openSession = (key: string) => {
         const s = live.find((x) => sessionKey(x) === key);
-        if (s?.runid) {
-            selectMember(s.runid, memberOfSession(s));
-        } else {
-            setSel(key);
+        const to: { sel: string; member?: string } = s != null ? sessionSelection(s) : { sel: key };
+        setSel(to.sel);
+        if (to.member != null) {
+            setMember(to.member);
         }
     };
 

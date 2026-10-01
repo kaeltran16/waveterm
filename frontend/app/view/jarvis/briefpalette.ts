@@ -22,6 +22,10 @@ export const BRIEF_PALETTE_CAP = 8;
 // The one status value that means archived across dossiers and efforts.
 const ARCHIVED_STATUS = "archived";
 
+export function isArchivedStatus(status: string): boolean {
+    return status === ARCHIVED_STATUS;
+}
+
 export type BriefKind = "record" | "effort" | "session";
 
 // The kind column the row renders. "Initiative" is the user-facing word for an effort.
@@ -74,7 +78,7 @@ export function buildBriefIndex(input: BriefPaletteInput): BriefRow[] {
             r.id,
             r.objective || "(untitled record)",
             metaLine([r.status, r.ticket]),
-            r.status === ARCHIVED_STATUS,
+            isArchivedStatus(r.status),
             r.updated
         )
     );
@@ -84,7 +88,7 @@ export function buildBriefIndex(input: BriefPaletteInput): BriefRow[] {
             e.oref,
             e.title || "(untitled initiative)",
             metaLine([e.status, e.total > 0 && `${e.done}/${e.total}`, e.project, e.ticket]),
-            e.status === ARCHIVED_STATUS,
+            isArchivedStatus(e.status),
             e.updatedts
         )
     );

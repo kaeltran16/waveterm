@@ -56,6 +56,7 @@ describe("deriveKeyContext", () => {
             paletteOpenAtom: atom(false),
             newAgentOpenAtom: atom(false),
             newRunOpenAtom: atom(false),
+            newInitiativeOpenAtom: atom(false),
             newProjectOpenAtom: atom(false),
         } as unknown as AgentsViewModel;
     }
@@ -98,6 +99,16 @@ describe("deriveKeyContext", () => {
         const unbind = initKeybindingDispatcher(model);
         expect(deriveKeyContext().modalOpen).toBe(false);
         globalStore.set(model.newRunOpenAtom, true);
+        expect(deriveKeyContext().modalOpen).toBe(true);
+        unbind();
+    });
+
+    // the palette opens New initiative over any surface, not only the Brief
+    it("counts the New initiative form as a modal", () => {
+        const model = stubModel("agent");
+        const unbind = initKeybindingDispatcher(model);
+        expect(deriveKeyContext().modalOpen).toBe(false);
+        globalStore.set(model.newInitiativeOpenAtom, true);
         expect(deriveKeyContext().modalOpen).toBe(true);
         unbind();
     });

@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { buildCockpitBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
+import { dismissAgent, toggleAgentBackground } from "./agentactions";
 import { AgentRow } from "./agentrow";
 import type { AgentsViewModel, ChipFilter } from "./agents";
 import {
@@ -39,7 +40,7 @@ import {
     type GridCard,
     type RowTarget,
 } from "./cardgridlayout";
-import { dismissKey, hiddenAgentIds, rosterLoadPhase, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
+import { hiddenAgentIds, rosterLoadPhase, splitRecentlyIdle } from "./cockpitsurfacemodel";
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelsAtom } from "./channelsstore";
@@ -135,7 +136,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
     // A just-finished agent keeps its full row (so you can reply) for the grace window, then collapses
     // into the Idle list. Dismissals are keyed by idle episode (id:idleSince).
-    const [dismissed, setDismissed] = useModelAtom(model.dismissedAtom);
+    const [dismissed] = useModelAtom(model.dismissedAtom);
     const [backgroundedIds, setBackgroundedIds] = useModelAtom(model.backgroundedIdsAtom);
     const { recently: recentlyIdle, parked: parkedIdle } = splitRecentlyIdle(idle, structuralNow, dismissed);
     // one unified list: asks stay in place alongside active working + just-finished (grace) rows,
@@ -375,7 +376,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const selectQuestion = (id: string, qi: number) => setAnswerTab((prev) => ({ ...prev, [id]: qi }));
 
     const toggleBackground = (id: string) => {
-        setBackgroundedIds((prev) => toggleInSet(prev, id));
+        toggleAgentBackground(model, id);
     };
 
     // open the agent in the Agent surface: set focus, switch surface
@@ -430,7 +431,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 containerRef.current?.focus();
             }}
             onBackground={a.state === "working" || a.state === "asking" ? () => toggleBackground(a.id) : undefined}
-            onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
+            onDismiss={a.state === "idle" ? () => dismissAgent(model, a) : undefined}
         />
     );
 

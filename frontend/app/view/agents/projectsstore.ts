@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { atoms } from "@/app/store/global";
-import { atom } from "jotai";
+import { globalStore } from "@/app/store/jotaiStore";
+import { modalsModel } from "@/app/store/modalmodel";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { atom, type PrimitiveAtom } from "jotai";
 
 // The registered projects (name -> {path}), surfaced live from the full config.
 export const projectsAtom = atom((get) => get(atoms.fullConfigAtom)?.projects ?? {});
@@ -27,6 +31,30 @@ export function mergeSwitcherProjects(
         .filter((n) => !liveNames.has(n))
         .map((n) => ({ name: n, askingCount: 0, agentCount: 0, registered: true }));
     return [...merged, ...extra];
+}
+
+// Deregisters from projects.json; the registry atom refreshes and the row drops out. If the removed
+// project was the active scope, fall back to "all".
+export async function removeProject(model: { projectFilterAtom: PrimitiveAtom<string> }, name: string): Promise<void> {
+    try {
+        await RpcApi.DeleteProjectCommand(TabRpcClient, { name });
+        if (globalStore.get(model.projectFilterAtom) === name) {
+            globalStore.set(model.projectFilterAtom, "all");
+        }
+    } catch (e) {
+        console.error("failed to remove project", e);
+    }
+}
+
+// removeProject behind a confirm, for callers without the switcher's inline Remove? prompt (the palette)
+export function confirmRemoveProject(model: { projectFilterAtom: PrimitiveAtom<string> }, name: string): void {
+    modalsModel.pushModal("ConfirmModal", {
+        title: "Remove project",
+        message: `Remove "${name}" from your projects? Its files and runs are not touched.`,
+        confirmLabel: "Remove",
+        destructive: true,
+        onConfirm: () => void removeProject(model, name),
+    });
 }
 
 export interface LaunchCandidate {

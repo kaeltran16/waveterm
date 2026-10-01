@@ -3,7 +3,7 @@
 
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
-import { resolveBriefComposerTarget } from "./briefcomposertarget";
+import { resolveBriefComposerTarget, runSteerLead } from "./briefcomposertarget";
 import type { SheetFace } from "./briefsheetmodel";
 
 function agent(over: Partial<AgentVM> = {}): AgentVM {
@@ -118,5 +118,15 @@ describe("resolveBriefComposerTarget", () => {
     it("names the session after the worker when the channel has no name of its own", () => {
         const t = resolveBriefComposerTarget({ sheetOpen: true, face: channelRun, run: run(), agents: [agent()] });
         expect(t).toMatchObject({ audience: "worker", sessionName: "claude" });
+    });
+});
+
+describe("runSteerLead", () => {
+    it("is the live lead with a terminal to write to", () => {
+        expect(runSteerLead(run(), [agent()])?.id).toBe("t1");
+    });
+    it("is none on a terminal run or for a lead with no block", () => {
+        expect(runSteerLead(run({ status: "done" }), [agent()])).toBeUndefined();
+        expect(runSteerLead(run(), [agent({ blockId: "" })])).toBeUndefined();
     });
 });

@@ -143,6 +143,7 @@ import {
     briefEffortIndexAtom,
     briefGraphRecordAtom,
     briefPeekRecordAtom,
+    briefProfileAtom,
     briefRevealChunkAtom,
     briefRunListAtom,
     briefSheetOpenAtom,
@@ -1076,9 +1077,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
 
     const fleet = briefFleet(agents);
 
-    // The profile modal is Brief-local state. The detail sheet is not: it draws the surface's active
-    // subject, so what is open lives in the subject store and this surface only reports it.
-    const [profileOpen, setProfileOpen] = useState(false);
+    // The profile modal is open on a project the palette can name, so it lives in jarvisstore. The detail
+    // sheet draws the surface's active subject, so what is open lives in the subject store instead.
+    const [profileTarget, setProfileTarget] = useAtom(briefProfileAtom);
 
     // The surface's own keys: the run switcher, the record band, the composer's i/Escape, and
     // the graph peek. The Stage used to register these for a composition that no longer exists.
@@ -1333,16 +1334,16 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     type="button"
                     data-jarvis-brief-profile
                     aria-haspopup="dialog"
-                    aria-expanded={profileOpen}
+                    aria-expanded={profileTarget != null}
                     aria-label="Profile — run defaults"
                     title="Profile — run defaults"
-                    onClick={() => setProfileOpen(true)}
+                    onClick={() => setProfileTarget("")}
                     className="flex h-[28px] w-[28px] flex-none cursor-pointer items-center justify-center rounded-[8px] border border-edge-mid bg-surface-raised text-ink-mid hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                     <SlidersHorizontal aria-hidden size={14} strokeWidth={1.8} />
                 </button>
                 <span aria-hidden className="mx-0.5 h-[18px] w-px flex-none bg-border" />
-                <NewInitiativeControl />
+                <NewInitiativeControl model={model} />
             </header>
             {/* both bands push the surface down, so height belongs in the animation rather than a cut */}
             <AnimatePresence initial={false}>
@@ -1942,7 +1943,13 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             {/* B4's detail sheet, now drawing the surface's active subject: a channel's run body (or its
                 launcher), or an initiative's chunk detail. */}
             <BriefSheet model={model} />
-            <BriefProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
+            {/* keyed by project so an open on a named project starts there, not on the last one picked */}
+            <BriefProfileModal
+                key={profileTarget ?? ""}
+                open={profileTarget != null}
+                initialChannelId={profileTarget ?? ""}
+                onClose={() => setProfileTarget(null)}
+            />
             {detailsOpen && openEffort != null && openEffortORef != null ? (
                 <EffortCreateForm
                     onClose={() => setDetailsOpen(false)}

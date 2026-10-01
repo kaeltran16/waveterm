@@ -48,9 +48,11 @@ import { briefEffortIndexAtom, briefRevealChunkAtom } from "./jarvisstore";
 import { RunReportView } from "./runreportview";
 import { runSettingsDraft, type LinkedGroupRead } from "./runsettings";
 import {
+    doneBody,
     finalStageEndable,
     orderedTasks,
     runGraphRef,
+    sheetLead,
     sheetStatus,
     taskRow,
     taskSectionMeta,
@@ -161,7 +163,7 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
     const asker = leadAsker(run, agents);
     const survivors = cancelSurvivors(run, agents).length;
     const status = sheetStatus({ run, nowMs: now, dag, userAsks, workerAsking: asker != null, survivors });
-    const showEvidence = run.status === "done";
+    const body = doneBody(run);
 
     return (
         <div data-run-sheet={run.status} className="flex min-h-0 flex-1 flex-col bg-background">
@@ -177,8 +179,8 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
                     </div>
                 ) : null}
                 {/* a filed report is the finished body; a run with none keeps its sealed evidence (design L508, L539) */}
-                {showEvidence ? (
-                    (run.report ?? "").trim() !== "" ? (
+                {body != null ? (
+                    body === "report" ? (
                         <RunReportView model={ctx.model} run={run} />
                     ) : (
                         <Evidence ctx={ctx} dag={dag} />
@@ -825,7 +827,7 @@ function Dock({ ctx, group }: { ctx: SheetCtx; group: TaskGroup | null }) {
     if (ending && !endable) {
         setEnding(false);
     }
-    const lead = run.mode === "orchestrator" && !isTerminal(run.status) ? leadWorker(run, agents) : undefined;
+    const lead = sheetLead(run, agents);
     // a live quick run's one worker, opened where it is watched (design L576)
     const worker = run.mode !== "orchestrator" && !isTerminal(run.status) ? leadWorker(run, agents) : undefined;
     // a finished orchestrator has no dials left, so the dock's first slot carries its configuration forward
