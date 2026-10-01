@@ -1,8 +1,8 @@
 # Orchestrator: lower-cost execution with bounded quality control
 
 **Date:** 2026-09-18
-**Status:** Discussion brief, still paused. Not an approved design or implementation plan. The walkthrough it waited on is complete (`effort:5d11f853`, archived 43/46) and the baseline is measured, so the original resume condition is met; what now holds it is the owner threshold decision in chunk 2.
-**Initiative:** `effort:84cbd1f4-c5dc-4307-9c40-676b0841a57c` (waveterm; paused).
+**Status:** Closed 2026-09-30. The owner's 2026-09-29 choice of Opus workers for design quality (see "Worker-model benchmark") settled the trade-off. Opus workers stay the default and no quality-control slice will be built. The rest of this brief is the record of how that was decided.
+**Initiative:** `effort:84cbd1f4-c5dc-4307-9c40-676b0841a57c` (waveterm; archived).
 
 ## Goal
 
@@ -457,7 +457,37 @@ it - roughly 60% of the bill, averaging ~122k cache read per call across 384 cal
 suite output, contract preamble, or accumulated tool results is answerable from the transcripts already
 captured and has not been checked. This is arithmetic over the Results table, not a measured breakdown.
 
+## Worker-model benchmark (2026-09-29)
+
+Plan `docs/superpowers/plans/2026-09-29-orchestrator-worker-benchmark.md`: three parallel tasks from
+`b6716089`, acceptance stated as outcomes, not named functions or fields. The two arms ran concurrently,
+with an Opus lead, reviewers and verifier in both. Only the worker model differed.
+
+| | Opus workers (`0dd28414`) | Sonnet workers (`f9d2a919`) |
+|---|---|---|
+| Elapsed | 25m06s | 18m18s |
+| Worker time | 36m40s | 20m02s |
+| Worker tokens | 16.9M | 10.1M |
+| Cost, workers / total | $10.00 / $14.52 | $4.43 / $8.68 |
+| Failures / retries | 0 | 0 |
+| Final stage | unverified (live-coverage gaps) | unverified (same gaps) |
+
+Unlike the 09-21 plan, this outcome-stated plan did show design differences between the arms. Opus kept
+to the plan's no-wire-change constraint, reusing the oldest worker run's `BaseCommit`, and reported flaky
+tests through a file contract (`ARC_VERIFY_FLAKY`). Sonnet added `TaskNode.StartBase` and a stdout marker
+that depends on landing inside the kept 8000-char tail. Neither arm had a defect that its own review or
+final stage caught.
+
+**Decision.** The Sonnet arm landed first (`443c5f66`). The owner reverted it (`55773b26`) and merged the
+Opus arm (`211e2621`) for design quality, at about 1.7x the total cost and 1.4x the elapsed time. This is
+one run (n=1), but it answers the question chunk 2 was blocked on: at this scale, design quality outranks
+a ~40% cost cut. Opus workers stay the default `--worker-model`. Sonnet workers are for mechanical, tightly
+specified plans only. Cheap workers under bounded review was the premise of chunks 5-7, so those are
+dropped.
+
 ## Open decisions
+
+Closed with the initiative on 2026-09-30. Kept as the record of what was left unanswered.
 
 - What completion-time budget is acceptable, and when should extra spend buy lower latency? The speed-first recommendation still needs owner agreement.
 - Which representative tasks and independent acceptance checks establish the baseline?
@@ -478,13 +508,12 @@ Check/Verify split's effect on the critical path, the other tests orchestration 
 own rule is one variable at a time.
 
 1. **Baseline measured: Arc engine versus native delegation.** `done` — the 2026-09-21 two-arm measurement, the 2026-09-22 critical-path reconstruction, and the 2026-09-22 worker-transcript breakdown above.
-2. **Owner sets the cost, time and quality thresholds and the comparison tasks.** `blocked` on the owner. Nothing below can conclude without a required cost improvement, an acceptable completion-time budget, and a quality bar; the Open decisions list is the agenda.
-3. **Re-measure the critical path after the Check/Verify split.** `deferred` — its prediction was tested for free and half of it failed. The 09-21 nine-fixes plan carries a `Check:` line and run `92987b0e` executed it, so it serves as a natural experiment against `1c0f0a91`. Behaviourally the split works: full-suite invocations went 5 → 0. On the clock it does not: total worker test/check time was 49.7m → 49.0m. The confound is real — two different plans doing different work, not one variable — so this is suggestive, not decisive. What makes a paid clean re-run hard to justify is the mechanism the transcripts exposed: worker time is compile-bound in a cold worktree, not test-scope-bound, and no `Check:` wording reaches that. Revive only if the owner wants the clean number anyway; the operational precondition (launch the dev app so it outlives its shell) still stands.
-4. **Re-run with a deliberately loose plan to test orchestration quality.** `pending`. Acceptance criteria without named functions, fields or test names. The 09-21 plan was prescriptive enough that `pkg/orchestrate/engine.go` came out byte-identical across both arms, so quality was never discriminated.
-5. **Approve task contracts and bounded review policy.** `pending`. Brainstorm the smallest design warranted by the findings; owner approval before implementation planning. Ranked below the measurement chunks deliberately — the evidence so far argues against a reviewer subsystem as the first deliverable.
-6. **Implement the approved quality-control slice.** `pending`. Conditional on chunk 5; scope and tests come from that design, not this brief.
-7. **Compare accepted-change cost and quality against strong-model end-to-end.** `pending`. Time to acceptance, streamlined Arc with and without selective review, plus failures, repairs, human effort, missed defects and variability. Keep, adjust or reject on evidence.
+2. **Owner sets the cost, time and quality thresholds and the comparison tasks.** `done` 2026-09-30, settled by an owner decision rather than numeric thresholds: the Opus-worker arm was merged for design quality at ~1.7x the cost (see "Worker-model benchmark").
+3. **Re-measure the critical path after the Check/Verify split.** `skipped` at close. Its prediction was tested for free and half of it failed. The 09-21 nine-fixes plan carries a `Check:` line and run `92987b0e` executed it, so it serves as a natural experiment against `1c0f0a91`. Behaviourally the split works: full-suite invocations went 5 → 0. On the clock it does not: total worker test/check time was 49.7m → 49.0m. The confound is real — two different plans doing different work, not one variable — so this is suggestive, not decisive. What makes a paid clean re-run hard to justify is the mechanism the transcripts exposed: worker time is compile-bound in a cold worktree, not test-scope-bound, and no `Check:` wording reaches that. Revive only if the owner wants the clean number anyway; the operational precondition (launch the dev app so it outlives its shell) still stands.
+4. **Re-run with a deliberately loose plan to test orchestration quality.** `done` 2026-09-30, answered by the 2026-09-29 worker benchmark. Its outcome-stated plan did show design differences between the arms, which the 09-21 prescriptive plan (where `pkg/orchestrate/engine.go` came out byte-identical) could not. It compared worker models, not Arc versus native delegation.
+5. **Approve task contracts and bounded review policy.** `skipped`. Its premise, cheap workers under bounded review, did not survive the owner's choice of Opus workers. Arc orchestration is already free, so a reviewer subsystem would add cost to the arm that was already cheaper.
+6. **Implement the approved quality-control slice.** `skipped`, with chunk 5.
+7. **Compare accepted-change cost and quality against strong-model end-to-end.** `skipped`, with chunk 5.
 
-The initiative stays `paused`: chunks 3, 4 and 7 each cost real API spend and wall time, and no paid
-experiment is authorized. Start a fresh session from this brief and current source. Do not treat this
-capture as authorization to build or run a paid experiment.
+The initiative closed `done` on 2026-09-30. Revive it only if cost becomes the binding constraint. The
+starting evidence would be the worker cache-read line above, which has still not been examined.
