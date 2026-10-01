@@ -422,12 +422,21 @@ func submitFixRound(ctx context.Context, run *waveobj.Run, data wshrpc.CommandDa
 // list, so this is a cost bound on one snapshot, not a limit on how large a plan may be.
 const dagDigestChildRunLimit = 64
 
-// dagDigestRetainedKinds are the lifecycle rows the digest derives durations, retries, the report's counts and
-// what the human told workers from. The UI's 200-row window is not consulted.
+// dagDigestRetainedKinds are the lifecycle rows the digest derives durations, retries, the report's counts,
+// what the human told workers and the run's timing from. The UI's 200-row window is not consulted.
 var dagDigestRetainedKinds = []string{
 	waveobj.RunEventKindTaskRetried,
+	waveobj.RunEventKindTaskSpawned,
 	waveobj.RunEventKindTaskDone,
+	waveobj.RunEventKindTaskFailed,
+	waveobj.RunEventKindTaskReviewStarted,
+	waveobj.RunEventKindTaskReviewPassed,
+	waveobj.RunEventKindTaskReviewFailed,
 	waveobj.RunEventKindTaskMergeStarted,
+	waveobj.RunEventKindTaskMerged,
+	waveobj.RunEventKindTaskVerifyPassed,
+	waveobj.RunEventKindTaskVerifyFailed,
+	waveobj.RunEventKindFinalStep,
 	waveobj.RunEventKindTaskCleanupPending,
 	waveobj.RunEventKindTaskCleanupCompleted,
 	waveobj.RunEventKindTaskCleanupFailed,
@@ -452,6 +461,7 @@ func (ws *WshServer) DagStatusCommand(ctx context.Context, data wshrpc.CommandDa
 	}
 	sn := orchestrate.DagDigestSnapshot{
 		Group:    g,
+		Owner:    run,
 		Runs:     dagDigestChildRuns(ctx, data.ChannelId, g),
 		Asks:     gatherDagAsks(ctx, run),
 		Retained: dagDigestRetained(ctx, data.ChannelId, data.RunId),

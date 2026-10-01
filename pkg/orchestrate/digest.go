@@ -19,6 +19,7 @@ import (
 // fresh enough to report.
 type DagDigestSnapshot struct {
 	Group    *waveobj.TaskGroup
+	Owner    *waveobj.Run // the run that owns the dag; nil leaves the digest without timing
 	Runs     []*waveobj.Run
 	Asks     []wshrpc.DagAskItem
 	Retained []waveobj.RunEvent
@@ -60,6 +61,7 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 	d.Final = g.Final
 	d.Lanes = jarvis.Lanes(g.Tasks)
 	d.Told = jarvis.TallyDagEvents(sn.Retained).Told
+	d.Timing = buildTiming(sn)
 	runByID := map[string]*waveobj.Run{}
 	for _, r := range sn.Runs {
 		if r != nil {
