@@ -317,9 +317,22 @@ func TestOrchestrationRulesCoverReviewAndDownstream(t *testing.T) {
 	}
 }
 
-func TestRunFinishedReportNamesLeftoverWorktrees(t *testing.T) {
+func TestRunFinishedReportIsJudgmentOnly(t *testing.T) {
 	rules := OrchestrationRules("run-1", "", "")
-	if !strings.Contains(rules, "worktrees left behind (tasks whose status shows retry-cleanup)") {
-		t.Fatalf("the run-finished report must list leftover worktrees:\n%s", rules)
+	for _, want := range []string{
+		"wsh jarvis dag report <task> [section]",
+		"one line per task on what it did",
+		"the decisions you made (answers, skips, tells, sendbacks) and why",
+		"Found not fixed and Not verified sections",
+		"the engine records those",
+	} {
+		if !strings.Contains(rules, want) {
+			t.Errorf("rules missing %q:\n%s", want, rules)
+		}
+	}
+	for _, gone := range []string{"worktrees left behind (tasks whose status", "(landed, unverified, answered, forwarded"} {
+		if strings.Contains(rules, gone) {
+			t.Errorf("rules still ask for %q", gone)
+		}
 	}
 }

@@ -547,25 +547,37 @@ you.
 | **Merge conflict** at a lane merge | fixes it where lanes land (the run's branch tree, or the checkout), commits, `wsh jarvis dag merge <task> --continue` | nothing, unless the lead forwards it or is dead |
 | **Verify failed** after a merge | fixes it, commits, `dag merge <task> --continue` (re-runs Verify at HEAD) | same |
 | **Review failed** twice, or the reviewer couldn't do its job | reads the findings in `dag status`; `dag sendback <task> "<guidance>"`, `dag approve <task>`, retry, escalate, skip or forward | forwarded review failures |
-| **A passed task with a note for later tasks** that the engine could not deliver (no `--for`, or a named task already finished or without a live terminal) | amends the pending tasks the note affects (`dag amend`), or tells a running one (`dag tell`) | nothing |
+| **A passed task with a note for later tasks** that the engine could not deliver (nothing unfinished follows the task, or a named task already finished or without a live terminal) | amends the pending tasks the note affects (`dag amend`), or tells a running one (`dag tell`) | nothing |
 | **A worker's question** | answers from the spec, plan and code, or forwards a product call with a note | forwarded questions and any it does not answer within **10 minutes** |
 | **Task failed** with its retry spent | `dag retry`, `dag escalate --model`, `dag skip`, or forwards | forwarded failures |
 | **Worker hung** (15 min silent, process alive, no ask pending) | same as a failure | same |
 | **Worker may be stuck** (worktree unchanged 20 min while active, or the same failure 3x) | `dag tell`, `dag retry`, `dag escalate`, or lets it run | same |
 | **Worker never started** (5 min after spawn, its terminal's shell never came up) | `dag retry` | same |
 | **Final stage failed** | writes a fix plan and runs `dag submit --round --plan <fix plan>` (tasks only: the round runs the run's own Verify, Setup, Check and Final, and a fix plan naming different ones is refused); puts it to you when no round is left or the fix is a product call | a failed last round, or a product call |
-| **Run finished** | fixes and commits what the landed tasks left behind, writes the report to a file, adds open issues to the initiative, then completes on its own with `wsh jarvis complete --report <file>` | a question only when a decision is needed (a failed verification, a deviation, a proposed fix round), then the Done face |
+| **Run finished** | fixes and commits what the landed tasks left behind, writes a judgment-only report to a file (a line per task, its decisions and why, wrap-up commits, open issues; the engine records landed commits, worktrees left behind, counts and unverified reasons in the sealed record), adds open issues to the initiative, then completes on its own with `wsh jarvis complete --report <file>` | a question only when a decision is needed (a failed verification, a deviation, a proposed fix round), then the Done face |
 
 In `dag status`, a running worker that has written nothing lately reads `idle Nm`, or `running a command Nm · <tool>`
-while its processes are busy (a long test writes no transcript); a flagged one reads `stuck? <reason>`.
+while its processes are busy (a long test writes no transcript); a flagged one reads `stuck? <reason>`. Each done task shows one presence line naming its non-empty report sections and
+the pull command, e.g. `t-3 report: differs, not verified, found not fixed (wsh jarvis dag report t-3)`; a legacy report
+reads `t-3 report: unstructured (wsh jarvis dag report t-3)`. `dag status` no longer prints the 600-character result.
 
 ### A task's review
 
 Tests are not the only check. A worker ends by committing, writing its report to a file the engine names outside
 every worktree (`<temp>/arc-reports/<dag>/<task>.md`), and running
-`wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>`. The report covers what it did, what it
-did differently from the task and why, what a later task must know, and what it could not verify and why. The
-server refuses a task worker's `complete` without `--report`; leads and reviewers are not held to it.
+`wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>`. The report is five sections, in this
+order: `## Done`, `## Differs from plan`, `## Not verified`, `## For later tasks`, `## Found not fixed`, each with
+`None` when empty and nothing before the first heading. The server refuses a task worker's `complete` without
+`--report`, or with a report that doesn't parse, and prints the template in the refusal; leads, spikes, reviewers and
+the final verifier are not held to it. A report written before this format falls back to being read whole.
+
+Each section reaches the reader that acts on it: the lead's review-pass wake carries Differs from plan, Not verified
+and Found not fixed (and For later tasks only when nothing unfinished follows the task), later tasks get For later
+tasks by plan edge, and the final stage lists each landed task's Not verified. A section over 2500 characters is cut
+at a line and ends `… <N> more characters: wsh jarvis dag report <task> <section>`; that command (sections `done`,
+`differs`, `not-verified`, `for-later`, `found-not-fixed`) reads the rest. At the lead's seal the engine records the
+tasks' sections, the counts, the told messages and the worktrees left behind; `wsh runs show` and the run sidebar
+render that record.
 
 When a worker finishes with a commit, the task goes to **reviewing** and the engine starts a reviewer in the
 task's lane worktree, on the reviewer route (the lead's unless you picked one, see [Routes](#4-routes)). The
@@ -573,10 +585,12 @@ reviewer reads the task, the spec, the worker's whole report and `git diff` of t
 change against what the task asked for (missing requirements, contradictions of the spec, cut corners, changes
 outside the task), and ends with one command:
 
-- `wsh jarvis dag review pass "<summary>"`: the task lands as before. Adding `--downstream "<note>" --for t-3,t-5`
-  hands what later tasks must know to the tasks named (the reviewer's brief lists the unfinished ones): the engine
-  adds it to the prompt of a task that hasn't started and types it into a working one's terminal, and the lead reads
-  where it went on its next wake. A note it can't deliver, or one with no `--for`, wakes the lead to route it.
+- `wsh jarvis dag review pass "<summary>"`: the task lands as before. The reviewer checks the worker's For later tasks
+  section instead of relaying it. `--downstream "<note>"` reaches the task's unfinished descendants (plus any
+  `--for t-3,t-5`): the engine adds it to the prompt of a task that hasn't started and types it into a working one's
+  terminal, and the lead reads where it went on its next wake. It wakes the lead only when no unfinished task
+  follows. `--for` alone forwards the worker's For later tasks to the tasks named; it is refused when that section is
+  None or the report is a legacy one. The section goes to the lead only when nothing unfinished follows the task.
   Adding `--unverified "<what, and why>"` records a check the task asked for (a test, a screenshot, a live run)
   that the diff and the report show was not done. The lead's `passed review` line prints it whole, first; `dag
   status` prints it under the task and in the report; and it becomes one of the run's unverified reasons at the
@@ -956,7 +970,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag tell <task> "<text>"` | type into a running worker's or reviewer's terminal |
 | `dag sendback <task> ["<guidance>"]` | one more round for a review-failed task, with your guidance beside the findings |
 | `dag approve <task>` | overrule a failed review; the task lands as it is |
-| `dag review <pass\|fail> "<note>" [--downstream "<note>" [--for <task ids>]] [--unverified "<what, why>"]` | a reviewer's verdict; ends the reviewer's session |
+| `dag review <pass\|fail> "<note>" [--downstream "<note>"] [--for <task ids>] [--unverified "<what, why>"]` | a reviewer's verdict; ends the reviewer's session |
 | `dag planreview <pass\|fail> "<text>" [--pick "t-N=<sonnet\|lead>: <reason>" ...]` | the plan reviewer's verdict; ends its session. On a Reviewer picks run a pass carries one `--pick` per task without a Model line ([Model picks](#model-picks)) |
 | `dag planreview accept "<the human's reason>"` | as the lead, proceed past a failed plan review on the human's word |
 | `dag final pass "<summary>" [--unverified "<what, why>"]` / `dag final fail "<defects>"` | the final verifier's verdict; ends its session |

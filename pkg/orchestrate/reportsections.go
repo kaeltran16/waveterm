@@ -50,7 +50,7 @@ func leadSectionLines(taskID string, run *waveobj.Run) []string {
 		return []string{fmt.Sprintf("%s unstructured report: %s", taskID, capSection(taskID, "", unstructured))}
 	}
 	var lines []string
-	for _, key := range []string{"differs", "not-verified", "found-not-fixed"} {
+	for _, key := range []string{jarvis.ReportKeyDiffers, jarvis.ReportKeyNotVerified, jarvis.ReportKeyFoundNotFixed} {
 		body, _ := rep.Section(key)
 		if body == "" {
 			continue
