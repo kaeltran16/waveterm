@@ -12,6 +12,8 @@ import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import {
     autoUpdate,
+    flip,
+    FloatingPortal,
     offset,
     shift,
     useClick,
@@ -23,7 +25,7 @@ import {
 import { useAtomValue } from "jotai";
 import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
-import { harnessPreferenceAtom, harnessesAtom, setPreferredHarness } from "./harnessstore";
+import { harnessesAtom, harnessPreferenceAtom, setPreferredHarness } from "./harnessstore";
 import { RuntimeMark } from "./runtimemark";
 
 export type HarnessOperation = "consult" | "run-worker";
@@ -114,9 +116,10 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
         open,
         onOpenChange: setOpen,
         placement,
-        // shift keeps the menu on screen when the trigger sits near a viewport edge — without it the
-        // menu simply overflows, which is what clipped it in the peek's composer at a 440px width.
-        middleware: [offset(6), shift({ padding: 8 })],
+        strategy: "fixed",
+        // portaled, so no host's overflow-hidden clips it (the avatar popup's panel did at 440x420); flip
+        // opens it below when there is no room above, and shift keeps it off the viewport edges
+        middleware: [offset(6), flip({ padding: 8 }), shift({ padding: 8 })],
         whileElementsMounted: autoUpdate,
     });
     const { getReferenceProps, getFloatingProps } = useInteractions([useClick(context), useDismiss(context)]);
@@ -145,63 +148,68 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
                     <ChevronDown size={12} className={cn("flex-none text-muted", open && "rotate-180")} />
                 )}
             </button>
-            <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()} className="z-20">
-                <PopoverReveal
-                    open={open}
-                    origin="bottom left"
-                    className="w-[300px] rounded-[11px] border border-border bg-surface p-[5px] shadow-popover-md"
-                >
-                    <div>
-                        <div className={cn(REGION_LABEL, "px-[9px] pb-1.5 pt-1 text-muted")}>Harness</div>
-                        {items.map((item) => (
-                            <button
-                                key={item.runtime}
-                                type="button"
-                                aria-pressed={item.selected}
-                                disabled={!item.selectable}
-                                data-testid={`harness-option-${item.runtime}`}
-                                onClick={() => setPreferredHarness(item.runtime)}
-                                className={cn(
-                                    "flex w-full items-start gap-2.5 rounded px-[9px] py-2 text-left",
-                                    item.selectable
-                                        ? "cursor-pointer hover:bg-surface-hover"
-                                        : "cursor-default opacity-70",
-                                    item.selected ? "bg-surface-raised" : "bg-transparent"
-                                )}
-                            >
-                                <RuntimeMark runtime={item.runtime} className="mt-[2px] h-4 w-4 flex-none" />
-                                <span className="min-w-0 flex-1">
-                                    <span
-                                        className={cn(
-                                            "block text-[12.5px] font-semibold",
-                                            item.selected ? "text-accent" : "text-primary"
-                                        )}
-                                    >
-                                        {item.label}
+            <FloatingPortal>
+                {/* above the avatar popup's z-[65] and ModalShell's z-[70] */}
+                <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()} className="z-[80]">
+                    <PopoverReveal
+                        open={open}
+                        origin="bottom left"
+                        className="w-[300px] rounded-[11px] border border-border bg-surface p-[5px] shadow-popover-md"
+                    >
+                        <div>
+                            <div className={cn(REGION_LABEL, "px-[9px] pb-1.5 pt-1 text-muted")}>Harness</div>
+                            {items.map((item) => (
+                                <button
+                                    key={item.runtime}
+                                    type="button"
+                                    aria-pressed={item.selected}
+                                    disabled={!item.selectable}
+                                    data-testid={`harness-option-${item.runtime}`}
+                                    onClick={() => setPreferredHarness(item.runtime)}
+                                    className={cn(
+                                        "flex w-full items-start gap-2.5 rounded px-[9px] py-2 text-left",
+                                        item.selectable
+                                            ? "cursor-pointer hover:bg-surface-hover"
+                                            : "cursor-default opacity-70",
+                                        item.selected ? "bg-surface-raised" : "bg-transparent"
+                                    )}
+                                >
+                                    <RuntimeMark runtime={item.runtime} className="mt-[2px] h-4 w-4 flex-none" />
+                                    <span className="min-w-0 flex-1">
+                                        <span
+                                            className={cn(
+                                                "block text-[12.5px] font-semibold",
+                                                item.selected ? "text-accent" : "text-primary"
+                                            )}
+                                        >
+                                            {item.label}
+                                        </span>
+                                        {item.unavailableReason != null ? (
+                                            <span className="mt-[3px] block text-[11px] leading-[1.45] text-muted">
+                                                {item.unavailableReason === "not-installed"
+                                                    ? "not installed"
+                                                    : "unsupported for this action"}
+                                            </span>
+                                        ) : item.disclosure != null ? (
+                                            <span className="mt-[3px] block text-[11px] leading-[1.45] text-muted">
+                                                {item.disclosure}
+                                            </span>
+                                        ) : null}
                                     </span>
-                                    {item.unavailableReason != null ? (
-                                        <span className="mt-[3px] block text-[11px] leading-[1.45] text-muted">
-                                            {item.unavailableReason === "not-installed"
-                                                ? "not installed"
-                                                : "unsupported for this action"}
-                                        </span>
-                                    ) : item.disclosure != null ? (
-                                        <span className="mt-[3px] block text-[11px] leading-[1.45] text-muted">
-                                            {item.disclosure}
-                                        </span>
+                                    {item.selected ? (
+                                        <Check size={12} className="mt-[3px] flex-none text-accent" />
                                     ) : null}
-                                </span>
-                                {item.selected ? <Check size={12} className="mt-[3px] flex-none text-accent" /> : null}
-                            </button>
-                        ))}
-                        {pref.error != null ? (
-                            <div className="mt-1 border-t border-border px-[9px] pb-1 pt-2 font-mono text-[10.5px] text-error">
-                                saving failed: {pref.error}
-                            </div>
-                        ) : null}
-                    </div>
-                </PopoverReveal>
-            </div>
+                                </button>
+                            ))}
+                            {pref.error != null ? (
+                                <div className="mt-1 border-t border-border px-[9px] pb-1 pt-2 font-mono text-[10.5px] text-error">
+                                    saving failed: {pref.error}
+                                </div>
+                            ) : null}
+                        </div>
+                    </PopoverReveal>
+                </div>
+            </FloatingPortal>
         </div>
     );
 }
