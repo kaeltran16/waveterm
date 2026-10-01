@@ -482,6 +482,10 @@ Open a run from **Waiting on you**, **Sessions**, or right after **Start run**. 
 - **Verb** and subtext: Planning, Starting, Executing, Waiting on you, Landing, Blocked, Done, Cancelled.
 - **Meter** (one segment per task) and chips: elapsed, worker minutes, landed, answered, forwarded,
   unverified, attention.
+- **Timing** (orchestrator runs): one bar per activity (Planning, Execution, Task review, Merge & Verify,
+  Final verification, Landing / wrap-up) on a since-launch axis. Collapsed while the run runs, with a line
+  naming the executing tasks and what is still ahead of them; open on a finished run. Activities overlap, so
+  the rows do not add up.
 - **Questions for you**, when you hold any.
 - **Tasks**: one row per task with its state and an action: **Open in Agent ↗** for a live worker, **View
   child run** for a finished one, **Open DAG ↗** for one blocked on a merge. Then a `next:` line saying what
