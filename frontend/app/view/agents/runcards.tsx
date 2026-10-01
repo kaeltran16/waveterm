@@ -226,7 +226,7 @@ export function BlockedCard({
 export function StartingCard() {
     return (
         <div className="mt-2.5 inline-flex items-center gap-2 rounded-[9px] border border-edge-mid bg-background px-3 py-2">
-            <span className="h-[7px] w-[7px] flex-none animate-pulse motion-reduce:animate-none rounded-full bg-asking" />
+            <span className="h-[7px] w-[7px] flex-none pulse-soft rounded-full bg-asking" />
             <span className="text-[12px] text-secondary">Worker starting…</span>
         </div>
     );

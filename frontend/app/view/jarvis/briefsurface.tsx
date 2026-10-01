@@ -207,9 +207,7 @@ function RegionHead({
             onClick={onOnly}
             className="flex w-full cursor-pointer items-center gap-[9px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-            {alert ? (
-                <span className="h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-asking motion-reduce:animate-none" />
-            ) : null}
+            {alert ? <span className="h-1.5 w-1.5 flex-none pulse-soft rounded-full bg-asking" /> : null}
             <span
                 className={cn(
                     REGION_LABEL,
@@ -1260,9 +1258,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         <span
                             className={cn(
                                 "h-[5px] w-[5px] flex-none rounded-full transition-colors duration-[140ms]",
-                                queue.length === 0
-                                    ? "bg-success"
-                                    : "animate-[pulseDot_1.8s_ease-in-out_infinite] bg-asking motion-reduce:animate-none"
+                                queue.length === 0 ? "bg-success" : "pulse-dot-slow bg-asking"
                             )}
                         />
                         {queue.length === 0 ? (

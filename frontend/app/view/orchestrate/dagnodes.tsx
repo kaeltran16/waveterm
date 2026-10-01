@@ -85,7 +85,7 @@ function StateGlyph({ kind }: { kind: GlyphKind }) {
     return (
         <span className="relative mt-px h-[14px] w-[14px] flex-none">
             {kind === "running" ? (
-                <span className="absolute -inset-[3px] rounded-full border-[1.5px] border-accent motion-safe:animate-pulse" />
+                <span className="absolute -inset-[3px] rounded-full border-[1.5px] border-accent pulse-soft" />
             ) : null}
             <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" className="relative block">
                 <circle cx="7" cy="7" r="5.25" style={{ fill: g.fill, stroke: g.ring, strokeWidth: 1.5 }} />

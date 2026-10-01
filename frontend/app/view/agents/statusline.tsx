@@ -110,7 +110,7 @@ export function ActivityLine({
     }
     return (
         <div className={cn("flex items-center gap-2", className)}>
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none" />
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success pulse-dot" />
             <span
                 title={agent.activity}
                 className="min-w-0 flex-1 truncate font-mono text-[12px] leading-[1.4] text-success-soft"

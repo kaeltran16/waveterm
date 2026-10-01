@@ -69,7 +69,7 @@ const BTN =
     "h-[23px] shrink-0 cursor-pointer rounded-[6px] border border-edge-mid bg-transparent px-[9px] text-[11.5px] font-medium text-secondary hover:border-edge-strong";
 const ROW_BTN =
     "flex h-6 cursor-pointer items-center gap-1.5 rounded-[6px] border border-edge-strong bg-transparent pl-1.5 pr-2.5 text-[11.5px] font-semibold text-secondary hover:bg-surface-hover";
-const PULSE = "animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none";
+const PULSE = "pulse-dot";
 
 // below this body height the lead's pane would squeeze the tasks, so a card that small starts it collapsed
 const LEAD_PANE_MIN_BODY_PX = 320;
@@ -78,7 +78,7 @@ const LEAD_PANE_MIN_BODY_PX = 320;
 const leadPaneOpenAtom = atom<Record<string, boolean>>({}) as PrimitiveAtom<Record<string, boolean>>;
 
 const TONE_DOT: Record<RowTone, string> = {
-    run: "bg-accent animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none",
+    run: "bg-accent pulse-dot",
     ask: "bg-warning",
     soft: "bg-accent-soft",
     warn: "shadow-[inset_0_0_0_1.5px_var(--color-warning)]",

@@ -449,7 +449,7 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 />
                 {/* the unread marker: a kind of thing happened, never how many */}
                 {unread ? (
-                    <span className="pointer-events-none absolute right-0 top-0 h-[9px] w-[9px] animate-[pulseDot_1.8s_ease-in-out_infinite] rounded-full border border-background bg-accent motion-reduce:animate-none" />
+                    <span className="pointer-events-none absolute right-0 top-0 h-[9px] w-[9px] pulse-dot-slow rounded-full border border-background bg-accent" />
                 ) : null}
             </motion.div>
             <PetBubble

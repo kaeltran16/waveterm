@@ -90,7 +90,7 @@ export function TaskModelPick({ group, owner, task }: { group: TaskGroup; owner:
                     </div>
                 ) : (
                     <span className="flex flex-none items-center gap-1.5 font-mono text-[10.5px] text-success">
-                        <span className="size-[7px] rounded-full bg-success animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none" />
+                        <span className="size-[7px] rounded-full bg-success pulse-dot" />
                         running on {row.runningModel}
                     </span>
                 )}

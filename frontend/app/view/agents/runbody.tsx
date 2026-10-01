@@ -316,9 +316,7 @@ function DispatchedAgents({ model, leadId }: { model: AgentsViewModel; leadId: s
                                 className={
                                     "h-2 w-2 flex-none rounded-full bg-current " +
                                     tone +
-                                    (s.state === "working"
-                                        ? " animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none"
-                                        : "")
+                                    (s.state === "working" ? " pulse-dot" : "")
                                 }
                             />
                             <div className="min-w-0 flex-1">

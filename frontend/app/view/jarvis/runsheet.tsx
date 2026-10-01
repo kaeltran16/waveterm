@@ -226,7 +226,7 @@ function Reading({
                     className={cn(
                         "h-[7px] w-[7px] flex-none rounded-full",
                         TONE_BG[status.tone],
-                        status.pulse && "animate-[pulseDot_1.8s_ease-in-out_infinite] motion-reduce:animate-none"
+                        status.pulse && "pulse-dot-slow"
                     )}
                 />
                 <span
@@ -403,7 +403,7 @@ function Tasks({
                             />
                             <div className="relative flex items-center gap-2 py-0.5 pl-[5px] pr-1.5">
                                 <span className="flex w-5 flex-none justify-center">
-                                    <span className="size-2 animate-[pulseDot_1.6s_infinite] rounded-full bg-accent motion-reduce:animate-none" />
+                                    <span className="size-2 pulse-dot rounded-full bg-accent" />
                                 </span>
                                 <span className="font-mono text-[10.5px] text-accent-soft">
                                     now · {tsLabel(ctx.now)}

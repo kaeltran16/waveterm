@@ -45,8 +45,8 @@ import { SectionLabel, SubLabel } from "./sectionlabel";
 
 const LANE_DOT: Record<LaneState, string> = {
     done: "bg-success",
-    working: "bg-accent animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none",
-    asking: "bg-warning animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none",
+    working: "bg-accent pulse-dot",
+    asking: "bg-warning pulse-dot",
     lead: "bg-muted",
     pending: "border border-muted bg-transparent",
     failed: "bg-error",
@@ -151,7 +151,7 @@ function NeedsYouCard({ ask, action }: { ask: DagAskItem; action: { label: strin
     return (
         <div className="rounded-[9px] border border-warning/45 bg-warning/[0.06] px-[11px] py-[9px]">
             <div className="flex items-center gap-[7px] overflow-hidden whitespace-nowrap font-mono text-[10.5px] text-muted">
-                <span className="h-[7px] w-[7px] flex-none animate-[pulseDot_1.6s_infinite] rounded-full bg-warning motion-reduce:animate-none" />
+                <span className="h-[7px] w-[7px] flex-none pulse-dot rounded-full bg-warning" />
                 <b className="font-semibold text-primary">{ask.taskid}</b>
                 <span className="truncate text-warning">waiting on you</span>
             </div>
@@ -232,7 +232,7 @@ function LeadAskCard({ model, run, ask }: { model: AgentsViewModel; run: RunInfo
     return (
         <div className="rounded-[9px] border border-edge-mid bg-surface-raised px-[11px] py-[9px]">
             <div className="flex items-center gap-[7px] overflow-hidden whitespace-nowrap font-mono text-[10.5px] text-muted">
-                <span className="h-[7px] w-[7px] flex-none animate-[pulseDot_1.6s_infinite] rounded-full bg-warning motion-reduce:animate-none" />
+                <span className="h-[7px] w-[7px] flex-none pulse-dot rounded-full bg-warning" />
                 <b className="font-semibold text-primary">{ask.taskid}</b>
                 <span className="truncate">{leadAnswering(ask, now)}</span>
             </div>

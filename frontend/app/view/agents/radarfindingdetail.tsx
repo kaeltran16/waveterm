@@ -220,7 +220,7 @@ export function RadarFindingDetail({
                                 className={cn(
                                     "h-[7px] w-[7px] flex-none rounded-full",
                                     INVESTIGATION_DOT[iv.tone],
-                                    iv.live && "animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none"
+                                    iv.live && "pulse-dot"
                                 )}
                             />
                             <span className={cn("text-[12.5px] font-semibold", INVESTIGATION_TEXT[iv.tone])}>

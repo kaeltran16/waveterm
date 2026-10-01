@@ -35,12 +35,7 @@ export function AttentionBanner({
             {glyph === "diamond" ? (
                 <span className="shrink-0 font-mono text-[11px] leading-none text-on-warning">◆</span>
             ) : (
-                <span
-                    className={cn(
-                        "h-[7px] w-[7px] shrink-0 rounded-full bg-on-warning",
-                        pulse && "animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none"
-                    )}
-                />
+                <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full bg-on-warning", pulse && "pulse-dot")} />
             )}
             <span className={cn(REGION_LABEL, "text-on-warning")}>{label}</span>
             {meta ? <span className="font-mono text-[10.5px] font-semibold text-on-warning/60">{meta}</span> : null}

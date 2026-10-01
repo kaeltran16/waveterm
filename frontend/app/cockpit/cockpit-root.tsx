@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 import { ContextMenuHost } from "@/app/element/contextmenuhost";
+import { PulseDriver } from "@/app/element/pulsedriver";
 import { ModalsRenderer } from "@/app/modals/modalsrenderer";
 import { atoms } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -109,6 +110,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             <NowTicker model={model} />
             <BackgroundAgentsPoller />
             <AttentionPoller />
+            <PulseDriver />
             <PetSources model={model} />
             <CockpitAppBar model={model} />
             <div className="min-h-0 flex-1">

@@ -139,7 +139,7 @@ function RenameBox({ tabId }: { tabId: string }) {
     );
 }
 
-const PULSE = "animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none";
+const PULSE = "pulse-dot";
 
 // Every row's leading mark sits in one column, so dots, icons and fold marks line up down the tree.
 function Slot({ children }: { children: React.ReactNode }) {

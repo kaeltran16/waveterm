@@ -283,7 +283,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                     badge={
                         liveCount > 0 ? (
                             <span className="inline-flex items-center gap-1.5 rounded-full bg-pill px-[9px] py-[3px] font-mono text-[10.5px] text-secondary">
-                                <span className="h-1.5 w-1.5 animate-[pulseDot_1.6s_infinite] rounded-full bg-working motion-reduce:animate-none" />
+                                <span className="h-1.5 w-1.5 pulse-dot rounded-full bg-working" />
                                 {liveCount} {liveCount === 1 ? "agent" : "agents"} live
                             </span>
                         ) : null

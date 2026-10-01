@@ -69,10 +69,7 @@ export function StatusMark({ status, className }: { status: Status; className?: 
         >
             {st.mark === "pulse" || st.mark === "dot" ? (
                 <span
-                    className={cn(
-                        "h-1.5 w-1.5 rounded-full",
-                        st.mark === "pulse" && "animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none"
-                    )}
+                    className={cn("h-1.5 w-1.5 rounded-full", st.mark === "pulse" && "pulse-dot")}
                     style={{ backgroundColor: st.color }}
                 />
             ) : null}
@@ -456,7 +453,7 @@ export function RunDetail({
 
             {view.ask ? (
                 <div className="flex flex-none items-center gap-3 rounded-lg bg-askingbg py-2.5 pl-3.5 pr-3">
-                    <span className="h-[7px] w-[7px] flex-none animate-[pulseDot_1.6s_infinite] rounded-full bg-asking motion-reduce:animate-none" />
+                    <span className="h-[7px] w-[7px] flex-none pulse-dot rounded-full bg-asking" />
                     <span className="min-w-0 flex-1 text-[13px] leading-[1.45] text-secondary">
                         <span className="font-semibold text-ink-hi">Task {view.ask.num} asks:</span> {view.ask.text}
                     </span>

@@ -362,8 +362,10 @@ runtime logos stay image assets.
 - **Buttons** — primary = `bg-accent text-background hover:bg-accenthover`;
   secondary = `bg-surface-raised border-edge-mid text-muted hover:border-edge-strong
   hover:bg-surface-hover` (see `cockpit/app-bar.tsx`).
-- **Status indicators** — dot + color + pulse (`animate-[pulseDot_1.6s_infinite]`
-  on `bg-working`/`bg-asking`); status is never color alone.
+- **Status indicators** — dot + color + pulse (`pulse-dot` on `bg-working`/`bg-asking`;
+  `pulse-dot-slow`, `pulse-soft` for the slower curves); status is never color alone.
+  The pulse is drawn at 12fps by `element/pulsedriver.tsx`, not a CSS animation:
+  an infinite CSS animation holds the page at display rate while it is on screen.
 - **Panels/cards** — `bg-surface-raised border-edge-mid rounded-md`; selected
   rows `bg-surface-selected`.
 - **Focus** — a prominent accent ring on the active region + highlighted

@@ -15,7 +15,7 @@ import { CURSOR_RING, cursorAttrs, MONO_FAINT, ROW_BORDER, SMALL_BTN, TONE_TEXT 
 import type { InitiativeResume } from "./initiativework";
 import { ProgressBar } from "./progressbar";
 
-const PULSE = "animate-[pulseDot_1.8s_ease-in-out_infinite] motion-reduce:animate-none";
+const PULSE = "pulse-dot-slow";
 
 export function WaitingRow({
     line,

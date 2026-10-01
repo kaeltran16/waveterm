@@ -300,16 +300,6 @@ svg [aria-label="tip"] g path {
     text-overflow: ellipsis;
 }
 
-@keyframes pulseDot {
-    0%,
-    100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.32;
-    }
-}
-
 /* Streaming flow bar (transcript feed): a subtle accent sweep under a working card's header. */
 @keyframes flowBar {
     0% {

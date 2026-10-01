@@ -124,7 +124,7 @@ export function RunWorkerCard({
                     ) : current ? (
                         <div className="flex items-center gap-2 px-3 pb-1 pt-2">
                             {working ? (
-                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none" />
+                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success pulse-dot" />
                             ) : null}
                             <span
                                 title={current}

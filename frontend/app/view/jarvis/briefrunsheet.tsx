@@ -162,7 +162,7 @@ function LoadedConfig({
                     className={cn(
                         "mt-1 h-1.5 w-1.5 flex-none rounded-full",
                         note.tone === "error" ? "bg-error" : note.tone === "muted" ? "bg-muted" : "bg-edge-strong",
-                        note.pulse && "animate-pulse motion-reduce:animate-none"
+                        note.pulse && "pulse-soft"
                     )}
                 />
                 <div className="flex min-w-0 flex-col gap-[3px]">

@@ -326,7 +326,7 @@ function NowMarker({ nowMs }: { nowMs: number }) {
     return (
         <div className="relative flex items-center gap-2 pt-0.5 pr-2.5 pb-1.5 pl-[11px]">
             <span className="flex w-5 flex-none justify-center">
-                <span className="size-2 rounded-full bg-accent animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none" />
+                <span className="size-2 rounded-full bg-accent pulse-dot" />
             </span>
             <span className="font-mono text-[10.5px] text-accent-soft">now · {tsLabel(nowMs)}</span>
         </div>
