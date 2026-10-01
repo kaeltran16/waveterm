@@ -607,7 +607,8 @@ function WorkerRow({
             <Guides depth={nested ? 2 : 1} />
             <Slot>
                 {done ? (
-                    <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-success" />
+                    // a check, not a dot: dots mean a live session, so a landed worker must not read as one
+                    <Check size={11} aria-hidden className="text-success" />
                 ) : waits ? (
                     <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
                 ) : (task.state === "verifying" || task.state === "reviewing") && !nested ? (
@@ -649,9 +650,9 @@ function WorkerRow({
 }
 
 // A session the engine started to judge the whole run, under the run like a task's worker and named by its stage.
-// a finished stage's dot, by verdict: accepted means the review failed and the lead proceeded anyway
-const STAGE_OUTCOME_DOT: Record<StageOutcome, string> = {
-    passed: "bg-success",
+// a finished stage's dot, by verdict: accepted means the review failed and the lead proceeded anyway. passed
+// draws a check instead, like a landed worker
+const STAGE_OUTCOME_DOT: Record<Exclude<StageOutcome, "passed">, string> = {
     accepted: "bg-warning",
     unverified: "bg-warning",
     failed: "bg-error",
@@ -692,7 +693,9 @@ function StageRow({
         >
             <Guides depth={1} />
             <Slot>
-                {outcome ? (
+                {outcome === "passed" ? (
+                    <Check size={11} aria-hidden className="text-success" />
+                ) : outcome ? (
                     <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full", STAGE_OUTCOME_DOT[outcome])} />
                 ) : (
                     <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
