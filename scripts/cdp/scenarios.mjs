@@ -6681,6 +6681,96 @@ const runSheetPolish = {
     },
 };
 
+// The run sheet's Timing section (docs/superpowers/plans/2026-10-01-run-timing.md) on a live orchestrator run:
+// collapsed with an elapsed header, then expanded to the per-activity bars. Planning is the one activity a
+// freshly submitted plan always has; the live overlap sentence depends on dispatch timing, so only the
+// always-present note is asserted.
+const RUN_TIMING_SECTION = `document.querySelector("[data-run-sheet] [data-run-timing]")`;
+const RUN_TIMING_NOTE = "Elapsed since launch. Activities overlap; do not add these rows.";
+
+const runTimingScenario = {
+    name: "run-timing",
+    surface: "jarvis",
+    async arrange(h) {
+        const ctx = await arrangeSheetDagRun(h, "run-timing", RUN_SHEET_POLISH_TASKS);
+        if (ctx.arrangeError != null) return ctx;
+        try {
+            ctx.sectionShown = await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !${RUN_TIMING_SECTION}?.querySelector("button[aria-expanded]"); i++) {
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                return !!${RUN_TIMING_SECTION};
+            })()`);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec(
+            "0. the run's sheet opened on the Brief with a Timing section",
+            ctx.arrangeError == null && ctx.opened?.ok === true && ctx.sectionShown === true,
+            ctx.arrangeError ?? JSON.stringify({ runId: ctx.runId, opened: ctx.opened, section: ctx.sectionShown })
+        );
+
+        const collapsed = await h.ev(`(() => {
+            const btn = ${RUN_TIMING_SECTION}?.querySelector("button[aria-expanded]");
+            if (!btn) return null;
+            const spans = btn.querySelectorAll("span");
+            return {
+                expanded: btn.getAttribute("aria-expanded"),
+                label: spans[0]?.textContent.trim() ?? null,
+                header: spans[spans.length - 1]?.textContent.trim() ?? null,
+            };
+        })()`);
+        rec(
+            "1. the live run's Timing toggle is collapsed with an elapsed header",
+            collapsed?.expanded === "false" && collapsed.label === "Timing" && /elapsed$/.test(collapsed.header ?? ""),
+            JSON.stringify(collapsed)
+        );
+
+        const expanded = await h.ev(`(async () => {
+            const section = ${RUN_TIMING_SECTION};
+            const btn = section?.querySelector("button[aria-expanded]");
+            if (!btn) return null;
+            btn.click();
+            for (let i = 0; i < 20 && !section.querySelector('[data-run-timing-row="planning"]'); i++) {
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            const row = section.querySelector('[data-run-timing-row="planning"]');
+            const bar = row?.querySelector(":scope > div > span");
+            const cells = row ? row.querySelectorAll(":scope > span") : [];
+            section.scrollIntoView({ block: "start" });
+            return {
+                expanded: btn.getAttribute("aria-expanded"),
+                rows: [...section.querySelectorAll("[data-run-timing-row]")].map((r) => r.getAttribute("data-run-timing-row")),
+                barWidth: bar ? bar.getBoundingClientRect().width : null,
+                duration: cells.length > 0 ? cells[cells.length - 1].textContent.trim() : null,
+                note: (section.innerText || "").includes(${JSON.stringify(RUN_TIMING_NOTE)}),
+            };
+        })()`);
+        rec(
+            "2. a click expands it: aria-expanded flips to true",
+            expanded?.expanded === "true",
+            JSON.stringify({ expanded: expanded?.expanded })
+        );
+        rec(
+            "3. a planning row draws a bar of nonzero width and a duration",
+            expanded != null && expanded.rows.includes("planning") && expanded.barWidth > 0 && !!expanded.duration,
+            JSON.stringify(expanded)
+        );
+        rec("4. the always-present overlap note shows", expanded?.note === true, JSON.stringify({ note: expanded?.note }));
+        await new Promise((r) => setTimeout(r, 300));
+        await h.shot("cdp-shots/run-timing-expanded.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "run-timing");
+    },
+};
+
 // --- dag-observability: what the run sheet and the DAG modal claim about a live DAG ------------------
 // The orchestrator observability checks (spec 10.3, once scripts/cdp/orchestrator-observability-e2e.mjs) on
 // today's surfaces: a run reads on the Jarvis run sheet, and the DAG opens from its dock. The chained plan
@@ -8621,6 +8711,7 @@ export const SCENARIOS = [
     docReview,
     cockpitPolish,
     runSheetPolish,
+    runTimingScenario,
     dagObservability,
     briefInitiativesPolish,
     briefPeeksPolish,

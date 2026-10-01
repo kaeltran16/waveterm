@@ -62,6 +62,7 @@ import {
     type SheetStatus,
     type SheetTone,
 } from "./runsheetmodel";
+import { RunTimingSection } from "./runtimingview";
 import { STAGE_PROSE } from "./stagemeasure";
 
 const LINK =
@@ -169,6 +170,9 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
         <div data-run-sheet={run.status} className="flex min-h-0 flex-1 flex-col bg-background">
             <Reading run={run} agents={agents} status={status} dag={dag} onRetry={dag?.digest.retry} />
             <div className="sc min-h-0 flex-1 overflow-y-auto px-4 pb-2.5">
+                {dag != null ? (
+                    <RunTimingSection run={run} digest={dag.digest.digest} tasks={dag.group?.tasks} now={now} />
+                ) : null}
                 {survivors > 0 ? (
                     <CancelSurvivorsCard model={ctx.model} channelId={channel.oid} run={run} agents={agents} />
                 ) : null}
