@@ -86,9 +86,6 @@ func TestApplyEngineSettingsReviewerFields(t *testing.T) {
 	if !r.ReviewerPicks || !routeEq(r.ReviewerRoute, reviewer) {
 		t.Fatalf("pending: picks=%v reviewer=%+v", r.ReviewerPicks, r.ReviewerRoute)
 	}
-	if got := RunEngineSettings(r, nil); !got.ReviewerPicks || !routeEq(got.ReviewerRoute, reviewer) {
-		t.Fatalf("run settings before submit: %+v", got)
-	}
 	cleared := ApplyPendingEngineSettings(r, PendingEngineSettings{})
 	if cleared.ReviewerPicks || cleared.ReviewerRoute != nil {
 		t.Fatalf("a zero value must clear the run's: picks=%v reviewer=%+v", cleared.ReviewerPicks, cleared.ReviewerRoute)
@@ -97,10 +94,6 @@ func TestApplyEngineSettingsReviewerFields(t *testing.T) {
 	g := ApplyLiveEngineSettings(waveobj.TaskGroup{Parallelism: 2}, set)
 	if !g.ReviewerPicks || !routeEq(g.ReviewerRoute, reviewer) {
 		t.Fatalf("live: picks=%v reviewer=%+v", g.ReviewerPicks, g.ReviewerRoute)
-	}
-	// after submit the group answers, not the run's launch snapshot
-	if got := RunEngineSettings(cleared, &g); !got.ReviewerPicks || !routeEq(got.ReviewerRoute, reviewer) {
-		t.Fatalf("run settings after submit: %+v", got)
 	}
 	g = ApplyLiveEngineSettings(g, PendingEngineSettings{})
 	if g.ReviewerPicks || g.ReviewerRoute != nil {

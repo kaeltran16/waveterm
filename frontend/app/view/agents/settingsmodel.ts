@@ -293,14 +293,6 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
                     scope: "synced",
                     config: true,
                 },
-                {
-                    id: "headless.long",
-                    title: "Long-context model",
-                    desc: "For large-corpus tasks: distillation, gardener when corpus > 400KB.",
-                    key: "headless:openrouterlongmodel",
-                    scope: "synced",
-                    config: true,
-                },
             ],
         },
         {

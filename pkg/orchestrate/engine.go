@@ -232,21 +232,6 @@ func Schedule(ctx context.Context, dagID string) error {
 	})
 }
 
-// ScheduleOnce is a compatibility wrapper for callers that still hold a TaskGroup snapshot.
-func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
-	if g == nil {
-		return fmt.Errorf("dag is required")
-	}
-	if err := Schedule(ctx, g.OID); err != nil {
-		return err
-	}
-	// keep the caller's snapshot in sync for legacy callers
-	if fresh, err := wstore.GetDag(ctx, g.OID); err == nil {
-		*g = *fresh
-	}
-	return nil
-}
-
 func scheduleLocked(ctx context.Context, dagID string) error {
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil {

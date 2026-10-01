@@ -31,8 +31,7 @@ type Scope struct {
 	Collections []string
 }
 
-func AllScope() Scope    { return Scope{Collections: []string{CollMemory, CollTasks, CollDecisions}} }
-func WorkerScope() Scope { return Scope{Collections: []string{CollMemory, CollDecisions}} }
+func AllScope() Scope { return Scope{Collections: []string{CollMemory, CollTasks, CollDecisions}} }
 
 // Vault is a handle to one on-disk git-backed vault. machineFiles records, per absolute path, the
 // content hash Jarvis last wrote — Commit uses it to author machine-only changes as Jarvis.

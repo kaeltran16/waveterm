@@ -73,14 +73,6 @@ func TestOpenVaultAtForTestDoesNotMigrate(t *testing.T) {
 }
 
 func TestScopes(t *testing.T) {
-	if got := WorkerScope().Collections; len(got) != 2 {
-		t.Fatalf("WorkerScope = %v, want 2 collections (memory, decisions)", got)
-	}
-	for _, c := range WorkerScope().Collections {
-		if c == CollTasks {
-			t.Fatal("WorkerScope must NOT include tasks")
-		}
-	}
 	all := AllScope().Collections
 	hasTasks := false
 	for _, c := range all {

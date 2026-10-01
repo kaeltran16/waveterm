@@ -140,14 +140,6 @@ func parseClaudeLines(lines []string) []claudeLine {
 	return recs
 }
 
-// extractClaudeSession folds one transcript file's lines into a SessionInfo. Returns nil when the
-// file carries no human prompt (e.g. a subagent/tool-only file) because those aren't useful to resume,
-// and when the transcript is a print-mode run — every model call Wave's own backend makes is print-mode,
-// so that one field excludes all of them without matching a word of any prompt.
-func extractClaudeSession(id string, lines []string) *SessionInfo {
-	return claudeSessionFrom(id, parseClaudeLines(lines))
-}
-
 func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 	s := &SessionInfo{ID: id}
 	hasTask := false
@@ -228,13 +220,6 @@ func askText(b claudeBlock) string {
 		}
 	}
 	return "asked a question"
-}
-
-// extractClaudeEvents ports frontend/app/view/agents/activityevents.ts:extractClaudeEvents. It does
-// NOT gate the synthetic "finished" on liveness (Go can't know the live roster); assembleEvents only
-// appends "finished" for done sessions, and the frontend strips it for live ones.
-func extractClaudeEvents(lines []string) sessionEvents {
-	return claudeEventsFrom(parseClaudeLines(lines))
 }
 
 func claudeEventsFrom(recs []claudeLine) sessionEvents {
@@ -1195,12 +1180,6 @@ func parseCandidates(cands []candidate, limit int) []SessionInfo {
 		out = append(out, s2)
 	}
 	return out
-}
-
-// scanProvider returns up to limit sessions from one provider's root, newest-first (single-provider
-// form of the scan; ScanSessions merges providers first so the limit applies globally).
-func scanProvider(p provider, windowDays, limit int) []SessionInfo {
-	return parseCandidates(walkCandidates(p, windowDays), limit)
 }
 
 // ExtractSession folds a single transcript file into a SessionInfo, selecting the parser by runtime.

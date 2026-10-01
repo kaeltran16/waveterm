@@ -193,13 +193,6 @@ func TestRetryCleanupDebtSkipsTasksOverTheCap(t *testing.T) {
 	if len(keys) != 1 || keys[0] != TaskWorktreeKey(g.RunID, "t-4") {
 		t.Fatalf("only the task under the cap may be retried, got %v", keys)
 	}
-	stored, err := wstore.GetDag(ctx, g.OID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if given := GiveUpCleanupTasks(stored); len(given) != 1 || given[0].ID != "t-1" {
-		t.Fatalf("GiveUpCleanupTasks = %v, want only t-1", given)
-	}
 }
 
 func TestRetryCleanupDebtMixedDebt(t *testing.T) {

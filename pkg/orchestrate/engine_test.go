@@ -47,24 +47,6 @@ func (c *captureClient) saw(kind, scope string) bool {
 	return false
 }
 
-// dagVersions returns every captured TaskGroup waveobj update version for scope, in order.
-func (c *captureClient) dagVersions(scope string) []int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	var out []int
-	for _, e := range c.events {
-		if e.Event != wps.Event_WaveObjUpdate || !e.HasScope(scope) {
-			continue
-		}
-		if wu, ok := e.Data.(waveobj.WaveObjUpdate); ok {
-			if g, ok := wu.Obj.(*waveobj.TaskGroup); ok {
-				out = append(out, g.Version)
-			}
-		}
-	}
-	return out
-}
-
 func (c *captureClient) dagCleanupStates(scope string) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1625,4 +1607,19 @@ func TestTaskSpawnedCarriesEachTasksOwnSpawnTime(t *testing.T) {
 	if stamps[1] > dag.UpdatedTs || stamps[0] < start {
 		t.Fatalf("stamps %v must fall between the tick's start %d and its commit %d", stamps, start, dag.UpdatedTs)
 	}
+}
+
+// ScheduleOnce is a compatibility wrapper for callers that still hold a TaskGroup snapshot.
+func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
+	if g == nil {
+		return fmt.Errorf("dag is required")
+	}
+	if err := Schedule(ctx, g.OID); err != nil {
+		return err
+	}
+	// keep the caller's snapshot in sync for legacy callers
+	if fresh, err := wstore.GetDag(ctx, g.OID); err == nil {
+		*g = *fresh
+	}
+	return nil
 }

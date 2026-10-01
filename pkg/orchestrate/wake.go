@@ -214,14 +214,6 @@ func PostHandoff(ctx context.Context, channelId, runId string) {
 	wakes.flushLocked(ctx, runId, rw)
 }
 
-// LeadDead reports that runId's lead stopped taking wakes, so its judgment belongs to the human (G8).
-func LeadDead(runId string) bool {
-	wakes.lock.Lock()
-	defer wakes.lock.Unlock()
-	rw := wakes.runs[runId]
-	return rw != nil && rw.dead
-}
-
 // NoteLeadStatus feeds agent status events to the adapter. working confirms the outstanding wake and
 // revives a lead given up on; a lead back at its prompt gets what was held while it was busy.
 func NoteLeadStatus(ctx context.Context, ev *wps.WaveEvent) {

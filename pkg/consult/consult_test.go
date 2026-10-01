@@ -337,35 +337,6 @@ func TestSpecForTier_openrouterSetsModel(t *testing.T) {
 	}
 }
 
-// ModelForCorpus is the context-window axis, not a difficulty tier: it must pick between the two
-// pinned dated ids, never the floating tier aliases, or CorpusEscalationBytes stops meaning anything.
-func TestModelForCorpus_escalatesAtTheThreshold(t *testing.T) {
-	if got := ModelForCorpus(""); got != CorpusCheapModel {
-		t.Errorf("empty corpus: got %q, want %q", got, CorpusCheapModel)
-	}
-	justUnder := strings.Repeat("x", CorpusEscalationBytes-1)
-	if got := ModelForCorpus(justUnder); got != CorpusCheapModel {
-		t.Errorf("corpus one byte under the threshold must not escalate: got %q", got)
-	}
-	atThreshold := strings.Repeat("x", CorpusEscalationBytes)
-	if got := ModelForCorpus(atThreshold); got != CorpusLongModel {
-		t.Errorf("corpus at the threshold must escalate: got %q, want %q", got, CorpusLongModel)
-	}
-}
-
-// The corpus models are pinned dated ids on purpose — they encode which context windows the
-// threshold was measured against, so an alias must never be substituted for them.
-func TestCorpusModelsArePinnedNotAliases(t *testing.T) {
-	for _, m := range []string{CorpusCheapModel, CorpusLongModel} {
-		if m == CheapModel || m == MidModel {
-			t.Errorf("%q is a floating tier alias; corpus selection needs a pinned dated id", m)
-		}
-		if !strings.HasPrefix(m, "claude-") {
-			t.Errorf("%q does not look like a pinned model id", m)
-		}
-	}
-}
-
 func TestBuildPromptNoPrinciplesMatchesLegacy(t *testing.T) {
 	history := []waveobj.ChannelMessage{{Author: "you", Text: "hello"}}
 	got := BuildPrompt(history, "do the thing", "")
@@ -426,19 +397,5 @@ func TestHeadlessSpecForTier_defaultsToOpenRouter(t *testing.T) {
 	}
 	if spec.Model != OpenrouterCheapModel() {
 		t.Errorf("cheap tier model = %q, want %q", spec.Model, OpenrouterCheapModel())
-	}
-}
-
-// HeadlessCorpusSpec on the default runtime applies the configured corpus model, matching what
-// runGardenLLM did before the setting existed.
-func TestHeadlessCorpusSpec_defaultsToOpenRouterCorpusModel(t *testing.T) {
-	small := "tiny corpus"
-	spec, ok := HeadlessCorpusSpec(small)
-	if !ok {
-		t.Fatal("expected the default headless runtime to resolve")
-	}
-	want := CorpusModel(OpenrouterCheapModel(), OpenrouterLongModel(), small)
-	if spec.Model != want {
-		t.Errorf("corpus model = %q, want %q", spec.Model, want)
 	}
 }

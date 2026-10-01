@@ -221,14 +221,6 @@ func resultText(raw json.RawMessage) (string, bool) {
 	return "", false
 }
 
-// verificationCommands scans a transcript for Bash verification calls and pairs each with its result.
-// Deduped by command (last result wins). Order preserved by first appearance.
-func verificationCommands(lines []string) []waveobj.EvidenceVerif {
-	acc := newVerifAccum()
-	acc.addTranscript(lines)
-	return acc.out
-}
-
 // verifAccum merges verification results across transcripts: a command keeps the slot of its first
 // appearance and the result of its last completion. Pending tool_use ids are per-transcript — each
 // worker reuses ids like "b1" — so only the result map is shared.

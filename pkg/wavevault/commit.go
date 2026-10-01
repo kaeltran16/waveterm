@@ -76,11 +76,3 @@ func (v *Vault) hasStaged(ctx context.Context) bool {
 	_, err := runGit(ctx, v.Root, "diff", "--cached", "--quiet")
 	return err != nil
 }
-
-// Flush is the idle/quit safety commit: it commits any pending staged work under a clearly-labelled
-// safety message so a crash or a missed boundary never loses writes. Wired to an idle debounce and
-// the wavesrv quit hook by the caller; in the common case a consumer already committed at the
-// boundary and this is a no-op.
-func (v *Vault) Flush(ctx context.Context) error {
-	return v.Commit(ctx, "Jarvis: safety flush")
-}

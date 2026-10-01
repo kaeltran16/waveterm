@@ -704,3 +704,11 @@ func TestCaveatsAloneLaunchNoLead(t *testing.T) {
 		t.Fatalf("a clean finish drops its caveats with it, got %q", *launched)
 	}
 }
+
+// LeadDead reports that runId's lead stopped taking wakes, so its judgment belongs to the human (G8).
+func LeadDead(runId string) bool {
+	wakes.lock.Lock()
+	defer wakes.lock.Unlock()
+	rw := wakes.runs[runId]
+	return rw != nil && rw.dead
+}

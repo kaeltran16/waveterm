@@ -273,43 +273,6 @@ func SpecForTier(runtime string, tier Tier) (RuntimeSpec, bool) {
 	return spec, true
 }
 
-// Corpus-size model selection is a DIFFERENT AXIS from Tier: it picks a model for how much text has
-// to fit in one prompt, not for how hard the task is. Callers that pipe a whole corpus over stdin
-// (memory distillation, memory gardening) select with ModelForCorpus; every other caller picks a Tier.
-// Keeping the two separate is the point — routing a window problem through the difficulty tiers would
-// read as "big corpus means hard task", which is not what the escalation means.
-//
-// These pin dated model IDs rather than the floating haiku/sonnet aliases precisely because the
-// choice encodes a context-window fact: Haiku 4.5 caps at a 200K-token window while Sonnet 5 holds
-// 1M. An alias that later moved to a model with a different window would silently invalidate
-// CorpusEscalationBytes, so the guarantee has to name the models it was measured against.
-const (
-	CorpusCheapModel = "claude-haiku-4-5"
-	CorpusLongModel  = "claude-sonnet-5"
-	// CorpusEscalationBytes is ~150K tokens: close enough to Haiku's 200K window that the prompt
-	// plus the reply stop reliably fitting, so the long-context model takes over at or above it.
-	CorpusEscalationBytes = 400 * 1024
-)
-
-// ModelForCorpus picks the model that can hold corpus. Escalation buys context window, not
-// intelligence — see the constants above.
-func ModelForCorpus(corpus string) string {
-	if len(corpus) >= CorpusEscalationBytes {
-		return CorpusLongModel
-	}
-	return CorpusCheapModel
-}
-
-// CorpusModel picks cheapModel or longModel based on whether corpus exceeds the escalation threshold.
-// Callers using openrouter pass the configured model IDs; callers using claude pass CorpusCheapModel/
-// CorpusLongModel. The threshold is the same for both.
-func CorpusModel(cheapModel, longModel, corpus string) string {
-	if len(corpus) >= CorpusEscalationBytes {
-		return longModel
-	}
-	return cheapModel
-}
-
 // HeadlessRuntime returns the runtime the background AI features (gatekeeper, recall, gardener, radar,
 // pi titles, ...) use for one-shot consults. The headless:runtime setting is the single source of
 // truth; an empty or unknown value falls back to openrouter because these features run unattended —
@@ -336,30 +299,6 @@ func resolveHeadlessRuntime(configured string) string {
 // configured tier IDs, claude appends a --model alias, pi/codex/opencode use the harness's own default.
 func HeadlessSpecForTier(tier Tier) (RuntimeSpec, bool) {
 	return SpecForTier(HeadlessRuntime(), tier)
-}
-
-// HeadlessCorpusSpec resolves a spec for the configured headless runtime on a corpus-size call (the
-// memory gardener's whole-corpus pass), applying the corpus model where the runtime takes a model
-// knob: openrouter gets the configured cheap/long IDs, claude the dated corpus constants. pi, codex
-// and opencode get no override — the harness uses its own configured default.
-func HeadlessCorpusSpec(corpus string) (RuntimeSpec, bool) {
-	runtime := HeadlessRuntime()
-	if runtime == "claude" {
-		spec, ok := SpecFor("claude")
-		if !ok {
-			return spec, false
-		}
-		spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), "--model", ModelForCorpus(corpus))
-		return spec, true
-	}
-	spec, ok := SpecForTier(runtime, TierCheap)
-	if !ok {
-		return spec, false
-	}
-	if runtime == "openrouter" {
-		spec.Model = CorpusModel(OpenrouterCheapModel(), OpenrouterLongModel(), corpus)
-	}
-	return spec, true
 }
 
 // OperatorPrinciples returns the operator's global ~/.claude/CLAUDE.md, or "" if there is none. A
