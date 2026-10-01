@@ -78,21 +78,25 @@ export function ShapeCards({ showParallelism }: { showParallelism: boolean }) {
     return (
         <Section label="Shape">
             <div className="flex items-center gap-1.5">
-                {SHAPE_CARDS.map((card) => (
-                    <button
-                        key={card.id}
-                        type="button"
-                        aria-pressed={shape === card.id}
-                        onClick={() => setRunShape(card.id)}
-                        className={cn(
-                            "flex cursor-pointer flex-col items-start gap-0.5 rounded-[7px] border px-[11px] py-[7px] text-left",
-                            pickTone(shape === card.id)
-                        )}
-                    >
-                        <span className="text-[12px] font-semibold">{card.id}</span>
-                        <span className="text-[10.5px] text-ink-mid">{card.desc}</span>
-                    </button>
-                ))}
+                {/* equal columns: content-sized cards came out different widths and wrapped one description.
+                    The cap keeps them card-sized on the wide Stage launcher. */}
+                <div className="grid min-w-0 max-w-[360px] flex-1 grid-cols-2 gap-1.5">
+                    {SHAPE_CARDS.map((card) => (
+                        <button
+                            key={card.id}
+                            type="button"
+                            aria-pressed={shape === card.id}
+                            onClick={() => setRunShape(card.id)}
+                            className={cn(
+                                "flex cursor-pointer flex-col items-start gap-0.5 rounded-[7px] border px-[11px] py-2 text-left",
+                                pickTone(shape === card.id)
+                            )}
+                        >
+                            <span className="text-[12px] font-semibold">{card.id}</span>
+                            <span className="text-[10.5px] text-ink-mid">{card.desc}</span>
+                        </button>
+                    ))}
+                </div>
                 {showParallelism ? (
                     <div className="ml-auto flex items-center gap-1.5">
                         <span className="font-mono text-[10.5px] text-ink-mid">workers</span>

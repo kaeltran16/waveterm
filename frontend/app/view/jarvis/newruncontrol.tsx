@@ -467,7 +467,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                 </div>
             ) : (
                 <>
-                    <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)]">
+                    <div className="grid min-h-0 flex-1 grid-cols-[380px_minmax(0,1fr)]">
                         <div className="flex min-h-0 flex-col gap-5 overflow-y-auto border-r border-border bg-surface px-[18px] py-4">
                             <Field label="Project">
                                 <ProjectPicker
