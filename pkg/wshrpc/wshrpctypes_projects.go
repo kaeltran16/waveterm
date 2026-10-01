@@ -11,7 +11,6 @@ type ProjectCommands interface {
 	CreateWorktreeCommand(ctx context.Context, data CommandCreateWorktreeData) (CommandCreateWorktreeRtnData, error)
 	ListBranchesCommand(ctx context.Context, data CommandListBranchesData) (CommandListBranchesRtnData, error)
 	GitChangesCommand(ctx context.Context, data CommandGitChangesData) (*CommandGitChangesRtnData, error)
-	GitDiffCommand(ctx context.Context, data CommandGitDiffData) (*CommandGitDiffRtnData, error)
 	GitRevertCommand(ctx context.Context, data CommandGitRevertData) error
 }
 
@@ -73,22 +72,6 @@ type CommandGitChangesRtnData struct {
 	// built from, so a commit landing under the surface costs one log re-read and a quiet tick costs
 	// nothing.
 	Head string `json:"head,omitempty"`
-}
-
-type CommandGitDiffData struct {
-	Cwd  string `json:"cwd"`
-	Path string `json:"path"`
-	Ref  string `json:"ref,omitempty"`
-}
-
-type CommandGitDiffRtnData struct {
-	Diff      string `json:"diff"`
-	Content   string `json:"content"`
-	Untracked bool   `json:"untracked"`
-	// The patch exceeded the server-side cap and was not sent. Size says how big it was, so the pane
-	// can name the number instead of rendering an empty scroll area that reads as "no changes".
-	TooLarge bool  `json:"toolarge,omitempty"`
-	Size     int64 `json:"size,omitempty"`
 }
 
 type CommandGitRevertData struct {

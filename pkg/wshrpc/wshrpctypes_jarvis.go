@@ -11,7 +11,6 @@ import (
 
 type JarvisCommands interface {
 	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk]                                       // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
-	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]                                          // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
 	ListDossiersCommand(ctx context.Context) (*CommandListDossiersRtnData, error)                                                          // list focusable task dossiers (active|paused), newest-updated first
 	ResolveFocusScopeCommand(ctx context.Context, data CommandResolveFocusScopeData) (*SpaceScope, error)                                  // resolve a focus target's scope bundle (runs -> channels + worker tabs)
 	VaultGraphCommand(ctx context.Context) (*CommandVaultGraphRtnData, error)                                                              // whole-vault wikilink graph (U3 base canvas): all vault nodes + resolved [[links]], no runs/attribution
@@ -24,7 +23,6 @@ type JarvisCommands interface {
 	DetachDossierEdgeCommand(ctx context.Context, data CommandDossierEdgeData) error                                                       // human-reject a dossier<->run attribution; suppressed durably via the override log
 	AcceptDossierEdgeCommand(ctx context.Context, data CommandDossierEdgeData) error                                                       // human-confirm a dossier<->run attribution and harden it into canonical refs; also restores a detached edge and attaches an unattributed run
 	ListDetachedEdgesCommand(ctx context.Context, data CommandListDetachedEdgesData) (*CommandListDetachedEdgesRtnData, error)             // the human-suppressed edges for one dossier or one run, so a detach can be undone
-	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error)                   // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error)                // read a channel's Jarvis profile (global + per-project override + resolved)
 	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                                           // read the global Jarvis profile (builtins if unset)
 	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                                   // write the global Jarvis profile to jarvis-profile.json
@@ -60,15 +58,6 @@ type CommandGetLatestResumeRtnData struct {
 	RunGoal    string          `json:"rungoal,omitempty"`
 }
 
-type CommandJarvisDecomposeData struct {
-	ChannelId string `json:"channelid"`
-	Goal      string `json:"goal"`
-}
-
-type CommandJarvisDecomposeRtnData struct {
-	Subtasks []string `json:"subtasks"`
-}
-
 type CommandGetJarvisProfileData struct {
 	ChannelId string `json:"channelid"`
 }
@@ -92,16 +81,6 @@ type CommandConsultData struct {
 }
 
 type ConsultChunk struct {
-	Text string `json:"text"`
-}
-
-type CommandJarvisData struct {
-	ChannelId string `json:"channelid"`
-	Prompt    string `json:"prompt"`
-	RequestId string `json:"requestid"`
-}
-
-type JarvisChunk struct {
 	Text string `json:"text"`
 }
 

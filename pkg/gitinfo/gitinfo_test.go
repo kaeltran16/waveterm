@@ -362,20 +362,6 @@ func TestGetTrailerCommitsChangesSumsOnlyMatchingCommits(t *testing.T) {
 	}
 }
 
-func TestGetDiffRefShowsCommittedPatch(t *testing.T) {
-	dir, base := repoCommittedOnBase(t)
-	d, err := GetDiff(context.Background(), dir, "a.txt", base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.Untracked {
-		t.Fatal("a.txt is tracked; Untracked should be false")
-	}
-	if !strings.Contains(d.Diff, "+three") {
-		t.Fatalf("ref diff missing the added line: %q", d.Diff)
-	}
-}
-
 func TestUntrackedAdds(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, content string) string {
@@ -406,7 +392,7 @@ func TestGetChangesExpandsUntrackedDir(t *testing.T) {
 	writeFile(t, dir, "base.txt", "base\n")
 	commitAll(t, dir)
 	// a brand-new directory with files: default porcelain collapses this to a single "newdir/" entry,
-	// which the Files surface can't diff (GetDiff would os.ReadFile a directory). -uall must expand it.
+	// which the Files surface can't diff (a directory has no content to read). -uall must expand it.
 	if err := os.MkdirAll(filepath.Join(dir, "newdir"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -423,19 +409,11 @@ func TestGetChangesExpandsUntrackedDir(t *testing.T) {
 	if !strings.Contains(ch.StatusZ, "newdir/a.txt") || !strings.Contains(ch.StatusZ, "newdir/b.txt") {
 		t.Fatalf("statusz should list untracked files individually: %q", ch.StatusZ)
 	}
-	// the collapsed "newdir/" entry must be gone — it would round-trip into GetDiff as a directory
+	// the collapsed "newdir/" entry must be gone — it names a directory, not a file
 	for _, e := range strings.Split(ch.StatusZ, "\x00") {
 		if len(e) >= 3 && e[3:] == "newdir/" {
 			t.Fatalf("statusz still has the collapsed directory entry: %q", ch.StatusZ)
 		}
-	}
-	// each expanded path diffs as untracked content (the bug: a "newdir/" row errored here)
-	d, err := GetDiff(context.Background(), dir, "newdir/a.txt", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !d.Untracked || strings.TrimSpace(d.Content) != "aa" {
-		t.Fatalf("expanded untracked file diff wrong: untracked=%v content=%q", d.Untracked, d.Content)
 	}
 }
 
@@ -446,34 +424,6 @@ func TestGetChangesNotARepo(t *testing.T) {
 	}
 	if ch.IsRepo {
 		t.Fatal("expected IsRepo false outside a repo")
-	}
-}
-
-func TestGetDiffTracked(t *testing.T) {
-	dir := repoWithChange(t)
-	d, err := GetDiff(context.Background(), dir, "a.txt", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.Untracked {
-		t.Fatal("a.txt is tracked")
-	}
-	if !strings.Contains(d.Diff, "+three") {
-		t.Fatalf("diff missing addition: %q", d.Diff)
-	}
-}
-
-func TestGetDiffUntracked(t *testing.T) {
-	dir := repoWithChange(t)
-	d, err := GetDiff(context.Background(), dir, "b.txt", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !d.Untracked {
-		t.Fatal("b.txt should be untracked")
-	}
-	if strings.TrimSpace(d.Content) != "new" {
-		t.Fatalf("content = %q, want new", d.Content)
 	}
 }
 
@@ -539,7 +489,7 @@ func TestGetChangesSubdir(t *testing.T) {
 }
 
 // changePathFor returns the path GetChanges reports for the entry ending in `suffix` — the exact
-// string the frontend round-trips back into GetDiff/RevertFile. The fixtures have no renames, so
+// string the frontend round-trips back into RevertFile. The fixtures have no renames, so
 // every entry carries the 2-char status + space prefix.
 func changePathFor(t *testing.T, statusZ, suffix string) string {
 	t.Helper()
@@ -553,44 +503,6 @@ func changePathFor(t *testing.T, statusZ, suffix string) string {
 	}
 	t.Fatalf("no change entry ending in %q: %q", suffix, statusZ)
 	return ""
-}
-
-func TestGetDiffTrackedSubdir(t *testing.T) {
-	root := subdirRepoWithChange(t)
-	cwd := filepath.Join(root, "services", "foo")
-	ch, err := GetChanges(context.Background(), cwd, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err := GetDiff(context.Background(), cwd, changePathFor(t, ch.StatusZ, "app.js"), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.Untracked {
-		t.Fatal("app.js is tracked")
-	}
-	if !strings.Contains(d.Diff, "+three") {
-		t.Fatalf("diff missing addition from a subdir: %q", d.Diff)
-	}
-}
-
-func TestGetDiffUntrackedSubdir(t *testing.T) {
-	root := subdirRepoWithChange(t)
-	cwd := filepath.Join(root, "services", "foo")
-	ch, err := GetChanges(context.Background(), cwd, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err := GetDiff(context.Background(), cwd, changePathFor(t, ch.StatusZ, "new.js"), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !d.Untracked {
-		t.Fatal("new.js should be untracked")
-	}
-	if strings.TrimSpace(d.Content) != "new" {
-		t.Fatalf("untracked content from a subdir = %q, want new", d.Content)
-	}
 }
 
 func TestRevertFileSubdir(t *testing.T) {
@@ -615,11 +527,11 @@ func TestRevertFileSubdir(t *testing.T) {
 func TestRevertHunkSubdir(t *testing.T) {
 	root := subdirRepoWithChange(t)
 	cwd := filepath.Join(root, "services", "foo")
-	d, err := GetDiff(context.Background(), cwd, "app.js", "")
+	patch, err := run(context.Background(), cwd, "diff", "HEAD", "--", "app.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RevertHunk(context.Background(), cwd, "app.js", d.Diff); err != nil {
+	if err := RevertHunk(context.Background(), cwd, "app.js", patch); err != nil {
 		t.Fatalf("subdir hunk revert failed to apply: %v", err)
 	}
 	got, _ := os.ReadFile(filepath.Join(cwd, "app.js"))
@@ -1345,104 +1257,6 @@ func TestCommitChangesOnMergeUsesFirstParent(t *testing.T) {
 	}
 }
 
-func TestCommitDiffReturnsThatCommitsPatch(t *testing.T) {
-	dir := repoBranchMerge(t)
-	hash := commitBySubject(t, dir, "second on main")
-	d, err := CommitDiff(context.Background(), dir, hash, "a.txt")
-	if err != nil {
-		t.Fatalf("CommitDiff: %v", err)
-	}
-	if !strings.Contains(d.Diff, "+a") {
-		t.Errorf("Diff = %q, want it to contain the added line +a", d.Diff)
-	}
-	if d.Untracked {
-		t.Error("Untracked = true, want false for a committed file")
-	}
-}
-
-// repoWithRename: old.txt on main, then a `renamed` branch whose one commit is nothing but a git mv.
-// Serves both the commit-scoped and the two-ref rename tests.
-func repoWithRename(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	git(t, dir, "init", "-b", "main")
-	writeFile(t, dir, "old.txt", "alpha\nbravo\ncharlie\ndelta\necho\n")
-	git(t, dir, "add", ".")
-	git(t, dir, "commit", "-m", "add old.txt")
-	git(t, dir, "checkout", "-b", "renamed")
-	git(t, dir, "mv", "old.txt", "new.txt")
-	git(t, dir, "commit", "-m", "rename old.txt to new.txt")
-	return dir
-}
-
-// A pure rename has to read as a rename from both reads, or the diff pane and the file list beside it
-// disagree about the same file. The path-scoped read used to answer "new file mode" plus every line
-// as an addition, because a pathspec naming only the new path hides the deletion git needs in order
-// to pair the two.
-func TestCommitDiffOnAPureRenameReportsTheRename(t *testing.T) {
-	dir := repoWithRename(t)
-	hash := commitBySubject(t, dir, "rename old.txt to new.txt")
-
-	ch, err := CommitChanges(context.Background(), dir, hash)
-	if err != nil {
-		t.Fatalf("CommitChanges: %v", err)
-	}
-	if !strings.Contains(ch.Numstat, "0\t0\t") {
-		t.Fatalf("Numstat = %q, want the rename counted as 0 adds and 0 dels", ch.Numstat)
-	}
-
-	d, err := CommitDiff(context.Background(), dir, hash, "new.txt")
-	if err != nil {
-		t.Fatalf("CommitDiff: %v", err)
-	}
-	if !strings.Contains(d.Diff, "rename from old.txt") {
-		t.Errorf("Diff = %q, want a `rename from old.txt` header", d.Diff)
-	}
-	if strings.Contains(d.Diff, "new file mode") {
-		t.Errorf("Diff = %q, want no `new file mode` header", d.Diff)
-	}
-	if strings.Contains(d.Diff, "\n+") {
-		t.Errorf("Diff = %q, want no added lines", d.Diff)
-	}
-}
-
-// Same defect, same fix, in the compare column's aggregate row.
-func TestCompareDiffOnAPureRenameReportsTheRename(t *testing.T) {
-	dir := repoWithRename(t)
-	d, err := CompareDiff(context.Background(), dir, "main", "renamed", "new.txt", false)
-	if err != nil {
-		t.Fatalf("CompareDiff: %v", err)
-	}
-	if !strings.Contains(d.Diff, "rename from old.txt") {
-		t.Errorf("Diff = %q, want a `rename from old.txt` header", d.Diff)
-	}
-	if strings.Contains(d.Diff, "\n+") {
-		t.Errorf("Diff = %q, want no added lines", d.Diff)
-	}
-}
-
-// A file that really is new must stay an addition: the second read only fires when the whole-commit
-// read names a source for it.
-func TestCommitDiffOnARealAdditionStaysAnAddition(t *testing.T) {
-	dir := repoWithRename(t)
-	git(t, dir, "checkout", "main")
-	writeFile(t, dir, "fresh.txt", "one\ntwo\n")
-	git(t, dir, "add", ".")
-	git(t, dir, "commit", "-m", "add fresh.txt")
-	hash := commitBySubject(t, dir, "add fresh.txt")
-
-	d, err := CommitDiff(context.Background(), dir, hash, "fresh.txt")
-	if err != nil {
-		t.Fatalf("CommitDiff: %v", err)
-	}
-	if !strings.Contains(d.Diff, "new file mode") {
-		t.Errorf("Diff = %q, want a `new file mode` header", d.Diff)
-	}
-	if !strings.Contains(d.Diff, "\n+one") {
-		t.Errorf("Diff = %q, want the added lines", d.Diff)
-	}
-}
-
 func TestCommitChangesNotARepo(t *testing.T) {
 	ch, err := CommitChanges(context.Background(), t.TempDir(), "HEAD")
 	if err != nil {
@@ -1498,32 +1312,6 @@ func TestCompareChangesNotARepo(t *testing.T) {
 	}
 	if ch.IsRepo {
 		t.Fatal("IsRepo = true for a non-repo dir")
-	}
-}
-
-func TestCompareDiffOnePathBetweenRefs(t *testing.T) {
-	dir := repoDiverged(t)
-	d, err := CompareDiff(context.Background(), dir, "main", "feature", "f1.txt", false)
-	if err != nil {
-		t.Fatalf("CompareDiff: %v", err)
-	}
-	if !strings.Contains(d.Diff, "f1.txt") {
-		t.Errorf("diff does not name f1.txt: %q", d.Diff)
-	}
-	if !strings.Contains(d.Diff, "+f1.txt") {
-		t.Errorf("diff does not show f1.txt's added line: %q", d.Diff)
-	}
-	if d.Untracked {
-		t.Error("Untracked = true; a two-ref diff has no working tree to have untracked files in")
-	}
-}
-
-// An unresolvable ref must error rather than return an empty diff, so the surface can name the ref
-// that failed instead of showing a blank pane that reads as "no differences".
-func TestCompareDiffErrorsOnUnresolvableRef(t *testing.T) {
-	dir := repoDiverged(t)
-	if _, err := CompareDiff(context.Background(), dir, "main", "no-such-ref", "f1.txt", false); err == nil {
-		t.Fatal("expected an error for an unresolvable ref")
 	}
 }
 
@@ -2143,131 +1931,7 @@ func TestCompareChangesTipsIncludesBaseSideChanges(t *testing.T) {
 	}
 }
 
-// The file list and the diff pane beside it must read the same range, or a file the list says was
-// deleted opens as unchanged.
-func TestCompareDiffTipsMatchesTheTipsFileList(t *testing.T) {
-	dir := t.TempDir()
-	git(t, dir, "init", "-b", "main")
-	writeFile(t, dir, "a.txt", "one\n")
-	git(t, dir, "add", ".")
-	git(t, dir, "commit", "-m", "init")
-
-	git(t, dir, "checkout", "-b", "feature")
-	writeFile(t, dir, "feat.txt", "f\n")
-	git(t, dir, "add", ".")
-	git(t, dir, "commit", "-m", "feature work")
-
-	git(t, dir, "checkout", "main")
-	writeFile(t, dir, "onmain.txt", "m\n")
-	git(t, dir, "add", ".")
-	git(t, dir, "commit", "-m", "main moved on")
-
-	mergeBase, err := CompareDiff(context.Background(), dir, "main", "feature", "onmain.txt", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mergeBase.Diff != "" {
-		t.Errorf("three-dot sees nothing at onmain.txt, got:\n%s", mergeBase.Diff)
-	}
-
-	tips, err := CompareDiff(context.Background(), dir, "main", "feature", "onmain.txt", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(tips.Diff, "onmain.txt") {
-		t.Errorf("two-dot must show base's file as a reverse change, got:\n%s", tips.Diff)
-	}
-}
-
 // Roughly 2.8MB of plausible text — the shape of a regenerated lockfile, which is the case the diff
 // cap exists for. Built once for the whole run rather than per test; three of the four tests below
 // write it.
 var hugeBody = strings.Repeat(strings.Repeat("x", 45)+"\n", 60000)
-
-func repoWithAHugeCommit(t *testing.T) string {
-	t.Helper()
-	dir := initRepo(t)
-	writeFile(t, dir, "small.txt", "one\n")
-	commitAll(t, dir)
-	writeFile(t, dir, "huge.txt", hugeBody)
-	commitAll(t, dir)
-	return dir
-}
-
-func TestCommitDiffCapsAnOversizedPatch(t *testing.T) {
-	dir := repoWithAHugeCommit(t)
-	d, err := CommitDiff(context.Background(), dir, "HEAD", "huge.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !d.TooLarge {
-		t.Fatalf("want TooLarge for a %d-byte patch", d.Size)
-	}
-	if d.Diff != "" {
-		t.Error("a refused patch must not be shipped anyway")
-	}
-	if d.Size <= maxDiffBytes {
-		t.Errorf("Size = %d, want the real size so the pane can name it", d.Size)
-	}
-}
-
-func TestCompareDiffCapsAnOversizedPatch(t *testing.T) {
-	dir := initRepo(t)
-	writeFile(t, dir, "small.txt", "one\n")
-	commitAll(t, dir)
-	git(t, dir, "checkout", "-b", "feature")
-	writeFile(t, dir, "huge.txt", hugeBody)
-	commitAll(t, dir)
-
-	d, err := CompareDiff(context.Background(), dir, "master", "feature", "huge.txt", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !d.TooLarge || d.Diff != "" {
-		t.Fatalf("want a refused patch, got TooLarge=%v len(Diff)=%d", d.TooLarge, len(d.Diff))
-	}
-}
-
-// The working tree is the surface's default view, so leaving this reader uncapped would leave the
-// most-used path unbounded. Its untracked branch reads the file directly rather than through git,
-// which is a second construction site and so a second chance to miss the cap.
-func TestGetDiffCapsAnOversizedUntrackedFile(t *testing.T) {
-	dir := initRepo(t)
-	writeFile(t, dir, "small.txt", "one\n")
-	commitAll(t, dir)
-	writeFile(t, dir, "huge.txt", hugeBody)
-
-	d, err := GetDiff(context.Background(), dir, "huge.txt", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !d.TooLarge || d.Content != "" {
-		t.Fatalf("want a refused read, got TooLarge=%v len(Content)=%d", d.TooLarge, len(d.Content))
-	}
-	if !d.Untracked {
-		t.Error("the file is still untracked — refusing to ship it does not change what it is")
-	}
-}
-
-// The cap must not change what an ordinary diff looks like, and Size is reported either way so the
-// pane never has to guess.
-func TestDiffUnderTheCapIsUntouchedAndSized(t *testing.T) {
-	dir := initRepo(t)
-	writeFile(t, dir, "a.txt", "one\ntwo\n")
-	commitAll(t, dir)
-	writeFile(t, dir, "a.txt", "one\nCHANGED\n")
-
-	d, err := GetDiff(context.Background(), dir, "a.txt", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.TooLarge {
-		t.Fatal("a two-line diff is not too large")
-	}
-	if !strings.Contains(d.Diff, "CHANGED") {
-		t.Errorf("diff lost its content: %q", d.Diff)
-	}
-	if d.Size != int64(len(d.Diff)) {
-		t.Errorf("Size = %d, want %d", d.Size, len(d.Diff))
-	}
-}

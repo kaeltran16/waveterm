@@ -46,26 +46,3 @@ func TestClassifyRunsOnTheCheapTier(t *testing.T) {
 	Classify(context.Background(), &waveobj.Channel{Name: "payments-api"}, []baseds.AgentAskQuestion{aQuestion()}, "some task")
 	assertCheapTier(t, *spec)
 }
-
-func TestDecomposeRunsOnTheCheapTier(t *testing.T) {
-	spec := captureSpec(t, `["one"]`)
-	Decompose(context.Background(), "", "ship the thing", &waveobj.Channel{Name: "payments-api"})
-	assertCheapTier(t, *spec)
-}
-
-// Tiered openrouter calls only set spec.Model, never mutate BaseArgs.
-func TestCheapTierDoesNotMutateTheSharedClaudeSpec(t *testing.T) {
-	spec := captureSpec(t, `["one"]`)
-	Decompose(context.Background(), "", "ship the thing", &waveobj.Channel{Name: "payments-api"})
-	assertCheapTier(t, *spec)
-
-	shared, ok := consult.SpecFor("claude")
-	if !ok {
-		t.Fatal("claude spec unavailable")
-	}
-	// openrouter tiered call sets Model, never touches BaseArgs — but also guard against the old mutation
-	if spec.BaseArgs == nil || len(spec.BaseArgs) > 0 {
-		t.Log("openrouter spec has unexpected BaseArgs (expected empty)")
-	}
-	_ = shared
-}

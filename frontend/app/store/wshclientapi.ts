@@ -498,12 +498,6 @@ export class RpcApiType {
         return client.wshRpcCall("getsubagents", data, opts);
     }
 
-    // command "gettasks" [call]
-    GetTasksCommand(client: WshClient, data: CommandGetTasksData, opts?: RpcOpts): Promise<CommandGetTasksRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gettasks", data, opts);
-        return client.wshRpcCall("gettasks", data, opts);
-    }
-
     // command "gettranscripttokens" [call]
     GetTranscriptTokensCommand(client: WshClient, data: CommandGetTranscriptTokensData, opts?: RpcOpts): Promise<CommandGetTranscriptTokensRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gettranscripttokens", data, opts);
@@ -540,28 +534,10 @@ export class RpcApiType {
         return client.wshRpcCall("gitcommitchanges", data, opts);
     }
 
-    // command "gitcommitdiff" [call]
-    GitCommitDiffCommand(client: WshClient, data: CommandGitCommitDiffData, opts?: RpcOpts): Promise<CommandGitCommitDiffRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitcommitdiff", data, opts);
-        return client.wshRpcCall("gitcommitdiff", data, opts);
-    }
-
     // command "gitcomparechanges" [call]
     GitCompareChangesCommand(client: WshClient, data: CommandGitCompareChangesData, opts?: RpcOpts): Promise<CommandGitCompareChangesRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitcomparechanges", data, opts);
         return client.wshRpcCall("gitcomparechanges", data, opts);
-    }
-
-    // command "gitcomparediff" [call]
-    GitCompareDiffCommand(client: WshClient, data: CommandGitCompareDiffData, opts?: RpcOpts): Promise<CommandGitCompareDiffRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitcomparediff", data, opts);
-        return client.wshRpcCall("gitcomparediff", data, opts);
-    }
-
-    // command "gitdiff" [call]
-    GitDiffCommand(client: WshClient, data: CommandGitDiffData, opts?: RpcOpts): Promise<CommandGitDiffRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitdiff", data, opts);
-        return client.wshRpcCall("gitdiff", data, opts);
     }
 
     // command "gitdivergence" [call]
@@ -612,22 +588,10 @@ export class RpcApiType {
         return client.wshRpcCall("gitrevert", data, opts);
     }
 
-    // command "jarvis" [responsestream]
-	JarvisCommand(client: WshClient, data: CommandJarvisData, opts?: RpcOpts): AsyncGenerator<JarvisChunk, void, boolean> {
-        if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "jarvis", data, opts);
-        return client.wshRpcStream("jarvis", data, opts);
-    }
-
     // command "jarvisctx" [call]
     JarvisCtxCommand(client: WshClient, data: CommandJarvisCtxData, opts?: RpcOpts): Promise<CommandJarvisCtxRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jarvisctx", data, opts);
         return client.wshRpcCall("jarvisctx", data, opts);
-    }
-
-    // command "jarvisdecompose" [call]
-    JarvisDecomposeCommand(client: WshClient, data: CommandJarvisDecomposeData, opts?: RpcOpts): Promise<CommandJarvisDecomposeRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jarvisdecompose", data, opts);
-        return client.wshRpcCall("jarvisdecompose", data, opts);
     }
 
     // command "jarvisrunevents" [call]
@@ -850,12 +814,6 @@ export class RpcApiType {
     SealRunEvidenceCommand(client: WshClient, data: CommandSealRunEvidenceData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "sealrunevidence", data, opts);
         return client.wshRpcCall("sealrunevidence", data, opts);
-    }
-
-    // command "setchannelmessagepick" [call]
-    SetChannelMessagePickCommand(client: WshClient, data: CommandSetChannelMessagePickData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setchannelmessagepick", data, opts);
-        return client.wshRpcCall("setchannelmessagepick", data, opts);
     }
 
     // command "setchannelprofile" [call]

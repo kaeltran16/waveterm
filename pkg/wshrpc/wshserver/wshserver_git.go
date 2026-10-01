@@ -44,28 +44,12 @@ func (ws *WshServer) GitCommitChangesCommand(ctx context.Context, data wshrpc.Co
 	return &wshrpc.CommandGitCommitChangesRtnData{StatusZ: ch.StatusZ, Numstat: ch.Numstat, IsRepo: ch.IsRepo}, nil
 }
 
-func (ws *WshServer) GitCommitDiffCommand(ctx context.Context, data wshrpc.CommandGitCommitDiffData) (*wshrpc.CommandGitCommitDiffRtnData, error) {
-	d, err := gitinfo.CommitDiff(ctx, data.Cwd, data.Hash, data.Path)
-	if err != nil {
-		return nil, err
-	}
-	return &wshrpc.CommandGitCommitDiffRtnData{Diff: d.Diff, TooLarge: d.TooLarge, Size: d.Size}, nil
-}
-
 func (ws *WshServer) GitCompareChangesCommand(ctx context.Context, data wshrpc.CommandGitCompareChangesData) (*wshrpc.CommandGitCompareChangesRtnData, error) {
 	ch, err := gitinfo.CompareChanges(ctx, data.Cwd, data.Base, data.Head, data.Tips)
 	if err != nil {
 		return nil, err
 	}
 	return &wshrpc.CommandGitCompareChangesRtnData{StatusZ: ch.StatusZ, Numstat: ch.Numstat, IsRepo: ch.IsRepo}, nil
-}
-
-func (ws *WshServer) GitCompareDiffCommand(ctx context.Context, data wshrpc.CommandGitCompareDiffData) (*wshrpc.CommandGitCompareDiffRtnData, error) {
-	d, err := gitinfo.CompareDiff(ctx, data.Cwd, data.Base, data.Head, data.Path, data.Tips)
-	if err != nil {
-		return nil, err
-	}
-	return &wshrpc.CommandGitCompareDiffRtnData{Diff: d.Diff, TooLarge: d.TooLarge, Size: d.Size}, nil
 }
 
 func (ws *WshServer) GitListFilesCommand(ctx context.Context, data wshrpc.CommandGitListFilesData) (*wshrpc.CommandGitListFilesRtnData, error) {

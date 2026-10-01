@@ -493,12 +493,6 @@ func GetSubagentsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSubagentsData,
 	return resp, err
 }
 
-// command "gettasks", wshserver.GetTasksCommand
-func GetTasksCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTasksData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetTasksRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetTasksRtnData](w, "gettasks", data, opts)
-	return resp, err
-}
-
 // command "gettranscripttokens", wshserver.GetTranscriptTokensCommand
 func GetTranscriptTokensCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTranscriptTokensData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetTranscriptTokensRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetTranscriptTokensRtnData](w, "gettranscripttokens", data, opts)
@@ -535,27 +529,9 @@ func GitCommitChangesCommand(w *wshutil.WshRpc, data wshrpc.CommandGitCommitChan
 	return resp, err
 }
 
-// command "gitcommitdiff", wshserver.GitCommitDiffCommand
-func GitCommitDiffCommand(w *wshutil.WshRpc, data wshrpc.CommandGitCommitDiffData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitCommitDiffRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitCommitDiffRtnData](w, "gitcommitdiff", data, opts)
-	return resp, err
-}
-
 // command "gitcomparechanges", wshserver.GitCompareChangesCommand
 func GitCompareChangesCommand(w *wshutil.WshRpc, data wshrpc.CommandGitCompareChangesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitCompareChangesRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitCompareChangesRtnData](w, "gitcomparechanges", data, opts)
-	return resp, err
-}
-
-// command "gitcomparediff", wshserver.GitCompareDiffCommand
-func GitCompareDiffCommand(w *wshutil.WshRpc, data wshrpc.CommandGitCompareDiffData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitCompareDiffRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitCompareDiffRtnData](w, "gitcomparediff", data, opts)
-	return resp, err
-}
-
-// command "gitdiff", wshserver.GitDiffCommand
-func GitDiffCommand(w *wshutil.WshRpc, data wshrpc.CommandGitDiffData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitDiffRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitDiffRtnData](w, "gitdiff", data, opts)
 	return resp, err
 }
 
@@ -607,20 +583,9 @@ func GitRevertCommand(w *wshutil.WshRpc, data wshrpc.CommandGitRevertData, opts 
 	return err
 }
 
-// command "jarvis", wshserver.JarvisCommand
-func JarvisCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk] {
-	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisChunk](w, "jarvis", data, opts)
-}
-
 // command "jarvisctx", wshserver.JarvisCtxCommand
 func JarvisCtxCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisCtxData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisCtxRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisCtxRtnData](w, "jarvisctx", data, opts)
-	return resp, err
-}
-
-// command "jarvisdecompose", wshserver.JarvisDecomposeCommand
-func JarvisDecomposeCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisDecomposeData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisDecomposeRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisDecomposeRtnData](w, "jarvisdecompose", data, opts)
 	return resp, err
 }
 
@@ -842,12 +807,6 @@ func RunTranscriptPathCommand(w *wshutil.WshRpc, data wshrpc.CommandRunTranscrip
 // command "sealrunevidence", wshserver.SealRunEvidenceCommand
 func SealRunEvidenceCommand(w *wshutil.WshRpc, data wshrpc.CommandSealRunEvidenceData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "sealrunevidence", data, opts)
-	return err
-}
-
-// command "setchannelmessagepick", wshserver.SetChannelMessagePickCommand
-func SetChannelMessagePickCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelMessagePickData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "setchannelmessagepick", data, opts)
 	return err
 }
 

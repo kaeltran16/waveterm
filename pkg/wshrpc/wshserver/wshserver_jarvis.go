@@ -76,22 +76,6 @@ func (ws *WshServer) RefreshRouteCatalogCommand(ctx context.Context) error {
 	return nil
 }
 
-func (ws *WshServer) JarvisDecomposeCommand(ctx context.Context, data wshrpc.CommandJarvisDecomposeData) (*wshrpc.CommandJarvisDecomposeRtnData, error) {
-	if strings.TrimSpace(data.Goal) == "" {
-		return nil, fmt.Errorf("goal is required")
-	}
-	var channel *waveobj.Channel
-	projectPath := ""
-	if data.ChannelId != "" {
-		if ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId); err == nil {
-			channel = ch
-			projectPath = ch.ProjectPath
-		}
-	}
-	subtasks := jarvis.Decompose(ctx, projectPath, data.Goal, channel)
-	return &wshrpc.CommandJarvisDecomposeRtnData{Subtasks: subtasks}, nil
-}
-
 const consultTimeout = 120 * time.Second
 
 // postConsultReply persists a consult-reply message and live-updates the pinned channel atom. Mirrors
@@ -163,60 +147,6 @@ func (ws *WshServer) ConsultCommand(ctx context.Context, data wshrpc.CommandCons
 			reply += "consult failed: " + runErr.Error()
 		}
 		postConsultReply(data, reply)
-	}()
-	return rtn
-}
-
-// postJarvisReply persists the jarvis-reply message and live-updates the pinned channel atom. Mirrors
-// postConsultReply (fresh context, not the RPC request ctx, since a slow summary routinely outlives it).
-func postJarvisReply(data wshrpc.CommandJarvisData, text string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	msg := wstore.NewChannelMessage("jarvis-reply", "jarvis", text, "jarvis:"+data.RequestId, time.Now().UnixMilli())
-	if _, err := wstore.PostChannelMessage(ctx, data.ChannelId, msg); err != nil {
-		log.Printf("jarvis: failed to post reply: %v", err)
-		return
-	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
-}
-
-func (ws *WshServer) JarvisCommand(ctx context.Context, data wshrpc.CommandJarvisData) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk] {
-	rtn := make(chan wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk])
-	go func() {
-		defer func() {
-			panichandler.PanicHandler("JarvisCommand", recover())
-		}()
-		defer close(rtn)
-		ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
-		if err != nil {
-			rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk]{Error: fmt.Errorf("channel not found: %w", err)}
-			return
-		}
-		// cheap tier: the fleet prompt hands the model an already-assembled worker list and asks for
-		// 2-4 terse lines restating it. That is mechanical prose over facts the frontend gathered
-		// deterministically, not synthesis — the same shape as the continuity boundary summary.
-		spec, ok := consult.SpecForTier("openrouter", consult.TierCheap)
-		if !ok {
-			postJarvisReply(data, "jarvis requires the runtime, which is not available")
-			rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk]{Error: fmt.Errorf("runtime unavailable")}
-			return
-		}
-		runCtx, cancel := context.WithTimeout(ctx, consultTimeout)
-		defer cancel()
-		full, runErr := consult.Run(runCtx, spec, ch.ProjectPath, data.Prompt, func(chunk string) {
-			select {
-			case rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk]{Response: wshrpc.JarvisChunk{Text: chunk}}:
-			case <-runCtx.Done():
-			}
-		})
-		reply := strings.TrimSpace(full)
-		if runErr != nil {
-			if reply != "" {
-				reply += "\n\n"
-			}
-			reply += "jarvis failed: " + runErr.Error()
-		}
-		postJarvisReply(data, reply)
 	}()
 	return rtn
 }

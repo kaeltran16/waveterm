@@ -11,14 +11,12 @@ import (
 )
 
 // GitCommands is the repo-first read domain: commit history and ref comparison. The older
-// GitChangesCommand / GitDiffCommand / GitRevertCommand live in ProjectCommands and stay there.
+// GitChangesCommand / GitRevertCommand live in ProjectCommands and stay there.
 type GitCommands interface {
 	GitHistoryCommand(ctx context.Context, data CommandGitHistoryData) (*CommandGitHistoryRtnData, error)
 	GitDivergenceCommand(ctx context.Context, data CommandGitDivergenceData) (*CommandGitDivergenceRtnData, error)
 	GitCommitChangesCommand(ctx context.Context, data CommandGitCommitChangesData) (*CommandGitCommitChangesRtnData, error)
-	GitCommitDiffCommand(ctx context.Context, data CommandGitCommitDiffData) (*CommandGitCommitDiffRtnData, error)
 	GitCompareChangesCommand(ctx context.Context, data CommandGitCompareChangesData) (*CommandGitCompareChangesRtnData, error)
-	GitCompareDiffCommand(ctx context.Context, data CommandGitCompareDiffData) (*CommandGitCompareDiffRtnData, error)
 	GitListFilesCommand(ctx context.Context, data CommandGitListFilesData) (*CommandGitListFilesRtnData, error)
 	GitListWorktreesCommand(ctx context.Context, data CommandGitListWorktreesData) (*CommandGitListWorktreesRtnData, error)
 	GitGrepCommand(ctx context.Context, data CommandGitGrepData) (*CommandGitGrepRtnData, error)
@@ -73,20 +71,6 @@ type CommandGitCommitChangesRtnData struct {
 	IsRepo  bool   `json:"isrepo"`
 }
 
-type CommandGitCommitDiffData struct {
-	Cwd  string `json:"cwd"`
-	Hash string `json:"hash"`
-	Path string `json:"path"`
-}
-
-type CommandGitCommitDiffRtnData struct {
-	Diff string `json:"diff"`
-	// The patch exceeded the server-side cap and was not sent. Size says how big it was, so the pane
-	// can name the number instead of rendering an empty scroll area that reads as "no changes".
-	TooLarge bool  `json:"toolarge,omitempty"`
-	Size     int64 `json:"size,omitempty"`
-}
-
 type CommandGitCompareChangesData struct {
 	Cwd  string `json:"cwd"`
 	Base string `json:"base"`
@@ -103,24 +87,6 @@ type CommandGitCompareChangesRtnData struct {
 	StatusZ string `json:"statusz"`
 	Numstat string `json:"numstat"`
 	IsRepo  bool   `json:"isrepo"`
-}
-
-type CommandGitCompareDiffData struct {
-	Cwd  string `json:"cwd"`
-	Base string `json:"base"`
-	Head string `json:"head"`
-	Path string `json:"path"`
-	// Must match the Tips the file list was built with, or the pane and the list beside it read
-	// different ranges and a file the list calls deleted opens as unchanged.
-	Tips bool `json:"tips,omitempty"`
-}
-
-type CommandGitCompareDiffRtnData struct {
-	Diff string `json:"diff"`
-	// The patch exceeded the server-side cap and was not sent. Size says how big it was, so the pane
-	// can name the number instead of rendering an empty scroll area that reads as "no changes".
-	TooLarge bool  `json:"toolarge,omitempty"`
-	Size     int64 `json:"size,omitempty"`
 }
 
 type CommandGitListFilesData struct {
