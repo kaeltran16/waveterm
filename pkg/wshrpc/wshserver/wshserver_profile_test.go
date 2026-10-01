@@ -6,12 +6,15 @@ package wshserver
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -264,6 +267,15 @@ func withConfigHome(t *testing.T, dir string) {
 	old := wavebase.ConfigHome_VarCache
 	t.Cleanup(func() { wavebase.ConfigHome_VarCache = old })
 	wavebase.ConfigHome_VarCache = dir
+	// pin the vault inside dir: unset, it resolves to the real ~/.waveterm/vault, and portable settings
+	// writes land in its config layer
+	settings, err := json.Marshal(map[string]string{wconfig.ConfigKey_MemoryVaultPath: filepath.Join(dir, "vault")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, wconfig.SettingsFile), settings, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestGetGlobalProfileCommandReturnsBuiltinWhenUnset(t *testing.T) {

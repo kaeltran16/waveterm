@@ -12,15 +12,20 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
+// reads the effective settings: the route keys are portable, so they live in the vault layer
+func readSettings(t *testing.T) wconfig.SettingsType {
+	t.Helper()
+	full := wconfig.ReadFullConfig()
+	if len(full.ConfigErrors) > 0 {
+		t.Fatalf("reading settings: %v", full.ConfigErrors)
+	}
+	return full.Settings
+}
+
 func readPreferredRoute(t *testing.T) (string, string) {
 	t.Helper()
-	settings, errs := wconfig.ReadWaveHomeConfigFile(wconfig.SettingsFile)
-	if len(errs) > 0 {
-		t.Fatalf("reading settings: %v", errs)
-	}
-	runtime, _ := settings[wconfig.ConfigKey_HarnessPreferredRuntime].(string)
-	model, _ := settings[wconfig.ConfigKey_HarnessPreferredModel].(string)
-	return runtime, model
+	settings := readSettings(t)
+	return settings.HarnessPreferredRuntime, settings.HarnessPreferredModel
 }
 
 func TestSetConfigPreferredRouteGuardsAtomicPairs(t *testing.T) {
@@ -63,11 +68,7 @@ func TestSetConfigPreferredRouteGuardsAtomicPairs(t *testing.T) {
 	if err := ws.SetConfigCommand(ctx, wshrpc.MetaSettingsType{MetaMapType: waveobj.MetaMapType{"term:fontfamily": "route-test"}}); err != nil {
 		t.Fatalf("unrelated config patch: %v", err)
 	}
-	settings, errs := wconfig.ReadWaveHomeConfigFile(wconfig.SettingsFile)
-	if len(errs) > 0 {
-		t.Fatalf("reading settings after unrelated patch: %v", errs)
-	}
-	if got, _ := settings["term:fontfamily"].(string); got != "route-test" {
+	if got := readSettings(t).TermFontFamily; got != "route-test" {
 		t.Fatalf("unrelated patch not persisted: %q", got)
 	}
 }
