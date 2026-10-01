@@ -96,7 +96,7 @@ describe("runTiming", () => {
         expect(view.rows.map((r) => r.duration)).toEqual(["8m", "22m", "12m", "10m"]);
         expect(view.summary).toEqual([
             "Task 3 is the last task still executing.",
-            "Its review and final verification are still ahead.",
+            "Its review, merge & Verify and final verification are still ahead.",
         ]);
         expect(view.notes).toEqual([
             "Elapsed since launch. Activities overlap; do not add these rows.",
@@ -115,14 +115,30 @@ describe("runTiming", () => {
         const view = runTiming({ run: run("running"), digest: digest(LIVE), tasks, nowMs: at(30) });
         expect(view.summary).toEqual([
             "Tasks 3 and 4 are executing.",
-            "Their review and final verification are still ahead.",
+            "Their review, merge & Verify and final verification are still ahead.",
         ]);
     });
 
-    it("has no summary when no task is executing", () => {
+    it("names the activities still ahead plainly when no task is executing", () => {
         const tasks = [task("t-1", "done"), task("t-2", "reviewing")];
         const view = runTiming({ run: run("running"), digest: digest(LIVE), tasks, nowMs: at(30) });
+        expect(view.summary).toEqual(["Final verification is still ahead."]);
+    });
+
+    it("has no summary when no task is executing and nothing is ahead", () => {
+        const timing: DagTimingDigest = { ...LIVE, activities: [...LIVE.activities, act("final", 28)] };
+        const tasks = [task("t-1", "done"), task("t-2", "done")];
+        const view = runTiming({ run: run("running"), digest: digest(timing), tasks, nowMs: at(30) });
         expect(view.summary).toEqual([]);
+    });
+
+    it("leaves final verification out of an executing task's stages once it has started", () => {
+        const timing: DagTimingDigest = { ...LIVE, activities: [...LIVE.activities, act("final", 28)] };
+        const view = runTiming({ run: run("running"), digest: digest(timing), tasks: LIVE_TASKS, nowMs: at(30) });
+        expect(view.summary).toEqual([
+            "Task 3 is the last task still executing.",
+            "Its review and merge & Verify are still ahead.",
+        ]);
     });
 
     it("ends a cancelled run at its own end, never at now", () => {

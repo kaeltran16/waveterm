@@ -43,6 +43,8 @@ const NOUNS: Record<TimingKey, string> = {
 
 // activities a live run may still be waiting to start; landing only follows the end, so it is never "ahead"
 const AHEAD: TimingKey[] = ["execution", "review", "merge", "final"];
+// the stages a task passes after it executes, in row order
+const STAGES: TimingKey[] = ["review", "merge", "final"];
 
 // a zero-length bar still has to be seen
 const MIN_ROW_WIDTH = 1;
@@ -80,20 +82,23 @@ function executingLine(executing: TaskNode[], anyWaiting: boolean): string {
     return `${names} are executing.`;
 }
 
-// summaryLines says which tasks are still executing and the stages they have yet to pass: review (the engine
-// reviews every task that commits), then final verification unless it is already under way.
+function aheadLine(subject: string, count: number): string {
+    return `${subject} ${count === 1 ? "is" : "are"} still ahead.`;
+}
+
+// summaryLines says which tasks are still executing and the stages they have yet to pass: review and merge
+// (the engine reviews and merges every task that commits), then final verification unless it is already
+// under way. With no task executing it names the stages that have not started.
 function summaryLines(tasks: TaskNode[], started: Set<TimingKey>): string[] {
     const executing = tasks.filter((t) => EXECUTING.has(t.state));
     if (executing.length === 0) {
-        return [];
+        const ahead = STAGES.filter((k) => !started.has(k));
+        return ahead.length > 0 ? [aheadLine(capitalize(nounList(ahead)), ahead.length)] : [];
     }
-    const ahead: TimingKey[] = started.has("final") ? ["review"] : ["review", "final"];
+    const ahead = STAGES.filter((k) => k !== "final" || !started.has("final"));
     const owner = executing.length === 1 ? "Its" : "Their";
     const anyWaiting = tasks.some((t) => WAITING.has(t.state));
-    return [
-        executingLine(executing, anyWaiting),
-        `${owner} ${nounList(ahead)} ${ahead.length === 1 ? "is" : "are"} still ahead.`,
-    ];
+    return [executingLine(executing, anyWaiting), aheadLine(`${owner} ${nounList(ahead)}`, ahead.length)];
 }
 
 // liveNote names the open activities that run alongside the earliest open one, and those not yet started.
