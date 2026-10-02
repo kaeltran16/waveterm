@@ -1,6 +1,6 @@
 # Arc Claude mod: usage and ask through Claude Code function hooks
 
-Date: 2026-10-02. Status: approved direction, not started.
+Date: 2026-10-02. Status: shipped 2026-10-02 (run 1da34422); the interactive checks below are still open in `docs/open-issues.md`.
 
 ## Why
 
