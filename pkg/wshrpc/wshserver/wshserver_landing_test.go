@@ -243,6 +243,63 @@ func TestDagSubmitRunsSetupInTheLandingTree(t *testing.T) {
 
 // a branch-landed submit commits the spec and plan on the run's branch before any lane is cut, and keeps
 // their repo-relative paths; a retried submit with the same docs commits nothing and still succeeds
+// a plan started from + Run or `wsh runs start --plan` passes no --spec: the plan's own **Spec:** line names it
+func TestDagSubmitTakesTheSpecFromThePlansSpecLine(t *testing.T) {
+	ctx := context.Background()
+	projectDir, execGit := newLandingRepo(t)
+	ch, err := wstore.CreateChannel(ctx, "landing-plan-spec", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRun := func() waveobj.Run {
+		run := jarvis.NewRun("g", "ws", projectDir, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+		run.Status = jarvis.RunStatus_Planning
+		tree, err := orchestrate.CreateRunWorktree(ctx, projectDir, run.ID, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		run.LandPath = tree
+		if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+			t.Fatal(err)
+		}
+		return run
+	}
+	write := func(path, text string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(projectDir, "docs", "specs", "coupons.md"), "# spec\n")
+	plan := filepath.Join(projectDir, "docs", "plans", "coupons.md")
+	write(plan, "# Coupons\n\n**Spec:** `docs/specs/coupons.md` — read it first.\n\n### Task 1: input\n")
+
+	run := newRun()
+	g, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: ch.OID, RunId: run.ID, PlanPath: plan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.SpecPath != "docs/specs/coupons.md" {
+		t.Fatalf("specpath %q; want the plan's Spec line, repo-relative", g.SpecPath)
+	}
+	if got := execGit("show", "wave/"+run.ID+":docs/specs/coupons.md"); got != "# spec" {
+		t.Fatalf("the branch holds spec %q", got)
+	}
+
+	// a Spec line naming no file is prose: the plan still runs, without a spec
+	write(plan, "# Coupons\n\n**Spec:** `docs/specs/missing.md`\n\n### Task 1: input\n")
+	run = newRun()
+	g, err = (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: ch.OID, RunId: run.ID, PlanPath: plan})
+	if err != nil {
+		t.Fatalf("a Spec line naming a missing file must not refuse the plan: %v", err)
+	}
+	if g.SpecPath != "" {
+		t.Fatalf("specpath %q for a spec that does not exist", g.SpecPath)
+	}
+}
+
 func TestDagSubmitCommitsTheSpecAndPlanOnTheRunsBranch(t *testing.T) {
 	ctx := context.Background()
 	projectDir, execGit := newLandingRepo(t)

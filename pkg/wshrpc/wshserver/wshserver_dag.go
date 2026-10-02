@@ -92,6 +92,15 @@ func loadDagPlan(data *wshrpc.CommandDagSubmitData) (jarvis.Plan, error) {
 	if err != nil {
 		return jarvis.Plan{}, err
 	}
+	// a plan started from + Run or `wsh runs start --plan` comes with no --spec; its own Spec line names
+	// it. A fix round implements the run's spec, so it takes none.
+	if data.SpecPath == "" && plan.Spec != "" && !data.Round {
+		if spec, ok := resolvePlanSpec(data.PlanPath, plan.Spec); ok {
+			data.SpecPath = spec
+		} else {
+			log.Printf("dag submit: plan %s names spec %q, which is not a file; submitting without a spec\n", data.PlanPath, plan.Spec)
+		}
+	}
 	data.Tasks = plan.Tasks
 	if data.Title == "" {
 		data.Title = planTitle(plan, data.PlanPath)
@@ -100,6 +109,29 @@ func loadDagPlan(data *wshrpc.CommandDagSubmitData) (jarvis.Plan, error) {
 		data.Parallelism = orchestrate.DefaultParallelism(plan.Tasks)
 	}
 	return plan, nil
+}
+
+// resolvePlanSpec finds the file a plan's Spec line names: an absolute path as written, else the path
+// joined to the plan's directory and then each parent, nearest first, so a repo-relative path resolves
+// from a plan anywhere in the repo.
+func resolvePlanSpec(planPath, spec string) (string, bool) {
+	isFile := func(p string) bool {
+		info, err := os.Stat(p)
+		return err == nil && info.Mode().IsRegular()
+	}
+	if filepath.IsAbs(spec) {
+		return spec, isFile(spec)
+	}
+	for dir := filepath.Dir(planPath); ; {
+		if candidate := filepath.Join(dir, spec); isFile(candidate) {
+			return candidate, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
 }
 
 // DagPlanPreviewCommand parses a plan for + Run before a run exists, so a plan that will not run is refused

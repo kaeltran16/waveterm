@@ -40,6 +40,9 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"Never leave a check as manual: nobody in a run performs one. " +
 	"An optional Prototype line names the design " +
 	"canvas the result should match (a path, not in backticks; at most one), for the engine's final verifier. " +
+	"An optional Spec line, also before the first task, names the spec the plan implements (a repo-relative or absolute path, " +
+	"in backticks; prose may follow it): the engine commits it with the plan and points the plan reviewer, the task reviewers " +
+	"and the final verifier at it, unless the submit names a spec itself. The line also reaches every worker as header text. " +
 	"An optional Effort line, also before the first task, names the effort tracker (`effort:<oid>` or a bare oid, not in backticks; " +
 	"at most one). A task may then list `**Chunk:** <exact chunk label>` lines, one per chunk, directly after its Depends on line " +
 	"(or first under the heading when it has none): the engine marks those chunks done when the task's merge passes Verify. " +
@@ -53,6 +56,7 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"with no Depends on lines is one serial chain and gets none of that.\n\n" +
 	"# <plan title>\n\n" +
 	"**Effort:** effort:<oid>\n" +
+	"**Spec:** `<path to the spec>`\n" +
 	"**Verify:** `<command that runs the tests>`\n" +
 	"**Setup:** `<command that prepares a fresh worktree>`\n" +
 	"**Check:** `<fast static check each worker runs>`\n" +
@@ -82,6 +86,9 @@ type Plan struct {
 	// EffortOID is the effort tracker whose chunks tasks close through **Chunk:** lines; empty when the
 	// plan names none.
 	EffortOID string
+	// Spec is the path a **Spec:** header line names, as written (repo-relative or absolute); empty when
+	// the plan names none or the line holds no path. The line itself stays in Preamble.
+	Spec string
 	// Preamble is every header line other than the title and the plan-level lines above, verbatim and
 	// in order, blank lines at each end trimmed. A worker's task prompt carries it so header prose — a
 	// scope rule, a shared constraint — reaches every task, not just whichever worker opened the plan.
@@ -96,6 +103,8 @@ var (
 	planBacktickRe    = regexp.MustCompile("^`([^`]+)`$")
 	planEffortRe      = regexp.MustCompile(`^\*\*Effort:\*\*\s*(.*?)\s*$`)
 	planPrototypeRe   = regexp.MustCompile(`^\*\*Prototype:\*\*\s*(.*?)\s*$`)
+	planSpecRe        = regexp.MustCompile(`^\*\*Spec:\*\*\s*(.*?)\s*$`)
+	planSpecQuotedRe  = regexp.MustCompile("`([^`]+)`")
 	planDependsRe     = regexp.MustCompile(`^\*\*Depends on:\*\*\s*(.*?)\s*$`)
 	planChunkRe       = regexp.MustCompile(`^\*\*Chunk:\*\*\s*(.*?)\s*$`)
 	planModelRe       = regexp.MustCompile(`^\*\*Model:\*\*\s*(.*?)\s*$`)
@@ -272,6 +281,14 @@ func readPlanPreamble(p *Plan, line string) (bool, error) {
 		p.Prototype = m[1]
 		return true, nil
 	}
+	if m := planSpecRe.FindStringSubmatch(line); m != nil {
+		// unlike the lines above it stays in the preamble: its prose ("read it before your task") is for
+		// every worker, and plans have always written it freely, so a line with no path is not an error
+		if p.Spec == "" {
+			p.Spec = planSpecPath(m[1])
+		}
+		return false, nil
+	}
 	m := planCommandRe.FindStringSubmatch(line)
 	if m == nil {
 		return false, nil
@@ -294,6 +311,18 @@ func readPlanPreamble(p *Plan, line string) (bool, error) {
 	}
 	*field = cmd[1]
 	return true, nil
+}
+
+// planSpecPath is the path in a **Spec:** line's value: its first backticked span (which also covers a
+// markdown link's text), else the whole value when it is one bare token.
+func planSpecPath(value string) string {
+	if m := planSpecQuotedRe.FindStringSubmatch(value); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	if value != "" && !strings.ContainsAny(value, " \t") {
+		return value
+	}
+	return ""
 }
 
 func parsePlanDepends(value string, n int) ([]string, error) {

@@ -117,6 +117,29 @@ func TestParsePlanPreamble(t *testing.T) {
 	}
 }
 
+func TestParsePlanSpec(t *testing.T) {
+	cases := map[string]string{
+		"**Spec:** `docs/specs/coupons.md`":                                        "docs/specs/coupons.md",
+		"**Spec:** `docs/specs/coupons.md` — read it in full before your task.":    "docs/specs/coupons.md",
+		"**Spec:** [`docs/specs/coupons.md`](../specs/coupons.md). Read it first.": "docs/specs/coupons.md",
+		"**Spec:** docs/specs/coupons.md":                                          "docs/specs/coupons.md",
+		"**Spec:** the coupons design, section 2":                                  "",
+	}
+	for line, want := range cases {
+		p := mustParsePlan(t, "# Coupons\n\n"+line+"\n\n### Task 1: a\ndo a\n")
+		if p.Spec != want {
+			t.Errorf("%q: spec %q, want %q", line, p.Spec, want)
+		}
+		// the line's prose ("read it before your task") is for every worker, so it stays in the preamble
+		if !strings.Contains(p.Preamble, line) {
+			t.Errorf("%q: the Spec line left the preamble %q", line, p.Preamble)
+		}
+	}
+	if p := mustParsePlan(t, "# Coupons\n\n### Task 1: a\n**Spec:** `x.md`\n"); p.Spec != "" {
+		t.Fatalf("a Spec line inside a task is task text, got spec %q", p.Spec)
+	}
+}
+
 func TestParsePlanWithoutPreamble(t *testing.T) {
 	src := "# Coupon codes\n\n**Verify:** `task test`\n**Setup:** `task worktree:prepare`\n\n### Task 1: a\ndo a\n"
 	p := mustParsePlan(t, src)

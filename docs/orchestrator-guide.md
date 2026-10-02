@@ -274,6 +274,7 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 **Check:** `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`
 **Final:** `node scripts/cdp/final-verify.mjs surface-smoke`
 **Prototype:** .superpowers/design/<topic>/<canvas>.dc.html
+**Spec:** `docs/superpowers/specs/<date>-<topic>-design.md`
 
 ### Task 1: <title>
 **Depends on:** none
@@ -309,6 +310,11 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
   **Final** is one command the final stage runs on the merged result, and **Prototype** names the design canvas
   the result should match (a path, not in backticks). All three are optional; see
   [The final stage](#the-final-stage).
+- **Spec** names the spec the plan implements: a repo-relative or absolute path in backticks, prose allowed after
+  it (`superpowers:writing-plans` writes this line in every plan header). A submit without `--spec`, which is
+  every **A plan file** start and `wsh runs start --plan`, takes it from here: the engine commits it with the
+  plan and points the plan reviewer, task reviewers and final verifier at it. A Spec line naming no file is
+  left as prose and the plan runs without a spec. The line also reaches every worker as header text.
 - Headings are `### Task N` or `## Task N`, numbered 1, 2, 3… in order.
 - `**Depends on:**` must be the first line after the heading. Left out, the task depends on the task before it,
   so a plan with no Depends lines is **serial**. `none` means independent. References must point backwards.
@@ -384,9 +390,9 @@ workers model, a Model line is struck through, and the mix line reads `all on <m
 
 **Start run** submits the plan immediately. There is no approval step from you and no lead. The engine's plan
 reviewer reads the plan first ([The plan review](#the-plan-review)), and the first layer dispatches once it
-passes. The launcher submits no spec. On a branch-landed run the engine commits the plan to `wave/<runId>` at
-submit; on a checkout-landed one it folds the plan into the first squash commit. A spec sitting beside the plan
-stays untracked; commit it yourself.
+passes. The launcher passes no spec of its own; the plan's `**Spec:**` line names it. On a branch-landed run the
+engine commits the plan and that spec to `wave/<runId>` at submit; on a checkout-landed one it folds them into
+the first squash commit. A plan with no Spec line runs without one.
 
 ![A plan run executing](images/orchestrator-guide/13-plan-run-started.png)
 
