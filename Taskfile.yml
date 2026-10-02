@@ -19,6 +19,7 @@ tasks:
         deps:
             - npm:install
             - sync:piartifacts
+            - sync:claudemod
             - tauri:sync-version
             - build:backend:devhost
             - build:backend:devhost:full
@@ -278,9 +279,22 @@ tasks:
             - cmd/wsh/cmd/pi-simplify-gate-extension.ts
             - cmd/wsh/cmd/pi-simplify-gate-core-extension.ts
 
+    sync:claudemod:
+        desc: Copy the authored Claude mod (claude/arc-mod) into its go:embed location cmd/wsh/cmd/claude-mod (generated, never hand-edited), without its tests or engine-written types.
+        cmds:
+            - cmd: rm -rf cmd/wsh/cmd/claude-mod
+            - cmd: cp -r claude/arc-mod cmd/wsh/cmd/claude-mod
+            - cmd: rm -rf cmd/wsh/cmd/claude-mod/.claude-plugin/types
+            - cmd: rm -f cmd/wsh/cmd/claude-mod/hooks/*.test.ts
+        sources:
+            - claude/arc-mod/**/*
+        generates:
+            - cmd/wsh/cmd/claude-mod/**/*
+
     build:server:internal:
         deps:
             - sync:piartifacts
+            - sync:claudemod
         requires:
             vars:
                 - ARCHS
@@ -351,6 +365,7 @@ tasks:
     build:wsh:internal:
         deps:
             - sync:piartifacts
+            - sync:claudemod
         vars:
             EXT:
                 sh: echo {{if eq .GOOS "windows"}}.exe{{end}}

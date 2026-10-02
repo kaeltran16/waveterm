@@ -5,10 +5,11 @@ package cmd
 
 import (
 	"bytes"
-	_ "embed"
+	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -134,6 +135,100 @@ func stableWshPath(home string) string {
 		name += ".exe"
 	}
 	return filepath.Join(home, ".arc", "bin", name)
+}
+
+//go:embed all:claude-mod
+var claudeModFS embed.FS
+
+// claudeModFSRoot is the embedded mod's directory, written by `task sync:claudemod` from claude/arc-mod.
+const claudeModFSRoot = "claude-mod"
+
+const claudePluginDirsVar = "CLAUDE_CODE_PLUGIN_DIRS"
+
+// claudeModDir is where the Arc Claude mod is installed: fixed and versionless like stableWshPath, so
+// the CLAUDE_CODE_PLUGIN_DIRS entry naming it never goes stale.
+func claudeModDir(home string) string {
+	return filepath.Join(home, ".arc", "claude-mod")
+}
+
+// installClaudeMod writes the embedded mod into claudeModDir with the wsh path substituted. A file
+// whose bytes already match is left alone: every interactive claude session watches its plugin
+// folders and reloads the mod on a write, so rewriting on every Arc launch would reload it everywhere.
+func installClaudeMod(home, wshExe string) error {
+	dir := claudeModDir(home)
+	return fs.WalkDir(claudeModFS, claudeModFSRoot, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		body, err := claudeModFS.ReadFile(p)
+		if err != nil {
+			return fmt.Errorf("reading embedded %s: %w", p, err)
+		}
+		want := strings.ReplaceAll(string(body), `"__WSH_PATH__"`, jsonString(wshExe))
+		rel := strings.TrimPrefix(p, claudeModFSRoot+"/")
+		return writeFileIfChanged(filepath.Join(dir, filepath.FromSlash(rel)), want)
+	})
+}
+
+// writeFileIfChanged writes body to path through a temp file and a rename, unless path already holds it.
+func writeFileIfChanged(path, body string) error {
+	if cur, err := os.ReadFile(path); err == nil && string(cur) == body {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(body), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("replacing %s: %w", path, err)
+	}
+	return nil
+}
+
+func samePath(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// mergeClaudePluginDirs returns a copy of existing whose env.CLAUDE_CODE_PLUGIN_DIRS lists modDir once,
+// last, after the user's own entries in their order. Claude reads that variable from the user settings'
+// env block and loads each folder as --plugin-dir, which covers every launch without touching any.
+func mergeClaudePluginDirs(existing map[string]any, modDir string) map[string]any {
+	out := map[string]any{}
+	if b, err := json.Marshal(existing); err == nil {
+		_ = json.Unmarshal(b, &out)
+	}
+	env, _ := out["env"].(map[string]any)
+	if env == nil {
+		env = map[string]any{}
+	}
+	cur, _ := env[claudePluginDirsVar].(string)
+	var entries []string
+	for _, e := range filepath.SplitList(cur) {
+		if e != "" && !samePath(e, modDir) {
+			entries = append(entries, e)
+		}
+	}
+	env[claudePluginDirsVar] = strings.Join(append(entries, modDir), string(os.PathListSeparator))
+	out["env"] = env
+	return out
+}
+
+func pluginDirsInclude(existing map[string]any, modDir string) bool {
+	env, _ := existing["env"].(map[string]any)
+	cur, _ := env[claudePluginDirsVar].(string)
+	for _, e := range filepath.SplitList(cur) {
+		if samePath(e, modDir) {
+			return true
+		}
+	}
+	return false
 }
 
 // syncStableWsh makes dst a byte-identical copy of src and leaves an identical copy untouched. The
@@ -332,7 +427,7 @@ func mergeStatusLine(existing map[string]any, wshExe string) map[string]any {
 // statusLine, all naming wantExe — the path this install would write. When true the install skips its
 // rewrite, so a working config is not rewritten every launch. A config naming any other binary (a
 // versioned build a rebuild will delete, or one already gone) returns false and the caller rewrites it.
-func configIsHealthy(existing map[string]any, wantExe string) bool {
+func configIsHealthy(existing map[string]any, wantExe, modDir string) bool {
 	hooks, _ := existing["hooks"].(map[string]any)
 	if hooks == nil {
 		return false
@@ -363,6 +458,9 @@ func configIsHealthy(existing map[string]any, wantExe string) bool {
 		}
 	}
 	if count != len(managedHooks) {
+		return false
+	}
+	if !pluginDirsInclude(existing, modDir) {
 		return false
 	}
 	sl, _ := existing["statusLine"].(map[string]any)
@@ -717,6 +815,11 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("resolving wsh path: %w", err)
 	}
 	wsh := resolveHookWsh(exe, home)
+	modDir := claudeModDir(home)
+	// the files land before settings name their folder, so no claude launch loads a missing mod
+	if err := installClaudeMod(home, wsh); err != nil {
+		return err
+	}
 
 	existing := map[string]any{}
 	if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) > 0 {
@@ -725,11 +828,12 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if configIsHealthy(existing, wsh) {
+	if configIsHealthy(existing, wsh, modDir) {
 		fmt.Printf("Arc agent hooks already installed in %s (skipping)\n", path)
 	} else {
 		merged := mergeAgentHooks(existing, wsh)
 		merged = mergeStatusLine(merged, wsh)
+		merged = mergeClaudePluginDirs(merged, modDir)
 		out, err := json.MarshalIndent(merged, "", "  ")
 		if err != nil {
 			return fmt.Errorf("encoding settings: %w", err)

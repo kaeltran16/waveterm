@@ -224,30 +224,30 @@ func TestMergeStatusLinePreservesOtherKeys(t *testing.T) {
 }
 
 func TestConfigIsHealthy(t *testing.T) {
-	full := mergeStatusLine(mergeAgentHooks(map[string]any{}, testWsh), testWsh)
+	full := mergeClaudePluginDirs(mergeStatusLine(mergeAgentHooks(map[string]any{}, testWsh), testWsh), testModDir)
 
 	stable := `C:\Users\u\.arc\bin\wsh.exe`
 
 	// all managed present, all naming the path this install writes -> healthy
-	if !configIsHealthy(full, testWsh) {
+	if !configIsHealthy(full, testWsh, testModDir) {
 		t.Fatal("full config naming the wanted wsh should be healthy")
 	}
 	// naming any other binary -> not healthy, so a versioned build path migrates to the stable copy
-	if configIsHealthy(full, stable) {
+	if configIsHealthy(full, stable, testModDir) {
 		t.Fatal("full config naming a different wsh should NOT be healthy")
 	}
 	// empty config -> not healthy
-	if configIsHealthy(map[string]any{}, testWsh) {
+	if configIsHealthy(map[string]any{}, testWsh, testModDir) {
 		t.Fatal("empty config should NOT be healthy")
 	}
 	// hooks present but statusLine absent -> not healthy
 	hooksOnly := mergeAgentHooks(map[string]any{}, testWsh)
-	if configIsHealthy(hooksOnly, testWsh) {
+	if configIsHealthy(hooksOnly, testWsh, testModDir) {
 		t.Fatal("config missing managed statusLine should NOT be healthy")
 	}
 	// hooks repointed but statusLine still naming the old build -> not healthy
-	staleStatusLine := mergeStatusLine(mergeAgentHooks(map[string]any{}, stable), testWsh)
-	if configIsHealthy(staleStatusLine, stable) {
+	staleStatusLine := mergeClaudePluginDirs(mergeStatusLine(mergeAgentHooks(map[string]any{}, stable), testWsh), testModDir)
+	if configIsHealthy(staleStatusLine, stable, testModDir) {
 		t.Fatal("config whose statusLine names a different wsh should NOT be healthy")
 	}
 }
@@ -670,7 +670,7 @@ func TestMergePrunesHooksUnderNoLongerManagedEvents(t *testing.T) {
 			},
 		},
 	}
-	if configIsHealthy(existing, testWsh) {
+	if configIsHealthy(existing, testWsh, testModDir) {
 		t.Fatal("a config carrying a stale managed hook must not be reported healthy, or it is never rewritten")
 	}
 	merged := mergeAgentHooks(existing, testWsh)
@@ -820,5 +820,112 @@ func TestResolveHookWsh_fallsBackWhenTheCopyCannotBeRefreshed(t *testing.T) {
 	writeTestFile(t, stableWshPath(home), "build 10")
 	if got := resolveHookWsh(unreadable, home); got != stableWshPath(home) {
 		t.Fatalf("with a stable copy, resolveHookWsh = %q, want %q", got, stableWshPath(home))
+	}
+}
+
+const testModDir = `C:\Users\u\.arc\claude-mod`
+
+func pluginDirsOf(t *testing.T, cfg map[string]any) []string {
+	t.Helper()
+	env, _ := cfg["env"].(map[string]any)
+	cur, _ := env[claudePluginDirsVar].(string)
+	return filepath.SplitList(cur)
+}
+
+func TestMergeClaudePluginDirs_empty(t *testing.T) {
+	got := pluginDirsOf(t, mergeClaudePluginDirs(map[string]any{}, testModDir))
+	if len(got) != 1 || got[0] != testModDir {
+		t.Fatalf("plugin dirs = %v, want [%s]", got, testModDir)
+	}
+}
+
+func TestMergeClaudePluginDirs_keepsUserEntriesAndOtherEnv(t *testing.T) {
+	user := `C:\mods\a` + string(os.PathListSeparator) + `C:\mods\b`
+	existing := map[string]any{"env": map[string]any{claudePluginDirsVar: user, "FOO": "bar"}}
+	merged := mergeClaudePluginDirs(existing, testModDir)
+	got := pluginDirsOf(t, merged)
+	want := []string{`C:\mods\a`, `C:\mods\b`, testModDir}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("plugin dirs = %v, want %v", got, want)
+	}
+	if merged["env"].(map[string]any)["FOO"] != "bar" {
+		t.Fatal("unrelated env var not preserved")
+	}
+	if existing["env"].(map[string]any)[claudePluginDirsVar] != user {
+		t.Fatal("caller's map was mutated")
+	}
+}
+
+func TestMergeClaudePluginDirs_idempotentAndNeverDuplicated(t *testing.T) {
+	sep := string(os.PathListSeparator)
+	existing := map[string]any{"env": map[string]any{claudePluginDirsVar: testModDir + sep + `C:\mods\a`}}
+	once := mergeClaudePluginDirs(existing, testModDir)
+	twice := mergeClaudePluginDirs(once, testModDir)
+	got := pluginDirsOf(t, twice)
+	want := []string{`C:\mods\a`, testModDir}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("plugin dirs = %v, want %v", got, want)
+	}
+}
+
+func TestConfigIsHealthy_requiresThePluginDirsEntry(t *testing.T) {
+	withoutDirs := mergeStatusLine(mergeAgentHooks(map[string]any{}, testWsh), testWsh)
+	if configIsHealthy(withoutDirs, testWsh, testModDir) {
+		t.Fatal("a config without the mod's plugin dir must not be healthy, or an upgrade never writes it")
+	}
+	if !configIsHealthy(mergeClaudePluginDirs(withoutDirs, testModDir), testWsh, testModDir) {
+		t.Fatal("a config with hooks, statusLine and plugin dir should be healthy")
+	}
+}
+
+func TestInstallClaudeMod_writesTheModWithTheWshPath(t *testing.T) {
+	home := t.TempDir()
+	if err := installClaudeMod(home, fakeWshPath(t)); err != nil {
+		t.Fatalf("installClaudeMod: %v", err)
+	}
+	dir := claudeModDir(home)
+	for _, rel := range []string{".claude-plugin/plugin.json", "hooks/hooks.json", "hooks/register.ts", "hooks/usage-core.ts"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("%s not installed: %v", rel, err)
+		}
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "hooks", "register.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "__WSH_PATH__") {
+		t.Fatalf("placeholder not substituted:\n%s", body)
+	}
+	if !strings.Contains(string(body), "const WSH = "+jsonString(fakeWshPath(t))+";") {
+		t.Fatalf("register.ts does not name the wsh path %s:\n%s", jsonString(fakeWshPath(t)), body)
+	}
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && strings.HasSuffix(p, ".test.ts") {
+			t.Fatalf("a test file was installed: %s", p)
+		}
+		return nil
+	})
+}
+
+func TestInstallClaudeMod_equalBytesPreserveMtime(t *testing.T) {
+	home := t.TempDir()
+	if err := installClaudeMod(home, fakeWshPath(t)); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(claudeModDir(home), "hooks", "register.ts")
+	info1, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if err := installClaudeMod(home, fakeWshPath(t)); err != nil {
+		t.Fatal(err)
+	}
+	info2, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info2.ModTime().Equal(info1.ModTime()) {
+		t.Fatalf("an unchanged mod was rewritten (reloads every running claude session): %v -> %v", info1.ModTime(), info2.ModTime())
 	}
 }
