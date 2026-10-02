@@ -7,14 +7,14 @@
 
 import type { RunShape } from "@/app/view/agents/runconfig";
 
-export type LaunchIcon = "quick" | "orchestrate" | "setup" | "ask";
+export type LaunchIcon = "quick" | "orchestrate" | "ask";
 
 export interface LaunchItem {
-    key: string; // launch:quick | launch:orchestrate | launch:setup | launch:consult:<runtime>
+    key: string; // launch:quick | launch:orchestrate | launch:consult:<runtime>
     icon: LaunchIcon;
     title: string;
     desc: string; // mono subtitle describing the mode
-    verb: "Start" | "Open" | "Ask";
+    verb: "Open" | "Ask";
     echo: string; // one-line echo of what firing this row does to the goal
     run: () => void;
     alt?: { echo: string; run: () => void }; // Ctrl+Enter
@@ -22,33 +22,37 @@ export interface LaunchItem {
 }
 
 export interface LaunchDeps {
-    quick: (goal: string) => void; // one worker, no plan
-    orchestrate: (goal: string) => void; // a lead plans tasks, workers run them
-    setup: (goal: string, shape: RunShape) => void; // the New run window, prefilled
+    // the New run window, prefilled: its project picker is where the project is settled, so a run never
+    // starts in a project the palette guessed
+    open: (goal: string, shape: RunShape) => void;
     consult: (runtime: string, goal: string) => void; // one-shot answer, no worker
 }
 
 // claude and pi are the runtimes this cockpit actually runs; the second row is the second opinion
 export const CONSULT_RUNTIMES = ["claude", "pi"] as const;
 
-// Empty goal or no project -> []. Otherwise the 5 launch rows, Quick first (preselected by the caller).
-// Ctrl+Enter orchestrates from any of them, so Orchestrate is one chord rather than a trip down the list.
+// Empty goal -> []. Otherwise the run rows, Quick first (preselected by the caller), and with a project the
+// ask rows, which post into that project's channel and so cannot go without one. Ctrl+Enter orchestrates
+// from any of them, so Orchestrate is one chord rather than a trip down the list.
 export function buildLaunchItems(query: string, projectName: string | undefined, deps: LaunchDeps): LaunchItem[] {
     const goal = query.trim();
-    if (!goal || !projectName) {
+    if (!goal) {
         return [];
     }
-    const [primary, second] = CONSULT_RUNTIMES;
-    const orchestrate = { echo: "Starts an orchestrator run instead", run: () => deps.orchestrate(goal) };
-    return [
+    const where = projectName ? `, #${projectName} preselected` : "";
+    const orchestrate = {
+        echo: "Opens an orchestrator run instead",
+        run: () => deps.open(goal, "orchestrator"),
+    };
+    const runs: LaunchItem[] = [
         {
             key: "launch:quick",
             icon: "quick",
             title: "Quick",
             desc: "one worker, no plan",
-            verb: "Start",
-            echo: `Starts a Quick worker on “${goal}” in #${projectName}`,
-            run: () => deps.quick(goal),
+            verb: "Open",
+            echo: `Opens the New run window with “${goal}” as a Quick run${where}`,
+            run: () => deps.open(goal, "quick"),
             alt: orchestrate,
         },
         {
@@ -56,23 +60,18 @@ export function buildLaunchItems(query: string, projectName: string | undefined,
             icon: "orchestrate",
             title: "Orchestrate",
             desc: "a lead plans tasks, workers run them",
-            verb: "Start",
-            echo: `Starts an orchestrator run on “${goal}” in #${projectName}`,
-            run: () => deps.orchestrate(goal),
+            verb: "Open",
+            echo: `Opens the New run window with “${goal}” as an orchestrator run${where}`,
+            run: orchestrate.run,
             chord: "Ctrl:Enter",
         },
-        {
-            key: "launch:setup",
-            icon: "setup",
-            title: "Set up the run…",
-            desc: "New run window with this goal: plan file, workers, models",
-            verb: "Open",
-            echo: `Opens the New run window with the goal and #${projectName} filled in`,
-            // what the window adds over the two rows above (a plan file, workers, reviewers) is orchestrator
-            // setup; Quick needs none, and the window's own toggle still switches it
-            run: () => deps.setup(goal, "orchestrator"),
-            alt: orchestrate,
-        },
+    ];
+    if (!projectName) {
+        return runs;
+    }
+    const [primary, second] = CONSULT_RUNTIMES;
+    return [
+        ...runs,
         {
             key: `launch:consult:${primary}`,
             icon: "ask",

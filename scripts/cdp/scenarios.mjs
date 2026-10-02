@@ -9032,8 +9032,8 @@ const paletteActions = {
 
 const PALETTE_GOAL_PROJECT = "verify-palette-goal";
 
-// Firing Orchestrate would spawn a real lead, so this asserts Ctrl+Enter's footer line and drives Set up the run…
-// instead; the Ctrl+Enter handler itself is covered by palette-launch.test.ts.
+// Orchestrate opens the New run window rather than starting a run, so firing it here spawns nothing; the
+// Ctrl+Enter handler itself is covered by palette-launch.test.ts.
 const paletteGoal = {
     name: "palette-goal",
     surface: "jarvis",
@@ -9084,19 +9084,18 @@ const paletteGoal = {
                 block.label === `Start in #${PALETTE_GOAL_PROJECT}` &&
                 (block.rows[0] ?? "").startsWith("Quick") &&
                 (launch.selected ?? "").startsWith("Quick") &&
-                block.rows.some((r) => r.startsWith("Set up the run…")),
+                block.rows.some((r) => r.startsWith("Orchestrate")),
             JSON.stringify({ groups: launch?.groups, selected: launch?.selected })
         );
         rec(
             "3. the footer names Ctrl+Enter's Orchestrate",
-            launch != null && launch.text.includes("ctrl ⏎") && launch.text.includes("Starts an orchestrator run instead"),
+            launch != null && launch.text.includes("ctrl ⏎") && launch.text.includes("Opens an orchestrator run instead"),
             launch?.text.slice(-240) ?? ""
         );
 
-        // Quick → Orchestrate → Set up the run…
+        // Quick → Orchestrate
         await h.ev(paletteKey("ArrowDown"));
-        await h.ev(paletteKey("ArrowDown"));
-        const onSetup = await paletteStateWhen(h, (s) => (s.selected ?? "").startsWith("Set up the run…"), 2000);
+        const onOrch = await paletteStateWhen(h, (s) => (s.selected ?? "").startsWith("Orchestrate"), 2000);
         await h.ev(paletteKey("Enter"));
         const windowOpen = await polishWaitFor(h, `!!${NEW_RUN}`, 5000);
         // the window fills the goal once its project list loads
@@ -9111,19 +9110,21 @@ const paletteGoal = {
             palette: !!${PALETTE_INPUT},
             goal: ${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value ?? null,
             project: ${flatText(NEW_RUN_FIELD)},
+            text: ${flatText(NEW_RUN)},
         })`);
         const runsAfter = await channelRunCount(h, ctx.channelId);
         await h.shot("cdp-shots/palette-goal-window.png");
         rec(
-            "4. Set up the run… opens the New run window with the goal and project filled, and starts nothing",
-            (onSetup?.selected ?? "").startsWith("Set up the run…") &&
+            "4. Orchestrate opens the New run window with the goal, the project and the orchestrator shape filled, and starts nothing",
+            (onOrch?.selected ?? "").startsWith("Orchestrate") &&
                 windowOpen &&
                 paletteGone &&
                 filled.palette === false &&
                 filled.goal === goal &&
                 filled.project.startsWith(PALETTE_GOAL_PROJECT) &&
+                filled.text.includes(`orchestrator × `) &&
                 runsAfter === runsBefore,
-            JSON.stringify({ selected: onSetup?.selected, windowOpen, paletteGone, ...filled, runsBefore, runsAfter })
+            JSON.stringify({ selected: onOrch?.selected, windowOpen, paletteGone, ...filled, runsBefore, runsAfter })
         );
         return steps;
     },

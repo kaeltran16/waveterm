@@ -106,7 +106,7 @@ export function initialPick(names: string[], remembered: string | null): string 
 
 export type NewRunPrefill = { projectName: string; goal: string; shape: RunShape; prototype?: string };
 
-// What the window opens on when something filled it (a canvas's Build this…, the palette's Set up the run…):
+// What the window opens on when something filled it (a canvas's Build this…, the palette's Quick and Orchestrate):
 // a goal start in the prefill's shape, except that a prototype only rides an orchestrator run, so one that
 // came with a prototype is corrected to orchestrator. The project is picked only if it is registered, as
 // initialPick does.

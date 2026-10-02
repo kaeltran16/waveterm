@@ -82,7 +82,6 @@ const KIND_ICONS: Partial<Record<GroupKind, LucideIcon>> = {
 const LAUNCH_ICONS: Record<LaunchIcon, LucideIcon> = {
     quick: Zap,
     orchestrate: GitFork,
-    setup: SlidersHorizontal,
     ask: MessageCircleQuestionMark,
 };
 

@@ -80,7 +80,7 @@ import { ProjectPicker } from "./projectpickerview";
 // — where you last started work is a convenience for the session, not a setting. Exported for the palette,
 // which offers its launch rows in the same project.
 
-// What the next open of the window starts from, set by a canvas's Build this… or the palette's Set up the run…;
+// What the next open of the window starts from, set by a canvas's Build this… or the palette's Quick and Orchestrate;
 // the window clears it once read.
 export const newRunPrefillAtom = atom<NewRunPrefill | null>(null) as PrimitiveAtom<NewRunPrefill | null>;
 

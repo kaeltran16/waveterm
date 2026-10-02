@@ -24,8 +24,6 @@ import { activeFocusAtom, enterFocusFor, exitFocus, focusesAtom, loadFocuses } f
 import type { Runtime } from "@/app/view/agents/launch";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { projectListAtom, projectsAtom, recentProjectsAtom, rowsWithChannel } from "@/app/view/agents/projectsstore";
-import { createRun, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
-import type { RunShape } from "@/app/view/agents/runconfig";
 import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
 import { openRunDag } from "@/app/view/agents/runrailsections";
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
@@ -723,13 +721,17 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const targetChannel = projectLaunch ? pickedChannel : homeChannel;
     const launchGoal = projectLaunch ? projectLaunch.goal : nav.scope === "all" ? nav.query : "";
     const targetLabel = targetChannel ? channelProjectLabel(targetChannel, projects) : "";
+    // no project to guess is not a dead end: the New run window asks for one
+    const launchLabel = targetLabel ? `#${targetLabel}` : "a project";
+    // a "#name goal" naming no project shows that instead of offering to start somewhere else
+    const unmatchedProject = projectLaunch != null && pickedChannel == null;
 
     const launchItems = useMemo<PaletteItem[]>(() => {
-        if (!targetChannel || launchGoal.trim() === "") {
+        if (launchGoal.trim() === "" || unmatchedProject) {
             return [];
         }
         const ch = targetChannel;
-        const projectName = channelProjectLabel(ch, projects);
+        const projectName = ch ? channelProjectLabel(ch, projects) : "";
         // a failure keeps the goal in the palette and says why; success lands on the result, then closes
         const fireLaunch = (action: () => Promise<unknown>, land: () => void) => {
             setPaletteError(undefined);
@@ -742,45 +744,29 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 close();
             });
         };
-        const sendText = (text: string) =>
-            sendChannelMessage({
-                model,
-                channelId: ch.oid,
-                projectPath: ch.projectpath ?? "",
-                projectName: projectName || "agent",
-                roster: agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId })),
-                text,
-            });
-        // Both starts go through createRun: that is the only path that captures a dossier, so a goal
-        // started here lands in the record system like one started from the composer. A missing preferred
-        // runtime blocks before any RPC: the goal stays in the palette, nothing dispatches. A started run
-        // opens, as the New run window's does.
-        const start = (mode: RunShape) => (goal: string) => {
-            let run: Run | undefined;
-            fireLaunch(
-                async () => {
-                    run = await createRun(ch.oid, goal, await resolveChannelLaunchRoute(ch.oid), { mode });
-                },
-                () => fireAndForget(() => openTarget(model, { kind: "channel", channelId: ch.oid, runId: run!.id }))
-            );
-        };
         const deps: LaunchDeps = {
-            quick: start("quick"),
-            orchestrate: start("orchestrator"),
             // the window clears the prefill once its project list loads
-            setup: (goal, shape) => {
+            open: (goal, shape) => {
                 globalStore.set(newRunPrefillAtom, { projectName, goal, shape });
                 close();
                 globalStore.set(model.newRunOpenAtom, true);
             },
-            // the user never types "ask @"; the transport string is synthesized for sendChannelMessage
+            // only offered with a project; the user never types "ask @", the transport string is synthesized
             consult: (runtime, goal) =>
                 fireLaunch(
-                    () => sendText(`ask @${runtime} ${goal}`),
+                    () =>
+                        sendChannelMessage({
+                            model,
+                            channelId: ch!.oid,
+                            projectPath: ch!.projectpath ?? "",
+                            projectName: projectName || "agent",
+                            roster: agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId })),
+                            text: `ask @${runtime} ${goal}`,
+                        }),
                     () => globalStore.set(model.surfaceAtom, "jarvis")
                 ),
         };
-        return buildLaunchItems(launchGoal, projectName, deps).map((li) => ({
+        return buildLaunchItems(launchGoal, projectName || undefined, deps).map((li) => ({
             key: li.key,
             kind: "launch" as const,
             search: "",
@@ -793,7 +779,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             run: li.run,
             alt: li.alt,
         }));
-    }, [targetChannel, launchGoal, agents, model, projects]);
+    }, [targetChannel, launchGoal, unmatchedProject, agents, model, projects]);
 
     // --- Actions ----------------------------------------------------------------------------------
     const targetByKey = useMemo(() => {
@@ -1002,7 +988,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                       kind: "as-goal",
                       search: "",
                       title: `Start “${q}” as a goal`,
-                      meta: `#${targetLabel}`,
+                      meta: launchLabel,
                       verb: "Choose",
                       echo: `Shows the ways to start “${q}”`,
                       run: () => setNav((s) => ({ ...s, asGoal: true })),
@@ -1016,7 +1002,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             launch: launchItems,
             asGoalItem,
             asGoal: nav.asGoal,
-            projectLabel: `#${targetLabel}`,
+            projectLabel: launchLabel,
             needs: needsItems.inAll,
             start: startItems,
         });

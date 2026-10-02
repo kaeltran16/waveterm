@@ -63,12 +63,13 @@ One overlay with scopes: All, Needs you, Go to, Agents, Runs, Sessions, Records,
 | `→` with the caret at the end of the query | Open the selected row's actions (a run, agent, session, record, initiative or project). Mid-query, `→` moves the caret |
 | `←` or `Backspace` on an empty action filter | Leave an action's input, then the action list, back to the results with the query and selection as they were |
 | `1`…`9` in Needs you | Answer the selected ask with that option, in place |
-| `Ctrl`+`Enter` | The selected row's alternate action, named in the footer. On the goal block, start an orchestrator run instead of a Quick one |
+| `Ctrl`+`Enter` | The selected row's alternate action, named in the footer. On the goal block, open an orchestrator run instead of a Quick one |
 | `Backspace` on an empty query | Leave a picker, then drop back to All |
 | `path:123` in Files | Open the file at that line; a bare `:123` on Code moves the open file |
 
-In All, text that names nothing is a goal: the Start rows run it as a Quick worker, an orchestrator
-run, or a one-shot ask, and "Set up the run…" opens the New run window with it filled in. When the
+In All, text that names nothing is a goal: Quick and Orchestrate open the New run window with it
+filled in and the active (else last used) project preselected, so the project is confirmed there
+before anything starts; the Ask rows send it as a one-shot ask in that project. When the
 text names something, Enter opens that, and one "Start as a goal" row below expands into the same
 choices. A verb names something too: "cancel" lists "Cancel run · <run>" for each run that can be
 cancelled now, in All and in Commands, so it never starts a run named "cancel".
