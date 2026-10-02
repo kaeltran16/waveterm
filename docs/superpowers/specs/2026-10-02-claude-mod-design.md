@@ -42,10 +42,10 @@ A throwaway mod (`.superpowers/probes/claude-mods/arcprobe`, gitignored) under C
 ### Source, build, install
 
 - **Source:** `claude/arc-mod/` (beside `pi/`): `.claude-plugin/plugin.json`, `hooks/hooks.json`,
-  `hooks/register.ts`, and a pure `hooks/arc-core.ts` holding the mapping logic, tested by vitest
-  (`arc-core.test.ts`), the same split as `pi/extensions/*-core.ts`.
-- **Embed:** a `sync:claudemod` task, run wherever `sync:piartifacts` runs, copies the files into
-  `cmd/wsh/cmd/claude-mod-*` for `go:embed`. Edit `claude/`, never the copies.
+  `hooks/register.ts`, and pure `hooks/usage-core.ts` and `hooks/ask-core.ts` holding the mapping
+  logic, each tested by vitest (`*-core.test.ts`), the same split as `pi/extensions/*-core.ts`.
+- **Embed:** a `sync:claudemod` task, run wherever `sync:piartifacts` runs, copies the mod, minus
+  tests, into `cmd/wsh/cmd/claude-mod/` for `go:embed`. Edit `claude/`, never the copy.
 - **Install:** `wsh install-agent-hooks` writes the mod to `~/.arc/claude-mod/` (fixed, beside
   `~/.arc/bin/`), substituting `__WSH_PATH__` with the stable wsh path as the pi installers do.
 - **Load:** the same command merges `~/.arc/claude-mod` into `env.CLAUDE_CODE_PLUGIN_DIRS` in
@@ -112,15 +112,24 @@ pi.
 
 ### To verify in implementation (not assumed)
 
+- `CLAUDE_CODE_PLUGIN_DIRS` from a settings `env` block loads the mod (the probe used
+  `--plugin-dir`). Covered headless by the plan's Final check: `claude -p --settings` with that env
+  block and a stub `wsh`, asserting `session.measure` ran `wsh agentstatus --usage`. This guards the
+  statusLine unwrap, which would leave usage dark if the mod did not load.
+
+The rest need an interactive Claude session (`AskUserQuestion` is not offered under `claude -p`), so
+no run checks them; they are listed in `docs/open-issues.md` and stay the effort's live-verify chunk:
+
 - Settings `PreToolUse` hooks do not fire for a call the mod answers. The probe shows the answer
   lands; it did not check the settings side. If `agent-hook`'s `Asking` state then never reaches the
   cockpit, check whether the pending-ask publish from `AskCommand` already covers it before adding
   anything.
 - A dag child's ask still routes to its lead, and `wsh jarvis dag answer` resolves the waiter
   (`DeliverAnswer` resolves a waiter first, so it should).
-- `CLAUDE_CODE_PLUGIN_DIRS` from the settings `env` block loads without the enable-hot-reloading
-  prompt in an interactive session (the probe used `--plugin-dir`).
-- `$.process.spawn` has no hard timeout for the caller (its type declares none).
+- The settings `env` plugin dir loads in an interactive session without the enable-hot-reloading
+  prompt.
+- `$.process.spawn` has no hard timeout for the caller (its type declares none): a card left
+  unanswered past ten minutes still answers the call.
 
 ## Out of scope
 
@@ -145,14 +154,17 @@ Each is a decision on the effort tracker, revived only on evidence:
 
 ## Testing
 
-- vitest on `arc-core.ts`: measurement to argv (float percent, ISO to epoch, missing kinds, no
-  context), answer mapping (single, multi, Other text, cancelled), and the native-path predicate.
+- vitest on `usage-core.ts` (measurement to argv: float percent, ISO to epoch, missing kinds, no
+  context) and `ask-core.ts` (answer mapping: single, multi, Other text, cancelled; the native-path
+  predicate).
 - `claude plugin validate claude/arc-mod` as part of the plan's Check line.
 - Go: `install-agent-hooks` tests for the `CLAUDE_CODE_PLUGIN_DIRS` merge (user entries kept,
-  idempotent, stale entry dropped) and the version-gated statusLine unwrap.
-- Live, in the dev app: a Claude agent's usage strip updates with the status line unwrapped; an
-  `AskUserQuestion` answered from the card reaches Claude with no keystrokes; Esc during the wait
-  clears the card.
+  idempotent, Arc's entry never duplicated; the mod dir is fixed and versionless, so there is no
+  stale entry to drop) and the version-gated statusLine unwrap.
+- Final (headless): the settings-env load check above.
+- Live, in the dev app, by hand (`docs/open-issues.md`): a Claude agent's usage strip updates with
+  the status line unwrapped; an `AskUserQuestion` answered from the card reaches Claude with no
+  keystrokes; Esc during the wait clears the card; the interactive items listed above.
 
 ## Docs
 
