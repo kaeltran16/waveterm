@@ -11,28 +11,27 @@ The Agents tab shows two usage readouts:
 Both are driven by a single `AgentUsage` snapshot per block. If neither readout
 appears, **no usage data is reaching Wave** — see the data flow below.
 
-## Why usage rides the statusLine, not the hook reporter
+## Where usage comes from
 
-Agent **state** (working / waiting / idle) and the **subagent tree** are driven by
-`wsh agent-hook` (in-repo, `cmd/wsh/cmd/wshcmd-agenthook.go`), wired into Claude Code
-lifecycle hooks (`PreToolUse`, `PostToolUse`, `Notification`, `Stop`, `SubagentStop`,
-`UserPromptSubmit`) and auto-installed by the Arc app. Those hook payloads **do not
-carry usage numbers**.
+Agent **state** comes from `wsh agent-hook` in the Claude Code lifecycle hooks; those payloads carry no
+usage numbers. Usage reaches Arc one of two ways, chosen by `wsh install-agent-hooks` from
+`claude --version`:
 
-Claude Code delivers context/rate-limit/cost numbers to exactly one place: the
-**`statusLine` command's** stdin JSON. So the usage bridge has to live there — there
-is no hook that sees this data. This is the gap that originally left the display dark:
-the Wave half (the `wsh agentstatus --usage` command and the FE rendering) shipped in
-`fa195bf1`, but nothing ever *called* `--usage`. The statusLine script computed the
-numbers only to print them to the terminal. This is now bridged automatically by the
-Arc-managed `wsh statusline` wrapper (see Setup).
+- **Claude Code 2.1.287 and later:** the Arc Claude mod (`claude/arc-mod`, installed to
+  `~/.arc/claude-mod` and loaded through `env.CLAUDE_CODE_PLUGIN_DIRS`) hooks `session.measure`, which
+  fires when the context fill, a rate-limit window or the cost changes, and runs
+  `wsh agentstatus --usage`. Your `statusLine` is left as you wrote it; a wrapper an older Arc added is
+  unwrapped back to your original command.
+- **Older Claude Code:** the statusLine JSON is the only source, so Arc wraps `statusLine.command` in
+  `wsh statusline --inner=<base64 of your original command>`, which publishes the usage and then runs
+  your original command with the same stdin.
 
 ## Data flow
 
 ```
-Claude Code statusLine JSON  (stdin: context_window, rate_limits, cost)
+Claude Code session.measure (mod)  or  statusLine JSON (wrapper, older builds)
         │
-        ▼  ~/.claude/statusline-command.sh   (the bridge — see Setup)
+        ▼  claude/arc-mod usage-core.ts  /  wsh statusline
    wsh agentstatus --usage --context-pct … --five-hour-pct … --week-pct …
         │
         ▼  cmd/wsh/cmd/wshcmd-agentstatus.go : publishUsageDelta()
@@ -52,9 +51,9 @@ Claude Code statusLine JSON  (stdin: context_window, rate_limits, cost)
 late subscriber (the retained `Persist:1` state event for the same scope must stay the
 one replayed). The usage atom is populated only by events that arrive *after* the
 sidebar subscription is live — which it always is — and the value sticks in the atom
-for the rest of the app's lifetime. The statusLine re-fires constantly while an agent
-is active, so a fresh value lands within seconds; a dropped publish self-heals on the
-next render.
+for the rest of the app's lifetime. Both sources re-fire constantly while an agent
+is active (the statusLine on each render, `session.measure` on each change), so a fresh
+value lands within seconds; a dropped publish self-heals on the next one.
 
 ## statusLine JSON → wsh flag mapping
 
@@ -76,17 +75,23 @@ for API-key auth) — omit them rather than send `0`, or the gauge shows a misle
 ## Setup (automatic)
 
 Provisioning is automatic — there is nothing to hand-edit. On every launch the Arc
-app runs `wsh install-agent-hooks`, which (besides the lifecycle hooks) wraps your
-`statusLine.command` in `~/.claude/settings.json`:
+app runs `wsh install-agent-hooks`, which (besides the lifecycle hooks) writes the Arc
+Claude mod to `~/.arc/claude-mod`, lists that folder in `env.CLAUDE_CODE_PLUGIN_DIRS` of
+`~/.claude/settings.json`, and then picks the usage source from `claude --version`:
 
-    statusLine.command  →  "<wsh>" statusline --inner=<base64 of your original command>
+- **2.1.287 and later:** the mod reports usage, so your `statusLine` is not wrapped. A
+  wrapper an older Arc added is unwrapped: `--inner=` is decoded back to your original
+  command, or `statusLine` is removed if Arc had added it with none.
+- **Older, or `claude` not on PATH:** Arc wraps your `statusLine.command`:
 
-`wsh statusline` reads the statusLine JSON on stdin, publishes the usage delta to
-Wave, and then runs your original command with the same stdin — so your terminal
-statusline display is unchanged. The wrap is idempotent: re-running decodes
-`--inner=` to recover your true original instead of nesting, and refreshes the `wsh`
-path so app updates self-heal. If you change your statusLine later, the next launch
-re-wraps the new value.
+      statusLine.command  →  "<wsh>" statusline --inner=<base64 of your original command>
+
+  `wsh statusline` reads the statusLine JSON on stdin, publishes the usage delta to
+  Wave, and then runs your original command with the same stdin — so your terminal
+  statusline display is unchanged. The wrap is idempotent: re-running decodes
+  `--inner=` to recover your true original instead of nesting, and refreshes the `wsh`
+  path so app updates self-heal. If you change your statusLine later, the next launch
+  re-wraps the new value.
 
 To (re)provision manually from any Arc terminal: `wsh install-agent-hooks`.
 
@@ -107,7 +112,9 @@ To (re)provision manually from any Arc terminal: `wsh install-agent-hooks`.
 
 ## Update cadence
 
-Usage refreshes once per statusLine run. Claude Code invokes the statusLine
+Through the mod, usage refreshes on each `session.measure`, which fires at session
+start and whenever a measured value changes. Through the wrapper, it refreshes once per
+statusLine run, as follows. Claude Code invokes the statusLine
 **event-driven, debounced at 300ms** — after each new assistant message, after
 `/compact`, on a permission-mode change, and on a vim-mode toggle (per the
 [statusLine docs](https://code.claude.com/docs/en/statusline.md)). So while an agent
@@ -127,7 +134,7 @@ idle); mainly keeps the account-global plan gauges current from other activity.
 - **Plan gauges are subscriber-only.** API-key sessions never emit `--five-hour-pct` /
   `--week-pct`, so the Plan usage strip stays hidden — by design, not a bug.
 - **Idle agents** keep their last usage value (atoms don't clear); it just stops
-  refreshing once the statusLine quiets. A full app restart clears the atoms until the
-  next statusLine fire per block.
+  refreshing once the session quiets. A full app restart clears the atoms until the
+  next usage report per block.
 - The reporter (`wsh agent-hook`) is intentionally **not** involved here —
   state/subagents and usage are independent channels into the same `agent:status` event.

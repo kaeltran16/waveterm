@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
@@ -13,9 +14,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -423,11 +427,84 @@ func mergeStatusLine(existing map[string]any, wshExe string) map[string]any {
 	return out
 }
 
-// configIsHealthy reports whether existing already carries Arc's full managed hook set and managed
-// statusLine, all naming wantExe — the path this install would write. When true the install skips its
+// claudeModsMinVersion is the first Claude Code build the Arc mod was verified on. At or above it the
+// mod reports usage and the statusLine wrapper is retired; below it the wrapper stays.
+var claudeModsMinVersion = [3]int{2, 1, 287}
+
+const claudeVersionTimeout = 10 * time.Second
+
+// claudeVersionOutput is a var so tests can stand in for the installed claude.
+var claudeVersionOutput = func() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), claudeVersionTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "claude", "--version").Output()
+	return string(out), err
+}
+
+var claudeVersionRe = regexp.MustCompile(`^\s*(\d+)\.(\d+)\.(\d+)`)
+
+func parseClaudeVersion(s string) ([3]int, bool) {
+	m := claudeVersionRe.FindStringSubmatch(s)
+	if m == nil {
+		return [3]int{}, false
+	}
+	var v [3]int
+	for i := range v {
+		n, err := strconv.Atoi(m[i+1])
+		if err != nil {
+			return [3]int{}, false
+		}
+		v[i] = n
+	}
+	return v, true
+}
+
+// claudeSupportsMods reports whether the installed claude loads the Arc mod. No claude, or a version
+// that does not parse, keeps the wrapper: a dark usage readout is worse than a wrapped status line.
+func claudeSupportsMods() bool {
+	out, err := claudeVersionOutput()
+	if err != nil {
+		return false
+	}
+	v, ok := parseClaudeVersion(out)
+	if !ok {
+		return false
+	}
+	for i := range v {
+		if v[i] != claudeModsMinVersion[i] {
+			return v[i] > claudeModsMinVersion[i]
+		}
+	}
+	return true
+}
+
+// unwrapStatusLine returns a copy of existing with Arc's statusLine wrapper removed: the user's original
+// command restored, or statusLine dropped when Arc had added it with none. A statusLine Arc does not
+// manage is left alone.
+func unwrapStatusLine(existing map[string]any) map[string]any {
+	out := map[string]any{}
+	if b, err := json.Marshal(existing); err == nil {
+		_ = json.Unmarshal(b, &out)
+	}
+	sl, _ := out["statusLine"].(map[string]any)
+	cur, _ := sl["command"].(string)
+	if !isManagedStatusLine(cur) {
+		return out
+	}
+	if inner := recoverInner(cur); inner != "" {
+		sl["command"] = inner
+	} else {
+		delete(out, "statusLine")
+	}
+	return out
+}
+
+// configIsHealthy reports whether existing already carries Arc's full managed hook set and, unless
+// modsSupported (then no wrapper at all), managed statusLine, all naming wantExe — the path this
+// install would write. When true the install skips its
 // rewrite, so a working config is not rewritten every launch. A config naming any other binary (a
 // versioned build a rebuild will delete, or one already gone) returns false and the caller rewrites it.
-func configIsHealthy(existing map[string]any, wantExe, modDir string) bool {
+func configIsHealthy(existing map[string]any, wantExe, modDir string, modsSupported bool) bool {
 	hooks, _ := existing["hooks"].(map[string]any)
 	if hooks == nil {
 		return false
@@ -464,10 +541,10 @@ func configIsHealthy(existing map[string]any, wantExe, modDir string) bool {
 		return false
 	}
 	sl, _ := existing["statusLine"].(map[string]any)
-	if sl == nil {
-		return false
-	}
 	slc, _ := sl["command"].(string)
+	if modsSupported {
+		return !isManagedStatusLine(slc)
+	}
 	if !isManagedStatusLine(slc) {
 		return false
 	}
@@ -828,11 +905,16 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if configIsHealthy(existing, wsh, modDir) {
+	modsSupported := claudeSupportsMods()
+	if configIsHealthy(existing, wsh, modDir, modsSupported) {
 		fmt.Printf("Arc agent hooks already installed in %s (skipping)\n", path)
 	} else {
 		merged := mergeAgentHooks(existing, wsh)
-		merged = mergeStatusLine(merged, wsh)
+		if modsSupported {
+			merged = unwrapStatusLine(merged)
+		} else {
+			merged = mergeStatusLine(merged, wsh)
+		}
 		merged = mergeClaudePluginDirs(merged, modDir)
 		out, err := json.MarshalIndent(merged, "", "  ")
 		if err != nil {
