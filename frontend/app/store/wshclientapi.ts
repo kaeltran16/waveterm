@@ -132,6 +132,12 @@ export class RpcApiType {
         return client.wshRpcCall("cancelrun", data, opts);
     }
 
+    // command "canvasserve" [call]
+    CanvasServeCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<string> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "canvasserve", data, opts);
+        return client.wshRpcCall("canvasserve", data, opts);
+    }
+
     // command "consult" [responsestream]
 	ConsultCommand(client: WshClient, data: CommandConsultData, opts?: RpcOpts): AsyncGenerator<ConsultChunk, void, boolean> {
         if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "consult", data, opts);
