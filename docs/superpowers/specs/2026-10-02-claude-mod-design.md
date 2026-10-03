@@ -87,6 +87,22 @@ Decision (2026-10-02): **the cockpit card is the answer surface for Claude agent
 answers the call itself, so Claude's own dialog does not open. The API cannot cancel a dialog once
 `next(e)` opened it, so the two cannot race.
 
+Amended (2026-10-04): **the terminal answers too.** The user is sometimes in the agent's terminal
+rather than the cockpit, so the hook also draws a picker there (`hooks/ask-band.tsx`) and takes
+whichever answer comes first. The mod draws and closes the picker itself, so it can race the card
+where Claude's dialog could not. It opens in a focused pane (`$.ui.open` with `focus` and
+`closeOnEscape`), where the arrows and Enter pick as in Claude's dialog, the first option holds
+the ring, a digit presses its option, and Esc dismisses the question. A pane a mod opens unasked
+is not drawn below 144 terminal columns (`isPlaced: false`); the picker then moves to the band
+above the prompt (`ui.render` on `AbovePrompt`), where a mod cannot take the keyboard, so a bare
+digit in an empty composer is the pick. A multi-select marks options and confirms with `Done`;
+`Other` is an `Input`. Previews stay on the card. A picker answer ends the `wsh ask --wait`
+stream, which kills the child, and the server's waiter cancel takes the card down; a card answer
+clears the picker state and closes the pane.
+The picker's steps are pure (`ask-core.ts`, vitest); the race was checked once with
+`claude plugin test` on a scratch copy (the runner and vitest both claim `*.test.ts`, so no
+engine-level test is checked in). Steps 2 to 5 below describe the card side, unchanged.
+
 1. **Questions the card cannot show go native.** Any question with `kind` `text` or `number`, or with
    no options, means the whole call goes to `next(e)` (the current path, unchanged).
 2. **Wait on the card.** `$.process.spawn({ argv: [wsh, 'ask', '--wait'], input: <questions json> })`
