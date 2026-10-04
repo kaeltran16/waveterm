@@ -18,12 +18,17 @@ import {
 } from "./ask-core";
 import type { AskReply } from "./ask-core";
 import type { Picker } from "../types";
+import { idleArgs } from "./status-core";
 import { usageArgs } from "./usage-core";
 
 const WSH = "__WSH_PATH__";
 
 // set at session.start; a reload runs register and session.start again, so it never goes stale
 let active = false;
+
+// the session's transcript, as its latest prompt named it; a status report carries it so a cockpit
+// that replays the report still follows the file. null after a reload until the next prompt
+let transcriptPath: string | null = null;
 
 // the pane the picker opens in: focused, so the arrows and Enter pick as in claude's own dialog
 const ASK_PANE = "arc-ask";
@@ -52,6 +57,27 @@ export const register: Register = (on) => {
             } catch (err) {
                 // a dropped measurement self-heals on the next one, as a dropped statusLine publish did
                 $.ui.log(`arc: wsh agentstatus --usage failed: ${String(err)}`, { to: "debug" });
+            }
+        }
+        return next(e);
+    });
+
+    on("classic.UserPromptSubmit", ($, e, next) => {
+        transcriptPath = e.transcript_path || null;
+        return next(e);
+    });
+
+    on("turn.complete", async ($, e, next) => {
+        const args = active ? idleArgs(e, transcriptPath) : null;
+        if (args) {
+            try {
+                const ran = await $.process.run([WSH, ...args]);
+                if (ran.exitCode !== 0) {
+                    $.ui.log(`arc: wsh agentstatus --state idle exited ${ran.exitCode}: ${ran.stderr.trim()}`, { to: "debug" });
+                }
+            } catch (err) {
+                // the idle notification still corrects the cockpit, later
+                $.ui.log(`arc: wsh agentstatus --state idle failed: ${String(err)}`, { to: "debug" });
             }
         }
         return next(e);

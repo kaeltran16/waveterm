@@ -71,6 +71,18 @@ awaited, then returns `next(e)`:
 - A failed `wsh` call is logged with `$.ui.log(..., { to: "debug" })` and dropped; the next
   measurement self-heals, as a dropped statusLine publish does today.
 
+### Idle after a turn with no answer (`turn.complete`)
+
+Added 2026-10-04. `wsh agent-hook` reports idle from the `Stop` settings hook, which Claude does not
+run for a turn that ended without an answer (an interrupt, an API error, a refusal), so the cockpit
+read working until the idle notification. The mod's `turn.complete` hook reports
+`wsh agentstatus --state idle --agent claude` for a main-loop turn whose `reason` is not `answer`
+(`hooks/status-core.ts`, vitest), with the transcript path the latest `classic.UserPromptSubmit`
+named. Answered turns stay with `Stop`; everything else `agent-hook` reports is unchanged (see Out
+of scope). Probed 2026-10-04 on 2.1.289 with an interactive session in a pty and a stub `wsh`: an
+Esc interrupt ran no `Stop` hook and the mod made the idle call; an answered turn ran `Stop` and the
+mod made none. Not yet watched in the cockpit: the agent row turning idle on Esc.
+
 ### Retiring the statusLine wrapper
 
 Once the mod reports usage, `mergeStatusLine` stops wrapping and unwraps an existing wrapper with
