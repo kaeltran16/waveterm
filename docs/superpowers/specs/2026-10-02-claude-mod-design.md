@@ -83,6 +83,29 @@ of scope). Probed 2026-10-04 on 2.1.289 with an interactive session in a pty and
 Esc interrupt ran no `Stop` hook and the mod made the idle call; an answered turn ran `Stop` and the
 mod made none. Not yet watched in the cockpit: the agent row turning idle on Esc.
 
+### Prompts from the cockpit (`wsh agentctl`)
+
+Added 2026-10-04. The engine woke a lead by pasting into its terminal and pressing Enter
+(`typeWake`), which lands in the composer the human may be typing in. The mod now holds
+`wsh agentctl` from `session.start` for the session's life: a stream RPC (`AgentControlCommand`)
+that registers the block in `pkg/agentctl` and prints each prompt as one JSON line `{"text"}`. The
+mod runs a line as typing it would (`hooks/control-core.ts`, vitest): a leading slash is
+`$.command.run` (the handoff `/compact`), anything else `$.prompt.submit` with `asUser: true`, so
+the model reads the text bare and not as "The arc plugin sent a message".
+
+`typeWake` sends over the stream when the block has one and its latest state is at the prompt
+(`overStream`), and types otherwise: no stream (pi, an older Claude, a mod that failed to load), or
+a working session, since the mod's prompt waits for the running turn to end where typed text
+reaches the turn itself, which a `dag tell` to a busy worker relies on. The retry's Enter alone is
+dropped for a block with a stream: it would submit the human's draft. The waker is otherwise
+unchanged; it still confirms a wake on the working report.
+
+Probed 2026-10-04 on 2.1.289, the real mod in a pty against a stub `wsh` whose `agentctl` streamed
+lines from a file: the prompt ran with `UserPromptSubmit` and `Stop` fired and the prompt text bare,
+`/compact` ran with `PreCompact` (`manual`), and a draft typed in the composer beforehand was still
+there afterwards. Not covered: the stream RPC end to end against a real `wavesrv`, and
+`steerRunLead` (a child run's notice to its parent lead), which still types.
+
 ### Retiring the statusLine wrapper
 
 Once the mod reports usage, `mergeStatusLine` stops wrapping and unwraps an existing wrapper with

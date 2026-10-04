@@ -38,6 +38,11 @@ func AgentAskClearCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) 
 	return err
 }
 
+// command "agentcontrol", wshserver.AgentControlCommand
+func AgentControlCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentControlData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.AgentControlMsg] {
+	return sendRpcRequestResponseStreamHelper[wshrpc.AgentControlMsg](w, "agentcontrol", data, opts)
+}
+
 // command "agentsyncadopt", wshserver.AgentSyncAdoptCommand
 func AgentSyncAdoptCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncAdoptData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncAdoptRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncAdoptRtnData](w, "agentsyncadopt", data, opts)

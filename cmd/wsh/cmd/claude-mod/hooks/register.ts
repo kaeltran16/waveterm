@@ -2,7 +2,7 @@
 // substituted and lists that folder in CLAUDE_CODE_PLUGIN_DIRS, so every claude launch loads it.
 // outside an Arc block every hook passes straight through.
 import { atom, read, update } from "claude-code";
-import type { Register } from "claude-code";
+import type { EngineInterface, Register } from "claude-code";
 import { drawAskPicker, drawNoQuestion } from "./ask-band";
 import {
     answersFor,
@@ -18,6 +18,7 @@ import {
 } from "./ask-core";
 import type { AskReply } from "./ask-core";
 import type { Picker } from "../types";
+import { controlText, deliver, takeLines } from "./control-core";
 import { idleArgs } from "./status-core";
 import { usageArgs } from "./usage-core";
 
@@ -40,10 +41,55 @@ const picker = atom({ plugin: "arc", key: "picker" } as const, null);
 // dispatch it served
 let settlePicker: ((reply: AskReply) => void) | null = null;
 
+// true while the cockpit's prompt stream is held, so a second session.start (a /clear) opens no second one
+let listening = false;
+
+// holds `wsh agentctl` for the session's life and runs each prompt the cockpit sends, so the engine need
+// not type into the terminal. when the stream ends the engine goes back to typing
+async function listenToCockpit($: EngineInterface) {
+    if (listening) {
+        return;
+    }
+    listening = true;
+    const session = {
+        // asUser: the model reads the engine's or the person's words bare, not as a note from a plugin
+        submit: (text: string) => $.prompt.submit({ text, asUser: true }),
+        command: (name: string, args: string) => $.command.run({ command: name, args }),
+    };
+    let buffered = "";
+    try {
+        for await (const chunk of $.process.spawn({ argv: [WSH, "agentctl"] })) {
+            if (chunk.stream !== "stdout") {
+                continue;
+            }
+            const taken = takeLines(buffered + chunk.text);
+            buffered = taken.rest;
+            for (const line of taken.lines) {
+                const text = controlText(line);
+                if (text === null) {
+                    continue;
+                }
+                // not awaited: a prompt resolves only when its turn starts, and the next line may be due first
+                void deliver(session, text).catch((err) =>
+                    $.ui.log(`arc: running the cockpit's prompt failed: ${String(err)}`, { to: "debug" })
+                );
+            }
+        }
+    } catch (err) {
+        $.ui.log(`arc: wsh agentctl failed: ${String(err)}`, { to: "debug" });
+    } finally {
+        listening = false;
+    }
+}
+
 export const register: Register = (on) => {
     on("session.start", async ($, e, next) => {
         active = Boolean((await $.env.get("WAVETERM_BLOCKID")) && (await $.env.get("WAVETERM_JWT")));
-        return next(e);
+        const started = await next(e);
+        if (active) {
+            void listenToCockpit($);
+        }
+        return started;
     });
 
     on("session.measure", async ($, e, next) => {
