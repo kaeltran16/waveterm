@@ -132,7 +132,7 @@ describe("eventKindTitle", () => {
     });
 
     it("titles every kind the engine writes, never the raw kind", () => {
-        for (const kind of ["land-held", "stage-session-started", "plan-reviewed"]) {
+        for (const kind of ["land-held", "landed", "stage-session-started", "plan-reviewed"]) {
             expect(eventKindTitle(kind)).not.toBe(kind);
         }
     });

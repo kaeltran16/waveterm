@@ -153,6 +153,7 @@ const KIND_TITLE: Record<string, string> = {
     "task-amended": "Lead amended a task",
     "task-lead-told": "Lead told a worker",
     "land-held": "Land held",
+    landed: "Run landed",
     "stage-session-started": "Judging session started",
     "plan-reviewed": "Plan reviewed",
 };
@@ -217,6 +218,7 @@ const KIND_TONE: Record<string, string> = {
     "task-told": "text-muted",
     "task-verify-started": "text-muted",
     "land-held": "text-warning",
+    landed: "text-success",
     "stage-session-started": "text-muted",
     "plan-reviewed": "text-muted",
 };

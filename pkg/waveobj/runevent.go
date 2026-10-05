@@ -110,6 +110,10 @@ const (
 	// records one, so a retry that is held again shows its new reason.
 	RunEventKindLandHeld = "land-held"
 
+	// landed: a finished run's branch was merged back into its base ("commit", "title": the merge's subject).
+	// Recorded once, since a landed run is never landed again.
+	RunEventKindLanded = "landed"
+
 	// the review loop and the lead's steering (spec 2026-09-23-orchestrator-review-and-lead-link):
 	//   task-review-started  a reviewer was spawned for a finished task ("taskid", "runid")
 	//   task-review-passed   "taskid", "note", "downstream"
