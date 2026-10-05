@@ -433,8 +433,9 @@ func walkOpencodeFiles(root string, cutoff time.Time) []scanFile {
 	return files
 }
 
-// parseFiles reads + parses each transcript concurrently, bounded to NumCPU workers, and returns
-// the concatenated (un-deduped) records. The all-time corpus is GBs across thousands of files, and
+// parseFiles reads + parses each transcript concurrently (through parseCache, so an unchanged file
+// is not read again), bounded to NumCPU workers, and returns the concatenated records, each file's
+// cut to its scanFile cutoff and not deduped across files. The all-time corpus is GBs across thousands of files, and
 // a single-threaded json.Unmarshal per line dominated load time; fanning the per-file parse across
 // cores is the bulk of the speedup. Result order is unspecified — callers dedupe + bucket, both
 // order-independent. Codex files are read whole (the model lives on a turn_context line, so they
@@ -455,37 +456,80 @@ func parseFiles(files []scanFile) []Record {
 		go func(i int, f scanFile) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			switch f.kind {
-			case scanCodex:
-				results[i] = extractCodex(readLines(f.path))
-			case scanOpencode:
-				data, err := os.ReadFile(f.path)
-				if err != nil {
-					return
-				}
-				rec, ok := extractOpencode(data)
-				if !ok {
-					return
-				}
-				if f.cutoff.IsZero() || !rec.TS.Before(f.cutoff) {
-					results[i] = []Record{rec}
-				}
-			case scanPi:
-				file, err := pisession.Read(f.path)
-				if err != nil {
-					return
-				}
-				results[i] = extractPi(file, f.cutoff)
-			default:
-				results[i] = extractClaude(readClaudeLines(f.path))
-			}
+			results[i] = cachedFileRecords(f)
 		}(i, f)
 	}
 	wg.Wait()
 	var records []Record
-	for _, r := range results {
-		records = append(records, r...)
+	for i, recs := range results {
+		cutoff := files[i].cutoff
+		for _, r := range recs {
+			if cutoff.IsZero() || !r.TS.Before(cutoff) {
+				records = append(records, r)
+			}
+		}
 	}
+	return records
+}
+
+// parseFile reads one transcript into its records, whatever their age: the window is applied by the
+// caller, so one parse serves every window. Records are deduped within the file, which a later
+// corpus-wide dedupe leaves unchanged (it keeps the largest output per ID either way) and which
+// keeps the streaming snapshots out of the cache.
+func parseFile(f scanFile) []Record {
+	switch f.kind {
+	case scanCodex:
+		return extractCodex(readLines(f.path))
+	case scanOpencode:
+		data, err := os.ReadFile(f.path)
+		if err != nil {
+			return nil
+		}
+		rec, ok := extractOpencode(data)
+		if !ok {
+			return nil
+		}
+		return []Record{rec}
+	case scanPi:
+		file, err := pisession.Read(f.path)
+		if err != nil {
+			return nil
+		}
+		return extractPi(file, time.Time{})
+	default:
+		return dedupe(extractClaude(readClaudeLines(f.path)))
+	}
+}
+
+// fileParse is one file's parsed records and the modtime and size they were read at.
+type fileParse struct {
+	mod     time.Time
+	size    int64
+	records []Record
+}
+
+// parseCache holds each scanned file's records by path. Reading and parsing the transcripts is nearly
+// all of a scan and most of them are finished sessions that never change, so a repeat scan re-reads
+// only the files written since the last one.
+// ponytail: unbounded, an all-time scan keeps every record of the corpus until wavesrv exits; evict
+// entries no recent scan read if its memory matters.
+var parseCache sync.Map
+
+// cachedFileRecords returns f's records, parsing the file only when its modtime or size differs from
+// the cached parse. The returned slice is shared with the cache and must not be modified.
+func cachedFileRecords(f scanFile) []Record {
+	info, err := os.Stat(f.path)
+	if err != nil {
+		parseCache.Delete(f.path)
+		return nil
+	}
+	if v, ok := parseCache.Load(f.path); ok {
+		if c := v.(fileParse); c.size == info.Size() && c.mod.Equal(info.ModTime()) {
+			return c.records
+		}
+	}
+	records := parseFile(f)
+	parseCache.Store(f.path, fileParse{mod: info.ModTime(), size: info.Size(), records: records})
 	return records
 }
 

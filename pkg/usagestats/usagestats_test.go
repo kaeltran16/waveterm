@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -729,5 +730,47 @@ func TestExtractClaude_SkipsPrintModeRecords(t *testing.T) {
 	interactive := `{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","entrypoint":"cli","message":{"model":"m",` + usage + `}}`
 	if got := extractClaude([]string{interactive}); len(got) != 1 {
 		t.Fatalf("interactive usage should be counted, got %+v", got)
+	}
+}
+
+// parseFiles re-reads a file only when its modtime or size changed: an unchanged file is served from
+// the cache, and one that grew is parsed again.
+func TestParseFilesReparsesOnlyChangedFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	turn := func(input int) string {
+		return fmt.Sprintf(`{"type":"assistant","timestamp":"2026-06-26T10:00:00Z","message":{"model":"claude-haiku-4-5","usage":{"input_tokens":%d}}}`+"\n", input)
+	}
+	inputs := func() []int {
+		var out []int
+		for _, r := range parseFiles([]scanFile{{path: path, kind: scanClaude}}) {
+			out = append(out, r.Input)
+		}
+		return out
+	}
+	if err := os.WriteFile(path, []byte(turn(1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := inputs(); !slices.Equal(got, []int{1}) {
+		t.Fatalf("first parse = %v, want [1]", got)
+	}
+	// same size, same modtime, different content: only a cached parse still answers 1
+	if err := os.WriteFile(path, []byte(turn(2)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if got := inputs(); !slices.Equal(got, []int{1}) {
+		t.Fatalf("unchanged file = %v, want the cached [1]", got)
+	}
+	if err := os.WriteFile(path, []byte(turn(2)+turn(3)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := inputs(); !slices.Equal(got, []int{2, 3}) {
+		t.Fatalf("grown file = %v, want [2 3]", got)
 	}
 }
