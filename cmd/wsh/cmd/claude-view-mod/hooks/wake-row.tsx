@@ -6,7 +6,7 @@ import { commandFits, EVENT_INDENT, recapLine, wakeSummary } from "./wake-core";
 
 type RowElements = Pick<Elements["terminal"], "Box" | "Text">;
 
-// ansi names, not hex: Arc derives the terminal's palette from the cockpit theme
+// claude draws a colour name in an rgb of its own, so these do not follow the cockpit theme
 const MARKS: Record<WakeKind, { glyph: string; color: string }> = {
     alert: { glyph: "!", color: "red" },
     note: { glyph: "i", color: "blue" },
