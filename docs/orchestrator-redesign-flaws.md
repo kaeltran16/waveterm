@@ -115,7 +115,8 @@ cleanup debt is already real, not just a risk at the merge gate.
 
 > **F11–F17 are mirrored into `docs/open-issues.md` §2 as of 2026-09-04**, re-verified against the
 > code. They had lived only here since Capture 2, which is why the consolidated backlog read as
-> though orchestration were closed. File new rows in both places.
+> though orchestration were closed. File new rows in both places. (2026-10-05: the closed rows were
+> pruned from `docs/open-issues.md`; only F14 is still listed there.)
 
 ### Resolution — 2026-09-04
 
