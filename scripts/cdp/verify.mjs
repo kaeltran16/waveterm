@@ -58,7 +58,8 @@ for (const scenario of chosen) {
         try {
             if (ctx !== undefined) await scenario.teardown?.(h, ctx);
         } catch (e) {
-            console.error(`teardown failed for ${scenario.name}: ${e?.message ?? e}`);
+            // a leaked fixture fails the run: the next scenario, or the next run, starts on what this one left
+            results.at(-1).steps.push({ step: "teardown", ok: false, detail: String(e?.message ?? e) });
         }
         // a scenario that drove width leaves the override where it put it; restore the pin for the next one
         await h.cdp("Emulation.setDeviceMetricsOverride", VERIFY_VIEWPORT).catch(() => {});

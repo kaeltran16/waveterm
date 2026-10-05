@@ -295,7 +295,7 @@ export function detailOf<T>(event: RunEvent): T | undefined {
 
 export type PlanReviewPick = { taskid: string; model: string; reason: string };
 
-// planReviewPicks reads the model picks a passed plan review applied, as its timeline row lists them; a malformed
+// planReviewPicks reads the model picks a plan review's verdict applied, as its timeline row lists them; a malformed
 // entry is dropped rather than shown half-read.
 export function planReviewPicks(detail: unknown): PlanReviewPick[] {
     const d = detailOf<{ picks?: unknown }>({ detail } as RunEvent);

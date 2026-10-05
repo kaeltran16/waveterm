@@ -453,14 +453,18 @@ wsh jarvis dag planreview pass "<summary>" --pick "t-2=sonnet: copies the existi
 ```
 
 The shape is `t-N=<sonnet|lead>: <reason>`. `wsh` refuses anything else before sending it (`Task 2=sonnet`,
-`t-2 sonnet`, a missing reason), and `--pick` goes with `pass` only. The server refuses the pass, naming the task,
+`t-2 sonnet`, a missing reason). The server refuses the pass, naming the task,
 for a missing pick, a pick for a task with a Model line, an unknown or repeated task, an empty reason, a reason of
 more than one line or over 200 characters, and a `sonnet` pick when the claude harness cannot run a worker here
 (it says to pick `lead`). The reviewer then resends. A run not on Reviewer picks refuses any pick.
 
-The picks are applied in the same write that passes the review, so no worker starts without its pick. `sonnet` puts
-the task on Claude Code · `sonnet`; `lead` leaves it on the lead's route. Tasks the review did not pick for (a plan
-accepted after a failed review, a fix round's tasks) run on the lead's route unless they have a Model line.
+A fail carries picks the same way, and may leave tasks out; those stay on the lead's route. The picks are applied
+to the held tasks at once, so the banner shows them while the review is failed. A resubmit replaces the tasks and
+drops them, and `planreview accept` dispatches on them. `accept` itself takes no `--pick`.
+
+The picks are applied in the same write that records the verdict, so no worker starts without its pick. `sonnet` puts
+the task on Claude Code · `sonnet`; `lead` leaves it on the lead's route. Tasks the review did not pick for (a task a
+failed review left out, a fix round's tasks) run on the lead's route unless they have a Model line.
 
 **Where picks show.** The run's timeline lists them under the **Plan reviewed** row, one `t-N · <model> · <reason>`
 line each. A task card whose model differs from the run's workers model carries a tag, `<model> · plan`,
@@ -999,7 +1003,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag sendback <task> ["<guidance>"]` | one more round for a review-failed task, with your guidance beside the findings |
 | `dag approve <task>` | overrule a failed review; the task lands as it is |
 | `dag review <pass\|fail> "<note>" [--downstream "<note>"] [--for <task ids>] [--unverified "<what, why>"]` | a reviewer's verdict; ends the reviewer's session |
-| `dag planreview <pass\|fail> "<text>" [--pick "t-N=<sonnet\|lead>: <reason>" ...]` | the plan reviewer's verdict; ends its session. On a Reviewer picks run a pass carries one `--pick` per task without a Model line ([Model picks](#model-picks)) |
+| `dag planreview <pass\|fail> "<text>" [--pick "t-N=<sonnet\|lead>: <reason>" ...]` | the plan reviewer's verdict; ends its session. On a Reviewer picks run a pass carries one `--pick` per task without a Model line, and a fail the ones it can judge ([Model picks](#model-picks)) |
 | `dag planreview accept "<the human's reason>"` | as the lead, proceed past a failed plan review on the human's word |
 | `dag final pass "<summary>" [--unverified "<what, why>"]` / `dag final fail "<defects>"` | the final verifier's verdict; ends its session |
 | `dag retry <task>` / `dag skip <task>` | retry or skip a failed or stalled task |
