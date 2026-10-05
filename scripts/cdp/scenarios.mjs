@@ -7983,7 +7983,14 @@ const FS_READ = `(() => {
               }))
             : [],
         caption: link ? flat(link.parentElement) : null,
-        dock: dock ? { text: flat(dock), disabled: dock.disabled, accent: dock.classList.contains("border-accent") } : null,
+        dock: dock
+            ? {
+                  text: flat(dock),
+                  disabled: dock.disabled,
+                  accent: dock.classList.contains("border-accent"),
+                  focused: document.activeElement === dock,
+              }
+            : null,
         viewer,
     };
 })()`;
@@ -8015,6 +8022,8 @@ const finalShotsClick = (h, expr) =>
     h.ev(`(() => {
         const el = ${expr};
         if (!el) return false;
+        // a real click focuses its button, and the viewer hands focus back to whatever held it
+        el.focus();
         el.click();
         return true;
     })()`);
@@ -8199,7 +8208,11 @@ const finalShotsScenario = {
         s = await finalShotsUntil(h, (x) => x.row?.text.includes("passed · 5 scenarios") === true);
         rec(
             "8a. passed: passed · 5 scenarios, 16 shots, a plain dock",
-            s?.row?.text.endsWith("16 shots") && s.dock?.text === "Screenshots · 16" && !s.dock.accent && !s.dock.disabled,
+            s?.row?.text.includes("passed · 5 scenarios") &&
+                s.row.text.endsWith("16 shots") &&
+                s.dock?.text === "Screenshots · 16" &&
+                !s.dock.accent &&
+                !s.dock.disabled,
             JSON.stringify({ row: s?.row, dock: s?.dock })
         );
         await h.shot("cdp-shots/final-shots-8a-passed.png");
@@ -8221,7 +8234,8 @@ const finalShotsScenario = {
         v = s?.viewer;
         rec(
             "8c. a plain PNG listing: passed · 3 screenshots, hollow-dot entries in the viewer, no Steps button",
-            plainRow.row?.text.includes("3 shots") &&
+            plainRow.row?.text.includes("passed · 3 screenshots") &&
+                plainRow.row.text.includes("3 shots") &&
                 plainRow.dock?.text === "Screenshots · 3" &&
                 v != null &&
                 JSON.stringify(v.tabs.map((t) => t.text)) === JSON.stringify(FINAL_SHOTS_PLAIN.map((n) => `${n}.png`)) &&
@@ -8240,8 +8254,8 @@ const finalShotsScenario = {
         await polishNap(600);
         s = await h.ev(FS_READ);
         rec(
-            "9. Esc closes the viewer and leaves the run sheet open",
-            s?.viewer == null && s.sheet === true && s.dock != null,
+            "9. Esc closes the viewer, leaves the run sheet open and hands focus back to the dock button",
+            s?.viewer == null && s.sheet === true && s.dock?.focused === true,
             JSON.stringify({ viewer: s?.viewer != null, sheet: s?.sheet, dock: s?.dock })
         );
         await h.shot("cdp-shots/final-shots-9-closed.png");

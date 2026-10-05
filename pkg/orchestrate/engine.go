@@ -383,7 +383,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			// a worker goes straight to done only when it reported no commit to review (DeriveTaskStates)
 			unreviewed := ""
 			if taskActive(prevStates[t.ID]) {
-				unreviewed = noCommitLine(taskID, runs[t.RunID])
+				unreviewed = noCommitLine(taskID, runs[t.RunID], len(unfinishedDescendants(g, taskID)) == 0)
 			}
 			afterCommit = append(afterCommit, func() {
 				publishDagEvent(DagEventChildDone, g, taskID)

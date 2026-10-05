@@ -11,6 +11,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -176,11 +177,17 @@ func flatLine(s string) string {
 
 // noCommitLine tells the lead a worker finished with nothing for review to judge: it did nothing, or it committed and
 // never passed the commit to `wsh jarvis complete`. Either way the task reads as done.
-func noCommitLine(taskID string, run *waveobj.Run) string {
+// forLead adds its For later tasks: with no unfinished task after it nothing reads the section at dispatch, so it
+// is the lead's, as a passed review's is.
+func noCommitLine(taskID string, run *waveobj.Run, forLead bool) string {
 	line := taskID + " finished without reporting a commit"
+	lines := leadSectionLines(taskID, run)
+	if rep, _ := workerReportOf(run); forLead && rep.ForLater != "" {
+		lines = append(lines, fmt.Sprintf("%s %s: %s", taskID, sectionHeading(jarvis.ReportKeyForLater), capSection(taskID, jarvis.ReportKeyForLater, rep.ForLater)))
+	}
 	// a wake line is typed as one, so the sections are flattened and joined
 	var parts []string
-	for _, l := range leadSectionLines(taskID, run) {
+	for _, l := range lines {
 		parts = append(parts, flatLine(l))
 	}
 	if len(parts) > 0 {

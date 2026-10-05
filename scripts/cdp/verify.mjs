@@ -70,7 +70,7 @@ h.close();
 
 console.log(formatResults(results));
 mkdirSync(SHOTS_DIR, { recursive: true });
-writeFileSync(`${SHOTS_DIR}/index.html`, contactSheetHtml(h.shots));
+writeFileSync(`${SHOTS_DIR}/index.html`, contactSheetHtml(h.shots, SHOTS_DIR));
 writeFileSync(`${SHOTS_DIR}/shots.json`, JSON.stringify(shotsManifest(results, shotsByScenario), null, 2));
 console.log(`\ncontact sheet: ${SHOTS_DIR}/index.html`);
 process.exit(exitCode(results));

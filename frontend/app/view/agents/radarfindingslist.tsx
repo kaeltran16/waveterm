@@ -73,7 +73,9 @@ export function RadarFindingsList({
     const toggle = (g: RadarGroup) =>
         setOpen((prev) => {
             const next = new Set(prev);
-            next.has(g) ? next.delete(g) : next.add(g);
+            if (!next.delete(g)) {
+                next.add(g);
+            }
             return next;
         });
     // publish only the *rendered* order (open groups) for global j/k list-nav, so the cursor never lands

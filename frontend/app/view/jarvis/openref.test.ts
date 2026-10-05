@@ -263,7 +263,6 @@ describe("memory note landing", () => {
             expect(globalStore.get(peekItemAtom)).toEqual({
                 target: { kind: "note", noteId: "n1" },
                 status: "ready",
-                from: "closed",
             });
             expect(globalStore.get(petPeekOpenAtom)).toBe(true);
             expect(rpc.ReadVaultNoteCommand).toHaveBeenLastCalledWith({}, { id: "n1" });
@@ -692,7 +691,7 @@ describe("peek", () => {
                 expect(await peekTarget(model, c.target)).toEqual({ ok: true });
 
                 expect(selections(model)).toEqual(before);
-                expect(globalStore.get(peekItemAtom)).toEqual({ target: c.shown, status: "ready", from });
+                expect(globalStore.get(peekItemAtom)).toEqual({ target: c.shown, status: "ready" });
                 expect(globalStore.get(petPeekOpenAtom)).toBe(true);
                 expect(pushToast).not.toHaveBeenCalled();
             });
@@ -733,7 +732,6 @@ describe("peek", () => {
         expect(globalStore.get(peekItemAtom)).toEqual({
             target: { kind: "run", runId: "r1" },
             status: "loading",
-            from: "closed",
         });
         expect(globalStore.get(petPeekOpenAtom)).toBe(true);
         slow.resolve({ oid: "r1", channeloid: "c1" });
@@ -752,7 +750,7 @@ describe("peek", () => {
 
     it("a failed peek over an item already shown puts that item back", async () => {
         const model = makeModel(["t1"]);
-        const shown: PeekItem = { target: { kind: "agent", tabId: "t1" }, status: "ready", from: "hub" };
+        const shown: PeekItem = { target: { kind: "agent", tabId: "t1" }, status: "ready" };
         globalStore.set(peekItemAtom, shown);
         globalStore.set(petPeekOpenAtom, true);
         await peekTarget(model, { kind: "run", runId: "r-gone" });
@@ -775,7 +773,6 @@ describe("peek", () => {
         expect(globalStore.get(peekItemAtom)).toEqual({
             target: { kind: "agent", tabId: "t1" },
             status: "ready",
-            from: "closed",
         });
         expect(globalStore.get(petPeekOpenAtom)).toBe(true);
         expect(pushToast).not.toHaveBeenCalled();

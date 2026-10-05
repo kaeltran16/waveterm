@@ -681,7 +681,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const entranceIdsKey = entranceIds.join(",");
     useLayoutEffect(() => {
         entranceRef.current = computeEntrances(entranceRef.current, entranceKey, entranceIds).state;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [entranceIdsKey, entranceKey]);
 
     const deltaWindow = useMemo(() => capRegion(model_?.delta ?? [], DELTA_CAP, behindOpen), [model_, behindOpen]);
