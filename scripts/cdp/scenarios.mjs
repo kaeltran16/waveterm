@@ -6860,7 +6860,7 @@ const DOC_REVIEW_TAG_TITLE = "Open the spec review";
 const DOC_REVIEW_CHIP = "Spec review";
 const DOC_REVIEW_PANEL = `document.querySelector("[data-doc-review]")?.closest('[role="dialog"]')`;
 
-function docReviewRoster(runId, docPath) {
+function docReviewRoster(runId, docPath, decisions = DOC_REVIEW_DECISIONS) {
     return [
         {
             id: DOC_REVIEW_WORKER_ID,
@@ -6892,7 +6892,7 @@ function docReviewRoster(runId, docPath) {
                 questions: [
                     {
                         header: DOC_REVIEW_CHIP,
-                        question: [docPath, ...DOC_REVIEW_DECISIONS.map((d) => `- ${d}`)].join("\n"),
+                        question: [docPath, ...decisions.map((d) => `- ${d}`)].join("\n"),
                         options: [{ label: "Approve" }, { label: "Request changes" }],
                     },
                 ],
@@ -7081,6 +7081,601 @@ const docReview = {
     },
     async teardown(h, ctx) {
         await teardownFixtureRun(h, ctx, "doc-review");
+    },
+};
+
+// Quoting passages of the reviewed document (docs/superpowers/plans/2026-10-05-highlight-to-quote.md): a selection
+// in the document opens a note field, notes collect in the rail and travel with either answer. Same roster as
+// doc-review, on the mockup's document and decisions. Selections, typing and keys are made in the page, since CDP
+// input does not reliably reach the WebView. Nothing is delivered: the fixture ask has no live block, so a send
+// shows the cockpit's own sent lock.
+const DOC_NOTES_HEADING = "Highlight-to-quote in the review dialog";
+const DOC_NOTES_FIELD = "A note field opens under the selection";
+const DOC_NOTES_STAYS = "The passage stays highlighted in the document until its note is removed.";
+const DOC_NOTES_REWORD = "A note can be reworded on the right afterwards.";
+const DOC_NOTES_ORDER = "in document order";
+const DOC_NOTES_CUT = "A long passage is cut to its first and last lines.";
+const DOC_NOTES_KEYBOARD = "Selecting with the keyboard";
+const DOC_NOTES_LAST = "The last round ends when every note is applied.";
+// enough one-line paragraphs after the mockup's text that the document pane scrolls
+const DOC_NOTES_FILLER_ROUNDS = 16;
+const DOC_NOTES_SPEC = [
+    `# ${DOC_NOTES_HEADING}`,
+    "## Goal",
+    "Request changes is free text that points at nothing, so a change request has to describe the passage it means. Selecting a passage in the document and writing a note on it lets the answer carry the passage with it.",
+    "## Gesture",
+    `Select text in the document. ${DOC_NOTES_FIELD}: Enter adds the passage and what you wrote to your notes on the right, under the decisions, Esc drops it. ${DOC_NOTES_STAYS} ${DOC_NOTES_REWORD}`,
+    "## Delivery",
+    `Request changes sends each note as the quoted passage followed by what you wrote, ${DOC_NOTES_ORDER}, through the ask's own answer path. Approve sends them too, after the approval. ${DOC_NOTES_CUT} The whole answer is one message to the lead.`,
+    "## Out of scope",
+    `The Code surface's markdown preview and the run report. Quoting from the decisions list on the right. ${DOC_NOTES_KEYBOARD}: the passage is picked with the mouse, then everything after is keys.`,
+    "## Review rounds",
+    ...Array.from(
+        { length: DOC_NOTES_FILLER_ROUNDS },
+        (_, i) => `Round ${i + 1}: the lead applies the quoted notes and asks for the review again.`
+    ),
+    DOC_NOTES_LAST,
+].join("\n\n");
+const DOC_NOTES_DECISIONS = [
+    "Quoting is built on the dialog's own light renderer; the shared Code-preview renderer is left alone.",
+    "Highlights are painted over the rendered text, not wrapped into it, so the markdown output is untouched.",
+    "Notes are kept per ask, survive hiding the dialog, and are cleared once the ask is answered.",
+    "Approve carries any notes with it, and its button shows how many. Nothing you wrote is dropped.",
+];
+const DOC_NOTES_DECISIONS_CROWDED = [
+    ...DOC_NOTES_DECISIONS,
+    "A selection that crosses a code block or a table quotes its text only.",
+    "Notes are sent in document order, not the order they were written.",
+    "The same gesture works in the plan review; its findings are not quotable.",
+    "A passage quoted twice makes two notes.",
+    "Selecting inside the decisions list does nothing.",
+];
+const DOC_NOTES_STAYS_NOTE = "Keep it highlighted after sending too, until the lead picks it up.";
+const DOC_NOTES_CUT_NOTE = "Don't cut it. Send the whole passage.";
+const DOC_NOTES_REWORD_NOTE = "Clicking a note should scroll the document to its passage.";
+const DOC_NOTES_REWORD_EDIT = "Scroll the document to the passage when its note is clicked.";
+// the Crowded board's notes, in document order
+const DOC_NOTES_CROWDED = [
+    [DOC_NOTES_FIELD, "Open it above when the selection is near the bottom."],
+    [DOC_NOTES_STAYS, DOC_NOTES_STAYS_NOTE],
+    [DOC_NOTES_REWORD, DOC_NOTES_REWORD_NOTE],
+    [DOC_NOTES_ORDER, "Yes. Not the order I wrote them in."],
+    [DOC_NOTES_CUT, DOC_NOTES_CUT_NOTE],
+    [DOC_NOTES_KEYBOARD, ""],
+];
+// the order they are written in
+const DOC_NOTES_WRITTEN = [4, 1, 5, 0, 3, 2];
+const DOC_NOTES_LIST_CAP = 300;
+const DOC_NOTES_PANEL_WIDTH = 1240;
+const DOC_NOTES_RAIL_WIDTH = 460;
+const DOC_NOTES_EMPTY = "No note yet";
+
+// page-side helpers, prefixed to every evaluated body. Every query is under the dialog panel.
+const DOC_NOTES_LIB = `
+    const panel = () => ${DOC_REVIEW_PANEL};
+    const docRoot = () => panel()?.querySelector("[data-doc-review-doc]");
+    const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
+    const ranges = (name) => CSS.highlights.get(name)?.size ?? 0;
+    const box = (r) => ({ top: r.top, bottom: r.bottom, left: r.left, right: r.right });
+    const ownText = (el) =>
+        [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.nodeValue).join("").trim();
+    const textNode = (root, passage) => {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            const at = n.nodeValue.indexOf(passage);
+            if (at >= 0) return { node: n, at };
+        }
+        return null;
+    };
+    const rangeOf = (passage) => {
+        const hit = docRoot() && textNode(docRoot(), passage);
+        if (!hit) return null;
+        const range = document.createRange();
+        range.setStart(hit.node, hit.at);
+        range.setEnd(hit.node, hit.at + passage.length);
+        return range;
+    };
+    const selectRange = (range) => {
+        const sel = getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        docRoot().dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    };
+    const select = (passage) => {
+        const range = rangeOf(passage);
+        if (!range) return null;
+        selectRange(range);
+        return box(range.getBoundingClientRect());
+    };
+    const type = (input, value) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    const key = (el, k, mods) =>
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: k, code: k, bubbles: true, cancelable: true, ...mods }));
+    const fieldInput = () => panel()?.querySelector("[data-doc-note-field] input");
+    const rowOf = (passage) =>
+        [...panel().querySelectorAll("[data-doc-note-row]")].find((r) => r.textContent.includes(passage));
+    const button = (label) => [...panel().querySelectorAll("button")].find((b) => ownText(b) === label);
+    const addNote = async (passage, note) => {
+        select(passage);
+        await settle();
+        const input = fieldInput();
+        if (!input) return false;
+        if (note) {
+            type(input, note);
+            await settle();
+        }
+        key(input, "Enter");
+        await settle();
+        return true;
+    };
+    const state = () => {
+        const p = panel();
+        if (!p) return { open: false };
+        const notes = p.querySelector("[data-doc-notes]");
+        const toggle = notes?.querySelector("[data-doc-notes-toggle]");
+        const list = toggle?.nextElementSibling;
+        const field = p.querySelector("[data-doc-note-field]");
+        const decisions = p.querySelector("ol")?.parentElement;
+        return {
+            open: true,
+            panel: box(p.getBoundingClientRect()),
+            panelWidth: p.offsetWidth,
+            railWidth: decisions?.parentElement.offsetWidth ?? null,
+            heading: p.querySelector("[data-doc-review-doc] h1")?.textContent.trim() ?? null,
+            items: p.querySelectorAll("ol > li").length,
+            decisions: decisions ? { client: decisions.clientHeight, scroll: decisions.scrollHeight } : null,
+            header: toggle?.querySelector("span")?.textContent.trim() ?? null,
+            expanded: toggle?.getAttribute("aria-expanded") ?? null,
+            list: list ? { client: list.clientHeight, scroll: list.scrollHeight } : null,
+            rows: [...(notes?.querySelectorAll("[data-doc-note-row]") ?? [])].map((row) => {
+                const edit = row.querySelector('button[aria-label="Edit this note"]');
+                const input = row.querySelector("input");
+                return {
+                    open: row.getAttribute("data-open") === "true",
+                    passage: (edit ?? row.firstElementChild)?.firstElementChild?.textContent ?? null,
+                    note: input ? input.value : (edit?.children[1]?.textContent ?? null),
+                    input: !!input,
+                    locked: edit?.disabled ?? false,
+                    remove: !!row.querySelector('button[aria-label="Remove this note"]'),
+                };
+            }),
+            field: field ? box(field.getBoundingClientRect()) : null,
+            fieldFocused: !!field && document.activeElement === field.querySelector("input"),
+            quoted: ranges("doc-review-quoted"),
+            pending: ranges("doc-review-pending"),
+            buttons: [...p.querySelectorAll("button")].map(ownText).filter(Boolean),
+            sent: [...p.querySelectorAll("span")].find((s) => s.textContent.startsWith("Sent: "))?.textContent ?? null,
+        };
+    };
+`;
+
+// runs a body in the page (it may await, and set out), lets React settle, and resolves to the dialog's state
+const docNotesAct = (h, body = "") =>
+    h.ev(`(async () => {
+        ${DOC_NOTES_LIB}
+        let out = null;
+        ${body}
+        await settle();
+        return { ...state(), out };
+    })()`);
+
+const docNotesJson = (v) => JSON.stringify(v);
+
+// what a step's detail keeps of the dialog's state
+const docNotesBrief = (s, out) =>
+    JSON.stringify({
+        open: s.open,
+        header: s.header,
+        rows: (s.rows ?? []).map((r) => [r.passage, r.note, r.open ? "open" : r.locked ? "locked" : "compact"]),
+        field: s.field != null,
+        quoted: s.quoted,
+        pending: s.pending,
+        buttons: s.buttons,
+        sent: s.sent,
+        ...out,
+    });
+
+// the fixture roster is read once at boot
+async function docNotesReload(h, ctx, decisions) {
+    writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(docReviewRoster(ctx.runId, ctx.specPath, decisions), null, 2));
+    await h.ev("location.reload()");
+    await h.ev(`(async () => {
+        for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+            await new Promise((r) => setTimeout(r, 500));
+        }
+    })()`);
+    await h.goto("cockpit");
+    return docReviewWait(
+        h,
+        `document.querySelector('[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"]')`,
+        15000
+    );
+}
+
+const docNotesTag = `${docReviewTreeRow(DOC_REVIEW_LEAD)}?.querySelector('button[title="${DOC_REVIEW_TAG_TITLE}"]')`;
+
+// through the lead's tree tag, and resolved once the document is rendered and the panel has stopped scaling
+async function docNotesOpenByTag(h) {
+    const tagged = await docReviewWait(h, docNotesTag);
+    await h.ev(`${docNotesTag}?.click()`);
+    const open = await docReviewWait(h, DOC_REVIEW_PANEL);
+    const rendered = await docReviewWait(h, `${DOC_REVIEW_PANEL}?.querySelector("[data-doc-review-doc] h1")`);
+    await h.ev(`new Promise((r) => setTimeout(r, 500))`);
+    return tagged && open && rendered;
+}
+
+// from the Cockpit: the worker's card leads to the Agent surface without spending the lead's auto-open
+async function docNotesOpen(h) {
+    await h.ev(`document.querySelector(
+        '[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"] button[title="Open terminal (T)"]'
+    )?.click()`);
+    return docNotesOpenByTag(h);
+}
+
+const docReviewNotes = {
+    name: "doc-review-notes",
+    surface: "cockpit",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-doc-review-notes-"));
+        const ctx = { cwd };
+        try {
+            await arrangeFixtureRun(h, ctx, "doc-review-notes", DOC_REVIEW_LEAD);
+            ctx.specPath = join(cwd, "2026-10-05-highlight-to-quote-design.md");
+            writeFileSync(ctx.specPath, `${DOC_NOTES_SPEC}\n`);
+            // the panel and rail widths asserted below need the room, and verify.mjs restores its own pin after
+            await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+            ctx.rosterLoaded = await docNotesReload(h, ctx, DOC_NOTES_DECISIONS);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail });
+        const has = (s, label) => (s.buttons ?? []).includes(label);
+        const passages = (s) => (s.rows ?? []).map((r) => r.passage);
+        if (ctx.arrangeError != null || !ctx.rosterLoaded) {
+            return [{ step: "0. the fixture roster loaded", ok: false, detail: ctx.arrangeError ?? "no worker card" }];
+        }
+
+        const opened1 = await docNotesOpen(h);
+        const s1 = await docNotesAct(h);
+        rec(
+            "1. the dialog is open on the fixture spec: 4 decisions, no notes, Approve and Request changes, 1240 wide with a 460 rail",
+            opened1 &&
+                s1.heading === DOC_NOTES_HEADING &&
+                s1.items === DOC_NOTES_DECISIONS.length &&
+                s1.header == null &&
+                s1.rows.length === 0 &&
+                has(s1, "Approve") &&
+                has(s1, "Request changes") &&
+                s1.panelWidth === DOC_NOTES_PANEL_WIDTH &&
+                s1.railWidth === DOC_NOTES_RAIL_WIDTH,
+            docNotesBrief(s1, {
+                opened: opened1,
+                heading: s1.heading,
+                items: s1.items,
+                panelWidth: s1.panelWidth,
+                railWidth: s1.railWidth,
+            })
+        );
+
+        const s2 = await docNotesAct(h, `out = select(${docNotesJson(DOC_NOTES_STAYS)});`);
+        rec(
+            "2. selecting a passage opens the note field under it, focused, and tints the passage",
+            s2.out != null && s2.field != null && s2.field.top >= s2.out.bottom && s2.fieldFocused && s2.pending === 1,
+            docNotesBrief(s2, { selection: s2.out, fieldRect: s2.field, focused: s2.fieldFocused })
+        );
+
+        const s3 = await docNotesAct(
+            h,
+            `type(fieldInput(), ${docNotesJson(DOC_NOTES_STAYS_NOTE)});
+            await settle();
+            key(fieldInput(), "Enter");`
+        );
+        rec(
+            "3. a note and Enter: the field closes, the rail lists the note, the passage stays painted, the footer counts it, nothing is sent",
+            s3.open &&
+                s3.field == null &&
+                s3.header === "Your notes · 1" &&
+                s3.rows.length === 1 &&
+                s3.rows[0].passage === DOC_NOTES_STAYS &&
+                s3.rows[0].note === DOC_NOTES_STAYS_NOTE &&
+                s3.quoted === 1 &&
+                s3.pending === 0 &&
+                has(s3, "Approve with 1 note") &&
+                has(s3, "Request changes · 1 note") &&
+                s3.sent == null,
+            docNotesBrief(s3)
+        );
+        const draft3 = await docNotesAct(
+            h,
+            `select(${docNotesJson(DOC_NOTES_CUT)});
+            await settle();
+            type(fieldInput(), ${docNotesJson(DOC_NOTES_CUT_NOTE)});`
+        );
+        await h.shot("cdp-shots/doc-review-notes-main.png");
+        rec(
+            "3b. the Main board: one kept note, and the field open with a draft under a second, tinted passage",
+            draft3.field != null && draft3.pending === 1 && draft3.quoted === 1 && draft3.rows.length === 1,
+            docNotesBrief(draft3)
+        );
+
+        const s4 = await docNotesAct(h, `key(fieldInput(), "Escape");`);
+        rec(
+            "4. Escape in the field drops it and leaves the note and the dialog",
+            s4.open && s4.field == null && s4.rows.length === 1 && s4.pending === 0,
+            docNotesBrief(s4)
+        );
+
+        const s5 = await docNotesAct(
+            h,
+            `const from = textNode(docRoot(), ${docNotesJson(DOC_NOTES_REWORD)});
+            const to = textNode(panel().querySelector("ol"), ${docNotesJson(DOC_NOTES_DECISIONS[0])});
+            const range = document.createRange();
+            range.setStart(from.node, from.at);
+            range.setEnd(to.node, to.at + 7);
+            selectRange(range);
+            out = { selected: getSelection().toString().length, endsInDoc: docRoot().contains(range.endContainer) };`
+        );
+        await h.ev("getSelection().removeAllRanges()");
+        rec(
+            "5. a selection that starts in the document and ends in the decisions opens nothing",
+            s5.out.selected > 0 && !s5.out.endsInDoc && s5.field == null && s5.pending === 0,
+            docNotesBrief(s5, s5.out)
+        );
+
+        const s6 = await docNotesAct(
+            h,
+            `const scroller = docRoot().parentElement;
+            const pane = scroller.getBoundingClientRect();
+            scroller.scrollTop += rangeOf(${docNotesJson(DOC_NOTES_LAST)}).getBoundingClientRect().bottom - pane.bottom;
+            await settle();
+            out = {
+                scrolls: scroller.scrollHeight > scroller.clientHeight,
+                scrollTop: scroller.scrollTop,
+                paneBottom: pane.bottom,
+                selection: select(${docNotesJson(DOC_NOTES_LAST)}),
+            };`
+        );
+        await h.shot("cdp-shots/doc-review-notes-flip.png");
+        const inside6 =
+            s6.field != null &&
+            s6.field.top >= s6.panel.top &&
+            s6.field.bottom <= s6.panel.bottom &&
+            s6.field.left >= s6.panel.left &&
+            s6.field.right <= s6.panel.right;
+        rec(
+            "6. with no room below, the field opens above a selection at the pane's bottom edge, inside the dialog",
+            s6.out.scrolls && s6.out.scrollTop > 0 && s6.field != null && s6.field.bottom <= s6.out.selection.top && inside6,
+            docNotesBrief(s6, { ...s6.out, fieldRect: s6.field, panelRect: s6.panel })
+        );
+        const dropped6 = await docNotesAct(h, `key(fieldInput(), "Escape"); docRoot().parentElement.scrollTop = 0;`);
+
+        await docReviewEscape(h);
+        const gone7 = await docReviewWait(h, `!${DOC_REVIEW_PANEL}`, 3000);
+        const reopened7 = await docNotesOpenByTag(h);
+        const s7 = await docNotesAct(h);
+        rec(
+            "7. Escape hides the dialog; reopened, the note is still listed and its passage painted again",
+            dropped6.field == null &&
+                gone7 &&
+                reopened7 &&
+                s7.rows.length === 1 &&
+                s7.rows[0].passage === DOC_NOTES_STAYS &&
+                s7.rows[0].note === DOC_NOTES_STAYS_NOTE &&
+                s7.quoted === 1,
+            docNotesBrief(s7, { gone: gone7, reopened: reopened7 })
+        );
+
+        const request8 = await docNotesAct(h, `button("Request changes · 1 note")?.click();`);
+        const s8 = await docNotesAct(
+            h,
+            `const send = button("Send 1 note to the lead");
+            out = { textarea: panel().querySelector("#doc-review-note")?.value ?? null, enabled: !!send && !send.disabled };
+            send?.click();`
+        );
+        await h.shot("cdp-shots/doc-review-notes-request-sent.png");
+        const locked8 = await docNotesAct(
+            h,
+            `const row = rowOf(${docNotesJson(DOC_NOTES_STAYS)});
+            row?.querySelector('button[aria-label="Edit this note"]')?.click();
+            row?.querySelector('button[aria-label="Remove this note"]')?.click();
+            await settle();
+            select(${docNotesJson(DOC_NOTES_CUT)});`
+        );
+        await h.ev("getSelection().removeAllRanges()");
+        rec(
+            "8. Request changes with the textarea empty sends the one note: the sent line counts it, the row locks, a selection opens nothing",
+            has(request8, "Send 1 note to the lead") &&
+                s8.out.textarea === "" &&
+                s8.out.enabled &&
+                s8.sent === "Sent: Request changes, with 1 note" &&
+                locked8.sent === s8.sent &&
+                locked8.rows.length === 1 &&
+                locked8.rows[0].locked &&
+                !locked8.rows[0].remove &&
+                !locked8.rows[0].open &&
+                locked8.field == null &&
+                locked8.pending === 0,
+            docNotesBrief(locked8, s8.out)
+        );
+
+        // a new askId, so the sent lock is gone; the reload empties the notes too
+        const loaded9 = await docNotesReload(h, ctx, DOC_NOTES_DECISIONS_CROWDED);
+        const opened9 = loaded9 && (await docNotesOpen(h));
+        const fresh9 = await docNotesAct(h);
+        const written9 = DOC_NOTES_WRITTEN.map((i) => DOC_NOTES_CROWDED[i]);
+        const s9 = await docNotesAct(
+            h,
+            `out = { added: [] };
+            for (const [passage, note] of ${docNotesJson(written9)}) out.added.push(await addNote(passage, note));
+            rowOf(${docNotesJson(DOC_NOTES_REWORD)})?.querySelector('button[aria-label="Edit this note"]')?.click();`
+        );
+        await h.shot("cdp-shots/doc-review-notes-crowded.png");
+        const open9 = s9.rows.filter((r) => r.open);
+        rec(
+            "9. the Crowded board: six notes in document order, one empty, one open, the list capped at 300 and the decisions scrolling above it",
+            opened9 &&
+                fresh9.items === DOC_NOTES_DECISIONS_CROWDED.length &&
+                fresh9.rows.length === 0 &&
+                s9.out.added.every(Boolean) &&
+                docNotesJson(passages(s9)) === docNotesJson(DOC_NOTES_CROWDED.map(([passage]) => passage)) &&
+                s9.rows.at(-1).note === DOC_NOTES_EMPTY &&
+                open9.length === 1 &&
+                open9[0].passage === DOC_NOTES_REWORD &&
+                open9[0].input &&
+                open9[0].note === DOC_NOTES_REWORD_NOTE &&
+                s9.rows.filter((r) => r.input).length === 1 &&
+                s9.list.client <= DOC_NOTES_LIST_CAP &&
+                s9.list.scroll > s9.list.client &&
+                s9.decisions.scroll > s9.decisions.client &&
+                s9.quoted === DOC_NOTES_CROWDED.length &&
+                has(s9, "Approve with 6 notes") &&
+                has(s9, "Request changes · 6 notes"),
+            docNotesBrief(s9, {
+                opened: opened9,
+                items: fresh9.items,
+                startedWith: fresh9.rows.length,
+                list: s9.list,
+                decisions: s9.decisions,
+            })
+        );
+
+        const openInput = `panel().querySelector('[data-doc-note-row][data-open="true"] input')`;
+        const s10 = await docNotesAct(
+            h,
+            `type(${openInput}, ${docNotesJson(DOC_NOTES_REWORD_EDIT)});
+            await settle();
+            key(${openInput}, "Enter");`
+        );
+        const esc10 = await docNotesAct(
+            h,
+            `rowOf(${docNotesJson(DOC_NOTES_REWORD)})?.querySelector('button[aria-label="Edit this note"]')?.click();
+            await settle();
+            out = { reopened: !!${openInput} };
+            key(${openInput}, "Escape");`
+        );
+        const reworded = (s) => s.rows.find((r) => r.passage === DOC_NOTES_REWORD)?.note;
+        rec(
+            "10. in the open row, Enter keeps the new note and closes the row, Escape closes it; neither sends nor hides the dialog",
+            s10.open &&
+                !s10.rows.some((r) => r.open) &&
+                reworded(s10) === DOC_NOTES_REWORD_EDIT &&
+                s10.sent == null &&
+                esc10.out.reopened &&
+                esc10.open &&
+                !esc10.rows.some((r) => r.open) &&
+                reworded(esc10) === DOC_NOTES_REWORD_EDIT &&
+                esc10.sent == null,
+            docNotesBrief(esc10, { afterEnter: s10.rows.map((r) => r.open), reopened: esc10.out.reopened })
+        );
+
+        const toggle = `panel().querySelector("[data-doc-notes-toggle]").click();`;
+        const collapsed11 = await docNotesAct(h, toggle);
+        const expanded11 = await docNotesAct(h, toggle);
+        const remove = `panel().querySelector('[data-doc-note-row] button[aria-label="Remove this note"]')`;
+        const five11 = await docNotesAct(h, `${remove}.click();`);
+        const none11 = await docNotesAct(h, `for (let i = 0; i < 10 && ${remove}; i++) { ${remove}.click(); await settle(); }`);
+        const kept = [DOC_NOTES_CROWDED[4], DOC_NOTES_CROWDED[1]];
+        const two11 = await docNotesAct(h, `for (const [passage, note] of ${docNotesJson(kept)}) await addNote(passage, note);`);
+        rec(
+            "11. the header collapses and expands the list; removing a note drops its row and its highlight, removing all drops the section",
+            collapsed11.expanded === "false" &&
+                collapsed11.rows.length === 0 &&
+                collapsed11.header === "Your notes · 6" &&
+                expanded11.expanded === "true" &&
+                expanded11.rows.length === 6 &&
+                five11.rows.length === 5 &&
+                five11.quoted === 5 &&
+                has(five11, "Approve with 5 notes") &&
+                none11.header == null &&
+                none11.rows.length === 0 &&
+                none11.quoted === 0 &&
+                has(none11, "Approve") &&
+                has(none11, "Request changes") &&
+                docNotesJson(passages(two11)) === docNotesJson([DOC_NOTES_STAYS, DOC_NOTES_CUT]),
+            docNotesBrief(two11, {
+                collapsed: [collapsed11.expanded, collapsed11.rows.length],
+                expanded: [expanded11.expanded, expanded11.rows.length],
+                afterOne: [five11.rows.length, five11.quoted, five11.buttons],
+                afterAll: [none11.header, none11.quoted, none11.buttons],
+            })
+        );
+
+        const s12 = await docNotesAct(
+            h,
+            `button("Request changes · 2 notes")?.click();
+            await settle();
+            const area = panel().querySelector("#doc-review-note");
+            const send = button("Send 2 notes to the lead");
+            out = {
+                label: panel().querySelector('label[for="doc-review-note"]')?.textContent ?? null,
+                placeholder: area?.placeholder ?? null,
+                value: area?.value ?? null,
+                enabled: !!send && !send.disabled,
+            };`
+        );
+        await h.shot("cdp-shots/doc-review-notes-request.png");
+        const cancel12 = await docNotesAct(h, `button("Cancel")?.click();`);
+        rec(
+            "12. Request changes with notes: the textarea is optional and Send 2 notes is enabled while it is empty; Cancel returns",
+            s12.out.label === "Anything beyond your 2 notes?" &&
+                s12.out.placeholder === "Optional" &&
+                s12.out.value === "" &&
+                s12.out.enabled &&
+                has(cancel12, "Approve with 2 notes") &&
+                has(cancel12, "Request changes · 2 notes") &&
+                cancel12.sent == null,
+            docNotesBrief(cancel12, s12.out)
+        );
+
+        // ctrl+enter while the field holds a draft: the draft joins the notes, then the answer leaves
+        const s13 = await docNotesAct(
+            h,
+            `select(${docNotesJson(DOC_NOTES_ORDER)});
+            await settle();
+            type(fieldInput(), ${docNotesJson(DOC_NOTES_CROWDED[3][1])});
+            await settle();
+            out = { focusInField: document.activeElement === fieldInput() };
+            key(document.activeElement || document.body, "Enter", { ctrlKey: true });`
+        );
+        await h.shot("cdp-shots/doc-review-notes-sent.png");
+        const locked13 = await docNotesAct(
+            h,
+            `for (const row of panel().querySelectorAll("[data-doc-note-row]")) {
+                row.querySelector('button[aria-label="Edit this note"]')?.click();
+                row.querySelector('button[aria-label="Remove this note"]')?.click();
+            }
+            await settle();
+            select(${docNotesJson(DOC_NOTES_REWORD)});`
+        );
+        await h.ev("getSelection().removeAllRanges()");
+        const order13 = docNotesJson([DOC_NOTES_STAYS, DOC_NOTES_ORDER, DOC_NOTES_CUT]);
+        rec(
+            "13. Ctrl+Enter with a draft in the field adds it and approves: the sent line counts 3 notes, the rows lock, a selection opens nothing",
+            s13.out.focusInField &&
+                s13.sent === "Sent: Approve, with 3 notes" &&
+                s13.field == null &&
+                docNotesJson(passages(s13)) === order13 &&
+                s13.rows[1].note === DOC_NOTES_CROWDED[3][1] &&
+                locked13.sent === s13.sent &&
+                docNotesJson(passages(locked13)) === order13 &&
+                locked13.rows.every((r) => r.locked && !r.remove && !r.open) &&
+                locked13.field == null &&
+                locked13.pending === 0,
+            docNotesBrief(locked13, s13.out)
+        );
+
+        await docReviewEscape(h);
+        await docReviewWait(h, `!${DOC_REVIEW_PANEL}`, 3000);
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "doc-review-notes");
     },
 };
 
@@ -9984,6 +10579,7 @@ export const SCENARIOS = [
     agentTreeRail,
     agentTreeQuickReturn,
     docReview,
+    docReviewNotes,
     docReviewCanvas,
     cockpitPolish,
     runSheetPolish,
