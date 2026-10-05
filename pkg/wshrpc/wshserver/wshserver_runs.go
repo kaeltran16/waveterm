@@ -675,7 +675,7 @@ func resumeRefusal(run *waveobj.Run, phaseIdx int) string {
 	case run.SessionId == "":
 		return "the run has no session to resume"
 	}
-	if _, ok := jarvis.ResumeWorkerArgs(run.Runtime, run.SessionId, nil); !ok {
+	if _, ok := jarvis.ResumeWorkerArgs(run.Runtime, run.SessionId, nil, jarvis.ResumeNudge); !ok {
 		return fmt.Sprintf("runtime %q cannot resume a session", run.Runtime)
 	}
 	return ""
@@ -702,7 +702,7 @@ func resumeRun(ctx context.Context, channelId, runId string, phaseIdx int) error
 	if err != nil {
 		return fmt.Errorf("cannot resume run %s: %w", runId, err)
 	}
-	if rerr := jarvis.ResumeRunWorker(ctx, worker, runtime, sessionId); rerr != nil {
+	if rerr := jarvis.ResumeRunWorker(ctx, worker, runtime, sessionId, jarvis.ResumeNudge); rerr != nil {
 		if err := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
 			if r.Phases[phaseIdx].State != jarvis.PhaseState_Running {
 				return nil // the exit hook already failed it

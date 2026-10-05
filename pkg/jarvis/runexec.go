@@ -63,13 +63,13 @@ func RunWorkerSpecFor(cap runroute.Capability, sessionId, prompt string) (RunWor
 	return RunWorkerSpec{Bin: h.Bin, Args: args, BaseArgs: baseArgs}, true
 }
 
-// resumeNudge is a resumed worker's first turn. It never restates the task: the session already holds it.
-const resumeNudge = "The app restarted or your process stopped mid-task. Check the working tree and your last steps, then continue the task."
+// ResumeNudge is a resumed worker's first turn. It never restates the task: the session already holds it.
+const ResumeNudge = "The app restarted or your process stopped mid-task. Check the working tree and your last steps, then continue the task."
 
 // ResumeWorkerArgs is the command line that reopens a run worker's session, launched with --session-id
-// sessionId, and nudges it on: the runtime's resume flag, the worker's launch flags, then the prompt. An empty
-// runtime is a legacy run, which is claude.
-func ResumeWorkerArgs(runtime, sessionId string, baseArgs []string) ([]string, bool) {
+// sessionId, and nudges it on: the runtime's resume flag, the worker's launch flags, then nudge as the prompt.
+// An empty runtime is a legacy run, which is claude.
+func ResumeWorkerArgs(runtime, sessionId string, baseArgs []string, nudge string) ([]string, bool) {
 	var flag string
 	switch runtime {
 	case "", "claude":
@@ -80,12 +80,12 @@ func ResumeWorkerArgs(runtime, sessionId string, baseArgs []string) ([]string, b
 		return nil, false
 	}
 	args := append([]string{flag, sessionId}, baseArgs...)
-	return append(args, resumeNudge), true
+	return append(args, nudge), true
 }
 
 // ResumeRunWorker restarts the worker in tabORef in its own session, in the same tab so the human keeps its
-// scrollback. A var so tests can stub the restart.
-var ResumeRunWorker = func(ctx context.Context, tabORef, runtime, sessionId string) error {
+// scrollback, with nudge as its first turn. A var so tests can stub the restart.
+var ResumeRunWorker = func(ctx context.Context, tabORef, runtime, sessionId, nudge string) error {
 	oref, err := waveobj.ParseORef(tabORef)
 	if err != nil || oref.OType != waveobj.OType_Tab {
 		return fmt.Errorf("bad worker oref %q", tabORef)
@@ -105,7 +105,7 @@ var ResumeRunWorker = func(ctx context.Context, tabORef, runtime, sessionId stri
 	if !block.Meta.HasKey("agent:baseargs") {
 		return fmt.Errorf("the worker was launched before resume support")
 	}
-	args, ok := ResumeWorkerArgs(runtime, sessionId, block.Meta.GetStringList("agent:baseargs"))
+	args, ok := ResumeWorkerArgs(runtime, sessionId, block.Meta.GetStringList("agent:baseargs"), nudge)
 	if !ok {
 		return fmt.Errorf("runtime %q cannot resume a session", runtime)
 	}

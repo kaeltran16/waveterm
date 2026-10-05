@@ -453,6 +453,14 @@ func (w *waker) endRelaunch(ctx context.Context, channelId, runId, wake string, 
 	appendRunEvent(ctx, channelId, runId, waveobj.RunEventKindLeadLaunched, nil, map[string]any{"text": wake})
 }
 
+// leadRestarted gives a lead the engine just restarted a wake-confirm timeout to come up, as a launched one
+// gets: the restart returns before the process runs.
+func (w *waker) leadRestarted(channelId, runId string) {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+	w.runLocked(channelId, runId).launchedAt = wakeNow()
+}
+
 func replacementLeadWake(missed []string) string {
 	var b strings.Builder
 	b.WriteString("You are a replacement lead: the lead before you exited while the run was still going. The dag is already running, so do not resubmit the plan or redispatch tasks. Start with `wsh jarvis dag status`.")

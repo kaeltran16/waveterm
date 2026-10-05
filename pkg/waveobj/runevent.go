@@ -64,7 +64,8 @@ const (
 	// the question queue and the lead wake (orchestrator redesign §5, §6):
 	//   task-forwarded    a task's open judgment handed to the human, with why ("taskid", "askid", "note")
 	//   lead-woken        a wake typed into the lead's terminal ("text")
-	//   lead-launched     a plan-input run's first lead started, with the wake that needed it ("text")
+	//   lead-launched     a lead started with this first message ("text"): a plan-input run's first lead, a
+	//                     replacement for a dead one, or one resumed at boot after the app stopped under it
 	//   lead-wake-failed  the lead cannot take wakes; its judgment goes to the human ("reason", "lines")
 	//   lead-exited       the lead exited before submitting a plan, which fails the run ("reason")
 	//   worker-exited     a quick/pipeline run's only worker exited without completing its phase ("reason")
