@@ -8127,6 +8127,146 @@ const runTimingScenario = {
     },
 };
 
+// --- record-band-detach-restore: correcting a run's record from the run sheet, and undoing it ----------
+// The band's EdgeControls on a run with one attributed record: Not this record moves the edge to the Detached
+// group, Restore brings it back. The edge is accepted in the arrange, so it is confirmed and the detach asks
+// first. The ambient re-read behind every band update is slow (it sweeps every record), so each wait polls for
+// 25s, under the 30s cap on one evaluate.
+const RECORD_BAND_GOAL = "verify record-band: an attributed run, do nothing";
+// the record CreateRun captures for that goal, as BRIEF_PEEK_RECORD
+const RECORD_BAND_RECORD = "verify-record-band-an-attributed-run-do-nothing";
+const RECORD_BAND = `document.querySelector("[data-jarvis-record-band]")`;
+const RECORD_BAND_POLLS = 100;
+const RECORD_BAND_LIB = `
+    const bandButton = (label) =>
+        [...(${RECORD_BAND}?.querySelectorAll("button") ?? [])].find((b) => (b.textContent || "").trim() === label);
+    const bandText = () => (${RECORD_BAND}?.innerText || "").replace(/\\s+/g, " ").trim().slice(0, 300);
+    const until = async (fn) => {
+        for (let i = 0; i < ${RECORD_BAND_POLLS} && !fn(); i++) {
+            await new Promise((r) => setTimeout(r, 250));
+        }
+        return !!fn();
+    };
+`;
+
+const recordBandDetachRestore = {
+    name: "record-band-detach-restore",
+    surface: "jarvis",
+    async arrange(h) {
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-record-band-")) };
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-record-band", projectpath: ctx.cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: RECORD_BAND_GOAL,
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            ctx.runORef = `run:${ctx.runId}`;
+            // a later run finds the record already there and its capture fails, so attach explicitly
+            await h.rpc("acceptdossieredge", { dossierid: RECORD_BAND_RECORD, runoref: ctx.runORef });
+            // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+            await h.goto("jarvis");
+            ctx.opened = await h.ev(`(async () => {
+                for (let i = 0; i < 20 && typeof window.__openAddress !== "function"; i++) {
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                if (typeof window.__openAddress !== "function") return { ok: false, why: "no __openAddress hook" };
+                return window.__openAddress(${JSON.stringify(ctx.runORef)});
+            })()`);
+            ctx.bandShown = await h.ev(`(async () => {
+                ${RECORD_BAND_LIB}
+                return until(() => ${RECORD_BAND}?.querySelector("[data-jarvis-band-toggle]"));
+            })()`);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const detachedIds = async () =>
+            ((await h.rpc("listdetachededges", { runoref: ctx.runORef }))?.edges ?? []).map((e) => e.dossierid);
+        rec(
+            "0. the run's sheet opened with its record on the band",
+            ctx.arrangeError == null && ctx.opened?.ok === true && ctx.bandShown === true,
+            ctx.arrangeError ?? JSON.stringify({ runId: ctx.runId, opened: ctx.opened, band: ctx.bandShown })
+        );
+
+        const expanded = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            const toggle = ${RECORD_BAND}?.querySelector("[data-jarvis-band-toggle]");
+            if (toggle && toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+            const ok = await until(() => bandButton("Not this record"));
+            return { ok, restore: !!bandButton("Restore"), text: bandText() };
+        })()`);
+        rec(
+            "1. expanding the band shows the edge with Not this record and no Restore",
+            expanded.ok === true && expanded.restore === false,
+            JSON.stringify(expanded)
+        );
+
+        const detached = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            bandButton("Not this record")?.click();
+            // a confirmed edge asks first; the dialog is outside the band, and its button's text ends in a key hint
+            const dialogButton = () =>
+                [...document.querySelectorAll("button")].find(
+                    (b) => (b.textContent || "").trim().startsWith("Detach") && !${RECORD_BAND}?.contains(b)
+                );
+            for (let i = 0; i < 12 && !dialogButton(); i++) {
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            const confirm = dialogButton();
+            confirm?.click();
+            const ok = await until(() => bandButton("Restore") && !bandButton("Not this record"));
+            return { ok, asked: !!confirm, detachedRow: bandText().includes("Detached"), text: bandText() };
+        })()`);
+        const afterDetach = await detachedIds();
+        await h.shot("cdp-shots/record-band-detached.png");
+        rec(
+            "2. Not this record moves the edge to a Detached row that offers Restore",
+            detached.ok === true && detached.detachedRow === true && afterDetach.includes(RECORD_BAND_RECORD),
+            JSON.stringify({ ...detached, stored: afterDetach })
+        );
+
+        const restored = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            const restore = bandButton("Restore");
+            restore?.click();
+            const ok = !!restore && (await until(() => bandButton("Not this record") && !bandButton("Restore")));
+            return { ok, clicked: !!restore, detachedRow: bandText().includes("Detached"), text: bandText() };
+        })()`);
+        const afterRestore = await detachedIds();
+        await h.shot("cdp-shots/record-band-restored.png");
+        rec(
+            "3. Restore puts the edge back and empties the Detached group",
+            restored.ok === true && restored.detachedRow === false && !afterRestore.includes(RECORD_BAND_RECORD),
+            JSON.stringify({ ...restored, stored: afterRestore })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        // detached, so the record keeps one run ref across runs rather than growing one per run
+        await teardownFixtureRun(h, ctx, "record-band-detach-restore", {
+            what: "detach the run from the record",
+            fn: () => (ctx.runORef ? h.rpc("detachdossieredge", { dossierid: RECORD_BAND_RECORD, runoref: ctx.runORef }) : null),
+        });
+    },
+};
+
 // --- dag-observability: what the run sheet and the DAG modal claim about a live DAG ------------------
 // The orchestrator observability checks (spec 10.3, once scripts/cdp/orchestrator-observability-e2e.mjs) on
 // today's surfaces: a run reads on the Jarvis run sheet, and the DAG opens from its dock. The chained plan
@@ -10585,6 +10725,7 @@ export const SCENARIOS = [
     runSheetPolish,
     runTimingScenario,
     dagObservability,
+    recordBandDetachRestore,
     finalShotsScenario,
     briefInitiativesPolish,
     briefPeeksPolish,

@@ -28,7 +28,6 @@ Status legend:
 | Route picker offers routes the account cannot run (F14) — the backend rejects at `runroute.go`, the picker still lists them | bug | M | flaws tracker F14. Deliberately not fixed 2026-09-04: entitlement is not statically knowable, and a probe costs a process spawn per launch and goes stale. The durable fix is catalog-backed resolution at spawn, where ctx is available. A dead route now fails in seconds with the provider's own message |
 | A lead's terminal pane can render blank while the backend holds its full output | bug | M | Seen once, 2026-09-21, on a lead launched into a freshly restarted dev app: `wavesrv` held 32 KB of scrollback for the block (`filestore.db`, `db_file_data`, `name='term'`) and resizing did not repaint. Cause unknown (backlog not fed on attach, reattach ordering, or a block created mid-restart). Needs a repro first |
 | Diff surface repository actions (Spec B): checkout, cherry-pick, revert — needs its own spec before any code | decision | M | `docs/deferred.md` 2026-09-04 entry. `GitRevertCommand` / `gitinfo.RevertFile` / `gitinfo.RevertHunk` are tested and still have no caller (checked 2026-10-05); Spec B decides whether they are its starting point or get deleted |
-| Record detach/restore round trip has no CDP scenario — `recordbandview.tsx`'s `EdgeControls` is mounted in the run sheet, its scenario went with the Subjects column | verification gap | S | Jarvis Brief B5 (2026-09-10), the one item that pass left owed |
 
 Tracked in their own initiatives, not here:
 
@@ -78,9 +77,6 @@ Cockpit and surfaces:
 - **Diff surface: hiding whitespace-only files from the change list** (2026-09-11).
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /
   React-DevTools pass against a populated cockpit first).
-- **Held redesigns from the 2026-07-21 scan** — E15 favicon blockstore, E16 pty input loop, E2 `ink-*`
-  token swap (not 1:1), E4 list-reflow motion. Not re-checked against the tree; source
-  `git show a4b5bd4f:docs/superpowers/briefs/2026-07-21-open-ended-improvement-scan-brief.md`.
 
 Orchestrator:
 
