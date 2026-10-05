@@ -61,11 +61,10 @@ describe("parseAskReply", () => {
     });
 });
 
-describe("band picker", () => {
+describe("pane picker", () => {
     it("drops previews and starts on the first question", () => {
-        const p = openPicker([{ ...color, options: [{ label: "Red", description: "warm", preview: "big" }, { label: "Blue" }] }], "pane");
+        const p = openPicker([{ ...color, options: [{ label: "Red", description: "warm", preview: "big" }, { label: "Blue" }] }]);
         expect(p).toEqual({
-            site: "pane",
             questions: [{ question: "Which color?", header: "Color", multiSelect: false, options: [{ label: "Red", description: "warm" }, { label: "Blue" }] }],
             index: 0,
             answers: [],
@@ -74,35 +73,35 @@ describe("band picker", () => {
         expect(pickerReply(p)).toBeNull();
     });
     it("asks for rows enough for its tallest question", () => {
-        expect(pickerRows(openPicker([color, sizes], "pane"))).toBe(8);
+        expect(pickerRows(openPicker([color, sizes]))).toBe(8);
     });
     it("answers a single-select on the pick and replies after the last question", () => {
-        let p = pickOption(openPicker([color, color], "band"), 1);
+        let p = pickOption(openPicker([color, color]), 1);
         expect(p.index).toBe(1);
         expect(pickerReply(p)).toBeNull();
         p = pickOption(p, 0);
         expect(pickerReply(p)).toEqual({ answers: [{ selectedindexes: [1] }, { selectedindexes: [0] }], cancelled: false });
     });
     it("toggles marks in a multi-select and answers on confirm, in option order", () => {
-        let p = pickOption(pickOption(pickOption(openPicker([sizes], "band"), 2), 0), 1);
+        let p = pickOption(pickOption(pickOption(openPicker([sizes]), 2), 0), 1);
         p = pickOption(p, 1);
         expect(p.marked).toEqual([0, 2]);
         expect(p.index).toBe(0);
         expect(pickerReply(confirmMarked(p))).toEqual({ answers: [{ selectedindexes: [0, 2] }], cancelled: false });
     });
     it("clears the marks between questions", () => {
-        const p = confirmMarked(pickOption(openPicker([sizes, sizes], "band"), 1));
+        const p = confirmMarked(pickOption(openPicker([sizes, sizes]), 1));
         expect(p).toMatchObject({ index: 1, marked: [] });
     });
     it("takes typed text for any question, trimmed", () => {
-        expect(pickerReply(typeOther(openPicker([sizes], "band"), "  XL  "))).toEqual({ answers: [{ text: "XL" }], cancelled: false });
+        expect(pickerReply(typeOther(openPicker([sizes]), "  XL  "))).toEqual({ answers: [{ text: "XL" }], cancelled: false });
     });
     it("ignores an option that is not there, an empty confirm and blank text", () => {
-        const p = openPicker([sizes], "band");
+        const p = openPicker([sizes]);
         expect(pickOption(p, 7)).toBe(p);
         expect(confirmMarked(p)).toBe(p);
         expect(typeOther(p, "   ")).toBe(p);
-        const done = pickOption(openPicker([color], "band"), 0);
+        const done = pickOption(openPicker([color]), 0);
         expect(pickOption(done, 0)).toBe(done);
     });
 });

@@ -123,14 +123,16 @@ answers the call itself, so Claude's own dialog does not open. The API cannot ca
 `next(e)` opened it, so the two cannot race.
 
 Amended (2026-10-04): **the terminal answers too.** The user is sometimes in the agent's terminal
-rather than the cockpit, so the hook also draws a picker there (`hooks/ask-band.tsx`) and takes
+rather than the cockpit, so the hook also draws a picker there (`hooks/ask-pane.tsx`) and takes
 whichever answer comes first. The mod draws and closes the picker itself, so it can race the card
 where Claude's dialog could not. It opens in a focused pane (`$.ui.open` with `focus` and
 `closeOnEscape`), where the arrows and Enter pick as in Claude's dialog, the first option holds
 the ring, a digit presses its option, and Esc dismisses the question. A pane a mod opens unasked
-is not drawn below 144 terminal columns (`isPlaced: false`); the picker then moves to the band
-above the prompt (`ui.render` on `AbovePrompt`), where a mod cannot take the keyboard, so a bare
-digit in an empty composer is the pick. A multi-select marks options and confirms with `Done`;
+is not drawn below 144 terminal columns (`isPlaced: false`). Amended (2026-10-05): the call then
+goes to `next(e)` before `wsh ask --wait` starts, so Claude's own dialog asks and the settings
+hooks beneath show the card, answered by keystrokes. It first moved to a band above the prompt
+(`ui.render` on `AbovePrompt`), but a mod cannot take the keyboard there, so a bare digit in an
+empty composer was the only pick. A multi-select marks options and confirms with `Done`;
 `Other` is an `Input`. Previews stay on the card. A picker answer ends the `wsh ask --wait`
 stream, which kills the child, and the server's waiter cancel takes the card down; a card answer
 clears the picker state and closes the pane.

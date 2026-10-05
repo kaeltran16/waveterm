@@ -1,7 +1,6 @@
-// the terminal's answer surface for an AskUserQuestion the cockpit card is also showing. in a focused
-// pane the arrows and Enter pick, as in claude's own dialog; in the band above the prompt, where a
-// pane is not placed, a bare digit in an empty composer does, since a mod cannot take the keyboard
-// there. "Other" is typed in its field. register.ts owns the state.
+// the terminal's answer surface for an AskUserQuestion the cockpit card is also showing: a focused
+// pane where the arrows and Enter pick, as in claude's own dialog. "Other" is typed in its field.
+// register.ts owns the state.
 import type { Elements, RenderElement } from "claude-code";
 import type { Picker } from "../types";
 
@@ -10,11 +9,8 @@ export type PickerActions = { pick: (n: number) => void; confirm: () => void; ot
 type PickerElements = Pick<Elements["terminal"], "Box" | "Button" | "Input" | "Text">;
 
 const HINTS = {
-    pane: {
-        single: "Arrows and Enter, or a number. Esc dismisses.",
-        multi: "Enter or a number marks, then Done. Esc dismisses.",
-    },
-    band: { single: "Press a number.", multi: "Press numbers to mark, then Done." },
+    single: "Arrows and Enter, or a number. Esc dismisses.",
+    multi: "Enter or a number marks, then Done. Esc dismisses.",
 };
 
 // what the pane holds while it has no question to show
@@ -32,12 +28,10 @@ export function drawAskPicker(
     if (!q) {
         return null;
     }
-    const hint = HINTS[p.site][q.multiSelect ? "multi" : "single"];
-    // the pane has a frame of its own
-    const frame = p.site === "band" ? ({ borderStyle: "round", borderDimColor: true, paddingX: 1 } as const) : {};
+    const hint = HINTS[q.multiSelect ? "multi" : "single"];
 
     return (
-        <Box flexDirection="column" {...frame}>
+        <Box flexDirection="column">
             <Box gap={1}>
                 <Text bold>{q.header}</Text>
                 {p.questions.length > 1 && (

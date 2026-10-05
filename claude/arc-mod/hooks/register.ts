@@ -3,7 +3,7 @@
 // outside an Arc block every hook passes straight through.
 import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
-import { drawAskPicker, drawNoQuestion } from "./ask-band";
+import { drawAskPicker, drawNoQuestion } from "./ask-pane";
 import {
     answersFor,
     askPayload,
@@ -82,6 +82,15 @@ async function listenToCockpit($: EngineInterface) {
     }
 }
 
+async function closePicker($: EngineInterface) {
+    try {
+        await update($, picker, () => null);
+        await $.ui.close({ id: ASK_PANE });
+    } catch (err) {
+        $.ui.log(`arc: closing the ask picker failed: ${String(err)}`, { to: "debug" });
+    }
+}
+
 export const register: Register = (on) => {
     on("session.start", async ($, e, next) => {
         active = Boolean((await $.env.get("WAVETERM_BLOCKID")) && (await $.env.get("WAVETERM_JWT")));
@@ -132,7 +141,7 @@ export const register: Register = (on) => {
     on("ui.render", { component: "Pane", requestId: ASK_PANE }, async ($, e) => {
         const shown = await read($, picker);
         const idle = drawNoQuestion($.ui.resolve(e));
-        if (e.surface === "mobile" || shown?.site !== "pane") {
+        if (e.surface === "mobile" || !shown) {
             return idle;
         }
         const step = async (change: (p: Picker) => Picker) => {
@@ -158,32 +167,41 @@ export const register: Register = (on) => {
         return next(e);
     });
 
-    on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
-        const shown = await read($, picker);
-        if (e.surface === "mobile" || e.props.hasSurvey || shown?.site !== "band") {
-            return next(e);
-        }
-        const step = async (change: (p: Picker) => Picker) => {
-            const after = await update($, picker, (p) => (p ? change(p) : p));
-            const reply = after ? pickerReply(after) : null;
-            if (reply) {
-                settlePicker?.(reply);
-            }
-        };
-        const drawn = drawAskPicker($.ui.resolve(e), shown, {
-            pick: (n) => void step((p) => pickOption(p, n)),
-            confirm: () => void step(confirmMarked),
-            other: (text) => void step((p) => typeOther(p, text)),
-        });
-        return drawn ?? next(e);
-    });
-
     // the hook answers the call itself, from the cockpit card or the terminal's picker, whichever the
-    // person uses first, so claude's dialog never opens. a dialog cannot be cancelled once next(e)
+    // person uses first, so claude's dialog does not open. a dialog cannot be cancelled once next(e)
     // opened it, so it could not race the card; the picker can, since the mod draws and closes it.
     on("tool.call", { tool: "AskUserQuestion" }, async ($, e, next) => {
         if (!active || !cardCanAsk(e.questions)) {
             return next(e);
+        }
+        let isFromPicker = false;
+        const fromPicker = new Promise<AskReply>((resolve) => {
+            settlePicker = (answered) => {
+                isFromPicker = true;
+                resolve(answered);
+            };
+        });
+        try {
+            const opening = openPicker(e.questions);
+            await update($, picker, () => opening);
+            const opened = await $.ui.open({
+                id: ASK_PANE,
+                title: "Question",
+                focus: true,
+                closeOnEscape: true,
+                rows: pickerRows(opening),
+            });
+            if (!opened.isPlaced) {
+                // a pane the mod opens unasked is not drawn on a narrow terminal, and nothing else a
+                // mod draws takes the arrows. claude's dialog does; the settings hooks beneath show
+                // the card for it
+                settlePicker = null;
+                await closePicker($);
+                return next(e);
+            }
+        } catch (err) {
+            // no picker: the card alone answers
+            $.ui.log(`arc: ask picker failed: ${String(err)}`, { to: "debug" });
         }
         $.ui.status("Waiting for your answer here or in Arc's ask card");
         // spawn, not run: run gives up after ten minutes, and a question can wait longer
@@ -201,44 +219,14 @@ export const register: Register = (on) => {
             }
             return parseAskReply(out);
         })();
-        let isFromPicker = false;
         let reply: AskReply | null = null;
         try {
-            const fromPicker = new Promise<AskReply>((resolve) => {
-                settlePicker = (answered) => {
-                    isFromPicker = true;
-                    resolve(answered);
-                };
-            });
-            const opening = openPicker(e.questions, "pane");
-            await update($, picker, () => opening);
-            const opened = await $.ui.open({
-                id: ASK_PANE,
-                title: "Question",
-                focus: true,
-                closeOnEscape: true,
-                rows: pickerRows(opening),
-            });
-            if (!opened.isPlaced) {
-                // a pane the mod opens unasked is not drawn on a narrow terminal: the band is
-                await $.ui.close({ id: ASK_PANE });
-                await update($, picker, (p) => (p ? { ...p, site: "band" as const } : p));
-            }
             reply = await Promise.race([fromPicker, fromCard]);
-        } catch (err) {
-            // no picker: the card alone answers
-            $.ui.log(`arc: ask picker failed: ${String(err)}`, { to: "debug" });
-            reply = await fromCard;
         } finally {
             settlePicker = null;
             $.ui.status(undefined);
         }
-        try {
-            await update($, picker, () => null);
-            await $.ui.close({ id: ASK_PANE });
-        } catch (err) {
-            $.ui.log(`arc: closing the ask picker failed: ${String(err)}`, { to: "debug" });
-        }
+        await closePicker($);
         if (isFromPicker) {
             // ending the stream kills wsh, and the server's waiter cancel takes the card down
             void wait.return(undefined as never).catch(() => undefined);

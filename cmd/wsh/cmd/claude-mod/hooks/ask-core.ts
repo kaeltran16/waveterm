@@ -1,7 +1,7 @@
-// the pure half of answering AskUserQuestion from Arc's cockpit card or the terminal's band: which
-// calls the card can take, what `wsh ask --wait` reads, the band picker's steps, and a reply mapped
-// onto the tool's answers. register.ts does the I/O, ask-band.tsx the drawing.
-import type { Picker, PickerSite } from "../types";
+// the pure half of answering AskUserQuestion from Arc's cockpit card or the terminal's pane: which
+// calls the card can take, what `wsh ask --wait` reads, the pane picker's steps, and a reply mapped
+// onto the tool's answers. register.ts does the I/O, ask-pane.tsx the drawing.
+import type { Picker } from "../types";
 
 export type AskOption = { label: string; description?: string; preview?: string };
 export type AskQuestion = {
@@ -51,11 +51,10 @@ export function parseAskReply(stdout: string): AskReply | null {
     }
 }
 
-// the terminal's picker: where it is drawn, the questions less their previews (the card shows
-// those), which one is up, the answers so far, and the options marked in a multi-select
-export function openPicker(questions: readonly AskQuestion[], site: PickerSite): Picker {
+// the terminal's picker: the questions less their previews (the card shows those), which one is
+// up, the answers so far, and the options marked in a multi-select
+export function openPicker(questions: readonly AskQuestion[]): Picker {
     return {
-        site,
         questions: questions.map((q) => ({
             question: q.question,
             header: q.header,
