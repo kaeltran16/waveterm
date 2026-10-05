@@ -26,4 +26,6 @@ Rules:
   asked you to stop. A finished run cannot be cancelled.
 - Steer one task of a run (asks, approve, retry, merge, message a worker) with `wsh jarvis dag <cmd>
   --channel <id> --runid <run-id>`. A lead spawning a child of its own run uses `wsh jarvis run`.
-- Show the user a run with `wsh ui reveal run:<id>`.
+- Starting a run does not call for showing it: the user sees it in the cockpit already, and a reveal
+  takes them off the surface they are working on. Run `wsh ui reveal run:<id>` only when the user asks
+  to see the run.
