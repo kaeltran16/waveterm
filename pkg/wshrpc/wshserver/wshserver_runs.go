@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/harness"
@@ -613,7 +612,7 @@ func (ws *WshServer) CreateChildRunCommand(ctx context.Context, data wshrpc.Comm
 	return &wshrpc.CommandCreateChildRunRtnData{RunId: child.ID}, nil
 }
 
-// steerRunLead sends a line of input into the block of a run worker (tab oref "tab:<id>"), resuming a
+// steerRunLead sends a line to the session in the block of a run worker (tab oref "tab:<id>"), resuming a
 // long-lived lead in place. Best-effort: resolution/send failures are logged, never fatal. It is a var so
 // tests can observe the parent notify-back without a live PTY.
 var steerRunLead = func(ctx context.Context, tabORef, text string) {
@@ -627,9 +626,8 @@ var steerRunLead = func(ctx context.Context, tabORef, text string) {
 		log.Printf("steerRunLead: no block for %q: %v", tabORef, err)
 		return
 	}
-	if err := blockcontroller.SendInput(tab.BlockIds[0], &blockcontroller.BlockInputUnion{InputData: []byte(text)}); err != nil {
-		log.Printf("steerRunLead: sending input to %q: %v", tabORef, err)
-	}
+	// the line's own \r was its Enter when it was typed raw; the send submits it itself
+	orchestrate.SendToSession(tab.BlockIds[0], strings.TrimRight(text, "\r"))
 }
 
 // applyRunAction dispatches a run action to the matching engine transition (pure; no persistence).

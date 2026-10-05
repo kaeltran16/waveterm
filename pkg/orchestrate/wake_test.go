@@ -720,7 +720,7 @@ func TestWakeGoesOverAnIdleSessionsStream(t *testing.T) {
 	if !overStream("stream-idle", "wake: task 1 done", baseds.AgentState_Idle) {
 		t.Fatalf("an idle session with a stream was left to be typed into")
 	}
-	if got := <-msgs; got.Text != "wake: task 1 done" || got.Compact != "" {
+	if got := <-msgs; got.Text != "wake: task 1 done" || got.Compact != "" || got.MidTurn {
 		t.Fatalf("stream got %+v", got)
 	}
 }
@@ -737,15 +737,15 @@ func TestHandoffGoesOverAStreamAsACompaction(t *testing.T) {
 	}
 }
 
-// the mod's prompt waits for a running turn to end; typed text reaches the turn, which a tell needs.
-func TestTextForABusySessionIsTypedDespiteItsStream(t *testing.T) {
+// a prompt would wait for the running turn to end; a tell is for the turn itself.
+func TestTextForABusySessionJoinsItsTurnOverTheStream(t *testing.T) {
 	msgs, done := agentctl.Register("stream-busy")
 	defer done()
-	if overStream("stream-busy", "stop and rebase", baseds.AgentState_Working) {
-		t.Fatalf("a working session's text went over the stream")
+	if !overStream("stream-busy", "stop and rebase", baseds.AgentState_Working) {
+		t.Fatalf("a working session with a stream was left to be typed into")
 	}
-	if len(msgs) != 0 {
-		t.Fatalf("the stream holds %d messages", len(msgs))
+	if got := <-msgs; got.Text != "stop and rebase" || !got.MidTurn {
+		t.Fatalf("stream got %+v", got)
 	}
 }
 

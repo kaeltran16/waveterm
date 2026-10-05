@@ -127,9 +127,11 @@ type CommandAgentControlData struct {
 
 // AgentControlMsg is one thing for the session to do. Text is a prompt as it would be typed: a leading
 // slash is a command. Compact asks for a compaction instead, with these instructions, and wins over Text.
+// MidTurn asks for Text to join the turn the session is running instead of waiting for it to end.
 type AgentControlMsg struct {
 	Text    string `json:"text,omitempty"`
 	Compact string `json:"compact,omitempty"`
+	MidTurn bool   `json:"midturn,omitempty"`
 }
 
 type CommandGetBackgroundAgentsData struct{}

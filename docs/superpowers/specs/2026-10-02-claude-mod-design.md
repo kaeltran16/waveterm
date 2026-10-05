@@ -95,18 +95,41 @@ typing it would (`hooks/control-core.ts`, vitest): a leading slash is `$.command
 command as its fallback. So
 the model reads the text bare and not as "The arc plugin sent a message".
 
-`typeWake` sends over the stream when the block has one and its latest state is at the prompt
-(`overStream`), and types otherwise: no stream (pi, an older Claude, a mod that failed to load), or
-a working session, since the mod's prompt waits for the running turn to end where typed text
-reaches the turn itself, which a `dag tell` to a busy worker relies on. The retry's Enter alone is
+`typeWake` sends over the stream when the block has one (`overStream`), and types otherwise: no
+stream (pi, an older Claude, a mod that failed to load). The retry's Enter alone is
 dropped for a block with a stream: it would submit the human's draft. The waker is otherwise
 unchanged; it still confirms a wake on the working report.
 
 Probed 2026-10-04 on 2.1.289, the real mod in a pty against a stub `wsh` whose `agentctl` streamed
 lines from a file: the prompt ran with `UserPromptSubmit` and `Stop` fired and the prompt text bare,
 `/compact` ran with `PreCompact` (`manual`), and a draft typed in the composer beforehand was still
-there afterwards. Not covered: the stream RPC end to end against a real `wavesrv`, and
-`steerRunLead` (a child run's notice to its parent lead), which still types.
+there afterwards. Not covered: the stream RPC end to end against a real `wavesrv`.
+
+Amended 2026-10-05: **a working session is not typed into either.** A prompt from the mod waits for
+the running turn to end, where a `dag tell` to a busy worker is for the turn itself, so that text
+used to be typed, into the composer and onto whatever the human had drafted there. `overStream` now
+sends it with `midturn` set when the session is not at its prompt, and the mod joins it to the
+running turn with `$.session.append` (a user-role row the model reads at its next request). That row
+draws nothing, so `$.ui.log` adds one dim line the model never reads: `arc: read mid-turn: <text>`.
+A wake never sets `midturn`: the waker confirms a wake on the working report its prompt raises, which
+an appended row does not. `steerRunLead` (a child run's notice to its parent lead) goes the same way
+through `orchestrate.SendToSession` in place of raw bytes into the pty.
+
+The mod keeps the turn (`Turn` in `hooks/control-core.ts`, vitest): `turn.start` opens it, a main-loop
+`turn.complete` closes it, and a `midturn` text with no turn open is a prompt. A joined text is held
+as unread until a tool result follows it, which means another request carries it; one still unread
+when the turn ends was appended during the final answer, so it is submitted as a prompt. Two known
+edges, both marked `ponytail:` in `register.ts`: a text joined between the last tool result and the
+final answer's request is read and then submitted again, and `turn.start` does not say whose turn it
+is, so a background subagent starting one in an idle session reads as open. A mod older than
+`midturn` runs the text as a prompt once the turn ends.
+
+Probed 2026-10-05 on 2.1.289 (Haiku) in a pty, a scratch copy of the mod against a stub `wsh` whose
+`agentctl` printed one `midturn` line during a 15 s Bash call: the model ran the extra command the
+line asked for before answering, the log line drew under the running tool, and no second turn
+started. A row appended to an idle session was stored and started no turn, which is why idle stays a
+prompt. Not covered: a real `dag tell` in the dev app, the unread-at-turn-end path live, and the
+cockpit transcript's view of the appended row.
 
 ### The wake's transcript row (`claude/arc-view-mod`)
 

@@ -11,10 +11,12 @@ import "sync"
 const queueSize = 16
 
 // Msg is one thing for a session to do: run Text as a prompt, or compact with Compact as the instructions,
-// which wins when both are set.
+// which wins when both are set. MidTurn asks for Text to join the turn the session is running, as typed
+// text would, instead of waiting for it to end.
 type Msg struct {
 	Text    string
 	Compact string
+	MidTurn bool
 }
 
 var (

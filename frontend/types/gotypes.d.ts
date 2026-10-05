@@ -53,6 +53,7 @@ declare global {
     type AgentControlMsg = {
         text?: string;
         compact?: string;
+        midturn?: boolean;
     };
 
     // baseds.AgentStatusData

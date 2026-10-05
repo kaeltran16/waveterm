@@ -615,6 +615,12 @@ func latestAgentStatus(blockId, tabId string) baseds.AgentStatusData {
 	return best
 }
 
+// SendToSession delivers text to an agent session the way a wake is: over its mod's stream when it holds
+// one, typed and submitted otherwise.
+func SendToSession(blockId, text string) {
+	sendWakeFn(blockId, text)
+}
+
 // typeWake pastes the wake and then presses Enter. Bracketed paste keeps a multi-line wake one message
 // instead of relying on how each harness's editor treats a typed newline; the pause mirrors agentask's
 // keystroke pacing, since one combined write races the editor. It runs async so the waker lock is
@@ -637,10 +643,10 @@ func typeWake(blockId, text string) {
 	}()
 }
 
-// overStream hands text to a session whose mod runs it as a prompt of its own, leaving the composer and
-// whatever the human is typing in it alone, and reports whether nothing is left to type. Only a session
-// at its prompt takes it: the mod's prompt waits for a running turn to end, where typed text reaches the
-// turn itself, which is what a tell to a busy worker is for.
+// overStream hands text to a session whose mod takes it itself, leaving the composer and whatever the
+// human is typing in it alone, and reports whether nothing is left to type. A session at its prompt runs
+// it as a prompt of its own. One at work has it joined to the running turn, which is what a tell to a
+// busy worker is for; a mod older than MidTurn runs it as a prompt once that turn ends.
 func overStream(blockId, text, state string) bool {
 	if !agentctl.Has(blockId) {
 		return false
@@ -649,7 +655,9 @@ func overStream(blockId, text, state string) bool {
 		// the retry's Enter alone: a prompt sent over the stream left nothing in the composer to submit
 		return true
 	}
-	return atPrompt(state) && agentctl.Send(blockId, streamMsg(text))
+	msg := streamMsg(text)
+	msg.MidTurn = !atPrompt(state)
+	return agentctl.Send(blockId, msg)
 }
 
 // streamMsg is text as a session's mod is asked for it: the handoff is a compaction of the session's own,
