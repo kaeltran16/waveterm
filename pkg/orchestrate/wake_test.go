@@ -732,7 +732,7 @@ func TestHandoffGoesOverAStreamAsACompaction(t *testing.T) {
 	if !overStream("stream-handoff", HandoffCompact, baseds.AgentState_Idle) {
 		t.Fatalf("an idle session with a stream was left to be typed into")
 	}
-	if got := <-msgs; got.Text != "" || got.Compact != handoffInstructions {
+	if got := <-msgs; got.Text != HandoffCompact || got.Compact != handoffInstructions {
 		t.Fatalf("stream got %+v", got)
 	}
 }

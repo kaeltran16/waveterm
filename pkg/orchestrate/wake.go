@@ -653,10 +653,11 @@ func overStream(blockId, text, state string) bool {
 }
 
 // streamMsg is text as a session's mod is asked for it: the handoff is a compaction of the session's own,
-// which echoes no command into its transcript, and anything else a prompt.
+// which echoes no command into its transcript, and anything else a prompt. The handoff keeps its typed
+// text too: the mods are installed per machine, and one older than this message reads only that.
 func streamMsg(text string) agentctl.Msg {
 	if text == HandoffCompact {
-		return agentctl.Msg{Compact: handoffInstructions}
+		return agentctl.Msg{Text: text, Compact: handoffInstructions}
 	}
 	return agentctl.Msg{Text: text}
 }

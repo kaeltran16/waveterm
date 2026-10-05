@@ -10,7 +10,8 @@ import "sync"
 // queueSize bounds what a stream holds unread; Send refuses past it, and the caller types instead.
 const queueSize = 16
 
-// Msg is one thing for a session to do: run Text as a prompt, or compact with Compact as the instructions.
+// Msg is one thing for a session to do: run Text as a prompt, or compact with Compact as the instructions,
+// which wins when both are set.
 type Msg struct {
 	Text    string
 	Compact string

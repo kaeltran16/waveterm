@@ -40,6 +40,12 @@ describe("controlMsg", () => {
         expect(controlMsg('{"compact":"Keep: the reasons."}')).toEqual({ compact: "Keep: the reasons." });
     });
 
+    it("takes the compaction from a line that also carries its typed text", () => {
+        expect(controlMsg('{"text":"/compact Keep: the reasons.","compact":"Keep: the reasons."}')).toEqual({
+            compact: "Keep: the reasons.",
+        });
+    });
+
     it("ignores a line that asks for nothing", () => {
         expect(controlMsg("not json")).toBeNull();
         expect(controlMsg('{"text":""}')).toBeNull();
