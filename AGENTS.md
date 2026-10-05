@@ -12,7 +12,7 @@ Arc — an agent cockpit for driving and supervising coding agents. It began as 
 
 Consequences that matter while working here:
 
-- The upstream Electron-era docs are **gone** (2026-07-31 cleanup): `BUILD.md`, `CONTRIBUTING.md`, `RELEASES.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, the whole Docusaurus site under `docs/`, and `aiprompts/` were deleted; `README.md` was rewritten for Arc. Trust the Taskfile and this file for run/build flow. `docs/README.md` maps what remains.
+- The upstream Electron-era docs are **gone**: `BUILD.md`, `CONTRIBUTING.md`, `RELEASES.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, the whole Docusaurus site under `docs/`, and `aiprompts/` were deleted; `README.md` was rewritten for Arc. Trust the Taskfile and this file for run/build flow. `docs/README.md` maps what remains.
 - Tauri packaging is currently **Windows-only** (`cargo tauri build` → NSIS; bundles `wavesrv.x64.exe` + `wsh-*-windows.x64.exe`).
 
 ## Build & dev commands
@@ -52,7 +52,7 @@ Other useful commands:
 - **A new registered `waveobj` type needs a SQL migration** in `db/migrations-wstore/NNNNNN.{up,down}.sql`, or it fails at runtime with "no such table".
 - **Stop the dev app by PID, never by image name.** The dev app and the user's packaged Arc share the
   image names `wave-tauri.exe` and `wavesrv.x64.exe`, so `taskkill /IM wave-tauri.exe` also kills the
-  running Arc — and every agent inside it (run 700db496 lost a worker's uncommitted edits this way).
+  running Arc — and every agent inside it, losing their uncommitted edits.
   List `Get-Process wave-tauri,wavesrv.x64 | Select Id,Path`, and stop only the PID whose path is in a
   repo checkout (`src-tauri\target`, `dist\bin`), never one under `AppData\Local\Arc`.
 - CGO backend builds use the **zig** compiler for cross/static linking (required dependency, see `Taskfile.yml` `build:server:*`).
@@ -119,7 +119,7 @@ Load-bearing rules:
   `docs/keyboard-shortcuts.md` mirrors the bindings.
 - **`pkg/orchestrate`** is the deterministic DAG engine behind orchestrator runs (worktrees, lanes,
   merges, Setup/Verify); UI in `frontend/app/view/orchestrate`. The plan gate, task cap, adaptive
-  orchestration, and pipeline mode were deleted (1e4bb179) and run workers are claude + pi only —
+  orchestration, and pipeline mode are gone and run workers are claude + pi only —
   older specs still describe the removed model; `docs/orchestrator-guide.md` is current.
 
 ### Frontend conventions
