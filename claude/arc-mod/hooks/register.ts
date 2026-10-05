@@ -18,7 +18,7 @@ import {
 } from "./ask-core";
 import type { AskReply } from "./ask-core";
 import type { Picker } from "../types";
-import { controlText, deliver, takeLines } from "./control-core";
+import { controlMsg, deliver, takeLines } from "./control-core";
 import { idleArgs } from "./status-core";
 import { usageArgs } from "./usage-core";
 
@@ -55,7 +55,7 @@ async function listenToCockpit($: EngineInterface) {
         // asUser: the model reads the engine's or the person's words bare, not as a note from a plugin
         submit: (text: string) => $.prompt.submit({ text, asUser: true }),
         command: (name: string, args: string) => $.command.run({ command: name, args }),
-        compact: (instructions: string) => $.session.compact(instructions ? { instructions } : {}),
+        compact: (instructions: string) => $.session.compact({ instructions }),
     };
     let buffered = "";
     try {
@@ -66,12 +66,12 @@ async function listenToCockpit($: EngineInterface) {
             const taken = takeLines(buffered + chunk.text);
             buffered = taken.rest;
             for (const line of taken.lines) {
-                const text = controlText(line);
-                if (text === null) {
+                const msg = controlMsg(line);
+                if (msg === null) {
                     continue;
                 }
                 // not awaited: a prompt resolves only when its turn starts, and the next line may be due first
-                void deliver(session, text).catch((err) =>
+                void deliver(session, msg).catch((err) =>
                     $.ui.log(`arc: running the cockpit's prompt failed: ${String(err)}`, { to: "debug" })
                 );
             }

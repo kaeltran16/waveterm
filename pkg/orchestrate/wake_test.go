@@ -720,8 +720,20 @@ func TestWakeGoesOverAnIdleSessionsStream(t *testing.T) {
 	if !overStream("stream-idle", "wake: task 1 done", baseds.AgentState_Idle) {
 		t.Fatalf("an idle session with a stream was left to be typed into")
 	}
-	if got := <-msgs; got != "wake: task 1 done" {
-		t.Fatalf("stream got %q", got)
+	if got := <-msgs; got.Text != "wake: task 1 done" || got.Compact != "" {
+		t.Fatalf("stream got %+v", got)
+	}
+}
+
+// typed, the handoff is the slash command; over a stream the mod is asked for the compaction itself.
+func TestHandoffGoesOverAStreamAsACompaction(t *testing.T) {
+	msgs, done := agentctl.Register("stream-handoff")
+	defer done()
+	if !overStream("stream-handoff", HandoffCompact, baseds.AgentState_Idle) {
+		t.Fatalf("an idle session with a stream was left to be typed into")
+	}
+	if got := <-msgs; got.Text != "" || got.Compact != handoffInstructions {
+		t.Fatalf("stream got %+v", got)
 	}
 }
 

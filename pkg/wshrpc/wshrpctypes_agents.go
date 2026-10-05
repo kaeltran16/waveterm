@@ -125,9 +125,11 @@ type CommandAgentControlData struct {
 	ORef string `json:"oref"`
 }
 
-// AgentControlMsg is one prompt for the session, as it would be typed: a leading slash is a command.
+// AgentControlMsg is one thing for the session to do. Text is a prompt as it would be typed: a leading
+// slash is a command. Compact asks for a compaction instead, with these instructions.
 type AgentControlMsg struct {
-	Text string `json:"text"`
+	Text    string `json:"text,omitempty"`
+	Compact string `json:"compact,omitempty"`
 }
 
 type CommandGetBackgroundAgentsData struct{}

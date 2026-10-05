@@ -1,4 +1,4 @@
-// the cockpit's prompts for this session, as `wsh agentctl` streams them: one JSON line each. kept free
+// what the cockpit asks of this session, as `wsh agentctl` streams it: one JSON line each. kept free
 // of the engine so vitest can run it; register.ts holds the stream and the engine calls.
 
 // what the session can be asked to do. closures over the engine: the validator follows `$` only into a
@@ -16,11 +16,19 @@ export function takeLines(buffered: string): { lines: string[]; rest: string } {
     return { lines: parts.map((l) => l.trim()).filter(Boolean), rest };
 }
 
-// one stream line's text; null for a line that is not a prompt
-export function controlText(line: string): string | null {
+// one thing the cockpit asked for: a prompt, or a compaction with these instructions
+export type ControlMsg = { text: string } | { compact: string };
+
+const filled = (v: unknown): v is string => typeof v === "string" && v !== "";
+
+// one stream line's message; null for a line that asks for nothing
+export function controlMsg(line: string): ControlMsg | null {
     try {
         const msg = JSON.parse(line);
-        return typeof msg?.text === "string" && msg.text !== "" ? msg.text : null;
+        if (filled(msg?.compact)) {
+            return { compact: msg.compact };
+        }
+        return filled(msg?.text) ? { text: msg.text } : null;
     } catch {
         return null;
     }
@@ -30,16 +38,13 @@ const SLASH = /^\/(\S+)\s*([\s\S]*)$/;
 
 const COMPACT = "compact";
 
-// runs text as typing it would: a leading slash is a command, anything else a prompt. a compaction is
-// the session's own call, which echoes no instructions into the transcript; a session that refuses it
-// (a headless one) runs the command
-export function deliver(session: Session, text: string): Promise<unknown> {
-    const [, name, args = ""] = SLASH.exec(text) ?? [];
-    if (!name) {
-        return session.submit(text);
+// runs a prompt as typing it would: a leading slash is a command, anything else a prompt. a compaction is
+// the session's own call, which echoes no command into the transcript; a session that refuses it (a
+// headless one) runs the command
+export function deliver(session: Session, msg: ControlMsg): Promise<unknown> {
+    if ("compact" in msg) {
+        return session.compact(msg.compact).catch(() => session.command(COMPACT, msg.compact));
     }
-    if (name === COMPACT) {
-        return session.compact(args).catch(() => session.command(name, args));
-    }
-    return session.command(name, args);
+    const [, name, args = ""] = SLASH.exec(msg.text) ?? [];
+    return name ? session.command(name, args) : session.submit(msg.text);
 }

@@ -88,10 +88,11 @@ mod made none. Not yet watched in the cockpit: the agent row turning idle on Esc
 Added 2026-10-04. The engine woke a lead by pasting into its terminal and pressing Enter
 (`typeWake`), which lands in the composer the human may be typing in. The mod now holds
 `wsh agentctl` from `session.start` for the session's life: a stream RPC (`AgentControlCommand`)
-that registers the block in `pkg/agentctl` and prints each prompt as one JSON line `{"text"}`. The
-mod runs a line as typing it would (`hooks/control-core.ts`, vitest): a leading slash is
-`$.command.run`, except `/compact` (the handoff), which is `$.session.compact` with the command as its
-fallback; anything else is `$.prompt.submit` with `asUser: true`, so
+that registers the block in `pkg/agentctl` and prints each message as one JSON line: `{"text"}`, a
+prompt, or `{"compact"}`, a compaction with those instructions (the handoff). The mod runs a prompt as
+typing it would (`hooks/control-core.ts`, vitest): a leading slash is `$.command.run`, anything else
+`$.prompt.submit` with `asUser: true`. A compaction is `$.session.compact`, with the `/compact`
+command as its fallback. So
 the model reads the text bare and not as "The arc plugin sent a message".
 
 `typeWake` sends over the stream when the block has one and its latest state is at the prompt

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { controlText, deliver, takeLines } from "./control-core";
+import { controlMsg, deliver, takeLines } from "./control-core";
 
 function recorder(compactError?: Error) {
     const calls: string[][] = [];
@@ -29,49 +29,53 @@ describe("takeLines", () => {
     });
 });
 
-describe("controlText", () => {
+describe("controlMsg", () => {
     it("reads a prompt, newlines kept", () => {
-        expect(controlText('{"text":"wake: task 1 done\\nwsh jarvis dag status"}')).toBe(
-            "wake: task 1 done\nwsh jarvis dag status"
-        );
+        expect(controlMsg('{"text":"wake: task 1 done\\nwsh jarvis dag status"}')).toEqual({
+            text: "wake: task 1 done\nwsh jarvis dag status",
+        });
     });
 
-    it("ignores a line that is not a prompt", () => {
-        expect(controlText("not json")).toBeNull();
-        expect(controlText('{"text":""}')).toBeNull();
-        expect(controlText('{"other":1}')).toBeNull();
-        expect(controlText("null")).toBeNull();
+    it("reads a compaction with its instructions", () => {
+        expect(controlMsg('{"compact":"Keep: the reasons."}')).toEqual({ compact: "Keep: the reasons." });
+    });
+
+    it("ignores a line that asks for nothing", () => {
+        expect(controlMsg("not json")).toBeNull();
+        expect(controlMsg('{"text":""}')).toBeNull();
+        expect(controlMsg('{"other":1}')).toBeNull();
+        expect(controlMsg("null")).toBeNull();
     });
 });
 
 describe("deliver", () => {
     it("submits plain text as a prompt", async () => {
         const { calls, session } = recorder();
-        await deliver(session, "wake: task 1 done\nmore");
+        await deliver(session, { text: "wake: task 1 done\nmore" });
         expect(calls).toEqual([["submit", "wake: task 1 done\nmore"]]);
     });
 
     it("runs a leading slash as a command with its arguments", async () => {
         const { calls, session } = recorder();
-        await deliver(session, "/model opus high");
-        expect(calls).toEqual([["command", "model", "opus high"]]);
+        await deliver(session, { text: "/compact Keep: the reasons. Drop: tool output." });
+        expect(calls).toEqual([["command", "compact", "Keep: the reasons. Drop: tool output."]]);
     });
 
     it("runs a bare command with no arguments", async () => {
         const { calls, session } = recorder();
-        await deliver(session, "/clear");
-        expect(calls).toEqual([["command", "clear", ""]]);
+        await deliver(session, { text: "/compact" });
+        expect(calls).toEqual([["command", "compact", ""]]);
     });
 
-    it("compacts through the session, not the command", async () => {
+    it("compacts through the session when asked for a compaction", async () => {
         const { calls, session } = recorder();
-        await deliver(session, "/compact Keep: the reasons. Drop: tool output.");
-        expect(calls).toEqual([["compact", "Keep: the reasons. Drop: tool output."]]);
+        await deliver(session, { compact: "Keep: the reasons." });
+        expect(calls).toEqual([["compact", "Keep: the reasons."]]);
     });
 
     it("runs the compact command when the session refuses to compact", async () => {
         const { calls, session } = recorder(new Error("not available in a headless session"));
-        await deliver(session, "/compact Keep: the reasons.");
+        await deliver(session, { compact: "Keep: the reasons." });
         expect(calls).toEqual([
             ["compact", "Keep: the reasons."],
             ["command", "compact", "Keep: the reasons."],

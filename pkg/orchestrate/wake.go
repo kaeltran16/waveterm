@@ -39,9 +39,13 @@ const (
 	leadLaunchFailedNote = "lead could not be started"
 )
 
-// HandoffCompact is typed into a lead once its plan is handed over (spec §7): the compaction lands at the
-// natural boundary instead of mid-wake, and keeps what the spec does not already hold.
-const HandoffCompact = "/compact Keep: what the human said that the spec does not record, and the reason behind each decision. Drop: code you read, drafts, tool output."
+// handoffInstructions is what a lead's compaction keeps once its plan is handed over (spec §7): what the
+// spec does not already hold.
+const handoffInstructions = "Keep: what the human said that the spec does not record, and the reason behind each decision. Drop: code you read, drafts, tool output."
+
+// HandoffCompact is the handoff as typed into a lead: the compaction lands at the natural boundary
+// instead of mid-wake. A session with a stream is asked to compact instead (streamMsg).
+const HandoffCompact = "/compact " + handoffInstructions
 
 type leadState struct {
 	BlockId string
@@ -645,7 +649,16 @@ func overStream(blockId, text, state string) bool {
 		// the retry's Enter alone: a prompt sent over the stream left nothing in the composer to submit
 		return true
 	}
-	return atPrompt(state) && agentctl.Send(blockId, text)
+	return atPrompt(state) && agentctl.Send(blockId, streamMsg(text))
+}
+
+// streamMsg is text as a session's mod is asked for it: the handoff is a compaction of the session's own,
+// which echoes no command into its transcript, and anything else a prompt.
+func streamMsg(text string) agentctl.Msg {
+	if text == HandoffCompact {
+		return agentctl.Msg{Compact: handoffInstructions}
+	}
+	return agentctl.Msg{Text: text}
 }
 
 func sendBlockInput(blockId, s string) error {

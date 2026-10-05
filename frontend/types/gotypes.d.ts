@@ -51,7 +51,8 @@ declare global {
 
     // wshrpc.AgentControlMsg
     type AgentControlMsg = {
-        text: string;
+        text?: string;
+        compact?: string;
     };
 
     // baseds.AgentStatusData
