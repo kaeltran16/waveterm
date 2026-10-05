@@ -199,7 +199,12 @@ on you** on the Brief instead of scrolling past in a terminal. The Jarvis nav ic
 ([The plan review](#the-plan-review)), open as one dialog over whatever surface you are on: the document
 rendered on the left, the decisions (or findings) it asks you to accept on the right, and **Approve** (the
 plan's is **Accept all and proceed**, `Ctrl Enter`) or **Request changes** at the bottom. Request changes
-takes a note and sends it to the lead as your answer. Everywhere else the ask shows as a one-line summary with
+takes a note and sends it to the lead as your answer. Select text in the document to quote it: a note field
+opens under the selection (`Enter` adds, `Esc` drops), the passage stays highlighted, and the notes collect
+under the decisions, where a click reopens one and **✕** removes it. Both buttons then carry them (**Approve
+with N notes**, **Request changes · N notes**, whose message becomes optional), and the lead gets one answer:
+your message or the approve label, then each passage on a `> ` line with its note under it, in document order.
+Once sent, the notes lock. Everywhere else the ask shows as a one-line summary with
 a **Review** button: the Cockpit lead card, the Brief's card, the run sheet. On the Agent surface the lead's
 tree row carries a `review` tag, the lead's header an amber `Spec review` / `Plan review` chip, and `r` opens
 it on the focused lead. It opens by itself only once per ask, when you focus the lead itself on the Agent
