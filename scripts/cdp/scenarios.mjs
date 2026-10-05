@@ -8267,6 +8267,167 @@ const recordBandDetachRestore = {
     },
 };
 
+// --- agent-rail-file-link: a file clicked in the agent rail is the file the Diff surface opens on ----------
+// Issue 8 (2026-08-03): the rail's file link switched to the Diff surface and landed on the scope's first changed
+// file. A fixture agent whose transcript names a temp repo with three modified files; the third is clicked, so
+// landing on the first reads as the defect. The link is claimed once: a later visit keeps the row picked there.
+const RAIL_LINK_AGENT = "rail-link agent";
+const RAIL_LINK_FILES = ["alpha.txt", "bravo.txt", "charlie.txt"];
+const RAIL_LINK_RAIL = `document.querySelector('aside[aria-label="Agent details"]')`;
+const RAIL_LINK_LIB = `
+    const railFile = (name) =>
+        [...(${RAIL_LINK_RAIL}?.querySelectorAll("button") ?? [])].find((b) => (b.textContent || "").includes(name));
+    const diffRow = (name) => document.querySelector('[data-changed-file-row="' + name + '"]');
+    const selectedRows = () =>
+        [...document.querySelectorAll("[data-changed-file-row]")]
+            .filter((r) => r.classList.contains("bg-surface-selected"))
+            .map((r) => r.getAttribute("data-changed-file-row"));
+    const until = async (fn) => {
+        for (let i = 0; i < 80 && !fn(); i++) {
+            await new Promise((r) => setTimeout(r, 250));
+        }
+        return !!fn();
+    };
+`;
+
+function writeRailLinkRepo(cwd) {
+    const git = (...args) =>
+        execFileSync("git", ["-C", cwd, "-c", "user.name=verify", "-c", "user.email=verify@example.invalid", "-c", "core.autocrlf=false", ...args]);
+    git("init", "-q");
+    for (const f of RAIL_LINK_FILES) writeFileSync(join(cwd, f), `${f} one\n`);
+    git("add", "-A");
+    git("commit", "-q", "-m", "base");
+    for (const f of RAIL_LINK_FILES) writeFileSync(join(cwd, f), `${f} one\n${f} two\n`);
+    // outside the repo's file list: the transcript only names the working directory
+    const transcript = join(cwd, ".git", "rail-link.jsonl");
+    writeFileSync(
+        transcript,
+        JSON.stringify({ type: "user", cwd, message: { role: "user", content: "verify the rail file link" } }) + "\n"
+    );
+    return transcript;
+}
+
+const agentRailFileLink = {
+    name: "agent-rail-file-link",
+    surface: "agent",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-rail-link-"));
+        const ctx = { cwd, prevRail: await h.ev(`localStorage.getItem(${JSON.stringify(RAIL_VISIBLE_KEY)})`) };
+        try {
+            const transcriptPath = writeRailLinkRepo(cwd);
+            mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
+            writeFileSync(
+                TREE_RAIL_FIXTURE,
+                JSON.stringify(
+                    [
+                        {
+                            id: "fx-rail-link",
+                            name: RAIL_LINK_AGENT,
+                            project: "verify-rail-link",
+                            task: "verify the rail file link",
+                            state: "working",
+                            agent: "claude",
+                            model: "opus",
+                            activeMs: 60_000,
+                            blockId: "fx-blk-rail-link",
+                            transcriptPath,
+                        },
+                    ],
+                    null,
+                    2
+                )
+            );
+            ctx.wroteFixture = true;
+            // the rail is off by default and persisted, and the fixture roster is read once at boot
+            await h.ev(`localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "true")`);
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+            await h.goto("agent");
+            ctx.railFiles = await h.ev(`(async () => {
+                ${RAIL_LINK_LIB}
+                const row = () => {
+                    const tree = document.querySelector("[data-agent-tree]");
+                    const name = tree && [...tree.querySelectorAll("div")].find(
+                        (d) => d.textContent.trim() === ${JSON.stringify(RAIL_LINK_AGENT)} && d.children.length === 0
+                    );
+                    return name ? name.closest(".cursor-pointer") : null;
+                };
+                if (!(await until(row))) return { ok: false, why: "no agent row in the tree" };
+                row().click();
+                const names = ${JSON.stringify(RAIL_LINK_FILES)};
+                const ok = await until(() => names.every((n) => railFile(n)));
+                return { ok, why: (${RAIL_LINK_RAIL}?.innerText || "").replace(/\\s+/g, " ").trim().slice(-300) };
+            })()`);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const [first, , third] = RAIL_LINK_FILES;
+        rec(
+            "0. the focused agent's rail lists its three modified files",
+            ctx.arrangeError == null && ctx.railFiles?.ok === true,
+            ctx.arrangeError ?? JSON.stringify(ctx.railFiles)
+        );
+        await h.shot("cdp-shots/agent-rail-file-link-rail.png");
+
+        const landed = await h.ev(`(async () => {
+            ${RAIL_LINK_LIB}
+            const link = railFile(${JSON.stringify(third)});
+            link?.click();
+            const ok = !!link && (await until(() => selectedRows().length > 0));
+            // the surface settles on the first file before a late claim could move it, so read after a beat
+            await new Promise((r) => setTimeout(r, 1500));
+            return { ok, clicked: !!link, selected: selectedRows(), rows: document.querySelectorAll("[data-changed-file-row]").length };
+        })()`);
+        await h.shot("cdp-shots/agent-rail-file-link-diff.png");
+        rec(
+            "1. clicking the third file opens the Diff surface on that file, not the first",
+            landed.ok === true && landed.rows === RAIL_LINK_FILES.length && landed.selected.join() === third,
+            JSON.stringify(landed)
+        );
+
+        await h.ev(`(async () => {
+            ${RAIL_LINK_LIB}
+            diffRow(${JSON.stringify(first)})?.click();
+            await until(() => selectedRows().join() === ${JSON.stringify(first)});
+        })()`);
+        await h.goto("agent");
+        await h.ev("new Promise((r) => setTimeout(r, 600))");
+        await h.goto("files");
+        const kept = await h.ev(`(async () => {
+            ${RAIL_LINK_LIB}
+            await until(() => selectedRows().length > 0);
+            await new Promise((r) => setTimeout(r, 1500));
+            return { selected: selectedRows() };
+        })()`);
+        rec(
+            "2. the link is claimed once: coming back keeps the row picked on the surface",
+            kept.selected.join() === first,
+            JSON.stringify(kept)
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "agent-rail-file-link", {
+            what: "restore the rail's visibility",
+            fn: () =>
+                h.ev(
+                    ctx.prevRail == null
+                        ? `localStorage.removeItem(${JSON.stringify(RAIL_VISIBLE_KEY)})`
+                        : `localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, ${JSON.stringify(ctx.prevRail)})`
+                ),
+        });
+    },
+};
+
 // --- dag-observability: what the run sheet and the DAG modal claim about a live DAG ------------------
 // The orchestrator observability checks (spec 10.3, once scripts/cdp/orchestrator-observability-e2e.mjs) on
 // today's surfaces: a run reads on the Jarvis run sheet, and the DAG opens from its dock. The chained plan
@@ -10726,6 +10887,7 @@ export const SCENARIOS = [
     runTimingScenario,
     dagObservability,
     recordBandDetachRestore,
+    agentRailFileLink,
     finalShotsScenario,
     briefInitiativesPolish,
     briefPeeksPolish,

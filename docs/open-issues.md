@@ -24,7 +24,6 @@ Status legend:
 
 | Item | Kind | Effort | Source / notes |
 |---|---|---|---|
-| Issue 8 deep-link fix was never reproduced live (unit-tested only) — verify with a focused agent + dirty worktree | verification gap | S | pre-consolidation issue 8 detail (in git history); fixed 2026-08-04 |
 | Route picker offers routes the account cannot run (F14) — the backend rejects at `runroute.go`, the picker still lists them | bug | M | flaws tracker F14. Deliberately not fixed 2026-09-04: entitlement is not statically knowable, and a probe costs a process spawn per launch and goes stale. The durable fix is catalog-backed resolution at spawn, where ctx is available. A dead route now fails in seconds with the provider's own message |
 | A lead's terminal pane can render blank while the backend holds its full output | bug | M | Seen once, 2026-09-21, on a lead launched into a freshly restarted dev app: `wavesrv` held 32 KB of scrollback for the block (`filestore.db`, `db_file_data`, `name='term'`) and resizing did not repaint. Cause unknown (backlog not fed on attach, reattach ordering, or a block created mid-restart). Needs a repro first |
 | Diff surface repository actions (Spec B): checkout, cherry-pick, revert — needs its own spec before any code | decision | M | `docs/deferred.md` 2026-09-04 entry. `GitRevertCommand` / `gitinfo.RevertFile` / `gitinfo.RevertHunk` are tested and still have no caller (checked 2026-10-05); Spec B decides whether they are its starting point or get deleted |
