@@ -29,7 +29,6 @@ Status legend:
 | A lead's terminal pane can render blank while the backend holds its full output | bug | M | Seen once, 2026-09-21, on a lead launched into a freshly restarted dev app: `wavesrv` held 32 KB of scrollback for the block (`filestore.db`, `db_file_data`, `name='term'`) and resizing did not repaint. Cause unknown (backlog not fed on attach, reattach ordering, or a block created mid-restart). Needs a repro first |
 | Diff surface repository actions (Spec B): checkout, cherry-pick, revert — needs its own spec before any code | decision | M | `docs/deferred.md` 2026-09-04 entry. `GitRevertCommand` / `gitinfo.RevertFile` / `gitinfo.RevertHunk` are tested and still have no caller (checked 2026-10-05); Spec B decides whether they are its starting point or get deleted |
 | Record detach/restore round trip has no CDP scenario — `recordbandview.tsx`'s `EdgeControls` is mounted in the run sheet, its scenario went with the Subjects column | verification gap | S | Jarvis Brief B5 (2026-09-10), the one item that pass left owed |
-| Channel scaling Phase 2 carry-ins: cross-channel rail badges still read the `GetChannels` snapshot; the visual-parity CDP check was never run | verification gap | S | spec `docs/superpowers/specs/2026-07-21-channel-data-model-scaling-design.md`. Check first whether one channel per project (`5827e43b`) made the cross-channel half moot |
 
 Tracked in their own initiatives, not here:
 
@@ -91,6 +90,8 @@ Orchestrator:
   evidence that cheap-first routing waste is common.
 - **Channel data-model scaling, Phase 3 (Contract)** (2026-08-25) — revive when a channel blob is
   material (>5 MB, or a measured per-event write/broadcast cost). Prod check: 4 channels, 680 KB.
+  Two readers still take the embedded arrays off the `channelsAtom` snapshot and move first:
+  `cockpitsurface.tsx` (`answeredAskIdsAcross`) and `briefpeekview.tsx` (`fleetForRecord`).
 - **DAG liveness batching (M1)** — 42.7 ms per running task per 30 s tick on 191 session files; build
   the per-schedule snapshot only when the corpus nears ~3,000 files.
 - **Automated board rendering** for the final verifier — revive when a verdict misses a layout defect a
