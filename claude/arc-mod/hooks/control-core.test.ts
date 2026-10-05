@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { controlText, deliver, takeLines } from "./control-core";
 
-function recorder() {
+function recorder(compactError?: Error) {
     const calls: string[][] = [];
     return {
         calls,
         session: {
             submit: async (text: string) => void calls.push(["submit", text]),
             command: async (name: string, args: string) => void calls.push(["command", name, args]),
+            compact: async (instructions: string) => {
+                calls.push(["compact", instructions]);
+                if (compactError) {
+                    throw compactError;
+                }
+            },
         },
     };
 }
@@ -47,13 +53,28 @@ describe("deliver", () => {
 
     it("runs a leading slash as a command with its arguments", async () => {
         const { calls, session } = recorder();
-        await deliver(session, "/compact Keep: the reasons. Drop: tool output.");
-        expect(calls).toEqual([["command", "compact", "Keep: the reasons. Drop: tool output."]]);
+        await deliver(session, "/model opus high");
+        expect(calls).toEqual([["command", "model", "opus high"]]);
     });
 
     it("runs a bare command with no arguments", async () => {
         const { calls, session } = recorder();
-        await deliver(session, "/compact");
-        expect(calls).toEqual([["command", "compact", ""]]);
+        await deliver(session, "/clear");
+        expect(calls).toEqual([["command", "clear", ""]]);
+    });
+
+    it("compacts through the session, not the command", async () => {
+        const { calls, session } = recorder();
+        await deliver(session, "/compact Keep: the reasons. Drop: tool output.");
+        expect(calls).toEqual([["compact", "Keep: the reasons. Drop: tool output."]]);
+    });
+
+    it("runs the compact command when the session refuses to compact", async () => {
+        const { calls, session } = recorder(new Error("not available in a headless session"));
+        await deliver(session, "/compact Keep: the reasons.");
+        expect(calls).toEqual([
+            ["compact", "Keep: the reasons."],
+            ["command", "compact", "Keep: the reasons."],
+        ]);
     });
 });

@@ -6,6 +6,7 @@
 export type Session = {
     submit: (text: string) => Promise<unknown>;
     command: (name: string, args: string) => Promise<unknown>;
+    compact: (instructions: string) => Promise<unknown>;
 };
 
 // the whole lines a chunk completed, and what is left of the last one
@@ -27,8 +28,18 @@ export function controlText(line: string): string | null {
 
 const SLASH = /^\/(\S+)\s*([\s\S]*)$/;
 
-// runs text as typing it would: a leading slash is a command, anything else a prompt
+const COMPACT = "compact";
+
+// runs text as typing it would: a leading slash is a command, anything else a prompt. a compaction is
+// the session's own call, which echoes no instructions into the transcript; a session that refuses it
+// (a headless one) runs the command
 export function deliver(session: Session, text: string): Promise<unknown> {
     const [, name, args = ""] = SLASH.exec(text) ?? [];
-    return name ? session.command(name, args) : session.submit(text);
+    if (!name) {
+        return session.submit(text);
+    }
+    if (name === COMPACT) {
+        return session.compact(args).catch(() => session.command(name, args));
+    }
+    return session.command(name, args);
 }

@@ -55,6 +55,7 @@ async function listenToCockpit($: EngineInterface) {
         // asUser: the model reads the engine's or the person's words bare, not as a note from a plugin
         submit: (text: string) => $.prompt.submit({ text, asUser: true }),
         command: (name: string, args: string) => $.command.run({ command: name, args }),
+        compact: (instructions: string) => $.session.compact(instructions ? { instructions } : {}),
     };
     let buffered = "";
     try {

@@ -90,7 +90,8 @@ Added 2026-10-04. The engine woke a lead by pasting into its terminal and pressi
 `wsh agentctl` from `session.start` for the session's life: a stream RPC (`AgentControlCommand`)
 that registers the block in `pkg/agentctl` and prints each prompt as one JSON line `{"text"}`. The
 mod runs a line as typing it would (`hooks/control-core.ts`, vitest): a leading slash is
-`$.command.run` (the handoff `/compact`), anything else `$.prompt.submit` with `asUser: true`, so
+`$.command.run`, except `/compact` (the handoff), which is `$.session.compact` with the command as its
+fallback; anything else is `$.prompt.submit` with `asUser: true`, so
 the model reads the text bare and not as "The arc plugin sent a message".
 
 `typeWake` sends over the stream when the block has one and its latest state is at the prompt
@@ -130,7 +131,12 @@ notice and a lead's launch prompt are not the arc plugin's rows and stay as the 
 The same probe compacted from the plugin (`$.session.compact({ instructions })`) in place of running
 `/compact`: `PreCompact` and `SessionStart` (`compact`) fired in the mod and in the settings hooks,
 the transcript showed the engine's spinner and no prompt row, and a headless session refused the
-call. The handoff still runs `/compact`; switching is undecided.
+call. The handoff compacts that way since 2026-10-05, and runs `/compact` when the call is refused:
+the terminal shows the spinner alone, with no echo of the instructions and no `Compacted` line. A dev
+run confirmed the waker still sees it (`PreCompact` reads working, `SessionStart` `compact` idle) and
+the wake held behind it arrives after. The transcript takes the same `compact_boundary` and summary
+records, so the cockpit's transcript still shows the compaction; the `/compact` command records are
+what it no longer holds.
 
 ### Retiring the statusLine wrapper
 
