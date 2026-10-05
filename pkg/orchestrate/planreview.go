@@ -42,7 +42,7 @@ const MaxPlanReviewRounds = 2
 // proceedPastPlanReview is what the lead does when the human says to go on after the last round. Every task waits
 // while the review holds, so an amend made before accept reaches them all; after it, accept may already have
 // spawned the task (run 6c7652be).
-const proceedPastPlanReview = "as one ask with the header `Plan review`, the plan's absolute path as the question's first line, one line saying what you propose, then one `- ` line per finding you would accept, and the options `Accept all and proceed` and `Request changes`; if they say to proceed, carry each finding you accept into the pending tasks it affects with `wsh jarvis dag amend <task> \"<note>\"` first, then run `wsh jarvis dag planreview accept \"<the human's reason>\"`"
+const proceedPastPlanReview = "as one ask with the header `Plan review`, the plan's absolute path as the question's first line, one line saying what you propose, then one `- ` line per finding you would accept, and the options `Accept all and proceed` and `Request changes`; the human can quote passages of the plan with a note on each, so an answer that starts with `Accept all and proceed` is an approval, and its `> ` quoted notes are applied before proceeding, while any other text is a change request; if they say to proceed, carry each finding you accept into the pending tasks it affects with `wsh jarvis dag amend <task> \"<note>\"` first, then run `wsh jarvis dag planreview accept \"<the human's reason>\"`"
 
 // NewPlanReview is the review a plan-file submit starts with.
 func NewPlanReview() *waveobj.PlanReviewStage {
