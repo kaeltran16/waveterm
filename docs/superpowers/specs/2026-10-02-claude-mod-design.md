@@ -219,6 +219,25 @@ The settings hooks for `AskUserQuestion` (`ask`, `ask --clear`) stay: they run b
 wherever the mod is not loaded. `pkg/agentask` keystroke injection stays for that fallback and for
 pi.
 
+### Refused shell commands (`tool.call` on `Bash` and `PowerShell`), added 2026-10-05
+
+Sessions run with permissions skipped, so a rule in a prompt is the only thing between a model and a
+command. `hooks/guard-core.ts` refuses a few in code; the model reads the reason as the tool's error.
+
+- **Every session inside Arc:** a kill aimed at `wave-tauri` or `wavesrv` by image name (`taskkill /IM`,
+  `Stop-Process` without `-Id`, `kill -Name`, `pkill`, `killall`). A stop by pid passes.
+- **A session whose directory is under `.waveterm/worktrees/`** (a task worker, its reviewer, the final
+  verifier): `git push`, `git worktree add|remove|move|prune`, `git switch` and `git checkout -b`.
+
+The match is on the command's text, so a refused phrase quoted inside another command is refused too, and
+a script file that runs one is not seen. `git checkout <name>` passes: a path and a branch read the same.
+The plan's Verify is not refused: the mod does not know the command, and the workers' costly runs were
+whole packages, which an exact match would miss.
+
+Checked live 2026-10-05 (2.1.289, Haiku, pty, scratch copy of the mod in a fake task worktree): a
+`git push` came back as the refusal text. The kill rule is covered by unit tests only, since a miss in a
+live check would stop the running Arc.
+
 ### To verify in implementation (not assumed)
 
 - `CLAUDE_CODE_PLUGIN_DIRS` from a settings `env` block loads the mod (the probe used

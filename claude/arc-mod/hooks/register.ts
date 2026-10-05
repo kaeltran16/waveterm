@@ -20,6 +20,7 @@ import type { AskReply } from "./ask-core";
 import type { Picker } from "../types";
 import { controlMsg, deliver, endTurn, steerNotice, takeLines } from "./control-core";
 import type { Turn } from "./control-core";
+import { denial } from "./guard-core";
 import { idleArgs } from "./status-core";
 import { usageArgs } from "./usage-core";
 
@@ -98,6 +99,11 @@ async function steerTurn($: EngineInterface, text: string) {
         throw new Error(kept.deny);
     }
     $.ui.log(steerNotice(text));
+}
+
+// why this session may not run the shell command; null when it may, and always outside Arc
+async function refusal($: EngineInterface, command: string): Promise<string | null> {
+    return active ? denial(command, await $.session.cwd()) : null;
 }
 
 async function closePicker($: EngineInterface) {
@@ -195,6 +201,17 @@ export const register: Register = (on) => {
             other: (text) => void step((p) => typeOther(p, text)),
         });
         return drawn ?? idle;
+    });
+
+    // refused in code: a prompt's rule is one the model can talk itself out of
+    on("tool.call", { tool: "Bash" }, async ($, e, next) => {
+        const why = await refusal($, e.command);
+        return why === null ? next(e) : { deny: why };
+    });
+
+    on("tool.call", { tool: "PowerShell" }, async ($, e, next) => {
+        const why = await refusal($, e.command);
+        return why === null ? next(e) : { deny: why };
     });
 
     // Esc in the pane, or its close mark, dismisses the question as Esc does in claude's own dialog
