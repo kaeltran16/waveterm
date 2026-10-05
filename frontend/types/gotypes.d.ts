@@ -1069,14 +1069,6 @@ declare global {
         worktrees: GitWorktree[];
     };
 
-    // wshrpc.CommandGitRevertData
-    type CommandGitRevertData = {
-        cwd: string;
-        path: string;
-        status: string;
-        patch?: string;
-    };
-
     // wshrpc.CommandJarvisCtxData
     type CommandJarvisCtxData = {
         blockoref?: string;

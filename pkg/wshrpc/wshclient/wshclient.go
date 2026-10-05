@@ -588,12 +588,6 @@ func GitListWorktreesCommand(w *wshutil.WshRpc, data wshrpc.CommandGitListWorktr
 	return resp, err
 }
 
-// command "gitrevert", wshserver.GitRevertCommand
-func GitRevertCommand(w *wshutil.WshRpc, data wshrpc.CommandGitRevertData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "gitrevert", data, opts)
-	return err
-}
-
 // command "jarvisctx", wshserver.JarvisCtxCommand
 func JarvisCtxCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisCtxData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisCtxRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisCtxRtnData](w, "jarvisctx", data, opts)

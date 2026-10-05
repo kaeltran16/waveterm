@@ -26,7 +26,6 @@ Status legend:
 |---|---|---|---|
 | Route picker offers routes the account cannot run (F14) — the backend rejects at `runroute.go`, the picker still lists them | bug | M | flaws tracker F14. Deliberately not fixed 2026-09-04: entitlement is not statically knowable, and a probe costs a process spawn per launch and goes stale. The durable fix is catalog-backed resolution at spawn, where ctx is available. A dead route now fails in seconds with the provider's own message |
 | A lead's terminal pane can render blank while the backend holds its full output | bug | M | Seen once, 2026-09-21, on a lead launched into a freshly restarted dev app: `wavesrv` held 32 KB of scrollback for the block (`filestore.db`, `db_file_data`, `name='term'`) and resizing did not repaint. Cause unknown (backlog not fed on attach, reattach ordering, or a block created mid-restart). Needs a repro first |
-| Diff surface repository actions (Spec B): checkout, cherry-pick, revert — needs its own spec before any code | decision | M | `docs/deferred.md` 2026-09-04 entry. `GitRevertCommand` / `gitinfo.RevertFile` / `gitinfo.RevertHunk` are tested and still have no caller (checked 2026-10-05); Spec B decides whether they are its starting point or get deleted |
 
 Tracked in their own initiatives, not here:
 
@@ -73,6 +72,9 @@ Cockpit and surfaces:
 - **Cross-surface Back history and its context strip** (2026-09-17) — parked as `09e86573` on
   `feat/surface-integration`; keep the branch while this is open.
 - **Composer attachments** (2026-09-18) — revive when attaching a file to a goal or steer is wanted.
+- **Diff surface repository actions (Spec B)** (2026-09-04) — checkout, cherry-pick, revert. Needs its
+  own spec; revive when a write from the Diff surface is wanted. The orphaned revert path was deleted
+  2026-10-05, recovery commands in `docs/deferred.md`.
 - **Diff surface: hiding whitespace-only files from the change list** (2026-09-11).
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /
   React-DevTools pass against a populated cockpit first).

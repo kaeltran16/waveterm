@@ -319,11 +319,13 @@ actions** — is this entry.
   confirmation UX and its own conversation about what a cockpit should be allowed to do to a working
   tree. Designing a diff renderer and a destructive action in the same spec would have rushed the
   second.
-- **What already exists:** `gitinfo.RevertFile` / `gitinfo.RevertHunk` and `GitRevertCommand` are
-  shipped, tested (`TestRevertFileSubdir`, `TestRevertHunkSubdir`) and orphaned since Review mode was
-  deleted on 2026-07-31 (still no caller, checked 2026-10-05); this entry is why they are kept. `gitdiff.ts`'s `hunks` /
-  `diffHeader` fields are retained by the parity spec's decision 4 specifically as the patch source a
-  hunk revert needs; if this work is abandoned, delete them.
+- **What existed, deleted 2026-10-05:** `gitinfo.RevertFile` / `gitinfo.RevertHunk`, `GitRevertCommand`
+  and `gitdiff.ts`'s `hunks` / `diffHeader` fields (the patch source a hunk revert needs) had no caller
+  since Review mode was deleted on 2026-07-31. Recover them, with their tests, from the commit before the
+  deletion: `git show 553658ba:pkg/gitinfo/gitinfo.go`, `git show 553658ba:pkg/gitinfo/gitinfo_test.go`,
+  `git show 553658ba:pkg/wshrpc/wshrpctypes_projects.go`,
+  `git show 553658ba:pkg/wshrpc/wshserver/wshserver_projects.go`,
+  `git show 553658ba:frontend/app/view/agents/gitdiff.ts`, then `task generate`.
 - **Where it plugs in:** the affordances belong in `diffpane.tsx`'s header and the changed-file rows
   in `changedfilelist.tsx` — both of which the parity plan rewrites, which is the argument for doing
   the parity work first and designing this against the result.
