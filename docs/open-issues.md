@@ -25,7 +25,6 @@ Status legend:
 | Item | Kind | Effort | Source / notes |
 |---|---|---|---|
 | Route picker offers routes the account cannot run (F14) — the backend rejects at `runroute.go`, the picker still lists them | bug | M | flaws tracker F14. Deliberately not fixed 2026-09-04: entitlement is not statically knowable, and a probe costs a process spawn per launch and goes stale. The durable fix is catalog-backed resolution at spawn, where ctx is available. A dead route now fails in seconds with the provider's own message |
-| A lead's terminal pane can render blank while the backend holds its full output | bug | M | Seen once, 2026-09-21, on a lead launched into a freshly restarted dev app: `wavesrv` held 32 KB of scrollback for the block (`filestore.db`, `db_file_data`, `name='term'`) and resizing did not repaint. Cause unknown (backlog not fed on attach, reattach ordering, or a block created mid-restart). Needs a repro first |
 
 Tracked in their own initiatives, not here:
 
@@ -65,6 +64,11 @@ Cockpit and surfaces:
   recurs.
 - **Run recovery after a restart — New Agent sessions** (2026-09-30) — revive when a session is seen
   re-running its launch prompt.
+- **A lead's terminal pane rendering blank while the backend holds its output** (2026-10-05) — seen once,
+  2026-09-21, on a lead launched into a freshly restarted dev app: `wavesrv` held 32 KB of scrollback
+  (`filestore.db`, `db_file_data`, `name='term'`) and resizing did not repaint. Never reproduced. Revive
+  when it is seen again: note the block id and keep `waveapp.log` before touching the pane. No repro
+  loop exists, because nothing exposes the xterm buffer to CDP.
 - **Cockpit focus, slice 2 and beyond** (2026-09-22) — relationship annotation, companion split, time
   correlation, drag courier, Jarvis and Usage focus support.
 - **Resource linking beyond navigation** (2026-09-17) — Related Work, the Work Trail strip, structured
