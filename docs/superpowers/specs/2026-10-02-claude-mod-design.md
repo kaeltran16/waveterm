@@ -106,6 +106,32 @@ lines from a file: the prompt ran with `UserPromptSubmit` and `Stop` fired and t
 there afterwards. Not covered: the stream RPC end to end against a real `wavesrv`, and
 `steerRunLead` (a child run's notice to its parent lead), which still types.
 
+### The wake's transcript row (`claude/arc-view-mod`)
+
+Added 2026-10-05. A wake sent over the stream showed in the lead's transcript as the engine's raw
+text: every `wake:` line with its command, then the `Unverified:` and `Since your last wake:`
+sections. A second mod, `arc-view`, hooks `ui.render` on `UserMessage` rows whose origin is the arc
+plugin and draws a wake as what it holds (`hooks/wake-core.ts`, vitest; `hooks/wake-row.tsx`): a
+summary line, one row per event with a mark for its kind (`!` a failure, `i` a passed review's note,
+`✓` run finished, `?` the question line) and its trailing command dim at the right or, on a narrow
+terminal, under it; up to two of the lines that follow an event, then a count; each unverified
+caveat whole; the recaps as a count. The model reads the wake as sent, ctrl+o shows that text, and
+a prompt that is not a wake (a tell, a review note) is left to the engine.
+
+It is a mod of its own, embedded as `claude-view-mod` and installed to `~/.arc/claude-view-mod` with
+its own `CLAUDE_CODE_PLUGIN_DIRS` entry, because the engine skips a plugin's render hook on a row
+that plugin raised (debug log: `ui.render skipped: re-entry (the plugin's own code raised it)`); a
+later `$.ui.invalidate` or a resize does not get past it, and `claude plugin test` does not apply
+it. Probed 2026-10-05 on 2.1.289 in a pty with scratch copies of both mods: the row drew at 120 and
+150 columns and with the command dropped at 64. Not yet seen: its colours, and a real wake from
+`wavesrv` in the dev app. A wake that is typed (pi, an older Claude, a busy session), a child run's
+notice and a lead's launch prompt are not the arc plugin's rows and stay as the terminal draws them.
+
+The same probe compacted from the plugin (`$.session.compact({ instructions })`) in place of running
+`/compact`: `PreCompact` and `SessionStart` (`compact`) fired in the mod and in the settings hooks,
+the transcript showed the engine's spinner and no prompt row, and a headless session refused the
+call. The handoff still runs `/compact`; switching is undecided.
+
 ### Retiring the statusLine wrapper
 
 Once the mod reports usage, `mergeStatusLine` stops wrapping and unwraps an existing wrapper with

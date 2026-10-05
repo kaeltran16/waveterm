@@ -141,37 +141,49 @@ func stableWshPath(home string) string {
 	return filepath.Join(home, ".arc", "bin", name)
 }
 
-//go:embed all:claude-mod
+//go:embed all:claude-mod all:claude-view-mod
 var claudeModFS embed.FS
 
-// claudeModFSRoot is the embedded mod's directory, written by `task sync:claudemod` from claude/arc-mod.
-const claudeModFSRoot = "claude-mod"
+// claudeMods are the embedded mods' directories, written by `task sync:claudemod` from claude/arc-mod and
+// claude/arc-view-mod. The view mod is its own plugin because claude never runs a plugin's render hook
+// on a transcript row that plugin raised.
+var claudeMods = []string{"claude-mod", "claude-view-mod"}
 
 const claudePluginDirsVar = "CLAUDE_CODE_PLUGIN_DIRS"
 
-// claudeModDir is where the Arc Claude mod is installed: fixed and versionless like stableWshPath, so
-// the CLAUDE_CODE_PLUGIN_DIRS entry naming it never goes stale.
-func claudeModDir(home string) string {
-	return filepath.Join(home, ".arc", "claude-mod")
+// claudeModDirs is where the Arc Claude mods are installed, in claudeMods' order: fixed and versionless
+// like stableWshPath, so the CLAUDE_CODE_PLUGIN_DIRS entries naming them never go stale.
+func claudeModDirs(home string) []string {
+	dirs := make([]string, len(claudeMods))
+	for i, name := range claudeMods {
+		dirs[i] = filepath.Join(home, ".arc", name)
+	}
+	return dirs
 }
 
-// installClaudeMod writes the embedded mod into claudeModDir with the wsh path substituted. A file
+// installClaudeMod writes the embedded mods into claudeModDirs with the wsh path substituted. A file
 // whose bytes already match is left alone: every interactive claude session watches its plugin
 // folders and reloads the mod on a write, so rewriting on every Arc launch would reload it everywhere.
 func installClaudeMod(home, wshExe string) error {
-	dir := claudeModDir(home)
-	return fs.WalkDir(claudeModFS, claudeModFSRoot, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+	for i, dir := range claudeModDirs(home) {
+		root := claudeMods[i]
+		err := fs.WalkDir(claudeModFS, root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			body, err := claudeModFS.ReadFile(p)
+			if err != nil {
+				return fmt.Errorf("reading embedded %s: %w", p, err)
+			}
+			want := strings.ReplaceAll(string(body), `"__WSH_PATH__"`, jsonString(wshExe))
+			rel := strings.TrimPrefix(p, root+"/")
+			return writeFileIfChanged(filepath.Join(dir, filepath.FromSlash(rel)), want)
+		})
+		if err != nil {
 			return err
 		}
-		body, err := claudeModFS.ReadFile(p)
-		if err != nil {
-			return fmt.Errorf("reading embedded %s: %w", p, err)
-		}
-		want := strings.ReplaceAll(string(body), `"__WSH_PATH__"`, jsonString(wshExe))
-		rel := strings.TrimPrefix(p, claudeModFSRoot+"/")
-		return writeFileIfChanged(filepath.Join(dir, filepath.FromSlash(rel)), want)
-	})
+	}
+	return nil
 }
 
 // writeFileIfChanged writes body to path through a temp file and a rename, unless path already holds it.
@@ -200,10 +212,10 @@ func samePath(a, b string) bool {
 	return a == b
 }
 
-// mergeClaudePluginDirs returns a copy of existing whose env.CLAUDE_CODE_PLUGIN_DIRS lists modDir once,
-// last, after the user's own entries in their order. Claude reads that variable from the user settings'
-// env block and loads each folder as --plugin-dir, which covers every launch without touching any.
-func mergeClaudePluginDirs(existing map[string]any, modDir string) map[string]any {
+// mergeClaudePluginDirs returns a copy of existing whose env.CLAUDE_CODE_PLUGIN_DIRS lists each of modDirs
+// once, last, after the user's own entries in their order. Claude reads that variable from the user
+// settings' env block and loads each folder as --plugin-dir, which covers every launch without touching any.
+func mergeClaudePluginDirs(existing map[string]any, modDirs ...string) map[string]any {
 	out := map[string]any{}
 	if b, err := json.Marshal(existing); err == nil {
 		_ = json.Unmarshal(b, &out)
@@ -215,24 +227,35 @@ func mergeClaudePluginDirs(existing map[string]any, modDir string) map[string]an
 	cur, _ := env[claudePluginDirsVar].(string)
 	var entries []string
 	for _, e := range filepath.SplitList(cur) {
-		if e != "" && !samePath(e, modDir) {
+		if e != "" && !listsPath(modDirs, e) {
 			entries = append(entries, e)
 		}
 	}
-	env[claudePluginDirsVar] = strings.Join(append(entries, modDir), string(os.PathListSeparator))
+	env[claudePluginDirsVar] = strings.Join(append(entries, modDirs...), string(os.PathListSeparator))
 	out["env"] = env
 	return out
 }
 
-func pluginDirsInclude(existing map[string]any, modDir string) bool {
-	env, _ := existing["env"].(map[string]any)
-	cur, _ := env[claudePluginDirsVar].(string)
-	for _, e := range filepath.SplitList(cur) {
-		if samePath(e, modDir) {
+func listsPath(paths []string, want string) bool {
+	for _, p := range paths {
+		if samePath(p, want) {
 			return true
 		}
 	}
 	return false
+}
+
+// pluginDirsInclude reports whether env.CLAUDE_CODE_PLUGIN_DIRS already lists every one of modDirs.
+func pluginDirsInclude(existing map[string]any, modDirs []string) bool {
+	env, _ := existing["env"].(map[string]any)
+	cur, _ := env[claudePluginDirsVar].(string)
+	listed := filepath.SplitList(cur)
+	for _, dir := range modDirs {
+		if !listsPath(listed, dir) {
+			return false
+		}
+	}
+	return true
 }
 
 // syncStableWsh makes dst a byte-identical copy of src and leaves an identical copy untouched. The
@@ -504,7 +527,7 @@ func unwrapStatusLine(existing map[string]any) map[string]any {
 // install would write. When true the install skips its
 // rewrite, so a working config is not rewritten every launch. A config naming any other binary (a
 // versioned build a rebuild will delete, or one already gone) returns false and the caller rewrites it.
-func configIsHealthy(existing map[string]any, wantExe, modDir string, modsSupported bool) bool {
+func configIsHealthy(existing map[string]any, wantExe string, modDirs []string, modsSupported bool) bool {
 	hooks, _ := existing["hooks"].(map[string]any)
 	if hooks == nil {
 		return false
@@ -537,7 +560,7 @@ func configIsHealthy(existing map[string]any, wantExe, modDir string, modsSuppor
 	if count != len(managedHooks) {
 		return false
 	}
-	if !pluginDirsInclude(existing, modDir) {
+	if !pluginDirsInclude(existing, modDirs) {
 		return false
 	}
 	sl, _ := existing["statusLine"].(map[string]any)
@@ -892,8 +915,8 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("resolving wsh path: %w", err)
 	}
 	wsh := resolveHookWsh(exe, home)
-	modDir := claudeModDir(home)
-	// the files land before settings name their folder, so no claude launch loads a missing mod
+	modDirs := claudeModDirs(home)
+	// the files land before settings name their folders, so no claude launch loads a missing mod
 	if err := installClaudeMod(home, wsh); err != nil {
 		return err
 	}
@@ -906,7 +929,7 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 	}
 
 	modsSupported := claudeSupportsMods()
-	if configIsHealthy(existing, wsh, modDir, modsSupported) {
+	if configIsHealthy(existing, wsh, modDirs, modsSupported) {
 		fmt.Printf("Arc agent hooks already installed in %s (skipping)\n", path)
 	} else {
 		merged := mergeAgentHooks(existing, wsh)
@@ -915,7 +938,7 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		} else {
 			merged = mergeStatusLine(merged, wsh)
 		}
-		merged = mergeClaudePluginDirs(merged, modDir)
+		merged = mergeClaudePluginDirs(merged, modDirs...)
 		out, err := json.MarshalIndent(merged, "", "  ")
 		if err != nil {
 			return fmt.Errorf("encoding settings: %w", err)

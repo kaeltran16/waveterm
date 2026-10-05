@@ -229,25 +229,25 @@ func TestConfigIsHealthy(t *testing.T) {
 	stable := `C:\Users\u\.arc\bin\wsh.exe`
 
 	// all managed present, all naming the path this install writes -> healthy
-	if !configIsHealthy(full, testWsh, testModDir, false) {
+	if !configIsHealthy(full, testWsh, []string{testModDir}, false) {
 		t.Fatal("full config naming the wanted wsh should be healthy")
 	}
 	// naming any other binary -> not healthy, so a versioned build path migrates to the stable copy
-	if configIsHealthy(full, stable, testModDir, false) {
+	if configIsHealthy(full, stable, []string{testModDir}, false) {
 		t.Fatal("full config naming a different wsh should NOT be healthy")
 	}
 	// empty config -> not healthy
-	if configIsHealthy(map[string]any{}, testWsh, testModDir, false) {
+	if configIsHealthy(map[string]any{}, testWsh, []string{testModDir}, false) {
 		t.Fatal("empty config should NOT be healthy")
 	}
 	// hooks present but statusLine absent -> not healthy
 	hooksOnly := mergeAgentHooks(map[string]any{}, testWsh)
-	if configIsHealthy(hooksOnly, testWsh, testModDir, false) {
+	if configIsHealthy(hooksOnly, testWsh, []string{testModDir}, false) {
 		t.Fatal("config missing managed statusLine should NOT be healthy")
 	}
 	// hooks repointed but statusLine still naming the old build -> not healthy
 	staleStatusLine := mergeClaudePluginDirs(mergeStatusLine(mergeAgentHooks(map[string]any{}, stable), testWsh), testModDir)
-	if configIsHealthy(staleStatusLine, stable, testModDir, false) {
+	if configIsHealthy(staleStatusLine, stable, []string{testModDir}, false) {
 		t.Fatal("config whose statusLine names a different wsh should NOT be healthy")
 	}
 }
@@ -670,7 +670,7 @@ func TestMergePrunesHooksUnderNoLongerManagedEvents(t *testing.T) {
 			},
 		},
 	}
-	if configIsHealthy(existing, testWsh, testModDir, false) {
+	if configIsHealthy(existing, testWsh, []string{testModDir}, false) {
 		t.Fatal("a config carrying a stale managed hook must not be reported healthy, or it is never rewritten")
 	}
 	merged := mergeAgentHooks(existing, testWsh)
@@ -870,10 +870,10 @@ func TestMergeClaudePluginDirs_idempotentAndNeverDuplicated(t *testing.T) {
 
 func TestConfigIsHealthy_requiresThePluginDirsEntry(t *testing.T) {
 	withoutDirs := mergeStatusLine(mergeAgentHooks(map[string]any{}, testWsh), testWsh)
-	if configIsHealthy(withoutDirs, testWsh, testModDir, false) {
+	if configIsHealthy(withoutDirs, testWsh, []string{testModDir}, false) {
 		t.Fatal("a config without the mod's plugin dir must not be healthy, or an upgrade never writes it")
 	}
-	if !configIsHealthy(mergeClaudePluginDirs(withoutDirs, testModDir), testWsh, testModDir, false) {
+	if !configIsHealthy(mergeClaudePluginDirs(withoutDirs, testModDir), testWsh, []string{testModDir}, false) {
 		t.Fatal("a config with hooks, statusLine and plugin dir should be healthy")
 	}
 }
@@ -883,7 +883,7 @@ func TestInstallClaudeMod_writesTheModWithTheWshPath(t *testing.T) {
 	if err := installClaudeMod(home, fakeWshPath(t)); err != nil {
 		t.Fatalf("installClaudeMod: %v", err)
 	}
-	dir := claudeModDir(home)
+	dir := claudeModDirs(home)[0]
 	for _, rel := range []string{".claude-plugin/plugin.json", "hooks/hooks.json", "hooks/register.ts", "hooks/usage-core.ts"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Fatalf("%s not installed: %v", rel, err)
@@ -899,12 +899,36 @@ func TestInstallClaudeMod_writesTheModWithTheWshPath(t *testing.T) {
 	if !strings.Contains(string(body), "const WSH = "+jsonString(fakeWshPath(t))+";") {
 		t.Fatalf("register.ts does not name the wsh path %s:\n%s", jsonString(fakeWshPath(t)), body)
 	}
-	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
-		if err == nil && strings.HasSuffix(p, ".test.ts") {
-			t.Fatalf("a test file was installed: %s", p)
+	viewDir := claudeModDirs(home)[1]
+	for _, rel := range []string{".claude-plugin/plugin.json", "hooks/hooks.json", "hooks/register.ts", "hooks/wake-core.ts", "hooks/wake-row.tsx"} {
+		if _, err := os.Stat(filepath.Join(viewDir, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("view mod's %s not installed: %v", rel, err)
 		}
-		return nil
-	})
+	}
+	for _, d := range []string{dir, viewDir} {
+		_ = filepath.WalkDir(d, func(p string, d os.DirEntry, err error) error {
+			if err == nil && strings.HasSuffix(p, ".test.ts") {
+				t.Fatalf("a test file was installed: %s", p)
+			}
+			return nil
+		})
+	}
+}
+
+func TestConfigIsHealthy_requiresEveryModsPluginDir(t *testing.T) {
+	viewDir := `C:\Users\u\.arc\claude-view-mod`
+	base := mergeStatusLine(mergeAgentHooks(map[string]any{}, testWsh), testWsh)
+	both := []string{testModDir, viewDir}
+	if configIsHealthy(mergeClaudePluginDirs(base, testModDir), testWsh, both, false) {
+		t.Fatal("a config listing one of two mods must not be healthy, or an upgrade never adds the second")
+	}
+	merged := mergeClaudePluginDirs(mergeClaudePluginDirs(base, testModDir), both...)
+	if !configIsHealthy(merged, testWsh, both, false) {
+		t.Fatal("a config listing both mods should be healthy")
+	}
+	if got := pluginDirsOf(t, merged); strings.Join(got, "|") != strings.Join(both, "|") {
+		t.Fatalf("plugin dirs = %v, want %v", got, both)
+	}
 }
 
 func TestInstallClaudeMod_equalBytesPreserveMtime(t *testing.T) {
@@ -912,7 +936,7 @@ func TestInstallClaudeMod_equalBytesPreserveMtime(t *testing.T) {
 	if err := installClaudeMod(home, fakeWshPath(t)); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(claudeModDir(home), "hooks", "register.ts")
+	path := filepath.Join(claudeModDirs(home)[0], "hooks", "register.ts")
 	info1, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
@@ -991,13 +1015,13 @@ func TestUnwrapStatusLine(t *testing.T) {
 func TestConfigIsHealthy_modsSupportedWantsNoWrapper(t *testing.T) {
 	hooks := mergeClaudePluginDirs(mergeAgentHooks(map[string]any{}, testWsh), testModDir)
 	wrapped := mergeStatusLine(hooks, testWsh)
-	if configIsHealthy(wrapped, testWsh, testModDir, true) {
+	if configIsHealthy(wrapped, testWsh, []string{testModDir}, true) {
 		t.Fatal("a wrapped statusLine must not be healthy once mods are supported, or it is never unwrapped")
 	}
-	if !configIsHealthy(unwrapStatusLine(wrapped), testWsh, testModDir, true) {
+	if !configIsHealthy(unwrapStatusLine(wrapped), testWsh, []string{testModDir}, true) {
 		t.Fatal("an unwrapped config should be healthy when mods are supported")
 	}
-	if configIsHealthy(unwrapStatusLine(wrapped), testWsh, testModDir, false) {
+	if configIsHealthy(unwrapStatusLine(wrapped), testWsh, []string{testModDir}, false) {
 		t.Fatal("without mod support the wrapper is required")
 	}
 }

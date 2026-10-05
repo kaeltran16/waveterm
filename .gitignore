@@ -60,3 +60,4 @@ test-results.xml
 /.waveterm/worktrees
 /.waveterm
 claude/arc-mod/.claude-plugin/types/
+claude/arc-view-mod/.claude-plugin/types/
