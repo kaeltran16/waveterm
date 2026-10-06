@@ -288,6 +288,36 @@ func TestGetChannelMessages(t *testing.T) {
 	}
 }
 
+func TestGetChannelMessagesOrdersTiedTsByInsert(t *testing.T) {
+	ctx := context.Background()
+	ch, err := CreateChannel(ctx, "msgs-tied", "/p")
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	const tiedTs = 50
+	for _, text := range []string{"a", "b", "c", "d"} {
+		if _, err := PostChannelMessage(ctx, ch.OID, NewChannelMessage("human", "you", text, "", tiedTs)); err != nil {
+			t.Fatalf("post %s: %v", text, err)
+		}
+	}
+	texts := func(msgs []*waveobj.ChannelMessage) []string {
+		var rtn []string
+		for _, m := range msgs {
+			rtn = append(rtn, m.Text)
+		}
+		return rtn
+	}
+	all, err := GetChannelMessages(ctx, ch.OID, 0, 0)
+	if err != nil || !slices.Equal(texts(all), []string{"a", "b", "c", "d"}) {
+		t.Fatalf("tied messages out of insert order: %v err=%v", texts(all), err)
+	}
+	// a window cut inside the tie keeps the newest inserts
+	newest, err := GetChannelMessages(ctx, ch.OID, 0, 2)
+	if err != nil || !slices.Equal(texts(newest), []string{"c", "d"}) {
+		t.Fatalf("tied window wrong: %v err=%v", texts(newest), err)
+	}
+}
+
 func TestGetMessagesByRef(t *testing.T) {
 	ctx := context.Background()
 	first, err := CreateChannel(ctx, "byref-a", "/p")

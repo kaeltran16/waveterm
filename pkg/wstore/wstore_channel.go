@@ -369,11 +369,11 @@ func GetChannelMessages(ctx context.Context, channelId string, before int64, lim
 	if before > 0 {
 		rtn, err = selectMessages(ctx, `SELECT oid, version, data FROM db_channelmessage
 			WHERE json_extract(data, '$.channeloid') = ? AND json_extract(data, '$.ts') < ?
-			ORDER BY json_extract(data, '$.ts') DESC LIMIT ?`, channelId, before, limit)
+			ORDER BY json_extract(data, '$.ts') DESC, rowid DESC LIMIT ?`, channelId, before, limit)
 	} else {
 		rtn, err = selectMessages(ctx, `SELECT oid, version, data FROM db_channelmessage
 			WHERE json_extract(data, '$.channeloid') = ?
-			ORDER BY json_extract(data, '$.ts') DESC LIMIT ?`, channelId, limit)
+			ORDER BY json_extract(data, '$.ts') DESC, rowid DESC LIMIT ?`, channelId, limit)
 	}
 	if err != nil {
 		return nil, err
