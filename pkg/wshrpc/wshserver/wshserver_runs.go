@@ -47,6 +47,9 @@ const ErrWorkerReportRequired = "a task worker completes with --report <file>"
 // can't hold the response past the caller's client timeout. A var so tests can run it inline.
 var sealAsync = func(fn func()) { go fn() }
 
+// landRun is the land a completed run gets. A var so a test can read what it was asked for.
+var landRun = orchestrate.LandRun
+
 // publishRunUpdate broadcasts a mutated run to the frontend on BOTH orefs: run:<id> (the focused-run view
 // subscribes to the per-run WOS object — channel-scaling Phase 2) and channel:<id> (the run-list read
 // model). These handlers persist via wstore.UpdateRun, but run on a ctx without ContextWithUpdates, so the
@@ -106,18 +109,19 @@ const continuityCaptureTimeout = 90 * time.Second
 // diff. Note the continuity capture AdvanceRun also runs on its done-path is deliberately not here —
 // there is no lead transcript to summarize.
 func SealDoneRunEvidenceAsync(channelId, runId string) {
-	sealAsync(func() { sealThenLand(channelId, runId) })
+	sealAsync(func() { sealThenLand(channelId, runId, false) })
 }
 
 // sealThenLand seals a done run, then merges its branch back. The land comes second so the seal reads the
 // branch before the land deletes it, and it is not gated on the seal: a seal left to the backfill is no reason
-// to leave the run's work off its base.
-func sealThenLand(channelId, runId string) {
+// to leave the run's work off its base. force lands past a failed final stage: the human's answer, which the
+// lead carries on complete because the land runs after its tab has closed.
+func sealThenLand(channelId, runId string, force bool) {
 	sealDoneRunEvidence(channelId, runId)
 	ctx, cancel := context.WithTimeout(context.Background(), orchestrate.LandTimeout)
 	defer cancel()
 	// a held land is on the run with its reason and raises an attention item; `wsh runs land` retries it
-	if _, err := orchestrate.LandRun(ctx, channelId, runId, false); err != nil {
+	if _, err := landRun(ctx, channelId, runId, force); err != nil {
 		log.Printf("landing run %s: %v", runId, err)
 	}
 }
@@ -813,8 +817,8 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 			// blocking the handler on it surfaced as EC-TIME even though the transition above had already
 			// persisted. It's best-effort and idempotent, with SealRunEvidenceCommand as the backfill — so
 			// dispatch it off-band and let the RPC return as soon as the transition is durable.
-			channelId, runId := data.ChannelId, data.RunId
-			sealAsync(func() { sealThenLand(channelId, runId) })
+			channelId, runId, force := data.ChannelId, data.RunId, data.ForceLand
+			sealAsync(func() { sealThenLand(channelId, runId, force) })
 		}
 		// parent-notify stays synchronous: it's a cheap PTY input send, and a child's parent must learn its
 		// child is done as soon as the transition lands, not whenever the background seal happens to finish.
@@ -936,6 +940,7 @@ func (ws *WshServer) ReportRunPhaseCommand(ctx context.Context, data wshrpc.Comm
 		Commit:    data.Commit,
 		Report:    data.Report,
 		HoldLand:  data.HoldLand,
+		ForceLand: data.ForceLand,
 	})
 }
 
