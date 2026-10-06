@@ -173,9 +173,11 @@ export function RadarFindingDetail({
         <div
             data-radar-finding-detail={finding.id}
             data-radar-report={report.oid}
-            className="min-w-0 flex-1 overflow-y-auto"
+            className="@container min-w-0 flex-1 overflow-y-auto"
         >
-            <div className="flex max-w-[880px] flex-col gap-[22px] px-[34px] pb-10 pt-[22px]">
+            {/* @container, not a media query: the list column eats window width, so only the pane's own
+                width says whether a side column fits */}
+            <div className="flex max-w-[880px] flex-col gap-[22px] px-[34px] pb-10 pt-[22px] @min-[1300px]:max-w-[1440px]">
                 <div className="flex flex-col gap-3">
                     <div className="flex min-w-0 flex-wrap items-center gap-2.5">
                         <span className={cn(REGION_LABEL, "flex items-center gap-1.5", LIST_TONE_TEXT[meta.tone])}>
@@ -292,46 +294,54 @@ export function RadarFindingDetail({
                     <span className="font-mono text-[11px] text-muted">{finding.fingerprint}</span>
                 </div>
 
-                {sites.length > 0 ? (
-                    <div className="flex flex-col gap-2">
-                        <div className="flex items-baseline gap-2.5">
-                            <h3 className={LABEL}>{sites.length > 1 ? "Sibling sites" : "Sibling site"}</h3>
-                            <span className="font-mono text-[11px] text-muted">{site?.file}</span>
-                        </div>
-                        {sites.map((s, i) => (
-                            <SiteCard key={i} site={s} />
-                        ))}
-                    </div>
-                ) : null}
+                <div className="flex flex-col gap-[22px] @min-[1300px]:flex-row @min-[1300px]:items-start @min-[1300px]:gap-8">
+                    <div className="flex min-w-0 flex-1 flex-col gap-[22px]">
+                        {sites.length > 0 ? (
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-baseline gap-2.5">
+                                    <h3 className={LABEL}>{sites.length > 1 ? "Sibling sites" : "Sibling site"}</h3>
+                                    <span className="font-mono text-[11px] text-muted">{site?.file}</span>
+                                </div>
+                                {sites.map((s, i) => (
+                                    <SiteCard key={i} site={s} />
+                                ))}
+                            </div>
+                        ) : null}
 
-                <div className="flex flex-col gap-2">
-                    <h3 className={LABEL}>Root cause</h3>
-                    <p className="max-w-[72ch] text-[13.5px] leading-[1.65] text-pretty text-muted-foreground">
-                        {finding.rootcause}
-                    </p>
+                        <div className="flex flex-col gap-2">
+                            <h3 className={LABEL}>Root cause</h3>
+                            <p className="max-w-[72ch] text-[13.5px] leading-[1.65] text-pretty text-muted-foreground">
+                                {finding.rootcause}
+                            </p>
+                        </div>
+
+                        <RelevantDecisions {...ambientRefForFinding(finding)} />
+                    </div>
+
+                    <aside className="flex flex-col gap-[22px] @min-[1300px]:sticky @min-[1300px]:top-6 @min-[1300px]:w-[340px] @min-[1300px]:flex-none">
+                        {fix ? (
+                            <div data-radar-source-fix className="flex flex-col gap-2">
+                                <h3 className={LABEL}>Found by auditing this fix</h3>
+                                <div className="flex items-baseline gap-3 rounded-[10px] border border-edge-mid bg-surface px-3.5 py-2.5">
+                                    <span className="flex-none font-mono text-xs text-ink-hi">{fix.sha}</span>
+                                    <span className="min-w-0 flex-1 text-[13px] leading-[1.45] text-secondary">
+                                        {fix.subject}
+                                    </span>
+                                    {fix.ts ? (
+                                        <span className="flex-none font-mono text-[11px] text-muted">
+                                            {formatDate(fix.ts)}
+                                        </span>
+                                    ) : null}
+                                </div>
+                            </div>
+                        ) : null}
+
+                        <p className="text-[11.5px] leading-normal text-muted">
+                            Radar never edits files, runs tests or launches agents on its own. Starting an investigation
+                            is the only action that opens a Run.
+                        </p>
+                    </aside>
                 </div>
-
-                <RelevantDecisions {...ambientRefForFinding(finding)} />
-
-                {fix ? (
-                    <div data-radar-source-fix className="flex flex-col gap-2">
-                        <h3 className={LABEL}>Found by auditing this fix</h3>
-                        <div className="flex items-baseline gap-3 rounded-[10px] border border-edge-mid bg-surface px-3.5 py-2.5">
-                            <span className="flex-none font-mono text-xs text-ink-hi">{fix.sha}</span>
-                            <span className="min-w-0 flex-1 text-[13px] leading-[1.45] text-secondary">
-                                {fix.subject}
-                            </span>
-                            {fix.ts ? (
-                                <span className="flex-none font-mono text-[11px] text-muted">{formatDate(fix.ts)}</span>
-                            ) : null}
-                        </div>
-                    </div>
-                ) : null}
-
-                <p className="text-[11.5px] leading-normal text-muted">
-                    Radar never edits files, runs tests or launches agents on its own. Starting an investigation is the
-                    only action that opens a Run.
-                </p>
             </div>
         </div>
     );
