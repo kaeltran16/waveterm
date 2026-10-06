@@ -85,6 +85,11 @@ const (
 	// own run, because its tab and terminal are deleted with the exit ("exitcode", "output", "worker")
 	RunEventKindWorkerOutput = "worker-output"
 
+	// engine-stuck: a scheduler tick or a merge-point Verify outlived the bound nothing legitimate reaches
+	// ("reason", and "taskid" for a Verify). The engine cannot end the wait itself; the lead is woken to put it
+	// to the human, and the server log holds a goroutine dump taken at the report.
+	RunEventKindEngineStuck = "engine-stuck"
+
 	// task-told: a message the human typed into a dag child's own terminal ("taskid", "text"), recorded on the
 	// owning run so the lead reads it in its status. It wakes nobody.
 	RunEventKindTaskTold = "task-told"

@@ -131,6 +131,12 @@ func verifyFailedWake(taskID, reason string) string {
 	return fmt.Sprintf("wake: Verify failed after merging task %s (%s). wsh jarvis dag status", taskID, reason)
 }
 
+// engineStuckWake hands the lead a wait the engine cannot end. The lead cannot end it either: only a restart
+// drops the goroutine, and the dag resumes from its persisted state after one.
+func engineStuckWake(what string) string {
+	return fmt.Sprintf("wake: the engine is stuck: %s. It will not recover by itself: put it to the human, who can restart Arc (the dag resumes from where it is); the server log holds a goroutine dump. wsh jarvis dag status", what)
+}
+
 // reviewFailedWake hands a task's failed review to the lead; the findings are in its status.
 func reviewFailedWake(taskID string) string {
 	return fmt.Sprintf("wake: review failed for task %s. wsh jarvis dag status", taskID)
