@@ -268,6 +268,13 @@ func spawnRunWorkersWithPrompt(ctx context.Context, channelId, runId, projectNam
 				log.Printf("spawnRunWorkers: stamp worker %s: %v", w.ORef, serr)
 			}
 		}
+		// last: the exit hook fails a run through the worker orefs and the stamp recorded above, and a worker
+		// that dies at launch beats whichever is written after its process starts
+		for _, w := range spawned {
+			if serr := jarvis.StartRunWorker(ctx, w.ORef); serr != nil {
+				spawnErr = errors.Join(spawnErr, fmt.Errorf("starting worker %s: %w", w.ORef, serr))
+			}
+		}
 	}
 	wps.Broker.SendUpdateEvents(waveobj.ContextGetUpdatesRtn(ctx))
 	return spawnErr // surfaced but non-fatal to already-persisted state

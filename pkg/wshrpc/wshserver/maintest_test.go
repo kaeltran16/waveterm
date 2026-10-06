@@ -4,14 +4,18 @@
 package wshserver
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/memroots"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -57,6 +61,10 @@ func TestMain(m *testing.M) {
 	// a background tick can merge, run Setup and add worktrees in a fixture's temp repo while the test removes it
 	// (a2c2ca6e). Tests that need the tick run it themselves or record the poke.
 	scheduleDag = func(string) {}
+	// tests spawn workers through a stub that makes no tab, so there is nothing to start, and a missing tab
+	// must not read as a worker that exited
+	jarvis.StartRunWorker = func(context.Context, string) error { return nil }
+	orchestrate.SetWorkerGoneForTest(func(context.Context, *waveobj.Run) bool { return false })
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
