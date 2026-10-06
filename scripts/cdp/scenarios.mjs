@@ -10844,6 +10844,10 @@ const RADAR_AUDIT_PANE = `document.querySelector('[data-settings-section="headle
 const RADAR_AUDIT_ROW = `${RADAR_AUDIT_PANE}?.querySelector('[data-setting-row="headless.radaraudit"]')`;
 const RADAR_AUDIT_TRIGGER = `${RADAR_AUDIT_ROW}?.querySelector('[data-testid="route-picker"]')`;
 const RADAR_AUDIT_PANEL = `document.querySelector('[aria-label="Available routes"]')`;
+// a cold app is still enumerating the installed CLIs' models when the picker opens, so the panel has no chip
+// or row until ListHarnessesCommand answers; twice its client timeout (CATALOG_RPC_TIMEOUT_MS, harnessstore.ts)
+const RADAR_AUDIT_CATALOG_WAIT_MS = 60_000;
+const RADAR_AUDIT_CATALOG_UP = `${RADAR_AUDIT_PANEL}?.querySelector('[data-testid^="route-harness-"], [data-testid^="route-option-"]') != null`;
 const radarAuditFace = (h) => h.ev(`(${RADAR_AUDIT_TRIGGER}?.textContent || "").trim()`);
 
 const settingsRadarAudit = {
@@ -10877,7 +10881,13 @@ const settingsRadarAudit = {
         await h.shot("cdp-shots/settings-radar-audit-closed.png");
 
         await h.ev(`${RADAR_AUDIT_TRIGGER}?.click()`);
-        await polishWaitFor(h, `${RADAR_AUDIT_PANEL}?.querySelector('[data-testid^="route-option-"]') != null`, 5000);
+        const catalogStart = Date.now();
+        const catalogUp = await polishWaitFor(h, RADAR_AUDIT_CATALOG_UP, RADAR_AUDIT_CATALOG_WAIT_MS);
+        const catalogMs = Date.now() - catalogStart;
+        // "Loading models…" or "No run routes available.": tells a catalog that never answered from a slow one
+        const emptyText = catalogUp
+            ? ""
+            : await h.ev(`(${RADAR_AUDIT_PANEL}?.querySelector('[data-testid="route-picker-scroll"]')?.textContent || "").trim()`);
         // the harness chips name every runtime the picker offers; the rows only the scoped one
         const offered = await h.ev(`(() => {
             const panel = ${RADAR_AUDIT_PANEL};
@@ -10890,7 +10900,9 @@ const settingsRadarAudit = {
         rec(
             "3. the picker offers claude and pi and no other runtime",
             JSON.stringify(offered) === JSON.stringify(["claude", "pi"]),
-            `offered=${JSON.stringify(offered)}`
+            catalogUp
+                ? `offered=${JSON.stringify(offered)} catalog=${catalogMs}ms`
+                : `offered=${JSON.stringify(offered)} no routes after ${catalogMs}ms, panel reads "${emptyText}"`
         );
         await h.shot("cdp-shots/settings-radar-audit-open.png");
 
