@@ -272,9 +272,10 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if t.RunID == "" {
 			continue
 		}
-		// a reboot leaves the child run running and its transcript frozen, with nothing to relaunch the worker:
-		// waiting out StallThreshold only delays the retry
-		if t.State == TaskState_Running && workerControllerGone(ctx, runs[t.RunID]) {
+		// a reboot leaves the child run running and its transcript frozen, with nothing to relaunch the worker,
+		// and so does an exit the hook lost: waiting out StallThreshold only delays the retry. The run is
+		// re-read because a worker that just completed is gone too
+		if t.State == TaskState_Running && workerControllerGone(ctx, runs[t.RunID]) && childStillOpen(ctx, g.ChannelId, t.RunID) {
 			t.State = TaskState_Stalled
 		}
 		verdict := cpuNone
