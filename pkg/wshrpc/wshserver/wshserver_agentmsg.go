@@ -17,6 +17,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -32,6 +33,7 @@ var agentHarnesses = map[string]bool{"claude": true, "pi": true}
 type agentTabFacts struct {
 	Tab          *waveobj.Tab
 	BlockId      string // the tab's first block, where its agent runs
+	ProjectPath  string // the session's directory, as its repository's main checkout
 	ShellRunning bool
 	Status       baseds.AgentStatusData
 	OpenAsk      bool
@@ -62,6 +64,9 @@ var deliverAgentMessage = orchestrate.SendToSession
 // blockTranscriptMeta is the transcript path a block's agent hook recorded on it. A var so tests need no block.
 var blockTranscriptMeta = readBlockTranscriptMeta
 
+// tabAgentBlock is the block a tab's agent runs in, "" for a tab that is gone. A var so tests need no store.
+var tabAgentBlock = readTabAgentBlock
+
 func readAgentRosterFacts(ctx context.Context) (*agentRosterFacts, error) {
 	tabs, err := wstore.DBGetAllObjsByType[*waveobj.Tab](ctx, waveobj.OType_Tab)
 	if err != nil {
@@ -82,17 +87,27 @@ func readAgentRosterFacts(ctx context.Context) (*agentRosterFacts, error) {
 		}
 		blockId := tab.BlockIds[0]
 		rs := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
+		status := orchestrate.LatestAgentStatus(blockId, tab.OID)
 		_, openAsk := agentask.GlobalRegistry.Get(waveobj.MakeORef(waveobj.OType_Block, blockId).String())
 		facts.Tabs = append(facts.Tabs, agentTabFacts{
 			Tab:          tab,
 			BlockId:      blockId,
 			ShellRunning: rs != nil && rs.ShellProcStatus == blockcontroller.Status_Running,
-			Status:       orchestrate.LatestAgentStatus(blockId, tab.OID),
+			ProjectPath:  jarvis.MainCheckout(status.Cwd),
+			Status:       status,
 			OpenAsk:      openAsk,
 			HasStream:    agentctl.Has(blockId),
 		})
 	}
 	return facts, nil
+}
+
+func readTabAgentBlock(ctx context.Context, tabId string) string {
+	tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
+	if err != nil || tab == nil || len(tab.BlockIds) == 0 {
+		return ""
+	}
+	return tab.BlockIds[0]
 }
 
 func readBlockTranscriptMeta(ctx context.Context, blockId string) (string, error) {
@@ -132,7 +147,7 @@ func buildAgentRoster(facts *agentRosterFacts) []agentRow {
 			AgentInfo: wshrpc.AgentInfo{
 				TabId:       tf.Tab.OID,
 				Name:        tf.Tab.Name,
-				ProjectPath: tf.Status.Cwd,
+				ProjectPath: tf.ProjectPath,
 				Harness:     tf.Status.Agent,
 				State:       agentsState(tf.Status.State, tf.OpenAsk),
 			},
@@ -196,7 +211,8 @@ func resolveAgentTab(rows []agentRow, tab string) (*agentRow, error) {
 	return nil, fmt.Errorf("tab %q matches several live agents: %s; use more of the id", tab, strings.Join(names, ", "))
 }
 
-// senderTab resolves who is sending from the block wsh runs in, so the caller cannot name itself.
+// senderTab resolves who is sending from the block wsh runs in, so the caller cannot name itself. The block
+// it returns is the tab's agent block, the one the send-back lock knows a target by.
 func senderTab(facts *agentRosterFacts, fromORef string) (blockId string, tab *waveobj.Tab, err error) {
 	oref, err := waveobj.ParseORef(fromORef)
 	if err != nil || oref.OType != waveobj.OType_Block {
@@ -204,7 +220,7 @@ func senderTab(facts *agentRosterFacts, fromORef string) (blockId string, tab *w
 	}
 	for _, tf := range facts.Tabs {
 		if slices.Contains(tf.Tab.BlockIds, oref.OID) {
-			return oref.OID, tf.Tab, nil
+			return tf.BlockId, tf.Tab, nil
 		}
 	}
 	return "", nil, fmt.Errorf("cannot tell who is sending: block %s is in no tab", oref.OID)
@@ -292,8 +308,8 @@ func agentTranscriptPath(ctx context.Context, row *agentRow) (string, error) {
 	return agentsessions.TranscriptForSession(agentsessions.SessionRoot(row.Harness), row.Harness, row.status.Cwd, row.status.SessionID), nil
 }
 
-// noteAgentTurnEnded opens the send-back lock of a block whose agent is back at its prompt.
-func noteAgentTurnEnded(ev *wps.WaveEvent) {
+// noteAgentTurnEnded opens the send-back lock of an agent that is back at its prompt.
+func noteAgentTurnEnded(ctx context.Context, ev *wps.WaveEvent) {
 	// events arrive over the RPC wire with Data as a raw JSON map, so decode rather than assert.
 	var data baseds.AgentStatusData
 	if utilfn.ReUnmarshal(&data, ev.Data) != nil {
@@ -302,7 +318,17 @@ func noteAgentTurnEnded(ev *wps.WaveEvent) {
 	if data.State != baseds.AgentState_Idle && data.State != baseds.AgentState_Waiting {
 		return
 	}
-	if oref, err := waveobj.ParseORef(data.ORef); err == nil && oref.OType == waveobj.OType_Block {
+	oref, err := waveobj.ParseORef(data.ORef)
+	if err != nil {
+		return
+	}
+	switch oref.OType {
+	case waveobj.OType_Block:
 		agentmsg.TurnEnded(oref.OID)
+	case waveobj.OType_Tab:
+		// the lock knows an agent by its block, which a tab-scoped reporter never names
+		if blockId := tabAgentBlock(ctx, oref.OID); blockId != "" {
+			agentmsg.TurnEnded(blockId)
+		}
 	}
 }

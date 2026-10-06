@@ -35,6 +35,7 @@ func agentFacts(tabId, name, blockId, harness, state string) agentTabFacts {
 		Tab:          &waveobj.Tab{OID: tabId, Name: name, BlockIds: []string{blockId}},
 		BlockId:      blockId,
 		ShellRunning: true,
+		ProjectPath:  "/work/" + name,
 		Status:       baseds.AgentStatusData{Agent: harness, State: state, Cwd: "/work/" + name},
 	}
 }
@@ -42,13 +43,21 @@ func agentFacts(tabId, name, blockId, harness, state string) agentTabFacts {
 // scriptAgents scripts the roster and returns what the delivery seam was handed.
 func scriptAgents(t *testing.T, facts *agentRosterFacts) *[]agentsDelivery {
 	t.Helper()
-	oldLoad, oldDeliver, oldMeta := loadAgentRosterFacts, deliverAgentMessage, blockTranscriptMeta
+	oldLoad, oldDeliver, oldMeta, oldTabBlock := loadAgentRosterFacts, deliverAgentMessage, blockTranscriptMeta, tabAgentBlock
 	sent := &[]agentsDelivery{}
 	loadAgentRosterFacts = func(context.Context) (*agentRosterFacts, error) { return facts, nil }
 	deliverAgentMessage = func(blockId, text string) { *sent = append(*sent, agentsDelivery{blockId, text}) }
 	blockTranscriptMeta = func(context.Context, string) (string, error) { return "", nil }
+	tabAgentBlock = func(_ context.Context, tabId string) string {
+		for _, tf := range facts.Tabs {
+			if tf.Tab.OID == tabId {
+				return tf.BlockId
+			}
+		}
+		return ""
+	}
 	t.Cleanup(func() {
-		loadAgentRosterFacts, deliverAgentMessage, blockTranscriptMeta = oldLoad, oldDeliver, oldMeta
+		loadAgentRosterFacts, deliverAgentMessage, blockTranscriptMeta, tabAgentBlock = oldLoad, oldDeliver, oldMeta, oldTabBlock
 		for _, b := range []string{agentsBlockA, agentsBlockB, agentsBlockC} {
 			agentmsg.TurnEnded(b)
 		}
@@ -70,9 +79,9 @@ func blockORef(blockId string) string {
 
 func TestAgentsRosterRows(t *testing.T) {
 	owned := agentFacts(agentsTabA, "worker", agentsBlockA, "claude", baseds.AgentState_Working)
-	owned.Status.Cwd = `C:\proj\arc\.worktrees\t-1`
+	owned.ProjectPath = `C:\elsewhere\t-1`
 	loose := agentFacts(agentsTabB, "scout", agentsBlockB, "pi", baseds.AgentState_Idle)
-	loose.Status.Cwd = `C:\src\widgets\`
+	loose.ProjectPath = `C:\src\widgets\`
 	codex := agentFacts("cccc-tab", "codex", agentsBlockC, "codex", baseds.AgentState_Idle)
 	exited := agentFacts("dddd-tab", "exited", "d0000000-0000-4000-8000-000000000004", "claude", baseds.AgentState_Idle)
 	exited.ShellRunning = false
@@ -340,5 +349,61 @@ func TestAgentsRead(t *testing.T) {
 
 	if _, err = ws.AgentsReadCommand(context.Background(), wshrpc.CommandAgentsReadData{Tab: "bbbb"}); err == nil || !strings.Contains(err.Error(), "matches several") {
 		t.Errorf("ambiguous read: err = %v", err)
+	}
+}
+
+// an agent's side pane is the same agent: wsh run there is locked as the tab's agent block is
+func TestAgentsSendBackLockCoversEveryBlockOfTheTab(t *testing.T) {
+	const sideBlock = "a0000000-0000-4000-8000-0000000000aa"
+	facts := threeAgents()
+	facts.Tabs[0].Tab.BlockIds = append(facts.Tabs[0].Tab.BlockIds, sideBlock)
+	sent := scriptAgents(t, facts)
+	ws := &WshServer{}
+	ctx := context.Background()
+
+	if _, err := ws.AgentsSendCommand(ctx, wshrpc.CommandAgentsSendData{Tab: agentsTabA, Text: "hi", FromORef: blockORef(agentsBlockB)}); err != nil {
+		t.Fatal(err)
+	}
+	back := wshrpc.CommandAgentsSendData{Tab: agentsTabB, Text: "thanks", FromORef: blockORef(sideBlock)}
+	if _, err := ws.AgentsSendCommand(ctx, back); err == nil || !strings.Contains(err.Error(), "wsh agents read") {
+		t.Fatalf("send back from the tab's second block: err = %v", err)
+	}
+	// and a send from the side pane locks its target against the agent block
+	agentmsg.TurnEnded(agentsBlockA)
+	if _, err := ws.AgentsSendCommand(ctx, wshrpc.CommandAgentsSendData{Tab: agentsTabC, Text: "hi", FromORef: blockORef(sideBlock)}); err != nil {
+		t.Fatal(err)
+	}
+	if !agentmsg.SendBackLocked(agentsBlockC, agentsBlockA) {
+		t.Error("a send from the second block did not lock its target against the tab's agent block")
+	}
+	if len(*sent) != 2 {
+		t.Errorf("deliveries = %d, want 2", len(*sent))
+	}
+}
+
+// a reporter that scopes its status to the tab ends the turn as a block-scoped one does
+func TestAgentsTabScopedStatusOpensSendBack(t *testing.T) {
+	// an oref only parses with a uuid in it
+	const piTab = "c0000000-0000-4000-8000-0000000000cc"
+	facts := threeAgents()
+	facts.Tabs[2].Tab.OID = piTab
+	scriptAgents(t, facts)
+	ws := &WshServer{}
+	ctx := context.Background()
+	if _, err := ws.AgentsSendCommand(ctx, wshrpc.CommandAgentsSendData{Tab: piTab, Text: "hi", FromORef: blockORef(agentsBlockA)}); err != nil {
+		t.Fatal(err)
+	}
+	back := wshrpc.CommandAgentsSendData{Tab: agentsTabA, Text: "thanks", FromORef: blockORef(agentsBlockC)}
+	if _, err := ws.AgentsSendCommand(ctx, back); err == nil {
+		t.Fatal("send back accepted while the turn is still running")
+	}
+	oref := waveobj.MakeORef(waveobj.OType_Tab, piTab).String()
+	publishEvent(ctx, wps.WaveEvent{
+		Event:  wps.Event_AgentStatus,
+		Scopes: []string{oref},
+		Data:   baseds.AgentStatusData{ORef: oref, State: baseds.AgentState_Idle, Agent: "pi", Ts: time.Now().UnixMilli()},
+	})
+	if _, err := ws.AgentsSendCommand(ctx, back); err != nil {
+		t.Fatalf("send back after a tab-scoped idle: %v", err)
 	}
 }

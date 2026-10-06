@@ -38,6 +38,7 @@ type ccHookEvent struct {
 	ToolName         string          `json:"tool_name"`
 	ToolUseID        string          `json:"tool_use_id"`
 	TranscriptPath   string          `json:"transcript_path"`
+	Cwd              string          `json:"cwd"`
 	ToolInput        json.RawMessage `json:"tool_input"`
 	Source           string          `json:"source"`
 	NotificationType string          `json:"notification_type"`
@@ -478,6 +479,7 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		State:          em.State,
 		Detail:         em.Detail,
 		Agent:          agentHookAgent,
+		Cwd:            ev.Cwd,
 		TranscriptPath: transcriptPath,
 		Ts:             time.Now().UnixMilli(),
 	}

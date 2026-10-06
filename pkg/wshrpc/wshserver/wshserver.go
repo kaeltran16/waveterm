@@ -139,7 +139,7 @@ func publishEvent(ctx context.Context, data wps.WaveEvent) {
 		// after the publish: the wake adapter re-reads the lead's state from event history, which has
 		// to hold this event already
 		orchestrate.NoteLeadStatus(ctx, &data)
-		noteAgentTurnEnded(&data)
+		noteAgentTurnEnded(ctx, &data)
 	}
 }
 
