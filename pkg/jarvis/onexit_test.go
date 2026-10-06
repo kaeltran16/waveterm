@@ -266,6 +266,8 @@ func TestAReapedEngineWorkersExitPostsNothingAndLogsNothing(t *testing.T) {
 	defer log.SetOutput(oldOut)
 
 	OnWorkerExit(blockOID, 0)
+	// the reap's DBDelete logs from a goroutine of its own: stop capturing before reading the buffer
+	log.SetOutput(oldOut)
 
 	if channelHasOutcome(t, ch.OID) {
 		t.Fatal("an engine worker never gets a channel outcome")
