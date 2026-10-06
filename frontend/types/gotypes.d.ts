@@ -2249,14 +2249,11 @@ declare global {
         id: string;
         fingerprint: string;
         group: string;
-        mode?: string;
         riskkind: string;
         subsystem: string;
-        boundarylabel?: string;
         risk: string;
         why: string;
         severity: string;
-        strength: string;
         signalids: string[];
         files: string[];
         mission: string;
@@ -2284,19 +2281,6 @@ declare global {
         verifsfail?: number;
     };
 
-    // waveobj.RadarModeRun
-    type RadarModeRun = {
-        mode: string;
-        status: string;
-        clustererror?: string;
-        payloadtokens?: number;
-        totaltokens?: number;
-        tokensestimated?: boolean;
-        resolvedmodel?: string;
-        findingcount?: number;
-        rawresponse?: string;
-    };
-
     // waveobj.RadarReport
     type RadarReport = WaveObj & {
         projectname: string;
@@ -2313,20 +2297,14 @@ declare global {
         windowendts?: number;
         startedts: number;
         completedts?: number;
-        coverage?: {[key: string]: string};
-        partialsources?: string[];
         fatalerror?: string;
         clustererror?: string;
         configuredmodel?: string;
         resolvedmodel?: string;
-        payloadtokens?: number;
         totaltokens?: number;
-        totaltokensestimated?: boolean;
         candidates?: RadarSignal[];
         signals?: RadarSignal[];
         findings?: RadarFinding[];
-        moderuns?: RadarModeRun[];
-        lensprogress?: {[key: string]: string};
         clusterstartedts?: number;
         audits?: RadarAudit[];
     };

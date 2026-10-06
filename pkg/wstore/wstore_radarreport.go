@@ -20,7 +20,6 @@ func CreateRadarReport(ctx context.Context, projectName, projectPath string) (*w
 		Status:      "collecting",
 		Phase:       "collecting",
 		StartedTs:   time.Now().UnixMilli(),
-		Coverage:    make(map[string]string),
 		Meta:        make(waveobj.MetaMapType),
 	}
 	if err := DBInsert(ctx, rpt); err != nil {

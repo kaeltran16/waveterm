@@ -107,8 +107,8 @@ func assignFindingIDs(findings []waveobj.RadarFinding) []waveobj.RadarFinding {
 // SetDisposition atomically applies a disposition to one finding in a report:
 //   dismiss     -> group=dismissed, records reason/note/ts
 //   suppress    -> group=suppressed, records reason/note/ts
-//   reopen      -> clears a dismissal, group=new
-//   unsuppress  -> clears a suppression, group=new
+//   reopen      -> clears a dismissal, group=recurring
+//   unsuppress  -> clears a suppression, group=recurring
 func SetDisposition(ctx context.Context, reportId, findingId, action, reason, note string) error {
 	return wstore.UpdateRadarReport(ctx, reportId, func(r *waveobj.RadarReport) {
 		for i := range r.Findings {
@@ -123,7 +123,7 @@ func SetDisposition(ctx context.Context, reportId, findingId, action, reason, no
 				r.Findings[i].Group = GroupSuppressed
 				r.Findings[i].Disposition = &waveobj.RadarDisposition{Action: "suppress", Reason: reason, Note: note, Ts: nowMilli()}
 			case "reopen", "unsuppress":
-				r.Findings[i].Group = GroupNew
+				r.Findings[i].Group = GroupRecurring
 				r.Findings[i].Disposition = nil
 			}
 			return

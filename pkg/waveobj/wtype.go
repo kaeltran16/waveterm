@@ -805,7 +805,7 @@ func (*Channel) GetOType() string {
 
 type RadarSignal struct {
 	ID          string         `json:"id"`
-	Collector   string         `json:"collector"` // structure|git|runs|transcript|memory|config
+	Collector   string         `json:"collector"` // git: a finding's source fix commit
 	SourceRef   string         `json:"sourceref"`
 	ObservedTs  int64          `json:"observedts"`
 	Paths       []string       `json:"paths,omitempty"`
@@ -828,15 +828,12 @@ type RadarDisposition struct {
 type RadarFinding struct {
 	ID            string              `json:"id"`
 	Fingerprint   string              `json:"fingerprint"`
-	Group         string              `json:"group"`          // new|recurring|nolonger|dismissed|suppressed
-	Mode          string              `json:"mode,omitempty"` // correctness|security|debt (empty reads as correctness)
+	Group         string              `json:"group"` // new|recurring|nolonger|dismissed|suppressed
 	RiskKind      string              `json:"riskkind"`
-	Subsystem     string              `json:"subsystem"`               // deterministic canonical subsystem
-	BoundaryLabel string              `json:"boundarylabel,omitempty"` // model advisory display label
+	Subsystem     string              `json:"subsystem"` // deterministic canonical subsystem
 	Risk          string              `json:"risk"`
 	Why           string              `json:"why"`
 	Severity      string              `json:"severity"` // low|medium|high
-	Strength      string              `json:"strength"` // strong|moderate|limited
 	SignalIDs     []string            `json:"signalids"`
 	Files         []string            `json:"files"`
 	Mission       string              `json:"mission"`
@@ -894,55 +891,34 @@ type RadarInvestigation struct {
 	VerifsFail   int    `json:"verifsfail,omitempty"`
 }
 
-// RadarModeRun is one mode's outcome within a scan. A scan runs each mode in V1Modes; recording per
-// mode lets one lens fail to cluster (clustering-failed) while others deliver, so the report degrades
-// to partial instead of appearing empty.
-type RadarModeRun struct {
-	Mode            string `json:"mode"`
-	Status          string `json:"status"` // completed|clustering-failed|skipped
-	ClusterError    string `json:"clustererror,omitempty"`
-	PayloadTokens   int    `json:"payloadtokens,omitempty"`
-	TotalTokens     int    `json:"totaltokens,omitempty"`
-	TokensEstimated bool   `json:"tokensestimated,omitempty"`
-	ResolvedModel   string `json:"resolvedmodel,omitempty"`
-	FindingCount    int    `json:"findingcount,omitempty"`
-	RawResponse     string `json:"rawresponse,omitempty"` // model output before validation, capped; the audit trail for rejected proposals
-}
-
 type RadarReport struct {
-	OID                  string            `json:"oid"`
-	Version              int               `json:"version"`
-	ProjectName          string            `json:"projectname"`
-	ProjectPath          string            `json:"projectpath"`
-	Status               string            `json:"status"` // collecting|clustering|completed|partial|failed|cancelled
-	Phase                string            `json:"phase,omitempty"`
-	StartHead            string            `json:"starthead,omitempty"`
-	EndHead              string            `json:"endhead,omitempty"`
-	StartDirty           string            `json:"startdirty,omitempty"`
-	EndDirty             string            `json:"enddirty,omitempty"`
-	PrevReportId         string            `json:"prevreportid,omitempty"`
-	PrevHead             string            `json:"prevhead,omitempty"`
-	WindowStartTs        int64             `json:"windowstartts,omitempty"`
-	WindowEndTs          int64             `json:"windowendts,omitempty"`
-	StartedTs            int64             `json:"startedts"`
-	CompletedTs          int64             `json:"completedts,omitempty"`
-	Coverage             map[string]string `json:"coverage,omitempty"` // collector -> ok|partial|failed
-	PartialSources       []string          `json:"partialsources,omitempty"`
-	FatalError           string            `json:"fatalerror,omitempty"`
-	ClusterError         string            `json:"clustererror,omitempty"`
-	ConfiguredModel      string            `json:"configuredmodel,omitempty"`
-	ResolvedModel        string            `json:"resolvedmodel,omitempty"`
-	PayloadTokens        int               `json:"payloadtokens,omitempty"`
-	TotalTokens          int               `json:"totaltokens,omitempty"`
-	TotalTokensEstimated bool              `json:"totaltokensestimated,omitempty"`
-	Candidates           []RadarSignal     `json:"candidates,omitempty"` // retained while clustering is retryable
-	Signals              []RadarSignal     `json:"signals,omitempty"`    // referenced-by-findings after prune
-	Findings             []RadarFinding    `json:"findings,omitempty"`
-	ModeRuns             []RadarModeRun    `json:"moderuns,omitempty"`
-	LensProgress         map[string]string `json:"lensprogress,omitempty"` // lens -> queued|running|ok|failed, streamed while clustering
-	ClusterStartedTs     int64             `json:"clusterstartedts,omitempty"`
-	Audits               []RadarAudit      `json:"audits,omitempty"`
-	Meta                MetaMapType       `json:"meta"`
+	OID              string         `json:"oid"`
+	Version          int            `json:"version"`
+	ProjectName      string         `json:"projectname"`
+	ProjectPath      string         `json:"projectpath"`
+	Status           string         `json:"status"` // collecting|clustering|completed|partial|failed|cancelled
+	Phase            string         `json:"phase,omitempty"`
+	StartHead        string         `json:"starthead,omitempty"`
+	EndHead          string         `json:"endhead,omitempty"`
+	StartDirty       string         `json:"startdirty,omitempty"`
+	EndDirty         string         `json:"enddirty,omitempty"`
+	PrevReportId     string         `json:"prevreportid,omitempty"`
+	PrevHead         string         `json:"prevhead,omitempty"`
+	WindowStartTs    int64          `json:"windowstartts,omitempty"`
+	WindowEndTs      int64          `json:"windowendts,omitempty"`
+	StartedTs        int64          `json:"startedts"`
+	CompletedTs      int64          `json:"completedts,omitempty"`
+	FatalError       string         `json:"fatalerror,omitempty"`
+	ClusterError     string         `json:"clustererror,omitempty"`
+	ConfiguredModel  string         `json:"configuredmodel,omitempty"`
+	ResolvedModel    string         `json:"resolvedmodel,omitempty"`
+	TotalTokens      int            `json:"totaltokens,omitempty"`
+	Candidates       []RadarSignal  `json:"candidates,omitempty"` // retained while clustering is retryable
+	Signals          []RadarSignal  `json:"signals,omitempty"`    // referenced-by-findings after prune
+	Findings         []RadarFinding `json:"findings,omitempty"`
+	ClusterStartedTs int64          `json:"clusterstartedts,omitempty"`
+	Audits           []RadarAudit   `json:"audits,omitempty"`
+	Meta             MetaMapType    `json:"meta"`
 }
 
 func (*RadarReport) GetOType() string {

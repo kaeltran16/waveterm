@@ -7,7 +7,7 @@ import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import { DEFAULT_OPEN_GROUPS, DEFAULT_OPEN_LIST_GROUPS, type RadarGroup, type RadarListGroup } from "./radarmodel";
+import { DEFAULT_OPEN_LIST_GROUPS, type RadarListGroup } from "./radarmodel";
 
 export interface RadarScope {
     name: string;
@@ -86,10 +86,7 @@ export const currentReportIdAtom = atom<string | undefined>(undefined) as Primit
 // unmounting on nav-rail switch — mirrors Sessions/Files (see docs cockpit coherence audit).
 export const radarSelectedIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
 
-// The open finding groups: atoms for the same reason as the selection.
-export const radarOpenGroupsAtom = atom<Set<RadarGroup>>(new Set(DEFAULT_OPEN_GROUPS)) as PrimitiveAtom<
-    Set<RadarGroup>
->;
+// The open list groups: an atom for the same reason as the selection.
 export const radarOpenListGroupsAtom = atom<Set<RadarListGroup>>(new Set(DEFAULT_OPEN_LIST_GROUPS)) as PrimitiveAtom<
     Set<RadarListGroup>
 >;
@@ -99,7 +96,7 @@ export const radarOpenListGroupsAtom = atom<Set<RadarListGroup>>(new Set(DEFAULT
 export const radarDevMockAtom = atom<RadarReport | "none" | null>(null) as PrimitiveAtom<RadarReport | "none" | null>;
 
 // Current report: the dev-mock override if present, else the WOS-pinned live report (so an in-flight
-// scan streams status/phase/coverage updates without polling).
+// scan streams status/phase/audit updates without polling).
 export const currentReportAtom: Atom<RadarReport | null> = atom((get) => {
     const mock = get(radarDevMockAtom);
     if (mock) {

@@ -14,7 +14,6 @@ function finding(id: string, extra: Partial<RadarFinding> = {}): RadarFinding {
         risk: "risk",
         why: "why",
         severity: "high",
-        strength: "strong",
         signalids: [],
         files: [],
         mission: "",

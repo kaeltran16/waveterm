@@ -210,8 +210,6 @@ function finding(spec: FindingSpec): RadarFinding {
         risk: spec.title,
         why: spec.sites[0].whynotcovered,
         severity: spec.severity,
-        // retired with the lens pipeline; still required on the wire until the types are regenerated
-        strength: "",
         signalids: [signalId(spec.sha)],
         files: [spec.file],
         mission: mission(c, rootcause, spec.file, spec.sites),
@@ -387,7 +385,6 @@ const oldFinding = (id: string, group: string): RadarFinding => ({
     risk: `Coupon validation ${id} gained branches with no covering tests`,
     why: "validate.ts changed 7 times in two weeks with no test deltas.",
     severity: "high",
-    strength: "strong",
     signalids: [],
     files: ["src/coupons/validate.ts"],
     mission: "Add expiry and usage-limit coverage to tests/coupons.test.ts.",

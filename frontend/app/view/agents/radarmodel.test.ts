@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, test } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
     auditDuration,
     auditRows,
@@ -11,61 +11,27 @@ import {
     auditTally,
     auditTallyText,
     buildRunDraft,
-    classifyCoverage,
-    classifyScanState,
-    COLLECTORS,
     composeRunGoal,
-    coverageEntries,
-    coverageRows,
-    DEFAULT_OPEN_GROUPS,
     DEFAULT_OPEN_LIST_GROUPS,
     dismissReasons,
     dispositionLabel,
-    evidenceRows,
     failedAuditShas,
     failedAuditsSentence,
-    failedLenses,
-    filterByMode,
-    findingDelta,
-    findingMode,
-    findingSignalCount,
     findingSite,
-    findingSourceCount,
-    GROUP_ORDER,
-    groupFindings,
     groupForList,
-    groupMeta,
-    hasCoverageFailure,
     investigationView,
-    isDetectedNow,
-    isMutedGroup,
     isNewFinding,
     isOldFormatReport,
-    isResultsState,
-    lensHealthText,
-    lensRows,
-    lensTabs,
     LIST_GROUP_ORDER,
     listGroupMeta,
     listGroupOf,
-    missedLatestScan,
-    partialCollectors,
     primaryAction,
     radarLoadPhase,
     radarView,
-    referencedSignals,
     reportMetaAge,
-    reportSignalCount,
-    reportSourceCount,
-    repositoryChangedDuringScan,
-    rescanLabel,
-    resolveLens,
     resolveSelection,
-    scanHealth,
-    scanMetaLine,
     shortSha,
     sourceFix,
-    strengthPips,
     subsystemLabel,
     toPendingRunDraft,
 } from "./radarmodel";
@@ -79,35 +45,10 @@ const finding = (id: string, group: string, extra: Partial<RadarFinding> = {}): 
     risk: `risk ${id}`,
     why: "why",
     severity: "medium",
-    strength: "moderate",
     signalids: [],
     files: [],
     mission: "mission",
     ...extra,
-});
-
-describe("groupFindings", () => {
-    it("buckets by lifecycle group in canonical order", () => {
-        const grouped = groupFindings([
-            finding("a", "recurring"),
-            finding("b", "new"),
-            finding("c", "dismissed"),
-            finding("d", "new"),
-        ]);
-        expect(GROUP_ORDER).toEqual(["new", "recurring", "nolonger", "dismissed", "suppressed"]);
-        expect(grouped.new.map((f) => f.id)).toEqual(["b", "d"]);
-        expect(grouped.recurring.map((f) => f.id)).toEqual(["a"]);
-        expect(grouped.dismissed.map((f) => f.id)).toEqual(["c"]);
-        expect(grouped.nolonger).toEqual([]);
-    });
-
-    it("opens only new and recurring by default", () => {
-        expect(DEFAULT_OPEN_GROUPS.has("new")).toBe(true);
-        expect(DEFAULT_OPEN_GROUPS.has("recurring")).toBe(true);
-        expect(DEFAULT_OPEN_GROUPS.has("nolonger")).toBe(false);
-        expect(DEFAULT_OPEN_GROUPS.has("dismissed")).toBe(false);
-        expect(DEFAULT_OPEN_GROUPS.has("suppressed")).toBe(false);
-    });
 });
 
 const signal = (id: string, collector: string): RadarSignal => ({
@@ -131,113 +72,11 @@ const report = (extra: Partial<RadarReport> = {}): RadarReport =>
         ...extra,
     }) as RadarReport;
 
-describe("canonical counts", () => {
-    it("counts unique signal ids per finding", () => {
-        expect(findingSignalCount(finding("a", "new", { signalids: ["s1", "s2", "s1"] }))).toBe(2);
-    });
-
-    it("counts unique referenced signal ids across the report", () => {
-        const r = report({
-            findings: [finding("a", "new", { signalids: ["s1", "s2"] }), finding("b", "new", { signalids: ["s2", "s3"] })],
-        });
-        expect(reportSignalCount(r)).toBe(3);
-    });
-
-    it("counts distinct collectors among referenced signals", () => {
-        const r = report({
-            signals: [signal("s1", "git"), signal("s2", "git"), signal("s3", "runs")],
-            findings: [finding("a", "new", { signalids: ["s1", "s2", "s3"] })],
-        });
-        expect(reportSourceCount(r)).toBe(2);
-    });
-});
-
-describe("evidence resolution", () => {
-    it("resolves referenced signals in id order, dropping unknown ids", () => {
-        const r = report({ signals: [signal("s1", "git"), signal("s3", "runs")] });
-        const f = finding("a", "new", { signalids: ["s3", "s2", "s1"] });
-        expect(referencedSignals(f, r).map((s) => s.id)).toEqual(["s3", "s1"]);
-    });
-
-    it("counts distinct collectors for a single finding", () => {
-        const r = report({ signals: [signal("s1", "git"), signal("s2", "git"), signal("s3", "runs")] });
-        expect(findingSourceCount(finding("a", "new", { signalids: ["s1", "s2", "s3"] }), r)).toBe(2);
-    });
-
-    it("lists evidence oldest-first, keeping each signal's snippet", () => {
-        const r = report({
-            signals: [
-                { ...signal("s1", "git"), observedts: 300, snippet: "@@ -1 +1 @@" },
-                { ...signal("s2", "runs"), observedts: 100 },
-            ],
-        });
-        const rows = evidenceRows(finding("a", "new", { signalids: ["s1", "s2", "missing"] }), r);
-        expect(rows.map((s) => s.id)).toEqual(["s2", "s1"]);
-        expect(rows[1].snippet).toBe("@@ -1 +1 @@");
-    });
-});
-
-describe("presentation helpers", () => {
-    it("maps strength to filled pip counts", () => {
-        expect(strengthPips("strong")).toBe(3);
-        expect(strengthPips("moderate")).toBe(2);
-        expect(strengthPips("limited")).toBe(1);
-        expect(strengthPips("bogus")).toBe(0);
-    });
-
+describe("subsystemLabel", () => {
     it("hides a subsystem that names no directory", () => {
         expect(subsystemLabel(".")).toBe("");
         expect(subsystemLabel("unknown")).toBe("");
         expect(subsystemLabel("pkg/reporadar")).toBe("pkg/reporadar");
-    });
-
-    it("exposes group label/hint/delta, defaulting unknown groups to new", () => {
-        expect(groupMeta("recurring").delta).toBe("recurring");
-        expect(groupMeta("nolonger").tone).toBe("nolonger");
-        expect(groupMeta("bogus").label).toBe(groupMeta("new").label);
-    });
-
-    it("marks history groups as muted", () => {
-        expect(isMutedGroup("new")).toBe(false);
-        expect(isMutedGroup("recurring")).toBe(false);
-        expect(isMutedGroup("nolonger")).toBe(true);
-        expect(isMutedGroup("dismissed")).toBe(true);
-        expect(isMutedGroup("suppressed")).toBe(true);
-    });
-});
-
-describe("classifyScanState", () => {
-    it("returns never-scanned for null", () => {
-        expect(classifyScanState(null)).toBe("never-scanned");
-    });
-    it("maps in-flight statuses", () => {
-        expect(classifyScanState(report({ status: "collecting" }))).toBe("collecting");
-        expect(classifyScanState(report({ status: "clustering" }))).toBe("clustering");
-        expect(classifyScanState(report({ status: "cancelled" }))).toBe("cancelled");
-    });
-    it("distinguishes results from no-findings on completed", () => {
-        expect(classifyScanState(report({ status: "completed", findings: [] }))).toBe("no-findings");
-        expect(classifyScanState(report({ status: "completed", findings: [finding("a", "new")] }))).toBe("results");
-    });
-    it("maps partial and failed", () => {
-        expect(classifyScanState(report({ status: "partial", findings: [finding("a", "new")] }))).toBe("partial");
-        expect(classifyScanState(report({ status: "failed" }))).toBe("model-failed");
-    });
-});
-
-describe("coverage", () => {
-    it("lists collector coverage entries", () => {
-        const r = report({ coverage: { git: "ok", runs: "failed" } });
-        expect(coverageEntries(r)).toEqual(
-            expect.arrayContaining([
-                { collector: "git", status: "ok" },
-                { collector: "runs", status: "failed" },
-            ])
-        );
-    });
-    it("detects any non-ok coverage", () => {
-        expect(hasCoverageFailure(report({ coverage: { git: "ok" } }))).toBe(false);
-        expect(hasCoverageFailure(report({ coverage: { git: "ok", runs: "partial" } }))).toBe(true);
     });
 });
 
@@ -245,8 +84,8 @@ describe("resolveSelection", () => {
     it("keeps the current selection when still present", () => {
         expect(resolveSelection([finding("a", "new"), finding("b", "recurring")], "b")).toBe("b");
     });
-    it("falls back to the first finding in group order", () => {
-        expect(resolveSelection([finding("b", "recurring"), finding("a", "new")], "gone")).toBe("a");
+    it("falls back to the first open finding before a dismissed one", () => {
+        expect(resolveSelection([finding("b", "dismissed"), finding("a", "recurring")], "gone")).toBe("a");
     });
     it("returns undefined when there are no findings", () => {
         expect(resolveSelection([], "x")).toBeUndefined();
@@ -414,268 +253,6 @@ describe("dispositionLabel", () => {
         expect(dispositionLabel({ action: "dismiss", reason: "Low priority", ts: 0 })).toBe("Dismissed: low priority");
         expect(dispositionLabel({ action: "dismiss", reason: " ", ts: 0 })).toBe("Dismissed: no reason");
         expect(dispositionLabel({ action: "dismiss", ts: 0 })).toBe("Dismissed: no reason");
-    });
-});
-
-describe("radar surface glue", () => {
-    it("isResultsState is true only for results and partial", () => {
-        expect(isResultsState("results")).toBe(true);
-        expect(isResultsState("partial")).toBe(true);
-        expect(isResultsState("no-findings")).toBe(false);
-        expect(isResultsState("never-scanned")).toBe(false);
-        expect(isResultsState("model-failed")).toBe(false);
-    });
-    it("rescanLabel says re-run full scan only for a partial scan", () => {
-        expect(rescanLabel("partial")).toBe("Re-run full scan");
-        expect(rescanLabel("results")).toBe("Re-scan");
-    });
-    it("classifyCoverage maps streamed per-collector status to a checklist cell", () => {
-        expect(classifyCoverage("ok")).toBe("done");
-        expect(classifyCoverage("running")).toBe("running");
-        expect(classifyCoverage("failed")).toBe("failed");
-        expect(classifyCoverage("partial")).toBe("failed");
-        // a collector not yet reached (absent from the coverage map) is queued
-        expect(classifyCoverage(undefined)).toBe("queued");
-    });
-});
-
-describe("radar modes", () => {
-    test("findingMode defaults empty/unknown to correctness", () => {
-        expect(findingMode({ mode: "" } as RadarFinding)).toBe("correctness");
-        expect(findingMode({ mode: "security" } as RadarFinding)).toBe("security");
-        expect(findingMode({ mode: "bogus" } as RadarFinding)).toBe("correctness");
-        expect(findingMode({} as RadarFinding)).toBe("correctness");
-    });
-
-    test("filterByMode passes all or filters to one mode", () => {
-        const fs = [{ mode: "correctness" }, { mode: "security" }] as RadarFinding[];
-        expect(filterByMode(fs, "all")).toHaveLength(2);
-        expect(filterByMode(fs, "security")).toHaveLength(1);
-    });
-
-    test("failedLenses returns only clustering-failed mode runs", () => {
-        const report = {
-            moderuns: [
-                { mode: "correctness", status: "completed" },
-                { mode: "security", status: "clustering-failed", clustererror: "boom" },
-            ],
-        } as RadarReport;
-        const failed = failedLenses(report);
-        expect(failed).toHaveLength(1);
-        expect(failed[0].mode).toBe("security");
-        expect(failedLenses(null)).toHaveLength(0);
-    });
-});
-
-describe("scan-miss hysteresis", () => {
-    it("flags an open finding the latest scan missed", () => {
-        expect(missedLatestScan(finding("a", "new", { misscount: 1 }))).toBe(true);
-        expect(missedLatestScan(finding("a", "recurring"))).toBe(false);
-        expect(missedLatestScan(finding("a", "dismissed", { misscount: 3 }))).toBe(false);
-    });
-    it("counts only a detected open finding as detected now", () => {
-        expect(isDetectedNow(finding("a", "recurring"))).toBe(true);
-        expect(isDetectedNow(finding("a", "recurring", { misscount: 1 }))).toBe(false);
-        expect(isDetectedNow(finding("a", "nolonger"))).toBe(false);
-    });
-    it("replaces the group delta for a missed finding", () => {
-        expect(findingDelta(finding("a", "recurring", { misscount: 1 }))).toBe("not detected this scan");
-        expect(findingDelta(finding("a", "recurring"))).toBe("recurring");
-    });
-});
-
-describe("partial scan reasons", () => {
-    it("names failed collectors, not the legacy repository-changed marker", () => {
-        expect(partialCollectors(report({ partialsources: ["git", "repository-changed"] }))).toEqual(["git"]);
-        expect(partialCollectors(report())).toEqual([]);
-    });
-    it("detects a repository change from the recorded boundaries", () => {
-        expect(repositoryChangedDuringScan(report({ windowendts: 1, starthead: "a", endhead: "b" }))).toBe(true);
-        expect(
-            repositoryChangedDuringScan(
-                report({ windowendts: 1, starthead: "a", endhead: "a", startdirty: "x", enddirty: "y" })
-            )
-        ).toBe(true);
-        expect(repositoryChangedDuringScan(report({ windowendts: 1, starthead: "a", endhead: "a" }))).toBe(false);
-        // the end boundary is written at finalize; before that a start boundary alone is not a change
-        expect(repositoryChangedDuringScan(report({ starthead: "a", startdirty: "x" }))).toBe(false);
-        expect(repositoryChangedDuringScan(report({ partialsources: ["repository-changed"] }))).toBe(true);
-    });
-});
-
-const modeRun = (mode: string, status: string): RadarModeRun => ({ mode, status });
-
-describe("COLLECTORS and coverageRows", () => {
-    it("names the six collectors the backend runs, each with what it examines", () => {
-        expect(COLLECTORS.map((c) => c.name)).toEqual([
-            "structure",
-            "git",
-            "runs",
-            "transcript",
-            "config",
-            "dependency",
-        ]);
-        expect(COLLECTORS.every((c) => c.examines.length > 0)).toBe(true);
-    });
-    it("joins every collector with its streamed coverage cell, queued when absent", () => {
-        const rows = coverageRows(report({ coverage: { structure: "ok", git: "running", transcript: "failed" } }));
-        expect(rows.map((r) => [r.name, r.cell])).toEqual([
-            ["structure", "done"],
-            ["git", "running"],
-            ["runs", "queued"],
-            ["transcript", "failed"],
-            ["config", "queued"],
-            ["dependency", "queued"],
-        ]);
-    });
-    it("keeps a collector the table does not know, so coverage never hides one", () => {
-        const rows = coverageRows(report({ coverage: { novel: "ok" } }));
-        expect(rows[rows.length - 1]).toEqual({ name: "novel", examines: "", cell: "done" });
-    });
-    it("lists the table alone before any scan", () => {
-        expect(coverageRows(null).map((r) => r.cell)).toEqual(COLLECTORS.map(() => "queued"));
-    });
-});
-
-describe("lensRows", () => {
-    it("streams each lens in scan order, whatever order the map holds", () => {
-        const rows = lensRows(report({ lensprogress: { security: "queued", correctness: "running" } }));
-        expect(rows.map((r) => [r.name, r.cell])).toEqual([
-            ["correctness", "running"],
-            ["security", "queued"],
-        ]);
-    });
-    it("lists only the lenses a retry reruns", () => {
-        expect(lensRows(report({ lensprogress: { security: "failed" } })).map((r) => [r.name, r.cell])).toEqual([
-            ["security", "failed"],
-        ]);
-    });
-    it("is empty for a scan that streams no lens progress", () => {
-        expect(lensRows(report())).toEqual([]);
-        expect(lensRows(null)).toEqual([]);
-    });
-});
-
-describe("lensTabs", () => {
-    const sec = finding("s", "new", { mode: "security" });
-    const corr = finding("c", "new", { mode: "correctness" });
-
-    it("renders no tabs when the scan has a single lens", () => {
-        expect(lensTabs(report({ findings: [corr] }))).toEqual([]);
-    });
-    it("counts All plus each lens in canonical order", () => {
-        const tabs = lensTabs(report({ findings: [sec, corr, corr] }));
-        expect(tabs.map((t) => [t.key, t.count])).toEqual([
-            ["all", 3],
-            ["correctness", 2],
-            ["security", 1],
-        ]);
-        expect(tabs.every((t) => !t.failed && !t.disabled)).toBe(true);
-    });
-    it("shows a failed lens with no findings, disabled", () => {
-        const r = report({
-            findings: [corr],
-            moderuns: [modeRun("correctness", "completed"), modeRun("security", "clustering-failed")],
-        });
-        expect(lensTabs(r).find((t) => t.key === "security")).toMatchObject({ count: 0, failed: true, disabled: true });
-    });
-    it("keeps a failed lens selectable when findings were carried from the previous scan", () => {
-        const r = report({
-            findings: [corr, sec],
-            moderuns: [modeRun("correctness", "completed"), modeRun("security", "clustering-failed")],
-        });
-        expect(lensTabs(r).find((t) => t.key === "security")).toMatchObject({
-            count: 1,
-            failed: true,
-            disabled: false,
-        });
-    });
-    it("ignores a skipped lens", () => {
-        const r = report({
-            findings: [corr],
-            moderuns: [modeRun("correctness", "completed"), modeRun("debt", "skipped")],
-        });
-        expect(lensTabs(r)).toEqual([]);
-    });
-});
-
-describe("resolveLens", () => {
-    const tabs = lensTabs(
-        report({
-            findings: [finding("c", "new")],
-            moderuns: [modeRun("correctness", "completed"), modeRun("security", "clustering-failed")],
-        })
-    );
-    it("keeps a selectable lens", () => {
-        expect(resolveLens(tabs, "correctness")).toBe("correctness");
-    });
-    it("falls back to all for a disabled, vanished, or tab-less lens", () => {
-        expect(resolveLens(tabs, "security")).toBe("all");
-        expect(resolveLens(tabs, "debt")).toBe("all");
-        expect(resolveLens([], "correctness")).toBe("all");
-    });
-});
-
-describe("scanHealth", () => {
-    it("is empty for a clean scan", () => {
-        expect(scanHealth(report())).toEqual([]);
-    });
-    it("lists failed collectors, failed lenses, then a repository change", () => {
-        const r = report({
-            partialsources: ["transcript", "repository-changed"],
-            moderuns: [modeRun("correctness", "completed"), modeRun("security", "clustering-failed")],
-            findings: [finding("s", "new", { mode: "security" })],
-        });
-        expect(scanHealth(r)).toEqual([
-            { kind: "collectors", collectors: ["transcript"] },
-            { kind: "lens", modes: ["security"], carried: 1 },
-            { kind: "repository-changed" },
-        ]);
-    });
-});
-
-describe("lensHealthText", () => {
-    it("says the other lenses are shown when the failed lens has nothing carried", () => {
-        expect(lensHealthText(["security"], 0)).toBe(
-            "The Security lens did not cluster. The other lenses' findings are shown."
-        );
-    });
-    it("says carried findings come from the previous scan", () => {
-        expect(lensHealthText(["security"], 2)).toBe(
-            "The Security lens did not cluster. Its findings are carried over from the previous scan."
-        );
-    });
-    it("joins several lenses", () => {
-        expect(lensHealthText(["security", "debt"], 0)).toBe(
-            "The Security and Tech-debt lenses did not cluster. The other lenses' findings are shown."
-        );
-    });
-});
-
-describe("scanMetaLine", () => {
-    const now = 10 * 3_600_000;
-    const done = { status: "completed", completedts: now - 2 * 3_600_000 };
-
-    it("states age, findings, lenses and payload for a clean scan", () => {
-        const r = report({
-            ...done,
-            payloadtokens: 12_400,
-            findings: [finding("a", "new"), finding("b", "new", { mode: "security" })],
-        });
-        expect(scanMetaLine(r, now)).toBe("last scan 2h ago · 2 findings across 2 lenses · 12k-token payload");
-    });
-    it("names what is incomplete instead of the payload for a degraded scan", () => {
-        const r = report({
-            ...done,
-            status: "partial",
-            partialsources: ["transcript"],
-            moderuns: [modeRun("correctness", "completed"), modeRun("security", "clustering-failed")],
-            findings: [finding("a", "new")],
-        });
-        expect(scanMetaLine(r, now)).toBe("last scan 2h ago · 1 finding · 1 collector and 1 lens incomplete");
-    });
-    it("falls back to the start time before completion is recorded", () => {
-        expect(scanMetaLine(report({ startedts: now - 3 * 3_600_000 }), now)).toBe("last scan 3h ago · 0 findings");
     });
 });
 
