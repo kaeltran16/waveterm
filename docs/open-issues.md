@@ -8,8 +8,8 @@ orchestrator rows F11–F26, the closed scans, the Jarvis Brief B5 table, the re
 Recover the pre-prune list with `git show c99f2041:docs/open-issues.md`. The orchestrator flaw history
 (F1–F26) stays in `docs/orchestrator-redesign-flaws.md`.
 
-The actionable rows are tracked as chunks of `effort:c732b933-f976-4263-b191-fd95454c3d84`
-(`wsh effort show c732b933-f976-4263-b191-fd95454c3d84`). Tick the chunk and delete the row together.
+The rows of that prune were worked as chunks of `effort:c732b933-f976-4263-b191-fd95454c3d84`, archived
+2026-10-06 with nothing actionable left (`wsh effort show c732b933-f976-4263-b191-fd95454c3d84`).
 
 Status legend:
 
@@ -22,9 +22,7 @@ Status legend:
 
 ## 1 · Actionable
 
-| Item | Kind | Effort | Source / notes |
-|---|---|---|---|
-| Route picker offers routes the account cannot run (F14) — the backend rejects at `runroute.go`, the picker still lists them | bug | M | flaws tracker F14. Deliberately not fixed 2026-09-04: entitlement is not statically knowable, and a probe costs a process spawn per launch and goes stale. The durable fix is catalog-backed resolution at spawn, where ctx is available. A dead route now fails in seconds with the provider's own message |
+Nothing here as of 2026-10-06.
 
 Tracked in their own initiatives, not here:
 
@@ -85,6 +83,10 @@ Cockpit and surfaces:
 
 Orchestrator:
 
+- **Route picker lists a route the account cannot run (F14)** (held 2026-10-06) — `pi --list-models`
+  itself lists `openai-codex/gpt-5.3-codex-spark`, which the provider rejects, so a catalog check at
+  spawn would pass it. Revive when dead routes are more than a stray row, as a denylist learned from
+  spawn failures. Source: `docs/orchestrator-redesign-flaws.md` F14.
 - **Cross-run Verify hold under `--landing checkout`** (2026-09-15) — one run's failed Verify does not
   hold another run's merges in the same checkout. Branch landing, the default, is unaffected.
 - **Lead-authored task routing, Phase 4** (2026-09-17) — the cost/outcome measurement gate. Revive on
