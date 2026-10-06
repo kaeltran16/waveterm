@@ -456,6 +456,51 @@ func TestScheduleOncePublishesEachChildRunBeforeTheNextSpawn(t *testing.T) {
 	}
 }
 
+// a tick dispatches its tasks in sequence, and a slow one (a large checkout, a long Setup) must not spend the
+// budget of the ones after it: run f15cd1a3 lost five tasks to "context deadline exceeded" that way
+func TestScheduleOnceGivesEachDispatchItsOwnSpawnBudget(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "engine-test", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}, {ID: "t-1", Label: "b"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	const slowDispatch = 200 * time.Millisecond
+	var budgets []time.Duration
+	old := spawnWorker
+	spawnWorker = func(ctx context.Context, _ runroute.Capability, _, _, _, _ string, opts jarvis.RunWorkerOptions) (string, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Errorf("task %s spawned with no deadline", opts.TaskId)
+		}
+		budgets = append(budgets, time.Until(deadline))
+		time.Sleep(slowDispatch)
+		return "tab:worker-" + opts.TaskId, nil
+	}
+	restoreAfterStages(t, func() { spawnWorker = old })
+
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	if len(budgets) != 2 {
+		t.Fatalf("want both tasks spawned in one tick, got %d", len(budgets))
+	}
+	if budgets[1] <= jarvis.RunWorkerSpawnTimeout-slowDispatch/2 {
+		t.Fatalf("the second dispatch inherited the first one's spent budget: %v left of %v", budgets[1], jarvis.RunWorkerSpawnTimeout)
+	}
+}
+
 func TestScheduleOnceSpawnsUpToCap(t *testing.T) {
 	allowWorkerHarnessForTest(t)
 	ctx := context.Background()

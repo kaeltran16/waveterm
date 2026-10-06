@@ -88,6 +88,25 @@ const scheduleCleanupTimeout = 10 * time.Second
 // spare — it exists to stop a wedged tick living forever, not to pace a healthy one.
 const scheduleTickTimeout = 10 * time.Minute
 
+// spawnBudget hands each step of a tick its own jarvis.RunWorkerSpawnTimeout. One deadline for the whole tick
+// is spent by the first slow dispatch (a large checkout, a long Setup), and every task after it fails on arrival.
+type spawnBudget struct {
+	parent  context.Context
+	cancels []context.CancelFunc
+}
+
+func (b *spawnBudget) next() context.Context {
+	ctx, cancel := context.WithTimeout(b.parent, jarvis.RunWorkerSpawnTimeout)
+	b.cancels = append(b.cancels, cancel)
+	return ctx
+}
+
+func (b *spawnBudget) release() {
+	for _, cancel := range b.cancels {
+		cancel()
+	}
+}
+
 type spawnedWorkerInfo struct {
 	childRun  waveobj.Run
 	oref      string
@@ -338,9 +357,9 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 		return nil
 	}
 	var afterCommit []func()
-	spawnCtx := context.WithoutCancel(ctx)
-	spawnCtx, cancel := context.WithTimeout(spawnCtx, jarvis.RunWorkerSpawnTimeout)
-	defer cancel()
+	budget := spawnBudget{parent: context.WithoutCancel(ctx)}
+	defer budget.release()
+	spawnCtx := budget.next()
 	owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
 	if err != nil {
 		return fmt.Errorf("loading owning run: %w", err)
@@ -572,6 +591,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 		// dispatch timing: worktree creation and the spawn call are in-process and separately
 		// fixable (a warm tree vs. a warm worker), so they are measured separately rather than
 		// folded into the child's wall clock where neither can be told apart.
+		spawnCtx = budget.next()
 		cwd := owner.ProjectPath
 		taskBase := spawnBase
 		var branch string
@@ -601,6 +621,8 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 					failDispatch(ctx, g, taskID, FailureKindSetup, serr, &afterCommit)
 					continue
 				}
+				// Setup ran on its own SetupTimeout, and its wall clock is not the spawn's to pay
+				spawnCtx = budget.next()
 			}
 			cwd = wt
 			taskBase = attemptBase(spawnCtx, g, taskID, wt, head)
@@ -683,6 +705,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 			appendRunEventAt(ctx, spawnedAt, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": spawnedTaskID, "worktreems": worktreeMs, "setupms": setupMs, "spawnms": spawnMs})
 		})
 	}
+	spawnCtx = budget.next()
 	RecomputeDagStatus(g)
 	// every task landed: the final stage judges the merged result before the dag is done
 	advanceFinal(ctx, spawnCtx, g, owner, now, &afterCommit)
