@@ -698,6 +698,14 @@ its terminal says the worker stopped. The blocked card offers:
 
 A run after `dag submit` is the engine's: its watchdog picks the dag up again at boot.
 
+### The engine is stuck
+
+A scheduler tick that has not finished in 12 minutes, or a merge-point Verify that has held the project checkout
+for 30, is in a wait the engine cannot end. The timeline gains an **Engine stuck** row, the lead is woken to put
+it to you, and the server log (`waveapp.log`) gets a dump of every goroutine, taken at the report. The other
+runs keep being ticked. Nothing in the run advances until Arc is restarted; after a restart the dag resumes from
+where it was, as above. The row is reported once per stuck tick or Verify.
+
 ---
 
 ## Steering a live run
