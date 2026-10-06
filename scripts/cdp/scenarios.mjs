@@ -22,6 +22,11 @@ const skipStep = (step, detail) => ({ step, skip: true, detail });
 // teardown (deleteblock -> ShellProc.Close kills claude in ~1s), and the channel is deleted at the end.
 const workerOf = (phase) => phase && phase.workerorefs && phase.workerorefs[0];
 
+// a channel's runs are their own rows: the getchannels reply is channel metadata, with no run list
+async function channelRuns(h, channelId) {
+    return (await h.rpc("getchannelruns", { channelid: channelId }))?.runs ?? [];
+}
+
 const runsLifecycle = {
     name: "runs-lifecycle",
     surface: "jarvis",
@@ -40,11 +45,7 @@ const runsLifecycle = {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
-        const getRun = async (runId) => {
-            const res = await h.rpc("getchannels", null);
-            const cc = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
-            return (cc.runs || []).find((x) => x.id === runId);
-        };
+        const getRun = async (runId) => (await channelRuns(h, ctx.channelId)).find((x) => x.id === runId);
         const track = (oref) => {
             if (oref) ctx.workers.push(oref);
         };
@@ -821,6 +822,19 @@ const briefPeek = {
                 `(() => { const b = document.querySelector('[data-jarvis-peek-run]'); return b ? b.dataset.jarvisPeekRun : null; })()`
             );
         }
+        // 2b passes on the band's label alone. The count beside it is the rollup itself: the arranged record has one
+        // attributed run, so a rollup that finds the run's owning channel reads "1 channel" and one that does not
+        // reads "0 channels".
+        const fleetLine = await h.ev(`(() => {
+            const text = (document.querySelector('[data-jarvis-brief-band="peek"]')?.innerText || "").replace(/\\s+/g, " ");
+            return (text.match(/\\d+ working · \\d+ channels?/) || [null])[0];
+        })()`);
+        steps.push({
+            step: "2c. the fleet line counts the channel that owns the record's run",
+            ok: runRowId != null && typeof fleetLine === "string" && /· 1 channel$/.test(fleetLine),
+            detail: JSON.stringify({ fleetLine, runRowId }),
+        });
+
         if (runRowId == null) {
             steps.push({
                 step: "3. the peek's attributed run opens the run's sheet",
@@ -2030,11 +2044,7 @@ const attentionCrossChannel = {
         const track = (oref) => {
             if (oref) ctx.workers.push(oref);
         };
-        const getRun = async (runId) => {
-            const res = await h.rpc("getchannels", null);
-            const cc = (res.channels || []).find((x) => x.oid === ctx.probeId) || {};
-            return (cc.runs || []).find((x) => x.id === runId);
-        };
+        const getRun = async (runId) => (await channelRuns(h, ctx.probeId)).find((x) => x.id === runId);
 
         // 1. park a run at its review gate in the probe channel
         const created = await h.rpc("createrun", {
@@ -4433,16 +4443,8 @@ const dagLifecycle = {
     async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const getRun = async (runId) => {
-            const res = await h.rpc("getchannels", null);
-            const cc = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
-            return (cc.runs || []).find((x) => x.id === runId);
-        };
-        const getChannelRunCount = async () => {
-            const res = await h.rpc("getchannels", null);
-            const channel = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
-            return (channel.runs || []).length;
-        };
+        const getRun = async (runId) => (await channelRuns(h, ctx.channelId)).find((x) => x.id === runId);
+        const getChannelRunCount = async () => (await channelRuns(h, ctx.channelId)).length;
 
         const clickRetry = (findJs, tries = 8) =>
             h.ev(`(async () => {
@@ -4723,9 +4725,7 @@ const dagLifecycle = {
 
         // one DAG cancellation command owns the parent, children, and worker shutdown.
         await h.rpc("dagaction", { channelid: ctx.channelId, runid: runId, taskid: "", action: "cancel" });
-        const channelsAfterCancel = await h.rpc("getchannels", null);
-        const cancelledChannel = (channelsAfterCancel.channels || []).find((x) => x.oid === ctx.channelId) || {};
-        const cancelledRuns = cancelledChannel.runs || [];
+        const cancelledRuns = await channelRuns(h, ctx.channelId);
         const cancelledOwner = cancelledRuns.find((run) => run.id === runId);
         const cancelledChildren = cancelledRuns.filter((run) => run.dagoref === g.id && run.id !== runId);
         const cancelledDag = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group;
@@ -6533,9 +6533,7 @@ async function waitForDispatch(h, ctx, taskId) {
 
 // best-effort, so one failed step does not strand the rest
 async function deleteChannelWorkerBlocks(h, channelId) {
-    const res = await h.rpc("getchannels", null);
-    const cc = (res.channels || []).find((x) => x.oid === channelId) || {};
-    for (const run of cc.runs || []) {
+    for (const run of await channelRuns(h, channelId)) {
         for (const phase of run.phases || []) {
             for (const oref of phase.workerorefs || []) {
                 try {
@@ -9674,8 +9672,7 @@ async function pickWorkers(h, testId) {
 }
 
 async function channelRunCount(h, channelId) {
-    const res = await h.rpc("getchannels", null);
-    return ((res.channels || []).find((c) => c.oid === channelId)?.runs || []).length;
+    return (await channelRuns(h, channelId)).length;
 }
 
 const newRunWindow = {

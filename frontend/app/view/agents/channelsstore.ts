@@ -20,9 +20,15 @@ export const activeChannelAtom: Atom<Channel | null> = atom((get) => {
     return get(WOS.getWaveObjectAtom<Channel>(WOS.makeORef("channel", id))) ?? null;
 });
 
-// Phase-2 row-backed streams for the ACTIVE channel: seeded from the per-channel row RPCs and refetched on
-// every channel: object bump (the blob still dual-writes, so channel: is the "list membership changed"
-// signal). The active-channel surface reads these instead of the embedded Channel.runs/messages arrays.
+// each channel's newest messages, keyed by channel id, for the readers that cross channels (the cockpit's
+// needs-you count, a record's fleet). Filled with the channel snapshot, so it is exactly as fresh as that.
+export const channelMessagesAtom = atom<Record<string, ChannelMessage[]>>({}) as PrimitiveAtom<
+    Record<string, ChannelMessage[]>
+>;
+
+// Row-backed streams for the ACTIVE channel: seeded from the per-channel row RPCs and refetched on every
+// channel: object bump. Every message and run mutation bumps the channel's version, and that bump is the
+// only signal that a list's membership changed.
 export const activeChannelRunsAtom = atom<Run[]>([]) as PrimitiveAtom<Run[]>;
 export const activeChannelMessagesAtom = atom<ChannelMessage[]>([]) as PrimitiveAtom<ChannelMessage[]>;
 
@@ -42,12 +48,31 @@ export function runAtom(runId: string) {
 
 let loading = false;
 
-// fetch the channel list into the snapshot atom (sorted newest-first). shared by loadChannels (which then
-// auto-selects) and primeChannels (which must not select).
+// one fetch per channel, no limit: the server's newest-messages window, the same one the active channel's
+// list has. A channel whose fetch fails keeps its previous list, so one failure does not blank the others.
+async function fetchChannelMessagesInto(list: Channel[]): Promise<void> {
+    const prev = globalStore.get(channelMessagesAtom);
+    const entries = await Promise.all(
+        list.map(async (c): Promise<[string, ChannelMessage[]]> => {
+            try {
+                const rtn = await RpcApi.GetChannelMessagesCommand(TabRpcClient, { channelid: c.oid });
+                return [c.oid, rtn.messages ?? []];
+            } catch (err) {
+                console.error(`loading messages for channel ${c.oid} failed`, err);
+                return [c.oid, prev[c.oid] ?? []];
+            }
+        })
+    );
+    globalStore.set(channelMessagesAtom, Object.fromEntries(entries));
+}
+
+// fetch the channel list and each channel's messages into the snapshot atoms (channels sorted
+// newest-first). shared by loadChannels (which then auto-selects) and primeChannels (which must not select).
 async function fetchChannelsInto(): Promise<Channel[]> {
     const rtn = await RpcApi.GetChannelsCommand(TabRpcClient);
     const list = (rtn.channels ?? []).sort((a, b) => b.createdts - a.createdts);
     globalStore.set(channelsAtom, list);
+    await fetchChannelMessagesInto(list);
     return list;
 }
 
@@ -133,10 +158,10 @@ export function setConsultStream(consultId: string, runtime: string, stream: Con
     globalStore.set(consultStreamsAtom, { ...globalStore.get(consultStreamsAtom), [key]: stream });
 }
 
-// Refetch the row-backed streams whenever the pinned channel object bumps (the blob dual-write keeps
-// channel: updating on every message/run mutation — Phase 2's list-membership signal; Phase 3 replaces
-// this). Keyed on oid:version so it fires both when the active channel changes and when it mutates in
-// place, and never loops (the loader sets only the runs/messages atoms, not the channel WOS object).
+// Refetch the row-backed streams whenever the pinned channel object bumps: the server bumps channel: on
+// every message/run mutation, and nothing else says a list changed. Keyed on oid:version so it fires both
+// when the active channel changes and when it mutates in place, and never loops (the loader sets only the
+// runs/messages atoms, not the channel WOS object).
 let lastLoadedChannelKey = "";
 globalStore.sub(activeChannelAtom, () => {
     const ch = globalStore.get(activeChannelAtom);
