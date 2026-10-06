@@ -252,6 +252,42 @@ func GetChannelRuns(ctx context.Context, channelId string) ([]*waveobj.Run, erro
 		ORDER BY json_extract(data, '$.createdts') ASC`, channelId)
 }
 
+// GetChannelRunChanges returns the id of every run in the channel, and the rows of only those whose version
+// is not the one the caller holds in known. A caller that keeps a channel's run list refreshes it with this
+// instead of re-reading every row: the id-and-version pass never touches a row's data. Pure read (read pool).
+func GetChannelRunChanges(ctx context.Context, channelId string, known map[string]int) ([]string, []*waveobj.Run, error) {
+	versions, err := WithReadTxRtn(ctx, func(tx *TxWrap) ([]idDataType, error) {
+		var rows []idDataType
+		tx.Select(&rows, `SELECT oid, version FROM db_run WHERE json_extract(data, '$.channeloid') = ?`, channelId)
+		return rows, nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	ids := make([]string, 0, len(versions))
+	var stale []any
+	for _, row := range versions {
+		ids = append(ids, row.OId)
+		if v, ok := known[row.OId]; !ok || v != row.Version {
+			stale = append(stale, row.OId)
+		}
+	}
+	if len(stale) == 0 {
+		return ids, nil, nil
+	}
+	if len(stale) == len(ids) {
+		runs, err := GetChannelRuns(ctx, channelId)
+		return ids, runs, err
+	}
+	// ponytail: one bound parameter per stale run, and sqlite caps a statement's parameters (32766); a
+	// caller that far behind without being wholly behind would need this chunked
+	marks := strings.TrimSuffix(strings.Repeat("?,", len(stale)), ",")
+	runs, err := selectRuns(ctx, `SELECT oid, version, data FROM db_run
+		WHERE json_extract(data, '$.channeloid') = ? AND oid IN (`+marks+`)
+		ORDER BY json_extract(data, '$.createdts') ASC`, append([]any{channelId}, stale...)...)
+	return ids, runs, err
+}
+
 // selectRuns decodes the db_run rows a query selects (oid, version, data). Pure read (read pool).
 func selectRuns(ctx context.Context, query string, args ...any) ([]*waveobj.Run, error) {
 	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]*waveobj.Run, error) {

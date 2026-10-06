@@ -8,6 +8,7 @@ const rpc = vi.hoisted(() => ({
     ListTaskDossiersCommand: vi.fn(),
     ListRadarReportsCommand: vi.fn(),
     GetChannelRunsCommand: vi.fn(),
+    GetChannelRunChangesCommand: vi.fn(),
     GetChannelMessagesCommand: vi.fn(),
     SetChannelReadCommand: vi.fn(),
     EffortGetCommand: vi.fn(),
@@ -92,6 +93,7 @@ beforeEach(() => {
     objects.clear();
     loadAndPin.mockImplementation((oref: string) => Promise.resolve(objects.get(oref) ?? null));
     rpc.GetChannelRunsCommand.mockResolvedValue({ runs: [] });
+    rpc.GetChannelRunChangesCommand.mockResolvedValue({ runids: [], runs: [] });
     rpc.GetChannelMessagesCommand.mockResolvedValue({ messages: [] });
     rpc.SetChannelReadCommand.mockResolvedValue(undefined);
     rpc.EffortGetCommand.mockResolvedValue({ effort: null });

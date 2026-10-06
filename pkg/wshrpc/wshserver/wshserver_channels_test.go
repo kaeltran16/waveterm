@@ -30,6 +30,11 @@ func TestGetChannelRunsAndMessagesCommands(t *testing.T) {
 	if err != nil || len(runsRtn.Runs) != 1 || runsRtn.Runs[0].ID != "r1" {
 		t.Fatalf("GetChannelRuns wrong: %+v err=%v", runsRtn, err)
 	}
+	held := map[string]int{"r1": runsRtn.Runs[0].Version}
+	chgRtn, err := ws.GetChannelRunChangesCommand(ctx, wshrpc.CommandGetChannelRunChangesData{ChannelId: ch.OID, Known: held})
+	if err != nil || len(chgRtn.RunIds) != 1 || chgRtn.RunIds[0] != "r1" || len(chgRtn.Runs) != 0 {
+		t.Fatalf("GetChannelRunChanges with the run held wrong: %+v err=%v", chgRtn, err)
+	}
 	msgRtn, err := ws.GetChannelMessagesCommand(ctx, wshrpc.CommandGetChannelMessagesData{ChannelId: ch.OID})
 	if err != nil || len(msgRtn.Messages) != 1 || msgRtn.Messages[0].Text != "hi" {
 		t.Fatalf("GetChannelMessages wrong: %+v err=%v", msgRtn, err)

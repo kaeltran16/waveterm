@@ -822,6 +822,18 @@ declare global {
         messages: ChannelMessage[];
     };
 
+    // wshrpc.CommandGetChannelRunChangesData
+    type CommandGetChannelRunChangesData = {
+        channelid: string;
+        known?: {[key: string]: number};
+    };
+
+    // wshrpc.CommandGetChannelRunChangesRtnData
+    type CommandGetChannelRunChangesRtnData = {
+        runids: string[];
+        runs: Run[];
+    };
+
     // wshrpc.CommandGetChannelRunsData
     type CommandGetChannelRunsData = {
         channelid: string;

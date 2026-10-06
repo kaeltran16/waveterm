@@ -28,7 +28,8 @@ steps have to share one transaction per channel. The SQL migration (`000023`) on
 copy. (2) The owner-stamp backfill design call 1 asks for is not carried into the new pass: a worker with
 no stamp resolves through the row fallback (`GetRunCandidatesByWorker`, `GetMessagesByRef`). (3) The
 channel version bump is kept as the list-changed signal: every message and run write rewrites the
-metadata-sized channel row, and the active channel refetches its lists on it. (4) The cross-channel
+metadata-sized channel row, and the active channel refreshes its lists on it (its runs by
+difference, `GetChannelRunChanges`: only the rows that are new or changed). (4) The cross-channel
 frontend readers use a per-channel message fetch on the channel snapshot's cadence, limited to each
 channel's newest 500 messages where the array was the whole history.
 

@@ -438,6 +438,12 @@ func GetChannelMessagesCommand(w *wshutil.WshRpc, data wshrpc.CommandGetChannelM
 	return resp, err
 }
 
+// command "getchannelrunchanges", wshserver.GetChannelRunChangesCommand
+func GetChannelRunChangesCommand(w *wshutil.WshRpc, data wshrpc.CommandGetChannelRunChangesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetChannelRunChangesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetChannelRunChangesRtnData](w, "getchannelrunchanges", data, opts)
+	return resp, err
+}
+
 // command "getchannelruns", wshserver.GetChannelRunsCommand
 func GetChannelRunsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetChannelRunsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetChannelRunsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetChannelRunsRtnData](w, "getchannelruns", data, opts)
