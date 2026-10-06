@@ -10,6 +10,23 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > Pruned 2026-10-05: 27 entries whose work shipped, was retired with its subsystem, or was superseded were
 > removed. Recover any of them with `git show c99f2041:docs/deferred.md`.
 
+## Radar's metadata collectors and clustering pipeline (retired 2026-10-06)
+
+- **Retired:** the scan that collected metadata signals and clustered them in one model call that never read
+  code: the structure, transcript, runs, config and dependency collectors, the per-commit git signal collector,
+  the no-test signal and its admissibility gate, candidate preparation and the payload budget, the clustering
+  prompt and synthesis call, the per-mode lenses (correctness, security) and their risk taxonomies, the security
+  gate, evidence strength, and the finding cap. Radar now audits each recent fix commit for the same bug at
+  sibling sites (`docs/superpowers/specs/2026-10-06-radar-fix-sibling-audit-design.md`).
+- **Why:** its last two scans kept 0 findings and 9 finished investigations found no defect. A hand trial on
+  2026-10-06 that read the code around 5 fix commits found a real sibling bug in 2 and a conditional one in 1.
+- **Revive when** chunk 8 of `effort:1557171a-e61d-4b29-83fd-fc7f818e6131` measures the audit as not worth
+  keeping and metadata signals are wanted back.
+- **Recover** with `git show 78fe087a:pkg/reporadar/<file>`, where `<file>` is one of `collect.go`,
+  `collect_config.go`, `collect_dependency.go`, `collect_git.go`, `collect_runs.go`, `collect_structure.go`,
+  `collect_transcript.go`, `modes.go`, `prepare.go`, `security.go`, `synth.go`, `validate.go` (each with its
+  `_test.go`), or the old `scan.go`, `lifecycle.go` and `types.go` they plugged into.
+
 ## Sessions "All activity" feed rows peeking a run, agent or initiative (deferred 2026-10-01)
 
 - **Deferred:** the peek gesture on the Sessions "All activity" feed, where `Main.dc.html` in the cockpit-peek mockup

@@ -102,6 +102,11 @@ Orchestrator:
 - **An idle-lead watchdog after the dag is done** — revive on a run whose lead sat idle at `run
   finished` without completing (same spec).
 
+Radar:
+
+- **Metadata collectors and the clustering pipeline** (retired 2026-10-06) — revive when chunk 8 of
+  `effort:1557171a-e61d-4b29-83fd-fc7f818e6131` measures the fix-sibling audit as not worth keeping.
+
 Jarvis (what survived the 2026-09-22/23 memory and recall-arm removals):
 
 - **U2 Tasks:** in-Wave `## Notes` editing; decision supersede UI (backend `SupersedeDecision` exists);

@@ -10,11 +10,82 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 var fixSubjectRe = regexp.MustCompile(`(?i)^fix(\([^)]*\))?!?:`)
 
 var docExts = []string{".md", ".mdx", ".txt", ".rst"}
+
+type gitFile struct {
+	path string
+	adds int
+	dels int
+}
+
+type gitCommit struct {
+	hash    string
+	ts      int64
+	subject string
+	files   []gitFile
+}
+
+// parseGitLog parses `git log --pretty=format:%H\x1f%ct\x1f%s --numstat -z`. Records are separated by
+// the NUL that -z appends after each commit's numstat block; within a record, the header line is
+// %H\x1f%ct\x1f%s then numstat rows "adds\tdels\tpath".
+func parseGitLog(out string) []gitCommit {
+	var commits []gitCommit
+	blocks := strings.Split(out, "\x00")
+	var cur *gitCommit
+	flush := func() {
+		if cur != nil {
+			commits = append(commits, *cur)
+			cur = nil
+		}
+	}
+	for _, block := range blocks {
+		block = strings.Trim(block, "\n")
+		if block == "" {
+			continue
+		}
+		lines := strings.Split(block, "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "\x1f") {
+				flush()
+				parts := strings.SplitN(line, "\x1f", 3)
+				ts, _ := strconv.ParseInt(parts[1], 10, 64)
+				cur = &gitCommit{hash: parts[0], ts: ts, subject: parts[2]}
+				continue
+			}
+			cols := strings.Split(line, "\t")
+			if len(cols) == 3 && cur != nil {
+				adds, _ := strconv.Atoi(cols[0]) // "-" (binary) -> 0
+				dels, _ := strconv.Atoi(cols[1])
+				cur.files = append(cur.files, gitFile{path: cols[2], adds: adds, dels: dels})
+			}
+		}
+	}
+	flush()
+	return commits
+}
+
+func isTestPath(p string) bool {
+	p = strings.ToLower(p)
+	return strings.Contains(p, "_test.") || strings.Contains(p, ".test.") ||
+		strings.Contains(p, ".spec.") || strings.Contains(p, "/tests/") || strings.Contains(p, "/test/")
+}
+
+// clip bounds untrusted text to n bytes without splitting a rune.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
 
 // listWindowCommits returns the non-merge commits since sinceTs (unix millis), newest first.
 func listWindowCommits(ctx context.Context, projectPath string, sinceTs int64) ([]gitCommit, error) {
