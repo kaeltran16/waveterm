@@ -10,20 +10,19 @@ export type ScopeSupport = "filter" | "subject" | "unsupported";
 
 export interface SurfaceContextSupport {
     project: ScopeSupport;
-    space: ScopeSupport;
 }
 
 export const SURFACE_CONTEXT = {
-    cockpit: { project: "filter", space: "filter" },
-    jarvis: { project: "subject", space: "unsupported" },
-    agent: { project: "subject", space: "subject" },
-    radar: { project: "subject", space: "unsupported" },
-    sessions: { project: "filter", space: "filter" },
-    files: { project: "subject", space: "subject" },
-    usage: { project: "unsupported", space: "unsupported" },
-    code: { project: "subject", space: "subject" },
-    setup: { project: "unsupported", space: "unsupported" },
-    settings: { project: "unsupported", space: "unsupported" },
+    cockpit: { project: "filter" },
+    jarvis: { project: "subject" },
+    agent: { project: "subject" },
+    radar: { project: "subject" },
+    sessions: { project: "filter" },
+    files: { project: "subject" },
+    usage: { project: "unsupported" },
+    code: { project: "subject" },
+    setup: { project: "unsupported" },
+    settings: { project: "unsupported" },
 } satisfies Record<SurfaceKey, SurfaceContextSupport>;
 
 export function projectControlCopy(surface: SurfaceKey, projectLabel: string): { label: string; title: string } {

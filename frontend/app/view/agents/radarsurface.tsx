@@ -11,8 +11,6 @@ import { AlertTriangle, ChevronDown, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
-import { DivergenceBanner } from "./focusbanner";
-import { subjectDecision } from "./focussubject";
 import { projectListAtom, projectsAtom } from "./projectsstore";
 import { RadarAuditList } from "./radarauditlist";
 import { RadarFindingDetail, runPrimaryAction } from "./radarfindingdetail";
@@ -43,7 +41,6 @@ import {
     radarReportsAtom,
     radarScopeAtom,
     radarSelectedIdAtom,
-    resolveScope,
     retryFailedAudits,
     retryRadarLoad,
     shownReportIdAtom,
@@ -226,19 +223,6 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
         fireAndForget(() => initRadarScope(s));
     };
 
-    // Radar declares "subject" project posture: it seeds once (the initialized ref above, which exists so
-    // a remount never wipes an in-progress scan) and then owns its scope. The guard's silence is what let
-    // it drift from the app bar unremarked; this says so, and offers the one click back. Compared by
-    // registry NAME, not path — that is the identity the app-bar filter carries, and it is what the
-    // banner shows the user.
-    const focusScope = resolveScope(filter, projects);
-    const decision = subjectDecision(scope?.name ?? null, focusScope?.name ?? null);
-    const rejoin = () => {
-        if (focusScope != null) {
-            selectScope(focusScope);
-        }
-    };
-
     // DEV-ONLY: expose the scenario driver so CDP can render each scan state without a live scan.
     useEffect(() => {
         if (import.meta.env.DEV) {
@@ -265,9 +249,6 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
     return (
         <MotionConfig reducedMotion="user">
             <div className="flex h-full w-full flex-col bg-background">
-                {/* Above the subject bar, as on Diff: a divergence is worth saying whether or not this
-                    project has ever been scanned. */}
-                <DivergenceBanner scope="project" decision={decision} onRejoin={rejoin} />
                 {loadError != null ? (
                     <SurfaceError message={loadError} onRetry={() => fireAndForget(retryRadarLoad)} />
                 ) : null}

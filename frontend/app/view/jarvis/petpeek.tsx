@@ -703,7 +703,7 @@ export function PetPeek({
 
     const hints =
         item != null
-            ? itemHints(item.target.kind, facts)
+            ? itemHints(item.target.kind)
             : [
                   ...(quiet ? [] : [{ keys: ["j", "k"], label: "move" }]),
                   ...(spaceTarget != null ? [{ keys: ["space"], label: "peek" }] : []),

@@ -23,18 +23,18 @@ describe("surface context capabilities", () => {
         expect(Object.keys(SURFACE_CONTEXT).sort()).toEqual([...ALL_SURFACES].sort());
     });
 
-    it("matches the supported project and Space contracts", () => {
+    it("matches the supported project contracts", () => {
         expect(SURFACE_CONTEXT).toEqual({
-            cockpit: { project: "filter", space: "filter" },
-            jarvis: { project: "subject", space: "unsupported" },
-            agent: { project: "subject", space: "subject" },
-            radar: { project: "subject", space: "unsupported" },
-            sessions: { project: "filter", space: "filter" },
-            files: { project: "subject", space: "subject" },
-            usage: { project: "unsupported", space: "unsupported" },
-            code: { project: "subject", space: "subject" },
-            settings: { project: "unsupported", space: "unsupported" },
-            setup: { project: "unsupported", space: "unsupported" },
+            cockpit: { project: "filter" },
+            jarvis: { project: "subject" },
+            agent: { project: "subject" },
+            radar: { project: "subject" },
+            sessions: { project: "filter" },
+            files: { project: "subject" },
+            usage: { project: "unsupported" },
+            code: { project: "subject" },
+            settings: { project: "unsupported" },
+            setup: { project: "unsupported" },
         });
     });
 

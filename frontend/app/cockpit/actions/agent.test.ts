@@ -1,13 +1,7 @@
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { AGENT_KIND, type AgentThing } from "./agent";
 import { actionsFor } from "./types";
-
-const enterFocusFor = vi.fn();
-vi.mock("@/app/view/agents/focusstore", async (importOriginal) => ({
-    ...(await importOriginal<object>()),
-    enterFocusFor: (...a: any[]) => enterFocusFor(...a),
-}));
 
 const vm = (over: Partial<AgentVM> = {}): AgentVM => ({
     id: "tab1",
@@ -71,16 +65,6 @@ describe("agent actions", () => {
     it("offers Review changes only when the card has a diff", () => {
         expect(applies("agent:review", thing({}, { hasDiff: true }))).toBe(true);
         expect(applies("agent:review", thing())).toBe(false);
-    });
-    it("focus enters the agent's name and project", () => {
-        enterFocusFor.mockClear();
-        const model = {} as any;
-        AGENT_KIND.actions.find((a) => a.id === "agent:focus")!.run(thing({ project: "arc" }), { model });
-        expect(enterFocusFor).toHaveBeenCalledWith(model, {
-            ref: { kind: "agent", id: "tab1" },
-            label: "loom",
-            project: "arc",
-        });
     });
     it("lists what does not apply now", () => {
         const notNow = actionsFor(AGENT_KIND.actions, thing({ state: "working" })).notNow.map((a) => a.id);

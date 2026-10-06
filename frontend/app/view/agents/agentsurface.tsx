@@ -26,15 +26,12 @@ import { AgentDetailsRail } from "./agentdetailsrail";
 import { AgentHeader } from "./agentheader";
 import { AgentLaunchHero } from "./agentlaunchhero";
 import { AgentTree } from "./agenttree";
-import { projectOf } from "./agentsviewmodel";
 import { CanvasPane } from "./canvaspane";
 import { useCanvasPoller } from "./canvaspoller";
 import { canvasStateAtom } from "./canvasstore";
 import { rosterLoadPhase } from "./cockpitsurfacemodel";
 import { autoOpenedAskIdsAtom, docReviewAtom, shouldAutoOpen } from "./docreview";
 import { EndedTranscript } from "./endedtranscript";
-import { DivergenceBanner } from "./focusbanner";
-import { subjectDecision } from "./focussubject";
 import { rosterSeededAtom } from "./liveagents";
 import { terminalFullscreenAtom } from "./railstore";
 import { isEndedWorkerId } from "./runlineage";
@@ -138,18 +135,6 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const agentBindings = useMemo(() => buildAgentBindings(model), [model]);
     useKeybindings(agentBindings);
 
-    // Agent declares "subject" project posture. It has no scope atom of its own — its target is
-    // whichever agent you selected — so it is only ever aligned or diverged, never seeded: focus must
-    // not silently switch which terminal you are looking at. Rejoining is a click, which may.
-    const filter = useAtomValue(model.projectFilterAtom);
-    const decision = subjectDecision(agent ? projectOf(agent) : null, filter === "all" ? null : filter);
-    const rejoin = () => {
-        const target = agents.find((a) => projectOf(a) === filter);
-        if (target != null) {
-            globalStore.set(model.focusIdAtom, target.id);
-        }
-    };
-
     if (!agent) {
         return rosterLoadPhase(seeded, agents.length) === "loading" ? (
             <AgentSurfaceSkeleton />
@@ -168,7 +153,6 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                         returning to the parent never remounts/replays the live TUI (frame-stacking) */}
                     <div className={cn("flex min-h-0 flex-1 flex-col", showSub && "hidden")}>
                         <AgentHeader model={model} agent={agent} />
-                        <DivergenceBanner scope="project" decision={decision} onRejoin={rejoin} />
                         {mountable
                             .filter((a) => a.blockId != null)
                             .map((a) => (

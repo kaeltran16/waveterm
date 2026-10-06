@@ -20,7 +20,6 @@ import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { sendChannelMessage } from "@/app/view/agents/channelactions";
 import { activeChannelAtom, channelsAtom, primeChannels } from "@/app/view/agents/channelsstore";
 import { docReviewAtom } from "@/app/view/agents/docreview";
-import { activeFocusAtom, enterFocusFor, exitFocus, focusesAtom, loadFocuses } from "@/app/view/agents/focusstore";
 import type { Runtime } from "@/app/view/agents/launch";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { projectListAtom, projectsAtom, recentProjectsAtom, rowsWithChannel } from "@/app/view/agents/projectsstore";
@@ -84,7 +83,6 @@ import {
 import { allRunsAtom, loadAllRuns, palettePickChannel } from "./palette-data";
 import { loadPaletteEntities, mergeRanked, paletteEffortsAtom } from "./palette-entities";
 import { assembleFileGroups, fileEcho } from "./palette-files";
-import { buildFocusItems } from "./palette-focus";
 import {
     ALL_KIND_ORDER,
     assembleAllGroups,
@@ -230,8 +228,6 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const recentProjects = useAtomValue(recentProjectsAtom);
     const projectRows = useAtomValue(projectListAtom);
     const projects = useAtomValue(projectsAtom);
-    const spaces = useAtomValue(focusesAtom);
-    const activeSpace = useAtomValue(activeFocusAtom);
     const records = useAtomValue(taskListAtom);
     const efforts = useAtomValue(paletteEffortsAtom);
     const surface = useAtomValue(model.surfaceAtom);
@@ -274,8 +270,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             fireAndForget(loadSessionsArchive);
         }
         if (open) {
-            loadFocuses();
-            // records / initiatives: re-read per open (as loadFocuses does) so archiving one in
+            // records / initiatives: re-read per open so archiving one in
             // the Jarvis surface is reflected the next time the palette is asked to find it.
             loadPaletteEntities();
             // only Jarvis loads the channel list, so a palette opened first thing elsewhere had no project to
@@ -338,34 +333,6 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const fileError = loadedFiles?.path === fileTarget?.path ? loadedFiles?.error : undefined;
 
     // --- Sources ----------------------------------------------------------------------------------
-    const focusItems = useMemo<PaletteItem[]>(
-        () =>
-            buildFocusItems(spaces, activeSpace?.ref.id ?? null, {
-                focus: (s) => {
-                    // a task summary carries no project, so the project filter is left alone
-                    enterFocusFor(model, { ref: { kind: "task", id: s.id }, label: s.objective, project: "" });
-                    close();
-                },
-                exit: () => {
-                    exitFocus();
-                    close();
-                },
-            }).map((fi) => ({
-                key: fi.key,
-                kind: "focus-task" as const,
-                search: fi.subtitle ? `${fi.title} ${fi.subtitle}` : fi.title,
-                title: fi.title,
-                meta: fi.subtitle,
-                verb: "Focus",
-                echo:
-                    fi.key === "focus-exit"
-                        ? "Shows everything again"
-                        : `Narrows Cockpit and Sessions to “${fi.title}”`,
-                run: fi.run,
-            })),
-        [spaces, activeSpace, model]
-    );
-
     const themeItems = useMemo<PaletteItem[]>(
         () =>
             buildThemeItems(themePreset).map((t) => ({
@@ -391,7 +358,6 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const { gotoItems, commandItems } = useMemo(() => {
         const drillMeta: Record<DrillId, string> = {
             theme: `${themeItems.length} themes ›`,
-            focus: `${focusItems.length} tasks ›`,
         };
         const all = [
             ...buildCommandItems(bindings, postCloseContext(surface)),
@@ -436,7 +402,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 };
             });
         return { gotoItems: goto, commandItems: commands };
-    }, [bindings, surface, model, themeItems.length, focusItems.length]);
+    }, [bindings, surface, model, themeItems.length]);
 
     const startItems = useMemo<PaletteItem[]>(() => {
         const opens: Record<StartId, PrimitiveAtom<boolean>> = {
@@ -951,8 +917,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     if (nav.actions != null) {
         groups = actionDrillGroups();
     } else if (nav.drill != null) {
-        const rows = nav.drill === "theme" ? themeItems : focusItems;
-        const hits = rankPaletteItems(rows, nav.query);
+        const hits = rankPaletteItems(themeItems, nav.query);
         groups = [
             {
                 key: nav.drill,

@@ -13,8 +13,6 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { buildCodeBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { DivergenceBanner } from "@/app/view/agents/focusbanner";
-import { subjectDecision } from "@/app/view/agents/focussubject";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "@/app/view/agents/surfacescaffold";
 import { sameRepoPath } from "@/util/paths";
@@ -95,11 +93,6 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
     const [pickerOpen, setPickerOpen] = useState(false);
     const [typedPath, setTypedPath] = useState("");
 
-    // Code declares "subject" project posture. Compared by project NAME, not path: handoffProjectName
-    // already establishes the registry name as the identity Code matches agents by, and a worktree's
-    // path differs from its repo path while naming the same project.
-    const decision = subjectDecision(project?.name ?? null, filter === "all" ? null : filter);
-
     // stable array: every run() reads live atoms, so it never needs rebuilding
     const codeBindings = useMemo(() => buildCodeBindings(), []);
     useKeybindings(codeBindings);
@@ -147,8 +140,8 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
         // Persisted pick → app-bar project → nothing. The persisted value keeps winning, which is the
         // whole point of keeping it; the seed only covers a first-ever visit, which used to land on an
         // empty picker while the rest of the cockpit was already on a project.
-        if (decision.kind === "seed") {
-            const seed = registeredProjects(registry).find((p) => p.name === decision.target);
+        if (filter !== "all") {
+            const seed = registeredProjects(registry).find((p) => p.name === filter);
             if (seed != null) {
                 fireAndForget(() => selectProject(seed));
             }
@@ -315,18 +308,6 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                 />
             ) : null}
             <SaveBanner />
-            {/* Not in CodePathBar (which the plan named): that bar early-returns with no open file, so
-                the banner would be invisible on exactly the freshly-switched project that diverged. */}
-            <DivergenceBanner
-                scope="project"
-                decision={decision}
-                onRejoin={() => {
-                    const target = registeredProjects(registry).find((p) => p.name === filter);
-                    if (target != null) {
-                        fireAndForget(() => selectProject(target));
-                    }
-                }}
-            />
             <div className="min-h-0 flex-1">
                 <CodeBody model={model} onPickProject={() => togglePicker(true)} />
             </div>

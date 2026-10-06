@@ -29,8 +29,6 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 | `Ctrl`+`N` | New agent |
 | `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent |
 | `Ctrl`+`C` `Ctrl`+`C` (double, within 500ms) | Close the focused agent |
-| `.` | Focus the selected row (the cockpit narrows to that agent) |
-| `Shift`+`.` | Clear focus — back to Global |
 
 Setup and Settings have no `Ctrl`+number slot — the nine positions are bound to `SURFACE_ORDER`
 (`frontend/app/view/agents/agents.tsx`), which excludes them. Reach Setup with `g` `.` and Settings with `g` `,`.
@@ -87,14 +85,13 @@ cancelled now, in All and in Commands, so it never starts a run named "cancel".
 ## Peek (the avatar popup's item view)
 
 A peek shows a run, agent, record, initiative, radar finding or memory note in the avatar popup. It writes no
-selection on the surface underneath and never changes the cockpit focus. `Space` on a row cursor peeks it;
+selection on the surface underneath. `Space` on a row cursor peeks it;
 holding `Ctrl` underlines every link that can be peeked, and `Ctrl`+click on one peeks it instead of opening it.
 `Space` never peeks while focus is in a text field.
 
 | Keys | Action |
 |---|---|
 | `Enter` | Open the item on its own surface (absent for a memory note, which opens nowhere else) |
-| `f` | Focus this: narrow the cockpit to the item |
 | `Backspace` | Back to the avatar popup's hub |
 | `Esc` | Close the popup, or return to the hub if the item was opened from it |
 

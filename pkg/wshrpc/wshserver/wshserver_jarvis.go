@@ -373,17 +373,10 @@ func (ws *WshServer) ResolveFocusScopeCommand(ctx context.Context, data wshrpc.C
 		}
 		scope := buildSpaceScope(edges, byORef)
 		return &scope, nil
-	case "agent":
-		scope := focusScopeForAgent(data.Id, runs)
-		return &scope, nil
-	case "run":
-		scope := focusScopeForRun(data.Id, runs)
-		return &scope, nil
 	default:
 		// an unknown kind must not return an empty bundle: empty is indistinguishable from a real
-		// focus that currently matches nothing, and every filter surface would render blank with
-		// no explanation of why
-		return nil, fmt.Errorf("unknown focus kind %q", data.Kind)
+		// record with no runs attributed to it
+		return nil, fmt.Errorf("unknown scope kind %q", data.Kind)
 	}
 }
 
@@ -535,25 +528,6 @@ func buildSpaceScope(edges []jarvisattrib.AttributedEdge, byORef map[string]*wav
 	return scope
 }
 
-// focusScopeForAgent bundles one agent tab with every run that has it as a phase worker, plus those
-// runs' channels. The tab is in the bundle even when no run owns it — a standalone agent is a
-// legitimate focus.
-func focusScopeForAgent(tabID string, runs []*waveobj.Run) wshrpc.SpaceScope {
-	scope := wshrpc.SpaceScope{RunORefs: []string{}, ChannelOids: []string{}, TabIds: []string{tabID}}
-	seenChan := map[string]bool{}
-	for _, run := range runs {
-		if !runHasWorkerTab(run, tabID) {
-			continue
-		}
-		scope.RunORefs = append(scope.RunORefs, "run:"+run.OID)
-		if run.ChannelOID != "" && !seenChan[run.ChannelOID] {
-			seenChan[run.ChannelOID] = true
-			scope.ChannelOids = append(scope.ChannelOids, run.ChannelOID)
-		}
-	}
-	return scope
-}
-
 func runHasWorkerTab(run *waveobj.Run, tabID string) bool {
 	for _, ph := range run.Phases {
 		for _, wo := range ph.WorkerOrefs {
@@ -563,34 +537,6 @@ func runHasWorkerTab(run *waveobj.Run, tabID string) bool {
 		}
 	}
 	return false
-}
-
-// focusScopeForRun bundles one run with its channel and every phase worker tab.
-func focusScopeForRun(runID string, runs []*waveobj.Run) wshrpc.SpaceScope {
-	scope := wshrpc.SpaceScope{RunORefs: []string{"run:" + runID}, ChannelOids: []string{}, TabIds: []string{}}
-	seenTab := map[string]bool{}
-	for _, run := range runs {
-		if run.OID != runID {
-			continue
-		}
-		if run.ChannelOID != "" {
-			scope.ChannelOids = append(scope.ChannelOids, run.ChannelOID)
-		}
-		for _, ph := range run.Phases {
-			for _, wo := range ph.WorkerOrefs {
-				if !strings.HasPrefix(wo, "tab:") {
-					continue
-				}
-				tabID := strings.TrimPrefix(wo, "tab:")
-				if tabID == "" || seenTab[tabID] {
-					continue
-				}
-				seenTab[tabID] = true
-				scope.TabIds = append(scope.TabIds, tabID)
-			}
-		}
-	}
-	return scope
 }
 
 func (ws *WshServer) VaultGraphCommand(ctx context.Context) (*wshrpc.CommandVaultGraphRtnData, error) {

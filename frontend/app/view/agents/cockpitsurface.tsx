@@ -45,9 +45,6 @@ import { hiddenAgentIds, rosterLoadPhase, splitRecentlyIdle } from "./cockpitsur
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelMessagesAtom } from "./channelsstore";
-import { filterByFocus, focusBannerCopy } from "./focusscope";
-import { activeFocusAtom, focusRevealAtom, focusScopeAtom } from "./focusstore";
-import { FocusBanner } from "./focusbanner";
 import { answeredAskIdsAcross, needsHuman } from "./jarvisderive";
 import { IdleSection } from "./idlesection";
 import { LeadCard } from "./leadcard";
@@ -214,15 +211,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // status chips narrow what the grid renders; cursor/order still operate over the full set
     const projectFilter = useAtomValue(model.projectFilterAtom);
     const liveOnly = useAtomValue(model.liveOnlyAtom);
-    const spaceScope = useAtomValue(focusScopeAtom);
-    const activeSpace = useAtomValue(activeFocusAtom);
-    const agentRevealed = useAtomValue(focusRevealAtom).has("agent");
-    // project + live-only first (global/needs-you counts read the unfiltered set — see needsYou above),
-    // then the Space lens. The banner's in-focus count ignores the reveal, so it still says how many
-    // rows are the focus's own after Show all.
-    const projectScoped = filterAgents(orderedAgents, projectFilter, liveOnly);
-    const visibleOrdered = filterByFocus(projectScoped, spaceScope, agentRevealed);
-    const spaceInScope = filterByFocus(projectScoped, spaceScope, false).length;
+    // project + live-only (global/needs-you counts read the unfiltered set — see needsYou above)
+    const visibleOrdered = filterAgents(orderedAgents, projectFilter, liveOnly);
     // run events feed lead-down, review findings and the Events rail; digests feed lanes and question owners
     const lineage = useAtomValue(model.lineageAtom);
     const runsInView = Object.values(lineage.runs);
@@ -244,7 +234,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
     // one card per plain agent or run; a run's workers are rows of its card. A running run keeps its card while
     // its lead idles between wakes, so its lead is looked up in scope before parking and Live only.
-    const runScope = filterByFocus(filterAgents(agents, projectFilter, false), spaceScope, agentRevealed);
+    const runScope = filterAgents(agents, projectFilter, false);
     // agents with nothing to show stay off the grid and out of its counts until their first transcript entry
     const idsWithEntries = useAtomValue(idsWithEntriesAtom);
     const hidden = hiddenAgentIds(agents, idsWithEntries, lineage);
@@ -523,19 +513,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                             }
                         />
                     </div>
-                    {activeSpace != null ? (
-                        <FocusBanner
-                            surface="agent"
-                            copy={focusBannerCopy(
-                                activeSpace.label,
-                                spaceInScope,
-                                projectScoped.length,
-                                agentRevealed,
-                                "agents"
-                            )}
-                            revealed={agentRevealed}
-                        />
-                    ) : null}
                     <div className="-mb-3 -ml-1 mt-1 flex flex-wrap gap-0.5">
                         {(
                             [

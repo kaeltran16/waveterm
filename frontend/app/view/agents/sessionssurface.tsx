@@ -21,9 +21,6 @@ import { useEffect, useMemo, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { formatAge, formatAgeShort, formatTokens } from "./agentsviewmodel";
-import { FocusBanner } from "./focusbanner";
-import { filterSessionsByFocus, focusBannerCopy } from "./focusscope";
-import { activeFocusAtom, exitFocus, focusRevealAtom, focusScopeAtom, revealSurface } from "./focusstore";
 import type { RunInfo } from "./runlineage";
 import { runDigestsAtom, useRunDigests } from "./runlineagestore";
 import { runtimeMeta } from "./runtimemeta";
@@ -120,9 +117,6 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const [member, setMember] = useAtom(model.sessionsMemberAtom);
     const [filter, setFilter] = useAtom(model.sessionsStatusFilterAtom);
     const projectFilter = useAtomValue(model.projectFilterAtom);
-    const activeSpace = useAtomValue(activeFocusAtom);
-    const spaceScope = useAtomValue(focusScopeAtom);
-    const spaceRevealed = useAtomValue(focusRevealAtom).has("sessions");
     const digests = useAtomValue(runDigestsAtom);
 
     useEffect(() => {
@@ -197,12 +191,10 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
         lastactivets: s.lastactivets,
         session: s,
     }));
-    const inScope = (sessions: LiveSession[]) => filterSessionsByFocus(sessions, spaceScope, spaceRevealed).length > 0;
-    const projectScoped = [
+    const scoped = [
         ...runRows.filter((r) => projectFilter === "all" || r.run!.view.project === projectFilter),
         ...soloRows.filter((r) => filterByProject([r.session!], projectFilter).length > 0),
     ];
-    const scoped = projectScoped.filter((r) => inScope(r.run ? r.run.group.sessions : [r.session!]));
     const groups = groupByRecency(
         scoped.filter((r) => keepRow(r, filter)),
         now
@@ -210,14 +202,8 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const scopedSessions = scoped.flatMap((r) => (r.run ? r.run.group.sessions : [r.session!]));
     const liveCount = scopedSessions.filter((s) => s.live).length;
     const needsCount = scoped.filter(needsRow).length;
-    // without the reveal, so the banner still counts the focus's own rows after Show all
-    const spaceInScope = projectScoped.filter(
-        (r) => filterSessionsByFocus(r.run ? r.run.group.sessions : [r.session!], spaceScope, false).length > 0
-    ).length;
-    // the empty list is the focus's doing, not an empty archive, so the empty state must say so
-    const focusHidesAll = activeSpace != null && !spaceRevealed && spaceInScope === 0 && projectScoped.length > 0;
 
-    // detail resolves against every row so project, Space, and status filters never blank an explicit selection
+    // detail resolves against every row so project and status filters never blank an explicit selection
     const selSession = selRunId ? undefined : resolveSelectedSession(live, sel);
     const viewRunId = selRunId ?? selSession?.runid;
     const selRun = viewRunId ? runRows.find((r) => r.run!.group.runId === viewRunId)?.run : undefined;
@@ -317,20 +303,6 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                     }
                 />
 
-                {activeSpace != null ? (
-                    <FocusBanner
-                        surface="sessions"
-                        copy={focusBannerCopy(
-                            activeSpace.label,
-                            spaceInScope,
-                            projectScoped.length,
-                            spaceRevealed,
-                            "sessions"
-                        )}
-                        revealed={spaceRevealed}
-                    />
-                ) : null}
-
                 {loadError ? (
                     <SurfaceError
                         message="Couldn’t load sessions."
@@ -361,18 +333,6 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                             <SkeletonRows className="mt-3 min-h-0 flex-1 space-y-[7px]">
                                 {(i) => <SkeletonLine key={i} className="h-[58px] rounded-[10px]" />}
                             </SkeletonRows>
-                        ) : groups.length === 0 && focusHidesAll ? (
-                            <div className="mt-6">
-                                <SurfaceEmptyState
-                                    title="Nothing in this focus"
-                                    body={`No live session belongs to ${activeSpace.label}. The focus hides all ${projectScoped.length}.`}
-                                    action={{
-                                        label: `Show all ${projectScoped.length}`,
-                                        onClick: () => revealSurface("sessions"),
-                                    }}
-                                    secondaryAction={{ label: "Clear focus", onClick: exitFocus }}
-                                />
-                            </div>
                         ) : groups.length === 0 ? (
                             <div className="mt-6">
                                 <SurfaceEmptyState

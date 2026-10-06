@@ -72,12 +72,11 @@ export interface ExtraDeps {
     openNewProject: () => void;
 }
 
-// The cockpit actions that have no chord to derive from. The two drills open a picker rather than
+// The cockpit actions that have no chord to derive from. A drill opens a picker rather than
 // acting, so there is one "Switch theme…" row instead of one row per theme.
 export function buildExtraItems(deps: ExtraDeps): CommandItem[] {
     return [
         { key: "cmd:new-project", title: "New project", group: "Global", run: deps.openNewProject },
-        { key: "cmd:focus", title: "Focus on task…", group: "Global", drill: "focus", run: () => {} },
         { key: "cmd:theme", title: "Switch theme…", group: "Appearance", drill: "theme", run: () => {} },
     ];
 }

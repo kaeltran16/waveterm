@@ -113,9 +113,13 @@ of starting a second one. What it does **not** do is capture where a session was
 
 ## Cockpit focus — deferred until evidence (2026-09-22)
 
-From `docs/superpowers/specs/2026-09-22-cockpit-focus-and-peek-design.md`. Slice 1 landed the posture
-enforcement, the widened `(Kind, Id)` resolver, the seed/aligned/diverged decision and the divergence
-banner. These were scoped out of it deliberately:
+From `docs/superpowers/specs/2026-09-22-cockpit-focus-and-peek-design.md`. Slice 1 landed the app-bar
+Focus switcher, the scoped-surface filter and the divergence banner; all of it was **removed on
+2026-10-06** as unused (peek stayed). Recover the frontend with
+`git show 43d8365a:frontend/app/view/agents/focusstore.ts` (siblings: `focusswitcher.tsx`,
+`focusscope.ts`, `focusbanner.tsx`, `focussubject.ts`, `focusfor.ts`) and the resolver's agent and run
+kinds with `git show 43d8365a:pkg/wshrpc/wshserver/wshserver_jarvis.go`. These were scoped out of
+slice 1 deliberately, and the ones that do not need focus still stand:
 
 - **Relationship annotation.** Surfaces marking up each other's content in place — an editing-agent and
   open-finding marker in Code, a finding badge on a Files hunk, "cited by N runs" under a memory note, a
@@ -127,18 +131,10 @@ banner. These were scoped out of it deliberately:
   since only the Agent surface stays mounted. **Revive if peek proves insufficient** for sustained
   side-by-side work.
 - **Time correlation** — every surface answering "what did this look like at T". **Revive on a real
-  post-mortem** that peek and focus cannot serve.
+  post-mortem** that peek cannot serve.
 - **Drag courier** — dragging a finding or file onto an agent in the roster. Shares machinery with the
   pet's deferred courier gestures; **build the store and the gestures together or not at all.**
-- **Jarvis focus support.** `SURFACE_CONTEXT.jarvis.space` stays `unsupported` until there is a decision
-  on what a focus should hide among the inline tracker's rows (see the Jarvis rows above).
-- **Jarvis *project* subject wiring.** Declared `project: "subject"`, and left unwired in slice 1 — not
-  an oversight. The plan named `briefScopeAtom` as "the Brief's own scope", but that atom is a *recall
-  query* scope (`JarvisScope { mode, chips, attached }`, `jarviscontract.ts:66`), not a project name.
-  The Brief is a whole-workspace digest with no local project target, so `subjectDecision(null, filter)`
-  is always `seed` and a `DivergenceBanner` there could never render. **Revive when the Brief gains a
-  real per-project target** (e.g. a project-scoped digest), and wire it the way Code and Vault are.
-- **Usage focus and project support.** Held at `unsupported` because `UsageBucket` carries no attribution
+- **Usage project support.** Held at `unsupported` because `UsageBucket` carries no attribution
   dimension at all; blocked on the usage scanner gaining per-session or per-run attribution, not on a
   design decision. **Revive together with that.**
 

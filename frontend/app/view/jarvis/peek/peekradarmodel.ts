@@ -7,15 +7,15 @@
 import { findingSite, investigationView, type InvestigationTone } from "@/app/view/agents/radarmodel";
 import type { PeekFacts } from "../peekstore";
 
-// A report that is gone, or a finding no longer in it, is gone. A radar finding has nothing to focus on.
+// A report that is gone, or a finding no longer in it, is gone.
 export function radarPeekFacts(report: RadarReport | null | undefined, findingId?: string): PeekFacts {
     if (report == null) {
-        return { gone: true, focus: null };
+        return { gone: true };
     }
     if (findingId != null && !(report.findings ?? []).some((f) => f.id === findingId)) {
-        return { gone: true, focus: null };
+        return { gone: true };
     }
-    return { gone: false, focus: null };
+    return { gone: false };
 }
 
 // one row per sibling site; the index in the key keeps two sites on one line apart
