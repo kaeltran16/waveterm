@@ -184,8 +184,8 @@ func (*Tab) GetOType() string {
 type ChannelMessage struct {
 	OID        string      `json:"oid"`
 	Version    int         `json:"version"`
-	ChannelOID string      `json:"channeloid,omitempty"` // parent channel oid; indexed for per-channel list queries (phase 2)
-	ID         string      `json:"id"`                   // == OID; retained for embedded-blob consumers until phase 3 contract
+	ChannelOID string      `json:"channeloid,omitempty"` // parent channel oid; indexed for per-channel list queries
+	ID         string      `json:"id"`                   // == OID
 	Kind       string      `json:"kind"`
 	Author     string      `json:"author"`
 	Text       string      `json:"text"`
@@ -230,8 +230,8 @@ type RunPhase struct {
 type Run struct {
 	OID         string          `json:"oid"`
 	Version     int             `json:"version"`
-	ChannelOID  string          `json:"channeloid,omitempty"` // parent channel oid; indexed for per-channel run queries (phase 2)
-	ID          string          `json:"id"`                   // == OID; retained for embedded-blob consumers until phase 3 contract
+	ChannelOID  string          `json:"channeloid,omitempty"` // parent channel oid; indexed for per-channel run queries
+	ID          string          `json:"id"`                   // == OID
 	Goal        string          `json:"goal"`
 	Runtime     string          `json:"runtime,omitempty"` // the harness running every phase and child; empty means legacy Claude-only
 	Model       string          `json:"model,omitempty"`   // exact model id override (flat route); empty means the runtime default
@@ -456,7 +456,7 @@ type RunSpec struct {
 type TaskGroup struct {
 	OID           string      `json:"oid"`
 	Version       int         `json:"version"`
-	ID            string      `json:"id"`        // == OID; retained for embedded-blob consumers until phase 3 contract
+	ID            string      `json:"id"`        // == OID
 	RunID         string      `json:"runid"`     // owning orchestrator run
 	ChannelId     string      `json:"channelid"` // owning run's channel (run lookups are channel-scoped)
 	Title         string      `json:"title,omitempty"`
@@ -789,14 +789,12 @@ type ProfileOverride struct {
 }
 
 type Channel struct {
-	OID         string           `json:"oid"`
-	Version     int              `json:"version"`
-	Name        string           `json:"name"`
-	ProjectPath string           `json:"projectpath,omitempty"`
-	CreatedTs   int64            `json:"createdts"`
-	Messages    []ChannelMessage `json:"messages,omitempty"`
-	Runs        []Run            `json:"runs,omitempty"`
-	Meta        MetaMapType      `json:"meta"`
+	OID         string      `json:"oid"`
+	Version     int         `json:"version"`
+	Name        string      `json:"name"`
+	ProjectPath string      `json:"projectpath,omitempty"`
+	CreatedTs   int64       `json:"createdts"`
+	Meta        MetaMapType `json:"meta"`
 }
 
 func (*Channel) GetOType() string {

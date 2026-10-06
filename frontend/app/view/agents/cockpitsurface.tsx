@@ -44,7 +44,7 @@ import {
 import { hiddenAgentIds, rosterLoadPhase, splitRecentlyIdle } from "./cockpitsurfacemodel";
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
-import { channelsAtom } from "./channelsstore";
+import { channelMessagesAtom } from "./channelsstore";
 import { filterByFocus, focusBannerCopy } from "./focusscope";
 import { activeFocusAtom, focusRevealAtom, focusScopeAtom } from "./focusstore";
 import { FocusBanner } from "./focusbanner";
@@ -99,8 +99,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // channel-aware "needs you": excludes asks Jarvis already auto-answered, so it matches the Channels
     // rail dot and nav badge (raw asking historically over-counted). one answered set feeds both the
     // header counter and the need-you tab (liveAsking) below.
-    const channels = useAtomValue(channelsAtom);
-    const answeredAsks = answeredAskIdsAcross(channels ?? []);
+    const channelMessages = useAtomValue(channelMessagesAtom);
+    const answeredAsks = answeredAskIdsAcross(Object.values(channelMessages));
     const needsYou = agents.filter((a) => needsHuman(a, answeredAsks)).length;
 
     // `structuralNow` feeds structural computations below (usage-window rollover, the idle-grace window,

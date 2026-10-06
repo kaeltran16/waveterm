@@ -22,6 +22,11 @@ const skipStep = (step, detail) => ({ step, skip: true, detail });
 // teardown (deleteblock -> ShellProc.Close kills claude in ~1s), and the channel is deleted at the end.
 const workerOf = (phase) => phase && phase.workerorefs && phase.workerorefs[0];
 
+// a channel's runs are their own rows: the getchannels reply is channel metadata, with no run list
+async function channelRuns(h, channelId) {
+    return (await h.rpc("getchannelruns", { channelid: channelId }))?.runs ?? [];
+}
+
 const runsLifecycle = {
     name: "runs-lifecycle",
     surface: "jarvis",
@@ -40,11 +45,7 @@ const runsLifecycle = {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
-        const getRun = async (runId) => {
-            const res = await h.rpc("getchannels", null);
-            const cc = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
-            return (cc.runs || []).find((x) => x.id === runId);
-        };
+        const getRun = async (runId) => (await channelRuns(h, ctx.channelId)).find((x) => x.id === runId);
         const track = (oref) => {
             if (oref) ctx.workers.push(oref);
         };
@@ -821,6 +822,19 @@ const briefPeek = {
                 `(() => { const b = document.querySelector('[data-jarvis-peek-run]'); return b ? b.dataset.jarvisPeekRun : null; })()`
             );
         }
+        // 2b passes on the band's label alone. The count beside it is the rollup itself: the arranged record has one
+        // attributed run, so a rollup that finds the run's owning channel reads "1 channel" and one that does not
+        // reads "0 channels".
+        const fleetLine = await h.ev(`(() => {
+            const text = (document.querySelector('[data-jarvis-brief-band="peek"]')?.innerText || "").replace(/\\s+/g, " ");
+            return (text.match(/\\d+ working · \\d+ channels?/) || [null])[0];
+        })()`);
+        steps.push({
+            step: "2c. the fleet line counts the channel that owns the record's run",
+            ok: runRowId != null && typeof fleetLine === "string" && /· 1 channel$/.test(fleetLine),
+            detail: JSON.stringify({ fleetLine, runRowId }),
+        });
+
         if (runRowId == null) {
             steps.push({
                 step: "3. the peek's attributed run opens the run's sheet",
@@ -1998,62 +2012,83 @@ const usageCharts = {
 };
 
 // --- the review-gate blind spot ----------------------------------------------------------------
-// The whole defect in three steps: park a run at its review gate in one channel, make a DIFFERENT channel
+// The whole defect in three steps: hold a run's DAG at a gate in one channel, make a DIFFERENT channel
 // the active subject, then walk away to Usage and read the Jarvis nav badge. Before the attention list
-// moved server-side this read zero — the badge counted only live `asking` workers, and a gated run has
-// none (its phase completed and it is waiting on a human), while the frontend's cross-channel list came
-// from a channel snapshot refetched only on create/delete/rename/archive.
+// moved server-side this read zero — the badge counted only live `asking` workers, and a gate has none
+// (its task finished and it is waiting on a human), while the frontend's cross-channel list came from a
+// channel snapshot refetched only on create/delete/rename/archive.
 //
-// It parks the run by completing two phases over the real RPC rather than driving an agent to a gate,
-// which would take up to two minutes. `wsh jarvis hold` is the other route but needs the phase running AND
-// gated (jarvis/run.go HoldPhase) — in a pipeline the gate is phase 1, so it needs phase 0 completed
-// first either way, for the same two spawned workers. Both are killed in teardown, as runs-lifecycle does.
+// The gate is seeded, not reached: a deferred orchestrator run (no lead) is given a two-task plan whose
+// first task is gated, and once that task's worker has dispatched the stored DAG is written to
+// awaiting-review with the task done and unreleased. The seeded task carries no child run id, so no later
+// tick can re-derive its state from the worker, and a DAG parked with no task in flight is one the
+// watchdog does not tick. A blocked DAG was the other choice; its failed task keeps a child run a tick
+// can read. Teardown cancels the run and deletes the worker's block.
 //
 // The poll wait is a 500ms loop rather than a flat 10s sleep so the step is not flaky at the interval
 // boundary, and so a stalled poller fails HERE — distinguishable from the badge assertion failing, which
 // means detection broke. The two halves of this change fail differently and must stay tellable apart.
+const ATTN_GATE_TASK = "t-1";
+const ATTN_TASKS = [
+    { id: ATTN_GATE_TASK, label: "gated noop", description: "do nothing, stop immediately", deps: [], gate: true, state: "" },
+    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: [ATTN_GATE_TASK], gate: false, state: "" },
+];
+const ATTN_DAG_STATUS = "awaiting-review";
+const ATTN_KIND = "dag-gate";
+// long enough for a tick that read the dag before the seed to have written it back
+const ATTN_TICK_SETTLE_MS = 2000;
+
+const attnParkAtGate = (dag) => ({
+    ...dag,
+    status: ATTN_DAG_STATUS,
+    tasks: (dag.tasks ?? []).map((t) =>
+        t.id === ATTN_GATE_TASK ? { ...t, state: "done", runid: "", released: false } : t
+    ),
+});
+const attnGateFingerprint = (dag) =>
+    JSON.stringify([dag?.status, (dag?.tasks ?? []).map((t) => [t.id, t.state, t.runid ?? "", t.released === true])]);
+
 const attentionCrossChannel = {
     name: "attention-cross-channel",
     surface: "usage",
     async arrange(h) {
-        const cwd = mkdtempSync(join(tmpdir(), "verify-attn-"));
-        const wslist = await h.rpc("workspacelist", null);
-        const workspaceId = wslist[0].workspacedata.oid;
-        const probe = await h.rpc("createchannel", { name: "attn-probe", projectpath: cwd });
-        const other = await h.rpc("createchannel", { name: "attn-other", projectpath: cwd });
-        return { cwd, workspaceId, probeId: probe.oid, otherId: other.oid, workers: [] };
+        const ctx = await arrangeSheetDagRun(h, "attn-probe", ATTN_TASKS);
+        if (ctx.arrangeError != null) return ctx;
+        try {
+            const other = await h.rpc("createchannel", { name: "attn-other", projectpath: ctx.cwd });
+            ctx.otherId = other.oid;
+            // the dispatching tick holds the dag for as long as the spawn takes and would land over a seed made under it
+            await waitForDispatch(h, ctx, ATTN_GATE_TASK);
+            if (!ctx.dispatched) throw new Error(`${ATTN_GATE_TASK} did not dispatch in ${ctx.dispatchMs}ms`);
+            ctx.dagId = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.oid;
+            if (!ctx.dagId) throw new Error("the run has no dag");
+            await seedDag(h, ctx, attnParkAtGate, attnGateFingerprint);
+            // a tick the worker's first events started can outlast the seed's own read-back, so it is seeded again
+            await new Promise((r) => setTimeout(r, ATTN_TICK_SETTLE_MS));
+            await seedDag(h, ctx, attnParkAtGate, attnGateFingerprint);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
     },
     async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
-        const track = (oref) => {
-            if (oref) ctx.workers.push(oref);
-        };
-        const getRun = async (runId) => {
-            const res = await h.rpc("getchannels", null);
-            const cc = (res.channels || []).find((x) => x.oid === ctx.probeId) || {};
-            return (cc.runs || []).find((x) => x.id === runId);
-        };
 
-        // 1. park a run at its review gate in the probe channel
-        const created = await h.rpc("createrun", {
-            channelid: ctx.probeId,
-            workspaceid: ctx.workspaceId,
-            goal: "spawn-test, only: do nothing, make no file changes, stop immediately",
-            runtime: "claude",
-        });
-        const runId = created.run.id;
-        track(workerOf(created.run.phases[0]));
-        await h.rpc("advancerun", { channelid: ctx.probeId, runid: runId, phaseidx: 0, action: "complete" });
-        const mid = await getRun(runId);
-        track(workerOf(mid.phases[1]));
-        await h.rpc("advancerun", { channelid: ctx.probeId, runid: runId, phaseidx: 1, action: "complete" });
-        const gated = await getRun(runId);
+        // 1. the probe channel's run holds a dag at its gate, read back from the store
+        const parkedStep = "1. the probe channel's run holds a DAG parked at its gate";
+        if (ctx.arrangeError != null) {
+            rec(parkedStep, false, ctx.arrangeError);
+            return steps;
+        }
+        const runId = ctx.runId;
+        const group = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group;
+        const gate = group?.tasks?.find((t) => t.id === ATTN_GATE_TASK);
         rec(
-            "1. the probe channel's run is parked at its review gate",
-            gated.status === "awaiting-review" && gated.phases[2].state === "pending",
-            JSON.stringify({ status: gated.status, states: gated.phases.map((p) => p.state) })
+            parkedStep,
+            group?.status === ATTN_DAG_STATUS && gate?.gate === true && gate?.state === "done" && gate?.released !== true,
+            JSON.stringify({ status: group?.status, tasks: group?.tasks?.map((t) => [t.id, t.state, t.runid ?? ""]) })
         );
 
         // 2. the server reports it as a gate item — the backend half, asserted before any DOM reading so a
@@ -2062,7 +2097,7 @@ const attentionCrossChannel = {
         const item = (attention.items || []).find((x) => x.runid === runId);
         rec(
             "2. GetAttention reports the gate with its channel and wait time",
-            item != null && item.kind === "gate" && item.channelid === ctx.probeId && item.waitingsince > 0,
+            item != null && item.kind === ATTN_KIND && item.channelid === ctx.channelId && item.waitingsince > 0,
             JSON.stringify(item ?? { items: (attention.items || []).length })
         );
 
@@ -2118,27 +2153,15 @@ const attentionCrossChannel = {
         return steps;
     },
     async teardown(h, ctx) {
-        for (const oref of ctx.workers) {
+        // before the fixture run's teardown, which reloads onto the roster this channel must be gone from
+        if (ctx.otherId) {
             try {
-                const tab = await h.rpc("gettab", oref.slice(4));
-                const bid = tab && tab.blockids && tab.blockids[0];
-                if (bid) await h.rpc("deleteblock", { blockid: bid });
-            } catch {
-                // best-effort cleanup
+                await h.rpc("deletechannel", { channelid: ctx.otherId });
+            } catch (e) {
+                console.error(`attention-cross-channel teardown: delete attn-other failed: ${e?.message ?? e}`);
             }
         }
-        for (const id of [ctx.probeId, ctx.otherId]) {
-            try {
-                await h.rpc("deletechannel", { channelid: id });
-            } catch {
-                // best-effort cleanup
-            }
-        }
-        try {
-            rmSync(ctx.cwd, { recursive: true, force: true });
-        } catch {
-            // best-effort cleanup
-        }
+        await teardownFixtureRun(h, ctx, "attention-cross-channel");
     },
 };
 
@@ -4433,16 +4456,8 @@ const dagLifecycle = {
     async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const getRun = async (runId) => {
-            const res = await h.rpc("getchannels", null);
-            const cc = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
-            return (cc.runs || []).find((x) => x.id === runId);
-        };
-        const getChannelRunCount = async () => {
-            const res = await h.rpc("getchannels", null);
-            const channel = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
-            return (channel.runs || []).length;
-        };
+        const getRun = async (runId) => (await channelRuns(h, ctx.channelId)).find((x) => x.id === runId);
+        const getChannelRunCount = async () => (await channelRuns(h, ctx.channelId)).length;
 
         const clickRetry = (findJs, tries = 8) =>
             h.ev(`(async () => {
@@ -4723,9 +4738,7 @@ const dagLifecycle = {
 
         // one DAG cancellation command owns the parent, children, and worker shutdown.
         await h.rpc("dagaction", { channelid: ctx.channelId, runid: runId, taskid: "", action: "cancel" });
-        const channelsAfterCancel = await h.rpc("getchannels", null);
-        const cancelledChannel = (channelsAfterCancel.channels || []).find((x) => x.oid === ctx.channelId) || {};
-        const cancelledRuns = cancelledChannel.runs || [];
+        const cancelledRuns = await channelRuns(h, ctx.channelId);
         const cancelledOwner = cancelledRuns.find((run) => run.id === runId);
         const cancelledChildren = cancelledRuns.filter((run) => run.dagoref === g.id && run.id !== runId);
         const cancelledDag = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group;
@@ -6533,9 +6546,7 @@ async function waitForDispatch(h, ctx, taskId) {
 
 // best-effort, so one failed step does not strand the rest
 async function deleteChannelWorkerBlocks(h, channelId) {
-    const res = await h.rpc("getchannels", null);
-    const cc = (res.channels || []).find((x) => x.oid === channelId) || {};
-    for (const run of cc.runs || []) {
+    for (const run of await channelRuns(h, channelId)) {
         for (const phase of run.phases || []) {
             for (const oref of phase.workerorefs || []) {
                 try {
@@ -8852,24 +8863,34 @@ function finalShotsStages(out) {
 const finalFingerprint = (final, past) =>
     JSON.stringify([final?.state, final?.round, final?.shots?.length ?? 0, (past ?? []).map((p) => p.shots?.length ?? 0)]);
 
-async function seedFinalShots(h, ctx, { final, pastfinals }) {
+// Puts the stored dag into a state the engine has not reached: change maps the dag as read to the dag to
+// write, and print reduces a dag to what the seed must hold.
+async function seedDag(h, ctx, change, print) {
     const oref = `dag:${ctx.dagId}`;
-    const want = finalFingerprint(final, pastfinals);
+    let want = null;
     let stored = null;
     // the watchdog ticks a running dag, and a tick that read the dag before this write lands over it
-    for (let i = 0; i < 3 && finalFingerprint(stored?.final, stored?.pastfinals) !== want; i++) {
-        const dag = await waveService(h, "object", "GetObject", [oref]);
-        const next = { ...dag, otype: "dag", finalcmd: FINAL_SHOTS_CMD, final, pastfinals };
+    for (let i = 0; i < 3 && (stored == null || print(stored) !== want); i++) {
+        const next = { ...change(await waveService(h, "object", "GetObject", [oref])), otype: "dag" };
+        want = print(next);
         await waveService(h, "object", "UpdateObject", [next, false], FINAL_SHOTS_UICTX);
         stored = await waveService(h, "object", "GetObject", [oref]);
     }
-    if (finalFingerprint(stored?.final, stored?.pastfinals) !== want) {
-        throw new Error(`the dag did not keep its seed: want ${want}, stored ${finalFingerprint(stored?.final, stored?.pastfinals)}`);
+    if (print(stored) !== want) {
+        throw new Error(`the dag did not keep its seed: want ${want}, stored ${print(stored)}`);
     }
     // UpdateObject publishes nothing; a meta write sends the whole stored dag to the page
     ctx.seeds = (ctx.seeds ?? 0) + 1;
     await h.rpc("setmeta", { oref, meta: { [FINAL_SHOTS_SEED_KEY]: ctx.seeds } });
 }
+
+const seedFinalShots = (h, ctx, { final, pastfinals }) =>
+    seedDag(
+        h,
+        ctx,
+        (dag) => ({ ...dag, finalcmd: FINAL_SHOTS_CMD, final, pastfinals }),
+        (dag) => finalFingerprint(dag?.final, dag?.pastfinals)
+    );
 
 const FS_ROW = `document.querySelector("[data-run-sheet] [data-run-sheet-final-shots]")`;
 const FS_DOCK = `document.querySelector("[data-run-sheet] [data-run-sheet-final-shots-dock]")`;
@@ -9674,8 +9695,7 @@ async function pickWorkers(h, testId) {
 }
 
 async function channelRunCount(h, channelId) {
-    const res = await h.rpc("getchannels", null);
-    return ((res.channels || []).find((c) => c.oid === channelId)?.runs || []).length;
+    return (await channelRuns(h, channelId)).length;
 }
 
 const newRunWindow = {

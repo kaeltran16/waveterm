@@ -295,8 +295,6 @@ declare global {
         name: string;
         projectpath?: string;
         createdts: number;
-        messages?: ChannelMessage[];
-        runs?: Run[];
     };
 
     // waveobj.ChannelMessage

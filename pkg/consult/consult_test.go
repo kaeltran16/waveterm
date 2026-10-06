@@ -77,8 +77,8 @@ func TestBuildPrompt_capsMessageCount(t *testing.T) {
 	}
 	hist = append(hist, waveobj.ChannelMessage{Author: "you", Text: "NEWEST"})
 	got := BuildPrompt(hist, "q", "")
-	// only the last maxContextMessages are kept; with 51 total, the count of OLDLINE is bounded
-	if strings.Count(got, "OLDLINE") > maxContextMessages {
+	// only the last MaxContextMessages are kept; with 51 total, the count of OLDLINE is bounded
+	if strings.Count(got, "OLDLINE") > MaxContextMessages {
 		t.Errorf("kept too many history lines: %d", strings.Count(got, "OLDLINE"))
 	}
 	if !strings.Contains(got, "NEWEST") {

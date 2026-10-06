@@ -128,7 +128,17 @@ func (ws *WshServer) ConsultCommand(ctx context.Context, data wshrpc.CommandCons
 			}
 			principles = p
 		}
-		prompt := consult.BuildPrompt(ch.Messages, data.Prompt, principles)
+		// BuildPrompt keeps only the newest MaxContextMessages, so that is all there is to fetch
+		recent, err := wstore.GetChannelMessages(ctx, ch.OID, 0, consult.MaxContextMessages)
+		if err != nil {
+			rtn <- wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk]{Error: fmt.Errorf("reading channel messages: %w", err)}
+			return
+		}
+		history := make([]waveobj.ChannelMessage, len(recent))
+		for i, m := range recent {
+			history[i] = *m
+		}
+		prompt := consult.BuildPrompt(history, data.Prompt, principles)
 		runCtx, cancel := context.WithTimeout(ctx, consultTimeout)
 		defer cancel()
 		full, runErr := consult.Run(runCtx, spec, ch.ProjectPath, prompt, func(chunk string) {

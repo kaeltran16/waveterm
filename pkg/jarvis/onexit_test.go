@@ -190,11 +190,11 @@ func seedDispatchedWorker(t *testing.T) (string, string) {
 
 func channelHasOutcome(t *testing.T, channelOID string) bool {
 	t.Helper()
-	ch, err := wstore.DBMustGet[*waveobj.Channel](context.Background(), channelOID)
+	msgs, err := wstore.GetChannelMessages(context.Background(), channelOID, 0, 0)
 	if err != nil {
-		t.Fatalf("load channel: %v", err)
+		t.Fatalf("load messages: %v", err)
 	}
-	for _, m := range ch.Messages {
+	for _, m := range msgs {
 		if m.Kind == "outcome" {
 			return true
 		}
