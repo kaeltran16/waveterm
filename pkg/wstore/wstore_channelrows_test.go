@@ -498,10 +498,10 @@ func TestGetChannelProjectPaths(t *testing.T) {
 	}
 }
 
-// Deleting a channel takes its runs, their events and its messages, and leaves another channel's alone.
+// Deleting a channel takes its runs, their events and dags, and its messages, and leaves another channel's alone.
 func TestDeleteChannelDeletesItsRows(t *testing.T) {
 	ctx := context.Background()
-	seed := func(name string) (string, string) {
+	seed := func(name string) (string, string, string) {
 		ch, err := CreateChannel(ctx, name, t.TempDir())
 		if err != nil {
 			t.Fatalf("create channel: %v", err)
@@ -516,7 +516,11 @@ func TestDeleteChannelDeletesItsRows(t *testing.T) {
 		if _, err := PostChannelMessage(ctx, ch.OID, NewChannelMessage("say", "user", "hi", "", 1)); err != nil {
 			t.Fatalf("post message: %v", err)
 		}
-		return ch.OID, runId
+		dagId := uuid.NewString()
+		if err := AppendDag(ctx, &waveobj.TaskGroup{OID: dagId, ID: dagId, RunID: runId, ChannelId: ch.OID}); err != nil {
+			t.Fatalf("append dag: %v", err)
+		}
+		return ch.OID, runId, dagId
 	}
 	counts := func(channelId, runId string) [3]int {
 		runs, _ := GetChannelRuns(ctx, channelId)
@@ -524,8 +528,8 @@ func TestDeleteChannelDeletesItsRows(t *testing.T) {
 		events, _ := QueryRunEvents(ctx, channelId, runId, 0)
 		return [3]int{len(runs), len(msgs), len(events)}
 	}
-	gone, goneRun := seed("delete-me")
-	kept, keptRun := seed("keep-me")
+	gone, goneRun, goneDag := seed("delete-me")
+	kept, keptRun, keptDag := seed("keep-me")
 
 	if err := DeleteChannel(ctx, gone); err != nil {
 		t.Fatalf("DeleteChannel: %v", err)
@@ -535,5 +539,11 @@ func TestDeleteChannelDeletesItsRows(t *testing.T) {
 	}
 	if got := counts(kept, keptRun); got != [3]int{1, 1, 1} {
 		t.Errorf("other channel's runs/messages/events = %v, want 1 each", got)
+	}
+	if _, err := GetDag(ctx, goneDag); err == nil {
+		t.Errorf("deleted channel still has its dag")
+	}
+	if _, err := GetDag(ctx, keptDag); err != nil {
+		t.Errorf("other channel's dag: %v", err)
 	}
 }

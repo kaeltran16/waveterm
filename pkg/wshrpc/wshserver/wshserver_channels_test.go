@@ -42,7 +42,7 @@ func TestGetChannelRunsAndMessagesCommands(t *testing.T) {
 	}
 }
 
-func TestGetAttentionCommandSeesAGateInAnyChannel(t *testing.T) {
+func TestGetAttentionCommandSeesAHeldLandInAnyChannel(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	ch, err := wstore.CreateChannel(ctx, "attn", "/p")
@@ -50,11 +50,8 @@ func TestGetAttentionCommandSeesAGateInAnyChannel(t *testing.T) {
 		t.Fatalf("create channel: %v", err)
 	}
 	run := waveobj.Run{
-		ID: "r-gate", Goal: "refactor auth", Status: "awaiting-review", CreatedTs: 1,
-		Phases: []waveobj.RunPhase{
-			{Kind: "plan", State: "done", Gate: true, DoneTs: 700},
-			{Kind: "execute", State: "pending"},
-		},
+		ID: "r-held", Goal: "refactor auth", Status: "done", CreatedTs: 1, CompletedTs: 700,
+		Land: &waveobj.RunLand{State: "held", Reason: "dirty"},
 	}
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("append run: %v", err)
@@ -66,15 +63,15 @@ func TestGetAttentionCommandSeesAGateInAnyChannel(t *testing.T) {
 	}
 	var found *wshrpc.AttentionItem
 	for i := range rtn.Items {
-		if rtn.Items[i].RunId == "r-gate" {
+		if rtn.Items[i].RunId == "r-held" && rtn.Items[i].Kind == "run-land-held" {
 			found = &rtn.Items[i]
 		}
 	}
 	if found == nil {
-		t.Fatalf("gate not reported: %+v", rtn.Items)
+		t.Fatalf("held land not reported: %+v", rtn.Items)
 	}
-	if found.Kind != "gate" || found.ChannelId != ch.OID || found.WaitingSince != 700 {
-		t.Fatalf("wrong gate item: %+v", *found)
+	if found.ChannelId != ch.OID || found.WaitingSince != 700 {
+		t.Fatalf("wrong held-land item: %+v", *found)
 	}
 }
 
