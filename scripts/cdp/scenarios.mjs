@@ -1158,49 +1158,80 @@ const PEEK_ITEMS_EFFORT = "Peek item views initiative";
 const PEEK_ITEMS_RISK = "Peek fixture: the retry loop swallows a cancelled context";
 const PEEK_ITEMS_FINDING = "f-peek-items";
 
-function peekItemsReport(oid, cwd, now) {
-    const signal = (id, path, summary) => ({
-        id,
+const RADAR_FIXTURE_COMMIT = "c0ffee5a".padEnd(40, "0");
+const RADAR_FIXTURE_SUBJECT = "fix(orchestrate): the dispatch loop stops when its context is cancelled";
+const RADAR_FIXTURE_ROOT_CAUSE =
+    "A loop that sleeps between attempts checked its context only before the sleep, so a cancel during the backoff was not seen until the cap.";
+
+// A report as the fix-commit audit writes it: one audited commit, and one finding with its sites in one file.
+// finding is { id, risk, file, lines }.
+function radarFixtureReport(oid, projectname, projectpath, now, finding) {
+    const signal = {
+        id: "s-fixture-fix",
         collector: "git",
-        sourceref: `commit:${id}`,
+        sourceref: RADAR_FIXTURE_COMMIT,
         observedts: now - 3_600_000,
-        paths: [path],
-        summary,
-        contenthash: id,
-    });
-    const signals = [
-        signal("s-peek-1", "pkg/orchestrate/retry.go", "retry loop re-enters after ctx.Done() fires"),
-        signal("s-peek-2", "pkg/orchestrate/retry_test.go", "no test cancels mid-backoff"),
-    ];
+        summary: RADAR_FIXTURE_SUBJECT,
+        contenthash: "s-fixture-fix",
+    };
     return {
         otype: "radarreport",
         oid,
         version: 1,
-        projectname: "peek-fixture",
-        projectpath: cwd,
+        projectname,
+        projectpath,
         status: "completed",
         startedts: now - 120_000,
+        clusterstartedts: now - 110_000,
         completedts: now - 60_000,
-        signals,
+        signals: [signal],
+        audits: [
+            {
+                commit: RADAR_FIXTURE_COMMIT,
+                subject: RADAR_FIXTURE_SUBJECT,
+                committs: signal.observedts,
+                files: [finding.file],
+                status: "ok",
+                rootcause: RADAR_FIXTURE_ROOT_CAUSE,
+                hitcount: finding.lines.length,
+                keptcount: finding.lines.length,
+            },
+        ],
         findings: [
             {
-                id: PEEK_ITEMS_FINDING,
-                fingerprint: "peek-items-fp",
+                id: finding.id,
+                fingerprint: `RAD-${finding.id}`,
                 group: "new",
-                mode: "correctness",
-                riskkind: "error-handling",
-                subsystem: "orchestrate",
-                risk: PEEK_ITEMS_RISK,
-                why: "A cancelled run keeps retrying until the backoff cap, so its worker outlives the cancel.",
+                riskkind: "sibling-bug",
+                subsystem: finding.file.slice(0, finding.file.lastIndexOf("/")),
+                risk: finding.risk,
                 severity: "high",
-                strength: "strong",
-                signalids: signals.map((s) => s.id),
-                files: signals.map((s) => s.paths[0]),
-                mission: "Check whether the retry loop honours a cancelled context.",
+                signalids: [signal.id],
+                files: [finding.file],
+                mission: "Check whether the loop honours a cancelled context.",
+                sourcecommit: RADAR_FIXTURE_COMMIT,
+                sourcesubject: RADAR_FIXTURE_SUBJECT,
+                rootcause: RADAR_FIXTURE_ROOT_CAUSE,
+                sites: finding.lines.map((line) => ({
+                    line,
+                    trigger: `A cancel while the loop at line ${line} is in its backoff.`,
+                    actual: "The loop keeps retrying until the backoff cap.",
+                    expected: "The loop returns as soon as the context is done.",
+                    whynotcovered: "The fix added the check to the dispatch loop only.",
+                })),
             },
         ],
         meta: {},
     };
+}
+
+function peekItemsReport(oid, cwd, now) {
+    return radarFixtureReport(oid, "peek-fixture", cwd, now, {
+        id: PEEK_ITEMS_FINDING,
+        risk: PEEK_ITEMS_RISK,
+        file: "pkg/orchestrate/retry.go",
+        lines: [41, 67],
+    });
 }
 
 async function peekItemsDb(h) {
@@ -1214,18 +1245,23 @@ async function peekItemsDb(h) {
     return db;
 }
 
-async function seedPeekItemsRadar(h, ctx) {
+// writes the report build(oid) returns straight into the dev store, and returns its oid
+async function seedRadarReport(h, build) {
     const oid = randomUUID();
     const db = await peekItemsDb(h);
     try {
         db.prepare("INSERT INTO db_radarreport (oid, version, data) VALUES (?, 1, ?)").run(
             oid,
-            JSON.stringify(peekItemsReport(oid, ctx.cwd, Date.now()))
+            JSON.stringify(build(oid))
         );
     } finally {
         db.close();
     }
-    ctx.radarReportId = oid;
+    return oid;
+}
+
+async function seedPeekItemsRadar(h, ctx) {
+    ctx.radarReportId = await seedRadarReport(h, (oid) => peekItemsReport(oid, ctx.cwd, Date.now()));
 }
 
 async function dropPeekItemsRadar(h, oid) {
@@ -1377,7 +1413,11 @@ const peekItemViews = {
             `radarreport:${ctx.radarReportId}`,
             { sourceType: "radar", anchor: PEEK_ITEMS_FINDING },
             "radar",
-            `text.includes(${JSON.stringify(PEEK_ITEMS_RISK)})`,
+            // a site row is its file:line and nothing else
+            `text.includes(${JSON.stringify(PEEK_ITEMS_RISK)}) &&
+                [...body.querySelectorAll('[data-peek-radar-sites] div')].filter(
+                    (d) => d.children.length === 0 && /:\\d+$/.test((d.textContent || '').trim())
+                ).length === 2`,
             "cdp-shots/peek-item-radar.png"
         );
         rec("4. a radar finding peeks as its item view", radar.ready === true, JSON.stringify(radar));
@@ -10311,6 +10351,542 @@ const radarStartInvestigation = {
     },
 };
 
+// --- radar-report, radar-scan-states: the sibling-audit surface (.superpowers/design/radar-sibling-audit) ----
+// Every board is drawn from the dev fixtures of radardevmock.ts through window.__setRadarScenario, which only
+// replaces the report the surface reads. What a fixture cannot show is a disposition, since the RPC refuses a
+// report the store does not hold: Intentional, Reopen finding and the site link run on a report seeded into
+// the dev store for this checkout, so the link has a real file to open.
+// the surface has no hook of its own; its body does, once the load phase is ready
+const RADAR_ROOT = `document.querySelector('[data-radar-view]')?.parentElement`;
+const RADAR_SCOPE_KEY = "radar.scope.project";
+const RADAR_SEED_FINDING = "f-radar-report";
+const RADAR_SEED_FILE = "pkg/reporadar/scan.go";
+const RADAR_SEED_LINE = 122;
+const RADAR_DISMISS_REASONS = ["False positive", "Low priority", "Resolved elsewhere", "Intentional"];
+const RADAR_DISMISS_FOOTNOTE =
+    "Closes this finding. Its fix commit is audited once, so it stays closed until you reopen it from Dismissed.";
+const RADAR_REMOVED_TEXT = [
+    "collectors",
+    "Suppress pattern",
+    "Suppressed",
+    "Recurring",
+    "No longer detected",
+    "Evidence",
+    "Affected files",
+    "Suggested investigation",
+];
+const RADAR_PARTIAL_FAILED = ["7927fb68", "9caee0d3"];
+const RADAR_AUDIT_ERROR = "Timed out after 10 minutes.";
+
+const radarOpen = async (h) => {
+    await h.goto("radar");
+    return polishWaitFor(h, `typeof window.__setRadarScenario === 'function'`, 8000);
+};
+
+// draws a fixture and waits for the body it should land on
+async function radarMock(h, name, view) {
+    await h.ev(
+        `window.__setRadarScenario(${JSON.stringify(name)}, ${JSON.stringify({ projectPath: process.cwd() })})`
+    );
+    const shown = await polishWaitFor(h, `!!document.querySelector('[data-radar-view="${view}"]')`, 8000);
+    // the body cross-fades between the report, a panel and the skeleton
+    await polishNap(600);
+    return shown;
+}
+
+const radarFacts = (h) =>
+    h.ev(`(() => {
+        const root = ${RADAR_ROOT};
+        if (!root) return null;
+        const text = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
+        const all = (sel, from) => [...from.querySelectorAll(sel)];
+        const body = root.querySelector('[data-radar-view]');
+        const strip = root.querySelector('[data-radar-health-strip]');
+        const retry = root.querySelector('[data-radar-retry-audits]');
+        const toggle = root.querySelector('[data-radar-audits-toggle]');
+        return {
+            view: body.getAttribute('data-radar-view'),
+            title: text(body.querySelector('h2')),
+            bodyText: text(body),
+            rootText: text(root),
+            buttons: all('button', body).map(text),
+            auditList: !!body.querySelector('[data-radar-audit-list]'),
+            audits: all('[data-radar-audit-row]', body).map((r) => ({
+                sha: r.getAttribute('data-radar-audit-row'),
+                state: r.getAttribute('data-audit-state'),
+                text: text(r),
+            })),
+            strip: strip ? text(strip) : null,
+            retry: retry ? !retry.disabled : null,
+            toggle: toggle ? text(toggle) : null,
+            project: root.querySelector('button[aria-label^="Scanned project:"]')?.getAttribute('aria-label') ?? null,
+            rescan: !!root.querySelector('[data-radar-rescan]'),
+            findingRows: all('[data-radar-finding-row]', root).length,
+            groups: Object.fromEntries(
+                all('[data-radar-group]', root).map((g) => [
+                    g.getAttribute('data-radar-group'),
+                    all('[data-radar-finding-row]', g).map((r) => ({
+                        id: r.getAttribute('data-radar-finding-row'),
+                        text: text(r),
+                        isNew: !!r.querySelector('[data-radar-new]'),
+                        current: r.getAttribute('aria-current') === 'true',
+                    })),
+                ])
+            ),
+        };
+    })()`);
+
+const radarDetail = (h) =>
+    h.ev(`(() => {
+        const d = ${RADAR_ROOT}?.querySelector('[data-radar-finding-detail]');
+        if (!d) return null;
+        const text = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
+        return {
+            id: d.getAttribute('data-radar-finding-detail'),
+            siteLink: text(d.querySelector('[data-radar-site-link]')),
+            cards: [...d.querySelectorAll('[data-radar-site-card]')].map(text),
+            headings: [...d.querySelectorAll('h3')].map(text),
+            sourceFix: text(d.querySelector('[data-radar-source-fix]')),
+            text: text(d),
+        };
+    })()`);
+
+const radarClick = (h, selector) =>
+    h.ev(`(() => {
+        const el = ${RADAR_ROOT}?.querySelector(${JSON.stringify(selector)});
+        if (!el) return false;
+        el.click();
+        return true;
+    })()`);
+
+// the detail's buttons carry no hook: the one whose whole text is the label
+const radarDetailButton = (h, label) =>
+    h.ev(`(() => {
+        const b = [...(${RADAR_ROOT}?.querySelectorAll('[data-radar-finding-detail] button') ?? [])]
+            .find((x) => (x.textContent || '').trim() === ${JSON.stringify(label)});
+        if (!b) return false;
+        b.click();
+        return true;
+    })()`);
+
+const radarHas = (selector) => `!!${RADAR_ROOT}?.querySelector(${JSON.stringify(selector)})`;
+const radarStates = (facts) => facts?.audits.map((a) => a.state) ?? [];
+const fixSha = (rowText) => /fix ([0-9a-f]{8})/.exec(rowText ?? "")?.[1] ?? null;
+const hasAll = (text, words) => words.every((w) => (text ?? "").includes(w));
+
+async function radarOpenDismissMenu(h) {
+    const clicked = await radarDetailButton(h, "Dismiss");
+    const open = clicked && (await polishWaitFor(h, radarHas("[data-radar-dismiss-menu]"), 3000));
+    // the popover's reveal finishes before a shot or a click on a reason
+    await polishNap(300);
+    return open;
+}
+
+const radarReport = {
+    name: "radar-report",
+    surface: "radar",
+    async arrange(h) {
+        const ctx = { cwd: process.cwd() };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            // landing on the seeded report persists its project as Radar's scope
+            ctx.priorScope = await h.ev(`localStorage.getItem(${JSON.stringify(RADAR_SCOPE_KEY)})`);
+            ctx.reportId = await seedRadarReport(h, (oid) =>
+                radarFixtureReport(oid, "radar-report-fixture", ctx.cwd, Date.now(), {
+                    id: RADAR_SEED_FINDING,
+                    risk: "Radar fixture: the scan loop outlives a cancelled context",
+                    file: RADAR_SEED_FILE,
+                    lines: [RADAR_SEED_LINE, 140],
+                })
+            );
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const hook = await radarOpen(h);
+
+        {
+            const shown = await radarMock(h, "results", "report");
+            const f = await radarFacts(h);
+            const open = f?.groups.open ?? [];
+            const dismissed = f?.groups.dismissed ?? [];
+            const sited = open.find((r) => /\.\w+:\d+/.test(r.text) && fixSha(r.text) != null);
+            await h.shot("cdp-shots/radar-report.png");
+            rec(
+                "1. a report lists Open and Dismissed with site, title, severity and source fix",
+                hook &&
+                    shown &&
+                    sited != null &&
+                    open.some((r) => r.isNew) &&
+                    dismissed.length === 2 &&
+                    f.project === "Scanned project: waveterm" &&
+                    f.rescan,
+                JSON.stringify({
+                    hook,
+                    view: f?.view ?? null,
+                    open: open.length,
+                    newChips: open.filter((r) => r.isNew).length,
+                    dismissed: dismissed.length,
+                    row: sited?.text ?? null,
+                    project: f?.project ?? null,
+                    rescan: f?.rescan ?? null,
+                })
+            );
+
+            const d = await radarDetail(h);
+            const row = [...open, ...dismissed].find((r) => r.id === d?.id);
+            const sha = fixSha(row?.text);
+            rec(
+                "2. the detail shows the site link, site cards, root cause and source fix",
+                d != null &&
+                    /:\d+$/.test(d.siteLink) &&
+                    d.cards.length > 0 &&
+                    d.cards.every((c) => hasAll(c, ["Actual", "Expected", "Fix gap"])) &&
+                    d.headings.includes("Root cause") &&
+                    sha != null &&
+                    d.sourceFix.includes(sha),
+                JSON.stringify({
+                    finding: d?.id ?? null,
+                    siteLink: d?.siteLink ?? null,
+                    cards: d?.cards.length ?? 0,
+                    headings: d?.headings ?? null,
+                    rowSha: sha,
+                    sourceFix: d?.sourceFix.slice(0, 120) ?? null,
+                })
+            );
+        }
+
+        {
+            const clicked = await radarClick(h, "[data-radar-audits-toggle]");
+            const opened = clicked && (await polishWaitFor(h, radarHas("[data-radar-audits-popover]"), 3000));
+            await polishNap(300);
+            const rows = await h.ev(
+                `[...(${RADAR_ROOT}?.querySelectorAll('[data-radar-audits-popover] [data-radar-audit-row]') ?? [])]
+                    .map((r) => r.getAttribute('data-audit-state'))`
+            );
+            await h.shot("cdp-shots/radar-audits.png");
+            await radarClick(h, "[data-radar-audits-toggle]");
+            const closed = await polishWaitFor(h, `!(${radarHas("[data-radar-audits-popover]")})`, 3000);
+            rec(
+                "3. the header's audit summary opens the audited-commit list",
+                opened && rows.length === 8 && rows.filter((s) => s === "hits").length === 2 && closed,
+                JSON.stringify({ clicked, opened, rows, closed })
+            );
+        }
+
+        {
+            const opened = await radarOpenDismissMenu(h);
+            const menu = await h.ev(`(() => {
+                const m = ${RADAR_ROOT}?.querySelector('[data-radar-dismiss-menu]');
+                if (!m) return null;
+                return {
+                    reasons: [...m.querySelectorAll('[data-radar-dismiss-reason]')]
+                        .map((b) => b.getAttribute('data-radar-dismiss-reason')),
+                    text: (m.textContent ?? '').replace(/\\s+/g, ' ').trim(),
+                };
+            })()`);
+            await h.shot("cdp-shots/radar-dismiss.png");
+            await radarDetailButton(h, "Dismiss");
+            const closed = await polishWaitFor(h, `!(${radarHas("[data-radar-dismiss-menu]")})`, 3000);
+            rec(
+                "4. the Dismiss menu offers four reasons and the reworded footnote",
+                opened &&
+                    JSON.stringify(menu?.reasons) === JSON.stringify(RADAR_DISMISS_REASONS) &&
+                    menu.text.includes(RADAR_DISMISS_FOOTNOTE) &&
+                    closed,
+                JSON.stringify({ opened, reasons: menu?.reasons ?? null, text: menu?.text ?? null, closed })
+            );
+        }
+
+        {
+            const shown = await radarMock(h, "partial", "report");
+            const f = await radarFacts(h);
+            await h.shot("cdp-shots/radar-partial.png");
+            // the fixture's oid is not in the store, so the RPC is refused and no audit starts
+            const dispatched = await h.ev(`(() => {
+                const b = ${RADAR_ROOT}?.querySelector('[data-radar-retry-audits]');
+                if (!b) return false;
+                let fired = false;
+                b.addEventListener('click', () => { fired = true; }, { once: true });
+                b.click();
+                return fired;
+            })()`);
+            await polishNap(1500);
+            const after = await radarFacts(h);
+            rec(
+                "5. a partial scan names the failed commits and offers Retry failed audits",
+                shown &&
+                    hasAll(f?.strip, RADAR_PARTIAL_FAILED) &&
+                    f.retry === true &&
+                    (f.toggle ?? "").endsWith("2 failed") &&
+                    dispatched &&
+                    after?.view === "report" &&
+                    hasAll(after.strip, RADAR_PARTIAL_FAILED),
+                JSON.stringify({
+                    strip: f?.strip ?? null,
+                    retryEnabled: f?.retry ?? null,
+                    summary: f?.toggle ?? null,
+                    dispatched,
+                    after: { view: after?.view ?? null, strip: after?.strip ?? null },
+                })
+            );
+        }
+
+        const detail = `[data-radar-finding-detail="${RADAR_SEED_FINDING}"][data-radar-report="${ctx.reportId}"]`;
+        const seededRow = (group) =>
+            radarHas(`[data-radar-group="${group}"] [data-radar-finding-row="${RADAR_SEED_FINDING}"]`);
+        {
+            await h.ev(`window.__setRadarScenario('live')`);
+            // __openAddress exists only once the Brief has mounted
+            await h.goto("jarvis");
+            const opener = await polishWaitFor(h, `typeof window.__openAddress === 'function'`, 5000);
+            const opened =
+                ctx.arrangeError == null && opener
+                    ? await h.ev(
+                          `window.__openAddress(${JSON.stringify(`radarreport:${ctx.reportId}`)}, ${JSON.stringify({ sourceType: "radar", anchor: RADAR_SEED_FINDING })})`
+                      )
+                    : null;
+            const landed = opened?.ok === true && (await polishWaitFor(h, radarHas(detail), 8000));
+            const menu = landed && (await radarOpenDismissMenu(h));
+            const picked = menu && (await radarClick(h, '[data-radar-dismiss-reason="Intentional"]'));
+            const dismissed = picked && (await polishWaitFor(h, seededRow("dismissed"), 8000));
+            const label = (await radarDetail(h))?.text.includes("Dismissed: intentional") ?? false;
+            const reopened = dismissed && (await radarDetailButton(h, "Reopen finding"));
+            const backOpen = reopened && (await polishWaitFor(h, seededRow("open"), 8000));
+            const newChip = await h.ev(
+                radarHas(`[data-radar-finding-row="${RADAR_SEED_FINDING}"] [data-radar-new]`)
+            );
+            rec(
+                "6. Intentional closes a finding into Dismissed, and Reopen finding returns it",
+                dismissed === true && label && backOpen === true && newChip === false,
+                JSON.stringify({
+                    arrangeError: ctx.arrangeError ?? null,
+                    opener,
+                    opened,
+                    landed,
+                    menu,
+                    picked,
+                    dismissed,
+                    label,
+                    reopened,
+                    backOpen,
+                    newChip,
+                })
+            );
+        }
+
+        {
+            const clicked = await radarClick(h, `${detail} [data-radar-site-link]`);
+            const openFile = `(document.querySelector('[data-code-path]')?.getAttribute('data-code-path') ?? '').replace(/\\\\/g, '/')`;
+            const opened =
+                clicked && (await polishWaitFor(h, `${openFile}.endsWith(${JSON.stringify(RADAR_SEED_FILE)})`, 10000));
+            const surface = await h.activeSurfaceLabel();
+            // the viewer scrolls to the line once the text lands
+            await polishNap(800);
+            await h.shot("cdp-shots/radar-site-in-code.png");
+            rec(
+                "7. the site link opens Code at the line",
+                opened === true && surface === SURFACE_LABEL.code,
+                JSON.stringify({ clicked, surface, file: await h.ev(openFile), line: RADAR_SEED_LINE })
+            );
+        }
+
+        {
+            await radarOpen(h);
+            const shown = await radarMock(h, "results", "report");
+            const read = () =>
+                h.ev(`(() => {
+                    const root = ${RADAR_ROOT};
+                    if (!root) return null;
+                    return {
+                        text: (root.textContent ?? '').toLowerCase(),
+                        lens: !!root.querySelector('[aria-label="Lens"]'),
+                        evidenceTitles: [...root.querySelectorAll('[title]')]
+                            .map((el) => el.getAttribute('title'))
+                            .filter((t) => / evidence$/i.test(t)),
+                    };
+                })()`);
+            // an open finding's detail, then the one closed as Intentional, which used to read Suppressed
+            const views = [await read()];
+            const suppressed = await radarClick(h, '[data-radar-group="dismissed"] [data-radar-finding-row]:last-child');
+            await polishNap(300);
+            views.push(await read());
+            const found = RADAR_REMOVED_TEXT.filter((t) => views.some((v) => v?.text.includes(t.toLowerCase())));
+            const lens = views.some((v) => v?.lens);
+            const evidenceTitles = views.flatMap((v) => v?.evidenceTitles ?? []);
+            rec(
+                "8. nothing the Removed board marks is on the surface",
+                shown &&
+                    suppressed &&
+                    views.every((v) => v != null) &&
+                    found.length === 0 &&
+                    !lens &&
+                    evidenceTitles.length === 0,
+                JSON.stringify({ shown, suppressed, found, lens, evidenceTitles })
+            );
+        }
+
+        {
+            const shown = await radarMock(h, "carried", "report");
+            const f = await radarFacts(h);
+            rec(
+                "9. carried findings with nothing new to audit",
+                shown && f.rootText.includes("no new fix commits") && f.toggle == null && f.strip == null,
+                JSON.stringify({
+                    view: f?.view ?? null,
+                    metaLine: f?.rootText.includes("no new fix commits") ?? null,
+                    toggle: f?.toggle ?? null,
+                    strip: f?.strip ?? null,
+                    findings: f?.findingRows ?? null,
+                })
+            );
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        try {
+            await h.ev(`window.__setRadarScenario?.('live')`);
+            if ("priorScope" in ctx) {
+                await h.ev(
+                    ctx.priorScope == null
+                        ? `localStorage.removeItem(${JSON.stringify(RADAR_SCOPE_KEY)})`
+                        : `localStorage.setItem(${JSON.stringify(RADAR_SCOPE_KEY)}, ${JSON.stringify(ctx.priorScope)})`
+                );
+            }
+        } finally {
+            try {
+                if (ctx.reportId) await dropPeekItemsRadar(h, ctx.reportId);
+            } finally {
+                await polishReload(h);
+            }
+        }
+    },
+};
+
+const radarScanStates = {
+    name: "radar-scan-states",
+    surface: "radar",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const hook = await radarOpen(h);
+        // draws the fixture, reads the surface and takes the step's shot
+        const draw = async (name, view, shot) => {
+            const shown = await radarMock(h, name, view);
+            const f = await radarFacts(h);
+            await h.shot(`cdp-shots/${shot}.png`);
+            return { shown: hook && shown && f != null, f };
+        };
+        const states = (f) => JSON.stringify(radarStates(f));
+
+        {
+            const { shown, f } = await draw("scanning", "scanning", "radar-scanning");
+            const seen = radarStates(f);
+            rec(
+                "1. a scan in progress lists each commit as audited, auditing or queued, with hits",
+                shown &&
+                    seen.length === 8 &&
+                    ["queued", "running", "hits"].every((s) => seen.includes(s)) &&
+                    hasAll(f.bodyText, ["3 of 8 audited", "2 hits"]) &&
+                    f.buttons.includes("Cancel scan"),
+                JSON.stringify({ hook, view: f?.view ?? null, states: seen, buttons: f?.buttons ?? null })
+            );
+        }
+        {
+            const { shown, f } = await draw("selecting", "scanning", "radar-selecting");
+            rec(
+                "2. selecting commits shows the scan panel with no rows",
+                shown && f.audits.length === 0 && f.bodyText.includes("selecting fix commits"),
+                `rows=${f?.audits.length ?? null} text="${f?.bodyText.slice(0, 200) ?? ""}"`
+            );
+        }
+        {
+            const { shown, f } = await draw("clean", "audits", "radar-clean");
+            rec(
+                "3. a clean scan says no sibling bugs and lists the audited commits",
+                shown &&
+                    f.title === "No sibling bugs in 5 fix commits" &&
+                    f.audits.length === 5 &&
+                    f.audits.every((a) => a.state === "clean") &&
+                    f.strip == null &&
+                    f.project === "Scanned project: waveterm" &&
+                    f.rescan,
+                `title="${f?.title ?? ""}" states=${states(f)} strip=${f?.strip ?? null} project="${f?.project ?? ""}" rescan=${f?.rescan ?? null}`
+            );
+        }
+        {
+            const { shown, f } = await draw("failed", "audits", "radar-failed");
+            rec(
+                "4. a fully failed scan shows the strip and each commit's error",
+                shown &&
+                    f.strip != null &&
+                    f.retry === true &&
+                    f.audits.length > 0 &&
+                    f.audits.every((a) => a.state === "failed" && a.text.includes(RADAR_AUDIT_ERROR)),
+                `strip="${f?.strip ?? ""}" retryEnabled=${f?.retry ?? null} states=${states(f)} row="${f?.audits[0]?.text ?? ""}"`
+            );
+        }
+        {
+            const { shown, f } = await draw("no-commits", "audits", "radar-no-commits");
+            rec(
+                "5. no new fix commits",
+                shown && f.title === "No new fix commits to audit" && !f.auditList,
+                `title="${f?.title ?? ""}" auditList=${f?.auditList ?? null}`
+            );
+        }
+        {
+            const { shown, f } = await draw("fatal", "fatal", "radar-fatal");
+            rec(
+                "6. a fatal failure shows the error",
+                shown && f.bodyText.includes("not a readable git repository") && f.buttons.includes("Scan again"),
+                `title="${f?.title ?? ""}" text="${f?.bodyText.slice(0, 200) ?? ""}" buttons=${JSON.stringify(f?.buttons ?? null)}`
+            );
+        }
+        {
+            const { shown, f } = await draw("cancelled", "cancelled", "radar-cancelled");
+            rec("7. a cancelled scan", shown, `view=${f?.view ?? null} title="${f?.title ?? ""}"`);
+        }
+        {
+            const { shown, f } = await draw("old-format", "old-format", "radar-old-format");
+            rec(
+                "8. an old-format report asks for a re-scan",
+                shown &&
+                    f.title === "This report was written by an older Radar" &&
+                    f.buttons.includes("Re-scan") &&
+                    f.findingRows === 0,
+                `title="${f?.title ?? ""}" buttons=${JSON.stringify(f?.buttons ?? null)} findingRows=${f?.findingRows ?? null}`
+            );
+        }
+        {
+            const { shown, f } = await draw("never-scanned", "never-scanned", "radar-never-scanned");
+            rec(
+                "9. a project never scanned",
+                shown &&
+                    f.title.endsWith("hasn't been scanned") &&
+                    f.buttons.includes("Scan repository") &&
+                    !/collector/i.test(f.bodyText),
+                `title="${f?.title ?? ""}" buttons=${JSON.stringify(f?.buttons ?? null)} text="${f?.bodyText.slice(0, 240) ?? ""}"`
+            );
+        }
+        return steps;
+    },
+    // the fixtures live in module state; a reload drops whatever one left drawn
+    async teardown(h) {
+        try {
+            await h.ev(`window.__setRadarScenario?.('live')`);
+        } finally {
+            await polishReload(h);
+        }
+    },
+};
+
 // --- canvas mode swaps with the terminal, which stays mounted ----------------------------------------
 // final-verify boots a fresh store with no agents, so the scenario opens its own plain terminal tab the way
 // launchAgent does (CreateTab, then the terminal meta) and reveals a temp canvas as that terminal's. CreateTab is
@@ -10992,6 +11568,8 @@ export const SCENARIOS = [
     briefInlineTracker,
     resourceLinking,
     radarStartInvestigation,
+    radarReport,
+    radarScanStates,
     uiApi,
     focusReaimsSurfaces,
     focusDivergenceRejoin,
