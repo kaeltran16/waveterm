@@ -2174,6 +2174,23 @@ declare global {
         delta?: TimelineEvent[];
     };
 
+    // waveobj.RadarAudit
+    type RadarAudit = {
+        commit: string;
+        subject: string;
+        committs: number;
+        files: string[];
+        status: string;
+        rootcause?: string;
+        hitcount?: number;
+        keptcount?: number;
+        error?: string;
+        resolvedmodel?: string;
+        totaltokens?: number;
+        durationms?: number;
+        rawresponse?: string;
+    };
+
     // waveobj.RadarDisposition
     type RadarDisposition = {
         action: string;
@@ -2203,6 +2220,10 @@ declare global {
         disposition?: RadarDisposition;
         investigation?: RadarInvestigation;
         misscount?: number;
+        sourcecommit?: string;
+        sourcesubject?: string;
+        rootcause?: string;
+        sites?: RadarSite[];
     };
 
     // waveobj.RadarInvestigation
@@ -2264,6 +2285,7 @@ declare global {
         moderuns?: RadarModeRun[];
         lensprogress?: {[key: string]: string};
         clusterstartedts?: number;
+        audits?: RadarAudit[];
     };
 
     // waveobj.RadarSignal
@@ -2278,6 +2300,15 @@ declare global {
         facts?: {[key: string]: any};
         snippet?: string;
         contenthash: string;
+    };
+
+    // waveobj.RadarSite
+    type RadarSite = {
+        line: number;
+        trigger: string;
+        actual: string;
+        expected: string;
+        whynotcovered: string;
     };
 
     // wshrpc.ResumeCardData
@@ -2566,6 +2597,8 @@ declare global {
         "debug:webglstatus"?: boolean;
         "harness:preferredruntime"?: string;
         "harness:preferredmodel"?: string;
+        "radar:auditruntime"?: string;
+        "radar:auditmodel"?: string;
     };
 
     // wshrpc.ShippedItem

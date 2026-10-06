@@ -140,6 +140,12 @@
         },
         "harness:preferredmodel": {
           "type": "string"
+        },
+        "radar:auditruntime": {
+          "type": "string"
+        },
+        "radar:auditmodel": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

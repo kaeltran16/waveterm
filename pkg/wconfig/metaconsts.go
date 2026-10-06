@@ -58,5 +58,8 @@ const (
 
 	ConfigKey_HarnessPreferredRuntime        = "harness:preferredruntime"
 	ConfigKey_HarnessPreferredModel          = "harness:preferredmodel"
+
+	ConfigKey_RadarAuditRuntime              = "radar:auditruntime"
+	ConfigKey_RadarAuditModel                = "radar:auditmodel"
 )
 

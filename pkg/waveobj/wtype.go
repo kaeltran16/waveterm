@@ -843,6 +843,36 @@ type RadarFinding struct {
 	Disposition   *RadarDisposition   `json:"disposition,omitempty"`
 	Investigation *RadarInvestigation `json:"investigation,omitempty"`
 	MissCount     int                 `json:"misscount,omitempty"` // consecutive scans that did not detect it (0 = detected this scan)
+	SourceCommit  string              `json:"sourcecommit,omitempty"`
+	SourceSubject string              `json:"sourcesubject,omitempty"`
+	RootCause     string              `json:"rootcause,omitempty"`
+	Sites         []RadarSite         `json:"sites,omitempty"`
+}
+
+// RadarSite is one place a fix-audit found the same bug as the source fix commit.
+type RadarSite struct {
+	Line          int    `json:"line"`
+	Trigger       string `json:"trigger"`
+	Actual        string `json:"actual"`
+	Expected      string `json:"expected"`
+	WhyNotCovered string `json:"whynotcovered"`
+}
+
+// RadarAudit is one fix commit's audit session within a scan.
+type RadarAudit struct {
+	Commit        string   `json:"commit"`
+	Subject       string   `json:"subject"`
+	CommitTs      int64    `json:"committs"`
+	Files         []string `json:"files"`
+	Status        string   `json:"status"` // queued|running|ok|failed
+	RootCause     string   `json:"rootcause,omitempty"`
+	HitCount      int      `json:"hitcount,omitempty"`
+	KeptCount     int      `json:"keptcount,omitempty"`
+	Error         string   `json:"error,omitempty"`
+	ResolvedModel string   `json:"resolvedmodel,omitempty"`
+	TotalTokens   int      `json:"totaltokens,omitempty"`
+	DurationMs    int64    `json:"durationms,omitempty"`
+	RawResponse   string   `json:"rawresponse,omitempty"`
 }
 
 // RadarInvestigation is the latest Run outcome recorded against a finding (by fingerprint). It closes the
@@ -911,7 +941,8 @@ type RadarReport struct {
 	ModeRuns             []RadarModeRun    `json:"moderuns,omitempty"`
 	LensProgress         map[string]string `json:"lensprogress,omitempty"` // lens -> queued|running|ok|failed, streamed while clustering
 	ClusterStartedTs     int64             `json:"clusterstartedts,omitempty"`
-	Meta                 MetaMapType       `json:"meta"`
+	Audits               []RadarAudit      `json:"audits,omitempty"`
+	Meta                MetaMapType       `json:"meta"`
 }
 
 func (*RadarReport) GetOType() string {
