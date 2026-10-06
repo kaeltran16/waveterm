@@ -56,6 +56,27 @@ func SetValidateWorkerHarnessForTest(fn func(string) error) func() {
 	return func() { validateWorkerHarness = old }
 }
 
+// startWorker launches a spawned worker's process once its run is recorded. Read at call time, like
+// spawnWorker.
+var startWorker = func(ctx context.Context, workerORef string) error {
+	return jarvis.StartRunWorker(ctx, workerORef)
+}
+
+// abandonUnstartedWorker cancels the run recorded for a worker whose process would not start and disarms
+// its tab, so nothing reads the run as working.
+func abandonUnstartedWorker(ctx context.Context, channelId, runID, workerORef string) {
+	if err := wstore.UpdateRun(ctx, channelId, runID, func(r *waveobj.Run) error {
+		*r = jarvis.CancelRun(*r)
+		return nil
+	}); err != nil {
+		log.Printf("cancelling run %s of unstarted worker %s: %v", runID, workerORef, err)
+	}
+	if err := stopSpawnedWorker(ctx, workerORef); err != nil {
+		log.Printf("stopping unstarted worker %s: %v", workerORef, err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, runID))
+}
+
 var appendChildRun = wstore.AppendRun
 var stopSpawnedWorker = jarvis.StopRunWorker
 var stampSpawnedWorker = wstore.StampWorkerOwner
@@ -559,6 +580,14 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		channelORef := waveobj.MakeORef(waveobj.OType_Channel, g.ChannelId).String()
 		if err := stampSpawnedWorker(spawnCtx, oref, runORef, channelORef); err != nil {
 			log.Printf("schedule dag %s task %s: stamp worker %s: %v", g.OID, taskID, oref, err)
+		}
+		// last: the exit hook finds this worker's run through the row and the stamp above, and waits on the
+		// dag lock this tick holds
+		if err := startWorker(spawnCtx, oref); err != nil {
+			abandonUnstartedWorker(spawnCtx, g.ChannelId, childRun.ID, oref)
+			spawned = spawned[:len(spawned)-1]
+			failDispatch(ctx, g, taskID, FailureKindSpawn, err, &afterCommit)
+			continue
 		}
 		// now, not at tick end: the app already shows the tab, and until its run arrives the tab sits outside
 		// the run's tree for as long as the rest of the batch takes to spawn. The tab's stamped task id nests it

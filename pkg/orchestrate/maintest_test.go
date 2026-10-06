@@ -35,6 +35,8 @@ func TestMain(m *testing.M) {
 	}
 	// fixtures store worker tabs no controller runs; only the tests that script a dead one should see it stall
 	workerControllerGone = func(context.Context, *waveobj.Run) bool { return false }
+	// fixtures spawn workers through a stub that makes no tab, so there is nothing to start
+	startWorker = func(context.Context, string) error { return nil }
 	// a landed dag's verifier would need a workspace to spawn in; only the verifier's own tests start one
 	startVerifier = skipVerifier
 	defer effortstore.UseRootForTest(filepath.Join(dir, "vault"))()

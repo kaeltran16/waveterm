@@ -165,7 +165,7 @@ const workerExitedNote = "worker exited before completing its phase"
 //     the human instead.
 //   - quick / pipeline: the run's only worker exits before running `wsh jarvis complete`. Nothing else
 //     reconciles these modes (F26): a dag child's exit is HandleChildOutcome's job, not this one.
-func HandleRunWorkerExit(ctx context.Context, workerORef string) error {
+func HandleRunWorkerExit(ctx context.Context, workerORef string, exit jarvis.WorkerExit) error {
 	channelId, runId, err := workerRunIds(ctx, workerORef)
 	if err != nil || runId == "" {
 		return err
@@ -175,6 +175,7 @@ func HandleRunWorkerExit(ctx context.Context, workerORef string) error {
 	if err != nil {
 		return fmt.Errorf("loading run %s: %w", runId, err)
 	}
+	recordWorkerOutput(ctx, run, workerORef, exit)
 	// before the dag early-return, because a lead's tab has to be collected in both shapes: a bounded
 	// run reaches no other close site at all, and a dag run whose lead was still mid-turn when the dag
 	// went terminal was deliberately skipped there for this moment. Best-effort, never fails the exit.
@@ -197,6 +198,19 @@ func HandleRunWorkerExit(ctx context.Context, workerORef string) error {
 	appendRunEvent(ctx, channelId, runId, kind, nil, map[string]any{"reason": reason})
 	sendRunUpdates(channelId, runId)
 	return nil
+}
+
+// recordWorkerOutput keeps what a worker printed before it failed, in the log and on its own run: its tab
+// closes itself with the exit and takes the terminal with it. Only an exit nobody asked for is kept: a worker
+// the engine stopped also exits non-zero, after its run was closed.
+func recordWorkerOutput(ctx context.Context, run *waveobj.Run, workerORef string, exit jarvis.WorkerExit) {
+	if exit.ExitCode == 0 || (run.Status != jarvis.RunStatus_Executing && run.Status != jarvis.RunStatus_Planning) {
+		return
+	}
+	log.Printf("run %s: worker %s exited with code %d: %q", run.ID, workerORef, exit.ExitCode, exit.Output)
+	appendRunEvent(ctx, run.ChannelOID, run.ID, waveobj.RunEventKindWorkerOutput, nil, map[string]any{
+		"exitcode": exit.ExitCode, "output": exit.Output, "worker": workerORef,
+	})
 }
 
 // failRunningPhase fails a non-dag run's running phase when owns accepts that phase's workers, returning

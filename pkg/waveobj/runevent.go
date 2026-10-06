@@ -81,6 +81,10 @@ const (
 	RunEventKindInterrupted    = "interrupted"
 	RunEventKindWorkerResumed  = "worker-resumed"
 
+	// worker-output: a run's worker exited non-zero while the run was still open; recorded on that worker's
+	// own run, because its tab and terminal are deleted with the exit ("exitcode", "output", "worker")
+	RunEventKindWorkerOutput = "worker-output"
+
 	// task-told: a message the human typed into a dag child's own terminal ("taskid", "text"), recorded on the
 	// owning run so the lead reads it in its status. It wakes nobody.
 	RunEventKindTaskTold = "task-told"

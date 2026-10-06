@@ -146,6 +146,11 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 	if err := stampSpawnedWorker(spawnCtx, oref, runORef, channelORef); err != nil {
 		log.Printf("dag %s task %s: stamp reviewer %s: %v", g.OID, t.ID, oref, err)
 	}
+	if err := startWorker(spawnCtx, oref); err != nil {
+		abandonUnstartedWorker(spawnCtx, g.ChannelId, runID, oref)
+		spendReviewRespawn(ctx, g, t, "reviewer could not start: "+err.Error(), afterCommit)
+		return
+	}
 	t.ReviewRunID, t.ReviewSpawnedTs = runID, now
 	taskID := t.ID
 	*afterCommit = append(*afterCommit, func() {

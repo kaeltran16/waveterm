@@ -5,6 +5,7 @@ package orchestrate
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -179,5 +180,74 @@ func TestReadWorkerGone(t *testing.T) {
 				t.Fatalf("want %v, got %v", tc.want, got)
 			}
 		})
+	}
+}
+
+// stubStartWorker scripts the launch of a spawned worker's process.
+func stubStartWorker(t *testing.T, start func(ctx context.Context, workerORef string) error) {
+	t.Helper()
+	prev := startWorker
+	startWorker = start
+	restoreAfterStages(t, func() { startWorker = prev })
+}
+
+// the exit hook fails a worker through its run row and the owner stamp on its tab. Run d8fe96ab's t-2 exited a
+// second after its spawn, while the tick was still writing them, and its exit failed nothing.
+func TestDispatchRecordsAWorkerBeforeStartingIt(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	ctx, g, channelID, _ := seedDispatchDag(t, "dispatch-record-then-start")
+	stubSpawnWorker(t, "tab:worker", nil)
+	stamped := map[string]string{}
+	oldStamp := stampSpawnedWorker
+	stampSpawnedWorker = func(_ context.Context, worker, runORef, _ string) error {
+		stamped[worker] = runORef
+		return nil
+	}
+	restoreAfterStages(t, func() { stampSpawnedWorker = oldStamp })
+	starts := 0
+	stubStartWorker(t, func(ctx context.Context, worker string) error {
+		starts++
+		runORef, err := waveobj.ParseORef(stamped[worker])
+		if err != nil {
+			t.Fatalf("worker %s started before its tab was stamped with its run: %v", worker, err)
+		}
+		if _, err := wstore.GetRun(ctx, channelID, runORef.OID); err != nil {
+			t.Fatalf("worker %s started before its run row existed: %v", worker, err)
+		}
+		return nil
+	})
+
+	if err := ScheduleOnce(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	if starts == 0 {
+		t.Fatal("the dispatched worker was never started")
+	}
+}
+
+// a worker whose process will not start leaves no run reading as working
+func TestDispatchFailsATaskWhoseWorkerWillNotStart(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	newFakeLead(t)
+	ctx, g, channelID, _ := seedDispatchDag(t, "dispatch-start-fails")
+	stubSpawnWorker(t, "tab:worker", nil)
+	var runID string
+	oldAppend := appendChildRun
+	appendChildRun = func(ctx context.Context, channel string, run waveobj.Run) error {
+		runID = run.ID
+		return oldAppend(ctx, channel, run)
+	}
+	restoreAfterStages(t, func() { appendChildRun = oldAppend })
+	stubStartWorker(t, func(context.Context, string) error { return errors.New("no pty") })
+
+	if err := ScheduleOnce(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	task := g.Tasks[0]
+	if task.State != TaskState_Failed || task.LastFailureKind != FailureKindSpawn || task.RunID != "" {
+		t.Fatalf("want the task failed as a spawn failure with no run, got state=%s kind=%s run=%q", task.State, task.LastFailureKind, task.RunID)
+	}
+	if run, err := wstore.GetRun(ctx, channelID, runID); err != nil || run.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("the unstarted worker's run is cancelled, got %+v err=%v", run, err)
 	}
 }

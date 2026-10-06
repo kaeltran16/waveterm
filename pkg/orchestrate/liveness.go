@@ -278,6 +278,13 @@ var workerLatestTool = func(ctx context.Context, run *waveobj.Run) string {
 // workerControllerGone is readWorkerGone, a var so tests can script it.
 var workerControllerGone = readWorkerGone
 
+// SetWorkerGoneForTest stubs the worker-gone check for tests whose fixture workers have no tab.
+func SetWorkerGoneForTest(fn func(context.Context, *waveobj.Run) bool) func() {
+	old := workerControllerGone
+	workerControllerGone = fn
+	return func() { workerControllerGone = old }
+}
+
 // readWorkerGone reports whether a child's worker can no longer be running: its tab is deleted, or its
 // block is in the store with no controller. A machine restart leaves the second. An exit nothing heard
 // leaves the first, because an exited worker's tab closes itself: run d8fe96ab's t-2 died a second after
