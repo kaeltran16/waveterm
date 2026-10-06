@@ -4,7 +4,7 @@
 // Presentational token maps for the Radar surface, shared by the master list and detail pane so the
 // two never disagree on a color. Pure class-string lookups — no logic lives here (see radarmodel.ts).
 
-import type { InvestigationTone, RadarMode, RadarTone } from "./radarmodel";
+import type { AuditState, InvestigationTone, ListGroupMeta, RadarMode, RadarTone } from "./radarmodel";
 
 // Severity → pill classes + dot color. Unknown severities fall back to the low/accent styling.
 export const SEVERITY_PILL: Record<string, string> = {
@@ -30,6 +30,27 @@ export const TONE_DOT: Record<RadarTone, string> = {
     recurring: "bg-warning",
     nolonger: "bg-success",
     muted: "bg-muted",
+};
+
+// List group tone → text/dot color, keyed by ListGroupMeta.tone.
+export const LIST_TONE_TEXT: Record<ListGroupMeta["tone"], string> = {
+    open: "text-accent",
+    muted: "text-muted",
+};
+
+export const LIST_TONE_DOT: Record<ListGroupMeta["tone"], string> = {
+    open: "bg-accent",
+    muted: "bg-muted",
+};
+
+// Audit state → status text color. The live scan list draws a clean row muted instead, since a finished
+// clean audit is not what to watch there.
+export const AUDIT_STATE_TEXT: Record<AuditState, string> = {
+    queued: "text-muted",
+    running: "text-accent-soft",
+    clean: "text-success",
+    hits: "text-accent-soft",
+    failed: "text-error",
 };
 
 // Investigation tone → text and dot color, keyed by InvestigationView.tone.

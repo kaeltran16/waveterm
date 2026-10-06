@@ -6,6 +6,7 @@
 
 import { formatAgo, formatTokens } from "./agentsviewmodel";
 import type { LoadPhase } from "./loadphase";
+import { fmtDuration } from "./runcompletion";
 
 export type RadarGroup = "new" | "recurring" | "nolonger" | "dismissed" | "suppressed";
 
@@ -328,7 +329,6 @@ export interface RadarRunDraft {
     fingerprint: string;
     mission: string;
     files: string[];
-    evidenceRefs: string[];
     origin: "radar";
 }
 
@@ -339,7 +339,6 @@ export function buildRunDraft(report: RadarReport, finding: RadarFinding): Radar
         fingerprint: finding.fingerprint,
         mission: finding.mission,
         files: [...(finding.files ?? [])],
-        evidenceRefs: [...(finding.signalids ?? [])],
         origin: "radar",
     };
 }
@@ -349,26 +348,16 @@ export function buildRunDraft(report: RadarReport, finding: RadarFinding): Radar
 export interface PendingRunDraft {
     goal: string; // prefilled, editable
     files: string[]; // context, read-only in the composer
-    evidenceRefs: string[]; // context, read-only in the composer
     radarOrigin?: { reportid: string; findingid: string; fingerprint: string };
     projectPath?: string; // resolves the target channel on landing
     projectName?: string; // names the channel when the project has none yet
     landed?: boolean; // one-shot guard: set once Channels has navigated to this draft (survives surface remount)
 }
 
-// composeRunGoal turns a finding into an editable goal: the suggested mission, then (when present) the
-// affected files and the evidence signal ids, so the user reviews the full context in one text field.
+// the mission already names the source fix and each site with its trigger, actual and expected
+// (pkg/reporadar/hits.go), so the goal adds nothing to it
 export function composeRunGoal(finding: RadarFinding): string {
-    const parts = [finding.mission];
-    const files = finding.files ?? [];
-    if (files.length > 0) {
-        parts.push(`\nAffected files:\n${files.map((f) => `- ${f}`).join("\n")}`);
-    }
-    const refs = finding.signalids ?? [];
-    if (refs.length > 0) {
-        parts.push(`\nEvidence: ${refs.join(", ")}`);
-    }
-    return parts.join("\n");
+    return finding.mission;
 }
 
 export function toPendingRunDraft(report: RadarReport, finding: RadarFinding): PendingRunDraft {
@@ -376,7 +365,6 @@ export function toPendingRunDraft(report: RadarReport, finding: RadarFinding): P
     return {
         goal: composeRunGoal(finding),
         files: d.files,
-        evidenceRefs: d.evidenceRefs,
         radarOrigin: { reportid: d.reportId, findingid: d.findingId, fingerprint: d.fingerprint },
         projectPath: report.projectpath,
         projectName: report.projectname,
@@ -442,25 +430,32 @@ export function primaryAction(f: RadarFinding): PrimaryAction {
     return { kind: "start", label: inv ? "Investigate again" : "Start investigation" };
 }
 
-export const DISMISS_REASONS = ["False positive", "Low priority", "Resolved elsewhere"];
+// the one reason that suppresses: the finding stays closed as a decision, not as a triage call
+const INTENTIONAL = "Intentional";
+
+export const DISMISS_REASONS = ["False positive", "Low priority", "Resolved elsewhere", INTENTIONAL];
 
 export interface DismissReason {
     label: string;
     run?: string;
+    action: "dismiss" | "suppress";
     reason: string;
     note?: string;
 }
 
 // A finished investigation is the likeliest reason to close a finding, so it leads the list.
 export function dismissReasons(f: RadarFinding): DismissReason[] {
-    const generic = DISMISS_REASONS.map((reason) => ({ label: reason, reason }));
+    const generic = DISMISS_REASONS.map(
+        (reason): DismissReason => ({ label: reason, action: reason === INTENTIONAL ? "suppress" : "dismiss", reason })
+    );
     const inv = f.investigation;
     if (inv?.status !== "done") {
         return generic;
     }
-    const byRun = {
+    const byRun: DismissReason = {
         label: "Addressed by",
         run: inv.runid,
+        action: "dismiss",
         reason: "Resolved by investigation",
         note: `addressed by run ${inv.runid}`,
     };
@@ -594,4 +589,214 @@ export function scanMetaLine(report: RadarReport, now: number): string {
         parts.push(`${formatTokens(report.payloadtokens)}-token payload`);
     }
     return parts.join(" · ");
+}
+
+export type RadarListGroup = "open" | "dismissed";
+
+export const LIST_GROUP_ORDER: RadarListGroup[] = ["open", "dismissed"];
+
+export const DEFAULT_OPEN_LIST_GROUPS: Set<RadarListGroup> = new Set<RadarListGroup>(LIST_GROUP_ORDER);
+
+// a suppressed finding is a dismissal with the reason Intentional, so the two share a list group
+export function listGroupOf(f: RadarFinding): RadarListGroup {
+    return f.group === "dismissed" || f.group === "suppressed" ? "dismissed" : "open";
+}
+
+export function groupForList(findings: RadarFinding[]): Record<RadarListGroup, RadarFinding[]> {
+    const out: Record<RadarListGroup, RadarFinding[]> = { open: [], dismissed: [] };
+    for (const f of findings ?? []) {
+        out[listGroupOf(f)].push(f);
+    }
+    return out;
+}
+
+export function isNewFinding(f: RadarFinding): boolean {
+    return f.group === "new";
+}
+
+export interface ListGroupMeta {
+    label: string;
+    hint: string;
+    tone: "open" | "muted";
+}
+
+export function listGroupMeta(group: RadarListGroup, items: RadarFinding[]): ListGroupMeta {
+    if (group === "dismissed") {
+        return { label: "Dismissed", hint: "closed with a reason", tone: "muted" };
+    }
+    const fresh = items.filter(isNewFinding).length;
+    return { label: "Open", hint: fresh > 0 ? `${fresh} new in the latest scan` : "", tone: "open" };
+}
+
+export interface FindingSite {
+    dir: string;
+    file: string;
+    line: number;
+    path: string;
+    more: number;
+}
+
+// findingSite is the first site of the finding's one file, which is what the row and the site link name.
+export function findingSite(f: RadarFinding): FindingSite | null {
+    const path = f.files?.[0];
+    const sites = f.sites ?? [];
+    if (!path || sites.length === 0) {
+        return null;
+    }
+    const cut = path.lastIndexOf("/") + 1;
+    return { dir: path.slice(0, cut), file: path.slice(cut), line: sites[0].line, path, more: sites.length - 1 };
+}
+
+const SHORT_SHA_LEN = 8;
+
+export function shortSha(commit: string): string {
+    return (commit ?? "").slice(0, SHORT_SHA_LEN);
+}
+
+export interface SourceFix {
+    sha: string;
+    subject: string;
+    ts?: number;
+}
+
+// sourceFix is the fix commit whose audit found this finding. The backend keeps one git signal per source
+// commit, so the commit's date is that signal's observedts.
+export function sourceFix(f: RadarFinding, report: RadarReport): SourceFix | null {
+    if (!f.sourcecommit) {
+        return null;
+    }
+    const ids = new Set(f.signalids ?? []);
+    const cited = (report.signals ?? []).find((s) => ids.has(s.id));
+    return { sha: shortSha(f.sourcecommit), subject: f.sourcesubject ?? "", ts: cited?.observedts };
+}
+
+export type AuditState = "queued" | "running" | "clean" | "hits" | "failed";
+
+export interface AuditRow {
+    commit: string;
+    sha: string;
+    subject: string;
+    state: AuditState;
+    hits: number;
+    detail: string;
+}
+
+// only hits that passed the gate count (keptcount), so an audit whose every hit was dropped reads as clean
+function auditState(a: RadarAudit): AuditState {
+    switch (a.status) {
+        case "ok":
+            return (a.keptcount ?? 0) > 0 ? "hits" : "clean";
+        case "failed":
+            return "failed";
+        case "running":
+            return "running";
+        default:
+            return "queued";
+    }
+}
+
+export function auditRows(report: RadarReport | null): AuditRow[] {
+    return (report?.audits ?? []).map((a) => {
+        const state = auditState(a);
+        return {
+            commit: a.commit,
+            sha: shortSha(a.commit),
+            subject: a.subject,
+            state,
+            hits: a.keptcount ?? 0,
+            detail: (state === "failed" ? a.error : a.rootcause) ?? "",
+        };
+    });
+}
+
+export interface AuditTally {
+    total: number;
+    audited: number;
+    clean: number;
+    withHits: number;
+    failed: number;
+    hits: number;
+}
+
+export function auditTally(rows: AuditRow[]): AuditTally {
+    const count = (state: AuditState) => rows.filter((r) => r.state === state).length;
+    const clean = count("clean");
+    const withHits = count("hits");
+    const failed = count("failed");
+    return {
+        total: rows.length,
+        audited: clean + withHits + failed,
+        clean,
+        withHits,
+        failed,
+        hits: rows.reduce((n, r) => n + r.hits, 0),
+    };
+}
+
+export function auditSummary(t: AuditTally): string {
+    if (t.total === 0) {
+        return "no new fix commits";
+    }
+    const failed = t.failed > 0 ? `, ${t.failed} failed` : "";
+    return `${plural(t.total, "fix commit")} audited, ${t.clean} clean${failed}`;
+}
+
+export function auditTallyText(t: AuditTally): string {
+    const parts = [`${t.clean} clean`, `${t.withHits} with hits`];
+    if (t.failed > 0) {
+        parts.push(`${t.failed} failed`);
+    }
+    return parts.join(" · ");
+}
+
+export function failedAuditShas(report: RadarReport): string[] {
+    return auditRows(report)
+        .filter((r) => r.state === "failed")
+        .map((r) => r.sha);
+}
+
+export type RadarView = "never-scanned" | "scanning" | "old-format" | "cancelled" | "fatal" | "report" | "audits";
+
+// a finding with no source commit was written by the lens pipeline, which nothing here can draw
+export function isOldFormatReport(report: RadarReport): boolean {
+    return (report.findings ?? []).some((f) => !f.sourcecommit);
+}
+
+// radarView picks the body for the scoped project's newest report. The order is the contract: an
+// old-format report is never drawn as a report, whatever its status.
+export function radarView(report: RadarReport | null): RadarView {
+    if (!report) {
+        return "never-scanned";
+    }
+    if (report.status === "collecting" || report.status === "clustering") {
+        return "scanning";
+    }
+    if (isOldFormatReport(report)) {
+        return "old-format";
+    }
+    if (report.status === "cancelled") {
+        return "cancelled";
+    }
+    if (report.status === "failed" && report.fatalerror && (report.audits?.length ?? 0) === 0) {
+        return "fatal";
+    }
+    return (report.findings?.length ?? 0) > 0 ? "report" : "audits";
+}
+
+export function reportMetaAge(report: RadarReport, now: number): string {
+    return `last scan ${formatAgo(now - (report.completedts || report.startedts))}`;
+}
+
+export function auditDuration(report: RadarReport): string {
+    if (!report.clusterstartedts || !report.completedts) {
+        return "";
+    }
+    return fmtDuration(report.completedts - report.clusterstartedts);
+}
+
+export function dispositionLabel(d: RadarDisposition): string {
+    if (d.action === "suppress") {
+        return "Dismissed: intentional";
+    }
+    return `Dismissed: ${(d.reason ?? "").trim().toLowerCase() || "no reason"}`;
 }
