@@ -334,6 +334,7 @@ declare global {
     type CommandAckRunData = {
         channelid: string;
         runid: string;
+        land?: boolean;
     };
 
     // wshrpc.CommandAdvanceRunData
@@ -2495,6 +2496,7 @@ declare global {
         reason?: string;
         commit?: string;
         notes?: string[];
+        dismissed?: boolean;
     };
 
     // waveobj.RunPhase

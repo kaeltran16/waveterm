@@ -897,7 +897,9 @@ and the land then holds as above. The base can still move between `complete` and
 arrives then holds the land.
 
 A held land raises a **land held** item under Waiting on you: "The run's branch was not merged back: <reason>".
-Clear the reason, then run `wsh runs land <run-id>`, which retries and prints where the land stands.
+Clear the reason, then run `wsh runs land <run-id>`, which retries and prints where the land stands. The Jarvis
+peek's row does the same with **Retry land** (a branch you merged by hand lands at once), and **Dismiss** drops
+the item for a branch that will never land: the branch stays, and a later retry that holds raises it again.
 `wsh runs land <run-id> --force` lands a run whose final stage failed; it is your call only. When the last final
 round fails, the lead asks you what to do with the land, with at least **Land anyway** and **Keep the land held**.
 On **Land anyway** it completes with `wsh jarvis complete --force-land`, and the land that follows skips the

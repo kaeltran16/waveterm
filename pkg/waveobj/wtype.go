@@ -322,6 +322,9 @@ type RunLand struct {
 	Reason string   `json:"reason,omitempty"` // why it is held
 	Commit string   `json:"commit,omitempty"` // the merge commit
 	Notes  []string `json:"notes,omitempty"`  // what the landed result was not verified against, e.g. a moved base
+	// Dismissed is the human dropping a held land's attention item. A retry writes a fresh RunLand, so a new
+	// hold shows again.
+	Dismissed bool `json:"dismissed,omitempty"`
 }
 
 // TaskNode.ModelSource values: who set the task's RunSpec model.

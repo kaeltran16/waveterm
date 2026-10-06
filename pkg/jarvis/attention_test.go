@@ -602,6 +602,7 @@ func TestHeldLandSaysWhy(t *testing.T) {
 	items := BuildAttention(AttentionInput{Channels: []AttentionChannel{{OID: "c1", Name: "alpha", Runs: []*waveobj.Run{
 		finishedRun("r1", nil, &waveobj.RunLand{State: "held", Reason: "the checkout is on x, not main"}),
 		finishedRun("r2", nil, &waveobj.RunLand{State: "pending"}),
+		finishedRun("r3", nil, &waveobj.RunLand{State: "held", Reason: "the merge conflicts with main", Dismissed: true}),
 	}}}})
 	got := itemsOfKind(items, AttentionRunLandHeld)
 	if len(got) != 1 || got[0].RunId != "r1" || got[0].Key != "run-land-held:r1" {

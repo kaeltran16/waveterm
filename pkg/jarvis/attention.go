@@ -521,10 +521,10 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 }
 
 // landHeldItem is a done run whose branch the engine did not merge back, with the reason. The run's work is
-// finished and waits only on the human clearing the reason.
+// finished and waits only on the human clearing the reason, or dismissing the item.
 func landHeldItem(ch AttentionChannel, run *waveobj.Run) (wshrpc.AttentionItem, bool) {
 	// mirrors orchestrate.LandState_Held
-	if run.Land == nil || run.Land.State != "held" {
+	if run.Land == nil || run.Land.State != "held" || run.Land.Dismissed {
 		return wshrpc.AttentionItem{}, false
 	}
 	effortOID, chunkLabel := attribution(run)

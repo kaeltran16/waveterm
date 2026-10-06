@@ -14,13 +14,20 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { loadAttention } from "@/app/view/agents/attentionstore";
 import { openAddress, openOrPeekAddress, type OpenGesture } from "./openref";
 import { closePeek } from "./peekstore";
-import type { PetAct } from "./petacts";
+import type { PetAct, PetActState } from "./petacts";
 import { petErrandAtom, setActState } from "./petstore";
 
 // The same budget the Channels surface gives a consult (CONSULT_RPC_TIMEOUT_MS in channelactions.ts): the
 // backend's consultTimeout is 120s and the rpc layer's 5s default would kill the stream long before a reply
 // lands. Duplicated rather than imported so the errand does not pull the whole channel-actions module in.
 const ERRAND_TIMEOUT_MS = 130_000;
+
+// A land re-runs Check and Verify before it merges: orchestrate.LandTimeout (45 min) plus the margin
+// `wsh runs land` gives it.
+const LAND_TIMEOUT_MS = 45 * 60_000 + 10_000;
+// orchestrate.LandState_Landed
+const LAND_STATE_LANDED = "landed";
+const STILL_HELD: PetActState = { status: "error", text: "Still held" };
 
 function errText(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
@@ -55,8 +62,24 @@ async function escort(
 async function ack(act: Extract<PetAct, { verb: "ack" }>): Promise<void> {
     setActState(act.id, { status: "running" });
     try {
-        await RpcApi.AckRunCommand(TabRpcClient, { channelid: act.channelId, runid: act.runId });
+        await RpcApi.AckRunCommand(TabRpcClient, { channelid: act.channelId, runid: act.runId, land: act.land });
         setActState(act.id, { status: "done" });
+        await loadAttention();
+    } catch (e) {
+        setActState(act.id, { status: "error", text: errText(e) });
+    }
+}
+
+// A land that holds again is not a failed call: the row stays, and the reload brings its new reason.
+async function land(act: Extract<PetAct, { verb: "land" }>): Promise<void> {
+    setActState(act.id, { status: "running" });
+    try {
+        const result = await RpcApi.LandRunCommand(
+            TabRpcClient,
+            { channelid: act.channelId, runid: act.runId },
+            { timeout: LAND_TIMEOUT_MS }
+        );
+        setActState(act.id, result?.state === LAND_STATE_LANDED ? { status: "done" } : STILL_HELD);
         await loadAttention();
     } catch (e) {
         setActState(act.id, { status: "error", text: errText(e) });
@@ -66,6 +89,10 @@ async function ack(act: Extract<PetAct, { verb: "ack" }>): Promise<void> {
 export async function runAct(model: AgentsViewModel, act: PetAct, gesture?: OpenGesture): Promise<void> {
     if (act.verb === "ack") {
         await ack(act);
+        return;
+    }
+    if (act.verb === "land") {
+        await land(act);
         return;
     }
     await escort(model, act, gesture);

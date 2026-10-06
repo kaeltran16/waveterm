@@ -18,18 +18,20 @@ export interface PeekRow {
     // null when the kind's text is a constant the verb already implies — see DETAIL_KINDS.
     detail: string | null;
     waitingsince: number;
-    // the row's button, labelled with the item's own verb: an unverified run's in-place ack, otherwise the
-    // escort. null when nothing is addressable behind the item.
+    // the row's button, labelled with the item's own verb: an unverified run's in-place ack, a held land's
+    // retry, otherwise the escort. null when nothing is addressable behind the item.
     primary: PetAct | null;
-    // the escort beside an ack, so settling a row in place does not cost the way to read it first
-    secondary: PetAct | null;
+    // the acts beside the button: the escort, so settling a row in place does not cost the way to read it
+    // first, and a held land's Dismiss
+    links: PetAct[];
 }
 
 // pkg/jarvis/attention.go writes Text per kind, and only these put anything in it that the row's own verb
 // does not already say: an escalation's and an ask's question (askText), a blocked dag's reason. A gate's
 // "Approve before Jarvis proceeds." and a dag-gate's near-twin are constants repeated on every row of that
-// kind, so they are dropped and the width goes to the source — the part that differs.
-const DETAIL_KINDS = new Set(["escalation", "dag-blocked", "ask"]);
+// kind, so they are dropped and the width goes to the source — the part that differs. A held land's reason
+// is what says whether to retry or dismiss.
+const DETAIL_KINDS = new Set(["escalation", "dag-blocked", "ask", "run-land-held"]);
 
 // A row names its kind in a word beside its dot, so the kind never rides on colour alone.
 const ROW_KIND_LABEL: Record<string, string> = {
@@ -38,6 +40,7 @@ const ROW_KIND_LABEL: Record<string, string> = {
     escalation: "Escalation",
     "dag-blocked": "Blocked",
     ask: "Question",
+    "run-land-held": "Land held",
 };
 
 export function rowKindLabel(kind: string): string {
@@ -73,17 +76,24 @@ export function queueRows(items: AttentionItem[], agents: ReadonlyArray<AgentVM>
     return (items ?? [])
         .filter((item) => item.kind !== PEEK_EXCLUDED_KIND)
         .map((item) => {
-            // actsForAttention returns [] with no runid, [ack, escort] for an unverified run, [escort] otherwise
-            const [first, second] = actsForAttention(item);
+            // actsForAttention returns [] with no runid, [ack, escort] for an unverified run, [land, dismiss,
+            // escort] for a held land, [escort] otherwise
+            const [first, ...links] = actsForAttention(item);
             return {
                 key: item.key,
                 kind: item.kind,
                 source: item.source,
                 detail: DETAIL_KINDS.has(item.kind) ? item.text : null,
                 waitingsince: item.waitingsince,
-                // "Review" / "Decide" / "Answer" is the same navigation as "Open", named by what it is for.
-                primary: first != null ? ({ ...first, label: item.action } as PetAct) : answerInAgent(item, agents),
-                secondary: second ?? null,
+                // "Review" / "Decide" / "Answer" is the same navigation as "Open", named by what it is for. An
+                // act that is not a navigation keeps its own name.
+                primary:
+                    first == null
+                        ? answerInAgent(item, agents)
+                        : first.verb === "open"
+                          ? { ...first, label: item.action }
+                          : first,
+                links,
             };
         });
 }
@@ -137,13 +147,16 @@ export function eventPeekTarget(event: { sources?: PetEventSource[] } | undefine
 
 // What Space on a queue row shows: where its escort would land, without landing there.
 export function rowPeekTarget(row: PeekRow | undefined): PetTarget | null {
-    const escort = [row?.primary, row?.secondary].find((act) => act?.verb === "open");
+    const escort = [row?.primary, ...(row?.links ?? [])].find((act) => act?.verb === "open");
     return escort?.verb === "open" ? escort.target : null;
 }
 
 // The Enter hint names what Enter does to the focused row, which is not always a navigation.
 export function enterHintLabel(act: PetAct | null): string {
-    return act?.verb === "ack" ? "acknowledge" : "open";
+    if (act?.verb === "ack") {
+        return "acknowledge";
+    }
+    return act?.verb === "land" ? "retry land" : "open";
 }
 
 export interface PeekCondition {

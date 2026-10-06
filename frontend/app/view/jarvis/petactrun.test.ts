@@ -9,6 +9,7 @@ const openOrPeekAddress = vi.fn();
 const postMessage = vi.fn();
 const consult = vi.fn();
 const ackRun = vi.fn();
+const landRun = vi.fn();
 const getAttention = vi.fn();
 
 vi.mock("./openref", () => ({
@@ -20,6 +21,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
         PostChannelMessageCommand: (...a: any[]) => postMessage(...a),
         ConsultCommand: (...a: any[]) => consult(...a),
         AckRunCommand: (...a: any[]) => ackRun(...a),
+        LandRunCommand: (...a: any[]) => landRun(...a),
         GetAttentionCommand: (...a: any[]) => getAttention(...a),
     },
 }));
@@ -133,6 +135,56 @@ describe("runAct — ack", () => {
             text: "acknowledging run: not found",
         });
         expect(globalStore.get(attentionAtom)).toEqual([row]);
+    });
+});
+
+describe("runAct — a held land", () => {
+    const row = { key: "run-land-held:r1" } as AttentionItem;
+    const retry: PetAct = { id: "run-land-held:r1:land", verb: "land", label: "Retry land", channelId: "ch1", runId: "r1" }; // prettier-ignore
+    const dismiss: PetAct = { id: "run-land-held:r1:dismiss", verb: "ack", label: "Dismiss", land: true, channelId: "ch1", runId: "r1" }; // prettier-ignore
+
+    afterEach(() => globalStore.set(attentionAtom, []));
+
+    it("retries the land and drops the row once it lands", async () => {
+        globalStore.set(attentionAtom, [row]);
+        landRun.mockResolvedValue({ state: "landed", commit: "211e262" });
+        getAttention.mockResolvedValue({ items: [] });
+        await runAct(model, retry);
+        expect(landRun).toHaveBeenCalledWith(
+            expect.anything(),
+            { channelid: "ch1", runid: "r1" },
+            { timeout: expect.any(Number) }
+        );
+        expect(globalStore.get(attentionAtom)).toEqual([]);
+        expect(globalStore.get(petActStateAtom)[retry.id]).toEqual({ status: "done" });
+    });
+
+    it("says a retry held again, and keeps the row with its new reason", async () => {
+        const held = { key: "run-land-held:r1", text: "a new reason" } as AttentionItem;
+        globalStore.set(attentionAtom, [row]);
+        landRun.mockResolvedValue({ state: "held", reason: "a new reason" });
+        getAttention.mockResolvedValue({ items: [held] });
+        await runAct(model, retry);
+        expect(globalStore.get(petActStateAtom)[retry.id]).toEqual({ status: "error", text: "Still held" });
+        expect(globalStore.get(attentionAtom)).toEqual([held]);
+    });
+
+    it("reports a retry that could not run on the act", async () => {
+        landRun.mockRejectedValue(new Error("run r1 is running; only a done run lands"));
+        await runAct(model, retry);
+        expect(globalStore.get(petActStateAtom)[retry.id]).toEqual({
+            status: "error",
+            text: "run r1 is running; only a done run lands",
+        });
+    });
+
+    it("dismisses the held land, not the run's unverified outcome", async () => {
+        globalStore.set(attentionAtom, [row]);
+        ackRun.mockResolvedValue(undefined);
+        getAttention.mockResolvedValue({ items: [] });
+        await runAct(model, dismiss);
+        expect(ackRun).toHaveBeenLastCalledWith(expect.anything(), { channelid: "ch1", runid: "r1", land: true });
+        expect(globalStore.get(attentionAtom)).toEqual([]);
     });
 });
 

@@ -18,10 +18,13 @@ export type PetTarget = { kind: "oref"; ref: string; anchor?: string };
 
 export type PetAct =
     | { id: string; verb: "open"; label: string; target: PetTarget }
-    | { id: string; verb: "ack"; label: string; channelId: string; runId: string };
+    // land: true dismisses the run's held land instead of acknowledging its unverified outcome
+    | { id: string; verb: "ack"; label: string; channelId: string; runId: string; land?: boolean }
+    | { id: string; verb: "land"; label: string; channelId: string; runId: string };
 
-// pkg/jarvis/attention.go AttentionRunUnverified
+// pkg/jarvis/attention.go AttentionRunUnverified, AttentionRunLandHeld
 const RUN_UNVERIFIED_KIND = "run-unverified";
+const RUN_LAND_HELD_KIND = "run-land-held";
 
 // An act's transient outcome, keyed by act id in petstore.ts. Transient on purpose: the row's real value
 // comes from its own poll, and letting an act's return value become the row's value would drift from the
@@ -33,10 +36,11 @@ export interface PetActState {
     text?: string;
 }
 
-// An unverified run is the one kind a button settles: acknowledging it is the whole resolution, the same
-// in-place Acknowledge the Brief's queue offers, with the Open escort after it for reading the run first.
-// Everything else needs a written answer or a picked option, neither of which is a button, so the escort
-// alone covers it.
+// Two kinds a button settles. An unverified run: acknowledging it is the whole resolution, the same in-place
+// Acknowledge the Brief's queue offers, with the Open escort after it for reading the run first. A held land:
+// retrying it is the resolution once its reason is cleared (a branch merged by hand lands at once), and
+// Dismiss is the way out for a branch that will never land. Everything else needs a written answer or a
+// picked option, neither of which is a button, so the escort alone covers it.
 export function actsForAttention(item: AttentionItem): PetAct[] {
     if (!item?.runid) {
         return []; // nothing addressable: an item with no run cannot be opened or resolved
@@ -50,6 +54,14 @@ export function actsForAttention(item: AttentionItem): PetAct[] {
     if (item.kind === RUN_UNVERIFIED_KIND && item.channelid) {
         return [
             { id: `${item.key}:ack`, verb: "ack", label: "Acknowledge", channelId: item.channelid, runId: item.runid },
+            escort,
+        ];
+    }
+    if (item.kind === RUN_LAND_HELD_KIND && item.channelid) {
+        const run = { channelId: item.channelid, runId: item.runid };
+        return [
+            { id: `${item.key}:land`, verb: "land", label: "Retry land", ...run },
+            { id: `${item.key}:dismiss`, verb: "ack", label: "Dismiss", land: true, ...run },
             escort,
         ];
     }

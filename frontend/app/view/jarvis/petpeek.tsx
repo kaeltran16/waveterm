@@ -97,6 +97,7 @@ const ROW_DOT: Record<string, string> = {
     escalation: "bg-error",
     "dag-blocked": "bg-error",
     ask: "bg-accent",
+    "run-land-held": "bg-warning",
 };
 
 const FOCUS_RING = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -257,7 +258,7 @@ function QueueRow({
     focused: boolean;
     onLeave: () => void;
 }) {
-    const acts = [row.primary, row.secondary].filter((act) => act != null);
+    const acts = [row.primary, ...row.links].filter((act) => act != null);
     return (
         <div data-pet-row={row.key} className="border-b border-border last:border-b-0">
             <div
@@ -291,9 +292,7 @@ function QueueRow({
                 </div>
                 {row.primary != null ? (
                     <div className="flex flex-none items-center gap-2.5">
-                        {row.secondary != null ? (
-                            <ActLinks model={model} acts={[row.secondary]} onLeave={onLeave} />
-                        ) : null}
+                        <ActLinks model={model} acts={row.links} onLeave={onLeave} />
                         <ActButton model={model} act={row.primary} filled={focused} onLeave={onLeave} />
                     </div>
                 ) : null}

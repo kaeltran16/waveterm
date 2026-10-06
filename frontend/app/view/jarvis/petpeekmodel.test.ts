@@ -208,11 +208,32 @@ describe("queueRows — an unverified run settles in place", () => {
     it("puts the ack on the button and the escort beside it", () => {
         const row = queueRows([UNVERIFIED])[0];
         expect(row.primary).toMatchObject({ verb: "ack", label: "Acknowledge", channelId: CH, runId: RUN });
-        expect(row.secondary).toMatchObject({ verb: "open", target: { kind: "oref", ref: `run:${RUN}` } });
+        expect(row.links).toMatchObject([{ verb: "open", target: { kind: "oref", ref: `run:${RUN}` } }]);
     });
 
     it("gives every other kind no second act", () => {
-        expect(queueRows([GATE, ESCALATION, ASK]).map((r) => r.secondary)).toEqual([null, null, null]);
+        expect(queueRows([GATE, ESCALATION, ASK]).map((r) => r.links)).toEqual([[], [], []]);
+    });
+});
+
+describe("queueRows — a held land retries or dismisses in place", () => {
+    const HELD = item({ kind: "run-land-held", key: "run-land-held:" + RUN, text: "The run's branch was not merged back: the merge conflicts with main" }); // prettier-ignore
+
+    // the button used to be an Open labelled "Review", so nothing on the row could clear it
+    it("puts the retry on the button under its own name, with Dismiss and the escort beside it", () => {
+        const row = queueRows([HELD])[0];
+        expect(row.primary).toMatchObject({ verb: "land", label: "Retry land", channelId: CH, runId: RUN });
+        expect(row.links).toMatchObject([
+            { verb: "ack", label: "Dismiss", land: true, channelId: CH, runId: RUN },
+            { verb: "open", target: { kind: "oref", ref: `run:${RUN}` } },
+        ]);
+        expect(enterHintLabel(row.primary)).toBe("retry land");
+        expect(rowPeekTarget(row)).toEqual({ kind: "oref", ref: `run:${RUN}` });
+    });
+
+    it("shows the held reason and names the kind in words", () => {
+        expect(queueRows([HELD])[0].detail).toBe("The run's branch was not merged back: the merge conflicts with main");
+        expect(rowKindLabel("run-land-held")).toBe("Land held");
     });
 });
 

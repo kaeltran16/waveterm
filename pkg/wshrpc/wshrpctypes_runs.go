@@ -114,6 +114,7 @@ type CommandLandRunData struct {
 type CommandAckRunData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
+	Land      bool   `json:"land,omitempty"` // dismiss the run's held land instead of its unverified outcome
 }
 
 type CommandRunAskData struct {

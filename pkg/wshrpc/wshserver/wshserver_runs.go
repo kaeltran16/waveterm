@@ -1094,12 +1094,20 @@ func (ws *WshServer) LandRunCommand(ctx context.Context, data wshrpc.CommandLand
 }
 
 // AckRunCommand records that the human read a done run's unverified outcome, which clears its attention item.
+// With Land it dismisses the run's held land instead: the branch stays, and `wsh runs land` still retries it.
 func (ws *WshServer) AckRunCommand(ctx context.Context, data wshrpc.CommandAckRunData) error {
 	if data.ChannelId == "" || data.RunId == "" {
 		return fmt.Errorf("channelid and runid are required")
 	}
 	if err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
-		r.VerificationAckTs = time.Now().UnixMilli()
+		if !data.Land {
+			r.VerificationAckTs = time.Now().UnixMilli()
+			return nil
+		}
+		if r.Land == nil || r.Land.State != orchestrate.LandState_Held {
+			return fmt.Errorf("run %s has no held land to dismiss", data.RunId)
+		}
+		r.Land.Dismissed = true
 		return nil
 	}); err != nil {
 		return fmt.Errorf("acknowledging run: %w", err)
