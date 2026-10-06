@@ -30,16 +30,19 @@ func IsAgentMessage(text string) bool {
 
 var (
 	lockMu sync.Mutex
-	// lastSender is, per block, the block that last messaged it during its current turn.
+	// senders is, per block, the blocks that messaged it during its current turn.
 	// ponytail: in memory, so a wavesrv restart opens every lock; persist it if loops show up after restarts.
-	lastSender = map[string]string{}
+	senders = map[string]map[string]bool{}
 )
 
-// NoteSent records that toBlock was last messaged by fromBlock.
+// NoteSent records that toBlock was messaged by fromBlock.
 func NoteSent(fromBlock, toBlock string) {
 	lockMu.Lock()
 	defer lockMu.Unlock()
-	lastSender[toBlock] = fromBlock
+	if senders[toBlock] == nil {
+		senders[toBlock] = map[string]bool{}
+	}
+	senders[toBlock][fromBlock] = true
 }
 
 // SendBackLocked reports whether fromBlock may not message toBlock: toBlock messaged it, and fromBlock's turn
@@ -47,13 +50,12 @@ func NoteSent(fromBlock, toBlock string) {
 func SendBackLocked(fromBlock, toBlock string) bool {
 	lockMu.Lock()
 	defer lockMu.Unlock()
-	sender, ok := lastSender[fromBlock]
-	return ok && sender == toBlock
+	return senders[fromBlock][toBlock]
 }
 
 // TurnEnded clears what was recorded for block, whose turn is over.
 func TurnEnded(block string) {
 	lockMu.Lock()
 	defer lockMu.Unlock()
-	delete(lastSender, block)
+	delete(senders, block)
 }

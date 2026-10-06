@@ -78,3 +78,21 @@ func TestSendBackLockIsSafeForConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// a second sender in the same turn does not open the lock on the first
+func TestSendBackLockedForEverySenderOfTheTurn(t *testing.T) {
+	t.Cleanup(func() { TurnEnded("b") })
+	NoteSent("a", "b")
+	NoteSent("c", "b")
+	for _, sender := range []string{"a", "c"} {
+		if !SendBackLocked("b", sender) {
+			t.Errorf("b may message %s, which messaged it this turn", sender)
+		}
+	}
+	TurnEnded("b")
+	for _, sender := range []string{"a", "c"} {
+		if SendBackLocked("b", sender) {
+			t.Errorf("b is still locked against %s after its turn ended", sender)
+		}
+	}
+}
