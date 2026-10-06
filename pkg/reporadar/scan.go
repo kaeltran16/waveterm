@@ -131,6 +131,7 @@ func runAudit(ctx context.Context, reportId string, route auditRoute, projectPat
 	audit.DurationMs = time.Since(start).Milliseconds()
 	audit.ResolvedModel = res.Model
 	audit.TotalTokens = res.TotalTokens
+	audit.CacheReadTokens = res.CacheReadTokens
 	audit.RawResponse = clip(Redact(res.Reply), maxRawResponseBytes)
 	if err != nil {
 		audit.Status = AuditFailed

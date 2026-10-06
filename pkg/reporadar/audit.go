@@ -118,7 +118,8 @@ func (s *auditStream) feedClaude(line []byte) {
 	case ev.Type == "result":
 		s.sawResult = true
 		s.res.Reply = ev.Result
-		s.res.TotalTokens = ev.Usage.Input + ev.Usage.CacheCreation + ev.Usage.CacheRead + ev.Usage.Output
+		s.res.TotalTokens = ev.Usage.Input + ev.Usage.CacheCreation + ev.Usage.Output
+		s.res.CacheReadTokens = ev.Usage.CacheRead
 		s.res.Model = firstJSONKey(ev.ModelUsage)
 		if ev.IsError {
 			s.fail(fmt.Errorf("claude reported an error result (%s): %s", ev.Subtype, clip(ev.Result, 500)))
@@ -136,6 +137,7 @@ func (s *auditStream) feedPi(line []byte) {
 			Model        string `json:"model"`
 			Usage        struct {
 				TotalTokens int `json:"totalTokens"`
+				CacheRead   int `json:"cacheRead"`
 			} `json:"usage"`
 			Content []struct {
 				Type string `json:"type"`
@@ -161,7 +163,8 @@ func (s *auditStream) feedPi(line []byte) {
 	}
 	s.sawResult = true
 	s.res.Reply = text.String()
-	s.res.TotalTokens += ev.Message.Usage.TotalTokens
+	s.res.TotalTokens += ev.Message.Usage.TotalTokens - ev.Message.Usage.CacheRead
+	s.res.CacheReadTokens += ev.Message.Usage.CacheRead
 	if ev.Message.Model != "" {
 		s.res.Model = ev.Message.Model
 	}

@@ -855,19 +855,20 @@ type RadarSite struct {
 
 // RadarAudit is one fix commit's audit session within a scan.
 type RadarAudit struct {
-	Commit        string   `json:"commit"`
-	Subject       string   `json:"subject"`
-	CommitTs      int64    `json:"committs"`
-	Files         []string `json:"files"`
-	Status        string   `json:"status"` // queued|running|ok|failed
-	RootCause     string   `json:"rootcause,omitempty"`
-	HitCount      int      `json:"hitcount,omitempty"`
-	KeptCount     int      `json:"keptcount,omitempty"`
-	Error         string   `json:"error,omitempty"`
-	ResolvedModel string   `json:"resolvedmodel,omitempty"`
-	TotalTokens   int      `json:"totaltokens,omitempty"`
-	DurationMs    int64    `json:"durationms,omitempty"`
-	RawResponse   string   `json:"rawresponse,omitempty"`
+	Commit          string   `json:"commit"`
+	Subject         string   `json:"subject"`
+	CommitTs        int64    `json:"committs"`
+	Files           []string `json:"files"`
+	Status          string   `json:"status"` // queued|running|ok|failed
+	RootCause       string   `json:"rootcause,omitempty"`
+	HitCount        int      `json:"hitcount,omitempty"`
+	KeptCount       int      `json:"keptcount,omitempty"`
+	Error           string   `json:"error,omitempty"`
+	ResolvedModel   string   `json:"resolvedmodel,omitempty"`
+	TotalTokens     int      `json:"totaltokens,omitempty"` // input, cache writes and output
+	CacheReadTokens int      `json:"cachereadtokens,omitempty"`
+	DurationMs      int64    `json:"durationms,omitempty"`
+	RawResponse     string   `json:"rawresponse,omitempty"`
 }
 
 // RadarInvestigation is the latest Run outcome recorded against a finding (by fingerprint). It closes the

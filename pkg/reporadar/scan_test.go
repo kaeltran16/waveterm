@@ -93,7 +93,7 @@ func fakeSessions(t *testing.T, fn sessionFn) {
 
 func hitReply(file string, line int) auditSessionResult {
 	reply := fmt.Sprintf(`{"rootcause":"nil row","siblings":["callers"],"hits":[{"file":%q,"line":%d,"title":"same nil row","trigger":"an empty table","actual":"panics","expected":"returns nil","whynotcovered":"the fix guards one caller","severity":"high"}]}`, file, line)
-	return auditSessionResult{Reply: reply, Model: "claude-sonnet-5-5", TotalTokens: 100}
+	return auditSessionResult{Reply: reply, Model: "claude-sonnet-5-5", TotalTokens: 100, CacheReadTokens: 900}
 }
 
 func cleanReply() auditSessionResult {
@@ -199,7 +199,7 @@ func TestScanAuditsSelectedFixCommits(t *testing.T) {
 		t.Fatalf("want three ok audits, got %+v", got.Audits)
 	}
 	if a := auditOf(t, got, withHit); a.HitCount != 1 || a.KeptCount != 1 || a.RootCause != "nil row" || a.RawResponse == "" ||
-		a.ResolvedModel != "claude-sonnet-5-5" || a.TotalTokens != 100 || a.Subject != "fix: guard src/a.go" || len(a.Files) != 1 {
+		a.ResolvedModel != "claude-sonnet-5-5" || a.TotalTokens != 100 || a.CacheReadTokens != 900 || a.Subject != "fix: guard src/a.go" || len(a.Files) != 1 {
 		t.Errorf("audit with a kept hit = %+v", a)
 	}
 	if a := auditOf(t, got, gated); a.HitCount != 1 || a.KeptCount != 0 {

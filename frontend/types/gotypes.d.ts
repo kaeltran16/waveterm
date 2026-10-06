@@ -2242,6 +2242,7 @@ declare global {
         error?: string;
         resolvedmodel?: string;
         totaltokens?: number;
+        cachereadtokens?: number;
         durationms?: number;
         rawresponse?: string;
     };

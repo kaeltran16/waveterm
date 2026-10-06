@@ -89,13 +89,13 @@ const claudeInitOK = `{"type":"system","subtype":"hook_started","hook_name":"Ses
 {"type":"assistant","message":{"content":[{"type":"text","text":"reading the callers"}]}}`
 
 func TestClaudeAuditStream(t *testing.T) {
-	t.Run("init plus result gives reply, model and token sum", func(t *testing.T) {
+	t.Run("init plus result gives reply, model, and tokens with cache reads apart", func(t *testing.T) {
 		res, err := readAuditStream(AuditRuntimeClaude, jsonl(claudeInitOK+`
 {"type":"result","subtype":"success","is_error":false,"result":"{\"hits\":[]}","usage":{"input_tokens":10,"cache_creation_input_tokens":200,"cache_read_input_tokens":3000,"output_tokens":40000},"modelUsage":{"claude-sonnet-5-5":{"inputTokens":10},"claude-haiku-4-5":{"inputTokens":1}}}`))
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := auditSessionResult{Reply: `{"hits":[]}`, Model: "claude-sonnet-5-5", TotalTokens: 43210}
+		want := auditSessionResult{Reply: `{"hits":[]}`, Model: "claude-sonnet-5-5", TotalTokens: 40210, CacheReadTokens: 3000}
 		if res != want {
 			t.Errorf("result = %+v, want %+v", res, want)
 		}
@@ -148,11 +148,11 @@ func TestPiAuditStream(t *testing.T) {
 	})
 	t.Run("reported usage and model are kept", func(t *testing.T) {
 		res, err := readAuditStream(AuditRuntimePi, jsonl(`{"type":"message_end","message":{"role":"assistant","model":"gpt-x","usage":{"totalTokens":100},"content":[{"type":"text","text":"reading"}]}}
-{"type":"message_end","message":{"role":"assistant","model":"gpt-x","usage":{"totalTokens":250},"content":[{"type":"text","text":"{}"}]}}`))
+{"type":"message_end","message":{"role":"assistant","model":"gpt-x","usage":{"totalTokens":250,"cacheRead":90},"content":[{"type":"text","text":"{}"}]}}`))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := (auditSessionResult{Reply: "{}", Model: "gpt-x", TotalTokens: 350}); res != want {
+		if want := (auditSessionResult{Reply: "{}", Model: "gpt-x", TotalTokens: 260, CacheReadTokens: 90}); res != want {
 			t.Errorf("result = %+v, want %+v", res, want)
 		}
 	})
