@@ -2778,6 +2778,7 @@ declare global {
         cpusample?: number;
         cpusamplets?: number;
         busyts?: number;
+        askts?: number;
         latesttool?: string;
         progresshash?: string;
         progressts?: number;

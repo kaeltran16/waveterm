@@ -355,6 +355,16 @@ func shellStuckStarting(blockId string) bool {
 	return blockId != "" && blockShellStatus(blockId) == blockcontroller.Status_Init
 }
 
+// workerAsking reports a worker with a question open in the registry.
+func workerAsking(ctx context.Context, run *waveobj.Run) bool {
+	blockId, _ := workerBlockFn(ctx, run)
+	if blockId == "" {
+		return false
+	}
+	_, asking := agentask.GlobalRegistry.Get(waveobj.MakeORef(waveobj.OType_Block, blockId).String())
+	return asking
+}
+
 // hungWake is the judgment line for a task that just stalled, or "" when its worker is waiting on an answer,
 // which belongs to the question queue. Every other stalled worker is the lead's: one whose process never
 // started, one whose process is gone while its task still runs (the exit path missed it), one idle at its

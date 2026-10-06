@@ -363,6 +363,9 @@ type TaskNode struct {
 	// BusyTs is the last CPU sample that showed the worker's tree working (UnixMilli). It is kept apart from
 	// LastActivity, which is the transcript's, so status can tell a long command from silence.
 	BusyTs int64 `json:"busyts,omitempty"`
+	// AskTs is the last tick that found the worker waiting on an ask (UnixMilli). The wait is quiet by design,
+	// so every stall clock runs from here: an answered worker gets a whole threshold, not what the wait left.
+	AskTs int64 `json:"askts,omitempty"`
 	// LatestTool is the worker's in-progress tool call from its status hook, "" between calls.
 	LatestTool string `json:"latesttool,omitempty"`
 	// ProgressHash is the worktree's last fingerprint and ProgressTs when it last changed (seeded at spawn): a
