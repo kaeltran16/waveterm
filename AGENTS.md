@@ -92,7 +92,7 @@ before working in an area you don't already know.
   window is borderless and the titlebar is drawn in React.
 - **Go backend (`cmd/`, `pkg/`)** — `wavesrv` (SQLite object store + HTTP + websocket RPC) and `wsh`
   (CLI helper shipped into terminals). **Agents report into and drive the cockpit through `wsh`**
-  (`wsh agent-hook`, `wsh ask`; `wsh runs`, `wsh ui`, `wsh effort`). The launch-time
+  (`wsh agent-hook`, `wsh ask`; `wsh runs`, `wsh agents`, `wsh ui`, `wsh effort`). The launch-time
   `install-agent-hooks` writes the Claude Code hooks into
   `~/.claude/settings.json` and the pi/opencode extensions, all pointing at a fixed copy under
   `~/.arc/bin/` — not PATH. The managed hook list is `cmd/wsh/cmd/wshcmd-installhooks.go`.
