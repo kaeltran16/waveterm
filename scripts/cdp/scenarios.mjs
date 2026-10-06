@@ -2055,7 +2055,9 @@ const attentionCrossChannel = {
         const ctx = await arrangeSheetDagRun(h, "attn-probe", ATTN_TASKS);
         if (ctx.arrangeError != null) return ctx;
         try {
-            const other = await h.rpc("createchannel", { name: "attn-other", projectpath: ctx.cwd });
+            // its own path: a second channel at the probe's path is the probe channel itself
+            ctx.otherCwd = mkdtempSync(join(tmpdir(), "attn-other-"));
+            const other = await h.rpc("createchannel", { name: "attn-other", projectpath: ctx.otherCwd });
             ctx.otherId = other.oid;
             // the dispatching tick holds the dag for as long as the spawn takes and would land over a seed made under it
             await waitForDispatch(h, ctx, ATTN_GATE_TASK);
@@ -2101,23 +2103,19 @@ const attentionCrossChannel = {
             JSON.stringify(item ?? { items: (attention.items || []).length })
         );
 
-        // 3. make a DIFFERENT channel the active subject, so the gate is in a non-active channel.
-        // channelsAtom is a load-once snapshot, so channels created over RPC need a reload to appear in the
-        // Subjects column at all (same pattern as jarvis-drawer / jarvis-fleet) — which is itself the
-        // staleness that made this defect possible. Selecting by the row's visible name, stripping the
-        // subject-kind glyph, is jarvis-drawer's proven selector.
+        // 3. a DIFFERENT channel is the active one, so the gate is in a non-active channel. Nothing in the
+        // Brief selects a channel by hand: a load with no active channel takes the newest (loadChannels), and
+        // attn-other was created after the probe.
         await h.ev("location.reload()");
         await settle(2500);
         await h.goto("jarvis");
         await settle(600);
-        const selectedOther = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')]
-                .find((x) => (x.textContent || '').trim().replace(/^[#▤~]/, '').startsWith('attn-other'));
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        rec("3. a different channel is the active subject", selectedOther === true, `clicked=${selectedOther}`);
+        const newest = ((await h.rpc("getchannels", null))?.channels ?? [])[0]?.oid;
+        rec(
+            "3. a different channel is the active one",
+            newest === ctx.otherId && ctx.otherId !== ctx.channelId,
+            JSON.stringify({ newest, other: ctx.otherId, probe: ctx.channelId })
+        );
 
         // 4. leave for a surface nowhere near Jarvis, then wait for one poll tick
         await h.goto("usage");
@@ -2161,6 +2159,7 @@ const attentionCrossChannel = {
                 console.error(`attention-cross-channel teardown: delete attn-other failed: ${e?.message ?? e}`);
             }
         }
+        if (ctx.otherCwd) rmSync(ctx.otherCwd, { recursive: true, force: true });
         await teardownFixtureRun(h, ctx, "attention-cross-channel");
     },
 };
