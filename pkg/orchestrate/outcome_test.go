@@ -182,12 +182,12 @@ func TestHandleChildOutcomeResetsAttemptCountWhenKindChanges(t *testing.T) {
 func TestHandleChildOutcomeUsesStampedUndispatchedRunWorker(t *testing.T) {
 	h := newChildOutcomeHarness(t, 1)
 	worker := h.workers[0]
-	ch, err := wstore.DBMustGet[*waveobj.Channel](h.ctx, h.channel)
+	msgs, err := wstore.GetMessagesByRef(h.ctx, worker)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, msg := range ch.Messages {
-		if msg.RefORef == worker && msg.Kind == "dispatch" {
+	for _, msg := range msgs {
+		if msg.Kind == "dispatch" {
 			t.Fatal("run worker unexpectedly has a dispatch message")
 		}
 	}

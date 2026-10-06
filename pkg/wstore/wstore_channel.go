@@ -166,18 +166,23 @@ func PostChannelMessage(ctx context.Context, channelId string, msg waveobj.Chann
 	return &msg, nil
 }
 
-// PostChannelMessageIf appends msg to the channel only if cond reports true when evaluated against the
-// current persisted channel inside the write transaction. Because wstore serializes on a single DB
-// connection, two concurrent posters cannot both pass cond: the second transaction reads the first's
-// committed message, so cond sees it. Returns true if the message was posted.
-func PostChannelMessageIf(ctx context.Context, channelId string, msg waveobj.ChannelMessage, cond func(*waveobj.Channel) bool) (bool, error) {
+// PostChannelMessageIf appends msg to the channel only if cond reports true inside the write transaction.
+// cond gets the transaction's context and must read with it: such a read stays on the write connection.
+// Because wstore serializes on a single write connection, two concurrent posters cannot both pass cond:
+// the second transaction reads the first's committed message, so cond sees it. Returns true if the
+// message was posted.
+func PostChannelMessageIf(ctx context.Context, channelId string, msg waveobj.ChannelMessage, cond func(txCtx context.Context) (bool, error)) (bool, error) {
 	var posted bool
 	err := WithTx(ctx, func(tx *TxWrap) error {
 		ch, err := DBMustGet[*waveobj.Channel](tx.Context(), channelId)
 		if err != nil {
 			return err
 		}
-		if !cond(ch) {
+		ok, err := cond(tx.Context())
+		if err != nil {
+			return err
+		}
+		if !ok {
 			return nil
 		}
 		stampMessageIdentity(channelId, &msg)
@@ -291,6 +296,18 @@ func selectRuns(ctx context.Context, query string, args ...any) ([]*waveobj.Run,
 	})
 }
 
+// GetRunCandidatesByWorker returns, oldest first, the runs whose row text contains workerORef. That is a
+// substring match made without decoding any row, so it also hits a run that only quotes the oref (in its
+// goal, say): the caller confirms the oref is one of a phase's workers. Pure read (read pool).
+func GetRunCandidatesByWorker(ctx context.Context, workerORef string) ([]*waveobj.Run, error) {
+	if workerORef == "" {
+		return nil, nil
+	}
+	return selectRuns(ctx, `SELECT oid, version, data FROM db_run
+		WHERE instr(data, ?) > 0
+		ORDER BY json_extract(data, '$.createdts') ASC`, workerORef)
+}
+
 // GetRunsBySessionIds returns the runs launched under any of sessionIds (Run.SessionId), across channels.
 // Pure read (read pool).
 func GetRunsBySessionIds(ctx context.Context, sessionIds []string) ([]*waveobj.Run, error) {
@@ -330,17 +347,45 @@ func GetChannelMessages(ctx context.Context, channelId string, before int64, lim
 	if limit <= 0 {
 		limit = DefaultChannelMessageLimit
 	}
+	var rtn []*waveobj.ChannelMessage
+	var err error
+	if before > 0 {
+		rtn, err = selectMessages(ctx, `SELECT oid, version, data FROM db_channelmessage
+			WHERE json_extract(data, '$.channeloid') = ? AND json_extract(data, '$.ts') < ?
+			ORDER BY json_extract(data, '$.ts') DESC LIMIT ?`, channelId, before, limit)
+	} else {
+		rtn, err = selectMessages(ctx, `SELECT oid, version, data FROM db_channelmessage
+			WHERE json_extract(data, '$.channeloid') = ?
+			ORDER BY json_extract(data, '$.ts') DESC LIMIT ?`, channelId, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	// reverse to chronological ascending (matches blob order the FE renders)
+	for i, j := 0, len(rtn)-1; i < j; i, j = i+1, j-1 {
+		rtn[i], rtn[j] = rtn[j], rtn[i]
+	}
+	return rtn, nil
+}
+
+// GetMessagesByRef returns every message whose RefORef is refORef, across channels, oldest first
+// (idx_channelmessage_reforef). It is how a worker's dispatch, directive and outcome messages are found
+// without walking any channel's history. Inside a write transaction, pass that transaction's context.
+func GetMessagesByRef(ctx context.Context, refORef string) ([]*waveobj.ChannelMessage, error) {
+	if refORef == "" {
+		return nil, nil
+	}
+	return selectMessages(ctx, `SELECT oid, version, data FROM db_channelmessage
+		WHERE json_extract(data, '$.reforef') = ?
+		ORDER BY json_extract(data, '$.ts') ASC, rowid ASC`, refORef)
+}
+
+// selectMessages decodes the db_channelmessage rows a query selects (oid, version, data). A read: on the
+// read pool, or on the caller's transaction when ctx carries one.
+func selectMessages(ctx context.Context, query string, args ...any) ([]*waveobj.ChannelMessage, error) {
 	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]*waveobj.ChannelMessage, error) {
 		var rows []idDataType
-		if before > 0 {
-			tx.Select(&rows, `SELECT oid, version, data FROM db_channelmessage
-				WHERE json_extract(data, '$.channeloid') = ? AND json_extract(data, '$.ts') < ?
-				ORDER BY json_extract(data, '$.ts') DESC LIMIT ?`, channelId, before, limit)
-		} else {
-			tx.Select(&rows, `SELECT oid, version, data FROM db_channelmessage
-				WHERE json_extract(data, '$.channeloid') = ?
-				ORDER BY json_extract(data, '$.ts') DESC LIMIT ?`, channelId, limit)
-		}
+		tx.Select(&rows, query, args...)
 		rtn := make([]*waveobj.ChannelMessage, 0, len(rows))
 		for _, row := range rows {
 			obj, err := waveobj.FromJson(row.Data)
@@ -349,10 +394,6 @@ func GetChannelMessages(ctx context.Context, channelId string, before int64, lim
 			}
 			waveobj.SetVersion(obj, row.Version)
 			rtn = append(rtn, obj.(*waveobj.ChannelMessage))
-		}
-		// reverse to chronological ascending (matches blob order the FE renders)
-		for i, j := 0, len(rtn)-1; i < j; i, j = i+1, j-1 {
-			rtn[i], rtn[j] = rtn[j], rtn[i]
 		}
 		return rtn, nil
 	})

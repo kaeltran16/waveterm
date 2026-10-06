@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	maxContextMessages = 20
+	MaxContextMessages = 20
 	maxContextChars    = 4000
 )
 
@@ -315,8 +315,8 @@ func OperatorPrinciples() (string, error) {
 // a principles document mid-sentence would mislead the consulted agent).
 func BuildPrompt(history []waveobj.ChannelMessage, userPrompt, principles string) string {
 	start := 0
-	if len(history) > maxContextMessages {
-		start = len(history) - maxContextMessages
+	if len(history) > MaxContextMessages {
+		start = len(history) - MaxContextMessages
 	}
 	var b strings.Builder
 	for _, m := range history[start:] {
