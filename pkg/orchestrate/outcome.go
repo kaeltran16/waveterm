@@ -43,7 +43,8 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 	if run.DagORef == "" {
 		return nil
 	}
-	return withDagMutation(run.DagORef, func() error {
+	poke := false
+	err = withDagMutation(run.DagORef, func() error {
 		g, err := wstore.GetDag(ctx, run.DagORef)
 		if err != nil {
 			return fmt.Errorf("loading dag for child outcome: %w", err)
@@ -51,24 +52,27 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 		task := taskByRunID(g, run.ID)
 		if task == nil {
 			// a reviewer's exit: judge now whether it left a verdict, not at the watchdog's next pass
-			if taskByReviewRunID(g, run.ID) != nil {
-				return scheduleLocked(context.WithoutCancel(ctx), g.OID)
-			}
+			poke = taskByReviewRunID(g, run.ID) != nil
 			return nil
 		}
 		if !taskActive(task.State) {
 			return nil
 		}
+		// re-read inside the lock: the child's `wsh jarvis complete` is a synchronous RPC that
+		// lands just before the process exits, so a snapshot taken before the lock can race it.
+		fresh, ferr := wstore.GetRun(ctx, g.ChannelId, run.ID)
+		if ferr != nil {
+			return fmt.Errorf("re-loading child run %s: %w", run.ID, ferr)
+		}
+		// a skip or retry cancels the run, then stops its worker outside this lock: the exit that stop causes is
+		// the action's to record, not a failure to retry
+		if fresh.Status == jarvis.RunStatus_Cancelled {
+			return nil
+		}
 		kind := classifyFailure(data.Summary, data.ExitCode)
 		if data.Status == "done" {
-			// re-read inside the lock: the child's `wsh jarvis complete` is a synchronous RPC that
-			// lands just before the process exits, so a snapshot taken before the lock can race it.
-			// Anything but a still-active run means the exit was accounted for (completed, cancelled
-			// by skip/retry/cancel, already blocked) and there is nothing to record.
-			fresh, ferr := wstore.GetRun(ctx, g.ChannelId, run.ID)
-			if ferr != nil {
-				return fmt.Errorf("re-loading child run %s: %w", run.ID, ferr)
-			}
+			// Anything but a still-active run means the exit was accounted for (completed, already blocked) and
+			// there is nothing to record.
 			if fresh.Status != jarvis.RunStatus_Executing && fresh.Status != jarvis.RunStatus_Planning {
 				return nil
 			}
@@ -110,8 +114,13 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 		} else {
 			PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(task.ID, kind))
 		}
-		return scheduleLocked(ctx, g.OID)
+		poke = true
+		return nil
 	})
+	if err != nil || !poke {
+		return err
+	}
+	return runTick(ctx, run.DagORef)
 }
 
 // workerRunIds resolves the channel and run a worker tab was spawned for; empty ids for a tab no run owns.
