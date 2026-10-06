@@ -89,10 +89,6 @@ Orchestrator:
   hold another run's merges in the same checkout. Branch landing, the default, is unaffected.
 - **Lead-authored task routing, Phase 4** (2026-09-17) — the cost/outcome measurement gate. Revive on
   evidence that cheap-first routing waste is common.
-- **Channel data-model scaling, Phase 3 (Contract)** (2026-08-25) — revive when a channel blob is
-  material (>5 MB, or a measured per-event write/broadcast cost). Prod check: 4 channels, 680 KB.
-  Two readers still take the embedded arrays off the `channelsAtom` snapshot and move first:
-  `cockpitsurface.tsx` (`answeredAskIdsAcross`) and `briefpeekview.tsx` (`fleetForRecord`).
 - **DAG liveness batching (M1)** — 42.7 ms per running task per 30 s tick on 191 session files; build
   the per-schedule snapshot only when the corpus nears ~3,000 files.
 - **Automated board rendering** for the final verifier — revive when a verdict misses a layout defect a

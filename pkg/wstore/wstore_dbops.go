@@ -251,9 +251,9 @@ func DBInsert(ctx context.Context, val waveobj.WaveObj) error {
 }
 
 // dbUpsertObjTx writes val as a row AND queues a waveobj:update for its oref (published on the enclosing
-// WithTx commit) so FE per-object (run:) subscriptions get live deltas — Phase 2 turned this on (Phase 1
-// deliberately omitted it while nothing subscribed). Call with a tx.Context() already inside a WithTx on
-// the write handle; txwrap reuses that transaction, keeping the row write atomic with the blob write.
+// WithTx commit) so FE per-object (run:) subscriptions get live deltas. Call with a tx.Context() already
+// inside a WithTx on the write handle; txwrap reuses that transaction, keeping the row write atomic with
+// the channel's version bump.
 func dbUpsertObjTx(ctx context.Context, val waveobj.WaveObj) error {
 	oid := waveobj.GetOID(val)
 	if oid == "" {
