@@ -6,6 +6,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
+import { knownRunVersions, mergeRunChanges } from "./channelruns";
 
 export const channelsAtom = atom<Channel[] | null>(null) as PrimitiveAtom<Channel[] | null>;
 // true = the last channel load failed (so an empty list reads as an error, not "no channels yet").
@@ -26,18 +27,36 @@ export const channelMessagesAtom = atom<Record<string, ChannelMessage[]>>({}) as
     Record<string, ChannelMessage[]>
 >;
 
-// Row-backed streams for the ACTIVE channel: seeded from the per-channel row RPCs and refetched on every
+// Row-backed streams for the ACTIVE channel: seeded from the per-channel row RPCs and refreshed on every
 // channel: object bump. Every message and run mutation bumps the channel's version, and that bump is the
-// only signal that a list's membership changed.
+// only signal that a list changed. It does not say which run, so the runs are refreshed by difference: a
+// bump costs the rows that changed, not the channel's whole history.
 export const activeChannelRunsAtom = atom<Run[]>([]) as PrimitiveAtom<Run[]>;
 export const activeChannelMessagesAtom = atom<ChannelMessage[]>([]) as PrimitiveAtom<ChannelMessage[]>;
 
-export async function loadActiveChannelStreams(channelId: string): Promise<void> {
+// the channel activeChannelRunsAtom was last filled for: one channel's versions are never sent for another
+let runsChannelId: string | undefined;
+// refreshes run one at a time, so each diffs against the list the one before it left
+let streamsLoad: Promise<void> = Promise.resolve();
+
+export function loadActiveChannelStreams(channelId: string): Promise<void> {
+    const load = streamsLoad.then(() => refreshActiveChannelStreams(channelId));
+    streamsLoad = load.catch(() => {});
+    return load;
+}
+
+async function refreshActiveChannelStreams(channelId: string): Promise<void> {
+    const held = runsChannelId === channelId ? globalStore.get(activeChannelRunsAtom) : [];
     const [runsRtn, msgsRtn] = await Promise.all([
-        RpcApi.GetChannelRunsCommand(TabRpcClient, { channelid: channelId }),
+        RpcApi.GetChannelRunChangesCommand(TabRpcClient, { channelid: channelId, known: knownRunVersions(held) }),
         RpcApi.GetChannelMessagesCommand(TabRpcClient, { channelid: channelId }),
     ]);
-    globalStore.set(activeChannelRunsAtom, runsRtn.runs ?? []);
+    // the user moved to another channel while this was in flight; that channel's own load fills the lists
+    if (globalStore.get(activeChannelIdAtom) !== channelId) {
+        return;
+    }
+    runsChannelId = channelId;
+    globalStore.set(activeChannelRunsAtom, mergeRunChanges(held, runsRtn.runids ?? [], runsRtn.runs ?? []));
     globalStore.set(activeChannelMessagesAtom, msgsRtn.messages ?? []);
 }
 
@@ -158,7 +177,7 @@ export function setConsultStream(consultId: string, runtime: string, stream: Con
     globalStore.set(consultStreamsAtom, { ...globalStore.get(consultStreamsAtom), [key]: stream });
 }
 
-// Refetch the row-backed streams whenever the pinned channel object bumps: the server bumps channel: on
+// Refresh the row-backed streams whenever the pinned channel object bumps: the server bumps channel: on
 // every message/run mutation, and nothing else says a list changed. Keyed on oid:version so it fires both
 // when the active channel changes and when it mutates in place, and never loops (the loader sets only the
 // runs/messages atoms, not the channel WOS object).

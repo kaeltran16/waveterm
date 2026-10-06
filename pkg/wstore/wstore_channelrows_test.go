@@ -6,6 +6,7 @@ package wstore
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -185,6 +186,75 @@ func TestGetChannelRuns(t *testing.T) {
 	}
 	if runs[0].ChannelOID != ch.OID {
 		t.Fatalf("channeloid = %q, want %q", runs[0].ChannelOID, ch.OID)
+	}
+}
+
+// A caller holding a channel's runs gets back every id, and only the rows it does not hold as they are now.
+func TestGetChannelRunChanges(t *testing.T) {
+	ctx := context.Background()
+	ch, err := CreateChannel(ctx, "run-changes", "/p")
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	for i, id := range []string{"chg-a", "chg-b", "chg-c"} {
+		if err := AppendRun(ctx, ch.OID, waveobj.Run{ID: id, Goal: id, Status: "planning", CreatedTs: int64(10 * (i + 1))}); err != nil {
+			t.Fatalf("append %s: %v", id, err)
+		}
+	}
+	other, _ := CreateChannel(ctx, "run-changes-other", "/p")
+	if err := AppendRun(ctx, other.OID, waveobj.Run{ID: "chg-x", Goal: "x", Status: "planning", CreatedTs: 5}); err != nil {
+		t.Fatalf("append chg-x: %v", err)
+	}
+	runIDs := func(runs []*waveobj.Run) []string {
+		out := []string{}
+		for _, r := range runs {
+			out = append(out, r.ID)
+		}
+		return out
+	}
+
+	// a caller holding nothing gets every row, in createdts order
+	ids, runs, err := GetChannelRunChanges(ctx, ch.OID, nil)
+	if err != nil {
+		t.Fatalf("GetChannelRunChanges: %v", err)
+	}
+	slices.Sort(ids)
+	if !slices.Equal(ids, []string{"chg-a", "chg-b", "chg-c"}) || !slices.Equal(runIDs(runs), []string{"chg-a", "chg-b", "chg-c"}) {
+		t.Fatalf("first read: ids=%v runs=%v", ids, runIDs(runs))
+	}
+	known := map[string]int{}
+	for _, r := range runs {
+		known[r.ID] = r.Version
+	}
+
+	// a caller holding every row at its version gets the ids and no row
+	ids, runs, err = GetChannelRunChanges(ctx, ch.OID, known)
+	if err != nil || len(ids) != 3 || len(runs) != 0 {
+		t.Fatalf("nothing changed: ids=%v runs=%v err=%v", ids, runIDs(runs), err)
+	}
+
+	// one run updated and one appended: exactly those two rows come back, the updated one as it is now
+	if err := UpdateRun(ctx, ch.OID, "chg-b", func(r *waveobj.Run) error { r.Status = "done"; return nil }); err != nil {
+		t.Fatalf("update chg-b: %v", err)
+	}
+	if err := AppendRun(ctx, ch.OID, waveobj.Run{ID: "chg-d", Goal: "d", Status: "planning", CreatedTs: 40}); err != nil {
+		t.Fatalf("append chg-d: %v", err)
+	}
+	ids, runs, err = GetChannelRunChanges(ctx, ch.OID, known)
+	if err != nil {
+		t.Fatalf("GetChannelRunChanges: %v", err)
+	}
+	if len(ids) != 4 || !slices.Equal(runIDs(runs), []string{"chg-b", "chg-d"}) {
+		t.Fatalf("after changes: ids=%v runs=%v", ids, runIDs(runs))
+	}
+	if runs[0].Status != "done" || runs[0].Version == known["chg-b"] {
+		t.Fatalf("chg-b came back stale: status=%q version=%d (held %d)", runs[0].Status, runs[0].Version, known["chg-b"])
+	}
+
+	// a run the caller holds that another channel owns is not this channel's to return
+	ids, runs, err = GetChannelRunChanges(ctx, other.OID, map[string]int{"chg-a": 99})
+	if err != nil || !slices.Equal(ids, []string{"chg-x"}) || !slices.Equal(runIDs(runs), []string{"chg-x"}) {
+		t.Fatalf("other channel: ids=%v runs=%v err=%v", ids, runIDs(runs), err)
 	}
 }
 

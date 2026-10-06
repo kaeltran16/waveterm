@@ -444,6 +444,12 @@ export class RpcApiType {
         return client.wshRpcCall("getchannelmessages", data, opts);
     }
 
+    // command "getchannelrunchanges" [call]
+    GetChannelRunChangesCommand(client: WshClient, data: CommandGetChannelRunChangesData, opts?: RpcOpts): Promise<CommandGetChannelRunChangesRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getchannelrunchanges", data, opts);
+        return client.wshRpcCall("getchannelrunchanges", data, opts);
+    }
+
     // command "getchannelruns" [call]
     GetChannelRunsCommand(client: WshClient, data: CommandGetChannelRunsData, opts?: RpcOpts): Promise<CommandGetChannelRunsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getchannelruns", data, opts);

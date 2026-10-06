@@ -355,7 +355,7 @@ actions** — is this entry.
 
 Phase 3 (Contract) shipped 2026-10-06: a channel row is metadata, and messages and runs live only in
 `db_channelmessage` / `db_run` (spec `docs/superpowers/specs/2026-07-21-channel-data-model-scaling-design.md`;
-its Section 4 has the startup pass and how it fails). Two things were left.
+its Section 4 has the startup pass and how it fails). These were left.
 
 - **`db_channel_precontract` is still in the store.** Migration `000023` copied every channel blob into it
   before the startup pass (`wstore.ContractChannels`) stripped the arrays. It is the only undo for the
@@ -378,11 +378,19 @@ its Section 4 has the startup pass and how it fails). Two things were left.
   inserts the embedded items that have no row and leaves every existing row as it is. Restoring a blob
   without clearing the marker loses nothing either, but the arrays are dropped unread at that channel's
   next write.
-- **The active channel refetches its whole run list on every channel version bump.** The bump is now a
-  metadata-sized write, but `channelsstore.ts` answers it with `GetChannelRuns`, which for the largest
-  channel returns about 11 MB of run rows (585 runs, mostly child-run `goal` text). No symptom has been
-  measured. Revisit on a measured cost: the per-run `run:` update already carries a changed run, so the
-  list only needs a refetch when its membership changes.
+- **The active channel still re-reads its message window on every channel version bump.** The run list
+  no longer does: it was measured and fixed on 2026-10-06. On the packaged store's largest channel (589
+  runs, 10.8 MB of run rows, 7.2 MB of it `goal` text) one `GetChannelRuns` cost about 240 ms in wavesrv
+  (select 59, decode 153, encode 25) for an 11.1 MB reply, and that channel took 256 run writes in a day,
+  0.3 to 1.1 a minute during an orchestrator run, while growing about 6 MB a week. `channelsstore.ts` now
+  answers a bump with `GetChannelRunChanges`: it sends the version it holds of each run and gets back the
+  channel's run ids and only the rows that are new or changed. With one run changed that is about 1.6 ms
+  and 44 KB on the same rows. The channel bump stays the only signal, so a run written with no `run:`
+  broadcast of its own (about 27 write sites pair their broadcasts by hand, and run creation sends none)
+  still reaches the list. Left as it was: the message list is re-read whole on each bump, which is bounded
+  at the newest 500 messages (95 in that channel); and the two on-demand readers of a whole run list, the
+  palette (`palette-data.ts`, every channel) and a channel peek (`openref.ts`), still pay the full read
+  when the user opens them. Revisit either on a measured cost.
 
 ## Jarvis Briefing — generic cross-project progress and durable milestones (2026-08-13)
 

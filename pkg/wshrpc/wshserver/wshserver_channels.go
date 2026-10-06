@@ -77,6 +77,14 @@ func (ws *WshServer) GetChannelRunsCommand(ctx context.Context, data wshrpc.Comm
 	return &wshrpc.CommandGetChannelRunsRtnData{Runs: runs}, nil
 }
 
+func (ws *WshServer) GetChannelRunChangesCommand(ctx context.Context, data wshrpc.CommandGetChannelRunChangesData) (*wshrpc.CommandGetChannelRunChangesRtnData, error) {
+	ids, runs, err := wstore.GetChannelRunChanges(ctx, data.ChannelId, data.Known)
+	if err != nil {
+		return nil, fmt.Errorf("getting channel run changes: %w", err)
+	}
+	return &wshrpc.CommandGetChannelRunChangesRtnData{RunIds: ids, Runs: runs}, nil
+}
+
 func (ws *WshServer) GetChannelMessagesCommand(ctx context.Context, data wshrpc.CommandGetChannelMessagesData) (*wshrpc.CommandGetChannelMessagesRtnData, error) {
 	msgs, err := wstore.GetChannelMessages(ctx, data.ChannelId, data.Before, data.Limit)
 	if err != nil {
