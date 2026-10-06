@@ -356,6 +356,11 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 				})
 			}
 		}
+		// a worker waiting on an ask is quiet by design and is the question queue's: the wait counts toward no
+		// stall clock below, or a run with no lead retries a worker that was only waiting for its answer
+		if t.State == TaskState_Running && workerAsking(ctx, runs[t.RunID]) {
+			t.AskTs = now
+		}
 		// no readable activity source: the spawn-time seed would age into a stall on its own and hand
 		// the lead a retry that kills a working child. Report freshness unknown (zero) instead — a
 		// missed stall only costs a timeout. It skips the first-token deadline too: an unreadable child
@@ -375,8 +380,9 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		// because a turn can end on a background test run.
 		// silence is the transcript's and the CPU's together: a busy sample restarts it as a write would. Only a
 		// fresh idle sample, or none at all, lets a quiet task stall; a skipped or first reading defers a tick
-		quiet := t.LastActivity > 0 && now-max(t.LastActivity, t.BusyTs) > StallThreshold.Milliseconds()
-		if t.State == TaskState_Running && (quiet || turnEndedPast(ctx, runs[t.RunID], now)) &&
+		quiet := t.LastActivity > 0 && now-max(t.LastActivity, t.BusyTs, t.AskTs) > StallThreshold.Milliseconds()
+		turnEnded := now-t.AskTs > TurnEndedGrace.Milliseconds() && turnEndedPast(ctx, runs[t.RunID], now)
+		if t.State == TaskState_Running && (quiet || turnEnded) &&
 			(verdict == cpuIdle || verdict == cpuNone) {
 			t.State = TaskState_Stalled
 		}
@@ -385,7 +391,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		// catches one that hangs, which leaves no signal anywhere else. A runtime the deadline is off for still
 		// stalls when its worker's process never started.
 		if spawned := spawnTs(runs[t.RunID]); t.State == TaskState_Running && t.LastActivity == 0 && spawned > 0 &&
-			now-spawned > FirstTokenDeadline.Milliseconds() &&
+			now-max(spawned, t.AskTs) > FirstTokenDeadline.Milliseconds() &&
 			(firstTokenArmed(runs[t.RunID]) || workerStuckStarting(ctx, runs[t.RunID])) {
 			t.State = TaskState_Stalled
 		}
