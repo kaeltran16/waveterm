@@ -9,6 +9,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
+	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -158,4 +159,17 @@ func TestSyncProjectChannelsGivesEachRegisteredProjectOneChannel(t *testing.T) {
 	if err != nil || created == nil || created.Name != "never-ran" {
 		t.Fatalf("never-ran's channel = %v (err %v), want one named after the project", created, err)
 	}
+}
+
+// A run's update can follow the delete of its channel: there is no row left to send, and no panic.
+func TestSendWaveObjUpdateForADeletedRowDoesNothing(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "deleted-before-update", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	if err := wstore.DeleteChannel(ctx, ch.OID); err != nil {
+		t.Fatalf("DeleteChannel: %v", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, ch.OID))
 }

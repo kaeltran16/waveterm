@@ -467,3 +467,43 @@ func TestGetChannelProjectPaths(t *testing.T) {
 		t.Fatalf("wrong map: %+v", m)
 	}
 }
+
+// Deleting a channel takes its runs, their events and its messages, and leaves another channel's alone.
+func TestDeleteChannelDeletesItsRows(t *testing.T) {
+	ctx := context.Background()
+	seed := func(name string) (string, string) {
+		ch, err := CreateChannel(ctx, name, t.TempDir())
+		if err != nil {
+			t.Fatalf("create channel: %v", err)
+		}
+		runId := uuid.NewString()
+		if err := AppendRun(ctx, ch.OID, waveobj.Run{ID: runId, Goal: "g", Status: "planning", CreatedTs: 1}); err != nil {
+			t.Fatalf("append run: %v", err)
+		}
+		if _, err := AppendRunEvent(ctx, ch.OID, runId, "phase-started", nil, map[string]any{}); err != nil {
+			t.Fatalf("append run event: %v", err)
+		}
+		if _, err := PostChannelMessage(ctx, ch.OID, NewChannelMessage("say", "user", "hi", "", 1)); err != nil {
+			t.Fatalf("post message: %v", err)
+		}
+		return ch.OID, runId
+	}
+	counts := func(channelId, runId string) [3]int {
+		runs, _ := GetChannelRuns(ctx, channelId)
+		msgs, _ := GetChannelMessages(ctx, channelId, 0, 0)
+		events, _ := QueryRunEvents(ctx, channelId, runId, 0)
+		return [3]int{len(runs), len(msgs), len(events)}
+	}
+	gone, goneRun := seed("delete-me")
+	kept, keptRun := seed("keep-me")
+
+	if err := DeleteChannel(ctx, gone); err != nil {
+		t.Fatalf("DeleteChannel: %v", err)
+	}
+	if got := counts(gone, goneRun); got != [3]int{} {
+		t.Errorf("deleted channel still has runs/messages/events = %v", got)
+	}
+	if got := counts(kept, keptRun); got != [3]int{1, 1, 1} {
+		t.Errorf("other channel's runs/messages/events = %v, want 1 each", got)
+	}
+}
