@@ -2972,7 +2972,7 @@ const jarvisPeek = {
             const panel = document.querySelector('[data-pet-peek]');
             if (typeof store?.setAttention !== 'function' || !panel) return false;
             store.setAttention([
-                { key: 'gate:cdp-1', kind: 'gate', source: 'first gate', text: 'Approve before Jarvis proceeds.', action: 'Review', waitingsince: Date.now() - 120000, channelid: '', runid: 'cdp-1', phaseidx: 0 },
+                { key: 'dag-gate:cdp-1', kind: 'dag-gate', source: 'first gate', text: 'Approve the gate before the DAG proceeds.', action: 'Review', waitingsince: Date.now() - 120000, channelid: '', runid: 'cdp-1', phaseidx: 0 },
                 { key: 'ask:cdp-2', kind: 'ask', source: 'second ask', text: 'Waiting on your reply', action: 'Answer', waitingsince: Date.now() - 60000, channelid: '', runid: 'cdp-2', phaseidx: 0 },
             ]);
             return true;
@@ -3000,7 +3000,7 @@ const jarvisPeek = {
                 busyArranged === true &&
                 busyBefore?.shape === "busy" &&
                 busyBefore?.width > 300 &&
-                busyBefore?.cursor === "gate:cdp-1" &&
+                busyBefore?.cursor === "dag-gate:cdp-1" &&
                 busyBefore?.focused === true &&
                 movedCursor === "ask:cdp-2" &&
                 composerFocused === true,
@@ -5843,7 +5843,7 @@ const jarvisMotion = {
             // latest update alone. Cleared in teardown.
             if (typeof mod.setAttention !== "function") return "petstore setAttention hook not exposed";
             mod.setAttention([
-                { key: "gate:cdp-motion", kind: "gate", source: "CDP motion gate", text: "Approve before Jarvis proceeds.", action: "Review", waitingsince: Date.now() - 120000, channelid: "", runid: "cdp-motion", phaseidx: 0 },
+                { key: "dag-gate:cdp-motion", kind: "dag-gate", source: "CDP motion gate", text: "Approve the gate before the DAG proceeds.", action: "Review", waitingsince: Date.now() - 120000, channelid: "", runid: "cdp-motion", phaseidx: 0 },
             ]);
             return true;
         })()`);

@@ -263,8 +263,7 @@ describe("peekConditions — every standing condition, readout marked", () => {
 
 describe("rowKindLabel — a row names its kind in a word", () => {
     it("reads every queue kind", () => {
-        expect(["gate", "dag-gate", "escalation", "dag-blocked", "ask"].map(rowKindLabel)).toEqual([
-            "Gate",
+        expect(["dag-gate", "escalation", "dag-blocked", "ask"].map(rowKindLabel)).toEqual([
             "Gate",
             "Escalation",
             "Blocked",
