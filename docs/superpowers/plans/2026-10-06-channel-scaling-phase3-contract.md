@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-21-channel-data-model-scaling-design.md` Read it first (Sections 1, 2 and 4): it is the design, and every task's requirements include it. This plan is its Phase 3.
 **Verify:** `node scripts/verify.mjs ./pkg/wstore ./pkg/waveobj ./pkg/jarvis ./pkg/jarvisstate ./pkg/jarvisvolunteer ./pkg/consult ./pkg/reporadar ./pkg/orchestrate ./pkg/wshrpc/wshserver`
-**Check:** `go build ./pkg/... ./cmd/... && go vet ./pkg/wstore/ ./pkg/jarvis/ ./pkg/wshrpc/wshserver/ && node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`
+**Check:** `go build ./pkg/... ./cmd/... && go vet ./pkg/wstore/ ./pkg/jarvis/ ./pkg/wshrpc/wshserver/ && go vet -tags liveprobe ./pkg/jarvis/ && node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`
 **Final:** `node scripts/cdp/final-verify.mjs surface-smoke attention-cross-channel brief-peek`
 
 ## Goal and shape
@@ -25,7 +25,7 @@ the current struct no longer has. The rows are a superset.
 Order is expand, then contract, so no merge leaves the tree half-migrated:
 
 - Tasks 1 and 2 move every remaining reader off the embedded arrays while the arrays still exist and are
-  still written. They are independent (Go and frontend) and each is safe alone.
+  still written. They are independent (Go; frontend and the CDP scripts) and each is safe alone.
 - Task 3 removes the fields, stops the dual-write and migrates existing stores. It is the only
   irreversible step and runs last.
 
@@ -50,6 +50,9 @@ Order is expand, then contract, so no merge leaves the tree half-migrated:
   needed. Remove comments that describe the dual-write or "Phase 2" once they stop being true.
 - No attribution trailer in any commit message.
 - Typecheck with the Check command, not `npx tsc` or `task check:ts`.
+- `GetChannelMessages` returns a window, the newest `DefaultChannelMessageLimit` (500) when no limit is
+  passed, where the embedded array was the whole history. Each task says which window its readers take. A
+  reader that must not miss an old message queries by what it looks for (`GetMessagesByRef`), not by window.
 
 ## Review focus
 
@@ -76,7 +79,7 @@ behavior is unchanged.
 
 **Files:** `pkg/wstore/wstore_channel.go`, `pkg/wstore/wstore_dag.go`, `pkg/jarvis/resolve.go`,
 `pkg/jarvis/outcome.go`, `pkg/jarvis/classify.go`, `pkg/jarvis/routemigrate.go`,
-`pkg/wshrpc/wshserver/wshserver_jarvis.go`, a new migration pair
+`pkg/wshrpc/wshserver/wshserver_jarvis.go`, `pkg/jarvis/liveprobe_test.go`, a new migration pair
 `db/migrations-wstore/000022_channelmessage_reforef_idx.{up,down}.sql`, and the tests beside each.
 
 **Store additions (`wstore`):**
@@ -103,9 +106,18 @@ behavior is unchanged.
   `*Channel`; give it what the one caller needs to decide inside the transaction (the transaction's
   context is enough: the caller queries the worker's messages with it). Keep the documented guarantee.
 - `jarvis/classify.go` `recentTimeline` and `wshserver_jarvis.go` (`consult.BuildPrompt(ch.Messages, ...)`):
-  take the messages from `GetChannelMessages`. `recentTimeline` needs only its last `maxTimeline`.
+  take the messages from `GetChannelMessages`, each passing the limit it uses: `recentTimeline` keeps
+  only its last `maxTimeline` (12), and `BuildPrompt` keeps only its last `maxContextMessages`, so
+  fetch exactly that many (export the consult cap, or add a consult function that returns it, rather than
+  repeating the number). Both results are then identical to today's for any channel length.
 - `wstore_dag.go` `CreateDagForRun`: load the run row inside the transaction and check it belongs to the
-  channel, instead of walking `ch.Runs`. It still writes both copies in this task.
+  channel, instead of walking `ch.Runs`. It still writes both copies in this task: the embedded copy
+  through `updateRunIn` (the transition and the `DagORef` set go in its callback), so this file names
+  neither `ch.Runs` nor `ch.Messages` afterwards.
+- `pkg/jarvis/liveprobe_test.go` (build tag `liveprobe`, so only the Check command's
+  `go vet -tags liveprobe` step compiles it): `probeCase.channel()` builds a `Channel` with `Messages`.
+  Hand the timeline to the code under probe the way the moved `recentTimeline` now takes it. Do not run
+  the probe: it reads a snapshot of the real vault.
 - `jarvis/routemigrate.go` `migrateRunPins`: walk the run rows (each carries `ChannelOID`), not
   `ch.Runs`.
 
@@ -120,23 +132,29 @@ appears in a run's goal text does not; an outcome is posted once when two posts 
 race test to the new condition form); `go test -race ./pkg/wstore/` passes.
 
 **Done when:** `grep -rnE "\.(Messages|Runs)\b" --include=*.go pkg cmd` shows, for channel values, only
-`pkg/wstore/wstore_channel.go` (the write path), `pkg/wstore/wstore_channelrows.go` and tests of those two.
+`pkg/wstore/wstore_channel.go` (the write path), `pkg/wstore/wstore_channelrows.go` and tests of those two
+(`wstore_dag.go` is not an exception: it writes through `updateRunIn`), and the Check command passes,
+including its `liveprobe` vet step.
 
-### Task 2: Frontend aggregates leave the channel snapshot's arrays
+### Task 2: Frontend aggregates and the CDP scripts leave the channel snapshot's arrays
 **Depends on:** none
 
-After this task no frontend code reads `channel.messages` or `channel.runs`. The generated `Channel` type
-still has both (Task 3 removes them); do not edit it.
+After this task no frontend code and no script reads `channel.messages` or `channel.runs`. The generated
+`Channel` type still has both (Task 3 removes them); do not edit it.
 
 **Files:** `frontend/app/view/agents/channelsstore.ts`, `jarvisderive.ts`, `channelderive.ts`,
-`jarviscards.ts`, `cockpitsurface.tsx`, `frontend/app/view/jarvis/fleetscope.ts`, `briefpeekview.tsx`, and
-the `.test.ts` beside each model.
+`jarviscards.ts`, `cockpitsurface.tsx`, `frontend/app/view/jarvis/fleetscope.ts`, `briefpeekview.tsx`, the
+`.test.ts` beside each model, `scripts/cdp/scenarios.mjs` and `scripts/cdp-e2e-runs-piece4.mjs`.
 
 - `channelsstore.ts` gains one atom holding each channel's messages keyed by channel id, filled wherever
   the channel snapshot is filled (`fetchChannelsInto`) with one `GetChannelMessagesCommand` per channel.
   A channel whose fetch fails keeps its previous list and the failure is logged; one failure does not
   blank the others. This gives the cross-channel readers the freshness they have today (the snapshot's),
-  no better and no worse.
+  no better and no worse. The fetch passes no limit, so each list is the channel's newest 500 messages,
+  the window the active channel's own list already has. That is a deviation from the whole-history array
+  (a dispatch or ask older than a channel's newest 500 messages drops out of the cross-channel
+  derivations; the largest channel in the packaged store holds 95): name it in the task report, and Task 3
+  records it.
 - The pure derivations take messages, not a channel that carries them: `buildFleetSnapshot`,
   `answeredAskIdsAcross`, and whatever else reads `.messages` off a `Channel` (the prompt builder in
   `jarvisderive.ts` keeps the channel for its name and takes the messages beside it). Before porting an
@@ -148,6 +166,17 @@ the `.test.ts` beside each model.
   count and the worker list for a record stay what they are today for the same data.
 - `cockpitsurface.tsx` passes the message lists to `answeredAskIdsAcross`.
 
+**Scripts.** The CDP scenarios read runs and messages off the `getchannels` reply; once Task 3 lands that
+reply has neither, a scenario waiting on a run never sees it (Final's `attention-cross-channel` among
+them) and the shared teardown stops deleting worker blocks without failing. Move every such read to
+`getchannelruns` (`{ channelid }`, reply `.runs`) or `getchannelmessages` (`{ channelid }`, reply
+`.messages`), both of which exist today, so this is safe before the contract. Use one shared helper in
+`scenarios.mjs` for "this channel's runs" rather than a copy per scenario. Known sites on 2026-10-06, by
+name since line numbers move: the three scenario-local `getRun` helpers, `getChannelRunCount` and the
+after-cancel read in the dag-lifecycle scenario, `deleteChannelWorkerBlocks`, `channelRunCount`, and in
+`cdp-e2e-runs-piece4.mjs` every `(await getChannel()).messages` or `.runs`. The `getchannels` calls that
+read only `oid`, `name` or `projectpath` stay. Find the rest with the grep below, not from this list.
+
 Update the comments in `channelsstore.ts` that say the blob still dual-writes; say what the bump means now.
 
 **Tests:** the existing vitest files for these models move to the new signatures and keep their cases.
@@ -158,7 +187,11 @@ still counts that channel.
 (a record's fleet line), `surface-smoke` (every surface still mounts).
 
 **Done when:** `grep -rnE "\b(channel|ch|c)\??\.(messages|runs)\b" frontend --include=*.ts --include=*.tsx`
-has no hit outside `gotypes.d.ts`, and the Check command's tsc step is clean.
+has no hit outside `gotypes.d.ts`; in `scripts/cdp/scenarios.mjs` and `scripts/cdp-e2e-runs-piece4.mjs` no
+`.runs` or `.messages` is read off a channel taken from a `getchannels` reply (check each
+`grep -nE "\.(runs|messages)\b"` hit in those two files; `node --check` passes on both); and the Check
+command's tsc step is clean. If a dev app is already attached on the CDP port, run
+`task verify:ui -- attention-cross-channel` and report the result; do not start, stop or restart one for it.
 
 ### Task 3: Contract the channel object and migrate stores
 **Depends on:** Task 1, Task 2
@@ -169,7 +202,9 @@ migrated at startup without losing a row.
 **Files:** `pkg/waveobj/wtype.go`, `pkg/wstore/wstore_channel.go`, `pkg/wstore/wstore_dag.go`,
 `pkg/wstore/wstore_channelrows.go` (replaced by the contract migration), its caller at startup, a migration
 pair `db/migrations-wstore/000023_channel_precontract.{up,down}.sql`, generated files via `task generate`,
-tests, and the docs listed at the end.
+tests, and the docs listed at the end. If a script under `scripts/` still reads `.runs` or `.messages`
+off a `getchannels` reply (Task 2 moved them; re-run its grep), move it here: after this task that read
+returns nothing and fails silently.
 
 **Type:** remove `Messages` and `Runs` from `waveobj.Channel`. Run `task generate`; the frontend `Channel`
 type loses both fields and must still typecheck (Task 2 made that true).
@@ -200,10 +235,15 @@ stores untouched). It must run before anything can write a channel, because the 
    row that exists is left exactly as it is;
 3. remove the two keys from the stored blob (`json_remove(data, '$.messages', '$.runs')`).
 
-A channel that fails is logged with its id and left untouched; the marker is set only when every channel
-succeeded, so the next start retries. Log one summary line: channels, rows inserted, bytes before and after.
-The owner-stamp backfills are not carried over: a worker with no stamp resolves through Task 1's row
-fallback.
+A channel that fails stops the pass: the error, with the channel's id, is returned and `InitWStore` fails,
+exactly as a `BackfillChannelRows` error does today. Startup must not continue past a channel that still
+holds its arrays, because the first runtime `DBUpdate` of the contracted struct would rewrite that blob
+without them, and the retry would then find nothing to copy and set the marker over lost rows. The
+channels already done stay done (each is its own transaction), the marker is set only after every channel
+succeeded, and the next start resumes with the ones left. The pass keeps its own timeout, as the old
+backfill had (not `InitWStore`'s 2 s context); running out of it is a failure like any other. Log one
+summary line: channels, rows inserted, bytes before and after. The owner-stamp backfills are not carried
+over: a worker with no stamp resolves through Task 1's row fallback.
 
 **Tests (`pkg/wstore`):**
 
@@ -212,6 +252,12 @@ fallback.
   content differs from its embedded copy is unchanged afterwards; the stored blob has no `messages` or
   `runs` key; a second run is a no-op; a pass interrupted after the first of two channels completes on the
   next run.
+- Migration failure: with two channels where the second cannot be migrated (for example its `messages`
+  value is not an array), the pass returns an error naming that channel, the marker is not set, the
+  second channel's stored `data` is byte-for-byte what it was, and the first channel is migrated. After
+  the blob is repaired a second pass migrates it, loses none of its embedded items, and sets the marker.
+- `db_channel_precontract` holds each channel's blob as it was before the pass, arrays included (apply
+  000023 over a seeded legacy store, or assert on the table after the migrations ran in the test store).
 - Contract: after `AppendRun`, `UpdateRun`, `PostChannelMessage` and `CreateDagForRun` on a channel holding
   500 runs of about 15 KB each, the channel's stored `data` stays under 4 KB (a named constant in the
   test), the channel version rose by one per mutation, and `GetRun` / `GetChannelRuns` /
@@ -222,11 +268,26 @@ fallback.
 this task's store change (the "before" from the commit this task starts on) and put both numbers in the
 task report and the commit body. This closes the spec's Phase 3 verification line.
 
+**Done when:** the tests above and the Check command pass, and `task generate` leaves no drift: with this
+task's changes committed, run `task generate` again and
+`git diff --exit-code -- frontend/types/gotypes.d.ts frontend/types/waveevent.d.ts frontend/app/store/wshclientapi.ts frontend/app/store/services.ts pkg/wshrpc/wshclient/wshclient.go pkg/waveobj/metaconsts.go pkg/wconfig/metaconsts.go`
+exits 0 (the spec's cross-cutting check). Put the command's result in the task report.
+
 **Docs, in the same commit:**
 
-- Spec: status line and Section 2 mark Phase 3 shipped with the date; note the deviations (the bump is
-  kept as the list signal; the cross-channel frontend readers use a per-channel message fetch on the
-  snapshot's cadence; owner-stamp backfills dropped).
+- Spec: status line and Section 2 mark Phase 3 shipped with the date; note the deviations:
+  - the arrays are dropped by a Go startup pass, not by the SQL migration Section 4 names, because rows
+    missing from a store that skipped Phase 1 must be inserted before the keys are removed and the two
+    steps have to share a transaction per channel; the SQL migration only takes the recovery copy;
+  - the owner-stamp backfill design call 1 asks for is not carried into the new pass: a worker with no
+    stamp resolves through the row fallback;
+  - the channel version bump is kept as the list-changed signal;
+  - the cross-channel frontend readers use a per-channel message fetch on the snapshot's cadence, limited
+    to each channel's newest 500 messages where the array was the whole history.
+
+  Also add to Section 4 what the spec lacks: the recovery path for Phase 3 (`db_channel_precontract`, how
+  to restore from it, that a failed channel stops startup), and that the no-drift rule is checked with
+  `task generate` followed by `git diff --exit-code` on the generated files.
 - `docs/deferred.md`: replace the "Channel data-model scaling, Phase 3" entry with a short one for what is
   left: `db_channel_precontract` is a recovery copy to drop once the migrated store has been in use
   (give the exact SQL to restore from it and to drop it), and the active channel still refetches its whole
