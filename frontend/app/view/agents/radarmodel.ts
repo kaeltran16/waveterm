@@ -565,7 +565,7 @@ export function lensHealthText(modes: RadarMode[], carried: number): string {
     return `${subject} not cluster. ${rest}`;
 }
 
-function plural(n: number, word: string, many = `${word}s`): string {
+export function plural(n: number, word: string, many = `${word}s`): string {
     return `${n} ${n === 1 ? word : many}`;
 }
 
@@ -753,6 +753,59 @@ export function failedAuditShas(report: RadarReport): string[] {
     return auditRows(report)
         .filter((r) => r.state === "failed")
         .map((r) => r.sha);
+}
+
+export function auditStateText(r: AuditRow): string {
+    switch (r.state) {
+        case "hits":
+            return plural(r.hits, "hit");
+        case "running":
+            return "auditing";
+        default:
+            return r.state;
+    }
+}
+
+export interface SentencePart {
+    text: string;
+    sha?: boolean;
+}
+
+// failedAuditsSentence is the warning strip's text, in parts so the component can set each sha in mono.
+export function failedAuditsSentence(shas: string[]): SentencePart[] {
+    const n = shas.length;
+    const fixes = n === 1 ? "that fix" : n === 2 ? "those two fixes" : `those ${n} fixes`;
+    const parts: SentencePart[] = [{ text: n === 1 ? "The audit of " : "The audits of " }];
+    shas.forEach((sha, i) => {
+        if (i > 0) {
+            parts.push({ text: i === n - 1 ? " and " : ", " });
+        }
+        parts.push({ text: sha, sha: true });
+    });
+    parts.push({ text: ` failed. Sibling bugs of ${fixes} may be missing.` });
+    return parts;
+}
+
+export interface AuditsPanel {
+    kind: "empty" | "clean" | "failed";
+    title: string;
+    tally: string;
+}
+
+// auditsPanel is the finished scan with no findings: nothing new to audit, every audit clean, or some
+// failed, in which case "no sibling bugs" holds only for the commits that were read.
+export function auditsPanel(t: AuditTally, duration: string): AuditsPanel {
+    if (t.total === 0) {
+        return { kind: "empty", title: "No new fix commits to audit", tally: "" };
+    }
+    if (t.failed > 0) {
+        return { kind: "failed", title: "No sibling bugs found", tally: auditTallyText(t) };
+    }
+    return {
+        kind: "clean",
+        title: `No sibling bugs in ${plural(t.total, "fix commit")}`,
+        tally: [`${t.clean} of ${t.total} clean`, duration].filter(Boolean).join(" · "),
+    };
 }
 
 export type RadarView = "never-scanned" | "scanning" | "old-format" | "cancelled" | "fatal" | "report" | "audits";

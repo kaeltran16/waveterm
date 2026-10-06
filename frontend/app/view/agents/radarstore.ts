@@ -7,13 +7,7 @@ import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import {
-    DEFAULT_OPEN_GROUPS,
-    DEFAULT_OPEN_LIST_GROUPS,
-    type LensKey,
-    type RadarGroup,
-    type RadarListGroup,
-} from "./radarmodel";
+import { DEFAULT_OPEN_GROUPS, DEFAULT_OPEN_LIST_GROUPS, type RadarGroup, type RadarListGroup } from "./radarmodel";
 
 export interface RadarScope {
     name: string;
@@ -92,9 +86,7 @@ export const currentReportIdAtom = atom<string | undefined>(undefined) as Primit
 // unmounting on nav-rail switch — mirrors Sessions/Files (see docs cockpit coherence audit).
 export const radarSelectedIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
 
-// The picked lens and the open finding groups: atoms for the same reason as the selection. The pick is
-// what the user chose, not what shows; resolveLens falls back to All when the picked lens is gone.
-export const radarLensPickAtom = atom<LensKey>("all") as PrimitiveAtom<LensKey>;
+// The open finding groups: atoms for the same reason as the selection.
 export const radarOpenGroupsAtom = atom<Set<RadarGroup>>(new Set(DEFAULT_OPEN_GROUPS)) as PrimitiveAtom<
     Set<RadarGroup>
 >;
@@ -219,11 +211,12 @@ export async function cancelScan(reportId: string): Promise<void> {
     await RpcApi.CancelRadarScanCommand(TabRpcClient, { reportid: reportId });
 }
 
-export async function retryClustering(reportId: string): Promise<void> {
+// the RPC keeps its old name: it re-audits the report's failed commits
+export async function retryFailedAudits(reportId: string): Promise<void> {
     await RpcApi.RetryRadarClusteringCommand(TabRpcClient, { reportid: reportId });
 }
 
-// setDisposition applies dismiss/suppress/reopen/unsuppress; the report update round-trips via WOS.
+// setDisposition applies dismiss/suppress/reopen; the report update round-trips via WOS.
 export async function setDisposition(
     reportId: string,
     findingId: string,

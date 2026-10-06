@@ -5,6 +5,8 @@ import { describe, expect, it, test } from "vitest";
 import {
     auditDuration,
     auditRows,
+    auditsPanel,
+    auditStateText,
     auditSummary,
     auditTally,
     auditTallyText,
@@ -21,6 +23,7 @@ import {
     dispositionLabel,
     evidenceRows,
     failedAuditShas,
+    failedAuditsSentence,
     failedLenses,
     filterByMode,
     findingDelta,
@@ -878,6 +881,58 @@ describe("audit tally and its text", () => {
         });
         expect(failedAuditShas(r)).toEqual(["7927fb68", "9caee0d3"]);
         expect(failedAuditShas(report())).toEqual([]);
+    });
+    it("words each row's state, with the hit count in place of the state", () => {
+        const rows = auditRows(
+            report({
+                audits: [
+                    audit("a", "ok"),
+                    audit("b", "ok", { keptcount: 1 }),
+                    audit("c", "ok", { keptcount: 2 }),
+                    audit("d", "failed"),
+                    audit("e", "running"),
+                    audit("f", "queued"),
+                ],
+            })
+        );
+        expect(rows.map(auditStateText)).toEqual(["clean", "1 hit", "2 hits", "failed", "auditing", "queued"]);
+    });
+    it("names the failed commits in the strip, each sha its own part", () => {
+        const text = (shas: string[]) =>
+            failedAuditsSentence(shas)
+                .map((p) => p.text)
+                .join("");
+        expect(text(["7927fb68"])).toBe("The audit of 7927fb68 failed. Sibling bugs of that fix may be missing.");
+        expect(text(["7927fb68", "9caee0d3"])).toBe(
+            "The audits of 7927fb68 and 9caee0d3 failed. Sibling bugs of those two fixes may be missing."
+        );
+        expect(text(["a", "b", "c"])).toBe(
+            "The audits of a, b and c failed. Sibling bugs of those 3 fixes may be missing."
+        );
+        expect(
+            failedAuditsSentence(["a", "b"])
+                .filter((p) => p.sha)
+                .map((p) => p.text)
+        ).toEqual(["a", "b"]);
+    });
+    it("titles the no-findings panel by what the audits did", () => {
+        expect(auditsPanel(tallyOf(...clean(5)), "4m 36s")).toEqual({
+            kind: "clean",
+            title: "No sibling bugs in 5 fix commits",
+            tally: "5 of 5 clean · 4m 36s",
+        });
+        expect(auditsPanel(tallyOf(...clean(1)), "")).toEqual({
+            kind: "clean",
+            title: "No sibling bugs in 1 fix commit",
+            tally: "1 of 1 clean",
+        });
+        expect(auditsPanel(tallyOf(), "")).toEqual({ kind: "empty", title: "No new fix commits to audit", tally: "" });
+        // a failed audit read nothing, so the title cannot count it among the commits with no sibling bugs
+        expect(auditsPanel(tallyOf(...clean(2), ...failed(2)), "4m 00s")).toEqual({
+            kind: "failed",
+            title: "No sibling bugs found",
+            tally: "2 clean · 0 with hits · 2 failed",
+        });
     });
 });
 
