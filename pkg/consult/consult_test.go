@@ -327,13 +327,12 @@ func TestSpecForTier_openrouterSetsModel(t *testing.T) {
 	if spec.ApiBackend == nil {
 		t.Fatal("openrouter spec must have an ApiBackend")
 	}
-	mid, _ := SpecForTier("openrouter", TierMid)
-	if mid.Model == "" {
-		t.Fatal("mid tier must set a model")
-	}
-	cap, _ := SpecForTier("openrouter", TierCapable)
-	if cap.Model != mid.Model {
-		t.Fatalf("capable must match mid tier for openrouter: %q vs %q", cap.Model, mid.Model)
+	// openrouter has one configured model: the mid and capable tiers resolve to it too
+	for _, tier := range []Tier{TierCheap, TierMid, TierCapable} {
+		got, ok := SpecForTier("openrouter", tier)
+		if !ok || got.Model != OpenrouterCheapModel() {
+			t.Errorf("%s tier model = %q (ok=%v), want the cheap model %q", tier, got.Model, ok, OpenrouterCheapModel())
+		}
 	}
 }
 

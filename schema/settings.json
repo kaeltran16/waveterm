@@ -81,9 +81,6 @@
         "headless:openroutercheapmodel": {
           "type": "string"
         },
-        "headless:openroutermidmodel": {
-          "type": "string"
-        },
         "jarvis:vaultpath": {
           "type": "string"
         },

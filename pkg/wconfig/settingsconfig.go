@@ -64,7 +64,6 @@ type SettingsType struct {
 	MemoryVaultPath              string `json:"memory:vaultpath,omitempty"`
 	HeadlessRuntime              string `json:"headless:runtime,omitempty"`
 	HeadlessOpenRouterCheapModel string `json:"headless:openroutercheapmodel,omitempty"`
-	HeadlessOpenRouterMidModel   string `json:"headless:openroutermidmodel,omitempty"`
 	JarvisVaultPath              string `json:"jarvis:vaultpath,omitempty"`
 
 	EditorMinimapEnabled      bool    `json:"editor:minimapenabled,omitempty"`

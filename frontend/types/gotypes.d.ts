@@ -2577,7 +2577,6 @@ declare global {
         "memory:vaultpath"?: string;
         "headless:runtime"?: string;
         "headless:openroutercheapmodel"?: string;
-        "headless:openroutermidmodel"?: string;
         "jarvis:vaultpath"?: string;
         "editor:minimapenabled"?: boolean;
         "editor:stickyscrollenabled"?: boolean;

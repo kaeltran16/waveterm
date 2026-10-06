@@ -10835,6 +10835,112 @@ const codeTreeOnArrival = {
     },
 };
 
+// --- settings-radar-audit: the Radar audit route row in Settings > Headless AI ------------------------
+// The row's picker offers claude and pi only (an audit session needs tools) and writes radar:auditruntime
+// and radar:auditmodel. The picker panel is portalled to the body, so its options are scoped to the panel
+// and everything else to the section pane.
+const RADAR_AUDIT_KEYS = ["radar:auditruntime", "radar:auditmodel"];
+const RADAR_AUDIT_PANE = `document.querySelector('[data-settings-section="headless"]')`;
+const RADAR_AUDIT_ROW = `${RADAR_AUDIT_PANE}?.querySelector('[data-setting-row="headless.radaraudit"]')`;
+const RADAR_AUDIT_TRIGGER = `${RADAR_AUDIT_ROW}?.querySelector('[data-testid="route-picker"]')`;
+const RADAR_AUDIT_PANEL = `document.querySelector('[aria-label="Available routes"]')`;
+const radarAuditFace = (h) => h.ev(`(${RADAR_AUDIT_TRIGGER}?.textContent || "").trim()`);
+
+const settingsRadarAudit = {
+    name: "settings-radar-audit",
+    surface: "settings",
+    async arrange(h) {
+        const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
+        const prev = Object.fromEntries(RADAR_AUDIT_KEYS.map((k) => [k, settings[k] ?? null]));
+        await h.rpc("setconfig", Object.fromEntries(RADAR_AUDIT_KEYS.map((k) => [k, null])));
+        return { prev };
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+
+        await h.goto("settings");
+        await h.ev(`document.querySelector('[data-section="headless"]')?.click()`);
+        const paneUp = await polishWaitFor(h, `${RADAR_AUDIT_PANE} != null`, 5000);
+        rec("1. Settings opens on the Headless AI section", paneUp, `pane=${paneUp}`);
+
+        await polishWaitFor(h, `(${RADAR_AUDIT_TRIGGER}?.textContent || "").includes("sonnet")`, 5000);
+        const title = await h.ev(`(${RADAR_AUDIT_ROW}?.textContent || "").includes("Radar audit")`);
+        const unsetFace = await radarAuditFace(h);
+        rec(
+            "2. the Radar audit row shows claude on sonnet when both keys are unset",
+            title === true && /claude/i.test(unsetFace) && unsetFace.includes("sonnet"),
+            `row=${title} face="${unsetFace}"`
+        );
+        await h.ev(`${RADAR_AUDIT_ROW}?.scrollIntoView({ block: "center" })`);
+        await polishNap(200);
+        await h.shot("cdp-shots/settings-radar-audit-closed.png");
+
+        await h.ev(`${RADAR_AUDIT_TRIGGER}?.click()`);
+        await polishWaitFor(h, `${RADAR_AUDIT_PANEL}?.querySelector('[data-testid^="route-option-"]') != null`, 5000);
+        // the harness chips name every runtime the picker offers; the rows only the scoped one
+        const offered = await h.ev(`(() => {
+            const panel = ${RADAR_AUDIT_PANEL};
+            if (!panel) return null;
+            return [...panel.querySelectorAll('[data-testid^="route-harness-"]')]
+                .map((c) => c.getAttribute("data-testid").slice("route-harness-".length))
+                .filter((r) => r !== "all")
+                .sort();
+        })()`);
+        rec(
+            "3. the picker offers claude and pi and no other runtime",
+            JSON.stringify(offered) === JSON.stringify(["claude", "pi"]),
+            `offered=${JSON.stringify(offered)}`
+        );
+        await h.shot("cdp-shots/settings-radar-audit-open.png");
+
+        await h.ev(`${RADAR_AUDIT_PANEL}?.querySelector('[data-testid="route-harness-pi"]')?.click()`);
+        await polishWaitFor(h, `${RADAR_AUDIT_PANEL}?.querySelector('[data-testid^="route-option-pi-"]') != null`, 3000);
+        const picked = await h.ev(`(() => {
+            const row = ${RADAR_AUDIT_PANEL}?.querySelector('[data-testid^="route-option-pi-"]');
+            if (!row) return null;
+            row.click();
+            return row.getAttribute("data-testid").slice("route-option-pi-".length);
+        })()`);
+        let stored = {};
+        for (let waited = 0; waited < 5000 && stored["radar:auditruntime"] !== "pi"; waited += 250) {
+            await polishNap(250);
+            stored = (await h.rpc("getfullconfig", null))?.settings ?? {};
+        }
+        await polishWaitFor(h, `(${RADAR_AUDIT_TRIGGER}?.textContent || "").includes(${JSON.stringify(picked ?? "\u0000")})`, 5000);
+        const piFace = await radarAuditFace(h);
+        rec(
+            "4. picking a pi route stores radar:auditruntime as pi and the row shows it",
+            picked != null &&
+                stored["radar:auditruntime"] === "pi" &&
+                stored["radar:auditmodel"] === picked &&
+                /^pi\b/i.test(piFace) &&
+                piFace.includes(picked),
+            `picked=${picked} runtime=${stored["radar:auditruntime"]} model=${stored["radar:auditmodel"]} face="${piFace}"`
+        );
+
+        const mid = await h.ev(`(() => {
+            const pane = ${RADAR_AUDIT_PANE};
+            if (!pane) return null;
+            return {
+                row: pane.querySelector('[data-setting-row="headless.mid"]') != null,
+                text: /mid model/i.test(pane.textContent || ""),
+                rows: [...pane.querySelectorAll("[data-setting-row]")].map((r) => r.getAttribute("data-setting-row")),
+            };
+        })()`);
+        rec(
+            "5. the section has no Mid model row",
+            mid != null && mid.row === false && mid.text === false && mid.rows.includes("headless.cheap"),
+            JSON.stringify(mid)
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.rpc("setconfig", ctx.prev);
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     cockpitKeysOnArrival,
     agentTerminalOnArrival,
@@ -10867,6 +10973,7 @@ export const SCENARIOS = [
     harnessPicker,
     dagLifecycle,
     routePickerFlat,
+    settingsRadarAudit,
     jarvisMotion,
     // before brief-inline-tracker, which leaves a briefing fixture on over the seeded data
     briefDesignParity,
