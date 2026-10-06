@@ -202,7 +202,8 @@ UPDATE db_mainserver SET data = json_remove(data, '$.meta."channel:contracted"')
 
 The second statement clears the marker, so the next start contracts the channel again and keeps every row
 written since. The 000023 down migration does the first statement for every channel and drops the copy.
-`db_channel_precontract` is the only undo for the strip; a later change drops it (`docs/deferred.md`).
+`db_channel_precontract` was the only undo for the strip; `000024` drops it, after the check recorded in
+`docs/deferred.md`, so the restore above applies only to a store still at `000023`.
 
 **Ordering & pagination.** Messages sort by `ts`; list query `WHERE channeloid=? ORDER BY ts DESC LIMIT ?
 [AND ts < ?]` against the `(channeloid, ts)` expression index. Phase 2 ships a generous default limit; true

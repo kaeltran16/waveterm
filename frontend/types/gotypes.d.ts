@@ -1236,6 +1236,7 @@ declare global {
         author: string;
         text: string;
         reforef?: string;
+        data?: string;
     };
 
     // wshrpc.CommandReadVaultNoteData

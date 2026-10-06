@@ -170,3 +170,30 @@ func TestSendWaveObjUpdateForADeletedRowDoesNothing(t *testing.T) {
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, ch.OID))
 }
+
+func TestPostChannelMessageCommandStoresItsData(t *testing.T) {
+	ctx := context.Background()
+	ws := &WshServer{}
+	ch, err := wstore.CreateChannel(ctx, "post-data", "")
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	const card = `{"askId":"ask-1"}`
+	if _, err := ws.PostChannelMessageCommand(ctx, wshrpc.CommandPostChannelMessageData{
+		ChannelId: ch.OID, Kind: "jarvis-answered", Author: "jarvis", Text: "Answered", Data: card,
+	}); err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	msgs, err := wstore.GetChannelMessages(ctx, ch.OID, 0, 0)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if len(msgs) != 1 || msgs[0].Data != card {
+		t.Fatalf("data not stored as given: %+v", msgs)
+	}
+	if _, err := ws.PostChannelMessageCommand(ctx, wshrpc.CommandPostChannelMessageData{
+		ChannelId: ch.OID, Kind: "jarvis-answered", Author: "jarvis", Text: "Answered", Data: "{not json",
+	}); err == nil {
+		t.Fatal("data that is not JSON must be refused")
+	}
+}

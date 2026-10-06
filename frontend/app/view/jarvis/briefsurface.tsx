@@ -1147,15 +1147,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 }
             });
         switch (act.kind) {
-            case "approve-gate":
-                return run(`Approved · ${q.source || q.title}`, () =>
-                    RpcApi.AdvanceRunCommand(TabRpcClient, {
-                        channelid: q.channelId,
-                        runid: q.runId!,
-                        phaseidx: q.phaseIdx,
-                        action: "approve",
-                    })
-                );
             case "approve-dag":
                 return run(`Approved ${q.taskId} · ${q.source || q.title}`, () =>
                     RpcApi.DagActionCommand(TabRpcClient, {

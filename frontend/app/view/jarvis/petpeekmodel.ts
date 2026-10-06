@@ -27,15 +27,14 @@ export interface PeekRow {
 }
 
 // pkg/jarvis/attention.go writes Text per kind, and only these put anything in it that the row's own verb
-// does not already say: an escalation's and an ask's question (askText), a blocked dag's reason. A gate's
-// "Approve before Jarvis proceeds." and a dag-gate's near-twin are constants repeated on every row of that
-// kind, so they are dropped and the width goes to the source — the part that differs. A held land's reason
+// does not already say: an escalation's and an ask's question (askText), a blocked dag's reason. A dag-gate's
+// "Approve <task> before the DAG proceeds." says what its verb already does, so it is dropped and the width
+// goes to the source — the part that differs. A held land's reason
 // is what says whether to retry or dismiss.
 const DETAIL_KINDS = new Set(["escalation", "dag-blocked", "ask", "run-land-held"]);
 
 // A row names its kind in a word beside its dot, so the kind never rides on colour alone.
 const ROW_KIND_LABEL: Record<string, string> = {
-    gate: "Gate",
     "dag-gate": "Gate",
     escalation: "Escalation",
     "dag-blocked": "Blocked",

@@ -53,7 +53,7 @@ import { nextUtterance } from "./petvoice";
 
 // pkg/jarvis/attention.go's three kinds. Named here rather than inlined so the mapping to the avatar's
 // posture vocabulary is one line to check against the server.
-const ATTENTION_GATE = "gate";
+const ATTENTION_GATE = "dag-gate";
 const ATTENTION_ESCALATION = "escalation";
 const ATTENTION_ASK = "ask";
 

@@ -261,7 +261,7 @@ func TestContractChannelsStopsAtAChannelItCannotMigrate(t *testing.T) {
 	}
 }
 
-// migration 000023 keeps each blob as it was, and its down puts the blobs back.
+// migration 000023 keeps each blob as it was, and its down puts the blobs back; 000024 drops the copy.
 func TestChannelPrecontractKeepsTheBlobs(t *testing.T) {
 	ctx := context.Background()
 	execFile := func(name string) {
@@ -286,26 +286,16 @@ func TestChannelPrecontractKeepsTheBlobs(t *testing.T) {
 		}
 		return name != ""
 	}
-	if !tableExists() {
-		t.Fatalf("db_channel_precontract missing after the migrations ran")
+	if tableExists() {
+		t.Fatalf("db_channel_precontract still there after the migrations ran")
 	}
 
 	chId, msgId, runId := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	blob := legacyChannelBlob(chId, "["+legacyMessage(msgId, "kept")+"]", "["+legacyRun(runId, "done")+"]")
 	seedLegacyChannel(t, chId, blob)
-	// TestMain's migrations ran over an empty store: take the copy again over the seeded one
-	if err := WithTx(ctx, func(tx *TxWrap) error {
-		tx.Exec(`DROP TABLE db_channel_precontract`)
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// TestMain's migrations ran over an empty store and dropped the copy: take it over the seeded one
 	execFile("000023_channel_precontract.up.sql")
-	t.Cleanup(func() {
-		if !tableExists() {
-			execFile("000023_channel_precontract.up.sql")
-		}
-	})
+	t.Cleanup(func() { execFile("000024_drop_channel_precontract.up.sql") })
 
 	armContractPass(t)
 	if err := ContractChannels(); err != nil {
