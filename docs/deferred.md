@@ -357,27 +357,18 @@ Phase 3 (Contract) shipped 2026-10-06: a channel row is metadata, and messages a
 `db_channelmessage` / `db_run` (spec `docs/superpowers/specs/2026-07-21-channel-data-model-scaling-design.md`;
 its Section 4 has the startup pass and how it fails). These were left.
 
-- **`db_channel_precontract` is still in the store.** Migration `000023` copied every channel blob into it
-  before the startup pass (`wstore.ContractChannels`) stripped the arrays. It is the only undo for the
-  strip, and it holds the old blobs at full size (the largest was 11.3 MB on 2026-10-06). Drop it, in a
-  new migration, once the migrated store has been in use and no message or run turned out missing:
-
-  ```sql
-  DROP TABLE IF EXISTS db_channel_precontract;
-  ```
-
-  Until then, to restore one channel's blob from it, with the app stopped:
-
-  ```sql
-  UPDATE db_channel SET data = (SELECT data FROM db_channel_precontract WHERE oid = db_channel.oid)
-  WHERE oid = '<channel oid>';
-  UPDATE db_mainserver SET data = json_remove(data, '$.meta."channel:contracted"');
-  ```
-
-  The second statement clears the pass's marker, so the next start contracts that channel again: it
-  inserts the embedded items that have no row and leaves every existing row as it is. Restoring a blob
-  without clearing the marker loses nothing either, but the arrays are dropped unread at that channel's
-  next write.
+- **A reader that crosses channels sees only each channel's newest 500 messages**
+  (`wstore.DefaultChannelMessageLimit`). The cockpit's needs-you count and a record's fleet read
+  `channelMessagesAtom`, one `GetChannelMessages` window per channel, so a dispatch or an answered-ask card
+  older than the window drops out of them. Not built: a query by ref (`GetMessagesByRef` is the server
+  half) instead of the window. On 2026-10-06 the packaged store held 110 messages across its 9 channels
+  in all, so nothing is outside a window. Build it when a channel nears 500 messages.
+- **`db_channel_precontract` is gone.** Migration `000023` copied every channel blob into it before the
+  startup pass (`wstore.ContractChannels`) stripped the arrays, and `000024` drops it. Before the drop,
+  on 2026-10-06, every embedded message and run of the packaged store (882) and the dev store (332) was
+  compared field by field with its row: the only differences were runs written after the pass. A store
+  still below `000023` runs both migrations before the pass, so it is stripped with no copy kept: back
+  its `waveterm.db` up by hand first.
 - **The active channel still re-reads its message window on every channel version bump.** The run list
   no longer does: it was measured and fixed on 2026-10-06. On the packaged store's largest channel (589
   runs, 10.8 MB of run rows, 7.2 MB of it `goal` text) one `GetChannelRuns` cost about 240 ms in wavesrv
