@@ -219,8 +219,10 @@ func failDispatch(ctx context.Context, g *waveobj.TaskGroup, taskID, kind string
 	log.Printf("schedule dag %s task %s: %s: %v", g.OID, taskID, kind, cause)
 	detail := failureDetail(cause)
 	attempts := g.Tasks[idx].Attempts
+	// the append waits for the whole batch's commit, and the tasks after this one take seconds each
+	failedAt := time.Now().UnixMilli()
 	*afterCommit = append(*afterCommit, func() {
-		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{
+		appendRunEventAt(ctx, failedAt, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{
 			"taskid": taskID, "lastfailurekind": kind, "attempts": attempts, "detail": detail,
 		})
 		PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(taskID, kind))

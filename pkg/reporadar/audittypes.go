@@ -54,7 +54,8 @@ type auditRoute struct{ Runtime, Model string }
 
 // auditSessionResult is what one session returned: its final assistant message and what the runtime reported.
 type auditSessionResult struct {
-	Reply       string
-	Model       string
-	TotalTokens int
+	Reply           string
+	Model           string
+	TotalTokens     int // input, cache writes and output
+	CacheReadTokens int // counted apart: a session re-reads its cached prefix on every turn
 }
