@@ -70,6 +70,7 @@ type CommandPostChannelMessageData struct {
 	Author    string `json:"author"`
 	Text      string `json:"text"`
 	RefORef   string `json:"reforef,omitempty"`
+	Data      string `json:"data,omitempty"` // the message's JSON payload, stored as given
 }
 
 type CommandSetChannelTierData struct {

@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -94,7 +95,11 @@ func (ws *WshServer) GetChannelMessagesCommand(ctx context.Context, data wshrpc.
 }
 
 func (ws *WshServer) PostChannelMessageCommand(ctx context.Context, data wshrpc.CommandPostChannelMessageData) (*waveobj.ChannelMessage, error) {
+	if data.Data != "" && !json.Valid([]byte(data.Data)) {
+		return nil, fmt.Errorf("posting channel message: data is not valid JSON")
+	}
 	msg := wstore.NewChannelMessage(data.Kind, data.Author, data.Text, data.RefORef, time.Now().UnixMilli())
+	msg.Data = data.Data
 	stored, err := wstore.PostChannelMessage(ctx, data.ChannelId, msg)
 	if err != nil {
 		return nil, fmt.Errorf("posting channel message: %w", err)

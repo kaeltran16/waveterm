@@ -632,7 +632,7 @@ const briefSurface = {
                 // the effort title is joined on the frontend from the efforts already on the surface,
                 // so a raw oid here would mean the join silently failed
                 (ctx.first ?? "").includes("Scenario gate clearance \u00b7 Phase 3") &&
-                /2 of 4 done/.test(ctx.first ?? ""),
+                /2 of 4 tasks done/.test(ctx.first ?? ""),
             detail: JSON.stringify(ctx),
         });
         await h.shot("cdp-shots/brief-queue-context.png");
@@ -2161,6 +2161,130 @@ const attentionCrossChannel = {
         }
         if (ctx.otherCwd) rmSync(ctx.otherCwd, { recursive: true, force: true });
         await teardownFixtureRun(h, ctx, "attention-cross-channel");
+    },
+};
+
+// The Cockpit's "need you" count leaves out an ask Jarvis already answered, and the answer card can sit in any
+// channel: the count reads every channel's messages (channelMessagesAtom), not the active channel's. A fixture
+// roster holds the one asking agent; the card is posted into the older of two channels, the one a load never
+// selects.
+const NEEDS_YOU_AGENT_ID = "fx-needs-you";
+const NEEDS_YOU_ASK_ID = "fx-needs-you-ask";
+
+const cockpitNeedsYouCrossChannel = {
+    name: "cockpit-needs-you-cross-channel",
+    surface: "cockpit",
+    async arrange(h) {
+        const ctx = { channelIds: [], cwds: [] };
+        try {
+            for (const name of ["needs-you-answered", "needs-you-newest"]) {
+                const cwd = mkdtempSync(join(tmpdir(), `${name}-`));
+                ctx.cwds.push(cwd);
+                ctx.channelIds.push((await h.rpc("createchannel", { name, projectpath: cwd })).oid);
+            }
+            mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
+            writeFileSync(
+                TREE_RAIL_FIXTURE,
+                JSON.stringify(
+                    [
+                        {
+                            id: NEEDS_YOU_AGENT_ID,
+                            name: "needs-you worker",
+                            project: "waveterm",
+                            task: "wait on an answer",
+                            state: "asking",
+                            agent: "claude",
+                            model: "opus",
+                            blockedMs: 60_000,
+                            blockId: "fx-blk-needs-you",
+                            ask: {
+                                askId: NEEDS_YOU_ASK_ID,
+                                oref: "block:fx-blk-needs-you",
+                                questions: [
+                                    { header: "Port", question: "Which port?", options: [{ label: "9222" }, { label: "9223" }] },
+                                ],
+                            },
+                        },
+                    ],
+                    null,
+                    2
+                )
+            );
+            ctx.wroteFixture = true;
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        const openStep = "1. the Cockpit counts the fixture's asking agent as needing you";
+        if (ctx.arrangeError != null) {
+            rec(openStep, false, ctx.arrangeError);
+            return steps;
+        }
+        // the header's count, read off the words beside it; null while the header is not there
+        const needYou = () =>
+            h.ev(`(() => {
+                const s = [...document.querySelectorAll('span')].find((x) => /^\\s*\\d+\\s*need you\\s*$/.test(x.textContent || ''));
+                return s ? Number(s.textContent.match(/\\d+/)[0]) : null;
+            })()`);
+        const reloadToCockpit = async () => {
+            await h.ev("location.reload()");
+            await settle(2500);
+            await h.goto("cockpit");
+            await settle(800);
+        };
+
+        await reloadToCockpit();
+        const before = await needYou();
+        rec(openStep, before === 1, `need you=${JSON.stringify(before)}`);
+
+        // 2. the answer card goes into the older channel; the newest is the one a load would select
+        const [answeredIn, newest] = ctx.channelIds;
+        const listed = ((await h.rpc("getchannels", null))?.channels ?? []).sort((a, b) => b.createdts - a.createdts);
+        const posted = await h.rpc("postchannelmessage", {
+            channelid: answeredIn,
+            kind: "jarvis-answered",
+            author: "jarvis",
+            text: 'Answered → "9222"',
+            // the fields a card must carry to be read as one (parseCardData)
+            data: JSON.stringify({
+                askId: NEEDS_YOU_ASK_ID,
+                askORef: "block:fx-blk-needs-you",
+                question: "Which port?",
+                options: [{ label: "9222" }, { label: "9223" }],
+                choice: 0,
+            }),
+        });
+        rec(
+            "2. Jarvis's answer card is stored in a channel that is not the newest",
+            posted?.kind === "jarvis-answered" && listed[0]?.oid === newest && answeredIn !== newest,
+            JSON.stringify({ posted: posted?.oid, answeredIn, newest: listed[0]?.oid })
+        );
+
+        // 3. the agent is still asking, and the count drops: the card was read from a channel nothing selected
+        await reloadToCockpit();
+        const after = await needYou();
+        rec("3. the answered ask no longer counts as needing you", after === 0, `need you=${JSON.stringify(after)}`);
+        await h.shot("cdp-shots/cockpit-needs-you-cross-channel.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        if (ctx.wroteFixture) rmSync(TREE_RAIL_FIXTURE, { force: true });
+        for (const id of ctx.channelIds) {
+            try {
+                await h.rpc("deletechannel", { channelid: id });
+            } catch (e) {
+                console.error(`cockpit-needs-you-cross-channel teardown: delete ${id} failed: ${e?.message ?? e}`);
+            }
+        }
+        for (const cwd of ctx.cwds) rmSync(cwd, { recursive: true, force: true });
+        // onto the live roster again, and settled: the next scenario's first act is a nav click
+        await h.ev("location.reload()");
+        await h.ev("new Promise((r) => setTimeout(r, 2500))");
     },
 };
 
@@ -11577,6 +11701,7 @@ export const SCENARIOS = [
     jarvisVolunteer,
     usageCharts,
     attentionCrossChannel,
+    cockpitNeedsYouCrossChannel,
     harnessPicker,
     dagLifecycle,
     routePickerFlat,
