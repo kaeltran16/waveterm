@@ -56,6 +56,17 @@ declare global {
         midturn?: boolean;
     };
 
+    // wshrpc.AgentInfo
+    type AgentInfo = {
+        tabid: string;
+        name: string;
+        projectpath: string;
+        project: string;
+        runid: string;
+        harness: string;
+        state: string;
+    };
+
     // baseds.AgentStatusData
     type AgentStatusData = {
         oref: string;
@@ -401,6 +412,38 @@ declare global {
     type CommandAgentSyncSteeringWriteRtnData = {
         mtime: number;
         conflict: boolean;
+    };
+
+    // wshrpc.CommandAgentsListRtnData
+    type CommandAgentsListRtnData = {
+        agents: AgentInfo[];
+    };
+
+    // wshrpc.CommandAgentsReadData
+    type CommandAgentsReadData = {
+        tab: string;
+    };
+
+    // wshrpc.CommandAgentsReadRtnData
+    type CommandAgentsReadRtnData = {
+        tabid: string;
+        state: string;
+        answer: string;
+        answerts: number;
+    };
+
+    // wshrpc.CommandAgentsSendData
+    type CommandAgentsSendData = {
+        tab: string;
+        text: string;
+        fromoref: string;
+    };
+
+    // wshrpc.CommandAgentsSendRtnData
+    type CommandAgentsSendRtnData = {
+        tabid: string;
+        sentts: number;
+        midturn: boolean;
     };
 
     // wshrpc.CommandAnswerAgentData

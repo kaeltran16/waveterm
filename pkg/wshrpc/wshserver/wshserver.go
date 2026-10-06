@@ -124,6 +124,12 @@ func (ws *WshServer) EventPublishCommand(ctx context.Context, data wps.WaveEvent
 	if data.Sender == "" {
 		data.Sender = rpcSource
 	}
+	publishEvent(ctx, data)
+	return nil
+}
+
+// publishEvent is EventPublishCommand past its caller check, which a test cannot satisfy.
+func publishEvent(ctx context.Context, data wps.WaveEvent) {
 	if data.Event == wps.Event_AgentStatus {
 		PiTitleProviderInstance.NoteEvent(&data)
 		retireAskOnResume(&data)
@@ -133,8 +139,8 @@ func (ws *WshServer) EventPublishCommand(ctx context.Context, data wps.WaveEvent
 		// after the publish: the wake adapter re-reads the lead's state from event history, which has
 		// to hold this event already
 		orchestrate.NoteLeadStatus(ctx, &data)
+		noteAgentTurnEnded(&data)
 	}
-	return nil
 }
 
 func (ws *WshServer) EventSubCommand(ctx context.Context, data wps.SubscriptionRequest) error {

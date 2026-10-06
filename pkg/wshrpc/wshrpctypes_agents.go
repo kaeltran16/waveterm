@@ -17,9 +17,57 @@ type AgentCommands interface {
 	GetWindowTokensCommand(ctx context.Context, data CommandGetWindowTokensData) (*CommandGetWindowTokensRtnData, error)
 	GetCacheStatusCommand(ctx context.Context, data CommandGetCacheStatusData) (*CommandGetCacheStatusRtnData, error)
 	GetBackgroundAgentsCommand(ctx context.Context, data CommandGetBackgroundAgentsData) (*CommandGetBackgroundAgentsRtnData, error)
-	RemoveBackgroundAgentCommand(ctx context.Context, data CommandRemoveBackgroundAgentData) error // dismiss a background agent: delete its ~/.claude/jobs record (transcript kept)
+	RemoveBackgroundAgentCommand(ctx context.Context, data CommandRemoveBackgroundAgentData) error                                        // dismiss a background agent: delete its ~/.claude/jobs record (transcript kept)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	AgentControlCommand(ctx context.Context, data CommandAgentControlData) chan RespOrErrorUnion[AgentControlMsg]                         // stream the cockpit's prompts for a block's agent session to its harness mod
+	AgentsListCommand(ctx context.Context) (*CommandAgentsListRtnData, error)                                                             // the live claude and pi agent tabs
+	AgentsSendCommand(ctx context.Context, data CommandAgentsSendData) (*CommandAgentsSendRtnData, error)                                 // hand a prompt from one agent to another's live session
+	AgentsReadCommand(ctx context.Context, data CommandAgentsReadData) (*CommandAgentsReadRtnData, error)                                 // a live agent's state and last answer
+}
+
+// what a live agent session is doing, as AgentInfo.State and CommandAgentsReadRtnData.State carry it.
+const (
+	AgentsState_Idle    = "idle"
+	AgentsState_Working = "working"
+	AgentsState_Asking  = "asking"
+)
+
+// AgentInfo is one live agent tab. RunId is the run that owns it, empty for a session no run started.
+type AgentInfo struct {
+	TabId       string `json:"tabid"`
+	Name        string `json:"name"`
+	ProjectPath string `json:"projectpath"`
+	Project     string `json:"project"`
+	RunId       string `json:"runid"`
+	Harness     string `json:"harness"`
+	State       string `json:"state"`
+}
+
+type CommandAgentsListRtnData struct {
+	Agents []AgentInfo `json:"agents"`
+}
+
+type CommandAgentsSendData struct {
+	Tab      string `json:"tab"` // a tab id or a unique prefix of one
+	Text     string `json:"text"`
+	FromORef string `json:"fromoref"` // the sender's block oref
+}
+
+type CommandAgentsSendRtnData struct {
+	TabId   string `json:"tabid"`
+	SentTs  int64  `json:"sentts"`  // server unix ms the prompt was handed over
+	MidTurn bool   `json:"midturn"` // the target was not at its prompt
+}
+
+type CommandAgentsReadData struct {
+	Tab string `json:"tab"` // a tab id or a unique prefix of one
+}
+
+type CommandAgentsReadRtnData struct {
+	TabId    string `json:"tabid"`
+	State    string `json:"state"`
+	Answer   string `json:"answer"`   // empty when the session has not answered yet
+	AnswerTs int64  `json:"answerts"` // transcript time of Answer, unix ms
 }
 
 type CommandGetSessionGroupData struct {

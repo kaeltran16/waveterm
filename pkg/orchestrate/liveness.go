@@ -262,7 +262,7 @@ var workerLatestTool = func(ctx context.Context, run *waveobj.Run) string {
 	if blockId == "" || !alive {
 		return ""
 	}
-	st := latestAgentStatus(blockId, runTabID(run))
+	st := LatestAgentStatus(blockId, runTabID(run))
 	if st.State != baseds.AgentState_Working {
 		return ""
 	}
@@ -296,7 +296,7 @@ var workerTurnEndedAt = func(ctx context.Context, run *waveobj.Run) int64 {
 	if blockId == "" || !alive {
 		return 0
 	}
-	st := latestAgentStatus(blockId, runTabID(run))
+	st := LatestAgentStatus(blockId, runTabID(run))
 	if st.State != baseds.AgentState_Idle {
 		return 0
 	}

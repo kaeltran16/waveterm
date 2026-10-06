@@ -43,6 +43,24 @@ func AgentControlCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentControlData,
 	return sendRpcRequestResponseStreamHelper[wshrpc.AgentControlMsg](w, "agentcontrol", data, opts)
 }
 
+// command "agentslist", wshserver.AgentsListCommand
+func AgentsListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentsListRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentsListRtnData](w, "agentslist", nil, opts)
+	return resp, err
+}
+
+// command "agentsread", wshserver.AgentsReadCommand
+func AgentsReadCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentsReadData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentsReadRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentsReadRtnData](w, "agentsread", data, opts)
+	return resp, err
+}
+
+// command "agentssend", wshserver.AgentsSendCommand
+func AgentsSendCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentsSendData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentsSendRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentsSendRtnData](w, "agentssend", data, opts)
+	return resp, err
+}
+
 // command "agentsyncadopt", wshserver.AgentSyncAdoptCommand
 func AgentSyncAdoptCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncAdoptData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncAdoptRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncAdoptRtnData](w, "agentsyncadopt", data, opts)
