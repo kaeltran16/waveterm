@@ -632,13 +632,15 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 }
 
 // Card-shaped placeholders in the grid's own gutters, so the first cards land where the skeleton was.
+// Two columns that fill the viewport, as the real cards do (splitGridColumns, cardShare).
 function CockpitGridSkeleton() {
     return (
-        <div aria-hidden="true" className="absolute inset-0 z-[1] flex items-start gap-3.5 px-5 pt-2.5">
-            {[0, 1, 2].map((col) => (
+        <div aria-hidden="true" className="absolute inset-0 z-[1] flex gap-3.5 px-5 pb-5 pt-2.5">
+            {[2, 1].map((cards, col) => (
                 <div key={col} className="flex min-w-0 flex-1 flex-col gap-3.5">
-                    <Skeleton className="h-[148px] rounded-[13px]" />
-                    {col < 2 ? <Skeleton className="h-[112px] rounded-[13px]" /> : null}
+                    {Array.from({ length: cards }, (_, i) => (
+                        <Skeleton key={i} className="min-h-0 flex-1 rounded-[13px]" />
+                    ))}
                 </div>
             ))}
         </div>
