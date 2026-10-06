@@ -899,8 +899,10 @@ arrives then holds the land.
 A held land raises a **land held** item under Waiting on you: "The run's branch was not merged back: <reason>".
 Clear the reason, then run `wsh runs land <run-id>`, which retries and prints where the land stands.
 `wsh runs land <run-id> --force` lands a run whose final stage failed; it is your call only. When the last final
-round fails, the lead's question to you and its report say that completing will not merge the branch, and name this
-command.
+round fails, the lead asks you what to do with the land, with at least **Land anyway** and **Keep the land held**.
+On **Land anyway** it completes with `wsh jarvis complete --force-land`, and the land that follows skips the
+failed-final hold; every other hold still applies. Otherwise it completes as usual and the land holds until you run
+the command above.
 
 A done run whose outcome is unverified, or whose land carries a note, raises an **unverified** item ("Finished,
 but N things were not verified.") naming each reason. It holds nothing, since the run is done. It stays until you

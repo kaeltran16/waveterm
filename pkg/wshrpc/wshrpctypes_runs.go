@@ -71,6 +71,7 @@ type CommandAdvanceRunData struct {
 	Commit    string   `json:"commit,omitempty"`    // reported result commit; stored on Run.EndCommit for the complete action
 	Report    string   `json:"report,omitempty"`    // lead's final report; stored on Run.Report for the complete action
 	HoldLand  bool     `json:"holdland,omitempty"`  // complete: finish even though the land would conflict, leaving it held
+	ForceLand bool     `json:"forceland,omitempty"` // complete: land even though the final stage failed; the human's call, carried by the lead
 }
 
 type CommandCancelRunData struct {
@@ -135,6 +136,7 @@ type CommandReportRunPhaseData struct {
 	Commit    string   `json:"commit,omitempty"`    // reported result commit; forwarded to AdvanceRun, stored on Run.EndCommit
 	Report    string   `json:"report,omitempty"`    // lead's final report; forwarded to AdvanceRun, stored on Run.Report
 	HoldLand  bool     `json:"holdland,omitempty"`  // forwarded to AdvanceRun
+	ForceLand bool     `json:"forceland,omitempty"` // forwarded to AdvanceRun
 }
 
 type CommandCreateChildRunData struct {

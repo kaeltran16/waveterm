@@ -348,6 +348,7 @@ declare global {
         commit?: string;
         report?: string;
         holdland?: boolean;
+        forceland?: boolean;
     };
 
     // wshrpc.CommandAgentControlData
@@ -1283,6 +1284,7 @@ declare global {
         commit?: string;
         report?: string;
         holdland?: boolean;
+        forceland?: boolean;
     };
 
     // wshrpc.CommandResolveAmbientRtnData
