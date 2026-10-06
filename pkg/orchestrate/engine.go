@@ -178,27 +178,76 @@ func cleanupScheduleFailure(ctx, workerCtx context.Context, g *waveobj.TaskGroup
 // clears the transient hang, and a task that stalls again waits for a human.
 const MaxAutoStallRetries = 1
 
-// autoRetryStalled returns a freshly stalled task to pending when the run has no live lead to judge it,
-// stopping its child first. A run with a live lead is left alone: the lead is woken and decides. The
-// dag-wide failure streak is untouched (RetryTask). Reports whether it retried; a failure to stop the
-// child leaves the task stalled for a human.
-func autoRetryStalled(ctx context.Context, g *waveobj.TaskGroup, taskID string) bool {
-	task := taskByID(g, taskID)
-	if task == nil || task.StallRetries >= MaxAutoStallRetries {
+// stalledTask is a task a tick found freshly stalled with nobody to judge it, for autoRetryStalled once the tick
+// has released the dag lock. hung is the wake its lead gets if the retry cannot be made.
+type stalledTask struct {
+	taskID, runID, hung string
+}
+
+// autoRetriable reports a stalled task the engine retries itself: the run has no live lead to judge it, and the
+// engine has not retried it already. A run with a live lead is left alone: the lead is woken and decides.
+func autoRetriable(ctx context.Context, g *waveobj.TaskGroup, task *waveobj.TaskNode) bool {
+	return task.StallRetries < MaxAutoStallRetries && !leadStateFn(ctx, g.ChannelId, g.RunID).Alive
+}
+
+// autoRetryStalled returns a stalled task to pending, stopping its child first. The caller must not hold the dag
+// lock: the child is stopped outside it, as in applyAction. The dag-wide failure streak is untouched (RetryTask).
+// Reports whether it retried; a failure to stop the child leaves the task stalled for a human.
+func autoRetryStalled(ctx context.Context, dagID string, s stalledTask) bool {
+	taskActions.Lock(dagID)
+	defer taskActions.Unlock(dagID)
+	var g *waveobj.TaskGroup
+	// stalled reloads the dag and finds the task as the tick left it; nil when something else has moved it since
+	stalled := func() (*waveobj.TaskNode, error) {
+		var err error
+		if g, err = wstore.GetDag(ctx, dagID); err != nil {
+			return nil, fmt.Errorf("loading dag: %w", err)
+		}
+		if task := taskByID(g, s.taskID); task != nil && task.State == TaskState_Stalled && task.RunID == s.runID {
+			return task, nil
+		}
+		return nil, nil
+	}
+	var run *waveobj.Run
+	moved := false
+	err := withDagMutation(dagID, func() error {
+		task, err := stalled()
+		if err != nil || task == nil {
+			moved = task == nil
+			return err
+		}
+		run, err = cancelTaskRun(ctx, g, task)
+		return err
+	})
+	if err == nil && run != nil {
+		err = stopRunWorkers(ctx, run)
+	}
+	if err == nil && !moved {
+		err = withDagMutation(dagID, func() error {
+			task, err := stalled()
+			if err != nil || task == nil {
+				moved = task == nil
+				return err
+			}
+			if err := RetryTask(g, s.taskID); err != nil {
+				return err
+			}
+			task.StallRetries++
+			return persistDag(ctx, g)
+		})
+	}
+	if err != nil {
+		log.Printf("schedule dag %s task %s: auto-retry of stalled task: %v", dagID, s.taskID, err)
+		if g != nil && s.hung != "" {
+			PostWake(ctx, g.ChannelId, g.RunID, s.hung)
+		}
 		return false
 	}
-	if leadStateFn(ctx, g.ChannelId, g.RunID).Alive {
+	if moved {
 		return false
 	}
-	if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
-		log.Printf("schedule dag %s task %s: auto-retry of stalled task: %v", g.OID, taskID, err)
-		return false
-	}
-	if err := RetryTask(g, taskID); err != nil {
-		log.Printf("schedule dag %s task %s: auto-retry of stalled task: %v", g.OID, taskID, err)
-		return false
-	}
-	task.StallRetries++
+	publishDagEvent(DagEventTaskRetried, g, s.taskID)
+	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskRetried, nil, map[string]any{"taskid": s.taskID, "kind": TaskState_Stalled, "auto": true})
 	return true
 }
 
@@ -249,12 +298,36 @@ func Schedule(ctx context.Context, dagID string) error {
 	if g, err := wstore.GetDag(ctx, dagID); err == nil && g.Status != DagStatus_Cancelled {
 		retryCleanupDebt(ctx, g)
 	}
-	return withDagMutation(dagID, func() error {
-		return scheduleLocked(ctx, dagID)
-	})
+	return runTick(ctx, dagID)
 }
 
-func scheduleLocked(ctx context.Context, dagID string) error {
+// runTick runs one scheduling pass under the dag lock, then retries the tasks it found stalled with nobody to judge
+// them, outside the lock, and runs again to dispatch them. Each task is retried at most MaxAutoStallRetries times,
+// which is what ends the loop.
+func runTick(ctx context.Context, dagID string) error {
+	for {
+		var stalled []stalledTask
+		if err := withDagMutation(dagID, func() error { return scheduleLocked(ctx, dagID, &stalled) }); err != nil {
+			return err
+		}
+		retried := false
+		for _, s := range stalled {
+			retried = autoRetryStalled(ctx, dagID, s) || retried
+		}
+		if !retried {
+			return nil
+		}
+	}
+}
+
+// scheduleLocked is one scheduling pass; the caller holds the dag lock. The tasks whose stall the engine retries
+// itself are left stalled and appended to stalled: stopping a worker is not done under the lock.
+func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) error {
+	// an action is working on a task outside the dag lock (taskActions), and ticks when it is done
+	if !taskActions.TryLock(dagID) {
+		return nil
+	}
+	defer taskActions.Unlock(dagID)
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil {
 		return fmt.Errorf("loading dag: %w", err)
@@ -425,16 +498,14 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			hung := hungWake(ctx, taskID, runs[t.RunID], now-since)
 			// a worker that ended its turn may have finished (its complete lost to an EC-TIME): a retry would throw
 			// its work away, so the lead judges it
-			retried := workerTurnEndedAt(ctx, runs[t.RunID]) == 0 && autoRetryStalled(ctx, g, taskID)
+			retry := workerTurnEndedAt(ctx, runs[t.RunID]) == 0 && autoRetriable(ctx, g, t)
+			if retry {
+				*stalled = append(*stalled, stalledTask{taskID: taskID, runID: t.RunID, hung: hung})
+			}
 			afterCommit = append(afterCommit, func() {
 				publishDagEvent(DagEventTaskStalled, g, taskID)
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskStalled, nil, map[string]any{"taskid": taskID})
-				if retried {
-					publishDagEvent(DagEventTaskRetried, g, taskID)
-					appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskRetried, nil, map[string]any{"taskid": taskID, "kind": TaskState_Stalled, "auto": true})
-					return
-				}
-				if hung != "" {
+				if !retry && hung != "" {
 					PostWake(ctx, g.ChannelId, g.RunID, hung)
 				}
 			})

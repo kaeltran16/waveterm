@@ -1428,14 +1428,18 @@ func TestStalledDeadWorkerAutoRetriesDespiteItsExitIdle(t *testing.T) {
 }
 
 func TestAutoRetryStalledReturnsTheTaskToPending(t *testing.T) {
-	_, ctx, g, _ := stalledNoLead(t, "auto-retry-pending", false)
-	g = mustLoadDag(t, ctx, g.OID)
-	g.Tasks[0].State = TaskState_Stalled
+	_, ctx, g, runID := stalledNoLead(t, "auto-retry-pending", false)
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		cur.Tasks[0].State = TaskState_Stalled
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	if !autoRetryStalled(ctx, g, "t-0") {
+	if !autoRetryStalled(ctx, g.OID, stalledTask{taskID: "t-0", runID: runID}) {
 		t.Fatal("a stalled task with no live lead is retried")
 	}
-	if got := g.Tasks[0]; got.State != TaskState_Pending || got.RunID != "" || got.StallRetries != 1 {
+	if got := mustLoadDag(t, ctx, g.OID).Tasks[0]; got.State != TaskState_Pending || got.RunID != "" || got.StallRetries != 1 {
 		t.Fatalf("want pending with no run and one stall retry, got %+v", got)
 	}
 }
