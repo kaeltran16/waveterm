@@ -8,7 +8,7 @@
 // (ended). @theme tokens only — no hardcoded colors.
 
 import { cardVariants, MOTION } from "@/app/element/motiontokens";
-import { SkeletonLine } from "@/app/element/skeleton";
+import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import * as WOS from "@/app/store/wos";
@@ -358,11 +358,9 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                         </button>
 
                         {base == null ? (
-                            <div className="mt-3 flex flex-col gap-[7px]">
-                                {Array.from({ length: 6 }).map((_, i) => (
-                                    <SkeletonLine key={i} className="h-[58px] rounded-[10px]" />
-                                ))}
-                            </div>
+                            <SkeletonRows className="mt-3 min-h-0 flex-1 space-y-[7px]">
+                                {(i) => <SkeletonLine key={i} className="h-[58px] rounded-[10px]" />}
+                            </SkeletonRows>
                         ) : groups.length === 0 && focusHidesAll ? (
                             <div className="mt-6">
                                 <SurfaceEmptyState

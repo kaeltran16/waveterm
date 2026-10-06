@@ -3,7 +3,7 @@
 
 import { MOTION } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
-import { Skeleton, SkeletonLine } from "@/app/element/skeleton";
+import { Skeleton, SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
@@ -475,16 +475,14 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
 function RadarBodySkeleton() {
     return (
         <div aria-hidden="true" className="flex h-full border-t border-edge-faint">
-            <div className="flex w-[360px] shrink-0 flex-col gap-2.5 border-r border-edge-faint p-3.5">
-                {[0, 1, 2, 3, 4, 5].map((i) => (
-                    <SkeletonLine key={i} className="h-[46px] w-full rounded-[9px]" />
-                ))}
-            </div>
+            <SkeletonRows className="w-[360px] shrink-0 space-y-2.5 border-r border-edge-faint p-3.5">
+                {(i) => <SkeletonLine key={i} className="h-[46px] w-full rounded-[9px]" />}
+            </SkeletonRows>
             <div className="flex min-w-0 flex-1 flex-col gap-3 p-6">
                 <SkeletonLine className="h-[20px] w-[55%]" />
                 <SkeletonLine className="h-[11px] w-[80%]" />
                 <SkeletonLine className="h-[11px] w-[70%]" />
-                <Skeleton className="mt-2 h-[120px] w-full rounded-[10px]" />
+                <Skeleton className="mt-2 min-h-0 w-full flex-1 rounded-[10px]" />
             </div>
         </div>
     );

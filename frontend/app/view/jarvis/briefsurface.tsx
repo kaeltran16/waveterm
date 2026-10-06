@@ -1408,12 +1408,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                 exit={{ opacity: 0 }}
                                 transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                                 data-jarvis-brief-state="loading"
-                                className="flex flex-col gap-[26px]"
+                                className="flex min-h-0 flex-1 flex-col gap-[26px]"
                             >
                                 {Object.entries(REGIONS).map(([id, r]) => (
-                                    <div key={id} className="flex flex-col gap-2">
+                                    <div key={id} className="flex min-h-0 flex-1 flex-col gap-2">
                                         <span className={cn(REGION_LABEL, "text-feed-label")}>{r.label}</span>
-                                        <div className="h-12 animate-pulse rounded-[10px] bg-surface motion-reduce:animate-none" />
+                                        <div className="min-h-12 flex-1 animate-pulse rounded-[10px] bg-edge-strong motion-reduce:animate-none" />
                                     </div>
                                 ))}
                             </motion.div>

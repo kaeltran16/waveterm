@@ -302,7 +302,7 @@ function SheetChannelPending({ channelId }: { channelId: string }) {
     }
     return (
         <div data-jarvis-brief-sheet-state="loading" className="flex min-h-0 flex-1 flex-col gap-2 p-4">
-            <span className="h-8 animate-pulse rounded-[8px] bg-surface-raised motion-reduce:animate-none" />
+            <span className="h-8 animate-pulse rounded-[8px] bg-edge-strong motion-reduce:animate-none" />
             <span className="text-[12px] text-secondary">Reading this project…</span>
         </div>
     );
