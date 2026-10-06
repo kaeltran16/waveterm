@@ -67,6 +67,8 @@ const (
 	//   lead-launched     a lead started with this first message ("text"): a plan-input run's first lead, a
 	//                     replacement for a dead one, or one resumed at boot after the app stopped under it
 	//   lead-wake-failed  the lead cannot take wakes; its judgment goes to the human ("reason", "lines")
+	//   lead-revived      a lead given up on is taking wakes again: it went back to work, or the human had
+	//                     it retried while its process still ran
 	//   lead-exited       the lead exited before submitting a plan, which fails the run ("reason")
 	//   worker-exited     a quick/pipeline run's only worker exited without completing its phase ("reason")
 	//   interrupted       at boot, a non-dag run's running phase was failed because the app stopped under its
@@ -76,6 +78,7 @@ const (
 	RunEventKindLeadWoken      = "lead-woken"
 	RunEventKindLeadLaunched   = "lead-launched"
 	RunEventKindLeadWakeFailed = "lead-wake-failed"
+	RunEventKindLeadRevived    = "lead-revived"
 	RunEventKindLeadExited     = "lead-exited"
 	RunEventKindWorkerExited   = "worker-exited"
 	RunEventKindInterrupted    = "interrupted"
