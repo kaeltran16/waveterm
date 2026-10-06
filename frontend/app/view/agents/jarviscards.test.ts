@@ -3,7 +3,6 @@ import {
     answeredAskIds,
     fleetCounts,
     parseCardData,
-    pendingAsks,
 } from "./jarviscards";
 
 const answered = JSON.stringify({
@@ -71,24 +70,5 @@ describe("answeredAskIds", () => {
         expect(s.has("ask-1")).toBe(true);
         expect(s.has("ask-2")).toBe(false);
         expect(s.size).toBe(1);
-    });
-});
-
-describe("pendingAsks", () => {
-    const w = (askId?: string, state = "asking") => ({ state, askId, oref: "tab:x" });
-    it("keeps an asking worker with no answered card", () => {
-        expect(pendingAsks([w("ask-1")], [] as ChannelMessage[])).toHaveLength(1);
-    });
-    it("drops an asking worker whose ask Jarvis already answered", () => {
-        const msgs = [{ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answeredCard("ask-1") }] as ChannelMessage[];
-        expect(pendingAsks([w("ask-1")], msgs)).toHaveLength(0);
-    });
-    it("keeps a NEW ask from a worker whose PREVIOUS ask was answered", () => {
-        // both asks come from the worker's one block, so only the ask id tells them apart
-        const msgs = [{ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answeredCard("ask-old") }] as ChannelMessage[];
-        expect(pendingAsks([w("ask-new")], msgs)).toHaveLength(1);
-    });
-    it("ignores non-asking workers", () => {
-        expect(pendingAsks([w("ask-1", "working")], [] as ChannelMessage[])).toHaveLength(0);
     });
 });

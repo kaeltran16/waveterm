@@ -28,7 +28,6 @@ import (
 var controllerStatusFn = blockcontroller.GetBlockControllerRuntimeStatus
 
 const (
-	AttentionGate       = "gate"
 	AttentionEscalation = "escalation"
 	AttentionAsk        = "ask"
 	// dag items: statuses mirror orchestrate.DagStatus_* but are spelled here because jarvis is the
@@ -84,28 +83,6 @@ type AttentionInput struct {
 	Radar []*waveobj.RadarReport
 }
 
-// reviewGateIdx ports frontend runmodel.reviewGate: the gated phase awaiting approval, or -1. The engine
-// halts after a gated phase completes (that phase done, its successor still pending); an orchestrator
-// lead instead holds a running phase in place.
-func reviewGateIdx(run *waveobj.Run) int {
-	if run == nil || run.Status != "awaiting-review" {
-		return -1
-	}
-	for i, p := range run.Phases {
-		if p.State == "running" && p.Held {
-			return i
-		}
-	}
-	for i, p := range run.Phases {
-		if p.Gate && p.State == "done" {
-			if i+1 >= len(run.Phases) || run.Phases[i+1].State == "pending" {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
 // runForWorker finds the run whose phases claim this worker tab oref.
 func runForWorker(runs []*waveobj.Run, workerORef string) *waveobj.Run {
 	if workerORef == "" {
@@ -154,67 +131,6 @@ func attribution(run *waveobj.Run) (effortOID string, chunkLabel string) {
 		return "", ""
 	}
 	return run.EffortRef.EffortOID, run.EffortRef.ChunkLabel
-}
-
-// phaseLabel is a phase's written name. A custom phase's kind says nothing, so it is named by the skill
-// it runs when it has one.
-func phaseLabel(p waveobj.RunPhase) string {
-	if p.Kind == "custom" && p.Skill != "" {
-		return p.Skill
-	}
-	if p.Kind == "" {
-		return "phase"
-	}
-	return p.Kind
-}
-
-func donePhases(run *waveobj.Run) int {
-	n := 0
-	for _, p := range run.Phases {
-		if p.State == "done" {
-			n++
-		}
-	}
-	return n
-}
-
-// gateWhy is the sentence Text cannot carry: how much of the run is already behind this gate, and what
-// specifically does not start until it clears. Assembled from phase states, so it cannot disagree with
-// the run it describes — nothing in a why-line is generated prose.
-func gateWhy(run *waveobj.Run, idx int) string {
-	done, total := donePhases(run), len(run.Phases)
-	cur := run.Phases[idx]
-	if cur.State == "running" && cur.Held {
-		return fmt.Sprintf("The lead paused itself in the %s phase — %d of %d done. It resumes only when you approve.",
-			phaseLabel(cur), done, total)
-	}
-	if idx+1 < total {
-		return fmt.Sprintf("The %s phase finished — %d of %d done. The %s phase starts only when you approve.",
-			phaseLabel(cur), done, total, phaseLabel(run.Phases[idx+1]))
-	}
-	return fmt.Sprintf("The %s phase finished — %d of %d done. The run seals only when you approve.",
-		phaseLabel(cur), done, total)
-}
-
-// attentionCiteMax bounds a row's citation list. The Brief's rule is that nothing unbounded sits on the
-// surface, and an execute phase can record dozens of artifacts.
-const attentionCiteMax = 4
-
-// gateCites are the artifacts the gated phase recorded — the concrete things approving it accepts. The
-// remainder is counted rather than dropped: a silently truncated list would understate what the approval
-// covers.
-func gateCites(p waveobj.RunPhase) []string {
-	var out []string
-	for _, a := range p.Artifacts {
-		if a = strings.TrimSpace(a); a != "" {
-			out = append(out, a)
-		}
-	}
-	if len(out) > attentionCiteMax {
-		rest := len(out) - attentionCiteMax
-		out = append(out[:attentionCiteMax:attentionCiteMax], fmt.Sprintf("+%d more", rest))
-	}
-	return out
 }
 
 // doneTasks counts the group's finished tasks. Skipped counts as finished — the human decided it, and a
@@ -359,29 +275,6 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 	escalated := map[string]bool{}
 
 	for _, ch := range in.Channels {
-		for _, run := range ch.Runs {
-			idx := reviewGateIdx(run)
-			if idx < 0 {
-				continue
-			}
-			effortOID, chunkLabel := attribution(run)
-			gates = append(gates, wshrpc.AttentionItem{
-				Kind:         AttentionGate,
-				Key:          "gate:" + run.ID,
-				ChannelId:    ch.OID,
-				ChannelName:  ch.Name,
-				RunId:        run.ID,
-				Source:       goalHeadline(run.Goal),
-				Text:         "Approve before Jarvis proceeds.",
-				Action:       "Review",
-				PhaseIdx:     idx,
-				WaitingSince: run.Phases[idx].DoneTs,
-				EffortOID:    effortOID,
-				ChunkLabel:   chunkLabel,
-				Why:          gateWhy(run, idx),
-				Cites:        gateCites(run.Phases[idx]),
-			})
-		}
 		for _, run := range ch.Runs {
 			if it, ok := landHeldItem(ch, run); ok {
 				gates = append(gates, it)
