@@ -664,14 +664,16 @@ const attentionMessageWindow = 50
 // GatherAttention reads the live inputs and builds the list. Channels and runs come from the store;
 // pending asks come from the in-process registry, which is why this list is authoritative for the
 // current server lifetime rather than absolutely (a wavesrv restart empties it until agents re-raise).
+// The store reads are the Shared ones: the cockpit polls this, and decoding every run, dag and report
+// on each poll was most of what wavesrv allocated. Nothing here or in BuildAttention may modify them.
 func GatherAttention(ctx context.Context) ([]wshrpc.AttentionItem, error) {
-	chans, err := wstore.GetChannels(ctx)
+	chans, err := wstore.GetChannelsShared(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing channels: %w", err)
 	}
 	runsByChannel := make(map[string][]*waveobj.Run, len(chans))
 	for _, ch := range chans {
-		runs, err := wstore.GetChannelRuns(ctx, ch.OID)
+		runs, err := wstore.GetChannelRunsShared(ctx, ch.OID)
 		if err != nil {
 			return nil, fmt.Errorf("getting runs for channel %s: %w", ch.OID, err)
 		}
@@ -722,7 +724,7 @@ func GatherAttentionFromLedger(ctx context.Context, chans []*waveobj.Channel, ru
 				continue
 			}
 			seenDags[run.DagORef] = true
-			if g, gerr := wstore.GetDag(ctx, run.DagORef); gerr == nil {
+			if g, gerr := wstore.GetDagShared(ctx, run.DagORef); gerr == nil {
 				in.Dags = append(in.Dags, g)
 			}
 		}
@@ -730,7 +732,7 @@ func GatherAttentionFromLedger(ctx context.Context, chans []*waveobj.Channel, ru
 	// read whole because a triage count comes off a report's findings. A failed read degrades to no
 	// triage rows rather than failing the list — same posture as the non-loadable dag above, since a
 	// queue missing one kind is still worth showing — but it is logged, not swallowed.
-	if reports, rerr := wstore.GetRadarReports(ctx, ""); rerr != nil {
+	if reports, rerr := wstore.GetRadarReportsShared(ctx); rerr != nil {
 		log.Printf("jarvis attention: radar reports unreadable, triage rows omitted: %v", rerr)
 	} else {
 		in.Radar = reports

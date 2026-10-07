@@ -258,6 +258,52 @@ func TestGetChannelRunChanges(t *testing.T) {
 	}
 }
 
+// The Shared readers hand back the object they already hold while a row's version is unchanged, and a
+// fresh decode once it moves: the first is what makes a poll cheap, the second what keeps it correct.
+func TestSharedReadersDecodeOnlyChangedRows(t *testing.T) {
+	ctx := context.Background()
+	ch, err := CreateChannel(ctx, "shared-reads", "/p")
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	for _, r := range []waveobj.Run{{ID: "shr-late", CreatedTs: 20}, {ID: "shr-early", CreatedTs: 10}} {
+		r.Status = "planning"
+		if err := AppendRun(ctx, ch.OID, r); err != nil {
+			t.Fatalf("append %s: %v", r.ID, err)
+		}
+	}
+	first, err := GetChannelRunsShared(ctx, ch.OID)
+	if err != nil || len(first) != 2 || first[0].ID != "shr-early" || first[1].ID != "shr-late" {
+		t.Fatalf("first read: %+v err=%v", first, err)
+	}
+	again, _ := GetChannelRunsShared(ctx, ch.OID)
+	if again[0] != first[0] || again[1] != first[1] {
+		t.Fatalf("unchanged rows were decoded again")
+	}
+
+	if err := UpdateRun(ctx, ch.OID, "shr-late", func(r *waveobj.Run) error { r.Status = "done"; return nil }); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	after, err := GetChannelRunsShared(ctx, ch.OID)
+	if err != nil || len(after) != 2 {
+		t.Fatalf("after update: %+v err=%v", after, err)
+	}
+	if after[0] != first[0] {
+		t.Fatalf("the untouched run was decoded again")
+	}
+	if after[1] == first[1] || after[1].Status != "done" || first[1].Status != "planning" {
+		t.Fatalf("the updated run came back stale: %q (held copy now %q)", after[1].Status, first[1].Status)
+	}
+
+	chans, err := GetChannelsShared(ctx)
+	if err != nil || !slices.ContainsFunc(chans, func(c *waveobj.Channel) bool { return c.OID == ch.OID }) {
+		t.Fatalf("GetChannelsShared missed the channel: err=%v", err)
+	}
+	if _, err := GetDagShared(ctx, "shr-no-such-dag"); err != ErrNotFound {
+		t.Fatalf("missing dag: want ErrNotFound, got %v", err)
+	}
+}
+
 func TestGetChannelMessages(t *testing.T) {
 	ctx := context.Background()
 	ch, err := CreateChannel(ctx, "msgs-query", "/p")

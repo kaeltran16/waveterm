@@ -260,6 +260,32 @@ func GetChannelRuns(ctx context.Context, channelId string) ([]*waveobj.Run, erro
 		ORDER BY json_extract(data, '$.createdts') ASC`, channelId)
 }
 
+// GetChannelsShared is GetChannels for a caller that only reads: the channels are shared, not copies
+// (see selectShared).
+func GetChannelsShared(ctx context.Context) ([]*waveobj.Channel, error) {
+	chans, err := selectShared[*waveobj.Channel](ctx, `SELECT oid, version FROM db_channel`)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(chans, func(i, j int) bool {
+		return chans[i].CreatedTs > chans[j].CreatedTs
+	})
+	return chans, nil
+}
+
+// GetChannelRunsShared is GetChannelRuns for a caller that only reads: the runs are shared, not copies
+// (see selectShared). It sorts here, not in SQL, so the query never touches a row's data.
+func GetChannelRunsShared(ctx context.Context, channelId string) ([]*waveobj.Run, error) {
+	runs, err := selectShared[*waveobj.Run](ctx, `SELECT oid, version FROM db_run WHERE json_extract(data, '$.channeloid') = ?`, channelId)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(runs, func(i, j int) bool {
+		return runs[i].CreatedTs < runs[j].CreatedTs
+	})
+	return runs, nil
+}
+
 // GetChannelRunChanges returns the id of every run in the channel, and the rows of only those whose version
 // is not the one the caller holds in known. A caller that keeps a channel's run list refreshes it with this
 // instead of re-reading every row: the id-and-version pass never touches a row's data. Pure read (read pool).

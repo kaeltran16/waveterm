@@ -32,6 +32,17 @@ func GetRadarReport(ctx context.Context, reportId string) (*waveobj.RadarReport,
 	return DBMustGet[*waveobj.RadarReport](ctx, reportId)
 }
 
+// GetRadarReportsShared returns every report, newest-first, for a caller that only reads: the reports
+// are shared, not copies (see selectShared).
+func GetRadarReportsShared(ctx context.Context) ([]*waveobj.RadarReport, error) {
+	reports, err := selectShared[*waveobj.RadarReport](ctx, `SELECT oid, version FROM db_radarreport`)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(reports, func(i, j int) bool { return reports[i].StartedTs > reports[j].StartedTs })
+	return reports, nil
+}
+
 // GetRadarReports returns reports for projectPath (all reports when projectPath == ""), newest-first.
 func GetRadarReports(ctx context.Context, projectPath string) ([]*waveobj.RadarReport, error) {
 	all, err := DBGetAllObjsByType[*waveobj.RadarReport](ctx, waveobj.OType_RadarReport)

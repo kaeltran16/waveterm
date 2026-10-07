@@ -17,6 +17,18 @@ func GetDag(ctx context.Context, dagId string) (*waveobj.TaskGroup, error) {
 	return DBMustGet[*waveobj.TaskGroup](ctx, dagId)
 }
 
+// GetDagShared is GetDag for a caller that only reads: the group is shared, not a copy (see selectShared).
+func GetDagShared(ctx context.Context, dagId string) (*waveobj.TaskGroup, error) {
+	dags, err := selectShared[*waveobj.TaskGroup](ctx, `SELECT oid, version FROM db_dag WHERE oid = ?`, dagId)
+	if err != nil {
+		return nil, err
+	}
+	if len(dags) == 0 {
+		return nil, ErrNotFound
+	}
+	return dags[0], nil
+}
+
 // GetDagsByStatus lists every dag row with the given derived status (e.g. "running") — the watchdog's
 // iteration set.
 func GetDagsByStatus(ctx context.Context, status string) ([]*waveobj.TaskGroup, error) {
