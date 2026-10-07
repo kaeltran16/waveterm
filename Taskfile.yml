@@ -165,12 +165,11 @@ tasks:
         generates:
             - dist/bin/wavesrv.x64.exe
 
-    # dev-loop backend: wavesrv + wsh for the dev host only, instead of the 8-target wsh matrix
-    # (build:backend/build:wsh stay the full matrix for release). Linux has no quickdev flavor, so
-    # it falls back to the full build. `platforms` must live at task level here: this Task version
+    # dev-loop backend: wavesrv + wsh for the dev host only, without the release build's clean and
+    # strip (build:backend). Linux has no quickdev flavor, so it falls back to the full build. `platforms` must live at task level here: this Task version
     # silently ignores per-cmd `platforms`.
     build:backend:devhost:
-        desc: Build wavesrv + wsh for the dev host only (windows/darwin); release keeps the full matrix via build:backend.
+        desc: Build wavesrv + wsh for the dev host only (windows/darwin); release goes through build:backend.
         internal: true
         platforms: [windows, darwin]
         cmds:
@@ -179,7 +178,7 @@ tasks:
             - task: build:wsh:devhost
 
     build:backend:devhost:full:
-        desc: Fallback backend build for hosts without a quickdev flavor (linux uses the full matrix).
+        desc: Fallback backend build for hosts without a quickdev flavor (linux uses build:backend).
         internal: true
         platforms: [linux]
         cmds:
@@ -221,6 +220,8 @@ tasks:
                       sh: echo {{if eq "arm" ARCH}}arm64{{else}}{{ARCH}}{{end}}
                   GO_ENV_VARS:
                       sh: echo "{{if eq "amd64" ARCH}}CC=\"zig cc -target x86_64-windows-gnu\"{{else}}CC=\"zig cc -target aarch64-windows-gnu\"{{end}}"
+                  # drops DWARF only (31 MB -> 18 MB); panic stacks come from pclntab and survive
+                  GO_LDFLAGS: -s -w
 
     build:server:linux:
         desc: Build the wavesrv component for Linux platforms (only generates artifacts for the current architecture).
@@ -307,7 +308,7 @@ tasks:
         internal: true
 
     build:wsh:
-        desc: Build the wsh component for all possible targets.
+        desc: Build the wsh component for windows x64, the only target the installer bundles.
         cmds:
             - cmd: rm -f dist/bin/wsh*
               platforms: [darwin, linux]
@@ -315,7 +316,10 @@ tasks:
             - cmd: powershell -NoProfile -NonInteractive -Command "Remove-Item -Force -ErrorAction SilentlyContinue -Path dist/bin/wsh*"
               platforms: [windows]
               ignore_error: true
-            - task: build:wsh:parallel
+            - task: build:wsh:internal
+              vars:
+                  GOOS: windows
+                  GOARCH: amd64
         deps:
             - go:mod:tidy
             - generate
@@ -325,42 +329,6 @@ tasks:
             - package.json
         generates:
             - "dist/bin/wsh*"
-
-    build:wsh:parallel:
-        deps:
-            - task: build:wsh:internal
-              vars:
-                  GOOS: darwin
-                  GOARCH: arm64
-            - task: build:wsh:internal
-              vars:
-                  GOOS: darwin
-                  GOARCH: amd64
-            - task: build:wsh:internal
-              vars:
-                  GOOS: linux
-                  GOARCH: arm64
-            - task: build:wsh:internal
-              vars:
-                  GOOS: linux
-                  GOARCH: amd64
-            - task: build:wsh:internal
-              vars:
-                  GOOS: linux
-                  GOARCH: mips
-            - task: build:wsh:internal
-              vars:
-                  GOOS: linux
-                  GOARCH: mips64
-            - task: build:wsh:internal
-              vars:
-                  GOOS: windows
-                  GOARCH: amd64
-            - task: build:wsh:internal
-              vars:
-                  GOOS: windows
-                  GOARCH: arm64
-        internal: true
 
     build:wsh:internal:
         deps:

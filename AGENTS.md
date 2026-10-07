@@ -23,7 +23,7 @@ The build is orchestrated by [Task](https://taskfile.dev) (`Taskfile.yml`), a `m
 |---|---|
 | `task init` | First-time setup: `npm install` + `go mod tidy`. |
 | `task dev` (alias of `task tauri:dev`) | The main way to run. Builds the dev-host backend only (wavesrv + host wsh), syncs `pi/` artifacts and the version, then `cargo tauri dev` (Vite dev server on `:5174`, HMR). |
-| `task build:backend` | Builds `wavesrv` + `wsh` for the full release matrix into `dist/bin/`. |
+| `task build:backend` | Release backend build: a stripped `wavesrv` + `wsh` for windows x64 (the only target the installer bundles) into `dist/bin/`. |
 | `task build:backend:quickdev:windows` | Rebuilds only `wavesrv` (no wsh, no generate) — the fast loop for Go server changes. |
 | `task generate` | Regenerates TS + Go bindings from Go source. **Run after changing any wshrpc / waveobj / wconfig type.** |
 | `task check:ts` | Typecheck the frontend (see the tsc gotcha below). |
