@@ -96,7 +96,7 @@ func planReviewPrompt(g *waveobj.TaskGroup, tree string) string {
 	fmt.Fprintf(&b, "the plan at %s, and the files they name.\n", DocPath(g, tree, g.PlanPath))
 	b.WriteString("Check that:\n")
 	b.WriteString("- every requirement in the spec has a task;\n")
-	b.WriteString("- no two tasks edit the same file without a Depends between them, since tasks with nothing between them run at the same time;\n")
+	b.WriteString("- no two tasks edit the same file without a Depends between them, since tasks with nothing between them run at the same time. Submit already refused any path two such tasks both list on their Files lines, so look for what those lines leave out: a task with no Files line, and a file a task's text edits that its Files line omits;\n")
 	b.WriteString("- types, functions and flags have the same names in every task that mentions them;\n")
 	b.WriteString("- each task states its acceptance criteria and names the tests that prove them;\n")
 	b.WriteString("- the commands the plan names (its Verify, Setup, Check and Final lines, and those in its tasks) exist;\n")
