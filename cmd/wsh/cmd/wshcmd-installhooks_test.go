@@ -699,10 +699,10 @@ func TestMergeKeepsForeignHooksUnderUnmanagedEvents(t *testing.T) {
 
 func TestCompactionHooksAreManaged(t *testing.T) {
 	for _, want := range []managedHook{
-		{"PreCompact", "", "agent-hook", 10},
-		{"SessionStart", "compact", "agent-hook", 10},
-		{"SessionStart", "compact", "jarvis dag rules --inject", 15},
-		{"SessionStart", "clear", "agent-hook", 10},
+		{Event: "PreCompact", Args: "agent-hook", Timeout: 10},
+		{Event: "SessionStart", Matcher: "compact", Args: "agent-hook", Timeout: 10},
+		{Event: "SessionStart", Matcher: "compact", Args: "jarvis dag rules --inject", Timeout: 15},
+		{Event: "SessionStart", Matcher: "clear", Args: "agent-hook", Timeout: 10},
 	} {
 		found := false
 		for _, mh := range managedHooks {
@@ -1023,5 +1023,62 @@ func TestConfigIsHealthy_modsSupportedWantsNoWrapper(t *testing.T) {
 	}
 	if configIsHealthy(unwrapStatusLine(wrapped), testWsh, []string{testModDir}, false) {
 		t.Fatal("without mod support the wrapper is required")
+	}
+}
+
+// managedHookEntries returns the hook maps Arc wrote under one event, keyed by "<matcher>|<args>".
+func managedHookEntries(t *testing.T, cfg map[string]any, event string) map[string]map[string]any {
+	t.Helper()
+	out := map[string]map[string]any{}
+	groups, _ := cfg["hooks"].(map[string]any)[event].([]any)
+	for _, g := range groups {
+		gm, _ := g.(map[string]any)
+		matcher, _ := gm["matcher"].(string)
+		hs, _ := gm["hooks"].([]any)
+		for _, h := range hs {
+			hm, _ := h.(map[string]any)
+			c, _ := hm["command"].(string)
+			if !isManagedCommand(c) {
+				continue
+			}
+			_, args := splitFirstToken(c)
+			out[matcher+"|"+args] = hm
+		}
+	}
+	return out
+}
+
+func TestPerToolReportsRunInTheBackground(t *testing.T) {
+	cfg := mergeAgentHooks(map[string]any{}, testWsh)
+	for _, tc := range []struct {
+		event, key string
+		async      bool
+	}{
+		{"PreToolUse", "|agent-hook", true},
+		{"PostToolUse", "|agent-hook", true},
+		// the ask hooks answer claude, and a headless claude kills a background Stop at teardown
+		{"PreToolUse", "AskUserQuestion|ask", false},
+		{"PostToolUse", "AskUserQuestion|ask --clear", false},
+		{"Stop", "|agent-hook", false},
+		{"UserPromptSubmit", "|agent-hook", false},
+	} {
+		hm, ok := managedHookEntries(t, cfg, tc.event)[tc.key]
+		if !ok {
+			t.Fatalf("%s %q is not installed", tc.event, tc.key)
+		}
+		if async, _ := hm["async"].(bool); async != tc.async {
+			t.Errorf("%s %q async = %v, want %v", tc.event, tc.key, async, tc.async)
+		}
+	}
+}
+
+func TestConfigIsHealthy_rewritesAHookWrittenBeforeItRanInTheBackground(t *testing.T) {
+	full := mergeClaudePluginDirs(mergeStatusLine(mergeAgentHooks(map[string]any{}, testWsh), testWsh), testModDir)
+	delete(managedHookEntries(t, full, "PostToolUse")["|agent-hook"], "async")
+	if configIsHealthy(full, testWsh, []string{testModDir}, false) {
+		t.Fatal("a blocking per-tool hook from an older install should NOT be healthy")
+	}
+	if !configIsHealthy(mergeAgentHooks(full, testWsh), testWsh, []string{testModDir}, false) {
+		t.Fatal("a reinstall should leave the config healthy")
 	}
 }

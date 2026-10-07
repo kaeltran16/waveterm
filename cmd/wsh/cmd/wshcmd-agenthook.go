@@ -426,6 +426,9 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 	if os.Getenv("WAVETERM_BLOCKID") == "" {
 		return nil // not inside an Arc block; near-instant no-op (not logged: not an error)
 	}
+	// stamped before any rpc: the per-tool hooks run in the background, and wavesrv orders their reports
+	// by when the hook started, not by when a slow one got through
+	startedTs := time.Now().UnixMilli()
 	// The opencode path (--shadow) supplies its state explicitly — the plugin derives it from
 	// opencode events. The claude path derives state from the lifecycle-hook payload on stdin.
 	ev := ccHookEvent{}
@@ -481,7 +484,7 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		Agent:          agentHookAgent,
 		Cwd:            ev.Cwd,
 		TranscriptPath: transcriptPath,
-		Ts:             time.Now().UnixMilli(),
+		Ts:             startedTs,
 	}
 	if em.AttachModelTitle && transcriptPath != "" {
 		if agentHookShadow != "" {

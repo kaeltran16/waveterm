@@ -30,26 +30,30 @@ type managedHook struct {
 	Matcher string // "" => no matcher key (matches all)
 	Args    string // wsh subcommand + flags, e.g. "agent-hook", "ask", "ask --clear"
 	Timeout int
+	// Async runs the hook in the background, so claude does not wait for it. Only the two reports that
+	// fire on every tool call take it: the rest fire once a turn, and a headless claude kills an async
+	// hook still running at teardown, which would lose a Stop.
+	Async bool
 }
 
 // order is deterministic so re-runs produce stable output
 var managedHooks = []managedHook{
-	{"PreToolUse", "", "agent-hook", 10},
-	{"PreToolUse", "AskUserQuestion", "ask", 3600},
-	{"PostToolUse", "", "agent-hook", 10},
-	{"PostToolUse", "AskUserQuestion", "ask --clear", 10},
-	{"Notification", "", "agent-hook", 10},
-	{"Stop", "", "agent-hook", 10},
-	{"SubagentStop", "", "agent-hook", 10},
-	{"UserPromptSubmit", "", "agent-hook", 10},
+	{Event: "PreToolUse", Args: "agent-hook", Timeout: 10, Async: true},
+	{Event: "PreToolUse", Matcher: "AskUserQuestion", Args: "ask", Timeout: 3600},
+	{Event: "PostToolUse", Args: "agent-hook", Timeout: 10, Async: true},
+	{Event: "PostToolUse", Matcher: "AskUserQuestion", Args: "ask --clear", Timeout: 10},
+	{Event: "Notification", Args: "agent-hook", Timeout: 10},
+	{Event: "Stop", Args: "agent-hook", Timeout: 10},
+	{Event: "SubagentStop", Args: "agent-hook", Timeout: 10},
+	{Event: "UserPromptSubmit", Args: "agent-hook", Timeout: 10},
 	// a compaction reports working and its end reports idle: the wake adapter types a lead's handoff
 	// /compact as a wake that working confirms, and holds later wakes until the session is back
-	{"PreCompact", "", "agent-hook", 10},
-	{"SessionStart", "compact", "agent-hook", 10},
+	{Event: "PreCompact", Args: "agent-hook", Timeout: 10},
+	{Event: "SessionStart", Matcher: "compact", Args: "agent-hook", Timeout: 10},
 	// a compaction drops a lead's launch prompt, so its orchestration rules come back in its place
-	{"SessionStart", "compact", "jarvis dag rules --inject", 15},
+	{Event: "SessionStart", Matcher: "compact", Args: "jarvis dag rules --inject", Timeout: 15},
 	// /clear opens a new transcript: report it now so the cockpit follows the new file before the next prompt
-	{"SessionStart", "clear", "agent-hook", 10},
+	{Event: "SessionStart", Matcher: "clear", Args: "agent-hook", Timeout: 10},
 }
 
 func managedEventOrder() []string {
@@ -312,15 +316,15 @@ func resolveHookWsh(exe, home string) string {
 }
 
 func buildManagedGroup(mh managedHook, wshExe string) map[string]any {
-	group := map[string]any{
-		"hooks": []any{
-			map[string]any{
-				"type":    "command",
-				"command": quotePath(wshExe) + " " + mh.Args,
-				"timeout": mh.Timeout,
-			},
-		},
+	hook := map[string]any{
+		"type":    "command",
+		"command": quotePath(wshExe) + " " + mh.Args,
+		"timeout": mh.Timeout,
 	}
+	if mh.Async {
+		hook["async"] = true
+	}
+	group := map[string]any{"hooks": []any{hook}}
 	if mh.Matcher != "" {
 		group["matcher"] = mh.Matcher
 	}
@@ -343,6 +347,16 @@ func groupIsManaged(group any) bool {
 		}
 		if c, ok := hm["command"].(string); ok && isManagedCommand(c) {
 			return true
+		}
+	}
+	return false
+}
+
+// managedHookAsync is whether Arc writes the (event, matcher, args) hook as a background one.
+func managedHookAsync(event, matcher, args string) bool {
+	for _, mh := range managedHooks {
+		if mh.Event == event && mh.Matcher == matcher && mh.Args == args {
+			return mh.Async
 		}
 	}
 	return false
@@ -550,7 +564,13 @@ func configIsHealthy(existing map[string]any, wantExe string, modDirs []string, 
 				if !isManagedCommand(c) {
 					continue
 				}
-				if exe, _ := splitFirstToken(c); exe != wantExe {
+				exe, rest := splitFirstToken(c)
+				if exe != wantExe {
+					return false
+				}
+				// a hook written before its async flag changed is rewritten, like one naming an old binary
+				matcher, _ := gm["matcher"].(string)
+				if async, _ := hm["async"].(bool); async != managedHookAsync(event, matcher, strings.TrimSpace(rest)) {
 					return false
 				}
 				count++

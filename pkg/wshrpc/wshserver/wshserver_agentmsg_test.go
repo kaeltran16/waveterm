@@ -13,6 +13,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/agentmsg"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -405,5 +406,41 @@ func TestAgentsTabScopedStatusOpensSendBack(t *testing.T) {
 	})
 	if _, err := ws.AgentsSendCommand(ctx, back); err != nil {
 		t.Fatalf("send back after a tab-scoped idle: %v", err)
+	}
+}
+
+func TestPublishEventDropsAnOvertakenStatus(t *testing.T) {
+	ctx := context.Background()
+	oref := blockORef("b0000000-0000-4000-8000-00000000057a")
+	publish := func(state string, ts int64) string {
+		publishEvent(ctx, wps.WaveEvent{
+			Event:   wps.Event_AgentStatus,
+			Scopes:  []string{oref},
+			Persist: 1,
+			Data:    baseds.AgentStatusData{ORef: oref, State: state, Agent: "claude", Ts: ts},
+		})
+		var last baseds.AgentStatusData
+		for _, ev := range wps.Broker.ReadEventHistory(wps.Event_AgentStatus, oref, 1) {
+			if err := utilfn.ReUnmarshal(&last, ev.Data); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return last.State
+	}
+	now := time.Now().UnixMilli()
+	if got := publish(baseds.AgentState_Idle, now); got != baseds.AgentState_Idle {
+		t.Fatalf("retained = %q, want idle", got)
+	}
+	// a background hook that started before the turn ended and got through after it
+	if got := publish(baseds.AgentState_Working, now-500); got != baseds.AgentState_Idle {
+		t.Fatalf("a late working replaced the idle after it: retained = %q", got)
+	}
+	// the same instant is not older: two reports in one millisecond both land
+	if got := publish(baseds.AgentState_Waiting, now); got != baseds.AgentState_Waiting {
+		t.Fatalf("retained = %q, want waiting", got)
+	}
+	// far older than any hook can lag is a clock that stepped back, and status must not freeze on it
+	if got := publish(baseds.AgentState_Working, now-staleStatusWindowMs-1); got != baseds.AgentState_Working {
+		t.Fatalf("a report after a clock step was dropped: retained = %q", got)
 	}
 }
