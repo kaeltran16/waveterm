@@ -222,6 +222,19 @@ func TestWorkerContractNamesCheckAndLeavesVerifyToTheEngine(t *testing.T) {
 	}
 }
 
+// Final is the first run of a scenario unless the worker that wrote it runs it, and a failure there costs a fix round.
+func TestWorkerContractHasTheWorkerRunItsOwnFinalScenario(t *testing.T) {
+	want := "run that one scenario yourself (the Final command narrowed to it) and get its steps passing before you complete"
+	g := &waveobj.TaskGroup{FinalCmd: "node scripts/cdp/final-verify.mjs surface-smoke"}
+	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
+	if !strings.Contains(c, want) || !strings.Contains(c, "(`node scripts/cdp/final-verify.mjs surface-smoke`)") {
+		t.Fatalf("contract with a Final command missing %q:\n%s", want, c)
+	}
+	if c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude", ""); strings.Contains(c, "Final command") {
+		t.Fatalf("no Final set, so no Final sentence: %q", c)
+	}
+}
+
 func TestWorkerContractWithCheckButNoVerify(t *testing.T) {
 	g := &waveobj.TaskGroup{Check: "go vet ./..."}
 	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
