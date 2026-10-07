@@ -2802,6 +2802,7 @@ declare global {
         verifyerror?: string;
         verifyoutput?: string;
         verifystartedts?: number;
+        verifydeferred?: boolean;
         mergeerror?: string;
         mergefailures?: number;
         reviewrunid?: string;

@@ -22,7 +22,7 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"ARC_VERIFY_CHANGED naming a file that lists the paths the merge changed, one per line: a Verify that reads it " +
 	"should test only what those paths can break, so the merge queue waits on those tests, not the whole suite. The " +
 	"final stage runs Verify once more with ARC_VERIFY_CHANGED unset, on the merged result, where it should run " +
-	"everything. Both times ARC_VERIFY_FLAKY names an empty file: a Verify that reruns a failing test and sees it pass " +
+	"everything; the last merge of the plan, alone in its batch, skips its own Verify for that one. Both times ARC_VERIFY_FLAKY names an empty file: a Verify that reruns a failing test and sees it pass " +
 	"should exit 0 and append that test's name to the file, one per line, and the run then lists each as a flaky test " +
 	"among what it could not verify instead of reading as a clean pass. " +
 	"Check is a fast whole-project static check (for example typecheck plus go vet) that each worker runs " +

@@ -300,7 +300,9 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
   that lists the paths the batch changed, one per line: a Verify that reads it should test only what those paths
   can break.
   The final stage runs Verify once more with `ARC_VERIFY_CHANGED` unset, on the merged result, where it runs
-  everything. Both are optional, both run in a POSIX shell (Git Bash on Windows).
+  everything. The last merge of a plan skips its own Verify for that one
+  ([The last merge](#the-last-merge-skips-its-verify)). Both are optional, both run in a POSIX shell (Git Bash on
+  Windows).
   **Flaky tests.** Every Verify, at a merge and in the final stage, runs with `ARC_VERIFY_FLAKY` naming an empty
   file. A Verify that reruns a failing test and sees it pass exits 0 and appends that test's name to the file,
   one per line. The Verify still passes, but each name becomes an unverified reason of the run
@@ -365,6 +367,25 @@ lead's fix and `dag merge <task> --continue` judges them together. A single lane
 is a batch after a fix commit, since a prefix without the fix would blame that lane again: the oldest lane
 takes the failure. A bisect that cannot run (the tree or its Setup fails) blames the oldest lane not yet known
 good, so it never lands a lane no Verify passed.
+
+#### The last merge skips its Verify
+
+When a merge leaves nothing to run, review or merge, the final stage starts next and runs the whole Verify on
+that same tree, so the merge runs none of its own. The task goes straight to done, and its **Task merged** row
+reads "Verify left to the final stage" (`"verify": "final"` on the `task-merged` event); there is no **Verify
+started** or **Verify passed** row for it. A failure then shows as a failed final stage ("Verify … failed on the
+merged result"), which blocks the run and wakes the lead for a fix round as any final Verify failure does. It is
+not bisected and names no lane, because the final stage never does. A stage that ends before its Verify ran (it
+could not make its tree, Check failed, or you ended it) leaves that merge with no Verify at all: the stage's own
+failure or unverified reason says so, and the merge's chunks stay open until a later round's Verify passes.
+
+Every other merge verifies as before:
+
+- any task is still pending, running, in review, at a gate or waiting to merge;
+- the merge is one of a batch of two or more, even the plan's last batch, so a failure can still be bisected to
+  its lane;
+- the plan has no Verify line, so the final stage has none to run;
+- the merge is a fix round's: every fix-round merge runs its Verify, the last one too.
 
 ### Start it
 
@@ -759,6 +780,8 @@ Final line, and alongside Check and Verify when it has none:
    unless Check already failed on the base at submit: then the stage goes on and reports it as unverified.
 2. **Verify**, the plan's Verify line with `ARC_VERIFY_CHANGED` unset, on the merged result (20-minute limit). A
    non-zero exit fails the stage. Each test it reports flaky in `ARC_VERIFY_FLAKY` becomes an unverified reason.
+   It is also the only Verify of the plan's last merge ([The last merge](#the-last-merge-skips-its-verify)),
+   whose chunks close when it passes.
 3. **Final**, the plan's `**Final:**` command, in a POSIX shell with `ARC_FINAL_OUT` set to a fresh directory
    for its screenshots and reports (`<data dir>/final-shots/<dag>/<round>`, outside every tree). Exit 0 passes.
    Exit 3 means it could not verify, and its last output line becomes an unverified reason. Any other exit, or
@@ -955,7 +978,7 @@ Done doesn't mean finished. The work after the last merge splits four ways:
 | Work | Whose job | On the backlog run |
 |---|---|---|
 | The run's report | **The lead's.** Its rules (`OrchestrationRules`, `leadprompt.go`) have it fix and commit what the landed tasks left behind in docs (a code defect found then is an open issue, not a wrap-up commit), write the report to a file, and add each open issue as a pending chunk on the initiative (creating one if the run has none). Then it completes on its own with `wsh jarvis complete --report <file>`, without asking whether to. It asks you first only when a decision is needed: a failed verification, a deviation that needs your call, or a proposed fix round. An unverified outcome never blocks completion. | Not written. The rules then said "write the report …, then `wsh jarvis complete`". The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same. |
-| Closing the initiative's tracker chunks | **The engine's.** A task names its chunks with `**Chunk:**` lines after its Depends line, and the engine marks each done with the landed commit once the task's merge passes Verify. | The plan gave it to workers through a header line they never saw. The tracker read 3/16 with all 13 tasks landed. |
+| Closing the initiative's tracker chunks | **The engine's.** A task names its chunks with `**Chunk:**` lines after its Depends line, and the engine marks each done with the landed commit once the task's merge passes Verify (for the last merge, once the final stage's Verify passes). | The plan gave it to workers through a header line they never saw. The tracker read 3/16 with all 13 tasks landed. |
 | Merging the branch back | **The engine's** on a branch-landed run ([Landing back](#landing-back)); **yours** on a checkout-landed one, or when a land is held. | The run landed on the project checkout's branch, and merging it was left to the human. |
 | Checking what the final stage could not, committing anything | **Yours.** The unverified item names what nothing checked. | Four fixes still need a live check once the branch is on `main` and running in the dev app. |
 

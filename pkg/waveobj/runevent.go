@@ -43,7 +43,10 @@ const (
 	//   task-merge-*                  merge lifecycle at persisted content-integration boundaries.
 	//                                 -blocked is a conflict, which is the human's; -failed is git
 	//                                 refusing the squash outright, which is retried a bounded number
-	//                                 of times and then blocks rather than looping unseen
+	//                                 of times and then blocks rather than looping unseen. task-merged
+	//                                 carries "verify": "final" when the merge ran no Verify of its own
+	//                                 because the final stage's Verify judges the same tree (the last
+	//                                 merge of a plan with a Verify line)
 	//   task-cleanup-*                durable worktree cleanup at persisted transition boundaries
 	RunEventKindTaskDone             = "task-done"
 	RunEventKindTaskFailed           = "task-failed"

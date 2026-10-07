@@ -118,7 +118,7 @@ func TestWatchdogMovesOnFromATickThatNeverFinishes(t *testing.T) {
 // A Verify whose goroutine never records a result holds its project claim, so every later merge waits on it.
 func TestAVerifyPastItsBoundIsReportedOnce(t *testing.T) {
 	lead := newFakeLead(t)
-	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}})
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}, stillOpen})
 	f.setPlanCommands(t, verifyCmd, "")
 	f.finish(t, "t-0")
 	stubMerge(t, landedSha)
