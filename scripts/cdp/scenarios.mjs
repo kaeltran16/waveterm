@@ -136,10 +136,10 @@ const runsLifecycle = {
         }
         await settle(1200);
         const sheet = await h.ev(`(() => {
-            const showing = [...document.querySelectorAll('span')]
-                .map((x) => (x.textContent || '').trim())
-                // the sheet header's run line: "<mode> run <id4>", plus " · <how it ended>" once it has ended
-                .find((t) => /^[a-z]+ run [0-9a-f]{4}( · .+)?$/.test(t));
+            // the sheet header's copyable run id carries the whole id
+            const showing = document
+                .querySelector('[data-jarvis-brief-sheet] > header [data-run-id]')
+                ?.getAttribute('data-run-id');
             return {
                 settings: document.querySelector('[data-jarvis-brief-sheet-face="settings"]') != null,
                 showing: showing || null,
@@ -149,8 +149,7 @@ const runsLifecycle = {
             "4. the gate's queue row opens the sheet on THAT run",
             gateOpened === true &&
                 sheet.settings === true &&
-                sheet.showing != null &&
-                sheet.showing.endsWith(runId.slice(0, 4)),
+                sheet.showing === runId,
             JSON.stringify({ gateOpened, ...sheet })
         );
         await h.shot("cdp-shots/runs-gate-sheet.png");
