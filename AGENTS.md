@@ -35,6 +35,7 @@ The build is orchestrated by [Task](https://taskfile.dev) (`Taskfile.yml`), a `m
 Other useful commands:
 
 - **Single frontend test:** `npx vitest run frontend/app/view/agents/projectname.test.ts`, or filter by name: `npx vitest run -t "handles backslash paths"`.
+- **Go tests:** one test is `go test ./pkg/x -run '^TestName$'`. For a whole package, list your changed paths in a file and run `ARC_VERIFY_CHANGED=<that file> node scripts/verify.mjs ./pkg/x ./pkg/y` (`git diff --name-only main > <file>`): it tests only the packages those paths can break and deals a large package's tests across 4 processes. `pkg/orchestrate` is ~760 tests and ~6,000 git launches: 4 to 7 min as plain `go test`, under 2 min this way. Keep go's default 10-minute timeout: a run that reaches it holds a hung test, and the timeout's goroutine dump names it.
 - **Rust tests:** `cargo test --manifest-path src-tauri/Cargo.toml`.
 - **Lint / format:** flat ESLint config (`eslint.config.js`) + Prettier (`prettier.config.cjs`), but **no Task/npm wrapper** — run `npx eslint` and `npx prettier --check` directly, **on paths**: `npx eslint .` also walks the worktree copies under `.worktrees/` and `.claude/worktrees/`.
 - **HEAD is not formatter-clean** (`gofmt -l pkg cmd` lists ~50 files; prettier fails in places too). Check only the files you touched; never `--write` the tree. Never run prettier on `scripts/*.mjs` — `.editorconfig` omits `.mjs`, so prettier reindents those hand-formatted 4-space files to 2.
