@@ -239,6 +239,7 @@ func TestDispatchFailsATaskWhoseWorkerWillNotStart(t *testing.T) {
 	}
 	restoreAfterStages(t, func() { appendChildRun = oldAppend })
 	stubStartWorker(t, func(context.Context, string) error { return errors.New("no pty") })
+	spendDispatchRetries(t, ctx, g.OID)
 
 	if err := ScheduleOnce(ctx, g); err != nil {
 		t.Fatal(err)

@@ -152,7 +152,8 @@ const (
 //   child events:     "childrunid" string, "goal" string, "summary" string
 //   evidence-sealed:  "files" int, "addtotal" int, "deltotal" int
 //   task/dag events:  "taskid" string, "failures" int
-//   task-retried:     "taskid" string, "kind" string, "attempt" int
+//   task-retried:     "taskid" string, "kind" string, "attempt" int; "auto" bool when the engine retried it
+//                     unasked, with "detail" string (the cause) for a dispatch failure
 //   task-merge-failed: "taskid" string, "error" string (the git refusal), "attempt" int, "blocked" bool
 //   task-spawned:     "taskid" string, "worktreems" int64, "setupms" int64, "spawnms" int64
 //   task-first-activity: "taskid" string, "sincespawnms" int64

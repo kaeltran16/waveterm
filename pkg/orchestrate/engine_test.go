@@ -1415,6 +1415,95 @@ func TestScheduleRecordsASpawnEvenWhenTheCallerGaveUp(t *testing.T) {
 	}
 }
 
+// spendDispatchRetries leaves a dag's first task with its automatic dispatch retries used up, so its next spawn
+// failure is terminal.
+func spendDispatchRetries(t *testing.T, ctx context.Context, dagID string) {
+	t.Helper()
+	if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
+		cur.Tasks[0].Attempts, cur.Tasks[0].LastFailureKind = MaxAutoDispatchRetries, FailureKindSpawn
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// stubFlakySpawn fails the first failures spawns and returns how many were asked for.
+func stubFlakySpawn(t *testing.T, failures int) *int {
+	t.Helper()
+	calls := 0
+	old := spawnWorker
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
+		calls++
+		if calls <= failures {
+			return "", errors.New("creating worker tab: workspace ws-1 not found: context deadline exceeded")
+		}
+		return "tab:worker", nil
+	}
+	restoreAfterStages(t, func() { spawnWorker = old })
+	return &calls
+}
+
+// runs 810fbc02, d86eec09 and f15cd1a3: a spawn that missed its deadline failed the task, and the lead retried it by
+// hand up to 29 minutes later
+func TestDispatchFailureIsRetriedOnTheNextTick(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	f := newFakeLead(t)
+	timedEventsReachTheFakeLead(t)
+	ctx, g, _, _ := seedDispatchDag(t, "dispatch-retry-once")
+	calls := stubFlakySpawn(t, 1)
+
+	if err := ScheduleOnce(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	if task := g.Tasks[0]; task.State != TaskState_Pending || task.RunID != "" || task.Attempts != 1 {
+		t.Fatalf("a failed dispatch waits for the next tick, got state=%s run=%q attempts=%d", task.State, task.RunID, task.Attempts)
+	}
+	if err := ScheduleOnce(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	if task := g.Tasks[0]; task.State != TaskState_Running || task.RunID == "" || *calls != 2 {
+		t.Fatalf("the second dispatch runs the task, got state=%s run=%q spawns=%d", task.State, task.RunID, *calls)
+	}
+	if len(f.sends) != 0 || f.countKind(waveobj.RunEventKindTaskFailed) != 0 {
+		t.Fatalf("a dispatch the engine retried neither fails the task nor wakes the lead, sends=%q rows=%+v", f.sends, f.rows)
+	}
+	var retried map[string]any
+	for _, r := range f.rows {
+		if r["eventkind"] == waveobj.RunEventKindTaskRetried {
+			retried = r
+		}
+	}
+	if f.countKind(waveobj.RunEventKindTaskRetried) != 1 || retried["auto"] != true || retried["kind"] != FailureKindSpawn || retried["attempt"] != 1 {
+		t.Fatalf("want one automatic spawn-failed retry, got %+v", f.rows)
+	}
+}
+
+func TestDispatchThatKeepsFailingFailsAfterItsRetries(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	f := newFakeLead(t)
+	timedEventsReachTheFakeLead(t)
+	ctx, g, _, _ := seedDispatchDag(t, "dispatch-retry-spent")
+	const never = 1 << 30
+	calls := stubFlakySpawn(t, never)
+
+	// one tick past the terminal failure: a failed task is not dispatched again
+	for range MaxAutoDispatchRetries + 2 {
+		if err := ScheduleOnce(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if task := g.Tasks[0]; task.State != TaskState_Failed || task.LastFailureKind != FailureKindSpawn || *calls != MaxAutoDispatchRetries+1 {
+		t.Fatalf("want failed (spawn-failed) after %d dispatches, got state=%s kind=%s spawns=%d", MaxAutoDispatchRetries+1, task.State, task.LastFailureKind, *calls)
+	}
+	if n := f.countKind(waveobj.RunEventKindTaskRetried); n != MaxAutoDispatchRetries {
+		t.Fatalf("want %d task-retried events, got %d", MaxAutoDispatchRetries, n)
+	}
+	want := "wake: task t-0 failed (spawn-failed), retry spent. wsh jarvis dag status"
+	if len(f.sends) != 1 || f.sends[0] != want || f.countKind(waveobj.RunEventKindTaskFailed) != 1 {
+		t.Fatalf("want one failure and one wake %q, got sends=%q rows=%+v", want, f.sends, f.rows)
+	}
+}
+
 // stalledNoLead is seedSilentChild with the run's lead process gone, so its task stalls on the next tick
 // with nobody to judge it.
 func stalledNoLead(t *testing.T, name string, alive bool) (*fakeLead, context.Context, *waveobj.TaskGroup, string) {

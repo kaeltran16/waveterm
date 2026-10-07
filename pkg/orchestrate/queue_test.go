@@ -172,7 +172,7 @@ func TestUnconfirmedSessionAnswerRepublishesToTheHuman(t *testing.T) {
 
 func TestDispatchFailureWakesLeadAfterCommit(t *testing.T) {
 	f := newFakeLead(t)
-	g := &waveobj.TaskGroup{OID: "dag-1", ChannelId: wakeChannel, RunID: wakeRun, Tasks: []waveobj.TaskNode{{ID: "t-3", State: TaskState_Ready}}}
+	g := &waveobj.TaskGroup{OID: "dag-1", ChannelId: wakeChannel, RunID: wakeRun, Tasks: []waveobj.TaskNode{{ID: "t-3", State: TaskState_Ready, Attempts: MaxAutoDispatchRetries, LastFailureKind: FailureKindSpawn}}}
 	var afterCommit []func()
 
 	failDispatch(context.Background(), g, "t-3", FailureKindSpawn, errors.New("pty refused"), &afterCommit)
@@ -406,7 +406,7 @@ func TestDispatchFailureEventKeepsItsOwnTime(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() { appendRunEventAt = prev })
-	g := &waveobj.TaskGroup{OID: "dag-1", ChannelId: wakeChannel, RunID: wakeRun, Tasks: []waveobj.TaskNode{{ID: "t-3", State: TaskState_Ready}}}
+	g := &waveobj.TaskGroup{OID: "dag-1", ChannelId: wakeChannel, RunID: wakeRun, Tasks: []waveobj.TaskNode{{ID: "t-3", State: TaskState_Ready, Attempts: MaxAutoDispatchRetries, LastFailureKind: FailureKindSpawn}}}
 	var afterCommit []func()
 
 	failDispatch(context.Background(), g, "t-3", FailureKindSpawn, errors.New("pty refused"), &afterCommit)
