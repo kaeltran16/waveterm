@@ -32,5 +32,11 @@ export default defineConfig({
         // font) is refused with a 403 in a worktree's dev app
         fs: { allow: [searchForWorkspaceRoot(process.cwd()), realpathSync(resolve(fe, "../node_modules"))] },
     },
-    build: { outDir: resolve(__dirname, "dist"), emptyOutDir: true },
+    build: {
+        outDir: resolve(__dirname, "dist"),
+        emptyOutDir: true,
+        // the 500 kB default is a network-delivery budget; these chunks load from the app bundle on disk.
+        // monaco alone is 3.8 MB and already lazy, so the limit sits just above it to still catch a jump.
+        chunkSizeWarningLimit: 4000,
+    },
 });
