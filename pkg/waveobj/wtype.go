@@ -414,6 +414,10 @@ type TaskNode struct {
 	VerifyOutput string `json:"verifyoutput,omitempty"`
 	// VerifyStartedTs is when the task last moved to verifying (UnixMilli); the UI ticks elapsed from it.
 	VerifyStartedTs int64 `json:"verifystartedts,omitempty"`
+	// VerifyDeferred marks a lane tip whose merge ran no Verify of its own because it was the last to land: the
+	// final stage's Verify judges that same tree. Cleared when that Verify passes, which is when the lane's
+	// chunks close.
+	VerifyDeferred bool `json:"verifydeferred,omitempty"`
 	// MergeError is why git refused this lane's squash merge, for a refusal that is not a conflict (a
 	// conflict leaves the tree mid-merge and is its own state). MergeFailures is the consecutive count
 	// of those refusals; the automatic path stops retrying and blocks at the limit. Both are cleared
@@ -493,7 +497,8 @@ type TaskGroup struct {
 
 	// Verify, Setup and Check are the plan's commands (jarvis.PlanFormat). Setup runs in each new task
 	// worktree before its worker spawns; Verify runs where lanes land after each squash merge, scoped by
-	// ARC_VERIFY_CHANGED, and once unscoped in the final stage; Check
+	// ARC_VERIFY_CHANGED (but not after the last one, which the final stage judges), and once unscoped in the
+	// final stage; Check
 	// is a fast whole-project static check each worker runs itself instead of Verify. All three are empty
 	// for a dag submitted as JSON, which is then prepared by nobody and reported unverified.
 	Verify string `json:"verify,omitempty"`
