@@ -329,6 +329,13 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
   none. Anywhere else it is task text. One per task; an empty value, a space or a backtick is refused. It counts
   only on a run whose workers setting is Reviewer picks ([Routes](#4-routes)), but submit checks it on every run:
   a model this machine cannot run fails the submit, naming the task.
+- ``**Files:** `pkg/a.go`, `pkg/b.go` `` lists every repo-relative path the task creates, edits or deletes,
+  generated files included: each in backticks, separated by commas, files only (no directories or globs). It
+  goes in the same head block, a second Files line continues the list, and the line stays in the task text the
+  worker reads. Submit refuses a plan in which two tasks list the same path and neither depends on the other,
+  directly or through other tasks; the error names both tasks and the path. Paths compare exactly after slash
+  normalisation. A task without the line takes no part in the check, so a plan with no Files lines is accepted
+  as before and the plan reviewer is the only check of its file overlaps.
 - There is no task cap.
 - **Every worker gets the plan's header.** Its prompt is the engine's worker contract, then the prose above
   Task 1, then its own task's section (`taskPrompt`, `engine.go`). This used to be the task alone: the backlog
