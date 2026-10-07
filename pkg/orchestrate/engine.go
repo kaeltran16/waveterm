@@ -844,6 +844,10 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime, tree 
 		// the brief wins over a plan whose task steps name whole-package runs (run 6c7652be spent most worker time on them)
 		fmt.Fprintf(&b, " Don't run the plan's full Verify (`%s`), a whole package or the full suite, even when your task says to: the engine runs Verify after your task merges and again on the merged result. Run the tests your task names alone (for Go, `-run '<names>'`).", g.Verify)
 	}
+	if g.FinalCmd != "" {
+		// first-round workers wrote scenarios they never ran, so Final was their first run (5 of 13 runs failed it, 2026-10-07 review)
+		fmt.Fprintf(&b, " The plan's Final command (`%s`) checks the running app, and the engine runs it only after every task has merged: when your task adds or changes a scenario it runs, or the view or interaction one of its steps checks, run that one scenario yourself (the Final command narrowed to it) and get its steps passing before you complete.", g.FinalCmd)
+	}
 	b.WriteString(" To reproduce a flake, run the one failing test alone (for Go, `-run '^TestX$' -count=N`), never `-count=N` on a whole package.")
 	b.WriteString(" Don't pipe a test into `tail`, `head` or `grep`: a pipe exits with its last command's status, so a failing test reads as passing. If you must pipe, run `set -o pipefail` first.")
 	reportPath := WorkerReportPath(g.OID, task.ID)
