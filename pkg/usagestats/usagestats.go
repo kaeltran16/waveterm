@@ -8,8 +8,11 @@
 package usagestats
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -304,18 +307,40 @@ func bucket(records []Record) []Bucket {
 	return out
 }
 
-func readLines(path string) []string {
-	data, err := os.ReadFile(path)
+// maxLineBytes bounds one transcript line. A tool result can run to many megabytes; the scanner's
+// buffer only grows to the longest line it meets.
+const maxLineBytes = 1 << 30
+
+// usageMarker is what a Claude line must contain to carry token usage.
+var usageMarker = []byte(`"usage"`)
+
+// scanLines returns the non-blank lines of path that keep accepts (nil keeps all). It streams: a scan
+// reads transcripts in parallel, and holding each one whole made that burst, not the live heap, the
+// size wavesrv stayed at.
+func scanLines(path string, keep func(line []byte) bool) []string {
+	file, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(nil, maxLineBytes)
 	var lines []string
-	for _, ln := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(ln) != "" {
-			lines = append(lines, ln)
+	for scanner.Scan() {
+		ln := scanner.Bytes()
+		if len(bytes.TrimSpace(ln)) == 0 || (keep != nil && !keep(ln)) {
+			continue
 		}
+		lines = append(lines, string(ln))
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("usagestats: reading %s stopped early: %v", path, err)
 	}
 	return lines
+}
+
+func readLines(path string) []string {
+	return scanLines(path, nil)
 }
 
 // filterUsageLines returns the subset of lines that could carry Claude token usage — only assistant
@@ -328,16 +353,17 @@ func readLines(path string) []string {
 func filterUsageLines(lines []string) []string {
 	var out []string
 	for _, ln := range lines {
-		if strings.Contains(ln, `"usage"`) {
+		if strings.Contains(ln, string(usageMarker)) {
 			out = append(out, ln)
 		}
 	}
 	return out
 }
 
-// readClaudeLines reads a Claude transcript, keeping only usage-bearing lines (see filterUsageLines).
+// readClaudeLines reads a Claude transcript, keeping only usage-bearing lines (see filterUsageLines)
+// as they stream past, so the rest of the file is never held.
 func readClaudeLines(path string) []string {
-	return filterUsageLines(readLines(path))
+	return scanLines(path, func(line []byte) bool { return bytes.Contains(line, usageMarker) })
 }
 
 // inWindow reports whether the file at path was modified at/after cutoff. A zero cutoff

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,6 +60,28 @@ func TestFilterUsageLines(t *testing.T) {
 		if in[i] != orig[i] {
 			t.Fatalf("filterUsageLines mutated its input at %d: %q != %q", i, in[i], orig[i])
 		}
+	}
+}
+
+func TestReadClaudeLinesKeepsOnlyUsageLines(t *testing.T) {
+	usage := `{"type":"assistant","message":{"usage":{"input_tokens":1}}}`
+	long := `{"type":"assistant","message":{"usage":{}},"pad":"` + strings.Repeat("x", 200_000) + `"}` // past the scanner's default 64 KB line cap
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	body := strings.Join([]string{
+		usage,
+		`{"type":"user","message":{}}`, // dropped
+		`{"payload":{"info":{"total_token_usage":{"input_tokens":9}}}}`, // Codex: dropped (no "usage" match)
+		"   ",
+		long, // no trailing newline
+	}, "\r\n")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readClaudeLines(path); !slices.Equal(got, []string{usage, long}) {
+		t.Fatalf("want the two usage lines, got %d lines", len(got))
+	}
+	if got := readLines(path); len(got) != 4 {
+		t.Fatalf("readLines: want the 4 non-blank lines, got %d", len(got))
 	}
 }
 
