@@ -276,19 +276,35 @@ func autoRetryStalled(ctx context.Context, dagID string, s stalledTask) bool {
 // event, and the raw error in the server log. RecomputeDagStatus already blocks the DAG on any failed
 // task, so the streak counter is deliberately untouched — this is a dispatch fault, not a run of bad
 // worker outcomes.
+// A transient kind (retryDecision) goes back to pending instead, up to its bound, and the next tick dispatches it
+// again: EnsureRunWorktree rebuilds whatever tree the failed attempt left, as it does for a hand retry.
 func failDispatch(ctx context.Context, g *waveobj.TaskGroup, taskID, kind string, cause error, afterCommit *[]func()) {
 	idx := taskIdx(g, taskID)
 	if idx < 0 {
 		return
 	}
-	g.Tasks[idx].State = TaskState_Failed
-	g.Tasks[idx].LastFailureKind = kind
-	g.Tasks[idx].Attempts++
-	log.Printf("schedule dag %s task %s: %s: %v", g.OID, taskID, kind, cause)
+	task := &g.Tasks[idx]
+	if task.LastFailureKind != kind {
+		task.Attempts = 0
+	}
+	task.LastFailureKind = kind
+	retry := retryDecision(kind, task.Attempts)
+	task.Attempts++
+	log.Printf("schedule dag %s task %s: %s (attempt %d, retry %t): %v", g.OID, taskID, kind, task.Attempts, retry, cause)
 	detail := failureDetail(cause)
-	attempts := g.Tasks[idx].Attempts
+	attempts := task.Attempts
 	// the append waits for the whole batch's commit, and the tasks after this one take seconds each
 	failedAt := time.Now().UnixMilli()
+	if retry && RetryTask(g, taskID) == nil {
+		*afterCommit = append(*afterCommit, func() {
+			publishDagEvent(DagEventTaskRetried, g, taskID)
+			appendRunEventAt(ctx, failedAt, g.ChannelId, g.RunID, waveobj.RunEventKindTaskRetried, nil, map[string]any{
+				"taskid": taskID, "kind": kind, "attempt": attempts, "auto": true, "detail": detail,
+			})
+		})
+		return
+	}
+	task.State = TaskState_Failed
 	*afterCommit = append(*afterCommit, func() {
 		appendRunEventAt(ctx, failedAt, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{
 			"taskid": taskID, "lastfailurekind": kind, "attempts": attempts, "detail": detail,

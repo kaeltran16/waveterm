@@ -674,6 +674,12 @@ first; you see it when it is forwarded or the lead is dead. Retry and escalate s
 replace, so before you retry a stalled task, check its lane worktree under `.waveterm/worktrees/` for recent
 writes: a worker that is still writing files is alive, and the stall signal is wrong.
 
+A task whose dispatch fails before a worker exists, because its worktree could not be made (`worktree-failed`)
+or its worker tab could not be opened or started (`spawn-failed`), is dispatched again by the engine on its next
+tick, up to three times in a row. Each one is a **Task retried** row and wakes nobody; the retry rebuilds
+whatever tree the failed attempt left. Only when those are spent does the task fail and the lead wake. A route
+that does not resolve, a missing harness and a failed Setup are not retried: the task fails at once.
+
 To move a task to another model, use **escalate…** in the DAG's detail panel under the graph (it opens a
 route picker, then **Re-queue on model**). Escalation is one hop per task.
 
