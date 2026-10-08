@@ -56,7 +56,7 @@ func usageBucketToWire(b usagestats.Bucket) wshrpc.UsageBucket {
 }
 
 func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.CommandGetUsageStatsData) (*wshrpc.CommandGetUsageStatsRtnData, error) {
-	buckets, err := usagestats.ScanUsage(data.WindowDays)
+	buckets, _, err := usagestats.ScanUsage(data.WindowDays)
 	if err != nil {
 		return nil, fmt.Errorf("scanning usage: %w", err)
 	}
