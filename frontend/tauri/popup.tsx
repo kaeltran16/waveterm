@@ -11,6 +11,7 @@ import {
     popupPlacement,
     type PopupBubble,
 } from "@/app/view/agents/attentionpopup";
+import { PlainInlineMarkdown } from "@/app/view/agents/plaininlinemarkdown";
 import { useApplyCockpitTheme } from "@/app/view/agents/themestore";
 import { BUBBLE_MS, BubbleCard } from "@/app/view/jarvis/bubblecard";
 import { loadFonts } from "@/util/fontutil";
@@ -111,7 +112,7 @@ function Popup() {
                 dot="bg-accent"
                 tone="text-muted"
                 name={bubble.name}
-                text={bubble.text}
+                text={<PlainInlineMarkdown text={bubble.text} />}
                 more={bubble.more}
                 onClick={open}
             />

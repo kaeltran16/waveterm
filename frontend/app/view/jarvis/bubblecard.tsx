@@ -3,7 +3,7 @@
 //
 // The bubble's look, drawn by the in-app creature (petbubble.tsx) and by the desktop popup page
 // (frontend/tauri/popup.tsx). The popup page opens no wavesrv connection, so nothing here may import the
-// cockpit store: the text arrives already rendered, and the popup passes a plain string.
+// cockpit store: the text arrives already rendered.
 
 import { cn } from "@/util/util";
 import type { ReactNode } from "react";
