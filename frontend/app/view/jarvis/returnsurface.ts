@@ -14,7 +14,7 @@ import type { SurfaceKey } from "../agents/agents";
 export type ReturnCloser = "sheet" | "record" | "dag";
 
 type SurfaceAtom = PrimitiveAtom<SurfaceKey>;
-type Visit = { from: SurfaceKey; closer?: ReturnCloser };
+type Visit = { from: SurfaceKey; closer?: ReturnCloser; onReturn?: () => void };
 
 let trail: Visit[] = [];
 let watched: { surfaceAtom: SurfaceAtom; unsub: () => void } | null = null;
@@ -61,11 +61,13 @@ export function landOn(surfaceAtom: SurfaceAtom, to: SurfaceKey, closer?: Return
     move(surfaceAtom, to);
 }
 
-// a jump that opens something over its destination (the DAG over the sheet) hands the return to that
-export function returnWhenClosed(closer: ReturnCloser): void {
+// A jump that opens something over its destination (the DAG over the sheet) hands the return to that. onReturn
+// puts away what the jump left open underneath, which going back would otherwise leave for the next visit.
+export function returnWhenClosed(closer: ReturnCloser, onReturn?: () => void): void {
     const visit = trail[trail.length - 1];
     if (visit != null) {
         visit.closer = closer;
+        visit.onReturn = onReturn;
     }
 }
 
@@ -79,6 +81,7 @@ export function backToOrigin(): boolean {
     if (trail.length === 0) {
         forgetOrigin();
     }
+    visit.onReturn?.();
     move(surfaceAtom, visit.from);
     return true;
 }

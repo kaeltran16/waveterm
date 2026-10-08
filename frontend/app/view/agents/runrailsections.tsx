@@ -8,6 +8,8 @@
 import { paneReveal } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import * as WOS from "@/app/store/wos";
+import { briefSheetOpenAtom } from "@/app/view/jarvis/jarvisstore";
+import { clearSubject } from "@/app/view/jarvis/jarvissubjectstore";
 import { openOrPeek } from "@/app/view/jarvis/openref";
 import { returnWhenClosed } from "@/app/view/jarvis/returnsurface";
 import {
@@ -125,7 +127,11 @@ export function openRunDag(model: AgentsViewModel, run: RunInfo, taskId?: string
         } else {
             openDagLive(run.channelId, run.runId, dagOref);
         }
-        returnWhenClosed("dag");
+        // the sheet was only the way in: left open, it would greet the user's next visit to Jarvis
+        returnWhenClosed("dag", () => {
+            globalStore.set(briefSheetOpenAtom, false);
+            clearSubject();
+        });
     });
 }
 

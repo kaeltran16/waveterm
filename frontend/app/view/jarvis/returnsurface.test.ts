@@ -48,6 +48,16 @@ describe("return to the surface a jump left", () => {
         expect(surface()).toBe("agent");
     });
 
+    it("puts away what the jump left open underneath, only when it goes back", () => {
+        let sheetOpen = true;
+        landOn(surfaceAtom, "jarvis", "sheet");
+        returnWhenClosed("dag", () => (sheetOpen = false));
+        returnToOrigin("sheet");
+        expect(sheetOpen).toBe(true);
+        returnToOrigin("dag");
+        expect(sheetOpen).toBe(false);
+    });
+
     it("adds nothing for a jump made from the destination", () => {
         landOn(surfaceAtom, "jarvis", "sheet");
         landOn(surfaceAtom, "jarvis", "record");
