@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    abortedReply,
     answersFor,
     askPayload,
     cardCanAsk,
@@ -58,6 +59,30 @@ describe("parseAskReply", () => {
         expect(parseAskReply("")).toBeNull();
         expect(parseAskReply("Error: timeout")).toBeNull();
         expect(parseAskReply('{"other":1}')).toBeNull();
+    });
+});
+
+describe("abortedReply", () => {
+    const pending = Symbol("pending");
+    const settled = (p: Promise<unknown>) => Promise.race([p, Promise.resolve(pending)]);
+
+    it("is no reply once the signal aborts, and waits until then", async () => {
+        const turn = new AbortController();
+        const reply = abortedReply(turn.signal);
+        expect(await settled(reply)).toBe(pending);
+        turn.abort();
+        expect(await reply).toBeNull();
+    });
+    it("settles at once on a signal aborted before the call", async () => {
+        const turn = new AbortController();
+        turn.abort();
+        expect(await settled(abortedReply(turn.signal))).toBeNull();
+    });
+    it("beats a wait that never ends", async () => {
+        const turn = new AbortController();
+        const raced = Promise.race([new Promise<never>(() => undefined), abortedReply(turn.signal)]);
+        turn.abort();
+        expect(await raced).toBeNull();
     });
 });
 

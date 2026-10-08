@@ -5,6 +5,7 @@ import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
 import { drawAskPicker, drawNoQuestion } from "./ask-pane";
 import {
+    abortedReply,
     answersFor,
     askPayload,
     cardCanAsk,
@@ -296,14 +297,17 @@ export const register: Register = (on) => {
         })();
         let reply: AskReply | null = null;
         try {
-            reply = await Promise.race([fromPicker, fromCard]);
+            reply = await Promise.race([fromPicker, fromCard, abortedReply(next.signal)]);
         } finally {
             settlePicker = null;
             $.ui.status(undefined);
         }
         await closePicker($);
-        if (isFromPicker) {
+        const isInterrupted = reply === null && next.signal.aborted;
+        if (isFromPicker || isInterrupted) {
             void wait.return(undefined as never).catch(() => undefined);
+        }
+        if (isFromPicker) {
             // ending the stream kills wsh, but the server cancels a request only when a websocket drops,
             // not wsh's socket, so the card is taken down here
             await clearAsk($);
