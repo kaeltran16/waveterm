@@ -698,9 +698,24 @@ func EndFinalStage(ctx context.Context, dagID, outcome, reason string) error {
 	return nil
 }
 
+// removeStaleFinalTree is removeWorktreeDir, a var so a test can leave a stale final tree in place on any platform.
+var removeStaleFinalTree = removeWorktreeDir
+
+// freeFinalTreeDir is the first directory beside a held final tree that nothing occupies: an earlier round's
+// stand-in can still be held too.
+func freeFinalTreeDir(held string) string {
+	for n := 2; ; n++ {
+		wt := fmt.Sprintf("%s-%d", held, n)
+		if _, err := os.Stat(wt); err != nil {
+			return wt
+		}
+	}
+}
+
 // finalTree is where the final stage runs: the landing tree for a dag landing on its own branch. A dag landing
 // in the checkout gets a detached worktree at the checkout's HEAD, prepared with Setup, because the stage never
-// runs in the shared checkout. cleanup removes a tree the stage made.
+// runs in the shared checkout: <run>-final, or a directory beside it while a stale one cannot be removed.
+// cleanup removes a tree the stage made.
 func finalTree(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run) (string, func(), error) {
 	if owner.LandPath != "" {
 		if err := checkLandingTree(ctx, owner); err != nil {
@@ -714,8 +729,12 @@ func finalTree(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run) (s
 	wt := worktreeDir(owner.ProjectPath, owner.ID+"-final")
 	// a tree a lost stage left behind would refuse the add
 	if _, err := os.Stat(wt); err == nil {
-		if err := removeWorktreeDir(ctx, owner.ProjectPath, wt); err != nil {
-			return "", nil, fmt.Errorf("removing a stale final tree: %w", err)
+		if err := removeStaleFinalTree(ctx, owner.ProjectPath, wt); err != nil {
+			// a verifier that outlived its stage holds the directory on Windows until it exits, and the round
+			// must not wait for it
+			log.Printf("dag %s: removing a stale final tree, so the stage runs beside it: %v", g.OID, err)
+			removeFinalTree(g.OID, owner, wt)
+			wt = freeFinalTreeDir(wt)
 		}
 	}
 	if _, err := addWorktree(ctx, owner.ProjectPath, "--detach", wt, "HEAD"); err != nil {

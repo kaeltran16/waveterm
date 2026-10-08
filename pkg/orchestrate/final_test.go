@@ -404,6 +404,51 @@ func TestFinalTree(t *testing.T) {
 			t.Fatal("cleanup unregisters the tree")
 		}
 	})
+	t.Run("a stale final tree that cannot be removed leaves the stage a tree beside it", func(t *testing.T) {
+		repo := newGitRepo(t)
+		owner := &waveobj.Run{ID: "run-h", ProjectPath: repo}
+		g := &waveobj.TaskGroup{OID: "dag-h"}
+		stale, _, err := finalTree(ctx, g, owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		removeStaleFinalTree = func(context.Context, string, string) error {
+			return fmt.Errorf("being used by another process")
+		}
+		t.Cleanup(func() { removeStaleFinalTree = removeWorktreeDir })
+		tree, cleanup, err := finalTree(ctx, g, owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tree == stale || filepath.Dir(tree) != filepath.Dir(stale) {
+			t.Fatalf("want another directory beside %s, got %s", stale, tree)
+		}
+		if gitCmd(t, tree, "rev-parse", "--abbrev-ref", "HEAD") != "HEAD" || gitCmd(t, tree, "rev-parse", "HEAD") != gitCmd(t, repo, "rev-parse", "HEAD") {
+			t.Fatalf("want a detached tree at the checkout's HEAD, got %s", tree)
+		}
+		// nothing holds the stale tree here, so the retrying removal it was handed to takes it at once
+		if _, err := os.Stat(stale); !os.IsNotExist(err) {
+			t.Fatalf("the stale tree is handed to the retrying removal, stat err %v", err)
+		}
+		cleanup()
+		if _, err := os.Stat(tree); !os.IsNotExist(err) {
+			t.Fatalf("cleanup removes the tree the stage used, stat err %v", err)
+		}
+	})
+	t.Run("a stale final tree that can be removed gives its directory to the next round", func(t *testing.T) {
+		repo := newGitRepo(t)
+		owner := &waveobj.Run{ID: "run-s", ProjectPath: repo}
+		g := &waveobj.TaskGroup{OID: "dag-s"}
+		stale, _, err := finalTree(ctx, g, owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tree, cleanup, err := finalTree(ctx, g, owner)
+		if err != nil || tree != stale {
+			t.Fatalf("want the stale tree's directory %s again, got %s (%v)", stale, tree, err)
+		}
+		cleanup()
+	})
 	t.Run("a branch-landed dag runs in its landing tree", func(t *testing.T) {
 		repo := newGitRepo(t)
 		wt, err := CreateRunWorktree(ctx, repo, "run-b", "")
