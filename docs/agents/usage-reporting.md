@@ -127,6 +127,19 @@ To keep the gauges ticking during idle, add `refreshInterval` (seconds, min 1) t
 the event triggers. Marginal for per-agent context/cost (the numbers don't change while
 idle); mainly keeps the account-global plan gauges current from other activity.
 
+## Cache miss notice
+
+The mod also reports a missed prompt cache. When a main-thread turn ends, `claude/arc-mod`
+(`cache-core.ts`) reads the session transcript and, for the turn's requests, counts as missed the
+part of a request's prompt that overlaps the previous request's but was not read from cache. A turn
+that re-billed **20,000 tokens or more** in one miss runs `wsh notify <title> --level warn --transient`,
+and Jarvis's avatar says it in a bubble that names the agent, e.g.
+`Cache miss: 85k tokens re-billed after 12m idle`. Several misses in one turn are one notice.
+
+The notice is **said once**: it is not kept in the avatar's read-back list and leaves no unread
+marker. A transcript over 4 MiB is not read (the mod's file read rejects it), so a session that long
+reports no miss.
+
 ## Behavior notes
 
 - **Context % is input-only** (Claude Code excludes output tokens from

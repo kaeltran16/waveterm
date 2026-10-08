@@ -22,9 +22,11 @@ import { useEffect, useRef, useState } from "react";
 import { drawSceneToCanvas, resolveTone } from "./avatarcanvas";
 import { approachMood, buildAvatarScene, settledMood, type AvatarScene, type RenderMood } from "./avatarscene";
 import type { AvatarThree } from "./avatarthree";
+import { openTarget } from "./openref";
 import { closePeek } from "./peekstore";
 import { PetBubble } from "./petbubble";
 import { expressionFor, postureFor, type PetSignals } from "./petcondition";
+import { bubbleClick } from "./petjoin";
 import {
     breathPhase,
     idleOrbit,
@@ -49,7 +51,7 @@ import {
     setPetWatermark,
     type PetCorner,
 } from "./petstore";
-import { nextUtterance } from "./petvoice";
+import { nextUtterance, unreadAfterLeaving, unreadAfterSaying } from "./petvoice";
 
 // pkg/jarvis/attention.go's three kinds. Named here rather than inlined so the mapping to the avatar's
 // posture vocabulary is one line to check against the server.
@@ -139,6 +141,7 @@ export function PetView({ model }: { model: AgentsViewModel }) {
     const peekOpen = useAtomValue(petPeekOpenAtom);
     const events = useAtomValue(petEventsAtom);
     const watermark = useAtomValue(petWatermarkAtom);
+    const agents = useAtomValue(model.agentsAtom);
     const reduce = useReducedMotion() === true;
     // Both a ref and state for the same element: the bubble and the peek need it as state to re-position
     // when it lands, while the render loop needs it as a ref so acquiring it does not re-run the effect and
@@ -332,8 +335,10 @@ export function PetView({ model }: { model: AgentsViewModel }) {
             rememberSaid(event);
         }
         if (speech.utterance != null) {
+            // the bubble itself is the notice, unless it is said once and so stands for nothing kept
+            const unread = unreadAfterSaying(speech, globalStore.get(petBubbleAtom), globalStore.get(petUnreadAtom));
             globalStore.set(petBubbleAtom, speech.utterance);
-            globalStore.set(petUnreadAtom, false); // the bubble itself is the notice
+            globalStore.set(petUnreadAtom, unread);
             markPetSpoke(performance.now()); // and the rings surge for it
             if (speech.utterance.kind === RIPPLE_EVENT_KIND) {
                 rippleAtRef.current = performance.now();
@@ -356,6 +361,16 @@ export function PetView({ model }: { model: AgentsViewModel }) {
         globalStore.set(petPeekOpenAtom, true);
         globalStore.set(petUnreadAtom, false);
         globalStore.set(petBubbleAtom, null);
+    };
+
+    const clickBubble = () => {
+        const click = bubbleClick(bubble, agents);
+        if ("tabId" in click) {
+            globalStore.set(petBubbleAtom, null);
+            void openTarget(model, { kind: "agent", tabId: click.tabId });
+            return;
+        }
+        openPeek();
     };
 
     return (
@@ -435,17 +450,21 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 />
                 {/* the unread marker: a kind of thing happened, never how many */}
                 {unread ? (
-                    <span className="pointer-events-none absolute right-0 top-0 h-[9px] w-[9px] pulse-dot-slow rounded-full border border-background bg-accent" />
+                    <span
+                        data-pet-unread
+                        className="pointer-events-none absolute right-0 top-0 h-[9px] w-[9px] pulse-dot-slow rounded-full border border-background bg-accent"
+                    />
                 ) : null}
             </motion.div>
             <PetBubble
                 event={bubble}
+                agents={agents}
                 anchor={anchor}
                 corner={corner}
-                onOpen={openPeek}
+                onOpen={clickBubble}
                 onDismiss={() => {
                     globalStore.set(petBubbleAtom, null);
-                    globalStore.set(petUnreadAtom, true);
+                    globalStore.set(petUnreadAtom, unreadAfterLeaving(bubble, unread));
                 }}
             />
             {/* the peek derives its own ranked condition LIST from the same signals — expressionFor is
