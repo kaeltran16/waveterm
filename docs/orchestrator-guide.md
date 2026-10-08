@@ -222,8 +222,8 @@ path only when it is genuinely unclear, and finishes accordingly:
 
 | Class | The lead | You see |
 |---|---|---|
-| **Spike** (a question to answer) | reports the answer, `wsh jarvis complete` | Done, with its answer as the summary |
-| **Bounded** (one change) | asks for your yes, implements in its tree (the run's branch, or the checkout), tests, commits, `wsh jarvis complete --commit` | Done, with the commit, merged back |
+| **Spike** (a question to answer) | writes the answer to a temp file as its report, `wsh jarvis complete --report <file>` | Done, with its answer as the summary |
+| **Bounded** (one change) | asks for your yes, implements in its tree (the run's branch, or the checkout), tests, commits, writes its report to a temp file, `wsh jarvis complete --commit <sha> --report <file>` | Done, with the commit and its report as the summary, merged back |
 | **Architectural** (needs a plan) | asks the decisions it needs as questions with options, writes the design straight into the spec, asks one **Spec review** (the spec's path on the question's first line), writes the plan with `superpowers:writing-plans`, runs `wsh jarvis dag submit --plan <plan> --spec <spec>` and stops | the plan review, then the sheet fills with tasks |
 
 The Spec review is the one approval: the lead does not ask section by section, and after `dag submit` it does not

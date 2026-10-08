@@ -34,7 +34,9 @@ func TestEngineLaunchPromptCarriesTheGoalRunProtocol(t *testing.T) {
 			"superpowers:writing-plans",
 			"header `Spec review`",
 			"wsh jarvis dag submit --plan <plan path> --spec <spec path>",
-			"wsh jarvis complete --commit $(git rev-parse HEAD)",
+			// a complete with no report seals the line the lead wrote before it
+			"then `wsh jarvis complete --report <that file>`.",
+			"wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>",
 			// the builder trims the prompt's trailing newline, which PlanFormat ends with
 			strings.TrimRight(PlanFormat, "\n"),
 		} {
