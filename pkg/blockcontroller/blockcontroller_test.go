@@ -134,3 +134,45 @@ func TestFailedStartEndsLikeAnExit(t *testing.T) {
 		t.Fatal("the outcome hook never heard the failed start")
 	}
 }
+
+func TestStartTermSizeFallsBackToTheTerminalsLastSize(t *testing.T) {
+	stored := waveobj.TermSize{Rows: 41, Cols: 142}
+	block := &waveobj.Block{RuntimeOpts: &waveobj.RuntimeOpts{TermSize: stored}}
+
+	// a worker start names no size (run d94aeda3's resumed lead drew for 24x80 in a 41x142 terminal)
+	if got := startTermSize(&waveobj.RuntimeOpts{}, block); got != stored {
+		t.Errorf("empty rtOpts: size = %+v, want the block's %+v", got, stored)
+	}
+	if got := startTermSize(nil, block); got != stored {
+		t.Errorf("nil rtOpts: size = %+v, want the block's %+v", got, stored)
+	}
+	named := waveobj.TermSize{Rows: 30, Cols: 100}
+	if got := startTermSize(&waveobj.RuntimeOpts{TermSize: named}, block); got != named {
+		t.Errorf("named rtOpts: size = %+v, want %+v", got, named)
+	}
+}
+
+func TestSendInputKeepsAResizeNoProcessTook(t *testing.T) {
+	oldPersist := persistTermSize
+	t.Cleanup(func() { persistTermSize = oldPersist })
+	var kept []waveobj.TermSize
+	persistTermSize = func(blockId string, termSize waveobj.TermSize) error {
+		kept = append(kept, termSize)
+		return nil
+	}
+
+	size := waveobj.TermSize{Rows: 41, Cols: 142}
+	if err := SendInput("no-such-block", &BlockInputUnion{TermSize: &size}); err == nil {
+		t.Fatal("input for a block with no controller should still report an error")
+	}
+	if len(kept) != 1 || kept[0] != size {
+		t.Errorf("kept sizes = %+v, want [%+v]", kept, size)
+	}
+
+	if err := SendInput("no-such-block", &BlockInputUnion{InputData: []byte("x")}); err == nil {
+		t.Fatal("input for a block with no controller should report an error")
+	}
+	if len(kept) != 1 {
+		t.Errorf("input with no resize kept a size: %+v", kept)
+	}
+}

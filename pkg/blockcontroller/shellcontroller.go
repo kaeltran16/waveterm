@@ -311,13 +311,7 @@ func (sc *ShellController) run(logCtx context.Context, bdata *waveobj.Block, blo
 				panichandler.PanicHandler("blockcontroller:run-shell-command", recover())
 			}()
 			defer sc.UnlockRunLock()
-			var termSize waveobj.TermSize
-			if rtOpts != nil {
-				termSize = rtOpts.TermSize
-			} else {
-				termSize = getTermSize(bdata)
-			}
-			err := sc.DoRunShellCommand(logCtx, &RunShellOpts{TermSize: termSize}, bdata.Meta)
+			err := sc.DoRunShellCommand(logCtx, &RunShellOpts{TermSize: startTermSize(rtOpts, bdata)}, bdata.Meta)
 			if err != nil {
 				debugLog(logCtx, "error running shell: %v\n", err)
 				sc.failStart(err)
@@ -872,8 +866,11 @@ func getCustomInitScriptValue(meta waveobj.MetaMapType, connName string, shellTy
 	return "", ""
 }
 
+// persistTermSize is a var so tests can record a kept size without a store.
+var persistTermSize = setTermSizeInDB
+
 func updateTermSize(shellProc *shellexec.ShellProc, blockId string, termSize waveobj.TermSize) {
-	err := setTermSizeInDB(blockId, termSize)
+	err := persistTermSize(blockId, termSize)
 	if err != nil {
 		log.Printf("error setting pty size: %v\n", err)
 	}
