@@ -312,9 +312,9 @@ const surfaceSmoke = {
     name: "surface-smoke",
     surface: "cockpit",
     async arrange() {
-        return {};
+        return { cwd: mkdtempSync(join(tmpdir(), "verify-surface-smoke-")) };
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const steps = [];
         for (const surface of SMOKE_SURFACES) {
             await h.goto(surface);
@@ -361,12 +361,186 @@ const surfaceSmoke = {
                       "no pi session focused in this run - focus one before reading this as a pass (the manual round-trip covers it)"
                   )
         );
+        // last: these swap the live roster for a fixture one, which the steps above must not see
+        steps.push(...(await cacheMissNoticeSteps(h, ctx)));
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "surface-smoke");
         await h.goto("cockpit"); // leave the app where a human expects it
     },
 };
+
+// A said-once notice from an agent's block (the cache miss notice): the bubble names the agent, nothing is kept
+// once it leaves, and a click on it opens the agent. The titles and the long name are the canvas's own
+// (.superpowers/design/cache-miss-notice).
+const CACHE_MISS_LEAD = "Release checkpoint";
+const CACHE_MISS_LONG_LEAD = "Arc Claude mod: usage and ask through Claude Code function hooks";
+const CACHE_MISS_TITLE = "Cache miss: 85k tokens re-billed after 12m idle";
+const CACHE_MISS_TWO_TITLE = "2 cache misses: 140k tokens re-billed (85k after 12m idle, 55k after a model switch)";
+// treeRailRoster's lead block
+const CACHE_MISS_OREF = "block:fx-blk-lead";
+// the agent line is 12px text: one line is under this, two are over
+const ONE_LINE_MAX_PX = 24;
+const CACHE_MISS_STEPS = [
+    "said-once notify from an agent's block -> the bubble names the agent and its project above the title",
+    "the said-once bubble leaves -> no unread marker, and the popup does not list it",
+    "a long agent name is cut on one line and the project stays inside the bubble",
+    "clicking a said-once bubble opens its agent, with the bubble gone and the popup shut",
+];
+
+async function cacheMissNoticeSteps(h, ctx) {
+    const steps = [];
+    const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+    const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+    // the fixture roster is read once at boot
+    const reload = async () => {
+        await h.ev("location.reload()");
+        await polishWaitFor(h, `!!document.querySelector("nav button")`, 30000);
+        await polishWaitFor(h, `!!document.querySelector('[aria-label="Jarvis condition"]')`, 10000);
+        await settle(1500);
+    };
+    const say = (title) =>
+        h.rpc("notify", { title, level: "warn", oref: CACHE_MISS_OREF, transient: true });
+    const BUBBLE = `(() => {
+        const bubble = document.querySelector('[data-pet-bubble]');
+        const line = bubble?.querySelector('[data-pet-bubble-agent]');
+        const name = line?.querySelector('[data-pet-bubble-agent-name]');
+        const project = line?.querySelector('[data-pet-bubble-agent-project]');
+        if (!bubble || !line || !name || !project) return null;
+        const box = bubble.getBoundingClientRect();
+        const proj = project.getBoundingClientRect();
+        return {
+            text: bubble.textContent,
+            name: name.textContent,
+            project: project.textContent,
+            nameCut: name.scrollWidth > name.clientWidth,
+            lineHeight: Math.round(line.getBoundingClientRect().height),
+            projectInside: proj.width > 0 && proj.left >= box.left && proj.right <= box.right,
+        };
+    })()`;
+    // the roster lands a moment after boot, and the agent line with it
+    const bubbleWithAgent = async () => {
+        await polishWaitFor(h, `!!document.querySelector('[data-pet-bubble] [data-pet-bubble-agent]')`, 4000);
+        return h.ev(BUBBLE);
+    };
+    const closePopup = async () => {
+        await h.ev(`document.querySelector('[data-pet-peek] button[aria-label="Close Jarvis panel"]')?.click()`);
+        return polishWaitFor(h, `!document.querySelector('[data-pet-peek]')`, 3000);
+    };
+    const openPopup = async () => {
+        await h.ev(`document.querySelector('[aria-label="Jarvis condition"]')?.click()`);
+        return polishWaitFor(h, `!!document.querySelector('[data-pet-peek]')`, 3000);
+    };
+
+    try {
+        await arrangeFixtureRun(h, ctx, "surface-smoke", CACHE_MISS_LEAD);
+        await reload();
+    } catch (e) {
+        // no roster agent to send from is a failure of every step, never a skip
+        for (const step of CACHE_MISS_STEPS) rec(step, false, `arrange failed: ${e?.message ?? e}`);
+        return steps;
+    }
+    await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+    await h.goto("cockpit");
+
+    // a kept notice first, opened and shut: it clears the marker, and gives step 2 a title the popup does list
+    const KEPT = "cdp surface-smoke kept";
+    await h.rpc("notify", { title: KEPT, level: "info" });
+    await settle(600);
+    await openPopup();
+    await closePopup();
+
+    await say(CACHE_MISS_TITLE);
+    const first = await bubbleWithAgent();
+    await settle(400);
+    await h.shot("cdp-shots/pet-cache-miss-bubble.png");
+    rec(
+        CACHE_MISS_STEPS[0],
+        first != null &&
+            first.name === CACHE_MISS_LEAD &&
+            first.project === "waveterm" &&
+            first.text.includes(CACHE_MISS_TITLE),
+        JSON.stringify(first)
+    );
+
+    await settle(7000);
+    const left = await h.ev(`(() => ({
+        bubbleGone: !document.querySelector('[data-pet-bubble]'),
+        unread: !!document.querySelector('[data-pet-unread]'),
+    }))()`);
+    const opened = await openPopup();
+    await h.ev(`(() => {
+        const toggle = document.querySelector('[data-pet-updates] button[aria-expanded="false"]');
+        toggle?.click();
+    })()`);
+    await settle(500);
+    const listed = await h.ev(`(() => {
+        const text = document.querySelector('[data-pet-peek]')?.textContent ?? '';
+        return { kept: text.includes(${JSON.stringify(KEPT)}), once: text.includes(${JSON.stringify(CACHE_MISS_TITLE)}) };
+    })()`);
+    await h.shot("cdp-shots/pet-cache-miss-gone.png");
+    rec(
+        CACHE_MISS_STEPS[1],
+        left.bubbleGone === true && left.unread === false && opened === true && listed.kept === true && listed.once === false,
+        JSON.stringify({ ...left, opened, listed })
+    );
+    await closePopup();
+
+    writeFileSync(
+        TREE_RAIL_FIXTURE,
+        JSON.stringify(treeRailRoster(ctx.runId, Date.now(), CACHE_MISS_LONG_LEAD), null, 2)
+    );
+    await reload();
+    await h.goto("cockpit");
+    await say(CACHE_MISS_TWO_TITLE);
+    const long = await bubbleWithAgent();
+    await settle(400);
+    await h.shot("cdp-shots/pet-cache-miss-long-name.png");
+    rec(
+        CACHE_MISS_STEPS[2],
+        long != null &&
+            long.name === CACHE_MISS_LONG_LEAD &&
+            long.nameCut === true &&
+            long.lineHeight < ONE_LINE_MAX_PX &&
+            long.projectInside === true &&
+            long.text.includes(CACHE_MISS_TWO_TITLE),
+        JSON.stringify(long)
+    );
+
+    await say(CACHE_MISS_TITLE);
+    await bubbleWithAgent();
+    const clicked = await h.ev(`(() => {
+        const bubble = document.querySelector('[data-pet-bubble]');
+        bubble?.click();
+        return !!bubble;
+    })()`);
+    await polishWaitFor(h, `!document.querySelector('[data-pet-bubble]')`, 3000);
+    const after = await h.ev(`(() => ({
+        bubbleGone: !document.querySelector('[data-pet-bubble]'),
+        popup: !!document.querySelector('[data-pet-peek]'),
+        header: document.querySelector('[data-agent-header]')?.textContent ?? '',
+    }))()`);
+    const active = await h.activeSurfaceLabel();
+    let selection;
+    try {
+        selection = (await h.rpc("uistate", null, UI_ROUTE))?.selection ?? [];
+    } catch (e) {
+        selection = [`uistate failed: ${e?.message ?? e}`];
+    }
+    await h.shot("cdp-shots/pet-cache-miss-click.png");
+    rec(
+        CACHE_MISS_STEPS[3],
+        clicked === true &&
+            active === SURFACE_LABEL.agent &&
+            selection[0] === `agent:${TREE_RAIL_LEAD_ID}` &&
+            after.header.includes(CACHE_MISS_LONG_LEAD) &&
+            after.bubbleGone === true &&
+            after.popup === false,
+        JSON.stringify({ clicked, active, selection, ...after })
+    );
+    return steps;
+}
 
 // --- jarvis fleet, the rail's roster and the ambient feeds: RETIRED BY B5 -----------------------
 // Their subjects are gone with the retired panes: the per-worker fleet roster and the ambient rail's

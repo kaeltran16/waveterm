@@ -2150,6 +2150,8 @@ declare global {
         title: string;
         message: string;
         level: string;
+        oref?: string;
+        transient?: boolean;
     };
 
     // waveobj.ORef
