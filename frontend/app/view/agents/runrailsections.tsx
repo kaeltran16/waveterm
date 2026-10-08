@@ -46,7 +46,7 @@ import {
 import { SEG_FILL } from "./runstrip";
 import { tsLabel } from "./runtimeline";
 import { useRunUsage } from "./runtokenstore";
-import { summarizeUsage, usageText, type UsageSummary } from "./runusage";
+import { estimateText, summarizeUsage, tokensText, type UsageSummary } from "./runusage";
 import { SectionLabel, SubLabel } from "./sectionlabel";
 
 const LANE_DOT: Record<LaneState, string> = {
@@ -96,11 +96,17 @@ function FactRow({ label, children }: { label: string; children: React.ReactNode
     );
 }
 
-// the tokens a run or task has spent, then each model's share
+// the tokens a run or task has spent and what they would cost at api prices, then each model's share
 function UsageRows({ spent, sealed }: { spent: UsageSummary; sealed: boolean }) {
+    const estimate = estimateText(spent);
     return (
         <>
-            <FactRow label="Tokens">{usageText(spent, sealed)}</FactRow>
+            <FactRow label="Tokens">{tokensText(spent, sealed)}</FactRow>
+            {estimate != null ? (
+                <FactRow label="Cost">
+                    <span data-run-cost>{estimate} API-equiv</span>
+                </FactRow>
+            ) : null}
             {spent.byModel.map((m) => (
                 <FactRow key={m.model} label={m.model}>
                     {formatTokens(m.tokens)}

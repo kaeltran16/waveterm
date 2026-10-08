@@ -9,7 +9,7 @@ import { formatTokens } from "@/app/view/agents/agentsviewmodel";
 import { shortModel } from "@/app/view/agents/modelname";
 import { runProgress, runTitle } from "@/app/view/agents/runlineage";
 import { isOrchestrator, runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
-import { summarizeUsage } from "@/app/view/agents/runusage";
+import { spendText, summarizeUsage } from "@/app/view/agents/runusage";
 import { formatElapsed } from "@/app/view/orchestrate/dagdigest";
 import type { PeekFacts } from "../peekstore";
 
@@ -72,7 +72,7 @@ function runMeta(input: PeekRunInput): PeekRunMeta[] {
     meta.push({ text: formatElapsed(wallMs(run, now)) });
     const spent = summarizeUsage(usage);
     if (spent != null) {
-        meta.push({ text: `${formatTokens(spent.total)} tok` });
+        meta.push({ text: spendText(spent) });
     }
     meta.push({ text: `${formatElapsed(Math.max(0, now - (run.completedts || run.createdts)))} ago`, faint: true });
     return meta;

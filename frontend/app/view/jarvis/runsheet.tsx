@@ -26,9 +26,11 @@ import { endFinalStage, type FinalEndOutcome } from "@/app/view/agents/runaction
 import { AskCard, CancelRunButton, CancelSurvivorsCard } from "@/app/view/agents/runcards";
 import { needsEvidenceSeal, verifCounts } from "@/app/view/agents/runcompletion";
 import { useRunEvents } from "@/app/view/agents/runeventstore";
-import { cancelSurvivors, isTerminal, leadAsker, leadWorker, liveWorkers } from "@/app/view/agents/runmodel";
+import { cancelSurvivors, isTerminal, leadAsker, leadWorker } from "@/app/view/agents/runmodel";
 import { SEG_FILL, STRIP_MAX, taskStrip, taskStripLabel } from "@/app/view/agents/runstrip";
 import { eventTitle, tsLabel } from "@/app/view/agents/runtimeline";
+import { useRunUsage } from "@/app/view/agents/runtokenstore";
+import { spendText, summarizeUsage } from "@/app/view/agents/runusage";
 import { SectionLabel } from "@/app/view/agents/sectionlabel";
 import { attentionQueue, type QueueEntry } from "@/app/view/orchestrate/attentionqueue";
 import { formatElapsed, taskBriefs, useDagDigest, type TaskBrief } from "@/app/view/orchestrate/dagdigest";
@@ -183,7 +185,7 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
 
     return (
         <div data-run-sheet={run.status} className="flex min-h-0 flex-1 flex-col bg-background">
-            <Reading run={run} agents={agents} status={status} dag={dag} onRetry={dag?.digest.retry} />
+            <Reading run={run} status={status} dag={dag} onRetry={dag?.digest.retry} />
             <div className="sc min-h-0 flex-1 overflow-y-auto px-4 pb-2.5">
                 {dag != null ? (
                     <RunTimingSection run={run} digest={dag.digest.digest} tasks={dag.group?.tasks} now={now} />
@@ -319,13 +321,11 @@ function FinalThumb({
 
 function Reading({
     run,
-    agents,
     status,
     dag,
     onRetry,
 }: {
     run: Run;
-    agents: AgentVM[];
     status: SheetStatus;
     dag: SheetDagRead | null;
     onRetry?: () => void;
@@ -333,8 +333,7 @@ function Reading({
     const [goalOpen, setGoalOpen] = useState(false);
     const index = useAtomValue(briefEffortIndexAtom);
     const revealChunk = useAtomValue(briefRevealChunkAtom);
-    // what the run has spent so far, off its live workers (design L1401)
-    const cost = liveWorkers(run, agents).reduce((sum, a) => sum + (a.usage?.costusd ?? 0), 0);
+    const spent = summarizeUsage(useRunUsage(run.channeloid, run.id)?.rows);
     const ref = run.effortref;
     const effort = ref != null ? index.get(ref.effortoid) : undefined;
     return (
@@ -367,7 +366,11 @@ function Reading({
                                 {m.text}
                             </span>
                         ))}
-                        {cost > 0 ? <span className="text-ink-mid">${cost.toFixed(2)}</span> : null}
+                        {spent != null ? (
+                            <span data-run-sheet-usage className="text-ink-mid">
+                                {spendText(spent)}
+                            </span>
+                        ) : null}
                         {status.retry && onRetry != null ? (
                             <button type="button" onClick={onRetry} className={LINK}>
                                 retry

@@ -126,6 +126,21 @@ describe("buildRunPeek: an orchestrator run", () => {
         ]);
     });
 
+    it("adds the api-equivalent estimate to the run's tokens, and leaves task rows as tokens", () => {
+        // 1,455,500 output tokens on opus-5-5 at $20 per million
+        const priced: UsageRow = { ...usage("t-1", 0), model: "claude-opus-5-5", output: 1_455_500 };
+        const view = buildRunPeek(input({ usage: [priced] }));
+        expect(view.meta.map((m) => m.text)).toContain("1.5M tok · ≈ $29.11");
+        expect(view.tasks?.[0].tokens).toBe("1.5M");
+    });
+
+    it("prints tokens alone when no model of the run is priced", () => {
+        const unpriced: UsageRow = { ...usage("t-1", 1_500_000), model: "mystery-1" };
+        const texts = buildRunPeek(input({ usage: [unpriced] })).meta.map((m) => m.text);
+        expect(texts).toContain("1.5M tok");
+        expect(texts.some((t) => t.includes("≈"))).toBe(false);
+    });
+
     it("takes the title from the goal's first line and keeps the goal text", () => {
         const view = buildRunPeek(input());
         expect(view.title).toBe("Implement the vault sync design");
