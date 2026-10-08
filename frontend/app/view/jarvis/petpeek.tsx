@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The peek is a compact global hub anchored to the creature. Its shape follows its responsibility: a quiet
-// 300px card when nothing waits, and a 420px queue when work arrives. Both share one grammar: a title that
+// card when nothing waits, and a queue when work arrives, at one 420px width so arriving work never resizes
+// it. Both share one grammar: a title that
 // carries the count, standing conditions as static lines under it, the body, the updates drawer, the
 // composer, and the key hints last. What needs doing leads and carries its actions inline; the quiet card
 // leads with the latest update and keeps the rest under Earlier. Everything actionable carries its own
@@ -738,7 +739,7 @@ export function PetPeek({
                                     style={{ transformOrigin: ORIGIN[corner] }}
                                     className={cn(
                                         "flex max-h-[calc(100vh-16px)] w-[calc(100vw-16px)] flex-col overflow-hidden rounded-[12px] border border-border bg-surface-raised shadow-popover",
-                                        item != null ? "max-w-[560px]" : quiet ? "max-w-[300px]" : "max-w-[420px]"
+                                        item != null ? "max-w-[560px]" : "max-w-[420px]"
                                     )}
                                 >
                                     {/* mark the dialog as the focus-managed element: without it FloatingFocusManager
@@ -913,7 +914,6 @@ export function PetPeek({
                                                 <PetErrand
                                                     dest={dest}
                                                     channels={channels}
-                                                    compact={quiet}
                                                     onPick={(oid) => globalStore.set(petPeekDestAtom, oid)}
                                                 />
                                             </>

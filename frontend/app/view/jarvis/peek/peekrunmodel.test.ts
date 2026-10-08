@@ -93,6 +93,13 @@ describe("buildRunPeek: an orchestrator run", () => {
         expect(view.tasks).toBeNull();
     });
 
+    it("drops the phase strip when the lead finished the work without a plan", () => {
+        const view = buildRunPeek(input({ run: run({ status: "done" }), group: null }));
+        expect(view.phases).toBeNull();
+        expect(view.tasks).toBeNull();
+        expect(view.meta[0]).toEqual({ text: "orchestrator" });
+    });
+
     it("prints the unverified line only when the final stage ended unverified", () => {
         expect(buildRunPeek(input()).unverified).toBe("the verifier did not open Settings > Memory.");
         const passed = group({ final: { state: "passed", round: 1 } });

@@ -3195,7 +3195,7 @@ const jarvisPeek = {
                 narrow.right <= narrow.viewportWidth - 8 &&
                 narrow.top >= 8 &&
                 narrow.bottom <= narrow.viewportHeight - 8 &&
-                narrow.width <= 300 &&
+                narrow.width <= 420 &&
                 narrow.shape === "quiet" &&
                 narrow.horizontalOverflow <= 0 &&
                 narrow.headerStayed === true &&
@@ -3293,11 +3293,11 @@ const jarvisPeek = {
         await press("/", "Slash", 191);
         const composerFocused = await h.ev(`document.activeElement?.hasAttribute('data-pet-errand-input') ?? false`);
         rec(
-            "6. attention expands the card and keyboard navigation moves the cursor then focuses the composer",
+            "6. attention keeps the card's width and keyboard navigation moves the cursor then focuses the composer",
             dest.composerEnabled === true &&
                 busyArranged === true &&
                 busyBefore?.shape === "busy" &&
-                busyBefore?.width > 300 &&
+                busyBefore?.width === narrow?.width &&
                 busyBefore?.cursor === "dag-gate:cdp-1" &&
                 busyBefore?.focused === true &&
                 movedCursor === "ask:cdp-2" &&
