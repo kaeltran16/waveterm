@@ -1725,6 +1725,7 @@ const buildUsageFixture = () => {
         buckets.push({
             harness: "claude",
             provider: "anthropic",
+            session: "fx-claude",
             model: "claude-opus-4-8",
             day: dayAgo(n),
             input: 1000,
@@ -1740,6 +1741,7 @@ const buildUsageFixture = () => {
     buckets.push({
         harness: "codex",
         provider: "openai",
+        session: "fx-codex",
         model: "gpt-5.5",
         day: dayAgo(2),
         input: 500,
@@ -1754,6 +1756,7 @@ const buildUsageFixture = () => {
     buckets.push({
         harness: "opencode",
         provider: "openai",
+        session: "fx-opencode",
         model: "gpt-5.5",
         day: dayAgo(1),
         input: 700,
@@ -1772,6 +1775,7 @@ const buildUsageFixture = () => {
     buckets.push({
         harness: "opencode",
         provider: "opencode-go",
+        session: "fx-opencode-go",
         model: "unpriced-test-model",
         day: dayAgo(3),
         input: 2000,
@@ -1788,6 +1792,7 @@ const buildUsageFixture = () => {
     buckets.push({
         harness: "pi",
         provider: "openai-codex",
+        session: "fx-pi",
         model: "gpt-5.5",
         day: dayAgo(1),
         input: 900,
@@ -1802,6 +1807,7 @@ const buildUsageFixture = () => {
     buckets.push({
         harness: "pi",
         provider: "openai-codex",
+        session: "fx-pi",
         model: "gpt-5.5",
         day: dayAgo(2),
         input: 400,
@@ -1813,7 +1819,12 @@ const buildUsageFixture = () => {
         reportedcostusd: 0.18,
         msgs: 2,
     });
-    return buckets;
+    // the directory GetUsageStatsCommand returns beside the buckets: one entry per session above
+    const sessions = [...new Set(buckets.map((b) => `${b.harness}:${b.session}`))].map((key) => {
+        const [harness, session] = key.split(":");
+        return { harness, session, title: `${harness} fixture session` };
+    });
+    return { buckets, sessions };
 };
 
 const usageCharts = {
@@ -2163,17 +2174,29 @@ const usageCharts = {
             JSON.stringify(piState)
         );
 
+        // By provider is the default lens, and its detail page has no ranked list: that is By work's
+        const lens = await h.ev(`(() => {
+            const pressed = (key) =>
+                document.querySelector('[data-usage-lens="' + key + '"]')?.getAttribute("aria-pressed") ?? null;
+            return {
+                provider: pressed("provider"),
+                work: pressed("work"),
+                lists: document.querySelectorAll("[data-usage-detail] [data-usage-list]").length,
+            };
+        })()`);
+        rec(
+            "17. the lens switch shows By provider pressed, and the detail page has no ranked list",
+            lens.provider === "true" && lens.work === "false" && lens.lists === 0,
+            JSON.stringify(lens)
+        );
+
         return steps;
     },
     // Restore the developer's pre-existing quota + fixture snapshots (delete only absent keys), reload so
     // savedRateLimitsAtom returns to the original value, then select the 7-day window and return to Cockpit.
     async teardown(h, ctx) {
-        const restore = (key, prev) =>
-            prev === null
-                ? `localStorage.removeItem('${key}')`
-                : `localStorage.setItem('${key}', ${JSON.stringify(prev)})`;
-        await h.ev(restore("wave:dev-usage-buckets", ctx.prevUsage));
-        await h.ev(restore("wave:ratelimits", ctx.prevRate));
+        await h.ev(restoreLocalStorage("wave:dev-usage-buckets", ctx.prevUsage));
+        await h.ev(restoreLocalStorage("wave:ratelimits", ctx.prevRate));
         await h.ev("location.reload()");
         await new Promise((r) => setTimeout(r, 2500));
         await h.goto("usage");
@@ -2181,6 +2204,423 @@ const usageCharts = {
             const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "7 days");
             if (b) b.click();
         })()`);
+        await h.goto("cockpit");
+    },
+};
+
+// an expression that puts a localStorage key back as it was read, removing one that was absent
+function restoreLocalStorage(key, prev) {
+    return prev === null ? `localStorage.removeItem('${key}')` : `localStorage.setItem('${key}', ${JSON.stringify(prev)})`;
+}
+
+// --- usage-work: the Usage surface's By work lens ----------------------------------------------
+// What the window's usage was spent on (docs/superpowers/specs/2026-10-08-usage-attribution-design.md): the
+// project rail, the ranked list with its toggle, and the project, run and session pages, on a seeded
+// {buckets, sessions} fixture. Paths use forward slashes and an upper-case drive letter, the form the surface
+// normalises a project to, so data-usage-project equals what was seeded.
+const USAGE_WORK_ARC = "C:/work/arc";
+const USAGE_WORK_SIEM = "C:/work/siem";
+const USAGE_WORK_SCRATCH = "C:/work/scratch";
+// names no stored run or channel: Open run reaches the router, whose notice says so
+const USAGE_WORK_RUN = "fx-usage-run";
+const USAGE_WORK_CHANNEL = "fx-usage-channel";
+const USAGE_WORK_GONE = "That channel no longer exists";
+const USAGE_WORK_RUN_ITEM = `run:${USAGE_WORK_RUN}`;
+const USAGE_WORK_SESSION_ITEM = "session:claude:fx-arc-1";
+const USAGE_WORK_PI_ITEM = "session:pi:fx-pi-local";
+const USAGE_WORK_PI_COST = 0.37;
+const USAGE_WORK_OPUS = "claude-opus-5-5";
+const USAGE_WORK_SONNET = "claude-sonnet-5-5";
+const USAGE_WORK_COLLAPSED_ROWS = 8;
+const USAGE_WORK_CLASSES = ["cacheRead", "reasoning", "output", "cacheWrite", "input"];
+
+// Eleven work items. arc: an orchestrator run of four sessions on two models, a quick run, three sessions no run
+// started and the pi session. siem: three sessions. scratch holds under 1% of spend, so it folds into "other
+// folders" with the one session the directory does not list.
+function buildUsageWorkFixture() {
+    const buckets = [];
+    const sessions = [];
+    // units sizes a session: one unit prices at $0.125 on opus and $0.0725 on sonnet
+    const add = (session, model, units, meta) => {
+        buckets.push({
+            harness: "claude",
+            provider: "anthropic",
+            model,
+            session,
+            day: dayAgo(1),
+            input: 10_000 * units,
+            output: 2_000 * units,
+            reasoning: 0,
+            cacheread: 100_000 * units,
+            cachecreate: 5_000 * units,
+            cachecreate1h: 0,
+            msgs: units,
+        });
+        if (meta != null) sessions.push({ harness: "claude", session, ...meta });
+    };
+    const inRun = (role, taskid) => ({
+        project: USAGE_WORK_ARC,
+        runid: USAGE_WORK_RUN,
+        channelid: USAGE_WORK_CHANNEL,
+        rungoal: "Usage attribution fixture run",
+        runmode: "orchestrator",
+        role,
+        ...(taskid ? { taskid } : {}),
+    });
+    add("fx-run-lead", USAGE_WORK_OPUS, 40, { title: "Lead session", ...inRun("lead") });
+    add("fx-run-worker-1", USAGE_WORK_SONNET, 40, { title: "Wire types", ...inRun("worker", "t-1") });
+    add("fx-run-worker-2", USAGE_WORK_SONNET, 30, { title: "By work lens", ...inRun("worker", "t-2") });
+    add("fx-run-reviewer", USAGE_WORK_OPUS, 8, { title: "Review of wire types", ...inRun("reviewer", "t-1") });
+    add("fx-quick", USAGE_WORK_OPUS, 16, {
+        title: "Quick fix session",
+        project: USAGE_WORK_ARC,
+        runid: "fx-usage-quick",
+        rungoal: "Fix the rail's truncated label",
+        runmode: "quick",
+    });
+    add("fx-arc-1", USAGE_WORK_OPUS, 12, { title: "Trace the usage scan", project: USAGE_WORK_ARC });
+    add("fx-arc-2", USAGE_WORK_SONNET, 20, { title: "Rename the bucket key", project: USAGE_WORK_ARC });
+    add("fx-arc-3", USAGE_WORK_OPUS, 6, { title: "Read the price table", project: USAGE_WORK_ARC });
+    add("fx-siem-1", USAGE_WORK_OPUS, 24, { title: "Detector backfill", project: USAGE_WORK_SIEM });
+    add("fx-siem-2", USAGE_WORK_SONNET, 10, { title: "Kafka topic audit", project: USAGE_WORK_SIEM });
+    add("fx-siem-3", USAGE_WORK_OPUS, 4, { title: "Avro schema check", project: USAGE_WORK_SIEM });
+    add("fx-scratch", USAGE_WORK_SONNET, 1, { title: "Scratch note", project: USAGE_WORK_SCRATCH });
+    add("fx-unlisted", USAGE_WORK_OPUS, 1, null);
+    // an unpriced model that reports its own cost: the row shows that figure, marked "reported"
+    buckets.push({
+        harness: "pi",
+        provider: "fx-local",
+        model: "unpriced-test-model",
+        session: "fx-pi-local",
+        day: dayAgo(1),
+        input: 40_000,
+        output: 9_000,
+        reasoning: 0,
+        cacheread: 0,
+        cachecreate: 0,
+        cachecreate1h: 0,
+        reportedcostusd: USAGE_WORK_PI_COST,
+        msgs: 6,
+    });
+    sessions.push({ harness: "pi", session: "fx-pi-local", title: "Local model spike", project: USAGE_WORK_ARC });
+    return { buckets, sessions };
+}
+
+// page-side helpers: every query is scoped to the surface's own data-* containers
+const USAGE_WORK_LIB = `
+    const text = (el) => (el?.textContent || "").replace(/\\s+/g, " ").trim();
+    const detail = () => document.querySelector("[data-usage-detail]");
+    // the surface's root: the header with the window switch sits beside the rail and the detail
+    const surface = () => detail()?.parentElement?.parentElement ?? null;
+    const windowButton = (label) =>
+        [...(surface()?.querySelectorAll("button[aria-pressed]") ?? [])].find((b) => text(b) === label);
+    const press = (el) => {
+        if (!el) return false;
+        el.click();
+        return true;
+    };
+    const until = async (ok, ms = 8000) => {
+        for (let waited = 0; waited < ms && !ok(); waited += 100) {
+            await new Promise((r) => setTimeout(r, 100));
+        }
+        return !!ok();
+    };
+    const snapshot = () => {
+        const d = detail();
+        const list = d?.querySelector("[data-usage-list]");
+        const rows = [...(list?.querySelectorAll("[data-usage-item]") ?? [])];
+        // read off the stat card's own sub line: the detail's joined text runs the card's value into it
+        const share = (of) => {
+            const sub = [...(d?.querySelectorAll("div") ?? [])].find(
+                (el) => el.childElementCount === 0 && text(el).includes(of)
+            );
+            return (text(sub).match(new RegExp("[\\\\d.<]+% " + of)) ?? [null])[0];
+        };
+        return {
+            scope: d?.getAttribute("data-usage-detail") ?? null,
+            lens:
+                document.querySelector('[data-usage-lens][aria-pressed="true"]')?.getAttribute("data-usage-lens") ??
+                null,
+            title: text(d?.querySelector("h2")),
+            sections: [...(d?.querySelectorAll("h3") ?? [])].map(text),
+            list: list
+                ? {
+                      title: text(list.querySelector("h3")),
+                      rows: rows.map((r) => r.getAttribute("data-usage-item")),
+                      rowText: rows.map(text),
+                      more: text(list.querySelector("[data-usage-more]")) || null,
+                  }
+                : null,
+            split: [...(d?.querySelectorAll("[data-usage-split-part]") ?? [])].map((p) =>
+                p.getAttribute("data-usage-split-part")
+            ),
+            back: text(d?.querySelector("[data-usage-back]")) || null,
+            openRun: text(d?.querySelector("[data-usage-open-run]")) || null,
+            shares: {
+                usage: share("of all usage"),
+                spend: share("of all spend"),
+            },
+            projects: [...document.querySelectorAll("[data-usage-project]")].map((b) => ({
+                key: b.getAttribute("data-usage-project"),
+                pressed: b.getAttribute("aria-pressed") === "true",
+                text: text(b),
+            })),
+            other: text(document.querySelector("[data-usage-other]")) || null,
+            harnesses: [...document.querySelectorAll("[data-usage-harness]")].map((b) =>
+                b.getAttribute("data-usage-harness")
+            ),
+            window: text([...(surface()?.querySelectorAll("button[aria-pressed='true']") ?? [])].find((b) =>
+                ["7 days", "All time"].includes(text(b))
+            )) || null,
+        };
+    };
+`;
+
+// Runs `act` (an expression that is true once it clicked what it was after), waits for `ready` (an expression
+// over the snapshot `s`), and returns the page as it then stands.
+const usageWorkView = (h, act, ready) =>
+    h.ev(`(async () => {
+        ${USAGE_WORK_LIB}
+        const clicked = ${act};
+        const settled = await until(() => {
+            const s = snapshot();
+            return ${ready};
+        });
+        return { clicked, settled, ...snapshot() };
+    })()`);
+const usageWorkClick = (selector) => `press(document.querySelector(${JSON.stringify(selector)}))`;
+const usageWorkScope = (scope) => `s.scope === ${JSON.stringify(scope)}`;
+
+const usageWork = {
+    name: "usage-work",
+    surface: "usage",
+    async arrange(h) {
+        const ctx = { prevUsage: await h.ev(`localStorage.getItem('wave:dev-usage-buckets')`) };
+        await h.ev(
+            `localStorage.setItem('wave:dev-usage-buckets', ${JSON.stringify(JSON.stringify(buildUsageWorkFixture()))})`
+        );
+        // the lens, window and selection atoms are module state: a reload starts them at By provider, 7 days
+        await h.ev("location.reload()");
+        await h.ev(`(async () => {
+            for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                await new Promise((r) => setTimeout(r, 500));
+            }
+        })()`);
+        return ctx;
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const view = (act, ready) => usageWorkView(h, act, ready);
+        const arcScope = `project:${USAGE_WORK_ARC}`;
+        const openArc = () => view(usageWorkClick(`[data-usage-project="${USAGE_WORK_ARC}"]`), usageWorkScope(arcScope));
+        const openRunPage = () =>
+            view(usageWorkClick(`[data-usage-item="${USAGE_WORK_RUN_ITEM}"]`), usageWorkScope(USAGE_WORK_RUN_ITEM));
+        const allUsage = () => view(usageWorkClick('[data-usage-harness="all"]'), `s.scope === "all" && s.list != null`);
+        const brief = (s) =>
+            JSON.stringify({ clicked: s.clicked, settled: s.settled, scope: s.scope, lens: s.lens, title: s.title });
+
+        await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+        const loaded = await view("true", `s.lens === "provider" && s.split.length > 0`);
+        rec(
+            "0. the Usage surface loaded the fixture on the By provider lens",
+            loaded.settled,
+            JSON.stringify({ lens: loaded.lens, scope: loaded.scope, split: loaded.split })
+        );
+
+        const all = await view(usageWorkClick('[data-usage-lens="work"]'), `s.lens === "work" && s.list != null`);
+        const railProjects = all.projects.map((p) => p.key);
+        rec(
+            "1a. By work lists the two projects above 1% of spend, each with a share pill, and an other-folders line",
+            all.settled &&
+                JSON.stringify(railProjects) === JSON.stringify([USAGE_WORK_ARC, USAGE_WORK_SIEM]) &&
+                all.projects.every((p) => /\d%/.test(p.text)) &&
+                /other folders? hold/.test(all.other ?? ""),
+            JSON.stringify({ projects: all.projects, other: all.other })
+        );
+        rec(
+            "1b. All usage has no Live limits, a Spent on list of eight rows, and a split by project",
+            all.scope === "all" &&
+                !all.sections.includes("Live limits") &&
+                all.list?.title === "Spent on" &&
+                all.list.rows.length === USAGE_WORK_COLLAPSED_ROWS &&
+                JSON.stringify(all.split) === JSON.stringify([USAGE_WORK_ARC, USAGE_WORK_SIEM, "other"]),
+            JSON.stringify({ scope: all.scope, sections: all.sections, list: all.list?.title, rows: all.list?.rows, split: all.split })
+        );
+        await h.shot("cdp-shots/usage-work-all.png");
+
+        const more = usageWorkClick("[data-usage-detail] [data-usage-more]");
+        const expanded = await view(more, `(s.list?.rows.length ?? 0) > ${USAGE_WORK_COLLAPSED_ROWS}`);
+        await h.shot("cdp-shots/usage-work-expanded.png");
+        const collapsed = await view(more, `s.list?.rows.length === ${USAGE_WORK_COLLAPSED_ROWS}`);
+        rec(
+            "2. the toggle expands the list past eight rows and collapses it again",
+            expanded.clicked && expanded.settled && collapsed.clicked && collapsed.settled,
+            JSON.stringify({
+                before: all.list?.more,
+                expandedRows: expanded.list?.rows.length,
+                expandedLabel: expanded.list?.more,
+                collapsedRows: collapsed.list?.rows.length,
+                collapsedLabel: collapsed.list?.more,
+            })
+        );
+
+        const project = await openArc();
+        rec(
+            "3. a project page has its header, its share of all usage and spend, Runs and sessions, and a split by kind",
+            project.clicked &&
+                project.settled &&
+                project.title === "arc" &&
+                project.shares.usage != null &&
+                project.shares.spend != null &&
+                project.list?.title === "Runs and sessions" &&
+                JSON.stringify(project.split) === JSON.stringify(["orchestrator", "quick", "session"]),
+            JSON.stringify({ title: project.title, shares: project.shares, list: project.list?.title, rows: project.list?.rows, split: project.split })
+        );
+        await h.shot("cdp-shots/usage-work-project.png");
+
+        const run = await openRunPage();
+        const roles = ["lead", "worker", "reviewer"];
+        rec(
+            "4. a run page has Back to its project, Open run, its sessions with their roles, and a split by role",
+            run.clicked &&
+                run.settled &&
+                run.back === "Back to arc" &&
+                run.openRun === "Open run" &&
+                run.list?.title === "Sessions in this run" &&
+                run.list.rows.length === 4 &&
+                roles.every((r) => run.list.rowText.some((t) => t.includes(`${r} ·`))) &&
+                roles.every((r) => run.split.includes(r)),
+            JSON.stringify({ back: run.back, openRun: run.openRun, list: run.list, split: run.split })
+        );
+        await h.shot("cdp-shots/usage-work-run.png");
+
+        const back = await view(
+            usageWorkClick("[data-usage-detail] [data-usage-back]"),
+            `${usageWorkScope(arcScope)} && s.list?.title === "Runs and sessions"`
+        );
+        rec(
+            "5. Back returns to the project page with its list",
+            back.clicked && back.settled && back.back == null,
+            JSON.stringify({ scope: back.scope, list: back.list?.title, rows: back.list?.rows })
+        );
+        await h.shot("cdp-shots/usage-work-back.png");
+
+        const allAgain = await allUsage();
+        const session = await view(
+            usageWorkClick(`[data-usage-item="${USAGE_WORK_SESSION_ITEM}"]`),
+            usageWorkScope(USAGE_WORK_SESSION_ITEM)
+        );
+        rec(
+            "6. a session page has no ranked list and no open button, and splits by token class",
+            allAgain.settled &&
+                session.clicked &&
+                session.settled &&
+                session.list == null &&
+                session.openRun == null &&
+                session.split.length > 0 &&
+                session.split.every((k) => USAGE_WORK_CLASSES.includes(k)),
+            JSON.stringify({ title: session.title, back: session.back, list: session.list, openRun: session.openRun, split: session.split })
+        );
+        await h.shot("cdp-shots/usage-work-session.png");
+
+        // the unpriced session ranks last by estimate, so its row is past the first eight
+        await allUsage();
+        await view(more, `(s.list?.rows.length ?? 0) > ${USAGE_WORK_COLLAPSED_ROWS}`);
+        const reported = await h.ev(`(() => {
+            ${USAGE_WORK_LIB}
+            const row = detail()?.querySelector(${JSON.stringify(`[data-usage-item="${USAGE_WORK_PI_ITEM}"]`)});
+            if (!row) return null;
+            row.scrollIntoView({ block: "center" });
+            return { mark: text(row.querySelector("[data-usage-reported]")), row: text(row) };
+        })()`);
+        rec(
+            "7. the unpriced pi session's row shows its reported cost, marked reported",
+            reported?.mark === "reported" &&
+                reported.row.includes(`$${USAGE_WORK_PI_COST}`) &&
+                !reported.row.includes(`≈ $${USAGE_WORK_PI_COST}`),
+            JSON.stringify(reported)
+        );
+        await h.shot("cdp-shots/usage-work-reported.png");
+
+        const selected = await openArc();
+        const allTime = await view(
+            `press(windowButton("All time"))`,
+            `s.window === "All time" && s.scope === "all" && s.list != null`
+        );
+        rec(
+            "8. changing the window with a project selected returns By work to All usage",
+            selected.settled &&
+                selected.projects.some((p) => p.pressed) &&
+                allTime.clicked &&
+                allTime.settled &&
+                allTime.lens === "work" &&
+                allTime.projects.length > 0 &&
+                allTime.projects.every((p) => !p.pressed),
+            JSON.stringify({
+                before: { scope: selected.scope, window: selected.window },
+                after: { scope: allTime.scope, window: allTime.window, lens: allTime.lens, projects: allTime.projects.map((p) => [p.key, p.pressed]) },
+            })
+        );
+        await h.shot("cdp-shots/usage-work-window-reset.png");
+        const week = await view(`press(windowButton("7 days"))`, `s.window === "7 days" && s.list != null`);
+
+        const provider = await view(
+            usageWorkClick('[data-usage-lens="provider"]'),
+            `s.lens === "provider" && s.sections.includes("Live limits")`
+        );
+        rec(
+            "9. By provider restores the harness rail and the Live limits section",
+            week.settled &&
+                provider.clicked &&
+                provider.settled &&
+                ["all", "claude", "pi"].every((k) => provider.harnesses.includes(k)) &&
+                provider.projects.length === 0 &&
+                provider.list == null,
+            JSON.stringify({ window: week.window, harnesses: provider.harnesses, sections: provider.sections, scope: provider.scope })
+        );
+        await h.shot("cdp-shots/usage-work-provider.png");
+
+        // last, because it leaves the surface or raises the router's notice
+        await view(usageWorkClick('[data-usage-lens="work"]'), `s.lens === "work" && s.list != null`);
+        await openArc();
+        const runPage = await openRunPage();
+        const opened = await h.ev(`(async () => {
+            ${USAGE_WORK_LIB}
+            const errors = [];
+            window.addEventListener("error", (e) => errors.push(String(e.message)));
+            window.addEventListener("unhandledrejection", (e) => errors.push(String(e.reason?.message ?? e.reason)));
+            const activeNav = () => {
+                const b = [...document.querySelectorAll("nav button")].find((x) =>
+                    (x.className || "").includes("text-accent-soft")
+                );
+                return b ? b.getAttribute("aria-label") || text(b) : null;
+            };
+            const toasts = () => [...document.querySelectorAll("[data-notification-toast]")].map(text);
+            const from = activeNav();
+            const clicked = press(detail()?.querySelector("[data-usage-open-run]"));
+            const reached = await until(() => activeNav() !== from || toasts().length > 0);
+            // an error thrown by the click's own handlers would have landed by now
+            await new Promise((r) => setTimeout(r, 500));
+            return { clicked, reached, from, surface: activeNav(), toasts: toasts(), errors };
+        })()`);
+        rec(
+            "10. Open run goes through the router, which says the fixture's channel is gone, and nothing throws",
+            runPage.settled &&
+                opened.clicked &&
+                opened.reached &&
+                (opened.surface !== opened.from || opened.toasts.includes(USAGE_WORK_GONE)) &&
+                opened.errors.length === 0,
+            `${brief(runPage)} ${JSON.stringify(opened)}`
+        );
+        await h.shot("cdp-shots/usage-work-open-run.png");
+
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(restoreLocalStorage("wave:dev-usage-buckets", ctx.prevUsage));
+        await h.ev("location.reload()");
+        await new Promise((r) => setTimeout(r, 2500));
         await h.goto("cockpit");
     },
 };
@@ -8279,6 +8719,224 @@ const runTimingScenario = {
     },
 };
 
+// --- run-cost: the API-equivalent estimate of a run's tokens on the run surfaces ------------------------
+// The run sheet, the DAG header, the run peek and the details rail's Task section each price the same usage rows
+// (docs/superpowers/specs/2026-10-08-usage-attribution-design.md). The rows are seeded as the run's sealed
+// evidence, which RunUsageCommand returns as it stands. A deferred run has no lead, so the rail is reached
+// through t-1's dispatched worker.
+const RUN_COST_TASK = "t-1";
+// At the bundled prices (usagepricing.ts) opus-5-5 is $4 in, $20 out, $0.20 cache read and $5 cache write per
+// million tokens; sonnet-5 is $2, $10, $0.20 and $2.50. The lead row prices to $3.10, the worker's to $1.20 and
+// the reviewer's to $0.50.
+const RUN_COST_USAGE = [
+    { role: "lead", model: "claude-opus-5-5", input: 200_000, output: 50_000, cacheread: 4_000_000, cachewrite: 100_000, cachewrite1h: 0, msgs: 40 },
+    { role: "worker", taskid: RUN_COST_TASK, model: "claude-sonnet-5-5", input: 100_000, output: 40_000, cacheread: 2_000_000, cachewrite: 80_000, cachewrite1h: 0, msgs: 30 },
+    { role: "reviewer", taskid: RUN_COST_TASK, model: "claude-opus-5-5", input: 50_000, output: 10_000, cacheread: 500_000, cachewrite: 0, cachewrite1h: 0, msgs: 8 },
+];
+const RUN_COST_RUN_USD = "$4.80";
+const RUN_COST_TASK_USD = "$1.70";
+const RUN_COST_SPEND = new RegExp(`^[\\d.]+[kM]? tok · ≈ \\${RUN_COST_RUN_USD}$`);
+const RUN_COST_WAIT_MS = 20_000;
+const RUN_COST_RAIL = `document.querySelector('aside[aria-label="Agent details"]')`;
+const RUN_COST_LIB = `
+    const text = (el) => (el?.textContent || "").replace(/\\s+/g, " ").trim();
+    const until = async (ok, ms = ${RUN_COST_WAIT_MS}) => {
+        for (let waited = 0; waited < ms && !ok(); waited += 250) {
+            await new Promise((r) => setTimeout(r, 250));
+        }
+        return !!ok();
+    };
+`;
+
+// Writes the rows as the run's evidence and reads them back, again if a write of the engine's landed over them:
+// it writes a live run, and one that read the run before this write puts its own copy back.
+async function seedRunUsage(h, ctx, usage) {
+    const oref = `run:${ctx.runId}`;
+    const kept = (run) => JSON.stringify(run?.evidence?.usage ?? null) === JSON.stringify(usage);
+    let stored = await waveService(h, "object", "GetObject", [oref]);
+    for (let i = 0; i < 3 && !kept(stored); i++) {
+        const evidence = { capturedts: Date.now(), hash: "", addtotal: 0, deltotal: 0, runtimems: 0, durationms: 0, usage };
+        await waveService(h, "object", "UpdateObject", [{ ...stored, otype: "run", evidence }, false], FINAL_SHOTS_UICTX);
+        stored = await waveService(h, "object", "GetObject", [oref]);
+    }
+    if (!kept(stored)) {
+        throw new Error(`the run did not keep its seeded usage: stored ${JSON.stringify(stored?.evidence?.usage ?? null)}`);
+    }
+}
+
+const runCost = {
+    name: "run-cost",
+    surface: "jarvis",
+    async arrange(h) {
+        await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+        const prevRail = await h.ev(`localStorage.getItem(${JSON.stringify(RAIL_VISIBLE_KEY)})`);
+        const ctx = await arrangeSheetDagRun(h, "run-cost", RUN_SHEET_POLISH_TASKS);
+        ctx.prevRail = prevRail;
+        if (ctx.arrangeError != null) return ctx;
+        try {
+            // the dispatching tick holds the run for as long as the spawn takes and would land over a seed made under it
+            await waitForDispatch(h, ctx, RUN_COST_TASK);
+            if (!ctx.dispatched) throw new Error(`${RUN_COST_TASK} did not dispatch in ${ctx.dispatchMs}ms`);
+            const group = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group;
+            ctx.workerRunId = group?.tasks?.find((t) => t.id === RUN_COST_TASK)?.runid;
+            await seedRunUsage(h, ctx, RUN_COST_USAGE);
+            // a write the worker's first events started can outlast the seed's own read-back
+            await new Promise((r) => setTimeout(r, ATTN_TICK_SETTLE_MS));
+            await seedRunUsage(h, ctx, RUN_COST_USAGE);
+            // the rail is off by default and persisted; and a run's usage loads when a surface showing it mounts,
+            // then once a minute, so the page is reloaded and the run reopened to read the seed
+            await h.ev(`localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "true")`);
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+            await h.goto("jarvis");
+            ctx.opened = await h.ev(`(async () => {
+                for (let i = 0; i < 20 && typeof window.__openAddress !== "function"; i++) {
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                if (typeof window.__openAddress !== "function") return { ok: false, why: "no __openAddress hook" };
+                return window.__openAddress(${JSON.stringify(`run:${ctx.runId}`)});
+            })()`);
+            ctx.usageShown = await h.ev(`(async () => {
+                ${RUN_COST_LIB}
+                return until(() => text(document.querySelector("[data-run-sheet] [data-run-sheet-usage]")).includes("≈"));
+            })()`);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec(
+            "0. the run's sheet opened, t-1 dispatched, and the sheet shows the seeded usage",
+            ctx.arrangeError == null && ctx.opened?.ok === true && ctx.dispatched === true && ctx.usageShown === true,
+            ctx.arrangeError ??
+                JSON.stringify({ runId: ctx.runId, worker: ctx.workerRunId, opened: ctx.opened, dispatchMs: ctx.dispatchMs, usageShown: ctx.usageShown })
+        );
+        if (ctx.arrangeError != null) return steps;
+
+        const sheet = await h.ev(`(() => {
+            ${RUN_COST_LIB}
+            return text(document.querySelector("[data-run-sheet] [data-run-sheet-usage]"));
+        })()`);
+        rec(
+            `1. the run sheet's meta reads "<n> tok · ≈ ${RUN_COST_RUN_USD}", every seeded row priced`,
+            RUN_COST_SPEND.test(sheet),
+            JSON.stringify(sheet)
+        );
+        await h.shot("cdp-shots/run-cost-sheet.png");
+
+        const header = await h.ev(`(async () => {
+            ${RUN_COST_LIB}
+            const open = [...(document.querySelector("[data-run-sheet]")?.querySelectorAll("button") ?? [])].find(
+                (b) => text(b) === "Open DAG"
+            );
+            if (!open) return { opened: false };
+            open.click();
+            const line = () =>
+                [...(document.querySelector("[data-dag-modal-kind]")?.querySelectorAll("div") ?? [])].find(
+                    (d) => d.children.length === 0 && text(d).startsWith("parallelism")
+                );
+            const shown = await until(() => text(line()).includes("≈"));
+            return { opened: !!document.querySelector("[data-dag-modal-kind]"), shown, line: text(line()) };
+        })()`);
+        rec(
+            `2. the DAG header's usage text ends "· ≈ ${RUN_COST_RUN_USD}"`,
+            header.opened === true && (header.line ?? "").endsWith(`· ≈ ${RUN_COST_RUN_USD}`),
+            JSON.stringify(header)
+        );
+        await h.shot("cdp-shots/run-cost-dag-header.png");
+        const modalClosed = await h.ev(`(async () => {
+            ${RUN_COST_LIB}
+            const close = [...(document.querySelector("[data-dag-modal-kind]")?.querySelectorAll("button") ?? [])].find(
+                (b) => text(b).startsWith("Close")
+            );
+            close?.click();
+            return until(() => !document.querySelector("[data-dag-modal-kind]"), 5000);
+        })()`);
+
+        const peek = await h.ev(`(async () => {
+            ${RUN_COST_LIB}
+            if (!(await until(() => typeof window.__peekAddress === "function", 5000))) return { hook: false };
+            const result = await window.__peekAddress(${JSON.stringify(`run:${ctx.runId}`)});
+            const body = () =>
+                document.querySelector('[data-pet-peek-item="run"][data-pet-peek-status="ready"] [data-pet-peek-body]');
+            const meta = () => [...(body()?.querySelectorAll("span") ?? [])].map(text).find((t) => / tok · ≈ /.test(t));
+            const shown = await until(() => meta() != null);
+            return { hook: true, result, shown, meta: meta() ?? null };
+        })()`);
+        rec(
+            `3. the run peek's meta holds "tok · ≈ ${RUN_COST_RUN_USD}"`,
+            modalClosed === true && peek.hook === true && RUN_COST_SPEND.test(peek.meta ?? ""),
+            JSON.stringify({ modalClosed, ...peek })
+        );
+        await h.shot("cdp-shots/run-cost-peek.png");
+        const peekClosed = await h.ev(`(async () => {
+            ${RUN_COST_LIB}
+            document.querySelector('[data-pet-peek] button[aria-label="Close Jarvis panel"]')?.click();
+            return until(() => !document.querySelector("[data-pet-peek]"), 5000);
+        })()`);
+
+        await h.goto("agent");
+        // the task's row is titled by its label; the rail is the worker's once its Task section prices the task
+        const taskLabel = RUN_SHEET_POLISH_TASKS.find((t) => t.id === RUN_COST_TASK).label;
+        const rail = await h.ev(`(async () => {
+            ${RUN_COST_LIB}
+            const rail = () => ${RUN_COST_RAIL};
+            const cost = () => text(rail()?.querySelector("[data-run-cost]"));
+            const rows = () =>
+                [...(document.querySelector("[data-agent-tree]")?.querySelectorAll("div") ?? [])]
+                    .filter((d) => d.children.length === 0 && text(d) === ${JSON.stringify(taskLabel)})
+                    .map((d) => d.closest(".cursor-pointer"))
+                    .filter((row) => row != null && text(row).includes(${JSON.stringify(RUN_COST_TASK)}));
+            if (!(await until(() => rows().length > 0))) return { rows: 0 };
+            // another run's ${RUN_COST_TASK} would carry the same label, so a row counts once its rail prices this task
+            let selected = false;
+            for (const row of rows()) {
+                row.click();
+                selected = await until(() => cost().includes(${JSON.stringify(RUN_COST_TASK_USD)}), 5000);
+                if (selected) break;
+            }
+            const fact = (label) => {
+                const name = [...(rail()?.querySelectorAll("span") ?? [])].find(
+                    (s) => s.children.length === 0 && text(s) === label
+                );
+                return name ? text(name.nextElementSibling) : null;
+            };
+            return {
+                rows: rows().length,
+                selected,
+                headings: [...(rail()?.querySelectorAll("h3") ?? [])].map(text),
+                tokens: fact("Tokens"),
+                cost: cost(),
+            };
+        })()`);
+        rec(
+            `4. the worker's Task section has a Tokens row with no estimate and a Cost row of ≈ ${RUN_COST_TASK_USD} API-equiv`,
+            peekClosed === true &&
+                rail.selected === true &&
+                rail.headings.includes("Task") &&
+                / tok · \d+% cached/.test(rail.tokens ?? "") &&
+                !(rail.tokens ?? "").includes("≈") &&
+                rail.cost === `≈ ${RUN_COST_TASK_USD} API-equiv`,
+            JSON.stringify({ peekClosed, ...rail })
+        );
+        await h.shot("cdp-shots/run-cost-rail.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "run-cost", {
+            what: "restore the rail's visibility",
+            fn: () => h.ev(restoreLocalStorage(RAIL_VISIBLE_KEY, ctx.prevRail)),
+        });
+    },
+};
+
 // --- record-band-detach-restore: correcting a run's record from the run sheet, and undoing it ----------
 // The band's EdgeControls on a run with one attributed record: Not this record moves the edge to the Detached
 // group, Restore brings it back. The edge is accepted in the arrange, so it is confirmed and the detach asks
@@ -12265,6 +12923,7 @@ export const SCENARIOS = [
     jarvisPeek,
     jarvisVolunteer,
     usageCharts,
+    usageWork,
     attentionCrossChannel,
     cockpitNeedsYouCrossChannel,
     harnessPicker,
@@ -12290,6 +12949,7 @@ export const SCENARIOS = [
     cockpitPolish,
     runSheetPolish,
     runTimingScenario,
+    runCost,
     dagObservability,
     recordBandDetachRestore,
     agentRailFileLink,
