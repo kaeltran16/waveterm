@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -10,7 +11,9 @@ import {
     EXIT_UNVERIFIED,
     acquireBuildSlot,
     buildLockPath,
+    closeMainWindow,
     finalManifest,
+    finalOutcome,
     inUse,
     pickPort,
     pickVitePort,
@@ -365,6 +368,57 @@ describe("sweepStaleStores", () => {
     it("is a no-op when no stage has made a store yet", () => {
         dir = mkdtempSync(join(tmpdir(), "final-stores-"));
         expect(() => sweepStaleStores(join(dir, "missing"))).not.toThrow();
+    });
+});
+
+describe("finalOutcome", () => {
+    const exited = { state: "exited" };
+    const alive = { state: "alive" };
+    const unclosed = { state: "unclosed", reason: "could not close the main window: no page" };
+
+    // the close is not tried after a failed run, so there is no close result to read
+    it.each([[1], [2], [EXIT_UNVERIFIED]])("keeps the scenarios' exit code %i whatever the close showed", (code) => {
+        for (const close of [undefined, exited, alive, unclosed]) {
+            expect(finalOutcome(code, close)).toEqual({ code });
+        }
+    });
+
+    it("passes when the scenarios passed and the app exited by itself", () => {
+        expect(finalOutcome(0, exited)).toEqual({ code: 0 });
+    });
+
+    it("fails, and is not unverified, when the app stayed alive after its main window was closed", () => {
+        expect(finalOutcome(0, alive)).toEqual({
+            code: 1,
+            line: "the dev app stayed alive after its main window was closed",
+        });
+    });
+
+    it("is unverified with the reason when the main window could not be closed", () => {
+        expect(finalOutcome(0, unclosed)).toEqual({ code: EXIT_UNVERIFIED, line: unclosed.reason });
+    });
+});
+
+describe("closeMainWindow", () => {
+    it("is unclosed when nothing answers on the port", async () => {
+        const r = await closeMainWindow(await freePort());
+        expect(r.state).toBe("unclosed");
+        expect(r.reason).toMatch(/^could not close the main window: cannot reach CDP on :\d+/);
+    });
+
+    it("is unclosed when the app has no cockpit page to attach to", async () => {
+        // a host whose only page is the hidden popup's
+        const popup = [{ type: "page", url: "http://localhost:5174/popup.html" }];
+        const srv = createHttpServer((_req, res) => res.end(JSON.stringify(popup)));
+        await new Promise((resolve) => srv.listen(0, resolve));
+        try {
+            const r = await closeMainWindow(srv.address().port);
+            expect(r.state).toBe("unclosed");
+            expect(r.reason).toMatch(/^could not close the main window: no page target on :\d+/);
+        } finally {
+            srv.closeAllConnections();
+            await close(srv);
+        }
     });
 });
 
