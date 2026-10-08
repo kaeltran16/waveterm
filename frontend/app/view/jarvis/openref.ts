@@ -26,6 +26,7 @@ import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
 import { loadRecordDetail, selectSubject, setActiveRunId } from "./jarvissubjectstore";
 import { clearLoadingPeek, settlePeek, startPeek, type PeekTarget } from "./peekstore";
 import { pendingDecisionAnchorAtom } from "./petstore";
+import { landOn } from "./returnsurface";
 import { refreshTaskList, taskListAtom, tasksErrorAtom } from "./tasksstore";
 
 type OpenFailure = { ok: false; reason: "unsupported" | "unavailable" | "failed" | "superseded"; message: string };
@@ -355,7 +356,7 @@ async function selectSheet(model: AgentsViewModel, sheet: Sheet, current: () => 
     if (!current()) {
         return SUPERSEDED;
     }
-    globalStore.set(model.surfaceAtom, "jarvis");
+    landOn(model.surfaceAtom, "jarvis", "sheet");
     return OK;
 }
 
@@ -442,7 +443,7 @@ async function loadRecord(target: RecordTarget, current: () => boolean): Promise
 function selectRecord(model: AgentsViewModel, target: RecordTarget): OpenResult {
     globalStore.set(pendingDecisionAnchorAtom, target.anchor ?? null);
     openRecordPeek(target.dossierId);
-    globalStore.set(model.surfaceAtom, "jarvis");
+    landOn(model.surfaceAtom, "jarvis", "record");
     return OK;
 }
 
@@ -488,7 +489,7 @@ async function selectRadar(model: AgentsViewModel, landing: RadarLanding, curren
         return SUPERSEDED;
     }
     globalStore.set(radarSelectedIdAtom, landing.findingId);
-    globalStore.set(model.surfaceAtom, "radar");
+    landOn(model.surfaceAtom, "radar");
     return OK;
 }
 
@@ -512,7 +513,7 @@ async function loadEffort(effortId: string, current: () => boolean): Promise<Loa
 
 function selectEffort(model: AgentsViewModel, effortId: string): OpenResult {
     openEffortSheet(effortId);
-    globalStore.set(model.surfaceAtom, "jarvis");
+    landOn(model.surfaceAtom, "jarvis", "sheet");
     return OK;
 }
 

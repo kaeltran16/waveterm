@@ -157,6 +157,7 @@ import { clearSubject, persistedSubjectAtom, setComposingRun, stageRunAtom } fro
 import { NewInitiativeControl } from "./newinitiativecontrol";
 import { radarDraftLanding } from "./newrun";
 import { openChannelSheet, openOrPeek, openOrPeekAddress } from "./openref";
+import { forgetOrigin } from "./returnsurface";
 import { loadTaskList, taskListAtom } from "./tasksstore";
 import {
     appendInStageAt,
@@ -1197,6 +1198,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             const lineId = "initiatives:" + effortOref;
             globalStore.set(briefSheetOpenAtom, false);
             clearSubject();
+            forgetOrigin();
             setOpenInitiative(lineId);
             setCursor(chunkRowId(lineId, chunk));
             fireAndForget(async () => {

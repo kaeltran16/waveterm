@@ -9,6 +9,7 @@ import { paneReveal } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import * as WOS from "@/app/store/wos";
 import { openOrPeek } from "@/app/view/jarvis/openref";
+import { returnWhenClosed } from "@/app/view/jarvis/returnsurface";
 import {
     cleanupOnly,
     digestStale,
@@ -124,6 +125,7 @@ export function openRunDag(model: AgentsViewModel, run: RunInfo, taskId?: string
         } else {
             openDagLive(run.channelId, run.runId, dagOref);
         }
+        returnWhenClosed("dag");
     });
 }
 

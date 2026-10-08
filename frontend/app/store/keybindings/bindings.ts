@@ -66,6 +66,7 @@ import {
 import { activeRunIdAtom, activeSubjectAtom, setActiveRunId } from "@/app/view/jarvis/jarvissubjectstore";
 import { peekTarget } from "@/app/view/jarvis/openref";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
+import { backToOrigin } from "@/app/view/jarvis/returnsurface";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import type { MutableRefObject } from "react";
 import { listNavAtom } from "./listnav";
@@ -151,6 +152,13 @@ export function closeTargetForDoubleCtrlC(agents: AgentVM[], focusId: string | u
         return null;
     }
     return agents.find((x) => x.id === focusId) ?? null;
+}
+
+// Escape on a surface: back over the jump that brought the user here, and home when there was none
+function backOrHome(model: AgentsViewModel): void {
+    if (!backToOrigin()) {
+        globalStore.set(model.surfaceAtom, "cockpit");
+    }
 }
 
 export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
@@ -319,7 +327,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             id: "surface:back-home",
             keys: "Escape",
             group: "Navigation",
-            label: "Back to Cockpit",
+            label: "Back, else to Cockpit",
             // the Jarvis graph peek owns Escape while it is open: closing an overlay is what the user means
             // by Escape there, and navigating home instead would leave the peek open behind the Cockpit.
             // The autonomy panel owns it for the same reason — and it cannot claim the key itself, since
@@ -351,7 +359,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 globalStore.get(noteChunkAtom) == null &&
                 // and the plan-editing menu above it, the innermost rung of all
                 globalStore.get(trackerMenuAtom) == null,
-            run: () => globalStore.set(model.surfaceAtom, "cockpit"),
+            run: () => backOrHome(model),
         },
     ];
 }
@@ -791,13 +799,13 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             id: "agent:back",
             keys: "Escape",
             group: "Agent",
-            label: "Back to Cockpit (or exit fullscreen)",
+            label: "Back, else to Cockpit (or exit fullscreen)",
             when: (ctx) => agentNavStrict(ctx) && globalStore.get(focusSubagentAtom) == null && noCanvas(),
             run: () => {
                 if (globalStore.get(terminalFullscreenAtom)) {
                     globalStore.set(terminalFullscreenAtom, false);
                 } else {
-                    globalStore.set(model.surfaceAtom, "cockpit");
+                    backOrHome(model);
                 }
             },
         },

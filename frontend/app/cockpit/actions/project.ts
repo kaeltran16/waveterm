@@ -8,6 +8,7 @@ import {
 import { briefProfileAtom } from "@/app/view/jarvis/jarvisstore";
 import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
 import { openTarget } from "@/app/view/jarvis/openref";
+import { landOn } from "@/app/view/jarvis/returnsurface";
 import { fireAndForget } from "@/util/util";
 import type { ThingEntry, ThingKindDef } from "./types";
 
@@ -55,7 +56,7 @@ export const PROJECT_KIND: ThingKindDef<ProjectThing> = {
             // the Brief's Profile window, which the Brief mounts
             run: (p, { model }) => {
                 globalStore.set(briefProfileAtom, p.channel.oid);
-                globalStore.set(model.surfaceAtom, "jarvis");
+                landOn(model.surfaceAtom, "jarvis");
             },
         },
         {

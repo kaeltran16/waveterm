@@ -4,6 +4,7 @@ import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { overlayLive, sessionsArchiveAtom, type LiveSession } from "@/app/view/agents/sessionsarchivestore";
 import { runSessionPrimary } from "@/app/view/agents/sessionsdetail";
 import { sessionPrimary, sessionSelection } from "@/app/view/agents/sessionsruns";
+import { landOn } from "@/app/view/jarvis/returnsurface";
 import type { ThingKindDef } from "./types";
 
 // the session as the Sessions surface builds it, with the roster agent a live one is running in
@@ -35,7 +36,7 @@ export const SESSION_KIND: ThingKindDef<SessionThing> = {
                 if (to.member != null) {
                     globalStore.set(model.sessionsMemberAtom, to.member);
                 }
-                globalStore.set(model.surfaceAtom, "sessions");
+                landOn(model.surfaceAtom, "sessions");
             },
         },
         {

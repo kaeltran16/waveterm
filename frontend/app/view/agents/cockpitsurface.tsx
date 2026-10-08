@@ -69,6 +69,7 @@ import { loadWindowTokens, windowTokensAtom } from "./windowtokenstore";
 import { useSubagentTracking } from "./subagenttracking";
 import { SurfaceHeader } from "./surfacescaffold";
 import { UsageMeters } from "./usagemeters";
+import { landOn } from "@/app/view/jarvis/returnsurface";
 
 // Status tabs (mockup A3): a tab's count takes its status color while it has any, the selected tab underlines
 const TAB_TONE: Record<ChipFilter, { text: string; line: string }> = {
@@ -377,13 +378,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const openFocus = (id: string, reply: boolean) => {
         globalStore.set(model.focusIdAtom, id);
         globalStore.set(model.focusReplyAtom, reply);
-        globalStore.set(model.surfaceAtom, "agent");
+        landOn(model.surfaceAtom, "agent");
     };
 
     // open this agent's changed files in the Diff surface (which scopes to focusIdAtom)
     const openDiff = (id: string) => {
         globalStore.set(model.focusIdAtom, id);
-        globalStore.set(model.surfaceAtom, "files");
+        landOn(model.surfaceAtom, "files");
     };
 
     const onKeyDown = useCockpitKeyboard({
@@ -493,7 +494,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                         donuts={usageDonuts}
                                         windowTokens={windowTokens}
                                         now={structuralNow}
-                                        onOpen={() => globalStore.set(model.surfaceAtom, "usage")}
+                                        onOpen={() => landOn(model.surfaceAtom, "usage")}
                                     />
                                     <ProjectSwitcher model={model} variant="header" />
                                     <button

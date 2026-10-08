@@ -35,6 +35,7 @@ import {
     recordRunsAtom,
 } from "./jarvissubjectstore";
 import { openAddress, openOrPeekAddress } from "./openref";
+import { forgetOrigin, returnToOrigin } from "./returnsurface";
 import { closePeek } from "./peekstore";
 import { setDossierStatus } from "./recordactions";
 
@@ -372,12 +373,16 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
         setPendingStatus(null);
     }, [recordId]);
 
-    const close = () => setRecordId(null);
+    const close = () => {
+        setRecordId(null);
+        returnToOrigin("record");
+    };
     // The peek's one exit. It closes the peek first: the graph peek is an overlay on the surface, and leaving the
     // record modal up over it would stack two modals, both claiming Escape.
     const openMap = () => {
         if (recordId == null) return;
         globalStore.set(briefGraphRecordAtom, recordId);
+        forgetOrigin();
         setRecordId(null);
         globalStore.set(graphPeekOpenAtom, true);
     };

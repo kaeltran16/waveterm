@@ -25,6 +25,7 @@ import type { Lineage } from "./runlineage";
 import { endedWorkerAtomFor, lineageAtomFor, type EndedWorker } from "./runlineagestore";
 import { usageBucketsAtom } from "./usagestore";
 import { aggregateBuckets, type HarnessFilter } from "./usagestats";
+import { landOn } from "@/app/view/jarvis/returnsurface";
 
 export type SurfaceKey =
     | "cockpit"
@@ -161,7 +162,7 @@ export class AgentsViewModel implements ViewModel {
     // renders the focused agent's live terminal; the controller starts on render.
     openTerminal(agentId: string) {
         globalStore.set(this.focusIdAtom, agentId);
-        globalStore.set(this.surfaceAtom, "agent");
+        landOn(this.surfaceAtom, "agent");
     }
 
     // Cycle the focused agent (Ctrl+Tab). askingOnly restricts to asking agents (Ctrl+Shift+Tab).
