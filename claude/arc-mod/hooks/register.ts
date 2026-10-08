@@ -303,8 +303,10 @@ export const register: Register = (on) => {
         }
         await closePicker($);
         if (isFromPicker) {
-            // ending the stream kills wsh, and the server's waiter cancel takes the card down
             void wait.return(undefined as never).catch(() => undefined);
+            // ending the stream kills wsh, but the server cancels a request only when a websocket drops,
+            // not wsh's socket, so the card is taken down here
+            await clearAsk($);
         }
         if (reply?.cancelled) {
             return { deny: "The user dismissed the question." };
