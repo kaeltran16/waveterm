@@ -51,16 +51,21 @@ Setup and Settings have no `Ctrl`+number slot — the nine positions are bound t
 
 ## Search (`Ctrl`+`P`)
 
-One overlay with scopes: All, Needs you, Go to, Agents, Runs, Sessions, Records, Projects, Files, Commands.
+One overlay with scopes: All, Needs you, Go to, Agents, Runs, Sessions, Records, Notes, Projects, Files, Commands.
 
 | Keys | Action |
 |---|---|
 | `Tab` / `Shift`+`Tab` | Next / previous scope |
-| `n:` `g:` `a:` `r:` `s:` `re:` `p:` `f:` `c:` typed first in All | Narrow to Needs you, Go to, Agents, Runs, Sessions, Records, Projects, Files, Commands. A `\` or `/` right after the colon keeps it as text, so a pasted `c:\path` stays a query |
+| `n:` `g:` `a:` `r:` `s:` `re:` `no:` `p:` `f:` `c:` typed first in All | Narrow to Needs you, Go to, Agents, Runs, Sessions, Records, Notes, Projects, Files, Commands. A `\` or `/` right after the colon keeps it as text, so a pasted `c:\path` stays a query |
 | `@` `/` `#` `>` typed first in All | Jump to Agents, Sessions, Projects, Commands (the older sigils) |
 | `→` with the caret at the end of the query | Open the selected row's actions (a run, agent, session, record, initiative or project). Mid-query, `→` moves the caret |
 | `←` or `Backspace` on an empty action filter | Leave an action's input, then the action list, back to the results with the query and selection as they were |
 | `1`…`9` in Needs you | Answer the selected ask with that option, in place |
+| `Enter` in Notes | Copy the selected note as markdown and close |
+| `Del` twice in Notes, caret at the end of the query | Delete the selected note. Any other key after the first `Del` cancels |
+| `Ctrl`+`Enter` on a note in Notes | Edit it: the palette becomes the editor |
+| `Enter` on "New note", the last row in Notes | Write a note; the query becomes its title |
+| In the note editor: `Ctrl`+`Enter` / `Tab` / `Esc` | Save / move between title and body (`Enter` in the title moves to the body) / back to the Notes list, pressed twice when there are unsaved changes. `Ctrl`+`P` and a click outside go back the same way |
 | `Ctrl`+`Enter` | The selected row's alternate action, named in the footer. On the goal block, open an orchestrator run instead of a Quick one |
 | `Backspace` on an empty query | Leave a picker, then drop back to All |
 | `path:123` in Files | Open the file at that line; a bare `:123` on Code moves the open file |

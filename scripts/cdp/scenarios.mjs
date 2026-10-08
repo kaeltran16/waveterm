@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SURFACE_LABEL } from "./attach.mjs";
 import { narrationFeed } from "./narrationfeed.mjs";
+import { notesWsh, vaultRemote, vaultRoot } from "./notes-wsh.mjs";
 
 // A step this profile cannot run: no scan report to cite, no pi session focused. Neither a pass nor a
 // failure — report.mjs tallies it apart and exitCode ignores it. The detail must name what to seed, so a
@@ -9775,11 +9776,17 @@ const newRunWindow = {
 const PALETTE_INPUT = `document.querySelector('input[data-palette-input]')`;
 const PALETTE = `${PALETTE_INPUT}?.closest('[role="dialog"]')`;
 // React reads keys off the input's own keydown, so they are dispatched there rather than relying on page focus
-const paletteKey = (key) => `(() => {
+const paletteKey = (key, mods = {}) => `(() => {
     const el = ${PALETTE_INPUT};
     if (!el) return false;
-    el.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent('keydown', { ...${JSON.stringify(mods)}, key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true }));
     return true;
+})()`;
+// a key sent to the note editor's title or body; true when the editor took it (prevented its default)
+const noteKeyIn = (field, key, mods = {}) => `(() => {
+    const el = ${PALETTE}?.querySelector(${JSON.stringify(field === "body" ? "[data-note-body]" : "input[data-palette-input]")});
+    if (!el) return null;
+    return !el.dispatchEvent(new KeyboardEvent('keydown', { ...${JSON.stringify(mods)}, key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true, cancelable: true }));
 })()`;
 const PALETTE_TOGGLE = `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`;
 // the listbox's children are its groups, each led by its label; a row is a data-idx button
@@ -10029,6 +10036,587 @@ const paletteGoal = {
             what: "delete the project",
             fn: () => (ctx.project ? h.rpc("deleteproject", { name: ctx.project }) : null),
         });
+    },
+};
+
+// --- palette-notes: the Notes scope of Ctrl+P (docs/superpowers/plans/2026-10-08-user-notes-palette.md)
+// The vault may already hold notes, some of today's: rows are found by the run's stamp, and arrange adds its own
+// last so they lead the list.
+const NOTES_STATE = `(() => {
+    const d = ${PALETTE};
+    if (!d) return null;
+    const flat = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
+    const rows = [...d.querySelectorAll('[data-note-row]')].map((b) => ({
+        id: b.dataset.noteRow,
+        text: flat(b),
+        selected: b.getAttribute('aria-selected') === 'true',
+        hit: [...b.querySelectorAll('span.font-semibold')].map((s) => s.textContent).join(''),
+    }));
+    const pane = d.querySelector('[data-note-preview]');
+    const arm = d.querySelector('[data-palette-arm]');
+    const alert = d.querySelector('[role="alert"]');
+    const fresh = d.querySelector('[data-note-new]');
+    const body = d.querySelector('[data-note-body]');
+    const title = d.querySelector('input[data-palette-input]');
+    return {
+        newRow: fresh
+            ? {
+                  text: flat(fresh),
+                  selected: fresh.getAttribute('aria-selected') === 'true',
+                  last: [...d.querySelectorAll('[role="option"]')].pop() === fresh,
+              }
+            : null,
+        editor: body
+            ? {
+                  chip: flat(d.querySelector('[data-palette-drill]')),
+                  title: title?.value ?? null,
+                  titleLabel: title?.getAttribute('aria-label') ?? null,
+                  body: body.value,
+                  focus: document.activeElement === body ? 'body' : document.activeElement === title ? 'title' : null,
+                  scopeRow: !!d.querySelector('[role="group"][aria-label="Scope"]'),
+                  results: !!d.querySelector('[role="listbox"]'),
+              }
+            : null,
+        token: d.querySelector('[data-palette-token]') ? flat(d.querySelector('[data-palette-token]')) : null,
+        query: d.querySelector('input[data-palette-input]')?.value ?? null,
+        split: !!d.querySelector('[data-palette-notes]'),
+        rows,
+        selected: rows.find((r) => r.selected)?.id ?? null,
+        preview: pane
+            ? {
+                  text: flat(pane),
+                  steps: [...pane.querySelectorAll('ol > li')].map(flat),
+                  code: [...pane.querySelectorAll('[data-code-head]')].map((el) => flat(el.parentElement)),
+                  scrollTop: pane.scrollTop,
+                  hidden: pane.scrollHeight - pane.clientHeight,
+              }
+            : null,
+        arm: arm ? { key: arm.dataset.paletteArm, text: flat(arm) } : null,
+        error: alert ? flat(alert) : null,
+        text: (d.innerText ?? '').replace(/\\s+/g, ' ').trim(),
+    };
+})()`;
+
+async function notesStateWhen(h, ok, ms) {
+    let state = null;
+    for (let waited = 0; waited <= ms; waited += 250) {
+        state = await h.ev(NOTES_STATE).catch(() => null);
+        if (state != null && ok(state)) break;
+        await polishNap(250);
+    }
+    return state;
+}
+
+// paletteKey's event is not cancelable, so it cannot tell whether the palette took the key
+const NOTES_DEL_TAKEN = `(() => {
+    const el = ${PALETTE_INPUT};
+    if (!el) return null;
+    return !el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', code: 'Delete', bubbles: true, cancelable: true }));
+})()`;
+const notesCaretExpr = (at) => `(() => {
+    const el = ${PALETTE_INPUT};
+    if (!el) return null;
+    const pos = ${at === "end" ? "el.value.length" : at};
+    el.setSelectionRange(pos, pos);
+    return el.selectionStart;
+})()`;
+// an own property over Clipboard.prototype's: never the real write, which a window without OS focus rejects and
+// which would overwrite the user's clipboard
+const notesClipStub = (rejects) => `(() => {
+    window.__notesClip = [];
+    navigator.clipboard.writeText = (text) => {
+        window.__notesClip.push(text);
+        return ${rejects ? `Promise.reject(new Error('denied'))` : `Promise.resolve()`};
+    };
+    return true;
+})()`;
+const NOTES_CLIP_RESTORE = `(() => { delete navigator.clipboard.writeText; delete window.__notesClip; return true; })()`;
+// setInputExpr's setter is the input's; the editor's body is a textarea
+const noteBodyExpr = (value) => `(() => {
+    const el = ${PALETTE}?.querySelector('[data-note-body]');
+    if (!el) return false;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, ${JSON.stringify(value)});
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+})()`;
+// the scrim is the dialog's parent, and it leaves only on a press that lands on itself
+const NOTES_BACKDROP_PRESS = `(() => {
+    const scrim = ${PALETTE}?.parentElement;
+    if (!scrim) return false;
+    scrim.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    return true;
+})()`;
+
+const NOTES_LONG_PARAGRAPHS = 120;
+
+const paletteNotes = {
+    name: "palette-notes",
+    surface: "jarvis",
+    async arrange(h) {
+        const stamp = `palnotes${Date.now().toString(36)}`;
+        // newest first, as the list shows them: arrange adds them in reverse
+        const fixtures = {
+            markdown: {
+                title: `verify ${stamp} markdown zebra`,
+                body: `Steps of ${stamp}:\n\n1. first step alpha\n2. second step beta\n\n\`\`\`sh\necho fenced-${stamp}\n\`\`\``,
+            },
+            quokka: { title: `verify ${stamp} quokka`, body: `the quokka body of ${stamp}` },
+            narwhal: { title: `verify ${stamp} narwhal`, body: `the narwhal body of ${stamp}` },
+            long: {
+                title: `verify ${stamp} long walrus`,
+                body: Array.from({ length: NOTES_LONG_PARAGRAPHS }, (_, i) => `paragraph ${i + 1} of the long note`).join("\n\n"),
+            },
+        };
+        const ctx = { stamp, fixtures, ids: {} };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            ctx.vault = await vaultRoot(h);
+            const remote = vaultRemote(ctx.vault);
+            if (remote) throw new Error(`the vault ${ctx.vault} has a git remote (${remote}): not writing fixture notes into it`);
+            for (const name of ["long", "narwhal", "quokka", "markdown"]) {
+                ctx.ids[name] = (await h.rpc("noteadd", fixtures[name])).id;
+                // a file time of its own, so the order by modified time is the order added
+                await polishNap(50);
+            }
+            await polishReload(h);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. four notes were added", false, ctx.arrangeError);
+            return steps;
+        }
+        const { stamp, fixtures, ids } = ctx;
+        const stamped = (s) => (s?.rows ?? []).filter((r) => r.text.includes(stamp)).map((r) => r.id);
+        const exists = async (id) => ((await h.rpc("notelist", null)) ?? []).some((n) => n.id === id);
+        const key = (k, mods) => h.ev(paletteKey(k, mods));
+        const type = (text) => h.ev(setInputExpr(PALETTE_INPUT, text));
+        const CTRL = { ctrlKey: true };
+        const editorKey = (field, k, mods) => h.ev(noteKeyIn(field, k, mods));
+        const typeBody = (text) => h.ev(noteBodyExpr(text));
+        const inEditor = (s) => s.editor != null;
+        const inList = (s) => s.editor == null && s.split;
+        const noteOf = async (id) => ((await h.rpc("notelist", null)) ?? []).find((n) => n.id === id) ?? null;
+        const editorBrief = (s) => JSON.stringify({ editor: s?.editor, arm: s?.arm, error: s?.error, split: s?.split, selected: s?.selected });
+        const selectedIs = (id) => (s) => s.split && s.selected === id;
+        const brief = (s) => JSON.stringify({ token: s?.token, query: s?.query, split: s?.split, selected: s?.selected, rows: stamped(s), arm: s?.arm, error: s?.error });
+
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        await h.goto("jarvis");
+        if (!(await openPalette(h))) {
+            rec("0. Ctrl+P opens the palette", false, "the palette never opened");
+            return steps;
+        }
+
+        await h.ev(`${PALETTE}?.querySelector('[data-palette-scope="notes"]')?.click()`);
+        const order = [ids.markdown, ids.quokka, ids.narwhal, ids.long];
+        const list = await notesStateWhen(h, (s) => s.split && stamped(s).length === 4, 8000);
+        await h.shot("cdp-shots/palette-notes-list.png");
+        rec(
+            "1. the Notes scope lists the notes beside a preview",
+            list?.token === "Notes" && list.split && stamped(list).join() === order.join() && list.selected === ids.markdown,
+            `want ${order.join()} with the first selected: ${brief(list)}`
+        );
+
+        rec(
+            "2. the preview renders the selected note's markdown",
+            list?.preview != null &&
+                list.preview.steps.join("|") === "first step alpha|second step beta" &&
+                list.preview.code.some((c) => c.includes(`echo fenced-${stamp}`)) &&
+                !list.preview.text.includes("```"),
+            JSON.stringify(list?.preview)
+        );
+
+        await key("ArrowDown");
+        const second = await notesStateWhen(h, selectedIs(ids.quokka), 3000);
+        rec(
+            "3. ↓ moves the preview to the next note",
+            second?.selected === ids.quokka && second.preview?.text === fixtures.quokka.body,
+            JSON.stringify({ selected: second?.selected, preview: second?.preview?.text })
+        );
+
+        await type(`${stamp} quokka`);
+        const filtered = await notesStateWhen(h, (s) => s.split && s.rows.length === 1, 3000);
+        rec(
+            "4. typing filters by title",
+            filtered?.rows.length === 1 && filtered.rows[0].id === ids.quokka && filtered.rows[0].hit.includes("quokka"),
+            JSON.stringify(filtered?.rows)
+        );
+
+        // each open starts fresh on All
+        await openPalette(h);
+        await type("no:");
+        const prefixed = await notesStateWhen(h, (s) => s.token === "Notes", 3000);
+        rec("5. no: from All narrows to Notes", prefixed?.token === "Notes" && prefixed.query === "", brief(prefixed));
+
+        await openPalette(h);
+        await type(`${stamp} narwhal`);
+        const inAll = await paletteStateWhen(h, (s) => s.groups.some((g) => g.label === "Notes"), 5000);
+        const notesGroup = inAll?.groups.find((g) => g.label === "Notes");
+        const foundInAll =
+            inAll?.token == null && notesGroup?.rows.some((r) => r.includes(fixtures.narwhal.title)) && (inAll.selected ?? "").includes(fixtures.narwhal.title);
+        await key("Enter");
+        const shown = await notesStateWhen(h, selectedIs(ids.narwhal), 3000);
+        rec(
+            "6. a note is found from All and Enter shows it in Notes",
+            foundInAll && shown?.token === "Notes" && shown.selected === ids.narwhal && shown.preview?.text === fixtures.narwhal.body,
+            `in All: ${JSON.stringify({ selected: inAll?.selected, groups: inAll?.groups })} then ${brief(shown)}`
+        );
+
+        // the whole list again, on the narwhal note: a neighbour on each side
+        await type("");
+        await notesStateWhen(h, (s) => s.split && stamped(s).length === 4, 3000);
+        await key("ArrowDown");
+        await key("ArrowDown");
+        await notesStateWhen(h, selectedIs(ids.narwhal), 3000);
+        await key("Delete");
+        const armed = await notesStateWhen(h, (s) => s.arm != null, 3000);
+        const armedExists = await exists(ids.narwhal);
+        await key("ArrowDown");
+        const disarmed = await notesStateWhen(h, (s) => s.arm == null && s.selected === ids.long, 3000);
+        const disarmedExists = await exists(ids.narwhal);
+        rec(
+            "7. one del arms, another key disarms",
+            armed?.arm?.key === "del" &&
+                armed.arm.text.includes(`del again deletes “${fixtures.narwhal.title}”`) &&
+                armedExists &&
+                disarmed?.arm == null &&
+                disarmed?.selected === ids.long &&
+                disarmedExists,
+            JSON.stringify({ armed: armed?.arm, armedExists, after: disarmed?.arm, selected: disarmed?.selected, disarmedExists })
+        );
+
+        await key("ArrowUp");
+        await notesStateWhen(h, selectedIs(ids.narwhal), 3000);
+        await key("Delete");
+        await notesStateWhen(h, (s) => s.arm != null, 3000);
+        await key("Delete");
+        const deleted = await notesStateWhen(h, (s) => !stamped(s).includes(ids.narwhal), 5000);
+        await h.shot("cdp-shots/palette-notes-deleted.png");
+        const deletedExists = await exists(ids.narwhal);
+        rec(
+            "8. del twice deletes the note",
+            deleted != null && stamped(deleted).join() === [ids.markdown, ids.quokka, ids.long].join() && deleted.selected === ids.long && !deletedExists,
+            `still listed by RPC=${deletedExists} ${brief(deleted)}`
+        );
+
+        const top = await notesStateWhen(h, (s) => s.selected === ids.long && s.preview?.hidden > 0, 3000);
+        await key("PageDown");
+        const down = await notesStateWhen(h, (s) => s.preview?.scrollTop > 0, 3000);
+        await key("PageUp");
+        const up = await notesStateWhen(h, (s) => s.preview?.scrollTop === 0, 3000);
+        rec(
+            "9. PageDown and PageUp scroll a long note's preview",
+            top?.preview?.scrollTop === 0 &&
+                top.preview.hidden > 0 &&
+                down?.preview?.scrollTop > 0 &&
+                down.selected === ids.long &&
+                up?.preview?.scrollTop === 0 &&
+                up.selected === ids.long,
+            JSON.stringify({
+                hidden: top?.preview?.hidden,
+                scroll: [top?.preview?.scrollTop, down?.preview?.scrollTop, up?.preview?.scrollTop],
+                selected: [top?.selected, down?.selected, up?.selected],
+            })
+        );
+
+        await type(stamp);
+        await notesStateWhen(h, (s) => s.split && s.rows.length === 3 && s.selected != null, 3000);
+        const caret = await h.ev(notesCaretExpr(0));
+        const takenMid = await h.ev(NOTES_DEL_TAKEN);
+        const mid = await h.ev(NOTES_STATE);
+        const midExists = mid?.selected != null && (await exists(mid.selected));
+        // the same key with the caret at the end is taken, so a false above is the caret's doing
+        await h.ev(notesCaretExpr("end"));
+        const takenEnd = await h.ev(NOTES_DEL_TAKEN);
+        const endArmed = await notesStateWhen(h, (s) => s.arm != null, 3000);
+        await key("Shift");
+        await notesStateWhen(h, (s) => s.arm == null, 3000);
+        rec(
+            "10. del with the caret mid-query edits the text and arms nothing",
+            caret === 0 && takenMid === false && mid?.arm == null && mid?.query === stamp && midExists && takenEnd === true && endArmed?.arm != null,
+            JSON.stringify({ caret, takenMid, arm: mid?.arm, query: mid?.query, midExists, takenEnd, endArm: endArmed?.arm })
+        );
+
+        await type("");
+        await notesStateWhen(h, (s) => s.split && stamped(s).length === 3, 3000);
+        await key("ArrowDown");
+        const onGone = await notesStateWhen(h, selectedIs(ids.quokka), 3000);
+        await h.rpc("notedelete", { id: ids.quokka });
+        await key("Delete");
+        await notesStateWhen(h, (s) => s.arm != null, 3000);
+        await key("Delete");
+        const failed = await notesStateWhen(h, (s) => s.error != null && !stamped(s).includes(ids.quokka), 5000);
+        rec(
+            "11. deleting a note that is already gone says so and reloads the list",
+            onGone?.selected === ids.quokka &&
+                (failed?.error ?? "").startsWith("Delete failed") &&
+                stamped(failed).join() === [ids.markdown, ids.long].join(),
+            brief(failed)
+        );
+
+        rec(
+            "12. the New note row sits last and is not the default",
+            list?.selected === ids.markdown &&
+                list.newRow?.last === true &&
+                list.newRow.text.includes("New note") &&
+                !list.newRow.selected &&
+                list.text.includes("ctrl ⏎ Edits it"),
+            JSON.stringify({ selected: list?.selected, newRow: list?.newRow, text: list?.text.slice(-260) })
+        );
+
+        // a fresh open: the markdown note leads and is selected
+        await openPalette(h);
+        await h.ev(`${PALETTE}?.querySelector('[data-palette-scope="notes"]')?.click()`);
+        await notesStateWhen(h, (s) => selectedIs(ids.markdown)(s) && stamped(s).length === 2, 5000);
+        await key("Enter", CTRL);
+        const opened = await notesStateWhen(h, (s) => inEditor(s) && s.editor.focus === "body", 3000);
+        await h.shot("cdp-shots/palette-notes-editor.png");
+        rec(
+            "13. ctrl ⏎ opens the note in the editor",
+            opened?.editor != null &&
+                /^Notes\s*›\s*Edit$/.test(opened.editor.chip) &&
+                opened.editor.titleLabel === "Title" &&
+                opened.editor.title === fixtures.markdown.title &&
+                opened.editor.body.includes("```sh") &&
+                opened.editor.body.includes(`echo fenced-${stamp}`) &&
+                opened.editor.focus === "body" &&
+                !opened.editor.scopeRow &&
+                !opened.editor.results &&
+                opened.text.includes(`Saves “${fixtures.markdown.title}”`),
+            editorBrief(opened)
+        );
+
+        const focusAfter = async (field, k, mods) => {
+            const taken = await editorKey(field, k, mods);
+            const s = await h.ev(NOTES_STATE);
+            return { taken, focus: s?.editor?.focus ?? null, title: s?.editor?.title, body: s?.editor?.body };
+        };
+        const toTitle = await focusAfter("body", "Tab");
+        const toBody = await focusAfter("title", "Tab");
+        const backToTitle = await focusAfter("body", "Tab", { shiftKey: true });
+        const enterInTitle = await focusAfter("title", "Enter");
+        rec(
+            "14. Tab moves between title and body, and Enter in the title moves to the body",
+            toTitle.focus === "title" &&
+                toBody.focus === "body" &&
+                backToTitle.focus === "title" &&
+                enterInTitle.taken === true &&
+                enterInTitle.focus === "body" &&
+                enterInTitle.title === opened?.editor?.title &&
+                enterInTitle.body === opened?.editor?.body,
+            JSON.stringify({ focus: [toTitle.focus, toBody.focus, backToTitle.focus, enterInTitle.focus], enterTaken: enterInTitle.taken })
+        );
+
+        await h.ev(PEEKS_ESC);
+        const escBack = await notesStateWhen(h, inList, 3000);
+        await key("Enter", CTRL);
+        const reopened = await notesStateWhen(h, inEditor, 3000);
+        await h.ev(`${PALETTE}?.querySelector('[data-palette-drill]')?.click()`);
+        const chipBack = await notesStateWhen(h, inList, 3000);
+        rec(
+            "15. esc on an unchanged draft goes straight back, and so does the chip",
+            // Tab never cycled the scope: both leaves land on Notes
+            escBack?.editor == null &&
+                escBack?.token === "Notes" &&
+                escBack.selected === ids.markdown &&
+                reopened?.editor != null &&
+                chipBack?.editor == null &&
+                chipBack?.token === "Notes" &&
+                chipBack.selected === ids.markdown,
+            `after esc: ${editorBrief(escBack)} reopened: ${editorBrief(reopened)} after the chip: ${editorBrief(chipBack)}`
+        );
+
+        // the list wraps: ↑ from the first note is the New note row
+        await key("ArrowUp");
+        const onNew = await notesStateWhen(h, (s) => s.newRow?.selected === true, 3000);
+        await key("Enter");
+        const blank = await notesStateWhen(h, (s) => inEditor(s) && s.editor.focus === "title", 3000);
+        await h.ev(PEEKS_ESC);
+        const blankLeft = await notesStateWhen(h, inList, 3000);
+        rec(
+            "16. New note from an empty query opens on an empty title, and leaves without asking",
+            onNew?.newRow?.selected === true &&
+                onNew.preview?.text === "" &&
+                onNew.text.includes("Writes a new note") &&
+                blank?.editor != null &&
+                /^Notes\s*›\s*New$/.test(blank.editor.chip) &&
+                blank.editor.title === "" &&
+                blank.editor.body === "" &&
+                blank.editor.focus === "title" &&
+                blank.text.includes("Saves the note") &&
+                blankLeft?.editor == null &&
+                blankLeft?.token === "Notes" &&
+                stamped(blankLeft).length === 2,
+            `row: ${JSON.stringify({ newRow: onNew?.newRow, preview: onNew?.preview?.text })} editor: ${editorBrief(blank)} left: ${editorBrief(blankLeft)}`
+        );
+
+        const edited = { title: `verify ${stamp} edited walrus`, body: `the edited body of ${stamp}` };
+        await key("ArrowUp");
+        await notesStateWhen(h, selectedIs(ids.long), 3000);
+        await key("Enter", CTRL);
+        await notesStateWhen(h, inEditor, 3000);
+        await type(edited.title);
+        await typeBody(edited.body);
+        await editorKey("body", "Enter", CTRL);
+        const saved = await notesStateWhen(h, (s) => inList(s) && s.preview?.text === edited.body, 5000);
+        const savedNote = await noteOf(ids.long);
+        rec(
+            "17. ctrl ⏎ saves the edit",
+            savedNote?.title === edited.title &&
+                (savedNote.body ?? "").trim() === edited.body &&
+                saved?.editor == null &&
+                saved?.token === "Notes" &&
+                saved.query === "" &&
+                saved.selected === ids.long &&
+                saved.preview?.text === edited.body,
+            `by RPC: ${JSON.stringify(savedNote)} ${editorBrief(saved)} preview=${JSON.stringify(saved?.preview?.text)}`
+        );
+
+        await key("Enter", CTRL);
+        await notesStateWhen(h, inEditor, 3000);
+        const armedBy = async (text, leave) => {
+            await typeBody(text);
+            await notesStateWhen(h, (s) => s.arm == null && s.editor?.body === text, 3000);
+            await h.ev(leave);
+            const s = await notesStateWhen(h, (st) => st.arm != null || st.editor == null, 3000);
+            return { open: await h.ev(`!!${PALETTE_INPUT}`), body: s?.editor?.body ?? null, arm: s?.arm ?? null };
+        };
+        const byEsc = await armedBy("typed, then esc", PEEKS_ESC);
+        const byToggle = await armedBy("typed, then ctrl p", PALETTE_TOGGLE);
+        const byBackdrop = await armedBy("typed, then a click outside", NOTES_BACKDROP_PRESS);
+        await h.ev(PEEKS_ESC);
+        const discarded = await notesStateWhen(h, inList, 3000);
+        const keptNote = await noteOf(ids.long);
+        const armedOk = (r, text) =>
+            r.open === true && r.body === text && r.arm?.key === "esc" && r.arm.text.includes("esc again discards your changes");
+        rec(
+            "18. esc on a changed draft asks once, and so do Ctrl+P and a click outside",
+            armedOk(byEsc, "typed, then esc") &&
+                armedOk(byToggle, "typed, then ctrl p") &&
+                armedOk(byBackdrop, "typed, then a click outside") &&
+                discarded?.editor == null &&
+                discarded?.token === "Notes" &&
+                (keptNote?.body ?? "").trim() === edited.body,
+            `${JSON.stringify({ byEsc, byToggle, byBackdrop })} then ${editorBrief(discarded)} by RPC: ${JSON.stringify(keptNote?.body)}`
+        );
+
+        await notesStateWhen(h, selectedIs(ids.long), 3000);
+        await key("Enter", CTRL);
+        await notesStateWhen(h, inEditor, 3000);
+        const orphan = `typed for a note that is gone ${stamp}`;
+        await typeBody(orphan);
+        await h.rpc("notedelete", { id: ids.long });
+        await editorKey("body", "Enter", CTRL);
+        const saveFailed = await notesStateWhen(h, (s) => s.error != null, 5000);
+        await h.ev(PEEKS_ESC);
+        await notesStateWhen(h, (s) => s.arm != null, 3000);
+        await h.ev(PEEKS_ESC);
+        const afterGone = await notesStateWhen(h, inList, 3000);
+        rec(
+            "19. saving a note that is already gone says so and keeps the text",
+            (saveFailed?.error ?? "").startsWith("Save failed") &&
+                saveFailed.editor?.body === orphan &&
+                afterGone?.editor == null &&
+                stamped(afterGone).join() === ids.markdown,
+            `${editorBrief(saveFailed)} then rows=${stamped(afterGone).join()}`
+        );
+
+        const freshTitle = `zzqx ${stamp} fresh`;
+        const freshBody = `the body of a note written here, ${stamp}`;
+        await type(freshTitle);
+        const noMatch = await notesStateWhen(h, (s) => s.split && s.rows.length === 0 && s.newRow?.selected === true, 3000);
+        await key("Enter");
+        const fresh = await notesStateWhen(h, (s) => inEditor(s) && s.editor.focus === "body", 3000);
+        await typeBody(freshBody);
+        await notesStateWhen(h, (s) => s.editor?.body === freshBody, 3000);
+        await h.shot("cdp-shots/palette-notes-new.png");
+        await editorKey("body", "Enter", CTRL);
+        const created = await notesStateWhen(h, (s) => inList(s) && s.preview?.text === freshBody, 5000);
+        const createdNote = ((await h.rpc("notelist", null)) ?? []).find((n) => n.title === freshTitle) ?? null;
+        rec(
+            "20. New note takes the typed text as its title",
+            noMatch?.rows.length === 0 &&
+                noMatch.newRow?.selected === true &&
+                noMatch.text.includes(`Writes a new note titled “${freshTitle}”`) &&
+                fresh?.editor != null &&
+                /^Notes\s*›\s*New$/.test(fresh.editor.chip) &&
+                fresh.editor.title === freshTitle &&
+                createdNote != null &&
+                (createdNote.body ?? "").trim() === freshBody &&
+                created?.selected === createdNote.id &&
+                created.query === "",
+            `no match: ${JSON.stringify({ rows: noMatch?.rows, newRow: noMatch?.newRow })} editor: ${editorBrief(fresh)} by RPC: ${JSON.stringify(createdNote)} ${editorBrief(created)}`
+        );
+
+        await key("Enter", CTRL);
+        await notesStateWhen(h, inEditor, 3000);
+        const keptText = `text kept through a refused title, ${stamp}`;
+        await typeBody(keptText);
+        await type("");
+        await editorKey("title", "Enter", CTRL);
+        const refusedTitle = await notesStateWhen(h, (s) => s.error != null, 3000);
+        const untitled = createdNote != null ? await noteOf(createdNote.id) : null;
+        await h.ev(PEEKS_ESC);
+        await notesStateWhen(h, (s) => s.arm != null, 3000);
+        await h.ev(PEEKS_ESC);
+        await notesStateWhen(h, inList, 3000);
+        rec(
+            "21. a title the store refuses is named and the text kept",
+            refusedTitle?.error === "A note needs a title." &&
+                refusedTitle.editor?.title === "" &&
+                refusedTitle.editor.body === keptText &&
+                untitled?.title === freshTitle,
+            `${editorBrief(refusedTitle)} by RPC: ${JSON.stringify(untitled)}`
+        );
+
+        await type(`${stamp} markdown`);
+        const onCopy = await notesStateWhen(h, selectedIs(ids.markdown), 3000);
+        await h.ev(notesClipStub(true));
+        await key("Enter");
+        const refused = await notesStateWhen(h, (s) => (s.error ?? "").startsWith("Copy failed"), 3000);
+        rec(
+            "22. a copy the clipboard refuses says so and keeps the palette open",
+            onCopy?.selected === ids.markdown && (refused?.error ?? "").startsWith("Copy failed") && refused.selected === ids.markdown,
+            brief(refused)
+        );
+
+        await h.ev(notesClipStub(false));
+        await key("Enter");
+        const closed = await polishWaitFor(h, `!${PALETTE_INPUT}`, 3000);
+        const copied = await h.ev(`window.__notesClip ?? null`);
+        const lingering = await h.ev(`[...document.querySelectorAll('[role="alert"]')].map((el) => el.textContent).join(' | ')`);
+        await h.ev(NOTES_CLIP_RESTORE);
+        const want = `# ${fixtures.markdown.title}\n\n${fixtures.markdown.body}\n`;
+        rec(
+            "23. Enter copies the note and closes the palette",
+            closed && copied?.length === 1 && copied[0] === want && !lingering.includes("failed"),
+            JSON.stringify({ closed, copied, want, lingering })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        const failed = [];
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                failed.push(`${what}: ${e?.message ?? e}`);
+            }
+        };
+        await step("restore the clipboard", () => h.ev(NOTES_CLIP_RESTORE));
+        await step("close the palette", () => h.ev(PEEKS_ESC));
+        await step("delete the notes this run left", async () => {
+            for (const n of (await h.rpc("notelist", null)) ?? []) {
+                if (n.title.includes(ctx.stamp)) await h.rpc("notedelete", { id: n.id });
+            }
+        });
+        if (failed.length > 0) throw new Error(failed.join("; "));
     },
 };
 
@@ -11519,6 +12107,7 @@ export const SCENARIOS = [
     radarScanStates,
     uiApi,
     narrationFeed,
+    notesWsh,
     agentTreeRail,
     agentTreeQuickReturn,
     docReview,
@@ -11536,6 +12125,7 @@ export const SCENARIOS = [
     newRunWindow,
     paletteActions,
     paletteGoal,
+    paletteNotes,
     modelPicks,
     canvasSwap,
     canvasTabsScenario,
