@@ -17,6 +17,7 @@ import { useMemo, useState } from "react";
 import { retryRunEvents, useRunEventsState } from "../agents/runeventstore";
 import { eventTitle, toneFor, tsLabel } from "../agents/runtimeline";
 import { setActiveRunId } from "../jarvis/jarvissubjectstore";
+import { selectedTaskOf } from "./dagfinal";
 import { dagModalAgentsContextAtom } from "./dagmodalstate";
 import { hoveredTaskAtom, selectedTaskIdAtom } from "./dagstore";
 import { relaunchLeadAction } from "./relaunchlead";
@@ -58,7 +59,8 @@ export type TimelineRailProps = {
 
 export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
     const { events, status } = useRunEventsState(runId, channelId);
-    const selectedTaskId = useAtomValue(selectedTaskIdAtom);
+    // the final node shares the graph's selection; here it reads as no task selected
+    const selectedTaskId = selectedTaskOf(useAtomValue(selectedTaskIdAtom));
     const [hovered, setHovered] = useAtom(hoveredTaskAtom);
     const agentsCtx = useAtomValue(dagModalAgentsContextAtom);
     const tick = useAtomValue(agentsCtx?.model.nowAtom ?? NO_NOW_ATOM);
