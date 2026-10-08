@@ -68,7 +68,8 @@ Cockpit and surfaces:
 - **Cross-surface ideas from the cockpit-focus spec** (2026-09-22; focus itself was removed 2026-10-06) —
   relationship annotation, companion split, time correlation, drag courier.
 - **Resource linking beyond navigation** (2026-09-17) — Related Work, the Work Trail strip, structured
-  refs, file/diff/commit/session targets, a shared action builder, usage-to-work links.
+  refs, file/diff/commit/session targets (a Usage session page waits on the session target), a shared
+  action builder.
 - **Cross-surface Back history and its context strip** (2026-09-17) — parked as `09e86573` on
   `feat/surface-integration`; keep the branch while this is open.
 - **Composer attachments** (2026-09-18) — revive when attaching a file to a goal or steer is wanted.

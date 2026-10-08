@@ -213,6 +213,7 @@ type UsageBucket struct {
 	Provider        string   `json:"provider"`
 	Model           string   `json:"model"`
 	Day             string   `json:"day"`
+	Session         string   `json:"session,omitempty"`
 	Input           int      `json:"input"`
 	Output          int      `json:"output"`
 	Reasoning       int      `json:"reasoning"`

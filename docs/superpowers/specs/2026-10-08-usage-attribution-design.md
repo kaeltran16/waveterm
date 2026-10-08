@@ -1,6 +1,6 @@
 # Usage attribution: spend by project, run and session
 
-Date: 2026-10-08. Status: design approved through an exercised mockup; not implemented.
+Date: 2026-10-08. Status: implemented 2026-10-08 (run d1023f2b).
 
 ## Problem
 
