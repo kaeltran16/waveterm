@@ -126,7 +126,16 @@ slice 1 deliberately, and the ones that do not need focus still stand:
   session row naming the run it produced. All the source data exists (`finding.files`, roster cwd and
   changed files, `Run.RadarOrigin`/`EffortRef`/`DagORef`, `jarvisattrib` edges) and nothing derives
   markers from it. Cheapest of the three ideas and the most likely to degrade into noise, so it wants
-  the surfaces to agree first and a mockup per `DESIGN.md`. **Revive after slice 1.**
+  the surfaces to agree first and a mockup per `DESIGN.md`. **Mocked up and declined on 2026-10-08 as
+  noise; revive only on a concrete case where a missing marker cost something.** What the session found,
+  measured on the packaged store (921 runs): Radar findings are not stable enough to mark other surfaces
+  with (a recurring finding kept a stale line, a fixed one still read as open); a session row already names
+  its run (`sessionsruns.ts`); nothing records note citations; two lanes of one dag running at once on the
+  same file happened in 5 of 54 dags, and agents sharing a checkout cannot be told apart from its changed
+  files. The markers drawn were a running lane's task on the files it is changing (Code), the tasks that
+  changed each file of a landed run (Diff), and the effort chunk on a run's land commit (History), from
+  `Run.EndCommit`, `Run.Land`, `EffortRef` and each task's `Evidence.Files`. The canvas was local and never
+  committed; these lines are the whole design.
 - **Companion split** — pinning a second surface beside the current one. Needs a second mount slot,
   since only the Agent surface stays mounted. **Revive if peek proves insufficient** for sustained
   side-by-side work.
