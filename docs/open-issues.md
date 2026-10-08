@@ -52,8 +52,6 @@ Each names its revive condition in `docs/deferred.md` unless a source is given.
 
 Cockpit and surfaces:
 
-- **OS/taskbar badge when Arc is backgrounded** — the in-app counter ships and nothing reaches you
-  cross-app. Measure first that it is missed (`badge.ts`, `navrail.tsx`).
 - **Sessions "All activity" rows peeking a run, agent or initiative** (2026-10-01) — revive when a row
   carries a target; wire it through `openOrPeek`.
 - **Terminal file drop → pasted path** (2026-09-30) — needs Tauri's `dragDropEnabled`, which disables
