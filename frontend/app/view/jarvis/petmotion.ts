@@ -104,19 +104,24 @@ export function impulseEnvelope(now: number, firedAt: number | null, durationMs:
 
 // Reduced motion draws a still form, so redrawing it every display frame would only repeat the same pixels
 // with a bloom pass each time; it redraws at this budget instead, which only bounds how late a theme or
-// posture change shows. With motion on, the form is drawn every display frame (a lower idle rate visibly
-// stepped its drift).
+// posture change shows.
 export const STILL_FRAME_MS = 250;
+// With motion on the form is drawn at 30fps: drawing it every display frame cost about 16% of a core more,
+// renderer and GPU process together (measured on the packaged app).
+export const MOTION_FRAME_MS = 1_000 / 30;
 // The wait ends in a requestAnimationFrame, which adds up to a display frame on top of it; ending the wait
 // half a 60Hz frame early lands the draw on the intended frame instead of the one after.
 const VSYNC_SLACK_MS = 1_000 / 120;
 
 /**
- * How long the loop waits before its next draw; 0 means the next display frame. Only a still form that has
- * not just been resized waits, and it waits on a timer rather than waking every display frame to skip it.
+ * How long the loop waits before its next draw; 0 means the next display frame, which only a form that has
+ * just been resized gets. The wait is a timer rather than waking every display frame to skip it.
  */
 export function nextFrameDelay(resized: boolean, still: boolean): number {
-    return still && !resized ? STILL_FRAME_MS - VSYNC_SLACK_MS : 0;
+    if (resized) {
+        return 0;
+    }
+    return (still ? STILL_FRAME_MS : MOTION_FRAME_MS) - VSYNC_SLACK_MS;
 }
 
 export const BREATH_MS = 4_200;

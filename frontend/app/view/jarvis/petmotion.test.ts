@@ -4,6 +4,7 @@ import {
     breathPhase,
     idleOrbit,
     impulseEnvelope,
+    MOTION_FRAME_MS,
     nextFrameDelay,
     ORBIT_MS,
     ORBIT_PITCH,
@@ -145,15 +146,18 @@ describe("breathPhase", () => {
 });
 
 describe("nextFrameDelay", () => {
-    it("draws a moving avatar every display frame", () => {
-        // a lower idle rate visibly stepped the form's drift
-        expect(nextFrameDelay(false, false)).toBe(0);
+    // the wait is followed by a requestAnimationFrame, which lands on the first display frame after it
+    const landsAt = (delay: number, frameMs = 1_000 / 60) => Math.ceil(delay / frameMs) * frameMs;
+
+    it("draws a moving avatar at 30fps, on every second frame of a 60Hz display", () => {
+        expect(landsAt(nextFrameDelay(false, false))).toBeCloseTo(MOTION_FRAME_MS, 5);
+    });
+
+    it("redraws a moving avatar at once when it is resized", () => {
         expect(nextFrameDelay(true, false)).toBe(0);
     });
 
     it("holds a still (reduced-motion) avatar to the still rate, on its intended frame", () => {
-        // the wait is followed by a requestAnimationFrame, which lands on the first display frame after it
-        const landsAt = (delay: number, frameMs = 1_000 / 60) => Math.ceil(delay / frameMs) * frameMs;
         expect(landsAt(nextFrameDelay(false, true))).toBeCloseTo(STILL_FRAME_MS, -1);
     });
 
