@@ -7,6 +7,7 @@
 
 import { modelLabel } from "@/app/view/agents/session-models/sessionviewmodel";
 import { formatAgeShort, projectOf, type AgentVM } from "./agentsviewmodel";
+import { finalStageId, finalStageView } from "./finalstage";
 
 // a stage session judges the whole run rather than one task: its plan reviewer, its final verifier
 export type RunRole =
@@ -183,6 +184,26 @@ export function endedWorkerVM(runId: string, task: TaskNode, child: Run | undefi
         transcriptPath: transcriptPath || undefined,
         runId: task.runid,
     };
+}
+
+const VERIFIER_ROLE = "verifier";
+
+// finalStageRoles gives each run in view whose final stage has a row a stage role under the stage's own id, so
+// the header and the rail place the stage as they place its verifier's session.
+export function finalStageRoles(runs: Record<string, RunInfo>): Record<string, RunRole> {
+    const roles: Record<string, RunRole> = {};
+    for (const run of Object.values(runs)) {
+        if (finalStageView(run.dag, [], 0).visible) {
+            roles[finalStageId(run.runId)] = { kind: "stage", leadRunId: run.runId, stageRole: VERIFIER_ROLE };
+        }
+    }
+    return roles;
+}
+
+// finalStageVM is a run's final stage as the Agent surface shows it while no verifier session stands for it:
+// focusable under the stage's own id, with no terminal to mount.
+export function finalStageVM(runId: string): AgentVM {
+    return { id: finalStageId(runId), name: stageLabel(VERIFIER_ROLE), task: "", state: "idle" };
 }
 
 // runTitle names a run by its plan's title, else the first line of its goal.

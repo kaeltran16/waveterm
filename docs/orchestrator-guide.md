@@ -839,8 +839,14 @@ when you want no fix round.
 Setup when the stage makes its own, then `check`, `verify`, `final`), with when it started and its output tail,
 published at most every 10 seconds as merge Verify's is. Status adds `step=<step> (<elapsed>)` to the stage line.
 In the cockpit the run's row reads `final: running Verify`, `final: running Final`, `final: verifier reviewing`
-(with `· verifier alongside` while a verifier works beside Check and Verify), and the DAG view's stage line adds
-the elapsed time, with the plan's command and the output's last lines on hover. Each step that ends records a
+(with `· verifier alongside` while a verifier works beside Check and Verify). From the moment the dag is
+finalizing the Agents tree has a **Final verification** row under the run, before any verifier session exists:
+focused, its pane shows the step pipeline, the running command, the output's last lines and End final stage, and
+its rail the round, commit, tree, reviewers route and step list; when the verifier starts, the same row becomes
+its session. The lead's rail carries a Final verification block and reads Verifying. In the DAG view the stage is
+the last node, with an edge from every task nothing depends on; selecting it opens a bottom rail with the plan's
+commands, each step's state, the output and End final stage. A step's time comes from its event, so a step whose
+event is no longer held shows its state with no time, and the round then shows no total. Each step that ends records a
 `final-step` run event (`round`, `step`, `ms`, `ok`), so a run's timeline shows where the stage's minutes went.
 
 **The fix round.** On a failed stage the lead writes a fix plan in the plan format and runs

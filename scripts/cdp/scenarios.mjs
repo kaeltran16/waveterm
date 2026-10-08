@@ -5933,7 +5933,7 @@ const dagLifecycle = {
         // React synthesizes onPointerEnter from pointerover/mouseover; the peek's floating-ui hover listens for a
         // native mouseenter on the card's wrapper, which the bubbling dispatch reaches
         const hoverPeek = await h.ev(`(async () => {
-            const card = document.querySelector('[data-dag-modal-kind] [data-dag-node]');
+            const card = document.querySelector('[data-dag-modal-kind] [data-dag-node]:not([data-dag-node="final"])');
             if (!card) return { card: null };
             for (const type of ['pointerover', 'pointerenter', 'mouseover', 'mouseenter']) {
                 const Ev = type.startsWith('pointer') ? PointerEvent : MouseEvent;
@@ -5967,8 +5967,8 @@ const dagLifecycle = {
 
         // aria-pressed mirrors the card's selected border (DagCardNode)
         const escSelection = await h.ev(`(async () => {
-            const pressed = () => document.querySelectorAll('[data-dag-modal-kind] [data-dag-node][aria-pressed="true"]').length;
-            const card = document.querySelector('[data-dag-modal-kind] [data-dag-node]');
+            const pressed = () => document.querySelectorAll('[data-dag-modal-kind] [data-dag-node]:not([data-dag-node="final"])[aria-pressed="true"]').length;
+            const card = document.querySelector('[data-dag-modal-kind] [data-dag-node]:not([data-dag-node="final"])');
             if (!card) return { card: null };
             card.click();
             await new Promise((r) => setTimeout(r, 200));
@@ -10522,6 +10522,956 @@ const finalShotsScenario = {
     },
 };
 
+// --- final-stage: the final stage's tree row, pane, rail block and DAG node ---------------------------------
+// Two parts on one run (docs/reference/cdp-run-fixtures.md, "A run with a final stage"). Part B comes first: the
+// States board's rows, seeded on a dag the engine leaves alone because t-1 is still at work, with each round's
+// final-step events published to the page. Part A is last, since it ends the run: every task is seeded done and
+// merged, so the engine itself starts round 1, runs Tree and then a Verify that outlasts the scenario, and the
+// stage is ended from its pane. The fixture's temp dir is a git repository, which the stage's tree needs.
+const FST_VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+const FST_LEAD = "final-stage lead";
+const FST_VERIFIER = "final-stage verifier";
+const FST_VERIFIER_ID = "fx-final-verifier";
+// t-1 fans out to two sinks, so the final node takes two edges; at parallelism 1 only t-1 dispatches
+const FST_TASKS = [
+    { id: "t-1", label: "noop", description: "do nothing, stop immediately", deps: [], gate: false, state: "" },
+    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: ["t-1"], gate: false, state: "" },
+    { id: "t-3", label: "noop 3", description: "do nothing, stop immediately", deps: ["t-1"], gate: false, state: "" },
+];
+const FST_SINK_EDGES = ["t-2>final", "t-3>final"];
+// Part B's commands are only drawn, never run
+const FST_CHECK = "node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit";
+const FST_VERIFY = "node scripts/verify.mjs ./pkg/waveobj";
+const FST_COMMIT = "c0ffee5a".padEnd(40, "0");
+// Part A's commands run. Verify writes three lines and then one every 3s for 15 minutes: the engine publishes the
+// tail from the command's own writes, the first one at once and then at most every 10s
+const FST_MARK = "final-stage verify";
+const FST_LIVE_VERIFY = `printf '${FST_MARK} 1\\n${FST_MARK} 2\\n${FST_MARK} 3\\n'; for i in $(seq 1 300); do sleep 3; echo "${FST_MARK} still running $i"; done`;
+const FST_LIVE_FINAL = "true";
+const FST_DETAIL = [
+    `Final \`${FINAL_SHOTS_CMD}\` failed (exit 1):`,
+    "FAIL jarvis-peek 4. the narrow panel stays bounded with a pinned header, no horizontal overflow, and an unclipped harness picker",
+    "FAIL jarvis-peek 5. attention expands the card and keyboard navigation moves the cursor then focuses the composer",
+    "2 of 43 steps failed across 5 scenarios",
+].join("\n");
+const FST_UNVERIFIED =
+    "verifier: the narrow jarvis-peek panel could not be compared with its board, because the board has no artboard at 440px wide";
+const FST_REASON =
+    "the Verify loop of the final-stage scenario never ends on its own, so the scenario ends the stage here and records why";
+// the Passed row's step times; with the verifier's they total the board's 14m 22s
+const FST_STEP_MS = { tree: 22_000, check: 41_000, verify: 431_000, final: 188_000 };
+const FST_VERIFIER_MS = 180_000;
+const FST_STEP_TEXT = ["passed 22s", "passed 41s", "passed 7m 11s", "passed 3m 08s", "passed 3m 00s"];
+const FST_TOTAL = "14m 22s";
+const FST_WAIT_MS = 8000;
+// a watchdog tick starts the stage (every 30s), then the Tree step and Verify's second publish
+const FST_ENGINE_WAIT_MS = 90_000;
+
+const fstHolds = (fn) => {
+    try {
+        return fn() === true;
+    } catch {
+        return false;
+    }
+};
+const fstStates = (steps) => (steps ?? []).map((s) => s.state);
+const fstRepeat = (state, n) => Array(n).fill(state);
+const fstSame = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const fstFlat = (text) => text.replace(/\s+/g, " ").trim();
+const fstButton = (rootExpr, text) =>
+    `[...(${rootExpr}?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === ${JSON.stringify(text)})`;
+
+// page-side readers shared by the two reads below; every element comes through the selectors the plan fixes
+const FST_LIB = `
+    const flat = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
+    const stepsOf = (root) =>
+        [...(root?.querySelectorAll("[data-final-step]") ?? [])].map((s) => ({
+            key: s.getAttribute("data-final-step"),
+            state: s.getAttribute("data-final-step-state"),
+            text: flat(s.querySelector("span.whitespace-nowrap")),
+            command: s.querySelector("span[title]")?.getAttribute("title") ?? null,
+        }));
+    const pastOf = (root) =>
+        [...(root?.querySelectorAll("[data-final-past-round]") ?? [])].map((p) => ({
+            round: p.getAttribute("data-final-past-round"),
+            text: flat(p),
+        }));
+    const outputOf = (root) => root?.querySelector("[data-final-output]")?.textContent ?? null;
+    const shotsOf = (root) => flat(root?.querySelector("[data-final-shots-link]")) || null;
+`;
+const FST_TREE = `document.querySelector("[data-agent-tree]")`;
+const FST_RAIL = `document.querySelector('aside[aria-label="Agent details"]')`;
+const FST_ROW = `${FST_TREE}?.querySelector("[data-final-row]")`;
+const FST_PANE = `document.querySelector("[data-final-pane]")`;
+const FST_MODAL = `document.querySelector("[data-dag-modal-kind]")`;
+const FST_NODE = `${FST_MODAL}?.querySelector('[data-dag-node="final"]')`;
+const FST_DAG_RAIL = `${FST_MODAL}?.querySelector("[data-dag-final-rail]")`;
+const FST_SHEET = `document.querySelector("[data-run-sheet]")`;
+const FST_FOLD = `[...(${FST_TREE}?.querySelectorAll("div.cursor-pointer") ?? [])].find((d) => /^\\d+ (done|reviews?)/.test(d.textContent.trim()))`;
+const FST_LEAD_ROW = `(() => {
+    const name = [...(${FST_TREE}?.querySelectorAll("div") ?? [])].find(
+        (d) => d.children.length === 0 && d.textContent.trim() === ${JSON.stringify(FST_LEAD)}
+    );
+    return name ? name.closest(".cursor-pointer") : null;
+})()`;
+// the Agent surface: the tree's row and slot, the stage's pane, and in the details rail the lead's block or the
+// stage's own section
+const FST_AGENT = `(() => {
+    ${FST_LIB}
+    const tree = ${FST_TREE};
+    const rail = ${FST_RAIL};
+    const pane = ${FST_PANE};
+    const block = rail?.querySelector("[data-final-block]");
+    const stage = rail?.querySelector("[data-final-rail]");
+    const slot = tree?.querySelector("[data-final-slot]");
+    const status = [...(rail?.querySelectorAll("span.font-semibold") ?? [])].find((s) => flat(s) === "Verifying");
+    const fold = ${FST_FOLD};
+    return {
+        rows: [...(tree?.querySelectorAll("[data-final-row]") ?? [])].map((r) => ({
+            tone: r.getAttribute("data-final-tone"),
+            title: flat(r.querySelector(".truncate")),
+            sub: flat(r.querySelector(".font-mono")),
+            selected: r.classList.contains("bg-accentbg"),
+        })),
+        slot: slot?.getAttribute("data-final-slot") ?? null,
+        strip: slot?.parentElement?.getAttribute("aria-label") ?? null,
+        fold: fold ? flat(fold) : null,
+        pane: pane
+            ? {
+                  text: flat(pane),
+                  steps: stepsOf(pane),
+                  output: outputOf(pane),
+                  end: pane.querySelector("[data-final-end]") != null,
+                  form: pane.querySelector("[data-run-sheet-end-final]") != null,
+                  past: pastOf(pane),
+                  shots: shotsOf(pane),
+              }
+            : null,
+        block: block
+            ? {
+                  text: flat(block),
+                  steps: stepsOf(block),
+                  output: outputOf(block),
+                  watch: flat(block.querySelector("[data-final-watch]")),
+              }
+            : null,
+        stage: stage ? { text: flat(stage), steps: stepsOf(stage), past: pastOf(stage), shots: shotsOf(stage) } : null,
+        status: status ? flat(status.parentElement) : null,
+        viewer: document.querySelector("[data-final-shots-viewer]") != null,
+    };
+})()`;
+// the DAG modal: the final node, the edges into it, the stage line, and the node's bottom rail
+const FST_DAG = `(() => {
+    ${FST_LIB}
+    const modal = ${FST_MODAL};
+    if (!modal) return null;
+    const card = ${FST_NODE};
+    const rail = ${FST_DAG_RAIL};
+    const route = [...modal.querySelectorAll("span")].find((s) => s.textContent.trim().startsWith("Run route ·"));
+    return {
+        cards: [...modal.querySelectorAll("[data-dag-node]")].map((c) => c.getAttribute("data-dag-node")),
+        edges: [...modal.querySelectorAll(".react-flow__edge")].map((e) => e.getAttribute("data-id") ?? "").sort(),
+        stageLine: route ? flat(route.parentElement) : null,
+        node: card
+            ? {
+                  pressed: card.getAttribute("aria-pressed"),
+                  meta: flat(card.querySelector(":scope > span:not([role])")),
+                  under: flat(card.parentElement?.querySelector(":scope > span")),
+                  strip: stepsOf(card).map((s) => s.state),
+              }
+            : null,
+        rail: rail
+            ? {
+                  text: flat(rail),
+                  steps: stepsOf(rail),
+                  output: outputOf(rail),
+                  end: rail.querySelector("[data-final-end]") != null,
+                  past: pastOf(rail),
+                  shots: shotsOf(rail),
+                  open: [...rail.querySelectorAll("button")].some((b) => /open in agent/i.test(b.textContent)),
+              }
+            : null,
+        viewer: document.querySelector("[data-final-shots-viewer]") != null,
+    };
+})()`;
+
+// reads expr until ok holds or the wait runs out, and returns the last read either way. nudge runs every 2s:
+// an event published before the run's history loaded is replaced by that load, so it is published again
+async function fstUntil(h, expr, ok, { ms = FST_WAIT_MS, nudge } = {}) {
+    for (let i = 0; ; i++) {
+        const s = await h.ev(expr).catch(() => null);
+        if (fstHolds(() => ok(s)) || i * 250 >= ms) return s;
+        if (nudge && i % 8 === 7) await nudge();
+        await polishNap(250);
+    }
+}
+
+async function fstAgent(h, ok, opts) {
+    if ((await h.activeSurfaceLabel()) !== SURFACE_LABEL.agent) await h.goto("agent");
+    return fstUntil(h, FST_AGENT, ok, opts);
+}
+
+// the run's graph with the final node selected: the modal belongs to the run's sheet on the Jarvis surface
+async function fstDag(h, ctx, ok, opts) {
+    if (!(await h.ev(`${FST_MODAL} != null`))) {
+        await h.goto("jarvis");
+        await polishWaitFor(h, `typeof window.__openAddress === "function"`, 5000);
+        await h.ev(`window.__openAddress(${JSON.stringify(`run:${ctx.runId}`)})`);
+        const openDag = fstButton(FST_SHEET, "Open DAG");
+        await polishWaitFor(h, `!!${openDag}`, 10_000);
+        // a modal the last visit left open comes back with the surface
+        if (!(await h.ev(`${FST_MODAL} != null`))) await finalShotsClick(h, openDag);
+    }
+    await polishWaitFor(h, `!!${FST_NODE}`, 10_000);
+    await h.ev(`(() => {
+        const card = ${FST_NODE};
+        if (card && card.getAttribute("aria-pressed") !== "true") card.click();
+    })()`);
+    return fstUntil(h, FST_DAG, (d) => d.node.pressed === "true" && d.rail != null && ok(d), opts);
+}
+
+// A run's events cannot be written through an RPC. The page appends every run:event it receives to that run's
+// list, so a published one stands for the engine's until the next reload.
+async function fstPublishSteps(h, ctx, round, steps) {
+    const ts = Date.now();
+    for (const [step, [ms, ok]] of Object.entries(steps)) {
+        const event = {
+            id: `fst-${round}-${step}`,
+            runid: ctx.runId,
+            channelid: ctx.channelId,
+            ts,
+            kind: "final-step",
+            detail: JSON.stringify({ round, step, ms, ok }),
+        };
+        await h.rpc("eventpublish", {
+            event: "run:event",
+            scopes: [`run:${ctx.runId}`],
+            data: { channelid: ctx.channelId, runid: ctx.runId, event },
+        });
+    }
+}
+
+const fstStagePrint = (f) =>
+    f == null
+        ? null
+        : [f.state ?? "", f.round ?? 0, f.step ?? "", f.verifierrunid ?? "", (f.unverified ?? []).length, (f.detail ?? "").length, (f.shots ?? []).length];
+const fstSeedPrint = (dag) =>
+    JSON.stringify([dag?.check ?? "", dag?.verify ?? "", dag?.finalcmd ?? "", fstStagePrint(dag?.final), (dag?.pastfinals ?? []).map(fstStagePrint)]);
+// what Part A's seed must keep: the engine owns the dag's status and its final from the first tick on
+const fstLivePrint = (dag) =>
+    JSON.stringify([dag?.verify ?? "", dag?.finalcmd ?? "", (dag?.tasks ?? []).map((t) => [t.state, t.merged === true])]);
+
+// one States row: the dag's commands, its final and past finals, and the round's step events
+function fstStage(ctx, name, { verifier = true, skip } = {}) {
+    const now = Date.now();
+    const five = { check: FST_CHECK, verify: FST_VERIFY, finalcmd: FINAL_SHOTS_CMD };
+    // where the engine would have made the stage's tree; nothing is there
+    const tree = { tree: `${ctx.cwd.replace(/\\/g, "/")}/.waveterm/worktrees/${ctx.runId}-final`, commit: FST_COMMIT };
+    const round1 = { ...ctx.shotsRound1, detail: FST_DETAIL, ...tree };
+    const past = [round1];
+    const ok = (steps) => Object.fromEntries(steps.map((s) => [s, [FST_STEP_MS[s], true]]));
+    const commands = ["tree", "check", "verify", "final"].filter((s) => s !== skip);
+    const judged = { round: 2, verifierrunid: ctx.verifierRunId, startedts: ctx.verifierStart, ...tree };
+    switch (name) {
+        case "waiting":
+            return { cmds: five };
+        case "tree":
+            return {
+                cmds: five,
+                final: { state: "checking", round: 1, step: "tree", stepts: now - 22_000, startedts: now - 22_000 },
+            };
+        case "alongside":
+            return {
+                cmds: { check: FST_CHECK, verify: FST_VERIFY },
+                final: {
+                    state: "checking",
+                    round: 1,
+                    step: "check",
+                    stepts: now - 11_000,
+                    startedts: now - 9_000,
+                    verifierrunid: ctx.verifierRunId,
+                    ...tree,
+                },
+                events: [1, ok(["tree"])],
+            };
+        case "reviewing":
+            return {
+                cmds: five,
+                final: {
+                    state: "verifying",
+                    round: 2,
+                    startedts: now - 242_000,
+                    ...(verifier ? { verifierrunid: ctx.verifierRunId } : {}),
+                    ...tree,
+                },
+                pastfinals: past,
+                events: [2, ok(commands)],
+            };
+        case "failed":
+            return { cmds: five, final: round1, events: [1, { ...ok(["tree", "check", "verify"]), final: [125_000, false] }] };
+        case "fixing":
+            return { cmds: five, final: { state: "", round: 2 }, pastfinals: past };
+        case "unverified":
+            return {
+                cmds: five,
+                final: { state: "unverified", unverified: [FST_UNVERIFIED], ...judged },
+                pastfinals: past,
+                events: [2, ok(commands)],
+            };
+        case "passed":
+            return { cmds: five, final: { state: "passed", ...judged }, pastfinals: past, events: [2, ok(commands)] };
+    }
+    throw new Error(`no final-stage row named ${name}`);
+}
+
+// seeds a States row and publishes its events; returns the publish, for fstUntil to repeat
+async function fstShow(h, ctx, name, opts) {
+    const { cmds, final, pastfinals, events } = fstStage(ctx, name, opts);
+    await seedDag(
+        h,
+        ctx,
+        (dag) => {
+            const { final: _final, pastfinals: _past, check: _check, verify: _verify, finalcmd: _cmd, ...rest } = dag;
+            return { ...rest, ...cmds, ...(final ? { final } : {}), ...(pastfinals ? { pastfinals } : {}) };
+        },
+        fstSeedPrint
+    );
+    const publish = events ? () => fstPublishSteps(h, ctx, ...events) : undefined;
+    if (publish) await publish();
+    return { nudge: publish };
+}
+
+// object.UpdateObject publishes nothing, so the stored run is sent to the page as the update it would have been
+async function fstWriteRun(h, runId, change) {
+    const oref = `run:${runId}`;
+    const next = { ...change(await waveService(h, "object", "GetObject", [oref])), otype: "run" };
+    await waveService(h, "object", "UpdateObject", [next, false], FINAL_SHOTS_UICTX);
+    const stored = await waveService(h, "object", "GetObject", [oref]);
+    await h.rpc("eventpublish", {
+        event: "waveobj:update",
+        scopes: [oref],
+        data: { updatetype: "update", otype: "run", oid: runId, obj: { ...stored, otype: "run" } },
+    });
+    return stored;
+}
+
+function fstGitInit(cwd) {
+    const git = (...args) => execFileSync("git", args, { cwd, stdio: "pipe" });
+    git("init", "-q");
+    git("config", "user.name", "verify");
+    git("config", "user.email", "verify@example.invalid");
+    git("config", "commit.gpgsign", "false");
+    // the engine's worktrees live under the project
+    writeFileSync(join(cwd, ".gitignore"), ".waveterm/\n");
+    writeFileSync(join(cwd, "README.md"), "final-stage fixture\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "final-stage fixture");
+}
+
+// The roster is read once at boot: the lead alone, or with the tab of the verifier's session. Reloads onto it,
+// which also drops every event published to the page, and focuses the lead, whose rail reads the run's events.
+async function fstBoot(h, ctx, withVerifier) {
+    const roster = treeRailRoster(ctx.runId, Date.now(), FST_LEAD).filter((a) => a.id === TREE_RAIL_LEAD_ID);
+    if (withVerifier) {
+        roster.push({
+            id: FST_VERIFIER_ID,
+            name: FST_VERIFIER,
+            project: "waveterm",
+            task: "judge the merged result",
+            state: "working",
+            agent: "claude",
+            model: "opus",
+            activeMs: 60_000,
+            runId: ctx.verifierRunId,
+            blockId: "fx-blk-final-verifier",
+        });
+    }
+    writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(roster, null, 2));
+    await h.ev("location.reload()");
+    await polishWaitFor(h, `!!document.querySelector("nav button")`, 30_000);
+    await h.cdp("Emulation.setDeviceMetricsOverride", FST_VIEWPORT);
+    await h.goto("agent");
+    return fstFocusLead(h);
+}
+
+async function fstFocusLead(h) {
+    if (!(await polishWaitFor(h, `!!${FST_LEAD_ROW}`, 15_000))) return false;
+    await finalShotsClick(h, FST_LEAD_ROW);
+    return polishWaitFor(h, `[...(${FST_RAIL}?.querySelectorAll("h3") ?? [])].some((el) => el.textContent.trim() === "Run")`, 15_000);
+}
+
+// Part A's seed: every task done and merged with no child run to derive a state from, a Final command so no
+// verifier is tended while the commands run, and no final at all, so the next tick starts round 1 itself.
+// Waits for what that tick does: the Tree step, then Verify with its three opening lines published.
+async function fstStartLive(h, ctx) {
+    await seedDag(
+        h,
+        ctx,
+        (dag) => {
+            const { final: _final, pastfinals: _past, check: _check, setup: _setup, ...rest } = dag;
+            return {
+                ...rest,
+                status: "finalizing",
+                verify: FST_LIVE_VERIFY,
+                finalcmd: FST_LIVE_FINAL,
+                tasks: dag.tasks.map(({ runid: _run, reviewrunid: _review, ...t }) => ({ ...t, state: "done", merged: true })),
+            };
+        },
+        fstLivePrint
+    );
+    const start = Date.now();
+    let group = null;
+    while (Date.now() - start < FST_ENGINE_WAIT_MS) {
+        group = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group;
+        if (group?.final?.step === "verify" && (group.final.output ?? "").includes(`${FST_MARK} 3`)) break;
+        await polishNap(500);
+    }
+    const f = group?.final;
+    return {
+        status: group?.status,
+        state: f?.state,
+        step: f?.step,
+        tree: f?.tree ?? "",
+        verifierrunid: f?.verifierrunid ?? "",
+        output: f?.output ?? "",
+        waitedMs: Date.now() - start,
+    };
+}
+
+async function arrangeFinalStage(h, ctx) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", FST_VIEWPORT);
+    // before the run exists, as final-shots does: the captures walk every surface
+    writeFinalShotsFixture(ctx.out, await captureFinalShotsFixture(h));
+    ctx.shotsRound1 = finalShotsStages(ctx.out).fixing.pastfinals[0];
+    fstGitInit(ctx.cwd);
+    await arrangeFixtureRun(h, ctx, "final-stage", FST_LEAD);
+    await h.rpc("dagsubmit", {
+        channelid: ctx.channelId,
+        runid: ctx.runId,
+        title: "verify final-stage",
+        parallelism: 1,
+        tasks: FST_TASKS,
+    });
+    // a seed written while t-1 is still being dispatched would be overwritten by that tick
+    await waitForDispatch(h, ctx, "t-1");
+    ctx.dagId = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.oid;
+    if (!ctx.dagId) throw new Error("the run has no dag");
+    // the verifier's session is seeded, never spawned: a deferred quick run that carries the stage's role
+    const wslist = await h.rpc("workspacelist", null);
+    const created = await h.rpc("createrun", {
+        channelid: ctx.channelId,
+        workspaceid: wslist[0].workspacedata.oid,
+        goal: "verify final-stage: the verifier's seeded run",
+        runtime: "claude",
+        mode: "quick",
+        deferstart: true,
+    });
+    ctx.verifierRunId = created.run.id;
+    ctx.verifierStart = Date.now() - 20 * 60_000;
+    const verifierRun = await fstWriteRun(h, ctx.verifierRunId, (run) => ({ ...run, stagerole: "verifier", dagoref: ctx.dagId }));
+    ctx.verifierSeeded = verifierRun?.stagerole === "verifier" && verifierRun.dagoref === ctx.dagId && !verifierRun.completedts;
+    await h.ev(`localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "true")`);
+    await fstShow(h, ctx, "waiting");
+    ctx.leadFocused = await fstBoot(h, ctx, false);
+}
+
+const finalStageScenario = {
+    name: "final-stage",
+    surface: "agent",
+    async arrange(h) {
+        const ctx = {
+            out: mkdtempSync(join(tmpdir(), "verify-final-stage-out-")),
+            cwd: mkdtempSync(join(tmpdir(), "verify-final-stage-")),
+            prevRail: await h.ev(`localStorage.getItem(${JSON.stringify(RAIL_VISIBLE_KEY)})`),
+        };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            await arrangeFinalStage(h, ctx);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok: fstHolds(ok), detail: JSON.stringify(detail) });
+        const shot = (name) => h.shot(`cdp-shots/final-stage-${name}.png`);
+        const clickRow = () => finalShotsClick(h, FST_ROW);
+        const closeViewer = async () => {
+            await finalShotsClick(h, `document.querySelector("[data-final-shots-viewer]")?.querySelector('button[aria-label="Close"]')`);
+            await polishWaitFor(h, `document.querySelector("[data-final-shots-viewer]") == null`, 3000);
+        };
+        rec(
+            "0. a git project's run with a dispatched t-1, a seeded verifier run, and the lead focused with its rail open",
+            () => ctx.arrangeError == null && ctx.dispatched && ctx.verifierSeeded && ctx.leadFocused,
+            ctx.arrangeError ?? {
+                runId: ctx.runId,
+                dagId: ctx.dagId,
+                verifierRunId: ctx.verifierRunId,
+                dispatched: ctx.dispatched,
+                dispatchMs: ctx.dispatchMs,
+                verifierSeeded: ctx.verifierSeeded,
+                leadFocused: ctx.leadFocused,
+            }
+        );
+        if (ctx.arrangeError != null) return steps;
+
+        // --- Part B: the States rows, on a dag the engine leaves alone ---
+        let a = await fstAgent(h, (s) => s.rows.length === 0 && s.block == null);
+        let d = await fstDag(h, ctx, (s) => s.node.meta === "waits on every task");
+        rec(
+            "B1. tasks still running: no tree row and no slot; the last node reads waits on every task over five waiting segments",
+            () =>
+                a.rows.length === 0 &&
+                a.slot == null &&
+                d.cards[d.cards.length - 1] === "final" &&
+                d.node.meta === "waits on every task" &&
+                d.node.under === "on the merged result" &&
+                fstSame(d.node.strip, fstRepeat("waiting", 5)),
+            { rows: a?.rows, slot: a?.slot, cards: d?.cards, node: d?.node }
+        );
+        await shot("b1-waiting-dag");
+
+        await fstShow(h, ctx, "tree");
+        a = await fstAgent(h, (s) => s.rows.length === 1 && s.rows[0].sub.startsWith("Tree"));
+        await clickRow();
+        a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected && s.pane != null && s.stage != null);
+        await shot("b2-tree-pane");
+        d = await fstDag(h, ctx, (s) => s.node.meta.startsWith("round 1 · Tree"));
+        rec(
+            "B2. preparing the tree: Tree · <time> · step 1 of 5, the step list with Tree running, no output box, and End final stage",
+            () =>
+                a.rows.length === 1 &&
+                a.rows[0].title === "Final verification" &&
+                /^Tree · \d+s · step 1 of 5$/.test(a.rows[0].sub) &&
+                a.rows[0].tone === "run" &&
+                a.slot === "run" &&
+                fstSame(fstStates(a.pane.steps), ["running", ...fstRepeat("waiting", 4)]) &&
+                a.pane.output == null &&
+                a.pane.end &&
+                fstSame(fstStates(a.stage.steps), ["running", ...fstRepeat("waiting", 4)]) &&
+                /^round 1 · Tree · \d+s$/.test(d.node.meta) &&
+                fstSame(d.node.strip, ["running", ...fstRepeat("waiting", 4)]) &&
+                d.rail.output == null &&
+                d.rail.steps[0].command === "prepares the tree the stage runs in" &&
+                d.rail.steps[1].command === FST_CHECK,
+            { row: a?.rows, slot: a?.slot, pane: a?.pane, node: d?.node, rail: d?.rail?.steps }
+        );
+        await shot("b2-tree-dag");
+
+        let wait = await fstShow(h, ctx, "alongside");
+        a = await fstAgent(h, (s) => s.rows[0].sub.startsWith("Check") && s.pane.steps[0].text === "passed 22s", wait);
+        await shot("b3-alongside-pane");
+        d = await fstDag(h, ctx, (s) => s.node.meta === "round 1 · Check · verifier");
+        rec(
+            "B3. verifier alongside (no Final command): four steps, the Verifier running beside Check, Tree's time from its event",
+            () =>
+                /^Check · \d+s · verifier alongside$/.test(a.rows[0].sub) &&
+                a.rows[0].tone === "run" &&
+                fstSame(fstStates(a.pane.steps), ["passed", "running", "waiting", "running"]) &&
+                fstSame(a.pane.steps.map((s) => s.key), ["tree", "check", "verify", "verifier"]) &&
+                a.pane.steps[0].text === "passed 22s" &&
+                d.node.meta === "round 1 · Check · verifier" &&
+                fstSame(d.node.strip, ["passed", "running", "waiting", "running"]),
+            { row: a?.rows, pane: a?.pane?.steps, node: d?.node }
+        );
+        await shot("b3-alongside-dag");
+
+        wait = await fstShow(h, ctx, "reviewing");
+        a = await fstAgent(h, (s) => s.rows[0].sub.startsWith("verifier reviewing") && s.pane.steps[3].state === "passed", wait);
+        await shot("b4-reviewing-pane");
+        d = await fstDag(h, ctx, (s) => s.node.meta.startsWith("round 2 · verifier"));
+        rec(
+            "B4. verifier reviewing with its tab gone: the row is the stage's own, every command passed, the Verifier running, round 1 one line",
+            () =>
+                a.rows.length === 1 &&
+                a.rows[0].selected &&
+                a.pane != null &&
+                /^verifier reviewing · 4m \d\ds$/.test(a.rows[0].sub) &&
+                fstSame(fstStates(a.pane.steps), [...fstRepeat("passed", 4), "running"]) &&
+                a.pane.output == null &&
+                fstSame(a.stage.past, [{ round: "1", text: "round 1 · failed at Final" }]) &&
+                /^round 2 · verifier · 4m \d\ds$/.test(d.node.meta) &&
+                fstSame(d.node.strip, [...fstRepeat("passed", 4), "running"]) &&
+                d.rail.open === false,
+            { row: a?.rows, pane: a?.pane?.steps, past: a?.stage?.past, node: d?.node, open: d?.rail?.open }
+        );
+        await shot("b4-reviewing-dag");
+
+        wait = await fstShow(h, ctx, "failed");
+        a = await fstAgent(h, (s) => s.rows[0].tone === "fail" && s.pane.steps[3].state === "failed", wait);
+        await shot("b5-failed-pane");
+        await finalShotsClick(h, `${FST_PANE}?.querySelector("[data-final-shots-link]")`);
+        const paneViewer = (await fstUntil(h, FST_AGENT, (s) => s.viewer))?.viewer;
+        await closeViewer();
+        d = await fstDag(h, ctx, (s) => s.node.meta === "round 1 · failed at Final");
+        await shot("b5-failed-dag");
+        await finalShotsClick(h, `${FST_DAG_RAIL}?.querySelector("[data-final-shots-link]")`);
+        const railViewer = (await fstUntil(h, FST_DAG, (s) => s.viewer))?.viewer;
+        await shot("b5-failed-viewer");
+        await closeViewer();
+        rec(
+            "B5. failed at Final in round 1: the detail whole, the Verifier not run, the lead has it, and the screenshots open the viewer from the pane and the DAG rail",
+            () =>
+                a.rows[0].sub === "failed at Final · round 1" &&
+                a.rows[0].tone === "fail" &&
+                a.slot === "fail" &&
+                fstSame(fstStates(a.pane.steps), [...fstRepeat("passed", 3), "failed", "notrun"]) &&
+                a.pane.text.includes(fstFlat(FST_DETAIL)) &&
+                a.pane.text.includes("The lead has this failure") &&
+                !a.pane.end &&
+                a.pane.shots != null &&
+                paneViewer &&
+                d.node.meta === "round 1 · failed at Final" &&
+                fstSame(d.node.strip, [...fstRepeat("passed", 3), "failed", "notrun"]) &&
+                d.rail.text.includes(fstFlat(FST_DETAIL)) &&
+                d.rail.shots != null &&
+                railViewer,
+            { row: a?.rows, slot: a?.slot, pane: a?.pane, paneViewer, node: d?.node, rail: d?.rail, railViewer }
+        );
+
+        await fstShow(h, ctx, "fixing");
+        a = await fstAgent(h, (s) => s.rows[0].sub.startsWith("round 2") && s.rows[0].tone === "wait");
+        await shot("b6-fixing-pane");
+        d = await fstDag(h, ctx, (s) => s.node.meta.startsWith("round 2 waits on"));
+        rec(
+            "B6. fix round under way: round 2 waits on the unfinished tasks, every step waiting, round 1 one past-round line",
+            () =>
+                a.rows[0].sub === "round 2 after 3 fix tasks" &&
+                a.rows[0].tone === "wait" &&
+                fstSame(fstStates(a.pane.steps), fstRepeat("waiting", 5)) &&
+                fstSame(a.stage.past, [{ round: "1", text: "round 1 · failed at Final" }]) &&
+                d.node.meta === "round 2 waits on t-1, t-2, t-3" &&
+                fstSame(d.node.strip, fstRepeat("waiting", 5)) &&
+                fstSame(d.rail.past, [{ round: "1", text: "round 1 · failed at Final" }]),
+            { row: a?.rows, pane: a?.pane, past: a?.stage?.past, node: d?.node, rail: d?.rail }
+        );
+        await shot("b6-fixing-dag");
+
+        // the verifier's tab joins the roster. Until the stage names its run, that tab is a stage row an earlier
+        // round left, and the stage's row is its own
+        await fstShow(h, ctx, "reviewing", { verifier: false });
+        const rebooted = await fstBoot(h, ctx, true);
+        await fstAgent(h, (s) => s.rows.length === 1);
+        await clickRow();
+        const own = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected && s.pane != null);
+        wait = await fstShow(h, ctx, "reviewing");
+        a = await fstUntil(h, FST_AGENT, (s) => s.pane == null && s.rows[0].selected && s.stage.steps[3].state === "passed", wait);
+        rec(
+            "B7a. the row becomes the verifier's session: a focus on the stage's own row moves to the agent, one row, its rail keeps the step list",
+            () =>
+                rebooted &&
+                own.rows.length === 1 &&
+                own.rows[0].selected &&
+                own.pane != null &&
+                a.rows.length === 1 &&
+                a.rows[0].selected &&
+                a.pane == null &&
+                a.rows[0].sub.startsWith("verifier reviewing") &&
+                fstSame(fstStates(a.stage.steps), [...fstRepeat("passed", 4), "running"]),
+            { rebooted, own: { rows: own?.rows, pane: own?.pane != null }, rows: a?.rows, pane: a?.pane != null, stage: a?.stage }
+        );
+        await shot("b7-session-agent");
+        // away from the row, so landing on it is the Enter's doing
+        await fstFocusLead(h);
+        const away = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected === false);
+        d = await fstDag(h, ctx, (s) => s.rail.open === true);
+        await shot("b7-session-dag");
+        const entered = await h.ev(`(() => {
+            const node = ${FST_NODE}?.closest(".react-flow__node");
+            if (!node) return false;
+            // Enter on a focused button is the button's own
+            node.focus({ preventScroll: true });
+            const init = { key: "Enter", code: "Enter", bubbles: true, cancelable: true };
+            (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", init));
+            return true;
+        })()`);
+        const landed = await fstUntil(
+            h,
+            `({ modal: ${FST_MODAL} != null, agent: ${FST_AGENT} })`,
+            (s) => !s.modal && s.agent.rows[0].selected
+        );
+        const onAgent = await h.activeSurfaceLabel();
+        rec(
+            "B7b. the final node's rail has Open in Agent, and Enter on the node lands on the Agent surface with the verifier's session focused",
+            () =>
+                away.rows[0].selected === false &&
+                d.rail.open === true &&
+                entered &&
+                !landed.modal &&
+                onAgent === SURFACE_LABEL.agent &&
+                landed.agent.rows.length === 1 &&
+                landed.agent.rows[0].selected &&
+                landed.agent.pane == null,
+            { away: away?.rows, open: d?.rail?.open, entered, onAgent, modal: landed?.modal, rows: landed?.agent?.rows }
+        );
+
+        // the verifier gave its verdict: its run is over
+        await fstWriteRun(h, ctx.verifierRunId, (run) => ({ ...run, completedts: ctx.verifierStart + FST_VERIFIER_MS }));
+        wait = await fstShow(h, ctx, "unverified");
+        a = await fstAgent(h, (s) => s.rows[0].tone === "warn" && s.stage.steps[4].state === "unverified", wait);
+        await shot("b8-unverified-agent");
+        d = await fstDag(h, ctx, (s) => s.node.meta === "round 2 · unverified");
+        rec(
+            "B8. unverified in round 2 on the verifier's verdict: unverified · 1 reason, the reason whole, the Verifier unverified, round 1 one line",
+            () =>
+                a.rows.length === 1 &&
+                a.rows[0].sub === "unverified · 1 reason" &&
+                a.rows[0].tone === "warn" &&
+                a.slot === "warn" &&
+                fstSame(fstStates(a.stage.steps), [...fstRepeat("passed", 4), "unverified"]) &&
+                d.node.meta === "round 2 · unverified" &&
+                fstSame(d.node.strip, [...fstRepeat("passed", 4), "unverified"]) &&
+                d.rail.text.includes(FST_UNVERIFIED) &&
+                !d.rail.end &&
+                fstSame(d.rail.past, [{ round: "1", text: "round 1 · failed at Final" }]),
+            { row: a?.rows, slot: a?.slot, stage: a?.stage, node: d?.node, rail: d?.rail }
+        );
+        await shot("b8-unverified-dag");
+
+        wait = await fstShow(h, ctx, "passed");
+        await h.goto("agent");
+        // off the row, or the fold stays open under the reader
+        await fstFocusLead(h);
+        const folded = await fstUntil(h, FST_AGENT, (s) => s.rows.length === 0 && s.fold != null);
+        await shot("b9-passed-folded");
+        await finalShotsClick(h, FST_FOLD);
+        await fstUntil(h, FST_AGENT, (s) => s.rows.length === 1);
+        await clickRow();
+        a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].sub === `passed · ${FST_TOTAL}` && s.stage != null, wait);
+        await shot("b9-passed-agent");
+        d = await fstDag(h, ctx, (s) => s.node.meta === `round 2 · passed · ${FST_TOTAL}`);
+        rec(
+            "B9. passed in round 2: the row is inside the run's finished group, every step shows its time, and the row and the node show the total",
+            () =>
+                folded.rows.length === 0 &&
+                /review/.test(folded.fold) &&
+                a.rows.length === 1 &&
+                a.rows[0].sub === `passed · ${FST_TOTAL}` &&
+                a.rows[0].tone === "pass" &&
+                a.slot === "pass" &&
+                fstSame(a.stage.steps.map((s) => s.text), FST_STEP_TEXT) &&
+                d.node.meta === `round 2 · passed · ${FST_TOTAL}` &&
+                fstSame(d.node.strip, fstRepeat("passed", 5)) &&
+                fstSame(d.rail.steps.map((s) => s.text), FST_STEP_TEXT),
+            { folded: { rows: folded?.rows, fold: folded?.fold }, row: a?.rows, slot: a?.slot, stage: a?.stage, node: d?.node, rail: d?.rail?.steps }
+        );
+        await shot("b9-passed-dag");
+
+        // a reload drops the published events; without Check's the stage has no total, and every state stands
+        const reloaded = await fstBoot(h, ctx, true);
+        wait = await fstShow(h, ctx, "passed", { skip: "check" });
+        if (await h.ev(`${FST_ROW} == null && ${FST_FOLD} != null`)) await finalShotsClick(h, FST_FOLD);
+        await fstUntil(h, FST_AGENT, (s) => s.rows.length === 1);
+        await clickRow();
+        a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].sub === "passed" && s.stage.steps[0].text === "passed 22s", wait);
+        await shot("b10-no-total-agent");
+        d = await fstDag(h, ctx, (s) => s.node.meta === "round 2 · passed");
+        rec(
+            "B10. with one step's event gone: the total leaves the row and the node, that step shows no time, and every state stays passed",
+            () =>
+                reloaded &&
+                a.rows[0].sub === "passed" &&
+                a.rows[0].tone === "pass" &&
+                fstSame(fstStates(a.stage.steps), fstRepeat("passed", 5)) &&
+                fstSame(a.stage.steps.map((s) => s.text), FST_STEP_TEXT.map((t, i) => (i === 1 ? "passed" : t))) &&
+                d.node.meta === "round 2 · passed" &&
+                fstSame(d.node.strip, fstRepeat("passed", 5)),
+            { reloaded, row: a?.rows, stage: a?.stage, node: d?.node }
+        );
+        await shot("b10-no-total-dag");
+
+        // --- Part A: a dag really finalizing, run by the engine ---
+        const live = await fstStartLive(h, ctx);
+        const liveBoot = await fstBoot(h, ctx, false);
+        rec(
+            "A0. the engine started round 1 on the seeded dag: Verify running with output, no tree on the stage and no verifier",
+            () =>
+                liveBoot &&
+                live.status === "finalizing" &&
+                live.state === "checking" &&
+                live.step === "verify" &&
+                live.output.includes(`${FST_MARK} 3`) &&
+                live.tree === "" &&
+                live.verifierrunid === "",
+            { liveBoot, ...live }
+        );
+        a = await fstAgent(h, (s) => s.rows.length === 1 && s.block.output != null && s.block.steps[0].text.startsWith("passed "), {
+            ms: 20_000,
+        });
+        rec(
+            "A1. the tree has one Final verification row naming the running step, and the run's strip has its final slot",
+            () =>
+                a.rows.length === 1 &&
+                a.rows[0].title === "Final verification" &&
+                /^Verify · \S.* · step 2 of 4$/.test(a.rows[0].sub) &&
+                a.rows[0].tone === "run" &&
+                a.slot === "run" &&
+                /final verification/i.test(a.strip),
+            { rows: a?.rows, slot: a?.slot, strip: a?.strip }
+        );
+        rec(
+            "A2. the lead's rail has the Final verification block: Tree's time from the engine's event, the output's last lines, and the Run status reads Verifying",
+            () =>
+                fstSame(a.block.steps.map((s) => s.key), ["tree", "verify", "final", "verifier"]) &&
+                fstSame(fstStates(a.block.steps), ["passed", "running", "waiting", "waiting"]) &&
+                /^passed \d/.test(a.block.steps[0].text) &&
+                a.block.output.split("\n").length <= 3 &&
+                a.block.output.split("\n").every((line) => line.startsWith(FST_MARK)) &&
+                a.block.watch === "watch the output" &&
+                a.status.startsWith("Verifying") &&
+                a.status.includes("next Final, then the verifier"),
+            { block: a?.block, status: a?.status }
+        );
+        await shot("a1-row-and-lead-rail");
+
+        // the form the run sheet shares with the pane, opened where it always was and left without ending
+        await h.goto("jarvis");
+        await polishWaitFor(h, `typeof window.__openAddress === "function"`, 5000);
+        await h.ev(`window.__openAddress(${JSON.stringify(`run:${ctx.runId}`)})`);
+        const sheetEnd = fstButton(FST_SHEET, "End final stage");
+        await polishWaitFor(h, `!!${sheetEnd}`, 10_000);
+        await finalShotsClick(h, sheetEnd);
+        const sheetFormExpr = `(() => {
+            const form = ${FST_SHEET}?.querySelector("[data-run-sheet-end-final]");
+            return form
+                ? {
+                      reason: form.querySelector("textarea") != null,
+                      buttons: [...form.querySelectorAll("button")].map((b) => b.textContent.trim()),
+                  }
+                : null;
+        })()`;
+        const sheetForm = await fstUntil(h, sheetFormExpr, (s) => s.reason);
+        await shot("a3-run-sheet-end-form");
+        await finalShotsClick(h, fstButton(`${FST_SHEET}?.querySelector("[data-run-sheet-end-final]")`, "Keep running"));
+        const sheetClosed = await polishWaitFor(h, `${FST_SHEET} != null && ${sheetFormExpr} == null`, 5000);
+        const stillRunning = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.final?.state;
+        rec(
+            "A3. the run sheet's End final stage opens the shared form with its reason box and both outcomes, and Keep running closes it",
+            () =>
+                sheetForm.reason &&
+                fstSame(sheetForm.buttons, ["Pass unverified", "Fail", "Keep running"]) &&
+                sheetClosed &&
+                stillRunning === "checking",
+            { sheetForm, sheetClosed, stillRunning }
+        );
+
+        await h.goto("agent");
+        await finalShotsClick(h, `${FST_RAIL}?.querySelector("[data-final-watch]")`);
+        a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected && s.pane.output != null && s.stage != null);
+        rec(
+            "A4. the block's link focuses the row: the pipeline, the running command and its output, the stage's facts and step list, and End final stage",
+            () =>
+                a.rows[0].selected &&
+                fstSame(fstStates(a.pane.steps), ["passed", "running", "waiting", "waiting"]) &&
+                a.pane.text.includes(`$ ${FST_LIVE_VERIFY}`) &&
+                a.pane.output.includes(`${FST_MARK} 3`) &&
+                a.pane.end &&
+                fstSame(fstStates(a.stage.steps), ["passed", "running", "waiting", "waiting"]) &&
+                ["Round", "Commit", "Tree", "Reviewers"].every((fact) => a.stage.text.includes(fact)),
+            { rows: a?.rows, pane: a?.pane, stage: a?.stage }
+        );
+        await shot("a4-pane");
+
+        d = await fstDag(h, ctx, (s) => s.rail.output != null);
+        rec(
+            "A5. the DAG's last node is the final stage, with an edge from each sink task, and the stage line has no final verify entry",
+            () =>
+                d.cards[d.cards.length - 1] === "final" &&
+                fstSame(d.edges.filter((e) => e.endsWith(">final")), FST_SINK_EDGES) &&
+                /^round 1 · Verify · /.test(d.node.meta) &&
+                fstSame(d.node.strip, ["passed", "running", "waiting", "waiting"]) &&
+                d.stageLine.startsWith("Run route ·") &&
+                !/final verify/i.test(d.stageLine),
+            { cards: d?.cards, edges: d?.edges, node: d?.node, stageLine: d?.stageLine }
+        );
+        rec(
+            "A6. selecting the node opens its rail: each step's command and state, the output tail and End final stage",
+            () =>
+                d.node.pressed === "true" &&
+                fstSame(d.rail.steps.map((s) => s.command), [
+                    "prepares the tree the stage runs in",
+                    FST_LIVE_VERIFY,
+                    FST_LIVE_FINAL,
+                    "judges the merged result",
+                ]) &&
+                fstSame(fstStates(d.rail.steps), ["passed", "running", "waiting", "waiting"]) &&
+                d.rail.output.includes(FST_MARK) &&
+                d.rail.end,
+            { node: d?.node, rail: d?.rail }
+        );
+        await shot("a6-dag-rail");
+
+        await h.goto("agent");
+        await finalShotsClick(h, `${FST_PANE}?.querySelector("[data-final-end]")`);
+        const paneForm = (await fstUntil(h, FST_AGENT, (s) => s.pane.form))?.pane?.form;
+        const typed = await h.ev(`(() => {
+            const box = ${FST_PANE}?.querySelector("[data-run-sheet-end-final] textarea");
+            if (!box) return false;
+            // a controlled input takes a value only through the native setter and an input event
+            Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(box, ${JSON.stringify(FST_REASON)});
+            box.dispatchEvent(new Event("input", { bubbles: true }));
+            return true;
+        })()`);
+        const unverifiedBtn = fstButton(`${FST_PANE}?.querySelector("[data-run-sheet-end-final]")`, "Pass unverified");
+        await polishWaitFor(h, `${unverifiedBtn}?.disabled === false`, 3000);
+        await shot("a7-end-form");
+        await finalShotsClick(h, unverifiedBtn);
+        a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].tone === "warn" && s.pane.steps[1].state === "stopped", { ms: 20_000 });
+        await shot("a7-ended-pane");
+        d = await fstDag(h, ctx, (s) => s.node.meta === "round 1 · unverified");
+        rec(
+            "A7. End final stage, as unverified with a reason: the row, the pane and the node read unverified, the reason is whole, and Verify reads stopped",
+            () =>
+                paneForm &&
+                typed &&
+                a.rows.length === 1 &&
+                a.rows[0].sub === "unverified · 1 reason" &&
+                a.rows[0].tone === "warn" &&
+                a.slot === "warn" &&
+                fstSame(fstStates(a.pane.steps), ["passed", "stopped", "notrun", "notrun"]) &&
+                a.pane.text.includes(`ended by the human: ${FST_REASON}`) &&
+                !a.pane.end &&
+                d.node.meta === "round 1 · unverified" &&
+                fstSame(d.node.strip, ["passed", "stopped", "notrun", "notrun"]) &&
+                d.rail.text.includes(`ended by the human: ${FST_REASON}`) &&
+                !d.rail.end,
+            { paneForm, typed, rows: a?.rows, slot: a?.slot, pane: a?.pane, node: d?.node, rail: d?.rail }
+        );
+        await shot("a7-ended-dag");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "final-stage", {
+            what: "cancel the channel's other runs and restore the rail preference",
+            fn: async () => {
+                try {
+                    // the verifier's seeded run, and t-1's child run, which Part A unlinked from its task with its
+                    // worker still at work in the lane's tree
+                    const runs = ctx.channelId ? await channelRuns(h, ctx.channelId) : [];
+                    for (const run of runs) {
+                        if (run.id === ctx.runId) {
+                            // the engine completed the run when the stage was ended, and a finished run is not cancelled
+                            if (run.status === "done") ctx.runId = null;
+                        } else if (run.status !== "done" && run.status !== "cancelled") {
+                            await h.rpc("cancelrun", { channelid: ctx.channelId, runid: run.id });
+                        }
+                    }
+                } finally {
+                    await h.ev(
+                        ctx.prevRail == null
+                            ? `localStorage.removeItem(${JSON.stringify(RAIL_VISIBLE_KEY)})`
+                            : `localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, ${JSON.stringify(ctx.prevRail)})`
+                    );
+                }
+            },
+        });
+        rmSync(ctx.out, { recursive: true, force: true });
+        // a worker that was just stopped holds its lane's tree for a moment, and a tree left behind fails the scenario
+        rmSync(ctx.cwd, { recursive: true, force: true, maxRetries: 20, retryDelay: 500 });
+    },
+};
+
 // --- brief-initiatives-polish: a staged and a flat initiative, their sidebar and activity ---------
 // Two throwaway efforts made over RPC: one staged (with an unstaged tail), one flat whose feed holds a
 // note-carrying status change, a bare one, and a long note. Every surface it opens is swept for text
@@ -12103,7 +13053,7 @@ const modelPicks = {
         if (sheet) await h.ev(`${openDag}.click()`);
         const graph = await polishWaitFor(
             h,
-            `!!document.querySelector('[data-dag-modal-kind="live"]') && document.querySelectorAll('[data-dag-modal-kind] [data-dag-node]').length === 3`,
+            `!!document.querySelector('[data-dag-modal-kind="live"]') && document.querySelectorAll('[data-dag-modal-kind] [data-dag-node]:not([data-dag-node="final"])').length === 3`,
             10000
         );
         rec(
@@ -13494,6 +14444,7 @@ export const SCENARIOS = [
     recordBandDetachRestore,
     agentRailFileLink,
     finalShotsScenario,
+    finalStageScenario,
     briefInitiativesPolish,
     briefPeeksPolish,
     newRunWindow,

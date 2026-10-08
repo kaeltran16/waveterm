@@ -35,6 +35,8 @@ import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
 import { docReviewAtom, parseDocReview } from "./docreview";
+import { finalRowFocusId, type FinalTone } from "./finalstage";
+import { useFinalStageView } from "./finalstageviews";
 import { LEAD_MARK_CLASS, leadMark } from "./leadcardmodel";
 import {
     endedWorkerId,
@@ -58,7 +60,7 @@ import {
     useRunDigests,
 } from "./runlineagestore";
 import { dagProgressLabel, finishedRunLabel, runComplete, runStatusView } from "./runmodel";
-import { SEG_FILL, taskStrip, taskStripLabel } from "./runstrip";
+import { FINAL_FILL, finalSlot, SEG_FILL, taskStrip, treeStripLabel } from "./runstrip";
 import {
     getSubagentExpandAtom,
     toggleSubagentExpand,
@@ -229,14 +231,16 @@ function AskingBadge({ n }: { n: number }) {
     );
 }
 
-// TaskStripBar is a run's per-task strip under its second line: a segment per task, or one bar for a long plan.
+// TaskStripBar is a run's per-task strip under its second line: a segment per task, or one bar for a long plan,
+// then the final stage's slot once the stage has a row.
 function TaskStripBar({ run }: { run: RunInfo }) {
     const strip = taskStrip(run.dag, run.digest);
     if (strip == null) {
         return null;
     }
+    const slot = finalSlot(run.dag);
     return (
-        <div role="img" aria-label={taskStripLabel(run.dag, run.digest)} className="mt-[6px] flex h-[3px] gap-[2px]">
+        <div role="img" aria-label={treeStripLabel(run.dag, run.digest)} className="mt-[6px] flex h-[3px] gap-[2px]">
             {strip.kind === "segments" ? (
                 strip.states.map((st, i) => (
                     <span key={i} className={cn("min-w-[2px] flex-1 rounded-[1.5px]", SEG_FILL[st])} />
@@ -250,6 +254,20 @@ function TaskStripBar({ run }: { run: RunInfo }) {
                     />
                 </>
             )}
+            {slot != null ? (
+                <>
+                    <span className="w-[4px] flex-none" />
+                    {/* twice a task's segment; a long plan's bar grows by its task counts, so the slot is fixed there */}
+                    <span
+                        data-final-slot={slot}
+                        className={cn(
+                            "rounded-[1.5px]",
+                            strip.kind === "segments" ? "flex-[2]" : "w-[16px] flex-none",
+                            FINAL_FILL[slot]
+                        )}
+                    />
+                </>
+            ) : null}
         </div>
     );
 }
@@ -719,6 +737,68 @@ function StageRow({
     );
 }
 
+const FINAL_SUB_INK: Record<FinalTone, string> = {
+    wait: "text-muted",
+    run: "text-accent-soft",
+    pass: "text-muted",
+    fail: "text-error",
+    warn: "text-warning",
+};
+
+// The run's final stage, under the run like a task's worker: there from the moment the plan's tasks are over,
+// before any verifier session exists. Once the current round's verifier is in the roster the row is that session.
+function FinalRow({ model, run, agent }: { model: AgentsViewModel; run: RunInfo; agent?: AgentVM }) {
+    const focusId = useAtomValue(model.focusIdAtom);
+    const now = useAtomValue(model.nowAtom);
+    const view = useFinalStageView(run.dag, run.runId, run.channelId, now);
+    const focusKey = finalRowFocusId(run, agent ? [agent] : []);
+    const selected = focusId === focusKey;
+    const select = () => {
+        globalStore.set(model.focusIdAtom, focusKey);
+        globalStore.set(model.focusReplyAtom, false);
+    };
+    const onContextMenu = (e: React.MouseEvent) => {
+        if (agent == null) {
+            return;
+        }
+        const items: ContextMenuItem[] = [
+            { label: "Close agent", icon: <X size={15} />, danger: true, click: () => confirmCloseSession(agent) },
+        ];
+        ContextMenuModel.getInstance().showContextMenu(items, e);
+    };
+    return (
+        <div
+            data-final-row
+            data-final-tone={view.tone}
+            onClick={select}
+            onContextMenu={onContextMenu}
+            className={cn(
+                "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] py-[7px] pl-[28px] pr-[11px] transition-colors duration-[140ms]",
+                selected ? "bg-accentbg" : "hover:bg-surface-hover"
+            )}
+        >
+            <Guides depth={1} />
+            <Slot>
+                {view.tone === "pass" ? (
+                    <Check size={11} aria-hidden className="text-success" />
+                ) : view.tone === "run" ? (
+                    <StatusDot state="working" pulse className="!h-[7px] !w-[7px]" />
+                ) : view.tone === "wait" ? (
+                    <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
+                ) : (
+                    <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full", FINAL_FILL[view.tone])} />
+                )}
+            </Slot>
+            <div className="min-w-0 flex-1">
+                <div className="truncate text-[12.5px] font-medium text-ink-hi">{stageLabel("verifier")}</div>
+                <div className={cn("mt-[3px] truncate font-mono text-[10.5px]", FINAL_SUB_INK[view.tone])}>
+                    {view.subline}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // The fold holding a run's done workers or its not-yet-started tasks.
 function FoldRow({
     glyph,
@@ -922,6 +1002,11 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                                         outcome={r.outcome}
                                     />
                                 );
+                                break;
+                            case "final":
+                                // the stage's own key before a verifier stands for it, then the session's
+                                key = r.agent?.id ?? `final-${r.run.runId}`;
+                                body = <FinalRow model={model} run={r.run} agent={r.agent} />;
                                 break;
                             case "done":
                                 key = `done-${r.run.runId}`;

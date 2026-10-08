@@ -26,6 +26,7 @@ import type { AgentVM } from "./agentsviewmodel";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { DOC_REVIEW_HEADERS, docReviewAtom, parseDocReview } from "./docreview";
+import { isFinalStageId } from "./finalstage";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { agentProject, isEndedWorkerId, leadAgentOf } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
@@ -116,6 +117,8 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const blockId = agent.blockId;
     // a done task's worker reads as what its task came to, not as an idle session
     const ended = isEndedWorkerId(agent.id);
+    // the final stage's own id is no session: it has no runtime, and its pane says its state
+    const stage = isFinalStageId(agent.id);
     const landed = lineage?.kind === "worker" && lineage.task?.merged;
     const stateText = ended ? (landed ? "landed" : "done") : STATE_LABEL[agent.state];
     const stateColor = ended ? "var(--color-success)" : STATE_COLOR[agent.state];
@@ -163,7 +166,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
             onContextMenu={onContextMenu}
             className="flex shrink-0 items-center gap-[13px] border-b border-border bg-background px-[22px] py-[14px]"
         >
-            {ended ? (
+            {stage ? null : ended ? (
                 <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: stateColor }} />
             ) : (
                 <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[9px] !w-[9px]" />
@@ -180,26 +183,30 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         ) : null}
                         {name}
                     </span>
-                    <span
-                        className={cn(
-                            "inline-flex items-center gap-[5px] whitespace-nowrap rounded-[5px] border px-[8px] py-[2px] font-mono text-[10.5px] font-semibold",
-                            rt.text,
-                            rt.softBg,
-                            rt.line
-                        )}
-                    >
-                        <RuntimeMark runtime={agent.agent} className="text-[11px] leading-none" />
-                        {rt.label}
-                    </span>
-                    <span
-                        className={cn(
-                            "rounded-[5px] border px-[7px] py-[1px] font-mono text-[10.5px] font-medium opacity-85 transition-colors duration-[140ms]",
-                            settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
-                        )}
-                        style={{ color: stateColor, borderColor: stateColor }}
-                    >
-                        {stateText}
-                    </span>
+                    {stage ? null : (
+                        <>
+                            <span
+                                className={cn(
+                                    "inline-flex items-center gap-[5px] whitespace-nowrap rounded-[5px] border px-[8px] py-[2px] font-mono text-[10.5px] font-semibold",
+                                    rt.text,
+                                    rt.softBg,
+                                    rt.line
+                                )}
+                            >
+                                <RuntimeMark runtime={agent.agent} className="text-[11px] leading-none" />
+                                {rt.label}
+                            </span>
+                            <span
+                                className={cn(
+                                    "rounded-[5px] border px-[7px] py-[1px] font-mono text-[10.5px] font-medium opacity-85 transition-colors duration-[140ms]",
+                                    settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
+                                )}
+                                style={{ color: stateColor, borderColor: stateColor }}
+                            >
+                                {stateText}
+                            </span>
+                        </>
+                    )}
                     {agent.model ? (
                         <span className="rounded-[5px] border border-edge-mid px-[7px] py-[1px] font-mono text-[10.5px] font-medium text-muted">
                             {agent.model}

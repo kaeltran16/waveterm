@@ -2,7 +2,47 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { endedLine, laneRows, questionOrder, runElapsedMs, runLog, runSegments, taskFacts, thenTask } from "./runrail";
+import { outputTail } from "./finalstage";
+import {
+    FINAL_OUTPUT_LINES,
+    endedLine,
+    laneRows,
+    questionOrder,
+    runElapsedMs,
+    runLog,
+    runSegments,
+    taskFacts,
+    thenTask,
+    verifyingHeadline,
+} from "./runrail";
+
+describe("verifyingHeadline", () => {
+    it("reads Verifying in the accent tone while finalizing, with the model's next as its tail", () => {
+        expect(verifyingHeadline("finalizing", false, "next Final, then the verifier")).toEqual({
+            text: "Verifying",
+            tone: "text-accent",
+            tail: "· next Final, then the verifier",
+        });
+        expect(verifyingHeadline("finalizing", false, "")?.tail).toBe("");
+    });
+
+    it("leaves every other status to the line it had", () => {
+        for (const status of ["running", "done", "failed", "", undefined]) {
+            expect(verifyingHeadline(status, false, "next Final")).toBeUndefined();
+        }
+    });
+
+    it("yields to a question waiting on the human", () => {
+        expect(verifyingHeadline("finalizing", true, "next Final")).toBeUndefined();
+    });
+});
+
+describe("FINAL_OUTPUT_LINES", () => {
+    it("cuts the output to its last lines", () => {
+        const output = ["a", "b", "c", "d", "e"].join("\n") + "\n";
+        expect(outputTail(output, FINAL_OUTPUT_LINES).split("\n")).toEqual(["c", "d", "e"]);
+    });
+});
 
 const MIN = 60_000;
 const NOW = 100 * MIN;

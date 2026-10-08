@@ -32,6 +32,8 @@ import { canvasStateAtom } from "./canvasstore";
 import { rosterLoadPhase } from "./cockpitsurfacemodel";
 import { autoOpenedAskIdsAtom, docReviewAtom, shouldAutoOpen } from "./docreview";
 import { EndedTranscript } from "./endedtranscript";
+import { finalRowFocusId } from "./finalstage";
+import { FinalStagePane } from "./finalstagepane";
 import { rosterSeededAtom } from "./liveagents";
 import { terminalFullscreenAtom } from "./railstore";
 import { isEndedWorkerId } from "./runlineage";
@@ -46,15 +48,18 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const fullscreen = useAtomValue(terminalFullscreenAtom);
     const focusSub = useAtomValue(focusSubagentAtom);
     const ended = useAtomValue(model.endedWorkerAtom);
+    const stage = useAtomValue(model.finalStageAtom);
     const seeded = useAtomValue(rosterSeededAtom);
     const wrapRef = useRef<HTMLDivElement>(null);
     // Focusable set = agents + background terminals. handoff (dc.html:1790): focusAgent = …find(fid) ||
     // list[0] — the Focus surface always shows something, defaulting to the first agent in order (never
     // a terminal, so background terminals stay backgrounded); it falls back to the first terminal only
     // when there are no agents. focusId is kept "always real" (initialized to a default, never empty).
-    // A done task's worker has no terminal to mount, so it is focusable without being mountable.
+    // A done task's worker has no terminal to mount, so it is focusable without being mountable; so is a run's
+    // final stage before a verifier session stands for it.
     const mountable = [...agents, ...terminals];
-    const focused = focusId != null ? (mountable.find((a) => a.id === focusId) ?? ended?.agent) : undefined;
+    const focused =
+        focusId != null ? (mountable.find((a) => a.id === focusId) ?? ended?.agent ?? stage?.agent) : undefined;
     const agent = focused ?? agents.find((a) => a.id === order[0]) ?? agents[0] ?? terminals[0];
     const showSub = focusSub != null && focusSub.parentId === agent?.id;
     const canvasMode = useAtomValue(canvasStateAtom(agent?.id ?? ""))?.mode === "canvas";
@@ -66,6 +71,14 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
             globalStore.set(model.focusIdAtom, agent.id);
         }
     }, [agent?.id, focusId, model]);
+
+    // the stage's row becomes its verifier's session once that is in the roster, and the focus goes with the row
+    const stageFocusId = stage ? finalRowFocusId(stage.run, agents) : undefined;
+    useEffect(() => {
+        if (stageFocusId != null && stageFocusId !== focusId) {
+            globalStore.set(model.focusIdAtom, stageFocusId);
+        }
+    }, [stageFocusId, focusId, model]);
 
     // a stale interior (its parent is no longer focused) closes so the terminal returns
     useEffect(() => {
@@ -169,6 +182,8 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                             ))}
                         {isEndedWorkerId(agent.id) ? (
                             <EndedTranscript model={model} agent={agent} />
+                        ) : stage != null && agent.id === stage.agent.id ? (
+                            <FinalStagePane model={model} run={stage.run} />
                         ) : canvasMode ? (
                             <CanvasPane model={model} agent={agent} />
                         ) : agent.blockId == null ? (
