@@ -7046,6 +7046,8 @@ const DOC_NOTES_ORDER = "in document order";
 const DOC_NOTES_CUT = "A long passage is cut to its first and last lines.";
 const DOC_NOTES_KEYBOARD = "Selecting with the keyboard";
 const DOC_NOTES_LAST = "The last round ends when every note is applied.";
+// one token on a fenced block's second line, so a selection up to it crosses the block's header and a line number
+const DOC_NOTES_FENCE = "quotedfence";
 // enough one-line paragraphs after the mockup's text that the document pane scrolls
 const DOC_NOTES_FILLER_ROUNDS = 16;
 const DOC_NOTES_SPEC = [
@@ -7058,6 +7060,7 @@ const DOC_NOTES_SPEC = [
     `Request changes sends each note as the quoted passage followed by what you wrote, ${DOC_NOTES_ORDER}, through the ask's own answer path. Approve sends them too, after the approval. ${DOC_NOTES_CUT} The whole answer is one message to the lead.`,
     "## Out of scope",
     `The Code surface's markdown preview and the run report. Quoting from the decisions list on the right. ${DOC_NOTES_KEYBOARD}: the passage is picked with the mouse, then everything after is keys.`,
+    `\`\`\`ts\nalpha\n${DOC_NOTES_FENCE}\n\`\`\``,
     "## Review rounds",
     ...Array.from(
         { length: DOC_NOTES_FILLER_ROUNDS },
@@ -7358,6 +7361,31 @@ const docReviewNotes = {
             "4. Escape in the field drops it and leaves the note and the dialog",
             s4.open && s4.field == null && s4.rows.length === 1 && s4.pending === 0,
             docNotesBrief(s4)
+        );
+
+        const s4b = await docNotesAct(
+            h,
+            `const from = textNode(docRoot(), ${docNotesJson(DOC_NOTES_KEYBOARD)});
+            const to = textNode(docRoot(), ${docNotesJson(DOC_NOTES_FENCE)});
+            const range = document.createRange();
+            range.setStart(from.node, from.at);
+            range.setEnd(to.node, to.at + ${DOC_NOTES_FENCE.length});
+            selectRange(range);
+            await settle();
+            key(fieldInput(), "Enter");`
+        );
+        const removed4b = await docNotesAct(
+            h,
+            `rowOf(${docNotesJson(DOC_NOTES_FENCE)})?.querySelector('button[aria-label="Remove this note"]')?.click();`
+        );
+        rec(
+            "4b. a passage quoted through a fenced code block is painted, and removing its note unpaints it",
+            s4b.rows.length === 2 &&
+                s4b.rows[1].passage.endsWith(`keys. alpha ${DOC_NOTES_FENCE}`) &&
+                s4b.quoted === 2 &&
+                removed4b.rows.length === 1 &&
+                removed4b.quoted === 1,
+            docNotesBrief(s4b, { afterRemove: removed4b.quoted })
         );
 
         const s5 = await docNotesAct(
