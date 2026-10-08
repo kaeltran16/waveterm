@@ -24,14 +24,14 @@ function builtWsh() {
 }
 
 // mirrors wconfig.resolveVaultRoot
-async function vaultRoot(h) {
+export async function vaultRoot(h) {
     const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
     const configured = settings["memory:vaultpath"] || settings["jarvis:vaultpath"];
     return configured ? configured.replace(/^~(?=$|[\\/])/, homedir()) : join(homedir(), ".waveterm", "vault");
 }
 
 // a vault with a remote is one the app pushes: a dev app pointed at it would publish the fixture note
-function vaultRemote(root) {
+export function vaultRemote(root) {
     if (!existsSync(join(root, ".git"))) return "";
     return execFileSync("git", ["-C", root, "remote"], { encoding: "utf8" }).trim();
 }
