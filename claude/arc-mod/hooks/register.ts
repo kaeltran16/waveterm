@@ -106,6 +106,19 @@ async function refusal($: EngineInterface, command: string): Promise<string | nu
     return active ? denial(command, await $.session.cwd()) : null;
 }
 
+// set when a question goes to claude's own dialog, where the settings hooks beneath show the card for it.
+// a question dismissed there runs no PostToolUse and no Stop hook, so the turn's end takes the card down
+// and reports idle, or the cockpit reads asking until the next prompt
+let isAskInDialog = false;
+
+async function clearAsk($: EngineInterface) {
+    try {
+        await $.process.run([WSH, "ask", "--clear"]);
+    } catch (err) {
+        $.ui.log(`arc: wsh ask --clear failed: ${String(err)}`, { to: "debug" });
+    }
+}
+
 async function closePicker($: EngineInterface) {
     try {
         await update($, picker, () => null);
@@ -162,12 +175,17 @@ export const register: Register = (on) => {
     });
 
     on("turn.complete", async ($, e, next) => {
+        const wasAskInDialog = isAskInDialog && !e.agentId;
+        if (wasAskInDialog) {
+            isAskInDialog = false;
+            await clearAsk($);
+        }
         for (const text of e.agentId ? [] : endTurn(turn)) {
             void $.prompt.submit({ text, asUser: true }).catch((err) =>
                 $.ui.log(`arc: submitting an unread mid-turn text failed: ${String(err)}`, { to: "debug" })
             );
         }
-        const args = active ? idleArgs(e, transcriptPath) : null;
+        const args = active ? idleArgs(e, transcriptPath, wasAskInDialog) : null;
         if (args) {
             try {
                 const ran = await $.process.run([WSH, ...args]);
@@ -227,6 +245,7 @@ export const register: Register = (on) => {
     // opened it, so it could not race the card; the picker can, since the mod draws and closes it.
     on("tool.call", { tool: "AskUserQuestion" }, async ($, e, next) => {
         if (!active || !cardCanAsk(e.questions)) {
+            isAskInDialog = active;
             return next(e);
         }
         let isFromPicker = false;
@@ -252,6 +271,7 @@ export const register: Register = (on) => {
                 // the card for it
                 settlePicker = null;
                 await closePicker($);
+                isAskInDialog = true;
                 return next(e);
             }
         } catch (err) {
@@ -293,15 +313,12 @@ export const register: Register = (on) => {
             return { result: { questions: e.questions, answers: answersFor(e.questions, reply) } };
         }
         // no answer came back: take the card down so it cannot answer a question nobody is asking
-        try {
-            await $.process.run([WSH, "ask", "--clear"]);
-        } catch (err) {
-            $.ui.log(`arc: wsh ask --clear failed: ${String(err)}`, { to: "debug" });
-        }
+        await clearAsk($);
         if (next.signal.aborted) {
             return { deny: "Interrupted by the user." };
         }
         // wsh failed or hit its 30-minute ceiling: the question still reaches the user, in claude's dialog
+        isAskInDialog = true;
         return next(e);
     });
 };
