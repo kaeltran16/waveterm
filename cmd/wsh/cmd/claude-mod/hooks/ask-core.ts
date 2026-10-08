@@ -51,6 +51,18 @@ export function parseAskReply(stdout: string): AskReply | null {
     }
 }
 
+// no reply once the signal aborts, at once when it already has; never settles otherwise. raced against
+// the picker and the card, so an interrupt ends the wait without the child having to exit
+export function abortedReply(signal: AbortSignal): Promise<null> {
+    return new Promise((resolve) => {
+        if (signal.aborted) {
+            resolve(null);
+            return;
+        }
+        signal.addEventListener("abort", () => resolve(null), { once: true });
+    });
+}
+
 // the terminal's picker: the questions less their previews (the card shows those), which one is
 // up, the answers so far, and the options marked in a multi-select
 export function openPicker(questions: readonly AskQuestion[]): Picker {
