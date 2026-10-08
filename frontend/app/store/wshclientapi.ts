@@ -690,6 +690,30 @@ export class RpcApiType {
         return client.wshRpcCall("message", data, opts);
     }
 
+    // command "noteadd" [call]
+    NoteAddCommand(client: WshClient, data: CommandNoteAddData, opts?: RpcOpts): Promise<UserNote> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "noteadd", data, opts);
+        return client.wshRpcCall("noteadd", data, opts);
+    }
+
+    // command "notedelete" [call]
+    NoteDeleteCommand(client: WshClient, data: CommandNoteDeleteData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "notedelete", data, opts);
+        return client.wshRpcCall("notedelete", data, opts);
+    }
+
+    // command "notelist" [call]
+    NoteListCommand(client: WshClient, opts?: RpcOpts): Promise<UserNote[]> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "notelist", null, opts);
+        return client.wshRpcCall("notelist", null, opts);
+    }
+
+    // command "noteupdate" [call]
+    NoteUpdateCommand(client: WshClient, data: CommandNoteUpdateData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "noteupdate", data, opts);
+        return client.wshRpcCall("noteupdate", data, opts);
+    }
+
     // command "notify" [call]
     NotifyCommand(client: WshClient, data: NotifyCommandData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "notify", data, opts);

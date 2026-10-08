@@ -1229,6 +1229,24 @@ declare global {
         message: string;
     };
 
+    // wshrpc.CommandNoteAddData
+    type CommandNoteAddData = {
+        title: string;
+        body?: string;
+    };
+
+    // wshrpc.CommandNoteDeleteData
+    type CommandNoteDeleteData = {
+        id: string;
+    };
+
+    // wshrpc.CommandNoteUpdateData
+    type CommandNoteUpdateData = {
+        id: string;
+        title: string;
+        body?: string;
+    };
+
     // wshrpc.CommandPostChannelMessageData
     type CommandPostChannelMessageData = {
         channelid: string;
@@ -2888,6 +2906,14 @@ declare global {
         cachewrite1h: number;
         msgs: number;
         missing?: boolean;
+    };
+
+    // waveobj.UserNote
+    type UserNote = {
+        id: string;
+        title: string;
+        body?: string;
+        day: string;
     };
 
     // wshrpc.VaultStatusRtnData

@@ -44,6 +44,7 @@ type WshRpcInterface interface {
 	RadarCommands
 	JarvisCommands
 	EffortCommands
+	NoteCommands
 	SecretCommands
 	AskCommands
 	NotifyCommands
