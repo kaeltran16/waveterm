@@ -129,6 +129,42 @@ func TestListIsNewestDayFirstAndSkipsOtherFiles(t *testing.T) {
 	}
 }
 
+func TestListOrdersOneDayByModifiedTimeNewestFirst(t *testing.T) {
+	root := useTempRoot(t)
+	dir := filepath.Join(root, NotesDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 10, 8, 8, 0, 0, 0, time.UTC)
+	files := map[string]time.Duration{
+		"2026-10-08-alpha.md": 0,
+		"2026-10-08-bravo.md": 2 * time.Hour,
+		"2026-10-08-zulu.md":  time.Hour,
+		"2026-10-09-later.md": -time.Hour,
+	}
+	for name, offset := range files {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("# x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, base.Add(offset), base.Add(offset)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	notes, err := List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, n := range notes {
+		ids = append(ids, n.ID)
+	}
+	want := "2026-10-09-later,2026-10-08-bravo,2026-10-08-zulu,2026-10-08-alpha"
+	if got := strings.Join(ids, ","); got != want {
+		t.Fatalf("ids = %s, want %s", got, want)
+	}
+}
+
 func TestListOfAVaultWithNoNotesIsEmpty(t *testing.T) {
 	useTempRoot(t)
 	notes, err := List()

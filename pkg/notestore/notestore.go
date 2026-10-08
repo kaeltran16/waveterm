@@ -197,20 +197,40 @@ func List() ([]*waveobj.UserNote, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", dir, err)
 	}
-	var notes []*waveobj.UserNote
+	type listed struct {
+		note    *waveobj.UserNote
+		modTime time.Time
+	}
+	var found []listed
 	for _, e := range entries {
 		id, isNote := strings.CutSuffix(e.Name(), noteExt)
 		if e.IsDir() || !isNote || !idRe.MatchString(id) {
 			continue
 		}
+		info, err := e.Info()
+		if err != nil {
+			return nil, fmt.Errorf("note file %s: %w", e.Name(), err)
+		}
 		content, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("note file %s: %w", e.Name(), err)
 		}
-		notes = append(notes, parse(id, content))
+		found = append(found, listed{parse(id, content), info.ModTime()})
 	}
-	// ponytail: notes added on one day sort by slug, not by time; put a time in the id if that order matters
-	slices.SortFunc(notes, func(a, b *waveobj.UserNote) int { return strings.Compare(b.ID, a.ID) })
+	// ponytail: a fresh clone gives every file of a day the checkout's time, so the order inside a day is then by id
+	slices.SortFunc(found, func(a, b listed) int {
+		if c := strings.Compare(b.note.Day, a.note.Day); c != 0 {
+			return c
+		}
+		if c := b.modTime.Compare(a.modTime); c != 0 {
+			return c
+		}
+		return strings.Compare(a.note.ID, b.note.ID)
+	})
+	var notes []*waveobj.UserNote
+	for _, f := range found {
+		notes = append(notes, f.note)
+	}
 	return notes, nil
 }
 
