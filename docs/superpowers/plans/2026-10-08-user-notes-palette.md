@@ -114,13 +114,12 @@ Acceptance:
 - Run: `go test ./pkg/notestore -run '^(TestListOrdersOneDayByModifiedTimeNewestFirst|TestListIsNewestDayFirstAndSkipsOtherFiles)$'`
 
 ### Task 2: A skill that teaches agents `wsh note add`
-**Depends on:** Task 3
+**Depends on:** none
 **Chunk:** Build: teach agents the command
 **Files:** `skills/notes/SKILL.md`, `skills/skills.go`, `AGENTS.md`
 
 Arc's own skills live in `skills/` and are embedded into `wavesrv` by `skills/skills.go`; every agent launch
-seeds them into the vault and from there into each harness. Add one skill, `notes`. (Task 3 is a dependency
-because it may change `cmd/wsh/cmd/wshcmd-note.go`, whose flags this skill copies.)
+seeds them into the vault and from there into each harness. Add one skill, `notes`.
 
 Decisions:
 - A new skill, not a paragraph in `cockpit-ui`: a skill loads by its description, and this one must load on
@@ -181,8 +180,9 @@ Acceptance (the `notes-wsh` scenario's steps, each a real assertion, none skippe
   nonzero with "not found".
 - Prove it once: `ARC_FINAL_OUT=$(mktemp -d) node scripts/cdp/final-verify.mjs notes-wsh`.
 - If a command misbehaves against the live server, fix the cause in `cmd/wsh/cmd/wshcmd-note.go` rather than
-  loosening the step, and name any flag or argument change in your completion note (Task 2 writes the skill
-  from that file after this task lands).
+  loosening the step. Task 2 runs beside this task and copies that file's flags and argument order into
+  `skills/notes/SKILL.md`: keep them as they are, and if a fix cannot, say so first in your completion note,
+  naming the changed flag, so the skill is corrected.
 
 ### Task 4: The pure note models, the Notes scope and the note store
 **Depends on:** none
