@@ -1452,6 +1452,10 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }
         if (del) {
             e.preventDefault();
+            // a held key must not confirm its own delete
+            if (e.repeat) {
+                return;
+            }
             const press = pressArm(armed, "del", selected.key);
             setArmed(press.armed);
             if (press.fire) {

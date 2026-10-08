@@ -68,9 +68,19 @@ describe("saveNoteDraft", () => {
         vi.mocked(RpcApi.NoteListCommand).mockRejectedValue(new Error("list down"));
         await expect(saveNoteDraft(draftOf(n("a")))).rejects.toBe(err);
     });
+    it("a save that landed resolves though the reload fails, so a retry cannot add it twice", async () => {
+        vi.mocked(RpcApi.NoteAddCommand).mockResolvedValue(n("new"));
+        vi.mocked(RpcApi.NoteListCommand).mockRejectedValue(new Error("list down"));
+        await expect(saveNoteDraft(newDraft("T"))).resolves.toBe("new");
+    });
 });
 
 describe("deletePaletteNote", () => {
+    it("a delete that landed resolves though the reload fails", async () => {
+        vi.mocked(RpcApi.NoteDeleteCommand).mockResolvedValue(undefined);
+        vi.mocked(RpcApi.NoteListCommand).mockRejectedValue(new Error("list down"));
+        await expect(deletePaletteNote("a")).resolves.toBeUndefined();
+    });
     it("deletes and reloads", async () => {
         vi.mocked(RpcApi.NoteDeleteCommand).mockResolvedValue(undefined);
         vi.mocked(RpcApi.NoteListCommand).mockResolvedValue([]);

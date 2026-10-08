@@ -18,17 +18,14 @@ export async function loadPaletteNotes(): Promise<void> {
     globalStore.set(paletteNotesAtom, notes ?? []);
 }
 
-// the write's own error wins over a reload that also fails
+// The outcome is the write's alone. A failed reload never rejects: after a write that landed, the caller
+// would take it for a failed save and a retry would add the note twice. The list is read again on the next open.
 async function reloadAfter<T>(write: () => Promise<T>): Promise<T> {
-    let result: T;
     try {
-        result = await write();
-    } catch (err) {
-        await loadPaletteNotes().catch(() => {});
-        throw err;
+        return await write();
+    } finally {
+        await loadPaletteNotes().catch((err) => console.warn("palette: reloading notes failed", err));
     }
-    await loadPaletteNotes();
-    return result;
 }
 
 export function saveNoteDraft(d: NoteDraft): Promise<string> {
