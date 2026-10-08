@@ -31,6 +31,17 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	wavebase.DataHome_VarCache = dir
+	// the transcript, session and usage readers all resolve under the home dir: against the real one a run
+	// globbed ~/.claude/projects for 11 lookups and opened 229 of the user's transcripts
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		panic(err)
+	}
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		if err := os.Setenv(key, home); err != nil {
+			panic(err)
+		}
+	}
 	if err := wavebase.EnsureWaveDBDir(); err != nil {
 		panic(err)
 	}

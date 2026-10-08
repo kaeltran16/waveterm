@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
 func gitCmd(t *testing.T, dir string, args ...string) string {
@@ -24,13 +26,39 @@ func gitCmd(t *testing.T, dir string, args ...string) string {
 func newGitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	gitCmd(t, dir, "init", "-b", "main")
-	gitCmd(t, dir, "config", "user.email", "t@test")
-	gitCmd(t, dir, "config", "user.name", "t")
-	os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base\n"), 0o644)
-	gitCmd(t, dir, "add", ".")
-	gitCmd(t, dir, "commit", "-m", "base")
+	newGitRepoAt(t, dir)
 	return dir
+}
+
+var repoTemplate struct {
+	once sync.Once
+	dir  string
+}
+
+// gitRepoTemplate is a repo on main with one base commit, built once per test process: a fixture copies it,
+// where building its own took six git launches, about 1,400 of the package's 6,000.
+func gitRepoTemplate(t *testing.T) string {
+	t.Helper()
+	repoTemplate.once.Do(func() {
+		dir, err := os.MkdirTemp(wavebase.DataHome_VarCache, "repo-template-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		gitCmd(t, dir, "init", "-b", "main")
+		gitCmd(t, dir, "config", "user.email", "t@test")
+		gitCmd(t, dir, "config", "user.name", "t")
+		writeFile(t, filepath.Join(dir, "base.txt"), "base\n")
+		gitCmd(t, dir, "add", ".")
+		gitCmd(t, dir, "commit", "-m", "base")
+		if err := os.RemoveAll(filepath.Join(dir, ".git", "hooks")); err != nil {
+			t.Fatal(err)
+		}
+		repoTemplate.dir = dir
+	})
+	if repoTemplate.dir == "" {
+		t.Fatal("the repo template failed to build in an earlier test")
+	}
+	return repoTemplate.dir
 }
 
 func TestCreateAndRemoveWorktree(t *testing.T) {
@@ -206,12 +234,9 @@ func TestEnsureRunWorktreeRecreatesDirtyAndDumpsPatch(t *testing.T) {
 // newGitRepoAt git-inits an existing directory (the channel's project path) with one base commit.
 func newGitRepoAt(t *testing.T, dir string) {
 	t.Helper()
-	gitCmd(t, dir, "init", "-b", "main")
-	gitCmd(t, dir, "config", "user.email", "t@test")
-	gitCmd(t, dir, "config", "user.name", "t")
-	os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base\n"), 0o644)
-	gitCmd(t, dir, "add", ".")
-	gitCmd(t, dir, "commit", "-m", "base")
+	if err := os.CopyFS(dir, os.DirFS(gitRepoTemplate(t))); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestEnsureRunWorktreeReturnsTheCommitATaskStartsAt(t *testing.T) {
