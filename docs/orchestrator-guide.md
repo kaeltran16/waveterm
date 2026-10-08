@@ -862,11 +862,12 @@ scenario with its screenshots and steps), `dev-app.log`, `waveapp.log` (the app'
 shares nothing with it: its own CDP port, a Vite port from 5175 up (passed as `task dev -- --config
 tauri.final.json`), a fresh store under `%LOCALAPPDATA%\arc-final\stores\` (a short path, since wavesrv's
 `wave.sock` must stay under Windows' 108-byte socket path limit; dropped after the run),
-the cargo target dir `%LOCALAPPDATA%\arc-final\target` (shared by final stages, so only the first pays the cold
-build), and its own `dist/bin`: it unlinks the tree's `dist/bin` and `src-tauri/target` junctions first. It sets
-`ARC_DEV_NO_GLOBAL_INSTALL`, so the run's branch installs no agent hooks or `~/.arc/bin/wsh`. Two final
-stages at once share the target dir, so the second should fail to replace a `wave-tauri.exe` the first is running
-and report unverified (not tested). It stops only the processes it started. It exits 3 with a reason when the app does not
+a cargo target dir under `%LOCALAPPDATA%\arc-final\` (`target`, `target-1`, `target-2`: one per build slot,
+each paying one cold build), and its own `dist/bin`: it unlinks the tree's `dist/bin` and `src-tauri/target`
+junctions first. It sets `ARC_DEV_NO_GLOBAL_INSTALL`, so the run's branch installs no agent hooks or
+`~/.arc/bin/wsh`. Three final stages run at once, one per build slot (`BUILD_SLOTS`), since a stage runs the
+`wave-tauri.exe` it builds in its slot's target dir; a fourth waits for a slot (`ARC_FINAL_LOCK_WAIT_MS`, default
+10 minutes) and then exits 3. It stops only the processes it started. It exits 3 with a reason when the app does not
 come up within its boot budget (`ARC_FINAL_BOOT_MS`, default 10 minutes). Otherwise it exits with verify.mjs's
 own code: 0 pass, 1 a scenario failed, 2 an unknown scenario name. `ARC_FINAL_DEV_CMD` overrides the start
 command (default `task dev -- --config <ARC_FINAL_OUT>/tauri.final.json`).
