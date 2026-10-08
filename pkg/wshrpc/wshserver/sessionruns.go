@@ -64,19 +64,39 @@ func runLinkOf(run *waveobj.Run, dag *waveobj.TaskGroup) (sessionRunLink, bool) 
 	return sessionRunLink{}, false
 }
 
+// runsBySession maps each requested id to the run launched under it, as its current session or an earlier lead session.
+func runsBySession(ctx context.Context, ids []string) (map[string]*waveobj.Run, error) {
+	runs, err := wstore.GetRunsBySessionIds(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("loading runs by session: %w", err)
+	}
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	out := make(map[string]*waveobj.Run, len(runs))
+	for _, r := range runs {
+		if want[r.SessionId] {
+			out[r.SessionId] = r
+		}
+		for _, id := range r.LeadSessionIds {
+			if want[id] {
+				out[id] = r
+			}
+		}
+	}
+	return out, nil
+}
+
 // linkSessionsToRuns stamps each session an orchestrator run launched with its place in that run.
 func linkSessionsToRuns(ctx context.Context, sessions []wshrpc.SessionActivity) error {
 	ids := make([]string, 0, len(sessions))
 	for _, s := range sessions {
 		ids = append(ids, s.ID)
 	}
-	runs, err := wstore.GetRunsBySessionIds(ctx, ids)
+	bySession, err := runsBySession(ctx, ids)
 	if err != nil {
-		return fmt.Errorf("loading runs by session: %w", err)
-	}
-	bySession := make(map[string]*waveobj.Run, len(runs))
-	for _, r := range runs {
-		bySession[r.SessionId] = r
+		return err
 	}
 	dags := map[string]*waveobj.TaskGroup{}
 	for i := range sessions {

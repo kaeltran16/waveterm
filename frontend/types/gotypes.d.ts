@@ -959,6 +959,7 @@ declare global {
     // wshrpc.CommandGetUsageStatsRtnData
     type CommandGetUsageStatsRtnData = {
         buckets: UsageBucket[];
+        sessions: UsageSession[];
     };
 
     // wshrpc.CommandGetWindowTokensData
@@ -2886,6 +2887,7 @@ declare global {
         provider: string;
         model: string;
         day: string;
+        session?: string;
         input: number;
         output: number;
         reasoning: number;
@@ -2908,6 +2910,20 @@ declare global {
         cachewrite1h: number;
         msgs: number;
         missing?: boolean;
+    };
+
+    // wshrpc.UsageSession
+    type UsageSession = {
+        harness: string;
+        session: string;
+        title?: string;
+        project?: string;
+        runid?: string;
+        channelid?: string;
+        rungoal?: string;
+        runmode?: string;
+        role?: string;
+        taskid?: string;
     };
 
     // waveobj.UserNote
