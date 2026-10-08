@@ -30,10 +30,14 @@ import type { AgentsViewModel } from "./agents";
 import { formatTokens } from "./agentsviewmodel";
 import { ASK_OWNER_USER, childAskKey } from "./childaskmodel";
 import { bindChildAsks, childAskErrorAtom, childAsksAtom, takeOverChildAsk } from "./childaskstore";
+import { finalRowFocusId, type FinalStageView } from "./finalstage";
+import { FinalOutcome, FinalOutput, FinalStepList, useFinalStageView } from "./finalstageviews";
 import { useRunEvents } from "./runeventstore";
+import { fmtDuration } from "./runcompletion";
 import { formatLeft, leadAgentOf, runProgress, taskAgentOf, type RunInfo } from "./runlineage";
 import { runStatusView } from "./runmodel";
 import {
+    FINAL_OUTPUT_LINES,
     laneRows,
     questionOrder,
     runElapsedMs,
@@ -41,6 +45,7 @@ import {
     runSegments,
     taskFacts,
     thenTask,
+    verifyingHeadline,
     type LaneState,
 } from "./runrail";
 import { SEG_FILL } from "./runstrip";
@@ -446,20 +451,23 @@ function Activity({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
 }
 
 // RunStatus is the Run section's headline: the run's title, a slot per task, and where the run stands.
-function RunStatus({ run, waitingOnYou }: { run: RunInfo; waitingOnYou: boolean }) {
+function RunStatus({ run, waitingOnYou, finalNext }: { run: RunInfo; waitingOnYou: boolean; finalNext: string }) {
     const digest = run.digest;
     const state = { digest, loading: digest == null, stale: digestStale(digest, run.dag?.version) };
     const known = digest != null && !state.stale ? RUN_STATUS[digest.health] : undefined;
-    const status = waitingOnYou
-        ? RUN_STATUS["needs-you"]
-        : !state.stale && cleanupOnly(digest)
-          ? { text: "Cleanup failed", tone: "text-warning" }
-          : (known ?? healthView(state));
+    const verifying = verifyingHeadline(run.dag?.status, waitingOnYou, finalNext);
+    const status =
+        verifying ??
+        (waitingOnYou
+            ? RUN_STATUS["needs-you"]
+            : !state.stale && cleanupOnly(digest)
+              ? { text: "Cleanup failed", tone: "text-warning" }
+              : (known ?? healthView(state)));
     const finished = !state.stale && digest?.health === "done";
     // waiting on you, the engine's next step only repeats that; what the run moves on to afterwards is news
     const then = waitingOnYou ? thenTask(run.dag) : undefined;
-    const next = finished || waitingOnYou ? null : nextStepView(state, taskBriefs(run.dag));
-    const tail = then ? `· then ${then}` : next ? `· next ${next}` : "";
+    const next = finished || waitingOnYou || verifying ? null : nextStepView(state, taskBriefs(run.dag));
+    const tail = verifying ? verifying.tail : then ? `· then ${then}` : next ? `· next ${next}` : "";
     return (
         <div className="flex flex-col gap-[8px]">
             <div className="truncate text-[13px] font-semibold text-primary">{run.title}</div>
@@ -483,8 +491,49 @@ function RunStatus({ run, waitingOnYou }: { run: RunInfo; waitingOnYou: boolean 
     );
 }
 
+// what the block's link opens: the live output while the stage runs, else what it came to
+function finalWatchLabel(view: FinalStageView): string {
+    if (view.state === "failed") {
+        return "see the failure";
+    }
+    if (view.state === "unverified") {
+        return "see the reasons";
+    }
+    return view.state === "passed" ? "see the verdict" : "watch the output";
+}
+
+// FinalBlock is the final stage on the lead's rail: its steps, the output tail while a command runs, and a link
+// to the stage's row.
+function FinalBlock({ model, run, view }: { model: AgentsViewModel; run: RunInfo; view: FinalStageView }) {
+    const agents = useAtomValue(model.agentsAtom);
+    return (
+        <div data-final-block className="flex flex-col gap-[8px] border-t border-edge-faint pt-[10px]">
+            <div className="flex items-baseline justify-between gap-[8px]">
+                <SubLabel>Final verification</SubLabel>
+                <span className="whitespace-nowrap font-mono text-[11px] font-semibold text-muted">
+                    round {view.round}
+                    {view.stageMs != null ? ` · ${fmtDuration(view.stageMs)}` : ""}
+                </span>
+            </div>
+            <FinalStepList steps={view.steps} />
+            <FinalOutput output={view.output} lines={FINAL_OUTPUT_LINES} />
+            <button
+                type="button"
+                data-final-watch
+                onClick={() => globalStore.set(model.focusIdAtom, finalRowFocusId(run, agents))}
+                className={cn(LINK, "inline-flex items-center gap-[3px]")}
+            >
+                {finalWatchLabel(view)}
+                <ArrowUpRight size={11} aria-hidden />
+            </button>
+            <FinalOutcome view={{ ...view, detail: "", unverified: [] }} className="max-h-[80px]" />
+        </div>
+    );
+}
+
 export function RunSection({ model, run, asks }: { model: AgentsViewModel; run: RunInfo; asks: DagAskItem[] }) {
     const now = useAtomValue(model.nowAtom);
+    const finalView = useFinalStageView(run.dag, run.runId, run.channelId, now);
     const { done, total } = runProgress(run.dag);
     const digest = run.digest;
     const finished = !digestStale(digest, run.dag?.version) && digest?.health === "done";
@@ -514,8 +563,13 @@ export function RunSection({ model, run, asks }: { model: AgentsViewModel; run: 
                     {runStatusView(run.status ?? "planning").label} · no plan submitted
                 </div>
             ) : (
-                <RunStatus run={run} waitingOnYou={asks.some((a) => a.owner === ASK_OWNER_USER)} />
+                <RunStatus
+                    run={run}
+                    waitingOnYou={asks.some((a) => a.owner === ASK_OWNER_USER)}
+                    finalNext={finalView.next}
+                />
             )}
+            {finalView.visible ? <FinalBlock model={model} run={run} view={finalView} /> : null}
             {(finished && report) || spent ? (
                 <div>
                     {finished && report ? (
