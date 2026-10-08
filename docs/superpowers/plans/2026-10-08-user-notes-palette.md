@@ -79,7 +79,9 @@ DESIGN.md's token table). The board's split list-and-preview is a new view, not 
 - A title the store refuses (empty, over 200 bytes, a pasted newline): the editor names the problem in the
   error line and keeps the text. Task 4 tests the rule; Task 6 shows it.
 - A note deleted or renamed by an agent while the palette is open: saving or deleting it fails with the
-  server's "not found", shown in the error line, and the list reloads. Task 5 and Task 6.
+  server's "not found", shown in the error line, and the list reloads: `saveNoteDraft` and
+  `deletePaletteNote` both reload after a failure as after a success. Task 4 tests it; Task 5 and Task 6
+  each show it.
 - A note whose body is empty, or one hand-edited to have no heading: it lists, previews (an empty pane) and
   copies without error. Task 4 tests `noteMarkdown` on an empty body.
 - Del or Esc pressed once and then anything else: nothing is deleted or discarded. Task 4 tests the arm
@@ -112,12 +114,13 @@ Acceptance:
 - Run: `go test ./pkg/notestore -run '^(TestListOrdersOneDayByModifiedTimeNewestFirst|TestListIsNewestDayFirstAndSkipsOtherFiles)$'`
 
 ### Task 2: A skill that teaches agents `wsh note add`
-**Depends on:** none
+**Depends on:** Task 3
 **Chunk:** Build: teach agents the command
 **Files:** `skills/notes/SKILL.md`, `skills/skills.go`, `AGENTS.md`
 
 Arc's own skills live in `skills/` and are embedded into `wavesrv` by `skills/skills.go`; every agent launch
-seeds them into the vault and from there into each harness. Add one skill, `notes`.
+seeds them into the vault and from there into each harness. Add one skill, `notes`. (Task 3 is a dependency
+because it may change `cmd/wsh/cmd/wshcmd-note.go`, whose flags this skill copies.)
 
 Decisions:
 - A new skill, not a paragraph in `cockpit-ui`: a skill loads by its description, and this one must load on
@@ -145,7 +148,7 @@ Acceptance:
 
 ### Task 3: `wsh note` runs against a live wavesrv
 **Depends on:** none
-**Files:** `scripts/cdp/notes-wsh.mjs`, `scripts/cdp/scenarios.mjs`
+**Files:** `scripts/cdp/notes-wsh.mjs`, `scripts/cdp/scenarios.mjs`, `cmd/wsh/cmd/wshcmd-note.go` (only if a step finds a defect in it)
 
 `wsh note` has only been unit-tested. Add a CDP scenario, `notes-wsh`, that runs the real `wsh` binary
 against the dev app's wavesrv once: add, list, show, delete.
@@ -177,12 +180,13 @@ Acceptance (the `notes-wsh` scenario's steps, each a real assertion, none skippe
 - `5. wsh note delete removes it`: exit 0, the RPC list no longer holds the id, and the second `show` exits
   nonzero with "not found".
 - Prove it once: `ARC_FINAL_OUT=$(mktemp -d) node scripts/cdp/final-verify.mjs notes-wsh`.
-- If a command misbehaves against the live server, fix the cause in `cmd/wsh/cmd/wshcmd-note.go` (add it to
-  your files in the completion note) rather than loosening the step.
+- If a command misbehaves against the live server, fix the cause in `cmd/wsh/cmd/wshcmd-note.go` rather than
+  loosening the step, and name any flag or argument change in your completion note (Task 2 writes the skill
+  from that file after this task lands).
 
 ### Task 4: The pure note models, the Notes scope and the note store
 **Depends on:** none
-**Files:** `frontend/app/cockpit/palette-notes.ts`, `frontend/app/cockpit/palette-notes.test.ts`, `frontend/app/cockpit/palette-notesstore.ts`, `frontend/app/cockpit/palette-scope.ts`, `frontend/app/cockpit/palette-scope.test.ts`, `frontend/app/cockpit/palette-groups.ts`, `frontend/app/cockpit/palette-groups.test.ts`
+**Files:** `frontend/app/cockpit/palette-notes.ts`, `frontend/app/cockpit/palette-notes.test.ts`, `frontend/app/cockpit/palette-notesstore.ts`, `frontend/app/cockpit/palette-notesstore.test.ts`, `frontend/app/cockpit/palette-scope.ts`, `frontend/app/cockpit/palette-scope.test.ts`, `frontend/app/cockpit/palette-groups.ts`, `frontend/app/cockpit/palette-groups.test.ts`
 
 Everything the view tasks decide with, as pure functions, plus the scope and group kind they render under.
 Tasks 5 and 6 rely on these names and signatures exactly.
@@ -234,11 +238,16 @@ export function selectionAfterDelete(i: number, n: number): number;
 ```ts
 export const paletteNotesAtom: PrimitiveAtom<UserNote[] | null>; // null until the first load
 export function loadPaletteNotes(): Promise<void>; // sets the atom; rejects on failure, never swallows
-export function saveNoteDraft(d: NoteDraft): Promise<string>; // add or update, reload, resolve the note's id
-export function deletePaletteNote(id: string): Promise<void>; // delete, then reload even when it failed
+// add or update, then reload even when it failed; resolves the note's id, rejects with the save's error
+export function saveNoteDraft(d: NoteDraft): Promise<string>;
+// delete, then reload even when it failed; rejects with the delete's error
+export function deletePaletteNote(id: string): Promise<void>;
 ```
 
-Acceptance (`npx vitest run frontend/app/cockpit/palette-notes.test.ts frontend/app/cockpit/palette-scope.test.ts frontend/app/cockpit/palette-groups.test.ts`):
+A failed save or delete rejects with its own error, not the reload's: a reload that also fails is not allowed
+to hide it.
+
+Acceptance (`npx vitest run frontend/app/cockpit/palette-notes.test.ts frontend/app/cockpit/palette-notesstore.test.ts frontend/app/cockpit/palette-scope.test.ts frontend/app/cockpit/palette-groups.test.ts`):
 - `noteDayLabel`: today, yesterday across a month boundary, and an older day returned as is.
 - `noteMarkdown`: a note with a body, one with an empty body, one with no `body` field; no trailing blank
   line beyond the single newline.
@@ -249,6 +258,12 @@ Acceptance (`npx vitest run frontend/app/cockpit/palette-notes.test.ts frontend/
 - `pressArm`: first del arms without firing; second del on the same note fires and disarms; del on another
   note re-arms on that one without firing; esc while del is armed arms esc without firing.
 - `selectionAfterDelete`: the middle keeps its index, the last moves up one, the only note gives 0.
+- Store (`palette-notesstore.test.ts`, with `RpcApi` mocked as `palette-data.test.ts` mocks it):
+  `loadPaletteNotes` sets the atom from the list call, and when that call rejects it rejects with the same
+  error and leaves the atom as it was; `saveNoteDraft` calls add for a draft with no id and update for one
+  with an id, reloads and resolves the id; when the update rejects, it still reloads (the list call is made
+  and the atom holds its result) and rejects with the update's error; `deletePaletteNote` does the same on
+  a rejected delete.
 - Scope: `typeQuery` from an empty All turns `no:fix` into scope notes with query `fix`, and `n:` still
   into needs; `cycleScope` reaches notes after records; `ghostHint("no")` names Notes.
 - Groups: an All result holding a note row groups it under "Notes".
@@ -266,7 +281,9 @@ asserts order among the stamped rows, and arrange adds its notes last so the new
 
 Decisions:
 - `command-palette.tsx` loads the notes on each open (beside `loadPaletteEntities`), a failure going to
-  `paletteError` as `Couldn’t load notes: <reason>`. Note rows are ordinary `PaletteItem`s of kind `note`
+  `paletteError` as `Couldn’t load notes: <reason>` (the same error line step 12 shows for a failed
+  delete; the rejection itself is tested in Task 4's `palette-notesstore.test.ts`, so no step forces a
+  failed load). Note rows are ordinary `PaletteItem`s of kind `note`
   (key `noteKey(id)`, search = the title, meta = `noteDayLabel`, verb "Copy", echo `Copies "<title>"`), so
   selection, ↑↓, hover, ranking and the footer's echo line all come from the existing machinery. In the
   Notes scope an empty query keeps the server's order; a typed one ranks with `rankPaletteItems`.
@@ -327,10 +344,17 @@ in `SCENARIOS`, with these steps:
 - `12. deleting a note that is already gone says so and reloads the list`: one stamped note is deleted
   through `h.rpc` while the palette shows it; Del twice on its row shows the error line starting
   `Delete failed`, the palette stays open, and the row is gone from the reloaded list.
-- `13. Enter copies the note and closes the palette`: before the key, the page's
-  `navigator.clipboard.writeText` is wrapped to record its argument and then call through; after Enter the
-  recorded text equals the note's `# title`, blank line, body, exactly, and the palette is closed with no
-  error line. The assertion is unconditional: no recorded call fails the step.
+- `13. a copy the clipboard refuses says so and keeps the palette open`: the page's
+  `navigator.clipboard.writeText` is replaced with a stub that rejects (`new Error("denied")`); after Enter
+  on a stamped note the error line starts `Copy failed`, the palette is still open and the note still
+  selected.
+- `14. Enter copies the note and closes the palette`: the stub is replaced with one that records its
+  argument and resolves; after Enter the recorded text equals the note's `# title`, blank line, body,
+  exactly, and the palette is closed with no error line. The assertion is unconditional: no recorded call
+  fails the step.
+- Neither stub calls the real `writeText`: a CDP-driven WebView2 window without OS focus rejects a real
+  write ("document is not focused"), and a real one would overwrite the user's clipboard mid-run. Teardown
+  (and the end of step 14) restores the original function.
 - Prove it once: `ARC_FINAL_OUT=$(mktemp -d) node scripts/cdp/final-verify.mjs palette-notes`.
 - The Check command passes, and `npx vitest run frontend/app/cockpit` still passes.
 
@@ -356,7 +380,10 @@ Decisions:
   moves between title and body, `Esc` goes back, twice when there are unsaved changes).
 - While a draft is open the palette shows only the editor: the header's icon is a pencil, a chip button
   (the existing drill chip's classes; `data-palette-drill`) reads `Notes › Edit` or `Notes › New` and leads
-  back, the header's field is the title (`aria-label="Title"`, placeholder `Title`), the scope row and the
+  back, the header's field is the title (`aria-label="Title"`, placeholder `Title`; it is the same header
+  input and keeps `data-palette-input`, which `PALETTE`, `PALETTE_STATE` and `openPalette` in
+  `scenarios.mjs` find the dialog by: without it every editor step queries null and `openPalette`'s
+  Ctrl+P closes the open editor), the scope row and the
   results list are not rendered, and a textarea (`data-note-body`, `aria-label` naming it the note's
   markdown body, mono, filling the body area, placeholder `Markdown…`) holds the body. The footer reads
   `ctrl ⏎` `Saves "<title>"` (or `Saves the note` with no title yet), with the keys `Tab title / body` and
@@ -368,14 +395,15 @@ Decisions:
   Backspace-leaves-scope, →) do nothing here.
 - Save: `noteTitleError` first, its message going to `paletteError`; then `saveNoteDraft`. Success returns
   to the Notes scope with an empty query and the saved note selected, showing its new body. Failure shows
-  `Save failed: <reason>` in `paletteError` and keeps the editor and its text.
+  `Save failed: <reason>` in `paletteError` and keeps the editor and its text; `saveNoteDraft` has
+  already reloaded the list behind it, so leaving the editor shows the list as the vault now has it.
 - Leaving: Esc, the chip, or a backdrop click all route through one handler (`ModalShell`'s `onClose` while
   a draft is open). Not `draftDirty`: back to the Notes list at once. Dirty: `pressArm("esc")`: the footer
   shows a line in the error tone, `esc again discards your changes` (`data-palette-arm="esc"`); a second
   leave discards and goes back to the list; any typing disarms. Leaving never closes the palette.
 
-Acceptance — steps added to the `palette-notes` scenario after Task 5's (renumber so the copy that closes
-the palette stays last). `paletteKey` sends no modifiers, so Ctrl+Enter on a list row cannot be sent with
+Acceptance — steps added to the `palette-notes` scenario after Task 5's (renumber so Task 5's two copy
+steps, the refused copy and then the copy that closes the palette, stay last). `paletteKey` sends no modifiers, so Ctrl+Enter on a list row cannot be sent with
 it today: extend it with an optional modifiers argument (`{ ctrlKey: true }`, defaulting to none so every
 existing caller is unchanged), and add a `noteKeyIn` helper beside it, taking the same modifiers, for keys
 sent to the title or body:
@@ -395,7 +423,9 @@ sent to the title or body:
   palette is open; reopened with Ctrl+Enter, a click on `[data-palette-drill]` does the same.
 - `saving a note that is already gone says so and keeps the text`: with the editor open on a stamped note
   and its body changed, the note is deleted through `h.rpc`; Ctrl+Enter shows the error line starting
-  `Save failed`, the editor stays open, and `[data-note-body]` still holds the typed text.
+  `Save failed`, the editor stays open, and `[data-note-body]` still holds the typed text; then Esc twice
+  (the draft is dirty) returns to the list, which no longer holds that note's row: the failed save reloaded
+  it.
 - `New note takes the typed text as its title`: with a query matching no note, the "New note" row is
   selected and Enter opens the editor with chip `Notes › New` and that title; typing a body and Ctrl+Enter
   creates a note the RPC list returns, selected in the list. Shot `cdp-shots/palette-notes-new.png`.
