@@ -19,6 +19,7 @@ import {
 } from "./ask-core";
 import type { AskReply } from "./ask-core";
 import type { Picker } from "../types";
+import { cacheMissArgs, transcriptEntries } from "./cache-core";
 import { controlMsg, deliver, endTurn, steerNotice, takeLines } from "./control-core";
 import type { Turn } from "./control-core";
 import { denial } from "./guard-core";
@@ -120,6 +121,25 @@ async function clearAsk($: EngineInterface) {
     }
 }
 
+// tells the cockpit what the turn that just ended re-billed for a missed prompt cache.
+// ponytail: $.fs.read rejects a file over 4 MiB, so a session with a longer transcript reports no miss;
+// a wsh command that prints the file's tail lifts it
+async function reportCacheMiss($: EngineInterface, path: string) {
+    try {
+        const args = cacheMissArgs(transcriptEntries(await $.fs.read(path)));
+        if (!args) {
+            return;
+        }
+        const ran = await $.process.run([WSH, ...args]);
+        if (ran.exitCode !== 0) {
+            $.ui.log(`arc: wsh notify exited ${ran.exitCode}: ${ran.stderr.trim()}`, { to: "debug" });
+        }
+    } catch (err) {
+        // a session can end a turn before its transcript is first written
+        $.ui.log(`arc: reporting a cache miss failed: ${String(err)}`, { to: "debug" });
+    }
+}
+
 async function closePicker($: EngineInterface) {
     try {
         await update($, picker, () => null);
@@ -197,6 +217,10 @@ export const register: Register = (on) => {
                 // the idle notification still corrects the cockpit, later
                 $.ui.log(`arc: wsh agentstatus --state idle failed: ${String(err)}`, { to: "debug" });
             }
+        }
+        if (active && !e.agentId && transcriptPath) {
+            // not awaited: reading a long transcript must not hold the turn's end
+            void reportCacheMiss($, transcriptPath);
         }
         return next(e);
     });
