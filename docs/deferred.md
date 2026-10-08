@@ -145,7 +145,9 @@ slice 1 deliberately, and the ones that do not need focus still stand:
   pet's deferred courier gestures; **build the store and the gestures together or not at all.**
 - **Usage project support.** Held at `unsupported` because `UsageBucket` carries no attribution
   dimension at all; blocked on the usage scanner gaining per-session or per-run attribution, not on a
-  design decision. **Revive together with that.**
+  design decision. **Revive together with that.** Designed 2026-10-08:
+  `docs/superpowers/specs/2026-10-08-usage-attribution-design.md` puts projects on the Usage surface
+  itself; the Focus switcher this row served was removed 2026-10-06.
 
 ## Composer attachments (2026-09-18)
 
@@ -191,6 +193,8 @@ review; everything else it designed waits for evidence, with each settled decisi
   - File, diff, commit and session targets in `openTarget`; `openInCode` and `openDiff` stay the landings.
   - A shared contextual-action builder across buttons, menus and the palette.
   - Usage-to-work links, which need per-session or per-run attribution in the usage scanner first.
+    Designed 2026-10-08 (`docs/superpowers/specs/2026-10-08-usage-attribution-design.md`): a run page
+    on Usage opens its run; a session open target stays deferred.
   - Unifying the attachment oref namespace (`resolveAttached`'s `run:`/`memory:`/`radar:`) with addresses.
   - Cross-surface Back is the entry below.
 - **Why:** no flow has yet shown the need; each item names its trigger in the spec.
