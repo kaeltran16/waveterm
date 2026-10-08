@@ -147,7 +147,7 @@ Acceptance:
 
 ### Task 3: `wsh note` runs against a live wavesrv
 **Depends on:** none
-**Files:** `scripts/cdp/notes-wsh.mjs`, `scripts/cdp/scenarios.mjs`, `cmd/wsh/cmd/wshcmd-note.go` (only if a step finds a defect in it)
+**Files:** `scripts/cdp/notes-wsh.mjs`, `scripts/cdp/scenarios.mjs`, `cmd/wsh/cmd/wshcmd-note.go`
 
 `wsh note` has only been unit-tested. Add a CDP scenario, `notes-wsh`, that runs the real `wsh` binary
 against the dev app's wavesrv once: add, list, show, delete.
