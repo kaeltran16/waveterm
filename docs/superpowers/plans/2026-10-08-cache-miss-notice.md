@@ -40,7 +40,10 @@ Two tasks on separate files, with nothing between them, so they run at the same 
 
 **Depends on:** none
 
-**Files:** `pkg/wshrpc/wshrpctypes_notify.go`, `cmd/wsh/cmd/wshcmd-notify.go`, `cmd/wsh/cmd/wshcmd-notify_test.go`, `frontend/app/view/jarvis/petvoice.ts`, `frontend/app/view/jarvis/petvoice.test.ts`, `frontend/app/view/jarvis/petjoin.ts`, `frontend/app/view/jarvis/petjoin.test.ts`, `frontend/app/view/jarvis/petbubble.tsx`, `frontend/app/view/jarvis/petview.tsx`, `frontend/app/view/jarvis/petsources.tsx`, `scripts/cdp/scenarios.mjs`
+**Files:** `pkg/wshrpc/wshrpctypes_notify.go`, `cmd/wsh/cmd/wshcmd-notify.go`, `cmd/wsh/cmd/wshcmd-notify_test.go`, `frontend/app/view/jarvis/petvoice.ts`, `frontend/app/view/jarvis/petvoice.test.ts`, `frontend/app/view/jarvis/petjoin.ts`, `frontend/app/view/jarvis/petjoin.test.ts`, `frontend/app/view/jarvis/petbubble.tsx`, `frontend/app/view/jarvis/petview.tsx`, `frontend/app/view/jarvis/petsources.tsx`, `scripts/cdp/scenarios.mjs`, `frontend/types/gotypes.d.ts`
+
+`frontend/types/gotypes.d.ts` is generated: after changing `NotifyCommandData` run `task generate` and commit
+what it writes, never editing the file by hand. Task 2 touches no generated binding, so the two do not clash.
 
 A notice today is a title, a message and a level (`NotifyCommandData`). The avatar says the title in a bubble
 for 6 seconds, keeps it in the popup's read-back list (`petSaidAtom`) and shows an unread marker when the
@@ -54,8 +57,10 @@ Required behavior:
   `--transient` flag for the said-once flag. Outside a block it sends no oref and still works.
 - `eventFromNotify` (`petjoin.ts`) carries both onto the `PetEvent`: the oref as the event's existing `ref`,
   and the flag as a new field.
-- A bubble whose event has a `ref` that matches a roster agent shows that agent on its own line between the
-  label and the text: the agent's name, then its project, laid out as in the canvas (`Main.dc.html` panel A).
+- A bubble whose event is a notify (`kind: "notify"`) with a `ref` that matches a roster agent shows that
+  agent on its own line between the label and the text: the agent's name, then its project, laid out as in
+  the canvas (`Main.dc.html` panel A). Notify events only: an ask event already carries a `ref`
+  (`eventFromAsk`) and its bubble stays exactly as today, with no agent line.
   Resolve the agent the way an agent's question already does (`askAgent` in `petjoin.ts`). A long name is cut
   with an ellipsis on one line and the project stays visible (`Cases.dc.html`, fourth bubble). A `ref` that
   matches no agent shows no agent line, and the bubble is otherwise as today.
@@ -74,18 +79,30 @@ Tests:
 - `petjoin.test.ts`: a notify payload with an oref and the flag maps both; one with neither maps as today.
 - `petvoice.test.ts` or `petjoin.test.ts`, wherever the pure piece lands: a said-once event is the utterance
   but is left out of what gets remembered; a normal event is unchanged.
+- `petjoin.test.ts` or `petvoice.test.ts`: the bubble's click decision as a pure function. A said-once event
+  with a resolved agent opens the agent; every other case opens the popup: said-once with no `ref`, said-once
+  with a `ref` matching no agent, a kept notify with a resolved agent, and an ask with a resolved agent.
+- `petjoin.test.ts` or `petvoice.test.ts`: the agent line is decided for a notify with a matching `ref`, and
+  not for an ask with a matching `ref` or a notify whose `ref` matches no agent.
 - `wshcmd-notify_test.go`: the payload built with `--transient` and a block id carries both; without them it
   is unchanged.
 - `scripts/cdp/scenarios.mjs`, in `surface-smoke` beside the existing "wsh notify -> the avatar says it once"
   step, add steps that prove, each with a screenshot:
-  1. a warn notify sent with a live roster agent's block oref and the said-once flag shows a bubble holding
-     that agent's name, its project and the title;
+  1. a warn notify titled `Cache miss: 85k tokens re-billed after 12m idle`, sent with a live roster agent's
+     block oref and the said-once flag, shows a bubble holding that agent's name, its project and the title;
   2. after the bubble's 6 seconds it is gone, the avatar has no unread marker, and opening the popup shows no
      entry with that title;
-  3. the same notify with a title as long as the fourth bubble in `Cases.dc.html` and an agent whose name is
-     long keeps the agent line on one line.
-  Use the arrange and teardown helpers the file already has for a roster agent; do not add a new fixture
-  mechanism. If no live agent can be arranged, the step must fail, not skip.
+  3. the same notify titled
+     `2 cache misses: 140k tokens re-billed (85k after 12m idle, 55k after a model switch)`, for an agent
+     named `Arc Claude mod: usage and ask through Claude Code function hooks` (the fourth bubble in
+     `Cases.dc.html`; pass it as `treeRailRoster`'s `leadName`), keeps the agent line on one line: assert the
+     name is cut (its `scrollWidth` exceeds its `clientWidth`), the agent line is one text line high, and the
+     project text is visible inside the bubble's width;
+  4. clicking `[data-pet-bubble]` of a said-once notify whose agent resolved leaves the Agent surface active
+     with that agent selected, the bubble gone and the popup not open.
+  Use the arrange and teardown helpers the file already has for a roster agent (`arrangeFixtureRun`,
+  `treeRailRoster`); do not add a new fixture mechanism. If no live agent can be arranged, the step must
+  fail, not skip.
 
 Run: `npx vitest run frontend/app/view/jarvis/petjoin.test.ts frontend/app/view/jarvis/petvoice.test.ts` and
 `go test ./cmd/wsh/cmd -run 'Notify'`
