@@ -76,7 +76,7 @@ func TestLastErrorIsTheLastAssistantMessageWhenItFailed(t *testing.T) {
 		`{"type":"session","version":3,"id":"s1","timestamp":"2026-09-24T14:03:55Z","cwd":"C:\\repo"}`,
 		`{"type":"message","id":"u1","parentId":null,"timestamp":"2026-09-24T14:03:57Z","message":{"role":"user","content":"review the diff"}}`,
 	}
-	piDenied := `{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-09-24T14:03:58Z","message":{"role":"assistant","content":[],"provider":"opencode-go","stopReason":"error","errorMessage":"403: {\"type\":\"server_error\",\"message\":\"An active OpenCode Go subscription is required to use Go models.\"}"}}`
+	piDenied := `{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-09-24T14:03:58Z","message":{"role":"assistant","content":[],"provider":"opencode-go","model":"deepseek-v4-flash","stopReason":"error","errorMessage":"403: {\"type\":\"server_error\",\"message\":\"An active OpenCode Go subscription is required to use Go models.\"}"}}`
 	claudeLimit := `{"type":"assistant","timestamp":"2026-09-11T16:43:52.938Z","isApiErrorMessage":true,"error":"rate_limit","message":{"role":"assistant","content":[{"type":"text","text":"You've hit your session limit · resets 2:30am"}]}}`
 	claudeUser := `{"type":"user","timestamp":"2026-09-11T16:43:50.000Z","message":{"role":"user","content":"review the diff"}}`
 	for _, c := range []struct {
@@ -98,14 +98,36 @@ func TestLastErrorIsTheLastAssistantMessageWhenItFailed(t *testing.T) {
 		{"claude failed with a long page", "claude", strings.Repeat("x", maxErrorText-1) + "…",
 			[]string{`{"type":"assistant","isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"` + strings.Repeat("x", 2*maxErrorText) + `"}]}}`}},
 	} {
-		if got := LastError(writeTranscript(t, c.lines), c.runtime); got != c.want {
+		if got := LastError(writeTranscript(t, c.lines), c.runtime).Text; got != c.want {
 			t.Errorf("%s: LastError = %q\nwant %q", c.name, got, c.want)
 		}
 	}
-	if got := LastError(writeTranscript(t, []string{claudeLimit}), "codex"); got != "" {
+	if got := LastError(writeTranscript(t, []string{claudeLimit}), "codex"); got != (Failure{}) {
 		t.Errorf("codex: LastError = %q, want none", got)
 	}
-	if got := LastError("does-not-exist.jsonl", "pi"); got != "" {
+	if got := LastError("does-not-exist.jsonl", "pi"); got != (Failure{}) {
 		t.Errorf("missing pi file: LastError = %q, want none", got)
+	}
+	denied := LastError(writeTranscript(t, append(append([]string{}, piHead...), piDenied)), "pi")
+	if denied.Model != "opencode-go/deepseek-v4-flash" || !denied.Refused() {
+		t.Errorf("pi refusal = %+v (refused %v); want the route id opencode-go/deepseek-v4-flash, refused", denied, denied.Refused())
+	}
+}
+
+// only a status the account cannot outwait is a refusal: a usage limit resets and a 5xx passes
+func TestFailureRefusedIsAnUnauthorizedOrForbiddenStatus(t *testing.T) {
+	for text, want := range map[string]bool{
+		`403: {"type":"server_error"}`:                  true,
+		"401 Unauthorized":                              true,
+		"4031 tokens":                                   false,
+		"502 status code (no body)":                     false,
+		"429: rate limited":                             false,
+		"You've hit your session limit · resets 2:30am": false,
+		"Connection error.":                             false,
+		"":                                              false,
+	} {
+		if got := (Failure{Text: text}).Refused(); got != want {
+			t.Errorf("Refused(%q) = %v, want %v", text, got, want)
+		}
 	}
 }

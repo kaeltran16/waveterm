@@ -137,15 +137,31 @@ func transcriptForRun(run *waveobj.Run) (path, runtime string, tracked bool) {
 	return agentsessions.TranscriptForSession(root, runtime, run.ProjectPath, run.SessionId), runtime, true
 }
 
-// sessionFailure is the provider error the child's last turn ended on, or "" when it did not end on one. A child
-// on a dead route (a lapsed subscription, a model the account cannot run) sits idle at its prompt, so without this
+// RefusedQuiet is how long a child's transcript must sit still after a refused turn before the engine gives up on
+// it: pi retries a failed turn about four times in twenty seconds, and a refusal is settled only once it stops.
+const RefusedQuiet = time.Minute
+
+// sessionFailure is the provider error the child's last turn ended on, zero when it did not end on one. A child on
+// a dead route (a lapsed subscription, a model the account cannot run) sits idle at its prompt, so without this
 // every reason given for it reads as a timeout or an idle worker and hides that a retry on the route cannot help.
-func sessionFailure(run *waveobj.Run) string {
+func sessionFailure(run *waveobj.Run) agentsessions.Failure {
 	path, runtime, _ := transcriptForRun(run)
 	if path == "" {
-		return ""
+		return agentsessions.Failure{}
 	}
 	return agentsessions.LastError(path, runtime)
+}
+
+// routeRefused reports a child whose provider refused its last turn (agentsessions.Failure.Refused) and which has
+// stopped retrying. A new session on the same route would be refused too, so the caller gives up on it at once
+// instead of waiting out its timeout and respawning. The transcript is read only once it has gone quiet.
+func routeRefused(run *waveobj.Run, now int64) (agentsessions.Failure, bool) {
+	last, _ := lastActivityForRun(run)
+	if last == 0 || now-last < RefusedQuiet.Milliseconds() {
+		return agentsessions.Failure{}, false
+	}
+	failure := sessionFailure(run)
+	return failure, failure.Refused()
 }
 
 // withSessionFailure adds the child's sessionFailure to why the child is done for.
@@ -153,8 +169,8 @@ func withSessionFailure(reason string, run *waveobj.Run) string {
 	if reason == "" {
 		return ""
 	}
-	if failure := sessionFailure(run); failure != "" {
-		return reason + "; its last turn failed: " + failure
+	if failure := sessionFailure(run); failure.Text != "" {
+		return reason + "; its last turn failed: " + failure.Text
 	}
 	return reason
 }
@@ -403,8 +419,8 @@ func hungWake(ctx context.Context, taskID string, run *waveobj.Run, silentMs int
 		return ""
 	}
 	if workerTurnEndedAt(ctx, run) > 0 {
-		if failure := sessionFailure(run); failure != "" {
-			return taskTurnFailedWake(taskID, failure)
+		if failure := sessionFailure(run); failure.Text != "" {
+			return taskTurnFailedWake(taskID, failure.Text)
 		}
 		return taskTurnEndedWake(taskID)
 	}

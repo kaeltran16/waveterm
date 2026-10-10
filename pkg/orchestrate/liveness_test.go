@@ -503,17 +503,21 @@ func TestWorkerThatEndedItsTurnOnAQuestionIsNotStalled(t *testing.T) {
 	}
 }
 
-// deadRouteError is a provider refusing a turn the way a lapsed subscription does.
-const deadRouteError = "403: An active subscription is required to use this model."
+// deadRouteError is a provider refusing a turn the way a lapsed subscription does; busyRouteError is one that
+// passes with time.
+const (
+	deadRouteError = "403: An active subscription is required to use this model."
+	busyRouteError = "502 status code (no body)"
+)
 
-// writeFailedTurn makes the run's own transcript end on deadRouteError, as a dead route leaves it.
-func writeFailedTurn(t *testing.T, run *waveobj.Run, mtime time.Time) {
+// writeFailedTurn makes the run's own transcript end on a provider error, last written at mtime.
+func writeFailedTurn(t *testing.T, run *waveobj.Run, failure string, mtime time.Time) {
 	t.Helper()
 	path, runtime, _ := transcriptForRun(run)
-	body := `{"type":"assistant","isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"` + deadRouteError + `"}]}}` + "\n"
+	body := `{"type":"assistant","isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"` + failure + `"}]}}` + "\n"
 	if runtime == "pi" {
 		body = `{"type":"session","version":3,"id":"s1","timestamp":"2026-09-24T14:03:55Z","cwd":"C:\\wt"}` + "\n" +
-			`{"type":"message","id":"a1","parentId":null,"timestamp":"2026-09-24T14:03:58Z","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"` + deadRouteError + `"}}` + "\n"
+			`{"type":"message","id":"a1","parentId":null,"timestamp":"2026-09-24T14:03:58Z","message":{"role":"assistant","content":[],"provider":"dead","model":"m1","stopReason":"error","errorMessage":"` + failure + `"}}` + "\n"
 	}
 	if path == "" {
 		path = filepath.Join(sessionsRootFor(runtime), agentobserve.SlugifyCwd(run.ProjectPath), run.SessionId+".jsonl")
@@ -532,10 +536,9 @@ func writeFailedTurn(t *testing.T, run *waveobj.Run, mtime time.Time) {
 	}
 }
 
-// Run bf3a2fe3: a pi route whose subscription had lapsed refused every turn, and nothing it told the lead said so.
-func TestWorkerIdleAfterARefusedTurnWakesTheLeadWithTheError(t *testing.T) {
-	lastWrite := time.Now().Add(-4 * time.Minute)
-	ctx, g, f := seedChildWrittenAt(t, "turn-failed", lastWrite)
+// firstChildRun is the stored run of the dag's first task.
+func firstChildRun(t *testing.T, ctx context.Context, g *waveobj.TaskGroup) *waveobj.Run {
+	t.Helper()
 	stored, err := wstore.GetDag(ctx, g.OID)
 	if err != nil {
 		t.Fatal(err)
@@ -544,7 +547,14 @@ func TestWorkerIdleAfterARefusedTurnWakesTheLeadWithTheError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFailedTurn(t, run, lastWrite)
+	return run
+}
+
+// a provider error that passes with time leaves the worker to the turn-ended path, which now names the error
+func TestWorkerIdleAfterAFailedTurnWakesTheLeadWithTheError(t *testing.T) {
+	lastWrite := time.Now().Add(-4 * time.Minute)
+	ctx, g, f := seedChildWrittenAt(t, "turn-failed", lastWrite)
+	writeFailedTurn(t, firstChildRun(t, ctx, g), busyRouteError, lastWrite)
 	noCPUThrottle(t)
 	stubTurnEnded(t, lastWrite.UnixMilli())
 	stubChildCPU(t, func(int) (int64, bool) { return 5_000, true })
@@ -553,7 +563,46 @@ func TestWorkerIdleAfterARefusedTurnWakesTheLeadWithTheError(t *testing.T) {
 	if task := tick(t, ctx, g); task.State != TaskState_Stalled {
 		t.Fatalf("a worker idle past TurnEndedGrace with flat CPU stalls, got %s", task.State)
 	}
+	if want := []string{"wake: task t-0's worker is idle after its last turn failed: 502 status code (no body). wsh jarvis dag status"}; !reflect.DeepEqual(f.sends, want) {
+		t.Fatalf("want wakes %q, got %q", want, f.sends)
+	}
+}
+
+// Run bf3a2fe3: a pi route whose subscription had lapsed refused every turn. The worker stalls on the first tick
+// after its retries stop, with no CPU baseline or turn-end signal, and goes to the lead instead of a retry that the
+// route would refuse too.
+func TestWorkerOnARefusedRouteStallsAtOnceForTheLead(t *testing.T) {
+	lastWrite := time.Now().Add(-RefusedQuiet - time.Second)
+	ctx, g, f := seedChildWrittenAt(t, "turn-refused", lastWrite)
+	writeFailedTurn(t, firstChildRun(t, ctx, g), deadRouteError, lastWrite)
+	if task := tick(t, ctx, g); task.State != TaskState_Stalled {
+		t.Fatalf("a refused worker stalls on the first tick, got %s", task.State)
+	}
 	if want := []string{"wake: task t-0's worker is idle after its last turn failed: 403: An active subscription is required to use this model. wsh jarvis dag status"}; !reflect.DeepEqual(f.sends, want) {
 		t.Fatalf("want wakes %q, got %q", want, f.sends)
+	}
+}
+
+// pi is still retrying inside RefusedQuiet, and a refusal it has not settled on is not the end of the worker
+func TestWorkerStillRetryingARefusalIsLeftAlone(t *testing.T) {
+	lastWrite := time.Now().Add(-10 * time.Second)
+	ctx, g, f := seedChildWrittenAt(t, "turn-refused-fresh", lastWrite)
+	writeFailedTurn(t, firstChildRun(t, ctx, g), deadRouteError, lastWrite)
+	if task := tick(t, ctx, g); task.State != TaskState_Running || len(f.sends) != 0 {
+		t.Fatalf("a refusal still inside RefusedQuiet: want running and no wake, got %s, %q", task.State, f.sends)
+	}
+}
+
+// the refusal read waits for an idle worker: one whose CPU is moving is working, whatever its last message says
+func TestBusyWorkerIsNotReadForARefusal(t *testing.T) {
+	lastWrite := time.Now().Add(-2 * time.Minute)
+	ctx, g, f := seedChildWrittenAt(t, "busy-refused", lastWrite)
+	noCPUThrottle(t)
+	stubChildCPU(t, func(call int) (int64, bool) { return int64(call) * 5000, true })
+	writeFailedTurn(t, firstChildRun(t, ctx, g), deadRouteError, lastWrite)
+	for i := 0; i < 2; i++ {
+		if task := tick(t, ctx, g); task.State != TaskState_Running || len(f.sends) != 0 {
+			t.Fatalf("tick %d: a busy worker stays running, got %s, %q", i+1, task.State, f.sends)
+		}
 	}
 }

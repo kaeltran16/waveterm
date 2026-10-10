@@ -5,6 +5,7 @@ package agentsessions
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/pisession"
@@ -73,25 +74,41 @@ func piLastAnswer(file *pisession.File) (string, int64) {
 // maxErrorText bounds a provider error carried into a one-line reason; a provider can answer with a whole page.
 const maxErrorText = 300
 
-// LastError returns the provider error a claude or pi session's last assistant message is, or "" when that message
-// is not an error. A dead route or a spent plan leaves the session idle at its prompt, and its transcript is the
-// only thing that says why. An error the session recovered from is followed by a real message, so it is not
-// reported. Other runtimes and a file that cannot be read give "".
-func LastError(path, runtime string) string {
+// refusedRe is an HTTP status that says the account may not use the route (unauthorized, forbidden). Unlike a
+// 429 or a 5xx it does not pass with time, so the same route refuses every retry.
+var refusedRe = regexp.MustCompile(`^(401|403)\b`)
+
+// Failure is the provider error a session's last turn ended on. Model is the provider-qualified model that
+// refused it, as a run route names it, when the transcript says (pi); "" otherwise.
+type Failure struct {
+	Text  string
+	Model string
+}
+
+// Refused reports a failure no retry on the same route can pass.
+func (f Failure) Refused() bool {
+	return refusedRe.MatchString(f.Text)
+}
+
+// LastError returns the provider error a claude or pi session's last assistant message is, or a zero Failure when
+// that message is not an error. A dead route or a spent plan leaves the session idle at its prompt, and its
+// transcript is the only thing that says why. An error the session recovered from is followed by a real message,
+// so it is not reported. Other runtimes and a file that cannot be read give a zero Failure.
+func LastError(path, runtime string) Failure {
 	switch runtime {
 	case "claude":
 		return claudeLastError(readLines(path))
 	case "pi":
 		file, err := pisession.Read(path)
 		if err != nil {
-			return ""
+			return Failure{}
 		}
 		return piLastError(file)
 	}
-	return ""
+	return Failure{}
 }
 
-func claudeLastError(lines []string) string {
+func claudeLastError(lines []string) Failure {
 	for i := len(lines) - 1; i >= 0; i-- {
 		if !strings.Contains(lines[i], `"type":"assistant"`) {
 			continue
@@ -108,33 +125,39 @@ func claudeLastError(lines []string) string {
 			continue
 		}
 		if !rec.IsApiErrorMessage {
-			return ""
+			return Failure{}
 		}
-		return errorText(textBlocks(rec.Message.Content))
+		return Failure{Text: errorText(textBlocks(rec.Message.Content))}
 	}
-	return ""
+	return Failure{}
 }
 
-func piLastError(file *pisession.File) string {
+func piLastError(file *pisession.File) Failure {
 	branch, err := file.ActiveBranch()
 	if err != nil {
-		return ""
+		return Failure{}
 	}
 	for i := len(branch) - 1; i >= 0; i-- {
 		var m struct {
 			Role         string `json:"role"`
 			StopReason   string `json:"stopReason"`
 			ErrorMessage string `json:"errorMessage"`
+			Provider     string `json:"provider"`
+			Model        string `json:"model"`
 		}
 		if len(branch[i].Message) == 0 || json.Unmarshal(branch[i].Message, &m) != nil || m.Role != "assistant" {
 			continue
 		}
 		if m.StopReason != "error" {
-			return ""
+			return Failure{}
 		}
-		return errorText(m.ErrorMessage)
+		f := Failure{Text: errorText(m.ErrorMessage)}
+		if m.Provider != "" && m.Model != "" {
+			f.Model = m.Provider + "/" + m.Model
+		}
+		return f
 	}
-	return ""
+	return Failure{}
 }
 
 func errorText(s string) string {
