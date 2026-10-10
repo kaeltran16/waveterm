@@ -5,6 +5,7 @@ package orchestrate
 
 import (
 	"context"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -162,6 +164,23 @@ func routeRefused(run *waveobj.Run, now int64) (agentsessions.Failure, bool) {
 	}
 	failure := sessionFailure(run)
 	return failure, failure.Refused()
+}
+
+// recordRefusedRoute marks refused the route the child was launched on, and the model that refused it when the
+// transcript names another (a runtime default that resolved to a model), so the route picker warns before the next
+// run is sent down it.
+func recordRefusedRoute(run *waveobj.Run, failure agentsessions.Failure, now int64) {
+	runtime := run.Runtime
+	if runtime == "" {
+		runtime = defaultWorkerRuntime
+	}
+	marks := []runroute.RefusedRoute{{Runtime: runtime, Model: run.Model, Text: failure.Text, Ts: now}}
+	if failure.Model != "" && failure.Model != run.Model {
+		marks = append(marks, runroute.RefusedRoute{Runtime: runtime, Model: failure.Model, Text: failure.Text, Ts: now})
+	}
+	if err := runroute.RecordRefused(now, marks...); err != nil {
+		log.Printf("recording refused route %s %q: %v", runtime, run.Model, err)
+	}
 }
 
 // withSessionFailure adds the child's sessionFailure to why the child is done for.

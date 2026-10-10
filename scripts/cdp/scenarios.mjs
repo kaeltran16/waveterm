@@ -4,7 +4,7 @@
 // exposed on window). steps are { step, ok, detail }.
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5026,6 +5026,98 @@ const routePickerFlat = {
         );
         rec("face shows the chosen model", !face.includes("· capable"), `face="${face}"`);
         return steps;
+    },
+};
+
+// --- route-picker-refused: a route its provider refused is dimmed and named in the picker ----------------------
+// Run bf3a2fe3 met a lapsed OpenCode Go plan: every turn came back 403. The engine records such a refusal in
+// refused-routes.json in the data dir; this seeds one for a real catalog model and checks the row says so.
+const routePickerRefused = {
+    name: "route-picker-refused",
+    surface: "cockpit",
+    async arrange(h) {
+        const info = await h.rpc("waveinfo", null);
+        const catalog = await h.rpc("listharnesses", null, { timeout: 30000 });
+        const capability = (catalog?.harnesses ?? [])
+            .filter((x) => x.installed && x.runworkercapable)
+            .flatMap((x) => x.routecapabilities ?? [])
+            .find((c) => c.model);
+        const file = join(info.datadir, "refused-routes.json");
+        // the dev store's own refusals are put back in teardown
+        const saved = existsSync(file) ? readFileSync(file, "utf8") : null;
+        if (capability) {
+            const mark = {
+                runtime: capability.runtime,
+                model: capability.model,
+                text: "403: An active subscription is required",
+                ts: Date.now(),
+            };
+            writeFileSync(file, JSON.stringify([mark], null, 2));
+        }
+        return { file, saved, runtime: capability?.runtime, model: capability?.model };
+    },
+    async assert(h, ctx) {
+        if (!ctx.model) {
+            return [skipStep("a refused catalog row is dimmed and named", "no installed run-worker harness lists a model")];
+        }
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        const row = `document.querySelector('[data-testid=${JSON.stringify(`route-option-${ctx.runtime}-${ctx.model}`)}]')`;
+        await h.goto("settings");
+        await h.ev(`(() => { document.querySelector('[data-section="run"]')?.click(); return true; })()`);
+        await settle(200);
+        await h.ev(`(() => {
+            const b = document.querySelector('[data-testid="route-picker"]');
+            b?.scrollIntoView({ block: "center" });
+            b?.click();
+            return true;
+        })()`);
+        await settle(400);
+        // the filter brings the seeded row to the top of a catalog that can run to hundreds of rows
+        await h.ev(`(() => {
+            const input = document.querySelector('input[aria-label="Filter models"]');
+            if (!input) return false;
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            setter.call(input, ${JSON.stringify(ctx.model)});
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+        })()`);
+        await settle(400);
+        const state = await h.ev(`(() => {
+            const r = ${row};
+            if (!r) return null;
+            return {
+                refused: r.getAttribute('data-refused'),
+                text: r.textContent,
+                title: r.getAttribute('title'),
+                opacity: getComputedStyle(r).opacity,
+            };
+        })()`);
+        rec(
+            "a refused catalog row is dimmed and names the refusal",
+            state != null &&
+                state.refused === "true" &&
+                /refused 403 · \w{3} \d{1,2}/.test(state.text ?? "") &&
+                Number(state.opacity) < 1 &&
+                (state.title ?? "").startsWith("403:"),
+            JSON.stringify(state)
+        );
+        await h.shot("cdp-shots/route-picker-refused.png");
+        await h.ev(`(() => { ${row}?.click(); return true; })()`);
+        await settle(400);
+        const face = await h.ev(`((document.querySelector('[data-testid="route-picker"]')||{}).textContent||'').trim()`);
+        rec("choosing the refused route warns on the picker's face", face.endsWith("refused"), `face="${face}"`);
+        await h.shot("cdp-shots/route-picker-refused-face.png");
+        return steps;
+    },
+    async teardown(_h, ctx) {
+        if (ctx.saved != null) {
+            writeFileSync(ctx.file, ctx.saved);
+        } else {
+            // wavesrv may be mid-read of it for the picker, which Windows reports as EBUSY
+            rmSync(ctx.file, { force: true, maxRetries: 10, retryDelay: 200 });
+        }
     },
 };
 
@@ -11784,6 +11876,7 @@ export const SCENARIOS = [
     harnessPicker,
     dagLifecycle,
     routePickerFlat,
+    routePickerRefused,
     settingsRadarAudit,
     settingsVaultSync,
     settingsClaudeAccount,

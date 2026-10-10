@@ -88,6 +88,7 @@ func stageSessionLost(ctx context.Context, g *waveobj.TaskGroup, runID string, s
 	run, err := wstore.GetRun(ctx, g.ChannelId, runID)
 	if err == nil {
 		if failure, refused := routeRefused(run, now); refused {
+			recordRefusedRoute(run, failure, now)
 			return "its route refused it: " + failure.Text, true
 		}
 	}

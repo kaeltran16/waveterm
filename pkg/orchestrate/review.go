@@ -170,6 +170,7 @@ func reviewerLost(ctx context.Context, g *waveobj.TaskGroup, t *waveobj.TaskNode
 	run, err := wstore.GetRun(ctx, g.ChannelId, t.ReviewRunID)
 	if err == nil {
 		if failure, refused := routeRefused(run, now); refused {
+			recordRefusedRoute(run, failure, now)
 			return "reviewer's route refused it: " + failure.Text, true
 		}
 	}

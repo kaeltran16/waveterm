@@ -551,6 +551,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 			retry := workerTurnEndedAt(ctx, runs[t.RunID]) == 0 && autoRetriable(ctx, g, t)
 			// a retry on a route that refused the worker is refused too, so the lead gets the provider's words
 			if failure, refused := routeRefused(runs[t.RunID], now); refused {
+				recordRefusedRoute(runs[t.RunID], failure, now)
 				hung, retry = taskTurnFailedWake(taskID, failure.Text), false
 			}
 			if retry {

@@ -574,9 +574,20 @@ func TestWorkerIdleAfterAFailedTurnWakesTheLeadWithTheError(t *testing.T) {
 func TestWorkerOnARefusedRouteStallsAtOnceForTheLead(t *testing.T) {
 	lastWrite := time.Now().Add(-RefusedQuiet - time.Second)
 	ctx, g, f := seedChildWrittenAt(t, "turn-refused", lastWrite)
+	if err := runroute.ClearRefused(); err != nil {
+		t.Fatal(err)
+	}
 	writeFailedTurn(t, firstChildRun(t, ctx, g), deadRouteError, lastWrite)
 	if task := tick(t, ctx, g); task.State != TaskState_Stalled {
 		t.Fatalf("a refused worker stalls on the first tick, got %s", task.State)
+	}
+	// the route it was launched on (pi's own default) and the model that default resolved to
+	var marked []string
+	for _, r := range runroute.RefusedRoutes(time.Now().UnixMilli()) {
+		marked = append(marked, r.Runtime+" "+r.Model+": "+r.Text)
+	}
+	if want := []string{"pi : " + deadRouteError, "pi dead/m1: " + deadRouteError}; !reflect.DeepEqual(marked, want) {
+		t.Fatalf("refused routes = %q, want %q", marked, want)
 	}
 	if want := []string{"wake: task t-0's worker is idle after its last turn failed: 403: An active subscription is required to use this model. wsh jarvis dag status"}; !reflect.DeepEqual(f.sends, want) {
 		t.Fatalf("want wakes %q, got %q", want, f.sends)
