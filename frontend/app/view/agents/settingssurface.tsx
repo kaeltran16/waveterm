@@ -16,7 +16,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
-import { Folder, Search } from "lucide-react";
+import { Folder, RefreshCw, Search } from "lucide-react";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
@@ -52,6 +52,8 @@ import {
     rowKeys,
     settingsSections,
     vaultStatusLine,
+    vaultSyncButton,
+    vaultSyncFailureNote,
     type SettingRowDef,
     type SettingSectionDef,
 } from "./settingsmodel";
@@ -471,9 +473,18 @@ function SettingRow({ id, stacked, children }: { id: string; stacked?: boolean; 
     );
 }
 
-function Note({ tone = "warning", children }: { tone?: "warning" | "error"; children: ReactNode }) {
+function Note({
+    tone = "warning",
+    testId,
+    children,
+}: {
+    tone?: "warning" | "error";
+    testId?: string;
+    children: ReactNode;
+}) {
     return (
         <div
+            data-testid={testId}
             className={cn(
                 "mt-4 flex items-start gap-2.5 rounded-[10px] border px-3.5 py-3 text-[12.5px] leading-[1.55]",
                 tone === "warning"
@@ -973,19 +984,26 @@ function TerminalSection() {
     );
 }
 
+// a waited sync runs a pull and a push; the 5 s default rpc timeout would give up on it mid-run
+const VAULT_SYNC_TIMEOUT_MS = 120_000;
+
 function MemorySection() {
     const stored = (useAtomValue(getSettingsKeyAtom("memory:vaultpath")) as string) ?? "";
     const [error, setError] = useState<string | null>(null);
     const [status, setStatus] = useState<VaultStatusRtnData | null>(null);
     const [remoteError, setRemoteError] = useState<string | null>(null);
-    const loadStatus = () =>
-        fireAndForget(async () => {
-            try {
-                setStatus(await RpcApi.VaultStatusCommand(TabRpcClient));
-            } catch (e) {
-                setRemoteError(String(e));
-            }
-        });
+    const [clicking, setClicking] = useState(false);
+    const reloadStatus = async (): Promise<VaultStatusRtnData | null> => {
+        try {
+            const s = await RpcApi.VaultStatusCommand(TabRpcClient);
+            setStatus(s);
+            return s;
+        } catch (e) {
+            setRemoteError(String(e));
+            return null;
+        }
+    };
+    const loadStatus = () => fireAndForget(reloadStatus);
     useEffect(() => {
         loadStatus();
     }, []);
@@ -999,7 +1017,26 @@ function MemorySection() {
             }
             loadStatus();
         });
-    const statusLine = vaultStatusLine(status);
+    const syncNow = () =>
+        fireAndForget(async () => {
+            setRemoteError(null);
+            setClicking(true);
+            try {
+                await RpcApi.VaultSyncCommand(TabRpcClient, { wait: true }, { timeout: VAULT_SYNC_TIMEOUT_MS });
+                await reloadStatus();
+            } catch (e) {
+                const note = vaultSyncFailureNote(String(e), await reloadStatus());
+                if (note != null) {
+                    setRemoteError(note);
+                }
+            } finally {
+                setClicking(false);
+            }
+        });
+    // a click shows as running before the reloaded status can say so
+    const shown = clicking && status != null ? { ...status, running: true } : status;
+    const statusLine = vaultStatusLine(shown);
+    const syncButton = vaultSyncButton(status, clicking);
     // validate before persisting: an empty path clears the override (falls back to the default vault),
     // otherwise the folder must exist and be a directory. reuses FileInfoCommand (bare local path, ~
     // expanded by the backend) instead of a dedicated RPC — mirrors the New Project picker's stat check.
@@ -1053,9 +1090,40 @@ function MemorySection() {
             {error ? <Note tone="error">{error}</Note> : null}
             <SettingRow id="memory.remote">
                 <CommitText value={status?.remoteurl ?? ""} placeholder="git@host:you/vault.git" onCommit={setRemote} />
+                <button
+                    type="button"
+                    data-testid="vault-sync-now"
+                    disabled={!syncButton.enabled}
+                    onClick={syncNow}
+                    className={cn(
+                        "flex w-[96px] flex-none items-center justify-center gap-1.5 rounded border py-[7px] text-[12px] font-semibold transition-colors",
+                        syncButton.enabled
+                            ? "cursor-pointer border-edge-mid text-secondary hover:border-edge-strong hover:text-primary"
+                            : "cursor-not-allowed border-edge-faint text-ink-faint"
+                    )}
+                >
+                    {syncButton.enabled ? <RefreshCw size={12} aria-hidden /> : null}
+                    {syncButton.label}
+                </button>
             </SettingRow>
-            {remoteError ? <Note tone="error">{remoteError}</Note> : null}
-            {statusLine ? <div className="px-1 pb-2 font-mono text-[11.5px] text-muted">{statusLine}</div> : null}
+            {remoteError ? (
+                <Note tone="error" testId="vault-sync-error">
+                    {remoteError}
+                </Note>
+            ) : null}
+            {statusLine ? (
+                <div
+                    data-testid="vault-sync-status"
+                    role="status"
+                    aria-live="polite"
+                    className={cn(
+                        "px-1 pb-2 font-mono text-[11.5px]",
+                        shown?.lasterror && !shown.running ? "text-error" : "text-muted"
+                    )}
+                >
+                    {statusLine}
+                </div>
+            ) : null}
         </div>
     );
 }
