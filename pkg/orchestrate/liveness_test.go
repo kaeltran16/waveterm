@@ -502,3 +502,58 @@ func TestWorkerThatEndedItsTurnOnAQuestionIsNotStalled(t *testing.T) {
 		t.Fatalf("the grace restarts once the question is gone, got %s and wakes %q", task.State, f.sends)
 	}
 }
+
+// deadRouteError is a provider refusing a turn the way a lapsed subscription does.
+const deadRouteError = "403: An active subscription is required to use this model."
+
+// writeFailedTurn makes the run's own transcript end on deadRouteError, as a dead route leaves it.
+func writeFailedTurn(t *testing.T, run *waveobj.Run, mtime time.Time) {
+	t.Helper()
+	path, runtime, _ := transcriptForRun(run)
+	body := `{"type":"assistant","isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"` + deadRouteError + `"}]}}` + "\n"
+	if runtime == "pi" {
+		body = `{"type":"session","version":3,"id":"s1","timestamp":"2026-09-24T14:03:55Z","cwd":"C:\\wt"}` + "\n" +
+			`{"type":"message","id":"a1","parentId":null,"timestamp":"2026-09-24T14:03:58Z","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"` + deadRouteError + `"}}` + "\n"
+	}
+	if path == "" {
+		path = filepath.Join(sessionsRootFor(runtime), agentobserve.SlugifyCwd(run.ProjectPath), run.SessionId+".jsonl")
+		if runtime == "pi" {
+			path = filepath.Join(sessionsRootFor(runtime), "--wt--", "2026-09-24T14-03-55-613Z_"+run.SessionId+".jsonl")
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Run bf3a2fe3: a pi route whose subscription had lapsed refused every turn, and nothing it told the lead said so.
+func TestWorkerIdleAfterARefusedTurnWakesTheLeadWithTheError(t *testing.T) {
+	lastWrite := time.Now().Add(-4 * time.Minute)
+	ctx, g, f := seedChildWrittenAt(t, "turn-failed", lastWrite)
+	stored, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := wstore.GetRun(ctx, g.ChannelId, stored.Tasks[0].RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFailedTurn(t, run, lastWrite)
+	noCPUThrottle(t)
+	stubTurnEnded(t, lastWrite.UnixMilli())
+	stubChildCPU(t, func(int) (int64, bool) { return 5_000, true })
+
+	tick(t, ctx, g)
+	if task := tick(t, ctx, g); task.State != TaskState_Stalled {
+		t.Fatalf("a worker idle past TurnEndedGrace with flat CPU stalls, got %s", task.State)
+	}
+	if want := []string{"wake: task t-0's worker is idle after its last turn failed: 403: An active subscription is required to use this model. wsh jarvis dag status"}; !reflect.DeepEqual(f.sends, want) {
+		t.Fatalf("want wakes %q, got %q", want, f.sends)
+	}
+}

@@ -137,6 +137,28 @@ func transcriptForRun(run *waveobj.Run) (path, runtime string, tracked bool) {
 	return agentsessions.TranscriptForSession(root, runtime, run.ProjectPath, run.SessionId), runtime, true
 }
 
+// sessionFailure is the provider error the child's last turn ended on, or "" when it did not end on one. A child
+// on a dead route (a lapsed subscription, a model the account cannot run) sits idle at its prompt, so without this
+// every reason given for it reads as a timeout or an idle worker and hides that a retry on the route cannot help.
+func sessionFailure(run *waveobj.Run) string {
+	path, runtime, _ := transcriptForRun(run)
+	if path == "" {
+		return ""
+	}
+	return agentsessions.LastError(path, runtime)
+}
+
+// withSessionFailure adds the child's sessionFailure to why the child is done for.
+func withSessionFailure(reason string, run *waveobj.Run) string {
+	if reason == "" {
+		return ""
+	}
+	if failure := sessionFailure(run); failure != "" {
+		return reason + "; its last turn failed: " + failure
+	}
+	return reason
+}
+
 // workerBlockFn reads a child's worker block and whether its process runs. A var so tests can script the
 // worker without a live block.
 var workerBlockFn = readWorkerBlock
@@ -381,6 +403,9 @@ func hungWake(ctx context.Context, taskID string, run *waveobj.Run, silentMs int
 		return ""
 	}
 	if workerTurnEndedAt(ctx, run) > 0 {
+		if failure := sessionFailure(run); failure != "" {
+			return taskTurnFailedWake(taskID, failure)
+		}
 		return taskTurnEndedWake(taskID)
 	}
 	return taskHungWake(taskID, silentMs/time.Minute.Milliseconds())

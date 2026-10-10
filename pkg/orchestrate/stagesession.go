@@ -84,19 +84,19 @@ func spawnStageSession(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owne
 // stageSessionLost says why a stage session with no verdict is done for, or "" while it is still working. It
 // is bounded like a task reviewer: judging a plan or a finished run takes minutes too.
 func stageSessionLost(ctx context.Context, g *waveobj.TaskGroup, runID string, startedTs, now int64) string {
-	if now-startedTs > ReviewTimeout.Milliseconds() {
-		return fmt.Sprintf("it gave no verdict within %s", ReviewTimeout)
-	}
 	run, err := wstore.GetRun(ctx, g.ChannelId, runID)
+	if now-startedTs > ReviewTimeout.Milliseconds() {
+		return withSessionFailure(fmt.Sprintf("it gave no verdict within %s", ReviewTimeout), run)
+	}
 	if err != nil {
 		return "" // unreadable this tick; the timeout still bounds it
 	}
 	switch run.Status {
 	case jarvis.RunStatus_Done, jarvis.RunStatus_Cancelled, jarvis.RunStatus_Blocked:
-		return "it ended without a verdict"
+		return withSessionFailure("it ended without a verdict", run)
 	}
 	if workerControllerGone(ctx, run) {
-		return "it exited without a verdict"
+		return withSessionFailure("it exited without a verdict", run)
 	}
 	return ""
 }

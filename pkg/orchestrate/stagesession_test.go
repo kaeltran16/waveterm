@@ -114,3 +114,40 @@ func TestTendStageSessionGivesUpAfterOneRespawn(t *testing.T) {
 		t.Fatalf("the second failure gives up, got %q", reason)
 	}
 }
+
+// Run bf3a2fe3's reviewer: its route refused every turn, it sat idle, and the review failed as a plain timeout
+func TestLostSessionsSayWhyTheirLastTurnFailed(t *testing.T) {
+	ctx, dag := seedPendingDag(t)
+	captureSpawns(t)
+	newFakeLead(t)
+	stubSessionsRoot(t, t.TempDir())
+	runID, err := spawnStageSession(ctx, ctx, dag, dagOwner(t, ctx, dag), StageSession{Role: "verifier", Tree: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := wstore.GetRun(ctx, dag.ChannelId, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	timedOut := now - ReviewTimeout.Milliseconds() - 1
+	if reason, want := stageSessionLost(ctx, dag, runID, timedOut, now), "it gave no verdict within "+ReviewTimeout.String(); reason != want {
+		t.Fatalf("with no transcript, got %q, want %q", reason, want)
+	}
+	writeFailedTurn(t, run, time.Now())
+	if reason := stageSessionLost(ctx, dag, runID, now, now); reason != "" {
+		t.Fatalf("a failed turn alone does not end a session before the timeout, got %q", reason)
+	}
+	failed := "; its last turn failed: " + deadRouteError
+	if reason, want := stageSessionLost(ctx, dag, runID, timedOut, now), "it gave no verdict within "+ReviewTimeout.String()+failed; reason != want {
+		t.Fatalf("stage session: got %q, want %q", reason, want)
+	}
+	review := &waveobj.TaskNode{ReviewRunID: runID, ReviewSpawnedTs: timedOut}
+	if reason, want := reviewerLost(ctx, dag, review, now), "reviewer gave no verdict within "+ReviewTimeout.String()+failed; reason != want {
+		t.Fatalf("reviewer: got %q, want %q", reason, want)
+	}
+	endRun(t, ctx, dag.ChannelId, runID)
+	if reason, want := stageSessionLost(ctx, dag, runID, now, now), "it ended without a verdict"+failed; reason != want {
+		t.Fatalf("ended session: got %q, want %q", reason, want)
+	}
+}

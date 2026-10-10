@@ -94,6 +94,12 @@ func taskTurnEndedWake(taskID string) string {
 	return fmt.Sprintf("wake: task %s's worker ended its turn without completing and is idle; its complete may not have landed or it stopped on a question. wsh jarvis dag status", taskID)
 }
 
+// taskTurnFailedWake is for a worker idle after its provider refused its last turn. A lapsed subscription or a model
+// the account cannot run refuses a retry on the same route too, so the lead needs the provider's own words.
+func taskTurnFailedWake(taskID, failure string) string {
+	return fmt.Sprintf("wake: task %s's worker is idle after its last turn failed: %s. wsh jarvis dag status", taskID, strings.TrimRight(failure, ". "))
+}
+
 // taskWorkerGoneWake is for a worker whose process is gone while its task still runs: the exit hook that would
 // have failed or retried it never fired (a reboot, a lost exit event).
 func taskWorkerGoneWake(taskID string) string {

@@ -162,19 +162,19 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 
 // reviewerLost says why a reviewer with no verdict is done for, or "" while it is still working.
 func reviewerLost(ctx context.Context, g *waveobj.TaskGroup, t *waveobj.TaskNode, now int64) string {
-	if now-t.ReviewSpawnedTs > ReviewTimeout.Milliseconds() {
-		return fmt.Sprintf("reviewer gave no verdict within %s", ReviewTimeout)
-	}
 	run, err := wstore.GetRun(ctx, g.ChannelId, t.ReviewRunID)
+	if now-t.ReviewSpawnedTs > ReviewTimeout.Milliseconds() {
+		return withSessionFailure(fmt.Sprintf("reviewer gave no verdict within %s", ReviewTimeout), run)
+	}
 	if err != nil {
 		return "" // unreadable this tick; the timeout still bounds it
 	}
 	switch run.Status {
 	case jarvis.RunStatus_Done, jarvis.RunStatus_Cancelled, jarvis.RunStatus_Blocked:
-		return "reviewer ended without a verdict"
+		return withSessionFailure("reviewer ended without a verdict", run)
 	}
 	if workerControllerGone(ctx, run) {
-		return "reviewer exited without a verdict"
+		return withSessionFailure("reviewer exited without a verdict", run)
 	}
 	return ""
 }
