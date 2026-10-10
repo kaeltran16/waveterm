@@ -11843,6 +11843,95 @@ const settingsClaudeAccount = {
     },
 };
 
+// --- motion gaps (effort 5a48a2c4) ---------------------------------------------------------------------
+// The reveals that used to snap: a cockpit toast now arrives and leaves (moment 1/2), and a Setup tab swap
+// fades its panel in. Each probe samples opacity inside the page, on the frame the element appears and
+// again once the macro duration has passed, so the check is "it animated", not "it rendered". The Brief's
+// chunk sidebar and tracker menus are covered by brief-inline-tracker, whose close/Escape waits outlast
+// their exits.
+const motionGaps = {
+    name: "motion-gaps",
+    surface: "cockpit",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+
+        // 1-2. a toast fades in and, once clicked, fades out before it leaves the DOM. uiinvoke go:cockpit
+        // leaves a trail toast; the observer is armed first so the first frame is never missed.
+        await h.ev(`(() => {
+            window.__motionToast = null;
+            const seen = new Set(document.querySelectorAll('[data-notification-toast]'));
+            const obs = new MutationObserver(() => {
+                const el = [...document.querySelectorAll('[data-notification-toast]')].find((t) => !seen.has(t));
+                if (el == null) return;
+                obs.disconnect();
+                window.__motionToast = { el, first: +getComputedStyle(el).opacity };
+            });
+            obs.observe(document.body, { childList: true, subtree: true });
+            return true;
+        })()`);
+        try {
+            await h.rpc("uiinvoke", { actionid: "go:cockpit" }, { route: "cockpit", timeout: 15000 });
+        } catch (e) {
+            rec("1. a toast fades in", false, `uiinvoke go:cockpit failed: ${e?.message ?? e}`);
+            return steps;
+        }
+        await settle(600);
+        const enter = await h.ev(`(() => {
+            const t = window.__motionToast;
+            return t == null ? null : { first: t.first, settled: +getComputedStyle(t.el).opacity };
+        })()`);
+        rec(
+            "1. a toast fades in: below full opacity on its first frame, full once settled",
+            enter != null && enter.first < 1 && enter.settled === 1,
+            JSON.stringify(enter)
+        );
+        await h.shot("cdp-shots/motion-gaps-toast.png");
+        const exit = await h.ev(`(async () => {
+            const el = window.__motionToast?.el;
+            if (el == null) return null;
+            el.click();
+            await new Promise((r) => setTimeout(r, 80));
+            const mid = { attached: el.isConnected, opacity: +getComputedStyle(el).opacity };
+            await new Promise((r) => setTimeout(r, 600));
+            return { mid, gone: !el.isConnected };
+        })()`);
+        rec(
+            "2. a dismissed toast fades out, then leaves the DOM",
+            exit != null && exit.mid.attached && exit.mid.opacity < 1 && exit.gone,
+            JSON.stringify(exit)
+        );
+
+        // 3. Setup: switching tabs fades the new panel in
+        await h.goto("setup");
+        const swap = await h.ev(`(async () => {
+            const other = document.querySelector('[role="tab"][aria-selected="false"][id^="setup-tab-"]');
+            if (other == null) return null;
+            other.click();
+            await new Promise((r) => requestAnimationFrame(() => r()));
+            const first = +getComputedStyle(document.getElementById('setup-tabpanel')).opacity;
+            await new Promise((r) => setTimeout(r, 500));
+            const settled = +getComputedStyle(document.getElementById('setup-tabpanel')).opacity;
+            return { tab: other.id, first, settled };
+        })()`);
+        rec(
+            "3. a Setup tab swap fades its panel in",
+            swap != null && swap.first < 1 && swap.settled === 1,
+            JSON.stringify(swap)
+        );
+        await h.shot("cdp-shots/motion-gaps-setup.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.ev(`(() => { delete window.__motionToast; return true; })()`);
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     cockpitKeysOnArrival,
     agentTerminalOnArrival,
@@ -11910,4 +11999,5 @@ export const SCENARIOS = [
     modelPicks,
     canvasSwap,
     canvasTabsScenario,
+    motionGaps,
 ];

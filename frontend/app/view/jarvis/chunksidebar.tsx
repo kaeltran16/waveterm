@@ -6,6 +6,7 @@
 // Past the container breakpoint it floats over the index instead of compressing it (a container query:
 // the Brief is the whole surface, the window is not).
 
+import { sheetPanel } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { runAtom } from "@/app/view/agents/channelsstore";
@@ -13,6 +14,7 @@ import { SectionLabel } from "@/app/view/agents/sectionlabel";
 import { cn } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
 import { ArrowUpRight, ChevronDown, ChevronUp, Copy } from "lucide-react";
+import { motion } from "motion/react";
 import { useState } from "react";
 import { SHEET_BTN } from "./briefrunsheet";
 import { REGION_LABEL } from "./briefstyle";
@@ -152,7 +154,11 @@ export function ChunkSidebar({
     };
 
     return (
-        <aside
+        <motion.aside
+            variants={sheetPanel}
+            initial="initial"
+            animate="animate"
+            exit="exit"
             aria-label="Chunk"
             data-jarvis-chunk-sidebar
             className="absolute inset-y-0 right-0 z-[4] flex w-[460px] flex-col overflow-hidden border-l border-border bg-background @max-[1280px]:shadow-[-18px_0_44px_var(--color-background)] @max-[980px]:w-[min(460px,92cqw)]"
@@ -461,6 +467,6 @@ export function ChunkSidebar({
                     </div>
                 </div>
             </div>
-        </aside>
+        </motion.aside>
     );
 }

@@ -145,7 +145,7 @@ export function RunWorkerCard({
                             >
                                 <NarrationTimeline entries={entries} accentLatest active={working} />
                             </div>
-                            {!atBottom ? <JumpToLatestPill onClick={jumpToBottom} /> : null}
+                            <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
                         </div>
                     ) : fill ? (
                         // hold the vertical space so the lead card still fills before its first entries stream in

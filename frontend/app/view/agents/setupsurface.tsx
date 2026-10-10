@@ -6,11 +6,14 @@
 // The Skills tab views every harness's skills and moves them into the vault; it never creates or edits
 // one. Logic lives in setupmodel.ts and skillsmatrix.ts, the RPCs and the atoms in setupstore.ts.
 
+import { composerReveal, MOTION } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Share2, TriangleAlert } from "lucide-react";
+import { motion, MotionConfig } from "motion/react";
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatAgo } from "./agentsviewmodel";
@@ -71,6 +74,13 @@ const BTN_PRIMARY =
 
 const TONE_DOT: Record<Tone, string> = { ok: "bg-success", warn: "bg-warning", none: "bg-ink-faint" };
 const TONE_TEXT: Record<Tone, string> = { ok: "text-ink-mid", warn: "text-warning-soft", none: "text-muted" };
+
+// a keyed swap (tab, picked skill) fades its new content in, as Settings does its sections
+const SWAP_FADE = {
+    initial: { opacity: 0 },
+    animate: { opacity: 1 },
+    transition: { duration: MOTION.durMicro, ease: MOTION.easeFluid },
+};
 
 const TABS: { key: SetupTab; label: string }[] = [
     { key: "instructions", label: "Instructions" },
@@ -358,13 +368,13 @@ function SharedEditor({ rows }: { rows: AgentSyncHarness[] }) {
                     {busy ? "Saving…" : `Save to ${n} ${n === 1 ? "harness" : "harnesses"}`}
                 </button>
             </div>
-            {ed.conflict ? (
+            <PaneReveal open={ed.conflict} variants={composerReveal} className="flex-none">
                 <ConflictNotice
                     busy={busy}
                     onReload={() => fireAndForget(reloadShared)}
                     onOverwrite={() => fireAndForget(() => saveShared(true))}
                 />
-            ) : null}
+            </PaneReveal>
             <LineEditor
                 ed={ed}
                 path={path}
@@ -423,14 +433,14 @@ function InstructionsTab() {
         <div className="flex min-h-0 flex-1">
             <FileList rows={rows} />
             <div className="flex min-w-0 flex-1 flex-col">
-                {error ? (
+                <PaneReveal open={!!error} variants={composerReveal} className="flex-none">
                     <div
                         role="alert"
-                        className="flex-none border-b border-error/30 bg-error/10 px-5 py-2 text-[12.5px] text-error-soft"
+                        className="border-b border-error/30 bg-error/10 px-5 py-2 text-[12.5px] text-error-soft"
                     >
                         {error}
                     </div>
-                ) : null}
+                </PaneReveal>
                 <div className="flex min-h-0 flex-1">
                     {status == null ? (
                         <div className="flex flex-1 items-center justify-center text-[13px] text-muted">Reading…</div>
@@ -625,7 +635,8 @@ function SkillRail({ model, row, skillsroot }: { model: AgentsViewModel; row: Sk
     const differs = row.kind === "decide" || row.kind === "differs";
     const card = "flex flex-col gap-[5px] rounded border border-border px-2.5 py-[9px]";
     return (
-        <aside
+        <motion.aside
+            {...SWAP_FADE}
             aria-label="Skill detail"
             className="flex w-[360px] flex-none flex-col gap-3.5 overflow-y-auto border-l border-border bg-surface p-4"
         >
@@ -680,7 +691,7 @@ function SkillRail({ model, row, skillsroot }: { model: AgentsViewModel; row: Sk
                     Open SKILL.md
                 </button>
             </div>
-        </aside>
+        </motion.aside>
     );
 }
 
@@ -696,14 +707,14 @@ function SkillsTab({ model }: { model: AgentsViewModel }) {
     const selected = rows.find((r) => r.name === selectedName) ?? rows[0] ?? null;
     return (
         <div className="flex min-w-0 flex-1 flex-col">
-            {error ? (
+            <PaneReveal open={!!error} variants={composerReveal} className="flex-none">
                 <div
                     role="alert"
-                    className="flex-none border-b border-error/30 bg-error/10 px-5 py-2 text-[12.5px] text-error-soft"
+                    className="border-b border-error/30 bg-error/10 px-5 py-2 text-[12.5px] text-error-soft"
                 >
                     {error}
                 </div>
-            ) : null}
+            </PaneReveal>
             <div className="flex min-h-0 flex-1">
                 {data == null ? (
                     <div className="flex flex-1 items-center justify-center text-[13px] text-muted">Reading…</div>
@@ -717,7 +728,7 @@ function SkillsTab({ model }: { model: AgentsViewModel }) {
                             />
                         </div>
                         {selected != null ? (
-                            <SkillRail model={model} row={selected} skillsroot={data.skillsroot} />
+                            <SkillRail key={selected.name} model={model} row={selected} skillsroot={data.skillsroot} />
                         ) : null}
                     </>
                 )}
@@ -733,21 +744,25 @@ export function SetupSurface({ model }: { model: AgentsViewModel }) {
         fireAndForget(loadSetup);
     }, []);
     return (
-        <div className="flex h-full min-h-0 flex-col bg-background">
-            <div className="flex h-[52px] flex-none items-center gap-5 border-b border-border px-5">
-                <div className="text-[15px] font-semibold text-primary">Setup</div>
-                <Tabs />
-                <div className="flex-1" />
-                {tab === "instructions" ? <HeaderStatus /> : <SkillsHeader />}
+        <MotionConfig reducedMotion="user">
+            <div className="flex h-full min-h-0 flex-col bg-background">
+                <div className="flex h-[52px] flex-none items-center gap-5 border-b border-border px-5">
+                    <div className="text-[15px] font-semibold text-primary">Setup</div>
+                    <Tabs />
+                    <div className="flex-1" />
+                    {tab === "instructions" ? <HeaderStatus /> : <SkillsHeader />}
+                </div>
+                <motion.div
+                    key={tab}
+                    {...SWAP_FADE}
+                    id="setup-tabpanel"
+                    role="tabpanel"
+                    aria-labelledby={`setup-tab-${tab}`}
+                    className="flex min-h-0 flex-1"
+                >
+                    {tab === "instructions" ? <InstructionsTab /> : <SkillsTab model={model} />}
+                </motion.div>
             </div>
-            <div
-                id="setup-tabpanel"
-                role="tabpanel"
-                aria-labelledby={`setup-tab-${tab}`}
-                className="flex min-h-0 flex-1"
-            >
-                {tab === "instructions" ? <InstructionsTab /> : <SkillsTab model={model} />}
-            </div>
-        </div>
+        </MotionConfig>
     );
 }

@@ -723,7 +723,7 @@ export function RunBody({
                     ) : null}
                 </div>
             </div>
-            {!stick.atBottom ? <JumpToLatestPill onClick={stick.jumpToBottom} /> : null}
+            <JumpToLatestPill show={!stick.atBottom} onClick={stick.jumpToBottom} />
         </div>
     );
 }
