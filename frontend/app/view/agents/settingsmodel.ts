@@ -197,6 +197,26 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
             ],
         },
         {
+            id: "claudeaccount",
+            name: "Claude account",
+            blurb: "Which Claude.ai login new claude sessions use. Arc saves every login it sees, so moving to another account is one click.",
+            group: "Agents",
+            rows: [
+                {
+                    id: "claudeaccount.accounts",
+                    title: "Accounts",
+                    desc: "Every claude session launches with the active account. Switching saves the active login first, so its tokens are current when you come back to it.",
+                    key: "~/.claude/.credentials.json · ~/.claude.json · secrets.enc",
+                    scope: "local",
+                },
+                {
+                    id: "claudeaccount.add",
+                    title: "Add an account",
+                    desc: "Run /login in any claude session and sign in with the other account. Arc saves it the next time it checks.",
+                },
+            ],
+        },
+        {
             id: "run",
             name: "Run defaults",
             blurb: "Backend-authoritative harness and model for new runs.",

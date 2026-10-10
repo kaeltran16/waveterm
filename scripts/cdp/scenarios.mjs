@@ -11603,6 +11603,154 @@ const settingsVaultSync = {
     },
 };
 
+// --- settings-claude-account: Settings > Claude account lists saved logins -----------------------------
+// The dev app reads the real ~/.claude, so the live row is whatever the user has. Two fake saved accounts
+// are seeded into the dev app's own secret store (one valid, one expired) to show the other states. It never
+// clicks Switch: that would rewrite the real ~/.claude. Remove touches only the secret store. Error notes
+// render under the list, so their absence is checked in the whole section pane.
+const CLAUDE_ACCT_PANE = `document.querySelector('[data-settings-section="claudeaccount"]')`;
+const CLAUDE_ACCT_ERROR = `${CLAUDE_ACCT_PANE}?.querySelector('[data-testid="claude-account-error"]')`;
+const CLAUDE_ACCT_CHECK = `${CLAUDE_ACCT_PANE}?.querySelector('[data-testid="claude-account-check"]')`;
+const CLAUDE_ACCT_SEEDS = {
+    valid: { uuid: "00000000-0000-4000-8000-0000000a0001", email: "seed-valid@example.com", expiresInMs: 86_400_000 },
+    expired: { uuid: "00000000-0000-4000-8000-0000000a0002", email: "seed-expired@example.com", expiresInMs: -86_400_000 },
+};
+// pkg/jarvis claudeAccountSecretName
+const claudeAcctSecretName = (uuid) => `claudeacct_${uuid.replaceAll("-", "_")}`;
+const claudeAcctRow = (uuid) => `${CLAUDE_ACCT_PANE}?.querySelector('[data-testid="claude-account-row"][data-account-uuid="${uuid}"]')`;
+const claudeAcctRowState = (h, uuid) =>
+    h.ev(`(() => {
+        const r = ${claudeAcctRow(uuid)};
+        if (!r) return null;
+        const sw = r.querySelector('[data-testid="claude-account-switch"]');
+        const rm = r.querySelector('[data-testid="claude-account-remove"]');
+        const exp = r.querySelector('[data-testid="claude-account-expired"]');
+        return {
+            active: r.hasAttribute("data-active"),
+            text: (r.textContent || "").trim(),
+            switch: sw ? { disabled: sw.disabled } : null,
+            remove: rm ? { disabled: rm.disabled } : null,
+            expired: exp ? { text: (exp.textContent || "").trim(), color: getComputedStyle(exp).color } : null,
+        };
+    })()`);
+
+const settingsClaudeAccount = {
+    name: "settings-claude-account",
+    surface: "settings",
+    async arrange(h) {
+        const now = Date.now();
+        const secrets = {};
+        for (const s of Object.values(CLAUDE_ACCT_SEEDS)) {
+            secrets[claudeAcctSecretName(s.uuid)] = JSON.stringify({
+                oauth: {
+                    accessToken: "seed-access",
+                    refreshToken: "seed-refresh",
+                    expiresAt: now + s.expiresInMs,
+                    refreshTokenExpiresAt: now + s.expiresInMs,
+                    scopes: ["user:inference"],
+                    subscriptionType: "pro",
+                },
+                account: { accountUuid: s.uuid, emailAddress: s.email, organizationName: "Seed Org" },
+                lastusedts: now - 3 * 3600_000,
+            });
+        }
+        await h.rpc("setsecrets", secrets);
+        return { seedNames: Object.keys(secrets) };
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const { valid, expired } = CLAUDE_ACCT_SEEDS;
+
+        await h.goto("cockpit");
+        await h.goto("settings");
+        await h.ev(`document.querySelector('[data-section="claudeaccount"]')?.click()`);
+        const listed = await polishWaitFor(h, `${claudeAcctRow(valid.uuid)} != null && ${claudeAcctRow(expired.uuid)} != null`, 10_000);
+        const top = await h.ev(`(() => {
+            const pane = ${CLAUDE_ACCT_PANE};
+            if (!pane) return null;
+            return {
+                active: pane.querySelector('[data-testid="claude-account-row"][data-active]') != null,
+                nologin: pane.querySelector('[data-testid="claude-account-nologin"]') != null,
+                check: ${CLAUDE_ACCT_CHECK} != null,
+                rows: pane.querySelectorAll('[data-testid="claude-account-row"]').length,
+                error: (${CLAUDE_ACCT_ERROR}?.textContent || "").trim() || null,
+            };
+        })()`);
+        rec(
+            "1. the Accounts row shows an active account or the no-login note, and Check now",
+            listed && top != null && (top.active || top.nologin) && top.check,
+            JSON.stringify(top)
+        );
+
+        const v = await claudeAcctRowState(h, valid.uuid);
+        rec(
+            "2. the valid seed is not active, shows its last use, and offers Switch and Remove",
+            v != null && !v.active && v.text.includes("last used") && v.switch?.disabled === false && v.remove?.disabled === false,
+            JSON.stringify(v)
+        );
+
+        const e = await claudeAcctRowState(h, expired.uuid);
+        const warning = await h.ev(`(() => {
+            const probe = document.createElement("span");
+            probe.style.color = "var(--color-warning)";
+            document.body.appendChild(probe);
+            const c = getComputedStyle(probe).color;
+            probe.remove();
+            return c;
+        })()`);
+        rec(
+            "3. the expired seed shows the expired line in the warning color, a disabled Switch and an enabled Remove",
+            e != null &&
+                e.expired?.text === "Sign-in expired. Run /login with this account to save it again." &&
+                e.expired.color === warning &&
+                e.switch?.disabled === true &&
+                e.remove?.disabled === false,
+            `${JSON.stringify(e)} warning=${warning}`
+        );
+        await h.ev(`${CLAUDE_ACCT_PANE}?.querySelector('[data-setting-row="claudeaccount.accounts"]')?.scrollIntoView({ block: "center" })`);
+        await polishNap(200);
+        await h.shot("cdp-shots/settings-claude-account.png");
+
+        await h.ev(`${CLAUDE_ACCT_CHECK}?.click()`);
+        const noNew = await polishWaitFor(h, `${CLAUDE_ACCT_PANE}?.querySelector('[data-testid="claude-account-nonew"]') != null`, 10_000);
+        const checkErr = await h.ev(`(${CLAUDE_ACCT_ERROR}?.textContent || "").trim() || null`);
+        rec("4. Check now finds no new login and shows no error", noNew && checkErr == null, `nonew=${noNew} error=${checkErr}`);
+
+        for (const [n, seed] of [
+            ["5", valid],
+            ["6", expired],
+        ]) {
+            await h.ev(`${claudeAcctRow(seed.uuid)}?.querySelector('[data-testid="claude-account-remove"]')?.click()`);
+            const gone = await polishWaitFor(h, `${claudeAcctRow(seed.uuid)} == null`, 10_000);
+            const err = await h.ev(`(${CLAUDE_ACCT_ERROR}?.textContent || "").trim() || null`);
+            rec(`${n}. Remove takes ${seed.email} off the list with no error`, gone && err == null, `gone=${gone} error=${err}`);
+        }
+
+        const rest = await h.ev(`(() => {
+            const pane = ${CLAUDE_ACCT_PANE};
+            return {
+                rows: pane ? pane.querySelectorAll('[data-testid="claude-account-row"]').length : null,
+                hint: pane?.querySelector('[data-testid="claude-account-hint"]') != null,
+            };
+        })()`);
+        rec(
+            "7. with one account left the one-account hint shows",
+            rest.rows !== 1 || rest.hint,
+            JSON.stringify(rest)
+        );
+        await h.ev(`${CLAUDE_ACCT_PANE}?.querySelector('[data-setting-row="claudeaccount.accounts"]')?.scrollIntoView({ block: "center" })`);
+        await polishNap(200);
+        await h.shot("cdp-shots/settings-claude-account-one.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        // deleting a missing secret is a no-op, so this is safe after the Remove steps
+        await h.rpc("setsecrets", Object.fromEntries((ctx.seedNames ?? []).map((n) => [n, null])));
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     cockpitKeysOnArrival,
     agentTerminalOnArrival,
@@ -11638,6 +11786,7 @@ export const SCENARIOS = [
     routePickerFlat,
     settingsRadarAudit,
     settingsVaultSync,
+    settingsClaudeAccount,
     jarvisMotion,
     // before brief-inline-tracker, which leaves a briefing fixture on over the seeded data
     briefDesignParity,

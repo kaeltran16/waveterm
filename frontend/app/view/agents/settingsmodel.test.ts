@@ -41,6 +41,25 @@ describe("vault sync rows", () => {
     });
 });
 
+describe("claude account section", () => {
+    it("sits in Agents directly after New Agent", () => {
+        const agents = groupSections(sections()).find((g) => g.label === "Agents")!;
+        const ids = agents.sections.map((s) => s.id);
+        expect(ids.indexOf("claudeaccount")).toBe(ids.indexOf("newagent") + 1);
+    });
+
+    it("has an Accounts row and an Add an account row, neither a config row", () => {
+        const section = sections().find((s) => s.id === "claudeaccount")!;
+        expect(section.name).toBe("Claude account");
+        expect(section.rows.map((r) => [r.id, r.title])).toEqual([
+            ["claudeaccount.accounts", "Accounts"],
+            ["claudeaccount.add", "Add an account"],
+        ]);
+        expect(section.rows.every((r) => r.config === undefined)).toBe(true);
+        expect(section.rows[0].scope).toBe("local");
+    });
+});
+
 describe("vaultStatusLine", () => {
     it("says nothing until the status loads", () => {
         expect(vaultStatusLine(null)).toBe("");
