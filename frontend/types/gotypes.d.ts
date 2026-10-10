@@ -316,6 +316,23 @@ declare global {
         ts: number;
     };
 
+    // wshrpc.ClaudeAccountInfo
+    type ClaudeAccountInfo = {
+        accountuuid: string;
+        email: string;
+        orgname: string;
+        plan: string;
+        active: boolean;
+        expired: boolean;
+        lastusedts: number;
+    };
+
+    // wshrpc.ClaudeAccountsRtnData
+    type ClaudeAccountsRtnData = {
+        loggedin: boolean;
+        accounts: ClaudeAccountInfo[];
+    };
+
     // waveobj.Client
     type Client = WaveObj & {
         windowids: string[];
@@ -503,6 +520,11 @@ declare global {
     type CommandCancelRunData = {
         channelid: string;
         runid: string;
+    };
+
+    // wshrpc.CommandClaudeAccountData
+    type CommandClaudeAccountData = {
+        accountuuid: string;
     };
 
     // wshrpc.CommandConsultData

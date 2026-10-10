@@ -162,6 +162,24 @@ export class RpcApiType {
         return client.wshRpcCall("canvasserve", data, opts);
     }
 
+    // command "claudeaccountremove" [call]
+    ClaudeAccountRemoveCommand(client: WshClient, data: CommandClaudeAccountData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "claudeaccountremove", data, opts);
+        return client.wshRpcCall("claudeaccountremove", data, opts);
+    }
+
+    // command "claudeaccounts" [call]
+    ClaudeAccountsCommand(client: WshClient, opts?: RpcOpts): Promise<ClaudeAccountsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "claudeaccounts", null, opts);
+        return client.wshRpcCall("claudeaccounts", null, opts);
+    }
+
+    // command "claudeaccountswitch" [call]
+    ClaudeAccountSwitchCommand(client: WshClient, data: CommandClaudeAccountData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "claudeaccountswitch", data, opts);
+        return client.wshRpcCall("claudeaccountswitch", data, opts);
+    }
+
     // command "consult" [responsestream]
 	ConsultCommand(client: WshClient, data: CommandConsultData, opts?: RpcOpts): AsyncGenerator<ConsultChunk, void, boolean> {
         if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "consult", data, opts);

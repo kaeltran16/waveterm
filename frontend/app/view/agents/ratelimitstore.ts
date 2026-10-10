@@ -74,6 +74,18 @@ export function recordRateLimit(provider: string, usage: AgentUsage): void {
     }
 }
 
+// Drop `provider`'s saved snapshot: after a Claude account switch it describes the previous account.
+export function forgetRateLimit(provider: string): void {
+    const next = { ...globalStore.get(savedRateLimitsAtom) };
+    delete next[provider];
+    globalStore.set(savedRateLimitsAtom, next);
+    try {
+        globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(next));
+    } catch {
+        // quota/disabled — the in-memory atom still serves this session
+    }
+}
+
 const FIVE_HOUR_MS = 5 * 60 * 60 * 1000;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
