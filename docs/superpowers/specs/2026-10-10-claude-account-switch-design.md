@@ -91,7 +91,9 @@ the previous account; the next agent report fills it again.
 - Vitest for the pure row model (ordering, flags, meta line) and for dropping a saved rate-limit snapshot.
 - CDP scenario `settings-claude-account`: opens the section and checks it renders (Accounts row with an active
   account or the no-login note; Add an account row with Check now; clicking Check now leaves no error note).
-  It never clicks Switch or Remove: the dev app shares the real `~/.claude`.
+  It seeds two fake saved accounts (one valid, one expired) into the dev app's own secret store, checks their
+  rows, and clicks Remove only on a seeded account; it never clicks Switch, since the dev app shares the real
+  `~/.claude`. Removing a saved account touches only the secret store.
 
 ## 2. Manual vault sync
 
