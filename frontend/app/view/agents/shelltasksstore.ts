@@ -4,14 +4,20 @@
 // Background shell tasks per agent, read from its transcript tail. Mirrors subagentsstore.ts: refresh
 // on enter and when the agent turns idle, scheduleShellTasks (debounced) on transcript activity, drop on
 // leave. Standing by is not stored here: consumers derive it with isStandingBy from the agent's state and
-// its entry.
+// its entry. Also holds which task's output pane is open, exclusive with the subagent interior.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentVM } from "./agentsviewmodel";
-import { extractShellTasks, peekText, SHELL_TAIL_LINES, visibleShellTasks, type ShellTask } from "./shelltasks";
+import { extractShellTasks, outputTail, SHELL_TAIL_LINES, visibleShellTasks, type ShellTask } from "./shelltasks";
+import { focusSubagentAtom } from "./subagentsstore";
+
+export interface FocusShellTask {
+    parentId: string;
+    taskId: string;
+}
 
 // per agent-id -> its running and failed shell tasks
 export const shellTasksByIdAtom = atom<Record<string, ShellTask[]>>({}) as PrimitiveAtom<Record<string, ShellTask[]>>;
@@ -20,11 +26,27 @@ export const shellTasksByIdAtom = atom<Record<string, ShellTask[]>>({}) as Primi
 // since the agent turned idle waits for a read that started at or after it (shellReadPending)
 export const shellReadAtByIdAtom = atom<Record<string, number>>({}) as PrimitiveAtom<Record<string, number>>;
 
+// the task whose output pane is open in the focused view's center (null = show the parent terminal)
+export const focusShellTaskAtom = atom<FocusShellTask | null>(null) as PrimitiveAtom<FocusShellTask | null>;
+
+// both panes swap in over the same terminal, so opening one closes the other. Subscribed here, not at each
+// writer, because the subagent interior is opened from the tree, the rail and the run body
+globalStore.sub(focusShellTaskAtom, () => {
+    if (globalStore.get(focusShellTaskAtom) != null && globalStore.get(focusSubagentAtom) != null) {
+        globalStore.set(focusSubagentAtom, null);
+    }
+});
+globalStore.sub(focusSubagentAtom, () => {
+    if (globalStore.get(focusSubagentAtom) != null && globalStore.get(focusShellTaskAtom) != null) {
+        globalStore.set(focusShellTaskAtom, null);
+    }
+});
+
 // transcript activity stops while an agent sits idle, so a running task's finish is only seen by polling
 export const SHELL_POLL_MS = 5000;
 
 const DEBOUNCE_MS = 4000; // same cadence as subagentsstore
-const PEEK_TAIL_LINES = 80;
+const OUTPUT_TAIL_LINES = 1000;
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const loadSeq = new Map<string, number>();
 
@@ -117,6 +139,9 @@ export function dropShellTasks(id: string): void {
     loadSeq.set(id, (loadSeq.get(id) ?? 0) + 1);
     setList(id, null);
     setReadAt(id, null);
+    if (globalStore.get(focusShellTaskAtom)?.parentId === id) {
+        globalStore.set(focusShellTaskAtom, null);
+    }
 }
 
 /** Pure: the tracked agents whose stored tasks include a running one, the ones worth polling. */
@@ -124,12 +149,12 @@ export function shellTaskPollIds(trackedIds: string[], byId: Record<string, Shel
     return trackedIds.filter((id) => byId[id]?.some((t) => t.state === "running"));
 }
 
-/** The last lines of a task's output file, trimmed for the peek. A missing or unreadable file reads
- *  as no output rather than an error. */
+/** The last lines of a task's output file, trimmed for the output pane. A missing or unreadable file
+ *  reads as no output rather than an error. */
 export async function readShellTaskOutput(path: string): Promise<string[]> {
     try {
-        const tr = await RpcApi.GetAgentTranscriptCommand(TabRpcClient, { path, maxlines: PEEK_TAIL_LINES });
-        return peekText(tr.lines ?? []);
+        const tr = await RpcApi.GetAgentTranscriptCommand(TabRpcClient, { path, maxlines: OUTPUT_TAIL_LINES });
+        return outputTail(tr.lines ?? []);
     } catch {
         return [];
     }

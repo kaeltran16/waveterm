@@ -72,9 +72,8 @@ import {
     visibleSubagents,
     type SubagentState,
 } from "./session-models/sessionviewmodel";
-import { failedLabel, ShellTaskPeek } from "./shelltaskpeek";
-import { isStandingBy, shellTasksLabel, visibleShellTasks, type ShellTask } from "./shelltasks";
-import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
+import { failedLabel, isStandingBy, shellTasksLabel, visibleShellTasks, type ShellTask } from "./shelltasks";
+import { focusShellTaskAtom, shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { useSubagentTracking } from "./subagenttracking";
@@ -330,37 +329,35 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
 }
 
 // A parent's background shell tasks under it, nested like its subagents. A row with an output file opens
-// that output in a peek beside the tree; one without has nothing to show, so it is not a click target.
-function ShellTaskRows({
-    model,
-    tasks,
-    peek,
-    onPeek,
-}: {
-    model: AgentsViewModel;
-    tasks: ShellTask[];
-    peek: { id: string; el: HTMLElement } | null;
-    onPeek: (peek: { id: string; el: HTMLElement } | null) => void;
-}) {
+// that output in the center pane over the parent's terminal (a second click closes it); one without has
+// nothing to show, so it is not a click target.
+function ShellTaskRows({ model, parentId, tasks }: { model: AgentsViewModel; parentId: string; tasks: ShellTask[] }) {
     const now = useAtomValue(model.nowAtom);
+    const focusShell = useAtomValue(focusShellTaskAtom);
     return (
         <>
             {tasks.map((t) => {
                 const failed = t.state === "failed";
-                const peeking = peek?.id === t.id;
+                const open = focusShell?.parentId === parentId && focusShell.taskId === t.id;
                 return (
                     <div
                         key={t.id}
                         data-shell-task={t.id}
-                        onClick={(e) => {
-                            if (t.outputPath) {
-                                onPeek(peeking ? null : { id: t.id, el: e.currentTarget });
+                        onClick={() => {
+                            if (!t.outputPath) {
+                                return;
                             }
+                            if (open) {
+                                globalStore.set(focusShellTaskAtom, null);
+                                return;
+                            }
+                            globalStore.set(model.focusIdAtom, parentId);
+                            globalStore.set(focusShellTaskAtom, { parentId, taskId: t.id });
                         }}
                         className={cn(
                             "relative flex items-center gap-[9px] rounded-[9px] py-[6px] pl-[28px] pr-[11px]",
                             t.outputPath && "cursor-pointer",
-                            peeking ? "bg-accentbg" : t.outputPath && "hover:bg-surface-hover"
+                            open ? "bg-accentbg" : t.outputPath && "hover:bg-surface-hover"
                         )}
                     >
                         <Guides depth={1} />
@@ -419,15 +416,6 @@ function ParentRow({
     // undefined until the user folds: open while a task runs, as the subagent fold defaults
     const [tasksOverride, setTasksOverride] = useState<boolean>();
     const tasksOpen = tasks.length > 0 && (tasksOverride ?? tasks.some((t) => t.state === "running"));
-    const [peek, setPeek] = useState<{ id: string; el: HTMLElement } | null>(null);
-    const peekTask = tasksOpen && peek != null ? tasks.find((t) => t.id === peek.id) : undefined;
-    // a peek whose row went away (its task ended, or the fold closed with its last running task) must not
-    // come back anchored to a detached row when the fold reopens
-    useEffect(() => {
-        if (peek != null && peekTask == null) {
-            setPeek(null);
-        }
-    }, [peek, peekTask]);
     // held until a shell-task read since the Stop lands, so a just-launched task never settles first;
     // nextSnap is idempotent for the same inputs, so advancing it in render is safe
     const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
@@ -477,10 +465,7 @@ function ParentRow({
             <FoldChip
                 label={shellTasksLabel(tasks.length)}
                 open={tasksOpen}
-                onToggle={() => {
-                    setTasksOverride(!tasksOpen);
-                    setPeek(null);
-                }}
+                onToggle={() => setTasksOverride(!tasksOpen)}
                 ariaShow="Show shell tasks"
                 ariaHide="Hide shell tasks"
             />
@@ -621,13 +606,10 @@ function ParentRow({
                         exit="exit"
                         className="overflow-hidden"
                     >
-                        <ShellTaskRows model={model} tasks={tasks} peek={peekTask ? peek : null} onPeek={setPeek} />
+                        <ShellTaskRows model={model} parentId={agent.id} tasks={tasks} />
                     </motion.div>
                 ) : null}
             </AnimatePresence>
-            {peekTask ? (
-                <ShellTaskPeek key={peekTask.id} task={peekTask} anchor={peek.el} onClose={() => setPeek(null)} />
-            ) : null}
         </>
     );
 }

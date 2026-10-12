@@ -20,7 +20,8 @@ export const SHELL_TAIL_LINES = 2000;
 // the cut detailForTool applies to a Bash command in cmd/wsh/cmd/wshcmd-agenthook.go.
 const COMMAND_DESCRIPTION_MAX = 60;
 
-const PEEK_MAX_CHARS = 4096;
+const OUTPUT_MAX_CHARS = 64 * 1024;
+const EXITED_LINE = /^\[exited with code (-?\d+)\]$/;
 
 type Settled = "running" | "failed" | "gone";
 
@@ -194,7 +195,7 @@ export function shellTasksLabel(n: number): string {
 
 /** The output lines trimmed so their joined text is at most the last maxChars characters; a line
  *  the cut lands inside is dropped rather than shown as a fragment. */
-export function peekText(lines: string[], maxChars = PEEK_MAX_CHARS): string[] {
+export function outputTail(lines: string[], maxChars = OUTPUT_MAX_CHARS): string[] {
     const text = lines.join("\n");
     if (text.length <= maxChars) {
         return lines;
@@ -207,4 +208,34 @@ export function peekText(lines: string[], maxChars = PEEK_MAX_CHARS): string[] {
         tail = tail.slice(newline + 1);
     }
     return tail.split("\n");
+}
+
+export function failedLabel(task: ShellTask): string {
+    return task.exitCode != null ? `failed · exit ${task.exitCode}` : "failed";
+}
+
+export interface ShellTaskStatus {
+    label: string;
+    tone: "accent" | "error" | "muted";
+    // a running task's output is still growing, so it is re-read
+    live: boolean;
+}
+
+/** The output pane's state for a task, or for its last known snapshot once it left the visible list:
+ *  a task leaves it only by finishing cleanly or being ended from outside. */
+export function shellTaskStatus(task: ShellTask, finished: boolean): ShellTaskStatus {
+    if (finished) {
+        return { label: "finished", tone: "muted", live: false };
+    }
+    if (task.state === "running") {
+        return { label: "running", tone: "accent", live: true };
+    }
+    return { label: failedLabel(task), tone: "error", live: false };
+}
+
+/** Whether an output line is the trailing exit marker of a nonzero exit. Only the last line counts: the
+ *  same text earlier is the command's own output. */
+export function isFailedExitLine(line: string, last: boolean): boolean {
+    const code = last ? EXITED_LINE.exec(line.trim())?.[1] : undefined;
+    return code != null && Number(code) !== 0;
 }
