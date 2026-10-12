@@ -857,7 +857,7 @@ function LeadTranscript({
                 >
                     <NarrationTimeline entries={entries} accentLatest active={lead.state !== "idle"} />
                 </div>
-                {atBottom ? null : <JumpToLatestPill onClick={jumpToBottom} />}
+                <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>
         </div>
     );

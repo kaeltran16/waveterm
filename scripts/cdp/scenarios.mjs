@@ -14688,6 +14688,102 @@ const settingsClaudeAccount = {
     },
 };
 
+// --- motion gaps ---------------------------------------------------------------------------------
+// The cockpit toast and the Setup tab panel used to cut in and out. Each check samples in-page, in one
+// evaluation, because a CDP round trip per sample is slower than the animations it measures: an observer
+// reads the opacity an element mounts with, and a timer reads a leaving toast mid-exit.
+const motionGaps = {
+    name: "motion-gaps",
+    surface: "cockpit",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        // a keystroke an earlier scenario sent would otherwise hold the call in the busy wait
+        await settle(1600);
+
+        // 1. a toast mounts transparent and fades in. go:cockpit leaves a trail toast (see ui-api).
+        await h.ev(`(() => {
+            window.__motionToast = [];
+            new MutationObserver((muts, obs) => {
+                for (const m of muts) for (const n of m.addedNodes) {
+                    if (n instanceof Element && n.matches('[data-notification-toast]')) {
+                        window.__motionToast.push(getComputedStyle(n).opacity);
+                        obs.disconnect();
+                    }
+                }
+            }).observe(document.body, { childList: true, subtree: true });
+        })()`);
+        await h.rpc("uiinvoke", { actionid: "go:cockpit" }, UI_ROUTE);
+        await settle(600);
+        const enter = await h.ev(`(() => ({
+            first: window.__motionToast[0] ?? null,
+            settled: (() => {
+                const t = [...document.querySelectorAll('[data-notification-toast]')].at(-1);
+                return t ? getComputedStyle(t).opacity : null;
+            })(),
+        }))()`);
+        rec(
+            "1. a cockpit toast mounts at opacity 0 and settles at 1",
+            enter.first === "0" && enter.settled === "1",
+            JSON.stringify(enter)
+        );
+        await h.shot("cdp-shots/motion-gaps-toast.png");
+
+        // 2. a dismissed toast stays attached while it fades, then leaves
+        const exit = await h.ev(`(async () => {
+            const t = [...document.querySelectorAll('[data-notification-toast]')].at(-1);
+            if (!t) return null;
+            t.click();
+            await new Promise((r) => setTimeout(r, 120));
+            const mid = { attached: t.isConnected, opacity: Number(getComputedStyle(t).opacity) };
+            await new Promise((r) => setTimeout(r, 700));
+            return { mid, goneAfter: !t.isConnected };
+        })()`);
+        rec(
+            "2. a dismissed toast fades out while still attached, then is removed",
+            exit != null && exit.mid.attached && exit.mid.opacity > 0 && exit.mid.opacity < 1 && exit.goneAfter,
+            JSON.stringify(exit)
+        );
+
+        // 3. a Setup tab swap fades the new panel in instead of cutting to it
+        await h.goto("setup");
+        await settle(800);
+        const fade = await h.ev(`(async () => {
+            const seen = [];
+            const obs = new MutationObserver((muts) => {
+                for (const m of muts) for (const n of m.addedNodes) {
+                    if (n instanceof Element && n.id === 'setup-tabpanel') seen.push(getComputedStyle(n).opacity);
+                }
+            });
+            obs.observe(document.body, { childList: true, subtree: true });
+            document.getElementById('setup-tab-skills')?.click();
+            await new Promise((r) => setTimeout(r, 400));
+            obs.disconnect();
+            const panel = document.getElementById('setup-tabpanel');
+            return {
+                first: seen[0] ?? null,
+                settled: panel ? getComputedStyle(panel).opacity : null,
+                tab: panel?.getAttribute('aria-labelledby') ?? null,
+            };
+        })()`);
+        rec(
+            "3. switching Setup to Skills fades the panel in from 0 to 1",
+            fade.first === "0" && fade.settled === "1" && fade.tab === "setup-tab-skills",
+            JSON.stringify(fade)
+        );
+        await h.shot("cdp-shots/motion-gaps-setup.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.ev(`document.getElementById('setup-tab-instructions')?.click()`);
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     cockpitKeysOnArrival,
     agentTerminalOnArrival,
@@ -14735,6 +14831,7 @@ export const SCENARIOS = [
     radarReport,
     radarScanStates,
     uiApi,
+    motionGaps,
     narrationFeed,
     notesWsh,
     agentTreeRail,

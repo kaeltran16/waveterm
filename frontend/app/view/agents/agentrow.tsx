@@ -578,7 +578,7 @@ export const AgentRow = memo(function AgentRow({
                         )}
                     </div>
                 </div>
-                {!atBottom ? <JumpToLatestPill onClick={jumpToBottom} /> : null}
+                <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>
         </motion.div>
     );
