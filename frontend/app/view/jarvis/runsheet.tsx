@@ -42,18 +42,19 @@ import { openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "@/app/vi
 import { groupEvents, railRows, type EventGroup } from "@/app/view/orchestrate/timelinegroups";
 import { groupTime, SpineGlyph } from "@/app/view/orchestrate/timelinerail";
 import { cn, fireAndForget } from "@/util/util";
-import { atom, useAtomValue, type Atom } from "jotai";
-import { ArrowUpRight, ChevronDown, ChevronRight, CornerDownRight } from "lucide-react";
+import { atom, useAtomValue, useSetAtom, type Atom } from "jotai";
+import { ArrowUpRight, Check, ChevronDown, ChevronRight, CornerDownRight } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { RunComposer } from "./briefcomposer";
-import { RunSettingsPanel, saveRunAsDefaults, SHEET_BTN } from "./briefrunsheet";
+import { RunSettingsPanel, saveRunAsDefaults, SHEET_BTN, USE_FOR_NEW_RUNS_TITLE } from "./briefrunsheet";
 import { finalCheckEntry, shotPath, shotRounds, type FinalCheckEntry, type ShotRound } from "./finalshotsmodel";
 import { FinalShotsViewer, VERDICT_DOT } from "./finalshotsviewer";
-import { briefEffortIndexAtom, briefRevealChunkAtom } from "./jarvisstore";
+import { briefEffortIndexAtom, briefProfileAtom, briefRevealChunkAtom } from "./jarvisstore";
 import { useLocalImage } from "./localimage";
 import { RunReportView } from "./runreportview";
 import { runSettingsDraft, type LinkedGroupRead } from "./runsettings";
 import {
+    configLine,
     doneBody,
     finalStageEndable,
     orderedTasks,
@@ -952,6 +953,9 @@ function Dock({
 }) {
     const { model, channel, run, agents } = ctx;
     const [saving, setSaving] = useState(false);
+    // keyed by run, so stepping to another run in the sheet does not carry the confirmation over
+    const [savedFor, setSavedFor] = useState<string | null>(null);
+    const openProfile = useSetAtom(briefProfileAtom);
     const [result, setResult] = useState<{ failed: boolean; text: string } | null>(null);
     const [ending, setEnding] = useState(false);
     const endable = finalStageEndable(group);
@@ -962,17 +966,18 @@ function Dock({
     const lead = sheetLead(run, agents);
     // a live quick run's one worker, opened where it is watched (design L576)
     const worker = run.mode !== "orchestrator" && !isTerminal(run.status) ? leadWorker(run, agents) : undefined;
-    // a finished orchestrator has no dials left, so the dock's first slot carries its configuration forward
+    // a finished orchestrator has no dials left, so the dock's top row carries its configuration forward
     const carryForward = run.status === "done" && run.mode === "orchestrator";
+    const draft = runSettingsDraft(run, group);
     const saveDefaults = () => {
         setSaving(true);
         setResult(null);
         fireAndForget(async () => {
             try {
-                await saveRunAsDefaults(run, runSettingsDraft(run, group));
-                setResult({ failed: false, text: "Saved as this project's defaults." });
+                await saveRunAsDefaults(run, draft);
+                setSavedFor(run.oid);
             } catch (e) {
-                setResult({ failed: true, text: String(e) });
+                setResult({ failed: true, text: `Couldn't save to this project's Profile: ${String(e)}` });
             } finally {
                 setSaving(false);
             }
@@ -980,12 +985,41 @@ function Dock({
     };
     return (
         <div className="flex flex-col gap-1.5 border-t border-edge-faint px-4 py-[11px]">
+            {carryForward ? (
+                <div
+                    data-run-sheet-carry
+                    className="-mx-4 -mt-[11px] mb-1 flex items-center gap-3.5 border-b border-edge-faint bg-surface-raised px-4 py-2.5"
+                >
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                        <span className="text-[11.5px] font-semibold text-secondary">Ran with</span>
+                        <span className="font-mono text-[10.5px] leading-[1.5] text-ink-mid">
+                            {configLine(run, draft, false)}
+                        </span>
+                    </div>
+                    {savedFor === run.oid ? (
+                        <button
+                            type="button"
+                            onClick={() => openProfile(channel.oid)}
+                            title="Open this project's Profile"
+                            className="inline-flex flex-none cursor-pointer items-center gap-1.5 text-[11.5px] font-semibold text-success hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                        >
+                            <Check size={12} strokeWidth={2.4} aria-hidden />
+                            Saved to this project's Profile
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            disabled={saving}
+                            onClick={saveDefaults}
+                            title={USE_FOR_NEW_RUNS_TITLE}
+                            className={cn(DOCK_ACCENT, "flex-none")}
+                        >
+                            {saving ? "Saving…" : "Use for new runs"}
+                        </button>
+                    )}
+                </div>
+            ) : null}
             <div className="flex items-center gap-2">
-                {carryForward ? (
-                    <button type="button" disabled={saving} onClick={saveDefaults} className={DOCK_ACCENT}>
-                        {saving ? "Saving…" : "Save as project defaults"}
-                    </button>
-                ) : null}
                 {run.dagoref ? (
                     <button
                         type="button"

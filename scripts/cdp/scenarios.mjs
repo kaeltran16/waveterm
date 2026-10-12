@@ -9803,6 +9803,142 @@ const runTimingScenario = {
     },
 };
 
+// A finished orchestrator run's dock carries its configuration forward: a Ran with row over the dock's buttons
+// whose Use for new runs writes the project's Profile override, then links to that Profile. The run is cancelled
+// first, which stops its dag and the t-1 worker, then stored as done so the sheet draws the finished dock. Its dir
+// is registered as a project, as a real run's is, or the Profile the confirmation opens has no project to show.
+const RUN_CARRY_PROJECT = "verify-run-sheet-carry";
+const RUN_CARRY_ROW = `document.querySelector("[data-run-sheet] [data-run-sheet-carry]")`;
+
+const runSheetCarryScenario = {
+    name: "run-sheet-carry",
+    surface: "jarvis",
+    async arrange(h) {
+        const ctx = await arrangeSheetDagRun(h, "run-sheet-carry", RUN_SHEET_POLISH_TASKS);
+        if (ctx.arrangeError != null) return ctx;
+        try {
+            await h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId });
+            await h.rpc("createproject", { name: RUN_CARRY_PROJECT, path: ctx.cwd });
+            ctx.projectMade = true;
+            await waitForProjectInConfig(h, RUN_CARRY_PROJECT);
+            const oref = `run:${ctx.runId}`;
+            const stored = await waveService(h, "object", "GetObject", [oref]);
+            await waveService(
+                h,
+                "object",
+                "UpdateObject",
+                [{ ...stored, otype: "run", status: "done" }, false],
+                FINAL_SHOTS_UICTX
+            );
+            // the Brief reads a boot-primed snapshot, so the done status and the project need a reload and a reopen
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+            await h.goto("jarvis");
+            ctx.opened = await h.ev(`(async () => {
+                for (let i = 0; i < 20 && typeof window.__openAddress !== "function"; i++) {
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                return window.__openAddress(${JSON.stringify(`run:${ctx.runId}`)});
+            })()`);
+            ctx.rowShown = await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !${RUN_CARRY_ROW}; i++) {
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                return !!${RUN_CARRY_ROW};
+            })()`);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec(
+            "0. the finished run's sheet shows the Ran with row in its dock",
+            ctx.arrangeError == null && ctx.opened?.ok === true && ctx.rowShown === true,
+            ctx.arrangeError ?? JSON.stringify({ runId: ctx.runId, opened: ctx.opened, row: ctx.rowShown })
+        );
+        if (ctx.arrangeError != null || ctx.rowShown !== true) return steps;
+
+        const read = () =>
+            h.ev(`(() => {
+                const row = ${RUN_CARRY_ROW};
+                const btn = row?.querySelector("button");
+                const dock = row?.parentElement;
+                return {
+                    text: row?.innerText ?? "",
+                    button: btn?.textContent.trim() ?? null,
+                    title: btn?.getAttribute("title") ?? null,
+                    dockButtons: [
+                        ...(dock?.querySelectorAll(":scope > div:not([data-run-sheet-carry]) button") ?? []),
+                    ].map((b) => b.textContent.trim()),
+                };
+            })()`);
+        const before = await read();
+        rec(
+            "1. the row names the run's settings and offers Use for new runs, pointing at the Profile",
+            before.text.includes("Ran with") &&
+                before.text.includes("orchestrator") &&
+                before.text.includes("parallelism 1") &&
+                before.button === "Use for new runs" &&
+                (before.title ?? "").includes("Profile"),
+            JSON.stringify(before)
+        );
+        rec(
+            "2. the dock's button row no longer carries the save",
+            before.dockButtons.includes("Open DAG") && !before.dockButtons.some((t) => /project defaults|new runs/i.test(t)),
+            JSON.stringify(before.dockButtons)
+        );
+        await h.shot("cdp-shots/run-sheet-carry-1-idle.png");
+
+        await h.ev(`${RUN_CARRY_ROW}.querySelector("button").click()`);
+        const saved = await h.ev(`(async () => {
+            for (let i = 0; i < 40; i++) {
+                const t = ${RUN_CARRY_ROW}?.querySelector("button")?.textContent.trim();
+                if (t === "Saved to this project's Profile") return t;
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            return ${RUN_CARRY_ROW}?.innerText ?? null;
+        })()`);
+        const profile = await h.rpc("getjarvisprofile", { channelid: ctx.channelId });
+        const o = profile?.override ?? {};
+        rec(
+            "3. a click saves: the row confirms and the project's override holds the run's shape and parallelism",
+            saved === "Saved to this project's Profile" && o.defaultmode === "orchestrator" && o.parallelism === 1,
+            JSON.stringify({ saved, override: o })
+        );
+        await h.shot("cdp-shots/run-sheet-carry-2-saved.png");
+
+        await h.ev(`${RUN_CARRY_ROW}.querySelector("button").click()`);
+        const modal = await h.ev(`(async () => {
+            for (let i = 0; i < 20; i++) {
+                const m = document.querySelector('[data-jarvis-brief-modal="profile"]');
+                if (m) return { scope: m.getAttribute("data-jarvis-profile-scope") };
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            return null;
+        })()`);
+        rec("4. the confirmation opens this project's Profile", modal?.scope === "project", JSON.stringify(modal));
+        await h.shot("cdp-shots/run-sheet-carry-3-profile.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(
+            h,
+            ctx,
+            "run-sheet-carry",
+            ctx.projectMade
+                ? { what: "remove the project", fn: () => h.rpc("deleteproject", { name: RUN_CARRY_PROJECT }) }
+                : undefined
+        );
+    },
+};
+
 // --- run-cost: the API-equivalent estimate of a run's tokens on the run surfaces ------------------------
 // The run sheet, the DAG header, the run peek and the details rail's Task section each price the same usage rows
 // (docs/superpowers/specs/2026-10-08-usage-attribution-design.md). The rows are seeded as the run's sealed
@@ -15424,6 +15560,7 @@ export const SCENARIOS = [
     cockpitPolish,
     runSheetPolish,
     runTimingScenario,
+    runSheetCarryScenario,
     runCost,
     dagObservability,
     recordBandDetachRestore,

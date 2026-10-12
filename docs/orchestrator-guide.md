@@ -747,8 +747,9 @@ where it was, as above. The row is reported once per stuck tick or Verify.
 - **Talk to a worker.** Type into its terminal on the Agent surface. What you type is logged on the lead's run
   as a `you told t-2 · …` row and in `dag status`, so the lead sees it at its next wake. It wakes nobody.
 - **Change parallelism or the workers' route.** **Adjust** on the settings line → **Worker parallelism**,
-  **Worker route** → **Save settings**. It applies to dispatches from then on. **Save as project defaults**
-  makes the next run start this way. Shape, machine and the lead's route are fixed at launch, and nothing
+  **Worker route** → **Save settings**. It applies to dispatches from then on. **Use for new runs**
+  saves the run's settings to the project's Profile, so the next run starts this way (a finished run offers
+  the same button in its dock, under **Ran with**). Shape, machine and the lead's route are fixed at launch, and nothing
   already running changes. The **Worker route** picker also offers **Reviewer picks**, and a **Reviewers**
   picker beside it sets the reviewer route ([Routes](#4-routes)). The profile's run defaults set the same pair
   in the **Worker route** row (which includes **Reviewer picks**) and the **Reviewer route** row below it.

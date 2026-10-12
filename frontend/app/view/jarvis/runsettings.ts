@@ -202,7 +202,7 @@ function leadRouteOf(run: Run): RoutePin | null {
     return { runtime: run.runtime, ...(run.model ? { model: run.model } : {}) };
 }
 
-// "Save as project defaults" copies the whole effective configuration — copying only part of it would
+// "Use for new runs" copies the whole effective configuration — copying only part of it would
 // leave the next launch materially different from the run it was saved from, which is the opposite of what
 // the button says. Every other override section is left alone.
 export function engineDefaultsPatch(override: ProfileOverride, config: EffectiveRunConfig): ProfileOverride {

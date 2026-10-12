@@ -133,7 +133,10 @@ export function SheetShell({
     );
 }
 
-// "Save as project defaults" copies the whole effective configuration of a run — the run's launched facts
+export const USE_FOR_NEW_RUNS_TITLE =
+    "New runs in this project start with these settings (saved to the project's Profile). Its other settings stay as they are.";
+
+// "Use for new runs" copies the whole effective configuration of a run — the run's launched facts
 // with the given dials — into the channel's profile. Shared by the live dials and a finished run's dock.
 export async function saveRunAsDefaults(run: Run, draft: RunSettingsDraft): Promise<void> {
     const channelId = run.channeloid ?? "";
@@ -261,7 +264,7 @@ function LoadedConfig({
         submit(
             "defaults",
             () => saveRunAsDefaults(run, draft),
-            () => setNotice("Saved as this project's future-run defaults.")
+            () => setNotice("Saved to this project's Profile. New runs start with these settings.")
         );
 
     const dials = (
@@ -339,9 +342,10 @@ function LoadedConfig({
                     type="button"
                     onClick={saveDefaults}
                     disabled={busy || invalid || channelId === ""}
+                    title={USE_FOR_NEW_RUNS_TITLE}
                     className={cn(SHEET_BTN, "px-[11px] py-[5px]")}
                 >
-                    {saving === "defaults" ? "Saving…" : "Save as project defaults"}
+                    {saving === "defaults" ? "Saving…" : "Use for new runs"}
                 </button>
             </div>
         </>
