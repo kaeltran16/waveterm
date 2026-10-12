@@ -22,6 +22,7 @@
 - One cleanup round at most, and it shares `MaxFinalRounds = 2` with the failure path: a run whose round 1 passed has exactly one round left; whatever round 2 leaves is chunks. No new constant.
 - A round's work is only defects inside the run's goal that a worker can fix. Failures already on the base, work outside the goal, checks that need the human or an environment, and anything a round left are chunks.
 - The run-finished wake's first line stays exactly `wake: run finished. wsh jarvis dag status`: `onlyRunFinished` (`pkg/orchestrate/wake.go:413`) keys lead-free completion on it.
+- The lead submits a round without asking the human; the only round-related ask is the existing failed-final one after the last round. So the rules and guide drop "you propose a fix round" from the reasons to ask (Task 3).
 - The plan's own `**Effort:**` line wins over the run's composer link.
 - Never hand-edit generated files. No wshrpc type changes are needed here, so `task generate` is not part of this plan.
 - Run Go tests per package as AGENTS.md says (`go test ./pkg/x -run '^TestName$'`, or `scripts/verify.mjs`); `gofmt -l` only the files you touch.
@@ -49,11 +50,11 @@
 
 **Depends on:** none
 
-**Files:** `pkg/orchestrate/round.go`, `pkg/orchestrate/queue.go`, `cmd/wsh/cmd/wshcmd-jarvisdag.go`, `pkg/orchestrate/round_test.go`, `pkg/orchestrate/final_test.go`
+**Files:** `pkg/orchestrate/round.go`, `pkg/orchestrate/queue.go`, `cmd/wsh/cmd/wshcmd-jarvisdag.go`, `pkg/orchestrate/round_test.go`, `pkg/orchestrate/final_test.go`, `pkg/wshrpc/wshserver/wshserver_dagplan_test.go`, `pkg/wshrpc/wshserver/wshserver_landing_test.go`
 - Modify: `pkg/orchestrate/round.go` (`CheckFixRound` and its doc comment; `AppendRound` doc comment)
 - Modify: `pkg/orchestrate/queue.go` (`RunFinishedWake`)
 - Modify: `cmd/wsh/cmd/wshcmd-jarvisdag.go:46-47` (`dag submit` help text)
-- Test: `pkg/orchestrate/round_test.go`, `pkg/orchestrate/final_test.go`
+- Test: `pkg/orchestrate/round_test.go`, `pkg/orchestrate/final_test.go`, `pkg/wshrpc/wshserver/wshserver_dagplan_test.go:247`, `pkg/wshrpc/wshserver/wshserver_landing_test.go:396` (the refusal substring only)
 
 **Interfaces:**
 - Produces: `CheckFixRound(g *waveobj.TaskGroup) error` accepts `FinalState_Passed`, `FinalState_Unverified` and `FinalState_Failed` while `g.Final.Round < MaxFinalRounds`.
@@ -173,7 +174,7 @@ func CheckFixRound(g *waveobj.TaskGroup) error {
 }
 ```
 
-In `AppendRound`'s doc comment, change "extends a dag whose final stage failed" to "extends a dag whose final stage finished". (`submitFixRound`'s doc comment in `wshserver_dag.go` is Task 3's, since Task 2 edits that file at the same time.)
+In `AppendRound`'s doc comment, change "extends a dag whose final stage failed" to "extends a dag whose final stage finished". (`submitFixRound`'s doc comment in `wshserver_dag.go` is Task 3's.)
 
 - [ ] **Step 6: Implement the wake line**
 
@@ -222,21 +223,23 @@ In `wshcmd-jarvisdag.go:46-47`, replace "A fix round after a failed final stage\
 
 `TestRunFinishedWakeNamesTheConflictsTheLandWouldHoldOn` (`final_test.go:234`) builds `passed` as the exact wake; its fixture's final stage is round 1, so append the round line: `passed := runFinishedWake + "\nThe final stage passed on the merged result.\n" + roundLeftLine`. Then find any other exact match with `grep -rn "on the merged result" pkg/orchestrate/*_test.go pkg/wshrpc/wshserver/*_test.go` and update each the same way.
 
+The refusal text changed too: `wshserver_dagplan_test.go:247` and `wshserver_landing_test.go:396` assert `strings.Contains(err.Error(), "the final stage has not failed")`; change that substring to `"the final stage has not finished"` in both. Then `grep -rn "has not failed" pkg cmd --include=*.go` prints nothing.
+
 - [ ] **Step 9: Run the package**
 
 Run: `git diff --name-only main > /tmp/changed.txt && ARC_VERIFY_CHANGED=/tmp/changed.txt node scripts/verify.mjs ./pkg/orchestrate ./pkg/wshrpc/wshserver ./cmd/wsh/cmd`
-Expected: PASS. Then `gofmt -l pkg/orchestrate/round.go pkg/orchestrate/queue.go pkg/orchestrate/round_test.go pkg/orchestrate/final_test.go` prints nothing.
+Expected: PASS. Then `gofmt -l pkg/orchestrate/round.go pkg/orchestrate/queue.go pkg/orchestrate/round_test.go pkg/orchestrate/final_test.go pkg/wshrpc/wshserver/wshserver_dagplan_test.go pkg/wshrpc/wshserver/wshserver_landing_test.go` prints nothing.
 
 - [ ] **Step 10: Commit**
 
 ```bash
-git add pkg/orchestrate/round.go pkg/orchestrate/queue.go pkg/orchestrate/round_test.go pkg/orchestrate/final_test.go cmd/wsh/cmd/wshcmd-jarvisdag.go
+git add pkg/orchestrate/round.go pkg/orchestrate/queue.go pkg/orchestrate/round_test.go pkg/orchestrate/final_test.go pkg/wshrpc/wshserver/wshserver_dagplan_test.go pkg/wshrpc/wshserver/wshserver_landing_test.go cmd/wsh/cmd/wshcmd-jarvisdag.go
 git commit -m "feat(orchestrate): a finished run takes one round for its in-goal leftovers"
 ```
 
 ### Task 2: The dag inherits the run's effort link
 
-**Depends on:** none
+**Depends on:** Task 1
 
 **Files:** `pkg/wshrpc/wshserver/wshserver_dag.go`, `pkg/wshrpc/wshserver/wshserver_dagplan_test.go`
 - Modify: `pkg/wshrpc/wshserver/wshserver_dag.go` (new `runEffortOID`; default after `proposed.EffortOID = plan.EffortOID` at line 328)
@@ -304,7 +307,7 @@ If `wstore` is not yet imported in that test file, add `"github.com/wavetermdev/
 
 - [ ] **Step 2: Run it to see it fail**
 
-Run: `go test ./pkg/wshrpc/wshserver -run '^TestDagSubmitPlan' -v` (use the name of the enclosing test function; find it with `grep -n "^func Test" pkg/wshrpc/wshserver/wshserver_dagplan_test.go`)
+Run: `go test ./pkg/wshrpc/wshserver -run '^TestDagSubmitFromPlanPath$' -v`
 Expected: FAIL on "a plan with no effort takes the run's link, got \"\"".
 
 - [ ] **Step 3: Implement**
@@ -352,7 +355,7 @@ git commit -m "feat(dag): a plan with no effort line takes the run's composer ef
 - Modify: `pkg/jarvis/leadprompt.go` (`OrchestrationRules`, `PlanLeadPrompt`)
 - Modify: `pkg/orchestrate/wake.go:451` (`startLead`)
 - Modify: `pkg/wshrpc/wshserver/wshserver_runs.go:557` (`handSetupToLead`)
-- Modify: `pkg/wshrpc/wshserver/wshserver_dag.go` (`submitFixRound` doc comment only, moved here from Task 1 so Task 1 and Task 2 share no file)
+- Modify: `pkg/wshrpc/wshserver/wshserver_dag.go` (`submitFixRound` doc comment only)
 - Modify: `cmd/wsh/cmd/wshcmd-jarvisdag.go:1093` (`dagRulesText`)
 - Modify: `docs/orchestrator-guide.md` (rows at lines ~603-604 and ~987, the fix-round paragraph at ~852-860, the command row at ~1056)
 - Test: `pkg/jarvis/leadprompt_test.go`, `cmd/wsh/cmd/wshcmd-jarvisdag_test.go`
@@ -383,7 +386,12 @@ In `TestOrchestrationRulesCompleteOnTheirOwn`, add `"wsh jarvis dag submit --rou
 	if strings.Contains(r, "Don't add tasks.") {
 		t.Fatalf("a finished run may add tasks through a round:\n%s", r)
 	}
+	if strings.Contains(r, "propose a fix round") {
+		t.Fatalf("a round needs no ask; asking after the last round is the failed-final rule's:\n%s", r)
+	}
 ```
+
+In the same test, change the `want` entry `"only when a decision is needed: a verification failed, a deviation needs the human's call, or you propose a fix round"` to `"only when a decision is needed: a verification failed or a deviation needs the human's call"`.
 
 In `wshcmd-jarvisdag_test.go`, change `TestDagRulesTextOnlyForTheLead`'s group to carry `EffortOID: "eff-1"` and its expected value to `jarvis.OrchestrationRules("lead-run", "C:/p/spec.md", "C:/p/plan.md", "eff-1")`. In `TestDagRulesTextNamesTheLeadsOwnDocs`, pass `""` as the new last argument.
 
@@ -410,7 +418,7 @@ In `leadprompt.go`:
 	b.WriteString("- run finished: review what landed with `wsh jarvis dag status`; a task's full outcome is `wsh jarvis dag report <task> [section]`, and a cut text in a wake ends with that command, while `dag status` names it on each done task's report line. Fix and commit what the landed tasks left behind in docs (a stale doc line, a shipped plan). A code defect is never a wrap-up commit, since nothing reviews it. Collect the open issues from the tasks' Found not fixed and Not verified sections and anything you noticed. When the wake says a round is left and some open issues are defects inside the run's goal that a worker can fix, write a fix plan for only those in the plan format, run `wsh jarvis dag submit --round --plan <fix plan>` and stop: the round's tasks are reviewed, the final stage runs again, and you wrap up at the next run-finished wake. Failures already on the base, work outside the goal, checks that need the human or an environment, and whatever a round left are not round work. To wrap up, write the report to a file, for judgment only: one line per task on what it did; the decisions you made (answers, skips, tells, sendbacks, a round) and why; wrap-up commits; and the open issues, each with its effort chunk. Don't list landed commits, worktrees left behind, answered or forwarded counts or the unverified list: the engine records those. Add each open issue as a pending chunk on the effort named above, or the one the goal names (`wsh effort chunk add <effort> \"<issue>\"`); with neither, create one with `wsh effort create \"<title>\" --chunk \"<issue>\"`. ")
 ```
 
-3. In the next `fmt.Fprintf` (line 73), replace the closing sentence `Don't add tasks.` with `Add tasks only through a round.`
+3. In the next `fmt.Fprintf` (line 73), replace the closing sentence `Don't add tasks.` with `Add tasks only through a round.`, and replace "a verification failed, a deviation needs the human's call, or you propose a fix round" with "a verification failed or a deviation needs the human's call": a round is submitted without an ask, and the failed-final rule already covers asking after the last round.
 
 4. Change `PlanLeadPrompt` to `func PlanLeadPrompt(principles waveobj.PrincipleList, runId, specPath, planPath, effortOID, wake string) string` and pass `effortOID` to `OrchestrationRules`.
 
@@ -427,10 +435,10 @@ Run `go build ./cmd/wsh/... ./cmd/server/...` to catch any caller left (`go buil
 - [ ] **Step 5: Update the orchestrator guide**
 
 In `docs/orchestrator-guide.md`:
-- Row "Run finished" (~line 604): replace "adds open issues to the initiative" with "runs one round for the open issues inside the goal when the wake says a round is left, and adds the rest to the run's effort".
+- Row "Run finished" (~line 604): replace "adds open issues to the initiative" with "runs one round for the open issues inside the goal when the wake says a round is left, and adds the rest to the run's effort"; in its last column replace "(a failed verification, a deviation, a proposed fix round)" with "(a failed verification or a deviation)".
 - Row "Final stage failed" (~line 603): unchanged.
 - "The fix round." paragraph (~852-860): add after its first sentence: "A run whose final stage passed or finished unverified takes the same round for the open issues inside its goal that a worker can fix, when a round is left: the run-finished wake ends with a line saying whether one is."; and change "`--round` is refused, with the reason, while the stage is still running, after it passed, or when no round is left" to "`--round` is refused, with the reason, while the stage is still running or when no round is left".
-- Row "The run's report" (~987): replace "(a code defect found then is an open issue, not a wrap-up commit)" with "(a code defect is never a wrap-up commit: with a round left, the in-goal ones go to a round)", and "on the initiative (creating one if the run has none)" with "on the run's effort, the plan's `**Effort:**` line or else the one picked in the composer (creating one if the run has neither)".
+- Row "The run's report" (~987): replace "(a code defect found then is an open issue, not a wrap-up commit)" with "(a code defect is never a wrap-up commit: with a round left, the in-goal ones go to a round)", and "on the initiative (creating one if the run has none)" with "on the run's effort, the plan's `**Effort:**` line or else the one picked in the composer (creating one if the run has neither)", and "a failed verification, a deviation that needs your call, or a proposed fix round" with "a failed verification or a deviation that needs your call".
 - Command row (~1056): `dag submit --round --plan <fix plan>` now reads "after the final stage finishes with a round left, append the fix plan's tasks as a round".
 
 Read each passage before editing; line numbers are approximate.
