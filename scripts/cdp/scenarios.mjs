@@ -10732,6 +10732,9 @@ const SHELL_LIB = `
         const d = el?.querySelector("span.rounded-full");
         return d ? { bg: d.style.backgroundColor, pulse: d.classList.contains("pulse-dot") } : null;
     };
+    // the Agent surface header holds one dot, the focused agent's
+    const header = () => document.querySelector("[data-agent-header]");
+    const headerDot = () => ({ name: text(header()).includes(${JSON.stringify(SHELL_AGENT.name)}), dot: dot(header()) });
     const finishedRows = (name) =>
         [...(document.querySelector('aside[aria-label="Events"]')?.querySelectorAll('[role="button"]') ?? [])]
             .map(text)
@@ -10946,7 +10949,15 @@ const shellTasksScenario = {
             await until(() => taskRowIds().length === 0, 20);
             await new Promise((r) => setTimeout(r, 400));
             const chip = tasksChip(${mainName});
-            return { ok: true, chip: text(chip), expanded: chip.getAttribute("aria-expanded"), rows: taskRowIds(), dot: dot(treeRow(${mainName})) };
+            await until(() => headerDot().name, 20);
+            return {
+                ok: true,
+                chip: text(chip),
+                expanded: chip.getAttribute("aria-expanded"),
+                rows: taskRowIds(),
+                dot: dot(treeRow(${mainName})),
+                header: headerDot(),
+            };
         })()`);
         await h.shot("cdp-shots/shell-tasks-tree-collapsed.png");
         rec(
@@ -10958,6 +10969,13 @@ const shellTasksScenario = {
                 folded.dot?.bg === "var(--color-accent)" &&
                 folded.dot?.pulse === false,
             JSON.stringify(folded)
+        );
+        rec(
+            "2b. the Agent surface header dot of the standing-by agent is accent and still",
+            folded.header?.name === true &&
+                folded.header.dot?.bg === "var(--color-accent)" &&
+                folded.header.dot?.pulse === false,
+            JSON.stringify(folded.header)
         );
 
         // 3. TreeExpanded: four rows, three running and one failed
@@ -11132,13 +11150,16 @@ const shellTasksScenario = {
         const after = await h.ev(`(async () => {
             ${SHELL_LIB}
             await until(() => tasksChip(${mainName}) != null, 20);
+            if (!headerDot().name) treeRow(${mainName})?.click();
             if (tasksChip(${mainName})?.getAttribute("aria-expanded") === "false") tasksChip(${mainName}).click();
             await until(() => taskRowIds().includes("bshfail"), 20);
+            await until(() => headerDot().name, 20);
             await new Promise((r) => setTimeout(r, 600));
             return {
                 chip: text(tasksChip(${mainName})),
                 rows: taskRowIds().filter((id) => ${JSON.stringify(SHELL_TASKS.map((t) => t.id))}.includes(id)),
                 dot: dot(treeRow(${mainName})),
+                header: headerDot(),
             };
         })()`);
         await h.shot("cdp-shots/shell-tasks-tree-finished.png");
@@ -11150,6 +11171,11 @@ const shellTasksScenario = {
                 after.dot.bg !== "var(--color-accent)" &&
                 after.dot.pulse === false,
             JSON.stringify(after)
+        );
+        rec(
+            "6c. after the finish the Agent surface header dot is no longer accent",
+            after.header?.name === true && after.header.dot != null && after.header.dot.bg !== "var(--color-accent)",
+            JSON.stringify(after.header)
         );
         return steps;
     },

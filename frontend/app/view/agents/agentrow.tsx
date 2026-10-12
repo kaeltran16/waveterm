@@ -30,7 +30,6 @@ import {
     agentRowMenuItems,
     clampQuestionIndex,
     entriesToShow,
-    isFinishTransition,
     muteMode,
     subagentsLabel,
     tasksLabel,
@@ -49,13 +48,14 @@ import { AnswerBar, DocReviewSummary } from "./answerbar";
 import { AttentionBanner, BannerChip } from "./attentioncard";
 import { diffStatsByIdAtom } from "./cardgitstore";
 import type { CardShare } from "./cardgridlayout";
+import { finishes, nextSnap, type AgentSnap } from "./cockpitevents";
 import { parseDocReview } from "./docreview";
 import { entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
 import { SubLabel } from "./sectionlabel";
 import type { SubagentState, SubagentVM } from "./session-models/sessionviewmodel";
 import { isStandingBy, shellTasksLabel, type ShellTask } from "./shelltasks";
-import { shellTasksByIdAtom } from "./shelltasksstore";
+import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
 import { ActivityLine, StatusLine } from "./statusline";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { subagentsByIdAtom } from "./subagentsstore";
@@ -314,6 +314,7 @@ export const AgentRow = memo(function AgentRow({
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const shellTasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standingBy = isStandingBy(agent.state, shellTasks);
+    const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
     const runningShellTasks = shellTasks.filter((t) => t.state === "running").length;
     const tasks = useAtomValue(tasksAtomFor(agent.id));
     const prog = tasks && tasks.length > 0 ? taskProgress(tasks) : undefined;
@@ -345,21 +346,20 @@ export const AgentRow = memo(function AgentRow({
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };
 
-    // one-shot "settle" when this agent finishes (working -> idle, or its last shell task ends while it
-    // stays idle); cleared after it plays
-    const prevStateRef = useRef(agent.state);
-    const prevStandingByRef = useRef(standingBy);
+    // one-shot "settle" when this agent finishes (working -> idle, held until its shell tasks are read, or
+    // its last shell task ends while it stays idle); cleared after it plays
+    const snapRef = useRef<AgentSnap>(undefined);
     const [justFinished, setJustFinished] = useState(false);
     useEffect(() => {
-        const finished = isFinishTransition(prevStateRef.current, agent.state, prevStandingByRef.current, standingBy);
-        prevStateRef.current = agent.state;
-        prevStandingByRef.current = standingBy;
-        if (finished) {
+        const was = snapRef.current;
+        const snap = nextSnap(was, agent.state, standingBy, readPending);
+        snapRef.current = snap;
+        if (was != null && finishes(was, snap)) {
             setJustFinished(true);
             const t = setTimeout(() => setJustFinished(false), 520); // matches @keyframes settle .5s
             return () => clearTimeout(t);
         }
-    }, [agent.state, standingBy]);
+    }, [agent.state, standingBy, readPending]);
 
     return (
         <motion.div

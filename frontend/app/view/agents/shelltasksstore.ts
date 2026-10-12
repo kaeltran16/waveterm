@@ -2,17 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Background shell tasks per agent, read from its transcript tail. Mirrors subagentsstore.ts: refresh
-// on enter, scheduleShellTasks (debounced) on transcript activity, drop on leave. Standing by is not
-// stored here: consumers derive it with isStandingBy from the agent's state and its entry.
+// on enter and when the agent turns idle, scheduleShellTasks (debounced) on transcript activity, drop on
+// leave. Standing by is not stored here: consumers derive it with isStandingBy from the agent's state and
+// its entry.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
+import type { AgentVM } from "./agentsviewmodel";
 import { extractShellTasks, peekText, SHELL_TAIL_LINES, visibleShellTasks, type ShellTask } from "./shelltasks";
 
 // per agent-id -> its running and failed shell tasks
 export const shellTasksByIdAtom = atom<Record<string, ShellTask[]>>({}) as PrimitiveAtom<Record<string, ShellTask[]>>;
+
+// per agent-id -> when its last completed shell-task read started, success or failure. A finish held
+// since the agent turned idle waits for a read that started at or after it (shellReadPending)
+export const shellReadAtByIdAtom = atom<Record<string, number>>({}) as PrimitiveAtom<Record<string, number>>;
 
 // transcript activity stops while an agent sits idle, so a running task's finish is only seen by polling
 export const SHELL_POLL_MS = 5000;
@@ -41,8 +47,10 @@ function setList(id: string, list: ShellTask[] | null): void {
 export async function refreshShellTasks(id: string, transcriptPath: string | undefined): Promise<void> {
     const seq = (loadSeq.get(id) ?? 0) + 1;
     loadSeq.set(id, seq);
+    const startedAt = Date.now();
     if (!transcriptPath) {
         setList(id, null);
+        setReadAt(id, startedAt);
         return;
     }
     try {
@@ -54,9 +62,33 @@ export async function refreshShellTasks(id: string, transcriptPath: string | und
             return;
         }
         setList(id, visibleShellTasks(extractShellTasks(tr.lines ?? [])));
+        setReadAt(id, startedAt);
     } catch {
-        // keep the last known list: the next poll or transcript activity retries
+        // keep the last known list: the next poll or transcript activity retries. The read still
+        // completed, so a held finish is released and decided on that list
+        if (loadSeq.get(id) === seq) {
+            setReadAt(id, startedAt);
+        }
     }
+}
+
+function setReadAt(id: string, startedAt: number | null): void {
+    const cur = globalStore.get(shellReadAtByIdAtom);
+    if (startedAt == null) {
+        if (id in cur) {
+            const { [id]: _, ...rest } = cur;
+            globalStore.set(shellReadAtByIdAtom, rest);
+        }
+        return;
+    }
+    globalStore.set(shellReadAtByIdAtom, { ...cur, [id]: startedAt });
+}
+
+/** Pure: whether an idle agent still waits on a shell-task read that started at or after it turned idle.
+ *  An agent never read (none tracks it) or with no idleSince waits on nothing, so a finish is never held
+ *  by a read that will not come. */
+export function shellReadPending(agent: Pick<AgentVM, "state" | "idleSince">, readAt: number | undefined): boolean {
+    return agent.state === "idle" && agent.idleSince != null && readAt != null && readAt < agent.idleSince;
 }
 
 /** Debounced refresh, coalescing a burst of transcript activity into one load. */
@@ -84,6 +116,7 @@ export function dropShellTasks(id: string): void {
     }
     loadSeq.set(id, (loadSeq.get(id) ?? 0) + 1);
     setList(id, null);
+    setReadAt(id, null);
 }
 
 /** Pure: the tracked agents whose stored tasks include a running one, the ones worth polling. */
