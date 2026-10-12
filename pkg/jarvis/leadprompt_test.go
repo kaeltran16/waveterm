@@ -373,3 +373,10 @@ func TestRunFinishedReportIsJudgmentOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestRulesSayWhereAFixPlanGoes(t *testing.T) {
+	r := OrchestrationRules("r1", "", "", "")
+	if got := strings.Count(r, fixPlanHome); got != 2 {
+		t.Fatalf("want the fix plan's place named in both the run-finished and the failed-final rule, got %d:\n%s", got, r)
+	}
+}
