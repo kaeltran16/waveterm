@@ -204,6 +204,14 @@ func checkDagEffort(ctx context.Context, effortOID string, tasks []waveobj.TaskN
 	return nil
 }
 
+// runEffortOID is the effort the run was started from in the composer, or "" when it has none.
+func runEffortOID(run *waveobj.Run) string {
+	if run == nil || run.EffortRef == nil {
+		return ""
+	}
+	return run.EffortRef.EffortOID
+}
+
 // postHandoff is a var so tests can see which submits hand a lead its compaction.
 var postHandoff = orchestrate.PostHandoff
 
@@ -326,6 +334,10 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 		proposed.Prototype = run.Prototype
 	}
 	proposed.EffortOID = plan.EffortOID
+	// the lead files the run's open issues on the dag's effort; a plan that names none still belongs to the run's
+	if proposed.EffortOID == "" {
+		proposed.EffortOID = runEffortOID(run)
+	}
 	proposed.PlanPath, proposed.SpecPath = data.PlanPath, data.SpecPath
 	proposed.ReviewerPicks, proposed.ReviewerRoute = run.ReviewerPicks, run.ReviewerRoute
 	// a plan file is reviewed before any worker starts; a JSON dag has no plan to review
