@@ -554,7 +554,7 @@ func recordBatchVerifyLocked(ctx context.Context, dagID string, out batchOutcome
 	for _, id := range passed {
 		data := withBatch(map[string]any{"taskid": id, "ms": ms})
 		if out.bisect > 0 {
-			data["bisect"] = true
+			data["bisect"] = out.bisect
 		}
 		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskVerifyPassed, nil, data)
 		closeLandedChunks(ctx, g, id)
