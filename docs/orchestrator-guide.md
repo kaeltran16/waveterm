@@ -43,13 +43,25 @@ project switcher in the app bar → **+ New project**, give it a name and the re
 ### 2. Where a run lands
 
 An orchestrator run lands on its own branch by default. At launch it creates `wave/<runId>` in a tree at
-`.waveterm/worktrees/<runId>`, and records the branch the checkout is on as the run's base. Its lead works in
+`%LOCALAPPDATA%\arc-wt\<first 8 of runId>`, and records the branch the checkout is on as the run's base. Its lead works in
 that tree, its lanes squash-merge there, and Verify runs there. The plan's Setup runs there once when the plan is
 submitted, or the project's `.arc/setup` when the plan has no Setup line. For this repo that is
 `node scripts/worktree-junctions.mjs prepare`, which junctions `node_modules`, `src-tauri/target` and
 `dist/bin` from the main checkout so tests run. The checkout does not move, and a dirty index there does not
 hold the run's merges. When the run completes, the engine merges the branch back into the base itself (see
 [Landing back](#landing-back)).
+
+**Where engine trees live.** Every tree the engine makes (the run's, each lane's `-t-N`, and the detached
+`-final`, `-base` and `-bisect` trees) sits under one short root outside the project, `os.UserCacheDir()/arc-wt`:
+`%LOCALAPPDATA%\arc-wt` on Windows, `~/.cache/arc-wt` on Linux, `~/Library/Caches/arc-wt` on macOS. A tree is
+named by the first 8 characters of its run id plus its suffix (`arc-wt\1a2b3c4d-t-2`), which keeps Windows tooling
+inside it under 260-character paths. The run claims that prefix with a marker file `arc-wt\<8>.run` holding its
+full id. If the marker names another run, or is empty or unreadable, the run's trees take the full id instead
+(`arc-wt\<runId>-t-2`), so two runs never share a tree. Markers are never deleted. A run started before this
+change keeps its trees at `<project>\.waveterm\worktrees\<key>` until it removes them, and with no user cache dir
+the engine uses that legacy in-project layout throughout. Branch names keep the full id: `wave/<runId>`. Because
+the trees are no longer inside the project, a worker no longer finds an untracked `CLAUDE.md` or `AGENTS.md` in the
+project's parent directories; it sees only the copies checked into the tree.
 
 To land in the checkout instead, set **Runs land on → Project checkout** in the profile (global, or per project),
 or pass `wsh runs start --landing checkout`. The flag wins over the profile, and an empty profile means branch.
@@ -59,11 +71,12 @@ lands in the checkout either way. A run started on a detached HEAD gets its bran
 merge into, so its land-back is held.
 
 On a landed run the engine removes the tree and deletes `wave/<runId>` itself. A cancelled run, or one whose land
-is held, keeps both. In this repo, remove them with `task worktree:cleanup -- .waveterm/worktrees/<runId>`:
-Setup junctioned `node_modules`, `src-tauri/target` and `dist/bin` into the tree, and a plain
+is held, keeps both. In this repo, remove them with `task worktree:cleanup -- %LOCALAPPDATA%\arc-wt\<8>` (the
+tree's path as above: the full-id one if the prefix was taken, `.waveterm\worktrees\<runId>` for a run started
+before the move): Setup junctioned `node_modules`, `src-tauri/target` and `dist/bin` into the tree, and a plain
 `git worktree remove` can follow those junctions and delete the main checkout's copies. It deletes the branch
 only once merged; `git branch -D wave/<runId>` drops an unmerged one. In a repo whose Setup makes no junctions,
-`git worktree remove .waveterm/worktrees/<runId>` and `git branch -D wave/<runId>` do the same.
+`git worktree remove <path>` run from the project, and `git branch -D wave/<runId>`, do the same.
 
 For this repo there is a second reason to keep the branch default: the dev app serves the frontend from the main
 checkout, so a merge landing there triggers HMR reloads mid-run.
@@ -360,7 +373,7 @@ and one Verify judges them all, scoped from the oldest of them to `HEAD`. A lane
 in the same batch waits for the next one. A conflict ends the batch, and no Verify starts while the tree is
 mid-merge: the lanes merged before it are verified with the conflicted one after the lead's `--continue`. If
 the Verify of a batch of two or more fails, the engine bisects it: it verifies prefixes of the batch in a
-detached tree, `<project>/.waveterm/worktrees/<run>-bisect`, set up with the plan's Setup, until it finds the
+detached tree, `arc-wt\<8>-bisect` (see [Where a run lands](#2-where-a-run-lands)), set up with the plan's Setup, until it finds the
 first lane whose merge fails. The lanes before that one land. That one is verify-failed, and the lead is woken
 ("… bisected from t-1, t-4, t-6"). The lanes after it stay verifying, shown as "held", and the Verify after the
 lead's fix and `dag merge <task> --continue` judges them together. A single lane is never bisected, and neither
@@ -692,7 +705,8 @@ Pick an option or type an answer and **Send answer**. The worker continues, and 
 
 A failed or stalled task shows on its row and in the DAG with `retry`, `skip` and `escalate`. The lead gets it
 first; you see it when it is forwarded or the lead is dead. Retry and escalate stop the worker they
-replace, so before you retry a stalled task, check its lane worktree under `.waveterm/worktrees/` for recent
+replace, so before you retry a stalled task, check its lane worktree, `%LOCALAPPDATA%\arc-wt\<8>-t-N` (the
+full-id or legacy `.waveterm\worktrees\` path in the cases [Where a run lands](#2-where-a-run-lands) names), for recent
 writes: a worker that is still writing files is alive, and the stall signal is wrong.
 
 A task whose dispatch fails before a worker exists, because its worktree could not be made (`worktree-failed`)
@@ -771,7 +785,8 @@ A run is not done when its last task lands. Once every task is terminal and merg
 passed or unverified.
 
 **Where it runs.** On a branch-landed run, in the landing tree at `wave/<runId>`. On a checkout-landed run, in a
-detached worktree at the checkout's HEAD (`.waveterm/worktrees/<runId>-final`), with the plan's Setup run in it,
+detached worktree at the checkout's HEAD (`arc-wt\<8>-final`, resolved as in
+[Where a run lands](#2-where-a-run-lands)), with the plan's Setup run in it,
 removed when the stage ends. It never runs in the shared checkout.
 
 **The steps.** Check, Verify and Final run one after another; the verifier runs after them when the plan has a

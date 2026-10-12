@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SURFACE_LABEL } from "./attach.mjs";
 import { narrationFeed } from "./narrationfeed.mjs";
@@ -8117,6 +8117,7 @@ async function arrangeFixtureRun(h, ctx, label, leadName, leadExtra) {
         deferstart: true,
     });
     ctx.runId = created.run.id;
+    ctx.landPath = created.run.landpath;
     mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
     writeFileSync(
         TREE_RAIL_FIXTURE,
@@ -8158,6 +8159,29 @@ async function deleteChannelWorkerBlocks(h, channelId) {
     if (failed.length) throw new Error(failed.join("; "));
 }
 
+// the root engine trees live under, as pkg/orchestrate/worktreeroot.go resolves it from os.UserCacheDir
+function arcWorktreeRoot() {
+    const cache =
+        process.platform === "win32"
+            ? process.env.LOCALAPPDATA
+            : process.platform === "darwin"
+              ? join(homedir(), "Library", "Caches")
+              : process.env.XDG_CACHE_HOME || join(homedir(), ".cache");
+    return join(cache, "arc-wt");
+}
+
+// a fixture repo's linked worktrees: the run's landing tree and its lanes' trees
+function linkedWorktrees(cwd) {
+    if (!cwd || !existsSync(join(cwd, ".git"))) return [];
+    const out = execFileSync("git", ["-C", cwd, "worktree", "list", "--porcelain"], { encoding: "utf8" });
+    const trees = out
+        .split("\n")
+        .filter((line) => line.startsWith("worktree "))
+        .map((line) => resolve(line.slice("worktree ".length).trim()));
+    // the first is the repo's own checkout
+    return trees.slice(1);
+}
+
 async function teardownFixtureRun(h, ctx, name, restore) {
     const step = async (what, fn) => {
         try {
@@ -8180,7 +8204,19 @@ async function teardownFixtureRun(h, ctx, name, restore) {
         await h.ev("location.reload()");
         await new Promise((r) => setTimeout(r, 2500));
     });
+    // engine trees live under the arc-wt root, not the temp dir, and a cancel leaves the landing tree: only a land
+    // removes it. A worker just stopped holds its lane's tree for a moment, hence the retries.
+    const trees = new Set(ctx.landPath ? [resolve(ctx.landPath)] : []);
+    await step("list the run's trees", () => linkedWorktrees(ctx.cwd).forEach((tree) => trees.add(tree)));
+    for (const tree of trees) {
+        await step(`remove the run tree ${tree}`, () =>
+            rmSync(tree, { recursive: true, force: true, maxRetries: 20, retryDelay: 500 })
+        );
+    }
     await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
+    const left = [...trees].filter((tree) => existsSync(tree));
+    if (left.length) throw new Error(`${name} teardown: run trees left behind: ${left.join(", ")}`);
+    if (trees.size) console.log(`${name} teardown: run trees gone: ${[...trees].join(", ")}`);
 }
 
 const TREE_RAIL_SUBAGENT_PROMPT = "survey the tree rail";
@@ -11542,7 +11578,7 @@ function fstGitInit(cwd) {
     git("config", "user.name", "verify");
     git("config", "user.email", "verify@example.invalid");
     git("config", "commit.gpgsign", "false");
-    // the engine's worktrees live under the project
+    // the engine's trees live under the project only in the legacy layout, used when there is no user cache dir
     writeFileSync(join(cwd, ".gitignore"), ".waveterm/\n");
     writeFileSync(join(cwd, "README.md"), "final-stage fixture\n");
     git("add", ".");
@@ -11696,6 +11732,15 @@ const finalStageScenario = {
             }
         );
         if (ctx.arrangeError != null) return steps;
+        const wtRoot = arcWorktreeRoot();
+        rec(
+            "0b. the run's landing tree is under the user cache dir's arc-wt root, named by its run id's first 8 chars (or the whole id), not in the temp dir",
+            () =>
+                !!ctx.landPath &&
+                existsSync(ctx.landPath) &&
+                [ctx.runId.slice(0, 8), ctx.runId].includes(relative(wtRoot, ctx.landPath)),
+            { landPath: ctx.landPath, root: wtRoot, cwd: ctx.cwd }
+        );
 
         // --- Part B: the States rows, on a dag the engine leaves alone ---
         let a = await fstAgent(h, (s) => s.rows.length === 0 && s.block == null);

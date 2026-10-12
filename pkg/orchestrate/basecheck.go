@@ -88,11 +88,16 @@ func (e *treeStepError) Unwrap() error { return e.err }
 // withDetachedTree runs fn in a tree detached at commit, never in a tree anyone works in, after the plan's Setup, and
 // removes the tree.
 func withDetachedTree(ctx context.Context, project, name, label, commit, setup string, fn func(wt string) error) error {
-	wt := worktreeDir(project, name)
-	if _, err := os.Stat(wt); err == nil {
-		if err := removeWorktreeDir(ctx, project, wt); err != nil {
+	stale := worktreeDir(project, name)
+	if _, err := os.Stat(stale); err == nil {
+		if err := removeWorktreeDir(ctx, project, stale); err != nil {
 			return &treeStepError{"removing a stale " + label, err}
 		}
+	}
+	// claimed after the removal: a removed legacy tree comes back under the short root
+	wt, err := claimWorktreeDir(project, name)
+	if err != nil {
+		return &treeStepError{"creating the " + label, err}
 	}
 	if _, err := addWorktree(ctx, project, "--detach", wt, commit); err != nil {
 		return &treeStepError{"creating the " + label, err}

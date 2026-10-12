@@ -33,7 +33,9 @@ inside task trees. A root of about 51 chars, the same for every project, keeps t
 5. **Prefix ownership.** Each run claims its prefix with a marker file `arc-wt\<8>.run` holding the full run id,
    created with O_CREATE|O_EXCL before the run's first tree is added. Resolution reads the marker:
    - absent, or names this run: `arc-wt\<8><suffix>`;
-   - names another run: `arc-wt\<full key>` (the full 36-char id, about 79 chars: longer, still shorter than today).
+   - anything else: `arc-wt\<full key>` (the full 36-char id, about 79 chars: longer, still shorter than today). A
+     marker whose content is not this run's id counts as another run's: one naming another run, one left empty by a
+     crash between its create and its write, and one that cannot be read. This run's keys then take the full-id path.
    Creation and removal resolve the same way, so a removal never reaches another run's tree, and two runs never
    share a tree. A claim that loses the O_EXCL race reads the winner's marker and takes the full-id path. Markers are
    never deleted: a run's leftover trees (cleanup debt, a held final tree) can outlive the run, and a deleted marker
