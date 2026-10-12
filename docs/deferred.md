@@ -148,7 +148,13 @@ slice 1 deliberately, and the ones that do not need focus still stand:
   (`docs/superpowers/specs/2026-10-08-usage-attribution-design.md`). The Focus switcher this row
   served was removed 2026-10-06.
 
-## Composer attachments (2026-09-18)
+## Composer attachments (2026-09-18) — PARTLY RESOLVED 2026-10-12
+
+**Revived for the New run goal (2026-10-12).** `composerattachments.ts` and `attachmenttray.tsx` are back,
+mounted by `newruncontrol.tsx`: an image pasted on the goal is copied to a temp file, a file picked through the
+paperclip's native dialog is referenced in place, and both reach the run as paths appended to its goal. Still
+deferred: the Steer composer, drag-drop onto the goal, and WSL path translation. Revive the Steer half when
+attaching a file to a steer is wanted; the hook and tray are reusable as they stand.
 
 Composer attachments (paste / attach / drag-drop onto a run goal or steer, `875967bf`) were mounted only
 by the deleted `channelcomposers.tsx` and went with it in `5eac07ed`. Image paste into an agent's own

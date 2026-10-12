@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SURFACE_LABEL } from "./attach.mjs";
 import { narrationFeed } from "./narrationfeed.mjs";
@@ -13027,6 +13027,199 @@ const newRunWindow = {
     },
 };
 
+// --- new-run-attachments: a pasted image and a picked file reach the run as paths in its goal
+// The native file dialog cannot be driven over CDP, so a picked path goes through window.__newRunAttachPaths, the
+// handler the paperclip's dialog calls. The run is a real quick run, so one lead starts; teardown cancels it.
+const NEW_RUN_ATTACH_PROJECT = "verify-new-run-attachments";
+const NEW_RUN_ATTACH_GOAL = "verify new-run-attachments: do nothing, make no file changes, stop immediately";
+const NEW_RUN_GOAL = `${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')`;
+const NEW_RUN_CHIPS = `[...(${NEW_RUN}?.querySelectorAll('[data-attachment-chip]') ?? [])]`;
+const NEW_RUN_START = `[...(${NEW_RUN}?.querySelectorAll('button') ?? [])].find((b) => b.textContent.trim() === 'Start run')`;
+const ONE_PX_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+const OVER_CAP_BYTES = 10 * 1024 * 1024 + 1;
+
+// dispatches a paste carrying either text or one file on the goal box; returns whether the page took it over
+const pasteOnGoal = (what) => `(() => {
+    const ta = ${NEW_RUN_GOAL};
+    if (!ta) return null;
+    ta.focus();
+    const dt = new DataTransfer();
+    const what = ${JSON.stringify(what)};
+    if (what.text != null) {
+        dt.setData('text/plain', what.text);
+    } else {
+        const bytes = what.png ? Uint8Array.from(atob(what.png), (c) => c.charCodeAt(0)) : new Uint8Array(what.size);
+        dt.items.add(new File([bytes], what.name, { type: 'image/png' }));
+    }
+    const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev);
+    return ev.defaultPrevented;
+})()`;
+const chipsExpr = `${NEW_RUN_CHIPS}.map((c) => ({
+    state: c.getAttribute('data-attachment-chip'),
+    path: c.getAttribute('data-attachment-path'),
+    name: c.querySelector('.font-mono')?.textContent ?? null,
+    thumb: !!c.querySelector('img'),
+}))`;
+const newRunFooter = `({
+    start: ${NEW_RUN_START}?.disabled ?? null,
+    footer: ${flatText(`${NEW_RUN}?.querySelector('[data-new-run-footer]')`)},
+})`;
+
+const newRunAttachments = {
+    name: "new-run-attachments",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-new-run-attachments-"));
+        const ctx = { cwd, picked: join(cwd, "notes.txt") };
+        try {
+            writeFileSync(ctx.picked, "picked through the dialog's handler\n");
+            await h.rpc("createproject", { name: NEW_RUN_ATTACH_PROJECT, path: cwd });
+            ctx.project = NEW_RUN_ATTACH_PROJECT;
+            await waitForProjectInConfig(h, NEW_RUN_ATTACH_PROJECT);
+            const ch = await h.rpc("createchannel", { name: "verify-new-run-attachments", projectpath: cwd });
+            ctx.channelId = ch.oid;
+            // the window opens on the most recent project, so it is seeded first and put back in teardown
+            ctx.prevRecent = await h.ev(`localStorage.getItem(${JSON.stringify(RECENT_PROJECTS_KEY)})`);
+            const recent = [NEW_RUN_ATTACH_PROJECT, ...JSON.parse(ctx.prevRecent ?? "[]")];
+            await h.ev(`localStorage.setItem(${JSON.stringify(RECENT_PROJECTS_KEY)}, ${JSON.stringify(JSON.stringify(recent))})`);
+            await polishReload(h);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. the project, its channel, a picked file and the recent entry were made", false, ctx.arrangeError);
+            return steps;
+        }
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        await h.ev(`document.querySelector('[data-new-run]')?.click()`);
+        const opened = await polishWaitFor(h, `!!${NEW_RUN_GOAL}`, 5000);
+        // quick, so the run is one lead and the goal is its whole input
+        await h.ev(
+            `[...(${NEW_RUN}?.querySelectorAll('button[aria-pressed]') ?? [])].find((b) => b.firstElementChild?.textContent === 'quick')?.click()`
+        );
+        await polishNap(300);
+        const field = await h.ev(flatText(NEW_RUN_FIELD));
+        rec(
+            "1. New run opens on the project, with the paperclip beside the goal",
+            opened &&
+                field.startsWith(NEW_RUN_ATTACH_PROJECT) &&
+                (await h.ev(`!!${NEW_RUN}?.querySelector('[data-goal-attachments] [data-attach-files]')`)),
+            JSON.stringify({ opened, field })
+        );
+        if (!opened) return steps;
+
+        await h.ev(`(() => {
+            const ta = ${NEW_RUN_GOAL};
+            Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(ta, ${JSON.stringify(NEW_RUN_ATTACH_GOAL)});
+            ta.dispatchEvent(new Event('input', { bubbles: true }));
+        })()`);
+        const textTaken = await h.ev(pasteOnGoal({ text: "plain words" }));
+        const imageTaken = await h.ev(pasteOnGoal({ png: ONE_PX_PNG, name: "pasted.png" }));
+        const ready = await polishWaitFor(h, `${NEW_RUN_CHIPS}.some((c) => c.getAttribute('data-attachment-chip') === 'ready')`, 8000);
+        const pasted = (await h.ev(chipsExpr))[0] ?? null;
+        ctx.pastedPath = pasted?.path ?? null;
+        rec(
+            "2. a text paste is left to the goal box; an image paste becomes a ready chip with a thumbnail and a temp copy",
+            textTaken === false &&
+                imageTaken === true &&
+                ready &&
+                pasted?.thumb === true &&
+                pasted?.name === "pasted.png" &&
+                (pasted?.path ?? "").includes("waveterm-attach-") &&
+                pasted.path.endsWith("pasted.png"),
+            JSON.stringify({ textTaken, imageTaken, ready, pasted })
+        );
+
+        // over the cap: rejected before any RPC, and the launch waits on it rather than dropping it
+        await h.ev(pasteOnGoal({ size: OVER_CAP_BYTES, name: "too-big.png" }));
+        await polishWaitFor(h, `${NEW_RUN_CHIPS}.some((c) => c.getAttribute('data-attachment-chip') === 'error')`, 3000);
+        const failed = await h.ev(`({ chips: ${chipsExpr}, ...${newRunFooter} })`);
+        await h.shot("cdp-shots/new-run-attachments-error.png");
+        rec(
+            "3. a failed attachment shows as an error chip and holds Start run, saying why",
+            failed.chips.some((c) => c.state === "error" && c.name === "too-big.png") &&
+                failed.start === true &&
+                failed.footer.includes("Retry or remove the failed attachment"),
+            JSON.stringify(failed)
+        );
+        await h.ev(
+            `${NEW_RUN_CHIPS}.find((c) => c.getAttribute('data-attachment-chip') === 'error')?.querySelector('button[title="Remove"]')?.click()`
+        );
+
+        await h.ev(`window.__newRunAttachPaths?.(${JSON.stringify([ctx.picked])})`);
+        await h.ev(`window.__newRunAttachPaths?.(${JSON.stringify([ctx.picked])})`);
+        await polishNap(300);
+        const both = await h.ev(`({ chips: ${chipsExpr}, ...${newRunFooter} })`);
+        await h.shot("cdp-shots/new-run-attachments-chips.png");
+        rec(
+            "4. a picked path is a ready chip referenced in place, once; removing the failed chip frees Start run",
+            both.chips.length === 2 &&
+                both.chips[1].state === "ready" &&
+                both.chips[1].path === ctx.picked &&
+                both.chips[1].name === "notes.txt" &&
+                both.start === false,
+            JSON.stringify(both)
+        );
+
+        // a route picked by hand is the launch's route as it stands; the project's own is resolved against the
+        // boot-time harness catalog, which an isolated Final store may not have loaded yet (one run failed with
+        // "Selected route is unavailable"). So the lead's shown route is picked again by hand: the selected row,
+        // else the first the picker lists
+        await h.ev(`${NEW_RUN}?.querySelector('[data-testid="route-picker"][aria-label="Lead model"]')?.click()`);
+        const routes = `[...document.querySelectorAll('[data-testid^="route-option-"]')].filter((o) => !/-(inherit|extra)$/.test(o.dataset.testid))`;
+        const pickedRoute = (await polishWaitFor(h, `${routes}.length > 0`, 8000))
+            ? await h.ev(`(() => {
+                const opts = ${routes};
+                const opt = opts.find((o) => o.getAttribute('aria-pressed') === 'true') ?? opts[0];
+                opt.click();
+                return opt.dataset.testid;
+            })()`)
+            : null;
+        await polishNap(300);
+        const runsBefore = (await channelRuns(h, ctx.channelId)).map((r) => r.id);
+        await h.ev(`${NEW_RUN_START}?.click()`);
+        let run = null;
+        for (let waited = 0; waited < 20000 && run == null; waited += 500) {
+            run = (await channelRuns(h, ctx.channelId)).find((r) => !runsBefore.includes(r.id)) ?? null;
+            if (run == null) await polishNap(500);
+        }
+        ctx.runId = run?.id;
+        // a launch that failed before the run existed keeps the window open with its error in the footer
+        const after = await h.ev(`({ open: !!${NEW_RUN}, ...${newRunFooter} })`);
+        if (run == null) await h.shot("cdp-shots/new-run-attachments-start.png");
+        const expected = `${NEW_RUN_ATTACH_GOAL}\n\nAttachments (read these files):\n- ${ctx.pastedPath}\n- ${ctx.picked}`;
+        rec(
+            "5. Start run sends the typed goal with both paths appended",
+            run != null && run.goal === expected,
+            JSON.stringify({ goal: run?.goal ?? null, expected, pickedRoute, window: run == null ? after : undefined })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(PEEKS_ESC).catch(() => {});
+        if (ctx.prevRecent !== undefined) {
+            const key = JSON.stringify(RECENT_PROJECTS_KEY);
+            await h.ev(
+                ctx.prevRecent === null
+                    ? `localStorage.removeItem(${key})`
+                    : `localStorage.setItem(${key}, ${JSON.stringify(ctx.prevRecent)})`
+            );
+        }
+        // the temp copy sits in its own waveterm-attach-* dir, which the 24h sweep would otherwise reap
+        if (ctx.pastedPath) rmSync(dirname(ctx.pastedPath), { recursive: true, force: true });
+        await teardownFixtureRun(h, ctx, "new-run-attachments", {
+            what: "delete the project",
+            fn: () => (ctx.project ? h.rpc("deleteproject", { name: ctx.project }) : null),
+        });
+    },
+};
+
 // --- palette-actions, palette-goal: Ctrl+P acting on things (docs/superpowers/specs/2026-09-30-palette-actions-design.md)
 // Every query is scoped to the palette's own dialog: the app bar's search button and the Brief also render rows.
 const PALETTE_INPUT = `document.querySelector('input[data-palette-input]')`;
@@ -16483,6 +16676,7 @@ export const SCENARIOS = [
     briefInitiativesPolish,
     briefPeeksPolish,
     newRunWindow,
+    newRunAttachments,
     paletteActions,
     paletteGoal,
     paletteNotes,

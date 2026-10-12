@@ -77,7 +77,8 @@ Cockpit and surfaces:
   action builder.
 - **Cross-surface Back history and its context strip** (2026-09-17) — parked as `09e86573` on
   `feat/surface-integration`; keep the branch while this is open.
-- **Composer attachments** (2026-09-18) — revive when attaching a file to a goal or steer is wanted.
+- **Composer attachments** (2026-09-18) — the New run goal has them since 2026-10-12; revive the Steer half
+  and drag-drop when attaching a file to a steer is wanted.
 - **Diff surface repository actions (Spec B)** (2026-09-04) — checkout, cherry-pick, revert. Needs its
   own spec; revive when a write from the Diff surface is wanted. The orphaned revert path was deleted
   2026-10-05, recovery commands in `docs/deferred.md`.
