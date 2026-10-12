@@ -894,6 +894,18 @@ const briefPeek = {
         await h.ev("new Promise((r) => setTimeout(r, 300))");
         await h.ev(`document.querySelector('[data-palette-scope="records"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 900))");
+        // the arrange reloaded the page, so the first record's detail is uncached and its skeleton draws before the
+        // read lands: too briefly to poll for, so an observer records that it appeared
+        await h.ev(`(() => {
+            window.__briefPeekSawLoading = false;
+            window.__briefPeekLoadingObs?.disconnect();
+            window.__briefPeekLoadingObs = new MutationObserver(() => {
+                if (document.querySelector('[data-jarvis-brief-band="peek"] [data-jarvis-peek-loading]')) {
+                    window.__briefPeekSawLoading = true;
+                }
+            });
+            window.__briefPeekLoadingObs.observe(document.body, { childList: true, subtree: true });
+        })()`);
         const picked = await h.ev(`(() => {
             // scoped to the Records group's own container rather than a document-wide button query: the
             // palette renders several groups and the first button on the page is the app bar's search.
@@ -920,7 +932,7 @@ const briefPeek = {
             const text = (band.innerText || "").replace(/\\s+/g, " ").trim();
             return {
                 text: text.slice(0, 400),
-                fleet: /fleet/i.test(text),
+                runsBand: /Runs on this record/.test(text),
                 // updated, never a freshness word: a record carries no freshness reading
                 updated: /updated (just now|.+ ago)|never updated/.test(text),
                 fresh: /\\bFresh\\b/.test(text),
@@ -937,13 +949,26 @@ const briefPeek = {
                 peek.statusToggle === true,
             detail: JSON.stringify({ picked, peek }),
         });
-        // The fleet band's content is data-dependent: a record with sessions attributed to it names them, and
+        const loading = await h.ev(`(() => {
+            window.__briefPeekLoadingObs?.disconnect();
+            window.__briefPeekLoadingObs = undefined;
+            return {
+                saw: window.__briefPeekSawLoading === true,
+                still: document.querySelector('[data-jarvis-brief-band="peek"] [data-jarvis-peek-loading]') != null,
+            };
+        })()`);
+        steps.push({
+            step: "2a. the body draws skeleton lines while the record loads",
+            ok: loading.saw === true && loading.still === false,
+            detail: JSON.stringify(loading),
+        });
+        // The runs band's content is data-dependent: a record with sessions attributed to it names them, and
         // one without says so instead. The band itself always renders (its rows, or the runs-absent line),
         // so its label is what the step reads, whichever of the two the data calls for.
         steps.push({
-            step: "2b. the peek names the record's fleet or says it has none",
-            ok: peek != null && peek.fleet === true,
-            detail: JSON.stringify({ fleet: peek?.fleet ?? null }),
+            step: "2b. the peek names the record's runs or says it has none",
+            ok: peek != null && peek.runsBand === true,
+            detail: JSON.stringify({ runsBand: peek?.runsBand ?? null }),
         });
 
         // The peek's run list is the record's attributed sessions, and clicking one is the path B5 re-homed
@@ -1092,32 +1117,143 @@ const briefPeek = {
             })()`);
         }
 
-        const picker = await h.ev(`(() => {
-            const toggle = document.querySelector("[data-jarvis-peek-status-toggle]");
-            if (!toggle) return null;
-            toggle.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 300))");
-        const rows = await h.ev(`(() => {
-            const all = [...document.querySelectorAll("[data-jarvis-peek-status]")];
-            return all.map((el) => ({ status: el.dataset.jarvisPeekStatus, control: el.tagName === "BUTTON" }));
-        })()`);
+        const BAND = `[data-jarvis-brief-band="peek"]`;
+        const readSegments = () =>
+            h.ev(`[...document.querySelectorAll('${BAND} [data-jarvis-peek-status-toggle] [data-jarvis-peek-status]')].map((el) => ({
+                status: el.dataset.jarvisPeekStatus,
+                control: el.tagName === "BUTTON",
+                svg: el.querySelector("svg") != null,
+                text: (el.textContent || "").trim(),
+                pending: el.dataset.jarvisPeekPending ?? null,
+            }))`);
+        const currentStatus = async () => ((await readSegments()) ?? []).find((s) => !s.control)?.status ?? null;
+        const waitCurrent = (status, ms) =>
+            polishWaitFor(h, `document.querySelector('${BAND} span[data-jarvis-peek-status="${status}"]') != null`, ms);
+        const clickSegment = (status) =>
+            h.ev(`(() => {
+                const b = document.querySelector('${BAND} button[data-jarvis-peek-status="${status}"]');
+                if (b) b.click();
+                return b != null;
+            })()`);
+        const clickConfirm = (label) =>
+            h.ev(`(() => {
+                const c = document.querySelector('${BAND} [data-jarvis-peek-confirm]');
+                const b = c ? [...c.querySelectorAll("button")].find((x) => (x.textContent || "").trim() === ${JSON.stringify(label)}) : null;
+                if (b) b.click();
+                return b != null;
+            })()`);
+        const storedStatus = async () =>
+            (await h.rpc("getdossier", { dossierid: BRIEF_PEEK_RECORD }).catch((e) => ({ status: `error: ${e?.message ?? e}` })))
+                ?.status ?? null;
+        const pressEscape = () =>
+            h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`);
+
+        // the options are always on screen: no click opens them
+        const rows = (await readSegments()) ?? [];
+        const current = rows.filter((r) => !r.control);
         steps.push({
-            step: "4. the status picker offers only legal transitions, and the current status is a label",
+            step: "4. the status toggle offers only legal transitions, and the current status is a marked label",
             ok:
-                picker === true &&
                 rows.length >= 2 &&
-                rows.filter((r) => !r.control).length === 1 &&
-                rows.every((r) => ["active", "paused", "completed", "archived"].includes(r.status)),
+                current.length === 1 &&
+                current[0].svg === true &&
+                rows.every((r) => ["active", "paused", "completed", "archived"].includes(r.status)) &&
+                rows.every((r) => /^[A-Z][a-z]+$/.test(r.text)),
             detail: JSON.stringify(rows),
         });
 
+        // the reopen above went through the palette, whose exit still fades over the modal's entrance
+        await settle(600);
         await h.shot("cdp-shots/brief-peek.png");
 
-        await h.ev(
-            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
-        );
+        // the writes touch only the record this scenario seeded: the walk above can end on a user's record
+        const openRecord = await h.ev(`document.querySelector('${BAND} [data-jarvis-peek-record]')?.dataset.jarvisPeekRecord ?? null`);
+        if (openRecord !== BRIEF_PEEK_RECORD) {
+            const detail = `the open record is ${openRecord}, not the seeded one; status writes skipped`;
+            steps.push({ step: "4b. a terminal pick asks inline; Cancel writes nothing", ok: false, detail });
+            steps.push({ step: "4c. Yes archives; only reactivating is offered", ok: false, detail });
+            steps.push({ step: "4d. reactivating writes at once, no confirm", ok: false, detail });
+        } else {
+            const before = await currentStatus();
+            if (before !== "active") {
+                await clickSegment("active");
+                await waitCurrent("active", 5000);
+            }
+
+            await clickSegment("archived");
+            await settle(300);
+            const asked = await h.ev(`(() => {
+                const c = document.querySelector('${BAND} [data-jarvis-peek-confirm="archived"]');
+                return {
+                    confirm: c != null,
+                    text: c ? (c.innerText || "").replace(/\\s+/g, " ").trim() : null,
+                    pending: document.querySelector('${BAND} [data-jarvis-peek-status="archived"]')?.dataset.jarvisPeekPending ?? null,
+                };
+            })()`);
+            await h.shot("cdp-shots/brief-peek-confirm.png");
+            const cancelled = await clickConfirm("Cancel");
+            await settle(300);
+            const afterCancel = {
+                confirmGone: await h.ev(`document.querySelector('${BAND} [data-jarvis-peek-confirm]') == null`),
+                current: await currentStatus(),
+                stored: await storedStatus(),
+            };
+            steps.push({
+                step: "4b. a terminal pick asks inline; Cancel writes nothing",
+                ok:
+                    asked.confirm === true &&
+                    (asked.text ?? "").includes("Mark this record archived?") &&
+                    asked.pending === "archived" &&
+                    cancelled === true &&
+                    afterCancel.confirmGone === true &&
+                    afterCancel.current === "active" &&
+                    afterCancel.stored === "active",
+                detail: JSON.stringify({ before, asked, cancelled, afterCancel }),
+            });
+
+            await clickSegment("archived");
+            await settle(300);
+            const confirmed = await clickConfirm("Yes, archived");
+            const archived = await waitCurrent("archived", 5000);
+            const archivedRows = (await readSegments()) ?? [];
+            steps.push({
+                step: "4c. Yes archives; only reactivating is offered",
+                ok:
+                    confirmed === true &&
+                    archived === true &&
+                    JSON.stringify(archivedRows.map((r) => [r.status, r.control])) ===
+                        JSON.stringify([
+                            ["active", true],
+                            ["archived", false],
+                        ]),
+                detail: JSON.stringify({ confirmed, archived, archivedRows }),
+            });
+            await h.shot("cdp-shots/brief-peek-archived.png");
+
+            // a confirm can come and go between two polls, so an observer records whether one ever appeared
+            await h.ev(`(() => {
+                window.__briefPeekSawConfirm = false;
+                window.__briefPeekConfirmObs?.disconnect();
+                window.__briefPeekConfirmObs = new MutationObserver(() => {
+                    if (document.querySelector('${BAND} [data-jarvis-peek-confirm]')) window.__briefPeekSawConfirm = true;
+                });
+                window.__briefPeekConfirmObs.observe(document.body, { childList: true, subtree: true });
+            })()`);
+            const reactivated = (await clickSegment("active")) && (await waitCurrent("active", 5000));
+            const sawConfirm = await h.ev(`(() => {
+                window.__briefPeekConfirmObs?.disconnect();
+                window.__briefPeekConfirmObs = undefined;
+                return window.__briefPeekSawConfirm === true || document.querySelector('${BAND} [data-jarvis-peek-confirm]') != null;
+            })()`);
+            const storedAfter = await storedStatus();
+            steps.push({
+                step: "4d. reactivating writes at once, no confirm",
+                ok: reactivated === true && sawConfirm === false && storedAfter === "active",
+                detail: JSON.stringify({ reactivated, sawConfirm, stored: storedAfter }),
+            });
+        }
+
+        await pressEscape();
         await h.ev("new Promise((r) => setTimeout(r, 400))");
         steps.push({
             step: "5. Escape closes the peek and leaves the Brief behind it",
@@ -1126,6 +1262,128 @@ const briefPeek = {
                 (await h.ev(`!!document.querySelector('[data-jarvis-region="brief"]')`)) === true,
             detail: "",
         });
+
+        // the avatar popup's record item mounts the same body, without a close of its own
+        const ITEM = `[data-pet-peek-item="record"]`;
+        const peekHook = await polishWaitFor(h, `typeof window.__peekAddress === 'function'`, 5000);
+        if (peekHook) await h.ev(`window.__peekAddress(${JSON.stringify("task:" + BRIEF_PEEK_RECORD)})`);
+        const popupReady = peekHook && (await polishWaitFor(h, `document.querySelector('${ITEM} [data-jarvis-peek-status-toggle]') != null`, 6000));
+        const popupRuns = popupReady && (await polishWaitFor(h, `document.querySelector('${ITEM} [data-jarvis-peek-run]') != null`, 10000));
+        const popup = await h.ev(`(() => {
+            const body = document.querySelector('${ITEM} [data-jarvis-peek-record]');
+            return body
+                ? { record: body.dataset.jarvisPeekRecord, close: body.querySelector('[aria-label="Close"]') != null }
+                : null;
+        })()`);
+        await h.shot("cdp-shots/brief-peek-popup.png");
+        await h.ev(`document.querySelector('[data-pet-peek] button[aria-label="Close Jarvis panel"]')?.click()`);
+        const popupClosed = await polishWaitFor(h, `!document.querySelector('[data-pet-peek-item]')`, 3000);
+        steps.push({
+            step: "6. the avatar popup's record item draws the same body",
+            ok:
+                popupReady === true &&
+                popupRuns === true &&
+                popup?.record === BRIEF_PEEK_RECORD &&
+                popup?.close === false &&
+                popupClosed === true,
+            detail: JSON.stringify({ peekHook, popupReady, popupRuns, popup, popupClosed }),
+        });
+
+        const recordHook = await polishWaitFor(h, `typeof window.__recordPeekFor === 'function'`, 5000);
+        if (recordHook) await h.ev(`window.__recordPeekFor('verify-brief-peek-no-such-record')`);
+        const errored = recordHook && (await polishWaitFor(h, `document.querySelector('${BAND} [data-jarvis-peek-error]') != null`, 6000));
+        const failedRead = await h.ev(`(() => {
+            const el = document.querySelector('${BAND} [data-jarvis-peek-error]');
+            return {
+                text: el ? (el.innerText || "").trim().slice(0, 200) : null,
+                loading: document.querySelector('${BAND} [data-jarvis-peek-loading]') != null,
+            };
+        })()`);
+        await h.shot("cdp-shots/brief-peek-error.png");
+        await pressEscape();
+        const errorClosed = await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+        steps.push({
+            step: "7. a record that cannot be read says so instead of loading forever",
+            ok:
+                errored === true &&
+                (failedRead.text ?? "").startsWith("Could not read this record") &&
+                failedRead.loading === false &&
+                errorClosed === true,
+            detail: JSON.stringify({ recordHook, errored, failedRead, errorClosed }),
+        });
+
+        // a real read lands too quickly to photograph, so a held one on a made-up id keeps the skeleton up
+        if (recordHook) await h.ev(`window.__recordPeekFor('verify-brief-peek-loading', { hold: true })`);
+        await settle(300);
+        const held = await h.ev(`({
+            loading: document.querySelector('${BAND} [data-jarvis-peek-loading]') != null,
+            error: document.querySelector('${BAND} [data-jarvis-peek-error]') != null,
+        })`);
+        await h.shot("cdp-shots/brief-peek-loading.png");
+        await pressEscape();
+        const heldClosed = await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+        steps.push({
+            step: "7b. a record still loading holds its skeleton, not an error",
+            ok: recordHook === true && held.loading === true && held.error === false && heldClosed === true,
+            detail: JSON.stringify({ held, heldClosed }),
+        });
+
+        // a record with no objective, no decisions and no runs: no RPC can make one, so the detail is seeded
+        const EMPTY_ID = "verify-brief-peek-empty";
+        const emptyDetail = {
+            id: EMPTY_ID,
+            ticket: "",
+            objective: "",
+            acceptance: [],
+            confidence: "",
+            status: "active",
+            created: 0,
+            updated: 0,
+            state: "",
+            blockers: [],
+            refs: [],
+            notes: "",
+            decisions: [],
+        };
+        if (recordHook) await h.ev(`window.__recordPeekFor(${JSON.stringify(EMPTY_ID)}, { detail: ${JSON.stringify(emptyDetail)} })`);
+        const emptyReady =
+            recordHook && (await polishWaitFor(h, `document.querySelector('${BAND} [data-jarvis-peek-status-toggle]') != null`, 6000));
+        const empty = await h.ev(`(() => {
+            const band = document.querySelector('${BAND}');
+            if (!band) return null;
+            const title = band.querySelector("[data-jarvis-peek-title]");
+            const body = band.querySelector("[data-jarvis-peek-body]");
+            const probe = document.createElement("span");
+            probe.className = "text-muted";
+            band.appendChild(probe);
+            const muted = getComputedStyle(probe).color;
+            probe.remove();
+            return {
+                title: title ? (title.textContent || "").trim() : null,
+                titleFont: title ? getComputedStyle(title).fontFamily : null,
+                body: body ? (body.textContent || "").trim() : null,
+                bodyColor: body ? getComputedStyle(body).color : null,
+                muted,
+                text: (band.innerText || "").replace(/\\s+/g, " ").trim().slice(0, 400),
+            };
+        })()`);
+        steps.push({
+            step: "8. a record with nothing yet titles itself by its id and says what it lacks",
+            ok:
+                emptyReady === true &&
+                empty != null &&
+                empty.title === EMPTY_ID &&
+                /mono/i.test(empty.titleFont ?? "") &&
+                empty.body === "This record states no objective yet." &&
+                empty.bodyColor === empty.muted &&
+                empty.text.includes("No session has ever been attributed to this record.") &&
+                empty.text.includes("never updated") &&
+                empty.text.includes("no decisions yet"),
+            detail: JSON.stringify({ emptyReady, empty }),
+        });
+        await h.shot("cdp-shots/brief-peek-empty.png");
+        await pressEscape();
+        await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
         return steps;
     },
     async teardown(h, ctx) {
@@ -1137,6 +1395,13 @@ const briefPeek = {
                 console.error(`brief-peek teardown: ${what} failed: ${e?.message ?? e}`);
             }
         };
+        await step("close the popup", () =>
+            h.ev(`document.querySelector('[data-pet-peek] button[aria-label="Close Jarvis panel"]')?.click()`)
+        );
+        // a failure between 4c's archive and 4d's reactivation must not leave the seeded record archived
+        await step("reactivate the record", () =>
+            h.rpc("setdossierstatus", { dossierid: BRIEF_PEEK_RECORD, status: "active" })
+        );
         // detached, so the record keeps one run ref across runs rather than growing one per run
         if (ctx?.runId) {
             await step("detach the run from the record", () =>
