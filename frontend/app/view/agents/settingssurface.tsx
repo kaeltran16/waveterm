@@ -16,10 +16,20 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
-import { Folder, Search } from "lucide-react";
+import { Check, Folder, RefreshCw, Search } from "lucide-react";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
+import {
+    CLAUDE_ACCOUNT_EXPIRED_LINE,
+    CLAUDE_ACCOUNT_HINT,
+    CLAUDE_ACCOUNT_NO_LOGIN,
+    CLAUDE_ACCOUNT_NO_NEW,
+    claudeAccountView,
+    noNewLogin,
+    switchedStatusLine,
+    type ClaudeAccountRow,
+} from "./claudeaccountmodel";
 import {
     coerceFontSize,
     coerceScrollback,
@@ -36,6 +46,7 @@ import { RUNTIME_FLAGS, type Runtime } from "./launch";
 import { DEFAULT_REMEMBER_FLAGS, naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { ITEMS } from "./navrail";
 import { DEFAULT_RAIL_VISIBLE, railVisibleAtom } from "./railstore";
+import { forgetRateLimit } from "./ratelimitstore";
 import { RoutePicker } from "./routepicker";
 import {
     changedCount,
@@ -52,6 +63,8 @@ import {
     rowKeys,
     settingsSections,
     vaultStatusLine,
+    vaultSyncButton,
+    vaultSyncFailureNote,
     type SettingRowDef,
     type SettingSectionDef,
 } from "./settingsmodel";
@@ -471,9 +484,18 @@ function SettingRow({ id, stacked, children }: { id: string; stacked?: boolean; 
     );
 }
 
-function Note({ tone = "warning", children }: { tone?: "warning" | "error"; children: ReactNode }) {
+function Note({
+    tone = "warning",
+    testId,
+    children,
+}: {
+    tone?: "warning" | "error";
+    testId?: string;
+    children: ReactNode;
+}) {
     return (
         <div
+            data-testid={testId}
             className={cn(
                 "mt-4 flex items-start gap-2.5 rounded-[10px] border px-3.5 py-3 text-[12.5px] leading-[1.55]",
                 tone === "warning"
@@ -679,6 +701,8 @@ function SectionBody({ id, runtime, onRuntime }: { id: string; runtime: Runtime;
             return <GeneralSection />;
         case "newagent":
             return <NewAgentSection runtime={runtime} onRuntime={onRuntime} />;
+        case "claudeaccount":
+            return <ClaudeAccountSection />;
         case "run":
             return <RunRouteSection />;
         case "terminal":
@@ -902,6 +926,200 @@ function NewAgentSection({ runtime, onRuntime }: { runtime: Runtime; onRuntime: 
     );
 }
 
+const ACCOUNT_BUTTON = "flex-none rounded border px-[13px] py-[7px] text-[12px] font-semibold transition-colors";
+const ACCOUNT_BUTTON_ON = "cursor-pointer border-edge-mid text-secondary hover:border-edge-strong hover:text-primary";
+
+// Opening the section lists, and listing captures the live login, so a /login made in any claude session
+// shows up here without a separate step.
+function ClaudeAccountSection() {
+    const [data, setData] = useState<ClaudeAccountsRtnData | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [switchedTo, setSwitchedTo] = useState<string | null>(null);
+    const [noNew, setNoNew] = useState(false);
+    const list = async (): Promise<ClaudeAccountsRtnData | null> => {
+        try {
+            const d = await RpcApi.ClaudeAccountsCommand(TabRpcClient);
+            setData(d);
+            return d;
+        } catch (e) {
+            setError(String(e));
+            return null;
+        }
+    };
+    useEffect(() => {
+        fireAndForget(list);
+    }, []);
+    const check = () =>
+        fireAndForget(async () => {
+            const before = data?.accounts?.length ?? 0;
+            setError(null);
+            setNoNew(false);
+            const d = await list();
+            if (d != null) {
+                setNoNew(noNewLogin(before, d));
+            }
+        });
+    const switchTo = (row: ClaudeAccountRow) =>
+        fireAndForget(async () => {
+            setError(null);
+            setNoNew(false);
+            setSwitchedTo(null);
+            try {
+                await RpcApi.ClaudeAccountSwitchCommand(TabRpcClient, { accountuuid: row.uuid });
+                // the saved usage donut belongs to the previous account
+                forgetRateLimit("claude");
+                setSwitchedTo(row.email);
+            } catch (e) {
+                setError(String(e));
+            }
+            await list();
+        });
+    const remove = (row: ClaudeAccountRow) =>
+        fireAndForget(async () => {
+            setError(null);
+            setNoNew(false);
+            try {
+                await RpcApi.ClaudeAccountRemoveCommand(TabRpcClient, { accountuuid: row.uuid });
+            } catch (e) {
+                setError(String(e));
+            }
+            await list();
+        });
+    const view = claudeAccountView(data, Date.now());
+    return (
+        <div>
+            <SettingRow id="claudeaccount.accounts" stacked>
+                {view.showNoLogin ? <Note testId="claude-account-nologin">{CLAUDE_ACCOUNT_NO_LOGIN}</Note> : null}
+                <div className={cn("flex flex-col gap-1.5", view.showNoLogin && "mt-3")}>
+                    {view.rows.map((row) => (
+                        <ClaudeAccountItem
+                            key={row.uuid}
+                            row={row}
+                            onSwitch={() => switchTo(row)}
+                            onRemove={() => remove(row)}
+                        />
+                    ))}
+                </div>
+                {switchedTo != null ? (
+                    <div role="status" className="mt-2.5 flex items-start gap-2 text-[12px] leading-[1.5] text-ink-mid">
+                        <Check size={14} strokeWidth={2.2} aria-hidden className="mt-0.5 flex-none text-success" />
+                        <span>{switchedStatusLine(switchedTo)}</span>
+                    </div>
+                ) : null}
+                {view.showHint ? (
+                    <div data-testid="claude-account-hint" className="mt-2.5 text-[12px] leading-[1.5] text-muted">
+                        {CLAUDE_ACCOUNT_HINT}
+                    </div>
+                ) : null}
+                {error ? (
+                    <div role="alert">
+                        <Note tone="error" testId="claude-account-error">
+                            {error}
+                        </Note>
+                    </div>
+                ) : null}
+            </SettingRow>
+            <SettingRow id="claudeaccount.add">
+                {noNew ? (
+                    <span data-testid="claude-account-nonew" role="status" className="text-[12px] text-muted">
+                        {CLAUDE_ACCOUNT_NO_NEW}
+                    </span>
+                ) : null}
+                <button
+                    type="button"
+                    data-testid="claude-account-check"
+                    onClick={check}
+                    className={cn(ACCOUNT_BUTTON, ACCOUNT_BUTTON_ON)}
+                >
+                    Check now
+                </button>
+            </SettingRow>
+        </div>
+    );
+}
+
+function ClaudeAccountItem({
+    row,
+    onSwitch,
+    onRemove,
+}: {
+    row: ClaudeAccountRow;
+    onSwitch: () => void;
+    onRemove: () => void;
+}) {
+    return (
+        <div
+            data-testid="claude-account-row"
+            data-account-uuid={row.uuid}
+            data-active={row.active ? "" : undefined}
+            className={cn(
+                "flex items-center gap-3 rounded-[10px] border px-4 py-[11px]",
+                row.active ? "border-edge-strong bg-surface-selected" : "border-edge-mid bg-surface-raised"
+            )}
+        >
+            <span
+                className={cn(
+                    "flex h-[30px] w-[30px] flex-none items-center justify-center rounded-full border text-[13px] font-bold",
+                    row.active
+                        ? "border-rt-claude-line bg-rt-claude-soft text-rt-claude"
+                        : "border-edge-mid bg-white/5 text-ink-mid"
+                )}
+            >
+                {row.initial}
+            </span>
+            <div className="min-w-0 flex-1">
+                <div className="truncate text-[13.5px] font-semibold text-primary">{row.email}</div>
+                {row.expired ? (
+                    <div
+                        data-testid="claude-account-expired"
+                        className="mt-[3px] flex items-center gap-1.5 text-[12px] text-warning"
+                    >
+                        <span className="h-1.5 w-1.5 flex-none rounded-full bg-warning" />
+                        {CLAUDE_ACCOUNT_EXPIRED_LINE}
+                    </div>
+                ) : (
+                    <div className="mt-0.5 truncate font-mono text-[11px] text-ink-mid">{row.meta}</div>
+                )}
+            </div>
+            {/* fixed width, so Remove and Switch line up across rows */}
+            <div className="flex w-[150px] flex-none items-center justify-end gap-2.5">
+                {row.active ? (
+                    <span className="flex items-center gap-[7px] py-[7px] text-[12px] font-semibold text-success">
+                        <span className="h-[7px] w-[7px] rounded-full bg-success" />
+                        Active
+                    </span>
+                ) : (
+                    <>
+                        <button
+                            type="button"
+                            data-testid="claude-account-remove"
+                            aria-label={`Remove ${row.email}`}
+                            onClick={onRemove}
+                            className="cursor-pointer px-0.5 py-[7px] text-[11.5px] font-semibold text-muted transition-colors hover:text-primary"
+                        >
+                            Remove
+                        </button>
+                        <button
+                            type="button"
+                            data-testid="claude-account-switch"
+                            disabled={!row.switchable}
+                            onClick={onSwitch}
+                            className={cn(
+                                ACCOUNT_BUTTON,
+                                row.switchable
+                                    ? ACCOUNT_BUTTON_ON
+                                    : "cursor-not-allowed border-edge-faint text-ink-faint"
+                            )}
+                        >
+                            Switch
+                        </button>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
 function RunRouteSection() {
     const preference = useAtomValue(harnessPreferenceAtom);
     return (
@@ -973,19 +1191,26 @@ function TerminalSection() {
     );
 }
 
+// a waited sync runs a pull and a push; the 5 s default rpc timeout would give up on it mid-run
+const VAULT_SYNC_TIMEOUT_MS = 120_000;
+
 function MemorySection() {
     const stored = (useAtomValue(getSettingsKeyAtom("memory:vaultpath")) as string) ?? "";
     const [error, setError] = useState<string | null>(null);
     const [status, setStatus] = useState<VaultStatusRtnData | null>(null);
     const [remoteError, setRemoteError] = useState<string | null>(null);
-    const loadStatus = () =>
-        fireAndForget(async () => {
-            try {
-                setStatus(await RpcApi.VaultStatusCommand(TabRpcClient));
-            } catch (e) {
-                setRemoteError(String(e));
-            }
-        });
+    const [clicking, setClicking] = useState(false);
+    const reloadStatus = async (): Promise<VaultStatusRtnData | null> => {
+        try {
+            const s = await RpcApi.VaultStatusCommand(TabRpcClient);
+            setStatus(s);
+            return s;
+        } catch (e) {
+            setRemoteError(String(e));
+            return null;
+        }
+    };
+    const loadStatus = () => fireAndForget(reloadStatus);
     useEffect(() => {
         loadStatus();
     }, []);
@@ -999,7 +1224,26 @@ function MemorySection() {
             }
             loadStatus();
         });
-    const statusLine = vaultStatusLine(status);
+    const syncNow = () =>
+        fireAndForget(async () => {
+            setRemoteError(null);
+            setClicking(true);
+            try {
+                await RpcApi.VaultSyncCommand(TabRpcClient, { wait: true }, { timeout: VAULT_SYNC_TIMEOUT_MS });
+                await reloadStatus();
+            } catch (e) {
+                const note = vaultSyncFailureNote(String(e), await reloadStatus());
+                if (note != null) {
+                    setRemoteError(note);
+                }
+            } finally {
+                setClicking(false);
+            }
+        });
+    // a click shows as running before the reloaded status can say so
+    const shown = clicking && status != null ? { ...status, running: true } : status;
+    const statusLine = vaultStatusLine(shown);
+    const syncButton = vaultSyncButton(status, clicking);
     // validate before persisting: an empty path clears the override (falls back to the default vault),
     // otherwise the folder must exist and be a directory. reuses FileInfoCommand (bare local path, ~
     // expanded by the backend) instead of a dedicated RPC — mirrors the New Project picker's stat check.
@@ -1053,9 +1297,40 @@ function MemorySection() {
             {error ? <Note tone="error">{error}</Note> : null}
             <SettingRow id="memory.remote">
                 <CommitText value={status?.remoteurl ?? ""} placeholder="git@host:you/vault.git" onCommit={setRemote} />
+                <button
+                    type="button"
+                    data-testid="vault-sync-now"
+                    disabled={!syncButton.enabled}
+                    onClick={syncNow}
+                    className={cn(
+                        "flex w-[96px] flex-none items-center justify-center gap-1.5 rounded border py-[7px] text-[12px] font-semibold transition-colors",
+                        syncButton.enabled
+                            ? "cursor-pointer border-edge-mid text-secondary hover:border-edge-strong hover:text-primary"
+                            : "cursor-not-allowed border-edge-faint text-ink-faint"
+                    )}
+                >
+                    {syncButton.enabled ? <RefreshCw size={12} aria-hidden /> : null}
+                    {syncButton.label}
+                </button>
             </SettingRow>
-            {remoteError ? <Note tone="error">{remoteError}</Note> : null}
-            {statusLine ? <div className="px-1 pb-2 font-mono text-[11.5px] text-muted">{statusLine}</div> : null}
+            {remoteError ? (
+                <Note tone="error" testId="vault-sync-error">
+                    {remoteError}
+                </Note>
+            ) : null}
+            {statusLine ? (
+                <div
+                    data-testid="vault-sync-status"
+                    role="status"
+                    aria-live="polite"
+                    className={cn(
+                        "px-1 pb-2 font-mono text-[11.5px]",
+                        shown?.lasterror && !shown.running ? "text-error" : "text-muted"
+                    )}
+                >
+                    {statusLine}
+                </div>
+            ) : null}
         </div>
     );
 }

@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { globalStore } from "@/app/store/jotaiStore";
 import {
+    forgetRateLimit,
     mergeRateLimitWindows,
     readSavedRateLimits,
     recordRateLimit,
+    savedRateLimitsAtom,
     topProviderUsage,
     type SavedSnapshot,
 } from "./ratelimitstore";
@@ -184,5 +187,40 @@ describe("recordRateLimit + readSavedRateLimits round-trip", () => {
     it("corrupt localStorage reads back as empty", () => {
         (globalThis as any).localStorage.setItem("wave:ratelimits", "{not json");
         expect(readSavedRateLimits()).toEqual({});
+    });
+});
+
+describe("forgetRateLimit", () => {
+    const snap = (pct: number): SavedSnapshot => ({ fivehourpct: pct, capturedAt: 1 });
+    afterEach(() => {
+        delete (globalThis as any).localStorage;
+        globalStore.set(savedRateLimitsAtom, {});
+    });
+
+    it("drops the provider from the atom and localStorage, and keeps the other providers", () => {
+        const store = mockLocalStorage();
+        const saved = { claude: snap(60), codex: snap(20) };
+        globalStore.set(savedRateLimitsAtom, saved);
+        store["wave:ratelimits"] = JSON.stringify(saved);
+
+        forgetRateLimit("claude");
+
+        expect(globalStore.get(savedRateLimitsAtom)).toEqual({ codex: snap(20) });
+        expect(readSavedRateLimits()).toEqual({ codex: snap(20) });
+    });
+
+    it("still clears the atom when localStorage throws", () => {
+        (globalThis as any).localStorage = {
+            getItem: () => {
+                throw new Error("denied");
+            },
+            setItem: () => {
+                throw new Error("denied");
+            },
+        };
+        globalStore.set(savedRateLimitsAtom, { claude: snap(60) });
+
+        expect(() => forgetRateLimit("claude")).not.toThrow();
+        expect(globalStore.get(savedRateLimitsAtom)).toEqual({});
     });
 });

@@ -197,6 +197,26 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
             ],
         },
         {
+            id: "claudeaccount",
+            name: "Claude account",
+            blurb: "Which Claude.ai login new claude sessions use. Arc saves every login it sees, so moving to another account is one click.",
+            group: "Agents",
+            rows: [
+                {
+                    id: "claudeaccount.accounts",
+                    title: "Accounts",
+                    desc: "Every claude session launches with the active account. Switching saves the active login first, so its tokens are current when you come back to it.",
+                    key: "~/.claude/.credentials.json · ~/.claude.json · secrets.enc",
+                    scope: "local",
+                },
+                {
+                    id: "claudeaccount.add",
+                    title: "Add an account",
+                    desc: "Run /login in any claude session and sign in with the other account. Arc saves it the next time it checks.",
+                },
+            ],
+        },
+        {
             id: "run",
             name: "Run defaults",
             blurb: "Backend-authoritative harness and model for new runs.",
@@ -394,6 +414,25 @@ export function vaultStatusLine(s: VaultStatusRtnData | null): string {
         line += `, ${malformed} malformed ${malformed === 1 ? "effort" : "efforts"}`;
     }
     return line;
+}
+
+// the Sync now button. `clicking` is the local in-flight flag, set before the RPC so the row reads
+// syncing at once; `status.running` also covers a sync started at launch or on window focus.
+export function vaultSyncButton(s: VaultStatusRtnData | null, clicking: boolean): { enabled: boolean; label: string } {
+    if (clicking || s?.running) {
+        return { enabled: false, label: "Syncing…" };
+    }
+    return { enabled: s != null && !s.off, label: "Sync now" };
+}
+
+// what a rejected Sync now puts in the row's error note. a sync's own failure is already in the reloaded
+// status as `lasterror` (shown by the status line), so only an RPC failure gets a note: the status has no
+// error, could not be loaded, or still runs (the RPC timeout fired mid-sync).
+export function vaultSyncFailureNote(err: string, reloaded: VaultStatusRtnData | null): string | null {
+    if (reloaded == null || reloaded.running || !reloaded.lasterror) {
+        return err;
+    }
+    return null;
 }
 
 // Sections with non-matching rows dropped, then empty sections dropped. An empty query returns the

@@ -17,6 +17,8 @@ import {
     rowMatches,
     settingsSections,
     vaultStatusLine,
+    vaultSyncButton,
+    vaultSyncFailureNote,
     type SettingSectionDef,
 } from "./settingsmodel";
 
@@ -36,6 +38,25 @@ describe("vault sync rows", () => {
             .rows.find((r) => r.id === "memory.remote")!;
         expect(row.key).toBeUndefined();
         expect(row.config).toBeUndefined();
+    });
+});
+
+describe("claude account section", () => {
+    it("sits in Agents directly after New Agent", () => {
+        const agents = groupSections(sections()).find((g) => g.label === "Agents")!;
+        const ids = agents.sections.map((s) => s.id);
+        expect(ids.indexOf("claudeaccount")).toBe(ids.indexOf("newagent") + 1);
+    });
+
+    it("has an Accounts row and an Add an account row, neither a config row", () => {
+        const section = sections().find((s) => s.id === "claudeaccount")!;
+        expect(section.name).toBe("Claude account");
+        expect(section.rows.map((r) => [r.id, r.title])).toEqual([
+            ["claudeaccount.accounts", "Accounts"],
+            ["claudeaccount.add", "Add an account"],
+        ]);
+        expect(section.rows.every((r) => r.config === undefined)).toBe(true);
+        expect(section.rows[0].scope).toBe("local");
     });
 });
 
@@ -62,6 +83,50 @@ describe("vaultStatusLine", () => {
         expect(vaultStatusLine({ ...ok, conflicts: ["a", "b"], malformedefforts: ["x"] })).toBe(
             "Last synced just now, 2 conflict copies, 1 malformed effort"
         );
+    });
+});
+
+describe("vaultSyncButton", () => {
+    it("is disabled and reads Syncing… while a sync runs, from a click or from launch/focus", () => {
+        const syncing = { enabled: false, label: "Syncing…" };
+        expect(vaultSyncButton({ running: true }, false)).toEqual(syncing);
+        expect(vaultSyncButton({}, true)).toEqual(syncing);
+    });
+
+    it("is disabled but keeps its label when sync is off", () => {
+        const off = { enabled: false, label: "Sync now" };
+        expect(vaultSyncButton({ off: "no-git" }, false)).toEqual(off);
+        expect(vaultSyncButton({ off: "no-remote" }, false)).toEqual(off);
+    });
+
+    it("stays enabled after a failed sync so the user can retry", () => {
+        expect(vaultSyncButton({ lasterror: "push rejected" }, false)).toEqual({ enabled: true, label: "Sync now" });
+    });
+
+    it("is enabled when idle", () => {
+        expect(vaultSyncButton({ lastsuccessts: Date.now() }, false)).toEqual({ enabled: true, label: "Sync now" });
+    });
+
+    it("is disabled until the status loads", () => {
+        expect(vaultSyncButton(null, false)).toEqual({ enabled: false, label: "Sync now" });
+    });
+});
+
+describe("vaultSyncFailureNote", () => {
+    it("leaves a sync's own failure to the status line", () => {
+        expect(vaultSyncFailureNote("push rejected", { lasterror: "push rejected" })).toBeNull();
+    });
+
+    it("notes a timeout that fired while the sync still runs", () => {
+        expect(vaultSyncFailureNote("timeout", { running: true, lasterror: "old error" })).toBe("timeout");
+    });
+
+    it("notes a rejection the status does not explain", () => {
+        expect(vaultSyncFailureNote("rpc closed", { lastsuccessts: Date.now() })).toBe("rpc closed");
+    });
+
+    it("notes a rejection when the status could not be reloaded", () => {
+        expect(vaultSyncFailureNote("rpc closed", null)).toBe("rpc closed");
     });
 });
 
