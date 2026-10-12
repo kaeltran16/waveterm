@@ -19,7 +19,8 @@ import {
 } from "./ask-core";
 import type { AskReply } from "./ask-core";
 import type { Picker } from "../types";
-import { cacheMissArgs, transcriptEntries } from "./cache-core";
+import { drawCacheMiss } from "./cache-band";
+import { cacheMissNotice, transcriptEntries } from "./cache-core";
 import { controlMsg, deliver, endTurn, steerNotice, takeLines } from "./control-core";
 import type { Turn } from "./control-core";
 import { denial } from "./guard-core";
@@ -40,6 +41,9 @@ const ASK_PANE = "arc-ask";
 
 // the question the terminal's picker is showing; null when none is
 const picker = atom({ plugin: "arc", key: "picker" } as const, null);
+
+// the last turn's cache miss, shown above the prompt until the next turn starts; null when none is
+const cacheMiss = atom({ plugin: "arc", key: "cacheMiss" } as const, null);
 
 // resolves the tool.call hook waiting on the picker. a module variable: a reload drops it with the
 // dispatch it served
@@ -121,21 +125,30 @@ async function clearAsk($: EngineInterface) {
     }
 }
 
-// tells the cockpit what the turn that just ended re-billed for a missed prompt cache.
-// ponytail: $.fs.read rejects a file over 4 MiB, so a session with a longer transcript reports no miss;
-// a wsh command that prints the file's tail lifts it
-async function reportCacheMiss($: EngineInterface, path: string) {
+// tells the person, and inside Arc the cockpit, what the turn that just ended re-billed for a missed
+// prompt cache. the transcript comes through wsh, found by the session's id: the hook events that carry its
+// path never reach this mod, and the mod's own file read rejects a file over 4 MiB
+async function reportCacheMiss($: EngineInterface) {
     try {
-        const args = cacheMissArgs(transcriptEntries(await $.fs.read(path)));
-        if (!args) {
+        const tail = await $.process.run([WSH, "transcript-tail", await $.session.id()]);
+        if (tail.exitCode !== 0) {
+            // a session can end a turn before its transcript is first written
+            $.ui.log(`arc: wsh transcript-tail exited ${tail.exitCode}: ${tail.stderr.trim()}`, { to: "debug" });
             return;
         }
-        const ran = await $.process.run([WSH, ...args]);
+        const notice = cacheMissNotice(transcriptEntries(tail.stdout));
+        if (!notice) {
+            return;
+        }
+        await update($, cacheMiss, () => notice);
+        if (!active) {
+            return;
+        }
+        const ran = await $.process.run([WSH, "notify", notice, "--level", "warn", "--transient"]);
         if (ran.exitCode !== 0) {
             $.ui.log(`arc: wsh notify exited ${ran.exitCode}: ${ran.stderr.trim()}`, { to: "debug" });
         }
     } catch (err) {
-        // a session can end a turn before its transcript is first written
         $.ui.log(`arc: reporting a cache miss failed: ${String(err)}`, { to: "debug" });
     }
 }
@@ -180,8 +193,9 @@ export const register: Register = (on) => {
         return next(e);
     });
 
-    on("turn.start", ($, e, next) => {
+    on("turn.start", async ($, e, next) => {
         turn.isOpen = true;
+        await update($, cacheMiss, () => null);
         return next(e);
     });
 
@@ -218,11 +232,17 @@ export const register: Register = (on) => {
                 $.ui.log(`arc: wsh agentstatus --state idle failed: ${String(err)}`, { to: "debug" });
             }
         }
-        if (active && !e.agentId && transcriptPath) {
+        // in every session, Arc's or not: the band shows the person the miss either way
+        if (!e.agentId) {
             // not awaited: reading a long transcript must not hold the turn's end
-            void reportCacheMiss($, transcriptPath);
+            void reportCacheMiss($);
         }
         return next(e);
+    });
+
+    on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
+        const notice = await read($, cacheMiss);
+        return notice && !e.hasSurvey ? drawCacheMiss($.ui.resolve(e), notice) : next(e);
     });
 
     on("ui.render", { component: "Pane", requestId: ASK_PANE }, async ($, e) => {

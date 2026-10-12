@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TranscriptEntry } from "./cache-core";
-import { cacheMissArgs, transcriptEntries } from "./cache-core";
+import { cacheMissNotice, transcriptEntries } from "./cache-core";
 
 const OPUS = "claude-opus-5-5";
 const SONNET = "claude-sonnet-5-5";
@@ -22,25 +22,23 @@ function request(id: string, minute: number, read: number, written: number, mode
     };
 }
 
-const notice = (title: string) => ["notify", title, "--level", "warn", "--transient"];
-
-describe("cacheMissArgs", () => {
+describe("cacheMissNotice", () => {
     it("names the idle time when the cache window had passed", () => {
         const entries = [prompt(), request("a", 0, 0, 100_000), prompt(), request("b", 12, 15_000, 85_000)];
-        expect(cacheMissArgs(entries)).toEqual(notice("Cache miss: 85k tokens re-billed after 12m idle"));
+        expect(cacheMissNotice(entries)).toEqual("Cache miss: 85k re-billed, 12m idle");
     });
 
     it("names a model switch, even past the cache window", () => {
         const entries = [prompt(), request("a", 0, 0, 212_000), prompt(), request("b", 12, 0, 212_000, SONNET)];
-        expect(cacheMissArgs(entries)).toEqual(notice("Cache miss: 212k tokens re-billed after a model switch"));
+        expect(cacheMissNotice(entries)).toEqual("Cache miss: 212k re-billed, model switch");
     });
 
     it("names no cause when there is neither", () => {
         const entries = [prompt(), request("a", 0, 0, 100_000), request("b", 1, 69_000, 31_000)];
-        expect(cacheMissArgs(entries)).toEqual(notice("Cache miss: 31k tokens re-billed"));
+        expect(cacheMissNotice(entries)).toEqual("Cache miss: 31k re-billed");
     });
 
-    it("sends one notice for several misses in a turn, a part with no cause being its count alone", () => {
+    it("gives several misses in a turn as one notice of their count and total", () => {
         const entries = [
             prompt(),
             request("a", 0, 0, 100_000),
@@ -48,29 +46,29 @@ describe("cacheMissArgs", () => {
             request("b", 12, 15_000, 85_000),
             request("c", 13, 45_000, 55_000, SONNET),
         ];
-        expect(cacheMissArgs(entries)).toEqual(
-            notice("2 cache misses: 140k tokens re-billed (85k after 12m idle, 55k after a model switch)")
-        );
-        expect(cacheMissArgs([...entries, request("d", 14, 70_000, 30_000, SONNET)])).toEqual(
-            notice("3 cache misses: 170k tokens re-billed (85k after 12m idle, 55k after a model switch, 30k)")
+        expect(cacheMissNotice(entries)).toEqual("2 cache misses: 140k re-billed");
+        expect(cacheMissNotice([...entries, request("d", 14, 70_000, 30_000, SONNET)])).toEqual(
+            "3 cache misses: 170k re-billed"
         );
     });
 
     it("formats a million tokens and over as the script does", () => {
         const entries = [prompt(), request("a", 0, 0, 1_240_000), request("b", 1, 0, 1_240_000)];
-        expect(cacheMissArgs(entries)).toEqual(notice("Cache miss: 1.2M tokens re-billed"));
+        expect(cacheMissNotice(entries)).toEqual("Cache miss: 1.2M re-billed");
     });
 
     it("sends nothing for a miss under 20,000 tokens", () => {
         const entries = [prompt(), request("a", 0, 0, 100_000), request("b", 1, 80_001, 19_999)];
-        expect(cacheMissArgs(entries)).toBeNull();
-        expect(cacheMissArgs([prompt(), request("a", 0, 0, 100_000), request("b", 1, 80_000, 20_000)])).not.toBeNull();
+        expect(cacheMissNotice(entries)).toBeNull();
+        expect(
+            cacheMissNotice([prompt(), request("a", 0, 0, 100_000), request("b", 1, 80_000, 20_000)])
+        ).not.toBeNull();
     });
 
     it("does not report an earlier turn's miss again after a new prompt", () => {
         const missed = [prompt(), request("a", 0, 0, 100_000), request("b", 1, 0, 100_000)];
-        expect(cacheMissArgs(missed)).not.toBeNull();
-        expect(cacheMissArgs([...missed, prompt(), request("c", 2, 100_000, 500)])).toBeNull();
+        expect(cacheMissNotice(missed)).not.toBeNull();
+        expect(cacheMissNotice([...missed, prompt(), request("c", 2, 100_000, 500)])).toBeNull();
     });
 
     it("keeps the turn open across a tool result, a meta row and a compact summary", () => {
@@ -82,14 +80,14 @@ describe("cacheMissArgs", () => {
             { type: "user", isMeta: true, message: { content: "a skill's text" } },
             request("c", 2, 100_000, 500),
         ];
-        expect(cacheMissArgs(entries)).toEqual(notice("Cache miss: 100k tokens re-billed"));
+        expect(cacheMissNotice(entries)).toEqual("Cache miss: 100k re-billed");
     });
 
     it("starts the comparison over at a compaction boundary", () => {
         const before = [prompt(), request("a", 0, 0, 100_000)];
         const after = request("b", 1, 0, 50_000);
-        expect(cacheMissArgs([...before, after])).not.toBeNull();
-        expect(cacheMissArgs([...before, { type: "system", subtype: "compact_boundary" }, after])).toBeNull();
+        expect(cacheMissNotice([...before, after])).not.toBeNull();
+        expect(cacheMissNotice([...before, { type: "system", subtype: "compact_boundary" }, after])).toBeNull();
     });
 
     it("counts a response written as several lines once", () => {
@@ -99,7 +97,7 @@ describe("cacheMissArgs", () => {
             request("b", 1, 0, 100_000),
             request("b", 1, 0, 100_000),
         ];
-        expect(cacheMissArgs(entries)).toEqual(notice("Cache miss: 100k tokens re-billed"));
+        expect(cacheMissNotice(entries)).toEqual("Cache miss: 100k re-billed");
     });
 
     it("ignores sidechain and synthetic-model entries", () => {
@@ -110,7 +108,7 @@ describe("cacheMissArgs", () => {
             request("x", 1, 0, 100_000, "<synthetic>"),
             request("b", 2, 100_000, 500),
         ];
-        expect(cacheMissArgs(entries)).toBeNull();
+        expect(cacheMissNotice(entries)).toBeNull();
     });
 
     it("counts a request with no cache figures only once caching has been seen", () => {
@@ -119,9 +117,9 @@ describe("cacheMissArgs", () => {
             timestamp: at(minute),
             message: { id, model: OPUS, usage: { input_tokens: 100_000 } },
         });
-        expect(cacheMissArgs([prompt(), uncached("a", 0), uncached("b", 1)])).toBeNull();
-        expect(cacheMissArgs([prompt(), request("a", 0, 0, 100_000), uncached("b", 1)])).toEqual(
-            notice("Cache miss: 100k tokens re-billed")
+        expect(cacheMissNotice([prompt(), uncached("a", 0), uncached("b", 1)])).toBeNull();
+        expect(cacheMissNotice([prompt(), request("a", 0, 0, 100_000), uncached("b", 1)])).toEqual(
+            "Cache miss: 100k re-billed"
         );
     });
 
@@ -129,7 +127,7 @@ describe("cacheMissArgs", () => {
         const hourWrite = request("a", 0, 0, 100_000);
         hourWrite.message.usage.cache_creation = { ephemeral_1h_input_tokens: 100_000 };
         const entries = [prompt(), hourWrite, prompt(), request("b", 12, 15_000, 85_000)];
-        expect(cacheMissArgs(entries)).toEqual(notice("Cache miss: 85k tokens re-billed"));
+        expect(cacheMissNotice(entries)).toEqual("Cache miss: 85k re-billed");
     });
 });
 
