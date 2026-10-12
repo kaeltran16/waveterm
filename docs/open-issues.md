@@ -22,7 +22,12 @@ Status legend:
 
 ## 1 · Actionable
 
-Nothing here as of 2026-10-06.
+- **`final-stage` CDP scenario, Part B flakes** (2026-10-12). B2–B6 failed in 2 of 3 runs after the lead's
+  Final verification block was removed from the details rail, and passed in 2 runs without that change
+  (one of which failed only B6). The failing shape: in B2 the DAG modal's final node still reads the B1
+  state ("waits on every task") while the tree's row shows Tree running, and from B3 on the stage row has
+  lost focus (no pane). That change touches neither the modal nor focus, so the cause is unproven either
+  way. Repro: `ARC_FINAL_OUT=<dir> node scripts/cdp/final-verify.mjs final-stage`, a few runs.
 
 Tracked in their own initiatives, not here:
 

@@ -48,7 +48,6 @@ export function FinalStageRail({ model, run }: { model: AgentsViewModel; run: Ru
             </div>
             <FinalStepList steps={view.steps} />
             <div className="flex flex-col">
-                <Fact label="Round">{view.round}</Fact>
                 <Fact label="Commit" title={stage?.commit || undefined}>
                     {stage?.commit ? stage.commit.slice(0, SHORT_COMMIT) : NONE}
                 </Fact>

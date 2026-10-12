@@ -30,14 +30,11 @@ import type { AgentsViewModel } from "./agents";
 import { formatTokens } from "./agentsviewmodel";
 import { ASK_OWNER_USER, childAskKey } from "./childaskmodel";
 import { bindChildAsks, childAskErrorAtom, childAsksAtom, takeOverChildAsk } from "./childaskstore";
-import { finalRowFocusId, type FinalStageView } from "./finalstage";
-import { FinalOutcome, FinalOutput, FinalStepList, useFinalStageView } from "./finalstageviews";
+import { useFinalStageView } from "./finalstageviews";
 import { useRunEvents } from "./runeventstore";
-import { fmtDuration } from "./runcompletion";
 import { formatLeft, leadAgentOf, runProgress, taskAgentOf, type RunInfo } from "./runlineage";
 import { runStatusView } from "./runmodel";
 import {
-    FINAL_OUTPUT_LINES,
     laneRows,
     questionOrder,
     runElapsedMs,
@@ -497,46 +494,6 @@ function RunStatus({ run, waitingOnYou, finalNext }: { run: RunInfo; waitingOnYo
     );
 }
 
-// what the block's link opens: the live output while the stage runs, else what it came to
-function finalWatchLabel(view: FinalStageView): string {
-    if (view.state === "failed") {
-        return "see the failure";
-    }
-    if (view.state === "unverified") {
-        return "see the reasons";
-    }
-    return view.state === "passed" ? "see the verdict" : "watch the output";
-}
-
-// FinalBlock is the final stage on the lead's rail: its steps, the output tail while a command runs, and a link
-// to the stage's row.
-function FinalBlock({ model, run, view }: { model: AgentsViewModel; run: RunInfo; view: FinalStageView }) {
-    const agents = useAtomValue(model.agentsAtom);
-    return (
-        <div data-final-block className="flex flex-col gap-[8px] border-t border-edge-faint pt-[10px]">
-            <div className="flex items-baseline justify-between gap-[8px]">
-                <SubLabel>Final verification</SubLabel>
-                <span className="whitespace-nowrap font-mono text-[11px] font-semibold text-muted">
-                    round {view.round}
-                    {view.stageMs != null ? ` · ${fmtDuration(view.stageMs)}` : ""}
-                </span>
-            </div>
-            <FinalStepList steps={view.steps} />
-            <FinalOutput output={view.output} lines={FINAL_OUTPUT_LINES} />
-            <button
-                type="button"
-                data-final-watch
-                onClick={() => globalStore.set(model.focusIdAtom, finalRowFocusId(run, agents))}
-                className={cn(LINK, "inline-flex items-center gap-[3px]")}
-            >
-                {finalWatchLabel(view)}
-                <ArrowUpRight size={11} aria-hidden />
-            </button>
-            <FinalOutcome view={{ ...view, detail: "", unverified: [] }} className="max-h-[80px]" />
-        </div>
-    );
-}
-
 export function RunSection({ model, run, asks }: { model: AgentsViewModel; run: RunInfo; asks: DagAskItem[] }) {
     const now = useAtomValue(model.nowAtom);
     const finalView = useFinalStageView(run.dag, run.runId, run.channelId, now);
@@ -575,7 +532,6 @@ export function RunSection({ model, run, asks }: { model: AgentsViewModel; run: 
                     finalNext={finalView.next}
                 />
             )}
-            {finalView.visible ? <FinalBlock model={model} run={run} view={finalView} /> : null}
             {(finished && report) || spent ? (
                 <div>
                     {finished && report ? (

@@ -191,9 +191,6 @@ export function questionOrder(asks: DagAskItem[]): DagAskItem[] {
     return [...asks].sort((a, b) => yours(a) - yours(b) || a.ts - b.ts);
 }
 
-// FINAL_OUTPUT_LINES is how many of a running command's last output lines the lead's rail block shows.
-export const FINAL_OUTPUT_LINES = 3;
-
 const DAG_FINALIZING = "finalizing";
 
 // verifyingHeadline is the Run status line while the final stage runs. A question waiting on the human still

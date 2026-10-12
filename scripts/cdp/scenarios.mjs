@@ -11486,7 +11486,6 @@ const FST_AGENT = `(() => {
     const tree = ${FST_TREE};
     const rail = ${FST_RAIL};
     const pane = ${FST_PANE};
-    const block = rail?.querySelector("[data-final-block]");
     const stage = rail?.querySelector("[data-final-rail]");
     const slot = tree?.querySelector("[data-final-slot]");
     const status = [...(rail?.querySelectorAll("span.font-semibold") ?? [])].find((s) => flat(s) === "Verifying");
@@ -11512,14 +11511,7 @@ const FST_AGENT = `(() => {
                   shots: shotsOf(pane),
               }
             : null,
-        block: block
-            ? {
-                  text: flat(block),
-                  steps: stepsOf(block),
-                  output: outputOf(block),
-                  watch: flat(block.querySelector("[data-final-watch]")),
-              }
-            : null,
+        railSteps: rail?.querySelectorAll("[data-final-step]").length ?? 0,
         stage: stage ? { text: flat(stage), steps: stepsOf(stage), past: pastOf(stage), shots: shotsOf(stage) } : null,
         status: status ? flat(status.parentElement) : null,
         viewer: document.querySelector("[data-final-shots-viewer]") != null,
@@ -11882,7 +11874,7 @@ const finalStageScenario = {
         if (ctx.arrangeError != null) return steps;
 
         // --- Part B: the States rows, on a dag the engine leaves alone ---
-        let a = await fstAgent(h, (s) => s.rows.length === 0 && s.block == null);
+        let a = await fstAgent(h, (s) => s.rows.length === 0 && s.railSteps === 0);
         let d = await fstDag(h, ctx, (s) => s.node.meta === "waits on every task");
         rec(
             "B1. tasks still running: no tree row and no slot; the last node reads waits on every task over five waiting segments",
@@ -12162,7 +12154,7 @@ const finalStageScenario = {
                 live.verifierrunid === "",
             { liveBoot, ...live }
         );
-        a = await fstAgent(h, (s) => s.rows.length === 1 && s.block.output != null && s.block.steps[0].text.startsWith("passed "), {
+        a = await fstAgent(h, (s) => s.rows.length === 1 && /step 2 of 4$/.test(s.rows[0].sub) && s.status != null, {
             ms: 20_000,
         });
         rec(
@@ -12177,17 +12169,12 @@ const finalStageScenario = {
             { rows: a?.rows, slot: a?.slot, strip: a?.strip }
         );
         rec(
-            "A2. the lead's rail has the Final verification block: Tree's time from the engine's event, the output's last lines, and the Run status reads Verifying",
+            "A2. the lead's rail draws no step of the stage, the tree's row carries it, and the Run status reads Verifying",
             () =>
-                fstSame(a.block.steps.map((s) => s.key), ["tree", "verify", "final", "verifier"]) &&
-                fstSame(fstStates(a.block.steps), ["passed", "running", "waiting", "waiting"]) &&
-                /^passed \d/.test(a.block.steps[0].text) &&
-                a.block.output.split("\n").length <= 3 &&
-                a.block.output.split("\n").every((line) => line.startsWith(FST_MARK)) &&
-                a.block.watch === "watch the output" &&
+                a.railSteps === 0 &&
                 a.status.startsWith("Verifying") &&
                 a.status.includes("next Final, then the verifier"),
-            { block: a?.block, status: a?.status }
+            { railSteps: a?.railSteps, status: a?.status }
         );
         await shot("a1-row-and-lead-rail");
 
@@ -12223,19 +12210,21 @@ const finalStageScenario = {
         );
 
         await h.goto("agent");
-        await finalShotsClick(h, `${FST_RAIL}?.querySelector("[data-final-watch]")`);
+        await finalShotsClick(h, `${FST_TREE}?.querySelector("[data-final-row]")`);
         a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected && s.pane.output != null && s.stage != null);
         rec(
-            "A4. the block's link focuses the row: the pipeline, the running command and its output, the stage's facts and step list, and End final stage",
+            "A4. clicking the tree's row focuses it: the pipeline, the running command and its output, the stage's facts and step list once, and End final stage",
             () =>
                 a.rows[0].selected &&
+                a.railSteps === a.stage.steps.length &&
                 fstSame(fstStates(a.pane.steps), ["passed", "running", "waiting", "waiting"]) &&
                 a.pane.text.includes(`$ ${FST_LIVE_VERIFY}`) &&
                 a.pane.output.includes(`${FST_MARK} 3`) &&
                 a.pane.end &&
                 fstSame(fstStates(a.stage.steps), ["passed", "running", "waiting", "waiting"]) &&
-                ["Round", "Commit", "Tree", "Reviewers"].every((fact) => a.stage.text.includes(fact)),
-            { rows: a?.rows, pane: a?.pane, stage: a?.stage }
+                ["Commit", "Tree", "Reviewers"].every((fact) => a.stage.text.includes(fact)) &&
+                !a.stage.text.includes("Round"),
+            { rows: a?.rows, pane: a?.pane, stage: a?.stage, railSteps: a?.railSteps }
         );
         await shot("a4-pane");
 
