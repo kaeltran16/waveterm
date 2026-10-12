@@ -224,7 +224,7 @@ func TestFinalWithOnlyAPassingVerifyPasses(t *testing.T) {
 	if g.Final == nil || g.Final.State != FinalState_Passed || g.Final.Round != 1 || g.Status != DagStatus_Done {
 		t.Fatalf("a passing Verify, no Check, no Final and nothing unverified passes, got %+v / %s", g.Final, g.Status)
 	}
-	if want := runFinishedWake + "\nThe final stage passed on the merged result."; len(lead.sends) != 1 || lead.sends[0] != want {
+	if want := runFinishedWake + "\nThe final stage passed on the merged result.\n" + roundLeftLine; len(lead.sends) != 1 || lead.sends[0] != want {
 		t.Fatalf("want %q, got %q", want, lead.sends)
 	}
 }
@@ -232,7 +232,7 @@ func TestFinalWithOnlyAPassingVerifyPasses(t *testing.T) {
 // run a088e568: the lead completed on a clean "run finished", and the land held on a conflict with a main commit
 // 25 minutes old, after the lead's tab had closed
 func TestRunFinishedWakeNamesTheConflictsTheLandWouldHoldOn(t *testing.T) {
-	passed := runFinishedWake + "\nThe final stage passed on the merged result."
+	passed := runFinishedWake + "\nThe final stage passed on the merged result.\n" + roundLeftLine
 	cases := []struct {
 		name     string
 		conflict bool
@@ -633,5 +633,28 @@ func TestALateTailDoesNotLandOnTheNextStep(t *testing.T) {
 	}
 	if out := f.dag(t).Final.Output; out != "ok  pkg/x" {
 		t.Fatalf("the running step's tail shows, got %q", out)
+	}
+}
+
+// the engine says whether a round is left, so the lead never guesses; the first line stays the finished line
+// a lead-free run keys on (Review Focus)
+func TestRunFinishedWakeSaysWhetherARoundIsLeft(t *testing.T) {
+	cases := []struct {
+		name  string
+		final *waveobj.FinalStage
+		want  string
+	}{
+		{"passed with a round left", &waveobj.FinalStage{State: FinalState_Passed, Round: 1}, roundLeftLine},
+		{"unverified with a round left", &waveobj.FinalStage{State: FinalState_Unverified, Round: 1, Unverified: []string{"no dev app"}}, roundLeftLine},
+		{"passed the last round", &waveobj.FinalStage{State: FinalState_Passed, Round: MaxFinalRounds}, noRoundLeftLine},
+	}
+	for _, c := range cases {
+		w := RunFinishedWake(c.final)
+		if !strings.HasSuffix(w, "\n"+c.want) {
+			t.Fatalf("%s: the wake should end with %q, got %q", c.name, c.want, w)
+		}
+		if !onlyRunFinished([]string{w}) {
+			t.Fatalf("%s: a lead-free run must still close by itself on %q", c.name, w)
+		}
 	}
 }
