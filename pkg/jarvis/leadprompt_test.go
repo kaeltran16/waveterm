@@ -359,7 +359,7 @@ func TestRunFinishedReportIsJudgmentOnly(t *testing.T) {
 	for _, want := range []string{
 		"wsh jarvis dag report <task> [section]",
 		"one line per task on what it did",
-		"the decisions you made (answers, skips, tells, sendbacks) and why",
+		"the decisions you made (answers, skips, tells, sendbacks, a round) and why",
 		"Found not fixed and Not verified sections",
 		"the engine records those",
 	} {
