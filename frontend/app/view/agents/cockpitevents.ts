@@ -26,33 +26,39 @@ export type RailRow = RailEvent & { more?: string };
 
 export interface AgentSnap {
     state: AgentState;
+    // idle with a shell task still running: its turn ended but its work did not
+    standingBy: boolean;
 }
 
 export const RAIL_MAX = 50;
 
 /** Pure: the rail events between the last snapshot and now, and the next snapshot. A first sighting records
- *  nothing, so a reload never floods the rail with every agent's current state. */
+ *  nothing, so a reload never floods the rail with every agent's current state. An agent standing by (ids in
+ *  `standingBy`) finishes when its last shell task ends, not at the Stop that began it. */
 export function agentTransitions(
     prev: Record<string, AgentSnap>,
     agents: AgentVM[],
-    now: number
+    now: number,
+    standingBy: ReadonlySet<string> = new Set()
 ): { events: RailEvent[]; next: Record<string, AgentSnap> } {
     const events: RailEvent[] = [];
     const next: Record<string, AgentSnap> = {};
     for (const a of agents) {
-        next[a.id] = { state: a.state };
-        const was = prev[a.id]?.state;
-        if (was == null || was === a.state) {
+        const snap = { state: a.state, standingBy: standingBy.has(a.id) };
+        next[a.id] = snap;
+        const was = prev[a.id];
+        if (was == null || (was.state === snap.state && was.standingBy === snap.standingBy)) {
             continue;
         }
         const push = (kind: RailKind, text: string, ts: number) =>
             events.push({ key: `${a.id}:${kind}:${ts}`, focusId: a.id, who: a.name, kind, text, ts });
         if (a.state === "asking") {
             push("asked", a.ask?.questions?.[0]?.question ?? "", now - (a.blockedMs ?? 0));
-        } else if (was === "asking") {
+        } else if (was.state === "asking") {
             push("answered", "", now);
-        } else if (a.state === "idle") {
-            push("finished", a.activity || a.task, a.idleSince ?? now);
+        } else if (a.state === "idle" && !snap.standingBy) {
+            // idleSince is the Stop, which for an agent that stood by is long before its last task ended
+            push("finished", a.activity || a.task, was.standingBy ? now : (a.idleSince ?? now));
         }
     }
     return { events, next };

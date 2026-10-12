@@ -13,26 +13,45 @@ describe("agentTransitions", () => {
     it("records nothing for an agent seen the first time", () => {
         const { events, next } = agentTransitions({}, [a({})], 100);
         expect(events).toEqual([]);
-        expect(next).toEqual({ x: { state: "working" } });
+        expect(next).toEqual({ x: { state: "working", standingBy: false } });
     });
     it("turns state changes into asked, answered and finished", () => {
         const asking = a({ state: "asking", blockedMs: 10, ask: { questions: [{ question: "retry or wait?" }] } });
-        expect(agentTransitions({ x: { state: "working" } }, [asking], 100).events).toEqual([
+        expect(agentTransitions({ x: { state: "working", standingBy: false } }, [asking], 100).events).toEqual([
             { key: "x:asked:90", focusId: "x", who: "flaky-e2e", kind: "asked", text: "retry or wait?", ts: 90 },
         ]);
-        expect(agentTransitions({ x: { state: "asking" } }, [a({})], 100).events[0]).toMatchObject({
+        expect(agentTransitions({ x: { state: "asking", standingBy: false } }, [a({})], 100).events[0]).toMatchObject({
             kind: "answered",
             ts: 100,
         });
         const idle = a({ state: "idle", idleSince: 95, activity: "142 strings extracted" });
-        expect(agentTransitions({ x: { state: "working" } }, [idle], 100).events[0]).toMatchObject({
+        expect(agentTransitions({ x: { state: "working", standingBy: false } }, [idle], 100).events[0]).toMatchObject({
             kind: "finished",
             text: "142 strings extracted",
             ts: 95,
         });
     });
+    it("finishes an agent standing by when its last shell task ends, not at the Stop", () => {
+        const idle = a({ state: "idle", idleSince: 95, activity: "dev server up" });
+        const stop = agentTransitions({ x: { state: "working", standingBy: false } }, [idle], 100, new Set(["x"]));
+        expect(stop.events).toEqual([]);
+        expect(stop.next).toEqual({ x: { state: "idle", standingBy: true } });
+        const still = agentTransitions(stop.next, [idle], 150, new Set(["x"]));
+        expect(still.events).toEqual([]);
+        const ended = agentTransitions(still.next, [idle], 200);
+        expect(ended.events).toEqual([
+            { key: "x:finished:200", focusId: "x", who: "flaky-e2e", kind: "finished", text: "dev server up", ts: 200 },
+        ]);
+        expect(agentTransitions(ended.next, [idle], 250).events).toEqual([]);
+    });
+    it("finishes an agent with no shell tasks once, at the Stop", () => {
+        const idle = a({ state: "idle", idleSince: 95, activity: "done" });
+        const stop = agentTransitions({ x: { state: "working", standingBy: false } }, [idle], 100);
+        expect(stop.events.map((e) => [e.kind, e.ts])).toEqual([["finished", 95]]);
+        expect(agentTransitions(stop.next, [idle], 150).events).toEqual([]);
+    });
     it("forgets agents that left the roster", () => {
-        expect(agentTransitions({ gone: { state: "working" } }, [], 1).next).toEqual({});
+        expect(agentTransitions({ gone: { state: "working", standingBy: false } }, [], 1).next).toEqual({});
     });
 });
 
