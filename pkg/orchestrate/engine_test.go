@@ -490,14 +490,14 @@ func TestScheduleOnceGivesEachDispatchItsOwnSpawnBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	const slowDispatch = 200 * time.Millisecond
-	var budgets []time.Duration
+	var deadlines []time.Time
 	old := spawnWorker
 	spawnWorker = func(ctx context.Context, _ runroute.Capability, _, _, _, _ string, opts jarvis.RunWorkerOptions) (string, error) {
 		deadline, ok := ctx.Deadline()
 		if !ok {
 			t.Errorf("task %s spawned with no deadline", opts.TaskId)
 		}
-		budgets = append(budgets, time.Until(deadline))
+		deadlines = append(deadlines, deadline)
 		time.Sleep(slowDispatch)
 		return "tab:worker-" + opts.TaskId, nil
 	}
@@ -506,11 +506,13 @@ func TestScheduleOnceGivesEachDispatchItsOwnSpawnBudget(t *testing.T) {
 	if err := ScheduleOnce(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
-	if len(budgets) != 2 {
-		t.Fatalf("want both tasks spawned in one tick, got %d", len(budgets))
+	if len(deadlines) != 2 {
+		t.Fatalf("want both tasks spawned in one tick, got %d", len(deadlines))
 	}
-	if budgets[1] <= jarvis.RunWorkerSpawnTimeout-slowDispatch/2 {
-		t.Fatalf("the second dispatch inherited the first one's spent budget: %v left of %v", budgets[1], jarvis.RunWorkerSpawnTimeout)
+	// deadlines, not time left: a loaded machine delays the call after the context is made, which shrinks the time
+	// left but never moves a fresh deadline earlier than the first dispatch's plus its sleep
+	if gap := deadlines[1].Sub(deadlines[0]); gap < slowDispatch/2 {
+		t.Fatalf("the second dispatch inherited the first one's budget: its deadline is only %v after the first's", gap)
 	}
 }
 

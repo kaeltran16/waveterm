@@ -16018,6 +16018,21 @@ const resmonFooter = {
         rec("5. focus in a field: the chips dim to 0.6, the readout stays at 1",
             dim.chips === "0.6" && dim.readout === "1", JSON.stringify(dim));
 
+        if (!existsSync(TREE_RAIL_FIXTURE)) {
+            await h.goto("cockpit");
+            await polishWaitFor(h, `!!${RESMON_COCKPIT_HINTS}`, 10000);
+            const bare = await h.ev(`(() => {
+                const bar = ${RESMON_COCKPIT_HINTS};
+                return {
+                    readout: !!${resmonReadout(RESMON_COCKPIT_HINTS)},
+                    help: [...(bar?.querySelectorAll('button') ?? [])].some((b) => b.textContent.trim() === '?'),
+                };
+            })()`);
+            await shot("5b-cockpit-empty");
+            rec("5b. Cockpit with no roster: the hints bar shows the readout alone, no triage hints or ?",
+                bare.readout && !bare.help, JSON.stringify(bare));
+        }
+
         await resmonSeedRoster(h, ctx);
         await h.goto("cockpit");
         await polishWaitFor(h, `!!${RESMON_COCKPIT_HINTS}`, 10000);
@@ -16028,6 +16043,18 @@ const resmonFooter = {
         await shot("6-cockpit");
         rec("6. Cockpit: the readout sits in the cockpit hints bar, after ?",
             cockpit.readout && cockpit.afterHelp && !cockpit.footer, JSON.stringify(cockpit));
+
+        await resmonBlur(h);
+        await resmonKey(h, ctx, "g");
+        const cockpitLeader = await h.ev(`(() => ({
+            leader: [...(${RESMON_FOOTER}?.querySelectorAll('span') ?? [])].some((s) => s.textContent.trim() === 'g →'),
+            readouts: document.querySelectorAll('[data-resmon-readout]').length,
+            inBar: !!${resmonReadout(RESMON_COCKPIT_HINTS)},
+        }))()`);
+        await shot("6a-cockpit-leader");
+        rec("6a. Cockpit under the g leader: one readout, in the hints bar, and the footer's own yields",
+            cockpitLeader.leader && cockpitLeader.readouts === 1 && cockpitLeader.inBar, JSON.stringify(cockpitLeader));
+        await resmonKey(h, ctx, "Escape");
 
         await h.ev(resmonClick(resmonReadout(RESMON_COCKPIT_HINTS)));
         await resmonNap(RESMON_REVEAL_MS);
@@ -16079,6 +16106,119 @@ const resmonFooter = {
         return steps;
     },
     teardown: resmonTeardown,
+};
+
+// The one Resource Manager check that touches no fixture: a real runaway process in a real shell block, found by the
+// backend's own sampler and killed from the popover. Node reads the pid's liveness from the OS, the only witness that
+// does not go through the code under test.
+const RESMON_LIVE_WAIT_MS = 30000;
+const RESMON_LIVE_POLL_MS = 500;
+const RESMON_LIVE_CMD = `node -e "for(;;){}"`;
+// sent apart from the command: pwsh reads a burst ending in Enter as a paste and does not run it
+const RESMON_LIVE_ENTER = String.fromCharCode(13);
+
+async function resmonLiveRunaway(h, blockId) {
+    const snap = await h.rpc("resmonsnapshot", {});
+    const group = (snap?.groups ?? []).find((g) => g.ownerid === blockId);
+    const row = (group?.rows ?? []).filter((r) => /^node/i.test(r.name ?? "")).sort((a, b) => b.cpu - a.cpu)[0];
+    return row == null ? null : { group: group.key, pid: row.pid, cpu: row.cpu };
+}
+
+const pidAlive = (pid) => {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+const resmonLive = {
+    name: "resmon-live",
+    surface: "agent",
+    async arrange(h) {
+        await h.cdp("Emulation.setDeviceMetricsOverride", RESMON_VIEWPORT);
+        const ctx = {};
+        try {
+            await openCanvasTerminal(h, ctx);
+        } catch (e) {
+            ctx.launchError = String(e?.message ?? e);
+            return ctx;
+        }
+        await h.goto("agent");
+        ctx.keyPath = await resmonKeyPath(h);
+        return ctx;
+    },
+    async assert(h, ctx) {
+        if (ctx.launchError != null) {
+            return [skipStep("live kill", `could not verify: the terminal launch failed: ${ctx.launchError}`)];
+        }
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const shot = (n) => h.shot(`cdp-shots/resmon-live-${n}.png`);
+
+        await resmonNap(RESMON_LIVE_WAIT_MS / 6);
+        const type = (text) =>
+            h.rpc("controllerinput", { blockid: ctx.blockId, inputdata64: Buffer.from(text).toString("base64") });
+        await type(RESMON_LIVE_CMD);
+        await resmonNap(RESMON_LIVE_POLL_MS);
+        await type(RESMON_LIVE_ENTER);
+        const deadline = Date.now() + RESMON_LIVE_WAIT_MS;
+        let found = null;
+        while (found == null && Date.now() < deadline) {
+            await resmonNap(RESMON_LIVE_POLL_MS);
+            found = await resmonLiveRunaway(h, ctx.blockId);
+        }
+        const seen = found ?? (await h.rpc("resmonsnapshot", {}))?.groups?.map((g) => ({
+            key: g.key,
+            ownerid: g.ownerid,
+            rows: g.rows.map((r) => `${r.pid}:${r.name}`),
+        }));
+        rec("1. the sampler lists the runaway node under the shell block's group", found != null, JSON.stringify({ block: ctx.blockId, seen }));
+        if (found == null) {
+            await shot("0-not-found");
+            return steps;
+        }
+        ctx.pid = found.pid;
+        rec("2. the process is alive before the kill", pidAlive(found.pid), `pid=${found.pid}`);
+
+        await resmonBlur(h);
+        await h.ev(resmonClick(resmonReadout(RESMON_FOOTER)));
+        await polishWaitFor(h, `!!document.querySelector('[data-resmon-row="${found.pid}"]')`, 10000);
+        await shot("1-listed");
+        const clicked = await h.ev(
+            resmonClick(`document.querySelector('[data-resmon-row="${found.pid}"] button[aria-label^="Kill"]')`)
+        );
+        await resmonNap(300);
+        const asked = await h.ev(`!!document.querySelector('[data-resmon-confirm]')`);
+        await shot("2-confirm");
+        rec("3. the row's x opens a confirm", clicked && asked, `clicked=${clicked} confirm=${asked}`);
+        if (!asked) return steps;
+
+        await h.ev(resmonClick(`document.querySelector('[data-resmon-confirm] button')`));
+        await polishWaitFor(h, `!document.querySelector('[data-resmon-row="${found.pid}"]')`, 10000);
+        await resmonNap(RESMON_LIVE_POLL_MS);
+        const gone = !pidAlive(found.pid);
+        await shot("3-killed");
+        rec("4. confirming kills the process: the OS no longer has the pid", gone, `pid=${found.pid} alive=${!gone}`);
+        const after = await h.ev(`!document.querySelector('[data-resmon-row="${found.pid}"]')`);
+        rec("5. the popover no longer lists the row", after, `rowGone=${after}`);
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await resmonKey(h, ctx, "Escape").catch(() => {});
+        if (ctx.pid != null && pidAlive(ctx.pid)) {
+            try {
+                process.kill(ctx.pid);
+            } catch {}
+        }
+        if (ctx.tabId) {
+            await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]).catch((e) =>
+                console.error(`resmon-live teardown: close the terminal tab failed: ${e?.message ?? e}`)
+            );
+        }
+        await h.goto("cockpit");
+    },
 };
 
 const resmonMain = {
@@ -16352,4 +16492,5 @@ export const SCENARIOS = [
     resmonFooter,
     resmonMain,
     resmonStates,
+    resmonLive,
 ];

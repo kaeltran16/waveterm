@@ -82,6 +82,13 @@ There is no jsdom/render-test harness for the cockpit — verify rendered UI by 
 - **The CDP port serves two page targets:** the cockpit and the hidden `attention-popup` window's `popup.html`, on the same origin. `attach` and `cdp-shot.mjs` never pick the popup as the main page; a scenario reaches it with `h.page("popup.html")`, which returns `ev`, `cdp`, `shot` and `close` for that target and records its shots with the run's. The popup's card can sit in the DOM of a hidden webview, so read `plugin:window|is_visible` on the popup's target to tell whether it is showing.
 - **A scenario that needs a run with a DAG** follows `docs/reference/cdp-run-fixtures.md`: the arrange, seed and teardown helpers already exist in `scenarios.mjs`.
 - **Inject test data first** if you need a populated cockpit: `node scripts/inject-live-agents.mjs <scenario>` (see that script's header).
+- **Before committing a UI change, try it in the running dev app** (a CDP scenario or `cdp-shot.mjs`). If the live check could not run, say exactly what was not verified.
+
+## Working rules
+
+- **Before deleting a file, grep every import of it**, including `import type` and re-exports: a type-only import still makes it live.
+- **"Housekeeping" or "cleanup" means removing code and files**, not only updating docs.
+- **Monitoring an orchestrator run means observe and log only.** Do not intervene or draft interventions unless asked.
 
 ## Architecture
 

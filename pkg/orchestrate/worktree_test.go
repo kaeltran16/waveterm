@@ -236,7 +236,6 @@ func TestEnsureRunWorktreeRecreatesDirtyAndDumpsPatch(t *testing.T) {
 	}
 }
 
-// newGitRepoAt git-inits an existing directory (the channel's project path) with one base commit.
 // testRootOwner is the test whose own worktree root is installed.
 var testRootOwner *testing.T
 
@@ -257,6 +256,7 @@ func useTestWorktreeRoot(t *testing.T) {
 	})
 }
 
+// newGitRepoAt git-inits an existing directory (the channel's project path) with one base commit.
 func newGitRepoAt(t *testing.T, dir string) {
 	t.Helper()
 	useTestWorktreeRoot(t)

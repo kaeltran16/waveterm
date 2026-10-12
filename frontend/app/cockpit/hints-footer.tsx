@@ -22,14 +22,14 @@ import { GLOBAL_HINTS, SURFACE_HINTS } from "./footerhints";
 import { ResMonReadout } from "./resmonreadout";
 
 // the readout closes every posture on the right; it is data, not a key hint, so it never dims with the chips
-function FooterBar({ children }: { children?: React.ReactNode }) {
+function FooterBar({ children, readout = true }: { children?: React.ReactNode; readout?: boolean }) {
     return (
         <div
             data-hints-footer=""
             className="flex h-7 shrink-0 items-center gap-4 border-t border-edge-strong bg-modalbg px-4"
         >
             {children}
-            <ResMonReadout className="ml-auto" />
+            {readout ? <ResMonReadout className="ml-auto" /> : null}
         </div>
     );
 }
@@ -77,8 +77,9 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
         const items = bindings
             .filter((b) => b.keys.startsWith(leader + " "))
             .map((b) => ({ next: b.keys.split(" ")[1], label: b.label }));
+        // the cockpit's hints bar always carries a readout, so on that surface the footer yields its own
         return (
-            <FooterBar>
+            <FooterBar readout={surface !== "cockpit"}>
                 <span className="shrink-0 font-mono text-[11px] text-accent-soft">{leader} →</span>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                     {items.map((it) => (

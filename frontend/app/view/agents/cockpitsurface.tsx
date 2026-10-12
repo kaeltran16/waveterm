@@ -585,7 +585,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                 </div>
 
-                {phase === "ready" ? <HintsBar onOpenHelp={() => globalStore.set(cheatsheetOpenAtom, true)} /> : null}
+                <HintsBar ready={phase === "ready"} onOpenHelp={() => globalStore.set(cheatsheetOpenAtom, true)} />
             </div>
 
             <CockpitRail

@@ -12,7 +12,8 @@ import { formatChordString } from "@/util/keysym";
 // the surface's onKeyDown, not the global keybinding registry); the trailing global chips are the same
 // ones the global HintsFooter shows elsewhere — folded in here so the cockpit surface renders a single
 // bar (the footer suppresses its rest posture on this surface — see hints-footer.tsx).
-export function HintsBar({ onOpenHelp }: { onOpenHelp: () => void }) {
+// Before the roster is ready there is nothing to triage, so only the resource readout shows.
+export function HintsBar({ ready, onOpenHelp }: { ready: boolean; onOpenHelp: () => void }) {
     // Built at render (not module-eval) so the platform-aware modifier glyphs resolve after boot.
     const HINTS: [string, string][] = [
         ["↑↓ / j k", "move"],
@@ -34,22 +35,25 @@ export function HintsBar({ onOpenHelp }: { onOpenHelp: () => void }) {
             data-cockpit-hints=""
             className="flex shrink-0 items-center gap-4 border-t border-border bg-background px-[18px] py-1.5 text-[11px] text-muted"
         >
-            {HINTS.map(([k, d]) => (
-                <span key={k} className="flex items-center gap-1">
-                    <span className="rounded-[4px] bg-white/[0.06] px-1.5 py-0.5 font-mono text-secondary">
-                        {k}
+            {ready &&
+                HINTS.map(([k, d]) => (
+                    <span key={k} className="flex items-center gap-1">
+                        <span className="rounded-[4px] bg-white/[0.06] px-1.5 py-0.5 font-mono text-secondary">
+                            {k}
+                        </span>
+                        {d}
                     </span>
-                    {d}
-                </span>
-            ))}
-            <button
-                type="button"
-                onClick={onOpenHelp}
-                className="ml-auto cursor-pointer font-mono hover:text-secondary"
-            >
-                ?
-            </button>
-            <ResMonReadout />
+                ))}
+            {ready ? (
+                <button
+                    type="button"
+                    onClick={onOpenHelp}
+                    className="ml-auto cursor-pointer font-mono hover:text-secondary"
+                >
+                    ?
+                </button>
+            ) : null}
+            <ResMonReadout className={ready ? undefined : "ml-auto"} />
         </div>
     );
 }
