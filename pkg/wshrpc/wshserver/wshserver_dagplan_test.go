@@ -244,7 +244,7 @@ func TestDagSubmitRoundExtendsTheDag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := submit(wshrpc.CommandDagSubmitData{PlanPath: fixPlan, Round: true}); err == nil || !strings.Contains(err.Error(), "the final stage has not failed") {
+	if _, err := submit(wshrpc.CommandDagSubmitData{PlanPath: fixPlan, Round: true}); err == nil || !strings.Contains(err.Error(), "the final stage has not finished") {
 		t.Fatalf("a round before the final stage failed: want a refusal, got %v", err)
 	}
 	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
