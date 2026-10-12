@@ -415,7 +415,7 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	return stored, nil
 }
 
-// submitFixRound appends a fix plan's tasks to the run's dag after its final stage failed. Only the tasks are
+// submitFixRound appends a fix plan's tasks to the run's dag after its final stage finished. Only the tasks are
 // taken: the dag keeps its Verify, Setup, Check, Final and effort, and the round is not plan-reviewed. A fix plan that
 // names a different command is refused, not ignored.
 func submitFixRound(ctx context.Context, run *waveobj.Run, data wshrpc.CommandDagSubmitData, plan jarvis.Plan) (*waveobj.TaskGroup, error) {
