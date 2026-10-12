@@ -176,3 +176,37 @@ func TestSendInputKeepsAResizeNoProcessTook(t *testing.T) {
 		t.Errorf("input with no resize kept a size: %+v", kept)
 	}
 }
+
+func TestAResizeSentWhileTheProcessStartsReachesIt(t *testing.T) {
+	sc := MakeShellController("tab", "block", BlockController_Cmd, "").(*ShellController)
+	start := waveobj.TermSize{Rows: 24, Cols: 80}
+	size := waveobj.TermSize{Rows: 41, Cols: 142}
+
+	// run a050adbc's verifier: the cockpit's resize landed 50ms before its pty took input
+	if err := sc.SendInput(&BlockInputUnion{TermSize: &size}); err == nil {
+		t.Fatal("a resize before the process takes input should still report an error")
+	}
+	ch := make(chan *BlockInputUnion, 1)
+	sc.attachInputCh(ch, start)
+
+	select {
+	case ic := <-ch:
+		if ic.TermSize == nil || *ic.TermSize != size {
+			t.Errorf("queued input = %+v, want a resize to %+v", ic, size)
+		}
+	default:
+		t.Fatalf("the process started at %+v and never heard the terminal's %+v", start, size)
+	}
+}
+
+func TestAResizeToTheStartSizeIsNotResent(t *testing.T) {
+	sc := MakeShellController("tab", "block", BlockController_Cmd, "").(*ShellController)
+	size := waveobj.TermSize{Rows: 41, Cols: 142}
+	sc.SendInput(&BlockInputUnion{TermSize: &size})
+
+	ch := make(chan *BlockInputUnion, 1)
+	sc.attachInputCh(ch, size)
+	if len(ch) != 0 {
+		t.Errorf("a process started at the held size was resized again: %+v", <-ch)
+	}
+}

@@ -62,6 +62,9 @@ type ShellController struct {
 	// for shell/cmd
 	ShellProc    *shellexec.ShellProc
 	ShellInputCh chan *BlockInputUnion
+	// the last resize sent while no input channel was attached: a terminal mounted while the process starts
+	// sends its size once, and the process has already read its start size by then
+	pendingTermSize *waveobj.TermSize
 }
 
 // Constructor that returns the Controller interface
@@ -145,6 +148,10 @@ func (sc *ShellController) SendInput(inputUnion *BlockInputUnion) error {
 	sc.WithLock(func() {
 		ch := sc.ShellInputCh
 		if ch == nil {
+			if inputUnion.TermSize != nil {
+				size := *inputUnion.TermSize
+				sc.pendingTermSize = &size
+			}
 			err = fmt.Errorf("no shell input chan")
 			return
 		}
@@ -159,6 +166,19 @@ func (sc *ShellController) SendInput(inputUnion *BlockInputUnion) error {
 		}
 	})
 	return err
+}
+
+// attachInputCh makes ch the process's input, first queueing any resize that arrived before it: attaching under the
+// lock SendInput holds means every resize either is held here or goes through ch.
+func (sc *ShellController) attachInputCh(ch chan *BlockInputUnion, startSize waveobj.TermSize) {
+	sc.WithLock(func() {
+		pending := sc.pendingTermSize
+		sc.pendingTermSize = nil
+		if pending != nil && *pending != startSize {
+			ch <- &BlockInputUnion{TermSize: pending}
+		}
+		sc.ShellInputCh = ch
+	})
 }
 
 func (sc *ShellController) WithLock(f func()) {
@@ -451,7 +471,7 @@ func (bc *ShellController) setupAndStartShellProcess(logCtx context.Context, rc 
 
 func (bc *ShellController) manageRunningShellProcess(shellProc *shellexec.ShellProc, rc *RunShellOpts, blockMeta waveobj.MetaMapType) error {
 	shellInputCh := make(chan *BlockInputUnion, 32)
-	bc.ShellInputCh = shellInputCh
+	bc.attachInputCh(shellInputCh, rc.TermSize)
 
 	go func() {
 		// handles regular output from the pty (goes to the blockfile and xterm)
