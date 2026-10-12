@@ -4162,6 +4162,170 @@ const diffReviewMarks = {
     },
 };
 
+// --- diff surface: review marks on a run's range --------------------------------------------------
+// diff-review-marks covers the working tree, a commit and a compare; this one opens the Diff surface the way
+// a finished run's sheet does, so the marks land under the run subject (run:<id>:<base>) and survive a reload.
+// The run is deferred (no lead) and written done with sealed evidence, which is what draws the sheet's link.
+const diffReviewMarksRun = {
+    name: "diff-review-marks-run",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-diff-review-run-"));
+        const ctx = { cwd };
+        try {
+            git(cwd, "init", "-q", "--initial-branch=main");
+            mkdirSync(join(cwd, "src", "retry"), { recursive: true });
+            writeFileSync(join(cwd, "README.md"), "# retry\n");
+            writeFileSync(join(cwd, "src", "retry", "policy.go"), "package retry\n\nfunc Budget() int {\n    return 3\n}\n");
+            git(cwd, "add", ".");
+            git(cwd, "commit", "-q", "-m", "seed the retry package");
+
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-diff-review-marks-run", projectpath: cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: "verify diff-review-marks-run: do nothing, make no file changes, stop immediately",
+                runtime: "claude",
+                mode: "orchestrator",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            ctx.base = created.run.basecommit;
+            if (!ctx.base) throw new Error("createrun recorded no base commit");
+
+            // what the run "landed", after its base, on its own branch tree: that is the tree the run's diff reads
+            const tree = created.run.landpath || cwd;
+            writeFileSync(join(tree, "src", "retry", "policy.go"), "package retry\n\nfunc Budget() int {\n    return 8\n}\n");
+            writeFileSync(join(tree, "src", "retry", "submit.go"), "package retry\n\nfunc Submit(id string) error {\n    return nil\n}\n");
+            git(tree, "add", "src");
+            git(tree, "commit", "-q", "-m", "raise the budget, add submit");
+
+            const oref = `run:${ctx.runId}`;
+            const evidence = {
+                capturedts: Date.now(),
+                hash: "",
+                files: [
+                    { path: "src/retry/policy.go", stat: "M", add: 1, del: 1 },
+                    { path: "src/retry/submit.go", stat: "A", add: 5, del: 0 },
+                ],
+                addtotal: 6,
+                deltotal: 1,
+                runtimems: 0,
+                durationms: 0,
+            };
+            const stored = await waveService(h, "object", "GetObject", [oref]);
+            await waveService(
+                h,
+                "object",
+                "UpdateObject",
+                [{ ...stored, otype: "run", status: "done", report: "", evidence }, false],
+                FINAL_SHOTS_UICTX
+            );
+            const back = await waveService(h, "object", "GetObject", [oref]);
+            if (back?.status !== "done" || back?.evidence == null) {
+                throw new Error(`the run did not keep its done state: status=${back?.status}`);
+            }
+            ctx.runDone = true;
+
+            // the store reads localStorage once, at module load, so the key is cleared before the reload
+            ctx.prevMarks = await h.ev(`localStorage.getItem(${JSON.stringify(REVIEW_STORAGE_KEY)})`);
+            await h.ev(`localStorage.removeItem(${JSON.stringify(REVIEW_STORAGE_KEY)})`);
+            await reloadApp(h);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. arrange", false, ctx.arrangeError);
+            return steps;
+        }
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const q = (sel) => `document.querySelector(${JSON.stringify(sel)})`;
+        const rowSel = (path) => `[data-changed-file-row=${JSON.stringify(path)}]`;
+        const until = async (expr, ms = 8000) => {
+            for (let waited = 0; waited < ms; waited += 250) {
+                if (await h.ev(expr).catch(() => false)) return true;
+                await sleep(250);
+            }
+            return false;
+        };
+        const click = (sel) => h.ev(`(() => { const el = ${q(sel)}; if (!el) return false; el.click(); return true; })()`);
+        const progress = () =>
+            h.ev(`(() => { const el = ${q("[data-files-reviewed]")}; return el ? el.dataset.done + "/" + el.dataset.total : "absent"; })()`);
+        const POLICY = "src/retry/policy.go";
+        const SUBMIT = "src/retry/submit.go";
+        const subjectSuffix = `|run:${ctx.runId}:${ctx.base}`;
+        // opens the run's sheet and follows its "open the repository diff" link onto the Diff surface
+        const openRunDiff = async () => {
+            await h.goto("jarvis");
+            await until(`typeof window.__openAddress === "function"`, 5000);
+            await h.ev(`window.__openAddress(${JSON.stringify(`run:${ctx.runId}`)})`);
+            const linked = await until(
+                `[...document.querySelectorAll("[data-evidence-block] button")].some((b) => /open the repository diff/.test(b.textContent || ""))`,
+                10000
+            );
+            await h.ev(`[...document.querySelectorAll("[data-evidence-block] button")]
+                .find((b) => /open the repository diff/.test(b.textContent || ""))?.click()`);
+            const listed = await until(`!!${q(rowSel(SUBMIT))} && !!${q(rowSel(POLICY))}`, 15000);
+            return { linked, listed };
+        };
+        const storedSubject = () =>
+            h.ev(`(() => {
+                const store = JSON.parse(localStorage.getItem(${JSON.stringify(REVIEW_STORAGE_KEY)}) || "{}");
+                const key = Object.keys(store).find((k) => k.endsWith(${JSON.stringify(subjectSuffix)}));
+                return JSON.stringify({ keys: Object.keys(store), key: key ?? null, files: key ? Object.keys(store[key].files ?? {}) : [] });
+            })()`).then((s) => JSON.parse(s));
+
+        try {
+            await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+            const first = await openRunDiff();
+            const range = await h.ev(`document.body.innerText.includes("This run")`);
+            rec(
+                "1. the run sheet's link opens the run's range with both files unreviewed",
+                first.linked && first.listed && range && (await progress()) === "0/2",
+                `linked=${first.linked} listed=${first.listed} thisRun=${range} progress=${await progress()}`
+            );
+            await h.shot("cdp-shots/diff-review-marks-run-empty.png");
+
+            await click(`[data-review-toggle=${JSON.stringify(POLICY)}]`);
+            const marked = await until(`${q(rowSel(POLICY))}?.dataset.reviewState === "ok"`, 3000);
+            const subject = await storedSubject();
+            rec(
+                "2. a mark on the run range is stored under run:<id>:<base>",
+                marked && (await progress()) === "1/2" && subject.key != null && subject.files.includes(POLICY),
+                JSON.stringify({ marked, progress: await progress(), want: subjectSuffix, ...subject })
+            );
+            await h.shot("cdp-shots/diff-review-marks-run-marked.png");
+
+            await reloadApp(h);
+            const again = await openRunDiff();
+            const kept = await until(`${q(rowSel(POLICY))}?.dataset.reviewState === "ok"`, 3000);
+            rec(
+                "3. after a reload the run range still reads policy.go reviewed, 1/2",
+                again.listed && kept && (await progress()) === "1/2",
+                `listed=${again.listed} kept=${kept} progress=${await progress()}`
+            );
+            await h.shot("cdp-shots/diff-review-marks-run-reloaded.png");
+        } catch (e) {
+            rec("scenario aborted", false, String(e?.message ?? e));
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        // a done run cannot be cancelled, so only one that never got that far is
+        await teardownFixtureRun(h, ctx.runDone ? { ...ctx, runId: null } : ctx, "diff-review-marks-run", {
+            what: "restore the review marks",
+            fn: () => h.ev(restoreLocalStorage(REVIEW_STORAGE_KEY, ctx.prevMarks)),
+        });
+    },
+};
+
 // --- jarvis avatar: the hologram in window chrome ----------------------------------------------
 // The avatar is a <canvas>, so there are no attributes to read the way the old SVG creature allowed. It
 // publishes its last built scene on window in DEV builds instead (petview.tsx), which is a STRONGER
@@ -15214,6 +15378,7 @@ export const SCENARIOS = [
     gitHistory,
     diffCompare,
     diffReviewMarks,
+    diffReviewMarksRun,
     surfaceSmoke,
     codeSearch,
     codeSidebar,

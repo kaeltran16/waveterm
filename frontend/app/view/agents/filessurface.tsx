@@ -384,7 +384,8 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         liveTick,
     ]);
 
-    if (agents.length === 0 && projects.length === 0) {
+    // a scope set by a link (a run's evidence) names its own repo, so it shows even with no agent or project
+    if (scope == null && agents.length === 0 && projects.length === 0) {
         return (
             <SurfaceEmptyState
                 title="No changes to show"
