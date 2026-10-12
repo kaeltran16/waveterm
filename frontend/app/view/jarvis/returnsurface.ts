@@ -71,6 +71,15 @@ export function returnWhenClosed(closer: ReturnCloser, onReturn?: () => void): v
     }
 }
 
+// What the jump opened handed the user on (the record peek opening a run's sheet), so closing that one ends the
+// visit instead. A return some other closer holds is left alone.
+export function passReturn(from: ReturnCloser, to: ReturnCloser): void {
+    const visit = trail[trail.length - 1];
+    if (visit?.closer === from) {
+        visit.closer = to;
+    }
+}
+
 // Back one jump. False when there is none to go back over, so the caller can fall through to its own default.
 export function backToOrigin(): boolean {
     const visit = trail.pop();

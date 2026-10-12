@@ -34,8 +34,8 @@ import {
     recordDetailAtom,
     recordRunsAtom,
 } from "./jarvissubjectstore";
-import { openAddress, openOrPeekAddress } from "./openref";
-import { forgetOrigin, returnToOrigin } from "./returnsurface";
+import { openAddress, openOrPeekAddress, type OpenGesture } from "./openref";
+import { forgetOrigin, passReturn, returnToOrigin } from "./returnsurface";
 import { closePeek } from "./peekstore";
 import { setDossierStatus } from "./recordactions";
 
@@ -113,6 +113,22 @@ async function openFromPopup(model: AgentsViewModel, address: string): Promise<v
     }
 }
 
+// The modal sits above both places a run lands (z-70 over the sheet's z-20 and the peek's z-65), so it steps aside
+// once the run lands, or the run would sit out of sight behind it; a failed open keeps it up behind the toast.
+async function openFromBrief(model: AgentsViewModel, address: string, e: OpenGesture): Promise<void> {
+    const peeked = e.ctrlKey;
+    const result = await openOrPeekAddress(model, address, e);
+    if (!result.ok) {
+        return;
+    }
+    globalStore.set(briefPeekRecordAtom, null);
+    if (peeked) {
+        forgetOrigin();
+    } else {
+        passReturn("record", "sheet");
+    }
+}
+
 function RunRowView({ row, model, place }: { row: PeekRunRow; model: AgentsViewModel; place: Place }) {
     const address = "run:" + row.runId;
     return (
@@ -123,7 +139,7 @@ function RunRowView({ row, model, place }: { row: PeekRunRow; model: AgentsViewM
             data-peek={place === "brief" ? true : undefined}
             onClick={(e) =>
                 place === "brief"
-                    ? void openOrPeekAddress(model, address, e)
+                    ? fireAndForget(() => openFromBrief(model, address, e))
                     : fireAndForget(() => openFromPopup(model, address))
             }
             className="flex w-full min-w-0 cursor-pointer items-center gap-2.5 px-3 py-[7px] text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"

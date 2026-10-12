@@ -1032,6 +1032,13 @@ const briefPeek = {
                           state: el.querySelector('[data-jarvis-brief-sheet-state]')?.dataset.jarvisBriefSheetState ?? null,
                           runBody: el.querySelector('[data-jarvis-brief-sheet-face="settings"]') != null,
                           text: (el.innerText || '').slice(0, 80),
+                          // the record modal sits above the sheet, so a sheet in the DOM can still be out of sight
+                          // behind it: what is at the sheet's centre is what the user sees
+                          peekOpen: document.querySelector('[data-jarvis-brief-band="peek"]') != null,
+                          onTop: (() => {
+                              const r = el.getBoundingClientRect();
+                              return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+                          })(),
                       }
                     : null;
             })()`);
@@ -1053,12 +1060,36 @@ const briefPeek = {
                     sheet?.state !== "loading",
                 detail: JSON.stringify({ runRowId, sheet }),
             });
+            steps.push({
+                step: "3b. the peek steps aside, so the run's sheet is in sight rather than behind it",
+                ok: sheet?.peekOpen === false && sheet?.onTop === true,
+                detail: JSON.stringify({ peekOpen: sheet?.peekOpen ?? null, onTop: sheet?.onTop ?? null }),
+            });
             await h.ev(`(() => {
                 const b = document.querySelector('[aria-label="Close detail sheet"]');
                 if (b) b.click();
                 return true;
             })()`);
             await settle(400);
+            // the run's open closed the peek, so the status steps reopen the same record: the walk's last row
+            await h.ev(
+                `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
+            );
+            await settle(300);
+            await h.ev(`document.querySelector('[data-palette-scope="records"]')?.click()`);
+            await settle(500);
+            await h.ev(`(() => {
+                const headers = [...document.querySelectorAll("div")].filter(
+                    (d) => (d.textContent || "").trim().toLowerCase() === "records"
+                );
+                const group = headers[0]?.parentElement;
+                group?.querySelectorAll("button[data-idx]")[${tried - 1}]?.click();
+            })()`);
+            await h.ev(`(async () => {
+                for (let i = 0; i < 40 && !document.querySelector('[data-jarvis-brief-band="peek"] [data-jarvis-peek-status-toggle]'); i++) {
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+            })()`);
         }
 
         const picker = await h.ev(`(() => {

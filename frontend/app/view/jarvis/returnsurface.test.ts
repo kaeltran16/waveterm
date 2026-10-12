@@ -5,7 +5,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { atom } from "jotai";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { SurfaceKey } from "../agents/agents";
-import { backToOrigin, forgetOrigin, landOn, returnToOrigin, returnWhenClosed } from "./returnsurface";
+import { backToOrigin, forgetOrigin, landOn, passReturn, returnToOrigin, returnWhenClosed } from "./returnsurface";
 
 const surfaceAtom = atom<SurfaceKey>("agent");
 const surface = () => globalStore.get(surfaceAtom);
@@ -46,6 +46,27 @@ describe("return to the surface a jump left", () => {
         expect(surface()).toBe("jarvis");
         returnToOrigin("dag");
         expect(surface()).toBe("agent");
+    });
+
+    it("passes the return on when what the jump opened hands the user to something else", () => {
+        landOn(surfaceAtom, "jarvis", "record");
+        passReturn("record", "sheet");
+        returnToOrigin("record");
+        expect(surface()).toBe("jarvis");
+        returnToOrigin("sheet");
+        expect(surface()).toBe("agent");
+    });
+
+    it("passes on only a return the closer holds", () => {
+        let sheetOpen = true;
+        landOn(surfaceAtom, "jarvis", "sheet");
+        returnWhenClosed("dag", () => (sheetOpen = false));
+        passReturn("record", "sheet");
+        returnToOrigin("sheet");
+        expect(surface()).toBe("jarvis");
+        returnToOrigin("dag");
+        expect(surface()).toBe("agent");
+        expect(sheetOpen).toBe(false);
     });
 
     it("puts away what the jump left open underneath, only when it goes back", () => {
