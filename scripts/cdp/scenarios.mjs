@@ -1381,6 +1381,8 @@ const briefPeek = {
                 empty.text.includes("no decisions yet"),
             detail: JSON.stringify({ emptyReady, empty }),
         });
+        // the toggle mounts on the panel's first frame, so the wait above ends while the modal still fades in
+        await settle(600);
         await h.shot("cdp-shots/brief-peek-empty.png");
         await pressEscape();
         await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
