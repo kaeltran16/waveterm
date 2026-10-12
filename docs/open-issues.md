@@ -124,7 +124,9 @@ Jarvis (what survived the 2026-09-22/23 memory and recall-arm removals):
 ## 4 · Declined / permanent limitations (do not resurface)
 
 - Cockpit light/Paper theme — declined; code removed 2026-08-24 (`docs/deferred.md`).
-- Gatekeeper v1.1 (make-a-rule + countdown) — revive only on recurring-ask or misfire evidence.
+- Gatekeeper v1.1 (make-a-rule + countdown) — revive only on recurring-ask or misfire evidence. Measured
+  2026-10-12 over 879 structured asks since 08-11: 737 distinct headers, and the ones that recur (spec
+  review, scope, plan review, commit) are approval gates, not routine asks a rule could answer.
 - Arc Environment capability — restore via `git show 4e80bf4f:docs/environment-roadmap.md` if needed.
 - Agents-tab fit-one-screen density engine — obsolete, un-executable against the card grid.
 - Diff-surface row-density variants and the rest of the narrow-window cascade — the commit column fold
