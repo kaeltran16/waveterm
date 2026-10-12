@@ -173,6 +173,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Shift`+`N` / `Shift`+`P` | Next / previous change in the open diff |
 | `Shift`+`D` | Split / unified |
 | `Shift`+`W` | Ignore whitespace |
+| `v` | Mark the open file reviewed (or unmark it) and open the next unreviewed file |
 | `r` | Refresh changes and history |
 | `c` | In history: compare refs. In compare: change the compared refs |
 | `Shift`+`S` | Swap compare refs (in compare) |

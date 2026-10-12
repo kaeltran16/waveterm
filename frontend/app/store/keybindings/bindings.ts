@@ -33,6 +33,7 @@ import {
 } from "@/app/view/agents/githistorystore";
 import { anyFilterActive } from "@/app/view/agents/historyquery";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
+import { toggleOpenFile } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
@@ -1039,6 +1040,15 @@ export function buildFilesBindings(): Binding[] {
             label: "Previous change",
             when: on,
             run: () => gotoChange("previous"),
+        },
+        {
+            id: "files:toggle-reviewed",
+            keys: "v",
+            group: "Diff",
+            label: "Mark file reviewed",
+            when: on,
+            // no open file in a listed subject — let the key pass
+            run: () => (toggleOpenFile() ? undefined : false),
         },
         {
             id: "files:toggle-history",
