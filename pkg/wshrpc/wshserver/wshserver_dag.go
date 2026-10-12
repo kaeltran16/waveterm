@@ -19,6 +19,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
+	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -351,7 +352,8 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	// stopped waiting, so the prepared tree gets its dag.
 	if run.LandPath != "" && run.DagORef == "" && plan.Setup != "" {
 		ctx = context.WithoutCancel(ctx)
-		if tail, err := orchestrate.RunSetup(ctx, run.LandPath, plan.Setup); err != nil {
+		setupCtx := jobobject.WithOwner(ctx, jobobject.Owner{Kind: jobobject.OwnerKind_RunCmd, Id: run.ID, Cmd: orchestrate.PlanCmd_Setup})
+		if tail, err := orchestrate.RunSetup(setupCtx, run.LandPath, plan.Setup); err != nil {
 			return nil, &setupFailedError{landPath: run.LandPath, command: plan.Setup, tail: tail, err: err}
 		}
 	}

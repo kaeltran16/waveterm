@@ -1330,6 +1330,21 @@ declare global {
         forceland?: boolean;
     };
 
+    // wshrpc.CommandResMonKillChildrenData
+    type CommandResMonKillChildrenData = {
+        ownerid: string;
+    };
+
+    // wshrpc.CommandResMonKillData
+    type CommandResMonKillData = {
+        ownerid: string;
+        pid: number;
+        tree: boolean;
+    };
+
+    // wshrpc.CommandResMonSnapshotData
+    type CommandResMonSnapshotData = object;
+
     // wshrpc.CommandResolveAmbientRtnData
     type CommandResolveAmbientRtnData = {
         tasks: AmbientTask[];
@@ -2248,6 +2263,25 @@ declare global {
         disabled?: string[];
     };
 
+    // wshrpc.ProcessInfo
+    type ProcessInfo = {
+        pid: number;
+        ppid?: number;
+        name?: string;
+        command?: string;
+        createts?: number;
+        depth: number;
+        role?: string;
+        tag?: string;
+        status?: string;
+        user?: string;
+        mem: number;
+        mempct: number;
+        cpu: number;
+        numthreads: number;
+        gone?: boolean;
+    };
+
     // waveobj.ProfileOverride
     type ProfileOverride = {
         principles?: PrinciplePatch;
@@ -2388,6 +2422,39 @@ declare global {
         actual: string;
         expected: string;
         whynotcovered: string;
+    };
+
+    // wshrpc.ResMonGroup
+    type ResMonGroup = {
+        key: string;
+        ownerkind: string;
+        ownerid?: string;
+        label: string;
+        runtime?: string;
+        killable: boolean;
+        cpu: number;
+        mem: number;
+        rows: ProcessInfo[];
+    };
+
+    // wshrpc.ResMonKillRtnData
+    type ResMonKillRtnData = {
+        outcome: string;
+        killed: number;
+        error?: string;
+    };
+
+    // wshrpc.ResMonSnapshotData
+    type ResMonSnapshotData = {
+        supported: boolean;
+        ready: boolean;
+        ts: number;
+        cpu: number;
+        mem: number;
+        totalmem: number;
+        busycpu: boolean;
+        busymem: boolean;
+        groups: ResMonGroup[];
     };
 
     // wshrpc.ResumeCardData

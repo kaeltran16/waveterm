@@ -457,6 +457,7 @@ func (bc *ShellController) setupAndStartShellProcess(logCtx context.Context, rc 
 	}
 	cmdOpts.ShellPath = connUnion.ShellPath
 	cmdOpts.ShellOpts = getLocalShellOpts(blockMeta)
+	cmdOpts.BlockId = bc.BlockId
 	shellProc, err = shellexec.StartLocalShellProc(logCtx, rc.TermSize, cmdStr, cmdOpts, remoteName)
 	if err != nil {
 		return nil, err

@@ -354,7 +354,9 @@ func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output stri
 	var passFlaky []string
 	steps := 0
 	first := batch[len(batch)/2-1].commit
-	stepErr := withDetachedTree(ctx, run.project, run.runID+"-bisect", "bisect tree", first, run.setup, func(wt string) error {
+	// the tree's Setup is the batch's, named by its first tip as the batch's Verify was; each step is its tip's
+	treeCtx := withRunCmdOwner(ctx, run.runID, PlanCmd_Verify, batch[0].id)
+	stepErr := withDetachedTree(treeCtx, run.project, run.runID+"-bisect", "bisect tree", first, run.setup, func(wt string) error {
 		for hi-lo > 1 {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -368,7 +370,8 @@ func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output stri
 				run.progress(fmt.Sprintf("verify: bisecting: testing %s at %.8s", strings.Join(tipIDs(batch[:mid]), ", "), commit))
 			}
 			env := changedFilesEnv(ctx, wt, batch[0].commit+"^", commit, run.dagID+"/bisect")
-			stepOut, stepFlaky, err := runVerifyCommand(ctx, wt, run.command, env, run.progress)
+			stepCtx := withRunCmdOwner(ctx, run.runID, PlanCmd_Verify, batch[mid-1].id)
+			stepOut, stepFlaky, err := runVerifyCommand(stepCtx, wt, run.command, env, run.progress)
 			steps++
 			if err == nil {
 				lo, passOut, passFlaky = mid, stepOut, stepFlaky
@@ -449,7 +452,8 @@ func startVerify(channelID, dagID, runID, projectPath, command string, l *landin
 			return ran && err == nil
 		}
 		env := batchScopeEnv(bg, dagID, projectPath, batch)
-		output, flaky, verr := runVerifyCommand(ctx, projectPath, command, env, progress)
+		// a batch's Verify is its first tip's, the id its TaskVerifyStarted event reports
+		output, flaky, verr := runVerifyCommand(withRunCmdOwner(ctx, runID, PlanCmd_Verify, first), projectPath, command, env, progress)
 		run := batchRunner{channelID: channelID, dagID: dagID, runID: runID, project: project, tree: projectPath,
 			setup: setup, command: command, progress: progress}
 		// judged on the claim's context, so a cancelled dag also stops whatever judging runs

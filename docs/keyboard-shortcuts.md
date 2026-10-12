@@ -48,6 +48,7 @@ Setup and Settings have no `Ctrl`+number slot — the nine positions are bound t
 | `g` `.` | Setup — instructions and skills |
 | `g` `,` | Settings |
 | `g` `p` | Search |
+| `g` `m` | Resource Manager (the popover over the footer's `Arc … CPU` readout) |
 
 ## Search (`Ctrl`+`P`)
 
@@ -86,6 +87,19 @@ cancelled now, in All and in Commands, so it never starts a run named "cancel".
 | `Enter` | Open / activate the item under the cursor |
 | `Space` | Peek the item under the cursor in the avatar popup, without leaving the surface (see Peek below) |
 | `Esc` | On a deep surface (Jarvis, Radar, Sessions, Files, Usage, Code), go back to the surface you jumped from (opening a run, file, diff or agent from elsewhere), else return to the Cockpit. In a composer or text field, leave Type posture first. |
+
+## Resource Manager (the popover opened from the footer's readout or `g` `m`)
+
+| Keys | Action |
+|---|---|
+| `↑` / `↓` | Move the cursor through the groups and their processes |
+| `Enter` | Confirm an open kill, else expand or collapse the cursor's group |
+| `x` | Kill the process under the cursor and its children (asks first; never the agent itself) |
+| `Shift`+`X` | Kill every process the cursor's group started, keeping the agent and its console (asks first) |
+| `Esc` | Cancel an open kill, else close the popover |
+
+While the popover is open its keys take precedence: the surface underneath does not move. A click outside it
+closes it.
 
 ## Peek (the avatar popup's item view)
 

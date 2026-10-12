@@ -306,7 +306,7 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 	if g.Check != "" {
 		var out string
 		if !step(FinalStep_Check, func(progress planProgress) bool {
-			out, err = runPlanCommand(ctx, tree, g.Check, nil, VerifyTimeout, progress)
+			out, err = runPlanCommand(withRunCmdOwner(ctx, owner.ID, PlanCmd_Check, ""), tree, g.Check, nil, VerifyTimeout, progress)
 			return err == nil
 		}) {
 			if !baseCheckFailed(g) {
@@ -322,7 +322,7 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 		var out string
 		var flaky []string
 		if !step(FinalStep_Verify, func(progress planProgress) bool {
-			out, flaky, err = runVerifyCommand(ctx, tree, g.Verify, unscopedEnv, progress)
+			out, flaky, err = runVerifyCommand(withRunCmdOwner(ctx, owner.ID, PlanCmd_Verify, ""), tree, g.Verify, unscopedEnv, progress)
 			return err == nil
 		}) {
 			res.detail = fmt.Sprintf("Verify `%s` failed on the merged result (%s):\n%s", g.Verify, commandReason(err), out)
@@ -341,7 +341,7 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 	var exit int
 	var tail string
 	step(FinalStep_Final, func(progress planProgress) bool {
-		exit, tail, err = runFinalCommand(ctx, tree, g.FinalCmd, g.Final.OutDir, finalCommandTimeout, progress)
+		exit, tail, err = runFinalCommand(withRunCmdOwner(ctx, owner.ID, PlanCmd_Final, ""), tree, g.FinalCmd, g.Final.OutDir, finalCommandTimeout, progress)
 		return err == nil && exit == 0
 	})
 	// whatever the exit: a failing scenario's screenshots are the ones worth seeing
@@ -756,7 +756,7 @@ func finalTree(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run) (s
 		}
 	}
 	if g.Setup != "" {
-		if _, err := runPlanCommand(ctx, wt, g.Setup, nil, SetupTimeout, nil); err != nil {
+		if _, err := runPlanCommand(withRunCmdOwner(ctx, owner.ID, PlanCmd_Setup, ""), wt, g.Setup, nil, SetupTimeout, nil); err != nil {
 			cleanup()
 			return "", nil, fmt.Errorf("Setup failed in the final tree: %s", failureDetail(err))
 		}

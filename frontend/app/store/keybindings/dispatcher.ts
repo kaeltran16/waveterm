@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { resmonOpenAtom } from "@/app/cockpit/resmonstore";
 import { anyModalOpen } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
@@ -88,6 +89,8 @@ export function deriveKeyContext(): KeyContext {
         globalStore.get(petPeekOpenAtom) ||
         // the Final check viewer over the run sheet: its arrows and Escape are its own, not the Brief's list
         globalStore.get(finalShotsViewerOpenAtom) ||
+        // the Resource Manager popover is window chrome too, and its arrows, Enter, x and Escape are surface keys
+        globalStore.get(resmonOpenAtom) ||
         globalStore.get(modalsModel.modalsAtom).length > 0;
     return {
         surface,
