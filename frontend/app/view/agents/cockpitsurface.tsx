@@ -19,7 +19,6 @@ import {
     filterAgents,
     groupAgents,
     applyAgentOrder,
-    streamableTranscriptAgents,
     matchesProjectFilter,
     mergeOrder,
     partitionBackgrounded,
@@ -66,9 +65,11 @@ import { useCardStreams } from "./usecardstreams";
 import { ProjectSwitcher } from "./projectswitcher";
 import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
 import { loadWindowTokens, windowTokensAtom } from "./windowtokenstore";
+import { shellTasksByIdAtom } from "./shelltasksstore";
 import { useSubagentTracking } from "./subagenttracking";
 import { SurfaceHeader } from "./surfacescaffold";
 import { UsageMeters } from "./usagemeters";
+import { landOn } from "@/app/view/jarvis/returnsurface";
 
 // Status tabs (mockup A3): a tab's count takes its status color while it has any, the selected tab underlines
 const TAB_TONE: Record<ChipFilter, { text: string; line: string }> = {
@@ -131,7 +132,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // into the Idle list. Dismissals are keyed by idle episode (id:idleSince).
     const [dismissed] = useModelAtom(model.dismissedAtom);
     const [backgroundedIds, setBackgroundedIds] = useModelAtom(model.backgroundedIdsAtom);
-    const { recently: recentlyIdle, parked: parkedIdle } = splitRecentlyIdle(idle, structuralNow, dismissed);
+    const shellTasks = useAtomValue(shellTasksByIdAtom);
+    const { recently: recentlyIdle, parked: parkedIdle } = splitRecentlyIdle(
+        idle,
+        structuralNow,
+        dismissed,
+        shellTasks
+    );
     // one unified list: asks stay in place alongside active working + just-finished (grace) rows,
     // minus anything backgrounded. Asking agents are never backgrounded (the effect below un-mutes any
     // that start asking), so they always land in `active` and hold whatever slot they already had.
@@ -151,8 +158,10 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
     // open a live transcript stream + git tracking per rendered active agent; keep recently-idle
     // streams during the grace window so final transcript writes cannot race the stop event.
+    // recentlyIdle is already cut to the grace window, plus the agents standing by past it, whose
+    // card would go blank if its stream closed.
     useCardStreams(
-        streamableTranscriptAgents([...asking, ...working, ...recentlyIdle], structuralNow)
+        [...asking, ...working, ...recentlyIdle]
             .filter((a) => a.transcriptPath)
             .map((a) => ({ id: a.id, path: a.transcriptPath!, agent: a.agent, blockId: a.blockId })),
         { trackGit: true },
@@ -377,13 +386,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const openFocus = (id: string, reply: boolean) => {
         globalStore.set(model.focusIdAtom, id);
         globalStore.set(model.focusReplyAtom, reply);
-        globalStore.set(model.surfaceAtom, "agent");
+        landOn(model.surfaceAtom, "agent");
     };
 
     // open this agent's changed files in the Diff surface (which scopes to focusIdAtom)
     const openDiff = (id: string) => {
         globalStore.set(model.focusIdAtom, id);
-        globalStore.set(model.surfaceAtom, "files");
+        landOn(model.surfaceAtom, "files");
     };
 
     const onKeyDown = useCockpitKeyboard({
@@ -493,7 +502,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                         donuts={usageDonuts}
                                         windowTokens={windowTokens}
                                         now={structuralNow}
-                                        onOpen={() => globalStore.set(model.surfaceAtom, "usage")}
+                                        onOpen={() => landOn(model.surfaceAtom, "usage")}
                                     />
                                     <ProjectSwitcher model={model} variant="header" />
                                     <button
@@ -584,7 +593,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                 </div>
 
-                {phase === "ready" ? <HintsBar onOpenHelp={() => globalStore.set(cheatsheetOpenAtom, true)} /> : null}
+                <HintsBar ready={phase === "ready"} onOpenHelp={() => globalStore.set(cheatsheetOpenAtom, true)} />
             </div>
 
             <CockpitRail

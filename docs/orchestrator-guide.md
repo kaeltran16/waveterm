@@ -43,13 +43,25 @@ project switcher in the app bar → **+ New project**, give it a name and the re
 ### 2. Where a run lands
 
 An orchestrator run lands on its own branch by default. At launch it creates `wave/<runId>` in a tree at
-`.waveterm/worktrees/<runId>`, and records the branch the checkout is on as the run's base. Its lead works in
+`%LOCALAPPDATA%\arc-wt\<first 8 of runId>`, and records the branch the checkout is on as the run's base. Its lead works in
 that tree, its lanes squash-merge there, and Verify runs there. The plan's Setup runs there once when the plan is
 submitted, or the project's `.arc/setup` when the plan has no Setup line. For this repo that is
 `node scripts/worktree-junctions.mjs prepare`, which junctions `node_modules`, `src-tauri/target` and
 `dist/bin` from the main checkout so tests run. The checkout does not move, and a dirty index there does not
 hold the run's merges. When the run completes, the engine merges the branch back into the base itself (see
 [Landing back](#landing-back)).
+
+**Where engine trees live.** Every tree the engine makes (the run's, each lane's `-t-N`, and the detached
+`-final`, `-base` and `-bisect` trees) sits under one short root outside the project, `os.UserCacheDir()/arc-wt`:
+`%LOCALAPPDATA%\arc-wt` on Windows, `~/.cache/arc-wt` on Linux, `~/Library/Caches/arc-wt` on macOS. A tree is
+named by the first 8 characters of its run id plus its suffix (`arc-wt\1a2b3c4d-t-2`), which keeps Windows tooling
+inside it under 260-character paths. The run claims that prefix with a marker file `arc-wt\<8>.run` holding its
+full id. If the marker names another run, or is empty or unreadable, the run's trees take the full id instead
+(`arc-wt\<runId>-t-2`), so two runs never share a tree. Markers are never deleted. A run started before this
+change keeps its trees at `<project>\.waveterm\worktrees\<key>` until it removes them, and with no user cache dir
+the engine uses that legacy in-project layout throughout. Branch names keep the full id: `wave/<runId>`. Because
+the trees are no longer inside the project, a worker no longer finds an untracked `CLAUDE.md` or `AGENTS.md` in the
+project's parent directories; it sees only the copies checked into the tree.
 
 To land in the checkout instead, set **Runs land on → Project checkout** in the profile (global, or per project),
 or pass `wsh runs start --landing checkout`. The flag wins over the profile, and an empty profile means branch.
@@ -59,11 +71,12 @@ lands in the checkout either way. A run started on a detached HEAD gets its bran
 merge into, so its land-back is held.
 
 On a landed run the engine removes the tree and deletes `wave/<runId>` itself. A cancelled run, or one whose land
-is held, keeps both. In this repo, remove them with `task worktree:cleanup -- .waveterm/worktrees/<runId>`:
-Setup junctioned `node_modules`, `src-tauri/target` and `dist/bin` into the tree, and a plain
+is held, keeps both. In this repo, remove them with `task worktree:cleanup -- %LOCALAPPDATA%\arc-wt\<8>` (the
+tree's path as above: the full-id one if the prefix was taken, `.waveterm\worktrees\<runId>` for a run started
+before the move): Setup junctioned `node_modules`, `src-tauri/target` and `dist/bin` into the tree, and a plain
 `git worktree remove` can follow those junctions and delete the main checkout's copies. It deletes the branch
 only once merged; `git branch -D wave/<runId>` drops an unmerged one. In a repo whose Setup makes no junctions,
-`git worktree remove .waveterm/worktrees/<runId>` and `git branch -D wave/<runId>` do the same.
+`git worktree remove <path>` run from the project, and `git branch -D wave/<runId>`, do the same.
 
 For this repo there is a second reason to keep the branch default: the dev app serves the frontend from the main
 checkout, so a merge landing there triggers HMR reloads mid-run.
@@ -222,8 +235,8 @@ path only when it is genuinely unclear, and finishes accordingly:
 
 | Class | The lead | You see |
 |---|---|---|
-| **Spike** (a question to answer) | reports the answer, `wsh jarvis complete` | Done, with its answer as the summary |
-| **Bounded** (one change) | asks for your yes, implements in its tree (the run's branch, or the checkout), tests, commits, `wsh jarvis complete --commit` | Done, with the commit, merged back |
+| **Spike** (a question to answer) | writes the answer to a temp file as its report, `wsh jarvis complete --report <file>` | Done, with its answer as the summary |
+| **Bounded** (one change) | asks for your yes, implements in its tree (the run's branch, or the checkout), tests, commits, writes its report to a temp file, `wsh jarvis complete --commit <sha> --report <file>` | Done, with the commit and its report as the summary, merged back |
 | **Architectural** (needs a plan) | asks the decisions it needs as questions with options, writes the design straight into the spec, asks one **Spec review** (the spec's path on the question's first line), writes the plan with `superpowers:writing-plans`, runs `wsh jarvis dag submit --plan <plan> --spec <spec>` and stops | the plan review, then the sheet fills with tasks |
 
 The Spec review is the one approval: the lead does not ask section by section, and after `dag submit` it does not
@@ -360,7 +373,7 @@ and one Verify judges them all, scoped from the oldest of them to `HEAD`. A lane
 in the same batch waits for the next one. A conflict ends the batch, and no Verify starts while the tree is
 mid-merge: the lanes merged before it are verified with the conflicted one after the lead's `--continue`. If
 the Verify of a batch of two or more fails, the engine bisects it: it verifies prefixes of the batch in a
-detached tree, `<project>/.waveterm/worktrees/<run>-bisect`, set up with the plan's Setup, until it finds the
+detached tree, `arc-wt\<8>-bisect` (see [Where a run lands](#2-where-a-run-lands)), set up with the plan's Setup, until it finds the
 first lane whose merge fails. The lanes before that one land. That one is verify-failed, and the lead is woken
 ("… bisected from t-1, t-4, t-6"). The lanes after it stay verifying, shown as "held", and the Verify after the
 lead's fix and `dag merge <task> --continue` judges them together. A single lane is never bisected, and neither
@@ -601,7 +614,7 @@ you.
 | **Worker may be stuck** (worktree unchanged 20 min while active, or the same failure 3x) | `dag tell`, `dag retry`, `dag escalate`, or lets it run | same |
 | **Worker never started** (5 min after spawn, its terminal's shell never came up) | `dag retry` | same |
 | **Final stage failed** | writes a fix plan and runs `dag submit --round --plan <fix plan>` (tasks only: the round runs the run's own Verify, Setup, Check and Final, and a fix plan naming different ones is refused); puts it to you when no round is left or the fix is a product call | a failed last round, or a product call |
-| **Run finished** | fixes and commits what the landed tasks left behind, writes a judgment-only report to a file (a line per task, its decisions and why, wrap-up commits, open issues; the engine records landed commits, worktrees left behind, counts and unverified reasons in the sealed record), adds open issues to the initiative, then completes on its own with `wsh jarvis complete --report <file>` | a question only when a decision is needed (a failed verification, a deviation, a proposed fix round), then the Done face |
+| **Run finished** | fixes and commits what the landed tasks left behind, writes a judgment-only report to a file (a line per task, its decisions and why, wrap-up commits, open issues; the engine records landed commits, worktrees left behind, counts and unverified reasons in the sealed record), runs one round for the open issues inside the goal when the wake says a round is left, and adds the rest to the run's effort, then completes on its own with `wsh jarvis complete --report <file>` | a question only when a decision is needed (a failed verification or a deviation), then the Done face |
 
 In `dag status`, a running worker that has written nothing lately reads `idle Nm`, or `running a command Nm · <tool>`
 while its processes are busy (a long test writes no transcript); a flagged one reads `stuck? <reason>`. Each done task shows one presence line naming its non-empty report sections and
@@ -692,7 +705,8 @@ Pick an option or type an answer and **Send answer**. The worker continues, and 
 
 A failed or stalled task shows on its row and in the DAG with `retry`, `skip` and `escalate`. The lead gets it
 first; you see it when it is forwarded or the lead is dead. Retry and escalate stop the worker they
-replace, so before you retry a stalled task, check its lane worktree under `.waveterm/worktrees/` for recent
+replace, so before you retry a stalled task, check its lane worktree, `%LOCALAPPDATA%\arc-wt\<8>-t-N` (the
+full-id or legacy `.waveterm\worktrees\` path in the cases [Where a run lands](#2-where-a-run-lands) names), for recent
 writes: a worker that is still writing files is alive, and the stall signal is wrong.
 
 A task whose dispatch fails before a worker exists, because its worktree could not be made (`worktree-failed`)
@@ -747,8 +761,9 @@ where it was, as above. The row is reported once per stuck tick or Verify.
 - **Talk to a worker.** Type into its terminal on the Agent surface. What you type is logged on the lead's run
   as a `you told t-2 · …` row and in `dag status`, so the lead sees it at its next wake. It wakes nobody.
 - **Change parallelism or the workers' route.** **Adjust** on the settings line → **Worker parallelism**,
-  **Worker route** → **Save settings**. It applies to dispatches from then on. **Save as project defaults**
-  makes the next run start this way. Shape, machine and the lead's route are fixed at launch, and nothing
+  **Worker route** → **Save settings**. It applies to dispatches from then on. **Use for new runs**
+  saves the run's settings to the project's Profile, so the next run starts this way (a finished run offers
+  the same button in its dock, under **Ran with**). Shape, machine and the lead's route are fixed at launch, and nothing
   already running changes. The **Worker route** picker also offers **Reviewer picks**, and a **Reviewers**
   picker beside it sets the reviewer route ([Routes](#4-routes)). The profile's run defaults set the same pair
   in the **Worker route** row (which includes **Reviewer picks**) and the **Reviewer route** row below it.
@@ -770,7 +785,8 @@ A run is not done when its last task lands. Once every task is terminal and merg
 passed or unverified.
 
 **Where it runs.** On a branch-landed run, in the landing tree at `wave/<runId>`. On a checkout-landed run, in a
-detached worktree at the checkout's HEAD (`.waveterm/worktrees/<runId>-final`), with the plan's Setup run in it,
+detached worktree at the checkout's HEAD (`arc-wt\<8>-final`, resolved as in
+[Where a run lands](#2-where-a-run-lands)), with the plan's Setup run in it,
 removed when the stage ends. It never runs in the shared checkout.
 
 **The steps.** Check, Verify and Final run one after another; the verifier runs after them when the plan has a
@@ -839,34 +855,44 @@ when you want no fix round.
 Setup when the stage makes its own, then `check`, `verify`, `final`), with when it started and its output tail,
 published at most every 10 seconds as merge Verify's is. Status adds `step=<step> (<elapsed>)` to the stage line.
 In the cockpit the run's row reads `final: running Verify`, `final: running Final`, `final: verifier reviewing`
-(with `· verifier alongside` while a verifier works beside Check and Verify), and the DAG view's stage line adds
-the elapsed time, with the plan's command and the output's last lines on hover. Each step that ends records a
+(with `· verifier alongside` while a verifier works beside Check and Verify). From the moment the dag is
+finalizing the Agents tree has a **Final verification** row under the run, before any verifier session exists:
+focused, its pane shows the step pipeline, the running command, the output's last lines and End final stage, and
+its rail the round, commit, tree, reviewers route and step list; when the verifier starts, the same row becomes
+its session. The lead's rail carries a Final verification block and reads Verifying. In the DAG view the stage is
+the last node, with an edge from every task nothing depends on; selecting it opens a bottom rail with the plan's
+commands, each step's state, the output and End final stage. A step's time comes from its event, so a step whose
+event is no longer held shows its state with no time, and the round then shows no total. Each step that ends records a
 `final-step` run event (`round`, `step`, `ms`, `ok`), so a run's timeline shows where the stage's minutes went.
 
 **The fix round.** On a failed stage the lead writes a fix plan in the plan format and runs
-`wsh jarvis dag submit --round --plan <fix plan>`. The fix plan's tasks are appended as `t-(n+1)…`, with its
+`wsh jarvis dag submit --round --plan <fix plan>`. A run whose final stage passed or finished unverified takes the
+same round for the open issues inside its goal that a worker can fix, when a round is left: the run-finished wake
+ends with a line saying whether one is. The fix plan's tasks are appended as `t-(n+1)…`, with its
 own numbers and Depends mapped on. Each description opens with `Fix round N: this is task K of the fix plan at
 <path>`, so its worker reads the fix plan, not the run's. The dag keeps its Verify, Setup, Check, Final and
 Prototype. On a branch-landed run the fix plan is committed to `wave/<runId>` first, and the new tasks cut from
 the landing tree's head. A fix round skips the plan review, but each of its tasks is reviewed. When its tasks
 land, the final stage runs again as round 2. The final stage runs at most twice (`MaxFinalRounds`): the first
-round and one fix round. `--round` is refused, with the reason, while the stage is still running, after it
-passed, or when no round is left. After round 2 fails, the wake tells the lead to put it to you. It does the same
+round and one fix round. `--round` is refused, with the reason, while the stage is still running or when no
+round is left. After round 2 fails, the wake tells the lead to put it to you. It does the same
 when the fix is a product call.
 
 **This repo's Final command** is `node scripts/cdp/final-verify.mjs [scenario...]`. It starts a dev app from the
 final tree, runs the named `verify:ui` scenarios (all of them with none named) and writes into `ARC_FINAL_OUT`:
 `cdp-shots/` (with `index.html` as the contact sheet), `shots.json` (the manifest above, one entry per
-scenario with its screenshots and steps), `dev-app.log`, `waveapp.log` (the app's own log),
-`webview2-profile/` and `tauri.final.json`. A dev app from the main checkout is usually running, so the final one
+scenario with its screenshots and steps), `dev-app.log`, `waveapp.log` (the app's own log)
+and `tauri.final.json`. A dev app from the main checkout is usually running, so the final one
 shares nothing with it: its own CDP port, a Vite port from 5175 up (passed as `task dev -- --config
 tauri.final.json`), a fresh store under `%LOCALAPPDATA%\arc-final\stores\` (a short path, since wavesrv's
-`wave.sock` must stay under Windows' 108-byte socket path limit; dropped after the run),
-the cargo target dir `%LOCALAPPDATA%\arc-final\target` (shared by final stages, so only the first pays the cold
-build), and its own `dist/bin`: it unlinks the tree's `dist/bin` and `src-tauri/target` junctions first. It sets
-`ARC_DEV_NO_GLOBAL_INSTALL`, so the run's branch installs no agent hooks or `~/.arc/bin/wsh`. Two final
-stages at once share the target dir, so the second should fail to replace a `wave-tauri.exe` the first is running
-and report unverified (not tested). It stops only the processes it started. It exits 3 with a reason when the app does not
+`wave.sock` must stay under Windows' 108-byte socket path limit; dropped after the run with the WebView2
+profile inside it),
+a cargo target dir under `%LOCALAPPDATA%\arc-final\` (`target`, `target-1`, `target-2`: one per build slot,
+each paying one cold build), and its own `dist/bin`: it unlinks the tree's `dist/bin` and `src-tauri/target`
+junctions first. It sets `ARC_DEV_NO_GLOBAL_INSTALL`, so the run's branch installs no agent hooks or
+`~/.arc/bin/wsh`. Three final stages run at once, one per build slot (`BUILD_SLOTS`), since a stage runs the
+`wave-tauri.exe` it builds in its slot's target dir; a fourth waits for a slot (`ARC_FINAL_LOCK_WAIT_MS`, default
+10 minutes) and then exits 3. It stops only the processes it started. It exits 3 with a reason when the app does not
 come up within its boot budget (`ARC_FINAL_BOOT_MS`, default 10 minutes). Otherwise it exits with verify.mjs's
 own code: 0 pass, 1 a scenario failed, 2 an unknown scenario name. `ARC_FINAL_DEV_CMD` overrides the start
 command (default `task dev -- --config <ARC_FINAL_OUT>/tauri.final.json`).
@@ -977,7 +1003,7 @@ Done doesn't mean finished. The work after the last merge splits four ways:
 
 | Work | Whose job | On the backlog run |
 |---|---|---|
-| The run's report | **The lead's.** Its rules (`OrchestrationRules`, `leadprompt.go`) have it fix and commit what the landed tasks left behind in docs (a code defect found then is an open issue, not a wrap-up commit), write the report to a file, and add each open issue as a pending chunk on the initiative (creating one if the run has none). Then it completes on its own with `wsh jarvis complete --report <file>`, without asking whether to. It asks you first only when a decision is needed: a failed verification, a deviation that needs your call, or a proposed fix round. An unverified outcome never blocks completion. | Not written. The rules then said "write the report …, then `wsh jarvis complete`". The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same. |
+| The run's report | **The lead's.** Its rules (`OrchestrationRules`, `leadprompt.go`) have it fix and commit what the landed tasks left behind in docs (a code defect is never a wrap-up commit: with a round left, the in-goal ones go to a round), write the report to a file, and add each open issue as a pending chunk on the run's effort, the plan's `**Effort:**` line or else the one picked in the composer (creating one if the run has neither). Then it completes on its own with `wsh jarvis complete --report <file>`, without asking whether to. It asks you first only when a decision is needed: a failed verification or a deviation that needs your call. An unverified outcome never blocks completion. | Not written. The rules then said "write the report …, then `wsh jarvis complete`". The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same. |
 | Closing the initiative's tracker chunks | **The engine's.** A task names its chunks with `**Chunk:**` lines after its Depends line, and the engine marks each done with the landed commit once the task's merge passes Verify (for the last merge, once the final stage's Verify passes). | The plan gave it to workers through a header line they never saw. The tracker read 3/16 with all 13 tasks landed. |
 | Merging the branch back | **The engine's** on a branch-landed run ([Landing back](#landing-back)); **yours** on a checkout-landed one, or when a land is held. | The run landed on the project checkout's branch, and merging it was left to the human. |
 | Checking what the final stage could not, committing anything | **Yours.** The unverified item names what nothing checked. | Four fixes still need a live check once the branch is on `main` and running in the dev app. |
@@ -1028,11 +1054,12 @@ closed in `docs/open-issues.md` point here.
 
 ## Tracking an initiative across runs
 
-Big efforts live as initiatives (`wsh effort`, the Brief's **Initiatives** region). A run does not attach
-itself to one: the goal names the effort, and a chunk closes when an agent runs
+Big efforts live as initiatives (`wsh effort`, the Brief's **Initiatives** region). A run's effort is the
+plan's `**Effort:**` line, else the effort picked in the composer, else one the goal names. A chunk closes when an agent runs
 `wsh effort chunk status <effort> "<chunk>" done --note "…"`, or when the engine lands a task that names it
-in a `**Chunk:**` line (see [Who wraps up](#who-wraps-up)). When a run finishes, its lead adds each open issue as a pending chunk on the
-initiative the goal, spec or plan names, and creates one when there is none. To show a run against a chunk, attach it:
+in a `**Chunk:**` line (see [Who wraps up](#who-wraps-up)). When a run finishes with a round left, its lead first sends the open issues
+inside the goal that a worker can fix to a round. It adds every other open issue as a pending chunk on the run's
+effort, and creates one when there is none. To show a run against a chunk, attach it:
 `wsh effort chunk attach <effort> "<chunk>" --run <run-oid>`. Expanding an initiative on the Brief shows each
 chunk's status and note trail. On the backlog run the lead closed chunk 1 as already fixed, with its evidence,
 before asking its first question. After that only t-4's worker closed any chunks.
@@ -1046,7 +1073,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | Command | Does |
 |---|---|
 | `dag submit --plan <md> [--spec <md>]` | validate the plan and start the engine on it (one DAG per run); after a failed plan review, submit the revised plan again |
-| `dag submit --round --plan <fix plan>` | after a failed final stage, append the fix plan's tasks as a fix round |
+| `dag submit --round --plan <fix plan>` | after the final stage finishes with a round left, append the fix plan's tasks as a round |
 | `dag status` | per-task digest, the report numbers, landed commits, Verify and merge errors, what you told workers, unverified notes, the final stage, token usage |
 | `dag asks` | questions the lead holds, oldest first, with every option |
 | `dag answer <task> <answers-json>` | answer as the lead |

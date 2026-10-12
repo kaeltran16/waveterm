@@ -57,12 +57,10 @@ export function PetErrand({
     dest,
     channels,
     onPick,
-    compact = false,
 }: {
     dest: Channel | null;
     channels: Channel[] | null;
     onPick: (oid: string) => void;
-    compact?: boolean;
 }) {
     const errand = useAtomValue(petErrandAtom);
     const pref = useAtomValue(harnessPreferenceAtom);
@@ -136,11 +134,7 @@ export function PetErrand({
             </div>
 
             <div className="flex min-w-0 items-center gap-1.5">
-                <HarnessPicker
-                    operation="consult"
-                    placement="top-start"
-                    className={compact ? "min-w-0 max-w-[110px]" : undefined}
-                />
+                <HarnessPicker operation="consult" placement="top-start" />
                 {options.length > 0 ? (
                     <select
                         data-pet-errand-dest
@@ -149,10 +143,7 @@ export function PetErrand({
                         title={dest != null ? `Reply lands in ${channelProjectLabel(dest, projects)}` : undefined}
                         value={dest?.oid ?? ""}
                         onChange={(event) => onPick(event.target.value)}
-                        className={cn(
-                            "h-6 min-w-0 flex-none truncate rounded-[7px] border border-border bg-surface px-2 font-mono text-[10.5px] text-ink-mid hover:border-edge-mid hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                            compact ? "max-w-[142px]" : "max-w-[240px]"
-                        )}
+                        className="h-6 min-w-0 max-w-[240px] flex-none truncate rounded-[7px] border border-border bg-surface px-2 font-mono text-[10.5px] text-ink-mid hover:border-edge-mid hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
                         {/* no "→" glyph: the project name already reads as a destination and the arrow
                             only costs width */}

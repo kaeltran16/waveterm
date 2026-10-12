@@ -48,19 +48,25 @@ Setup and Settings have no `Ctrl`+number slot — the nine positions are bound t
 | `g` `.` | Setup — instructions and skills |
 | `g` `,` | Settings |
 | `g` `p` | Search |
+| `g` `m` | Resource Manager (the popover over the footer's `Arc … CPU` readout) |
 
 ## Search (`Ctrl`+`P`)
 
-One overlay with scopes: All, Needs you, Go to, Agents, Runs, Sessions, Records, Projects, Files, Commands.
+One overlay with scopes: All, Needs you, Go to, Agents, Runs, Sessions, Records, Notes, Projects, Files, Commands.
 
 | Keys | Action |
 |---|---|
 | `Tab` / `Shift`+`Tab` | Next / previous scope |
-| `n:` `g:` `a:` `r:` `s:` `re:` `p:` `f:` `c:` typed first in All | Narrow to Needs you, Go to, Agents, Runs, Sessions, Records, Projects, Files, Commands. A `\` or `/` right after the colon keeps it as text, so a pasted `c:\path` stays a query |
+| `n:` `g:` `a:` `r:` `s:` `re:` `no:` `p:` `f:` `c:` typed first in All | Narrow to Needs you, Go to, Agents, Runs, Sessions, Records, Notes, Projects, Files, Commands. A `\` or `/` right after the colon keeps it as text, so a pasted `c:\path` stays a query |
 | `@` `/` `#` `>` typed first in All | Jump to Agents, Sessions, Projects, Commands (the older sigils) |
 | `→` with the caret at the end of the query | Open the selected row's actions (a run, agent, session, record, initiative or project). Mid-query, `→` moves the caret |
 | `←` or `Backspace` on an empty action filter | Leave an action's input, then the action list, back to the results with the query and selection as they were |
 | `1`…`9` in Needs you | Answer the selected ask with that option, in place |
+| `Enter` in Notes | Copy the selected note as markdown and close |
+| `Del` twice in Notes, caret at the end of the query | Delete the selected note. Any other key after the first `Del` cancels |
+| `Ctrl`+`Enter` on a note in Notes | Edit it: the palette becomes the editor |
+| `Enter` on "New note", the last row in Notes | Write a note; the query becomes its title |
+| In the note editor: `Ctrl`+`Enter` / `Tab` / `Esc` | Save / move between title and body (`Enter` in the title moves to the body) / back to the Notes list, pressed twice when there are unsaved changes. `Ctrl`+`P` and a click outside go back the same way |
 | `Ctrl`+`Enter` | The selected row's alternate action, named in the footer. On the goal block, open an orchestrator run instead of a Quick one |
 | `Backspace` on an empty query | Leave a picker, then drop back to All |
 | `path:123` in Files | Open the file at that line; a bare `:123` on Code moves the open file |
@@ -80,7 +86,20 @@ cancelled now, in All and in Commands, so it never starts a run named "cancel".
 | `j` / `k` (or `↓` / `↑`) | Move the cursor within the active region |
 | `Enter` | Open / activate the item under the cursor |
 | `Space` | Peek the item under the cursor in the avatar popup, without leaving the surface (see Peek below) |
-| `Esc` | On a deep surface (Jarvis, Radar, Sessions, Files, Usage, Code), return to the Cockpit. In a composer or text field, leave Type posture first. |
+| `Esc` | On a deep surface (Jarvis, Radar, Sessions, Files, Usage, Code), go back to the surface you jumped from (opening a run, file, diff or agent from elsewhere), else return to the Cockpit. In a composer or text field, leave Type posture first. |
+
+## Resource Manager (the popover opened from the footer's readout or `g` `m`)
+
+| Keys | Action |
+|---|---|
+| `↑` / `↓` | Move the cursor through the groups and their processes |
+| `Enter` | Confirm an open kill, else expand or collapse the cursor's group |
+| `x` | Kill the process under the cursor and its children (asks first; never the agent itself) |
+| `Shift`+`X` | Kill every process the cursor's group started, keeping the agent and its console (asks first) |
+| `Esc` | Cancel an open kill, else close the popover |
+
+While the popover is open its keys take precedence: the surface underneath does not move. A click outside it
+closes it.
 
 ## Peek (the avatar popup's item view)
 
@@ -122,7 +141,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `d` | Toggle the agent rail |
 | `f` | Toggle terminal fullscreen |
 | `r` | Review: open the focused lead's Spec review or Plan review dialog |
-| `Esc` | Back to Cockpit, or exit fullscreen first |
+| `Esc` | Back to where you jumped from, else to Cockpit; exits fullscreen first |
 | `Shift`+`Esc` | Return focus to the nav (from inside the terminal) |
 
 ### Agent: canvas mode
@@ -168,6 +187,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Shift`+`N` / `Shift`+`P` | Next / previous change in the open diff |
 | `Shift`+`D` | Split / unified |
 | `Shift`+`W` | Ignore whitespace |
+| `v` | Mark the open file reviewed (or unmark it) and open the next unreviewed file |
 | `r` | Refresh changes and history |
 | `c` | In history: compare refs. In compare: change the compared refs |
 | `Shift`+`S` | Swap compare refs (in compare) |

@@ -22,7 +22,12 @@ Status legend:
 
 ## 1 · Actionable
 
-Nothing here as of 2026-10-06.
+- **`final-stage` CDP scenario, Part B flakes** (2026-10-12). B2–B6 failed in 2 of 3 runs after the lead's
+  Final verification block was removed from the details rail, and passed in 2 runs without that change
+  (one of which failed only B6). The failing shape: in B2 the DAG modal's final node still reads the B1
+  state ("waits on every task") while the tree's row shows Tree running, and from B3 on the stage row has
+  lost focus (no pane). That change touches neither the modal nor focus, so the cause is unproven either
+  way. Repro: `ARC_FINAL_OUT=<dir> node scripts/cdp/final-verify.mjs final-stage`, a few runs.
 
 Tracked in their own initiatives, not here:
 
@@ -52,12 +57,6 @@ Each names its revive condition in `docs/deferred.md` unless a source is given.
 
 Cockpit and surfaces:
 
-- **OS/taskbar badge when Arc is backgrounded** — the in-app counter ships and nothing reaches you
-  cross-app. Measure first that it is missed (`badge.ts`, `navrail.tsx`).
-- **Sessions "All activity" rows peeking a run, agent or initiative** (2026-10-01) — revive when a row
-  carries a target; wire it through `openOrPeek`.
-- **Terminal file drop → pasted path** (2026-09-30) — needs Tauri's `dragDropEnabled`, which disables
-  HTML5 drag app-wide.
 - **Work on an initiative — "Save place and close"** (2026-09-29) — revive when losing a session's place
   recurs.
 - **Run recovery after a restart — New Agent sessions** (2026-09-30) — revive when a session is seen
@@ -70,14 +69,12 @@ Cockpit and surfaces:
 - **Cross-surface ideas from the cockpit-focus spec** (2026-09-22; focus itself was removed 2026-10-06) —
   relationship annotation, companion split, time correlation, drag courier.
 - **Resource linking beyond navigation** (2026-09-17) — Related Work, the Work Trail strip, structured
-  refs, file/diff/commit/session targets, a shared action builder, usage-to-work links.
+  refs, file/diff/commit/session targets (a Usage session page waits on the session target), a shared
+  action builder.
 - **Cross-surface Back history and its context strip** (2026-09-17) — parked as `09e86573` on
   `feat/surface-integration`; keep the branch while this is open.
-- **Composer attachments** (2026-09-18) — revive when attaching a file to a goal or steer is wanted.
-- **Diff surface repository actions (Spec B)** (2026-09-04) — checkout, cherry-pick, revert. Needs its
-  own spec; revive when a write from the Diff surface is wanted. The orphaned revert path was deleted
-  2026-10-05, recovery commands in `docs/deferred.md`.
-- **Diff surface: hiding whitespace-only files from the change list** (2026-09-11).
+- **Composer attachments** (2026-09-18) — the New run goal has them since 2026-10-12; revive the Steer half
+  and drag-drop when attaching a file to a steer is wanted.
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /
   React-DevTools pass against a populated cockpit first).
 
@@ -121,7 +118,9 @@ Jarvis (what survived the 2026-09-22/23 memory and recall-arm removals):
 ## 4 · Declined / permanent limitations (do not resurface)
 
 - Cockpit light/Paper theme — declined; code removed 2026-08-24 (`docs/deferred.md`).
-- Gatekeeper v1.1 (make-a-rule + countdown) — revive only on recurring-ask or misfire evidence.
+- Gatekeeper v1.1 (make-a-rule + countdown) — revive only on recurring-ask or misfire evidence. Measured
+  2026-10-12 over 879 structured asks since 08-11: 737 distinct headers, and the ones that recur (spec
+  review, scope, plan review, commit) are approval gates, not routine asks a rule could answer.
 - Arc Environment capability — restore via `git show 4e80bf4f:docs/environment-roadmap.md` if needed.
 - Agents-tab fit-one-screen density engine — obsolete, un-executable against the card grid.
 - Diff-surface row-density variants and the rest of the narrow-window cascade — the commit column fold

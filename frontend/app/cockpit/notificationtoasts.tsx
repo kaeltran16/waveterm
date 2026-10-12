@@ -5,13 +5,14 @@ import { useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { dismissToast, toastsAtom } from "./notificationstore";
 
-// the stack stays mounted even when empty, so the last toast's exit can play
 export function NotificationToasts(): React.JSX.Element {
     const toasts = useAtomValue(toastsAtom);
+    // the stack stays mounted while empty so the last toast can play its exit; popLayout takes a leaving toast
+    // out of flow at once, so the rest slide into its place instead of waiting for it
     return (
         <MotionConfig reducedMotion="user">
             <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
-                <AnimatePresence initial={false} mode="popLayout">
+                <AnimatePresence mode="popLayout">
                     {toasts.map((t) => (
                         <motion.button
                             key={t.id}

@@ -1,10 +1,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Shared disclosure reveal: a pane opening under its toggle grows in height and fades, so the content
-// below is pushed rather than jumped. Rendering must be UNCONDITIONAL (drive `open`) so the exit can
-// play. initial={false}: a pane already open on mount does not replay its reveal. A strip a few dozen
-// pixels tall passes composerReveal; paneReveal's macro duration is for anything taller.
+// Shared height reveal for disclosures and banners: owns AnimatePresence, the reduced-motion config and the
+// variant, so a pane grows in and out instead of snapping and pushing its neighbours. initial={false} keeps a
+// pane already open at mount from replaying. Like PopoverReveal, render it UNCONDITIONALLY and drive `open`; a
+// `{open ? <PaneReveal/> : null}` caller defeats the exit. Pass composerReveal for a strip a few dozen pixels
+// tall (a banner); the paneReveal default suits a pane several hundred.
 
 import { cn } from "@/util/util";
 import { AnimatePresence, MotionConfig, motion, type Variants } from "motion/react";

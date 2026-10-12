@@ -7,6 +7,7 @@
 // on its first file instead of the one that was clicked.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { landOn } from "@/app/view/jarvis/returnsurface";
 import type { AgentsViewModel } from "./agents";
 import { defaultRangeFor, scopeKey, type DiffOrigin, type DiffScope } from "./diffscope";
 import { requestFileLink } from "./filesstore";
@@ -42,5 +43,5 @@ export function openDiff(model: AgentsViewModel, scope: DiffScope, file?: string
         requestFileLink(scopeKey(scope), file);
     }
     globalStore.set(model.diffScopeAtom, scope);
-    globalStore.set(model.surfaceAtom, "files");
+    landOn(model.surfaceAtom, "files");
 }

@@ -15,7 +15,7 @@ import { openInCode } from "@/app/view/code/codestore";
 import { joinRepoPath, splitRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ChevronDown, ChevronUp, Code, ExternalLink, FileText, Pilcrow } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Code, ExternalLink, FileText, Pilcrow } from "lucide-react";
 import { motion } from "motion/react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -24,6 +24,7 @@ import { diffPairAtom } from "./diffcontentstore";
 import { emptyDiffState, type EmptyDiff } from "./diffempty";
 import { changePosition, clearDiffNav, diffNavPosAtom, gotoChange, setDiffNav } from "./diffnav";
 import { ignoreWsAtom, paneHeaderLayout, paneOptions, splitViewAtom } from "./diffoptions";
+import { activeReviewAtom, markState, noteOpenPair, pairHash, reviewMarksAtom, toggleOpenFile } from "./reviewmarks";
 import { fmtBytes } from "./runcompletion";
 
 const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer })));
@@ -80,6 +81,8 @@ export function DiffPane({
     const split = useAtomValue(splitViewAtom);
     const ignoreWs = useAtomValue(ignoreWsAtom);
     const navPos = useAtomValue(diffNavPosAtom);
+    const active = useAtomValue(activeReviewAtom);
+    const reviews = useAtomValue(reviewMarksAtom);
     const hostRef = useRef<HTMLDivElement>(null);
     const [width, setWidth] = useState(0);
 
@@ -94,6 +97,20 @@ export function DiffPane({
         return () => ro.disconnect();
     }, []);
 
+    // every load of the open file's pair, the working-tree poll's refresh included: a changed pair is
+    // what turns a mark stale when the file's counts did not move. The subject is a dependency because
+    // the surface publishes it in its own effect, after this one has run on mount.
+    const reviewSubject = active?.subject;
+    const reviewOpen = active?.open;
+    useEffect(() => {
+        if (pair != null && reviewSubject != null && pair.path === reviewOpen) {
+            noteOpenPair(reviewSubject, pair.path, pairHash(pair.original, pair.modified));
+        }
+    }, [pair, reviewSubject, reviewOpen]);
+
+    const openChange = active?.open != null && active.open === path ? active.files.find((c) => c.path === path) : null;
+    const reviewed = openChange != null && markState(reviews[active.subject], openChange) === "ok";
+    const reviewTitle = reviewed ? "Unmark this file (v)" : "Mark reviewed and open the next file (v)";
     const layout = paneHeaderLayout(width);
     const options = useMemo(() => paneOptions(split && layout.split, ignoreWs), [split, layout.split, ignoreWs]);
     const empty = emptyDiffState({ path, pair, nothingToCompare });
@@ -217,6 +234,27 @@ export function DiffPane({
                     <Pilcrow size={13} />
                     {layout.labelled ? "Hide whitespace" : null}
                 </button>
+                {openChange != null ? (
+                    <button
+                        onClick={() => toggleOpenFile()}
+                        title={reviewTitle}
+                        aria-label={reviewTitle}
+                        aria-pressed={reviewed}
+                        data-review-open
+                        className={cn(
+                            headerBtn,
+                            reviewed ? "border-accent/30 bg-accentbg text-ink-hi" : "text-ink-mid hover:text-ink-hi"
+                        )}
+                    >
+                        <Check size={13} />
+                        {layout.labelled ? (
+                            <>
+                                {reviewed ? "Reviewed" : "Mark reviewed"}
+                                <kbd className="font-mono text-[10px] text-ink-faint">v</kbd>
+                            </>
+                        ) : null}
+                    </button>
+                ) : null}
                 {repoCwd && (
                     <button
                         onClick={() =>

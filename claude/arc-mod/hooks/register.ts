@@ -5,6 +5,7 @@ import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
 import { drawAskPicker, drawNoQuestion } from "./ask-pane";
 import {
+    abortedReply,
     answersFor,
     askPayload,
     cardCanAsk,
@@ -18,6 +19,8 @@ import {
 } from "./ask-core";
 import type { AskReply } from "./ask-core";
 import type { Picker } from "../types";
+import { drawCacheMiss } from "./cache-band";
+import { cacheMissNotice, transcriptEntries } from "./cache-core";
 import { controlMsg, deliver, endTurn, steerNotice, takeLines } from "./control-core";
 import type { Turn } from "./control-core";
 import { denial } from "./guard-core";
@@ -38,6 +41,9 @@ const ASK_PANE = "arc-ask";
 
 // the question the terminal's picker is showing; null when none is
 const picker = atom({ plugin: "arc", key: "picker" } as const, null);
+
+// the last turn's cache miss, shown above the prompt until the next turn starts; null when none is
+const cacheMiss = atom({ plugin: "arc", key: "cacheMiss" } as const, null);
 
 // resolves the tool.call hook waiting on the picker. a module variable: a reload drops it with the
 // dispatch it served
@@ -106,6 +112,47 @@ async function refusal($: EngineInterface, command: string): Promise<string | nu
     return active ? denial(command, await $.session.cwd()) : null;
 }
 
+// set when a question goes to claude's own dialog, where the settings hooks beneath show the card for it.
+// a question dismissed there runs no PostToolUse and no Stop hook, so the turn's end takes the card down
+// and reports idle, or the cockpit reads asking until the next prompt
+let isAskInDialog = false;
+
+async function clearAsk($: EngineInterface) {
+    try {
+        await $.process.run([WSH, "ask", "--clear"]);
+    } catch (err) {
+        $.ui.log(`arc: wsh ask --clear failed: ${String(err)}`, { to: "debug" });
+    }
+}
+
+// tells the person, and inside Arc the cockpit, what the turn that just ended re-billed for a missed
+// prompt cache. the transcript comes through wsh, found by the session's id: the hook events that carry its
+// path never reach this mod, and the mod's own file read rejects a file over 4 MiB
+async function reportCacheMiss($: EngineInterface) {
+    try {
+        const tail = await $.process.run([WSH, "transcript-tail", await $.session.id()]);
+        if (tail.exitCode !== 0) {
+            // a session can end a turn before its transcript is first written
+            $.ui.log(`arc: wsh transcript-tail exited ${tail.exitCode}: ${tail.stderr.trim()}`, { to: "debug" });
+            return;
+        }
+        const notice = cacheMissNotice(transcriptEntries(tail.stdout));
+        if (!notice) {
+            return;
+        }
+        await update($, cacheMiss, () => notice);
+        if (!active) {
+            return;
+        }
+        const ran = await $.process.run([WSH, "notify", notice, "--level", "warn", "--transient"]);
+        if (ran.exitCode !== 0) {
+            $.ui.log(`arc: wsh notify exited ${ran.exitCode}: ${ran.stderr.trim()}`, { to: "debug" });
+        }
+    } catch (err) {
+        $.ui.log(`arc: reporting a cache miss failed: ${String(err)}`, { to: "debug" });
+    }
+}
+
 async function closePicker($: EngineInterface) {
     try {
         await update($, picker, () => null);
@@ -146,8 +193,9 @@ export const register: Register = (on) => {
         return next(e);
     });
 
-    on("turn.start", ($, e, next) => {
+    on("turn.start", async ($, e, next) => {
         turn.isOpen = true;
+        await update($, cacheMiss, () => null);
         return next(e);
     });
 
@@ -162,12 +210,17 @@ export const register: Register = (on) => {
     });
 
     on("turn.complete", async ($, e, next) => {
+        const wasAskInDialog = isAskInDialog && !e.agentId;
+        if (wasAskInDialog) {
+            isAskInDialog = false;
+            await clearAsk($);
+        }
         for (const text of e.agentId ? [] : endTurn(turn)) {
             void $.prompt.submit({ text, asUser: true }).catch((err) =>
                 $.ui.log(`arc: submitting an unread mid-turn text failed: ${String(err)}`, { to: "debug" })
             );
         }
-        const args = active ? idleArgs(e, transcriptPath) : null;
+        const args = active ? idleArgs(e, transcriptPath, wasAskInDialog) : null;
         if (args) {
             try {
                 const ran = await $.process.run([WSH, ...args]);
@@ -179,7 +232,17 @@ export const register: Register = (on) => {
                 $.ui.log(`arc: wsh agentstatus --state idle failed: ${String(err)}`, { to: "debug" });
             }
         }
+        // in every session, Arc's or not: the band shows the person the miss either way
+        if (!e.agentId) {
+            // not awaited: reading a long transcript must not hold the turn's end
+            void reportCacheMiss($);
+        }
         return next(e);
+    });
+
+    on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
+        const notice = await read($, cacheMiss);
+        return notice && !e.hasSurvey ? drawCacheMiss($.ui.resolve(e), notice) : next(e);
     });
 
     on("ui.render", { component: "Pane", requestId: ASK_PANE }, async ($, e) => {
@@ -227,6 +290,7 @@ export const register: Register = (on) => {
     // opened it, so it could not race the card; the picker can, since the mod draws and closes it.
     on("tool.call", { tool: "AskUserQuestion" }, async ($, e, next) => {
         if (!active || !cardCanAsk(e.questions)) {
+            isAskInDialog = active;
             return next(e);
         }
         let isFromPicker = false;
@@ -252,6 +316,7 @@ export const register: Register = (on) => {
                 // the card for it
                 settlePicker = null;
                 await closePicker($);
+                isAskInDialog = true;
                 return next(e);
             }
         } catch (err) {
@@ -276,15 +341,20 @@ export const register: Register = (on) => {
         })();
         let reply: AskReply | null = null;
         try {
-            reply = await Promise.race([fromPicker, fromCard]);
+            reply = await Promise.race([fromPicker, fromCard, abortedReply(next.signal)]);
         } finally {
             settlePicker = null;
             $.ui.status(undefined);
         }
         await closePicker($);
-        if (isFromPicker) {
-            // ending the stream kills wsh, and the server's waiter cancel takes the card down
+        const isInterrupted = reply === null && next.signal.aborted;
+        if (isFromPicker || isInterrupted) {
             void wait.return(undefined as never).catch(() => undefined);
+        }
+        if (isFromPicker) {
+            // ending the stream kills wsh, but the server cancels a request only when a websocket drops,
+            // not wsh's socket, so the card is taken down here
+            await clearAsk($);
         }
         if (reply?.cancelled) {
             return { deny: "The user dismissed the question." };
@@ -293,15 +363,12 @@ export const register: Register = (on) => {
             return { result: { questions: e.questions, answers: answersFor(e.questions, reply) } };
         }
         // no answer came back: take the card down so it cannot answer a question nobody is asking
-        try {
-            await $.process.run([WSH, "ask", "--clear"]);
-        } catch (err) {
-            $.ui.log(`arc: wsh ask --clear failed: ${String(err)}`, { to: "debug" });
-        }
+        await clearAsk($);
         if (next.signal.aborted) {
             return { deny: "Interrupted by the user." };
         }
         // wsh failed or hit its 30-minute ceiling: the question still reaches the user, in claude's dialog
+        isAskInDialog = true;
         return next(e);
     });
 };

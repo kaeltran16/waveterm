@@ -9,7 +9,10 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { newAttention } from "@/app/view/agents/attentionpopup";
 import { atom, type PrimitiveAtom } from "jotai";
+
+export { newAttention };
 
 export const attentionAtom = atom<AttentionItem[]>([]) as PrimitiveAtom<AttentionItem[]>;
 
@@ -37,6 +40,23 @@ export function splitAttention(items: AttentionItem[]): {
         }
     }
     return { channel, standalone, radar };
+}
+
+// taskbarSignal decides what a new attention list does to the taskbar button. Only an item that was not
+// there before flashes it, so an unanswered ask does not flash again every poll; an emptied list
+// clears it, because a button still flashing after the last item was answered elsewhere would lie.
+export function taskbarSignal(
+    prev: AttentionItem[],
+    next: AttentionItem[],
+    focused: boolean
+): "flash" | "clear" | null {
+    if (next.length === 0) {
+        return prev.length > 0 ? "clear" : null;
+    }
+    if (focused) {
+        return null;
+    }
+    return newAttention(prev, next).length > 0 ? "flash" : null;
 }
 
 // A failed poll leaves the last good list in place. Blanking the badge on one dropped request would

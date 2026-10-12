@@ -49,8 +49,7 @@ export function useStickToBottom(entries: unknown[]) {
 
 // The jump-to-latest pill. Render inside a `relative` parent of the scroll region so it anchors to the
 // viewport bottom and does not scroll with the feed. Stops click propagation (callers are often inside
-// a clickable card). Driven by `show` rather than mounted conditionally, so leaving the tail and catching
-// up both read as the pill arriving and going rather than blinking.
+// a clickable card). Render it unconditionally and pass `show`, so it can leave as it came.
 export function JumpToLatestPill({ show, onClick }: { show: boolean; onClick: () => void }) {
     return (
         <PopoverReveal open={show} origin="bottom" className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2">

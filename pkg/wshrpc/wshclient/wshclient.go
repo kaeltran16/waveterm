@@ -708,6 +708,30 @@ func MessageCommand(w *wshutil.WshRpc, data wshrpc.CommandMessageData, opts *wsh
 	return err
 }
 
+// command "noteadd", wshserver.NoteAddCommand
+func NoteAddCommand(w *wshutil.WshRpc, data wshrpc.CommandNoteAddData, opts *wshrpc.RpcOpts) (*waveobj.UserNote, error) {
+	resp, err := sendRpcRequestCallHelper[*waveobj.UserNote](w, "noteadd", data, opts)
+	return resp, err
+}
+
+// command "notedelete", wshserver.NoteDeleteCommand
+func NoteDeleteCommand(w *wshutil.WshRpc, data wshrpc.CommandNoteDeleteData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "notedelete", data, opts)
+	return err
+}
+
+// command "notelist", wshserver.NoteListCommand
+func NoteListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]*waveobj.UserNote, error) {
+	resp, err := sendRpcRequestCallHelper[[]*waveobj.UserNote](w, "notelist", nil, opts)
+	return resp, err
+}
+
+// command "noteupdate", wshserver.NoteUpdateCommand
+func NoteUpdateCommand(w *wshutil.WshRpc, data wshrpc.CommandNoteUpdateData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "noteupdate", data, opts)
+	return err
+}
+
 // command "notify", wshserver.NotifyCommand
 func NotifyCommand(w *wshutil.WshRpc, data wshrpc.NotifyCommandData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "notify", data, opts)
@@ -801,6 +825,24 @@ func RemoveBackgroundAgentCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoveBa
 func ReportRunPhaseCommand(w *wshutil.WshRpc, data wshrpc.CommandReportRunPhaseData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "reportrunphase", data, opts)
 	return err
+}
+
+// command "resmonkill", wshserver.ResMonKillCommand
+func ResMonKillCommand(w *wshutil.WshRpc, data wshrpc.CommandResMonKillData, opts *wshrpc.RpcOpts) (*wshrpc.ResMonKillRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.ResMonKillRtnData](w, "resmonkill", data, opts)
+	return resp, err
+}
+
+// command "resmonkillchildren", wshserver.ResMonKillChildrenCommand
+func ResMonKillChildrenCommand(w *wshutil.WshRpc, data wshrpc.CommandResMonKillChildrenData, opts *wshrpc.RpcOpts) (*wshrpc.ResMonKillRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.ResMonKillRtnData](w, "resmonkillchildren", data, opts)
+	return resp, err
+}
+
+// command "resmonsnapshot", wshserver.ResMonSnapshotCommand
+func ResMonSnapshotCommand(w *wshutil.WshRpc, data wshrpc.CommandResMonSnapshotData, opts *wshrpc.RpcOpts) (*wshrpc.ResMonSnapshotData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.ResMonSnapshotData](w, "resmonsnapshot", data, opts)
+	return resp, err
 }
 
 // command "resolveambient", wshserver.ResolveAmbientCommand

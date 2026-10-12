@@ -26,6 +26,7 @@ import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
 import { loadRecordDetail, selectSubject, setActiveRunId } from "./jarvissubjectstore";
 import { clearLoadingPeek, settlePeek, startPeek, type PeekTarget } from "./peekstore";
 import { pendingDecisionAnchorAtom } from "./petstore";
+import { landOn } from "./returnsurface";
 import { refreshTaskList, taskListAtom, tasksErrorAtom } from "./tasksstore";
 
 type OpenFailure = { ok: false; reason: "unsupported" | "unavailable" | "failed" | "superseded"; message: string };
@@ -136,6 +137,12 @@ export function isPeekable(target: OpenTarget): boolean {
     return target.kind !== "canvas";
 }
 
+// an address that does not parse still peeks, so the refusal is the peek's own toast
+export function isPeekableAddress(address: string, hint?: AddressHint): boolean {
+    const parsed = parseAddress(address, hint);
+    return parsed.kind === "unsupported" || isPeekable(parsed);
+}
+
 // Load the target and show it in the avatar popup, writing no destination selection. The popup opens at once on
 // a loading item; a failed load puts it back as it was and says why.
 export async function peekTarget(
@@ -189,8 +196,7 @@ export function openOrPeekAddress(
     event?: OpenGesture,
     hint?: AddressHint
 ): Promise<OpenResult> {
-    const parsed = parseAddress(address, hint);
-    if (event?.ctrlKey && (parsed.kind === "unsupported" || isPeekable(parsed))) {
+    if (event?.ctrlKey && isPeekableAddress(address, hint)) {
         event.preventDefault();
         event.stopPropagation();
         return peekAddress(model, address, hint);
@@ -355,7 +361,7 @@ async function selectSheet(model: AgentsViewModel, sheet: Sheet, current: () => 
     if (!current()) {
         return SUPERSEDED;
     }
-    globalStore.set(model.surfaceAtom, "jarvis");
+    landOn(model.surfaceAtom, "jarvis", "sheet");
     return OK;
 }
 
@@ -442,7 +448,7 @@ async function loadRecord(target: RecordTarget, current: () => boolean): Promise
 function selectRecord(model: AgentsViewModel, target: RecordTarget): OpenResult {
     globalStore.set(pendingDecisionAnchorAtom, target.anchor ?? null);
     openRecordPeek(target.dossierId);
-    globalStore.set(model.surfaceAtom, "jarvis");
+    landOn(model.surfaceAtom, "jarvis", "record");
     return OK;
 }
 
@@ -488,7 +494,7 @@ async function selectRadar(model: AgentsViewModel, landing: RadarLanding, curren
         return SUPERSEDED;
     }
     globalStore.set(radarSelectedIdAtom, landing.findingId);
-    globalStore.set(model.surfaceAtom, "radar");
+    landOn(model.surfaceAtom, "radar");
     return OK;
 }
 
@@ -512,7 +518,7 @@ async function loadEffort(effortId: string, current: () => boolean): Promise<Loa
 
 function selectEffort(model: AgentsViewModel, effortId: string): OpenResult {
     openEffortSheet(effortId);
-    globalStore.set(model.surfaceAtom, "jarvis");
+    landOn(model.surfaceAtom, "jarvis", "sheet");
     return OK;
 }
 

@@ -2,6 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { launchPiTab } from "@/app/cockpit/cockpit-actions";
+import { orderGroups } from "@/app/cockpit/resmon";
+import {
+    confirmResMon,
+    dispatchResMon,
+    resmonOpenAtom,
+    resmonSnapshotAtom,
+    resmonUiAtom,
+} from "@/app/cockpit/resmonstore";
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { anyModalOpen } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -33,6 +41,7 @@ import {
 } from "@/app/view/agents/githistorystore";
 import { anyFilterActive } from "@/app/view/agents/historyquery";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
+import { toggleOpenFile } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
@@ -66,6 +75,7 @@ import {
 import { activeRunIdAtom, activeSubjectAtom, setActiveRunId } from "@/app/view/jarvis/jarvissubjectstore";
 import { peekTarget } from "@/app/view/jarvis/openref";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
+import { backToOrigin } from "@/app/view/jarvis/returnsurface";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import type { MutableRefObject } from "react";
 import { listNavAtom } from "./listnav";
@@ -151,6 +161,13 @@ export function closeTargetForDoubleCtrlC(agents: AgentVM[], focusId: string | u
         return null;
     }
     return agents.find((x) => x.id === focusId) ?? null;
+}
+
+// Escape on a surface: back over the jump that brought the user here, and home when there was none
+function backOrHome(model: AgentsViewModel): void {
+    if (!backToOrigin()) {
+        globalStore.set(model.surfaceAtom, "cockpit");
+    }
 }
 
 export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
@@ -246,6 +263,14 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             run: () => globalStore.set(model.paletteOpenAtom, true),
         },
         {
+            id: "go:resmon",
+            keys: "g m",
+            group: "Go to",
+            label: "Resource Manager",
+            when: navigate,
+            run: () => globalStore.set(resmonOpenAtom, true),
+        },
+        {
             id: "new-agent",
             keys: "Ctrl:n",
             group: "Global",
@@ -319,7 +344,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             id: "surface:back-home",
             keys: "Escape",
             group: "Navigation",
-            label: "Back to Cockpit",
+            label: "Back, else to Cockpit",
             // the Jarvis graph peek owns Escape while it is open: closing an overlay is what the user means
             // by Escape there, and navigating home instead would leave the peek open behind the Cockpit.
             // The autonomy panel owns it for the same reason — and it cannot claim the key itself, since
@@ -351,7 +376,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 globalStore.get(noteChunkAtom) == null &&
                 // and the plan-editing menu above it, the innermost rung of all
                 globalStore.get(trackerMenuAtom) == null,
-            run: () => globalStore.set(model.surfaceAtom, "cockpit"),
+            run: () => backOrHome(model),
         },
     ];
 }
@@ -791,13 +816,13 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             id: "agent:back",
             keys: "Escape",
             group: "Agent",
-            label: "Back to Cockpit (or exit fullscreen)",
+            label: "Back, else to Cockpit (or exit fullscreen)",
             when: (ctx) => agentNavStrict(ctx) && globalStore.get(focusSubagentAtom) == null && noCanvas(),
             run: () => {
                 if (globalStore.get(terminalFullscreenAtom)) {
                     globalStore.set(terminalFullscreenAtom, false);
                 } else {
-                    globalStore.set(model.surfaceAtom, "cockpit");
+                    backOrHome(model);
                 }
             },
         },
@@ -1031,6 +1056,15 @@ export function buildFilesBindings(): Binding[] {
             label: "Previous change",
             when: on,
             run: () => gotoChange("previous"),
+        },
+        {
+            id: "files:toggle-reviewed",
+            keys: "v",
+            group: "Diff",
+            label: "Mark file reviewed",
+            when: on,
+            // no open file in a listed subject — let the key pass
+            run: () => (toggleOpenFile() ? undefined : false),
         },
         {
             id: "files:toggle-history",
@@ -1415,5 +1449,47 @@ export function buildFinalShotsBindings(handlers: {
         bind("zoom", "z", "Fit / actual size", handlers.zoom),
         bind("steps", "s", "Show or hide the steps", handlers.steps),
         bind("close", "Escape", "Close the viewer", handlers.close),
+    ];
+}
+
+// The Resource Manager popover's keys, registered by the always-mounted popover. Gated on its own atom rather
+// than on !modalOpen: that atom is what makes modalOpen true, which stands the surface's arrows, Enter and Escape
+// down under it. A palette or modal opened over the popover keeps its own keys.
+export function buildResMonBindings(model: AgentsViewModel): Binding[] {
+    const active = (ctx: KeyContext) =>
+        globalStore.get(resmonOpenAtom) && !ctx.editable && !anyModalOpen() && !globalStore.get(model.paletteOpenAtom);
+    const groups = () => orderGroups(globalStore.get(resmonSnapshotAtom)?.groups ?? []);
+    const bind = (id: string, keys: string, label: string, run: () => void): Binding => ({
+        id: `resmon:${id}`,
+        keys,
+        group: "Resource Manager",
+        label,
+        when: active,
+        paletteHidden: true,
+        run,
+    });
+    return [
+        bind("prev", "ArrowUp", "Move up", () => dispatchResMon({ type: "move", delta: -1, groups: groups() })),
+        bind("next", "ArrowDown", "Move down", () => dispatchResMon({ type: "move", delta: 1, groups: groups() })),
+        bind("enter", "Enter", "Confirm, else expand or collapse the group", () => {
+            if (globalStore.get(resmonUiAtom).confirm != null) {
+                void confirmResMon();
+            } else {
+                dispatchResMon({ type: "toggle" });
+            }
+        }),
+        bind("kill", "x", "Kill the process and its children", () =>
+            dispatchResMon({ type: "askKill", groups: groups() })
+        ),
+        bind("kill-children", "Shift:X", "Kill the group's children", () =>
+            dispatchResMon({ type: "askChildren", groups: groups() })
+        ),
+        bind("close", "Escape", "Cancel, else close", () => {
+            if (globalStore.get(resmonUiAtom).confirm != null) {
+                dispatchResMon({ type: "cancel" });
+            } else {
+                globalStore.set(resmonOpenAtom, false);
+            }
+        }),
     ];
 }

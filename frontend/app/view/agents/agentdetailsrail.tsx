@@ -27,6 +27,8 @@ import type { AgentsViewModel } from "./agents";
 import { displayAgeMs, formatAgeShort, recentActions, summarizeActions, type AgentVM } from "./agentsviewmodel";
 import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
 import { ASK_OWNER_USER } from "./childaskmodel";
+import { finalRowFocusId, isFinalStageId } from "./finalstage";
+import { FinalStageRail } from "./finalstagerail";
 import { capFiles, statusColor } from "./gitstatus";
 import { entriesAtomFor, liveEntriesByIdAtom } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
@@ -36,6 +38,8 @@ import { agentProject, roleRunId } from "./runlineage";
 import { NeedsYouSection, RunSection, TaskSection, useRunAsks } from "./runrailsections";
 import { SectionLabel, SubLabel } from "./sectionlabel";
 import type { SubagentState } from "./session-models/sessionviewmodel";
+import { isStandingBy } from "./shelltasks";
+import { shellTasksByIdAtom } from "./shelltasksstore";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { TokenUsageSection } from "./tokenusagesection";
 import { loadSessionUsage } from "./transcriptusagestore";
@@ -241,6 +245,7 @@ function SealedFiles({ files }: { files: EvidenceFile[] }) {
 export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
+    const standingBy = isStandingBy(agent.state, useAtomValue(shellTasksByIdAtom)[agent.id] ?? []);
     const focusSub = useAtomValue(focusSubagentAtom);
     const sub = focusSub?.parentId === agent.id ? focusSub : null;
     const subVM = sub ? subs.find((s) => s.id === sub.agentId) : undefined;
@@ -307,7 +312,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const branch = ended ? ended.branch : railState?.branch;
     const worktree = ended ? undefined : railState?.worktree;
     const live = agent.blockId != null && !ended;
-    const action = sub ? null : railAction(agent.state, age, live);
+    const action = sub ? null : railAction(agent.state, age, live, standingBy);
     const offerReset =
         ctxPct != null &&
         offersContextReset({ isClaude, state: agent.state, level: contextLevel(ctxPct, usage?.contextmax), live });
@@ -419,9 +424,27 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
         ),
     };
 
+    // the agent is its run's Final verification row: the stage's own id, or the current round's verifier session.
+    // a tab an earlier round's verifier left is not the row, and keeps the rail it has
+    const finalRun =
+        !sub && role?.kind === "stage" && roleRun && finalRowFocusId(roleRun, [agent]) === agent.id
+            ? roleRun
+            : undefined;
+    const finalSection: RailSection[] = finalRun
+        ? [
+              {
+                  id: "final",
+                  label: "Final verification",
+                  icon: RAIL_ICON.autonomy,
+                  content: <FinalStageRail key={finalRun.runId} model={model} run={finalRun} />,
+              },
+          ]
+        : [];
+
     const sections: RailSection[] = [
         ...subHead,
         details,
+        ...finalSection,
         ...(!sub && role && roleRun
             ? [
                   {
@@ -609,7 +632,8 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
         <CollapsibleRail
             openAtom={railVisibleAtom}
             ariaLabel="Agent details"
-            sections={sections}
+            // the stage's own id is no session, so its rail is the stage alone
+            sections={isFinalStageId(agent.id) ? finalSection : sections}
             strip={{
                 content: (
                     <RailStrip needs={yours.length} ctxPct={sub ? undefined : ctxPct} ctxMax={usage?.contextmax} />

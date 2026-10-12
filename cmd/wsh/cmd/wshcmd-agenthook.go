@@ -149,34 +149,40 @@ func truncate(s string, n int) string {
 	return s[:n]
 }
 
-// tailLines returns the lines in the last transcriptTailBytes of path, dropping the
-// partial leading line that a mid-file read produces. Any error yields nil.
+// tailLines returns the lines in the last transcriptTailBytes of path. Any error yields nil.
 func tailLines(path string) []string {
+	lines, _ := readTailLines(path, transcriptTailBytes)
+	return lines
+}
+
+// readTailLines returns the lines in the last maxBytes of path, dropping the
+// partial leading line that a mid-file read produces.
+func readTailLines(path string, maxBytes int64) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	start := int64(0)
-	if st.Size() > transcriptTailBytes {
-		start = st.Size() - transcriptTailBytes
+	if st.Size() > maxBytes {
+		start = st.Size() - maxBytes
 	}
 	if _, err := f.Seek(start, io.SeekStart); err != nil {
-		return nil
+		return nil, err
 	}
 	data, err := io.ReadAll(f)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	lines := strings.Split(string(data), "\n")
 	if start > 0 && len(lines) > 0 {
 		lines = lines[1:]
 	}
-	return lines
+	return lines, nil
 }
 
 func readLastModel(path string) string {

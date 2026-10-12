@@ -981,6 +981,7 @@ declare global {
     // wshrpc.CommandGetUsageStatsRtnData
     type CommandGetUsageStatsRtnData = {
         buckets: UsageBucket[];
+        sessions: UsageSession[];
     };
 
     // wshrpc.CommandGetWindowTokensData
@@ -1256,6 +1257,24 @@ declare global {
         message: string;
     };
 
+    // wshrpc.CommandNoteAddData
+    type CommandNoteAddData = {
+        title: string;
+        body?: string;
+    };
+
+    // wshrpc.CommandNoteDeleteData
+    type CommandNoteDeleteData = {
+        id: string;
+    };
+
+    // wshrpc.CommandNoteUpdateData
+    type CommandNoteUpdateData = {
+        id: string;
+        title: string;
+        body?: string;
+    };
+
     // wshrpc.CommandPostChannelMessageData
     type CommandPostChannelMessageData = {
         channelid: string;
@@ -1315,6 +1334,21 @@ declare global {
         holdland?: boolean;
         forceland?: boolean;
     };
+
+    // wshrpc.CommandResMonKillChildrenData
+    type CommandResMonKillChildrenData = {
+        ownerid: string;
+    };
+
+    // wshrpc.CommandResMonKillData
+    type CommandResMonKillData = {
+        ownerid: string;
+        pid: number;
+        tree: boolean;
+    };
+
+    // wshrpc.CommandResMonSnapshotData
+    type CommandResMonSnapshotData = object;
 
     // wshrpc.CommandResolveAmbientRtnData
     type CommandResolveAmbientRtnData = {
@@ -2159,6 +2193,8 @@ declare global {
         title: string;
         message: string;
         level: string;
+        oref?: string;
+        transient?: boolean;
     };
 
     // waveobj.ORef
@@ -2230,6 +2266,25 @@ declare global {
         additions?: Principle[];
         replacements?: {[key: string]: string};
         disabled?: string[];
+    };
+
+    // wshrpc.ProcessInfo
+    type ProcessInfo = {
+        pid: number;
+        ppid?: number;
+        name?: string;
+        command?: string;
+        createts?: number;
+        depth: number;
+        role?: string;
+        tag?: string;
+        status?: string;
+        user?: string;
+        mem: number;
+        mempct: number;
+        cpu: number;
+        numthreads: number;
+        gone?: boolean;
     };
 
     // waveobj.ProfileOverride
@@ -2380,6 +2435,39 @@ declare global {
         model?: string;
         text: string;
         ts: number;
+    };
+
+    // wshrpc.ResMonGroup
+    type ResMonGroup = {
+        key: string;
+        ownerkind: string;
+        ownerid?: string;
+        label: string;
+        runtime?: string;
+        killable: boolean;
+        cpu: number;
+        mem: number;
+        rows: ProcessInfo[];
+    };
+
+    // wshrpc.ResMonKillRtnData
+    type ResMonKillRtnData = {
+        outcome: string;
+        killed: number;
+        error?: string;
+    };
+
+    // wshrpc.ResMonSnapshotData
+    type ResMonSnapshotData = {
+        supported: boolean;
+        ready: boolean;
+        ts: number;
+        cpu: number;
+        mem: number;
+        totalmem: number;
+        busycpu: boolean;
+        busymem: boolean;
+        groups: ResMonGroup[];
     };
 
     // wshrpc.ResumeCardData
@@ -2901,6 +2989,7 @@ declare global {
         provider: string;
         model: string;
         day: string;
+        session?: string;
         input: number;
         output: number;
         reasoning: number;
@@ -2923,6 +3012,28 @@ declare global {
         cachewrite1h: number;
         msgs: number;
         missing?: boolean;
+    };
+
+    // wshrpc.UsageSession
+    type UsageSession = {
+        harness: string;
+        session: string;
+        title?: string;
+        project?: string;
+        runid?: string;
+        channelid?: string;
+        rungoal?: string;
+        runmode?: string;
+        role?: string;
+        taskid?: string;
+    };
+
+    // waveobj.UserNote
+    type UserNote = {
+        id: string;
+        title: string;
+        body?: string;
+        day: string;
     };
 
     // wshrpc.VaultStatusRtnData

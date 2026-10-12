@@ -638,7 +638,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 				setupStart := time.Now()
 				// no progress sink: Setup runs under the dag mutation lock, so nothing can read a
 				// partial tail while it holds the lock anyway
-				_, serr := runPlanCommand(context.WithoutCancel(ctx), wt, g.Setup, nil, SetupTimeout, nil)
+				_, serr := runPlanCommand(withRunCmdOwner(context.WithoutCancel(ctx), owner.ID, PlanCmd_Setup, ""), wt, g.Setup, nil, SetupTimeout, nil)
 				setupMs = time.Since(setupStart).Milliseconds()
 				if serr != nil {
 					// only a new tree is set up, so a retry must not reuse this half-prepared one. The branch

@@ -308,7 +308,7 @@ function FeedGroupLine({
                             size={11}
                             strokeWidth={2.4}
                             aria-hidden
-                            className={cn("flex-none self-center text-muted transition-transform", open && "rotate-90")}
+                            className={cn("flex-none self-center text-muted", open && "rotate-90")}
                         />
                     </button>
                     <PaneReveal open={open}>

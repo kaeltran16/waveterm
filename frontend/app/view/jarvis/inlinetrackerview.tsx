@@ -499,18 +499,15 @@ function StageBar({ done, total }: { done: number; total: number }) {
     );
 }
 
-// both menus hang off a row's right edge, so they scale from the top right
+// the menus drop from the row's right edge, so they scale from the top right
 function Menu({ open, className, children }: { open: boolean; className: string; children: React.ReactNode }) {
     return (
-        <PopoverReveal
-            open={open}
-            origin="top right"
-            className={cn(
-                "absolute z-30 rounded-[8px] border border-edge-strong bg-surface-raised shadow-[0_12px_34px_var(--color-background)]",
-                className
-            )}
-        >
-            <div data-jarvis-tracker-menu onClick={(e) => e.stopPropagation()} className="p-[5px]">
+        <PopoverReveal open={open} origin="top right" className={cn("absolute z-30", className)}>
+            <div
+                data-jarvis-tracker-menu
+                onClick={(e) => e.stopPropagation()}
+                className="rounded-[8px] border border-edge-strong bg-surface-raised p-[5px] shadow-[0_12px_34px_var(--color-background)]"
+            >
                 {children}
             </div>
         </PopoverReveal>

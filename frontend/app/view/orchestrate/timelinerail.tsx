@@ -18,6 +18,7 @@ import { useMemo, useState } from "react";
 import { retryRunEvents, useRunEventsState } from "../agents/runeventstore";
 import { eventTitle, toneFor, tsLabel } from "../agents/runtimeline";
 import { setActiveRunId } from "../jarvis/jarvissubjectstore";
+import { selectedTaskOf } from "./dagfinal";
 import { dagModalAgentsContextAtom } from "./dagmodalstate";
 import { hoveredTaskAtom, selectedTaskIdAtom } from "./dagstore";
 import { relaunchLeadAction } from "./relaunchlead";
@@ -59,7 +60,8 @@ export type TimelineRailProps = {
 
 export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
     const { events, status } = useRunEventsState(runId, channelId);
-    const selectedTaskId = useAtomValue(selectedTaskIdAtom);
+    // the final node shares the graph's selection; here it reads as no task selected
+    const selectedTaskId = selectedTaskOf(useAtomValue(selectedTaskIdAtom));
     const [hovered, setHovered] = useAtom(hoveredTaskAtom);
     const agentsCtx = useAtomValue(dagModalAgentsContextAtom);
     const tick = useAtomValue(agentsCtx?.model.nowAtom ?? NO_NOW_ATOM);
@@ -113,8 +115,7 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
                 onToggle={() => setDrawerOpen((o) => !o)}
                 onRetry={() => fireAndForget(() => retryRunEvents(runId, channelId))}
             />
-            {/* flex-1 only in the rail, which never closes: in the drawer's auto-height column a 0% basis
-                would ignore the height the reveal animates */}
+            {/* flex-1 only in the rail: in the drawer a 0% basis would ignore the animated height */}
             <PaneReveal open={open} className={cn("flex min-h-0 flex-col", layout === "rail" && "flex-1")}>
                 <ActivityStrip events={events} nowMs={nowMs} focusTaskId={selectedTaskId ?? graphHoverId} />
                 <div className="flex flex-none gap-1 border-b border-border px-2 py-1.5">

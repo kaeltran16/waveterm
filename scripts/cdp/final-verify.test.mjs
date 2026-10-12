@@ -1,15 +1,20 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { WebSocketServer } from "ws";
 import {
+    BUILD_SLOTS,
     EXIT_UNVERIFIED,
-    acquireBuildLock,
+    acquireBuildSlot,
     buildLockPath,
+    closeMainWindow,
     finalManifest,
+    finalOutcome,
     inUse,
     pickPort,
     pickVitePort,
@@ -179,25 +184,28 @@ fs.writeFileSync(path.join(data, "waveapp.log"), "boot log");
         expect(existsSync(env.ARC_DEV_DATA_DIR)).toBe(false);
         expect(readFileSync(join(out, "waveapp.log"), "utf8")).toBe("boot log");
         expect(env.ARC_DEV_NO_GLOBAL_INSTALL).toBe("1");
-        expect(env.WEBVIEW2_USER_DATA_FOLDER).toBe(join(out, "webview2-profile"));
+        // the profile lives in the store, so dropping the store drops it
+        expect(env.WEBVIEW2_USER_DATA_FOLDER).toBe(join(env.ARC_DEV_DATA_DIR, "webview2-profile"));
+        expect(existsSync(join(out, "webview2-profile"))).toBe(false);
     });
 });
 
-// final stages share the cargo target dir and run the exe they build there, so they must not overlap
-describe("final-verify.mjs build lock", () => {
+// a final stage runs the exe it builds in its slot's cargo target dir, so stages overlap only on different slots
+describe("final-verify.mjs build slots", () => {
     let dir;
     afterEach(() => {
         if (dir) rmSync(dir, { recursive: true, force: true });
         dir = undefined;
     });
 
-    // a dev app that logs its start and end to a shared file and exits after holdMs
+    // a dev app that logs its start and end to a shared file, records its env in its out dir and exits after holdMs
     function fakeDevEnv(name, logFile, holdMs) {
         const fakeDev = join(dir, "fake-dev.cjs");
         writeFileSync(
             fakeDev,
-            `const fs = require("fs");
+            `const fs = require("fs"), path = require("path");
 fs.appendFileSync(${JSON.stringify(logFile)}, "start\\n");
+fs.writeFileSync(path.join(process.env.ARC_FINAL_OUT, "env.json"), JSON.stringify(process.env));
 setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${holdMs});
 `
         );
@@ -210,53 +218,84 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         };
     }
 
-    it("runs two final stages one after the other", async () => {
-        dir = mkdtempSync(join(tmpdir(), "final-lock-"));
-        const logFile = join(dir, "dev.log");
-        const [a, b] = await Promise.all([
-            run(fakeDevEnv("out-a", logFile, 1500)),
-            run(fakeDevEnv("out-b", logFile, 1500)),
-        ]);
-        for (const r of [a, b]) {
-            expect(r.code).toBe(EXIT_UNVERIFIED);
-            expect(r.last).toMatch(/^dev app exited with code 0 before answering on :\d+$/);
-        }
-        expect(readFileSync(logFile, "utf8").trim().split(/\r?\n/)).toEqual(["start", "end", "start", "end"]);
-    }, 30_000);
-
-    it("is unverified when another final stage keeps the build past the wait", async () => {
+    function makeBase() {
         dir = mkdtempSync(join(tmpdir(), "final-lock-"));
         const base = join(dir, "localappdata", "arc-final");
         mkdirSync(base, { recursive: true });
-        const held = await acquireBuildLock(buildLockPath(base), 0);
-        expect(held).not.toBeNull();
+        return base;
+    }
+
+    // takes every free slot, as that many running stages would
+    async function holdSlots(base, count) {
+        const held = [];
+        for (let i = 0; i < count; i++) held.push((await acquireBuildSlot(base, 0)).lock);
+        return held;
+    }
+
+    async function runTwo(logFile) {
+        const stages = await Promise.all(["out-a", "out-b"].map((name) => run(fakeDevEnv(name, logFile, 1500))));
+        for (const r of stages) {
+            expect(r.code).toBe(EXIT_UNVERIFIED);
+            expect(r.last).toMatch(/^dev app exited with code 0 before answering on :\d+$/);
+        }
+        return readFileSync(logFile, "utf8").trim().split(/\r?\n/);
+    }
+
+    it("runs two final stages at once, each on its own target dir, stores and ports", async () => {
+        makeBase();
+        expect(await runTwo(join(dir, "dev.log"))).toEqual(["start", "start", "end", "end"]);
+
+        const read = (name, file) => JSON.parse(readFileSync(join(dir, name, file), "utf8"));
+        const [a, b] = ["out-a", "out-b"].map((name) => ({
+            env: read(name, "env.json"),
+            devUrl: read(name, "tauri.final.json").build.devUrl,
+        }));
+        expect(a.env.CARGO_TARGET_DIR).not.toBe(b.env.CARGO_TARGET_DIR);
+        expect(dirname(a.env.ARC_DEV_DATA_DIR)).not.toBe(dirname(b.env.ARC_DEV_DATA_DIR));
+        expect(a.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).not.toBe(b.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS);
+        expect(a.devUrl).not.toBe(b.devUrl);
+    }, 30_000);
+
+    it("runs two final stages one after the other when one slot is free", async () => {
+        const base = makeBase();
+        const first = await acquireBuildSlot(base, 0);
+        const held = await holdSlots(base, BUILD_SLOTS - 1);
+        await close(first.lock);
         try {
+            expect(await runTwo(join(dir, "dev.log"))).toEqual(["start", "end", "start", "end"]);
+        } finally {
+            await Promise.all(held.map(close));
+        }
+    }, 30_000);
+
+    it("is unverified when other final stages keep every slot past the wait", async () => {
+        const base = makeBase();
+        const held = await holdSlots(base, BUILD_SLOTS);
+        try {
+            expect(await acquireBuildSlot(base, 0)).toBeNull();
             const r = await run({ ...fakeDevEnv("out", join(dir, "dev.log"), 0), ARC_FINAL_LOCK_WAIT_MS: "1500" });
             expect(r.code).toBe(EXIT_UNVERIFIED);
-            expect(r.last).toBe("another final stage held the shared build for 2s");
+            expect(r.last).toBe("other final stages held every build slot for 2s");
             expect(existsSync(join(dir, "dev.log"))).toBe(false);
         } finally {
-            await close(held);
+            await Promise.all(held.map(close));
         }
     });
 
     it("is free once the stage holding it is killed", async () => {
-        dir = mkdtempSync(join(tmpdir(), "final-lock-"));
-        const base = join(dir, "localappdata", "arc-final");
-        mkdirSync(base, { recursive: true });
-        const lockPath = buildLockPath(base);
+        const base = makeBase();
         const holder = spawn(process.execPath, [
             "-e",
-            `require("net").createServer().listen(${JSON.stringify(lockPath)}, () => console.log("held"));`,
+            `require("net").createServer().listen(${JSON.stringify(buildLockPath(base))}, () => console.log("held"));`,
         ]);
         await new Promise((resolve) => holder.stdout.once("data", resolve));
-        expect(await acquireBuildLock(lockPath, 0)).toBeNull();
+        expect(await acquireBuildSlot(base, 0, 1)).toBeNull();
         holder.kill("SIGKILL");
         await new Promise((resolve) => holder.once("exit", resolve));
 
-        const lock = await acquireBuildLock(lockPath, 5000);
-        expect(lock).not.toBeNull();
-        await close(lock);
+        const held = await acquireBuildSlot(base, 5000, 1);
+        expect(held).toEqual({ slot: 0, lock: expect.anything() });
+        await close(held.lock);
     });
 });
 
@@ -332,6 +371,117 @@ describe("sweepStaleStores", () => {
     it("is a no-op when no stage has made a store yet", () => {
         dir = mkdtempSync(join(tmpdir(), "final-stores-"));
         expect(() => sweepStaleStores(join(dir, "missing"))).not.toThrow();
+    });
+});
+
+describe("finalOutcome", () => {
+    const exited = { state: "exited" };
+    const alive = { state: "alive" };
+    const unclosed = { state: "unclosed", reason: "could not close the main window: no page" };
+
+    // the close is not tried after a failed run, so there is no close result to read
+    it.each([[1], [2], [EXIT_UNVERIFIED]])("keeps the scenarios' exit code %i whatever the close showed", (code) => {
+        for (const close of [undefined, exited, alive, unclosed]) {
+            expect(finalOutcome(code, close)).toEqual({ code });
+        }
+    });
+
+    it("passes when the scenarios passed and the app exited by itself", () => {
+        expect(finalOutcome(0, exited)).toEqual({ code: 0 });
+    });
+
+    it("fails, and is not unverified, when the app stayed alive after its main window was closed", () => {
+        expect(finalOutcome(0, alive)).toEqual({
+            code: 1,
+            line: "the dev app stayed alive after its main window was closed",
+        });
+    });
+
+    it("is unverified with the reason when the main window could not be closed", () => {
+        expect(finalOutcome(0, unclosed)).toEqual({ code: EXIT_UNVERIFIED, line: unclosed.reason });
+    });
+});
+
+describe("closeMainWindow", () => {
+    it("is unclosed when nothing answers on the port", async () => {
+        const r = await closeMainWindow(await freePort());
+        expect(r.state).toBe("unclosed");
+        expect(r.reason).toMatch(/^could not close the main window: cannot reach CDP on :\d+/);
+    });
+
+    it("is unclosed when the app has no cockpit page to attach to", async () => {
+        // a host whose only page is the hidden popup's
+        const popup = [{ type: "page", url: "http://localhost:5174/popup.html" }];
+        const srv = createHttpServer((_req, res) => res.end(JSON.stringify(popup)));
+        await new Promise((resolve) => srv.listen(0, resolve));
+        try {
+            const r = await closeMainWindow(srv.address().port);
+            expect(r.state).toBe("unclosed");
+            expect(r.reason).toMatch(/^could not close the main window: no page target on :\d+/);
+        } finally {
+            srv.closeAllConnections();
+            await close(srv);
+        }
+    });
+
+    // a CDP host with one cockpit page; onClose(srv, wss) answers the close invoke's Runtime.evaluate: a value to reply
+    // with, or undefined to never reply
+    async function fakeCdpHost(onClose) {
+        const srv = createHttpServer((req, res) => {
+            const ws = `ws://127.0.0.1:${srv.address().port}/page`;
+            res.end(JSON.stringify([{ type: "page", url: "http://localhost:5174/", webSocketDebuggerUrl: ws }]));
+        });
+        const wss = new WebSocketServer({ server: srv });
+        wss.on("connection", (ws) =>
+            ws.on("message", (data) => {
+                const { id, method } = JSON.parse(data);
+                if (method !== "Runtime.evaluate") return ws.send(JSON.stringify({ id, result: {} }));
+                const value = onClose(srv, wss);
+                if (value !== undefined) ws.send(JSON.stringify({ id, result: { result: { value } } }));
+            })
+        );
+        await new Promise((resolve) => srv.listen(0, resolve));
+        const stop = async () => {
+            for (const ws of wss.clients) ws.terminate();
+            wss.close();
+            srv.closeAllConnections();
+            if (srv.listening) await close(srv);
+        };
+        return { port: srv.address().port, stop };
+    }
+
+    it("is exited when the app stops answering after the close", async () => {
+        const host = await fakeCdpHost((srv, wss) => {
+            for (const ws of wss.clients) ws.terminate();
+            srv.closeAllConnections();
+            srv.close();
+        });
+        try {
+            expect(await closeMainWindow(host.port, 5000)).toEqual({ state: "exited" });
+        } finally {
+            await host.stop();
+        }
+    });
+
+    it("is alive when the app keeps answering past the wait", async () => {
+        const host = await fakeCdpHost(() => undefined);
+        try {
+            expect(await closeMainWindow(host.port, 1500)).toEqual({ state: "alive" });
+        } finally {
+            await host.stop();
+        }
+    });
+
+    it("is unclosed with the invoke's error when the close is rejected", async () => {
+        const host = await fakeCdpHost(() => "window not found");
+        try {
+            expect(await closeMainWindow(host.port, 5000)).toEqual({
+                state: "unclosed",
+                reason: "could not close the main window: window not found",
+            });
+        } finally {
+            await host.stop();
+        }
     });
 });
 

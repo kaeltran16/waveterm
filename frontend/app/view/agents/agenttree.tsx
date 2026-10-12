@@ -31,10 +31,13 @@ import type { AgentsViewModel } from "./agents";
 import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
+import { nextSnap, type AgentSnap } from "./cockpitevents";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
 import { docReviewAtom, parseDocReview } from "./docreview";
+import { finalRowFocusId, type FinalTone } from "./finalstage";
+import { useFinalStageView } from "./finalstageviews";
 import { LEAD_MARK_CLASS, leadMark } from "./leadcardmodel";
 import {
     endedWorkerId,
@@ -58,7 +61,7 @@ import {
     useRunDigests,
 } from "./runlineagestore";
 import { dagProgressLabel, finishedRunLabel, runComplete, runStatusView } from "./runmodel";
-import { SEG_FILL, taskStrip, taskStripLabel } from "./runstrip";
+import { FINAL_FILL, finalSlot, SEG_FILL, taskStrip, treeStripLabel } from "./runstrip";
 import {
     getSubagentExpandAtom,
     toggleSubagentExpand,
@@ -69,6 +72,9 @@ import {
     visibleSubagents,
     type SubagentState,
 } from "./session-models/sessionviewmodel";
+import { failedLabel, ShellTaskPeek } from "./shelltaskpeek";
+import { isStandingBy, shellTasksLabel, visibleShellTasks, type ShellTask } from "./shelltasks";
+import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { useSubagentTracking } from "./subagenttracking";
@@ -229,14 +235,16 @@ function AskingBadge({ n }: { n: number }) {
     );
 }
 
-// TaskStripBar is a run's per-task strip under its second line: a segment per task, or one bar for a long plan.
+// TaskStripBar is a run's per-task strip under its second line: a segment per task, or one bar for a long plan,
+// then the final stage's slot once the stage has a row.
 function TaskStripBar({ run }: { run: RunInfo }) {
     const strip = taskStrip(run.dag, run.digest);
     if (strip == null) {
         return null;
     }
+    const slot = finalSlot(run.dag);
     return (
-        <div role="img" aria-label={taskStripLabel(run.dag, run.digest)} className="mt-[6px] flex h-[3px] gap-[2px]">
+        <div role="img" aria-label={treeStripLabel(run.dag, run.digest)} className="mt-[6px] flex h-[3px] gap-[2px]">
             {strip.kind === "segments" ? (
                 strip.states.map((st, i) => (
                     <span key={i} className={cn("min-w-[2px] flex-1 rounded-[1.5px]", SEG_FILL[st])} />
@@ -250,6 +258,20 @@ function TaskStripBar({ run }: { run: RunInfo }) {
                     />
                 </>
             )}
+            {slot != null ? (
+                <>
+                    <span className="w-[4px] flex-none" />
+                    {/* twice a task's segment; a long plan's bar grows by its task counts, so the slot is fixed there */}
+                    <span
+                        data-final-slot={slot}
+                        className={cn(
+                            "rounded-[1.5px]",
+                            strip.kind === "segments" ? "flex-[2]" : "w-[16px] flex-none",
+                            FINAL_FILL[slot]
+                        )}
+                    />
+                </>
+            ) : null}
         </div>
     );
 }
@@ -307,6 +329,71 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
     );
 }
 
+// A parent's background shell tasks under it, nested like its subagents. A row with an output file opens
+// that output in a peek beside the tree; one without has nothing to show, so it is not a click target.
+function ShellTaskRows({
+    model,
+    tasks,
+    peek,
+    onPeek,
+}: {
+    model: AgentsViewModel;
+    tasks: ShellTask[];
+    peek: { id: string; el: HTMLElement } | null;
+    onPeek: (peek: { id: string; el: HTMLElement } | null) => void;
+}) {
+    const now = useAtomValue(model.nowAtom);
+    return (
+        <>
+            {tasks.map((t) => {
+                const failed = t.state === "failed";
+                const peeking = peek?.id === t.id;
+                return (
+                    <div
+                        key={t.id}
+                        data-shell-task={t.id}
+                        onClick={(e) => {
+                            if (t.outputPath) {
+                                onPeek(peeking ? null : { id: t.id, el: e.currentTarget });
+                            }
+                        }}
+                        className={cn(
+                            "relative flex items-center gap-[9px] rounded-[9px] py-[6px] pl-[28px] pr-[11px]",
+                            t.outputPath && "cursor-pointer",
+                            peeking ? "bg-accentbg" : t.outputPath && "hover:bg-surface-hover"
+                        )}
+                    >
+                        <Guides depth={1} />
+                        <Slot>
+                            <span
+                                className={cn(
+                                    "h-[7px] w-[7px] shrink-0 rounded-full",
+                                    failed ? "bg-error" : "bg-accent"
+                                )}
+                            />
+                        </Slot>
+                        <div className="min-w-0 flex-1">
+                            <div className="truncate font-mono text-[11.5px] font-medium text-secondary">
+                                {t.description}
+                            </div>
+                            <div
+                                className={cn(
+                                    "mt-[3px] truncate font-mono text-[10.5px]",
+                                    failed ? "text-error" : "text-muted"
+                                )}
+                            >
+                                {failed
+                                    ? failedLabel(t)
+                                    : `running · ${formatAgeShort(t.startedTs != null ? Math.max(0, now - t.startedTs) : undefined)}`}
+                            </div>
+                        </div>
+                    </div>
+                );
+            })}
+        </>
+    );
+}
+
 function ParentRow({
     model,
     agent,
@@ -327,8 +414,27 @@ function ParentRow({
     const asking = agent.state === "asking";
     const review = asking ? parseDocReview(agent.ask) : null;
     const mark = lead != null ? leadMark(lead.run, agent) : null;
-    // m4: one-shot settle when this agent reaches idle (working/asking -> idle)
-    const settling = useSettle(agent.state === "idle");
+    const tasks = visibleShellTasks(useAtomValue(shellTasksByIdAtom)[agent.id] ?? []);
+    const standing = isStandingBy(agent.state, tasks);
+    // undefined until the user folds: open while a task runs, as the subagent fold defaults
+    const [tasksOverride, setTasksOverride] = useState<boolean>();
+    const tasksOpen = tasks.length > 0 && (tasksOverride ?? tasks.some((t) => t.state === "running"));
+    const [peek, setPeek] = useState<{ id: string; el: HTMLElement } | null>(null);
+    const peekTask = tasksOpen && peek != null ? tasks.find((t) => t.id === peek.id) : undefined;
+    // a peek whose row went away (its task ended, or the fold closed with its last running task) must not
+    // come back anchored to a detached row when the fold reopens
+    useEffect(() => {
+        if (peek != null && peekTask == null) {
+            setPeek(null);
+        }
+    }, [peek, peekTask]);
+    // held until a shell-task read since the Stop lands, so a just-launched task never settles first;
+    // nextSnap is idempotent for the same inputs, so advancing it in render is safe
+    const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
+    const snapRef = useRef<AgentSnap>(undefined);
+    snapRef.current = nextSnap(snapRef.current, agent.state, standing, readPending);
+    // m4: one-shot settle when this agent is done (working/asking -> idle, or its last shell task ending)
+    const settling = useSettle(agent.state === "idle" && !standing && !snapRef.current.held);
 
     const renaming = useAtomValue(renamingRowAtom) === agent.id;
 
@@ -366,6 +472,19 @@ function ParentRow({
                 ariaHide="Hide subagents"
             />
         ) : null;
+    const tasksChip =
+        tasks.length > 0 ? (
+            <FoldChip
+                label={shellTasksLabel(tasks.length)}
+                open={tasksOpen}
+                onToggle={() => {
+                    setTasksOverride(!tasksOpen);
+                    setPeek(null);
+                }}
+                ariaShow="Show shell tasks"
+                ariaHide="Hide shell tasks"
+            />
+        ) : null;
 
     // The animating motion.div wrapper lives in AgentTree (direct AnimatePresence child, required for
     // popLayout to pop an exiting row out of flow). This is just the row body + subagent reveal.
@@ -390,7 +509,12 @@ function ParentRow({
                             className={cn(LEAD_MARK_CLASS[mark.tone], mark.pulse && PULSE)}
                         />
                     ) : (
-                        <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
+                        <StatusDot
+                            state={agent.state}
+                            pulse={agent.state !== "idle"}
+                            standing={standing}
+                            className="!h-[7px] !w-[7px]"
+                        />
                     )}
                 </Slot>
                 <div className="min-w-0 flex-1">
@@ -403,6 +527,7 @@ function ParentRow({
                             </div>
                             {/* a lead's second line holds its workers chip and progress, which need its full width */}
                             {lead ? subsChip : null}
+                            {lead ? tasksChip : null}
                         </div>
                     )}
                     {lead ? (
@@ -410,6 +535,7 @@ function ParentRow({
                     ) : (
                         <div className="mt-[3px] flex min-w-0 items-center gap-[6px]">
                             {subsChip}
+                            {tasksChip}
                             <span className="truncate font-mono text-[10.5px] text-muted">{branch || "—"}</span>
                         </div>
                     )}
@@ -485,6 +611,23 @@ function ParentRow({
                     </motion.div>
                 ) : null}
             </AnimatePresence>
+            <AnimatePresence initial={false}>
+                {tasksOpen ? (
+                    <motion.div
+                        key="shell-tasks"
+                        variants={composerReveal}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="overflow-hidden"
+                    >
+                        <ShellTaskRows model={model} tasks={tasks} peek={peekTask ? peek : null} onPeek={setPeek} />
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
+            {peekTask ? (
+                <ShellTaskPeek key={peekTask.id} task={peekTask} anchor={peek.el} onClose={() => setPeek(null)} />
+            ) : null}
         </>
     );
 }
@@ -719,6 +862,68 @@ function StageRow({
     );
 }
 
+const FINAL_SUB_INK: Record<FinalTone, string> = {
+    wait: "text-muted",
+    run: "text-accent-soft",
+    pass: "text-muted",
+    fail: "text-error",
+    warn: "text-warning",
+};
+
+// The run's final stage, under the run like a task's worker: there from the moment the plan's tasks are over,
+// before any verifier session exists. Once the current round's verifier is in the roster the row is that session.
+function FinalRow({ model, run, agent }: { model: AgentsViewModel; run: RunInfo; agent?: AgentVM }) {
+    const focusId = useAtomValue(model.focusIdAtom);
+    const now = useAtomValue(model.nowAtom);
+    const view = useFinalStageView(run.dag, run.runId, run.channelId, now);
+    const focusKey = finalRowFocusId(run, agent ? [agent] : []);
+    const selected = focusId === focusKey;
+    const select = () => {
+        globalStore.set(model.focusIdAtom, focusKey);
+        globalStore.set(model.focusReplyAtom, false);
+    };
+    const onContextMenu = (e: React.MouseEvent) => {
+        if (agent == null) {
+            return;
+        }
+        const items: ContextMenuItem[] = [
+            { label: "Close agent", icon: <X size={15} />, danger: true, click: () => confirmCloseSession(agent) },
+        ];
+        ContextMenuModel.getInstance().showContextMenu(items, e);
+    };
+    return (
+        <div
+            data-final-row
+            data-final-tone={view.tone}
+            onClick={select}
+            onContextMenu={onContextMenu}
+            className={cn(
+                "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] py-[7px] pl-[28px] pr-[11px] transition-colors duration-[140ms]",
+                selected ? "bg-accentbg" : "hover:bg-surface-hover"
+            )}
+        >
+            <Guides depth={1} />
+            <Slot>
+                {view.tone === "pass" ? (
+                    <Check size={11} aria-hidden className="text-success" />
+                ) : view.tone === "run" ? (
+                    <StatusDot state="working" pulse className="!h-[7px] !w-[7px]" />
+                ) : view.tone === "wait" ? (
+                    <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
+                ) : (
+                    <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full", FINAL_FILL[view.tone])} />
+                )}
+            </Slot>
+            <div className="min-w-0 flex-1">
+                <div className="truncate text-[12.5px] font-medium text-ink-hi">{stageLabel("verifier")}</div>
+                <div className={cn("mt-[3px] truncate font-mono text-[10.5px]", FINAL_SUB_INK[view.tone])}>
+                    {view.subline}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // The fold holding a run's done workers or its not-yet-started tasks.
 function FoldRow({
     glyph,
@@ -922,6 +1127,11 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                                         outcome={r.outcome}
                                     />
                                 );
+                                break;
+                            case "final":
+                                // the stage's own key before a verifier stands for it, then the session's
+                                key = r.agent?.id ?? `final-${r.run.runId}`;
+                                body = <FinalRow model={model} run={r.run} agent={r.agent} />;
                                 break;
                             case "done":
                                 key = `done-${r.run.runId}`;

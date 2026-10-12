@@ -75,8 +75,9 @@ const BTN_PRIMARY =
 const TONE_DOT: Record<Tone, string> = { ok: "bg-success", warn: "bg-warning", none: "bg-ink-faint" };
 const TONE_TEXT: Record<Tone, string> = { ok: "text-ink-mid", warn: "text-warning-soft", none: "text-muted" };
 
-// a keyed swap (tab, picked skill) fades its new content in, as Settings does its sections
-const SWAP_FADE = {
+// a swapped tab or skill fades in rather than cutting; the outgoing one leaves at once, so a quick run of
+// arrow keys through the skill list never queues exits
+const FADE_IN = {
     initial: { opacity: 0 },
     animate: { opacity: 1 },
     transition: { duration: MOTION.durMicro, ease: MOTION.easeFluid },
@@ -368,7 +369,7 @@ function SharedEditor({ rows }: { rows: AgentSyncHarness[] }) {
                     {busy ? "Saving…" : `Save to ${n} ${n === 1 ? "harness" : "harnesses"}`}
                 </button>
             </div>
-            <PaneReveal open={ed.conflict} variants={composerReveal} className="flex-none">
+            <PaneReveal open={!!ed.conflict} variants={composerReveal} className="flex-none">
                 <ConflictNotice
                     busy={busy}
                     onReload={() => fireAndForget(reloadShared)}
@@ -425,6 +426,16 @@ function SharedRail({ rows }: { rows: AgentSyncHarness[] }) {
 
 // ---- tabs ----
 
+function ErrorBanner({ error }: { error: string | null }) {
+    return (
+        <PaneReveal open={!!error} variants={composerReveal} className="flex-none">
+            <div role="alert" className="border-b border-error/30 bg-error/10 px-5 py-2 text-[12.5px] text-error-soft">
+                {error}
+            </div>
+        </PaneReveal>
+    );
+}
+
 function InstructionsTab() {
     const rows = useRows();
     const error = useAtomValue(setupErrorAtom);
@@ -433,14 +444,7 @@ function InstructionsTab() {
         <div className="flex min-h-0 flex-1">
             <FileList rows={rows} />
             <div className="flex min-w-0 flex-1 flex-col">
-                <PaneReveal open={!!error} variants={composerReveal} className="flex-none">
-                    <div
-                        role="alert"
-                        className="border-b border-error/30 bg-error/10 px-5 py-2 text-[12.5px] text-error-soft"
-                    >
-                        {error}
-                    </div>
-                </PaneReveal>
+                <ErrorBanner error={error} />
                 <div className="flex min-h-0 flex-1">
                     {status == null ? (
                         <div className="flex flex-1 items-center justify-center text-[13px] text-muted">Reading…</div>
@@ -636,7 +640,8 @@ function SkillRail({ model, row, skillsroot }: { model: AgentsViewModel; row: Sk
     const card = "flex flex-col gap-[5px] rounded border border-border px-2.5 py-[9px]";
     return (
         <motion.aside
-            {...SWAP_FADE}
+            key={row.name}
+            {...FADE_IN}
             aria-label="Skill detail"
             className="flex w-[360px] flex-none flex-col gap-3.5 overflow-y-auto border-l border-border bg-surface p-4"
         >
@@ -707,14 +712,7 @@ function SkillsTab({ model }: { model: AgentsViewModel }) {
     const selected = rows.find((r) => r.name === selectedName) ?? rows[0] ?? null;
     return (
         <div className="flex min-w-0 flex-1 flex-col">
-            <PaneReveal open={!!error} variants={composerReveal} className="flex-none">
-                <div
-                    role="alert"
-                    className="border-b border-error/30 bg-error/10 px-5 py-2 text-[12.5px] text-error-soft"
-                >
-                    {error}
-                </div>
-            </PaneReveal>
+            <ErrorBanner error={error} />
             <div className="flex min-h-0 flex-1">
                 {data == null ? (
                     <div className="flex flex-1 items-center justify-center text-[13px] text-muted">Reading…</div>
@@ -728,7 +726,7 @@ function SkillsTab({ model }: { model: AgentsViewModel }) {
                             />
                         </div>
                         {selected != null ? (
-                            <SkillRail key={selected.name} model={model} row={selected} skillsroot={data.skillsroot} />
+                            <SkillRail model={model} row={selected} skillsroot={data.skillsroot} />
                         ) : null}
                     </>
                 )}
@@ -754,7 +752,7 @@ export function SetupSurface({ model }: { model: AgentsViewModel }) {
                 </div>
                 <motion.div
                     key={tab}
-                    {...SWAP_FADE}
+                    {...FADE_IN}
                     id="setup-tabpanel"
                     role="tabpanel"
                     aria-labelledby={`setup-tab-${tab}`}

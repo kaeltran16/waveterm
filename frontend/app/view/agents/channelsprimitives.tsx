@@ -8,13 +8,14 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { landOn } from "../jarvis/returnsurface";
 import type { AgentsViewModel } from "./agents";
 import { askSentKey, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
 
 export function jumpToAgent(model: AgentsViewModel, id: string) {
     globalStore.set(model.focusIdAtom, id);
-    globalStore.set(model.surfaceAtom, "agent");
+    landOn(model.surfaceAtom, "agent");
 }
 
 // An asking worker's answer row, reusing the cockpit's AnswerBar + model answer state.

@@ -10,21 +10,19 @@ import { useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion, type Variants } from "motion/react";
 import { briefToastAtom } from "./briefundo";
 
-// a leaving toast is inert: its Undo is stale, and a notify undo would run twice or clear the newer toast
-const toastVariants: Variants = {
-    ...cardVariants,
-    exit: { ...(cardVariants.exit as object), pointerEvents: "none" },
-};
+// a leaving toast takes no clicks: its Undo belongs to an edit that has already committed or been replaced
+const toastVariants: Variants = { ...cardVariants, exit: { ...cardVariants.exit, pointerEvents: "none" } };
 
-// keyed by id, so a toast replacing another swaps rather than editing the old one's text in place
 export function BriefToastView() {
     const toast = useAtomValue(briefToastAtom);
+    // keyed by id so a toast replacing another crosses over it rather than swapping its text in place
     return (
         <MotionConfig reducedMotion="user">
-            <AnimatePresence>
+            <AnimatePresence mode="popLayout">
                 {toast != null ? (
                     <motion.div
                         key={toast.id}
+                        layout
                         variants={toastVariants}
                         initial="initial"
                         animate="animate"

@@ -426,7 +426,7 @@ func routeDownstream(ctx context.Context, g *waveobj.TaskGroup, from, note strin
 		return
 	}
 	n := laterNote{
-		amend: toldText(from + "'s reviewer: " + note),
+		amend: from + "'s reviewer: " + note,
 		typed: fmt.Sprintf("%s passed review with a note for your task: %s", from, note),
 	}
 	var reached, missed []string

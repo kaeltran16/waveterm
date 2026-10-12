@@ -118,29 +118,23 @@ describe("dagProgressLabel", () => {
     });
     it("does not read as done while the final stage verifies, even with every task done", () => {
         const allDone = [{ state: "done" }, { state: "done" }] as TaskGroup["tasks"];
-        expect(dagProgressLabel(info("finalizing", allDone), false)).toBe("2/2 · verifying the merged result");
-        expect(dagProgressLabel(info("finalizing", allDone), true)).toBe("2/2 · verifying the merged result");
+        expect(dagProgressLabel(info("finalizing", allDone), false)).toBe("2/2 · verifying");
+        expect(dagProgressLabel(info("finalizing", allDone), true)).toBe("2/2 · verifying");
     });
-    it("names the final stage's running step", () => {
+    it("leaves the final stage's running step to the stage's own row", () => {
         const allDone = [{ state: "done" }, { state: "done" }] as TaskGroup["tasks"];
         const at = (final: FinalStage): RunInfo => {
             const run = info("finalizing", allDone);
             return { ...run, dag: { ...run.dag, final } as TaskGroup };
         };
-        const cases: [FinalStage, string][] = [
-            [{ state: "checking", round: 1 }, "2/2 · final: starting"],
-            [{ state: "checking", round: 1, step: "tree" }, "2/2 · final: preparing the tree"],
-            [{ state: "checking", round: 1, step: "check" }, "2/2 · final: running Check"],
-            [{ state: "checking", round: 1, step: "verify" }, "2/2 · final: running Verify"],
-            [
-                { state: "checking", round: 1, step: "verify", verifierrunid: "v" },
-                "2/2 · final: running Verify · verifier alongside",
-            ],
-            [{ state: "final", round: 1, step: "final", verifierrunid: "v" }, "2/2 · final: running Final"],
-            [{ state: "verifying", round: 1 }, "2/2 · final: verifier reviewing"],
+        const stages: FinalStage[] = [
+            { state: "checking", round: 1, step: "tree" },
+            { state: "checking", round: 1, step: "verify", verifierrunid: "v" },
+            { state: "final", round: 1, step: "final" },
+            { state: "verifying", round: 1 },
         ];
-        for (const [final, want] of cases) {
-            expect(dagProgressLabel(at(final), false)).toBe(want);
+        for (const final of stages) {
+            expect(dagProgressLabel(at(final), false)).toBe("2/2 · verifying");
         }
     });
     it("says whether a leadless run's lead has started", () => {

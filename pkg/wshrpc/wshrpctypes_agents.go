@@ -104,7 +104,22 @@ type CommandGetUsageStatsData struct {
 }
 
 type CommandGetUsageStatsRtnData struct {
-	Buckets []UsageBucket `json:"buckets"`
+	Buckets  []UsageBucket  `json:"buckets"`
+	Sessions []UsageSession `json:"sessions"`
+}
+
+// UsageSession is the directory entry for one session that has usage in the window.
+type UsageSession struct {
+	Harness   string `json:"harness"`
+	Session   string `json:"session"`
+	Title     string `json:"title,omitempty"`
+	Project   string `json:"project,omitempty"` // repo root path
+	RunId     string `json:"runid,omitempty"`   // the owning top-level run
+	ChannelId string `json:"channelid,omitempty"`
+	RunGoal   string `json:"rungoal,omitempty"` // first line
+	RunMode   string `json:"runmode,omitempty"` // orchestrator | quick
+	Role      string `json:"role,omitempty"`    // lead | worker | reviewer | a stage role
+	TaskId    string `json:"taskid,omitempty"`
 }
 
 type CommandGetRecentSessionsData struct {
