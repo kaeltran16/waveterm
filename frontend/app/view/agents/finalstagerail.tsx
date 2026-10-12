@@ -8,7 +8,7 @@ import * as WOS from "@/app/store/wos";
 import { reviewerRouteOf } from "@/app/view/orchestrate/taskroute";
 import { useAtomValue } from "jotai";
 import type { AgentsViewModel } from "./agents";
-import { FinalOutcome, FinalShotsLink, FinalStepList, useFinalStageView } from "./finalstageviews";
+import { FinalPastRounds, FinalShotsLink, FinalStepList, useFinalStageView } from "./finalstageviews";
 import { shortModel } from "./modelname";
 import { fmtDuration } from "./runcompletion";
 import { stageLabel, type RunInfo } from "./runlineage";
@@ -61,7 +61,7 @@ export function FinalStageRail({ model, run }: { model: AgentsViewModel; run: Ru
             </div>
             <FinalShotsLink group={run.dag} />
             {/* the earlier rounds alone: what this round came to is the pane's, or the verifier's own terminal */}
-            <FinalOutcome view={{ ...view, detail: "", unverified: [] }} />
+            <FinalPastRounds past={view.past} />
         </div>
     );
 }

@@ -7,7 +7,6 @@
 
 import type { AgentVM } from "./agentsviewmodel";
 import { fmtDuration } from "./runcompletion";
-import { finalStageActivity, finalStepCommand, type RunInfo } from "./runlineage";
 import { detailOf } from "./runtimeline";
 
 export type FinalStepKey = "tree" | "check" | "verify" | "final" | "verifier";
@@ -155,15 +154,16 @@ function endedAt(stage: FinalStage, group: Commands, commands: FinalStepKey[], e
     if (stage.state === "unverified") {
         return evs.get("tree")?.ok === false ? commands.indexOf("tree") : -1;
     }
-    // a Check or Final that could not verify is not ok either, and the stage goes on past it
+    // the engine opens a command's failure with its name; any other detail is the verifier's. The detail
+    // decides first: a Check that could not verify is not ok either, yet the stage goes on past it
+    const detail = stage.detail ?? "";
+    if (detail !== "") {
+        const named = /^(Check|Verify|Final) `/.exec(detail)?.[1];
+        return commands.findIndex((k) => LABELS[k] === named);
+    }
     const ran = commands.filter((k) => evs.has(k));
     const last = ran[ran.length - 1];
-    if (last != null && evs.get(last).ok === false) {
-        return commands.indexOf(last);
-    }
-    // the round's events can be gone from the store; the engine opens a command's failure with its name
-    const named = /^(Check|Verify|Final) `/.exec(stage.detail ?? "")?.[1];
-    return commands.findIndex((k) => LABELS[k] === named);
+    return last != null && evs.get(last).ok === false ? commands.indexOf(last) : -1;
 }
 
 function stepStates(
@@ -412,6 +412,42 @@ export function finalStageView(
     };
 }
 
+// final.step: the plan command the final stage is running
+const FINAL_STEP_LABELS: Record<string, string> = {
+    tree: "preparing the tree",
+    check: "running Check",
+    verify: "running Verify",
+    final: "running Final",
+};
+
+/** Pure: what a running final stage is doing, or undefined when it is not running. With no Final command the
+ *  verifier works alongside Check and Verify, so both show. */
+export function finalStageActivity(final: FinalStage | undefined): string | undefined {
+    if (final?.state === "verifying") {
+        return "verifier reviewing";
+    }
+    if (final?.state !== "checking" && final?.state !== "final") {
+        return undefined;
+    }
+    const step = FINAL_STEP_LABELS[final.step ?? ""] ?? "starting";
+    return final.state === "checking" && final.verifierrunid ? `${step} · verifier alongside` : step;
+}
+
+/** Pure: the plan's own command behind the final stage's running step, so the label stays generic and the
+ *  detail is whatever this project runs. */
+export function finalStepCommand(group: Pick<TaskGroup, "check" | "verify" | "finalcmd" | "final">): string {
+    switch (group.final?.step) {
+        case "check":
+            return group.check ?? "";
+        case "verify":
+            return group.verify ?? "";
+        case "final":
+            return group.finalcmd ?? "";
+        default:
+            return "";
+    }
+}
+
 const FINAL_STAGE_PREFIX = "final:";
 
 // finalStageId is what the stage's row is focused by while no verifier session stands for it.
@@ -429,7 +465,10 @@ export function finalStageRunId(id: string): string | undefined {
 
 /** Pure: the id a click on the row focuses: the current round's verifier agent when it is in the roster, else
  *  the stage's own. A tab an earlier round's verifier left is not the row. */
-export function finalRowFocusId(run: Pick<RunInfo, "runId" | "dag">, agents: Pick<AgentVM, "id" | "runId">[]): string {
+export function finalRowFocusId(
+    run: { runId: string; dag?: TaskGroup },
+    agents: Pick<AgentVM, "id" | "runId">[]
+): string {
     const verifierRunId = run.dag?.final?.verifierrunid;
     const agent = verifierRunId ? agents.find((a) => a.runId === verifierRunId) : undefined;
     return agent?.id ?? finalStageId(run.runId);

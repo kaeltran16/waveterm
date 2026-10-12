@@ -186,6 +186,20 @@ function PastRound({ line }: { line: FinalRoundLine }) {
     );
 }
 
+// a line per earlier round, oldest first
+export function FinalPastRounds({ past }: { past: FinalRoundLine[] }) {
+    if (past.length === 0) {
+        return null;
+    }
+    return (
+        <div className="flex flex-col">
+            {past.map((line) => (
+                <PastRound key={line.round} line={line} />
+            ))}
+        </div>
+    );
+}
+
 // What an ended stage came to: a failure's detail whole, every unverified reason, and a line per earlier
 // round. Long text scrolls inside it, never cut.
 export function FinalOutcome({ view, className }: { view: FinalStageView; className?: string }) {
@@ -209,13 +223,7 @@ export function FinalOutcome({ view, className }: { view: FinalStageView; classN
                     ))}
                 </ul>
             ) : null}
-            {view.past.length > 0 ? (
-                <div className="flex flex-col">
-                    {view.past.map((line) => (
-                        <PastRound key={line.round} line={line} />
-                    ))}
-                </div>
-            ) : null}
+            <FinalPastRounds past={view.past} />
         </div>
     );
 }

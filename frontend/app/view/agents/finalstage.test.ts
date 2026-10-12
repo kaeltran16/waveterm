@@ -214,6 +214,19 @@ describe("finalStageView, the steps", () => {
         expect(byVerifier.subline).toBe("failed at Verifier · round 1");
     });
 
+    it("a Check that failed on the base leaves the Verifier to fail the stage", () => {
+        const events = [ev("tree", S), ev("check", S, false)];
+        const final = { state: "failed", round: 1, detail: "defects", verifierrunid: "v-run" };
+        const v = finalStageView(dag(final, { verify: "", finalcmd: "" }), events, NOW);
+        expect(states(v)).toEqual(["passed", "unverified", "failed"]);
+        expect(v.subline).toBe("failed at Verifier · round 1");
+    });
+
+    it("with the round's events gone, a failed stage fails at the command its detail names", () => {
+        const v = finalStageView(dag({ state: "failed", round: 1, detail: "Verify `v` failed (exit 1):\nx" }), [], NOW);
+        expect(states(v)).toEqual(["passed", "passed", "failed", "notrun", "notrun"]);
+    });
+
     it("a failed Tree step in an unverified stage reads unverified, and the rest not run", () => {
         const final = { state: "unverified", round: 1, unverified: ["the final stage could not check: no tree"] };
         const v = finalStageView(dag(final), [ev("tree", 3 * S, false)], NOW);

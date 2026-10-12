@@ -11156,7 +11156,8 @@ const finalStageScenario = {
         await clickRow();
         const own = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected && s.pane != null);
         wait = await fstShow(h, ctx, "reviewing");
-        a = await fstUntil(h, FST_AGENT, (s) => s.pane == null && s.rows[0].selected && s.stage.steps[3].state === "passed", wait);
+        // the stage's own row leaves through the tree's exit animation, so one row is waited for, not read at once
+        a = await fstUntil(h, FST_AGENT, (s) => s.pane == null && s.rows.length === 1 && s.rows[0].selected && s.stage.steps[3].state === "passed", wait);
         rec(
             "B7a. the row becomes the verifier's session: a focus on the stage's own row moves to the agent, one row, its rail keeps the step list",
             () =>
@@ -11401,6 +11402,41 @@ const finalStageScenario = {
             { node: d?.node, rail: d?.rail }
         );
         await shot("a6-dag-rail");
+
+        // the rail's minimum height is what keeps the form below End final stage in view; nothing else measures it
+        const RAIL_FORM = `document.querySelector("[data-dag-final-rail] [data-run-sheet-end-final]")`;
+        await finalShotsClick(h, `document.querySelector("[data-dag-final-rail] [data-final-end]")`);
+        await polishWaitFor(h, `${RAIL_FORM} != null`, 3000);
+        const railForm = await h.ev(`(() => {
+            const form = ${RAIL_FORM};
+            if (!form) return null;
+            const box = form.parentElement.getBoundingClientRect();
+            const clippedBy = [];
+            for (let el = form.parentElement.parentElement; el && el !== document.body; el = el.parentElement) {
+                const cs = getComputedStyle(el);
+                if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
+                const r = el.getBoundingClientRect();
+                if (box.top < r.top - 0.5 || box.bottom > r.bottom + 0.5 || box.left < r.left - 0.5 || box.right > r.right + 0.5) {
+                    clippedBy.push((el.className || el.tagName).toString().slice(0, 60));
+                }
+            }
+            // what sits on the form's bottom corners: the form itself unless something covers or cuts it
+            const corner = (x, y) => form.parentElement.contains(document.elementFromPoint(x, y));
+            return {
+                box: { top: Math.round(box.top), bottom: Math.round(box.bottom), height: Math.round(box.height) },
+                viewport: innerHeight,
+                clippedBy,
+                corners: corner(box.left + 4, box.bottom - 4) && corner(box.right - 4, box.bottom - 4),
+            };
+        })()`);
+        await shot("a6-dag-rail-end-form");
+        await finalShotsClick(h, fstButton(RAIL_FORM, "Keep running"));
+        const railFormClosed = await polishWaitFor(h, `${RAIL_FORM} == null`, 3000);
+        rec(
+            "A6b. End final stage in the DAG rail opens its form whole: no scrolling or clipping ancestor cuts it, nothing covers its bottom, and Keep running closes it",
+            () => railForm != null && railForm.clippedBy.length === 0 && railForm.corners && railForm.box.bottom <= railForm.viewport && railFormClosed,
+            { railForm, railFormClosed }
+        );
 
         await h.goto("agent");
         await finalShotsClick(h, `${FST_PANE}?.querySelector("[data-final-end]")`);
