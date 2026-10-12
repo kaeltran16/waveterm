@@ -137,6 +137,12 @@ export function isPeekable(target: OpenTarget): boolean {
     return target.kind !== "canvas";
 }
 
+// an address that does not parse still peeks, so the refusal is the peek's own toast
+export function isPeekableAddress(address: string, hint?: AddressHint): boolean {
+    const parsed = parseAddress(address, hint);
+    return parsed.kind === "unsupported" || isPeekable(parsed);
+}
+
 // Load the target and show it in the avatar popup, writing no destination selection. The popup opens at once on
 // a loading item; a failed load puts it back as it was and says why.
 export async function peekTarget(
@@ -190,8 +196,7 @@ export function openOrPeekAddress(
     event?: OpenGesture,
     hint?: AddressHint
 ): Promise<OpenResult> {
-    const parsed = parseAddress(address, hint);
-    if (event?.ctrlKey && (parsed.kind === "unsupported" || isPeekable(parsed))) {
+    if (event?.ctrlKey && isPeekableAddress(address, hint)) {
         event.preventDefault();
         event.stopPropagation();
         return peekAddress(model, address, hint);

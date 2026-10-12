@@ -25,12 +25,16 @@ import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
 import { graphPeekOpenAtom, briefPeekRecordAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import { peekTarget } from "@/app/view/jarvis/openref";
+import { itemKeyCommand } from "@/app/view/jarvis/peekitemmodel";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
+import { peekKeyCommand } from "@/app/view/jarvis/petpeekmodel";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
     buildAgentBindings,
+    buildChannelsAskBindings,
+    buildCockpitBindings,
     buildCodeBindings,
     buildFilesBindings,
     buildFinalShotsBindings,
@@ -41,6 +45,7 @@ import {
     closeTargetForDoubleCtrlC,
 } from "./bindings";
 import { listNavAtom } from "./listnav";
+import { matchBinding } from "./matcher";
 import type { KeyContext } from "./types";
 
 vi.mock("@/app/view/jarvis/openref", async (orig) => ({
@@ -888,5 +893,51 @@ describe("final shots viewer bindings", () => {
         expect(bindings.some((b) => b.when!(ctx("jarvis")))).toBe(false);
         globalStore.set(finalShotsViewerOpenAtom, true);
         expect(bindings.every((b) => b.when!({ ...ctx("jarvis"), modalOpen: true }))).toBe(true);
+    });
+});
+
+// The avatar popup handles its own keys on the panel, but the dispatcher runs on window capture and stops any
+// key it claims, so a surface binding live under the popup would take the key from it.
+describe("the open avatar popup keeps its keys on every surface", () => {
+    const POPUP_KEYS = ["j", "k", "ArrowDown", "ArrowUp", "Enter", " ", "/", "Escape", "Backspace"];
+    const key = (k: string) =>
+        ({ key: k, code: "", control: false, shift: false, cmd: false, option: false, meta: false, alt: false }) as any;
+
+    afterEach(() => globalStore.set(petPeekOpenAtom, false));
+
+    it("lists only keys the popup acts on", () => {
+        for (const k of POPUP_KEYS) {
+            expect(peekKeyCommand(k) ?? itemKeyCommand(k), k).not.toBeNull();
+        }
+    });
+
+    it("leaves every popup key unclaimed, from the panel and from its composer", () => {
+        const model = stubModel("agent-tab");
+        const all = [
+            ...buildGlobalBindings(model),
+            ...buildListNavBindings(model),
+            ...buildCockpitBindings(),
+            ...buildAgentBindings(model),
+            ...buildFilesBindings(),
+            ...buildCodeBindings(),
+            ...buildJarvisBindings(),
+            ...buildJarvisGraphBindings(),
+            ...buildChannelsAskBindings(model, { current: { id: "agent-tab" } as any }),
+        ];
+        globalStore.set(petPeekOpenAtom, true);
+        const claimed: string[] = [];
+        for (const surface of SURFACE_ORDER) {
+            for (const editable of [false, true]) {
+                for (const k of POPUP_KEYS) {
+                    const result = matchBinding(key(k), { surface, editable, modalOpen: true, leader: null }, all);
+                    if (result.kind === "run") {
+                        claimed.push(
+                            `${surface} ${editable ? "composer" : "panel"} ${JSON.stringify(k)}: ${result.binding.id}`
+                        );
+                    }
+                }
+            }
+        }
+        expect(claimed).toEqual([]);
     });
 });

@@ -12,7 +12,8 @@ const ackRun = vi.fn();
 const landRun = vi.fn();
 const getAttention = vi.fn();
 
-vi.mock("./openref", () => ({
+vi.mock("./openref", async (orig) => ({
+    ...(await orig<typeof import("./openref")>()),
     openAddress: (...a: any[]) => openAddress(...a),
     openOrPeekAddress: (...a: any[]) => openOrPeekAddress(...a),
 }));
@@ -98,6 +99,18 @@ describe("runAct — Ctrl+click", () => {
         const act: PetAct = { id: "x", verb: "open", label: "Open", target: { kind: "oref", ref: "run:r1" } };
         expect(actNavigates(act)).toBe(true);
         expect(actNavigates(act, { ctrlKey: true })).toBe(false);
+    });
+
+    // a canvas cannot peek, so Ctrl opens it like a plain click, and the popup must close behind it
+    it("opens a canvas escort and closes the popup, since a canvas cannot peek", async () => {
+        globalStore.set(petPeekOpenAtom, true);
+        openAddress.mockResolvedValue({ ok: true });
+        const act: PetAct = { id: "c", verb: "open", label: "Open", target: { kind: "oref", ref: "canvas:peek" } };
+        await runAct(model, act, { ctrlKey: true, preventDefault: vi.fn(), stopPropagation: vi.fn() });
+        expect(openOrPeekAddress).not.toHaveBeenCalled();
+        expect(openAddress).toHaveBeenCalledWith(model, "canvas:peek", { anchor: undefined }, expect.any(Function));
+        expect(globalStore.get(petPeekOpenAtom)).toBe(false);
+        expect(actNavigates(act, { ctrlKey: true })).toBe(true);
     });
 });
 

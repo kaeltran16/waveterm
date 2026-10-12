@@ -12,7 +12,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { loadAttention } from "@/app/view/agents/attentionstore";
-import { openAddress, openOrPeekAddress, type OpenGesture } from "./openref";
+import { isPeekableAddress, openAddress, openOrPeekAddress, type OpenGesture } from "./openref";
 import { closePeek } from "./peekstore";
 import type { PetAct, PetActState } from "./petacts";
 import { petErrandAtom, setActState } from "./petstore";
@@ -36,14 +36,15 @@ function errText(e: unknown): string {
 // An escort closes the peek only once the landing succeeds: an overlay anchored to the creature, left open over
 // a surface it just navigated away from, is stranded — but a landing that cannot open leaves the user where
 // they were, and its failure is set on the act, which only an open peek shows. A Ctrl+click peeks instead, into
-// this same popup, so the popup stays and a failed load is the peek's own toast.
+// this same popup, so the popup stays and a failed load is the peek's own toast. A target that cannot peek (a
+// canvas) opens under Ctrl too, so it takes the escort's path and closes the popup.
 async function escort(
     model: AgentsViewModel,
     act: Extract<PetAct, { verb: "open" }>,
     gesture?: OpenGesture
 ): Promise<void> {
     const target = act.target;
-    if (gesture?.ctrlKey) {
+    if (ctrlPeeks(act, gesture)) {
         await openOrPeekAddress(model, target.ref, gesture, { anchor: target.anchor });
         return;
     }
@@ -101,7 +102,11 @@ export async function runAct(model: AgentsViewModel, act: PetAct, gesture?: Open
 // only an escort leaves the peek, and not when Ctrl turns it into a peek; the caller drops focus-return for it
 // and nothing else
 export function actNavigates(act: PetAct, gesture?: { ctrlKey: boolean }): boolean {
-    return act.verb === "open" && !gesture?.ctrlKey;
+    return act.verb === "open" && !ctrlPeeks(act, gesture);
+}
+
+function ctrlPeeks(act: Extract<PetAct, { verb: "open" }>, gesture?: { ctrlKey: boolean }): boolean {
+    return gesture?.ctrlKey === true && isPeekableAddress(act.target.ref, { anchor: act.target.anchor });
 }
 
 // The errand reuses the Channels surface's consult path exactly (channelactions.ts): post the question as a
