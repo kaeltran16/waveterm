@@ -44,6 +44,9 @@ export const BUILD_SLOTS = 3;
 // keeps the port scans of stages on different slots apart: they pick ports long before anything binds them
 const SLOT_PORT_STRIDE = 20;
 const STORE_ID_LEN = 8;
+// a store's files can stay held for seconds after its dev app is killed; up to 10s before leaving it to the sweep
+const STORE_DROP_RETRIES = 20;
+const STORE_DROP_RETRY_MS = 500;
 
 // slot 0 keeps the names a checkout's older copy of this script uses, so that copy and this one still exclude each
 // other there
@@ -71,9 +74,14 @@ function dropStore(store, out) {
     try {
         const log = join(store, "data", "waveapp.log");
         if (existsSync(log)) cpSync(log, join(out, "waveapp.log"));
-        rmSync(store, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
     } catch (e) {
-        console.log(`could not keep the log and drop the dev app's store ${store}: ${e.message}`);
+        console.log(`could not keep the dev app's log from ${store}: ${e.message}`);
+    }
+    try {
+        rmSync(store, { recursive: true, force: true, maxRetries: STORE_DROP_RETRIES, retryDelay: STORE_DROP_RETRY_MS });
+    } catch (e) {
+        // workers reported the old "could not drop" line as a defect in six runs (09-18..10-12); the sweep makes it harmless
+        console.log(`the dev app's store ${store} is still held by a file handle; the next final stage on this slot drops it (${e.code ?? e.message})`);
     }
 }
 
