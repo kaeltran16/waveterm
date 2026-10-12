@@ -238,7 +238,8 @@ func finalHold(g *waveobj.TaskGroup) string {
 }
 
 // checkoutHold is why the project checkout cannot take the merge now: it is on another branch, stopped inside a
-// git operation, or has staged changes the merge commit would sweep in.
+// git operation, has staged changes the merge commit would sweep in, or has unstaged edits the merge would
+// overwrite.
 func checkoutHold(ctx context.Context, run *waveobj.Run) string {
 	project := run.ProjectPath
 	cur, err := git(ctx, project, "rev-parse", "--abbrev-ref", "HEAD")
@@ -268,7 +269,39 @@ func checkoutHold(ctx context.Context, run *waveobj.Run) string {
 	if clean, _ := IndexClean(ctx, project); !clean {
 		return "the checkout has staged changes"
 	}
-	return ""
+	return unstagedOverlapHold(ctx, run)
+}
+
+// unstagedOverlapHold names the checkout's unstaged edits to files the run's branch changes, which git merge
+// refuses to overwrite only after the re-run of Check and Verify. Edits to other files stay: git merges past them.
+func unstagedOverlapHold(ctx context.Context, run *waveobj.Run) string {
+	project, branch := run.ProjectPath, "wave/"+run.ID
+	edited, err := git(ctx, project, "diff", "--name-only", "--no-renames", "-z")
+	if err != nil {
+		return "listing the checkout's unstaged edits: " + err.Error()
+	}
+	if edited == "" {
+		return ""
+	}
+	base, err := git(ctx, project, "merge-base", "HEAD", branch)
+	if err != nil {
+		return "finding where the run's branch forked: " + err.Error()
+	}
+	changed, err := git(ctx, project, "diff", "--name-only", "--no-renames", "-z", base, branch)
+	if err != nil {
+		return "listing what the run changes: " + err.Error()
+	}
+	theirs := strings.Split(changed, "\x00")
+	var overlap []string
+	for _, p := range strings.Split(edited, "\x00") {
+		if p != "" && slices.Contains(theirs, p) {
+			overlap = append(overlap, p)
+		}
+	}
+	if len(overlap) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("the checkout has unstaged edits to files the run changes: %s; commit or stash them, then run `wsh runs land %s`", strings.Join(overlap, ", "), run.ID)
 }
 
 // reverifyHold checks what the final stage never saw before the run lands: the lead's wrap-up commits after it,
