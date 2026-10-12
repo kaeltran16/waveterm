@@ -9657,7 +9657,7 @@ const RAIL_LINK_LIB = `
     const diffRow = (name) => document.querySelector('[data-changed-file-row="' + name + '"]');
     const selectedRows = () =>
         [...document.querySelectorAll("[data-changed-file-row]")]
-            .filter((r) => r.classList.contains("bg-surface-selected"))
+            .filter((r) => r.getAttribute("aria-current") === "true")
             .map((r) => r.getAttribute("data-changed-file-row"));
     const until = async (fn) => {
         for (let i = 0; i < 80 && !fn(); i++) {
