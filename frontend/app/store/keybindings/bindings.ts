@@ -2,6 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { launchPiTab } from "@/app/cockpit/cockpit-actions";
+import { orderGroups } from "@/app/cockpit/resmon";
+import {
+    confirmResMon,
+    dispatchResMon,
+    resmonOpenAtom,
+    resmonSnapshotAtom,
+    resmonUiAtom,
+} from "@/app/cockpit/resmonstore";
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { anyModalOpen } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -253,6 +261,14 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             paletteHidden: true, // a palette row that opens the palette
             when: navigate,
             run: () => globalStore.set(model.paletteOpenAtom, true),
+        },
+        {
+            id: "go:resmon",
+            keys: "g m",
+            group: "Go to",
+            label: "Resource Manager",
+            when: navigate,
+            run: () => globalStore.set(resmonOpenAtom, true),
         },
         {
             id: "new-agent",
@@ -1433,5 +1449,47 @@ export function buildFinalShotsBindings(handlers: {
         bind("zoom", "z", "Fit / actual size", handlers.zoom),
         bind("steps", "s", "Show or hide the steps", handlers.steps),
         bind("close", "Escape", "Close the viewer", handlers.close),
+    ];
+}
+
+// The Resource Manager popover's keys, registered by the always-mounted popover. Gated on its own atom rather
+// than on !modalOpen: that atom is what makes modalOpen true, which stands the surface's arrows, Enter and Escape
+// down under it. A palette or modal opened over the popover keeps its own keys.
+export function buildResMonBindings(model: AgentsViewModel): Binding[] {
+    const active = (ctx: KeyContext) =>
+        globalStore.get(resmonOpenAtom) && !ctx.editable && !anyModalOpen() && !globalStore.get(model.paletteOpenAtom);
+    const groups = () => orderGroups(globalStore.get(resmonSnapshotAtom)?.groups ?? []);
+    const bind = (id: string, keys: string, label: string, run: () => void): Binding => ({
+        id: `resmon:${id}`,
+        keys,
+        group: "Resource Manager",
+        label,
+        when: active,
+        paletteHidden: true,
+        run,
+    });
+    return [
+        bind("prev", "ArrowUp", "Move up", () => dispatchResMon({ type: "move", delta: -1, groups: groups() })),
+        bind("next", "ArrowDown", "Move down", () => dispatchResMon({ type: "move", delta: 1, groups: groups() })),
+        bind("enter", "Enter", "Confirm, else expand or collapse the group", () => {
+            if (globalStore.get(resmonUiAtom).confirm != null) {
+                void confirmResMon();
+            } else {
+                dispatchResMon({ type: "toggle" });
+            }
+        }),
+        bind("kill", "x", "Kill the process and its children", () =>
+            dispatchResMon({ type: "askKill", groups: groups() })
+        ),
+        bind("kill-children", "Shift:X", "Kill the group's children", () =>
+            dispatchResMon({ type: "askChildren", groups: groups() })
+        ),
+        bind("close", "Escape", "Cancel, else close", () => {
+            if (globalStore.get(resmonUiAtom).confirm != null) {
+                dispatchResMon({ type: "cancel" });
+            } else {
+                globalStore.set(resmonOpenAtom, false);
+            }
+        }),
     ];
 }

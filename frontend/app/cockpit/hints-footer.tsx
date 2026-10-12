@@ -19,16 +19,17 @@ import { useEffect, useState } from "react";
 import { ctrlHeldAtom } from "./ctrlheld";
 import { visibleHints } from "./footer-visible";
 import { GLOBAL_HINTS, SURFACE_HINTS } from "./footerhints";
+import { ResMonReadout } from "./resmonreadout";
 
-function FooterBar({ children, dim }: { children?: React.ReactNode; dim?: boolean }) {
+// the readout closes every posture on the right; it is data, not a key hint, so it never dims with the chips
+function FooterBar({ children }: { children?: React.ReactNode }) {
     return (
         <div
-            className={cn(
-                "flex h-7 shrink-0 items-center gap-4 border-t border-edge-strong bg-modalbg px-4",
-                dim && "opacity-60"
-            )}
+            data-hints-footer=""
+            className="flex h-7 shrink-0 items-center gap-4 border-t border-edge-strong bg-modalbg px-4"
         >
             {children}
+            <ResMonReadout className="ml-auto" />
         </div>
     );
 }
@@ -99,8 +100,11 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
     const ctx = deriveKeyContext();
     const chips = visibleHints(ctx, bindings, SURFACE_HINTS[surface] ?? [], GLOBAL_HINTS);
     return (
-        <FooterBar dim={ctx.editable}>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <FooterBar>
+            <div
+                data-footer-chips=""
+                className={cn("flex flex-wrap items-center gap-x-4 gap-y-1", ctx.editable && "opacity-60")}
+            >
                 {chips.map((c) => (
                     <Chip
                         key={(c.glyph ?? c.keys) + c.label}

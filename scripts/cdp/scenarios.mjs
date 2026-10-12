@@ -15501,6 +15501,560 @@ const motionGaps = {
     },
 };
 
+// The Resource Manager (footer readout + popover). Data comes only from window.__resmonFixture (resmonstore.ts),
+// modelled on the canvas (.superpowers/design/resource-manager): a pinned snapshot is never overwritten by the
+// live poll, and an armed outcome answers the next confirm without touching a process.
+const RESMON_VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+const RESMON_MIB = 1024 * 1024;
+// the snapshot's totals: the canvas's 60.6% and 7.4 GiB
+const RESMON_TOTAL_CPU = 60.6;
+const RESMON_TOTAL_MEM = 7945689498;
+const RESMON_FOOTER = `document.querySelector('[data-hints-footer]')`;
+const RESMON_COCKPIT_HINTS = `document.querySelector('[data-cockpit-hints]')`;
+const RESMON_POPOVER = `document.querySelector('[data-resmon-popover]')`;
+const RESMON_GROUP_ORDER = ["arc", "job:14820", "job:13060", "job:22410", "job:7716"];
+// the popover grows in with a scale reveal; measure after it settles
+const RESMON_REVEAL_MS = 500;
+const RESMON_CURSOR_MAX_PRESSES = 40;
+const resmonNap = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function resmonRows(now, rows) {
+    return rows.map(([pid, depth, name, args, cpu, mb, extra]) => ({
+        pid,
+        depth,
+        name,
+        command: args ? `${name} ${args}` : name,
+        createts: now - (extra?.ageMin ?? 5) * 60_000,
+        cpu,
+        mem: Math.round(mb * RESMON_MIB),
+        mempct: 0,
+        numthreads: 1,
+        ...(extra?.tag ? { tag: extra.tag } : {}),
+        ...(extra?.role ? { role: extra.role } : {}),
+    }));
+}
+
+function resmonGroup(key, ownerkind, label, runtime, killable, rows) {
+    return {
+        key,
+        ownerkind,
+        ownerid: key,
+        label,
+        ...(runtime ? { runtime } : {}),
+        killable,
+        cpu: Math.round(rows.reduce((n, r) => n + r.cpu, 0) * 10) / 10,
+        mem: rows.reduce((n, r) => n + r.mem, 0),
+        rows,
+    };
+}
+
+function resmonArcGroup(now) {
+    const webview = (role) => ({ role, ageMin: 340 });
+    return resmonGroup("arc", "arc", "Arc", "", false, resmonRows(now, [
+        [2476, 0, "wave-tauri.exe", "", 0.1, 38, webview("Host")],
+        [23360, 1, "msedgewebview2.exe", "", 0.4, 141, webview("WebView browser")],
+        [20028, 2, "msedgewebview2.exe", "--type=renderer", 3.1, 337, webview("Renderer")],
+        [24188, 2, "msedgewebview2.exe", "--type=gpu-process", 1.9, 298, webview("GPU")],
+        [25364, 2, "msedgewebview2.exe", "--type=renderer", 0.2, 74, { role: "Renderer", ageMin: 62 }],
+        [27348, 2, "msedgewebview2.exe", "--type=utility --utility-sub-type=network.mojom.NetworkService", 0.1, 43, webview("Network service")],
+        [4040, 2, "msedgewebview2.exe", "--type=utility --utility-sub-type=storage.mojom.StorageService", 0.0, 20, webview("Storage service")],
+        [1788, 2, "msedgewebview2.exe", "--type=crashpad-handler", 0.0, 13, webview("Crash handler")],
+        [27152, 1, "wavesrv.x64.exe", "", 0.9, 219, webview("Backend")],
+    ]));
+}
+
+function resmonFixture(now = Date.now()) {
+    return {
+        supported: true,
+        ready: true,
+        ts: now,
+        cpu: RESMON_TOTAL_CPU,
+        mem: RESMON_TOTAL_MEM,
+        totalmem: 32 * 1024 * RESMON_MIB,
+        busycpu: false,
+        busymem: false,
+        groups: [
+            resmonArcGroup(now),
+            resmonGroup("job:14820", "agenttab", "waveterm", "claude", true, resmonRows(now, [
+                [14820, 0, "claude.exe", "--resume", 1.2, 486, { tag: "agent", ageMin: 42 }],
+                [14832, 1, "conhost.exe", "", 0.0, 9, { tag: "console", ageMin: 42 }],
+                [18240, 1, "bash.exe", "-c go test ./pkg/orchestrate/... -run TestLiveness", 0.0, 6, { ageMin: 2 }],
+                [18244, 2, "go.exe", "test ./pkg/orchestrate/...", 0.6, 152, { ageMin: 2 }],
+                [18311, 3, "orchestrate.test.exe", "-test.run TestLiveness", 28.9, 1904, { ageMin: 2 }],
+                [9932, 1, "cmd.exe", "/c npm run dev", 0.0, 4, { ageMin: 38 }],
+                [9958, 2, "node.exe", "vite --port 5174", 1.1, 846, { ageMin: 38 }],
+            ])),
+            resmonGroup("job:13060", "runworker", "cache-miss notice · Task 2", "pi", true, resmonRows(now, [
+                [13060, 0, "cmd.exe", "/c pi.cmd", 0.0, 4, { tag: "launcher", ageMin: 16 }],
+                [13072, 1, "conhost.exe", "", 0.0, 8, { tag: "console", ageMin: 16 }],
+                [13104, 1, "node.exe", "pi", 0.9, 274, { tag: "agent", ageMin: 16 }],
+                [21876, 2, "bash.exe", "-c npx vitest run frontend/app/view/agents", 0.0, 6, { ageMin: 1 }],
+                [21890, 3, "node.exe", "vitest run frontend/app/view/agents", 13.7, 802, { ageMin: 1 }],
+            ])),
+            resmonGroup("job:22410", "runcmd", "cleanup round · Verify", "", false, resmonRows(now, [
+                [22410, 0, "bash.exe", "-c node scripts/verify.mjs ./pkg/orchestrate ./pkg/jarvis", 0.0, 6, { ageMin: 4 }],
+                [22418, 1, "node.exe", "scripts/verify.mjs", 0.3, 58, { ageMin: 4 }],
+                [22502, 2, "go.exe", "test ./pkg/jarvis", 0.4, 140, { ageMin: 3 }],
+                [22590, 3, "jarvis.test.exe", "-test.count=1", 6.7, 1200, { ageMin: 3 }],
+            ])),
+            resmonGroup("job:7716", "agenttab", "obsidian-notes", "claude", true, resmonRows(now, [
+                [7716, 0, "claude.exe", "", 0.1, 303, { tag: "agent", ageMin: 192 }],
+                [7724, 1, "conhost.exe", "", 0.0, 9, { tag: "console", ageMin: 192 }],
+            ])),
+        ],
+    };
+}
+
+const resmonSet = (h, snap) => h.ev(`window.__resmonFixture.set(${JSON.stringify(snap)})`);
+const resmonArm = (h, outcome) => h.ev(`window.__resmonFixture.killOutcome(${JSON.stringify(outcome)})`);
+const resmonClick = (expr) => `(() => { const el = ${expr}; if (!el) return false; el.click(); return true; })()`;
+const resmonReadout = (scope) => `${scope}?.querySelector('[data-resmon-readout]')`;
+// the readout's words as a reader sees them: the flex gaps between its spans carry no text
+const resmonReadoutText = (scope) => `(() => {
+    const r = ${resmonReadout(scope)};
+    return r ? [...r.children].filter((c) => c.tagName === 'SPAN').map((c) => c.textContent.trim()).join(' ') : null;
+})()`;
+const resmonGroupButton = (key, text) =>
+    `[...document.querySelectorAll('[data-resmon-popover] [data-resmon-group="${key}"] button')].find((b) => b.textContent.trim() === ${JSON.stringify(text)})`;
+const resmonConfirmButton = (text) =>
+    `[...document.querySelectorAll('[data-resmon-popover] [data-resmon-confirm] button')].find((b) => b.textContent.trim() === ${JSON.stringify(text)})`;
+const resmonRowKill = (pid) => `document.querySelector('[data-resmon-popover] [data-resmon-row="${pid}"] button')`;
+const resmonChevron = (key) =>
+    `document.querySelector('[data-resmon-popover] [data-resmon-group="${key}"] button[aria-expanded]')`;
+
+const RESMON_KEYS = {
+    Escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 },
+    Enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 },
+    ArrowDown: { key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 },
+    ArrowUp: { key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38 },
+    g: { key: "g", code: "KeyG", windowsVirtualKeyCode: 71, text: "g" },
+    m: { key: "m", code: "KeyM", windowsVirtualKeyCode: 77, text: "m" },
+    x: { key: "x", code: "KeyX", windowsVirtualKeyCode: 88, text: "x" },
+    X: { key: "X", code: "KeyX", windowsVirtualKeyCode: 88, text: "X", shift: true },
+};
+const RESMON_SHIFT_MODIFIER = 8;
+
+// Input.dispatchKeyEvent often never reaches a WebView without OS focus: probe once, then send every key the same
+// way, falling back to a KeyboardEvent on window, where the keybinding dispatcher listens
+async function resmonKeyPath(h) {
+    await h.ev(`(() => {
+        window.__resmonKeyProbe = false;
+        const f = (e) => { if (e.key === 'F20') { window.__resmonKeyProbe = true; window.removeEventListener('keydown', f, true); } };
+        window.addEventListener('keydown', f, true);
+    })()`);
+    await h.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "F20", code: "F20", windowsVirtualKeyCode: 131 });
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "F20", code: "F20", windowsVirtualKeyCode: 131 });
+    await resmonNap(150);
+    return (await h.ev("window.__resmonKeyProbe === true")) ? "cdp" : "window";
+}
+
+async function resmonKey(h, ctx, name) {
+    const { shift, text, ...k } = RESMON_KEYS[name];
+    if (ctx.keyPath === "cdp") {
+        const modifiers = shift ? RESMON_SHIFT_MODIFIER : 0;
+        await h.cdp("Input.dispatchKeyEvent", { type: text ? "keyDown" : "rawKeyDown", ...k, text, modifiers });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...k, modifiers });
+    } else {
+        await h.ev(
+            `window.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k.key)}, code: ${JSON.stringify(k.code)}, shiftKey: ${!!shift}, bubbles: true, cancelable: true }))`
+        );
+    }
+    await resmonNap(200);
+}
+
+// keys must not land in a field: the Agent surface's terminal would take them
+const resmonBlur = (h) => h.ev(`document.activeElement?.blur?.()`);
+
+const RESMON_POPOVER_STATE = `(() => {
+    const p = ${RESMON_POPOVER};
+    if (!p) return null;
+    const r = p.getBoundingClientRect();
+    const where = (el) => el.getAttribute('data-resmon-row') ?? el.closest('[data-resmon-group]')?.getAttribute('data-resmon-group');
+    const cursor = p.querySelector('[data-resmon-cursor]');
+    const confirm = p.querySelector('[data-resmon-confirm]');
+    return {
+        width: Math.round(r.width),
+        right: Math.round(window.innerWidth - r.right),
+        bottom: r.bottom,
+        groups: [...p.querySelectorAll('[data-resmon-group]')].map((g) => ({
+            key: g.getAttribute('data-resmon-group'),
+            rows: g.querySelectorAll('[data-resmon-row]').length,
+            tags: [...g.querySelectorAll('[data-resmon-row]')].filter((row) => !row.querySelector('button')).length,
+            kills: g.querySelectorAll('[data-resmon-row] button[aria-label^="Kill"]').length,
+            buttons: g.querySelectorAll('button').length,
+        })),
+        order: [...p.querySelectorAll('[data-resmon-group] > div:first-child, [data-resmon-row]')].map(where),
+        cursor: cursor ? where(cursor) : null,
+        confirm: confirm ? (confirm.querySelector('span')?.textContent ?? '') : null,
+        status: [...p.querySelectorAll('[role="status"]')].map((n) => n.textContent.trim()),
+        alert: [...p.querySelectorAll('[role="alert"]')].map((n) => n.textContent.trim()),
+        text: p.textContent,
+    };
+})()`;
+const resmonPopover = (h) => h.ev(RESMON_POPOVER_STATE);
+
+// walks the cursor with the arrows onto the row with that pid, or the header of the group with that key
+async function resmonCursorTo(h, ctx, target) {
+    for (let i = 0; i < RESMON_CURSOR_MAX_PRESSES; i++) {
+        const s = await resmonPopover(h);
+        if (s == null) return false;
+        const at = s.cursor == null ? -1 : s.order.indexOf(s.cursor);
+        const want = s.order.indexOf(String(target));
+        if (want < 0) return false;
+        if (at === want) return true;
+        await resmonKey(h, ctx, want > at ? "ArrowDown" : "ArrowUp");
+    }
+    return false;
+}
+
+async function resmonArrange(h) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", RESMON_VIEWPORT);
+    await h.goto("agent");
+    const ready = await polishWaitFor(h, `!!window.__resmonFixture`, 10000);
+    const keyPath = await resmonKeyPath(h);
+    if (ready) {
+        await resmonSet(h, resmonFixture());
+        await resmonNap(300);
+    }
+    return { ready, keyPath };
+}
+
+// The Cockpit draws its hints bar, and so its readout, only over a roster: an empty store shows the empty state
+// alone. The fixture roster is read once at boot, and the reload drops the pinned snapshot, so it is set again.
+async function resmonSeedRoster(h, ctx) {
+    if (existsSync(TREE_RAIL_FIXTURE)) return;
+    mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
+    writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(treeRailRoster(undefined, Date.now()), null, 2));
+    ctx.wroteFixture = true;
+    await h.ev("location.reload()");
+    await polishWaitFor(h, `!!document.querySelector("nav button") && !!window.__resmonFixture`, 30000);
+    await resmonSet(h, resmonFixture());
+}
+
+async function resmonTeardown(h, ctx) {
+    await h.ev(`window.__resmonFixture?.clear()`).catch(() => {});
+    if (ctx?.wroteFixture) {
+        rmSync(TREE_RAIL_FIXTURE, { force: true });
+        await h.ev("location.reload()");
+        await polishWaitFor(h, `!!document.querySelector("nav button")`, 30000);
+    }
+    await h.goto("cockpit");
+}
+
+const RESMON_NO_HOOK = [{ step: "the dev fixture hook is on window", ok: false, detail: "no window.__resmonFixture" }];
+
+const resmonFooter = {
+    name: "resmon-footer",
+    surface: "agent",
+    arrange: resmonArrange,
+    async assert(h, ctx) {
+        if (!ctx.ready) return RESMON_NO_HOOK;
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const shot = (n) => h.shot(`cdp-shots/resmon-footer-${n}.png`);
+
+        await resmonBlur(h);
+        const rest = await h.ev(`(() => ({
+            last: !!${RESMON_FOOTER}?.lastElementChild?.matches('[data-resmon-readout]'),
+            text: ${resmonReadoutText(RESMON_FOOTER)},
+        }))()`);
+        await shot("1-rest");
+        rec("1. Agent at rest: the readout ends the footer and reads Arc 61% CPU · 7.4 GB",
+            rest.last && rest.text === "Arc 61% CPU · 7.4 GB", JSON.stringify(rest));
+
+        await resmonKey(h, ctx, "g");
+        const leader = await h.ev(`(() => {
+            const f = ${RESMON_FOOTER};
+            const spans = [...(f?.querySelectorAll('span') ?? [])].map((s) => s.textContent.trim());
+            return { readout: !!${resmonReadout(RESMON_FOOTER)}, m: spans.includes('mResource Manager'), leader: spans.includes('g →') };
+        })()`);
+        await shot("2-leader");
+        rec("2. g: the leader posture keeps the readout and lists m Resource Manager",
+            leader.readout && leader.m && leader.leader, JSON.stringify(leader));
+
+        await resmonKey(h, ctx, "m");
+        await resmonNap(RESMON_REVEAL_MS);
+        const opened = await h.ev(`!!${RESMON_POPOVER}`);
+        await shot("3-gm-open");
+        rec("3. m: the popover opens", opened, `popover=${opened}`);
+
+        await resmonKey(h, ctx, "Escape");
+        await resmonNap(RESMON_REVEAL_MS);
+        const closed = await h.ev(`!${RESMON_POPOVER}`);
+        await shot("4-esc-closed");
+        rec("4. Esc: the popover closes", closed, `closed=${closed}`);
+
+        const dim = await h.ev(`new Promise((resolve) => {
+            const input = document.createElement('input');
+            input.setAttribute('data-resmon-probe', '');
+            document.body.appendChild(input);
+            input.focus();
+            setTimeout(() => {
+                const chips = ${RESMON_FOOTER}?.querySelector('[data-footer-chips]');
+                const readout = ${resmonReadout(RESMON_FOOTER)};
+                resolve({ chips: chips ? getComputedStyle(chips).opacity : null, readout: readout ? getComputedStyle(readout).opacity : null });
+            }, 300);
+        })`);
+        await shot("5-editable");
+        await h.ev(`document.querySelector('[data-resmon-probe]')?.remove()`);
+        rec("5. focus in a field: the chips dim to 0.6, the readout stays at 1",
+            dim.chips === "0.6" && dim.readout === "1", JSON.stringify(dim));
+
+        await resmonSeedRoster(h, ctx);
+        await h.goto("cockpit");
+        await polishWaitFor(h, `!!${RESMON_COCKPIT_HINTS}`, 10000);
+        const cockpit = await h.ev(`(() => {
+            const r = ${resmonReadout(RESMON_COCKPIT_HINTS)};
+            return { readout: !!r, afterHelp: r?.previousElementSibling?.textContent.trim() === '?', footer: !!${RESMON_FOOTER} };
+        })()`);
+        await shot("6-cockpit");
+        rec("6. Cockpit: the readout sits in the cockpit hints bar, after ?",
+            cockpit.readout && cockpit.afterHelp && !cockpit.footer, JSON.stringify(cockpit));
+
+        await h.ev(resmonClick(resmonReadout(RESMON_COCKPIT_HINTS)));
+        await resmonNap(RESMON_REVEAL_MS);
+        const above = await h.ev(`(() => {
+            const p = ${RESMON_POPOVER};
+            const bar = ${RESMON_COCKPIT_HINTS};
+            if (!p || !bar) return { open: !!p, bar: !!bar };
+            return { open: true, bottom: p.getBoundingClientRect().bottom, barTop: bar.getBoundingClientRect().top };
+        })()`);
+        await shot("6b-cockpit-open");
+        rec("6b. Cockpit: clicking that readout opens the popover above the hints bar",
+            above.open && above.bottom <= above.barTop, JSON.stringify(above));
+        await resmonBlur(h);
+        await resmonKey(h, ctx, "Escape");
+        await resmonNap(RESMON_REVEAL_MS);
+
+        await h.goto("agent");
+        await resmonBlur(h);
+        const busy = [
+            ["7", { busycpu: true }, "high CPU"],
+            ["8", { busymem: true }, "high memory"],
+            ["9", { busycpu: true, busymem: true }, "high CPU and memory"],
+        ];
+        for (const [n, flags, words] of busy) {
+            await resmonSet(h, { ...resmonFixture(), ...flags });
+            await resmonNap(200);
+            const text = await h.ev(resmonReadoutText(RESMON_FOOTER));
+            await shot(`${n}-busy`);
+            rec(`${n}. ${Object.keys(flags).join(" + ")}: the readout shows ${words}`,
+                text === `Arc 61% CPU · 7.4 GB ${words}`, text);
+        }
+
+        await resmonSet(h, null);
+        await resmonNap(200);
+        const pending = await h.ev(resmonReadoutText(RESMON_FOOTER));
+        await shot("10-pending");
+        rec("10. pinned null: the readout shows Arc –", pending === "Arc –", pending);
+
+        await resmonSet(h, { ...resmonFixture(), supported: false });
+        await resmonNap(200);
+        const footerGone = await h.ev(`!!${RESMON_FOOTER} && !${resmonReadout(RESMON_FOOTER)}`);
+        await shot("11a-unsupported-agent");
+        await h.goto("cockpit");
+        await polishWaitFor(h, `!!${RESMON_COCKPIT_HINTS}`, 10000);
+        const barGone = await h.ev(`!!${RESMON_COCKPIT_HINTS} && !${resmonReadout(RESMON_COCKPIT_HINTS)}`);
+        await shot("11b-unsupported-cockpit");
+        rec("11. supported: false: no readout in the footer or the cockpit hints bar",
+            footerGone && barGone, `footer=${footerGone} cockpit=${barGone}`);
+        return steps;
+    },
+    teardown: resmonTeardown,
+};
+
+const resmonMain = {
+    name: "resmon-main",
+    surface: "agent",
+    arrange: resmonArrange,
+    async assert(h, ctx) {
+        if (!ctx.ready) return RESMON_NO_HOOK;
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const shot = (n) => h.shot(`cdp-shots/resmon-main-${n}.png`);
+        const arcRows = async () => (await resmonPopover(h))?.groups.find((g) => g.key === "arc")?.rows;
+
+        await h.ev(resmonClick(resmonReadout(RESMON_FOOTER)));
+        await resmonNap(RESMON_REVEAL_MS);
+        const s1 = await resmonPopover(h);
+        const readoutTop = await h.ev(`${resmonReadout(RESMON_FOOTER)}?.getBoundingClientRect().top`);
+        await shot("1-open");
+        const by = (k) => s1?.groups.find((g) => g.key === k) ?? {};
+        const ok1 =
+            s1 != null &&
+            s1.width === 700 &&
+            Math.abs(s1.right - 12) <= 1 &&
+            s1.bottom <= readoutTop - 5 &&
+            JSON.stringify(s1.groups.map((g) => g.key)) === JSON.stringify(RESMON_GROUP_ORDER) &&
+            by("arc").rows === 0 &&
+            by("job:14820").tags === 2 && by("job:14820").kills === 5 &&
+            by("job:13060").tags === 3 && by("job:13060").kills === 2 &&
+            by("job:22410").rows === 4 && by("job:22410").buttons === 1 &&
+            by("job:7716").tags === 2 && by("job:7716").kills === 0;
+        rec("1. click the readout: 700px, bottom-right; Arc first and collapsed; by CPU; tags on core rows, × on the rest; Verify has no action",
+            ok1, JSON.stringify({ width: s1?.width, right: s1?.right, bottom: s1?.bottom, readoutTop, groups: s1?.groups }));
+
+        await h.ev(resmonClick(resmonChevron("arc")));
+        await resmonNap(200);
+        const expanded = await arcRows();
+        await shot("2a-arc-expanded");
+        await h.ev(resmonClick(resmonChevron("arc")));
+        await resmonNap(200);
+        const collapsed = await arcRows();
+        await shot("2b-arc-collapsed");
+        rec("2. Arc's chevron expands it, a second click collapses it", expanded === 9 && collapsed === 0,
+            `expanded=${expanded} collapsed=${collapsed}`);
+
+        await resmonKey(h, ctx, "ArrowDown");
+        const c3 = (await resmonPopover(h))?.cursor;
+        await resmonKey(h, ctx, "Enter");
+        const opened3 = await arcRows();
+        await shot("3-cursor-enter");
+        rec("3. ↓ puts the cursor on Arc's header, ⏎ expands it", c3 === "arc" && opened3 === 9,
+            `cursor=${c3} arcRows=${opened3}`);
+
+        await h.ev(resmonClick(resmonRowKill(18311)));
+        await resmonNap(200);
+        const c4 = (await resmonPopover(h))?.confirm;
+        await shot("4-row-confirm");
+        rec("4. × on orchestrate.test.exe asks to kill it alone",
+            c4 === "Kill orchestrate.test.exe (18311)? It has no child processes.", c4);
+
+        await resmonBlur(h);
+        await resmonKey(h, ctx, "Escape");
+        const s5 = await resmonPopover(h);
+        await shot("5-esc-cancel");
+        rec("5. Esc removes the confirm and leaves the popover open", s5 != null && s5.confirm == null,
+            `open=${s5 != null} confirm=${s5?.confirm}`);
+
+        const reached = await resmonCursorTo(h, ctx, 18244);
+        await resmonKey(h, ctx, "x");
+        const c6 = (await resmonPopover(h))?.confirm;
+        await resmonArm(h, { outcome: "killed", killed: 2 });
+        await resmonKey(h, ctx, "Enter");
+        await resmonNap(200);
+        const s6 = await resmonPopover(h);
+        await shot("6-killed");
+        rec("6. x on go.exe asks for it and its child; ⏎ kills and notes it",
+            reached && c6 === "Kill go.exe (18244) and its 1 child process?" &&
+                s6?.status.includes("Killed go.exe (18244) and 1 child process."),
+            JSON.stringify({ reached, confirm: c6, status: s6?.status }));
+
+        await resmonKey(h, ctx, "Escape");
+        await resmonNap(RESMON_REVEAL_MS);
+        const gone7 = await h.ev(`!${RESMON_POPOVER}`);
+        await shot("7-esc-close");
+        rec("7. Esc closes the popover", gone7, `closed=${gone7}`);
+
+        await h.ev(resmonClick(resmonReadout(RESMON_FOOTER)));
+        await resmonNap(RESMON_REVEAL_MS);
+        const reopened = await h.ev(`!!${RESMON_POPOVER}`);
+        // a real pointer press on the Agent surface, clear of the popover and the footer
+        const press = { x: 400, y: 300, button: "left", clickCount: 1 };
+        await h.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...press });
+        await h.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...press });
+        await resmonNap(RESMON_REVEAL_MS);
+        const gone8 = await h.ev(`!${RESMON_POPOVER}`);
+        await shot("8-outside-click");
+        rec("8. a click outside the popover and the readout closes it", reopened && gone8,
+            `reopened=${reopened} closed=${gone8}`);
+        return steps;
+    },
+    teardown: resmonTeardown,
+};
+
+const resmonStates = {
+    name: "resmon-states",
+    surface: "agent",
+    arrange: resmonArrange,
+    async assert(h, ctx) {
+        if (!ctx.ready) return RESMON_NO_HOOK;
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const shot = (n) => h.shot(`cdp-shots/resmon-states-${n}.png`);
+
+        await resmonSet(h, null);
+        await h.ev(`window.__resmonFixture.open()`);
+        await resmonNap(RESMON_REVEAL_MS);
+        const s1 = await resmonPopover(h);
+        await shot("1-loading");
+        rec("1. pinned null: the loading body",
+            s1?.status.includes("Reading agent processes…") && s1.groups.length === 0, JSON.stringify(s1?.status));
+
+        await resmonSet(h, { ...resmonFixture(), groups: [resmonArcGroup(Date.now())] });
+        await resmonNap(200);
+        const s2 = await resmonPopover(h);
+        await shot("2-empty");
+        rec("2. Arc only: the empty body",
+            s2?.groups.length === 1 && s2.text.includes("No agent processes") &&
+                s2.text.includes("Agent tabs, run workers and run commands show here while they run."),
+            JSON.stringify(s2?.groups));
+
+        await resmonSet(h, resmonFixture());
+        await resmonNap(200);
+        await resmonBlur(h);
+        const onHeader = await resmonCursorTo(h, ctx, "job:14820");
+        await resmonKey(h, ctx, "X");
+        const c3 = (await resmonPopover(h))?.confirm;
+        const want3 = "Kill 5 processes under waveterm? claude.exe and its console keep running.";
+        await shot("3a-children-confirm");
+        await h.ev(resmonClick(resmonConfirmButton("Cancel")));
+        await resmonNap(200);
+        const cancelled = (await resmonPopover(h))?.confirm == null;
+        await shot("3b-cancelled");
+        rec("3. ⇧X on waveterm's header asks to kill its 5 children; Cancel closes it",
+            onHeader && c3 === want3 && cancelled, JSON.stringify({ onHeader, confirm: c3, cancelled }));
+
+        await h.ev(resmonClick(resmonGroupButton("job:14820", "Kill children")));
+        await resmonNap(200);
+        const c4 = (await resmonPopover(h))?.confirm;
+        await resmonArm(h, { outcome: "killed", killed: 5 });
+        const clicked4 = await h.ev(resmonClick(resmonConfirmButton("Kill 5")));
+        await resmonNap(300);
+        const s4 = await resmonPopover(h);
+        await shot("4-children-killed");
+        rec("4. Kill children opens the same confirm; Kill 5 notes Killed 5 processes.",
+            c4 === want3 && clicked4 && s4?.status.includes("Killed 5 processes."),
+            JSON.stringify({ confirm: c4, clicked: clicked4, status: s4?.status }));
+
+        await resmonArm(h, { outcome: "gone", killed: 0 });
+        await h.ev(resmonClick(resmonRowKill(21890)));
+        await resmonNap(200);
+        const clicked5 = await h.ev(resmonClick(resmonConfirmButton("Kill")));
+        await resmonNap(300);
+        const s5 = await resmonPopover(h);
+        await shot("5-gone");
+        rec("5. gone: node.exe (21890) had already exited.",
+            clicked5 && s5?.status.includes("node.exe (21890) had already exited."), JSON.stringify(s5?.status));
+
+        // the × above left the cursor on node.exe (21890), so x asks for it again
+        const alerts = [
+            ["6-refused", { outcome: "refused", killed: 0 },
+                (a) => a === "Not killed: pid 21890 no longer belongs to this run worker. The list refreshes in 2s.",
+                "6. refused: the alert says the pid left this run worker"],
+            ["7-protected", { outcome: "protected", killed: 0 },
+                (a) => a.startsWith("Not killed: node.exe (21890) is the agent's own process."),
+                "7. protected: the alert names the agent's own process"],
+            ["8-failed", { outcome: "failed", killed: 0, error: "Access is denied." },
+                (a) => /^Could not kill .+: Access is denied\. It is still running\.$/.test(a),
+                "8. failed: the alert carries the OS error and says it is still running"],
+        ];
+        for (const [n, outcome, check, step] of alerts) {
+            await resmonBlur(h);
+            await resmonArm(h, outcome);
+            await resmonKey(h, ctx, "x");
+            const confirm = (await resmonPopover(h))?.confirm;
+            await resmonKey(h, ctx, "Enter");
+            await resmonNap(300);
+            const alert = (await resmonPopover(h))?.alert ?? [];
+            await shot(n);
+            rec(step, confirm != null && alert.length === 1 && check(alert[0]), JSON.stringify({ confirm, alert }));
+        }
+        return steps;
+    },
+    teardown: resmonTeardown,
+};
+
 export const SCENARIOS = [
     cockpitKeysOnArrival,
     agentTerminalOnArrival,
@@ -15576,4 +16130,7 @@ export const SCENARIOS = [
     modelPicks,
     canvasSwap,
     canvasTabsScenario,
+    resmonFooter,
+    resmonMain,
+    resmonStates,
 ];

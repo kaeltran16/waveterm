@@ -5,6 +5,7 @@
 // now the shared cheat sheet (Shift+?), which documents the cockpit triage keys via buildCockpitBindings.
 // The `?` chip here opens that cheat sheet too.
 
+import { ResMonReadout } from "@/app/cockpit/resmonreadout";
 import { formatChordString } from "@/util/keysym";
 
 // One consolidated hints bar for the cockpit surface. The triage keys are cockpit-local (handled by
@@ -29,7 +30,10 @@ export function HintsBar({ onOpenHelp }: { onOpenHelp: () => void }) {
         [formatChordString("Ctrl:n"), "new"],
     ];
     return (
-        <div className="flex shrink-0 items-center gap-4 border-t border-border bg-background px-[18px] py-1.5 text-[11px] text-muted">
+        <div
+            data-cockpit-hints=""
+            className="flex shrink-0 items-center gap-4 border-t border-border bg-background px-[18px] py-1.5 text-[11px] text-muted"
+        >
             {HINTS.map(([k, d]) => (
                 <span key={k} className="flex items-center gap-1">
                     <span className="rounded-[4px] bg-white/[0.06] px-1.5 py-0.5 font-mono text-secondary">
@@ -45,6 +49,7 @@ export function HintsBar({ onOpenHelp }: { onOpenHelp: () => void }) {
             >
                 ?
             </button>
+            <ResMonReadout />
         </div>
     );
 }
