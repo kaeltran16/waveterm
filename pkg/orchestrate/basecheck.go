@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/util/ds"
+	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -86,7 +87,8 @@ func (e *treeStepError) Error() string { return e.step + ": " + e.err.Error() }
 func (e *treeStepError) Unwrap() error { return e.err }
 
 // withDetachedTree runs fn in a tree detached at commit, never in a tree anyone works in, after the plan's Setup, and
-// removes the tree.
+// removes the tree. The Setup keeps the run-command owner ctx carries, renamed Setup, so the Resource Manager never
+// shows it as the command the tree is for.
 func withDetachedTree(ctx context.Context, project, name, label, commit, setup string, fn func(wt string) error) error {
 	wt := worktreeDir(project, name)
 	if _, err := os.Stat(wt); err == nil {
@@ -103,7 +105,12 @@ func withDetachedTree(ctx context.Context, project, name, label, commit, setup s
 		}
 	}()
 	if setup != "" {
-		if _, err := runPlanCommand(ctx, wt, setup, nil, SetupTimeout, nil); err != nil {
+		setupCtx := ctx
+		if o, ok := jobobject.OwnerFrom(ctx); ok {
+			o.Cmd = PlanCmd_Setup
+			setupCtx = jobobject.WithOwner(ctx, o)
+		}
+		if _, err := runPlanCommand(setupCtx, wt, setup, nil, SetupTimeout, nil); err != nil {
 			return &treeStepError{"Setup failed in the " + label, errors.New(failureDetail(err))}
 		}
 	}
@@ -112,6 +119,7 @@ func withDetachedTree(ctx context.Context, project, name, label, commit, setup s
 
 // runBaseCheck runs Check in a detached tree at commit.
 func runBaseCheck(ctx context.Context, runID, project, commit, setup, check string) (string, string) {
+	ctx = withRunCmdOwner(ctx, runID, PlanCmd_Check, "")
 	err := withDetachedTree(ctx, project, runID+"-base", "base tree", commit, setup, func(wt string) error {
 		_, err := runPlanCommand(ctx, wt, check, nil, VerifyTimeout, nil)
 		return err

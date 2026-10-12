@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 )
 
 const (
@@ -154,6 +156,20 @@ func shortDuration(d time.Duration) string {
 // a command nobody watches: only Verify has a surface waiting on its progress.
 type planProgress func(tail string) bool
 
+// the plan command a run-command owner names, as the Resource Manager shows it
+const (
+	PlanCmd_Setup  = "Setup"
+	PlanCmd_Verify = "Verify"
+	PlanCmd_Check  = "Check"
+	PlanCmd_Final  = "Final"
+)
+
+// withRunCmdOwner tags the plan commands run under ctx as runID's, so the Resource Manager can attribute their
+// processes. task is the task whose merge the command runs at, or "".
+func withRunCmdOwner(ctx context.Context, runID, cmd, task string) context.Context {
+	return jobobject.WithOwner(ctx, jobobject.Owner{Kind: jobobject.OwnerKind_RunCmd, Id: runID, Cmd: cmd, Task: task})
+}
+
 // runPlanCommand runs a plan command through a POSIX shell in dir, with env added to its environment, and
 // returns the tail of its output, on a pass as well as a failure. A var so engine tests can script Setup and
 // Verify without running anything; a stub calls progress itself to script mid-run output.
@@ -209,7 +225,8 @@ func execPlanCommandEnv(ctx context.Context, dir, command string, env []string, 
 	c.WaitDelay = planCommandWaitDelay
 	out := &tailBuffer{max: MaxPlanOutputLen, publish: progress, publishEvery: VerifyProgressInterval}
 	c.Stdout, c.Stderr = out, out
-	err = runShellCmd(c)
+	owner, _ := jobobject.OwnerFrom(ctx)
+	err = runShellCmd(c, owner)
 	if err == nil {
 		return out.String(), nil
 	}

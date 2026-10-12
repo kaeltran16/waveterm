@@ -320,13 +320,13 @@ func reverifyHold(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup) (
 	for _, c := range []struct {
 		name, cmd string
 		env       []string
-	}{{"Check", g.Check, nil}, {"Verify", g.Verify, env}} {
-		if c.cmd == "" || (c.name == "Check" && skipCheck) {
+	}{{PlanCmd_Check, g.Check, nil}, {PlanCmd_Verify, g.Verify, env}} {
+		if c.cmd == "" || (c.name == PlanCmd_Check && skipCheck) {
 			continue
 		}
-		if _, err := runPlanCommand(ctx, run.LandPath, c.cmd, c.env, VerifyTimeout, nil); err != nil {
+		if _, err := runPlanCommand(withRunCmdOwner(ctx, run.ID, c.name, ""), run.LandPath, c.cmd, c.env, VerifyTimeout, nil); err != nil {
 			// the final stage let this through as unverified; holding here would leave no way to land
-			if c.name == "Check" && baseCheckFailed(g) {
+			if c.name == PlanCmd_Check && baseCheckFailed(g) {
 				note = sharedCheckFailure(g, "the run merged with "+run.BaseBranch, failureDetail(err))
 				continue
 			}
