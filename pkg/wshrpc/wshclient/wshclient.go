@@ -821,6 +821,24 @@ func ReportRunPhaseCommand(w *wshutil.WshRpc, data wshrpc.CommandReportRunPhaseD
 	return err
 }
 
+// command "resmonkill", wshserver.ResMonKillCommand
+func ResMonKillCommand(w *wshutil.WshRpc, data wshrpc.CommandResMonKillData, opts *wshrpc.RpcOpts) (*wshrpc.ResMonKillRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.ResMonKillRtnData](w, "resmonkill", data, opts)
+	return resp, err
+}
+
+// command "resmonkillchildren", wshserver.ResMonKillChildrenCommand
+func ResMonKillChildrenCommand(w *wshutil.WshRpc, data wshrpc.CommandResMonKillChildrenData, opts *wshrpc.RpcOpts) (*wshrpc.ResMonKillRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.ResMonKillRtnData](w, "resmonkillchildren", data, opts)
+	return resp, err
+}
+
+// command "resmonsnapshot", wshserver.ResMonSnapshotCommand
+func ResMonSnapshotCommand(w *wshutil.WshRpc, data wshrpc.CommandResMonSnapshotData, opts *wshrpc.RpcOpts) (*wshrpc.ResMonSnapshotData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.ResMonSnapshotData](w, "resmonsnapshot", data, opts)
+	return resp, err
+}
+
 // command "resolveambient", wshserver.ResolveAmbientCommand
 func ResolveAmbientCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandResolveAmbientRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandResolveAmbientRtnData](w, "resolveambient", nil, opts)

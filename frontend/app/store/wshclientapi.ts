@@ -828,6 +828,24 @@ export class RpcApiType {
         return client.wshRpcCall("reportrunphase", data, opts);
     }
 
+    // command "resmonkill" [call]
+    ResMonKillCommand(client: WshClient, data: CommandResMonKillData, opts?: RpcOpts): Promise<ResMonKillRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resmonkill", data, opts);
+        return client.wshRpcCall("resmonkill", data, opts);
+    }
+
+    // command "resmonkillchildren" [call]
+    ResMonKillChildrenCommand(client: WshClient, data: CommandResMonKillChildrenData, opts?: RpcOpts): Promise<ResMonKillRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resmonkillchildren", data, opts);
+        return client.wshRpcCall("resmonkillchildren", data, opts);
+    }
+
+    // command "resmonsnapshot" [call]
+    ResMonSnapshotCommand(client: WshClient, data: CommandResMonSnapshotData, opts?: RpcOpts): Promise<ResMonSnapshotData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resmonsnapshot", data, opts);
+        return client.wshRpcCall("resmonsnapshot", data, opts);
+    }
+
     // command "resolveambient" [call]
     ResolveAmbientCommand(client: WshClient, opts?: RpcOpts): Promise<CommandResolveAmbientRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resolveambient", null, opts);
