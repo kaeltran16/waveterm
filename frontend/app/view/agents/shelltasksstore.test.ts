@@ -17,6 +17,7 @@ import { agentTransitions, type AgentSnap } from "./cockpitevents";
 import { isStandingBy, type ShellTask } from "./shelltasks";
 import {
     dropShellTasks,
+    focusShellTaskAtom,
     readShellTaskOutput,
     refreshShellTasks,
     shellReadAtByIdAtom,
@@ -24,6 +25,7 @@ import {
     shellTaskPollIds,
     shellTasksByIdAtom,
 } from "./shelltasksstore";
+import { focusSubagentAtom } from "./subagentsstore";
 
 const transcript = vi.mocked(RpcApi.GetAgentTranscriptCommand);
 
@@ -40,12 +42,12 @@ describe("readShellTaskOutput", () => {
         await expect(readShellTaskOutput("C:/tmp/tasks/x.output")).resolves.toEqual([]);
     });
 
-    it("returns the last 4 KB of the lines, dropping a cut leading line", async () => {
-        const lines = ["a".repeat(3000), "b".repeat(3000), "tail"];
+    it("returns the last 64 KB of the last 1000 lines, dropping a cut leading line", async () => {
+        const lines = ["a".repeat(40000), "b".repeat(40000), "tail"];
         transcript.mockResolvedValue({ lines });
         const out = await readShellTaskOutput("C:/tmp/tasks/x.output");
-        expect(out).toEqual(["b".repeat(3000), "tail"]);
-        expect(transcript).toHaveBeenCalledWith({}, { path: "C:/tmp/tasks/x.output", maxlines: 80 });
+        expect(out).toEqual(["b".repeat(40000), "tail"]);
+        expect(transcript).toHaveBeenCalledWith({}, { path: "C:/tmp/tasks/x.output", maxlines: 1000 });
     });
 
     it("returns short output unchanged", async () => {
@@ -148,5 +150,36 @@ describe("shellTaskPollIds", () => {
 
     it("does not poll an agent that is no longer tracked", () => {
         expect(shellTaskPollIds([], { gone: [task("t1", "running")] })).toEqual([]);
+    });
+});
+
+describe("focusShellTaskAtom", () => {
+    const sub = { parentId: "p1", agentId: "s1", transcriptPath: "/tmp/s.jsonl", label: "child" };
+
+    afterEach(() => {
+        globalStore.set(focusShellTaskAtom, null);
+        globalStore.set(focusSubagentAtom, null);
+    });
+
+    it("opening a task's output closes an open subagent interior", () => {
+        globalStore.set(focusSubagentAtom, sub);
+        globalStore.set(focusShellTaskAtom, { parentId: "p1", taskId: "t1" });
+        expect(globalStore.get(focusSubagentAtom)).toBeNull();
+        expect(globalStore.get(focusShellTaskAtom)).toEqual({ parentId: "p1", taskId: "t1" });
+    });
+
+    it("opening a subagent interior closes an open task output", () => {
+        globalStore.set(focusShellTaskAtom, { parentId: "p1", taskId: "t1" });
+        globalStore.set(focusSubagentAtom, sub);
+        expect(globalStore.get(focusShellTaskAtom)).toBeNull();
+        expect(globalStore.get(focusSubagentAtom)).toEqual(sub);
+    });
+
+    it("dropping the parent closes its task output and leaves another parent's open", () => {
+        globalStore.set(focusShellTaskAtom, { parentId: "p1", taskId: "t1" });
+        dropShellTasks("p2");
+        expect(globalStore.get(focusShellTaskAtom)).not.toBeNull();
+        dropShellTasks("p1");
+        expect(globalStore.get(focusShellTaskAtom)).toBeNull();
     });
 });

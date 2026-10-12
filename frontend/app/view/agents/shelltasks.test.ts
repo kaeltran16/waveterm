@@ -4,8 +4,11 @@
 import { describe, expect, it } from "vitest";
 import {
     extractShellTasks,
+    failedLabel,
+    isFailedExitLine,
     isStandingBy,
-    peekText,
+    outputTail,
+    shellTaskStatus,
     shellTasksLabel,
     visibleShellTasks,
     type ShellTask,
@@ -261,29 +264,62 @@ describe("shellTasksLabel", () => {
     });
 });
 
-describe("peekText", () => {
+describe("outputTail", () => {
     it("returns short output whole", () => {
-        expect(peekText(["[exited with code 0]"])).toEqual(["[exited with code 0]"]);
-        expect(peekText([])).toEqual([]);
+        expect(outputTail(["[exited with code 0]"])).toEqual(["[exited with code 0]"]);
+        expect(outputTail([])).toEqual([]);
     });
 
     it("cuts to the last maxChars and drops the fragment of the line the cut lands in", () => {
         // joined: "aaaa\nbbbb\ncccc" (14 chars); the last 7 are "bb\ncccc"
-        expect(peekText(["aaaa", "bbbb", "cccc"], 7)).toEqual(["cccc"]);
+        expect(outputTail(["aaaa", "bbbb", "cccc"], 7)).toEqual(["cccc"]);
     });
 
     it("keeps a whole first line when the cut lands on a line start", () => {
         // the last 9 are "bbbb\ncccc"
-        expect(peekText(["aaaa", "bbbb", "cccc"], 9)).toEqual(["bbbb", "cccc"]);
+        expect(outputTail(["aaaa", "bbbb", "cccc"], 9)).toEqual(["bbbb", "cccc"]);
     });
 
     it("keeps the tail of a single line longer than the cap", () => {
-        expect(peekText(["x".repeat(10) + "tail"], 4)).toEqual(["tail"]);
+        expect(outputTail(["x".repeat(10) + "tail"], 4)).toEqual(["tail"]);
     });
 
-    it("defaults to 4096 characters", () => {
-        const lines = Array.from({ length: 1000 }, (_, i) => `line ${i}`);
-        expect(peekText(lines).join("\n").length).toBeLessThanOrEqual(4096);
-        expect(peekText(lines).at(-1)).toBe("line 999");
+    it("defaults to 64 KB, keeping the newest lines", () => {
+        const lines = Array.from({ length: 1000 }, (_, i) => `line ${i} ${"x".repeat(100)}`);
+        const tail = outputTail(lines);
+        expect(tail.join("\n").length).toBeLessThanOrEqual(64 * 1024);
+        expect(tail.length).toBeLessThan(lines.length);
+        expect(tail.at(-1)).toBe(lines.at(-1));
+    });
+});
+
+describe("shellTaskStatus", () => {
+    const running: ShellTask = { id: "t1", description: "d", state: "running" };
+    const failed: ShellTask = { id: "t2", description: "d", state: "failed", exitCode: 2 };
+
+    it("reads a running task as running and live", () => {
+        expect(shellTaskStatus(running, false)).toEqual({ label: "running", tone: "accent", live: true });
+    });
+
+    it("reads a failed task with its exit code, not live", () => {
+        expect(shellTaskStatus(failed, false)).toEqual({ label: "failed · exit 2", tone: "error", live: false });
+        expect(failedLabel({ ...failed, exitCode: undefined })).toBe("failed");
+    });
+
+    it("reads a task that left the list as finished, not live, whatever its last state", () => {
+        expect(shellTaskStatus(running, true)).toEqual({ label: "finished", tone: "muted", live: false });
+    });
+});
+
+describe("isFailedExitLine", () => {
+    it("marks a trailing nonzero exit line", () => {
+        expect(isFailedExitLine("[exited with code 1]", true)).toBe(true);
+        expect(isFailedExitLine("  [exited with code -1] ", true)).toBe(true);
+    });
+
+    it("leaves a zero exit, an earlier line, and ordinary output unmarked", () => {
+        expect(isFailedExitLine("[exited with code 0]", true)).toBe(false);
+        expect(isFailedExitLine("[exited with code 1]", false)).toBe(false);
+        expect(isFailedExitLine("exited with code 1", true)).toBe(false);
     });
 });

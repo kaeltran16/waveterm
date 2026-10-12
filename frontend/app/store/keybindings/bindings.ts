@@ -44,6 +44,7 @@ import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/rails
 import { toggleOpenFile } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
+import { focusShellTaskAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
@@ -813,11 +814,28 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             run: () => globalStore.set(focusSubagentAtom, null),
         },
         {
+            // a task's output pane is the subagent interior's sibling, so its Escape is guarded the same way
+            id: "shelltask:back",
+            keys: "Escape",
+            group: "Agent",
+            label: "Close the shell task output",
+            when: (ctx) =>
+                ctx.surface === "agent" &&
+                !ctx.modalOpen &&
+                globalStore.get(renamingRowAtom) == null &&
+                globalStore.get(focusShellTaskAtom) != null,
+            run: () => globalStore.set(focusShellTaskAtom, null),
+        },
+        {
             id: "agent:back",
             keys: "Escape",
             group: "Agent",
             label: "Back, else to Cockpit (or exit fullscreen)",
-            when: (ctx) => agentNavStrict(ctx) && globalStore.get(focusSubagentAtom) == null && noCanvas(),
+            when: (ctx) =>
+                agentNavStrict(ctx) &&
+                globalStore.get(focusSubagentAtom) == null &&
+                globalStore.get(focusShellTaskAtom) == null &&
+                noCanvas(),
             run: () => {
                 if (globalStore.get(terminalFullscreenAtom)) {
                     globalStore.set(terminalFullscreenAtom, false);

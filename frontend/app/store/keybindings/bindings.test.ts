@@ -7,6 +7,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { focusShellTaskAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import {
@@ -416,6 +417,39 @@ describe("subagent vs agent Escape", () => {
         globalStore.set(renamingRowAtom, null);
         expect(sub.when!(editingCtx)).toBe(true);
         globalStore.set(focusSubagentAtom, null);
+    });
+});
+
+describe("shell task output vs agent Escape", () => {
+    it("routes Escape to shelltask-back only while a task's output is open, else to agent-back", () => {
+        const bindings = buildAgentBindings(stubModel());
+        const task = bindings.find((b) => b.id === "shelltask:back")!;
+        const back = bindings.find((b) => b.id === "agent:back")!;
+        expect(task.keys).toBe("Escape");
+        const agentCtx: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+
+        globalStore.set(focusShellTaskAtom, { parentId: "p", taskId: "t" });
+        expect(task.when!(agentCtx)).toBe(true);
+        expect(back.when!(agentCtx)).toBe(false);
+        task.run(agentCtx);
+        expect(globalStore.get(focusShellTaskAtom)).toBeNull();
+
+        expect(task.when!(agentCtx)).toBe(false);
+        expect(back.when!(agentCtx)).toBe(true);
+    });
+
+    it("fires from the terminal's focus but yields to an open modal and an open row rename", () => {
+        const task = buildAgentBindings(stubModel()).find((b) => b.id === "shelltask:back")!;
+        const editingCtx: KeyContext = { surface: "agent", editable: true, modalOpen: false, leader: null };
+        globalStore.set(focusShellTaskAtom, { parentId: "p", taskId: "t" });
+
+        expect(task.when!(editingCtx)).toBe(true);
+        expect(task.when!({ ...editingCtx, modalOpen: true })).toBe(false);
+        globalStore.set(renamingRowAtom, "tab-1");
+        expect(task.when!(editingCtx)).toBe(false);
+
+        globalStore.set(renamingRowAtom, null);
+        globalStore.set(focusShellTaskAtom, null);
     });
 });
 

@@ -13,6 +13,7 @@ import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
+import { focusShellTaskAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
@@ -123,6 +124,13 @@ describe("whenVersionAtom", () => {
             label: "child",
         });
         expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
+    });
+
+    it("bumps when a shell task's output opens", () => {
+        const before = globalStore.get(whenVersionAtom);
+        globalStore.set(focusShellTaskAtom, { parentId: "p1", taskId: "t1" });
+        expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
+        globalStore.set(focusShellTaskAtom, null);
     });
 });
 
