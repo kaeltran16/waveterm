@@ -132,13 +132,24 @@ idle); mainly keeps the account-global plan gauges current from other activity.
 The mod also reports a missed prompt cache. When a main-thread turn ends, `claude/arc-mod`
 (`cache-core.ts`) reads the session transcript and, for the turn's requests, counts as missed the
 part of a request's prompt that overlaps the previous request's but was not read from cache. A turn
-that re-billed **20,000 tokens or more** in one miss runs `wsh notify <title> --level warn --transient`,
-and Jarvis's avatar says it in a bubble that names the agent, e.g.
-`Cache miss: 85k tokens re-billed after 12m idle`. Several misses in one turn are one notice.
+that re-billed **20,000 tokens or more** in one miss gets one notice, e.g.
+`Cache miss: 85k re-billed, 12m idle`; several misses in one turn are one notice of their count and
+total (`2 cache misses: 140k re-billed`).
 
-The notice is **said once**: it is not kept in the avatar's read-back list and leaves no unread
-marker. A transcript over 4 MiB is not read (the mod's file read rejects it), so a session that long
-reports no miss.
+The notice shows in two places:
+
+- **In the terminal, in every claude session** (Arc's or not): one line in the band above the prompt
+  (`cache-band.tsx`), until the next turn starts.
+- **In Arc**, through `wsh notify <notice> --level warn --transient`: Jarvis's avatar says it in a
+  bubble that names the agent. It is **said once**: not kept in the avatar's read-back list, and it
+  leaves no unread marker.
+
+The mod reads the transcript through `wsh transcript-tail <session-id>`, which finds
+`<claude config dir>/projects/*/<id>.jsonl` and prints the whole lines in its last 3 MiB. The mod
+cannot be told the path: Claude Code bypasses every `classic.*` hook event of a user-installed
+plugin (its debug log says `bypassed by cc-plugin-sec-default`), and those are the events that
+carry `transcript_path`. The mod's own file read also rejects a file over 4 MiB, and its process
+output keeps only the first 4 MiB.
 
 ## Behavior notes
 

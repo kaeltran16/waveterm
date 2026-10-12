@@ -1,4 +1,4 @@
-// session transcript -> `wsh notify` arguments for the prompt-cache misses of the turn that just ended.
+// session transcript -> the notice for the prompt-cache misses of the turn that just ended.
 // a request whose prompt overlaps the previous request's but reads less of it from cache re-billed the
 // gap. kept free of the engine so vitest can run it; register.ts does the read and the call.
 
@@ -123,23 +123,19 @@ function formatTokens(n: number): string {
 // empty when neither a model switch nor an expired cache explains the miss
 function cause(miss: Miss): string {
     if (miss.isModelChanged) {
-        return " after a model switch";
+        return ", model switch";
     }
-    return miss.idleMs >= miss.ttlMs ? ` after ${Math.round(miss.idleMs / MINUTE_MS)}m idle` : "";
+    return miss.idleMs >= miss.ttlMs ? `, ${Math.round(miss.idleMs / MINUTE_MS)}m idle` : "";
 }
 
-// one notice a turn, its title the whole message; null when the turn re-billed nothing worth saying
-export function cacheMissArgs(entries: readonly TranscriptEntry[]): string[] | null {
+// one notice a turn; null when the turn re-billed nothing worth saying
+export function cacheMissNotice(entries: readonly TranscriptEntry[]): string | null {
     const misses = turnMisses(entries).filter((m) => m.missedTokens >= NOTICE_MIN_TOKENS);
     if (misses.length === 0) {
         return null;
     }
     const total = formatTokens(misses.reduce((sum, m) => sum + m.missedTokens, 0));
-    const title =
-        misses.length === 1
-            ? `Cache miss: ${total} tokens re-billed${cause(misses[0])}`
-            : `${misses.length} cache misses: ${total} tokens re-billed (${misses
-                  .map((m) => formatTokens(m.missedTokens) + cause(m))
-                  .join(", ")})`;
-    return ["notify", title, "--level", "warn", "--transient"];
+    return misses.length === 1
+        ? `Cache miss: ${total} re-billed${cause(misses[0])}`
+        : `${misses.length} cache misses: ${total} re-billed`;
 }
