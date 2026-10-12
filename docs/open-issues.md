@@ -57,10 +57,6 @@ Each names its revive condition in `docs/deferred.md` unless a source is given.
 
 Cockpit and surfaces:
 
-- **Sessions "All activity" rows peeking a run, agent or initiative** (2026-10-01) — revive when a row
-  carries a target; wire it through `openOrPeek`.
-- **Terminal file drop → pasted path** (2026-09-30) — needs Tauri's `dragDropEnabled`, which disables
-  HTML5 drag app-wide.
 - **Work on an initiative — "Save place and close"** (2026-09-29) — revive when losing a session's place
   recurs.
 - **Run recovery after a restart — New Agent sessions** (2026-09-30) — revive when a session is seen
@@ -78,10 +74,6 @@ Cockpit and surfaces:
 - **Cross-surface Back history and its context strip** (2026-09-17) — parked as `09e86573` on
   `feat/surface-integration`; keep the branch while this is open.
 - **Composer attachments** (2026-09-18) — revive when attaching a file to a goal or steer is wanted.
-- **Diff surface repository actions (Spec B)** (2026-09-04) — checkout, cherry-pick, revert. Needs its
-  own spec; revive when a write from the Diff surface is wanted. The orphaned revert path was deleted
-  2026-10-05, recovery commands in `docs/deferred.md`.
-- **Diff surface: hiding whitespace-only files from the change list** (2026-09-11).
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /
   React-DevTools pass against a populated cockpit first).
 
