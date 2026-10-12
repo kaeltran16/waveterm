@@ -29,7 +29,7 @@
 ## Review Focus
 
 1. **A pid that exits or is reused between the snapshot and the kill.** It must come back `gone` or `refused`, never terminate a stranger. Task 2 tests it at the primitive; Task 3 at the RPC.
-2. **An agent-core pid sent to kill** (a stale UI, or a launcher chain such as pi's `cmd.exe` → `node.exe`). The backend refuses it, and kill-children leaves every core process alive. Task 3 tests both.
+2. **An agent-core pid sent to kill** (a stale UI, or a launcher chain such as pi's `cmd.exe` → `node.exe`). The backend answers `protected` without terminating it, and kill-children leaves every core process alive. Task 3 tests both.
 3. **A job closing while a sample runs** (a block closes). The sample neither queries a closed handle nor fails, and the group is gone from the next snapshot. Task 2 tests `Close` against `LiveJobs`.
 4. **A process the sampler cannot open** (access denied, an elevated child). It still shows as a row, with -1 CPU and memory, rendered `–`, and the sample does not fail. Task 3 tests the -1 path; Task 5 tests the formatting.
 5. **Kill or kill-children aimed at a read-only group** (an Arc pid, a run-command pid) through the RPC. It is refused without terminating anything. Task 3 tests it.
@@ -38,7 +38,7 @@
 
 ### Task 1: Wire contract for the Resource Manager RPCs
 **Depends on:** none
-**Files:** `pkg/wshrpc/wshrpctypes_resmon.go`, `pkg/wshrpc/wshrpctypes.go`, `pkg/resmon/doc.go`, `frontend/types/gotypes.d.ts`, `frontend/app/store/wshclientapi.ts`, `pkg/wshrpc/wshclient/wshclient.go`
+**Files:** `pkg/wshrpc/wshrpctypes_resmon.go`, `pkg/wshrpc/wshrpctypes.go`, `frontend/types/gotypes.d.ts`, `frontend/app/store/wshclientapi.ts`, `pkg/wshrpc/wshclient/wshclient.go`
 
 This task fixes the types every other task builds on. The server dispatches by reflection and has no compile-time assertion that `WshServer` implements the interface, so declaring the commands here without handlers compiles; Task 3 adds the handlers.
 
@@ -58,10 +58,11 @@ const (
 	ResMonOwner_RunWorker = "runworker"
 	ResMonOwner_RunCmd    = "runcmd"
 
-	ResMonKill_Killed  = "killed"
-	ResMonKill_Gone    = "gone"    // the target had already exited
-	ResMonKill_Refused = "refused" // not a killable member of that owner's job (left it, core, or read-only)
-	ResMonKill_Failed  = "failed"  // the OS refused; Error holds its text
+	ResMonKill_Killed    = "killed"
+	ResMonKill_Gone      = "gone"      // the target had already exited
+	ResMonKill_Refused   = "refused"   // not a member of a killable job of that owner (it left the job, or the owner is gone or read-only)
+	ResMonKill_Protected = "protected" // the pid is a core process of the agent (agent, launcher, console or shell)
+	ResMonKill_Failed    = "failed"    // the OS refused; Error holds its text
 )
 
 type CommandResMonSnapshotData struct{}
@@ -103,11 +104,11 @@ type CommandResMonKillChildrenData struct {
 type ResMonKillRtnData struct {
 	Outcome string `json:"outcome"` // ResMonKill_*
 	Killed  int    `json:"killed"`  // processes terminated
-	Error   string `json:"error,omitempty"`
+	Error   string `json:"error,omitempty"` // set only for failed: the OS error text. The frontend builds every other note itself
 }
 ```
 
-- Create `pkg/resmon/doc.go`: only the package clause and a doc comment saying what the package does (samples the processes of Arc and of every registered job, groups them by owner, and kills within a job). It exists so the plan's Verify and Check patterns resolve from the first merge.
+- `pkg/resmon/doc.go` already exists on the base (the package doc comment, added so the Verify and Check patterns resolve before this task). Leave it as it is.
 - Run `task generate`, and commit the three generated files it changes.
 
 Acceptance: `go build ./...` passes. `frontend/types/gotypes.d.ts` declares `ResMonSnapshotData`, `ResMonGroup`, `ResMonKillRtnData` and `ProcessInfo` with the new fields. `frontend/app/store/wshclientapi.ts` has `ResMonSnapshotCommand`, `ResMonKillCommand` and `ResMonKillChildrenCommand`. `go vet ./pkg/wshrpc/... ./pkg/resmon/` is clean, and `task check:ts` is clean.
@@ -204,14 +205,14 @@ Design decisions:
 - **Sampler:** a goroutine started by the first `Snapshot` call ticks every 2s. It exits when 10s pass with no `Snapshot` call; the next call restarts it. `Snapshot` returns the latest sample grouped (Ready false before the second tick). Each tick takes one toolhelp snapshot (`windows.CreateToolhelp32Snapshot`) for every pid's ppid and image name. It reads times, working set and create time only for tracked pids (job members plus the Arc group). Command lines are cached per (pid, create time) and dropped when that pair disappears. A process that cannot be opened keeps its row, with Cpu and Mem at -1 and no error. Total RAM comes from gopsutil `mem.VirtualMemory`, cores from `runtime.NumCPU()`.
 - **Grouping (pure, in `group.go`, so it is testable without real processes):** one group per live job, plus the Arc group (`Key` "arc"). A job group's rows are its members in pre-order by ppid, rooted at the job's root pid; a member whose parent is outside the job becomes a root, after the main root, by create time. Apply the core and tag rule and the Arc role names from Global Constraints. Busy counting lives here as a small state over consecutive samples.
 - **Killability:** `runcmd` and `arc` groups are read-only (`Killable` false) because `jobobject.KillTree` exits with code 1, which `killedFromOutside` (`pkg/orchestrate/plancmd.go`) does not recognise: a killed merge-time Verify would read as a real test failure and trigger bisect reruns.
-- **Kill:** resolve the owner by `OwnerId` among live `OwnerKind_Block` jobs. If there is none, or its kind is not killable, the outcome is `refused`. If the pid is a core process from the latest sample, `refused` with Error "the agent's own process". With `Tree`, also kill the pid's descendants within the same job (from a fresh `LiveJobs` plus toolhelp ppids), deepest first. Every termination goes through `jobobject.TerminateMember`. Outcomes: the target hit `ErrGone` → `gone`; it hit `ErrNotMember` → `refused` with Error "pid <n> no longer belongs to this <owner kind words>"; any other error → `failed` with the OS text; otherwise `killed` with the count.
+- **Kill:** resolve the owner by `OwnerId` among live `OwnerKind_Block` jobs. If there is none, or its kind is not killable, the outcome is `refused`. If the pid is a core process (computed from a fresh membership read with the same core rule as the sampler), the outcome is `protected`. With `Tree`, also kill the pid's descendants within the same job (from a fresh `LiveJobs` plus toolhelp ppids), deepest first, never a core process. Every termination goes through `jobobject.TerminateMember`. Outcomes: the target hit `ErrGone` → `gone`; it hit `ErrNotMember` → `refused`; any other error → `failed`, with the OS text in Error; otherwise `killed`, with the count including the target. Error is set only for `failed`; the frontend writes every note's text.
 - **KillChildren:** terminate every member of that owner's job except its core, using a fresh membership read; the outcome is `killed` with the count (0 is still `killed`).
 - **Handlers** (`wshserver_resmon.go`): thin, passing a Resolver built from the store. Block → tab → `ownerRunForBlock` (`wshserver_ctx.go`) picks `runworker` or `agenttab`. The tab's `session:agent` gives Runtime and Agent. Labels follow Global Constraints; for runcmd owners, resolve the run by id. An unresolvable owner gets kind `agenttab` (for a block) and label "Closed tab", never an error.
 - **Cost measurement:** `BenchmarkSample` in `sample_windows_test.go` starts 10 jobs of about 4 long-lived processes each and benchmarks one tick. Record the result (ms per tick, and the % of one core it means at a 2s interval) in the comment on the interval constant, as the reason the interval is cheap, and in this task's completion summary.
 
 Tests:
 - `group_test.go` (pure, fixed process tables): `TestGroupTreeOrder` (pre-order and depth), `TestCoreClaudeRoot` (claude.exe root = agent, conhost child = console), `TestCorePiLauncherChain` (cmd.exe → node.exe: launcher then agent; bash children not core), `TestCoreNonAgentBlockIsShellOnly`, `TestArcRoles` (each WebView2 flag maps to its role; wavesrv = Backend; non-job descendants of wavesrv under Backend), `TestArcWalkSkipsReusedPid` (a child older than its parent is excluded), `TestBusyNeedsThreeSamples` (2 hot samples are not busy, the 3rd is, one cool sample resets), `TestBusyMemory`, `TestUnavailableRowKept` (-1 values kept, totals skip them).
-- `kill_windows_test.go` (real processes in a registered job): `TestKillTreeKillsSubtreeOnly`, `TestKillRefusesCore`, `TestKillRefusesReadOnlyOwner` (an `OwnerKind_RunCmd` job and an Arc pid: nothing is terminated), `TestKillGone`, `TestKillChildrenSparesCore`.
+- `kill_windows_test.go` (real processes in a registered job): `TestKillTreeKillsSubtreeOnly`, `TestKillCoreIsProtected` (outcome `protected`, nothing terminated), `TestKillRefusesReadOnlyOwner` (an `OwnerKind_RunCmd` job and an Arc pid: `refused`, nothing terminated, Error empty), `TestKillGone`, `TestKillFailedCarriesOSText` (Error set only here), `TestKillChildrenSparesCore`.
 - `wshserver_resmon_test.go`: `TestResMonResolverLabels` (agent tab name, run worker `title · Task 2`, run command `title · Verify`, an unresolvable block becomes "Closed tab").
 
 Run: `go test ./pkg/resmon -run 'TestGroup|TestCore|TestArc|TestBusy|TestUnavailable|TestKill' && go test ./pkg/wshrpc/wshserver -run 'TestResMonResolverLabels' && go test ./pkg/resmon -run '^$' -bench BenchmarkSample -benchtime 20x`
@@ -224,7 +225,7 @@ Consumes `jobobject.Register`, `jobobject.WithOwner`, `jobobject.OwnerFrom` and 
 
 - **Block shells:** add `BlockId string json:"-"` to `shellexec.CommandOptsType`. `pkg/blockcontroller/shellcontroller.go` sets it to `bc.BlockId` before `StartLocalShellProc`. `MakeCmdWrap(cmd, cmdPty, isShell, blockId string)`: after a successful `jobobject.Attach`, call `jobobject.Register(job, pid, Owner{Kind: OwnerKind_Block, Id: blockId})` when blockId is not empty. The existing `Close` paths unregister.
 - **Plan commands:** `runShellCmd(c *exec.Cmd, owner jobobject.Owner)` (windows and other). `execPlanCommandEnv` reads `jobobject.OwnerFrom(ctx)` and passes it on. After Attach, register only when an owner is present.
-- **Each `runPlanCommand` / `RunSetup` / `runFinalCommand` call site** wraps its ctx with `jobobject.WithOwner(ctx, Owner{Kind: OwnerKind_RunCmd, Id: <the run id that owns the dag>, Cmd: <kind>, Task: <task id when it runs at a task's merge>})`. The sites: `basecheck.go` (Setup, Check), `engine.go` (Setup), `final.go` (Check, Setup, Final), `land.go` (Check, Verify), `verify.go` (Verify, with the task id), and `wshserver_dag.go`'s `orchestrate.RunSetup` call (Setup). Do not change exit codes, timeouts or kill behaviour.
+- **Each `runPlanCommand` / `RunSetup` / `runFinalCommand` call site** wraps its ctx with `jobobject.WithOwner(ctx, Owner{Kind: OwnerKind_RunCmd, Id: <the run id that owns the dag>, Cmd: <kind>, Task: <task id when it runs at a task's merge>})`. The sites: `basecheck.go` (Setup, Check), `engine.go` (Setup), `final.go` (Check, Setup, Final, and the final-stage whole-suite Verify that `runVerifyCommand` runs on the merged result, with Cmd "Verify" and no task), `land.go` (Check, Verify), `verify.go` (Verify, with the task id), and `wshserver_dag.go`'s `orchestrate.RunSetup` call (Setup). Do not change exit codes, timeouts or kill behaviour.
 - Engine tests stub `runPlanCommand`; keep its signature so they still compile and pass unchanged.
 
 Tests:
@@ -248,7 +249,8 @@ export function fmtAge(createTs: number, now: number): string; // 45s | 42m | 3h
 export function busyWords(s: ResMonSnapshotData): string | null; // "high CPU" | "high memory" | "high CPU and memory" | null
 export function readout(s: ResMonSnapshotData | null): { visible: boolean; ready: boolean; cpu: string; mem: string; busy: string | null; aria: string };
 export function orderGroups(groups: ResMonGroup[]): ResMonGroup[]; // arc first, the rest by cpu desc, ties by label
-export function ownerKindWords(kind: string): string; // "App, read-only" | "Agent tab" | "Run worker" | "Run command, read-only"
+export function ownerKindWords(kind: string): string; // the group header: "App, read-only" | "Agent tab" | "Run worker" | "Run command, read-only"
+export function ownerNoun(kind: string): string;      // notes: "Arc" | "agent tab" | "run worker" | "run command"
 export function rowLabel(row: ProcessInfo): { name: string; cmd: string }; // Arc rows: role, then image + --type flag; others: image, then args without the executable path
 export function subtreeSize(rows: ProcessInfo[], index: number): number; // descendants after rows[index] (deeper, contiguous)
 export function killConfirmText(row: ProcessInfo, children: number): string;
@@ -257,9 +259,15 @@ export function killChildrenTargets(g: ResMonGroup): ProcessInfo[]; // rows with
 export function killChildrenConfirmText(g: ResMonGroup): string;
 // "Kill 5 processes under waveterm? claude.exe and its console keep running."
 export function outcomeNote(r: ResMonKillRtnData, target: { name: string; pid: number } | null, g: ResMonGroup): { text: string; tone: "note" | "alert" };
-// killed: "Killed orchestrate.test.exe (18311)." / "Killed 5 processes."; gone: "node.exe (21890) had already exited.";
-// refused: "Not killed: pid 22590 no longer belongs to this run worker. The list refreshes in 2s."
-// failed: "Could not kill jarvis.test.exe (22590): Access is denied. It is still running."
+// The single owner of every note's text: the backend sends only the outcome, the count, and the OS text for failed.
+// killed, row: "Killed orchestrate.test.exe (18311)." when r.killed is 1, else
+//   "Killed go.exe (18244) and 1 child process." / "... and 3 child processes." (children = r.killed - 1)
+// killed, group (target null): "Killed 5 processes." / "Killed 1 process."
+// gone: "node.exe (21890) had already exited."
+// refused: "Not killed: pid 22590 no longer belongs to this <ownerNoun(g.ownerkind)>. The list refreshes in 2s."
+// protected: "Not killed: claude.exe (14820) is the agent's own process. Kill children stops what it started."
+// failed: "Could not kill jarvis.test.exe (22590): <r.error>. It is still running." (r.error with any trailing period trimmed)
+// tone: "note" for killed and gone, "alert" for refused, protected and failed
 export interface ResMonUi {
     cursor: string | null;                  // "<groupKey>" or "<groupKey>/<pid>"
     expanded: Record<string, boolean>;      // default: arc collapsed, every other group expanded
@@ -293,13 +301,13 @@ export function confirmResMon(): Promise<void>; // runs the pending confirm (kil
 - A poll error logs once per error streak and leaves the last snapshot in place; before any snapshot the readout reads `Arc –`.
 - DEV-only seam in `resmonstore.ts`, shaped like `window.__narrationFeedFixture`: `window.__resmonFixture = { set(s: ResMonSnapshotData | null), killOutcome(r: ResMonKillRtnData), open(), clear() }`. `set` pins the snapshot (polling stops overwriting it; `null` pins "not loaded yet"). `killOutcome` makes the next confirm resolve to `r` without an RPC. `open` sets `resmonOpenAtom`. `clear` unpins, closes and resets the UI state.
 
-Tests (`resmon.test.ts`, `resmonstore.test.ts`): the format edges (-1, 999 MB vs 1000 MB, 59s/60s, 24h), every busy combination, readout before ready and when unsupported (not visible), Arc pinned first however low its CPU, ties, the confirm texts (0, 1 and several children; the pi launcher chain names node.exe as the survivor), every outcome note, the reducer (move across a collapsed Arc group, toggle, `x` on a tagged row or in a read-only group does nothing, `⇧X` on a read-only group does nothing, close keeps expanded), and the store (the fixture pins the snapshot against a poll; `killOutcome` resolves a confirm without the RPC; polling skips while hidden).
+Tests (`resmon.test.ts`, `resmonstore.test.ts`): the format edges (-1, 999 MB vs 1000 MB, 59s/60s, 24h), every busy combination, readout before ready and when unsupported (not visible), Arc pinned first however low its CPU, ties, the confirm texts (0, 1 and several children; the pi launcher chain names node.exe as the survivor), every outcome note (a row kill with 0, 1 and 3 children, a group kill of 1 and 5, refused naming each owner noun, protected, failed with and without a trailing period in the OS text), the reducer (move across a collapsed Arc group, toggle, `x` on a tagged row or in a read-only group does nothing, `⇧X` on a read-only group does nothing, close keeps expanded), and the store (the fixture pins the snapshot against a poll; `killOutcome` resolves a confirm without the RPC; polling skips while hidden).
 
 Run: `npx vitest run frontend/app/cockpit/resmon.test.ts frontend/app/cockpit/resmonstore.test.ts`
 
 ### Task 6: Readout, popover, keybindings, docs and CDP scenarios
 **Depends on:** Task 5
-**Files:** `frontend/app/cockpit/resmonreadout.tsx`, `frontend/app/cockpit/resmonpopover.tsx`, `frontend/app/cockpit/hints-footer.tsx`, `frontend/app/view/agents/cockpithelp.tsx`, `frontend/app/cockpit/cockpit-root.tsx`, `frontend/app/store/keybindings/bindings.ts`, `docs/keyboard-shortcuts.md`, `scripts/cdp/scenarios.mjs`
+**Files:** `frontend/app/cockpit/resmonreadout.tsx`, `frontend/app/cockpit/resmonpopover.tsx`, `frontend/app/cockpit/hints-footer.tsx`, `frontend/app/view/agents/cockpithelp.tsx`, `frontend/app/cockpit/cockpit-root.tsx`, `frontend/app/store/keybindings/bindings.ts`, `frontend/app/store/keybindings/bindings.test.ts`, `frontend/app/store/keybindings/dispatcher.ts`, `frontend/app/store/keybindings/dispatcher.test.ts`, `docs/keyboard-shortcuts.md`, `scripts/cdp/scenarios.mjs`
 
 Consumes everything `resmon.ts` and `resmonstore.ts` export (Task 5). Match the boards Main, Footer and States in the Prototype folder; they are the visual spec. Read DESIGN.md first.
 
@@ -317,11 +325,40 @@ Consumes everything `resmon.ts` and `resmonstore.ts` export (Task 5). Match the 
   - the bottom hint strip ↑↓ move, ⏎ expand, x kill, ⇧X kill children, esc close.
   
   The cursor row is highlighted.
-- `bindings.ts`: `g m` (`id: "go:resmon"`, group "Go to", label "Resource Manager", `when: navigate`) opens the popover. Popover bindings, active only while it is open and focus is not editable, in a "Resource Manager" group: `ArrowUp` / `ArrowDown` move, `Enter` toggles, or confirms when a confirm is open; `x` asks kill; `Shift:X` asks kill children; `Escape` cancels an open confirm, else closes. They must win over the surface's own bindings for the same keys while open.
-- `docs/keyboard-shortcuts.md`: add `g` `m` to the Go-to table and a Resource Manager section listing the popover keys.
-- **Scenarios** in `scripts/cdp/scenarios.mjs` (one per board). They seed data only through `window.__resmonFixture`, with fixtures modelled on the canvas data (the Arc group of 9 rows; waveterm with claude.exe agent, conhost console and a go test subtree; a pi run worker with a `cmd.exe` launcher chain; a read-only Verify run command; obsidian-notes). Pin the viewport at 1600x950 first, and scope every query to a `data-resmon-*` container. Each teardown calls `__resmonFixture.clear()`.
-  - `resmon-footer`: (1) on the Agent surface at rest the readout is the footer's last child and reads `Arc 61% CPU · 7.4 GB`; shot. (2) Leader posture after `g`: the readout is still present and the continuation list shows `m Resource Manager`; shot. If CDP key events do not reach the page, dispatch the keydown on `window`. (3) With focus in an editable element, the chip container has opacity 0.6 and the readout 1; shot. (4) On the Cockpit surface the readout sits in the cockpit hints bar after `?`; shot. (5) Busy CPU shows the `high CPU` text; (6) busy memory shows `high memory`; (7) a pinned `null` shows `Arc –`. Shot each.
-  - `resmon-main`: open via the readout click over the Agent surface. Assert the popover is 700px wide and anchored bottom-right, the Arc group is first and collapsed, the other groups are sorted by CPU, the tags show on core rows, × shows on others, and no action shows in the Verify group; shot. ↓ moves the cursor and ⏎ expands Arc; shot. `x` on `orchestrate.test.exe` shows the confirm `Kill orchestrate.test.exe (18311)? It has no child processes.`; shot. The first Esc removes the confirm and the second closes the popover.
-  - `resmon-states`: the loading body (pinned `null`); the empty body (Arc only); the kill-children confirm text on waveterm (`Kill 5 processes under waveterm? claude.exe and its console keep running.`); then each outcome through `killOutcome`: killed note, gone note, refused alert, failed alert with the OS text. Shot each.
+  - A pointerdown outside the popover and outside the readout closes it (non-modal: no backdrop, the click still reaches what it lands on).
+- **Key ownership while open** (`dispatcher.ts`): `deriveKeyContext` counts `resmonOpenAtom` into `modalOpen`, as it already counts `petPeekOpenAtom` and `finalShotsViewerOpenAtom`. Every surface binding guarded by `!ctx.modalOpen` (`navigate`, `navigateStrict`, the Agent surface's arrows, Enter and Escape, the `g` chords) then stands down while the popover is open. The popover's own bindings in `bindings.ts` do not test `modalOpen`; they are active when `resmonOpenAtom` is set, focus is not editable, and no other overlay is open (`!anyModalOpen()` and the palette closed), so a palette opened over the popover keeps its own keys.
+- `bindings.ts`: `g m` (`id: "go:resmon"`, group "Go to", label "Resource Manager", `when: navigate`) opens the popover. The popover bindings, in a "Resource Manager" group: `ArrowUp` / `ArrowDown` move; `Enter` confirms when a confirm is open, else toggles the cursor's group; `x` asks kill; `Shift:X` asks kill children; `Escape` cancels an open confirm, else closes.
+- Tests: in `dispatcher.test.ts`, `deriveKeyContext().modalOpen` is true while `resmonOpenAtom` is set. In `bindings.test.ts`, with the popover open on the Agent surface and focus not editable, `Escape`, `Enter`, `ArrowDown` and `x` each resolve to the Resource Manager binding and not to an Agent-surface one; with it closed, `g m` is active and the popover bindings are not.
+- `docs/keyboard-shortcuts.md`: add `g` `m` to the Go-to table, and a Resource Manager section listing the popover keys and saying that while the popover is open its keys take precedence.
+- **Scenarios** in `scripts/cdp/scenarios.mjs` (one per board). They seed data only through `window.__resmonFixture`, with fixtures modelled on the canvas data: the Arc group of 9 rows; waveterm with the claude.exe agent, a conhost console and a go test subtree (bash.exe → go.exe → orchestrate.test.exe); a pi run worker with a `cmd.exe` launcher chain; a read-only Verify run command; obsidian-notes. Pin the viewport at 1600x950 first, and scope every query to a `data-resmon-*` container (or to the footer for the readout). Each teardown calls `__resmonFixture.clear()`. Keys: send them with `Input.dispatchKeyEvent`; if a probe shows they do not reach the page, dispatch the `KeyboardEvent` on `window` instead, and use the same path for every key step. Every step below performs its interaction, asserts its result, and takes a shot.
+  - `resmon-footer`:
+    1. Agent surface at rest: the readout is the footer's last child and reads `Arc 61% CPU · 7.4 GB`.
+    2. Press `g`: the leader posture keeps the readout, and the continuation list shows `m Resource Manager`.
+    3. Press `m`: the popover opens (`data-resmon-popover` present).
+    4. Press Esc: the popover closes.
+    5. With focus in an editable element, the chip container's computed opacity is 0.6 and the readout's is 1.
+    6. Cockpit surface: the readout sits in the cockpit hints bar, after `?`.
+    7. `busycpu`: the readout shows `high CPU`.
+    8. `busymem`: it shows `high memory`.
+    9. Both: it shows `high CPU and memory`.
+    10. Pinned `null`: it shows `Arc –`.
+    11. `supported: false`: there is no `data-resmon-readout` in either the footer or the cockpit hints bar.
+  - `resmon-main`:
+    1. Click the readout over the Agent surface: the popover is 700px wide and anchored bottom-right; Arc is first and collapsed; the other groups are sorted by CPU; core rows show their tags and other rows the ×; the Verify group shows no action.
+    2. Click Arc's chevron: Arc expands, and a second click collapses it.
+    3. ↓ moves the cursor highlight; ⏎ on the Arc header expands it.
+    4. Click the × on `orchestrate.test.exe`: the confirm reads `Kill orchestrate.test.exe (18311)? It has no child processes.`
+    5. Esc removes the confirm and leaves the popover open.
+    6. Move the cursor onto `go.exe` and press `x`: the confirm reads `Kill go.exe (18244) and its 1 child process?` With `killOutcome({outcome: "killed", killed: 2})` armed, press ⏎: the note `Killed go.exe (18244) and 1 child process.` shows.
+    7. Esc closes the popover.
+  - `resmon-states`:
+    1. Pinned `null`: the loading body.
+    2. Arc only: the empty body.
+    3. Cursor on the waveterm header, press ⇧X: the confirm reads `Kill 5 processes under waveterm? claude.exe and its console keep running.` Cancel closes it.
+    4. Click waveterm's `Kill children` button: the same confirm opens. With `killOutcome({outcome: "killed", killed: 5})` armed, click `Kill 5`: the note `Killed 5 processes.` shows.
+    5. Gone: arm `{outcome: "gone"}`, click the × on the pi worker's `node.exe` (21890), click `Kill`: the note `node.exe (21890) had already exited.` shows.
+    6. Refused: arm `{outcome: "refused"}`, open a row's confirm with `x` and confirm with ⏎: the alert reads `Not killed: pid … no longer belongs to this run worker. The list refreshes in 2s.`
+    7. Protected: arm `{outcome: "protected"}`, confirm a kill the same way: the alert names the agent's own process.
+    8. Failed: arm `{outcome: "failed", error: "Access is denied."}` and confirm: the alert reads `Could not kill … : Access is denied. It is still running.`
 
-Acceptance: `task check:ts` is clean, `npx vitest run frontend/app/cockpit` passes, and `ARC_FINAL_OUT=<a temp dir> node scripts/cdp/final-verify.mjs resmon-main resmon-footer resmon-states` exits 0 (it starts its own dev app from this tree; the Final line runs the same three).
+Acceptance: `task check:ts` is clean, and `npx vitest run frontend/app/cockpit frontend/app/store/keybindings` passes. `ARC_FINAL_OUT=<a temp dir> node scripts/cdp/final-verify.mjs resmon-main resmon-footer resmon-states` exits 0; it starts its own dev app from this tree, and the Final line runs the same three scenarios.
