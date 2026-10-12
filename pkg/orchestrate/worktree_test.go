@@ -79,8 +79,8 @@ func TestCreateAndRemoveWorktree(t *testing.T) {
 	}
 }
 
-// A run tree nests the checkout under .waveterm\worktrees\<run id>\, so a file the project checks out fits under
-// MAX_PATH there and not in the tree: run 58942051 failed its landing tree with "unable to create file".
+// A tree's root can be longer than the project's, so a file the project checks out fits under MAX_PATH there and
+// not in the tree: run 58942051 failed its landing tree with "unable to create file".
 func TestCreateRunWorktreeChecksOutPathsPastMaxPath(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("only Windows caps a path at MAX_PATH")
@@ -90,6 +90,8 @@ func TestCreateRunWorktreeChecksOutPathsPastMaxPath(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", empty)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	dir := newGitRepo(t)
+	// the test's own root is as long as the project; this one puts the tree's copy of the file past MAX_PATH
+	t.Cleanup(UseWorktreeRootForTest(filepath.Join(t.TempDir(), "a-root-longer-than-the-project-dir")))
 	const maxPath = 260
 	rel := ""
 	for len(dir)+len(rel)+len("\\f.txt") < maxPath-20 {
@@ -106,6 +108,9 @@ func TestCreateRunWorktreeChecksOutPathsPastMaxPath(t *testing.T) {
 	wt, err := CreateRunWorktree(context.Background(), dir, runID, base)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(filepath.Join(wt, rel)) <= maxPath {
+		t.Fatalf("the tree's copy %s fits under MAX_PATH, so the test proves nothing", filepath.Join(wt, rel))
 	}
 	if _, err := os.Stat(filepath.Join(wt, rel)); err != nil {
 		t.Fatalf("tree missing the deep file: %v", err)
@@ -232,8 +237,29 @@ func TestEnsureRunWorktreeRecreatesDirtyAndDumpsPatch(t *testing.T) {
 }
 
 // newGitRepoAt git-inits an existing directory (the channel's project path) with one base commit.
+// testRootOwner is the test whose own worktree root is installed.
+var testRootOwner *testing.T
+
+// useTestWorktreeRoot gives the test a worktree root of its own, once, so a second repo in the test resolves its
+// trees beside the first's. Fixture keys like run-1 would otherwise collide under one shared root and outlive the
+// test.
+func useTestWorktreeRoot(t *testing.T) {
+	t.Helper()
+	if testRootOwner == t {
+		return
+	}
+	prev := testRootOwner
+	testRootOwner = t
+	restore := UseWorktreeRootForTest(t.TempDir())
+	t.Cleanup(func() {
+		restore()
+		testRootOwner = prev
+	})
+}
+
 func newGitRepoAt(t *testing.T, dir string) {
 	t.Helper()
+	useTestWorktreeRoot(t)
 	if err := os.CopyFS(dir, os.DirFS(gitRepoTemplate(t))); err != nil {
 		t.Fatal(err)
 	}

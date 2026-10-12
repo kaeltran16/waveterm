@@ -81,7 +81,13 @@ So there are two fixtures, and `final-stage` uses both on one run.
   `finalcmd`, and no `final`. The next watchdog tick (30 seconds at most) starts round 1: the Tree step and its
   `final-step` event, then Verify with `final.step`, `stepts` and `output`. With a Final command the stage records
   no tree until its commands end, so no verifier is tended. The run lands on its own branch by default, so the
-  stage's tree is that landing tree under `.waveterm/worktrees/` in the temp dir.
+  stage's tree is that landing tree. It runs on the dev app's wavesrv, not under a Go test, so the tree is under
+  the real `%LOCALAPPDATA%\arc-wt\<first 8 of run id>` (the full id if another run owns the prefix), not in the
+  temp dir, and t-1's lane tree sits beside it as `<8>-t-1`. Removing the temp dir does not remove them, and
+  neither does `cancelrun`: `Cancel` (`pkg/orchestrate/mutation.go`) removes only the dag's task trees, and only a
+  land (`removeLandedTree` in `land.go`) removes the landing tree. So `teardownFixtureRun` removes the run's
+  `landpath` (recorded by `arrangeFixtureRun`) and every linked worktree of the temp repo before it removes the
+  temp dir, and throws if any is left. `final-stage`'s step 0b checks the landing tree is under the arc-wt root.
   - The output tail is published from the command's own writes: the first write at once, which carried one line of
     a three-line `printf`, then at most every 10 seconds, and a publish that finds the dag lock held is skipped. A
     command that prints and then sleeps shows its first line and nothing more: keep it writing, and wait for the

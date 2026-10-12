@@ -726,16 +726,26 @@ func finalTree(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run) (s
 	if !IsGitRepo(owner.ProjectPath) {
 		return "", nil, notGitRepo(owner.ProjectPath)
 	}
-	wt := worktreeDir(owner.ProjectPath, owner.ID+"-final")
+	key := owner.ID + "-final"
+	standIn := ""
 	// a tree a lost stage left behind would refuse the add
-	if _, err := os.Stat(wt); err == nil {
-		if err := removeStaleFinalTree(ctx, owner.ProjectPath, wt); err != nil {
+	stale := worktreeDir(owner.ProjectPath, key)
+	if _, err := os.Stat(stale); err == nil {
+		if err := removeStaleFinalTree(ctx, owner.ProjectPath, stale); err != nil {
 			// a verifier that outlived its stage holds the directory on Windows until it exits, and the round
 			// must not wait for it
 			log.Printf("dag %s: removing a stale final tree, so the stage runs beside it: %v", g.OID, err)
-			removeFinalTree(g.OID, owner, wt)
-			wt = freeFinalTreeDir(wt)
+			removeFinalTree(g.OID, owner, stale)
+			standIn = freeFinalTreeDir(stale)
 		}
+	}
+	// claimed after the removal: a removed legacy tree comes back under the short root
+	wt, err := claimWorktreeDir(owner.ProjectPath, key)
+	if err != nil {
+		return "", nil, fmt.Errorf("creating the final tree: %w", err)
+	}
+	if standIn != "" {
+		wt = standIn
 	}
 	if _, err := addWorktree(ctx, owner.ProjectPath, "--detach", wt, "HEAD"); err != nil {
 		return "", nil, fmt.Errorf("creating the final tree: %w", err)
