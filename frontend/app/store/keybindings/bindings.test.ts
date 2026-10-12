@@ -19,6 +19,7 @@ import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { docReviewAtom } from "@/app/view/agents/docreview";
 import { graphOnAtom, historyFiltersAtom, historyScrollAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
+import { activeReviewAtom } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
@@ -491,6 +492,17 @@ describe("diff-surface history bindings", () => {
         expect(find("files:compare").when?.(ctx)).toBe(false);
         expect(find("files:change-refs").when?.(ctx)).toBe(true);
         expect(find("files:change-refs").keys).toBe("c");
+    });
+
+    // Review Focus 5: with nothing open, or while typing in the history filter, v must reach the page
+    it("v declines with no open file and is off while typing or under a modal", () => {
+        globalStore.set(activeReviewAtom, null);
+        const b = find("files:toggle-reviewed");
+        expect(b.keys).toBe("v");
+        expect(b.run(ctx)).toBe(false);
+        expect(b.when?.(ctx)).toBe(true);
+        expect(b.when?.({ ...ctx, editable: true })).toBe(false);
+        expect(b.when?.({ ...ctx, modalOpen: true })).toBe(false);
     });
 
     it("change-refs declines the key when no ref chip is on screen", () => {

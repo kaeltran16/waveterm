@@ -9,9 +9,10 @@ import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { Copy } from "lucide-react";
 import { formatAgo } from "./agentsviewmodel";
-import { ChangedFileList, TreeModeToggle } from "./changedfilelist";
+import { ChangedFileList, ReviewProgress, TreeModeToggle } from "./changedfilelist";
 import { type GitChanges } from "./gitstatus";
 import { WORKING_TREE, refChipClass, type HistoryRow } from "./historyrows";
+import type { ReviewSubject } from "./reviewmarks";
 import { SubLabel } from "./sectionlabel";
 
 function initials(name: string): string {
@@ -81,11 +82,13 @@ export function CommitPane({
     selectedFile,
     onSelectFile,
     caption,
+    review,
 }: {
     row: HistoryRow | null;
     changes: GitChanges | null;
     selectedFile: string | null;
     onSelectFile: (path: string) => void;
+    review: ReviewSubject | null;
     // the working-tree row's "measured from what" line; worktreeCaption builds it
     caption?: string;
 }) {
@@ -103,17 +106,25 @@ export function CommitPane({
             <div className="flex-none border-b border-edge-faint px-[15px] pb-[12px] pt-[14px]">
                 {isWorkingTree ? <WorkingTreeHeader row={row} caption={caption} /> : <CommitHeader row={row} />}
             </div>
-            <div className="flex flex-none items-center gap-[9px] px-[15px] pb-[8px] pt-[10px]">
-                <SubLabel>
-                    {count} {count === 1 ? "file" : "files"}
-                </SubLabel>
-                <div className="flex-1" />
-                <span className="font-mono text-[11px] font-semibold text-diff-added">+{changes?.adds ?? 0}</span>
-                <span className="font-mono text-[11px] font-semibold text-diff-removed">−{changes?.dels ?? 0}</span>
-                <TreeModeToggle />
+            <div className="flex-none px-[15px] pb-[8px] pt-[10px]">
+                <div className="flex items-center gap-[9px]">
+                    <SubLabel>
+                        {count} {count === 1 ? "file" : "files"}
+                    </SubLabel>
+                    <div className="flex-1" />
+                    <span className="font-mono text-[11px] font-semibold text-diff-added">+{changes?.adds ?? 0}</span>
+                    <span className="font-mono text-[11px] font-semibold text-diff-removed">−{changes?.dels ?? 0}</span>
+                    <TreeModeToggle />
+                </div>
+                <ReviewProgress review={review} changes={changes} />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-[8px] pb-[20px]">
-                <ChangedFileList changes={changes} selectedFile={selectedFile} onSelectFile={onSelectFile} />
+                <ChangedFileList
+                    changes={changes}
+                    selectedFile={selectedFile}
+                    onSelectFile={onSelectFile}
+                    review={review}
+                />
             </div>
         </div>
     );

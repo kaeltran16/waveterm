@@ -4,7 +4,7 @@
 // exposed on window). steps are { step, ok, detail }.
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -3868,6 +3868,300 @@ func Submit(id string) error {
     },
 };
 
+// --- diff surface: review marks in the changed-file list -----------------------------------------
+// docs/superpowers/plans/2026-10-12-diff-review-marks.md, end to end on a temp repo: marking from
+// the row box, v and the header button, a directory box, a file that changed after it was marked, a
+// reload, and a commit and a compare aggregate that keep marks of their own.
+const REVIEW_STORAGE_KEY = "diff.review.marks";
+
+// the app's own reload, waited out until the shell is back up
+async function reloadApp(h) {
+    try {
+        await h.ev("location.reload()");
+    } catch {
+        /* the evaluate is cut off by the navigation it just started */
+    }
+    for (let waited = 0; waited < 30000; waited += 500) {
+        const up = await h.ev("!!window.TabRpcClient && !!document.querySelector('nav button')").catch(() => false);
+        if (up) break;
+        await new Promise((r) => setTimeout(r, 500));
+    }
+}
+
+const diffReviewMarks = {
+    name: "diff-review-marks",
+    surface: "files",
+    async arrange(h) {
+        const dir = mkdtempSync(join(tmpdir(), "verify-diff-review-"));
+        git(dir, "init", "-q", "--initial-branch=main");
+        mkdirSync(join(dir, "src", "retry"), { recursive: true });
+        writeFileSync(join(dir, "README.md"), "# retry\n");
+        writeFileSync(join(dir, "src", "retry", "policy.go"), "package retry\n\nfunc Budget() int {\n    return 3\n}\n");
+        writeFileSync(join(dir, "src", "retry", "legacy.go"), "package retry\n\nfunc Legacy() {}\n");
+        git(dir, "add", ".");
+        git(dir, "commit", "-q", "-m", "seed the retry package");
+        git(dir, "checkout", "-q", "-b", "feature");
+        writeFileSync(join(dir, "src", "retry", "policy.go"), "package retry\n\nfunc Budget() int {\n    return 8\n}\n");
+        writeFileSync(
+            join(dir, "src", "retry", "submit.go"),
+            "package retry\n\nfunc Submit(id string) error {\n    return nil\n}\n"
+        );
+        git(dir, "add", ".");
+        git(dir, "commit", "-q", "-m", "raise the budget, add submit");
+        // the working tree: four files, one of each status the list draws
+        writeFileSync(join(dir, "README.md"), "# retry\n\nBudgets and backoff for job submission.\n");
+        writeFileSync(
+            join(dir, "src", "retry", "policy.go"),
+            "package retry\n\nfunc Budget() int {\n    return 8\n}\n\nfunc Floor() int {\n    return 1\n}\n"
+        );
+        writeFileSync(join(dir, "src", "retry", "backoff.go"), "package retry\n\nfunc Backoff(n int) int {\n    return n * 2\n}\n");
+        git(dir, "add", "-N", "src/retry/backoff.go");
+        rmSync(join(dir, "src", "retry", "legacy.go"));
+        const name = "verify-diff-review-marks";
+        await h.rpc("createproject", { name, path: dir });
+
+        // the store reads localStorage once, at module load, so the key is cleared before the reload that
+        // gives this scenario fresh module state; teardown puts back whatever the user had
+        const prevMarks = await h.ev(`localStorage.getItem(${JSON.stringify(REVIEW_STORAGE_KEY)})`);
+        await h.ev(`localStorage.removeItem(${JSON.stringify(REVIEW_STORAGE_KEY)})`);
+        await reloadApp(h);
+        return { dir, name, prevMarks };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const q = (sel) => `document.querySelector(${JSON.stringify(sel)})`;
+        const rowSel = (path) => `[data-changed-file-row=${JSON.stringify(path)}]`;
+        const boxSel = (path) => `[data-review-toggle=${JSON.stringify(path)}]`;
+        const DIR = "src/retry";
+        const dirRowSel = `[data-changed-dir-row=${JSON.stringify(DIR)}]`;
+        const dirBoxSel = `[data-review-toggle-dir=${JSON.stringify(DIR)}]`;
+        const until = async (expr, ms = 8000) => {
+            for (let waited = 0; waited < ms; waited += 250) {
+                if (await h.ev(expr).catch(() => false)) return true;
+                await sleep(250);
+            }
+            return false;
+        };
+        const click = (sel) => h.ev(`(() => { const el = ${q(sel)}; if (!el) return false; el.click(); return true; })()`);
+        const stateOf = (path) => h.ev(`${q(rowSel(path))}?.dataset.reviewState ?? "absent"`);
+        const openRow = () => h.ev(`${q('[data-changed-file-row][aria-current="true"]')}?.dataset.changedFileRow ?? ""`);
+        const rows = () =>
+            h.ev(`Array.from(document.querySelectorAll('[data-changed-file-row]')).map(e => e.dataset.changedFileRow).join(',')`);
+        const progress = async () =>
+            JSON.parse(
+                await h.ev(`(() => { const el = ${q("[data-files-reviewed]")};
+                  return JSON.stringify(el ? { done: el.dataset.done, total: el.dataset.total, text: el.textContent }
+                                           : { done: null, total: null, text: "" }); })()`)
+            );
+        const doneIs = (n) => `${q("[data-files-reviewed]")}?.dataset.done === ${JSON.stringify(String(n))}`;
+        const stateIs = (path, state) => `${q(rowSel(path))}?.dataset.reviewState === ${JSON.stringify(state)}`;
+        const isOpen = (path) => `${q(rowSel(path))}?.getAttribute("aria-current") === "true"`;
+        const press = async (key, code, vk) => {
+            // an open diff can hold focus in Monaco, where the dispatcher lets every key through
+            await h.ev("document.activeElement?.blur?.()");
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key, code, text: key, windowsVirtualKeyCode: vk });
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: vk });
+        };
+        const pin = () =>
+            h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        const pick = async () => {
+            await click("[data-files-source-picker]");
+            const option = `[data-files-source-option=${JSON.stringify(ctx.name)}]`;
+            await until(`!!${q(option)}`, 4000);
+            await click(option);
+            return until(`!!${q(rowSel("src/retry/backoff.go"))}`, 15000);
+        };
+
+        try {
+            await pin();
+            await sleep(400);
+            const picked = await pick();
+            const listed = await until(`document.querySelectorAll('[data-changed-file-row]').length === 4`, 4000);
+            const allNone = await until(
+                `Array.from(document.querySelectorAll('[data-changed-file-row]')).every(e => e.dataset.reviewState === "none")`,
+                2000
+            );
+            let p = await progress();
+            rec(
+                "1. the working tree lists 4 unreviewed files and a progress line at 0/4",
+                picked && listed && allNone && p.done === "0" && p.total === "4",
+                `rows=${await rows()} progress=${p.done}/${p.total}`
+            );
+            await h.shot("cdp-shots/diff-review-marks-empty.png");
+
+            await click(rowSel("README.md"));
+            const headerUp = await until(`!!${q("[data-review-open]")}`);
+            await press("v", "KeyV", 86);
+            const advanced = await until(`${stateIs("README.md", "ok")} && ${doneIs(1)} && ${isOpen("src/retry/backoff.go")}`);
+            rec(
+                "2. v marks README.md and opens the next unreviewed file, wrapping round to src/retry/backoff.go",
+                headerUp && advanced,
+                `header=${headerUp} README=${await stateOf("README.md")} done=${(await progress()).done} open=${await openRow()}`
+            );
+            await h.shot("cdp-shots/diff-review-marks-partial.png");
+
+            await click(boxSel("src/retry/policy.go"));
+            const boxed = await until(stateIs("src/retry/policy.go", "ok"));
+            await sleep(300); // a selection move would land with the mark, so give it a beat to show
+            const stayed = (await openRow()) === "src/retry/backoff.go";
+            rec(
+                "3. a box on another row marks it without moving the open file",
+                boxed && stayed,
+                `policy=${await stateOf("src/retry/policy.go")} open=${await openRow()}`
+            );
+
+            const partialDir = await until(`${q(dirRowSel)}?.textContent.includes("1/3")`, 3000);
+            rec(
+                "4a. the src/retry directory row reads 1/3",
+                partialDir,
+                `dirRow="${await h.ev(`${q(dirRowSel)}?.textContent ?? "absent"`)}"`
+            );
+            await h.shot("cdp-shots/diff-review-marks-dir-partial.png");
+
+            await click(dirBoxSel);
+            const allDone = await until(
+                `${stateIs("src/retry/backoff.go", "ok")} && ${stateIs("src/retry/legacy.go", "ok")} && ${doneIs(4)}`
+            );
+            p = await progress();
+            rec(
+                "4b. the directory box marks the rest, and the progress line reads all 4 reviewed",
+                allDone && p.text.includes("all 4 reviewed"),
+                `done=${p.done}/${p.total} text="${p.text}"`
+            );
+            await h.shot("cdp-shots/diff-review-marks-all.png");
+
+            await click(dirRowSel);
+            const folded = await until(`!${q(rowSel("src/retry/policy.go"))} && !!${q(dirRowSel)}`, 3000);
+            const foldedBox = await h.ev(`${q(dirBoxSel)}?.getAttribute("aria-pressed") === "true"`);
+            rec(
+                "4c. the collapsed directory keeps its reviewed box",
+                folded && foldedBox,
+                `collapsed=${folded} boxPressed=${foldedBox}`
+            );
+            await h.shot("cdp-shots/diff-review-marks-dir-collapsed.png");
+            await click(dirRowSel);
+            await until(`!!${q(rowSel("src/retry/policy.go"))}`, 3000);
+
+            appendFileSync(join(ctx.dir, "src", "retry", "policy.go"), "\n// floors stay above zero\n");
+            await press("r", "KeyR", 82);
+            const stale = await until(`${stateIs("src/retry/policy.go", "stale")} && ${doneIs(3)}`, 15000);
+            rec(
+                "5. a file edited after it was marked reads stale and drops out of the count",
+                stale,
+                `policy=${await stateOf("src/retry/policy.go")} done=${(await progress()).done}`
+            );
+            await h.shot("cdp-shots/diff-review-marks-stale.png");
+
+            // the header labels its buttons only on a pane of LABELLED_MIN_PX (diffoptions.ts), which 1600px
+            // leaves about 760px of, so this one step widens the window to show the label
+            await h.cdp("Emulation.setDeviceMetricsOverride", { width: 2000, height: 950, deviceScaleFactor: 1, mobile: false });
+            await click(rowSel("README.md"));
+            const pressed = await until(`${q("[data-review-open]")}?.getAttribute("aria-pressed") === "true"`);
+            await until(`${q("[data-review-open]")}?.textContent.startsWith("Reviewed")`, 3000);
+            const label = await h.ev(`${q("[data-review-open]")}?.textContent ?? ""`);
+            await h.shot("cdp-shots/diff-review-marks-header-reviewed.png");
+            await pin();
+            await click("[data-review-open]");
+            const unmarked = await until(stateIs("README.md", "none"));
+            await sleep(300);
+            const keptOpen = (await openRow()) === "README.md";
+            rec(
+                "6. the header button reads Reviewed on a marked file, and unmarking it stays on that file",
+                pressed && label.startsWith("Reviewed") && unmarked && keptOpen,
+                `pressed=${pressed} label="${label}" README=${await stateOf("README.md")} open=${await openRow()}`
+            );
+
+            await reloadApp(h);
+            await pin();
+            await h.goto("files");
+            const repicked = await pick();
+            const kept = await until(
+                `${stateIs("src/retry/backoff.go", "ok")} && ${stateIs("src/retry/policy.go", "stale")}`,
+                4000
+            );
+            rec(
+                "7. marks survive a reload",
+                repicked && kept,
+                `backoff=${await stateOf("src/retry/backoff.go")} policy=${await stateOf("src/retry/policy.go")}`
+            );
+
+            const commitClicked = await h.ev(`(() => {
+                const row = Array.from(document.querySelectorAll('[data-history-row]'))
+                    .find((r) => r.textContent.includes("raise the budget, add submit"));
+                const btn = row?.querySelector("button");
+                if (!btn) return false;
+                btn.click();
+                return true;
+            })()`);
+            const commitRows = await until(
+                `!!${q(rowSel("src/retry/submit.go"))} && !${q(rowSel("README.md"))} && document.querySelectorAll('[data-changed-file-row]').length === 2`
+            );
+            const commitFresh =
+                (await stateOf("src/retry/policy.go")) === "none" && (await stateOf("src/retry/submit.go")) === "none";
+            // one box at a time: a box on the open file advances the selection, which re-renders the list
+            await click(boxSel("src/retry/policy.go"));
+            await until(stateIs("src/retry/policy.go", "ok"), 3000);
+            await click(boxSel("src/retry/submit.go"));
+            const commitAll = await until(`${doneIs(2)} && ${q("[data-files-reviewed]")}?.textContent.includes("all 2 reviewed")`);
+            rec(
+                "8. the feature commit keeps marks of its own, separate from the working tree",
+                commitClicked && commitRows && commitFresh && commitAll,
+                `clicked=${commitClicked} rows=${await rows()} startedNone=${commitFresh} text="${(await progress()).text}"`
+            );
+            await h.shot("cdp-shots/diff-review-marks-commit.png");
+
+            await press("c", "KeyC", 67);
+            const comparing = await until(
+                `${q('[data-range-chip="compare"]')}?.getAttribute("aria-pressed") === "true" && !!${q(rowSel("src/retry/submit.go"))} && ${doneIs(0)}`,
+                10000
+            );
+            // entering compare opens the ref editor on the pair it already reads; applying that pair as
+            // it stands closes the editor, whose suggestions would otherwise cover pane 2 in the shot
+            await h.ev(`(() => {
+                const root = document.querySelector('input[placeholder="base ref"]')?.parentElement?.parentElement;
+                Array.from(root?.querySelectorAll("button") ?? []).find((b) => b.textContent.trim() === "Compare")?.click();
+            })()`);
+            await until(`!document.querySelector('input[placeholder="base ref"]') && !!${q(boxSel("src/retry/submit.go"))}`, 5000);
+            await click(boxSel("src/retry/submit.go"));
+            const oneMarked = await until(doneIs(1));
+            p = await progress();
+            rec(
+                "9a. the compare aggregate starts unreviewed, and one mark reads 1/N",
+                comparing && oneMarked && p.text.includes(`1/${p.total} reviewed`),
+                `rows=${await rows()} done=${p.done}/${p.total} text="${p.text}"`
+            );
+            await h.shot("cdp-shots/diff-review-marks-compare.png");
+
+            await click("[data-review-clear]");
+            const cleared = await until(doneIs(0), 3000);
+            rec("9b. Clear drops the aggregate's marks", cleared, `done=${(await progress()).done}`);
+        } catch (e) {
+            rec("scenario aborted", false, String(e?.message ?? e));
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        // compare mode and an explicit history collapse both outlive the surface (see diff-compare)
+        const esc = { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 };
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...esc });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...esc });
+        await h.ev(`document.querySelector('[data-history-rail] button[title="Expand history"]')?.click()`);
+        await h.ev(restoreLocalStorage(REVIEW_STORAGE_KEY, ctx.prevMarks));
+        try {
+            await h.rpc("deleteproject", { name: ctx.name });
+        } catch {
+            /* leave a stale registry entry rather than failing teardown */
+        }
+        try {
+            rmSync(ctx.dir, { recursive: true, force: true });
+        } catch {
+            /* a leftover temp repo is cheaper than a failed teardown */
+        }
+    },
+};
+
 // --- jarvis avatar: the hologram in window chrome ----------------------------------------------
 // The avatar is a <canvas>, so there are no attributes to read the way the old SVG creature allowed. It
 // publishes its last built scene on window in DEV builds instead (petview.tsx), which is a STRONGER
@@ -4946,16 +5240,65 @@ const codeGitStatus = {
 const codeDiff = {
     name: "code-diff",
     surface: "code",
-    async arrange() {
-        return {};
+    // its own repo with exactly one uncommitted edit: final-verify boots a fresh store with no projects
+    async arrange(h) {
+        const dir = mkdtempSync(join(tmpdir(), "verify-code-diff-"));
+        git(dir, "init", "-q", "--initial-branch=main");
+        writeFileSync(
+            join(dir, "policy.go"),
+            `package retry
+
+func Budget() int {
+    return 3
+}
+`
+        );
+        git(dir, "add", ".");
+        git(dir, "commit", "-q", "-m", "seed the retry package");
+        writeFileSync(
+            join(dir, "policy.go"),
+            `package retry
+
+func Budget() int {
+    return 8
+}
+`
+        );
+        const name = "verify-code-diff";
+        await h.rpc("createproject", { name, path: dir });
+        await waitForProjectInConfig(h, name);
+        try {
+            await h.ev("location.reload()");
+        } catch {
+            /* the evaluate is cut off by the navigation it just started */
+        }
+        for (let waited = 0; waited < 30000; waited += 500) {
+            const up = await h
+                .ev("!!window.TabRpcClient && !!document.querySelector('nav button')")
+                .catch(() => false);
+            if (up) break;
+            await new Promise((r) => setTimeout(r, 500));
+        }
+        return { dir, name };
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const steps = [];
         await h.goto("code");
         if ((await openProjectPicker(h)) === true) {
             await sleep(300);
-            await chooseProjectRow(h);
+            // not chooseProjectRow: rows[0] may be any registered project, and the step-1 check pins policy.go
+            await h.ev(`(() => {
+                const chip = document.querySelector('[data-code-project-picker]');
+                const scope = chip && chip.parentElement;
+                if (!scope) return false;
+                const row = [...scope.querySelectorAll('button')].find(
+                    (b) => b !== chip && (b.textContent || '').includes(${JSON.stringify(ctx.name)})
+                );
+                if (!row) return false;
+                row.click();
+                return true;
+            })()`);
             await sleep(1200);
         }
 
@@ -4981,7 +5324,7 @@ const codeDiff = {
         })()`);
         steps.push({
             step: "open a file that differs from HEAD",
-            ok: opened === true && rowPath !== "",
+            ok: opened === true && rowPath === "policy.go",
             detail: `path=${rowPath || "(none)"}`,
         });
         await sleep(900);
@@ -5019,8 +5362,18 @@ const codeDiff = {
         });
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.goto("cockpit"); // leave the app where a human expects it
+        try {
+            await h.rpc("deleteproject", { name: ctx.name });
+        } catch {
+            /* leave a stale registry entry rather than failing teardown */
+        }
+        try {
+            rmSync(ctx.dir, { recursive: true, force: true });
+        } catch {
+            /* a leftover temp repo is cheaper than a failed teardown */
+        }
     },
 };
 
@@ -9657,7 +10010,7 @@ const RAIL_LINK_LIB = `
     const diffRow = (name) => document.querySelector('[data-changed-file-row="' + name + '"]');
     const selectedRows = () =>
         [...document.querySelectorAll("[data-changed-file-row]")]
-            .filter((r) => r.classList.contains("bg-surface-selected"))
+            .filter((r) => r.getAttribute("aria-current") === "true")
             .map((r) => r.getAttribute("data-changed-file-row"));
     const until = async (fn) => {
         for (let i = 0; i < 80 && !fn(); i++) {
@@ -14860,6 +15213,7 @@ export const SCENARIOS = [
     tuiFullscreen,
     gitHistory,
     diffCompare,
+    diffReviewMarks,
     surfaceSmoke,
     codeSearch,
     codeSidebar,

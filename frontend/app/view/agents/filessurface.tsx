@@ -60,6 +60,7 @@ import {
     swapCompareRefs,
 } from "./comparestore";
 import { RefPicker } from "./refpicker";
+import { activeReviewAtom, reviewSubjectFor } from "./reviewmarks";
 import {
     activeChangesAtom,
     dismissRestoreNotice,
@@ -284,6 +285,33 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     // on screen. The change poll replaces filesStateAtom on every tick, so its identity IS the tick;
     // a commit or a comparison is immutable and stays out of the dep so it is read exactly once.
     const liveTick = !compareOn && selectedCommit === WORKING_TREE ? state : null;
+    // which commit pane 2 is showing: null for the working-tree row and compare's aggregate row
+    const shownCommit = compareOn
+        ? compareSelection === AGGREGATE
+            ? null
+            : compareSelection
+        : selectedCommit === WORKING_TREE
+          ? null
+          : selectedCommit;
+    const review = reviewSubjectFor(state?.cwd, scope?.range, shownCommit);
+
+    // the `v` binding and the diff header act on the open file through this, not through the surface
+    useEffect(() => {
+        globalStore.set(
+            activeReviewAtom,
+            review == null || shownChanges == null
+                ? null
+                : {
+                      subject: review,
+                      files: shownChanges.files,
+                      open: shownPath,
+                      select: compareOn
+                          ? selectCompareFile
+                          : (path) => selectedCommit != null && selectCommitFile(selectedCommit, path),
+                  }
+        );
+    }, [review, shownChanges, shownPath, compareOn, selectedCommit]);
+    useEffect(() => () => globalStore.set(activeReviewAtom, null), []);
 
     // publish the visible column's rows for global j/k list-nav. cursor == selection: moving selects,
     // which loads that row's files and first diff. Must run before the early return (hooks rules).
@@ -460,13 +488,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     branch: state?.branch ?? "",
                                     ref: state?.ref ?? "",
                                     mergeBase: compareSides?.mergeBase ?? "",
-                                    commit: compareOn
-                                        ? compareSelection === AGGREGATE
-                                            ? null
-                                            : compareSelection
-                                        : selectedCommit === WORKING_TREE
-                                          ? null
-                                          : selectedCommit,
+                                    commit: shownCommit,
                                     changes: shownChanges,
                                 })}
                             </span>
@@ -594,6 +616,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                         onSetForm={(f) =>
                                             state?.cwd && fireAndForget(() => setCompareForm(state.cwd!, f))
                                         }
+                                        review={review}
                                     />
                                 ) : (
                                     // a compare commit row *is* a HistoryRow, so the shipped pane takes it directly
@@ -606,6 +629,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                         changes={compareChanges}
                                         selectedFile={compareFile}
                                         onSelectFile={(path) => selectCompareFile(path)}
+                                        review={review}
                                     />
                                 )
                             ) : (
@@ -621,6 +645,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     onSelectFile={(path) =>
                                         selectedCommit != null && selectCommitFile(selectedCommit, path)
                                     }
+                                    review={review}
                                 />
                             )}
                         </div>

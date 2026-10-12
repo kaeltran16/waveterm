@@ -8,10 +8,11 @@
 // adapter is needed.
 
 import { cn } from "@/util/util";
-import { ChangedFileList, TreeModeToggle } from "./changedfilelist";
+import { ChangedFileList, ReviewProgress, TreeModeToggle } from "./changedfilelist";
 import { formSentence, SIDE_TEXT } from "./comparerows";
 import type { CompareForm } from "./diffcontent";
 import type { GitChanges } from "./gitstatus";
+import type { ReviewSubject } from "./reviewmarks";
 
 export function AggregatePane({
     base,
@@ -22,6 +23,7 @@ export function AggregatePane({
     selectedFile,
     onSelectFile,
     onSetForm,
+    review,
 }: {
     base: string;
     head: string;
@@ -31,6 +33,7 @@ export function AggregatePane({
     selectedFile: string | null;
     onSelectFile: (path: string) => void;
     onSetForm: (form: CompareForm) => void;
+    review: ReviewSubject | null;
 }) {
     const count = changes?.files.length ?? 0;
     return (
@@ -82,9 +85,15 @@ export function AggregatePane({
                     <div className="flex-1" />
                     <TreeModeToggle />
                 </div>
+                <ReviewProgress review={review} changes={changes} />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-[8px] pb-[20px] pt-[8px]">
-                <ChangedFileList changes={changes} selectedFile={selectedFile} onSelectFile={onSelectFile} />
+                <ChangedFileList
+                    changes={changes}
+                    selectedFile={selectedFile}
+                    onSelectFile={onSelectFile}
+                    review={review}
+                />
             </div>
         </div>
     );
