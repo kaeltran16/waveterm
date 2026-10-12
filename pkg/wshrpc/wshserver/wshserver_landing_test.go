@@ -393,7 +393,7 @@ func TestDagSubmitRoundCommitsTheFixPlanOnTheRunsBranch(t *testing.T) {
 	}
 	branch := "wave/" + run.ID
 	tip := execGit("rev-parse", branch)
-	if _, err := submit(wshrpc.CommandDagSubmitData{PlanPath: fix, Round: true}); err == nil || !strings.Contains(err.Error(), "the final stage has not failed") {
+	if _, err := submit(wshrpc.CommandDagSubmitData{PlanPath: fix, Round: true}); err == nil || !strings.Contains(err.Error(), "the final stage has not finished") {
 		t.Fatalf("want the round refused, got %v", err)
 	}
 	if got := execGit("rev-parse", branch); got != tip {

@@ -204,6 +204,14 @@ func checkDagEffort(ctx context.Context, effortOID string, tasks []waveobj.TaskN
 	return nil
 }
 
+// runEffortOID is the effort the run was started from in the composer, or "" when it has none.
+func runEffortOID(run *waveobj.Run) string {
+	if run == nil || run.EffortRef == nil {
+		return ""
+	}
+	return run.EffortRef.EffortOID
+}
+
 // postHandoff is a var so tests can see which submits hand a lead its compaction.
 var postHandoff = orchestrate.PostHandoff
 
@@ -326,6 +334,10 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 		proposed.Prototype = run.Prototype
 	}
 	proposed.EffortOID = plan.EffortOID
+	// the lead files the run's open issues on the dag's effort; a plan that names none still belongs to the run's
+	if proposed.EffortOID == "" {
+		proposed.EffortOID = runEffortOID(run)
+	}
 	proposed.PlanPath, proposed.SpecPath = data.PlanPath, data.SpecPath
 	proposed.ReviewerPicks, proposed.ReviewerRoute = run.ReviewerPicks, run.ReviewerRoute
 	// a plan file is reviewed before any worker starts; a JSON dag has no plan to review
@@ -403,7 +415,7 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	return stored, nil
 }
 
-// submitFixRound appends a fix plan's tasks to the run's dag after its final stage failed. Only the tasks are
+// submitFixRound appends a fix plan's tasks to the run's dag after its final stage finished. Only the tasks are
 // taken: the dag keeps its Verify, Setup, Check, Final and effort, and the round is not plan-reviewed. A fix plan that
 // names a different command is refused, not ignored.
 func submitFixRound(ctx context.Context, run *waveobj.Run, data wshrpc.CommandDagSubmitData, plan jarvis.Plan) (*waveobj.TaskGroup, error) {

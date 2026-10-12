@@ -601,7 +601,7 @@ you.
 | **Worker may be stuck** (worktree unchanged 20 min while active, or the same failure 3x) | `dag tell`, `dag retry`, `dag escalate`, or lets it run | same |
 | **Worker never started** (5 min after spawn, its terminal's shell never came up) | `dag retry` | same |
 | **Final stage failed** | writes a fix plan and runs `dag submit --round --plan <fix plan>` (tasks only: the round runs the run's own Verify, Setup, Check and Final, and a fix plan naming different ones is refused); puts it to you when no round is left or the fix is a product call | a failed last round, or a product call |
-| **Run finished** | fixes and commits what the landed tasks left behind, writes a judgment-only report to a file (a line per task, its decisions and why, wrap-up commits, open issues; the engine records landed commits, worktrees left behind, counts and unverified reasons in the sealed record), adds open issues to the initiative, then completes on its own with `wsh jarvis complete --report <file>` | a question only when a decision is needed (a failed verification, a deviation, a proposed fix round), then the Done face |
+| **Run finished** | fixes and commits what the landed tasks left behind, writes a judgment-only report to a file (a line per task, its decisions and why, wrap-up commits, open issues; the engine records landed commits, worktrees left behind, counts and unverified reasons in the sealed record), runs one round for the open issues inside the goal when the wake says a round is left, and adds the rest to the run's effort, then completes on its own with `wsh jarvis complete --report <file>` | a question only when a decision is needed (a failed verification or a deviation), then the Done face |
 
 In `dag status`, a running worker that has written nothing lately reads `idle Nm`, or `running a command Nm · <tool>`
 while its processes are busy (a long test writes no transcript); a flagged one reads `stuck? <reason>`. Each done task shows one presence line naming its non-empty report sections and
@@ -851,14 +851,16 @@ event is no longer held shows its state with no time, and the round then shows n
 `final-step` run event (`round`, `step`, `ms`, `ok`), so a run's timeline shows where the stage's minutes went.
 
 **The fix round.** On a failed stage the lead writes a fix plan in the plan format and runs
-`wsh jarvis dag submit --round --plan <fix plan>`. The fix plan's tasks are appended as `t-(n+1)…`, with its
+`wsh jarvis dag submit --round --plan <fix plan>`. A run whose final stage passed or finished unverified takes the
+same round for the open issues inside its goal that a worker can fix, when a round is left: the run-finished wake
+ends with a line saying whether one is. The fix plan's tasks are appended as `t-(n+1)…`, with its
 own numbers and Depends mapped on. Each description opens with `Fix round N: this is task K of the fix plan at
 <path>`, so its worker reads the fix plan, not the run's. The dag keeps its Verify, Setup, Check, Final and
 Prototype. On a branch-landed run the fix plan is committed to `wave/<runId>` first, and the new tasks cut from
 the landing tree's head. A fix round skips the plan review, but each of its tasks is reviewed. When its tasks
 land, the final stage runs again as round 2. The final stage runs at most twice (`MaxFinalRounds`): the first
-round and one fix round. `--round` is refused, with the reason, while the stage is still running, after it
-passed, or when no round is left. After round 2 fails, the wake tells the lead to put it to you. It does the same
+round and one fix round. `--round` is refused, with the reason, while the stage is still running or when no
+round is left. After round 2 fails, the wake tells the lead to put it to you. It does the same
 when the fix is a product call.
 
 **This repo's Final command** is `node scripts/cdp/final-verify.mjs [scenario...]`. It starts a dev app from the
@@ -986,7 +988,7 @@ Done doesn't mean finished. The work after the last merge splits four ways:
 
 | Work | Whose job | On the backlog run |
 |---|---|---|
-| The run's report | **The lead's.** Its rules (`OrchestrationRules`, `leadprompt.go`) have it fix and commit what the landed tasks left behind in docs (a code defect found then is an open issue, not a wrap-up commit), write the report to a file, and add each open issue as a pending chunk on the initiative (creating one if the run has none). Then it completes on its own with `wsh jarvis complete --report <file>`, without asking whether to. It asks you first only when a decision is needed: a failed verification, a deviation that needs your call, or a proposed fix round. An unverified outcome never blocks completion. | Not written. The rules then said "write the report …, then `wsh jarvis complete`". The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same. |
+| The run's report | **The lead's.** Its rules (`OrchestrationRules`, `leadprompt.go`) have it fix and commit what the landed tasks left behind in docs (a code defect is never a wrap-up commit: with a round left, the in-goal ones go to a round), write the report to a file, and add each open issue as a pending chunk on the run's effort, the plan's `**Effort:**` line or else the one picked in the composer (creating one if the run has neither). Then it completes on its own with `wsh jarvis complete --report <file>`, without asking whether to. It asks you first only when a decision is needed: a failed verification or a deviation that needs your call. An unverified outcome never blocks completion. | Not written. The rules then said "write the report …, then `wsh jarvis complete`". The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same. |
 | Closing the initiative's tracker chunks | **The engine's.** A task names its chunks with `**Chunk:**` lines after its Depends line, and the engine marks each done with the landed commit once the task's merge passes Verify (for the last merge, once the final stage's Verify passes). | The plan gave it to workers through a header line they never saw. The tracker read 3/16 with all 13 tasks landed. |
 | Merging the branch back | **The engine's** on a branch-landed run ([Landing back](#landing-back)); **yours** on a checkout-landed one, or when a land is held. | The run landed on the project checkout's branch, and merging it was left to the human. |
 | Checking what the final stage could not, committing anything | **Yours.** The unverified item names what nothing checked. | Four fixes still need a live check once the branch is on `main` and running in the dev app. |
@@ -1037,11 +1039,12 @@ closed in `docs/open-issues.md` point here.
 
 ## Tracking an initiative across runs
 
-Big efforts live as initiatives (`wsh effort`, the Brief's **Initiatives** region). A run does not attach
-itself to one: the goal names the effort, and a chunk closes when an agent runs
+Big efforts live as initiatives (`wsh effort`, the Brief's **Initiatives** region). A run's effort is the
+plan's `**Effort:**` line, else the effort picked in the composer, else one the goal names. A chunk closes when an agent runs
 `wsh effort chunk status <effort> "<chunk>" done --note "…"`, or when the engine lands a task that names it
-in a `**Chunk:**` line (see [Who wraps up](#who-wraps-up)). When a run finishes, its lead adds each open issue as a pending chunk on the
-initiative the goal, spec or plan names, and creates one when there is none. To show a run against a chunk, attach it:
+in a `**Chunk:**` line (see [Who wraps up](#who-wraps-up)). When a run finishes with a round left, its lead first sends the open issues
+inside the goal that a worker can fix to a round. It adds every other open issue as a pending chunk on the run's
+effort, and creates one when there is none. To show a run against a chunk, attach it:
 `wsh effort chunk attach <effort> "<chunk>" --run <run-oid>`. Expanding an initiative on the Brief shows each
 chunk's status and note trail. On the backlog run the lead closed chunk 1 as already fixed, with its evidence,
 before asking its first question. After that only t-4's worker closed any chunks.
@@ -1055,7 +1058,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | Command | Does |
 |---|---|
 | `dag submit --plan <md> [--spec <md>]` | validate the plan and start the engine on it (one DAG per run); after a failed plan review, submit the revised plan again |
-| `dag submit --round --plan <fix plan>` | after a failed final stage, append the fix plan's tasks as a fix round |
+| `dag submit --round --plan <fix plan>` | after the final stage finishes with a round left, append the fix plan's tasks as a round |
 | `dag status` | per-task digest, the report numbers, landed commits, Verify and merge errors, what you told workers, unverified notes, the final stage, token usage |
 | `dag asks` | questions the lead holds, oldest first, with every option |
 | `dag answer <task> <answers-json>` | answer as the lead |
