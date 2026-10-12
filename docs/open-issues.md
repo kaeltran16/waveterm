@@ -73,7 +73,8 @@ Cockpit and surfaces:
   action builder.
 - **Cross-surface Back history and its context strip** (2026-09-17) — parked as `09e86573` on
   `feat/surface-integration`; keep the branch while this is open.
-- **Composer attachments** (2026-09-18) — revive when attaching a file to a goal or steer is wanted.
+- **Composer attachments** (2026-09-18) — the New run goal has them since 2026-10-12; revive the Steer half
+  and drag-drop when attaching a file to a steer is wanted.
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /
   React-DevTools pass against a populated cockpit first).
 

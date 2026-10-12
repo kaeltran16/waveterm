@@ -26,7 +26,9 @@ import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
 import { X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentsViewModel } from "../agents/agents";
+import { AttachButton, AttachmentTray } from "../agents/attachmenttray";
 import { channelsAtom, createChannel, primeChannels } from "../agents/channelsstore";
+import { attachmentBlocker, useComposerAttachments } from "../agents/composerattachments";
 import { noteRecentProject, projectListAtom, recentProjectsAtom } from "../agents/projectsstore";
 import { RoutePicker } from "../agents/routepicker";
 import {
@@ -318,6 +320,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const [error, setError] = useState<string | null>(null);
     const goalRef = useRef<HTMLTextAreaElement>(null);
     const planRef = useRef<HTMLInputElement>(null);
+    const { attachments, addPaths, remove, retry, onPaste } = useComposerAttachments();
     const config = {
         shape,
         parallelism,
@@ -331,7 +334,9 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const orchestrator = shape === "orchestrator";
     // a plan start is named by its plan, so it has no goal field to fill
     const planStart = orchestrator && startFrom === "plan";
-    const blocker = launchBlocker({ shape, start: startFrom, goal, planPath, preview });
+    const blocker =
+        launchBlocker({ shape, start: startFrom, goal, planPath, preview }) ??
+        (planStart ? null : attachmentBlocker(attachments));
     const projectPath = rows.find((r) => r.name === picked)?.path ?? "";
 
     // The project's own channel is where its profile lives, and a project that has never run has no channel
@@ -388,6 +393,34 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         globalStore.set(model.newProjectOpenAtom, true);
     };
 
+    // Picked files are referenced where they are, so no copy and no size cap. The dynamic import keeps
+    // non-Tauri contexts clean, as newprojectmodal's folder picker does.
+    const pickFiles = () =>
+        fireAndForget(async () => {
+            try {
+                const { open } = await import("@tauri-apps/plugin-dialog");
+                const picked = await open({ multiple: true, title: "Attach files" });
+                if (picked != null) {
+                    addPaths(Array.isArray(picked) ? picked : [picked]);
+                }
+            } catch (e) {
+                setError(`Could not open the file picker: ${String(e)}`);
+            }
+        });
+
+    // DEV-only: the new-run-attachments scenario's seam into the dialog's handler, since CDP cannot drive the
+    // native dialog
+    useEffect(() => {
+        if (!import.meta.env.DEV) {
+            return;
+        }
+        const w = window as unknown as { __newRunAttachPaths?: (paths: string[]) => void };
+        w.__newRunAttachPaths = addPaths;
+        return () => {
+            delete w.__newRunAttachPaths;
+        };
+    }, [addPaths]);
+
     const start = () => {
         if (picked == null || blocker != null || starting) {
             return;
@@ -408,7 +441,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                 // a route the user picked in the Models section is the answer; otherwise resolve the
                 // project's own, which also validates that the route is actually available right now
                 const route = routeTouched && runRoute != null ? runRoute : await resolveChannelLaunchRoute(oid);
-                run = await createRun(oid, launchGoal(config, goal), route, launchOptsFromConfig(config));
+                run = await createRun(oid, launchGoal(config, goal, attachments), route, launchOptsFromConfig(config));
             } catch (e) {
                 // only a failure BEFORE the run exists keeps this modal: there is still a launch to retry
                 setError(String(e));
@@ -493,15 +526,22 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                     inputRef={planRef}
                                 />
                             ) : (
-                                <textarea
-                                    ref={goalRef}
-                                    autoFocus
-                                    aria-label="Goal"
-                                    value={goal}
-                                    onChange={(e) => setGoal(e.target.value)}
-                                    placeholder="What should it do?"
-                                    className="min-h-0 w-full flex-1 resize-none rounded-[7px] border border-edge-mid bg-background px-3 py-2.5 text-[13px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent/60"
-                                />
+                                <>
+                                    <textarea
+                                        ref={goalRef}
+                                        autoFocus
+                                        aria-label="Goal"
+                                        value={goal}
+                                        onChange={(e) => setGoal(e.target.value)}
+                                        onPaste={onPaste}
+                                        placeholder="What should it do?"
+                                        className="min-h-0 w-full flex-1 resize-none rounded-[7px] border border-edge-mid bg-background px-3 py-2.5 text-[13px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent/60"
+                                    />
+                                    <div data-goal-attachments className="flex items-start gap-1.5">
+                                        <AttachButton onClick={pickFiles} />
+                                        <AttachmentTray items={attachments} onRemove={remove} onRetry={retry} />
+                                    </div>
+                                </>
                             )}
                             {orchestrator && prototype !== "" ? (
                                 <div className="flex items-center gap-1.5">
@@ -523,7 +563,10 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                             ) : null}
                         </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2 border-t border-border px-[18px] py-3">
+                    <div
+                        data-new-run-footer
+                        className="flex shrink-0 items-center gap-2 border-t border-border px-[18px] py-3"
+                    >
                         {error != null ? (
                             <span className="min-w-0 flex-1 truncate text-[11px] text-error">{error}</span>
                         ) : (
