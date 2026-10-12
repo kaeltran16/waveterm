@@ -280,7 +280,7 @@ const runsLifecycle = {
     async teardown(h, ctx) {
         for (const oref of ctx.workers) {
             try {
-                const tab = await h.rpc("gettab", oref.slice(4));
+                const tab = await waveService(h, "object", "GetObject", [oref]);
                 const bid = tab && tab.blockids && tab.blockids[0];
                 if (bid) await h.rpc("deleteblock", { blockid: bid });
             } catch {
@@ -6345,6 +6345,10 @@ const dagLifecycle = {
     async teardown(h, ctx) {
         try {
             await deleteChannelWorkerBlocks(h, ctx.channelId);
+        } catch (e) {
+            console.error(`dag-lifecycle teardown: delete the worker blocks failed: ${e?.message ?? e}`);
+        }
+        try {
             await h.rpc("deletechannel", { channelid: ctx.channelId });
         } catch {
             // best-effort cleanup
@@ -7894,21 +7898,23 @@ async function waitForDispatch(h, ctx, taskId) {
     ctx.dispatchMs = Date.now() - start;
 }
 
-// best-effort, so one failed step does not strand the rest
+// best-effort, so one failed worker does not strand the rest; the failures are thrown after, for the caller to log
 async function deleteChannelWorkerBlocks(h, channelId) {
+    const failed = [];
     for (const run of await channelRuns(h, channelId)) {
         for (const phase of run.phases || []) {
             for (const oref of phase.workerorefs || []) {
                 try {
-                    const tab = await h.rpc("gettab", oref.slice(4));
+                    const tab = await waveService(h, "object", "GetObject", [oref]);
                     const bid = tab && tab.blockids && tab.blockids[0];
                     if (bid) await h.rpc("deleteblock", { blockid: bid });
-                } catch {
-                    // best-effort cleanup
+                } catch (e) {
+                    failed.push(`${oref}: ${e?.message ?? e}`);
                 }
             }
         }
     }
+    if (failed.length) throw new Error(failed.join("; "));
 }
 
 async function teardownFixtureRun(h, ctx, name, restore) {
