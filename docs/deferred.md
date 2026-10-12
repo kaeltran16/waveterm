@@ -477,8 +477,15 @@ written if the need reappears.
   5h/weekly `%` is Anthropic's opaque server-side number, unrelated to any transcript token sum. The
   cockpit now shows a real *used*-token count with **no denominator** (see the resolved usage-bar
   entry); a "used / limit" ratio would require a cap Anthropic does not publish.
-- **Plan-tier badge** (handoff "Max 20×" / "Tier 4"): not carried by the statusLine; the provider
-  label is shown without a tier badge. No source to derive it from.
+
+**Deferred, source exists (corrected 2026-10-12):**
+- **Plan-tier badge** (handoff "Max 20×" / "Tier 4"): not carried by the statusLine, so the Usage
+  surface shows the provider label without a tier badge. It was filed above as having no source, which
+  was wrong: `~/.claude/.credentials.json` → `claudeAiOauth` carries `subscriptionType` (`max`) and
+  `rateLimitTier` (`default_claude_max_5x`). Account switching already reads `subscriptionType` as an
+  account's `Plan` (`pkg/jarvis/claudeaccount.go`) for the Settings account list; `rateLimitTier` is
+  not read yet and its format is undocumented, so a badge should fall back to the plan alone on an
+  unrecognized value. Deferred because a single known account gains little from it.
 
 **Resolved 2026-07-01 (deferred-token-truth-usage-polish):**
 - **Model-id prettifying** — DONE. `prettyModel` (`modellabel.ts`) turns raw ids into friendly labels
