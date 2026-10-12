@@ -8104,7 +8104,7 @@ function treeRailRoster(runId, now, leadName = TREE_RAIL_LEAD, leadExtra = {}) {
 }
 
 // a real orchestrator run held in planning, and the fixture roster whose lead carries its id
-async function arrangeFixtureRun(h, ctx, label, leadName, leadExtra) {
+async function arrangeFixtureRun(h, ctx, label, leadName, leadExtra, runExtra) {
     const wslist = await h.rpc("workspacelist", null);
     const ch = await h.rpc("createchannel", { name: `verify-${label}`, projectpath: ctx.cwd });
     ctx.channelId = ch.oid;
@@ -8115,6 +8115,7 @@ async function arrangeFixtureRun(h, ctx, label, leadName, leadExtra) {
         runtime: "claude",
         mode: "orchestrator",
         deferstart: true,
+        ...runExtra,
     });
     ctx.runId = created.run.id;
     mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
@@ -9561,6 +9562,189 @@ const cockpitPolish = {
     },
     async teardown(h, ctx) {
         await teardownFixtureRun(h, ctx, "cockpit-polish");
+    },
+};
+
+// The lead card's merge gate (effort 4d24005d): a finished lane tip the engine has not landed reads live, toned wait,
+// with how long it has waited, opens its ended worker, and stays out of the cancel count. The run lands in the
+// checkout of a temp repository whose index holds a staged file, so the engine holds every merge and the tip stays
+// ready. Both tasks point at deferred quick runs that never start; marking t-1's run done lets the engine move the
+// task to done itself, which writes the task-done event the gate's age is read from. t-2 stays running.
+const MERGE_GATE_LEAD = "merge-gate lead";
+const MERGE_GATE_LABEL = "merge gate lane";
+const MERGE_GATE_LIVE_LABEL = "running lane";
+const MERGE_GATE_TASKS = [
+    ["t-1", MERGE_GATE_LABEL],
+    ["t-2", MERGE_GATE_LIVE_LABEL],
+].map(([id, label]) => ({ id, label, description: "do nothing, stop immediately", deps: [], gate: false, state: "" }));
+// the engine ticks a dag at most every 30 seconds, and the card then waits on the run's digest
+const MERGE_GATE_WAIT_MS = 90_000;
+const mergeGateRow = (label) =>
+    `[...(${COCKPIT_LEAD_CARD}?.querySelectorAll("[data-row-key]") ?? [])]` +
+    `.find((r) => r.textContent.includes(${JSON.stringify(label)}))`;
+// the row's dot, tag and the card's cancel panel text, as the assertions read them
+const MERGE_GATE_READ = `(() => {
+    const row = ${mergeGateRow(MERGE_GATE_LABEL)};
+    const grid = row?.firstElementChild;
+    return {
+        row: row != null,
+        dot: grid?.children[0]?.className ?? null,
+        tag: grid?.children[2]?.textContent.trim() ?? null,
+        live: ${mergeGateRow(MERGE_GATE_LIVE_LABEL)} != null,
+    };
+})()`;
+
+// a deferred quick run in the fixture's channel: a task's child run that never starts a session
+async function mergeGateStandIn(h, ctx, taskId) {
+    const wslist = await h.rpc("workspacelist", null);
+    const created = await h.rpc("createrun", {
+        channelid: ctx.channelId,
+        workspaceid: wslist[0].workspacedata.oid,
+        goal: `verify merge-gate: stand-in child run of ${taskId}`,
+        runtime: "claude",
+        mode: "quick",
+        deferstart: true,
+    });
+    return created.run.id;
+}
+
+const leadCardMergeGate = {
+    name: "lead-card-merge-gate",
+    surface: "cockpit",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-merge-gate-"));
+        const ctx = { cwd };
+        try {
+            fstGitInit(cwd);
+            // a staged file: the engine will not squash a lane over it, so it holds the merge
+            writeFileSync(join(cwd, "held.txt"), "staged by the merge-gate fixture\n");
+            execFileSync("git", ["add", "held.txt"], { cwd, stdio: "pipe" });
+            await arrangeFixtureRun(h, ctx, "merge-gate", MERGE_GATE_LEAD, undefined, { landing: "checkout" });
+            ctx.gateRun = await mergeGateStandIn(h, ctx, "t-1");
+            ctx.liveRun = await mergeGateStandIn(h, ctx, "t-2");
+            await h.rpc("dagsubmit", {
+                channelid: ctx.channelId,
+                runid: ctx.runId,
+                title: "verify merge-gate",
+                parallelism: 1,
+                tasks: MERGE_GATE_TASKS,
+            });
+            ctx.dagId = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.oid;
+            // over whatever the engine dispatched first: teardown deletes a real worker's block with the channel's
+            const runOf = { "t-1": ctx.gateRun, "t-2": ctx.liveRun };
+            await seedDag(
+                h,
+                ctx,
+                (dag) => ({
+                    ...dag,
+                    mergerequired: true,
+                    tasks: dag.tasks.map((t) => ({ ...t, state: "running", runid: runOf[t.id] })),
+                }),
+                (dag) => JSON.stringify([dag?.mergerequired, (dag?.tasks ?? []).map((t) => [t.id, t.state, t.runid])])
+            );
+            await fstWriteRun(h, ctx.gateRun, (r) => ({ ...r, status: "done", completedts: Date.now() }));
+            // the merge gate needs t-1 done by the engine (its task-done event) and the merge held
+            const start = Date.now();
+            while (Date.now() - start < MERGE_GATE_WAIT_MS) {
+                const group = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group;
+                ctx.gateState = group?.tasks?.find((t) => t.id === "t-1")?.state;
+                if (ctx.gateState === "done") break;
+                await new Promise((r) => setTimeout(r, 1000));
+            }
+            ctx.doneMs = Date.now() - start;
+            // the fixture roster is read once at boot
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+            await h.goto("cockpit");
+            ctx.shown = await h.ev(`(async () => {
+                for (let i = 0; i < ${MERGE_GATE_WAIT_MS / 500}; i++) {
+                    const r = ${MERGE_GATE_READ};
+                    if (r.row && /^merge waiting \\d/.test(r.tag ?? "")) return r;
+                    await new Promise((res) => setTimeout(res, 500));
+                }
+                return ${MERGE_GATE_READ};
+            })()`);
+            // let the card's enter motion settle
+            await new Promise((r) => setTimeout(r, 800));
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const shown = ctx.shown ?? {};
+        rec(
+            "0. the engine finishes t-1 and the lead card draws its row",
+            ctx.arrangeError == null && ctx.gateState === "done" && shown.row === true,
+            ctx.arrangeError ?? `t-1 ${ctx.gateState} after ${ctx.doneMs}ms; ${JSON.stringify(shown)}`
+        );
+        await h.shot("cdp-shots/lead-card-merge-gate.png");
+        rec(
+            "1. the merge-ready row is tagged with the gate's age",
+            /^merge waiting \d+(s|m|h\d+m)$/.test(shown.tag ?? ""),
+            `tag=${JSON.stringify(shown.tag)}`
+        );
+        rec(
+            "2. its dot is the hollow wait dot, not the pulsing run dot",
+            (shown.dot ?? "").includes("--color-muted") && !(shown.dot ?? "").includes("pulse-dot"),
+            `dot=${shown.dot}`
+        );
+
+        // the cancel panel counts the running row and leaves the gate out
+        const cancel = await h.ev(`(async () => {
+            const card = ${COCKPIT_LEAD_CARD};
+            const btn = card && [...card.querySelectorAll("button")].find((b) => b.textContent.trim() === "Cancel run");
+            if (!btn) return { error: "no Cancel run button on the card" };
+            btn.click();
+            await new Promise((r) => setTimeout(r, 400));
+            const text = [...card.querySelectorAll("span")].map((s) => s.textContent).find((t) => t.startsWith("Stop "));
+            return { text: text ?? null };
+        })()`);
+        await h.shot("cdp-shots/lead-card-merge-gate-cancel.png");
+        rec(
+            "3. the cancel panel counts only the running task",
+            shown.live === true && /^Stop 1 running tasks/.test(cancel.text ?? ""),
+            JSON.stringify({ live: shown.live, ...cancel })
+        );
+        await h.ev(`(() => {
+            const card = ${COCKPIT_LEAD_CARD};
+            [...(card?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "Keep running")?.click();
+        })()`);
+
+        // focusing the row offers Open, which lands on the ended worker's transcript on the Agent surface
+        const opened = await h.ev(`(async () => {
+            const row = ${mergeGateRow(MERGE_GATE_LABEL)};
+            if (!row) return { error: "no merge-ready row" };
+            row.click();
+            await new Promise((r) => setTimeout(r, 400));
+            const sub = row.querySelector(":scope > div:nth-child(2) > div")?.textContent.trim() ?? null;
+            const open = [...row.querySelectorAll("button")].find((b) => b.textContent.includes("Open"));
+            if (!open) return { sub, error: "no Open button on the focused row" };
+            open.click();
+            await new Promise((r) => setTimeout(r, 1200));
+            return { sub };
+        })()`);
+        const surface = await h.activeSurfaceLabel();
+        const header = await h.ev(`document.body.innerText.includes(${JSON.stringify(MERGE_GATE_LABEL)})`);
+        await h.shot("cdp-shots/lead-card-merge-gate-open.png");
+        rec(
+            "4. Open on the merge-ready row shows its ended worker on the Agent surface",
+            opened.error == null &&
+                /merge ready$/.test(opened.sub ?? "") &&
+                surface === SURFACE_LABEL.agent &&
+                header === true,
+            JSON.stringify({ ...opened, surface, header })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "lead-card-merge-gate");
     },
 };
 
@@ -15558,6 +15742,7 @@ export const SCENARIOS = [
     docReviewNotes,
     docReviewCanvas,
     cockpitPolish,
+    leadCardMergeGate,
     runSheetPolish,
     runTimingScenario,
     runSheetCarryScenario,
