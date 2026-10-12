@@ -863,11 +863,12 @@ when the fix is a product call.
 **This repo's Final command** is `node scripts/cdp/final-verify.mjs [scenario...]`. It starts a dev app from the
 final tree, runs the named `verify:ui` scenarios (all of them with none named) and writes into `ARC_FINAL_OUT`:
 `cdp-shots/` (with `index.html` as the contact sheet), `shots.json` (the manifest above, one entry per
-scenario with its screenshots and steps), `dev-app.log`, `waveapp.log` (the app's own log),
-`webview2-profile/` and `tauri.final.json`. A dev app from the main checkout is usually running, so the final one
+scenario with its screenshots and steps), `dev-app.log`, `waveapp.log` (the app's own log)
+and `tauri.final.json`. A dev app from the main checkout is usually running, so the final one
 shares nothing with it: its own CDP port, a Vite port from 5175 up (passed as `task dev -- --config
 tauri.final.json`), a fresh store under `%LOCALAPPDATA%\arc-final\stores\` (a short path, since wavesrv's
-`wave.sock` must stay under Windows' 108-byte socket path limit; dropped after the run),
+`wave.sock` must stay under Windows' 108-byte socket path limit; dropped after the run with the WebView2
+profile inside it),
 a cargo target dir under `%LOCALAPPDATA%\arc-final\` (`target`, `target-1`, `target-2`: one per build slot,
 each paying one cold build), and its own `dist/bin`: it unlinks the tree's `dist/bin` and `src-tauri/target`
 junctions first. It sets `ARC_DEV_NO_GLOBAL_INSTALL`, so the run's branch installs no agent hooks or

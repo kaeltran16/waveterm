@@ -183,7 +183,9 @@ fs.writeFileSync(path.join(data, "waveapp.log"), "boot log");
         expect(existsSync(env.ARC_DEV_DATA_DIR)).toBe(false);
         expect(readFileSync(join(out, "waveapp.log"), "utf8")).toBe("boot log");
         expect(env.ARC_DEV_NO_GLOBAL_INSTALL).toBe("1");
-        expect(env.WEBVIEW2_USER_DATA_FOLDER).toBe(join(out, "webview2-profile"));
+        // the profile lives in the store, so dropping the store drops it
+        expect(env.WEBVIEW2_USER_DATA_FOLDER).toBe(join(env.ARC_DEV_DATA_DIR, "webview2-profile"));
+        expect(existsSync(join(out, "webview2-profile"))).toBe(false);
     });
 });
 

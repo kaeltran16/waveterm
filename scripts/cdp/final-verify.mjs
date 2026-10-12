@@ -353,7 +353,9 @@ async function main() {
     sweepStaleStores(slotPath("stores", slot));
 
     const port = await pickPort(DEFAULT_PORT + portOffset);
-    const profile = join(out, "webview2-profile");
+    // inside the store, so it goes with it: nothing reads it after the run, and kept in ARC_FINAL_OUT it was ~76 MB
+    // a round for the 30 days the engine keeps that dir
+    const profile = join(store, "webview2-profile");
     mkdirSync(profile, { recursive: true });
     // the dev app's output goes to a file so the last stdout line stays ours for the engine to read
     const logPath = join(out, "dev-app.log");
