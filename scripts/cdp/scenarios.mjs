@@ -5240,16 +5240,65 @@ const codeGitStatus = {
 const codeDiff = {
     name: "code-diff",
     surface: "code",
-    async arrange() {
-        return {};
+    // its own repo with exactly one uncommitted edit: final-verify boots a fresh store with no projects
+    async arrange(h) {
+        const dir = mkdtempSync(join(tmpdir(), "verify-code-diff-"));
+        git(dir, "init", "-q", "--initial-branch=main");
+        writeFileSync(
+            join(dir, "policy.go"),
+            `package retry
+
+func Budget() int {
+    return 3
+}
+`
+        );
+        git(dir, "add", ".");
+        git(dir, "commit", "-q", "-m", "seed the retry package");
+        writeFileSync(
+            join(dir, "policy.go"),
+            `package retry
+
+func Budget() int {
+    return 8
+}
+`
+        );
+        const name = "verify-code-diff";
+        await h.rpc("createproject", { name, path: dir });
+        await waitForProjectInConfig(h, name);
+        try {
+            await h.ev("location.reload()");
+        } catch {
+            /* the evaluate is cut off by the navigation it just started */
+        }
+        for (let waited = 0; waited < 30000; waited += 500) {
+            const up = await h
+                .ev("!!window.TabRpcClient && !!document.querySelector('nav button')")
+                .catch(() => false);
+            if (up) break;
+            await new Promise((r) => setTimeout(r, 500));
+        }
+        return { dir, name };
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const steps = [];
         await h.goto("code");
         if ((await openProjectPicker(h)) === true) {
             await sleep(300);
-            await chooseProjectRow(h);
+            // not chooseProjectRow: rows[0] may be any registered project, and the step-1 check pins policy.go
+            await h.ev(`(() => {
+                const chip = document.querySelector('[data-code-project-picker]');
+                const scope = chip && chip.parentElement;
+                if (!scope) return false;
+                const row = [...scope.querySelectorAll('button')].find(
+                    (b) => b !== chip && (b.textContent || '').includes(${JSON.stringify(ctx.name)})
+                );
+                if (!row) return false;
+                row.click();
+                return true;
+            })()`);
             await sleep(1200);
         }
 
@@ -5275,7 +5324,7 @@ const codeDiff = {
         })()`);
         steps.push({
             step: "open a file that differs from HEAD",
-            ok: opened === true && rowPath !== "",
+            ok: opened === true && rowPath === "policy.go",
             detail: `path=${rowPath || "(none)"}`,
         });
         await sleep(900);
@@ -5313,8 +5362,18 @@ const codeDiff = {
         });
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.goto("cockpit"); // leave the app where a human expects it
+        try {
+            await h.rpc("deleteproject", { name: ctx.name });
+        } catch {
+            /* leave a stale registry entry rather than failing teardown */
+        }
+        try {
+            rmSync(ctx.dir, { recursive: true, force: true });
+        } catch {
+            /* a leftover temp repo is cheaper than a failed teardown */
+        }
     },
 };
 
