@@ -10,9 +10,10 @@ vi.mock("@/app/store/wshclientapi", () => ({
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import type { ShellTask } from "./shelltasks";
-import { readShellTaskOutput, shellTaskPollIds } from "./shelltasksstore";
+import { readShellTaskOutput, refreshShellTasks, shellTaskPollIds, shellTasksByIdAtom } from "./shelltasksstore";
 
 const transcript = vi.mocked(RpcApi.GetAgentTranscriptCommand);
 
@@ -39,6 +40,23 @@ describe("readShellTaskOutput", () => {
     it("returns short output unchanged", async () => {
         transcript.mockResolvedValue({ lines: ["[exited with code 0]"] });
         await expect(readShellTaskOutput("C:/tmp/tasks/x.output")).resolves.toEqual(["[exited with code 0]"]);
+    });
+});
+
+describe("refreshShellTasks", () => {
+    it("keeps the last known list when a transcript read fails", async () => {
+        const known = [task("t1", "running")];
+        globalStore.set(shellTasksByIdAtom, { a1: known });
+        transcript.mockRejectedValue(new Error("timeout"));
+        await refreshShellTasks("a1", "C:/tmp/a1.jsonl");
+        expect(globalStore.get(shellTasksByIdAtom).a1).toBe(known);
+    });
+
+    it("drops the entry when a read finds no visible tasks", async () => {
+        globalStore.set(shellTasksByIdAtom, { a1: [task("t1", "running")] });
+        transcript.mockResolvedValue({ lines: [] });
+        await refreshShellTasks("a1", "C:/tmp/a1.jsonl");
+        expect("a1" in globalStore.get(shellTasksByIdAtom)).toBe(false);
     });
 });
 

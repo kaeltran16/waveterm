@@ -13,6 +13,8 @@ import { muteMode } from "@/app/view/agents/agentrowmodel";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { diffStatsByIdAtom } from "@/app/view/agents/cardgitstore";
 import { isEndedWorkerId } from "@/app/view/agents/runlineage";
+import { isStandingBy } from "@/app/view/agents/shelltasks";
+import { shellTasksByIdAtom } from "@/app/view/agents/shelltasksstore";
 import type { ThingAction, ThingKindDef } from "./types";
 
 export type ContextLevel = ReturnType<typeof contextLevel>;
@@ -60,7 +62,13 @@ const actions: ThingAction<AgentThing>[] = [
         id: "agent:nudge",
         label: "Nudge (continue)",
         group: "steer",
-        applies: ({ agent }) => railAction(agent.state, "", live(agent))?.kind === "resume",
+        applies: ({ agent }) =>
+            railAction(
+                agent.state,
+                "",
+                live(agent),
+                isStandingBy(agent.state, globalStore.get(shellTasksByIdAtom)[agent.id] ?? [])
+            )?.kind === "resume",
         run: ({ agent }) => driveAgent(agent.blockId, NUDGE_INPUT),
     },
     {

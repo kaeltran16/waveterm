@@ -36,7 +36,8 @@ function setList(id: string, list: ShellTask[] | null): void {
 }
 
 /** Tail the agent's transcript, project its shell tasks, and store them. Guarded so a superseding
- *  load (or a drop) discards a slower older result. */
+ *  load (or a drop) discards a slower older result. A failed read keeps the last known list, so an
+ *  absent entry always means no visible tasks and never reads as a task finishing. */
 export async function refreshShellTasks(id: string, transcriptPath: string | undefined): Promise<void> {
     const seq = (loadSeq.get(id) ?? 0) + 1;
     loadSeq.set(id, seq);
@@ -54,9 +55,7 @@ export async function refreshShellTasks(id: string, transcriptPath: string | und
         }
         setList(id, visibleShellTasks(extractShellTasks(tr.lines ?? [])));
     } catch {
-        if (loadSeq.get(id) === seq) {
-            setList(id, null);
-        }
+        // keep the last known list: the next poll or transcript activity retries
     }
 }
 

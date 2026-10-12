@@ -31,6 +31,8 @@ import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { agentProject, isEndedWorkerId, leadAgentOf } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
+import { isStandingBy } from "./shelltasks";
+import { shellTasksByIdAtom } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
 
 const STATE_COLOR: Record<AgentVM["state"], string> = {
@@ -123,7 +125,8 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const stateText = ended ? (landed ? "landed" : "done") : STATE_LABEL[agent.state];
     const stateColor = ended ? "var(--color-success)" : STATE_COLOR[agent.state];
     // m4: one-shot settle on the state pill when the focused agent reaches idle
-    const settling = useSettle(!ended && agent.state === "idle");
+    const standingBy = isStandingBy(agent.state, useAtomValue(shellTasksByIdAtom)[agent.id] ?? []);
+    const settling = useSettle(!ended && agent.state === "idle" && !standingBy);
     const review = parseDocReview(agent.ask);
     const reviewOpen = useAtomValue(docReviewAtom) != null;
 
