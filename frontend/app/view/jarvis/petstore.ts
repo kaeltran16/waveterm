@@ -22,11 +22,13 @@ const WATERMARK_KEY = "wave:pet.watermark";
 // corner still means the same place after a resize. Occlusion is the corner dweller's cost, and moving
 // between corners is how it is paid (design §9).
 //
-// The bottom two only. A top pair used to be here and sat on the surface heading band — measured, that
-// band runs y=66 to ~144 with the page title starting at x=106, and a top-corner creature spanned
-// y=58-102: title text on the left, and because SurfaceHeader is justify-between, the header's action
-// buttons on the right. A corner whose whole job is escaping occlusion cannot be the one that occludes
-// most, so the escape is left/right along the bottom edge — the axis content is aligned on anyway.
+// The bottom two only. A top pair used to be here and sat on the surface heading band — measured under
+// the old, taller surface header, that band ran y=66 to ~144 with the page title starting at x=106, and
+// a top-corner creature spanned y=58-102: title text on the left, the header's action buttons on the
+// right. The 52px surface toolbar that replaced it still puts the title on the left and pushes its
+// controls to the right edge, so both top corners still land on chrome. A corner whose whole job is
+// escaping occlusion cannot be the one that occludes most, so the escape is left/right along the bottom
+// edge — the axis content is aligned on anyway.
 export const PET_CORNERS = ["bottom-right", "bottom-left"] as const;
 export type PetCorner = (typeof PET_CORNERS)[number];
 

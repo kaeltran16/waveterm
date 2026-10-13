@@ -69,7 +69,7 @@ import {
     type SettingSectionDef,
 } from "./settingsmodel";
 import { takePendingSettingsSection } from "./settingsstore";
-import { SurfaceHeader } from "./surfacescaffold";
+import { SurfaceToolbar } from "./surfacescaffold";
 import { ACCENT_SWATCHES, activePalette, colorOf, THEMES, type OverrideRole } from "./themes";
 import { DEFAULT_THEME_PRESET, themeOverridesAtom, themePresetAtom } from "./themestore";
 
@@ -252,55 +252,71 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
 
     return (
         <MotionConfig reducedMotion="user">
-            <div className="flex h-full min-h-0 bg-background">
-                <SectionIndex
-                    groups={groupSections(visibleSections)}
-                    selected={selected}
-                    onSelect={setWanted}
-                    query={query}
-                    onQuery={setQuery}
-                    changed={bindings.changed}
-                />
-                <div className="flex min-w-0 flex-1 flex-col">
-                    {section == null ? (
-                        <div className="flex h-full items-center justify-center text-[13px] text-muted">
-                            No setting matches that.
+            <div className="flex h-full min-h-0 flex-col bg-background">
+                <SurfaceToolbar
+                    title="Settings"
+                    actions={
+                        <div className="flex w-[240px] items-center gap-2 rounded border border-border bg-surface-raised px-2.5 py-1.5">
+                            <Search size={12} className="flex-none text-muted" />
+                            <input
+                                type="text"
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                placeholder="Search settings"
+                                spellCheck={false}
+                                className="min-w-0 flex-1 border-0 bg-transparent text-[12px] text-primary outline-none placeholder:text-muted"
+                            />
                         </div>
-                    ) : (
-                        <>
-                            <div className="flex flex-none items-start justify-between gap-5 border-b border-edge-faint px-[28px] pb-4 pt-5">
-                                <div className="min-w-0">
-                                    <div className="text-[19px] font-bold tracking-[-0.01em] text-primary">
-                                        {section.name}
-                                    </div>
-                                    <div className="mt-[5px] max-w-[520px] text-[12.5px] leading-[1.5] text-secondary">
-                                        {section.blurb}
-                                    </div>
-                                </div>
-                                {sectionChanged > 0 ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => bindings.resetSection(section)}
-                                        className="flex-none cursor-pointer rounded border border-edge-mid px-[13px] py-[7px] text-[12px] font-semibold text-secondary transition-colors hover:border-edge-strong hover:text-primary"
-                                    >
-                                        Reset section
-                                    </button>
-                                ) : null}
+                    }
+                />
+                <div className="flex min-h-0 flex-1">
+                    <SectionIndex
+                        groups={groupSections(visibleSections)}
+                        selected={selected}
+                        onSelect={setWanted}
+                        changed={bindings.changed}
+                    />
+                    <div className="flex min-w-0 flex-1 flex-col">
+                        {section == null ? (
+                            <div className="flex h-full items-center justify-center text-[13px] text-muted">
+                                No setting matches that.
                             </div>
-                            <motion.div
-                                key={section.id}
-                                data-settings-section={section.id}
-                                initial={reduce ? false : { opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-                                className="min-w-0 flex-1 overflow-y-auto px-[28px] pb-12 pt-2"
-                            >
-                                <RowCtx.Provider value={ctx}>
-                                    <SectionBody id={section.id} runtime={flagRuntime} onRuntime={setFlagRuntime} />
-                                </RowCtx.Provider>
-                            </motion.div>
-                        </>
-                    )}
+                        ) : (
+                            <>
+                                <div className="flex flex-none items-start justify-between gap-5 border-b border-edge-faint px-[28px] pb-4 pt-5">
+                                    <div className="min-w-0">
+                                        <div className="text-[19px] font-bold tracking-[-0.01em] text-primary">
+                                            {section.name}
+                                        </div>
+                                        <div className="mt-[5px] max-w-[520px] text-[12.5px] leading-[1.5] text-secondary">
+                                            {section.blurb}
+                                        </div>
+                                    </div>
+                                    {sectionChanged > 0 ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => bindings.resetSection(section)}
+                                            className="flex-none cursor-pointer rounded border border-edge-mid px-[13px] py-[7px] text-[12px] font-semibold text-secondary transition-colors hover:border-edge-strong hover:text-primary"
+                                        >
+                                            Reset section
+                                        </button>
+                                    ) : null}
+                                </div>
+                                <motion.div
+                                    key={section.id}
+                                    data-settings-section={section.id}
+                                    initial={reduce ? false : { opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                                    className="min-w-0 flex-1 overflow-y-auto px-[28px] pb-12 pt-2"
+                                >
+                                    <RowCtx.Provider value={ctx}>
+                                        <SectionBody id={section.id} runtime={flagRuntime} onRuntime={setFlagRuntime} />
+                                    </RowCtx.Provider>
+                                </motion.div>
+                            </>
+                        )}
+                    </div>
                 </div>
             </div>
         </MotionConfig>
@@ -311,37 +327,15 @@ function SectionIndex({
     groups,
     selected,
     onSelect,
-    query,
-    onQuery,
     changed,
 }: {
     groups: { label: string; sections: SettingSectionDef[] }[];
     selected: string | null;
     onSelect: (id: string) => void;
-    query: string;
-    onQuery: (q: string) => void;
     changed: ReadonlySet<string>;
 }) {
     return (
         <div className="flex w-[340px] flex-none flex-col border-r border-border">
-            <div className="flex-none border-b border-border">
-                <SurfaceHeader
-                    title="Settings"
-                    subtitle="Cockpit preferences, appearance, and agent defaults."
-                    border={false}
-                />
-                <div className="mx-[28px] mb-4 flex items-center gap-2 rounded border border-border bg-surface-raised px-2.5 py-1.5">
-                    <Search size={12} className="flex-none text-muted" />
-                    <input
-                        type="text"
-                        value={query}
-                        onChange={(e) => onQuery(e.target.value)}
-                        placeholder="Search settings"
-                        spellCheck={false}
-                        className="min-w-0 flex-1 border-0 bg-transparent text-[12px] text-primary outline-none placeholder:text-muted"
-                    />
-                </div>
-            </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-10 pt-3">
                 {groups.map((g) => (
                     <div key={g.label} className="mb-3.5">

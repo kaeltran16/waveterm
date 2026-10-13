@@ -6,7 +6,7 @@
 // existed the only clue was the tree highlight, and the only copy-path affordance was buried in the
 // "file too large" empty state.
 //
-// Save status stays in SurfaceHeader. Splitting identity from save state is a real cost, but moving
+// Save status stays in the surface toolbar. Splitting identity from save state is a real cost, but moving
 // working controls for tidiness is churn.
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
