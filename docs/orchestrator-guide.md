@@ -759,6 +759,34 @@ it to you, and the server log (`waveapp.log`) gets a dump of every goroutine, ta
 runs keep being ticked. Nothing in the run advances until Arc is restarted; after a restart the dag resumes from
 where it was, as above. The row is reported once per stuck tick or Verify.
 
+### Autonomous runs
+
+An orchestrator run's **Approvals** setting is **Ask me** (everything above) or **Autonomous** (the profile's run
+defaults, the new-run launcher, `wsh runs start --autonomous`). On an autonomous run the lead answers what would
+otherwise reach you, takes the option it would recommend, and records each call and why in its report:
+
+- **The path and the spec.** A bounded goal or a spike goes ahead without your yes; an architectural one records
+  its decisions in the spec and submits with no spec review question.
+- **Plan review failed after the last round, or its reviewer was lost.** It carries the findings into the pending
+  tasks with `dag amend`, then runs `dag planreview accept "autonomous run"`; a resubmit past the last round is
+  refused with the same instruction. Spec changes while it revises are made and recorded.
+- **Worker questions, failures, stalls, conflicts.** `dag forward` is refused: the lead decides (answer, retry,
+  escalate, skip or send back). A worker question past its 10 minutes stays with the lead, which is woken again.
+- **Final stage failed after the last round.** It completes with the plain `wsh jarvis complete`, never
+  `--force-land`; the land stays held and the report says so and why.
+- **A dead lead after `dag submit`.** The engine relaunches it by itself, up to 3 times a run, and the lead's
+  questions wait for the replacement.
+
+What still reaches you: an **Engine stuck** row, a lead that dies before `dag submit`, and a dead lead the engine
+could not relaunch or has already relaunched 3 times; its questions then come to you as on an Ask me run. The
+Gatekeeper still stays out of orchestrator runs, the engine plan reviewer still reviews the plan, and **Take over**
+on a worker question still works.
+
+The setting can change mid-run. Turning it on answers the lead's own waiting question (spec review, plan review,
+the land question) with one line telling it to decide, wakes it with the autonomous rules, and hands the worker
+questions you were holding back to the lead. Turning it off wakes the lead to ask you again from its next
+decision; calls it already made stand.
+
 ---
 
 ## Steering a live run
