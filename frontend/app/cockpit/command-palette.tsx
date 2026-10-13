@@ -69,7 +69,7 @@ import {
     type VerbRow,
 } from "./actions/types";
 import { runPaletteAction } from "./palette-action";
-import { actionListGroups, verbGroupLabel, verbLeads } from "./palette-actionrows";
+import { actionListGroups, bareLabel, resolveActionRow, verbGroupLabel, verbLeads } from "./palette-actionrows";
 import {
     buildCommandItems,
     buildExtraItems,
@@ -161,17 +161,6 @@ const ACTION_ICONS: Record<ActionGroup, LucideIcon> = { open: ArrowUpRight, stee
 function actionIcon(a: ThingAction<any>): LucideIcon {
     return a.destructive ? CircleX : ACTION_ICONS[a.group];
 }
-
-// what Enter does on an action's row: an input is written or picked first, else the label's own verb
-function actionVerb(a: ThingAction<any>): string {
-    if (a.input != null) {
-        return a.input.kind === "text" ? "Write" : "Pick";
-    }
-    return a.label.split(" ", 1)[0];
-}
-
-// the input level's chip and placeholder add their own "…"
-const bareLabel = (a: ThingAction<any>) => a.label.replace(/…$/, "");
 
 const START_ICONS: Record<StartId, LucideIcon> = { run: SlidersHorizontal, agent: SquareTerminal, initiative: Flag };
 
@@ -877,16 +866,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         key: `act:${action.id}`,
         kind: "action",
         search: action.label,
-        title: action.input?.kind === "text" ? `${bareLabel(action)}…` : action.label,
         icon: actionIcon(action),
         danger: action.destructive,
-        verb: actionVerb(action),
-        echo:
-            action.input == null
-                ? `${bareLabel(action)}: “${t.entry.title}”`
-                : action.input.kind === "pick"
-                  ? `Lists the choices, for “${t.entry.title}”`
-                  : `Takes the text here, for “${t.entry.title}”`,
+        ...resolveActionRow(action, t.entry),
         run: () => startAction(t, action),
         ...over,
     });
@@ -901,7 +883,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         actionItem({ def, entry: v.entry }, v.action, {
             key: v.key,
             search: v.search,
-            title: `${v.action.label} · ${v.entry.title}`,
+            title: `${v.action.title?.(v.entry.thing) ?? v.action.label} · ${v.entry.title}`,
             meta: thingMeta.get(v.entry.key),
         })
     );

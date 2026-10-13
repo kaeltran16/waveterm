@@ -40,6 +40,7 @@ import {
 } from "../agents/runactions";
 import { START_OPTIONS, launchBlocker, startNote, type StartFrom } from "../agents/runconfig";
 import {
+    autonomousAtom,
     endRunConfigDraft,
     hydrateRunConfigFromProfile,
     parallelismAtom,
@@ -63,7 +64,7 @@ import {
     stepParallelism,
     workerRouteAtom,
 } from "../agents/runconfigstore";
-import { ShapeCards, WorkerStepper, usePlanPreview } from "../agents/runlauncher";
+import { ApprovalsSection, ShapeCards, WorkerStepper, usePlanPreview } from "../agents/runlauncher";
 import { planShapeText, planWarnings } from "../orchestrate/dagdigest";
 import {
     initialPick,
@@ -305,6 +306,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const workerRoute = useAtomValue(workerRouteAtom);
     const reviewerPicks = useAtomValue(reviewerPicksAtom);
     const reviewerRoute = useAtomValue(reviewerRouteAtom);
+    const autonomous = useAtomValue(autonomousAtom);
     const startFrom = useAtomValue(startAtom);
     const planPath = useAtomValue(planPathAtom);
     const preview = useAtomValue(planPreviewAtom);
@@ -329,6 +331,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         planPath,
         reviewerPicks,
         reviewerRoute,
+        autonomous,
         prototype,
     };
     const orchestrator = shape === "orchestrator";
@@ -516,6 +519,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                 ) : null}
                             </div>
                             <ModelsSection orchestrator={orchestrator} />
+                            {orchestrator ? <ApprovalsSection /> : null}
                         </div>
                         <div className="flex min-h-0 min-w-0 flex-col gap-3 px-[18px] py-4">
                             {orchestrator ? <StartToggle start={startFrom} /> : null}
@@ -576,7 +580,8 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                     button, which is what a silent click on it looks like */}
                                 {picked == null
                                     ? "pick a project"
-                                    : (blocker ?? `${shape}${orchestrator ? " × " + parallelism : ""} in ${picked}`)}
+                                    : (blocker ??
+                                      `${shape}${orchestrator ? " × " + parallelism : ""} in ${picked}${orchestrator && autonomous ? " · autonomous" : ""}`)}
                             </span>
                         )}
                         <button type="button" onClick={onClose} className={CANCEL_BTN}>

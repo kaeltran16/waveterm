@@ -54,24 +54,28 @@ function group(over: Partial<TaskGroup> = {}): TaskGroup {
     } as TaskGroup;
 }
 
-const DRAFT: RunSettingsDraft = { parallelism: 3, workerRoute: null, reviewerPicks: false, reviewerRoute: null };
+const DRAFT: RunSettingsDraft = {
+    parallelism: 3,
+    workerRoute: null,
+    reviewerPicks: false,
+    reviewerRoute: null,
+    autonomous: false,
+};
 
 describe("settingsPayload for each workers choice", () => {
     it("sends Same as lead as no route and reviewerpicks false", () => {
-        expect(settingsPayload("c1", "r1", withWorkers(DRAFT, null))).toEqual({
+        expect(settingsPayload("c1", "r1", withWorkers(DRAFT, null), DRAFT)).toEqual({
             channelid: "c1",
             runid: "r1",
-            parallelism: 3,
             reviewerpicks: false,
         });
     });
 
     it("sends a route and clears Reviewer picks", () => {
         const draft = withWorkers({ ...DRAFT, reviewerPicks: true }, WORKER);
-        expect(settingsPayload("c1", "r1", draft)).toEqual({
+        expect(settingsPayload("c1", "r1", draft, DRAFT)).toEqual({
             channelid: "c1",
             runid: "r1",
-            parallelism: 3,
             workerroute: WORKER,
             reviewerpicks: false,
         });
@@ -79,19 +83,17 @@ describe("settingsPayload for each workers choice", () => {
 
     it("sends Reviewer picks with no route", () => {
         const draft = withWorkers({ ...DRAFT, workerRoute: WORKER }, "picks");
-        expect(settingsPayload("c1", "r1", draft)).toEqual({
+        expect(settingsPayload("c1", "r1", draft, DRAFT)).toEqual({
             channelid: "c1",
             runid: "r1",
-            parallelism: 3,
             reviewerpicks: true,
         });
     });
 
     it("carries the reviewer route beside the workers setting", () => {
-        expect(settingsPayload("c1", "r1", { ...DRAFT, reviewerPicks: true, reviewerRoute: REVIEWER })).toEqual({
+        expect(settingsPayload("c1", "r1", { ...DRAFT, reviewerPicks: true, reviewerRoute: REVIEWER }, DRAFT)).toEqual({
             channelid: "c1",
             runid: "r1",
-            parallelism: 3,
             reviewerpicks: true,
             reviewerroute: REVIEWER,
         });
@@ -143,12 +145,14 @@ describe("the reviewer settings in the sheet's draft", () => {
             workerRoute: null,
             reviewerPicks: true,
             reviewerRoute: REVIEWER,
+            autonomous: false,
         });
         expect(runSettingsDraft(engineRun({ reviewerroute: REVIEWER }), null)).toEqual({
             parallelism: 0,
             workerRoute: null,
             reviewerPicks: false,
             reviewerRoute: REVIEWER,
+            autonomous: false,
         });
     });
 

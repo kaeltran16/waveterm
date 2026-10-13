@@ -54,6 +54,9 @@ type CommandCreateRunData struct {
 	// Prototype is the design canvas the run's final verifier compares against. It wins over the plan's
 	// **Prototype:** line; an orchestrator run only.
 	Prototype string `json:"prototype,omitempty"`
+	// Autonomous is the Approvals setting; nil = the resolved profile's. An orchestrator run only: an explicit
+	// true on a quick run is refused.
+	Autonomous *bool `json:"autonomous,omitempty"`
 }
 
 type CommandCreateRunRtnData struct {
@@ -171,4 +174,6 @@ type CommandSetRunSettingsData struct {
 	// nil ReviewerRoute = the lead's route.
 	ReviewerPicks bool              `json:"reviewerpicks,omitempty"`
 	ReviewerRoute *waveobj.RoutePin `json:"reviewerroute,omitempty"`
+	// Autonomous is a pointer like Parallelism: nil leaves the Approvals setting unchanged.
+	Autonomous *bool `json:"autonomous,omitempty"`
 }
