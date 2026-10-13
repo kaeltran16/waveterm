@@ -54,6 +54,7 @@ import {
     codeIndexErrorAtom,
     codeMutateErrorAtom,
     codePickerErrorAtom,
+    codePlainAtom,
     codeProjectAtom,
     codeRecentsAtom,
     codeSaveAtom,
@@ -62,6 +63,7 @@ import {
     goBack,
     goForward,
     lastCodeProjectAtom,
+    NOT_TRACKED,
     openPickedPath,
     refreshIndex,
     registeredProjects,
@@ -83,6 +85,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
     const stored = useAtomValue(lastCodeProjectAtom);
     const index = useAtomValue(codeIndexAtom);
     const indexError = useAtomValue(codeIndexErrorAtom);
+    const plain = useAtomValue(codePlainAtom);
     const history = useAtomValue(codeHistoryAtom);
     const hasFocus = useAtomValue(atoms.documentHasFocus);
     const mutateError = useAtomValue(codeMutateErrorAtom);
@@ -295,7 +298,9 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
             >
                 {/* takes the spacer's place so a long path truncates instead of wrapping the actions */}
                 <ToolbarFact className="block min-w-0 grow-[999] basis-0 truncate">
-                    {project != null ? `${project.name} · ${project.path}` : "No project selected"}
+                    {project != null
+                        ? `${project.name} · ${project.path}${plain ? " · not a git repository" : ""}`
+                        : "No project selected"}
                 </ToolbarFact>
             </SurfaceToolbar>
             {indexError != null ? (
@@ -467,8 +472,6 @@ function CodeBody({ model, onPickProject }: { model: AgentsViewModel; onPickProj
             return null; // the banner above already says it, and a second message would double up
         case "loading":
             return <CodePanesSkeleton />;
-        case "not-repo":
-            return <SurfaceEmptyState title="Not a git repository" body={project.path} />;
         case "ready":
             return <CodePanes model={model} />;
     }
@@ -523,6 +526,7 @@ function readCodeSidebarPrefs(): CodeSidebarPrefs {
 
 function CodePanes({ model }: { model: AgentsViewModel }) {
     const [mode, setMode] = useAtom(codeSearchModeAtom);
+    const plain = useAtomValue(codePlainAtom);
     const [prefs, setPrefs] = useState(readCodeSidebarPrefs);
     const [workspaceWidth, setWorkspaceWidth] = useState(0);
     const [dragWidth, setDragWidth] = useState<number | null>(null);
@@ -711,12 +715,16 @@ function CodePanes({ model }: { model: AgentsViewModel }) {
                                 type="button"
                                 aria-pressed={m === mode}
                                 data-code-column-tab={m}
+                                // disabled with its reason rather than hidden, so the sidebar does not
+                                // change shape for a reason the user cannot see
+                                disabled={plain && m === "changed"}
+                                title={plain && m === "changed" ? NOT_TRACKED : undefined}
                                 onClick={() => {
                                     setDragWidth(null);
                                     setMode(m);
                                 }}
                                 className={cn(
-                                    "cursor-pointer rounded-[6px] px-2 py-[3px] text-[11px] capitalize focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent",
+                                    "cursor-pointer rounded-[6px] px-2 py-[3px] text-[11px] capitalize focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:cursor-default disabled:opacity-40",
                                     m === mode ? "bg-accent/10 text-accent-soft" : "text-muted hover:text-primary"
                                 )}
                             >
