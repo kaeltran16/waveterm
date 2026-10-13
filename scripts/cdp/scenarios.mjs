@@ -2021,6 +2021,18 @@ const usageCharts = {
             JSON.stringify(limits)
         );
 
+        // the plan-usage meters moved from the Cockpit toolbar to the app bar, so they show on every
+        // surface: here, on Usage, both seeded windows read out as a label and a percentage
+        const meters = await h.ev(`(() => {
+            const el = document.querySelector("[data-usage-meters]");
+            return { found: !!el, inAppBar: !!el?.closest("[data-tauri-drag-region]"), text: el?.textContent ?? "" };
+        })()`);
+        rec(
+            "3b. the app bar carries the 5-hour and weekly meters off the Cockpit",
+            meters.found && meters.inAppBar && /5h\s*\d+%/.test(meters.text) && /wk\s*\d+%/.test(meters.text),
+            JSON.stringify(meters)
+        );
+
         // hovering a column opens the visx tooltip (replacing the old native title attribute). React
         // delegates pointer events from a child rect, so dispatch there rather than on the <g>.
         // the tooltip lists the hovered day's models and a total. Every seeded day has a Claude bucket, so any
@@ -2308,22 +2320,18 @@ const usageCharts = {
             JSON.stringify(filterSurvived)
         );
 
-        // the app bar must have no usage control at all, and its native window controls must remain
+        // the app bar's native window controls must remain beside the plan-usage meters (step 3b)
         const appBar = await h.ev(`(() => {
             const bar = document.querySelector("[data-tauri-drag-region]");
             if (!bar) return { found: false };
-            const usageArcs = [...bar.querySelectorAll("*")].filter(
-                (e) => e.style && e.style.getPropertyValue("--usage-arc")
-            ).length;
-            const hasLimitText = (bar.textContent || "").includes("5h limit");
             const min = !!bar.querySelector('[aria-label="Minimize"]');
             const max = !!bar.querySelector('[aria-label="Maximize"]');
             const close = !!bar.querySelector('[aria-label="Close"]');
-            return { found: true, usageArcs, hasLimitText, min, max, close };
+            return { found: true, min, max, close };
         })()`);
         rec(
-            "14. the app bar has no usage signal and keeps native window controls",
-            appBar.found && appBar.usageArcs === 0 && !appBar.hasLimitText && appBar.min && appBar.max && appBar.close,
+            "14. the app bar keeps native window controls",
+            appBar.found && appBar.min && appBar.max && appBar.close,
             JSON.stringify(appBar)
         );
 

@@ -4,10 +4,15 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { ProjectSwitcher } from "@/app/view/agents/projectswitcher";
+import { UsageMeters } from "@/app/view/agents/usagemeters";
+import { loadWindowTokens, windowTokensAtom } from "@/app/view/agents/windowtokenstore";
+import { landOn } from "@/app/view/jarvis/returnsurface";
 import { formatChordString } from "@/util/keysym";
+import { fireAndForget } from "@/util/util";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAtomValue } from "jotai";
 import { TriangleAlert } from "lucide-react";
+import { useEffect } from "react";
 import { versionInfoAtom } from "./versioninfo";
 
 // Handoff top app bar (46px). Replaces CockpitTitlebar + the old "+ New Agent" strip.
@@ -48,6 +53,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
 
             <div className="flex h-full shrink-0 items-center gap-2.5">
                 <VersionMismatchPill />
+                <AppBarUsage model={model} />
                 {/* secondary, so New agent stays the one primary action. data-new-run: the Brief's `r` key
                     presses this (buildJarvisBindings). */}
                 <button
@@ -92,6 +98,27 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 </div>
             </div>
         </div>
+    );
+}
+
+function AppBarUsage({ model }: { model: AgentsViewModel }) {
+    const donuts = useAtomValue(model.planUsageAtom);
+    const windowTokens = useAtomValue(windowTokensAtom);
+    const now = useAtomValue(model.structuralNowAtom);
+    const claude = donuts.find((d) => d.provider === "claude");
+    useEffect(() => {
+        if (claude == null) {
+            return;
+        }
+        fireAndForget(() => loadWindowTokens(claude.fivehour.reset, claude.week.reset));
+    }, [claude?.fivehour.reset, claude?.week.reset]);
+    return (
+        <UsageMeters
+            donuts={donuts}
+            windowTokens={windowTokens}
+            now={now}
+            onOpen={() => landOn(model.surfaceAtom, "usage")}
+        />
     );
 }
 

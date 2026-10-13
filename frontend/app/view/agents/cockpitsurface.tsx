@@ -23,7 +23,6 @@ import {
     mergeOrder,
     partitionBackgrounded,
     projectsFromAgents,
-    providerPlanUsage,
     type AgentVM,
 } from "./agentsviewmodel";
 import {
@@ -63,12 +62,9 @@ import { useRunDigests } from "./runlineagestore";
 import { useCockpitKeyboard } from "./usecockpitkeyboard";
 import { useCardStreams } from "./usecardstreams";
 import { ProjectSwitcher } from "./projectswitcher";
-import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
-import { loadWindowTokens, windowTokensAtom } from "./windowtokenstore";
 import { shellTasksByIdAtom } from "./shelltasksstore";
 import { useSubagentTracking } from "./subagenttracking";
 import { SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
-import { UsageMeters } from "./usagemeters";
 import { landOn } from "@/app/view/jarvis/returnsurface";
 
 // Status tabs (mockup A3): a tab's count takes its status color while it has any, the selected tab underlines
@@ -108,25 +104,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // cues that need per-second precision live in self-subscribing leaves (QuietDot, CockpitEventsRail,
     // CockpitRail), which read the 1s `nowAtom` directly.
     const structuralNow = useAtomValue(model.structuralNowAtom);
-    // Rate-limit windows are account-scoped, not per-agent: collapse every agent's live reading to one
-    // block per provider (last live wins), merged over the saved snapshot so it survives idle — the
-    // same aggregation the full Usage surface uses.
-    const savedRateLimits = useAtomValue(savedRateLimitsAtom);
-    const usageDonuts = mergeRateLimitWindows(
-        providerPlanUsage([...asking, ...working, ...idle]),
-        savedRateLimits,
-        structuralNow
-    );
-    const windowTokens = useAtomValue(windowTokensAtom);
-    const claudeDonut = usageDonuts.find((d) => d.provider === "claude");
     // Both clocks are driven by the single always-mounted NowTicker (cockpit root); the leaf
     // indicators (QuietDot, CockpitEventsRail, CockpitRail) self-subscribe to `nowAtom` directly.
-    useEffect(() => {
-        if (claudeDonut == null) {
-            return;
-        }
-        fireAndForget(() => loadWindowTokens(claudeDonut.fivehour.reset, claudeDonut.week.reset));
-    }, [claudeDonut?.fivehour.reset, claudeDonut?.week.reset]);
 
     // A just-finished agent keeps its full row (so you can reply) for the grace window, then collapses
     // into the Idle list. Dismissals are keyed by idle episode (id:idleSince).
@@ -488,12 +467,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                         title="Cockpit"
                         actions={
                             <>
-                                <UsageMeters
-                                    donuts={usageDonuts}
-                                    windowTokens={windowTokens}
-                                    now={structuralNow}
-                                    onOpen={() => landOn(model.surfaceAtom, "usage")}
-                                />
                                 <ProjectSwitcher model={model} variant="header" />
                                 <button
                                     type="button"

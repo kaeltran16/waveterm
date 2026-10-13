@@ -9,8 +9,10 @@ import { sentAskIdsAtom } from "./agentaskstore";
 import {
     cycleId,
     groupAgents,
+    liveWindowAgents,
     mergePendingLaunches,
     nextAskId,
+    providerPlanUsage,
     toggleSelection,
     type AgentVM,
     type PendingLaunch,
@@ -21,6 +23,7 @@ import { devRosterAtom, loadDevMockRoster } from "./devmock";
 import { diffScopeAtom } from "./diffscopeatom";
 import type { SessionStatusFilter } from "./sessionsarchivestore";
 import { liveAgentsAtom, liveTerminalsAtom } from "./liveagents";
+import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
 import type { Lineage } from "./runlineage";
 import {
     endedWorkerAtomFor,
@@ -129,6 +132,15 @@ export class AgentsViewModel implements ViewModel {
     // Usage surface: the harness-filtered derivation over the store's raw buckets. Reads
     // Date.now() at compute time, so it stays fresh when any bucket/filter dependency changes.
     usageStatsAtom = atom((get) => aggregateBuckets(get(usageBucketsAtom), Date.now(), get(this.usageHarnessFilterAtom)));
+    // App bar plan-usage meters: one 5-hour/weekly reading per provider, on the coarse clock so a window
+    // still rolls over in a quiescent fleet. Idle agents' frozen readings fall through to the saved one.
+    planUsageAtom = atom((get) =>
+        mergeRateLimitWindows(
+            providerPlanUsage(liveWindowAgents(get(this.agentsAtom))),
+            get(savedRateLimitsAtom),
+            get(this.structuralNowAtom)
+        )
+    );
 
     // New Project / New Agent / New run modal + command-palette visibility (gated overlays rendered from the cockpit root).
     newProjectOpenAtom = atom(false);

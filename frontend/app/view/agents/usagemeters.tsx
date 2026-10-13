@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The cockpit header's plan-usage meters: each provider's 5-hour and weekly windows as two small bars. Tokens
+// The app bar's plan-usage meters: each provider's 5-hour and weekly windows as two small bars. Tokens
 // and resets are on hover; the button opens the Usage surface for the rest.
 
 import { Meter } from "@/app/element/meter";
@@ -48,6 +48,7 @@ export function UsageMeters({
     return (
         <button
             type="button"
+            data-usage-meters
             onClick={onOpen}
             title={[...items.map((m) => m.title), "Open Usage"].join("\n")}
             className="flex h-[30px] cursor-pointer items-center gap-2.5 rounded border border-edge-mid bg-transparent px-2.5 hover:border-edge-strong hover:bg-surface-raised"

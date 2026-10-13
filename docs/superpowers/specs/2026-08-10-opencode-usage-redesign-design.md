@@ -41,6 +41,8 @@ Usage already owns historical token, model, and estimated-spend analytics. Renam
 
 ### Remove usage from global chrome
 
+> Reversed 2026-10-13: the app bar carries the per-provider 5-hour/weekly meters (`UsageMeters`), moved off the Cockpit toolbar so they show on every surface. They stay per-provider and labeled, never a fleet aggregate.
+
 `CockpitAppBar` removes its usage button and provider gauges. There is no canonical agent across the cockpit's multiple concurrent agents and harnesses, so the app bar does not substitute a selected-session model or fleet aggregate. Native window controls remain right-aligned.
 
 ### Model three independent dimensions
