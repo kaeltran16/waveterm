@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SURFACE_LABEL } from "./attach.mjs";
 import { narrationFeed } from "./narrationfeed.mjs";
@@ -11228,9 +11228,9 @@ const agentRailFileLink = {
 
 // --- shell-tasks: an idle agent with a background shell task still running reads standing by -----------
 // docs/superpowers/plans/2026-10-12-shell-task-standing-by.md. A plain fixture agent, idle past the 5-minute grace
-// window, whose transcript starts four Bash background tasks in the record shapes claude writes: three running (output
-// with lines, an empty output, an output path that does not exist) and one failed. Standing by is all that keeps its
-// card on the grid, so finishing the three running tasks parks it in the Idle section. A second agent, idle a minute,
+// window, whose transcript starts five Bash background tasks in the record shapes claude writes: four running (output
+// with lines, an empty output, an output path that does not exist, output redirected to a /tmp log) and one failed. Standing by is all that keeps its
+// card on the grid, so finishing the four running tasks parks it in the Idle section. A second agent, idle a minute,
 // holds one failed task and nothing running: its card is the plain Finished band with a one-task chip. A third
 // agent starts working with no tasks: steps 7-9 start a task and turn it idle right behind it, as a Stop does.
 const SHELL_AGENT = { id: "fx-shell-tasks", name: "shell-tasks agent" };
@@ -11244,6 +11244,8 @@ const SHELL_TASKS = [
     { id: "bshlines", description: "tail the dev server log", output: ["vite v6 dev server", "ready on :5173", "GET / 200"] },
     { id: "bshempty", description: "watch the test suite", output: [] },
     { id: "bshgone", description: "poll the build queue", output: null },
+    // its command sends stdout to a Git Bash /tmp file, so claude's own output file stays empty
+    { id: "bshredir", description: "run the dev app into a log", output: ["dev app booting", "wavesrv ready"], redirect: true },
     {
         id: "bshfail",
         description: "run the migration check",
@@ -11299,8 +11301,15 @@ const SHELL_LIB = `
             .filter((t) => t.includes(name) && t.includes("finished"));
 `;
 
+// the file a redirect task's command writes to: /tmp in Git Bash is the user's temp dir, which wavesrv resolves
+function shellRedirectFile(task, outDir) {
+    const name = `${basename(outDir)}-${task.id}.log`;
+    return { shellPath: `/tmp/${name}`, path: join(tmpdir(), name) };
+}
+
 function shellTaskStart(task, outDir, timestamp) {
     const toolUseId = `toolu_${task.id}`;
+    const command = task.redirect ? `./${task.id}.sh > ${shellRedirectFile(task, outDir).shellPath} 2>&1` : `./${task.id}.sh`;
     const use = {
         type: "assistant",
         timestamp,
@@ -11311,7 +11320,7 @@ function shellTaskStart(task, outDir, timestamp) {
                     type: "tool_use",
                     id: toolUseId,
                     name: "Bash",
-                    input: { command: `./${task.id}.sh`, description: task.description, run_in_background: true },
+                    input: { command, description: task.description, run_in_background: true },
                 },
             ],
         },
@@ -11358,7 +11367,9 @@ function writeShellTranscript(cwd, name, tasks) {
     const records = [{ type: "user", cwd, timestamp: started, message: { role: "user", content: `verify ${name}` } }];
     for (const t of tasks) {
         records.push(...shellTaskStart(t, cwd, started));
-        if (t.output != null) writeFileSync(join(cwd, `${t.id}.output`), t.output.map((l) => l + "\n").join(""));
+        const outFile = t.redirect ? shellRedirectFile(t, cwd).path : join(cwd, `${t.id}.output`);
+        if (t.output != null) writeFileSync(outFile, t.output.map((l) => l + "\n").join(""));
+        if (t.redirect) writeFileSync(join(cwd, `${t.id}.output`), "");
         if (t.failed) {
             records.push(shellTaskFinish(t, cwd, "failed", `Background command "${t.description}" failed with exit code 1`));
         }
@@ -11472,13 +11483,13 @@ const shellTasksScenario = {
         await h.shot("cdp-shots/shell-tasks-main.png");
         await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 5, y: 940 });
         rec(
-            "1. Main: the card reads Standing by with 3 shell tasks running, its dot accent and still, the chip lists all four, no finished event yet",
+            "1. Main: the card reads Standing by with 4 shell tasks running, its dot accent and still, the chip lists all five, no finished event yet",
             band.label.includes("standing by") &&
-                band.label.includes("3 shell tasks running") &&
+                band.label.includes("4 shell tasks running") &&
                 !band.label.includes("finished") &&
                 band.dot?.bg === "var(--color-accent)" &&
                 band.dot?.pulse === false &&
-                band.chip === "4 shell tasks" &&
+                band.chip === "5 shell tasks" &&
                 SHELL_TASKS.every((t) => list.includes(t.description)) &&
                 band.finished.length === 0,
             JSON.stringify({ ...band, text: band.text.slice(0, 200), label: undefined, list })
@@ -11521,9 +11532,9 @@ const shellTasksScenario = {
         })()`);
         await h.shot("cdp-shots/shell-tasks-tree-collapsed.png");
         rec(
-            "2. TreeCollapsed: the row's chip reads 4 shell tasks, folded, with no task rows and a still accent dot",
+            "2. TreeCollapsed: the row's chip reads 5 shell tasks, folded, with no task rows and a still accent dot",
             folded.ok === true &&
-                folded.chip.includes("4 shell tasks") &&
+                folded.chip.includes("5 shell tasks") &&
                 folded.expanded === "false" &&
                 folded.rows.length === 0 &&
                 folded.dot?.bg === "var(--color-accent)" &&
@@ -11539,7 +11550,7 @@ const shellTasksScenario = {
             JSON.stringify(folded.header)
         );
 
-        // 3. TreeExpanded: four rows, three running and one failed
+        // 3. TreeExpanded: five rows, four running and one failed
         const expanded = await h.ev(`(async () => {
             ${SHELL_LIB}
             tasksChip(${mainName})?.click();
@@ -11553,7 +11564,7 @@ const shellTasksScenario = {
         await h.shot("cdp-shots/shell-tasks-tree-expanded.png");
         const sub = (id) => expanded.rows.find((r) => r.id === id)?.lines[1] ?? "";
         rec(
-            "3. TreeExpanded: four task rows, three running and one failed · exit 1",
+            "3. TreeExpanded: five task rows, four running and one failed · exit 1",
             expanded.expanded === "true" &&
                 expanded.rows.length === SHELL_TASKS.length &&
                 SHELL_RUNNING.every((t) => /^running · /.test(sub(t.id))) &&
@@ -11672,6 +11683,20 @@ const shellTasksScenario = {
             "5. the task whose output file does not exist reads No output yet., with no error text",
             gone?.text.includes("No output yet.") === true && !/error|enoent|no such file|cannot|failed/i.test(gone.text),
             JSON.stringify(gone)
+        );
+
+        // 5a. a command that redirects its stdout leaves claude's output file empty; the pane reads the redirect target
+        const redirTask = SHELL_TASKS.find((t) => t.redirect);
+        await clickRow(redirTask.id);
+        const redir = await paneState(redirTask.id, redirTask.output.at(-1));
+        await h.shot("cdp-shots/shell-tasks-pane-redirect.png");
+        rec(
+            "5a. the task whose command redirects to a /tmp log shows that log's lines, not No output yet. (running)",
+            redir != null &&
+                redirTask.output.every((l) => redir.text.includes(l)) &&
+                !redir.text.includes("No output yet.") &&
+                redir.state === "running",
+            JSON.stringify(redir)
         );
 
         // left open on a running task, so step 6a can see the pane outlive the task's clean finish
@@ -11894,7 +11919,8 @@ const shellTasksScenario = {
     },
     async teardown(h, ctx) {
         // teardownFixtureRun removes the fixture roster, reloads onto the live roster and deletes the temp dir with
-        // the transcripts and output files
+        // the transcripts and output files; a redirect task's log sits outside it
+        for (const t of SHELL_TASKS.filter((t) => t.redirect)) rmSync(shellRedirectFile(t, ctx.cwd).path, { force: true });
         await teardownFixtureRun(h, ctx, "shell-tasks", {
             what: "restore the rail's visibility",
             fn: () => h.ev(restoreLocalStorage(RAIL_VISIBLE_KEY, ctx.prevRail)),
