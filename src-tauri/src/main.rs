@@ -185,11 +185,19 @@ fn install_agent_hooks(app_path: &std::path::Path) {
 }
 
 fn main() {
-    let context = tauri::generate_context!();
+    #[allow(unused_mut)]
+    let mut context = tauri::generate_context!();
     // WebView2 reads these env vars before the webview is created, so they must be set here in
     // main (before the Tauri builder), not in the setup hook. Dev-only: compiled out of packaged.
     #[cfg(debug_assertions)]
     {
+        // a dev launch (and every rebuild-restart) must not steal focus from the editor or
+        // terminal. the window opens restored too: tao maximizes with SW_MAXIMIZE, which always
+        // activates the window and would override focus=false.
+        if let Some(w) = context.config_mut().app.windows.iter_mut().find(|w| w.label == MAIN_WINDOW_LABEL) {
+            w.focus = false;
+            w.maximized = false;
+        }
         // expose WebView2's Chrome DevTools Protocol on :9222 for visual verification.
         if std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_none() {
             std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222");

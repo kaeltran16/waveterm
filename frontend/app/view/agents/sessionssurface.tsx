@@ -56,7 +56,7 @@ import {
     type RunView,
     type Status,
 } from "./sessionsruns";
-import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "./surfacescaffold";
+import { SurfaceEmptyState, SurfaceError, SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 
 const FILTERS: { key: SessionStatusFilter; label: string }[] = [
     { key: "all", label: "All" },
@@ -264,16 +264,8 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     return (
         <MotionConfig reducedMotion="user">
             <div className="flex h-full min-h-0 flex-col bg-background">
-                <SurfaceHeader
+                <SurfaceToolbar
                     title="Sessions"
-                    badge={
-                        liveCount > 0 ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-pill px-[9px] py-[3px] font-mono text-[10.5px] text-secondary">
-                                <span className="h-1.5 w-1.5 pulse-dot rounded-full bg-working" />
-                                {liveCount} {liveCount === 1 ? "agent" : "agents"} live
-                            </span>
-                        ) : null
-                    }
                     actions={
                         <div
                             role="group"
@@ -301,7 +293,14 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                             ))}
                         </div>
                     }
-                />
+                >
+                    {liveCount > 0 ? (
+                        <ToolbarFact>
+                            <span className="h-1.5 w-1.5 pulse-dot rounded-full bg-working" />
+                            {liveCount} {liveCount === 1 ? "agent" : "agents"} live
+                        </ToolbarFact>
+                    ) : null}
+                </SurfaceToolbar>
 
                 {loadError ? (
                     <SurfaceError

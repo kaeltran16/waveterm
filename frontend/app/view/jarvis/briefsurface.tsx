@@ -37,6 +37,7 @@ import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { RollingCount } from "@/app/view/agents/rollingcount";
 import { confirmCancelRun, pendingRunDraftAtom } from "@/app/view/agents/runactions";
 import { leadAsker, leadWorker, liveWorkers } from "@/app/view/agents/runmodel";
+import { SurfaceToolbar, ToolbarFact } from "@/app/view/agents/surfacescaffold";
 import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
@@ -1228,26 +1229,87 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <div data-jarvis-region="brief" className="absolute inset-0 flex flex-col bg-background">
-            <header className="flex h-[54px] flex-none items-center gap-2.5 border-b border-edge-faint bg-surface px-[22px]">
-                <span aria-hidden className="font-mono text-[12px] font-semibold text-accent-soft">
-                    ◈
-                </span>
-                <span className="flex-none text-[15px] font-bold tracking-[-.01em] text-ink-hi">Jarvis</span>
+            <SurfaceToolbar
+                title="Jarvis"
+                actions={
+                    <>
+                        <label
+                            className={cn(
+                                "flex h-[28px] w-[220px] flex-none items-center gap-2 rounded-[8px] border bg-surface-raised pl-2.5 focus-within:border-accent/60",
+                                filtering ? "border-accent/60 pr-1" : "border-edge-mid pr-1.5"
+                            )}
+                        >
+                            <Search
+                                aria-hidden
+                                size={13}
+                                strokeWidth={2}
+                                className={cn("flex-none", filtering ? "text-accent-soft" : "text-muted")}
+                            />
+                            <input
+                                data-jarvis-brief-filter
+                                aria-label="Filter the Brief"
+                                placeholder="Filter"
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Escape") {
+                                        setQuery("");
+                                        e.currentTarget.blur();
+                                    }
+                                }}
+                                className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-hi outline-none placeholder:text-muted"
+                            />
+                            {filtering ? (
+                                <>
+                                    <span className="flex-none whitespace-nowrap font-mono text-[10.5px] text-muted">
+                                        {view.visible.length} {view.visible.length === 1 ? "hit" : "hits"}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        aria-label="Clear filter"
+                                        onClick={() => setQuery("")}
+                                        className="flex h-5 w-5 flex-none cursor-pointer items-center justify-center rounded-[5px] text-ink-mid hover:bg-surface-hover hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                    >
+                                        <X aria-hidden size={11} strokeWidth={2.2} />
+                                    </button>
+                                </>
+                            ) : (
+                                <kbd className="flex-none rounded-[4px] border border-edge-strong px-[5px] font-mono text-[10.5px] leading-4 text-ink-mid">
+                                    /
+                                </kbd>
+                            )}
+                        </label>
+                        <AutonomyLadder />
+                        {/* A real control with the control recipe's border: invariant 4 forbids camouflaging it among
+                            the status chips beside the title, which are borderless labels. */}
+                        <button
+                            type="button"
+                            data-jarvis-brief-profile
+                            aria-haspopup="dialog"
+                            aria-expanded={profileTarget != null}
+                            aria-label="Profile — run defaults"
+                            title="Profile — run defaults"
+                            onClick={() => setProfileTarget("")}
+                            className="flex h-[28px] w-[28px] flex-none cursor-pointer items-center justify-center rounded-[8px] border border-edge-mid bg-surface-raised text-ink-mid hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        >
+                            <SlidersHorizontal aria-hidden size={14} strokeWidth={1.8} />
+                        </button>
+                        <NewInitiativeControl model={model} />
+                    </>
+                }
+            >
                 {projectCount > 0 ? (
-                    <span className="whitespace-nowrap font-mono text-[10.5px] text-ink-mid">
+                    <ToolbarFact>
                         all work · {projectCount} {projectCount === 1 ? "project" : "projects"}
-                    </span>
+                    </ToolbarFact>
                 ) : null}
-                <span aria-hidden className="mx-1 h-[18px] w-px flex-none bg-border" />
                 {/* the chip needs a snapshot: "all clear" over a load that has not landed is a lie */}
                 {model_ != null ? (
                     <span
                         data-jarvis-brief-band="waiting"
                         className={cn(
-                            "flex flex-none items-center gap-[7px] rounded-[6px] border px-2.5 py-[3px] font-mono text-[10.5px] font-bold uppercase tracking-[.06em] transition-colors duration-[140ms]",
-                            queue.length === 0
-                                ? "border-success/30 bg-success/15 text-success"
-                                : "border-asking/30 bg-asking/15 text-asking"
+                            "flex flex-none items-center gap-[7px] rounded-[6px] px-2 py-[3px] font-mono text-[11px] font-bold transition-colors duration-[140ms]",
+                            queue.length === 0 ? "bg-success/15 text-success" : "bg-asking/15 text-asking"
                         )}
                     >
                         <span
@@ -1265,77 +1327,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         )}
                     </span>
                 ) : null}
-                <span
-                    data-jarvis-brief-band="fleet"
-                    className="flex-none whitespace-nowrap font-mono text-[10.5px] text-ink-mid"
-                >
-                    {fleet.line}
-                </span>
-                <span className="flex-1" />
-                <label
-                    className={cn(
-                        "flex h-[28px] w-[220px] flex-none items-center gap-2 rounded-[8px] border bg-surface-raised pl-2.5 focus-within:border-accent/60",
-                        filtering ? "border-accent/60 pr-1" : "border-edge-mid pr-1.5"
-                    )}
-                >
-                    <Search
-                        aria-hidden
-                        size={13}
-                        strokeWidth={2}
-                        className={cn("flex-none", filtering ? "text-accent-soft" : "text-muted")}
-                    />
-                    <input
-                        data-jarvis-brief-filter
-                        aria-label="Filter the Brief"
-                        placeholder="Filter"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === "Escape") {
-                                setQuery("");
-                                e.currentTarget.blur();
-                            }
-                        }}
-                        className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-hi outline-none placeholder:text-muted"
-                    />
-                    {filtering ? (
-                        <>
-                            <span className="flex-none whitespace-nowrap font-mono text-[10.5px] text-muted">
-                                {view.visible.length} {view.visible.length === 1 ? "hit" : "hits"}
-                            </span>
-                            <button
-                                type="button"
-                                aria-label="Clear filter"
-                                onClick={() => setQuery("")}
-                                className="flex h-5 w-5 flex-none cursor-pointer items-center justify-center rounded-[5px] text-ink-mid hover:bg-surface-hover hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                            >
-                                <X aria-hidden size={11} strokeWidth={2.2} />
-                            </button>
-                        </>
-                    ) : (
-                        <kbd className="flex-none rounded-[4px] border border-edge-strong px-[5px] font-mono text-[10.5px] leading-4 text-ink-mid">
-                            /
-                        </kbd>
-                    )}
-                </label>
-                <AutonomyLadder />
-                {/* A real control with the control recipe's border: invariant 4 forbids camouflaging it among
-                    the status chips above, which are borderless labels. */}
-                <button
-                    type="button"
-                    data-jarvis-brief-profile
-                    aria-haspopup="dialog"
-                    aria-expanded={profileTarget != null}
-                    aria-label="Profile — run defaults"
-                    title="Profile — run defaults"
-                    onClick={() => setProfileTarget("")}
-                    className="flex h-[28px] w-[28px] flex-none cursor-pointer items-center justify-center rounded-[8px] border border-edge-mid bg-surface-raised text-ink-mid hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                    <SlidersHorizontal aria-hidden size={14} strokeWidth={1.8} />
-                </button>
-                <span aria-hidden className="mx-0.5 h-[18px] w-px flex-none bg-border" />
-                <NewInitiativeControl model={model} />
-            </header>
+                <ToolbarFact>
+                    <span data-jarvis-brief-band="fleet">{fleet.line}</span>
+                </ToolbarFact>
+            </SurfaceToolbar>
             {/* both bands push the surface down, so height belongs in the animation rather than a cut */}
             <AnimatePresence initial={false}>
                 {staleSnapshot ? (

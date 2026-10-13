@@ -91,7 +91,7 @@ import { HistoryPane } from "./historypane";
 import { RESTORE_DISMISS_MS, countLabel } from "./historyquery";
 import { WORKING_TREE, worktreeCaption } from "./historyrows";
 import { SourcePicker } from "./sourcepicker";
-import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
+import { SurfaceEmptyState, SurfaceError, SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 
 export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const focusId = useAtomValue(model.focusIdAtom);
@@ -400,26 +400,43 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     return (
         <MotionConfig reducedMotion="user">
             <div ref={surfaceRef} className="absolute inset-0 flex min-h-0 flex-col">
-                {/* subject bar: which repository, and which range within it */}
-                <div className="flex-none px-[18px] pt-[14px]">
-                    {/* wraps because compare adds two controls to this row: at the shipped 1000x700 the
-                        ref picker's editing form plus Fetch need 901px of an 886px row, and a nowrap flex
-                        pays for that by squeezing the source picker from its 210px to 155px and pushing
-                        Fetch off the window edge. Wrapping costs a second line only at the width that
-                        cannot hold one. */}
-                    <div className="flex flex-wrap items-center gap-x-[14px] gap-y-[8px] pb-[12px]">
-                        <h1 className="flex-none text-[16px] font-bold">Diff</h1>
-                        <div className="w-[210px] rounded-[9px] bg-surface">
-                            <SourcePicker
-                                agents={agents}
-                                projects={projects}
-                                source={source}
-                                currentLabel={scope?.repo.label}
-                                onPickAgent={pickAgent}
-                                onPickProject={pickProject}
-                            />
-                        </div>
-                        {scope ? (
+                {/* subject bar: which repository, and which range within it. The toolbar wraps because
+                    compare adds two controls to it: at the shipped 1000x700 the ref picker's editing form
+                    plus Fetch need more than one row, and a nowrap row pays for that by squeezing the
+                    source picker from its 210px and pushing Fetch off the window edge. Wrapping costs a
+                    second line only at the width that cannot hold one. The negative margins let these
+                    33-38px controls overhang the toolbar's padding, so a single row stays 52px. */}
+                <SurfaceToolbar
+                    title="Diff"
+                    actions={
+                        scope ? (
+                            <ToolbarFact>
+                                <span data-files-range-summary className="truncate">
+                                    {summaryLine({
+                                        range: scope.range,
+                                        branch: state?.branch ?? "",
+                                        ref: state?.ref ?? "",
+                                        mergeBase: compareSides?.mergeBase ?? "",
+                                        commit: shownCommit,
+                                        changes: shownChanges,
+                                    })}
+                                </span>
+                            </ToolbarFact>
+                        ) : null
+                    }
+                >
+                    <div className="-my-[2px] w-[210px] rounded-[9px] bg-surface">
+                        <SourcePicker
+                            agents={agents}
+                            projects={projects}
+                            source={source}
+                            currentLabel={scope?.repo.label}
+                            onPickAgent={pickAgent}
+                            onPickProject={pickProject}
+                        />
+                    </div>
+                    {scope ? (
+                        <div className="-my-[2px]">
                             <RangeStrip
                                 options={availableRanges(scope, {
                                     sessionStartTs: peekSessionStart(agent?.transcriptPath),
@@ -434,8 +451,10 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                           : setDiffRange(r)
                                 }
                             />
-                        ) : null}
-                        {compareOn ? (
+                        </div>
+                    ) : null}
+                    {compareOn ? (
+                        <div className="-my-[4px]">
                             <RefPicker
                                 base={compareRefs?.base ?? ""}
                                 head={compareRefs?.head ?? ""}
@@ -451,51 +470,35 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 onCancel={() => setPickerOpen(false)}
                                 onSwap={() => state?.cwd && fireAndForget(() => swapCompareRefs(state.cwd!))}
                             />
-                        ) : null}
-                        {compareOn ? (
-                            <div className="flex items-center gap-[7px]">
-                                <button
-                                    onClick={() => state?.cwd && fireAndForget(() => runFetch(state.cwd!))}
-                                    disabled={fetchState.running}
-                                    title="Update remote-tracking refs"
-                                    className={cn(
-                                        "flex flex-none items-center gap-[6px] rounded-[7px] border border-edge-mid px-[9px] py-[5px] text-[11.5px] font-semibold",
-                                        fetchState.running
-                                            ? "text-ink-faint opacity-50"
-                                            : "text-ink-mid hover:border-edge-strong hover:text-foreground"
-                                    )}
-                                >
-                                    <RefreshCw size={13} className={cn(fetchState.running && "animate-spin")} />
-                                    {fetchState.running ? "Fetching…" : "Fetch"}
-                                </button>
-                                {/* A remote-tracking ref is only as fresh as the last fetch, so the
-                                    clock is part of reading the comparison. Absent until one has
-                                    happened — "just now" on an unfetched session would be a lie. */}
-                                {fetchState.at > 0 ? (
-                                    <span className="font-mono text-[10.5px] text-muted">
-                                        fetched {formatAge(Date.now() - fetchState.at * 1000)} ago
-                                    </span>
-                                ) : null}
-                            </div>
-                        ) : null}
-                        <div className="flex-1" />
-                        {scope ? (
-                            <span
-                                data-files-range-summary
-                                className="min-w-0 truncate font-mono text-[11.5px] text-ink-faint"
+                        </div>
+                    ) : null}
+                    {compareOn ? (
+                        <div className="flex items-center gap-[7px]">
+                            <button
+                                onClick={() => state?.cwd && fireAndForget(() => runFetch(state.cwd!))}
+                                disabled={fetchState.running}
+                                title="Update remote-tracking refs"
+                                className={cn(
+                                    "flex flex-none items-center gap-[6px] rounded-[7px] border border-edge-mid px-[9px] py-[5px] text-[11.5px] font-semibold",
+                                    fetchState.running
+                                        ? "text-ink-faint opacity-50"
+                                        : "text-ink-mid hover:border-edge-strong hover:text-foreground"
+                                )}
                             >
-                                {summaryLine({
-                                    range: scope.range,
-                                    branch: state?.branch ?? "",
-                                    ref: state?.ref ?? "",
-                                    mergeBase: compareSides?.mergeBase ?? "",
-                                    commit: shownCommit,
-                                    changes: shownChanges,
-                                })}
-                            </span>
-                        ) : null}
-                    </div>
-                </div>
+                                <RefreshCw size={13} className={cn(fetchState.running && "animate-spin")} />
+                                {fetchState.running ? "Fetching…" : "Fetch"}
+                            </button>
+                            {/* A remote-tracking ref is only as fresh as the last fetch, so the
+                                clock is part of reading the comparison. Absent until one has
+                                happened — "just now" on an unfetched session would be a lie. */}
+                            {fetchState.at > 0 ? (
+                                <span className="font-mono text-[10.5px] text-muted">
+                                    fetched {formatAge(Date.now() - fetchState.at * 1000)} ago
+                                </span>
+                            ) : null}
+                        </div>
+                    ) : null}
+                </SurfaceToolbar>
 
                 {restoreMsg ? (
                     <SurfaceBanner

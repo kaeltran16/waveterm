@@ -30,7 +30,7 @@ import { providerDot, providerLabel } from "./cockpitrailmodel";
 import { DailyChart } from "./dailychart";
 import { harnessesAtom } from "./harnessstore";
 import { mergeRateLimitWindows, savedRateLimitsAtom, type DonutWindow } from "./ratelimitstore";
-import { SurfaceError, SurfaceHeader } from "./surfacescaffold";
+import { SurfaceError, SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 import {
     ALL_SCOPE,
     buildAttribution,
@@ -801,16 +801,8 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     return (
         <MotionConfig reducedMotion="user">
             <div className="flex h-full min-h-0 flex-col bg-background">
-                <SurfaceHeader
+                <SurfaceToolbar
                     title="Usage"
-                    badge={
-                        reporting > 0 ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-sm border border-accent bg-accentbg px-2 py-[3px] font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-accent-soft">
-                                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-                                {reporting} reporting
-                            </span>
-                        ) : null
-                    }
                     actions={
                         <>
                             <Segmented<UsageLens>
@@ -829,7 +821,14 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                             />
                         </>
                     }
-                />
+                >
+                    {reporting > 0 ? (
+                        <ToolbarFact className="text-accent-soft">
+                            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                            {reporting} reporting
+                        </ToolbarFact>
+                    ) : null}
+                </SurfaceToolbar>
 
                 {loadError ? <SurfaceError message="Couldn’t refresh — showing the last loaded usage." /> : null}
 

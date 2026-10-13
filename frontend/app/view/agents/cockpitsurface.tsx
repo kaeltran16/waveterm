@@ -67,7 +67,7 @@ import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
 import { loadWindowTokens, windowTokensAtom } from "./windowtokenstore";
 import { shellTasksByIdAtom } from "./shelltasksstore";
 import { useSubagentTracking } from "./subagenttracking";
-import { SurfaceHeader } from "./surfacescaffold";
+import { SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 import { UsageMeters } from "./usagemeters";
 import { landOn } from "@/app/view/jarvis/returnsurface";
 
@@ -483,80 +483,78 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             className="relative flex h-full w-full text-secondary outline-none"
         >
             <div className="flex min-w-0 flex-1 flex-col bg-background">
-                <div className="sticky top-0 z-[5] shrink-0 border-b border-border bg-background px-[30px] pb-3 pt-4">
-                    <div className="mb-3 -mx-[30px] -mt-4">
-                        <SurfaceHeader
-                            border={false}
-                            title="Cockpit"
-                            subtitle={
-                                <>
-                                    {counted.length} agents · {projectCount} projects ·{" "}
-                                    <span className="font-semibold text-warning">
-                                        <RollingCount value={needsYou} /> need you
-                                    </span>
-                                </>
-                            }
-                            actions={
-                                <>
-                                    <UsageMeters
-                                        donuts={usageDonuts}
-                                        windowTokens={windowTokens}
-                                        now={structuralNow}
-                                        onOpen={() => landOn(model.surfaceAtom, "usage")}
-                                    />
-                                    <ProjectSwitcher model={model} variant="header" />
-                                    <button
-                                        type="button"
-                                        onClick={() => globalStore.set(model.liveOnlyAtom, !liveOnly)}
-                                        className={cn(
-                                            "flex cursor-pointer items-center gap-[7px] rounded border px-2.5 py-1.5 text-[12px] font-medium",
-                                            liveOnly
-                                                ? "border-success/60 bg-success/10 text-success"
-                                                : "border-edge-mid bg-surface-raised text-muted-foreground hover:border-edge-strong"
-                                        )}
-                                    >
-                                        <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                                        Live only
-                                    </button>
-                                </>
-                            }
-                        />
-                    </div>
-                    <div className="-mb-3 -ml-1 mt-1 flex flex-wrap gap-0.5">
-                        {(
-                            [
-                                ["asking", "need you", liveAsking],
-                                ["working", "working", liveWorking],
-                                ["idle", "ready for review", readyCount],
-                                ["all", "live", liveCount],
-                            ] as [ChipFilter, string, number][]
-                        ).map(([key, label, count]) => (
-                            <button
-                                key={key}
-                                type="button"
-                                onClick={() => setChip(toggleChip(chip, key))}
-                                className={cn(
-                                    "flex cursor-pointer items-baseline gap-[7px] border-0 border-b-2 bg-transparent px-2.5 pb-[9px] pt-1.5 hover:bg-surface-hover",
-                                    chip === key ? TAB_TONE[key].line : "border-transparent"
-                                )}
-                            >
-                                <RollingCount
-                                    value={count}
-                                    className={cn(
-                                        "font-mono text-[17px] font-semibold",
-                                        count > 0 || chip === key ? TAB_TONE[key].text : "text-muted"
-                                    )}
+                <div className="sticky top-0 z-[5] shrink-0">
+                    <SurfaceToolbar
+                        title="Cockpit"
+                        actions={
+                            <>
+                                <UsageMeters
+                                    donuts={usageDonuts}
+                                    windowTokens={windowTokens}
+                                    now={structuralNow}
+                                    onOpen={() => landOn(model.surfaceAtom, "usage")}
                                 />
-                                <span
+                                <ProjectSwitcher model={model} variant="header" />
+                                <button
+                                    type="button"
+                                    onClick={() => globalStore.set(model.liveOnlyAtom, !liveOnly)}
                                     className={cn(
-                                        "text-[12.5px] font-medium",
-                                        chip === key ? "text-primary" : "text-ink-mid"
+                                        "flex cursor-pointer items-center gap-[7px] rounded border px-2.5 py-1.5 text-[12px] font-medium",
+                                        liveOnly
+                                            ? "border-success/60 bg-success/10 text-success"
+                                            : "border-edge-mid bg-surface-raised text-muted-foreground hover:border-edge-strong"
                                     )}
                                 >
-                                    {label}
-                                </span>
-                            </button>
-                        ))}
+                                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                                    Live only
+                                </button>
+                            </>
+                        }
+                    >
+                        <ToolbarFact>
+                            {counted.length} agents · {projectCount} projects ·{" "}
+                            <span className="font-semibold text-warning">
+                                <RollingCount value={needsYou} /> need you
+                            </span>
+                        </ToolbarFact>
+                    </SurfaceToolbar>
+                    <div className="border-b border-border bg-background px-[30px] pb-3 pt-3">
+                        <div className="-mb-3 -ml-1 mt-1 flex flex-wrap gap-0.5">
+                            {(
+                                [
+                                    ["asking", "need you", liveAsking],
+                                    ["working", "working", liveWorking],
+                                    ["idle", "ready for review", readyCount],
+                                    ["all", "live", liveCount],
+                                ] as [ChipFilter, string, number][]
+                            ).map(([key, label, count]) => (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() => setChip(toggleChip(chip, key))}
+                                    className={cn(
+                                        "flex cursor-pointer items-baseline gap-[7px] border-0 border-b-2 bg-transparent px-2.5 pb-[9px] pt-1.5 hover:bg-surface-hover",
+                                        chip === key ? TAB_TONE[key].line : "border-transparent"
+                                    )}
+                                >
+                                    <RollingCount
+                                        value={count}
+                                        className={cn(
+                                            "font-mono text-[17px] font-semibold",
+                                            count > 0 || chip === key ? TAB_TONE[key].text : "text-muted"
+                                        )}
+                                    />
+                                    <span
+                                        className={cn(
+                                            "text-[12.5px] font-medium",
+                                            chip === key ? "text-primary" : "text-ink-mid"
+                                        )}
+                                    >
+                                        {label}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
 

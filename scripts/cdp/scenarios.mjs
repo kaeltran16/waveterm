@@ -5290,13 +5290,30 @@ const setFinderQuery = (h, text) =>
         return true;
     })()`);
 
+const CODE_SEARCH_PROJECT = "verify-code-search";
+
+// Final runs on a fresh, empty store, so the scenario registers its own repo holding the query, and picks
+// that row by name: rows[0], or whatever project Code already holds, need not contain it
 const codeSearch = {
     name: "code-search",
     surface: "code",
-    async arrange() {
-        return {};
+    async arrange(h) {
+        const ctx = { name: CODE_SEARCH_PROJECT };
+        try {
+            ctx.dir = mkdtempSync(join(tmpdir(), "verify-code-search-"));
+            git(ctx.dir, "init", "-q", "--initial-branch=main");
+            writeFileSync(join(ctx.dir, "open.ts"), `export function ${CODE_SEARCH_QUERY}(path: string) {\n    return path;\n}\n`);
+            git(ctx.dir, "add", ".");
+            git(ctx.dir, "commit", "-q", "-m", "seed the search fixture");
+            await h.rpc("createproject", { name: ctx.name, path: ctx.dir });
+            ctx.madeProject = true;
+            await waitForProjectInConfig(h, ctx.name);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const steps = [];
         await h.goto("code");
@@ -5306,12 +5323,18 @@ const codeSearch = {
             detail: `active=${await h.activeSurfaceLabel()}`,
         });
 
-        if ((await openProjectPicker(h)) === true) {
-            await sleep(300);
-            const picked = await chooseProjectRow(h);
-            steps.push({ step: "select a project", ok: picked === true, detail: `picked=${picked}` });
-            await sleep(1200); // the index is one git ls-files call
+        const row = `document.querySelector('[data-code-picker-row=${JSON.stringify(ctx.name)}]')`;
+        if (ctx.arrangeError == null && !(await h.ev(`!!${row}`))) {
+            await h.ev(`document.querySelector('[data-code-project-picker]')?.click()`);
         }
+        const shown = ctx.arrangeError == null && (await polishWaitFor(h, `!!${row}`, 5000));
+        const picked = shown && (await h.ev(`(() => { const r = ${row}; if (!r) return false; r.click(); return true; })()`));
+        steps.push({
+            step: "select a project",
+            ok: picked === true,
+            detail: ctx.arrangeError ?? `picked=${picked}`,
+        });
+        await sleep(1200); // the index is one git ls-files call
 
         const switched = await h.ev(`(() => {
             const t = document.querySelector('[data-code-column-tab="search"]');
@@ -5343,8 +5366,13 @@ const codeSearch = {
         await h.shot("cdp-shots/code-search.png");
         return steps;
     },
-    async teardown(h) {
-        await h.goto("cockpit"); // leave the app where a human expects it
+    async teardown(h, ctx) {
+        try {
+            if (ctx.madeProject) await h.rpc("deleteproject", { name: ctx.name });
+        } finally {
+            if (ctx.dir) rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 3 });
+            await h.goto("cockpit"); // leave the app where a human expects it
+        }
     },
 };
 
@@ -12597,6 +12625,7 @@ const FST_COMMIT = "c0ffee5a".padEnd(40, "0");
 const FST_MARK = "final-stage verify";
 const FST_LIVE_VERIFY = `printf '${FST_MARK} 1\\n${FST_MARK} 2\\n${FST_MARK} 3\\n'; for i in $(seq 1 300); do sleep 3; echo "${FST_MARK} still running $i"; done`;
 const FST_LIVE_FINAL = "true";
+const FST_KEPT_MARK = "final-stage kept check output";
 const FST_DETAIL = [
     `Final \`${FINAL_SHOTS_CMD}\` failed (exit 1):`,
     "FAIL jarvis-peek 4. the narrow panel stays bounded with a pinned header, no horizontal overflow, and an unclipped harness picker",
@@ -13178,6 +13207,55 @@ const finalStageScenario = {
                 d.rail.shots != null &&
                 railViewer,
             { row: a?.rows, slot: a?.slot, pane: a?.pane, paneViewer, node: d?.node, rail: d?.rail, railViewer }
+        );
+
+        // a step that ended kept its output beside the round's ARC_FINAL_OUT (finalStepsDir); only Check's is
+        // written here, so Verify stands for a step whose output is gone
+        const keptDir = join(ctx.out, "1-steps");
+        mkdirSync(keptDir, { recursive: true });
+        writeFileSync(join(keptDir, "check.txt"), `${FST_KEPT_MARK}\n`);
+        await h.goto("agent");
+        const paneCell = (key) => `${FST_PANE}?.querySelector('[data-final-step="${key}"]')`;
+        const keptRead = `(() => ({
+            pane: (${FST_PANE}?.textContent ?? "").replace(/\\s+/g, " ").trim(),
+            pressed: [...(${FST_PANE}?.querySelectorAll('[data-final-step][aria-pressed="true"]') ?? [])].map((c) => c.getAttribute("data-final-step")),
+            rail: (${FST_RAIL}?.querySelector("[data-final-rail]")?.textContent ?? "").replace(/\\s+/g, " ").trim(),
+        }))()`;
+        await finalShotsClick(h, paneCell("check"));
+        const keptCheck = await fstUntil(h, keptRead, (s) => s.pane.includes(FST_KEPT_MARK));
+        await shot("b5b-kept-check");
+        await finalShotsClick(h, paneCell("verify"));
+        const keptGone = await fstUntil(h, keptRead, (s) => s.pane.includes("no output kept"));
+        await finalShotsClick(h, paneCell("verify"));
+        const keptClosed = await fstUntil(h, keptRead, (s) => s.pressed.length === 0);
+        await finalShotsClick(h, `${FST_RAIL}?.querySelector('[data-final-rail] [data-final-step="check"]')`);
+        const keptRail = await fstUntil(h, keptRead, (s) => s.rail.includes(FST_KEPT_MARK));
+        await shot("b5b-kept-rail");
+        await fstDag(h, ctx, (s) => s.node.meta === "round 1 · failed at Final");
+        const dagCell = `${FST_DAG_RAIL}?.querySelector('[data-final-step="check"]')`;
+        const dagRead = `(() => ({
+            text: (${FST_DAG_RAIL}?.textContent ?? "").replace(/\\s+/g, " ").trim(),
+            pressed: [...(${FST_DAG_RAIL}?.querySelectorAll('[data-final-step][aria-pressed="true"]') ?? [])].map((c) => c.getAttribute("data-final-step")),
+        }))()`;
+        await finalShotsClick(h, dagCell);
+        const keptDag = await fstUntil(h, dagRead, (s) => s.text.includes(FST_KEPT_MARK));
+        await shot("b5b-kept-dag");
+        await finalShotsClick(h, dagCell);
+        const keptDagClosed = await fstUntil(h, dagRead, (s) => s.pressed.length === 0);
+        rec(
+            "B5b. a step that ended opens the output it kept: Check's from the pane, the rail and the DAG rail, Verify's says none was kept, and a second click returns to the outcome",
+            () =>
+                fstSame(keptCheck.pressed, ["check"]) &&
+                keptCheck.pane.includes(`$ ${FST_CHECK}`) &&
+                fstSame(keptGone.pressed, ["verify"]) &&
+                !keptGone.pane.includes(FST_KEPT_MARK) &&
+                keptClosed.pane.includes(fstFlat(FST_DETAIL)) &&
+                keptRail.rail.includes(FST_KEPT_MARK) &&
+                fstSame(keptDag.pressed, ["check"]) &&
+                !keptDag.text.includes(fstFlat(FST_DETAIL)) &&
+                keptDagClosed.text.includes(fstFlat(FST_DETAIL)) &&
+                !keptDagClosed.text.includes(FST_KEPT_MARK),
+            { keptCheck, keptGone, keptClosed, keptRail, keptDag, keptDagClosed }
         );
 
         await fstShow(h, ctx, "fixing");
@@ -17754,6 +17832,479 @@ const resmonStates = {
     teardown: resmonTeardown,
 };
 
+// --- surface headers: one shared toolbar on every surface but Agent ------------------------------
+// Each surface's SurfaceToolbar measured against the prototype canvas (Main.dc.html) at its main board
+// size. Final runs this on a fresh, empty store, so arrange makes everything a step reads: a git repo at
+// a long path registered as one project (Diff, Code's path fact, Radar), a fixture roster (Cockpit, the
+// Sessions live fact, the Jarvis chip), a radar report, and a saved Claude rate-limit snapshot (Usage).
+const SURFACE_HEADERS_PROJECT = "verify-surface-headers";
+const SURFACE_HEADERS_ORDER = ["cockpit", "jarvis", "code", "files", "sessions", "radar", "usage", "settings", "setup"];
+const SURFACE_HEADERS_WIDE = { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false };
+const SURFACE_HEADERS_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const SURFACE_HEADERS_MIN_PATH = 120;
+const TOOLBAR_HEIGHT_PX = 52;
+const TOOLBAR_PAD_LEFT = "20px";
+const RATE_LIMITS_KEY = "wave:ratelimits";
+// a term some settings sections match and others do not: it narrows the index from 10 sections to 2
+const SETTINGS_SEARCH_TERM = "font";
+// Code's path fact takes the spacer's place, so it ends just short of the picker
+const PATH_FACT_MAX_GAP_PX = 40;
+const FETCH_BUTTON = 'button[title="Update remote-tracking refs"]';
+const SESSIONS_SCAN_TIMEOUT_MS = 120_000;
+// the Sessions surface runs the same scan when it mounts, and its live fact waits on it
+const SESSIONS_FACT_WAIT_MS = 30_000;
+
+// the visible toolbars in the content area (the Agent surface stays mounted under display:none)
+const TOOLBAR_PROBE = `(() => {
+    const content = document.querySelector('nav')?.nextElementSibling;
+    if (!content) return null;
+    const shown = [...content.querySelectorAll('[data-surface-toolbar]')].filter((t) => t.checkVisibility());
+    const t = shown[0];
+    if (!t) return { count: 0 };
+    const h1 = t.querySelector(':scope > h1');
+    const next = h1?.nextElementSibling;
+    return {
+        count: shown.length,
+        height: t.getBoundingClientRect().height,
+        title: h1?.textContent.trim() ?? null,
+        padLeft: getComputedStyle(t).paddingLeft,
+        text: t.innerText.replace(/\\s+/g, ' ').trim(),
+        // the spacer is the empty flex-1 span; a title followed straight by it leaves no gap for a missing fact
+        titleThenSpacer: next != null && next.tagName === 'SPAN' && next.classList.contains('flex-1') && next.childNodes.length === 0,
+    };
+})()`;
+
+// the element at the popover's center and 8px above its bottom edge both belong to it: nothing clips it
+const notClipped = (popoverExpr) => `(() => {
+    const p = ${popoverExpr};
+    if (!p) return null;
+    const r = p.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const hits = [[cx, r.top + r.height / 2], [cx, r.bottom - 8]].map(([x, y]) => p.contains(document.elementFromPoint(x, y)));
+    return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)], hits };
+})()`;
+
+const CODE_PICKER = `document.querySelector('[data-code-project-picker]')`;
+// the picker's PopoverReveal is the last child of the picker's wrapper; closed, that child is the button itself
+const CODE_PICKER_POPOVER = `(() => { const b = ${CODE_PICKER}; const p = b?.parentElement?.lastElementChild; return p && p !== b ? p : null; })()`;
+
+async function surfaceHeadersArrange(h) {
+    const ctx = { name: SURFACE_HEADERS_PROJECT };
+    // a throw past this point still returns ctx, so teardown removes whatever was already made
+    try {
+        ctx.root = mkdtempSync(join(tmpdir(), "verify-surface-headers-"));
+        const dir = join(
+            ctx.root,
+            "a-deliberately-long-checkout-path",
+            "that-the-code-toolbar-has-to-truncate",
+            "with-an-ellipsis-before-its-picker"
+        );
+        if (dir.length <= SURFACE_HEADERS_MIN_PATH) throw new Error(`repo path is only ${dir.length} chars: ${dir}`);
+        mkdirSync(dir, { recursive: true });
+        ctx.dir = dir;
+        git(dir, "init", "-q", "--initial-branch=main");
+        writeFileSync(join(dir, "policy.go"), "package retry\n\nfunc Budget() int {\n    return 3\n}\n");
+        git(dir, "add", ".");
+        git(dir, "commit", "-q", "-m", "seed the retry package");
+        git(dir, "checkout", "-q", "-b", "feature");
+        writeFileSync(join(dir, "policy.go"), "package retry\n\nfunc Budget() int {\n    return 8\n}\n");
+        git(dir, "add", ".");
+        git(dir, "commit", "-q", "-m", "raise the budget");
+        await h.rpc("createproject", { name: ctx.name, path: dir });
+        ctx.madeProject = true;
+
+        // Sessions counts a session live when a roster agent carries its transcript path, so the working
+        // agent borrows the path of a session the archive scan already lists (read, never written). A cold scan
+        // of every transcript root outlasts one CDP command, so it runs in the page and is polled
+        await h.ev(`void window.TabRpcClient.wshRpcCall("getsessionsactivity", { windowdays: 30, limit: 100 }, { timeout: ${SESSIONS_SCAN_TIMEOUT_MS} }).then(
+            (r) => (window.__surfaceHeadersScan = { path: (r?.sessions ?? []).find((s) => s.transcriptpath)?.transcriptpath ?? null }),
+            (e) => (window.__surfaceHeadersScan = { error: String(e?.message ?? e) })
+        )`);
+        await polishWaitFor(h, "window.__surfaceHeadersScan != null", SESSIONS_SCAN_TIMEOUT_MS);
+        const scan = await h.ev("window.__surfaceHeadersScan ?? null");
+        if (scan?.error != null) throw new Error(`the sessions scan failed: ${scan.error}`);
+        ctx.transcriptPath = scan?.path ?? null;
+        mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
+        writeFileSync(
+            TREE_RAIL_FIXTURE,
+            JSON.stringify(
+                [
+                    {
+                        id: "fx-surface-headers-working",
+                        name: "surface-headers worker",
+                        project: ctx.name,
+                        task: "draw the shared toolbar",
+                        state: "working",
+                        agent: "claude",
+                        model: "opus",
+                        activeMs: 240_000,
+                        blockId: "fx-blk-surface-headers-working",
+                        ...(ctx.transcriptPath ? { transcriptPath: ctx.transcriptPath } : {}),
+                    },
+                    {
+                        id: "fx-surface-headers-asking",
+                        name: "surface-headers asker",
+                        project: ctx.name,
+                        task: "pick a header order",
+                        state: "asking",
+                        agent: "claude",
+                        model: "opus",
+                        blockedMs: 60_000,
+                        blockId: "fx-blk-surface-headers-asking",
+                        ask: {
+                            askId: "fx-surface-headers-ask",
+                            oref: "block:fx-blk-surface-headers-asking",
+                            questions: [
+                                { header: "Order", question: "Which order?", options: [{ label: "fleet first" }, { label: "filter first" }] },
+                            ],
+                        },
+                    },
+                ],
+                null,
+                2
+            )
+        );
+        ctx.wroteFixture = true;
+
+        // landing on the seeded report needs Radar scoped to its project. A scan stores its path slashed
+        // (reporadar.canonPath) and the list matches it exactly, so the seed does the same
+        ctx.priorScope = await h.ev(`localStorage.getItem(${JSON.stringify(RADAR_SCOPE_KEY)})`);
+        await h.ev(`localStorage.setItem(${JSON.stringify(RADAR_SCOPE_KEY)}, ${JSON.stringify(JSON.stringify(ctx.name))})`);
+        ctx.reportId = await seedRadarReport(h, (oid) =>
+            radarFixtureReport(oid, ctx.name, dir.replaceAll("\\", "/"), Date.now(), {
+                id: "f-surface-headers",
+                risk: "Surface-headers fixture: the budget loop outlives a cancelled context",
+                file: "pkg/retry/policy.go",
+                lines: [3, 4],
+            })
+        );
+
+        // the canvas's UsageBody: one reporting Claude provider with a live 5-hour window
+        ctx.prevRate = await h.ev(`localStorage.getItem(${JSON.stringify(RATE_LIMITS_KEY)})`);
+        const nowSec = Math.floor(Date.now() / 1000);
+        const rateLimits = {
+            claude: {
+                fivehourpct: 62,
+                fivehourreset: nowSec + 3 * 3600,
+                weekpct: 41,
+                weekreset: nowSec + 6 * 24 * 3600,
+                capturedAt: Date.now(),
+            },
+        };
+        await h.ev(`localStorage.setItem(${JSON.stringify(RATE_LIMITS_KEY)}, ${JSON.stringify(JSON.stringify(rateLimits))})`);
+
+        // the fixture roster and the saved limits are read once at boot, and the project must be in the config first
+        await waitForProjectInConfig(h, ctx.name);
+        await polishReload(h);
+    } catch (e) {
+        ctx.arrangeError = String(e?.message ?? e);
+    }
+    return ctx;
+}
+
+async function surfaceHeadersAssert(h, ctx) {
+    const steps = [];
+    const run = async (step, fn) => {
+        try {
+            steps.push({ step, ...(await fn()) });
+        } catch (e) {
+            steps.push({ step, ok: false, detail: String(e?.message ?? e) });
+        }
+    };
+    const present = (expr) => h.ev(`!!(${expr})`);
+    const click = async (sel) => {
+        const ok = await h.ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return false; el.click(); return true; })()`);
+        if (!ok) throw new Error(`nothing to click at ${sel}`);
+    };
+    // !! because an element is not returnable by value, so a bare element reads as "not yet"
+    const waitOrThrow = async (expr, ms, what) => {
+        if (!(await polishWaitFor(h, `!!(${expr})`, ms))) throw new Error(`${what} never appeared`);
+    };
+    // one visible toolbar once the outgoing surface has left
+    const toolbar = async () => {
+        await polishWaitFor(h, `(${TOOLBAR_PROBE})?.count === 1`, 8000);
+        return h.ev(TOOLBAR_PROBE);
+    };
+    const toolbarOk = (t, surface) =>
+        t?.count === 1 &&
+        Math.abs(t.height - TOOLBAR_HEIGHT_PX) < 1 &&
+        t.title === SURFACE_LABEL[surface] &&
+        t.padLeft === TOOLBAR_PAD_LEFT;
+    const pickCodeProject = async () => {
+        const row = `document.querySelector('[data-code-picker-row=${JSON.stringify(ctx.name)}]')`;
+        if (!(await present(row))) await click("[data-code-project-picker]");
+        await waitOrThrow(row, 5000, `Code picker row ${ctx.name}`);
+        await h.ev(`${row}.click()`);
+        await waitOrThrow(`(${TOOLBAR_PROBE})?.text.includes(${JSON.stringify(ctx.dir)})`, 8000, "Code's path fact");
+    };
+    const pickDiffSource = async () => {
+        const option = `[data-files-source-option=${JSON.stringify(ctx.name)}]`;
+        await click("[data-files-source-picker]");
+        await waitOrThrow(`document.querySelector(${JSON.stringify(option)})`, 5000, `Diff source ${ctx.name}`);
+        await click(option);
+        await waitOrThrow(`document.querySelector('[data-range-chip="compare"]')`, 8000, "Diff's range strip");
+    };
+
+    if (ctx.arrangeError != null) {
+        steps.push({ step: "arrange", ok: false, detail: ctx.arrangeError });
+        return steps;
+    }
+    await h.cdp("Emulation.setDeviceMetricsOverride", SURFACE_HEADERS_WIDE);
+    await polishNap(600);
+
+    for (const surface of SURFACE_HEADERS_ORDER) {
+        await run(surface, async () => {
+            await h.goto(surface);
+            if (surface === "code") await pickCodeProject();
+            if (surface === "files") await pickDiffSource();
+            if (surface === "jarvis") {
+                await waitOrThrow(`document.querySelector('[data-jarvis-region="brief"]')?.checkVisibility()`, 8000, "the Brief");
+            }
+            if (surface === "sessions") {
+                await polishWaitFor(h, `/agents? live/i.test((${TOOLBAR_PROBE})?.text ?? '')`, SESSIONS_FACT_WAIT_MS);
+            }
+            const t = await toolbar();
+            let ok = toolbarOk(t, surface);
+            let fact = "";
+            if (surface === "sessions") {
+                // innerText applies text-transform, so the facts match in any case
+                const live = /(^|\D)1 agent live\b/i.test(t?.text ?? "");
+                ok = ok && live;
+                fact = ` liveFact=${live} transcript=${ctx.transcriptPath != null}`;
+            }
+            if (surface === "usage") {
+                const reporting = /(^|\D)1 (of \d+ )?reporting\b/i.test(t?.text ?? "");
+                ok = ok && reporting;
+                fact = ` reportingFact=${reporting}`;
+            }
+            await h.shot(`cdp-shots/surface-headers-${surface}.png`);
+            return { ok, detail: JSON.stringify(t) + fact };
+        });
+    }
+
+    await run("agent", async () => {
+        await h.goto("agent");
+        await polishNap(400);
+        const t = await h.ev(TOOLBAR_PROBE);
+        return { ok: t?.count === 0, detail: JSON.stringify(t) };
+    });
+
+    await run("jarvis header order", async () => {
+        await h.goto("jarvis");
+        await waitOrThrow(`document.querySelector('[data-jarvis-region="brief"] > header')`, 8000, "the Brief header");
+        const r = await h.ev(`(() => {
+            const header = document.querySelector('[data-jarvis-region="brief"] > header');
+            const all = [...header.querySelectorAll('*')];
+            const at = (sel) => all.indexOf(header.querySelector(sel));
+            const chip = header.querySelector('[data-jarvis-brief-band="waiting"]');
+            const cs = chip ? getComputedStyle(chip) : null;
+            return {
+                toolbar: header.hasAttribute('data-surface-toolbar'),
+                order: [
+                    at('[data-jarvis-brief-band="fleet"]'),
+                    at('[data-jarvis-brief-filter]'),
+                    at('[data-jarvis-autonomy="chip"]'),
+                    at('[data-jarvis-brief-profile]'),
+                    at('[data-jarvis-new-initiative]'),
+                ],
+                diamond: header.textContent.includes('◈'),
+                chipTransform: cs?.textTransform ?? null,
+                chipBorderTop: cs?.borderTopWidth ?? null,
+            };
+        })()`);
+        const seq = r.order;
+        return {
+            ok:
+                r.toolbar &&
+                seq.every((i, n) => i >= 0 && (n === 0 || i > seq[n - 1])) &&
+                !r.diamond &&
+                r.chipTransform === "none" &&
+                r.chipBorderTop === "0px",
+            detail: JSON.stringify(r),
+        };
+    });
+
+    await run("settings search filters", async () => {
+        await h.goto("settings");
+        const input = `document.querySelector('[data-surface-toolbar] input[placeholder="Search settings"]')`;
+        await waitOrThrow(input, 5000, "the toolbar's settings search");
+        const count = () => h.ev(`[...document.querySelectorAll('button[data-section]')].filter((b) => b.checkVisibility()).length`);
+        const type = (text) =>
+            h.ev(`(() => {
+                const el = ${input};
+                Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(text)});
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+            })()`);
+        const before = await count();
+        await type(SETTINGS_SEARCH_TERM);
+        await polishNap(400);
+        const during = await count();
+        await type("");
+        await polishNap(300);
+        const after = await count();
+        return {
+            ok: during > 0 && during < before && after === before,
+            detail: `sections ${before} -> "${SETTINGS_SEARCH_TERM}" ${during} -> cleared ${after}`,
+        };
+    });
+
+    await run("code picker not clipped", async () => {
+        await h.goto("code");
+        if (!(await present(CODE_PICKER_POPOVER))) await click("[data-code-project-picker]");
+        await waitOrThrow(CODE_PICKER_POPOVER, 3000, "the project picker's popover");
+        await polishNap(400); // the reveal finishes before anything is hit-tested
+        const r = await h.ev(notClipped(CODE_PICKER_POPOVER));
+        await h.shot("cdp-shots/surface-headers-code-picker.png");
+        await click("[data-code-project-picker]");
+        const closed = await polishWaitFor(h, `!(${CODE_PICKER_POPOVER})`, 3000);
+        return { ok: r != null && r.hits.every(Boolean) && closed, detail: JSON.stringify({ ...r, closed }) };
+    });
+
+    await run("code path truncates", async () => {
+        const r = await h.ev(`(() => {
+            const fact = document.querySelector('[data-surface-toolbar] > h1')?.nextElementSibling;
+            const picker = ${CODE_PICKER};
+            if (!fact || !picker) return null;
+            const cs = getComputedStyle(fact);
+            return {
+                factRight: Math.round(fact.getBoundingClientRect().right),
+                pickerLeft: Math.round(picker.getBoundingClientRect().left),
+                scrollWidth: fact.scrollWidth,
+                clientWidth: fact.clientWidth,
+                display: cs.display,
+                textOverflow: cs.textOverflow,
+                text: fact.textContent,
+            };
+        })()`);
+        const gap = r ? r.pickerLeft - r.factRight : null;
+        return {
+            ok:
+                r != null &&
+                r.text.includes(ctx.dir) &&
+                gap >= 0 &&
+                gap <= PATH_FACT_MAX_GAP_PX &&
+                r.scrollWidth > r.clientWidth &&
+                r.display === "block" &&
+                r.textOverflow === "ellipsis",
+            detail: JSON.stringify({ ...r, gap }),
+        };
+    });
+
+    await run("radar audits popover not clipped", async () => {
+        await h.goto("radar");
+        await waitOrThrow(`document.querySelector('[data-radar-audits-toggle]')`, 10000, "the seeded report's audits toggle");
+        await click("[data-radar-audits-toggle]");
+        const popover = `document.querySelector('[data-radar-audits-popover]')`;
+        await waitOrThrow(popover, 3000, "the audits popover");
+        await polishNap(400);
+        const r = await h.ev(notClipped(popover));
+        await h.shot("cdp-shots/surface-headers-radar-audits.png");
+        await click("[data-radar-audits-toggle]");
+        const closed = await polishWaitFor(h, `!(${popover})`, 3000);
+        return { ok: r != null && r.hits.every(Boolean) && closed, detail: JSON.stringify({ ...r, closed }) };
+    });
+
+    await run("files compare at 1000px", async () => {
+        await h.cdp("Emulation.setDeviceMetricsOverride", SURFACE_HEADERS_NARROW);
+        await polishNap(600);
+        await h.goto("files");
+        await pickDiffSource();
+        await click('[data-range-chip="compare"]');
+        await waitOrThrow(`document.querySelector(${JSON.stringify(FETCH_BUTTON)})`, 8000, "the Fetch button");
+        await polishNap(1500); // divergence, then the comparison's own change list
+        const r = await h.ev(`(() => {
+            const content = document.querySelector('nav')?.nextElementSibling;
+            const t = content && [...content.querySelectorAll('[data-surface-toolbar]')].find((x) => x.checkVisibility());
+            if (!t) return null;
+            const controls = [...t.querySelectorAll('button, input, select, label')].filter((el) => el.checkVisibility());
+            const overflow = controls
+                .filter((el) => el.getBoundingClientRect().right > ${SURFACE_HEADERS_NARROW.width})
+                .map((el) => (el.getAttribute('title') || el.textContent || el.tagName).trim().slice(0, 30));
+            const fetch = t.querySelector(${JSON.stringify(FETCH_BUTTON)});
+            const fr = fetch?.getBoundingClientRect();
+            return {
+                controls: controls.length,
+                overflow,
+                height: Math.round(t.getBoundingClientRect().height),
+                fetchVisible: !!fetch && fetch.checkVisibility() && fr.width > 0 && fr.right <= ${SURFACE_HEADERS_NARROW.width} && fr.bottom <= ${SURFACE_HEADERS_NARROW.height},
+            };
+        })()`);
+        await h.shot("cdp-shots/surface-headers-files-compare-narrow.png");
+        await h.cdp("Emulation.setDeviceMetricsOverride", SURFACE_HEADERS_WIDE);
+        await polishNap(400);
+        return { ok: r != null && r.controls > 0 && r.overflow.length === 0 && r.fetchVisible, detail: JSON.stringify(r) };
+    });
+
+    // last: it clears the seeds the steps above read. An empty fixture replaces the live roster, so no agent is live
+    await run("zero facts", async () => {
+        writeFileSync(TREE_RAIL_FIXTURE, "[]");
+        await h.ev(`localStorage.removeItem(${JSON.stringify(RATE_LIMITS_KEY)})`);
+        await polishReload(h);
+        const facts = {};
+        for (const [surface, word] of [["sessions", /\d+ agents? live\b/i], ["usage", /\breporting\b/i]]) {
+            await h.goto(surface);
+            const t = await toolbar();
+            facts[surface] = { ...t, factShown: word.test(t?.text ?? "") };
+            await h.shot(`cdp-shots/surface-headers-${surface}-zero.png`);
+        }
+        return {
+            ok: Object.entries(facts).every(([s, t]) => toolbarOk(t, s) && !t.factShown && t.titleThenSpacer),
+            detail: JSON.stringify(facts),
+        };
+    });
+    return steps;
+}
+
+async function surfaceHeadersTeardown(h, ctx) {
+    const undo = [
+        ["clear the viewport override", () => h.cdp("Emulation.clearDeviceMetricsOverride")],
+        ["delete the radar report", () => ctx.reportId && dropPeekItemsRadar(h, ctx.reportId)],
+        [
+            "restore the radar scope",
+            () =>
+                "priorScope" in ctx &&
+                h.ev(
+                    ctx.priorScope == null
+                        ? `localStorage.removeItem(${JSON.stringify(RADAR_SCOPE_KEY)})`
+                        : `localStorage.setItem(${JSON.stringify(RADAR_SCOPE_KEY)}, ${JSON.stringify(ctx.priorScope)})`
+                ),
+        ],
+        [
+            "restore the saved rate limits",
+            () =>
+                "prevRate" in ctx &&
+                h.ev(
+                    ctx.prevRate == null
+                        ? `localStorage.removeItem(${JSON.stringify(RATE_LIMITS_KEY)})`
+                        : `localStorage.setItem(${JSON.stringify(RATE_LIMITS_KEY)}, ${JSON.stringify(ctx.prevRate)})`
+                ),
+        ],
+        ["remove the fixture roster", () => ctx.wroteFixture && rmSync(TREE_RAIL_FIXTURE, { force: true })],
+        ["delete the project", () => ctx.madeProject && h.rpc("deleteproject", { name: ctx.name })],
+        ["remove the repo", () => ctx.root && rmSync(ctx.root, { recursive: true, force: true, maxRetries: 3 })],
+        // onto the live roster and the restored storage again
+        ["reload", () => polishReload(h)],
+        ["return to the cockpit", () => h.goto("cockpit")],
+    ];
+    const failed = [];
+    for (const [what, fn] of undo) {
+        try {
+            await fn();
+        } catch (e) {
+            failed.push(`${what}: ${e?.message ?? e}`);
+        }
+    }
+    if (failed.length > 0) throw new Error(`surface-headers teardown: ${failed.join("; ")}`);
+}
+
+const surfaceHeaders = {
+    name: "surface-headers",
+    surface: "cockpit",
+    arrange: surfaceHeadersArrange,
+    assert: surfaceHeadersAssert,
+    teardown: surfaceHeadersTeardown,
+};
+
 export const SCENARIOS = [
     cockpitKeysOnArrival,
     agentTerminalOnArrival,
@@ -17769,6 +18320,7 @@ export const SCENARIOS = [
     diffReviewMarks,
     diffReviewMarksRun,
     surfaceSmoke,
+    surfaceHeaders,
     codeSearch,
     codeSidebar,
     codeGitStatus,

@@ -478,6 +478,11 @@ with the reason, and the same plan can be submitted again.
 - **Fail:** the lead wakes with the findings. It revises the plan, puts any spec change to you, and runs
   `wsh jarvis dag submit` again. While no task has dispatched, a resubmit replaces the failed proposal and opens
   review round 2. A plan run started without a lead gets one launched by this wake.
+- **Reading it:** the dag's status reads `plan-review` both while a reviewer works and after one failed, so
+  `wsh jarvis dag status` prints a `plan review <state> round=N` line: `reviewing` with its age, or `failed` with
+  the start of the findings and who it waits on. `dag submit` prints the same line for the round it opened. A
+  submit whose reply does not come back in time reads the dag again and says whether the plan landed, did not
+  land (resending is safe), or that it cannot tell.
 - **Round 2 fails:** the lead must put it to you, as a **Plan review** ask: the plan's path and one line per
   finding, which opens as the review dialog ([Answering the lead](#answering-the-lead)). If you say to proceed
   anyway, it runs `wsh jarvis dag planreview accept "<your reason>"`, and dispatch starts on the plan as it
@@ -1074,7 +1079,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 |---|---|
 | `dag submit --plan <md> [--spec <md>]` | validate the plan and start the engine on it (one DAG per run); after a failed plan review, submit the revised plan again |
 | `dag submit --round --plan <fix plan>` | after the final stage finishes with a round left, append the fix plan's tasks as a round |
-| `dag status` | per-task digest, the report numbers, landed commits, Verify and merge errors, what you told workers, unverified notes, the final stage, token usage |
+| `dag status` | per-task digest, the plan review's state and round, the report numbers, landed commits, Verify and merge errors, what you told workers, unverified notes, the final stage, token usage |
 | `dag asks` | questions the lead holds, oldest first, with every option |
 | `dag answer <task> <answers-json>` | answer as the lead |
 | `dag forward <task> "<note>"` | hand a question, failure, stall or conflict to the human |

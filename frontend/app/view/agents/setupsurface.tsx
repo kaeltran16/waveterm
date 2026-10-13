@@ -65,6 +65,7 @@ import {
     type SkillGroup,
     type SkillRow,
 } from "./skillsmatrix";
+import { SurfaceToolbar } from "./surfacescaffold";
 
 const SECTION_HEAD = cn(REGION_LABEL, "text-muted");
 const BTN_SECONDARY =
@@ -756,12 +757,9 @@ export function SetupSurface({ model }: { model: AgentsViewModel }) {
     return (
         <MotionConfig reducedMotion="user">
             <div className="flex h-full min-h-0 flex-col bg-background">
-                <div className="flex h-[52px] flex-none items-center gap-5 border-b border-border px-5">
-                    <div className="text-[15px] font-semibold text-primary">Setup</div>
+                <SurfaceToolbar title="Setup" actions={tab === "instructions" ? <HeaderStatus /> : <SkillsHeader />}>
                     <Tabs />
-                    <div className="flex-1" />
-                    {tab === "instructions" ? <HeaderStatus /> : <SkillsHeader />}
-                </div>
+                </SurfaceToolbar>
                 <motion.div
                     key={tab}
                     {...FADE_IN}
