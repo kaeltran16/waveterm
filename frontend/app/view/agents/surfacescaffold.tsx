@@ -11,8 +11,8 @@ import { motion } from "motion/react";
 import type { ReactNode } from "react";
 
 // no overflow-hidden: Radar's audits popover and Code's project picker open out of this header.
-// when the controls do not fit one row it wraps rather than clipping them; py-[10px] lands a single
-// row of 28-30px controls at exactly 52px. actions takes min-w-0 so a truncating fact placed there
+// when the controls do not fit one row it wraps rather than clipping them; py-1.5 lands a single
+// row of controls up to 39px at exactly 52px. actions takes min-w-0 so a truncating fact placed there
 // (Diff's range summary) can shrink instead of wrapping.
 export function SurfaceToolbar({
     title,
@@ -29,7 +29,7 @@ export function SurfaceToolbar({
         <header
             data-surface-toolbar
             className={cn(
-                "flex min-h-[52px] flex-none flex-wrap items-center gap-x-3.5 gap-y-2 border-b border-border bg-background px-5 py-[10px]",
+                "flex min-h-[52px] flex-none flex-wrap items-center gap-x-3.5 gap-y-2 border-b border-border bg-background px-5 py-1.5",
                 className
             )}
         >
