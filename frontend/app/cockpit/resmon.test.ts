@@ -298,19 +298,13 @@ describe("resmonReduce", () => {
     const groups = [arc, waveterm, verify];
     const at = (ui: ResMonUi, cursor: string): ResMonUi => ({ ...ui, cursor });
 
-    it("starts with Arc collapsed and every other group expanded", () => {
-        expect(isExpanded(RESMON_UI_INITIAL, "arc")).toBe(false);
-        expect(isExpanded(RESMON_UI_INITIAL, waveterm.key)).toBe(true);
-        expect(isExpanded(RESMON_UI_INITIAL, verify.key)).toBe(true);
-        expect(cursorRows(groups, RESMON_UI_INITIAL)).toEqual([
-            "arc",
-            waveterm.key,
-            ...waveterm.rows.map((r) => `${waveterm.key}/${r.pid}`),
-            verify.key,
-            ...verify.rows.map((r) => `${verify.key}/${r.pid}`),
-        ]);
+    it("starts with every group collapsed", () => {
+        for (const g of groups) {
+            expect(isExpanded(RESMON_UI_INITIAL, g.key)).toBe(false);
+        }
+        expect(cursorRows(groups, RESMON_UI_INITIAL)).toEqual(["arc", waveterm.key, verify.key]);
     });
-    it("moves across a collapsed Arc group straight to the next header, and clamps at the ends", () => {
+    it("moves across collapsed groups header to header, and clamps at the ends", () => {
         let ui = resmonReduce(RESMON_UI_INITIAL, { type: "move", delta: 1, groups });
         expect(ui.cursor).toBe("arc");
         ui = resmonReduce(ui, { type: "move", delta: 1, groups });
@@ -318,13 +312,14 @@ describe("resmonReduce", () => {
         ui = resmonReduce(ui, { type: "move", delta: -1, groups });
         ui = resmonReduce(ui, { type: "move", delta: -1, groups });
         expect(ui.cursor).toBe("arc");
-        expect(resmonReduce(RESMON_UI_INITIAL, { type: "move", delta: -1, groups }).cursor).toBe(`${verify.key}/22418`);
+        expect(resmonReduce(RESMON_UI_INITIAL, { type: "move", delta: -1, groups }).cursor).toBe(verify.key);
     });
     it("toggles the cursor's group, and a collapse pulls a row cursor up to its header", () => {
         let ui = resmonReduce(at(RESMON_UI_INITIAL, "arc"), { type: "toggle" });
         expect(isExpanded(ui, "arc")).toBe(true);
         expect(resmonReduce(ui, { type: "move", delta: 1, groups }).cursor).toBe("arc/2476");
-        ui = resmonReduce(at(RESMON_UI_INITIAL, `${waveterm.key}/18311`), { type: "toggle" });
+        ui = resmonReduce(at(RESMON_UI_INITIAL, waveterm.key), { type: "toggle" });
+        ui = resmonReduce(at(ui, `${waveterm.key}/18311`), { type: "toggle" });
         expect(isExpanded(ui, waveterm.key)).toBe(false);
         expect(ui.cursor).toBe(waveterm.key);
         ui = resmonReduce(ui, { type: "toggle", key: "arc" });

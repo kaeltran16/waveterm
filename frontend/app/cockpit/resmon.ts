@@ -245,9 +245,9 @@ export type ResMonAction =
 
 export const RESMON_UI_INITIAL: ResMonUi = { cursor: null, expanded: {}, confirm: null, notes: {} };
 
-// Arc is collapsed by default (it is always there and rarely the culprit), every other group expanded
+// every group starts collapsed, so the popover opens as a one-line-per-group summary
 export function isExpanded(ui: ResMonUi, key: string): boolean {
-    return ui.expanded[key] ?? key !== ARC_KEY;
+    return ui.expanded[key] ?? false;
 }
 
 function parseCursor(cursor: string | null): { key: string; pid: number | null } | null {

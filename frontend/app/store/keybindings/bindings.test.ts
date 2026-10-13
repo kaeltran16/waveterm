@@ -1076,10 +1076,11 @@ describe("Resource Manager popover bindings", () => {
     it("moves, asks, cancels and closes", () => {
         globalStore.set(resmonSnapshotAtom, snapshot);
         globalStore.set(resmonOpenAtom, true);
-        // Arc first and collapsed, then waveterm's header and its rows
-        for (let i = 0; i < 3; i++) {
-            run("resmon:next");
-        }
+        // every group starts collapsed: Arc, then waveterm's header, expanded to reach its rows
+        run("resmon:next");
+        run("resmon:next");
+        run("resmon:enter");
+        run("resmon:next");
         expect(globalStore.get(resmonUiAtom).cursor).toBe("job:10/10");
         run("resmon:kill"); // the agent itself: no confirm
         expect(globalStore.get(resmonUiAtom).confirm).toBeNull();
