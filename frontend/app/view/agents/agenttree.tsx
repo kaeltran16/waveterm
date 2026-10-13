@@ -426,9 +426,12 @@ function ParentRow({
 
     const renaming = useAtomValue(renamingRowAtom) === agent.id;
 
+    // picking the parent means its own terminal, so a task output or subagent interior over it closes
     const select = () => {
         globalStore.set(model.focusIdAtom, agent.id);
         globalStore.set(model.focusReplyAtom, false);
+        globalStore.set(focusShellTaskAtom, null);
+        globalStore.set(focusSubagentAtom, null);
     };
     const onContextMenu = (e: React.MouseEvent) => {
         const items: ContextMenuItem[] = [
