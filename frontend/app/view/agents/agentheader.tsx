@@ -18,7 +18,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ChevronLeft, CircleStop, Maximize2, Minimize2, PanelRight, Workflow, X } from "lucide-react";
 import { motion } from "motion/react";
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import { confirmCloseSession, interruptAgent } from "./agentactions";
 import { contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
@@ -89,20 +89,15 @@ function InitiativeLink({ model, agent }: { model: AgentsViewModel; agent: Agent
         loadEffortDetail(oref).catch(() => {});
     }, [oref]);
     return (
-        <>
-            {" · "}
-            <button
-                type="button"
-                data-peek
-                onClick={(e) =>
-                    fireAndForget(() => openOrPeek(model, { kind: "effort", effortId: agent.effortId! }, e))
-                }
-                title={`Open ${effort?.title ?? "this initiative"} in Jarvis`}
-                className="cursor-pointer text-accent-soft hover:underline"
-            >
-                {initiativeLinkText(agent.name, effort)}
-            </button>
-        </>
+        <button
+            type="button"
+            data-peek
+            onClick={(e) => fireAndForget(() => openOrPeek(model, { kind: "effort", effortId: agent.effortId! }, e))}
+            title={`Open ${effort?.title ?? "this initiative"} in Jarvis`}
+            className="cursor-pointer text-accent-soft hover:underline"
+        >
+            {initiativeLinkText(agent.name, effort)}
+        </button>
     );
 }
 
@@ -136,6 +131,33 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const settling = useSettle(!ended && agent.state === "idle" && !standingBy && !snapRef.current.held);
     const review = parseDocReview(agent.ask);
     const reviewOpen = useAtomValue(docReviewAtom) != null;
+    // only the facts this session has: a background terminal often has none, and then the line goes
+    const subline: React.ReactNode[] = [];
+    if (project) {
+        subline.push(project);
+    }
+    if (agent.effortId != null) {
+        subline.push(<InitiativeLink model={model} agent={agent} />);
+    }
+    if (lineage?.kind === "lead") {
+        subline.push(`orchestrator run ${lineage.runId.slice(0, 8)}`);
+    }
+    if (lineage?.kind === "worker" || lineage?.kind === "stage") {
+        subline.push(
+            lineage.lead ? (
+                <button
+                    type="button"
+                    onClick={() => globalStore.set(model.focusIdAtom, lineage.lead!.id)}
+                    title="Go to the lead"
+                    className="cursor-pointer text-accent-soft hover:underline"
+                >
+                    ↑ {lineage.lead.name}
+                </button>
+            ) : (
+                <span>↑ {lineage.run?.title ?? "no lead"}</span>
+            )
+        );
+    }
 
     // Esc cancels the current Claude turn — same PTY-write path as the composer (ControllerInputCommand).
     const interrupt = () => interruptAgent(blockId);
@@ -241,28 +263,16 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         </span>
                     ) : null}
                 </div>
-                <div className="mt-[2px] whitespace-nowrap font-mono text-[11px] font-medium text-muted">
-                    {project || "—"}
-                    {agent.effortId != null ? <InitiativeLink model={model} agent={agent} /> : null}
-                    {lineage?.kind === "lead" ? <> · orchestrator run {lineage.runId.slice(0, 8)}</> : null}
-                    {lineage?.kind === "worker" || lineage?.kind === "stage" ? (
-                        <>
-                            {" · "}
-                            {lineage.lead ? (
-                                <button
-                                    type="button"
-                                    onClick={() => globalStore.set(model.focusIdAtom, lineage.lead!.id)}
-                                    title="Go to the lead"
-                                    className="cursor-pointer text-accent-soft hover:underline"
-                                >
-                                    ↑ {lineage.lead.name}
-                                </button>
-                            ) : (
-                                <span>↑ {lineage.run?.title ?? "no lead"}</span>
-                            )}
-                        </>
-                    ) : null}
-                </div>
+                {subline.length > 0 ? (
+                    <div className="mt-[2px] whitespace-nowrap font-mono text-[11px] font-medium text-muted">
+                        {subline.map((part, i) => (
+                            <Fragment key={i}>
+                                {i > 0 ? " · " : null}
+                                {part}
+                            </Fragment>
+                        ))}
+                    </div>
+                ) : null}
             </div>
             <div className="flex-1" />
             <div className="flex items-center gap-[7px]">

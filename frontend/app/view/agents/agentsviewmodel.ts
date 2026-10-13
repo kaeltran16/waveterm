@@ -557,6 +557,8 @@ export function deriveTerminalVMs(
     hasAgentStatus: (termBlockOref: string) => boolean
 ): AgentVM[] {
     const out: AgentVM[] = [];
+    // terminals are named after their folder, so several in one project share a name; number the repeats
+    const seen = new Map<string, number>();
     for (const row of rows) {
         // An agent tab (session:agent set) is never a terminal, even in the window before its status
         // reporter fires — otherwise a just-launched agent renders as BOTH a pending agent and a terminal.
@@ -564,9 +566,11 @@ export function deriveTerminalVMs(
         if (row.isAgentsTab || isAgentSession || !row.termBlockOref || hasAgentStatus(row.termBlockOref)) {
             continue;
         }
+        const n = (seen.get(row.label) ?? 0) + 1;
+        seen.set(row.label, n);
         out.push({
             id: row.tabId,
-            name: row.label,
+            name: n === 1 ? row.label : `${row.label} ${n}`,
             task: "",
             state: "idle",
             kind: "terminal",

@@ -16414,6 +16414,88 @@ const canvasSwap = {
     },
 };
 
+// --- agent terminal names: two background terminals with one name read apart, and a header with no facts has no
+// stray dash line -------------------------------------------------------------------------------------------
+const TERM_NAMES_LABEL = "verify-terms";
+const TERM_NAMES_WAIT_MS = 10000;
+
+const agentTerminalNames = {
+    name: "agent-terminal-names",
+    surface: "agent",
+    async arrange(h) {
+        const ctx = { tabIds: [] };
+        try {
+            const bootTab = String(await h.ev("window.TabRpcClient.routeId")).replace(/^tab:/, "");
+            const wslist = await h.rpc("workspacelist", null);
+            const ws = wslist.find((w) => (w.workspacedata?.tabids ?? []).includes(bootTab)) ?? wslist[0];
+            ctx.workspaceId = ws.workspacedata.oid;
+            for (let i = 0; i < 2; i++) {
+                const tabId = await waveService(h, "workspace", "CreateTab", [ctx.workspaceId, TERM_NAMES_LABEL, false]);
+                ctx.tabIds.push(tabId);
+                const tab = await waveService(h, "object", "GetObject", [`tab:${tabId}`]);
+                const blockId = tab?.blockids?.[0];
+                if (!blockId) throw new Error("the new tab has no block");
+                await h.rpc("setmeta", {
+                    oref: `block:${blockId}`,
+                    meta: { view: "term", controller: "shell", "cmd:cwd": "~" },
+                });
+            }
+        } catch (e) {
+            ctx.launchError = String(e?.message ?? e);
+            return ctx;
+        }
+        await h.goto("agent");
+        ctx.listed = await polishWaitFor(
+            h,
+            ctx.tabIds.map((id) => `!!document.querySelector('[data-tree-terminal="${id}"]')`).join(" && "),
+            TERM_NAMES_WAIT_MS
+        );
+        return ctx;
+    },
+    async assert(h, ctx) {
+        if (ctx.launchError != null) {
+            return [skipStep("terminal names", `could not verify: the terminal launch failed: ${ctx.launchError}`)];
+        }
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec("0. both terminals are in the tree", ctx.listed === true, `tabs=${ctx.tabIds.join(",")}`);
+        if (!ctx.listed) return steps;
+
+        const names = await h.ev(
+            `${JSON.stringify(ctx.tabIds)}.map((id) => document.querySelector('[data-tree-terminal="' + id + '"]')?.textContent.trim() ?? null)`
+        );
+        rec(
+            "1. same-named terminals read apart: the second is numbered",
+            names[0] === TERM_NAMES_LABEL && names[1] === `${TERM_NAMES_LABEL} 2`,
+            JSON.stringify(names)
+        );
+
+        await h.ev(`document.querySelector('[data-tree-terminal="${ctx.tabIds[1]}"]')?.click()`);
+        const head = await polishWaitFor(
+            h,
+            `(document.querySelector("[data-agent-header]")?.textContent ?? "").includes(${JSON.stringify(`${TERM_NAMES_LABEL} 2`)})`,
+            TERM_NAMES_WAIT_MS
+        );
+        const header = await h.ev(`document.querySelector("[data-agent-header]")?.textContent ?? ""`);
+        rec("2. the header names the focused terminal with its number", head === true, header.slice(0, 80));
+        // a terminal with no project, initiative or run has no facts for the header's second line
+        rec("3. no stray dash in the header", !header.includes("—"), header.slice(0, 80));
+        await polishNap(300); // the rows fade their selection over 140ms
+        await h.shot("cdp-shots/agent-terminal-names.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        for (const tabId of ctx.tabIds) {
+            try {
+                await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, tabId, false]);
+            } catch (e) {
+                console.error(`agent-terminal-names teardown: closing ${tabId} failed: ${e?.message ?? e}`);
+            }
+        }
+        await h.goto("cockpit");
+    },
+};
+
 // --- canvas board tabs: each board on its own tab, and All lays them side by side -------------------------
 // Unlike canvas-swap, the boards are under test: wavesrv serves them from the fixture's design folder.
 const CANVAS_TABS_TOPIC = "verify-canvas-tabs";
@@ -18461,6 +18543,7 @@ export const SCENARIOS = [
     modelPicks,
     canvasSwap,
     canvasTabsScenario,
+    agentTerminalNames,
     resmonFooter,
     resmonMain,
     resmonStates,

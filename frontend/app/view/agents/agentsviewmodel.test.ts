@@ -1060,6 +1060,22 @@ describe("deriveTerminalVMs", () => {
         const rows: Row[] = [{ tabId: "t1", label: "waveterm", termBlockOref: "block:b1", agent: undefined }];
         expect(deriveTerminalVMs(rows, none)).toHaveLength(1);
     });
+
+    it("numbers same-named terminals in list order, leaving the first and unique names bare", () => {
+        const rows: Row[] = [
+            { tabId: "t1", label: "waveterm", termBlockOref: "block:b1" },
+            { tabId: "t2", label: "SIEM", termBlockOref: "block:b2" },
+            { tabId: "t3", label: "waveterm", termBlockOref: "block:b3" },
+            { tabId: "a1", label: "waveterm", termBlockOref: "block:ba", agent: "claude" },
+            { tabId: "t4", label: "waveterm", termBlockOref: "block:b4" },
+        ];
+        expect(deriveTerminalVMs(rows, none).map((t) => t.name)).toEqual([
+            "waveterm",
+            "SIEM",
+            "waveterm 2",
+            "waveterm 3",
+        ]);
+    });
 });
 
 describe("answerHint", () => {

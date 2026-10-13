@@ -971,6 +971,7 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
     };
     return (
         <div
+            data-tree-terminal={terminal.id}
             onClick={select}
             onContextMenu={onContextMenu}
             className={cn(
