@@ -294,7 +294,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                 }
             >
                 {/* takes the spacer's place so a long path truncates instead of wrapping the actions */}
-                <ToolbarFact className="block min-w-0 flex-1 basis-0 truncate">
+                <ToolbarFact className="block min-w-0 grow-[999] basis-0 truncate">
                     {project != null ? `${project.name} · ${project.path}` : "No project selected"}
                 </ToolbarFact>
             </SurfaceToolbar>
