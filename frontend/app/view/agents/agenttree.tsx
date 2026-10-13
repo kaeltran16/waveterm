@@ -73,7 +73,8 @@ import {
     type SubagentState,
 } from "./session-models/sessionviewmodel";
 import { failedLabel, isStandingBy, shellTasksLabel, visibleShellTasks, type ShellTask } from "./shelltasks";
-import { focusShellTaskAtom, shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
+import { ShellTaskPeek } from "./shelltaskpeek";
+import { shellReadAtByIdAtom, shellReadPending, shellTaskPeekAtom, shellTasksByIdAtom } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { useSubagentTracking } from "./subagenttracking";
@@ -329,30 +330,27 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
 }
 
 // A parent's background shell tasks under it, nested like its subagents. A row with an output file opens
-// that output in the center pane over the parent's terminal (a second click closes it); one without has
-// nothing to show, so it is not a click target.
+// that output in a peek beside the tree (a second click closes it); one without has nothing to show, so it
+// is not a click target.
 function ShellTaskRows({ model, parentId, tasks }: { model: AgentsViewModel; parentId: string; tasks: ShellTask[] }) {
     const now = useAtomValue(model.nowAtom);
-    const focusShell = useAtomValue(focusShellTaskAtom);
+    const peek = useAtomValue(shellTaskPeekAtom);
+    const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+    const peekTask = peek?.parentId === parentId ? tasks.find((t) => t.id === peek.taskId) : undefined;
     return (
         <>
             {tasks.map((t) => {
                 const failed = t.state === "failed";
-                const open = focusShell?.parentId === parentId && focusShell.taskId === t.id;
+                const open = peekTask?.id === t.id;
                 return (
                     <div
                         key={t.id}
+                        ref={open ? setAnchor : undefined}
                         data-shell-task={t.id}
                         onClick={() => {
-                            if (!t.outputPath) {
-                                return;
+                            if (t.outputPath) {
+                                globalStore.set(shellTaskPeekAtom, open ? null : { parentId, taskId: t.id });
                             }
-                            if (open) {
-                                globalStore.set(focusShellTaskAtom, null);
-                                return;
-                            }
-                            globalStore.set(model.focusIdAtom, parentId);
-                            globalStore.set(focusShellTaskAtom, { parentId, taskId: t.id });
                         }}
                         className={cn(
                             "relative flex items-center gap-[9px] rounded-[9px] py-[6px] pl-[28px] pr-[11px]",
@@ -387,6 +385,9 @@ function ShellTaskRows({ model, parentId, tasks }: { model: AgentsViewModel; par
                     </div>
                 );
             })}
+            {peekTask != null && anchor != null ? (
+                <ShellTaskPeek key={peekTask.id} model={model} task={peekTask} anchor={anchor} />
+            ) : null}
         </>
     );
 }
@@ -416,6 +417,15 @@ function ParentRow({
     // undefined until the user folds: open while a task runs, as the subagent fold defaults
     const [tasksOverride, setTasksOverride] = useState<boolean>();
     const tasksOpen = tasks.length > 0 && (tasksOverride ?? tasks.some((t) => t.state === "running"));
+    // a peek whose row went away (its task ended, or the fold closed) must not come back when the fold
+    // reopens, nor hold Esc while nothing shows
+    const peek = useAtomValue(shellTaskPeekAtom);
+    const peekShown = peek?.parentId === agent.id && tasksOpen && tasks.some((t) => t.id === peek.taskId);
+    useEffect(() => {
+        if (peek?.parentId === agent.id && !peekShown) {
+            globalStore.set(shellTaskPeekAtom, null);
+        }
+    }, [peek, peekShown, agent.id]);
     // held until a shell-task read since the Stop lands, so a just-launched task never settles first;
     // nextSnap is idempotent for the same inputs, so advancing it in render is safe
     const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
@@ -426,11 +436,10 @@ function ParentRow({
 
     const renaming = useAtomValue(renamingRowAtom) === agent.id;
 
-    // picking the parent means its own terminal, so a task output or subagent interior over it closes
+    // picking the parent means its own terminal, so a subagent interior over it closes
     const select = () => {
         globalStore.set(model.focusIdAtom, agent.id);
         globalStore.set(model.focusReplyAtom, false);
-        globalStore.set(focusShellTaskAtom, null);
         globalStore.set(focusSubagentAtom, null);
     };
     const onContextMenu = (e: React.MouseEvent) => {

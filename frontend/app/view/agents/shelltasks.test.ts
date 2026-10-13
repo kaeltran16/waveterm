@@ -280,6 +280,9 @@ describe("redirectTarget", () => {
         ['task dev > "/tmp/my log.txt"', "/tmp/my log.txt"],
         ["task dev > out.log", "C:\\repo/out.log"],
         ["echo a > /tmp/first.log; task dev > /tmp/second.log", "/tmp/second.log"],
+        ['tail -f /dev/null | task dev > "$TEMP/claude/dev.log" 2>&1', "$TEMP/claude/dev.log"],
+        ["flutter analyze > ${TMPDIR}/a.log", "${TMPDIR}/a.log"],
+        ["task dev > $TMP\\a.log", "$TMP\\a.log"],
     ])("%s -> %s", (command, want) => {
         expect(redirectTarget(command, CWD)).toBe(want);
     });
@@ -295,6 +298,8 @@ describe("redirectTarget", () => {
         'node -e "if (a > b) process.exit(1)"',
         "node -e 'console.log(1 > 0)'",
         "task dev > $LOG",
+        "task dev > $TEMPLATE/a.log",
+        "task dev > $TEMP/$NAME.log",
     ])("%s has no readable redirect", (command) => {
         expect(redirectTarget(command, CWD)).toBeUndefined();
     });
@@ -377,16 +382,12 @@ describe("shellTaskStatus", () => {
     const failed: ShellTask = { id: "t2", description: "d", state: "failed", exitCode: 2 };
 
     it("reads a running task as running and live", () => {
-        expect(shellTaskStatus(running, false)).toEqual({ label: "running", tone: "accent", live: true });
+        expect(shellTaskStatus(running)).toEqual({ label: "running", tone: "accent", live: true });
     });
 
     it("reads a failed task with its exit code, not live", () => {
-        expect(shellTaskStatus(failed, false)).toEqual({ label: "failed · exit 2", tone: "error", live: false });
+        expect(shellTaskStatus(failed)).toEqual({ label: "failed · exit 2", tone: "error", live: false });
         expect(failedLabel({ ...failed, exitCode: undefined })).toBe("failed");
-    });
-
-    it("reads a task that left the list as finished, not live, whatever its last state", () => {
-        expect(shellTaskStatus(running, true)).toEqual({ label: "finished", tone: "muted", live: false });
     });
 });
 

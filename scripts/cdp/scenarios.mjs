@@ -11724,7 +11724,7 @@ const SHELL_LIB = `
     const tasksChip = (name) => treeRow(name)?.querySelector('button[aria-label$="shell tasks"]') ?? null;
     const taskRow = (id) => tree()?.querySelector('[data-shell-task="' + id + '"]') ?? null;
     const taskRowIds = () => [...(tree()?.querySelectorAll("[data-shell-task]") ?? [])].map((r) => r.getAttribute("data-shell-task"));
-    const pane = () => document.querySelector("[data-shell-task-pane]");
+    const peek = () => document.querySelector("[data-shell-task-peek]");
     // the first dot in a card header or a tree row is the agent's own
     const dot = (el) => {
         const d = el?.querySelector("span.rounded-full");
@@ -12014,124 +12014,153 @@ const shellTasksScenario = {
             JSON.stringify(expanded)
         );
 
-        // 4. Interactive: the output opens over the terminal in the center pane, re-reads live, and closes
+        // 4. Interactive: the output opens in a peek beside the tree, re-reads live, and every way it closes
         const clickRow = (id) =>
             h.ev(`(async () => {
                 ${SHELL_LIB}
                 taskRow(${JSON.stringify(id)})?.click();
                 await new Promise((r) => setTimeout(r, 400));
             })()`);
-        const paneState = (id, want) =>
+        const peekState = (id, want) =>
             h.ev(`(async () => {
                 ${SHELL_LIB}
                 const want = ${JSON.stringify(want ?? null)};
-                await until(() => pane()?.getAttribute("data-shell-task-pane") === ${JSON.stringify(id)} && (want == null || text(pane()).includes(want)), 40);
+                await until(() => peek()?.getAttribute("data-shell-task-peek") === ${JSON.stringify(id)} && (want == null || text(peek()).includes(want)), 40);
                 await new Promise((r) => setTimeout(r, 300));
-                const p = pane();
+                const p = peek();
                 if (!p) return null;
-                const r = p.getBoundingClientRect();
-                const c = p.parentElement.getBoundingClientRect();
-                const log = p.querySelector(".bg-surface-code");
-                const rows = [...(log?.querySelectorAll(".whitespace-pre-wrap") ?? [])];
+                const rows = [...p.querySelectorAll(".whitespace-pre-wrap")];
+                const lines = p.innerText.split("\\n").map((s) => s.trim()).filter(Boolean);
                 return {
-                    id: p.getAttribute("data-shell-task-pane"),
+                    id: p.getAttribute("data-shell-task-peek"),
                     text: text(p),
                     state: text(p.querySelector("[data-shell-task-state]")),
+                    footer: lines.at(-1) ?? "",
                     lastLineError: rows.at(-1)?.classList.contains("text-error") ?? false,
-                    fills: Math.abs(r.width - c.width) <= 1 && Math.abs(r.height - c.height) <= 1 && Math.abs(r.top - c.top) <= 1,
-                    logHeight: Math.round(log?.getBoundingClientRect().height ?? 0),
-                    centerWidth: Math.round(c.width),
-                    headerHidden: header()?.checkVisibility() === false,
-                    treeShown: tree() != null,
+                    besideTree: p.getBoundingClientRect().left >= (tree()?.getBoundingClientRect().right ?? Infinity),
+                    headerShown: header()?.checkVisibility() === true,
                     rowOpen: taskRow(${JSON.stringify(id)})?.classList.contains("bg-accentbg") ?? false,
                 };
             })()`);
-        const paneGone = () =>
+        const peekGone = () =>
             h.ev(`(async () => {
                 ${SHELL_LIB}
-                return (await until(() => pane() == null, 20)) && (await until(() => header()?.checkVisibility() === true, 20));
+                return await until(() => peek() == null, 20);
             })()`);
         // Escape where the user's focus is, so the keybinding dispatcher's window listener sees it as a keypress
         const escape = () =>
             h.ev(`(document.activeElement || document.body).dispatchEvent(
                 new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true })
             )`);
-        const clickBack = () => h.ev(`document.querySelector('[data-shell-task-pane] button[title^="Back to parent"]')?.click()`);
+        const closeButton = () => h.ev(`document.querySelector('[data-shell-task-peek] button[aria-label="Close output"]')?.click()`);
 
         await clickRow("bshlines");
-        const lines = await paneState("bshlines", "ready on :5173");
-        await h.shot("cdp-shots/shell-tasks-pane-lines.png");
+        const lines = await peekState("bshlines", "ready on :5173");
+        await h.shot("cdp-shots/shell-tasks-peek-lines.png");
         rec(
-            "4a. Interactive: the running task's output fills the center pane over the hidden terminal, breadcrumb parent › task, state running, its row highlighted",
+            "4a. Interactive: the running task's output opens in a peek beside the tree, the terminal still showing, state running, footer last 64 KB · live, its row highlighted",
             lines?.id === "bshlines" &&
                 SHELL_TASKS[0].output.every((l) => lines.text.includes(l)) &&
-                lines.text.includes(SHELL_AGENT.name) &&
-                lines.text.includes(SHELL_TASKS[0].description) &&
                 lines.state === "running" &&
-                lines.fills === true &&
-                lines.centerWidth > 600 &&
-                lines.logHeight > 500 &&
-                lines.headerHidden === true &&
-                lines.treeShown === true &&
+                lines.footer.endsWith("last 64 KB · live") &&
+                lines.besideTree === true &&
+                lines.headerShown === true &&
                 lines.rowOpen === true,
             JSON.stringify(lines)
         );
 
         appendFileSync(join(ctx.cwd, "bshlines.output"), SHELL_APPENDED_LINE + "\n");
-        const live = await paneState("bshlines", SHELL_APPENDED_LINE);
+        const live = await peekState("bshlines", SHELL_APPENDED_LINE);
         rec(
-            "4b. a line appended to a running task's output appears in the open pane",
+            "4b. a line appended to a running task's output appears in the open peek",
             live?.text.includes(SHELL_APPENDED_LINE) === true,
             JSON.stringify(live?.text)
         );
 
-        await clickBack();
-        const backed = await paneGone();
         await clickRow("bshlines");
-        await paneState("bshlines");
+        const toggled = await peekGone();
+        await clickRow("bshlines");
+        await peekState("bshlines");
+        await closeButton();
+        const closed = await peekGone();
+        await clickRow("bshlines");
+        await peekState("bshlines");
         await escape();
-        const escaped = await paneGone();
+        const escaped = await peekGone();
+        // Esc closes only the peek: agent:back would have left the Agent surface for Cockpit
+        const stayed = await h.ev(`(() => { ${SHELL_LIB} return tree()?.checkVisibility() === true; })()`);
         await clickRow("bshlines");
-        await paneState("bshlines");
+        await peekState("bshlines");
+        // the peek dismisses on pointerdown, so a real press: on the agent's own row, outside the peek and its task row
+        const outside = await centerOf(`treeRow(${JSON.stringify(SHELL_AGENT.name)})`);
+        if (outside) {
+            await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: outside.x, y: outside.y });
+            for (const type of ["mousePressed", "mouseReleased"]) {
+                await h.cdp("Input.dispatchMouseEvent", { type, x: outside.x, y: outside.y, button: "left", clickCount: 1 });
+            }
+        }
+        const pressedOut = await peekGone();
         await clickRow("bshlines");
-        const toggled = await paneGone();
+        await peekState("bshlines");
+        const folding = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            tasksChip(${mainName})?.click();
+            const gone = await until(() => peek() == null, 20);
+            tasksChip(${mainName})?.click();
+            await until(() => taskRowIds().length === ${SHELL_TASKS.length}, 20);
+            await new Promise((r) => setTimeout(r, 400));
+            return gone;
+        })()`);
+        // the Agent surface stays mounted off-screen, so a peek left open would float over the next surface
+        await clickRow("bshlines");
+        await peekState("bshlines");
+        await h.goto("cockpit");
+        const leftSurface = await peekGone();
+        await h.goto("agent");
+        const notBack = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            await new Promise((r) => setTimeout(r, 600));
+            return peek() == null;
+        })()`);
         rec(
-            "4c. the pane closes back to the terminal on the breadcrumb back button, Esc, and re-clicking its row",
-            backed && escaped && toggled,
-            JSON.stringify({ backed, escaped, toggled })
+            "4c. the peek closes on re-clicking its row, the close button, Esc (staying on Agent), a press outside, folding the chip, and leaving the surface",
+            toggled && closed && escaped && stayed && pressedOut && folding && leftSurface && notBack,
+            JSON.stringify({ toggled, closed, escaped, stayed, pressedOut, folding, leftSurface, notBack })
         );
 
         await clickRow("bshempty");
-        const empty = await paneState("bshempty", "No output yet.");
-        await h.shot("cdp-shots/shell-tasks-pane-empty.png");
+        const empty = await peekState("bshempty", "No output yet.");
+        await h.shot("cdp-shots/shell-tasks-peek-empty.png");
         await clickRow("bshfail");
-        const failed = await paneState("bshfail", "[exited with code 1]");
-        await h.shot("cdp-shots/shell-tasks-pane-failed.png");
+        const failed = await peekState("bshfail", "[exited with code 1]");
+        await h.shot("cdp-shots/shell-tasks-peek-failed.png");
         rec(
-            "4d. the empty task's pane reads No output yet. (running); the failed task's ends in an error-colored [exited with code 1] (failed · exit 1)",
+            "4d. the empty task's peek reads No output yet. (running, live); the failed task's ends in an error-colored [exited with code 1] (failed · exit 1, not live)",
             empty?.text.includes("No output yet.") === true &&
                 empty.state === "running" &&
+                empty.footer.endsWith("last 64 KB · live") &&
                 failed?.text.includes("[exited with code 1]") === true &&
                 failed.state === "failed · exit 1" &&
-                failed.lastLineError === true,
+                failed.lastLineError === true &&
+                failed.footer.endsWith("last 64 KB"),
             JSON.stringify({ empty, failed })
         );
 
         // 5. a missing output file reads as no output, not an error
         await clickRow("bshgone");
-        const gone = await paneState("bshgone", "No output yet.");
-        await h.shot("cdp-shots/shell-tasks-pane-missing.png");
+        const gone = await peekState("bshgone", "No output yet.");
+        await h.shot("cdp-shots/shell-tasks-peek-missing.png");
         rec(
             "5. the task whose output file does not exist reads No output yet., with no error text",
             gone?.text.includes("No output yet.") === true && !/error|enoent|no such file|cannot|failed/i.test(gone.text),
             JSON.stringify(gone)
         );
 
-        // 5a. a command that redirects its stdout leaves claude's output file empty; the pane reads the redirect target
+        // 5a. a command that redirects its stdout leaves claude's output file empty; the peek reads the redirect target
         const redirTask = SHELL_TASKS.find((t) => t.redirect);
         await clickRow(redirTask.id);
-        const redir = await paneState(redirTask.id, redirTask.output.at(-1));
-        await h.shot("cdp-shots/shell-tasks-pane-redirect.png");
+        const redir = await peekState(redirTask.id, redirTask.output.at(-1));
+        await h.shot("cdp-shots/shell-tasks-peek-redirect.png");
         rec(
             "5a. the task whose command redirects to a /tmp log shows that log's lines, not No output yet. (running)",
             redir != null &&
@@ -12140,10 +12169,8 @@ const shellTasksScenario = {
                 redir.state === "running",
             JSON.stringify(redir)
         );
-
-        // left open on a running task, so step 6a can see the pane outlive the task's clean finish
-        await clickRow("bshlines");
-        await paneState("bshlines");
+        await closeButton();
+        await peekGone();
 
         const resume = await h.ev(`(async () => {
             ${SHELL_LIB}
@@ -12188,27 +12215,6 @@ const shellTasksScenario = {
             JSON.stringify(parked)
         );
 
-        // 6a. the pane left open on bshlines outlives its clean finish: same output, state finished
-        await h.goto("agent");
-        const finishedPane = await h.ev(`(async () => {
-            ${SHELL_LIB}
-            await until(() => text(pane()?.querySelector("[data-shell-task-state]")) === "finished", 40);
-            return {
-                id: pane()?.getAttribute("data-shell-task-pane") ?? null,
-                state: text(pane()?.querySelector("[data-shell-task-state]")),
-                text: text(pane()),
-            };
-        })()`);
-        await h.shot("cdp-shots/shell-tasks-pane-finished.png");
-        rec(
-            "6a. the open pane of a task that finished cleanly stays open with its output, its state reading finished",
-            finishedPane.id === "bshlines" &&
-                finishedPane.state === "finished" &&
-                finishedPane.text.includes(SHELL_APPENDED_LINE),
-            JSON.stringify(finishedPane)
-        );
-        await escape();
-        await paneGone();
 
         await h.goto("agent");
         const after = await h.ev(`(async () => {

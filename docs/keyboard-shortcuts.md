@@ -141,7 +141,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `d` | Toggle the agent rail |
 | `f` | Toggle terminal fullscreen |
 | `r` | Review: open the focused lead's Spec review or Plan review dialog |
-| `Esc` | Close an open subagent or shell task output (back to the agent's terminal), else back to where you jumped from, else to Cockpit; exits fullscreen first |
+| `Esc` | Close an open shell task output peek, or an open subagent (back to the agent's terminal), else back to where you jumped from, else to Cockpit; exits fullscreen first |
 | `Shift`+`Esc` | Return focus to the nav (from inside the terminal) |
 
 ### Agent: canvas mode

@@ -20,7 +20,7 @@ export const SHELL_TAIL_LINES = 2000;
 // the cut detailForTool applies to a Bash command in cmd/wsh/cmd/wshcmd-agenthook.go.
 const COMMAND_DESCRIPTION_MAX = 60;
 
-const OUTPUT_MAX_CHARS = 64 * 1024;
+export const OUTPUT_MAX_CHARS = 64 * 1024;
 const EXITED_LINE = /^\[exited with code (-?\d+)\]$/;
 
 type Settled = "running" | "failed" | "gone";
@@ -129,10 +129,12 @@ const STDOUT_REDIRECT = /(?:^|[\s;|&(])(?:1|&)?>>?\s*("[^"]*"|'[^']*'|[^\s;|&<>(
 const QUOTED = /"[^"]*"|'[^']*'/g;
 const DISCARD_TARGET = /^(?:\/dev\/|nul$)/i;
 const ABSOLUTE_TARGET = /^(?:[/~]|[A-Za-z]:[\\/])/;
+// agents log to the temp dir by variable ("$TEMP/dev.log"), which wavesrv resolves to its own temp dir
+const TEMP_VAR_TARGET = /^\$\{?(?:TEMP|TMP|TMPDIR)\}?(?=[/\\]|$)/;
 
 /** Pure: the file a shell command's stdout ends up in, when it redirects it away from claude's output file.
- *  The last redirect wins. Git Bash forms (/tmp, /c/, ~) are left for wavesrv to resolve; a relative target
- *  is joined to cwd, and one with a variable in it is not readable. */
+ *  The last redirect wins. Git Bash forms (/tmp, /c/, ~) and a leading temp-dir variable are left for wavesrv
+ *  to resolve; a relative target is joined to cwd, and one with any other variable in it is not readable. */
 export function redirectTarget(command: string, cwd: string | undefined): string | undefined {
     // quoted text is masked so a `>` inside a quoted script is not a redirect; targets are cut from the original
     const masked = command.replace(QUOTED, (q) => q[0] + "_".repeat(q.length - 2) + q[0]);
@@ -141,10 +143,14 @@ export function redirectTarget(command: string, cwd: string | undefined): string
         const start = m.index + m[0].length - m[1].length;
         target = command.slice(start, start + m[1].length).replace(/^(["'])(.*)\1$/, "$2");
     }
-    if (target == null || target === "" || DISCARD_TARGET.test(target) || /[$`]/.test(target)) {
+    if (target == null || target === "" || DISCARD_TARGET.test(target)) {
         return undefined;
     }
-    if (ABSOLUTE_TARGET.test(target)) {
+    const tempVar = TEMP_VAR_TARGET.test(target);
+    if (/[$`]/.test(target.replace(TEMP_VAR_TARGET, ""))) {
+        return undefined;
+    }
+    if (tempVar || ABSOLUTE_TARGET.test(target)) {
         return target;
     }
     return cwd ? `${cwd.replace(/[\\/]$/, "")}/${target}` : undefined;
@@ -253,17 +259,13 @@ export function failedLabel(task: ShellTask): string {
 
 export interface ShellTaskStatus {
     label: string;
-    tone: "accent" | "error" | "muted";
+    tone: "accent" | "error";
     // a running task's output is still growing, so it is re-read
     live: boolean;
 }
 
-/** The output pane's state for a task, or for its last known snapshot once it left the visible list:
- *  a task leaves it only by finishing cleanly or being ended from outside. */
-export function shellTaskStatus(task: ShellTask, finished: boolean): ShellTaskStatus {
-    if (finished) {
-        return { label: "finished", tone: "muted", live: false };
-    }
+/** The output peek's state for a task. */
+export function shellTaskStatus(task: ShellTask): ShellTaskStatus {
     if (task.state === "running") {
         return { label: "running", tone: "accent", live: true };
     }

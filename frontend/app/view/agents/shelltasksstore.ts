@@ -4,7 +4,7 @@
 // Background shell tasks per agent, read from its transcript tail. Mirrors subagentsstore.ts: refresh
 // on enter and when the agent turns idle, scheduleShellTasks (debounced) on transcript activity, drop on
 // leave. Standing by is not stored here: consumers derive it with isStandingBy from the agent's state and
-// its entry. Also holds which task's output pane is open, exclusive with the subagent interior.
+// its entry. Also holds which task's output peek is open.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -12,9 +12,8 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentVM } from "./agentsviewmodel";
 import { extractShellTasks, outputTail, SHELL_TAIL_LINES, visibleShellTasks, type ShellTask } from "./shelltasks";
-import { focusSubagentAtom } from "./subagentsstore";
 
-export interface FocusShellTask {
+export interface ShellTaskPeekRef {
     parentId: string;
     taskId: string;
 }
@@ -26,21 +25,9 @@ export const shellTasksByIdAtom = atom<Record<string, ShellTask[]>>({}) as Primi
 // since the agent turned idle waits for a read that started at or after it (shellReadPending)
 export const shellReadAtByIdAtom = atom<Record<string, number>>({}) as PrimitiveAtom<Record<string, number>>;
 
-// the task whose output pane is open in the focused view's center (null = show the parent terminal)
-export const focusShellTaskAtom = atom<FocusShellTask | null>(null) as PrimitiveAtom<FocusShellTask | null>;
-
-// both panes swap in over the same terminal, so opening one closes the other. Subscribed here, not at each
-// writer, because the subagent interior is opened from the tree, the rail and the run body
-globalStore.sub(focusShellTaskAtom, () => {
-    if (globalStore.get(focusShellTaskAtom) != null && globalStore.get(focusSubagentAtom) != null) {
-        globalStore.set(focusSubagentAtom, null);
-    }
-});
-globalStore.sub(focusSubagentAtom, () => {
-    if (globalStore.get(focusSubagentAtom) != null && globalStore.get(focusShellTaskAtom) != null) {
-        globalStore.set(focusShellTaskAtom, null);
-    }
-});
+// the task whose output peek is open beside the tree; an atom, not row state, so Esc in the keybinding
+// registry can close it
+export const shellTaskPeekAtom = atom<ShellTaskPeekRef | null>(null) as PrimitiveAtom<ShellTaskPeekRef | null>;
 
 // transcript activity stops while an agent sits idle, so a running task's finish is only seen by polling
 export const SHELL_POLL_MS = 5000;
@@ -139,8 +126,8 @@ export function dropShellTasks(id: string): void {
     loadSeq.set(id, (loadSeq.get(id) ?? 0) + 1);
     setList(id, null);
     setReadAt(id, null);
-    if (globalStore.get(focusShellTaskAtom)?.parentId === id) {
-        globalStore.set(focusShellTaskAtom, null);
+    if (globalStore.get(shellTaskPeekAtom)?.parentId === id) {
+        globalStore.set(shellTaskPeekAtom, null);
     }
 }
 
@@ -149,7 +136,7 @@ export function shellTaskPollIds(trackedIds: string[], byId: Record<string, Shel
     return trackedIds.filter((id) => byId[id]?.some((t) => t.state === "running"));
 }
 
-/** The last lines of a task's output file, trimmed for the output pane. A missing or unreadable file
+/** The last lines of a task's output file, trimmed for the output peek. A missing or unreadable file
  *  reads as no output rather than an error. */
 export async function readShellTaskOutput(path: string): Promise<string[]> {
     try {

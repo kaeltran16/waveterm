@@ -37,8 +37,6 @@ import { FinalStagePane } from "./finalstagepane";
 import { rosterSeededAtom } from "./liveagents";
 import { terminalFullscreenAtom } from "./railstore";
 import { isEndedWorkerId } from "./runlineage";
-import { ShellTaskPane } from "./shelltaskpane";
-import { focusShellTaskAtom } from "./shelltasksstore";
 import { SubagentInterior } from "./subagentinterior";
 import { focusSubagentAtom } from "./subagentsstore";
 
@@ -49,7 +47,6 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const order = useAtomValue(model.orderAtom);
     const fullscreen = useAtomValue(terminalFullscreenAtom);
     const focusSub = useAtomValue(focusSubagentAtom);
-    const focusShell = useAtomValue(focusShellTaskAtom);
     const ended = useAtomValue(model.endedWorkerAtom);
     const stage = useAtomValue(model.finalStageAtom);
     const seeded = useAtomValue(rosterSeededAtom);
@@ -65,7 +62,6 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         focusId != null ? (mountable.find((a) => a.id === focusId) ?? ended?.agent ?? stage?.agent) : undefined;
     const agent = focused ?? agents.find((a) => a.id === order[0]) ?? agents[0] ?? terminals[0];
     const showSub = focusSub != null && focusSub.parentId === agent?.id;
-    const showShell = focusShell != null && focusShell.parentId === agent?.id;
     const canvasMode = useAtomValue(canvasStateAtom(agent?.id ?? ""))?.mode === "canvas";
     useCanvasPoller(model, agent);
 
@@ -84,15 +80,12 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         }
     }, [stageFocusId, focusId, model]);
 
-    // a stale interior or task output (its parent is no longer focused) closes so the terminal returns
+    // a stale interior (its parent is no longer focused) closes so the terminal returns
     useEffect(() => {
         if (focusSub != null && focusSub.parentId !== agent?.id) {
             globalStore.set(focusSubagentAtom, null);
         }
-        if (focusShell != null && focusShell.parentId !== agent?.id) {
-            globalStore.set(focusShellTaskAtom, null);
-        }
-    }, [agent?.id, focusSub, focusShell]);
+    }, [agent?.id, focusSub]);
 
     // a lead's Spec/Plan review opens by itself once per ask, only while you are on that lead and not typing
     const surface = useAtomValue(model.surfaceAtom);
@@ -135,7 +128,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
 
     // the surface stays mounted, so the effects above never run on a switch back to it, and arriving left
     // focus on <body>: typing reached the agent only after a click. Arriving hands focus to the live
-    // terminal, or the wrapper when none is showing (canvas, subagent interior, task output, no terminal).
+    // terminal, or the wrapper when none is showing (canvas, subagent interior, no terminal).
     useEffect(() => {
         const wrap = wrapRef.current;
         if (
@@ -169,9 +162,9 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                 {/* the tree stays in canvas mode: hiding it made reaching another agent a round trip through the terminal */}
                 {!fullscreen ? <AgentTree model={model} /> : null}
                 <div className="flex min-w-0 flex-1 flex-col">
-                    {/* terminal stack stays mounted (hidden) while a subagent interior or task output is shown,
-                        so returning to the parent never remounts/replays the live TUI (frame-stacking) */}
-                    <div className={cn("flex min-h-0 flex-1 flex-col", (showSub || showShell) && "hidden")}>
+                    {/* terminal stack stays mounted (hidden) while a subagent interior is shown, so
+                        returning to the parent never remounts/replays the live TUI (frame-stacking) */}
+                    <div className={cn("flex min-h-0 flex-1 flex-col", showSub && "hidden")}>
                         <AgentHeader model={model} agent={agent} />
                         {mountable
                             .filter((a) => a.blockId != null)
@@ -200,9 +193,6 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                         ) : null}
                     </div>
                     {showSub ? <SubagentInterior sub={focusSub!} parentName={agent.name} /> : null}
-                    {showShell ? (
-                        <ShellTaskPane key={focusShell!.taskId} focus={focusShell!} parentName={agent.name} />
-                    ) : null}
                 </div>
                 {!fullscreen && !canvasMode && agent.kind !== "terminal" ? (
                     <AgentDetailsRail model={model} agent={agent} />

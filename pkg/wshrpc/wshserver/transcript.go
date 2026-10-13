@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -64,9 +65,24 @@ func gitBashPath(path, tempDir string) string {
 	return path
 }
 
-// nativeReadPath resolves a ~ and, on Windows, a Git Bash form: a shell task's output can be a file the
-// agent redirected to from Git Bash
+// agents redirect a shell task's output to the temp dir by variable ("$TEMP/dev.log"); each names it
+var tempVarPrefix = regexp.MustCompile(`^\$\{?(?:TEMP|TMP|TMPDIR)\}?([/\\]|$)`)
+
+// tempVarPath swaps a leading temp-dir variable for tempDir. Any other path is returned unchanged.
+func tempVarPath(path, tempDir string) string {
+	loc := tempVarPrefix.FindStringSubmatchIndex(path)
+	if loc == nil {
+		return path
+	}
+	return filepath.Join(tempDir, path[loc[2]:])
+}
+
+// nativeReadPath resolves a ~, a leading temp-dir variable and, on Windows, a Git Bash form: a shell task's
+// output can be a file the agent redirected to from Git Bash
 func nativeReadPath(path string) string {
+	if strings.HasPrefix(path, "$") {
+		return tempVarPath(path, os.TempDir())
+	}
 	if strings.HasPrefix(path, "~") {
 		return wavebase.ExpandHomeDirSafe(path)
 	}

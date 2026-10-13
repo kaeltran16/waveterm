@@ -420,3 +420,20 @@ func TestGitBashPath(t *testing.T) {
 		}
 	}
 }
+
+func TestTempVarPath(t *testing.T) {
+	tmp := filepath.Join("base", "temp")
+	cases := []struct{ in, want string }{
+		{"$TEMP/claude/dev.log", filepath.Join(tmp, "claude", "dev.log")},
+		{"${TMPDIR}/a.log", filepath.Join(tmp, "a.log")},
+		{`$TMP\a.log`, filepath.Join(tmp, "a.log")},
+		{"$TEMP", tmp},
+		{"$TEMPLATE/a.log", "$TEMPLATE/a.log"},
+		{"$HOME/a.log", "$HOME/a.log"},
+	}
+	for _, c := range cases {
+		if got := tempVarPath(c.in, tmp); got != c.want {
+			t.Errorf("tempVarPath(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
