@@ -2782,6 +2782,7 @@ declare global {
         "harness:preferredmodel"?: string;
         "radar:auditruntime"?: string;
         "radar:auditmodel"?: string;
+        "radar:classifymodel"?: string;
     };
 
     // wshrpc.ShippedItem

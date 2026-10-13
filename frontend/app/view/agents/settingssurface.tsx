@@ -58,7 +58,9 @@ import {
     RADAR_AUDIT_MODEL_KEY,
     RADAR_AUDIT_RUNTIME_KEY,
     RADAR_AUDIT_RUNTIMES,
+    RADAR_CLASSIFY_MODEL_KEY,
     radarAuditRoute,
+    radarClassifyDefault,
     resolveSelection,
     rowKeys,
     settingsSections,
@@ -1334,6 +1336,7 @@ function HeadlessAISection() {
     const cheapModel = (useAtomValue(getSettingsKeyAtom("headless:openroutercheapmodel")) as string) ?? "";
     const auditRuntime = (useAtomValue(getSettingsKeyAtom(RADAR_AUDIT_RUNTIME_KEY)) as string) ?? "";
     const auditModel = (useAtomValue(getSettingsKeyAtom(RADAR_AUDIT_MODEL_KEY)) as string) ?? "";
+    const classifyModel = (useAtomValue(getSettingsKeyAtom(RADAR_CLASSIFY_MODEL_KEY)) as string) ?? "";
 
     const [hasKey, setHasKey] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -1535,6 +1538,13 @@ function HeadlessAISection() {
                             [RADAR_AUDIT_MODEL_KEY]: route.model ?? null,
                         })
                     }
+                />
+                <span className="font-mono text-[10.5px] tracking-[0.02em] text-muted">classifier</span>
+                <CommitText
+                    value={classifyModel}
+                    placeholder={radarClassifyDefault(auditRuntime)}
+                    width="w-[160px]"
+                    onCommit={(v) => writeConfig({ [RADAR_CLASSIFY_MODEL_KEY]: v })}
                 />
             </SettingRow>
             {isOpenRouter && !hasKey ? (

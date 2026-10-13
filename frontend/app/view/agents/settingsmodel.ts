@@ -54,6 +54,7 @@ export const OPENROUTER_SECRET_NAME = "jarvis_embedapikey";
 // them; the empty-key defaults mirror pkg/reporadar's.
 export const RADAR_AUDIT_RUNTIME_KEY = "radar:auditruntime";
 export const RADAR_AUDIT_MODEL_KEY = "radar:auditmodel";
+export const RADAR_CLASSIFY_MODEL_KEY = "radar:classifymodel";
 export const RADAR_AUDIT_RUNTIMES: readonly string[] = ["claude", "pi"];
 const RADAR_AUDIT_DEFAULT_RUNTIME = "claude";
 const RADAR_AUDIT_DEFAULT_CLAUDE_MODEL = "sonnet";
@@ -63,6 +64,11 @@ export function radarAuditRoute(runtime: string, model: string): RoutePin {
     const rt = runtime || RADAR_AUDIT_DEFAULT_RUNTIME;
     const m = model || (rt === RADAR_AUDIT_DEFAULT_RUNTIME ? RADAR_AUDIT_DEFAULT_CLAUDE_MODEL : "");
     return { runtime: rt, ...(m ? { model: m } : {}) };
+}
+
+// What an unset radar:classifymodel runs on the audit runtime; pi takes no bare model id, so it keeps its own.
+export function radarClassifyDefault(runtime: string): string {
+    return (runtime || RADAR_AUDIT_DEFAULT_RUNTIME) === RADAR_AUDIT_DEFAULT_RUNTIME ? "haiku" : "pi default";
 }
 
 const THEME_OVERRIDE_KEY = "cockpit.theme.overrides";
@@ -303,7 +309,7 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
         {
             id: "headless",
             name: "Headless AI",
-            blurb: "The runtime behind session classify, continuity, the volunteer judge and pi titles, and the route Radar audits run on.",
+            blurb: "The runtime behind session classify, continuity, the volunteer judge and pi titles. Radar audits keep their own route.",
             group: "Data",
             rows: [
                 {
@@ -324,7 +330,7 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
                 {
                     id: "headless.cheap",
                     title: "Cheap model",
-                    desc: "The OpenRouter model for session classify, continuity, the volunteer judge and pi titles.",
+                    desc: "The OpenRouter model for session classify, continuity, the volunteer judge and pi titles. Used only when the runtime is OpenRouter.",
                     key: "headless:openroutercheapmodel",
                     scope: "synced",
                     config: true,
@@ -332,9 +338,9 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
                 {
                     id: "headless.radaraudit",
                     title: "Radar audit",
-                    desc: "Each scan runs one read-only session per fix commit on this route. OpenRouter cannot be used: it has no tools.",
+                    desc: "Each scan runs up to 8 sibling, 3 introduced and 2 hotspot read-only sessions on this route, plus one classifier call when commits lack a conventional prefix. The classifier runs on the same runtime; empty means haiku on claude, pi's default on pi. OpenRouter cannot be used: it has no tools.",
                     key: RADAR_AUDIT_RUNTIME_KEY,
-                    morekeys: [RADAR_AUDIT_MODEL_KEY],
+                    morekeys: [RADAR_AUDIT_MODEL_KEY, RADAR_CLASSIFY_MODEL_KEY],
                     scope: "synced",
                     config: true,
                 },

@@ -143,6 +143,9 @@
         },
         "radar:auditmodel": {
           "type": "string"
+        },
+        "radar:classifymodel": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

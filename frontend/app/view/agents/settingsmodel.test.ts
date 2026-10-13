@@ -12,6 +12,7 @@ import {
     OPENROUTER_SECRET_NAME,
     RADAR_AUDIT_RUNTIMES,
     radarAuditRoute,
+    radarClassifyDefault,
     resolveSelection,
     rowKeys,
     rowMatches,
@@ -191,6 +192,7 @@ describe("settingsSections", () => {
             "headless:openroutercheapmodel",
             "radar:auditruntime",
             "radar:auditmodel",
+            "radar:classifymodel",
         ]);
     });
 
@@ -209,10 +211,15 @@ describe("settingsSections", () => {
         }
     });
 
-    it("finds the Radar audit row by either of its keys", () => {
-        expect(filterSections(sections(), "radar:auditmodel")[0].rows.map((r) => r.id)).toEqual([
-            "headless.radaraudit",
-        ]);
+    it("finds the Radar audit row by any of its keys", () => {
+        for (const key of ["radar:auditmodel", "radar:classifymodel"]) {
+            expect(filterSections(sections(), key)[0].rows.map((r) => r.id)).toEqual(["headless.radaraudit"]);
+        }
+    });
+
+    it("keeps Radar out of what the headless runtime powers", () => {
+        const headless = sections().find((s) => s.id === "headless")!;
+        expect(headless.blurb).not.toContain("route Radar audits run on");
     });
 });
 
@@ -232,6 +239,12 @@ describe("radarAuditRoute", () => {
             model: "opencode/deepseek-v4-pro",
         });
         expect(radarAuditRoute("", "opus")).toEqual({ runtime: "claude", model: "opus" });
+    });
+
+    it("defaults the classifier to haiku on claude and pi's own on pi", () => {
+        expect(radarClassifyDefault("")).toBe("haiku");
+        expect(radarClassifyDefault("claude")).toBe("haiku");
+        expect(radarClassifyDefault("pi")).toBe("pi default");
     });
 
     it("offers only runtimes that have tools", () => {

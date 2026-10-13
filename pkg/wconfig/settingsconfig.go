@@ -89,8 +89,9 @@ type SettingsType struct {
 	HarnessPreferredRuntime string `json:"harness:preferredruntime,omitempty"`
 	HarnessPreferredModel   string `json:"harness:preferredmodel,omitempty"`
 
-	RadarAuditRuntime string `json:"radar:auditruntime,omitempty"`
-	RadarAuditModel   string `json:"radar:auditmodel,omitempty"`
+	RadarAuditRuntime  string `json:"radar:auditruntime,omitempty"`
+	RadarAuditModel    string `json:"radar:auditmodel,omitempty"`
+	RadarClassifyModel string `json:"radar:classifymodel,omitempty"`
 }
 
 type ConfigError struct {
