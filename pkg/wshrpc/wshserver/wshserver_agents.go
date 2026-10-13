@@ -31,7 +31,7 @@ func (ws *WshServer) GetAgentTranscriptCommand(ctx context.Context, data wshrpc.
 	if data.FromStart {
 		read = readTranscriptHead
 	}
-	lines, err := read(data.Path, data.MaxLines)
+	lines, err := read(nativeReadPath(data.Path), data.MaxLines)
 	if err != nil {
 		return nil, fmt.Errorf("reading agent transcript: %w", err)
 	}

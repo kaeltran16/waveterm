@@ -110,7 +110,9 @@ function startedTask(rec: any, toolUses: Map<string, any>): TrackedTask | null {
         typeof input.description === "string" && input.description.trim() !== ""
             ? input.description.trim()
             : String(input.command ?? "").slice(0, COMMAND_DESCRIPTION_MAX);
-    const outputPath = /Output is being written to: (.+?)\.(?:\s|$)/.exec(toolResultText(result?.content))?.[1];
+    const outputPath =
+        redirectTarget(String(input.command ?? ""), typeof rec.cwd === "string" ? rec.cwd : undefined) ??
+        /Output is being written to: (.+?)\.(?:\s|$)/.exec(toolResultText(result?.content))?.[1];
     const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
     return {
         id,
@@ -119,6 +121,33 @@ function startedTask(rec: any, toolUses: Map<string, any>): TrackedTask | null {
         ...(Number.isFinite(ts) ? { startedTs: ts } : {}),
         ...(outputPath ? { outputPath } : {}),
     };
+}
+
+// a stdout redirect outside quotes: `>`, `>>`, `1>` or `&>`, then a quoted or bare target. `2>` and `>&2`
+// never match, so a stderr-only redirect leaves the output in claude's own file
+const STDOUT_REDIRECT = /(?:^|[\s;|&(])(?:1|&)?>>?\s*("[^"]*"|'[^']*'|[^\s;|&<>()]+)/g;
+const QUOTED = /"[^"]*"|'[^']*'/g;
+const DISCARD_TARGET = /^(?:\/dev\/|nul$)/i;
+const ABSOLUTE_TARGET = /^(?:[/~]|[A-Za-z]:[\\/])/;
+
+/** Pure: the file a shell command's stdout ends up in, when it redirects it away from claude's output file.
+ *  The last redirect wins. Git Bash forms (/tmp, /c/, ~) are left for wavesrv to resolve; a relative target
+ *  is joined to cwd, and one with a variable in it is not readable. */
+export function redirectTarget(command: string, cwd: string | undefined): string | undefined {
+    // quoted text is masked so a `>` inside a quoted script is not a redirect; targets are cut from the original
+    const masked = command.replace(QUOTED, (q) => q[0] + "_".repeat(q.length - 2) + q[0]);
+    let target: string | undefined;
+    for (const m of masked.matchAll(STDOUT_REDIRECT)) {
+        const start = m.index + m[0].length - m[1].length;
+        target = command.slice(start, start + m[1].length).replace(/^(["'])(.*)\1$/, "$2");
+    }
+    if (target == null || target === "" || DISCARD_TARGET.test(target) || /[$`]/.test(target)) {
+        return undefined;
+    }
+    if (ABSOLUTE_TARGET.test(target)) {
+        return target;
+    }
+    return cwd ? `${cwd.replace(/[\\/]$/, "")}/${target}` : undefined;
 }
 
 function notificationContent(rec: any): string | null {

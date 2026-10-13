@@ -8,6 +8,7 @@ import {
     isFailedExitLine,
     isStandingBy,
     outputTail,
+    redirectTarget,
     shellTaskStatus,
     shellTasksLabel,
     visibleShellTasks,
@@ -248,10 +249,58 @@ describe("extractShellTasks", () => {
         expect(extractShellTasks(lines).map((t) => t.id)).toEqual(["bdevapp01", "bgotest01"]);
     });
 
+    it("reads a task whose stdout is redirected from the redirect target instead", () => {
+        const command = "tail -f /dev/null | task dev > /tmp/taskdev.log 2>&1";
+        const start = JSON.parse(bashStart("toolu_05R", "bredir001"));
+        start.cwd = "C:\\Users\\kael02\\IdeaProjects\\waveterm";
+        const tasks = extractShellTasks([
+            bashUse("toolu_05R", { command, description: "Launch the dev app in the background" }),
+            JSON.stringify(start),
+        ]);
+        expect(tasks[0].outputPath).toBe("/tmp/taskdev.log");
+    });
+
     it("skips unparseable lines", () => {
         expect(extractShellTasks(["not json", "", "null", ...startWait, "{truncated"]).map((t) => t.id)).toEqual([
             "bqjiuoxr7",
         ]);
+    });
+});
+
+describe("redirectTarget", () => {
+    const CWD = "C:\\repo";
+    it.each([
+        ["task dev > /tmp/taskdev.log 2>&1", "/tmp/taskdev.log"],
+        ["task dev >/tmp/a.log", "/tmp/a.log"],
+        ["task dev >> /tmp/a.log", "/tmp/a.log"],
+        ["task dev 1> /tmp/a.log 2> /tmp/b.log", "/tmp/a.log"],
+        ["task dev &> /tmp/a.log", "/tmp/a.log"],
+        ["task dev > ~/logs/a.log", "~/logs/a.log"],
+        ["task dev > C:\\logs\\a.log", "C:\\logs\\a.log"],
+        ['task dev > "/tmp/my log.txt"', "/tmp/my log.txt"],
+        ["task dev > out.log", "C:\\repo/out.log"],
+        ["echo a > /tmp/first.log; task dev > /tmp/second.log", "/tmp/second.log"],
+    ])("%s -> %s", (command, want) => {
+        expect(redirectTarget(command, CWD)).toBe(want);
+    });
+
+    it.each([
+        "task dev",
+        "task dev 2> /tmp/err.log",
+        "task dev 2>&1",
+        "task dev >&2",
+        "task dev > /dev/null 2>&1",
+        "task dev > NUL",
+        "task dev | tee /tmp/a.log",
+        'node -e "if (a > b) process.exit(1)"',
+        "node -e 'console.log(1 > 0)'",
+        "task dev > $LOG",
+    ])("%s has no readable redirect", (command) => {
+        expect(redirectTarget(command, CWD)).toBeUndefined();
+    });
+
+    it("leaves a relative target unresolved without a cwd", () => {
+        expect(redirectTarget("task dev > out.log", undefined)).toBeUndefined();
     });
 });
 

@@ -402,3 +402,21 @@ func TestSubagentDoneSignal(t *testing.T) {
 		t.Errorf("live1: want Done=false (pending tool_use)")
 	}
 }
+
+func TestGitBashPath(t *testing.T) {
+	tmp := `C:\Users\me\AppData\Local\Temp`
+	cases := []struct{ in, want string }{
+		{"/tmp/taskdev.log", tmp + `\taskdev.log`},
+		{"/tmp", tmp},
+		{"/c/Users/me/out.log", `C:\Users\me\out.log`},
+		{"/d", `D:\`},
+		{`C:\Users\me\out.log`, `C:\Users\me\out.log`},
+		{"/usr/share/x", "/usr/share/x"},
+		{"/tmpfoo/x", "/tmpfoo/x"},
+	}
+	for _, c := range cases {
+		if got := gitBashPath(c.in, tmp); got != c.want {
+			t.Errorf("gitBashPath(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

@@ -11,10 +11,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
@@ -46,6 +49,31 @@ func readTranscriptLines(path string) ([]string, error) {
 		lines = append(lines, ln)
 	}
 	return lines, nil
+}
+
+// gitBashPath turns the Git Bash path forms an agent's shell writes to (/tmp/..., /c/...) into Windows
+// paths, given the directory Git Bash mounts as /tmp. Any other path is returned unchanged.
+func gitBashPath(path, tempDir string) string {
+	native := func(rest string) string { return strings.ReplaceAll(rest, "/", `\`) }
+	if path == "/tmp" || strings.HasPrefix(path, "/tmp/") {
+		return tempDir + native(path[len("/tmp"):])
+	}
+	if len(path) >= 2 && path[0] == '/' && unicode.IsLetter(rune(path[1])) && (len(path) == 2 || path[2] == '/') {
+		return strings.ToUpper(path[1:2]) + `:\` + native(strings.TrimPrefix(path[2:], "/"))
+	}
+	return path
+}
+
+// nativeReadPath resolves a ~ and, on Windows, a Git Bash form: a shell task's output can be a file the
+// agent redirected to from Git Bash
+func nativeReadPath(path string) string {
+	if strings.HasPrefix(path, "~") {
+		return wavebase.ExpandHomeDirSafe(path)
+	}
+	if runtime.GOOS == "windows" {
+		return gitBashPath(path, os.TempDir())
+	}
+	return path
 }
 
 // readTranscriptTail returns the last maxLines non-empty lines of the transcript at path.
