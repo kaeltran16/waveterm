@@ -21,3 +21,16 @@ export function activePreview(question: AgentAskQuestion, focusIndex: number): s
     }
     return opts[focusIndex]?.preview || undefined;
 }
+
+const FENCE = /^```[^`]*$/;
+
+// the text the preview panel shows as written, in monospace, as claude's dialog does: previews are ASCII
+// mockups and snippets, which markdown would reflow (joined lines, dropped indents, a dashed line read as a
+// heading). a code fence wrapping the whole preview is unwrapped to its contents
+export function previewBody(preview: string): string {
+    const lines = preview.replace(/\n+$/, "").split("\n");
+    const fences = lines.filter((l) => FENCE.test(l.trim())).length;
+    const isWrapped =
+        lines.length >= 2 && fences === 2 && FENCE.test(lines[0].trim()) && lines[lines.length - 1].trim() === "```";
+    return isWrapped ? lines.slice(1, -1).join("\n") : lines.join("\n");
+}

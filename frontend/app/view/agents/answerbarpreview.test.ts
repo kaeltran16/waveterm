@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentAskQuestion } from "./agentsviewmodel";
-import { activePreview, previewMode } from "./answerbarpreview";
+import { activePreview, previewBody, previewMode } from "./answerbarpreview";
 
 const q = (over: Partial<AgentAskQuestion> = {}): AgentAskQuestion => ({
     question: "Q?",
@@ -35,5 +35,28 @@ describe("activePreview", () => {
     });
     it("returns undefined when no option has a preview", () => {
         expect(activePreview(q({ options: [{ label: "A" }] }), 0)).toBeUndefined();
+    });
+});
+
+describe("previewBody", () => {
+    it("keeps an ASCII diagram's lines and spacing exactly", () => {
+        const box = "+--------+\n|  box   |\n+--------+\n  (box)";
+        expect(previewBody(box)).toBe(box);
+    });
+    it("keeps a dashed line under text, which markdown would read as a heading", () => {
+        expect(previewBody("line\n----------")).toBe("line\n----------");
+    });
+    it("shows what is inside a code fence wrapping the whole preview, language tag or not", () => {
+        expect(previewBody("```ts\nconst a = 1;\n  b();\n```")).toBe("const a = 1;\n  b();");
+        expect(previewBody("```\n| x |\n```\n")).toBe("| x |");
+    });
+    it("leaves a preview alone when a fence wraps only part of it", () => {
+        const mixed = "intro\n```\ncode\n```";
+        expect(previewBody(mixed)).toBe(mixed);
+        const two = "```\na\n```\n```\nb\n```";
+        expect(previewBody(two)).toBe(two);
+    });
+    it("drops trailing newlines only", () => {
+        expect(previewBody("  a\n\n")).toBe("  a");
     });
 });

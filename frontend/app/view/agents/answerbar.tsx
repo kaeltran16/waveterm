@@ -6,9 +6,8 @@ import { cn } from "@/util/util";
 import { ArrowUpRight, Check, FileText, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { answerHint, nextUnansweredQuestion, type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
-import { activePreview, previewMode } from "./answerbarpreview";
+import { activePreview, previewBody, previewMode } from "./answerbarpreview";
 import { DOC_REVIEW_HEADERS, docReviewAtom, parseDocReview, type DocReview, type DocReviewKind } from "./docreview";
-import { MarkdownMessage } from "./markdownmessage";
 
 // The answer surface tracks the agent's status, mirroring the handoff (Wave-answer.dc.html: the
 // cockpit passes accent = stateColor — asking → amber, else → periwinkle). So an asking agent's
@@ -114,7 +113,7 @@ function QuestionGroup({
     // stay as compact wrapping chips. Number badges (1-9) map to the keyboard shortcut; the parent
     // renders only the keyboard-target question, so badges always belong to the rendered group.
     const stacked = options.some((o) => o.description);
-    // preview mode (pi): a single-select question with preview markdown renders side-by-side, the
+    // preview mode: a single-select question with option previews renders side-by-side, the
     // panel showing the hovered/focused option (rpiv's rule: single-select only).
     const withPreview = previewMode(question);
     const [focusIndex, setFocusIndex] = useState(0);
@@ -209,7 +208,9 @@ function QuestionGroup({
                     <div className="min-w-0 flex-1">{optionList}</div>
                     <div className="hidden w-[min(46%,340px)] shrink-0 rounded border border-border bg-black/20 p-3 md:block">
                         {preview ? (
-                            <MarkdownMessage text={preview} className="text-[11.5px] leading-[1.5]" />
+                            <pre className="overflow-x-auto whitespace-pre font-mono text-[11.5px] leading-[1.5] text-primary">
+                                {previewBody(preview)}
+                            </pre>
                         ) : (
                             <div className="text-[11px] text-muted">No preview</div>
                         )}
