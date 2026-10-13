@@ -602,6 +602,7 @@ declare global {
         deferstart?: boolean;
         planpath?: string;
         prototype?: string;
+        autonomous?: boolean;
     };
 
     // wshrpc.CommandCreateRunRtnData
@@ -1495,6 +1496,7 @@ declare global {
         workerroute?: RoutePin;
         reviewerpicks?: boolean;
         reviewerroute?: RoutePin;
+        autonomous?: boolean;
     };
 
     // wshrpc.CommandStartRadarScanData
@@ -2125,6 +2127,7 @@ declare global {
         reviewerpicks?: boolean;
         reviewerroute?: RoutePin;
         landing?: string;
+        autonomous?: boolean;
     };
 
     // waveobj.MetaTSType
@@ -2306,6 +2309,7 @@ declare global {
         reviewerpicks?: boolean;
         reviewerroute?: RoutePin;
         landing?: string;
+        autonomous?: boolean;
     };
 
     // wconfig.ProjectKeywords
@@ -2573,6 +2577,7 @@ declare global {
         workerroute?: RoutePin;
         reviewerpicks?: boolean;
         reviewerroute?: RoutePin;
+        autonomous?: boolean;
         orchestration?: string;
         parallelism?: number;
         prototype?: string;
@@ -2875,6 +2880,7 @@ declare global {
         workerroute?: RoutePin;
         reviewerpicks?: boolean;
         reviewerroute?: RoutePin;
+        autonomous?: boolean;
         mergerequired?: boolean;
         createdts: number;
         updatedts: number;
