@@ -9,7 +9,7 @@ import {
 } from "./petvoice";
 
 function ev(id: string, at: number, extra: Partial<PetEvent> = {}): PetEvent {
-    return { id, at, kind: "sweep", text: `event ${id}`, ...extra };
+    return { id, at, kind: "bg-agent-done", text: `event ${id}`, ...extra };
 }
 
 const mark = (e: PetEvent): PetWatermark => ({ at: e.at, id: e.id });
@@ -69,32 +69,6 @@ describe("the watermark", () => {
     });
 });
 
-describe("report-once", () => {
-    it("does not speak an event the condition level already shows", () => {
-        const sweep = ev("a", 1000, { reportedAsCondition: true });
-        const spoken = nextUtterance([sweep], null);
-        expect(spoken.utterance).toBeNull();
-        // but it counts as reported: the watermark advances so it is never reconsidered
-        expect(spoken.watermark).toEqual(mark(sweep));
-        expect(nextUtterance([sweep], spoken.watermark)).toEqual({ utterance: null, watermark: null, heard: [] });
-    });
-
-    it("falls through to the newest speakable event when the newest is a condition change", () => {
-        const speakable = ev("a", 1000, { kind: "resume" });
-        const condition = ev("b", 2000, { reportedAsCondition: true });
-        const spoken = nextUtterance([speakable, condition], null);
-        expect(spoken.utterance?.id).toBe("a");
-        // the watermark is the newest SEEN event, not the one spoken, so neither is offered again
-        expect(spoken.watermark).toEqual(mark(condition));
-        expect(nextUtterance([speakable, condition], spoken.watermark).utterance).toBeNull();
-    });
-
-    it("is silent when every new event is already reported as a condition", () => {
-        const events = [ev("a", 1000, { reportedAsCondition: true }), ev("b", 2000, { reportedAsCondition: true })];
-        expect(nextUtterance(events, null).utterance).toBeNull();
-    });
-});
-
 describe("volunteered knowledge", () => {
     const vol = (id: string, at: number): PetEvent => ({
         id,
@@ -130,14 +104,9 @@ describe("volunteered knowledge", () => {
 describe("heard — a burst stays reachable", () => {
     // Two notifications in one second: the newest is spoken, and the other must still reach the peek,
     // which reads back only what the creature remembered hearing.
-    it("returns every new speakable event, newest first", () => {
+    it("returns every new event, newest first", () => {
         const events = [ev("a", 1000), ev("c", 3000), ev("b", 2000)];
         expect(nextUtterance(events, null).heard.map((e) => e.id)).toEqual(["c", "b", "a"]);
-    });
-
-    it("leaves out events the condition level already reports", () => {
-        const events = [ev("a", 1000), ev("b", 2000, { reportedAsCondition: true })];
-        expect(nextUtterance(events, null).heard.map((e) => e.id)).toEqual(["a"]);
     });
 
     it("leaves out events already past the watermark", () => {

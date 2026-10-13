@@ -130,7 +130,12 @@ describe("queueRows — the server's ranking is authoritative", () => {
 
 describe("dedupeUpdates — report each thing once", () => {
     const askEvent: PetEvent = { id: "ask:a1", at: 5, kind: "ask", text: "phase-2 worker is waiting", ref: "block:b1" };
-    const sweep: PetEvent = { id: "sweep:1", at: 4, kind: "sweep", text: "Swept the vault while you were out." };
+    const sweep: PetEvent = {
+        id: "sweep:1",
+        at: 4,
+        kind: "bg-agent-done",
+        text: "Swept the vault while you were out.",
+    };
 
     it("drops a spoken ask that is already a row in the queue", () => {
         expect(dedupeUpdates([askEvent, sweep], [ASK]).map((e) => e.id)).toEqual(["sweep:1"]);
