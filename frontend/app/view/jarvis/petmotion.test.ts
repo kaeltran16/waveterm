@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+    ACTIVITY_FULL,
+    activityLevel,
+    advancePhase,
+    BREATH_MIN_MS,
     BREATH_MS,
+    breathFromPhase,
+    breathPeriodMs,
     breathPhase,
     idleOrbit,
     impulseEnvelope,
@@ -9,6 +15,7 @@ import {
     ORBIT_MS,
     ORBIT_PITCH,
     ORBIT_PITCH_MS,
+    pulseRate,
     STILL_FRAME_MS,
     UTTERANCE_MS,
     utteranceEnvelope,
@@ -142,6 +149,81 @@ describe("breathPhase", () => {
     it("returns zero for a non-finite time or a non-positive period", () => {
         expect(breathPhase(Number.NaN)).toBe(0);
         expect(breathPhase(1000, 0)).toBe(0);
+    });
+
+    it("matches breathFromPhase on the same phase", () => {
+        expect(breathPhase(BREATH_MS * 0.3)).toBeCloseTo(breathFromPhase(0.3));
+        expect(breathFromPhase(0.5)).toBeCloseTo(1);
+        expect(breathFromPhase(Number.NaN)).toBe(0);
+    });
+});
+
+describe("activity tempo", () => {
+    it("breathes at the base period with nobody working, faster under load, floored at full load", () => {
+        expect(BREATH_MS).toBe(4_800);
+        expect(breathPeriodMs(0)).toBe(4_800);
+        expect(Math.abs(breathPeriodMs(2) - 3_400)).toBeLessThanOrEqual(100);
+        expect(breathPeriodMs(ACTIVITY_FULL)).toBeCloseTo(BREATH_MIN_MS);
+        expect(breathPeriodMs(20)).toBeCloseTo(BREATH_MIN_MS);
+    });
+
+    it("never slows down as the working count rises", () => {
+        for (let w = 0; w < 10; w += 0.5) {
+            expect(breathPeriodMs(w + 0.5)).toBeLessThanOrEqual(breathPeriodMs(w));
+        }
+    });
+
+    it("adds nothing at rest and reads bad input as rest", () => {
+        expect(activityLevel(0)).toBe(0);
+        expect(pulseRate(0)).toBe(0);
+        for (const bad of [-3, Number.NaN, Number.POSITIVE_INFINITY]) {
+            expect(activityLevel(bad)).toBe(0);
+            expect(pulseRate(bad)).toBe(0);
+        }
+    });
+
+    it("loads concavely, so a couple of agents already register", () => {
+        expect(activityLevel(2)).toBeGreaterThan(2 / ACTIVITY_FULL);
+        expect(activityLevel(ACTIVITY_FULL)).toBe(1);
+        expect(activityLevel(50)).toBe(1);
+    });
+
+    it("pulses faster as load rises", () => {
+        expect(pulseRate(0.1)).toBeGreaterThan(0);
+        expect(pulseRate(1)).toBeGreaterThan(pulseRate(0.5));
+        expect(pulseRate(0.5)).toBeGreaterThan(pulseRate(0.1));
+    });
+});
+
+describe("advancePhase", () => {
+    it("moves by dt over the period and wraps into 0..1", () => {
+        expect(advancePhase(0, 960, 4_800)).toBeCloseTo(0.2);
+        expect(advancePhase(0.9, 960, 4_800)).toBeCloseTo(0.1);
+    });
+
+    it("changes speed, not position, when the period drops mid-breath", () => {
+        const dt = 33;
+        let phase = 0;
+        for (let i = 0; i < 40; i++) {
+            phase = advancePhase(phase, dt, 4_800);
+        }
+        const next = advancePhase(phase, dt, 1_900);
+        expect(next - phase).toBeGreaterThan(0);
+        expect(next - phase).toBeLessThanOrEqual(dt / 1_900 + 1e-12);
+        expect(Math.abs(breathFromPhase(next) - breathFromPhase(phase))).toBeLessThan(0.1);
+    });
+
+    it("clamps a backgrounded tab's long frame to one second of travel", () => {
+        expect(advancePhase(0, 5_000, 4_800)).toBeCloseTo(1_000 / 4_800);
+        expect(advancePhase(0.1, 5_000, 1_900) - 0.1).toBeLessThanOrEqual(1_000 / 1_900 + 1e-12);
+    });
+
+    it("holds the phase for a bad period or a bad dt", () => {
+        expect(advancePhase(0.4, 16, 0)).toBe(0.4);
+        expect(advancePhase(0.4, 16, -10)).toBe(0.4);
+        expect(advancePhase(0.4, 16, Number.NaN)).toBe(0.4);
+        expect(advancePhase(0.4, -16, 4_800)).toBe(0.4);
+        expect(advancePhase(0.4, Number.NaN, 4_800)).toBe(0.4);
     });
 });
 
