@@ -131,7 +131,7 @@ describe("loadUsage", () => {
 
     it("fills both atoms from a {buckets, sessions} dev fixture without calling the RPC", async () => {
         seedFixture(JSON.stringify({ buckets: response.buckets, sessions }));
-        await loadUsage(7);
+        await loadUsage(0);
         expect(globalStore.get(usageBucketsAtom)).toEqual(response.buckets);
         expect(globalStore.get(usageSessionsAtom)).toEqual(sessions);
         expect(getStats).not.toHaveBeenCalled();
@@ -148,6 +148,54 @@ describe("loadUsage", () => {
         expect(getStats).toHaveBeenCalled();
         expect(globalStore.get(usageBucketsAtom)).toEqual(response.buckets);
         expect(globalStore.get(usageSessionsAtom)).toEqual(sessions);
+    });
+
+    it("fails the load from a { fail: true } fixture with no buckets, keeping the earlier buckets", async () => {
+        globalStore.set(usageBucketsAtom, response.buckets);
+        seedFixture(JSON.stringify({ fail: true }));
+        await loadUsage(7);
+        expect(globalStore.get(usageErrorAtom)).toBe(true);
+        expect(globalStore.get(usageBucketsAtom)).toEqual(response.buckets);
+        expect(getStats).not.toHaveBeenCalled();
+    });
+
+    it("holds a delayMs fixture back, leaving the load unfinished until the delay passes", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(2026, 5, 27, 12));
+        try {
+            seedFixture(JSON.stringify({ buckets: response.buckets, sessions, delayMs: 1000 }));
+            const load = loadUsage(30);
+            await vi.advanceTimersByTimeAsync(999);
+            expect(globalStore.get(usageLoadedAtom)).toBe(false);
+            await vi.advanceTimersByTimeAsync(1);
+            await load;
+            expect(globalStore.get(usageLoadedAtom)).toBe(true);
+            expect(globalStore.get(usageBucketsAtom)).toEqual(response.buckets);
+            expect(getStats).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("cuts a dev fixture to the window the RPC scans, and keeps all of it for all time", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(2026, 9, 13, 0, 30));
+        try {
+            const at = (day: string, session: string) => ({ ...response.buckets[0], day, session });
+            const buckets = [at("2026-10-13", "d0"), at("2026-10-07", "d6"), at("2026-10-06", "d7")];
+            const daySessions = ["d0", "d6", "d7"].map((session) => ({ harness: "claude", session }));
+            seedFixture(JSON.stringify({ buckets, sessions: daySessions }));
+
+            await loadUsage(7);
+            expect(globalStore.get(usageBucketsAtom)).toEqual(buckets.slice(0, 2));
+            expect(globalStore.get(usageSessionsAtom)).toEqual(daySessions.slice(0, 2));
+
+            await loadUsage(0);
+            expect(globalStore.get(usageBucketsAtom)).toEqual(buckets);
+            expect(globalStore.get(usageSessionsAtom)).toEqual(daySessions);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("sets neither atom from a superseded load", async () => {

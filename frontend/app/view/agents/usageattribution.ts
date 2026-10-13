@@ -10,7 +10,7 @@
 
 import { providerLabel } from "./cockpitrailmodel";
 import { priceFor } from "./usagepricing";
-import { CLASS_FILL, bucketSpend, bucketTokens, pctStr, usd, type ClassUsage } from "./usagestats";
+import { CLASS_FILL, bucketSpend, bucketTokens, usd, type ClassUsage } from "./usagestats";
 
 export const ALL_SCOPE = "all";
 export const LIST_COLLAPSED_ROWS = 8;
@@ -82,7 +82,26 @@ export interface SplitPart {
 
 export interface WorkSplit {
     parts: SplitPart[];
-    note: string;
+    head: string; // the split table's label-column heading
+}
+
+export interface SplitRow {
+    key: string;
+    label: string;
+    fill: string;
+    tokens: number;
+    spendUsd: number;
+    tokenPct: number;
+    spendPct: number;
+    tokenBarPct: number;
+    spendBarPct: number;
+}
+
+export interface SplitTableData {
+    head: string;
+    rows: SplitRow[];
+    tokens: number;
+    spendUsd: number;
 }
 
 export interface WorkRow {
@@ -131,10 +150,6 @@ const PART_FILLS = [
     "bg-provider-claude",
 ];
 const OTHER_FILL = "bg-cacheread";
-
-export function kindLabel(kind: WorkKind): string {
-    return KIND_LABEL[kind];
-}
 
 export function plural(n: number, one: string, many: string): string {
     return `${n} ${n === 1 ? one : many}`;
@@ -375,12 +390,7 @@ function classParts(classes: ClassUsage[]): SplitPart[] {
 
 // today's token-class split, for a provider page and for a single session
 export function classSplit(classes: ClassUsage[]): WorkSplit {
-    const tokens = classes.reduce((s, c) => s + c.tokens, 0);
-    const cacheRead = classes.find((c) => c.cls === "cacheRead")?.tokens ?? 0;
-    return {
-        parts: classParts(classes),
-        note: `${pctStr(tokens > 0 ? (cacheRead / tokens) * 100 : 0)} of the token count is cache reads, so a single “tokens” number misleads. Cache reads price at a fraction of input, so the two bars tell different stories.`,
-    };
+    return { parts: classParts(classes), head: "class" };
 }
 
 function roleSplit(item: WorkItem): WorkSplit {
@@ -406,7 +416,7 @@ function roleSplit(item: WorkItem): WorkSplit {
         }));
     return {
         parts,
-        note: "How this run divides between its lead, its workers and the sessions that checked them. The two bars differ where a role runs a cheaper model or reads more from cache.",
+        head: "role",
     };
 }
 
@@ -426,7 +436,7 @@ export function scopeSplit(attr: Attribution, scope: WorkScope, classes: ClassUs
                 tokens: kinds[k].tokens,
                 spendUsd: kinds[k].spendUsd,
             })),
-            note: "How this project divides between orchestrator runs, quick runs and sessions no run started.",
+            head: "kind",
         };
     }
     const parts: SplitPart[] = attr.projects.map((p, i) => ({
@@ -447,8 +457,43 @@ export function scopeSplit(attr: Attribution, scope: WorkScope, classes: ClassUs
     }
     return {
         parts,
-        note: "How usage divides between projects. A project is the repo a run was started in, or the folder a session ran in, with worktrees folded into their repo.",
+        head: "project",
     };
+}
+
+// a sliver of a non-zero share stays visible; a zero share draws nothing
+const MIN_BAR_PCT = 0.3;
+
+function sharePct(value: number, total: number): number {
+    return total > 0 ? (value / total) * 100 : 0;
+}
+
+function barPct(value: number, pct: number): number {
+    return value > 0 ? Math.max(pct, MIN_BAR_PCT) : 0;
+}
+
+// Where it goes as a table: rows by spend, then tokens, then key; each pct is a share of its column.
+export function splitTable(split: WorkSplit): SplitTableData {
+    const tokens = split.parts.reduce((s, p) => s + p.tokens, 0);
+    const spendUsd = split.parts.reduce((s, p) => s + p.spendUsd, 0);
+    const rows = [...split.parts]
+        .sort((a, b) => b.spendUsd - a.spendUsd || b.tokens - a.tokens || a.key.localeCompare(b.key))
+        .map((p) => {
+            const tokenPct = sharePct(p.tokens, tokens);
+            const spendPct = sharePct(p.spendUsd, spendUsd);
+            return {
+                key: p.key,
+                label: p.label,
+                fill: p.fill,
+                tokens: p.tokens,
+                spendUsd: p.spendUsd,
+                tokenPct,
+                spendPct,
+                tokenBarPct: barPct(p.tokens, tokenPct),
+                spendBarPct: barPct(p.spendUsd, spendPct),
+            };
+        });
+    return { head: split.head, rows, tokens, spendUsd };
 }
 
 function shownCost(a: Amount): { cost: number; reported: boolean } {

@@ -1,19 +1,18 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Usage surface (handoff redesign: Wave-usage-redesign.dc.html artboard 1B). Master-detail, the same
-// shape Sessions and Radar use: a harness rail on the left grouped by whether the harness reports a
-// quota window at all, and a detail pane holding that harness's two trust zones — LIVE LIMITS
-// (ephemeral 5h/weekly quota, merged live-over-saved via ratelimitstore so it survives idle) and
-// HISTORICAL (durable token-class split, daily series, per-model breakdown, folded from the backend
-// usage scan). Rail selection IS usageHarnessFilterAtom, so the scope picker and the historical
-// filter are one piece of state rather than two that can disagree; that atom re-aggregates
+// Usage surface (usage-redesign Page.dc.html). A horizontal scope bar pinned under the header, over a
+// full-width detail holding the scope's two trust zones side by side — LIVE LIMITS (ephemeral
+// 5h/weekly quota, merged live-over-saved via ratelimitstore so it survives idle) and HISTORICAL
+// (durable stat cards) — then the daily series by model and where the usage goes, folded from the
+// backend usage scan. Scope selection IS usageHarnessFilterAtom, so the scope picker and the
+// historical filter are one piece of state rather than two that can disagree; that atom re-aggregates
 // model.usageStatsAtom, so the detail is simply the surface scoped to one harness.
 // Loads on mount + a 60s refresh for the current window; a 1s tick keeps reset countdowns current.
 // A second lens, By work, re-scopes the same detail page to what the usage paid for: all usage, a
 // project, a run or a session (usageattribution.ts). It has no Live limits: quota is per provider.
 
-import { Meter, StackedMeter } from "@/app/element/meter";
+import { Meter } from "@/app/element/meter";
 import { useDidBecomeTrue } from "@/app/element/motionhooks";
 import { cardVariants } from "@/app/element/motiontokens";
 import { Segmented } from "@/app/element/segmented";
@@ -31,14 +30,12 @@ import { providerDot, providerLabel } from "./cockpitrailmodel";
 import { DailyChart } from "./dailychart";
 import { harnessesAtom } from "./harnessstore";
 import { mergeRateLimitWindows, savedRateLimitsAtom, type DonutWindow } from "./ratelimitstore";
-import { runtimeMeta } from "./runtimemeta";
 import { SurfaceError, SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 import {
     ALL_SCOPE,
     buildAttribution,
     classSplit,
     itemScopeKey,
-    kindLabel,
     listPage,
     otherFoldersText,
     plural,
@@ -48,22 +45,22 @@ import {
     scopeList,
     scopeName,
     scopeSplit,
-    type ProjectUsage,
+    splitTable,
     type WorkList,
     type WorkScope,
-    type WorkSplit,
 } from "./usageattribution";
+import { modelLegend } from "./usagedaily";
 import {
     buildUsageRail,
     countReporting,
     railRows,
     worstWindow,
     type AggregateWindow,
-    type UsageRailGroup,
     type UsageRailRow,
 } from "./usagerail";
-import type { ProviderUsage, UsageStats } from "./usagestats";
-import { aggregateBuckets, fmt, foldModels, modelGridClass, pctStr, usd } from "./usagestats";
+import { SplitTable } from "./usagesplittable";
+import type { UsageStats } from "./usagestats";
+import { aggregateBuckets, fmt, pctStr, usd } from "./usagestats";
 import {
     allUsageStatsAtom,
     loadUsage,
@@ -93,16 +90,10 @@ const LEVEL_TEXT: Record<"ok" | "warn" | "hot", string> = {
     warn: "text-warning",
     hot: "text-error",
 };
-// Ranked magnitude within one provider is an ORDINAL job, not categorical: one hue, monotone
-// lightness, indexed by rank. Four stops off the existing accent scale — no new colors. Stops are two
-// apart so adjacent ranks stay tellable; --color-accent sits next to --color-accent-300 on the ramp.
-const MODEL_SEQ = ["bg-accent-200", "bg-accent-400", "bg-accent-600", "bg-accent-800"];
-const MAX_MODEL_ROWS = MODEL_SEQ.length;
-
-// Selected/idle treatment for a rail row, matching the Sessions rail (the surface this body is
-// modeled on) rather than minting a second selection vocabulary for one surface.
-const ROW_BASE =
-    "cursor-pointer rounded-[11px] border px-[13px] py-[11px] text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+// Selected/idle treatment for a scope card, matching the Sessions rail rather than minting a second
+// selection vocabulary for one surface. Cards hold 220-340px; the bar scrolls sideways before it squashes.
+const CARD_BASE =
+    "flex min-w-[220px] max-w-[340px] flex-1 flex-col gap-[7px] cursor-pointer rounded-[10px] border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const ROW_ON = "border-accent bg-surface-hover";
 const ROW_OFF = "border-border bg-surface hover:border-edge-strong";
 
@@ -132,12 +123,12 @@ function stateMeta(row: UsageRailRow, now: number): { label: string; long: strin
     return { label: "No reading", long: "no quota reading", color: "var(--color-muted)" };
 }
 
-// An h3, not a styled span: these head real sections (and the by-model cards, where the heading IS the
-// provider name), so the heading level has to survive the eyebrow styling.
-function SectionRule({ label, meta, accent = false }: { label: string; meta?: string; accent?: boolean }) {
+// An h3, not a styled span: these head real sections, so the heading level has to survive the eyebrow
+// styling.
+function SectionRule({ label, meta }: { label: string; meta?: string }) {
     return (
         <div className="mb-3 flex items-center gap-2.5">
-            <h3 className={cn(REGION_LABEL, accent ? "text-accent-soft" : "text-muted")}>{label}</h3>
+            <h3 className={cn(REGION_LABEL, "text-muted")}>{label}</h3>
             <div className="h-px flex-1 bg-edge-faint" />
             {meta != null ? <span className="font-mono text-[10.5px] text-muted">{meta}</span> : null}
         </div>
@@ -202,18 +193,35 @@ function LimitCard({
     );
 }
 
-function RailRow({
-    row,
+// One card of the scope bar: dot, name and pill over the scope's tokens and spend, and a right-hand fact.
+// `harness` or `project` keys the card for the scenarios; All usage carries harness "all" in both lenses.
+function ScopeCard({
+    harness,
+    project,
+    title,
     active,
-    now,
     onSelect,
+    dot,
+    name,
+    pill,
+    pillColor,
+    tokens,
+    spendUsd,
+    fact,
 }: {
-    row: UsageRailRow;
+    harness?: string;
+    project?: string;
+    title?: string;
     active: boolean;
-    now: number;
     onSelect: () => void;
+    dot: string;
+    name: string;
+    pill: string;
+    pillColor: string; // a var() reference; it also tints the pill behind the text
+    tokens: number;
+    spendUsd: number;
+    fact: string;
 }) {
-    const st = stateMeta(row, now);
     return (
         <motion.button
             layout
@@ -221,71 +229,40 @@ function RailRow({
             initial="initial"
             animate="animate"
             type="button"
-            data-usage-harness={row.harness}
+            data-usage-harness={harness}
+            data-usage-project={project}
             aria-pressed={active}
+            title={title}
             onClick={onSelect}
-            className={cn("flex flex-col gap-2", ROW_BASE, active ? ROW_ON : ROW_OFF)}
+            className={cn(CARD_BASE, active ? ROW_ON : ROW_OFF)}
         >
-            <span className="flex items-center gap-2.5">
-                <span className={cn("h-2 w-2 flex-none rounded-full", providerDot(row.harness))} />
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">
-                    {providerLabel(row.harness)}
-                </span>
+            <span className="flex w-full items-center gap-2">
+                <span className={cn("h-2 w-2 flex-none rounded-full", dot)} />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">{name}</span>
                 <span
-                    className="flex-none rounded-[4px] px-1.5 py-0.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.06em]"
-                    style={{ color: st.color, backgroundColor: PILL_TINT }}
+                    className="flex-none rounded-[4px] px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.06em]"
+                    style={{ color: pillColor, backgroundColor: PILL_TINT }}
                 >
-                    {st.label}
+                    {pill}
                 </span>
             </span>
-            <span className="flex items-center gap-2 font-mono text-[10.5px] text-muted">
-                <span className="text-secondary">{fmt(row.tokens)} tok</span>
-                <span className="text-muted">·</span>
-                <span>≈ {usd(row.spendUsd)}</span>
+            <span className="flex w-full gap-2 whitespace-nowrap font-mono text-[10.5px] text-muted">
+                <span className="text-secondary">{fmt(tokens)} tok</span>
+                <span>·</span>
+                <span>≈ {usd(spendUsd)}</span>
                 <span className="flex-1" />
-                {row.state === "none" ? (
-                    <span>history only</span>
-                ) : (
-                    <>
-                        <span>5h {row.fivehour.pct != null ? Math.round(row.fivehour.pct) + "%" : "—"}</span>
-                        <span className="text-muted">·</span>
-                        <span>wk {row.week.pct != null ? Math.round(row.week.pct) + "%" : "—"}</span>
-                    </>
-                )}
+                <span>{fact}</span>
             </span>
         </motion.button>
     );
 }
 
-function ProjectRow({ project, active, onSelect }: { project: ProjectUsage; active: boolean; onSelect: () => void }) {
-    return (
-        <button
-            type="button"
-            data-usage-project={project.key}
-            aria-pressed={active}
-            title={project.key}
-            onClick={onSelect}
-            className={cn("flex flex-col gap-2", ROW_BASE, active ? ROW_ON : ROW_OFF)}
-        >
-            <span className="flex items-center gap-2.5">
-                <span className="h-2 w-2 flex-none rounded-full bg-ink-faint" />
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">{project.label}</span>
-                <span
-                    className="flex-none rounded-[4px] px-1.5 py-0.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.06em]"
-                    style={{ color: "var(--color-accent-soft)", backgroundColor: PILL_TINT }}
-                >
-                    {pctStr(project.sharePct)}
-                </span>
-            </span>
-            <span className="flex items-center gap-2 font-mono text-[10.5px] text-muted">
-                <span className="text-secondary">{fmt(project.tokens)} tok</span>
-                <span className="text-muted">·</span>
-                <span>≈ {usd(project.spendUsd)}</span>
-                <span className="flex-1" />
-                <span>{plural(project.count, "run or session", "runs and sessions")}</span>
-            </span>
-        </button>
-    );
+function quotaFact(row: UsageRailRow): string {
+    if (row.state === "none") {
+        return "history only";
+    }
+    const pct = (w: { pct?: number }) => (w.pct != null ? Math.round(w.pct) + "%" : "—");
+    return `5h ${pct(row.fivehour)} · wk ${pct(row.week)}`;
 }
 
 const LENS_OPTIONS: { key: UsageLens; label: string }[] = [
@@ -293,296 +270,47 @@ const LENS_OPTIONS: { key: UsageLens; label: string }[] = [
     { key: "work", label: "By work" },
 ];
 
-// The rail's fixed top (All usage, then the lens switch) over the rows of the lens on screen.
-function UsageRail({
-    allOn,
-    totalTokens,
-    onAll,
-    lens,
-    onLens,
-    children,
-}: {
-    allOn: boolean;
-    totalTokens: number;
-    onAll: () => void;
-    lens: UsageLens;
-    onLens: (lens: UsageLens) => void;
-    children: ReactNode;
-}) {
-    return (
-        <div className="w-[392px] flex-none overflow-y-auto border-r border-edge-faint p-3 pb-10">
-            <button
-                type="button"
-                data-usage-harness={ALL}
-                aria-pressed={allOn}
-                onClick={onAll}
-                className={cn("mb-3.5 flex w-full items-center gap-[11px]", ROW_BASE, allOn ? ROW_ON : ROW_OFF)}
-            >
-                <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[9px] border border-accent bg-accentbg font-mono text-[14px] font-semibold text-accent-soft">
-                    Σ
-                </span>
-                <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-semibold text-primary">All usage</span>
-                    <span className="block font-mono text-[11px] text-muted">every transcript in window</span>
-                </span>
-                <span className="flex-none rounded-full bg-surface-hover px-2 py-0.5 font-mono text-[11px] text-secondary">
-                    {fmt(totalTokens)}
-                </span>
-            </button>
-
-            <div className="mb-3.5 flex rounded border border-border bg-surface-raised p-[3px]">
-                {LENS_OPTIONS.map((o) => (
-                    <button
-                        key={o.key}
-                        type="button"
-                        data-usage-lens={o.key}
-                        aria-pressed={lens === o.key}
-                        onClick={() => onLens(o.key)}
-                        className={cn(
-                            "flex-1 cursor-pointer rounded-sm border-0 px-[12px] py-[6px] font-mono text-[11px] font-semibold",
-                            lens === o.key ? "bg-accentbg text-primary" : "bg-transparent text-muted"
-                        )}
-                    >
-                        {o.label}
-                    </button>
-                ))}
-            </div>
-
-            {children}
-        </div>
-    );
-}
-
-function ProviderRows({
-    groups,
-    sel,
-    now,
-    onSelect,
-}: {
-    groups: UsageRailGroup[];
-    sel: string;
-    now: number;
-    onSelect: (id: string) => void;
-}) {
-    return (
-        <>
-            {groups.map((g) => (
-                <div key={g.key} className="mb-3.5">
-                    <SectionRule label={g.label} meta={String(g.rows.length)} accent={g.key === "reporting"} />
-                    <div className="flex flex-col gap-[7px]">
-                        {g.rows.map((r) => (
-                            <RailRow
-                                key={r.harness}
-                                row={r}
-                                active={sel === r.harness}
-                                now={now}
-                                onSelect={() => onSelect(r.harness)}
-                            />
-                        ))}
-                    </div>
-                </div>
-            ))}
-        </>
-    );
-}
-
-function ProjectRows({
-    projects,
-    other,
-    sel,
-    onSelect,
-}: {
-    projects: ProjectUsage[];
-    other: string | null;
-    sel: string;
-    onSelect: (key: string) => void;
-}) {
-    return (
-        <div className="mb-3.5">
-            <SectionRule label="Projects" meta={String(projects.length)} />
-            <div className="flex flex-col gap-[7px]">
-                {projects.map((p) => (
-                    <ProjectRow key={p.key} project={p} active={sel === p.key} onSelect={() => onSelect(p.key)} />
-                ))}
-                {other != null ? (
-                    <div data-usage-other className="px-[13px] py-1 font-mono text-[10.5px] leading-[1.5] text-muted">
-                        {other}
-                    </div>
-                ) : null}
-            </div>
-        </div>
-    );
-}
-
-// Where it goes: the same two bars over whatever the scope divides into (token classes for a provider
-// or a single session; projects, kinds of work or roles in By work).
-function SplitCard({ split, scope }: { split: WorkSplit; scope: string }) {
-    const { parts } = split;
-    const tokTotal = parts.reduce((s, c) => s + c.tokens, 0);
-    const spdTotal = parts.reduce((s, c) => s + c.spendUsd, 0);
-    return (
-        <div data-usage-split className="mb-3.5 rounded-[14px] border border-border bg-surface-raised px-5 py-[18px]">
-            <SectionRule label="Where it goes" meta={scope} />
-            <p className="mb-[18px] max-w-[680px] text-[12.5px] leading-[1.55] text-secondary">{split.note}</p>
-
-            <div className="mb-[7px] flex items-baseline justify-between">
-                <span className="font-mono text-[10.5px] font-semibold text-ink-mid">Tokens</span>
-                <span className="font-mono text-[12px] font-bold text-primary">{fmt(tokTotal)}</span>
-            </div>
-            <StackedMeter
-                className="mb-4"
-                height={26}
-                radius={7}
-                track="bg-background"
-                segs={parts.map((c) => ({ key: c.key, value: c.tokens, fill: c.fill }))}
-            />
-
-            <div className="mb-[7px] flex items-baseline justify-between">
-                <span className="font-mono text-[10.5px] font-semibold text-ink-mid">
-                    Spend <span className="font-medium text-muted">≈ API-equiv</span>
-                </span>
-                <span className="font-mono text-[12px] font-bold text-primary">{usd(spdTotal)}</span>
-            </div>
-            <StackedMeter
-                className="mb-[18px]"
-                height={26}
-                radius={7}
-                track="bg-background"
-                segs={parts.map((c) => ({ key: c.key, value: c.spendUsd, fill: c.fill }))}
-            />
-
-            <div className="grid grid-cols-2 gap-x-3 gap-y-3.5 border-t border-edge-faint pt-[15px] lg:grid-cols-3 xl:grid-cols-5">
-                {parts.map((c) => (
-                    <div key={c.key} data-usage-split-part={c.key}>
-                        <div className="mb-[7px] flex items-center gap-[7px]">
-                            <span className={cn("h-[9px] w-[9px] flex-none rounded-[3px]", c.fill)} />
-                            <span className="min-w-0 truncate text-[11.5px] font-semibold text-secondary">
-                                {c.label}
-                            </span>
-                        </div>
-                        <div className="mb-[3px] flex justify-between font-mono text-[10.5px] text-muted">
-                            <span>tokens</span>
-                            <span className="text-secondary">
-                                {fmt(c.tokens)} · {pctStr(tokTotal > 0 ? (c.tokens / tokTotal) * 100 : 0)}
-                            </span>
-                        </div>
-                        <div className="flex justify-between font-mono text-[10.5px] text-muted">
-                            <span>spend</span>
-                            <span className="text-secondary">
-                                {usd(c.spendUsd)} · {pctStr(spdTotal > 0 ? (c.spendUsd / spdTotal) * 100 : 0)}
-                            </span>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-// Grouped by UPSTREAM provider ("anthropic" | "openai"), which is what the transcript buckets carry —
-// deliberately a different axis from the harness rail, so the heading names the provider raw.
-function ModelGroup({ p }: { p: ProviderUsage }) {
-    return (
-        <div className="rounded-[14px] border border-border bg-surface-raised px-5 py-[18px]">
-            <SectionRule label={p.provider} meta={fmt(p.tokens)} />
-            {foldModels(p.models, MAX_MODEL_ROWS).map((m, i) => (
-                <div key={m.model} className="mb-3">
-                    <div className="mb-1.5 flex items-baseline justify-between gap-3">
-                        {/* the provider prefix is what tells Pi's openai-codex/gpt-5.5 from Codex's
-                            openai/gpt-5.5 — same model id, different upstream bucket */}
-                        <span
-                            className="min-w-0 truncate font-mono text-[11.5px] text-secondary"
-                            title={`${p.provider}/${m.model}`}
-                        >
-                            {m.model === "Other" ? m.model : `${p.provider}/${m.model}`}
-                        </span>
-                        <span className="flex-none font-mono text-[10.5px] text-muted">
-                            {fmt(m.tokens)} · <span className="font-semibold text-secondary">{pctStr(m.pct)}</span>
-                        </span>
-                    </div>
-                    <Meter pct={m.pct} fill={MODEL_SEQ[i]} height={7} radius={4} track="bg-edge-strong" />
-                </div>
-            ))}
-        </div>
-    );
-}
+const RANGE_OPTIONS: { key: "7d" | "all"; label: string }[] = [
+    { key: "7d", label: "7 days" },
+    { key: "all", label: "All time" },
+];
 
 interface DetailHead {
-    glyph: string;
-    glyphClass: string;
     title: string;
-    pill: string;
-    pillColor: string; // a var() reference; it also tints the pill behind the text
     meta: [string, string][];
     action?: ReactNode;
 }
 
-const AGGREGATE_GLYPH = "border-accent bg-accentbg text-accent-soft";
-const AGGREGATE_PILL = "var(--color-accent-soft)";
-
 // the header meta every scope shares, after whatever names the scope itself
 function statsMeta(stats: UsageStats): [string, string][] {
     const reported = stats.totals.reportedCostWindowPresent ? usd(stats.totals.reportedCostWindowUsd) : "not reported";
-    const modelCount = stats.providers.reduce((s, p) => s + p.models.length, 0);
     return [
         ["tokens", fmt(stats.totals.tokensWindow)],
         ["reported", reported],
         ["api-equiv", `≈ ${usd(stats.totals.spendWindowUsd)}`],
-        ["models", String(modelCount)],
+        ["models", String(stats.models.length)],
     ];
 }
 
-function providerHead(
-    sel: string,
-    row: UsageRailRow | undefined,
-    stats: UsageStats,
-    now: number,
-    reportingLabel: string
-): DetailHead {
+function providerHead(sel: string, stats: UsageStats, reportingLabel: string): DetailHead {
     if (sel === ALL) {
-        return {
-            glyph: "Σ",
-            glyphClass: AGGREGATE_GLYPH,
-            title: "All usage",
-            pill: "Aggregate",
-            pillColor: AGGREGATE_PILL,
-            meta: [...statsMeta(stats), ["quota", reportingLabel]],
-        };
+        return { title: "All usage", meta: [...statsMeta(stats), ["quota", reportingLabel]] };
     }
-    const meta = runtimeMeta(sel);
-    const st = row != null ? stateMeta(row, now) : null;
-    return {
-        glyph: meta.glyph,
-        glyphClass: cn(meta.line, meta.softBg, meta.text),
-        title: providerLabel(sel),
-        pill: st?.label ?? "No reading",
-        pillColor: st?.color ?? "var(--color-muted)",
-        meta: statsMeta(stats),
-    };
+    return { title: providerLabel(sel), meta: statsMeta(stats) };
 }
 
 function workHead(scope: WorkScope, stats: UsageStats, action: ReactNode): DetailHead {
-    const base = { glyphClass: AGGREGATE_GLYPH, pillColor: AGGREGATE_PILL };
     if (scope.kind === "all") {
-        return { ...base, glyph: "Σ", title: "All usage", pill: "Aggregate", meta: statsMeta(stats) };
+        return { title: "All usage", meta: statsMeta(stats) };
     }
     if (scope.kind === "project") {
         const { label, count } = scope.project;
-        return {
-            ...base,
-            glyph: label.charAt(0).toUpperCase(),
-            title: label,
-            pill: "Project",
-            meta: [["runs and sessions", String(count)], ...statsMeta(stats)],
-        };
+        return { title: label, meta: [["runs and sessions", String(count)], ...statsMeta(stats)] };
     }
     const { item } = scope;
     const named: [string, string][] = item.projectLabel !== "" ? [["project", item.projectLabel]] : [];
     return {
-        ...base,
-        glyph: item.kind === "session" ? "S" : "R",
         title: item.title,
-        pill: kindLabel(item.kind),
         meta: [...named, ["sessions", String(item.sessions.length)], ...statsMeta(stats)],
         action,
     };
@@ -590,34 +318,16 @@ function workHead(scope: WorkScope, stats: UsageStats, action: ReactNode): Detai
 
 function DetailHeader({ head }: { head: DetailHead }) {
     return (
-        <div className="mb-5 flex items-start gap-3.5 border-b border-edge-faint pb-4">
-            <span
-                className={cn(
-                    "flex h-[42px] w-[42px] flex-none items-center justify-center rounded-[11px] border font-mono text-[15px] font-semibold",
-                    head.glyphClass
-                )}
-            >
-                {head.glyph}
-            </span>
-            <div className="min-w-0 flex-1">
-                <div className="mb-1.5 flex items-center gap-2.5">
-                    <h2 className="min-w-0 truncate text-[19px] font-bold tracking-[-0.01em] text-primary">
-                        {head.title}
-                    </h2>
-                    <span
-                        className="flex-none rounded-[5px] px-1.5 py-[3px] font-mono text-[10.5px] font-bold uppercase tracking-[0.06em]"
-                        style={{ color: head.pillColor, backgroundColor: PILL_TINT }}
-                    >
-                        {head.pill}
+        <div data-usage-head className="flex items-baseline gap-4">
+            <h2 className="min-w-0 truncate text-[14px] font-semibold text-primary" title={head.title}>
+                {head.title}
+            </h2>
+            <div className="flex min-w-[240px] flex-1 flex-wrap gap-x-3.5 gap-y-1 font-mono text-[11px] text-muted">
+                {head.meta.map(([k, v]) => (
+                    <span key={k}>
+                        {k} <span className="text-secondary">{v}</span>
                     </span>
-                </div>
-                <div className="flex flex-wrap gap-x-2.5 gap-y-1 font-mono text-[11px] text-muted">
-                    {head.meta.map(([k, v]) => (
-                        <span key={k}>
-                            {k} <span className="text-secondary">{v}</span>
-                        </span>
-                    ))}
-                </div>
+                ))}
             </div>
             {head.action}
         </div>
@@ -692,7 +402,7 @@ function WorkListCard({
 }) {
     const page = listPage(list, expanded);
     return (
-        <div data-usage-list className="mb-3.5 rounded-[14px] border border-border bg-surface-raised px-5 py-[18px]">
+        <div data-usage-list className="rounded-[14px] border border-border bg-surface-raised px-5 py-[18px]">
             <SectionRule label={list.title} meta={list.meta} />
             {list.summary != null ? (
                 <p className="mb-2.5 max-w-[680px] text-[12.5px] leading-[1.55] text-secondary">{list.summary}</p>
@@ -772,11 +482,13 @@ function HistoryCards({
     window: win,
     all,
     of,
+    reveal,
 }: {
     stats: UsageStats;
     window: "7d" | "all";
     all: boolean;
     of?: UsageStats;
+    reveal: boolean;
 }) {
     const t = stats.totals;
     const week = win === "7d";
@@ -816,15 +528,23 @@ function HistoryCards({
         />
     );
     return (
-        <div className="mb-3.5 grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <motion.div
+            data-usage-stats
+            variants={cardVariants}
+            initial={reveal ? "initial" : false}
+            animate="animate"
+            className="grid flex-1 grid-cols-2 gap-3 xl:grid-cols-4"
+        >
+            {estimateCard}
+            {reportedCard}
             {week ? (
                 <>
+                    <StatCard label="Tokens · 7 days" value={fmt(t.tokensWeek)} sub={tokenShare} />
                     <StatCard
                         label="Tokens · today"
                         value={fmt(t.tokensToday)}
                         sub={all ? harnessSub(t.tokensTodayByHarness) : undefined}
                     />
-                    <StatCard label="Tokens · 7 days" value={fmt(t.tokensWeek)} sub={tokenShare} />
                 </>
             ) : (
                 <>
@@ -840,41 +560,46 @@ function HistoryCards({
                     />
                 </>
             )}
-            {reportedCard}
-            {estimateCard}
+        </motion.div>
+    );
+}
+
+const SKELETON_BARS = ["h-[22%]", "h-[45%]", "h-[30%]", "h-[58%]", "h-[36%]", "h-[70%]", "h-[48%]"];
+const SKELETON_LEGEND_ROWS = 6;
+
+function StatsSkeleton() {
+    return (
+        <div data-usage-skeleton className="grid flex-1 grid-cols-2 gap-3 xl:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+                <div
+                    key={i}
+                    className="flex h-[92px] flex-col gap-2.5 rounded-[11px] border border-border bg-surface p-4"
+                >
+                    <SkeletonLine className="h-[9px] w-[70px]" />
+                    <SkeletonLine className="h-[18px] w-[90px]" />
+                    <SkeletonLine className="h-[7px] w-[120px]" />
+                </div>
+            ))}
         </div>
     );
 }
 
-function UsageHistorySkeleton() {
+// the Daily card's footprint: seven columns beside a column of legend lines
+function ChartSkeleton() {
     return (
-        <div>
-            <div className="mb-3.5 grid grid-cols-2 gap-3 xl:grid-cols-4">
-                {[0, 1, 2, 3].map((i) => (
-                    <div key={i} className="rounded-[11px] border border-border bg-surface-raised px-4 py-[14px]">
-                        <SkeletonLine className="mb-3 h-[11px] w-[72px]" />
-                        <SkeletonLine className="mb-2 h-[21px] w-[92px]" />
-                        <SkeletonLine className="h-[10px] w-[118px]" />
-                    </div>
+        <div
+            data-usage-skeleton
+            className="flex h-[330px] gap-7 rounded-[14px] border border-border bg-surface p-[18px]"
+        >
+            <div className="flex flex-1 items-end gap-4">
+                {SKELETON_BARS.map((h, i) => (
+                    <SkeletonLine key={i} className={cn("flex-1 rounded-[3px]", h)} />
                 ))}
             </div>
-            <div className="mb-3.5 rounded-[14px] border border-border bg-surface-raised px-5 py-[18px]">
-                <SkeletonLine className="mb-3 h-[13px] w-[128px]" />
-                <SkeletonLine className="mb-[18px] h-[12px] w-[62%]" />
-                <SkeletonLine className="mb-4 h-[26px] w-full rounded-[7px]" />
-                <SkeletonLine className="h-[26px] w-full rounded-[7px]" />
-            </div>
-            <div className="rounded-[14px] border border-border bg-surface-raised px-5 py-[18px]">
-                <SkeletonLine className="mb-5 h-[13px] w-[92px]" />
-                <div className="flex h-[156px] items-end gap-[7px] border-b border-l border-border px-1">
-                    <SkeletonLine className="h-[42px] flex-1 rounded-t-[3px]" />
-                    <SkeletonLine className="h-[75px] flex-1 rounded-t-[3px]" />
-                    <SkeletonLine className="h-[58px] flex-1 rounded-t-[3px]" />
-                    <SkeletonLine className="h-[104px] flex-1 rounded-t-[3px]" />
-                    <SkeletonLine className="h-[66px] flex-1 rounded-t-[3px]" />
-                    <SkeletonLine className="h-[122px] flex-1 rounded-t-[3px]" />
-                    <SkeletonLine className="h-[84px] flex-1 rounded-t-[3px]" />
-                </div>
+            <div className="flex w-[330px] flex-none flex-col gap-3">
+                {Array.from({ length: SKELETON_LEGEND_ROWS }, (_, i) => (
+                    <SkeletonLine key={i} className="h-[14px]" />
+                ))}
             </div>
         </div>
     );
@@ -892,7 +617,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const now = useAtomValue(model.nowAtom);
     const [usageWindow, setUsageWindow] = useAtom(usageWindowAtom);
     const [usageMetric, setUsageMetric] = useAtom(usageMetricAtom);
-    // the rail's selection and the historical scope filter are the same state, by construction
+    // the scope bar's selection and the historical scope filter are the same state, by construction
     const [sel, setSel] = useAtom(model.usageHarnessFilterAtom);
     const [lens, setLens] = useAtom(usageLensAtom);
     const [workScope, setWorkScope] = useAtom(usageWorkScopeAtom);
@@ -1024,16 +749,17 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
           ? weeklyProjectionMs
           : null;
 
-    const hasHistory = stats.providers.length > 0 || stats.totals.tokensWindow > 0;
+    const hasHistory = stats.models.length > 0 || stats.totals.tokensWindow > 0;
     const revealHistory = useDidBecomeTrue(hasHistory);
-    const railHarnesses = rows.map((r) => r.harness);
-    const chartHarnesses = work
-        ? all
-            ? railHarnesses
-            : railHarnesses.filter((h) => (stats.totals.tokensWindowByHarness[h] ?? 0) > 0)
-        : all
-          ? railHarnesses
-          : [sel];
+    const legend = useMemo(
+        () =>
+            modelLegend(
+                stats.models,
+                rows.map((r) => r.harness),
+                usageMetric
+            ),
+        [stats.models, rows, usageMetric]
+    );
     const windowLabel = usageWindow === "7d" ? "last 7 days" : "all time";
     const scopeLabel = work
         ? scope.kind === "item"
@@ -1067,9 +793,10 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                 Open run
             </button>
         ) : null;
-    const head = work ? workHead(scope, stats, openRun) : providerHead(sel, selRow, stats, now, reportingLabel);
+    const head = work ? workHead(scope, stats, openRun) : providerHead(sel, stats, reportingLabel);
     const list = work ? scopeList(attr, scope, windowLabel) : null;
     const split = work ? scopeSplit(attr, scope, stats.split) : classSplit(stats.split);
+    const selectAll = () => (work ? selectWork(ALL_SCOPE) : setSel(ALL));
 
     return (
         <MotionConfig reducedMotion="user">
@@ -1077,14 +804,22 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                 <SurfaceToolbar
                     title="Usage"
                     actions={
-                        <Segmented<"7d" | "all">
-                            value={usageWindow}
-                            onChange={pickWindow}
-                            options={[
-                                { key: "7d", label: "7 days" },
-                                { key: "all", label: "All time" },
-                            ]}
-                        />
+                        <>
+                            <Segmented<UsageLens>
+                                value={lens}
+                                onChange={pickLens}
+                                role="group"
+                                ariaLabel="Lens"
+                                options={LENS_OPTIONS}
+                            />
+                            <Segmented<"7d" | "all">
+                                value={usageWindow}
+                                onChange={pickWindow}
+                                role="group"
+                                ariaLabel="Range"
+                                options={RANGE_OPTIONS}
+                            />
+                        </>
                     }
                 >
                     {reporting > 0 ? (
@@ -1097,30 +832,75 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
 
                 {loadError ? <SurfaceError message="Couldn’t refresh — showing the last loaded usage." /> : null}
 
-                <div className="flex min-h-0 flex-1">
-                    <UsageRail
-                        allOn={all}
-                        totalTokens={allStats.totals.tokensWindow}
-                        onAll={() => (work ? selectWork(ALL_SCOPE) : setSel(ALL))}
-                        lens={lens}
-                        onLens={pickLens}
-                    >
-                        {work ? (
-                            <ProjectRows
-                                projects={attr.projects}
-                                other={attr.other.count > 0 ? otherFoldersText(attr.other) : null}
-                                sel={workScope}
-                                onSelect={selectWork}
-                            />
-                        ) : (
-                            <ProviderRows groups={groups} sel={sel} now={now} onSelect={setSel} />
-                        )}
-                    </UsageRail>
+                <div
+                    data-usage-scopes
+                    role="group"
+                    aria-label="Scope"
+                    className="flex flex-none items-center gap-2.5 overflow-x-auto border-b border-edge-faint px-5 py-3"
+                >
+                    <ScopeCard
+                        harness={ALL}
+                        active={all}
+                        onSelect={selectAll}
+                        dot="bg-accent"
+                        name="All usage"
+                        pill="All"
+                        pillColor="var(--color-accent-soft)"
+                        tokens={allStats.totals.tokensWindow}
+                        spendUsd={allStats.totals.spendWindowUsd}
+                        fact="every transcript"
+                    />
+                    {work ? (
+                        <>
+                            {attr.projects.map((p) => (
+                                <ScopeCard
+                                    key={p.key}
+                                    project={p.key}
+                                    title={p.key}
+                                    active={workScope === p.key}
+                                    onSelect={() => selectWork(p.key)}
+                                    dot="bg-ink-faint"
+                                    name={p.label}
+                                    pill={pctStr(p.sharePct)}
+                                    pillColor="var(--color-accent-soft)"
+                                    tokens={p.tokens}
+                                    spendUsd={p.spendUsd}
+                                    fact={plural(p.count, "run or session", "runs and sessions")}
+                                />
+                            ))}
+                            {attr.other.count > 0 ? (
+                                <span
+                                    data-usage-other
+                                    className="min-w-[180px] max-w-[240px] flex-1 font-mono text-[10.5px] leading-[1.5] text-muted"
+                                >
+                                    {otherFoldersText(attr.other)}
+                                </span>
+                            ) : null}
+                        </>
+                    ) : (
+                        rows.map((r) => {
+                            const st = stateMeta(r, now);
+                            return (
+                                <ScopeCard
+                                    key={r.harness}
+                                    harness={r.harness}
+                                    active={sel === r.harness}
+                                    onSelect={() => setSel(r.harness)}
+                                    dot={providerDot(r.harness)}
+                                    name={providerLabel(r.harness)}
+                                    pill={st.label}
+                                    pillColor={st.color}
+                                    tokens={r.tokens}
+                                    spendUsd={r.spendUsd}
+                                    fact={quotaFact(r)}
+                                />
+                            );
+                        })
+                    )}
+                </div>
 
-                    <div
-                        data-usage-detail={work ? scopeId(scope) : sel}
-                        className="min-w-0 flex-1 overflow-y-auto px-7 pb-12 pt-5"
-                    >
+                <div data-usage-detail={work ? scopeId(scope) : sel} className="min-h-0 flex-1 overflow-y-auto">
+                    <div className="flex flex-col gap-5 px-7 pb-12 pt-[18px]">
                         {work && workItem != null && scope.kind === "item" ? (
                             <button
                                 type="button"
@@ -1128,7 +908,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                 onClick={() => selectWork(workItem.back)}
                                 className={cn(
                                     QUIET_BUTTON,
-                                    "mb-3.5 flex items-center gap-1.5 py-[5px] pl-[7px] pr-[11px] text-ink-mid"
+                                    "-mb-1.5 flex items-center gap-1.5 self-start py-[5px] pl-[7px] pr-[11px] text-ink-mid"
                                 )}
                             >
                                 <Chevron back />
@@ -1138,64 +918,87 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
 
                         <DetailHeader head={head} />
 
-                        {work ? null : (
-                            <>
-                                <SectionRule
-                                    label="Live limits"
-                                    meta={
-                                        all ? "highest reading · ephemeral" : selRow ? stateMeta(selRow, now).long : "—"
-                                    }
-                                />
-                                {hasLimits ? (
-                                    <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                        <LimitCard
-                                            kind="fivehour"
-                                            title="5-hour"
-                                            w={fiveHour}
-                                            now={now}
-                                            used={all && fiveHour.harness ? providerLabel(fiveHour.harness) : undefined}
-                                        />
-                                        <LimitCard
-                                            kind="week"
-                                            title="Weekly"
-                                            w={week}
-                                            now={now}
-                                            used={all && week.harness ? providerLabel(week.harness) : undefined}
-                                            projectedExhaustion={projectionForWeek}
-                                        />
+                        <div className="flex flex-col gap-3 xl:flex-row">
+                            {work ? null : (
+                                <section className="flex min-w-0 flex-col xl:flex-[2]">
+                                    <SectionRule
+                                        label="Live limits"
+                                        meta={
+                                            all
+                                                ? "highest reading · ephemeral"
+                                                : selRow
+                                                  ? stateMeta(selRow, now).long
+                                                  : "—"
+                                        }
+                                    />
+                                    {hasLimits ? (
+                                        <div className="grid flex-1 grid-cols-2 gap-3">
+                                            <LimitCard
+                                                kind="fivehour"
+                                                title="5-hour"
+                                                w={fiveHour}
+                                                now={now}
+                                                used={
+                                                    all && fiveHour.harness
+                                                        ? providerLabel(fiveHour.harness)
+                                                        : undefined
+                                                }
+                                            />
+                                            <LimitCard
+                                                kind="week"
+                                                title="Weekly"
+                                                w={week}
+                                                now={now}
+                                                used={all && week.harness ? providerLabel(week.harness) : undefined}
+                                                projectedExhaustion={projectionForWeek}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <p
+                                            data-usage-noquota
+                                            className="flex-1 rounded-[11px] border border-border bg-surface px-4 py-3 font-mono text-[11px] leading-[1.55] text-muted"
+                                        >
+                                            No quota reading{all ? "" : ` for ${providerLabel(sel)}`}. Windows are known
+                                            only while an agent that publishes them runs; the last snapshot is kept per
+                                            provider, and rolls to empty once its window passes. History below is
+                                            unaffected.
+                                        </p>
+                                    )}
+                                </section>
+                            )}
+
+                            <section className="flex min-w-0 flex-col xl:flex-[4]">
+                                <SectionRule label="Historical" meta={`durable · ${windowLabel}`} />
+                                {!usageLoaded ? (
+                                    <StatsSkeleton />
+                                ) : !hasHistory ? (
+                                    <div
+                                        data-usage-empty
+                                        className="flex min-h-[92px] flex-1 items-center justify-center text-[13px] text-muted"
+                                    >
+                                        No usage in this window{all ? " — start an agent." : `${emptyFor}.`}
                                     </div>
                                 ) : (
-                                    <p className="mb-6 rounded-[11px] border border-border bg-surface px-4 py-3 font-mono text-[11px] leading-[1.55] text-muted">
-                                        No quota reading{all ? "" : ` for ${providerLabel(sel)}`}. Windows are known
-                                        only while an agent that publishes them runs; the last snapshot is kept per
-                                        provider, and rolls to empty once its window passes. History below is
-                                        unaffected.
-                                    </p>
+                                    <HistoryCards
+                                        stats={stats}
+                                        window={usageWindow}
+                                        all={all}
+                                        of={work && !all ? allStats : undefined}
+                                        reveal={revealHistory}
+                                    />
                                 )}
-                            </>
-                        )}
-
-                        <SectionRule label="Historical" meta={`durable · ${windowLabel}`} />
+                            </section>
+                        </div>
 
                         {!usageLoaded ? (
-                            <UsageHistorySkeleton />
-                        ) : !hasHistory ? (
-                            <div className="mt-10 text-center text-[13px] text-muted">
-                                No usage in this window{all ? " — start an agent." : `${emptyFor}.`}
-                            </div>
-                        ) : (
+                            <ChartSkeleton />
+                        ) : hasHistory ? (
                             <motion.div
                                 variants={cardVariants}
                                 initial={revealHistory ? "initial" : false}
                                 animate="animate"
+                                className="flex flex-col gap-5"
                             >
-                                <HistoryCards
-                                    stats={stats}
-                                    window={usageWindow}
-                                    all={all}
-                                    of={work && !all ? allStats : undefined}
-                                />
-
                                 {list != null ? (
                                     <WorkListCard
                                         list={list}
@@ -1205,23 +1008,23 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                     />
                                 ) : null}
 
-                                <SplitCard split={split} scope={scopeLabel} />
-
                                 <DailyChart
                                     daily={stats.daily}
                                     window={usageWindow}
                                     metric={usageMetric}
                                     onMetric={setUsageMetric}
-                                    harnesses={chartHarnesses}
+                                    legend={legend}
                                 />
 
-                                <div className={modelGridClass(stats.providers.length)}>
-                                    {stats.providers.map((p) => (
-                                        <ModelGroup key={p.provider} p={p} />
-                                    ))}
+                                <div
+                                    data-usage-split
+                                    className="rounded-[14px] border border-border bg-surface-raised px-5 py-[18px]"
+                                >
+                                    <SectionRule label="Where it goes" meta={`${scopeLabel} · by spend`} />
+                                    <SplitTable table={splitTable(split)} />
                                 </div>
                             </motion.div>
-                        )}
+                        ) : null}
                     </div>
                 </div>
             </div>

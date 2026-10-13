@@ -6,7 +6,7 @@ import type { DailyUsage } from "./usagestats";
 const now = 1_800_000_000_000;
 
 function day(d: string, byHarness: Record<string, { tokens: number; spendUsd: number }>): DailyUsage {
-    return { day: d, byHarness };
+    return { day: d, byHarness, byModel: {} };
 }
 
 describe("harnessTotals", () => {
