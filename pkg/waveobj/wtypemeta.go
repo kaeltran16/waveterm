@@ -83,6 +83,8 @@ type MetaTSType struct {
 
 	// for agent hook-stamped metadata (Wave Agent Sessions fork)
 	AgentTranscriptPath string `json:"agent:transcriptpath,omitempty"` // block (path to the running agent's transcript file)
+	AgentLastCommitTs   int64  `json:"agent:lastcommitts,omitempty"`   // block (UnixMilli of the agent's last successful git commit)
+	AgentLastEditTs     int64  `json:"agent:lasteditts,omitempty"`     // block (UnixMilli of the agent's last file edit tool call)
 
 	Count int `json:"count,omitempty"` // temp for cpu plot. will remove later
 }

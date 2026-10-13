@@ -49,6 +49,7 @@ import { AttentionBanner, BannerChip } from "./attentioncard";
 import { diffStatsByIdAtom } from "./cardgitstore";
 import type { CardShare } from "./cardgridlayout";
 import { finishes, nextSnap, type AgentSnap } from "./cockpitevents";
+import { CommitTick } from "./committick";
 import { parseDocReview } from "./docreview";
 import { entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
@@ -393,6 +394,7 @@ export const AgentRow = memo(function AgentRow({
                 <StatusLine agent={agent} nowAtom={nowAtom} standing={standingBy} className="min-w-0 flex-1" />
                 {subs.length > 0 ? <FanoutBadge subs={subs} onOpen={onOpen} /> : null}
                 {shellTasks.length > 0 ? <ShellTasksBadge tasks={shellTasks} /> : null}
+                <CommitTick blockId={agent.blockId} />
                 {diff ? (
                     <button
                         type="button"

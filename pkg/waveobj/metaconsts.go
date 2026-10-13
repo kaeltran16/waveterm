@@ -77,6 +77,8 @@ const (
 	MetaKey_AppLoom                          = "app:loom"
 
 	MetaKey_AgentTranscriptPath              = "agent:transcriptpath"
+	MetaKey_AgentLastCommitTs                = "agent:lastcommitts"
+	MetaKey_AgentLastEditTs                  = "agent:lasteditts"
 
 	MetaKey_Count                            = "count"
 )

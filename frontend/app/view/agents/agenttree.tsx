@@ -32,6 +32,7 @@ import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from 
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
+import { CommitTick } from "./committick";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
@@ -513,6 +514,7 @@ function ParentRow({
                             <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-hi">
                                 {agent.name}
                             </div>
+                            <CommitTick blockId={agent.blockId} />
                             {/* a lead's second line holds its workers chip and progress, which need its full width */}
                             {lead ? subsChip : null}
                             {lead ? tasksChip : null}

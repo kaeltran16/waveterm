@@ -29,6 +29,9 @@ const canvasRevealTimeoutMs = 2000
 // frontend/app/view/agents/canvasmodel.ts.
 var canvasBoardPathRe = regexp.MustCompile(`(?i)^(.+?)[\\/]\.superpowers[\\/]design[\\/]([^\\/]+)[\\/]project[\\/][^\\/]+\.dc\.html$`)
 
+// `git [global options] commit`, anywhere in a compound command; `commit-tree` and words ending in git miss
+var gitCommitRe = regexp.MustCompile(`(?:^|[\s;&|(])git(?:\s+(?:-[cC]\s+\S+|--?[\w.-]+(?:=\S+)?))*\s+commit(?:\s|$)`)
+
 const bashDetailMax = 60
 const titleMax = 72 // fallback head-text length cap (rune-safe)
 
@@ -126,6 +129,24 @@ func canvasRevealFor(ev ccHookEvent) (address string, cwd string, ok bool) {
 		return "", "", false
 	}
 	return "canvas:" + m[2], m[1], true
+}
+
+// workStampKey names the block meta key a finished tool call stamps, so the cockpit can tick an agent whose
+// last commit came after its last edit. PostToolUse fires only for a call that succeeded, so a commit with
+// nothing to commit stamps nothing. "" for every other event.
+func workStampKey(ev ccHookEvent) string {
+	if ev.HookEventName != "PostToolUse" {
+		return ""
+	}
+	switch ev.ToolName {
+	case "Edit", "Write", "MultiEdit", "NotebookEdit":
+		return waveobj.MetaKey_AgentLastEditTs
+	case "Bash":
+		if gitCommitRe.MatchString(stringField(ev.ToolInput, "command")) {
+			return waveobj.MetaKey_AgentLastCommitTs
+		}
+	}
+	return ""
 }
 
 func stringField(raw json.RawMessage, field string) string {
@@ -477,11 +498,16 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 	if agentHookShadow != "" {
 		transcriptPath = agentHookShadow
 	}
+	meta := waveobj.MetaMapType{}
 	if transcriptPath != "" {
-		_ = wshclient.SetMetaCommand(RpcClient, wshrpc.CommandSetMetaData{
-			ORef: *oref,
-			Meta: waveobj.MetaMapType{waveobj.MetaKey_AgentTranscriptPath: transcriptPath},
-		}, &wshrpc.RpcOpts{Timeout: 2000})
+		meta[waveobj.MetaKey_AgentTranscriptPath] = transcriptPath
+	}
+	// startedTs, not arrival time: the per-tool hooks run in the background and can land out of order
+	if key := workStampKey(ev); key != "" {
+		meta[key] = startedTs
+	}
+	if len(meta) > 0 {
+		_ = wshclient.SetMetaCommand(RpcClient, wshrpc.CommandSetMetaData{ORef: *oref, Meta: meta}, &wshrpc.RpcOpts{Timeout: 2000})
 	}
 	data := baseds.AgentStatusData{
 		ORef:           oref.String(),

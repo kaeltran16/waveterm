@@ -2190,6 +2190,8 @@ declare global {
         "session:collapsedgroups"?: string[];
         "app:loom"?: boolean;
         "agent:transcriptpath"?: string;
+        "agent:lastcommitts"?: number;
+        "agent:lasteditts"?: number;
         count?: number;
     };
 

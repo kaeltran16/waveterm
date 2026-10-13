@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
 func TestPlanEmission(t *testing.T) {
@@ -301,5 +302,46 @@ func TestHookDebugLine(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "branch=no-blockid") {
 		t.Fatalf("log missing message, got %q", string(b))
+	}
+}
+
+func TestWorkStampKey(t *testing.T) {
+	bash := func(command string) ccHookEvent {
+		input, _ := json.Marshal(map[string]string{"command": command})
+		return ccHookEvent{HookEventName: "PostToolUse", ToolName: "Bash", ToolInput: input}
+	}
+	post := func(tool string) ccHookEvent {
+		return ccHookEvent{HookEventName: "PostToolUse", ToolName: tool, ToolInput: json.RawMessage(`{"file_path":"/x/a.go"}`)}
+	}
+	commit, edit := waveobj.MetaKey_AgentLastCommitTs, waveobj.MetaKey_AgentLastEditTs
+	cases := []struct {
+		name string
+		ev   ccHookEvent
+		want string
+	}{
+		{"plain commit", bash(`git commit -m "fix: x"`), commit},
+		{"add then commit", bash(`git add a.go b.go && git commit -m x`), commit},
+		{"commit from a file", bash(`git commit -F /tmp/msg.txt`), commit},
+		{"commit with -C dir", bash(`git -C /repo commit -m x`), commit},
+		{"commit with -c config", bash(`git -c user.name=k commit --amend --no-edit`), commit},
+		{"commit with long flag", bash(`git --no-pager commit -m x`), commit},
+		{"commit after cd", bash("cd /repo; git commit -m x"), commit},
+		{"commit on its own line", bash("git add .\ngit commit -m x"), commit},
+		{"git log", bash(`git log --oneline -5`), ""},
+		{"git status", bash(`git status --short`), ""},
+		{"commit-tree plumbing", bash(`git commit-tree HEAD^{tree} -m x`), ""},
+		{"a word ending in git", bash(`legit commit`), ""},
+		{"edit", post("Edit"), edit},
+		{"write", post("Write"), edit},
+		{"multi edit", post("MultiEdit"), edit},
+		{"notebook edit", post("NotebookEdit"), edit},
+		{"read", post("Read"), ""},
+		{"commit before it ran", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Bash", ToolInput: json.RawMessage(`{"command":"git commit -m x"}`)}, ""},
+		{"edit before it ran", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Edit"}, ""},
+	}
+	for _, c := range cases {
+		if got := workStampKey(c.ev); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
 	}
 }
