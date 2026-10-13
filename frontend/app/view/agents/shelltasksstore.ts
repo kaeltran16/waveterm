@@ -11,14 +11,14 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentVM } from "./agentsviewmodel";
-import { extractShellTasks, outputTail, SHELL_TAIL_LINES, visibleShellTasks, type ShellTask } from "./shelltasks";
+import { extractShellTasks, outputTail, SHELL_TAIL_LINES, type ShellTask } from "./shelltasks";
 
 export interface ShellTaskPeekRef {
     parentId: string;
     taskId: string;
 }
 
-// per agent-id -> its running and failed shell tasks
+// per agent-id -> its running shell tasks
 export const shellTasksByIdAtom = atom<Record<string, ShellTask[]>>({}) as PrimitiveAtom<Record<string, ShellTask[]>>;
 
 // per agent-id -> when its last completed shell-task read started, success or failure. A finish held
@@ -52,7 +52,7 @@ function setList(id: string, list: ShellTask[] | null): void {
 
 /** Tail the agent's transcript, project its shell tasks, and store them. Guarded so a superseding
  *  load (or a drop) discards a slower older result. A failed read keeps the last known list, so an
- *  absent entry always means no visible tasks and never reads as a task finishing. */
+ *  absent entry always means no running tasks and never reads as a task finishing. */
 export async function refreshShellTasks(id: string, transcriptPath: string | undefined): Promise<void> {
     const seq = (loadSeq.get(id) ?? 0) + 1;
     loadSeq.set(id, seq);
@@ -70,7 +70,7 @@ export async function refreshShellTasks(id: string, transcriptPath: string | und
         if (loadSeq.get(id) !== seq) {
             return;
         }
-        setList(id, visibleShellTasks(extractShellTasks(tr.lines ?? [])));
+        setList(id, extractShellTasks(tr.lines ?? []));
         setReadAt(id, startedAt);
     } catch {
         // keep the last known list: the next poll or transcript activity retries. The read still
@@ -131,9 +131,9 @@ export function dropShellTasks(id: string): void {
     }
 }
 
-/** Pure: the tracked agents whose stored tasks include a running one, the ones worth polling. */
+/** Pure: the tracked agents with a stored (running) task, the ones worth polling. */
 export function shellTaskPollIds(trackedIds: string[], byId: Record<string, ShellTask[]>): string[] {
-    return trackedIds.filter((id) => byId[id]?.some((t) => t.state === "running"));
+    return trackedIds.filter((id) => (byId[id]?.length ?? 0) > 0);
 }
 
 /** The last lines of a task's output file, trimmed for the output peek. A missing or unreadable file

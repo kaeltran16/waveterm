@@ -11671,9 +11671,10 @@ const agentRailFileLink = {
 // --- shell-tasks: an idle agent with a background shell task still running reads standing by -----------
 // docs/superpowers/plans/2026-10-12-shell-task-standing-by.md. A plain fixture agent, idle past the 5-minute grace
 // window, whose transcript starts five Bash background tasks in the record shapes claude writes: four running (output
-// with lines, an empty output, an output path that does not exist, output redirected to a /tmp log) and one failed. Standing by is all that keeps its
+// with lines, an empty output, an output path that does not exist, output redirected to a /tmp log) and one failed,
+// which is not listed: a task that ended is gone however it ended. Standing by is all that keeps its
 // card on the grid, so finishing the four running tasks parks it in the Idle section. A second agent, idle a minute,
-// holds one failed task and nothing running: its card is the plain Finished band with a one-task chip. A third
+// holds one failed task and nothing running: its card is the plain Finished band with no chip. A third
 // agent starts working with no tasks: steps 7-9 start a task and turn it idle right behind it, as a Stop does.
 const SHELL_AGENT = { id: "fx-shell-tasks", name: "shell-tasks agent" };
 const SHELL_FAILED_AGENT = { id: "fx-shell-failed", name: "shell-failed agent" };
@@ -11925,14 +11926,15 @@ const shellTasksScenario = {
         await h.shot("cdp-shots/shell-tasks-main.png");
         await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 5, y: 940 });
         rec(
-            "1. Main: the card reads Standing by with 4 shell tasks running, its dot accent and still, the chip lists all five, no finished event yet",
+            "1. Main: the card reads Standing by with 4 shell tasks running, its dot accent and still, the chip lists the four running and not the failed one, no finished event yet",
             band.label.includes("standing by") &&
                 band.label.includes("4 shell tasks running") &&
                 !band.label.includes("finished") &&
                 band.dot?.bg === "var(--color-accent)" &&
                 band.dot?.pulse === false &&
-                band.chip === "5 shell tasks" &&
-                SHELL_TASKS.every((t) => list.includes(t.description)) &&
+                band.chip === "4 shell tasks" &&
+                SHELL_RUNNING.every((t) => list.includes(t.description)) &&
+                !list.includes(SHELL_TASKS.find((t) => t.failed).description) &&
                 band.finished.length === 0,
             JSON.stringify({ ...band, text: band.text.slice(0, 200), label: undefined, list })
         );
@@ -11943,12 +11945,12 @@ const shellTasksScenario = {
             return { text: text(c), label: band(c), dot: dot(c), chip: text(c?.querySelector("[data-shell-tasks-chip]")) };
         })()`);
         rec(
-            "1b. an idle agent with only a failed task shows the plain Finished band, a muted dot and a 1 shell task chip",
+            "1b. an idle agent with only a failed task shows the plain Finished band, a muted dot and no shell tasks chip",
             other.label.includes("finished") &&
                 !other.label.includes("standing by") &&
                 other.dot?.bg === "var(--color-muted)" &&
                 other.dot?.pulse === false &&
-                other.chip === "1 shell task",
+                other.chip === "",
             JSON.stringify({ ...other, text: other.text.slice(0, 200), label: undefined })
         );
 
@@ -11974,9 +11976,9 @@ const shellTasksScenario = {
         })()`);
         await h.shot("cdp-shots/shell-tasks-tree-collapsed.png");
         rec(
-            "2. TreeCollapsed: the row's chip reads 5 shell tasks, folded, with no task rows and a still accent dot",
+            "2. TreeCollapsed: the row's chip reads 4 shell tasks, folded, with no task rows and a still accent dot",
             folded.ok === true &&
-                folded.chip.includes("5 shell tasks") &&
+                folded.chip.includes("4 shell tasks") &&
                 folded.expanded === "false" &&
                 folded.rows.length === 0 &&
                 folded.dot?.bg === "var(--color-accent)" &&
@@ -11992,11 +11994,11 @@ const shellTasksScenario = {
             JSON.stringify(folded.header)
         );
 
-        // 3. TreeExpanded: five rows, four running and one failed
+        // 3. TreeExpanded: the four running tasks' rows, none for the failed one
         const expanded = await h.ev(`(async () => {
             ${SHELL_LIB}
             tasksChip(${mainName})?.click();
-            await until(() => taskRowIds().length === ${SHELL_TASKS.length}, 20);
+            await until(() => taskRowIds().length === ${SHELL_RUNNING.length}, 20);
             await new Promise((r) => setTimeout(r, 400));
             return {
                 expanded: tasksChip(${mainName})?.getAttribute("aria-expanded"),
@@ -12006,11 +12008,11 @@ const shellTasksScenario = {
         await h.shot("cdp-shots/shell-tasks-tree-expanded.png");
         const sub = (id) => expanded.rows.find((r) => r.id === id)?.lines[1] ?? "";
         rec(
-            "3. TreeExpanded: five task rows, four running and one failed · exit 1",
+            "3. TreeExpanded: four running task rows, and no row for the failed task",
             expanded.expanded === "true" &&
-                expanded.rows.length === SHELL_TASKS.length &&
+                expanded.rows.length === SHELL_RUNNING.length &&
                 SHELL_RUNNING.every((t) => /^running · /.test(sub(t.id))) &&
-                sub("bshfail") === "failed · exit 1",
+                !expanded.rows.some((r) => r.id === "bshfail"),
             JSON.stringify(expanded)
         );
 
@@ -12029,14 +12031,12 @@ const shellTasksScenario = {
                 await new Promise((r) => setTimeout(r, 300));
                 const p = peek();
                 if (!p) return null;
-                const rows = [...p.querySelectorAll(".whitespace-pre-wrap")];
                 const lines = p.innerText.split("\\n").map((s) => s.trim()).filter(Boolean);
                 return {
                     id: p.getAttribute("data-shell-task-peek"),
                     text: text(p),
                     state: text(p.querySelector("[data-shell-task-state]")),
                     footer: lines.at(-1) ?? "",
-                    lastLineError: rows.at(-1)?.classList.contains("text-error") ?? false,
                     besideTree: p.getBoundingClientRect().left >= (tree()?.getBoundingClientRect().right ?? Infinity),
                     headerShown: header()?.checkVisibility() === true,
                     rowOpen: taskRow(${JSON.stringify(id)})?.classList.contains("bg-accentbg") ?? false,
@@ -12107,7 +12107,7 @@ const shellTasksScenario = {
             tasksChip(${mainName})?.click();
             const gone = await until(() => peek() == null, 20);
             tasksChip(${mainName})?.click();
-            await until(() => taskRowIds().length === ${SHELL_TASKS.length}, 20);
+            await until(() => taskRowIds().length === ${SHELL_RUNNING.length}, 20);
             await new Promise((r) => setTimeout(r, 400));
             return gone;
         })()`);
@@ -12131,19 +12131,12 @@ const shellTasksScenario = {
         await clickRow("bshempty");
         const empty = await peekState("bshempty", "No output yet.");
         await h.shot("cdp-shots/shell-tasks-peek-empty.png");
-        await clickRow("bshfail");
-        const failed = await peekState("bshfail", "[exited with code 1]");
-        await h.shot("cdp-shots/shell-tasks-peek-failed.png");
         rec(
-            "4d. the empty task's peek reads No output yet. (running, live); the failed task's ends in an error-colored [exited with code 1] (failed · exit 1, not live)",
+            "4d. the empty task's peek reads No output yet. (running, live)",
             empty?.text.includes("No output yet.") === true &&
                 empty.state === "running" &&
-                empty.footer.endsWith("last 64 KB · live") &&
-                failed?.text.includes("[exited with code 1]") === true &&
-                failed.state === "failed · exit 1" &&
-                failed.lastLineError === true &&
-                failed.footer.endsWith("last 64 KB"),
-            JSON.stringify({ empty, failed })
+                empty.footer.endsWith("last 64 KB · live"),
+            JSON.stringify(empty)
         );
 
         // 5. a missing output file reads as no output, not an error
@@ -12219,14 +12212,13 @@ const shellTasksScenario = {
         await h.goto("agent");
         const after = await h.ev(`(async () => {
             ${SHELL_LIB}
-            await until(() => tasksChip(${mainName}) != null, 20);
+            await until(() => treeRow(${mainName}) != null, 20);
             if (!headerDot().name) treeRow(${mainName})?.click();
-            if (tasksChip(${mainName})?.getAttribute("aria-expanded") === "false") tasksChip(${mainName}).click();
-            await until(() => taskRowIds().includes("bshfail"), 20);
+            await until(() => tasksChip(${mainName}) == null, 20);
             await until(() => headerDot().name, 20);
             await new Promise((r) => setTimeout(r, 600));
             return {
-                chip: text(tasksChip(${mainName})),
+                chip: tasksChip(${mainName}) == null ? null : text(tasksChip(${mainName})),
                 rows: taskRowIds().filter((id) => ${JSON.stringify(SHELL_TASKS.map((t) => t.id))}.includes(id)),
                 dot: dot(treeRow(${mainName})),
                 header: headerDot(),
@@ -12234,9 +12226,9 @@ const shellTasksScenario = {
         })()`);
         await h.shot("cdp-shots/shell-tasks-tree-finished.png");
         rec(
-            "6b. the tree keeps only the failed task row under a 1 shell task chip, and the dot is no longer accent",
-            after.chip.includes("1 shell task") &&
-                after.rows.join() === "bshfail" &&
+            "6b. the tree has no shell tasks chip and no task rows, and the dot is no longer accent",
+            after.chip === null &&
+                after.rows.length === 0 &&
                 after.dot != null &&
                 after.dot.bg !== "var(--color-accent)" &&
                 after.dot.pulse === false,

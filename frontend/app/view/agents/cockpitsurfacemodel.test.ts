@@ -61,8 +61,8 @@ describe("splitRecentlyIdle", () => {
         const standing = agent({ id: "standing", state: "idle", idleSince: now - 6 * 60_000 });
         const done = agent({ id: "done", state: "idle", idleSince: now - 6 * 60_000 });
         const shellTasks: Record<string, ShellTask[]> = {
-            standing: [{ id: "b1", description: "dev server", state: "running" }],
-            done: [{ id: "b2", description: "build", state: "failed", exitCode: 1 }],
+            standing: [{ id: "b1", description: "dev server" }],
+            done: [],
         };
         const { recently, parked } = splitRecentlyIdle([standing, done], now, new Set(), shellTasks);
         expect(recently.map((a) => a.id)).toEqual(["standing"]);
@@ -71,7 +71,7 @@ describe("splitRecentlyIdle", () => {
     it("still parks a dismissed agent that is standing by", () => {
         const standing = agent({ id: "standing", state: "idle", idleSince: now - 6 * 60_000 });
         const shellTasks: Record<string, ShellTask[]> = {
-            standing: [{ id: "b1", description: "dev server", state: "running" }],
+            standing: [{ id: "b1", description: "dev server" }],
         };
         const { recently } = splitRecentlyIdle([standing], now, new Set([dismissKey(standing)]), shellTasks);
         expect(recently).toEqual([]);

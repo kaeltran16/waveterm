@@ -1,17 +1,15 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Pure projection of a claude transcript into its background shell tasks: which are still running,
-// which failed, and the derived "standing by" state (idle with a task still running). No React and
-// no Wave runtime imports, so the transcript shapes are unit-testable on their own.
+// Pure projection of a claude transcript into its background shell tasks still running, and the derived
+// "standing by" state (idle with a task still running). No React and no Wave runtime imports, so the
+// transcript shapes are unit-testable on their own.
 
 export interface ShellTask {
     id: string;
     description: string;
-    state: "running" | "failed";
     startedTs?: number;
     outputPath?: string;
-    exitCode?: number;
 }
 
 // a cap, not a guarantee: a task started before the last 2000 transcript records is not listed.
@@ -21,68 +19,32 @@ export const SHELL_TAIL_LINES = 2000;
 const COMMAND_DESCRIPTION_MAX = 60;
 
 export const OUTPUT_MAX_CHARS = 64 * 1024;
-const EXITED_LINE = /^\[exited with code (-?\d+)\]$/;
-
-type Settled = "running" | "failed" | "gone";
-
-interface TrackedTask extends Omit<ShellTask, "state"> {
-    state: Settled;
-}
-
-interface Notification {
-    ids: string[];
-    status: string;
-    summary: string;
-    outputFile?: string;
-}
 
 function tag(content: string, name: string): string | undefined {
     const m = new RegExp(`<${name}>([^]*?)</${name}>`).exec(content);
     return m ? m[1].trim() : undefined;
 }
 
-// a session that died with tasks running reports them all in one notification with no <task-id>,
+// the ids a finish notification ends, whatever its status: a failed task goes as a completed one does,
+// since the agent is told, and a command it killed itself (a hung one) also reports as failed.
+// A session that died with tasks running reports them all in one notification with no <task-id>,
 // naming them in the summary instead.
-function parseNotification(content: string): Notification | null {
-    if (!content.includes("<task-notification>")) {
-        return null;
+function finishedIds(content: string): string[] {
+    // a Monitor event carries no status: not a finish
+    if (!content.includes("<task-notification>") || tag(content, "status") == null) {
+        return [];
     }
-    const status = tag(content, "status");
-    if (status == null) {
-        // a Monitor event, not a finish
-        return null;
-    }
-    const summary = tag(content, "summary") ?? "";
     const id = tag(content, "task-id");
-    const listed = /Task ids: ([^]*)$/.exec(summary)?.[1];
-    const ids =
-        id != null
-            ? [id]
-            : (listed
-                  ?.split(/[,\s]+/)
-                  .map((s) => s.replace(/\.$/, ""))
-                  .filter(Boolean) ?? []);
-    return { ids, status, summary, outputFile: tag(content, "output-file") };
-}
-
-// completed means a clean finish even with a nonzero code (grep's "No matches found"); killed and
-// stopped mean the task was ended from outside, which drops it as a clean finish does.
-const DROPPING_STATUSES = new Set(["completed", "killed", "stopped"]);
-
-function settle(task: TrackedTask, note: Notification): void {
-    if (DROPPING_STATUSES.has(note.status)) {
-        task.state = "gone";
-        return;
+    if (id != null) {
+        return [id];
     }
-    if (note.status !== "failed") {
-        return;
-    }
-    task.state = "failed";
-    const code = /exit code (-?\d+)/.exec(note.summary)?.[1];
-    if (code != null) {
-        task.exitCode = Number(code);
-    }
-    task.outputPath ??= note.outputFile;
+    const listed = /Task ids: ([^]*)$/.exec(tag(content, "summary") ?? "")?.[1];
+    return (
+        listed
+            ?.split(/[,\s]+/)
+            .map((s) => s.replace(/\.$/, ""))
+            .filter(Boolean) ?? []
+    );
 }
 
 function toolResultText(content: unknown): string {
@@ -98,7 +60,7 @@ function toolResultText(content: unknown): string {
         .join("\n");
 }
 
-function startedTask(rec: any, toolUses: Map<string, any>): TrackedTask | null {
+function startedTask(rec: any, toolUses: Map<string, any>): ShellTask | null {
     const id = rec?.toolUseResult?.backgroundTaskId;
     const content = rec?.message?.content;
     if (typeof id !== "string" || id === "" || !Array.isArray(content)) {
@@ -117,7 +79,6 @@ function startedTask(rec: any, toolUses: Map<string, any>): TrackedTask | null {
     return {
         id,
         description,
-        state: "running",
         ...(Number.isFinite(ts) ? { startedTs: ts } : {}),
         ...(outputPath ? { outputPath } : {}),
     };
@@ -166,16 +127,15 @@ function notificationContent(rec: any): string | null {
     return null;
 }
 
-/** Pure: the running and failed background shell tasks in transcript JSONL lines, in start order.
- *  A start is a user record carrying toolUseResult.backgroundTaskId; a <task-notification> for that
- *  id (queue-operation enqueue or user-role string, the later one winning) settles it, and a
- *  successful TaskStop result for it drops it. A notification
- *  for an id with no start in the lines is ignored. Unparseable lines are skipped. */
+/** Pure: the running background shell tasks in transcript JSONL lines, in start order. A start is a
+ *  user record carrying toolUseResult.backgroundTaskId; a <task-notification> with a status for that id
+ *  (queue-operation enqueue or user-role string) or a successful TaskStop result for it drops it. A
+ *  notification for an id with no start in the lines is ignored. Unparseable lines are skipped. */
 export function extractShellTasks(lines: string[]): ShellTask[] {
     const toolUses = new Map<string, any>();
-    const tasks = new Map<string, TrackedTask>();
+    const tasks = new Map<string, ShellTask>();
     // a task that finishes at once can have its enqueue written before its start record
-    const earlyNotes = new Map<string, Notification>();
+    const finishedEarly = new Set<string>();
     for (const line of lines) {
         let rec: any;
         try {
@@ -198,38 +158,28 @@ export function extractShellTasks(lines: string[]): ShellTask[] {
         // a failed stop's toolUseResult is an error string, so it never matches.
         const stoppedId = rec.type === "user" ? rec?.toolUseResult?.task_id : undefined;
         if (typeof stoppedId === "string" && tasks.has(stoppedId)) {
-            tasks.get(stoppedId).state = "gone";
+            tasks.delete(stoppedId);
             continue;
         }
         const started = rec.type === "user" ? startedTask(rec, toolUses) : null;
         if (started != null) {
-            const early = earlyNotes.get(started.id);
-            if (early != null) {
-                settle(started, early);
+            if (!finishedEarly.has(started.id)) {
+                tasks.set(started.id, started);
             }
-            tasks.set(started.id, started);
             continue;
         }
         const content = notificationContent(rec);
-        const note = content != null ? parseNotification(content) : null;
-        for (const id of note?.ids ?? []) {
-            const task = tasks.get(id);
-            if (task != null) {
-                settle(task, note);
-            } else {
-                earlyNotes.set(id, note);
+        for (const id of content != null ? finishedIds(content) : []) {
+            if (!tasks.delete(id)) {
+                finishedEarly.add(id);
             }
         }
     }
-    return [...tasks.values()].filter((t): t is ShellTask => t.state !== "gone");
-}
-
-export function visibleShellTasks(all: ShellTask[]): ShellTask[] {
-    return all.filter((t) => t.state === "running" || t.state === "failed");
+    return [...tasks.values()];
 }
 
 export function isStandingBy(state: string, tasks: ShellTask[]): boolean {
-    return state === "idle" && tasks.some((t) => t.state === "running");
+    return state === "idle" && tasks.length > 0;
 }
 
 export function shellTasksLabel(n: number): string {
@@ -251,30 +201,4 @@ export function outputTail(lines: string[], maxChars = OUTPUT_MAX_CHARS): string
         tail = tail.slice(newline + 1);
     }
     return tail.split("\n");
-}
-
-export function failedLabel(task: ShellTask): string {
-    return task.exitCode != null ? `failed · exit ${task.exitCode}` : "failed";
-}
-
-export interface ShellTaskStatus {
-    label: string;
-    tone: "accent" | "error";
-    // a running task's output is still growing, so it is re-read
-    live: boolean;
-}
-
-/** The output peek's state for a task. */
-export function shellTaskStatus(task: ShellTask): ShellTaskStatus {
-    if (task.state === "running") {
-        return { label: "running", tone: "accent", live: true };
-    }
-    return { label: failedLabel(task), tone: "error", live: false };
-}
-
-/** Whether an output line is the trailing exit marker of a nonzero exit. Only the last line counts: the
- *  same text earlier is the command's own output. */
-export function isFailedExitLine(line: string, last: boolean): boolean {
-    const code = last ? EXITED_LINE.exec(line.trim())?.[1] : undefined;
-    return code != null && Number(code) !== 0;
 }

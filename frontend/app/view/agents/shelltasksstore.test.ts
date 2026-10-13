@@ -28,7 +28,7 @@ import {
 
 const transcript = vi.mocked(RpcApi.GetAgentTranscriptCommand);
 
-const task = (id: string, state: ShellTask["state"]): ShellTask => ({ id, description: id, state });
+const task = (id: string): ShellTask => ({ id, description: id });
 
 afterEach(() => {
     transcript.mockReset();
@@ -57,15 +57,15 @@ describe("readShellTaskOutput", () => {
 
 describe("refreshShellTasks", () => {
     it("keeps the last known list when a transcript read fails", async () => {
-        const known = [task("t1", "running")];
+        const known = [task("t1")];
         globalStore.set(shellTasksByIdAtom, { a1: known });
         transcript.mockRejectedValue(new Error("timeout"));
         await refreshShellTasks("a1", "C:/tmp/a1.jsonl");
         expect(globalStore.get(shellTasksByIdAtom).a1).toBe(known);
     });
 
-    it("drops the entry when a read finds no visible tasks", async () => {
-        globalStore.set(shellTasksByIdAtom, { a1: [task("t1", "running")] });
+    it("drops the entry when a read finds no running tasks", async () => {
+        globalStore.set(shellTasksByIdAtom, { a1: [task("t1")] });
         transcript.mockResolvedValue({ lines: [] });
         await refreshShellTasks("a1", "C:/tmp/a1.jsonl");
         expect("a1" in globalStore.get(shellTasksByIdAtom)).toBe(false);
@@ -111,7 +111,7 @@ describe("shell-task read hold", () => {
     });
 
     it("a failed read releases the hold onto a last known running task: standing by, no finish", async () => {
-        globalStore.set(shellTasksByIdAtom, { a1: [task("t1", "running")] });
+        globalStore.set(shellTasksByIdAtom, { a1: [task("t1")] });
         globalStore.set(shellReadAtByIdAtom, { a1: 900 });
         const stop = decide(working, 1100);
         expect(stop.events).toEqual([]);
@@ -139,16 +139,16 @@ describe("shell-task read hold", () => {
 });
 
 describe("shellTaskPollIds", () => {
-    it("polls an agent with a running task and skips failed-only or taskless agents", () => {
+    it("polls an agent with a running task and skips taskless agents", () => {
         const byId = {
-            running: [task("t1", "failed"), task("t2", "running")],
-            failedOnly: [task("t3", "failed")],
+            running: [task("t1"), task("t2")],
+            empty: [],
         };
-        expect(shellTaskPollIds(["running", "failedOnly", "none"], byId)).toEqual(["running"]);
+        expect(shellTaskPollIds(["running", "empty", "none"], byId)).toEqual(["running"]);
     });
 
     it("does not poll an agent that is no longer tracked", () => {
-        expect(shellTaskPollIds([], { gone: [task("t1", "running")] })).toEqual([]);
+        expect(shellTaskPollIds([], { gone: [task("t1")] })).toEqual([]);
     });
 });
 

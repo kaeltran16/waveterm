@@ -5,7 +5,6 @@
 // the task runs and follows the tail. Esc closes it through the keybinding registry (shelltask:back).
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { cn } from "@/util/util";
 import {
     autoUpdate,
     FloatingPortal,
@@ -19,7 +18,7 @@ import { useAtomValue } from "jotai";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
-import { isFailedExitLine, OUTPUT_MAX_CHARS, shellTaskStatus, type ShellTask } from "./shelltasks";
+import { OUTPUT_MAX_CHARS, type ShellTask } from "./shelltasks";
 import { readShellTaskOutput, shellTaskPeekAtom } from "./shelltasksstore";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 
@@ -27,13 +26,10 @@ const OUTPUT_POLL_MS = 2000;
 // from a tree row's right edge past the tree's own 8px padding, so the peek sits 8px beside the tree
 const PEEK_GAP_PX = 16;
 const NO_LINES: string[] = [];
-const TAIL_LABEL = `last ${OUTPUT_MAX_CHARS / 1024} KB`;
+const TAIL_LABEL = `last ${OUTPUT_MAX_CHARS / 1024} KB · live`;
 
-const TONE_CLASS = { accent: "text-accent", error: "text-error" } as const;
-const DOT_CLASS = { accent: "bg-accent", error: "bg-error" } as const;
-
-// a live task's output is re-read on a timer; a failed one's is final
-function useTaskOutput(path: string | undefined, live: boolean): string[] | null {
+// a running task's output is still growing, so it is re-read on a timer
+function useTaskOutput(path: string | undefined): string[] | null {
     const [lines, setLines] = useState<string[] | null>(null);
     useEffect(() => {
         if (!path) {
@@ -43,12 +39,12 @@ function useTaskOutput(path: string | undefined, live: boolean): string[] | null
         let mounted = true;
         const read = () => void readShellTaskOutput(path).then((l) => mounted && setLines(l));
         read();
-        const timer = live ? setInterval(read, OUTPUT_POLL_MS) : undefined;
+        const timer = setInterval(read, OUTPUT_POLL_MS);
         return () => {
             mounted = false;
             clearInterval(timer);
         };
-    }, [path, live]);
+    }, [path]);
     return lines;
 }
 
@@ -63,8 +59,7 @@ export function ShellTaskPeek({
     task: ShellTask;
     anchor: HTMLElement;
 }) {
-    const status = shellTaskStatus(task);
-    const lines = useTaskOutput(task.outputPath, status.live);
+    const lines = useTaskOutput(task.outputPath);
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(lines ?? NO_LINES);
     const { refs, floatingStyles, context } = useFloating({
         open: true,
@@ -97,15 +92,12 @@ export function ShellTaskPeek({
                 className="z-[60] w-[560px] overflow-hidden rounded-[9px] border border-edge-strong bg-surface-raised shadow-popover-lg"
             >
                 <div className="flex items-center gap-[8px] px-[10px] py-[8px]">
-                    <span className={cn("h-[7px] w-[7px] flex-none rounded-full", DOT_CLASS[status.tone])} />
+                    <span className="h-[7px] w-[7px] flex-none rounded-full bg-accent" />
                     <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] font-medium text-secondary">
                         {task.description}
                     </span>
-                    <span
-                        data-shell-task-state
-                        className={cn("flex-none font-mono text-[10.5px] font-semibold", TONE_CLASS[status.tone])}
-                    >
-                        {status.label}
+                    <span data-shell-task-state className="flex-none font-mono text-[10.5px] font-semibold text-accent">
+                        running
                     </span>
                     <button
                         type="button"
@@ -126,13 +118,7 @@ export function ShellTaskPeek({
                             <div className="text-muted">No output yet.</div>
                         ) : (
                             (lines ?? NO_LINES).map((line, i) => (
-                                <div
-                                    key={i}
-                                    className={cn(
-                                        "whitespace-pre-wrap break-words",
-                                        isFailedExitLine(line, i === lines.length - 1) ? "text-error" : "text-secondary"
-                                    )}
-                                >
+                                <div key={i} className="whitespace-pre-wrap break-words text-secondary">
                                     {line}
                                 </div>
                             ))
@@ -144,7 +130,7 @@ export function ShellTaskPeek({
                     <span className="min-w-0 flex-1 truncate" title={task.outputPath}>
                         {task.outputPath?.split(/[\\/]/).pop()}
                     </span>
-                    <span className="flex-none">{status.live ? `${TAIL_LABEL} · live` : TAIL_LABEL}</span>
+                    <span className="flex-none">{TAIL_LABEL}</span>
                 </div>
             </div>
         </FloatingPortal>

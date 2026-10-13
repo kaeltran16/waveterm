@@ -72,7 +72,7 @@ import {
     visibleSubagents,
     type SubagentState,
 } from "./session-models/sessionviewmodel";
-import { failedLabel, isStandingBy, shellTasksLabel, visibleShellTasks, type ShellTask } from "./shelltasks";
+import { isStandingBy, shellTasksLabel, type ShellTask } from "./shelltasks";
 import { ShellTaskPeek } from "./shelltaskpeek";
 import { shellReadAtByIdAtom, shellReadPending, shellTaskPeekAtom, shellTasksByIdAtom } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
@@ -340,7 +340,6 @@ function ShellTaskRows({ model, parentId, tasks }: { model: AgentsViewModel; par
     return (
         <>
             {tasks.map((t) => {
-                const failed = t.state === "failed";
                 const open = peekTask?.id === t.id;
                 return (
                     <div
@@ -360,26 +359,14 @@ function ShellTaskRows({ model, parentId, tasks }: { model: AgentsViewModel; par
                     >
                         <Guides depth={1} />
                         <Slot>
-                            <span
-                                className={cn(
-                                    "h-[7px] w-[7px] shrink-0 rounded-full",
-                                    failed ? "bg-error" : "bg-accent"
-                                )}
-                            />
+                            <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-accent" />
                         </Slot>
                         <div className="min-w-0 flex-1">
                             <div className="truncate font-mono text-[11.5px] font-medium text-secondary">
                                 {t.description}
                             </div>
-                            <div
-                                className={cn(
-                                    "mt-[3px] truncate font-mono text-[10.5px]",
-                                    failed ? "text-error" : "text-muted"
-                                )}
-                            >
-                                {failed
-                                    ? failedLabel(t)
-                                    : `running · ${formatAgeShort(t.startedTs != null ? Math.max(0, now - t.startedTs) : undefined)}`}
+                            <div className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
+                                {`running · ${formatAgeShort(t.startedTs != null ? Math.max(0, now - t.startedTs) : undefined)}`}
                             </div>
                         </div>
                     </div>
@@ -412,11 +399,11 @@ function ParentRow({
     const asking = agent.state === "asking";
     const review = asking ? parseDocReview(agent.ask) : null;
     const mark = lead != null ? leadMark(lead.run, agent) : null;
-    const tasks = visibleShellTasks(useAtomValue(shellTasksByIdAtom)[agent.id] ?? []);
+    const tasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standing = isStandingBy(agent.state, tasks);
     // undefined until the user folds: open while a task runs, as the subagent fold defaults
     const [tasksOverride, setTasksOverride] = useState<boolean>();
-    const tasksOpen = tasks.length > 0 && (tasksOverride ?? tasks.some((t) => t.state === "running"));
+    const tasksOpen = tasks.length > 0 && (tasksOverride ?? true);
     // a peek whose row went away (its task ended, or the fold closed) must not come back when the fold
     // reopens, nor hold Esc while nothing shows
     const peek = useAtomValue(shellTaskPeekAtom);
