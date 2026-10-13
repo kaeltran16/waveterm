@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { newAttention, popupBubble, popupPlacement } from "./attentionpopup";
+import { newAttention, POPUP_AT_REST, popupBubble, popupFace, popupPlacement, type PopupFace } from "./attentionpopup";
 import { taskbarSignal } from "./attentionstore";
 
 const item = (over: Partial<AttentionItem>): AttentionItem =>
@@ -67,6 +67,21 @@ describe("popupBubble", () => {
                 }
             }
         }
+    });
+});
+
+describe("popupFace", () => {
+    const gate: PopupFace = { expression: { kind: "tired", provider: "claude", pct: 92 }, posture: "review-gate" };
+
+    it("carries the face it was given", () => {
+        const bubble = popupBubble([], [item({ key: "a" })], false, gate);
+        expect(bubble.face).toEqual(gate);
+        expect(popupFace(bubble)).toEqual(gate);
+    });
+    it("is at rest with no posture when the payload has no face", () => {
+        const bubble = popupBubble([], [item({ key: "a" })], false);
+        expect(popupFace(bubble)).toEqual({ expression: { kind: "at-rest" }, posture: "none" });
+        expect(popupFace(bubble)).toBe(POPUP_AT_REST);
     });
 });
 
