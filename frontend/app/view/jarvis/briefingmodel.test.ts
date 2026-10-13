@@ -101,7 +101,7 @@ describe("briefing projection", () => {
         expect(m.directAgents.map((a) => a.id)).toEqual(["p"]);
     });
 
-    it("sorts runs blocked-first then ts-desc then oref, agents asking-first then started desc", () => {
+    it("sorts runs blocked-first then ts-desc then oref, agents asking-first then roster order", () => {
         const state = workState([
             {
                 project: "waveterm",
@@ -133,8 +133,8 @@ describe("briefing projection", () => {
             ])
         );
         expect(m.activeRuns.map((r) => r.oref)).toEqual(["run:r-a", "run:r-b", "run:r-c"]);
-        // asking first; then startedTs desc — w1 started earlier than w2, so w2 comes first
-        expect(m.directAgents.map((a) => a.id)).toEqual(["tab-2", "tab-3", "tab-1"]);
+        // asking first; then roster order, whatever each has been doing lately
+        expect(m.directAgents.map((a) => a.id)).toEqual(["tab-2", "tab-1", "tab-3"]);
     });
 
     it("windows delta to actualCursor and words events honestly", () => {
@@ -418,14 +418,14 @@ describe("unified active work", () => {
         ...over,
     });
 
-    it("interleaves kinds, needing-eyes first, then recency, then identity", () => {
+    it("needing-eyes first, then dated rows by recency, then agents in roster order", () => {
         const rows = mergeActiveWork({
             activeRuns: [run({ ts: T0 - HOUR }), run({ oref: "run:r2", ts: T0 - 4 * HOUR, status: "blocked" })],
             blockers: [blocker({ ts: T0 - 2 * HOUR })],
             directAgents: [agentRow({ state: "asking", startedTs: T0 - 3 * HOUR })],
         });
-        // needing-eyes (blocked run, blocker, asking agent) first, recency within tier:
-        expect(rows.map((r) => r.kind)).toEqual(["blocker", "agent", "run", "run"]);
+        // needing-eyes (blocked run, blocker, asking agent) first; within a tier, dated rows then agents:
+        expect(rows.map((r) => r.kind)).toEqual(["blocker", "run", "agent", "run"]);
         // then the remaining run (1h ago) before… no — it is the only score-1 row here, so it is last.
         expect(rows[3].oref).toBe("run:r1");
         expect(rows[3].chip).toEqual({ label: "running", tone: "running" });
@@ -457,6 +457,27 @@ describe("unified active work", () => {
         expect(byKind.agent!.name).toBe("loom · the task");
         expect(byKind.agent!.meta).toBe("claude · waveterm");
         expect(byKind.agent!.ts).toBe(T0 - 5 * HOUR);
+    });
+
+    it("keeps its order when an agent starts a new turn", () => {
+        const state = workState([
+            {
+                project: "waveterm",
+                active: [
+                    runItem({ ts: T0 - HOUR, navtarget: "run:r-new" }),
+                    runItem({ ts: T0 - 3 * HOUR, navtarget: "run:r-old" }),
+                ],
+                shipped: [],
+                events: [],
+                delta: [],
+            },
+        ]);
+        const order = (agents: AgentVM[]) =>
+            mergeActiveWork({ ...projectBriefing(input(state, agents)), blockers: [] }).map((r) => r.oref);
+        const before = order([agent({ id: "tab-1", activeMs: 2 * HOUR }), agent({ id: "tab-2", activeMs: 4 * HOUR })]);
+        // tab-2's status changed a moment ago (a new prompt), which resets the time in its state
+        const after = order([agent({ id: "tab-1", activeMs: 2 * HOUR }), agent({ id: "tab-2", activeMs: 1000 })]);
+        expect(after).toEqual(before);
     });
 
     it("stays deterministic when timestamps collide", () => {

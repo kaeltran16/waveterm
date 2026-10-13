@@ -367,11 +367,14 @@ export function summarizeAttentionQueue(rows: QueueRow[], now: number): QueueSum
 }
 
 // needing-eyes first (blocked run / blocker / asking agent), recency within tier, identity last.
+// an agent's ts is when its state last changed, which every new turn moves, so ordering by it
+// reshuffled the list: agents follow the dated rows of their tier in the order they arrive (the roster).
 export function mergeActiveWork(input: {
     activeRuns: RunRow[];
     blockers: BlockerRow[];
     directAgents: AgentRow[];
 }): ActiveWorkRow[] {
+    const agentOrder = new Map(input.directAgents.map((a, i) => ["agent:" + a.id, i]));
     const rows: ActiveWorkRow[] = [
         ...input.activeRuns.map((r) => ({
             key: "run:" + r.oref,
@@ -413,6 +416,11 @@ export function mergeActiveWork(input: {
             const d = s(x) - s(y);
             if (d !== 0) {
                 return d;
+            }
+            const ax = agentOrder.get(x.key);
+            const ay = agentOrder.get(y.key);
+            if (ax != null || ay != null) {
+                return (ax ?? -1) - (ay ?? -1);
             }
             const t = y.ts - x.ts;
             if (t !== 0) {
@@ -519,31 +527,28 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
     );
 
     // direct agents: only working/asking roster rows, never terminal/background/idle; a row whose
-    // tab oref belongs to an active run is represented by the Run only — no fallback dedup.
+    // tab oref belongs to an active run is represented by the Run only — no fallback dedup. Asking
+    // first, then roster order: startedTs is time in the current state, too restless to sort on.
     const runWorkerOrefs = new Set(activeRuns.flatMap((r) => r.workerOrefs));
-    const directAgents: AgentRow[] = sortBy(
-        agents
-            .filter(
-                (a) =>
-                    (a.state === "working" || a.state === "asking") &&
-                    a.kind !== "terminal" &&
-                    a.kind !== "background" &&
-                    !runWorkerOrefs.has("tab:" + a.id)
-            )
-            .map((a) => ({
-                oref: "agent:" + a.id,
-                id: a.id,
-                name: a.name,
-                task: a.task ?? a.name,
-                runtime: a.agent ?? "",
-                project: a.project ?? null,
-                state: a.state as "working" | "asking",
-                startedTs: queryStartedAt - (a.state === "asking" ? (a.blockedMs ?? 0) : (a.activeMs ?? 0)),
-            })),
-        (a) => (a.state === "asking" ? 0 : 1),
-        (a) => a.startedTs,
-        (a) => a.id
-    );
+    const directAgents: AgentRow[] = agents
+        .filter(
+            (a) =>
+                (a.state === "working" || a.state === "asking") &&
+                a.kind !== "terminal" &&
+                a.kind !== "background" &&
+                !runWorkerOrefs.has("tab:" + a.id)
+        )
+        .map((a) => ({
+            oref: "agent:" + a.id,
+            id: a.id,
+            name: a.name,
+            task: a.task ?? a.name,
+            runtime: a.agent ?? "",
+            project: a.project ?? null,
+            state: a.state as "working" | "asking",
+            startedTs: queryStartedAt - (a.state === "asking" ? (a.blockedMs ?? 0) : (a.activeMs ?? 0)),
+        }))
+        .sort((x, y) => (x.state === "asking" ? 0 : 1) - (y.state === "asking" ? 0 : 1));
 
     // shipped: only the rolling seven-day window (the server may return more when the cursor is
     // older than seven days); `fresh` when the matching run-done event is in the client-side delta.
