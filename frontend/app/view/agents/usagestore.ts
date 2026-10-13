@@ -38,17 +38,24 @@ export const usageListExpandedAtom = atom<boolean>(false);
 
 // DEV-only fixture seam: a deterministic localStorage {buckets, sessions} object (see the usage-charts
 // CDP scenario). Compiled out behaviorally in production because import.meta.env.DEV is false. Malformed
-// or absent fixtures fall through to the RPC.
+// or absent fixtures fall through to the RPC. `delayMs` holds the reply back so the skeleton shows, and
+// `fail: true` takes the failure path; fail is read before buckets, so `{ fail: true }` alone fails.
 const DEV_USAGE_FIXTURE_KEY = "wave:dev-usage-buckets";
 
-function devUsageFixture(): CommandGetUsageStatsRtnData | undefined {
+type DevUsageFixture = { reply?: CommandGetUsageStatsRtnData; delayMs: number; fail: boolean };
+
+function devUsageFixture(): DevUsageFixture | undefined {
     if (!import.meta.env.DEV || typeof localStorage === "undefined") return undefined;
     const raw = localStorage.getItem(DEV_USAGE_FIXTURE_KEY);
     if (raw == null) return undefined;
     try {
         const value = JSON.parse(raw);
-        if (value == null || !Array.isArray(value.buckets)) return undefined;
-        return { buckets: value.buckets, sessions: Array.isArray(value.sessions) ? value.sessions : [] };
+        if (value == null) return undefined;
+        const delayMs = typeof value.delayMs === "number" ? value.delayMs : 0;
+        if (value.fail === true) return { delayMs, fail: true };
+        if (!Array.isArray(value.buckets)) return undefined;
+        const sessions = Array.isArray(value.sessions) ? value.sessions : [];
+        return { reply: { buckets: value.buckets, sessions }, delayMs, fail: false };
     } catch {
         return undefined;
     }
@@ -71,7 +78,14 @@ export async function loadUsage(windowDays = DEFAULT_WINDOW_DAYS): Promise<void>
         globalStore.set(usageLoadedAtom, false);
     }
     try {
-        const reply = devUsageFixture() ?? (await RpcApi.GetUsageStatsCommand(TabRpcClient, { windowdays: windowDays }));
+        const fixture = devUsageFixture();
+        if (fixture != null && fixture.delayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, fixture.delayMs));
+        }
+        if (fixture?.fail) {
+            throw new Error("dev usage fixture: fail");
+        }
+        const reply = fixture?.reply ?? (await RpcApi.GetUsageStatsCommand(TabRpcClient, { windowdays: windowDays }));
         if (seq !== loadSeq) {
             return; // a newer load superseded this one — ignore its result
         }

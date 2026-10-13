@@ -10,7 +10,7 @@
 
 import { providerLabel } from "./cockpitrailmodel";
 import { priceFor } from "./usagepricing";
-import { CLASS_FILL, bucketSpend, bucketTokens, pctStr, usd, type ClassUsage } from "./usagestats";
+import { CLASS_FILL, bucketSpend, bucketTokens, usd, type ClassUsage } from "./usagestats";
 
 export const ALL_SCOPE = "all";
 export const LIST_COLLAPSED_ROWS = 8;
@@ -83,7 +83,6 @@ export interface SplitPart {
 export interface WorkSplit {
     parts: SplitPart[];
     head: string; // the split table's label-column heading
-    note: string;
 }
 
 export interface SplitRow {
@@ -151,10 +150,6 @@ const PART_FILLS = [
     "bg-provider-claude",
 ];
 const OTHER_FILL = "bg-cacheread";
-
-export function kindLabel(kind: WorkKind): string {
-    return KIND_LABEL[kind];
-}
 
 export function plural(n: number, one: string, many: string): string {
     return `${n} ${n === 1 ? one : many}`;
@@ -395,13 +390,7 @@ function classParts(classes: ClassUsage[]): SplitPart[] {
 
 // today's token-class split, for a provider page and for a single session
 export function classSplit(classes: ClassUsage[]): WorkSplit {
-    const tokens = classes.reduce((s, c) => s + c.tokens, 0);
-    const cacheRead = classes.find((c) => c.cls === "cacheRead")?.tokens ?? 0;
-    return {
-        parts: classParts(classes),
-        head: "class",
-        note: `${pctStr(tokens > 0 ? (cacheRead / tokens) * 100 : 0)} of the token count is cache reads, so a single “tokens” number misleads. Cache reads price at a fraction of input, so the two bars tell different stories.`,
-    };
+    return { parts: classParts(classes), head: "class" };
 }
 
 function roleSplit(item: WorkItem): WorkSplit {
@@ -428,7 +417,6 @@ function roleSplit(item: WorkItem): WorkSplit {
     return {
         parts,
         head: "role",
-        note: "How this run divides between its lead, its workers and the sessions that checked them. The two bars differ where a role runs a cheaper model or reads more from cache.",
     };
 }
 
@@ -449,7 +437,6 @@ export function scopeSplit(attr: Attribution, scope: WorkScope, classes: ClassUs
                 spendUsd: kinds[k].spendUsd,
             })),
             head: "kind",
-            note: "How this project divides between orchestrator runs, quick runs and sessions no run started.",
         };
     }
     const parts: SplitPart[] = attr.projects.map((p, i) => ({
@@ -471,7 +458,6 @@ export function scopeSplit(attr: Attribution, scope: WorkScope, classes: ClassUs
     return {
         parts,
         head: "project",
-        note: "How usage divides between projects. A project is the repo a run was started in, or the folder a session ran in, with worktrees folded into their repo.",
     };
 }
 

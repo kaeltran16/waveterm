@@ -1,24 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-    aggregateBuckets,
-    bucketSpend,
-    bucketTokens,
-    foldModels,
-    modelGridClass,
-    modelKey,
-    pctStr,
-    type ModelUsage,
-} from "./usagestats";
-
-describe("modelGridClass", () => {
-    it("fills the full width when there is a single provider (or none)", () => {
-        expect(modelGridClass(1)).toBe("grid grid-cols-1 gap-[14px]");
-        expect(modelGridClass(0)).toBe("grid grid-cols-1 gap-[14px]");
-    });
-    it("splits into two columns on lg for multiple providers", () => {
-        expect(modelGridClass(2)).toBe("grid grid-cols-1 gap-[14px] lg:grid-cols-2");
-    });
-});
+import { aggregateBuckets, bucketSpend, bucketTokens, modelKey, pctStr } from "./usagestats";
 
 describe("bucket helpers", () => {
     it("counts every token class and prices a bucket the way the aggregate does", () => {
@@ -90,34 +71,6 @@ describe("aggregateBuckets", () => {
         expect(stats.totals.tokensWindowByHarness.codex).toBe(50);
         expect(stats.totals.activeDays).toBe(2);
         expect(stats.totals.spendWindowUsd).toBeGreaterThan(0);
-    });
-
-    it("leaves a model, and a provider, with no tokens out of the by-model breakdown", () => {
-        const stats = aggregateBuckets(
-            [
-                bkt({ day: today, input: 100 }),
-                bkt({ harness: "pi", provider: "openrouter", model: "deepseek-v4.1-flash", day: today }),
-                bkt({ model: "claude-sonnet-4-6", day: today }),
-            ],
-            now
-        );
-        expect(stats.providers.map((p) => p.provider)).toEqual(["anthropic"]);
-        expect(stats.providers[0].models.map((m) => m.model)).toEqual(["claude-opus-4-8"]);
-    });
-
-    it("by-model pct is over the whole loaded window (includes >7d buckets), desc by tokens", () => {
-        const stats = aggregateBuckets(
-            [
-                bkt({ model: "claude-opus-4-8", day: "2026-05-01", input: 75 }), // older than a week
-                bkt({ model: "claude-sonnet-4-6", day: today, input: 25 }),
-            ],
-            now
-        );
-        const p = stats.providers[0];
-        expect(p.tokens).toBe(100);
-        expect(p.models[0].model).toBe("claude-opus-4-8");
-        expect(p.models[0].pct).toBeCloseTo(75, 5);
-        expect(p.models[1].pct).toBeCloseTo(25, 5);
     });
 
     it("builds an all-provider token-class split in fixed order with priced spend", () => {
@@ -197,12 +150,11 @@ describe("aggregateBuckets", () => {
                 { cls: "input", label: "Input", tokens: 0, spendUsd: 0 },
             ],
             daily: [],
-            providers: [],
             models: [],
         });
     });
 
-    it("derives harnesses, reported cost, coverage, and upstream providers", () => {
+    it("derives harnesses, reported cost and coverage", () => {
         const buckets = [
             bkt({ harness: "claude", provider: "anthropic", input: 100 }),
             bkt({
@@ -229,7 +181,6 @@ describe("aggregateBuckets", () => {
         expect(all.totals.reportedCostWindowPresent).toBe(true);
         expect(all.totals.reportedCostWindowHarnesses).toEqual(["opencode"]);
         expect(all.totals.pricingCoverageWindowPct).toBeCloseTo((350 / 1050) * 100);
-        expect(all.providers.map((p) => p.provider)).toEqual(["anthropic", "openai", "opencode-go"]);
 
         const openCode = aggregateBuckets(buckets, now, "opencode");
         expect(openCode.totals.tokensWindow).toBe(950);
@@ -262,10 +213,6 @@ describe("aggregateBuckets", () => {
         expect(all.availableHarnesses).toEqual(["pi", "claude"]);
         expect(all.totals.tokensWindowByHarness.pi).toBe(400);
         expect(all.totals.tokensWindowByHarness.claude).toBe(200);
-        // pi's provider/model dimensions aggregate independently of the claude bucket's
-        expect(all.providers.map((p) => p.provider)).toEqual(["anthropic", "openai-codex"]);
-        const piProvider = all.providers.find((p) => p.provider === "openai-codex");
-        expect(piProvider?.models.map((m) => m.model)).toEqual(["gpt-5.5"]);
         // the harness filter isolates pi buckets (chips still come from the unfiltered set)
         const piOnly = aggregateBuckets(buckets, now, "pi");
         expect(piOnly.totals.tokensWindow).toBe(400);
@@ -336,26 +283,5 @@ describe("modelKey", () => {
     it("is stable and unique per triple", () => {
         expect(modelKey("pi", "a", "b")).toBe(modelKey("pi", "a", "b"));
         expect(modelKey("pi", "a/b", "c")).not.toBe(modelKey("pi", "a", "b/c"));
-    });
-});
-
-describe("foldModels", () => {
-    const m = (model: string, tokens: number, pct: number): ModelUsage => ({ model, tokens, pct, spendUsd: 0 });
-
-    it("passes through when at or under the cap", () => {
-        const out = foldModels([m("a", 3, 60), m("b", 2, 40)], 4);
-        expect(out.map((x) => x.model)).toEqual(["a", "b"]);
-    });
-
-    // The ordinal ramp has a fixed number of steps; a 5th hue is never generated.
-    it("folds the tail into a single Other row", () => {
-        const out = foldModels([m("a", 5, 50), m("b", 2, 20), m("c", 1, 10), m("d", 1, 10), m("e", 1, 10)], 4);
-        expect(out.map((x) => x.model)).toEqual(["a", "b", "c", "Other"]);
-        expect(out[3].tokens).toBe(2);
-        expect(out[3].pct).toBe(20);
-    });
-
-    it("returns an empty list unchanged", () => {
-        expect(foldModels([], 4)).toEqual([]);
     });
 });

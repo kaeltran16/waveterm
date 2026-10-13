@@ -150,6 +150,32 @@ describe("loadUsage", () => {
         expect(globalStore.get(usageSessionsAtom)).toEqual(sessions);
     });
 
+    it("fails the load from a { fail: true } fixture with no buckets, keeping the earlier buckets", async () => {
+        globalStore.set(usageBucketsAtom, response.buckets);
+        seedFixture(JSON.stringify({ fail: true }));
+        await loadUsage(7);
+        expect(globalStore.get(usageErrorAtom)).toBe(true);
+        expect(globalStore.get(usageBucketsAtom)).toEqual(response.buckets);
+        expect(getStats).not.toHaveBeenCalled();
+    });
+
+    it("holds a delayMs fixture back, leaving the load unfinished until the delay passes", async () => {
+        vi.useFakeTimers();
+        try {
+            seedFixture(JSON.stringify({ buckets: response.buckets, sessions, delayMs: 1000 }));
+            const load = loadUsage(30);
+            await vi.advanceTimersByTimeAsync(999);
+            expect(globalStore.get(usageLoadedAtom)).toBe(false);
+            await vi.advanceTimersByTimeAsync(1);
+            await load;
+            expect(globalStore.get(usageLoadedAtom)).toBe(true);
+            expect(globalStore.get(usageBucketsAtom)).toEqual(response.buckets);
+            expect(getStats).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("sets neither atom from a superseded load", async () => {
         let resolveOld!: (v: any) => void;
         getStats

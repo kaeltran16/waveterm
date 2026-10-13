@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Pure usage aggregation for the Usage surface. Folds the backend's per-(harness, provider, model,
-// day) usage buckets (from GetUsageStatsCommand) into today/week + per-provider per-model totals
+// day) usage buckets (from GetUsageStatsCommand) into today/week, window and per-model totals
 // (aggregateBuckets). Spend is computed from token counts via usagepricing. Pure module — no React
 // or Wave runtime imports, unit-tested in isolation.
 
@@ -22,19 +22,6 @@ export interface UsageRecord {
     cacheReadTokens: number;
     cacheCreateTokens: number;
     cacheCreate1hTokens?: number; // subset of cacheCreateTokens billed at the 1h extended-cache rate (else 5m)
-}
-
-export interface ModelUsage {
-    model: string;
-    tokens: number;
-    pct: number; // share of the provider's window tokens
-    spendUsd: number;
-}
-
-export interface ProviderUsage {
-    provider: string;
-    tokens: number; // window tokens
-    models: ModelUsage[]; // desc by tokens
 }
 
 export type TokenClass = "input" | "output" | "reasoning" | "cacheRead" | "cacheWrite";
@@ -95,7 +82,6 @@ export interface UsageStats {
     };
     split: ClassUsage[]; // all providers, the window, fixed CLASS_ORDER
     daily: DailyUsage[]; // ascending; zero-filled idle days; every day in range (the chart brushes it)
-    providers: ProviderUsage[]; // window-scoped by-model, grouped by upstream provider
     models: ModelSeries[]; // window-scoped; tokens desc then key asc; zero-token models excluded
 }
 
@@ -186,7 +172,7 @@ function harnessesOf(buckets: UsageBucket[]): string[] {
 }
 
 // Fold backend buckets into the surface's UsageStats. The harness filter is applied once at the top;
-// every total, split, daily row, and provider group consumes the same filtered list. today/week
+// every total, split, daily row, and model series consumes the same filtered list. today/week
 // totals stay date-filtered (today = current local day; week = rolling 7); the window totals, split,
 // daily series, and per-model breakdown fold the WHOLE loaded window (the window is chosen by the
 // loader's windowdays). Reported cost is summed only where a bucket reports it (present zero counts,
@@ -221,7 +207,6 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
     const byDay = new Map<string, Record<string, DailyHarnessUsage>>();
     const byDayModel = new Map<string, Record<string, DailyHarnessUsage>>();
     const byModel = new Map<string, ModelSeries>();
-    const byProvider = new Map<string, Map<string, { tokens: number; spend: number }>>();
     let minDay: string | null = null;
     let maxDay: string | null = null;
 
@@ -271,20 +256,6 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
         series.tokens += tk;
         series.spendUsd += sp;
         byModel.set(key, series);
-
-        // by-model (window), grouped by upstream provider. a request that failed before any token was
-        // billed still leaves a bucket; it is no usage, and alone it drew an empty provider card
-        if (tk > 0) {
-            let models = byProvider.get(b.provider);
-            if (!models) {
-                models = new Map();
-                byProvider.set(b.provider, models);
-            }
-            const cur = models.get(b.model) ?? { tokens: 0, spend: 0 };
-            cur.tokens += tk;
-            cur.spend += sp;
-            models.set(b.model, cur);
-        }
 
         const inWeek = b.day >= weekStart;
         if (inWeek) {
@@ -342,21 +313,6 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
         }));
     }
 
-    const providers: ProviderUsage[] = [...byProvider.entries()]
-        .map(([provider, models]) => {
-            const tokens = [...models.values()].reduce((s, m) => s + m.tokens, 0);
-            const modelUsages: ModelUsage[] = [...models.entries()]
-                .map(([model, v]) => ({
-                    model,
-                    tokens: v.tokens,
-                    spendUsd: v.spend,
-                    pct: tokens > 0 ? (v.tokens / tokens) * 100 : 0,
-                }))
-                .sort((a, b) => b.tokens - a.tokens);
-            return { provider, tokens, models: modelUsages };
-        })
-        .sort((a, b) => a.provider.localeCompare(b.provider));
-
     // a failed request's zero-token bucket is no usage; it never yields a legend row
     const models = [...byModel.values()]
         .filter((m) => m.tokens > 0)
@@ -387,26 +343,8 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
         },
         split,
         daily,
-        providers,
         models,
     };
-}
-
-// Keep the top (max-1) models and sum the rest into one "Other" row. The by-model bars use a fixed
-// ordinal ramp, so a 5th model must never mint a new hue — it folds.
-export function foldModels(models: ModelUsage[], max: number): ModelUsage[] {
-    if (models.length <= max) return models;
-    const head = models.slice(0, max - 1);
-    const tail = models.slice(max - 1);
-    return [
-        ...head,
-        {
-            model: "Other",
-            tokens: tail.reduce((s, x) => s + x.tokens, 0),
-            spendUsd: tail.reduce((s, x) => s + x.spendUsd, 0),
-            pct: tail.reduce((s, x) => s + x.pct, 0),
-        },
-    ];
 }
 
 // Compact token/dollar formatters for the usage cards and the Daily chart's axis + tooltip. Denser than
@@ -430,12 +368,4 @@ export function pctStr(n: number): string {
     if (n >= 10) return Math.round(n) + "%";
     if (n < 0.1) return n <= 0 ? "0%" : "<0.1%";
     return +n.toFixed(1) + "%";
-}
-
-// Pure: the model-usage grid class. A single provider fills the full row (dropping lg:grid-cols-2, which
-// otherwise leaves a lone card at half width with dead space beside it); two or more split into two
-// columns on lg. Kept here so the layout decision is declarative and testable.
-export function modelGridClass(providerCount: number): string {
-    const base = "grid grid-cols-1 gap-[14px]";
-    return providerCount <= 1 ? base : `${base} lg:grid-cols-2`;
 }

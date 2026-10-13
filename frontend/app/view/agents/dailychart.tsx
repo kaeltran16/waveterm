@@ -141,7 +141,7 @@ export function DailyChart({
     return (
         <div
             data-usage-daily
-            className="mb-4 flex flex-col gap-[14px] rounded-[14px] border border-border bg-surface-raised px-5 pb-[18px] pt-[18px]"
+            className="flex flex-col gap-[14px] rounded-[14px] border border-border bg-surface-raised px-5 pb-[18px] pt-[18px]"
         >
             <div className="flex flex-wrap items-center gap-[10px]">
                 <h3 className="text-[14px] font-semibold text-primary">Daily</h3>

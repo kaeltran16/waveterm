@@ -368,7 +368,6 @@ describe("split table", () => {
         const table = splitTable({
             parts: [part("cacheRead", 80 * M, 4), part("cacheWrite", 5 * M, 30), part("output", 10 * M, 20)],
             head: "class",
-            note: "",
         });
         expect(table.head).toBe("class");
         expect(table.rows.map((r) => r.key)).toEqual(["cacheWrite", "output", "cacheRead"]);
@@ -378,7 +377,6 @@ describe("split table", () => {
         const table = splitTable({
             parts: [part("b", 1, 0), part("a", 1, 0), part("c", 2, 0)],
             head: "kind",
-            note: "",
         });
         expect(table.rows.map((r) => r.key)).toEqual(["c", "a", "b"]);
     });
@@ -387,7 +385,6 @@ describe("split table", () => {
         const table = splitTable({
             parts: [part("a", 3 * M, 30), part("b", 1 * M, 10)],
             head: "project",
-            note: "",
         });
         expect(table.tokens).toBe(sum(table.rows, (r) => r.tokens));
         expect(table.spendUsd).toBe(sum(table.rows, (r) => r.spendUsd));
@@ -398,7 +395,7 @@ describe("split table", () => {
     });
 
     it("reads 0, never NaN, when nothing is priced", () => {
-        const table = splitTable({ parts: [part("a", 3 * M, 0), part("b", 1 * M, 0)], head: "class", note: "" });
+        const table = splitTable({ parts: [part("a", 3 * M, 0), part("b", 1 * M, 0)], head: "class" });
         expect(table.spendUsd).toBe(0);
         for (const r of table.rows) {
             expect(r.spendPct).toBe(0);
@@ -410,7 +407,6 @@ describe("split table", () => {
         const table = splitTable({
             parts: [part("big", 1_000_000, 1000), part("tiny", 1, 0.0001), part("none", 0, 0)],
             head: "project",
-            note: "",
         });
         const tiny = table.rows.find((r) => r.key === "tiny")!;
         expect(tiny.tokenPct).toBeLessThan(0.3);

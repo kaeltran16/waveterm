@@ -1849,6 +1849,93 @@ const buildUsageFixture = () => {
     return { buckets, sessions };
 };
 
+// a current Claude snapshot with FUTURE reset epochs, so both limit bars render and their countdowns are live
+const usageRateLimits = () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    return {
+        claude: {
+            fivehourpct: 62,
+            fivehourreset: nowSec + 3 * 3600,
+            weekpct: 41,
+            weekreset: nowSec + 6 * 24 * 3600,
+            capturedAt: Date.now(),
+        },
+    };
+};
+
+// page-side helpers the usage scenarios share: every query goes through the surface's DOM contract
+const USAGE_LIB = `
+    const text = (el) => (el?.textContent || "").replace(/\\s+/g, " ").trim();
+    const detail = () => document.querySelector("[data-usage-detail]");
+    // the header's Lens and Range switches, and the Daily card's Metric switch, are Segmented groups
+    const groupButton = (group, label) =>
+        [...document.querySelectorAll('[aria-label="' + group + '"] button')].find((b) => text(b) === label) ?? null;
+    const pressedIn = (group) =>
+        text(document.querySelector('[aria-label="' + group + '"] button[aria-pressed="true"]')) || null;
+    const press = (el) => {
+        if (!el) return false;
+        el.click();
+        return true;
+    };
+    const until = async (ok, ms = 8000) => {
+        for (let waited = 0; waited < ms && !ok(); waited += 100) {
+            await new Promise((r) => setTimeout(r, 100));
+        }
+        return !!ok();
+    };
+    const chartSvg = () => document.querySelector("[data-usage-daily] svg");
+    // a legend row is swatch, model id, then "<value> · <pct>" with the value in its own span
+    const legendRows = () =>
+        [...document.querySelectorAll("[data-usage-legend] [data-usage-model]")].map((r) => ({
+            key: r.getAttribute("data-usage-model"),
+            model: text(r.children[1]),
+            title: r.children[1]?.getAttribute("title") ?? null,
+            value: text(r.lastElementChild?.firstElementChild),
+        }));
+    // a split row's only dollar figure is its spend; "$1.2K" reads as 1200
+    const usdValue = (s) => {
+        const m = /\\$([\\d.]+)(K?)/.exec(s);
+        return m ? Number(m[1]) * (m[2] ? 1000 : 1) : NaN;
+    };
+    const splitRows = () =>
+        [...document.querySelectorAll("[data-usage-split] [data-usage-split-part]")].map((r) => ({
+            key: r.getAttribute("data-usage-split-part"),
+            spend: usdValue(text(r)),
+        }));
+    const bySpend = (rows) =>
+        rows.length > 0 && rows.every((r, i) => !Number.isNaN(r.spend) && (i === 0 || rows[i - 1].spend >= r.spend));
+`;
+
+// h.shot captures only the 1600x950 viewport and the detail scrolls, so a part below the fold is brought to
+// the top before its shot
+const usageScrollTo = (h, selector) =>
+    h.ev(`(async () => {
+        document.querySelector(${JSON.stringify(selector)})?.scrollIntoView({ block: "start" });
+        await new Promise((r) => setTimeout(r, 300));
+    })()`);
+const usageScrollTop = (h) => h.ev(`document.querySelector("[data-usage-detail]")?.scrollTo(0, 0)`);
+const USAGE_BELOW = [
+    ["[data-usage-daily]", "daily"],
+    ["[data-usage-split]", "split"],
+];
+
+// a top-of-page shot named `name`, then `<name>-<suffix>` for each part below the fold, then back to the top
+async function usageShots(h, name, parts = USAGE_BELOW) {
+    await h.shot(`cdp-shots/${name}.png`);
+    for (const [selector, suffix] of parts) {
+        await usageScrollTo(h, selector);
+        await h.shot(`cdp-shots/${name}-${suffix}.png`);
+    }
+    await usageScrollTop(h);
+}
+
+// runs `body` (statements ending in a return) on the page with USAGE_LIB in scope
+const usageEv = (h, body) =>
+    h.ev(`(async () => {
+        ${USAGE_LIB}
+        ${body}
+    })()`);
+
 const usageCharts = {
     name: "usage-charts",
     surface: "usage",
@@ -1857,21 +1944,10 @@ const usageCharts = {
             prevUsage: await h.ev(`localStorage.getItem('wave:dev-usage-buckets')`),
             prevRate: await h.ev(`localStorage.getItem('wave:ratelimits')`),
         };
-        const nowSec = Math.floor(Date.now() / 1000);
-        // a current Claude snapshot with FUTURE reset epochs, so the donut renders and its countdown is live
-        const rateLimits = {
-            claude: {
-                fivehourpct: 62,
-                fivehourreset: nowSec + 3 * 3600,
-                weekpct: 41,
-                weekreset: nowSec + 6 * 24 * 3600,
-                capturedAt: Date.now(),
-            },
-        };
         await h.ev(
             `localStorage.setItem('wave:dev-usage-buckets', ${JSON.stringify(JSON.stringify(buildUsageFixture()))})`
         );
-        await h.ev(`localStorage.setItem('wave:ratelimits', ${JSON.stringify(JSON.stringify(rateLimits))})`);
+        await h.ev(`localStorage.setItem('wave:ratelimits', ${JSON.stringify(JSON.stringify(usageRateLimits()))})`);
         // reload so savedRateLimitsAtom (module-load seeded) and the Usage surface both read the snapshot
         await h.ev("location.reload()");
         await new Promise((r) => setTimeout(r, 2500));
@@ -1881,30 +1957,33 @@ const usageCharts = {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
 
         // The surface fetches its stats over RPC and shows a skeleton until they land, so the chart is
         // NOT in the DOM the instant goto returns. Poll for it instead of sleeping a fixed amount —
         // the all-time scan's duration depends on how many transcripts exist.
         let ready = false;
         for (let waited = 0; waited <= 10000 && !ready; waited += 250) {
-            ready = (await h.ev(`document.querySelectorAll(".visx-axis-left .visx-axis-tick").length`)) > 0;
+            ready =
+                (await h.ev(`document.querySelectorAll("[data-usage-daily] svg .visx-axis-left .visx-axis-tick").length`)) >
+                0;
             if (!ready) await settle(250);
         }
         rec("0. usage surface loaded and the chart mounted", ready, ready ? "chart present" : "timed out after 10s");
 
-        // the visx chart renders an <svg> with axis ticks and at least one bar rect
-        const chart = await h.ev(`(() => {
-            const svgs = [...document.querySelectorAll("svg")];
-            const withTicks = svgs.filter((s) => s.querySelectorAll(".visx-axis-left .visx-axis-tick").length > 0);
-            const s = withTicks[0];
+        // the Daily card's first svg is the visx chart: axis ticks and at least one bar. A bar's fill is a
+        // bare harness color or a color-mix shade of it, so bars are any filled path.
+        const chart = await usageEv(
+            h,
+            `const s = chartSvg();
             if (!s) return { found: false };
             return {
                 found: true,
                 leftTicks: s.querySelectorAll(".visx-axis-left .visx-axis-tick").length,
                 bottomTicks: s.querySelectorAll(".visx-axis-bottom .visx-axis-tick").length,
-                bars: s.querySelectorAll("path[fill^='var(--color-']").length,
-            };
-        })()`);
+                bars: s.querySelectorAll("path[fill]").length,
+            };`
+        );
         rec(
             "1. DailyChart renders a visx svg with axes and bars",
             chart.found && chart.leftTicks >= 2 && chart.bars >= 1,
@@ -1944,102 +2023,177 @@ const usageCharts = {
 
         // hovering a column opens the visx tooltip (replacing the old native title attribute). React
         // delegates pointer events from a child rect, so dispatch there rather than on the <g>.
-        const tip = await h.ev(`(() => {
-            const svg = [...document.querySelectorAll("svg")].find((s) => s.querySelector(".visx-axis-left"));
-            const r = svg && svg.querySelector("path[fill^='var(--color-']");
-            if (!r) return { hovered: false };
+        // the tooltip lists the hovered day's models and a total. Every seeded day has a Claude bucket, so any
+        // column names claude-opus-4-8.
+        const tip = await usageEv(
+            h,
+            `const bar = chartSvg()?.querySelector("path[fill]");
+            if (!bar) return { hovered: false };
             for (const type of ["pointerover", "mouseover", "mouseenter"]) {
-                r.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+                bar.dispatchEvent(new MouseEvent(type, { bubbles: true }));
             }
-            return { hovered: true };
-        })()`);
-        await settle(250);
-        const tipText = await h.ev(
-            `(() => { const t = document.querySelector("[class*='visx-tooltip']"); return t ? t.textContent : ""; })()`
+            await until(() => document.querySelector("[data-usage-tip-total]") != null, 2000);
+            const out = {
+                hovered: true,
+                models: [...document.querySelectorAll("[data-usage-tip-model]")].map(text),
+                total: text(document.querySelector("[data-usage-tip-total]")) || null,
+            };
+            // leave the column so the tooltip is gone before the shots
+            bar.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body }));
+            return out;`
         );
-        rec("4. hover opens a styled tooltip", tip.hovered && tipText.length > 0, JSON.stringify({ tipText }));
+        rec(
+            "4. hovering a bar opens a tooltip that lists the day's models and a total",
+            tip.hovered && tip.models.some((m) => m.includes("claude-opus-4-8")) && tip.total != null,
+            JSON.stringify(tip)
+        );
 
         // no native title tooltips left on the chart itself
-        const titles = await h.ev(`(() => {
-            const svg = [...document.querySelectorAll("svg")].find((s) => s.querySelector(".visx-axis-left"));
-            if (!svg) return -1;
-            return svg.querySelectorAll("[title], title").length;
-        })()`);
+        const titles = await usageEv(
+            h,
+            `const svg = chartSvg();
+            return svg ? svg.querySelectorAll("[title], title").length : -1;`
+        );
         rec("5. no native title tooltips on the chart", titles === 0, String(titles));
 
-        // verify.mjs shoots before assert, which catches the skeleton; take our own once loaded.
-        await h.shot("cdp-shots/usage-charts-loaded.png");
+        // All usage, By provider, 7 days, loaded. The Spend metric is shot and checked between the Daily and
+        // the split shots, so the parts below the fold go one by one here rather than through usageShots.
+        await h.shot("cdp-shots/usage-main.png");
+        await usageScrollTo(h, "[data-usage-daily]");
+        await h.shot("cdp-shots/usage-main-daily.png");
+        const metric = await usageEv(
+            h,
+            `const tokens = legendRows();
+            const card = document.querySelector("[data-usage-daily]");
+            const spendButton = [...(card?.querySelectorAll('[aria-label="Metric"] button') ?? [])].find(
+                (b) => text(b) === "Spend"
+            );
+            const clicked = press(spendButton);
+            await until(() => legendRows().length > 0 && legendRows().every((r) => r.value.startsWith("$")), 3000);
+            return { clicked, tokens, spend: legendRows() };`
+        );
+        rec(
+            "5b. Spend keeps the legend's Tokens order and reads every legend value in dollars",
+            metric.clicked &&
+                metric.tokens.length > 1 &&
+                JSON.stringify(metric.spend.map((r) => r.key)) === JSON.stringify(metric.tokens.map((r) => r.key)) &&
+                metric.spend.every((r) => r.value.startsWith("$")),
+            JSON.stringify({ tokens: metric.tokens, spend: metric.spend })
+        );
+        await h.shot("cdp-shots/usage-main-daily-spend.png");
+        await usageEv(
+            h,
+            `const card = document.querySelector("[data-usage-daily]");
+            press([...(card?.querySelectorAll('[aria-label="Metric"] button') ?? [])].find((b) => text(b) === "Tokens"));
+            await until(() => legendRows().every((r) => !r.value.startsWith("$")), 3000);
+            return true;`
+        );
+        await usageScrollTo(h, "[data-usage-split]");
+        await h.shot("cdp-shots/usage-main-split.png");
+        await usageScrollTop(h);
+
+        const split = await usageEv(
+            h,
+            `return { rows: splitRows(), sorted: bySpend(splitRows()), total: text(document.querySelector("[data-usage-split] [data-usage-split-total]")) || null };`
+        );
+        rec(
+            "5c. Where it goes rows are sorted by spend, under a Total row",
+            split.sorted && split.total != null && split.total.startsWith("Total"),
+            JSON.stringify(split)
+        );
+
+        // the Claude card: its own Live limits bars and its one model read out on the Daily header
+        const claude = await usageEv(
+            h,
+            `const clicked = press(document.querySelector('[data-usage-scopes] [data-usage-harness="claude"]'));
+            await until(() => detail()?.getAttribute("data-usage-detail") === "claude" && document.querySelector("[data-usage-daily-only]") != null, 3000);
+            return {
+                clicked,
+                pressed: document.querySelector('[data-usage-scopes] [data-usage-harness="claude"]')?.getAttribute("aria-pressed") ?? null,
+                scope: detail()?.getAttribute("data-usage-detail") ?? null,
+                bars: [...document.querySelectorAll("[data-usage-limit]")].map((c) => c.querySelector("div[style*='width']")?.style.width ?? ""),
+                only: text(document.querySelector("[data-usage-daily-only]")) || null,
+                legendRows: legendRows().length,
+            };`
+        );
+        rec(
+            "5d. the Claude card is pressed, with its Live limits bars and its one model on the Daily header",
+            claude.clicked &&
+                claude.pressed === "true" &&
+                claude.scope === "claude" &&
+                claude.bars.length === 2 &&
+                claude.bars.every((w) => parseFloat(w) > 0) &&
+                (claude.only ?? "").includes("claude-opus-4-8") &&
+                claude.legendRows === 0,
+            JSON.stringify(claude)
+        );
+        await usageShots(h, "usage-provider-claude");
+        await usageEv(
+            h,
+            `press(document.querySelector('[data-usage-scopes] [data-usage-harness="all"]'));
+            await until(() => detail()?.getAttribute("data-usage-detail") === "all", 3000);
+            return true;`
+        );
 
         // The brush only exists on All-time with >14 days, so the default 7d window never renders it.
-        const clicked = await h.ev(`(() => {
-            const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "All time");
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
+        const clicked = await usageEv(h, `return press(groupButton("Range", "All time"));`);
         let brush = { skipped: true };
         if (clicked) {
             for (let waited = 0; waited <= 20000; waited += 500) {
-                brush = await h.ev(`(() => {
-                    const svgs = [...document.querySelectorAll("svg")];
-                    const chart = svgs.find((s) => s.querySelector(".visx-axis-left"));
-                    if (!chart) return { loaded: false };
-                    const strip = svgs.find((s) => s.querySelector(".visx-brush"));
+                brush = await usageEv(
+                    h,
+                    `const card = document.querySelector("[data-usage-daily]");
+                    const chart = chartSvg();
+                    if (!card || !chart || !chart.querySelector(".visx-axis-left")) return { loaded: false };
                     // the chart card's own label, NOT the first "Daily" on the page (the "Daily avg" stat card)
-                    const h3 = [...document.querySelectorAll("h3")].find((x) => x.textContent.trim() === "Daily");
+                    const h3 = [...card.querySelectorAll("h3")].find((x) => text(x) === "Daily");
                     return {
                         loaded: true,
-                        bars: chart.querySelectorAll("path[fill^='var(--color-']").length,
-                        brushStrip: !!strip,
-                        brushOverlay: !!document.querySelector(".visx-brush-overlay"),
-                        label: h3 && h3.nextElementSibling ? h3.nextElementSibling.textContent.trim() : "",
-                    };
-                })()`);
+                        bars: chart.querySelectorAll("path[fill]").length,
+                        brushStrip: [...card.querySelectorAll("svg")].some((s) => s.querySelector(".visx-brush")),
+                        brushOverlay: !!card.querySelector(".visx-brush-overlay"),
+                        label: text(h3?.nextElementSibling),
+                    };`
+                );
                 if (brush.loaded && brush.brushStrip) break;
                 await settle(500);
             }
-            await h.shot("cdp-shots/usage-charts-alltime.png");
         }
         rec("6. All-time renders the brush strip under the chart", !!brush.brushStrip, JSON.stringify(brush));
 
-        // The scope picker is now the master rail, keyed by data-usage-harness (a text query would match
-        // the detail pane's own copy of a provider name). Every seeded harness needs a row plus the
-        // pinned aggregate.
+        // The scope bar keys each card by data-usage-harness (a text query would match the detail's own copy
+        // of a provider name). Every seeded harness needs a card plus the pinned aggregate.
         const railKeys = await h.ev(
-            `[...document.querySelectorAll("[data-usage-harness]")].map((b) => b.getAttribute("data-usage-harness"))`
+            `[...document.querySelectorAll("[data-usage-scopes] [data-usage-harness]")].map((b) => b.getAttribute("data-usage-harness"))`
         );
         rec(
-            "7. the rail lists all, claude, codex, opencode, and pi",
+            "7. the scope bar lists all, claude, codex, opencode, and pi",
             ["all", "claude", "codex", "opencode", "pi"].every((k) => railKeys.includes(k)),
             JSON.stringify(railKeys)
         );
 
-        // select the OpenCode rail row, then assert only OpenCode history remains
-        const clickedOpenCode = await h.ev(`(() => {
-            const b = document.querySelector('[data-usage-harness="opencode"]');
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        await settle(400);
-        const openCodeState = await h.ev(`(() => {
-            const h3s = [...document.querySelectorAll("h3")].map((x) => (x.textContent || "").trim());
-            const body = document.body.textContent || "";
+        // select the OpenCode card, then assert only OpenCode history remains: its two models in the legend
+        const openCodeState = await usageEv(
+            h,
+            `const clicked = press(document.querySelector('[data-usage-scopes] [data-usage-harness="opencode"]'));
+            await until(() => detail()?.getAttribute("data-usage-detail") === "opencode" && legendRows().length > 0, 3000);
+            const d = text(detail());
             return {
-                hasOpenaiModel: body.includes("openai/gpt-5.5"),
-                hasUnpricedModel: body.includes("opencode-go/unpriced-test-model"),
-                hasAnthropicHeading: h3s.includes("anthropic"),
-                hasReasoning: body.includes("Reasoning"),
-                hasReportedCostLabel: body.includes("Reported cost"),
-                hasEstimateLabel: body.includes("API-equivalent"),
-            };
-        })()`);
+                clicked,
+                models: legendRows().map((r) => r.model),
+                hasReasoning: [...document.querySelectorAll("[data-usage-split] [data-usage-split-part]")].some((p) =>
+                    text(p).includes("Reasoning")
+                ),
+                hasReportedCostLabel: d.includes("Reported cost"),
+                hasEstimateLabel: d.includes("API-equivalent"),
+            };`
+        );
         rec(
-            "8. selecting OpenCode leaves only OpenCode model cards and totals",
-            clickedOpenCode &&
-                openCodeState.hasOpenaiModel &&
-                openCodeState.hasUnpricedModel &&
-                !openCodeState.hasAnthropicHeading,
+            "8. selecting OpenCode leaves only OpenCode's gpt-5.5 and unpriced-test-model in the legend",
+            openCodeState.clicked &&
+                JSON.stringify([...openCodeState.models].sort()) ===
+                    JSON.stringify(["gpt-5.5", "unpriced-test-model"]) &&
+                !openCodeState.models.some((m) => m.startsWith("claude")),
             JSON.stringify(openCodeState)
         );
         rec(
@@ -2079,7 +2233,7 @@ const usageCharts = {
             };
         })()`);
         await h.ev(`(() => {
-            const b = document.querySelector('[data-usage-harness="all"]');
+            const b = document.querySelector('[data-usage-scopes] [data-usage-harness="all"]');
             if (b) b.click();
         })()`);
         await settle(400);
@@ -2103,7 +2257,7 @@ const usageCharts = {
         // the rail selection IS the harness filter, and it lives in the long-lived view model, so it
         // survives the surface unmounting on a nav switch
         await h.ev(`(() => {
-            const b = document.querySelector('[data-usage-harness="opencode"]');
+            const b = document.querySelector('[data-usage-scopes] [data-usage-harness="opencode"]');
             if (b) b.click();
         })()`);
         await settle(400);
@@ -2111,7 +2265,7 @@ const usageCharts = {
         await h.goto("usage");
         await settle(600);
         const filterSurvived = await h.ev(`(() => {
-            const b = document.querySelector('[data-usage-harness="opencode"]');
+            const b = document.querySelector('[data-usage-scopes] [data-usage-harness="opencode"]');
             const d = document.querySelector("[data-usage-detail]");
             return {
                 pressed: b ? b.getAttribute("aria-pressed") : null,
@@ -2144,71 +2298,69 @@ const usageCharts = {
         );
 
         // Reset the filter to All (the OpenCode filter survived the surface switch above), then read the
-        // DailyChart legend: each harness's swatch is a 9px span whose inline background resolves to its
-        // runtime token, followed by its label span. OpenCode and Pi must both appear with local marks.
-        await h.ev(`(() => {
-            const b = document.querySelector('[data-usage-harness="all"]');
-            if (b) b.click();
-        })()`);
-        await settle(400);
-        const legend = await h.ev(`(() => {
-            const swatches = [...document.querySelectorAll("span[style]")].filter((s) => {
-                const bg = s.style && s.style.background ? s.style.background : "";
-                return bg.includes("--color-rt-opencode") || bg.includes("--color-rt-pi");
-            });
-            const labels = swatches.map((s) => (s.parentElement ? (s.parentElement.textContent || "").trim() : ""));
-            return { count: swatches.length, labels };
-        })()`);
+        // Daily legend: a heading per harness, and gpt-5.5 under Codex, OpenCode and Pi as three rows, never
+        // one merged row.
+        const legend = await usageEv(
+            h,
+            `press(document.querySelector('[data-usage-scopes] [data-usage-harness="all"]'));
+            await until(() => document.querySelector('[data-usage-legend-group="pi"]') != null, 3000);
+            const group = (k) => text(document.querySelector('[data-usage-legend-group="' + k + '"]')) || null;
+            return {
+                opencode: group("opencode"),
+                pi: group("pi"),
+                gpt: legendRows().filter((r) => r.model === "gpt-5.5").map((r) => r.key),
+            };`
+        );
         rec(
-            "15. the chart legend names OpenCode and Pi",
-            legend.count >= 2 && legend.labels.includes("OpenCode") && legend.labels.includes("Pi"),
+            "15. the legend has OpenCode and Pi groups, and gpt-5.5 once per harness that ran it",
+            (legend.opencode ?? "").startsWith("OpenCode") &&
+                (legend.pi ?? "").startsWith("Pi") &&
+                legend.gpt.length === 3 &&
+                new Set(legend.gpt).size === 3,
             JSON.stringify(legend)
         );
 
-        // select the Pi rail row, then assert only Pi history remains and its provider/model stays
-        // distinct from Codex's openai bucket and OpenCode's opencode-go bucket.
-        const clickedPi = await h.ev(`(() => {
-            const b = document.querySelector('[data-usage-harness="pi"]');
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        await settle(400);
-        const piState = await h.ev(`(() => {
-            const h3s = [...document.querySelectorAll("h3")].map((x) => (x.textContent || "").trim());
-            const body = document.body.textContent || "";
+        // select the Pi card: its one model reads out on the Daily header, with Pi's provider rather than
+        // Codex's openai or OpenCode's opencode-go, and no legend rows of other harnesses
+        const piState = await usageEv(
+            h,
+            `const clicked = press(document.querySelector('[data-usage-scopes] [data-usage-harness="pi"]'));
+            await until(() => detail()?.getAttribute("data-usage-detail") === "pi" && document.querySelector("[data-usage-daily-only]") != null, 3000);
+            const only = document.querySelector("[data-usage-daily-only]");
             return {
-                hasPiProvider: body.includes("openai-codex"),
-                hasPiModelRow: body.includes("openai-codex/gpt-5.5"),
-                noCodexCard: !body.includes("openai/gpt-5.5"),
-                noOpenCodeCard: !body.includes("opencode-go"),
-                noAnthropicHeading: !h3s.includes("anthropic"),
-            };
-        })()`);
+                clicked,
+                only: text(only) || null,
+                title: only?.querySelector("[title]")?.getAttribute("title") ?? null,
+                legendRows: legendRows().map((r) => r.key),
+                groups: [...document.querySelectorAll("[data-usage-legend-group]")].map((g) =>
+                    g.getAttribute("data-usage-legend-group")
+                ),
+            };`
+        );
         rec(
-            "16. selecting Pi leaves only Pi model cards with a provider/model distinct from Codex and OpenCode",
-            clickedPi &&
-                piState.hasPiProvider &&
-                piState.hasPiModelRow &&
-                piState.noCodexCard &&
-                piState.noOpenCodeCard &&
-                piState.noAnthropicHeading,
+            "16. selecting Pi leaves one model, read out on the Daily header as openai-codex/gpt-5.5, with no Codex or OpenCode rows",
+            piState.clicked &&
+                (piState.only ?? "").includes("gpt-5.5") &&
+                piState.title === "openai-codex/gpt-5.5" &&
+                piState.legendRows.length === 0 &&
+                piState.groups.length === 0,
             JSON.stringify(piState)
         );
 
         // By provider is the default lens, and its detail page has no ranked list: that is By work's
-        const lens = await h.ev(`(() => {
-            const pressed = (key) =>
-                document.querySelector('[data-usage-lens="' + key + '"]')?.getAttribute("aria-pressed") ?? null;
-            return {
-                provider: pressed("provider"),
-                work: pressed("work"),
+        const lens = await usageEv(
+            h,
+            `return {
+                lens: pressedIn("Lens"),
+                options: [...document.querySelectorAll('[aria-label="Lens"] button')].map((b) => [text(b), b.getAttribute("aria-pressed")]),
                 lists: document.querySelectorAll("[data-usage-detail] [data-usage-list]").length,
-            };
-        })()`);
+            };`
+        );
         rec(
-            "17. the lens switch shows By provider pressed, and the detail page has no ranked list",
-            lens.provider === "true" && lens.work === "false" && lens.lists === 0,
+            "17. the Lens group shows By provider pressed, and the detail page has no ranked list",
+            lens.lens === "By provider" &&
+                JSON.stringify(lens.options) === JSON.stringify([["By provider", "true"], ["By work", "false"]]) &&
+                lens.lists === 0,
             JSON.stringify(lens)
         );
 
@@ -2222,10 +2374,7 @@ const usageCharts = {
         await h.ev("location.reload()");
         await new Promise((r) => setTimeout(r, 2500));
         await h.goto("usage");
-        await h.ev(`(() => {
-            const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "7 days");
-            if (b) b.click();
-        })()`);
+        await usageEv(h, `return press(groupButton("Range", "7 days"));`);
         await h.goto("cockpit");
     },
 };
@@ -2330,23 +2479,9 @@ function buildUsageWorkFixture() {
 
 // page-side helpers: every query is scoped to the surface's own data-* containers
 const USAGE_WORK_LIB = `
-    const text = (el) => (el?.textContent || "").replace(/\\s+/g, " ").trim();
-    const detail = () => document.querySelector("[data-usage-detail]");
-    // the surface's root: the header with the window switch sits beside the rail and the detail
-    const surface = () => detail()?.parentElement?.parentElement ?? null;
-    const windowButton = (label) =>
-        [...(surface()?.querySelectorAll("button[aria-pressed]") ?? [])].find((b) => text(b) === label);
-    const press = (el) => {
-        if (!el) return false;
-        el.click();
-        return true;
-    };
-    const until = async (ok, ms = 8000) => {
-        for (let waited = 0; waited < ms && !ok(); waited += 100) {
-            await new Promise((r) => setTimeout(r, 100));
-        }
-        return !!ok();
-    };
+    ${USAGE_LIB}
+    const windowButton = (label) => groupButton("Range", label);
+    const LENS_KEY = { "By provider": "provider", "By work": "work" };
     const snapshot = () => {
         const d = detail();
         const list = d?.querySelector("[data-usage-list]");
@@ -2360,10 +2495,8 @@ const USAGE_WORK_LIB = `
         };
         return {
             scope: d?.getAttribute("data-usage-detail") ?? null,
-            lens:
-                document.querySelector('[data-usage-lens][aria-pressed="true"]')?.getAttribute("data-usage-lens") ??
-                null,
-            title: text(d?.querySelector("h2")),
+            lens: LENS_KEY[pressedIn("Lens")] ?? null,
+            title: text(d?.querySelector("[data-usage-head] h2")),
             sections: [...(d?.querySelectorAll("h3") ?? [])].map(text),
             list: list
                 ? {
@@ -2373,27 +2506,25 @@ const USAGE_WORK_LIB = `
                       more: text(list.querySelector("[data-usage-more]")) || null,
                   }
                 : null,
-            split: [...(d?.querySelectorAll("[data-usage-split-part]") ?? [])].map((p) =>
-                p.getAttribute("data-usage-split-part")
-            ),
+            split: splitRows().map((p) => p.key),
+            splitBySpend: bySpend(splitRows()),
+            only: d?.querySelector("[data-usage-daily-only]") != null,
             back: text(d?.querySelector("[data-usage-back]")) || null,
             openRun: text(d?.querySelector("[data-usage-open-run]")) || null,
             shares: {
                 usage: share("of all usage"),
                 spend: share("of all spend"),
             },
-            projects: [...document.querySelectorAll("[data-usage-project]")].map((b) => ({
+            projects: [...document.querySelectorAll("[data-usage-scopes] [data-usage-project]")].map((b) => ({
                 key: b.getAttribute("data-usage-project"),
                 pressed: b.getAttribute("aria-pressed") === "true",
                 text: text(b),
             })),
-            other: text(document.querySelector("[data-usage-other]")) || null,
-            harnesses: [...document.querySelectorAll("[data-usage-harness]")].map((b) =>
+            other: text(document.querySelector("[data-usage-scopes] [data-usage-other]")) || null,
+            harnesses: [...document.querySelectorAll("[data-usage-scopes] [data-usage-harness]")].map((b) =>
                 b.getAttribute("data-usage-harness")
             ),
-            window: text([...(surface()?.querySelectorAll("button[aria-pressed='true']") ?? [])].find((b) =>
-                ["7 days", "All time"].includes(text(b))
-            )) || null,
+            window: pressedIn("Range"),
         };
     };
 `;
@@ -2438,7 +2569,11 @@ const usageWork = {
         const openArc = () => view(usageWorkClick(`[data-usage-project="${USAGE_WORK_ARC}"]`), usageWorkScope(arcScope));
         const openRunPage = () =>
             view(usageWorkClick(`[data-usage-item="${USAGE_WORK_RUN_ITEM}"]`), usageWorkScope(USAGE_WORK_RUN_ITEM));
-        const allUsage = () => view(usageWorkClick('[data-usage-harness="all"]'), `s.scope === "all" && s.list != null`);
+        const allUsage = () =>
+            view(usageWorkClick('[data-usage-scopes] [data-usage-harness="all"]'), `s.scope === "all" && s.list != null`);
+        const lensWork = `press(groupButton("Lens", "By work"))`;
+        const openSession = () =>
+            view(usageWorkClick(`[data-usage-item="${USAGE_WORK_SESSION_ITEM}"]`), usageWorkScope(USAGE_WORK_SESSION_ITEM));
         const brief = (s) =>
             JSON.stringify({ clicked: s.clicked, settled: s.settled, scope: s.scope, lens: s.lens, title: s.title });
 
@@ -2450,7 +2585,7 @@ const usageWork = {
             JSON.stringify({ lens: loaded.lens, scope: loaded.scope, split: loaded.split })
         );
 
-        const all = await view(usageWorkClick('[data-usage-lens="work"]'), `s.lens === "work" && s.list != null`);
+        const all = await view(lensWork, `s.lens === "work" && s.list != null`);
         const railProjects = all.projects.map((p) => p.key);
         rec(
             "1a. By work lists the two projects above 1% of spend, each with a share pill, and an other-folders line",
@@ -2460,20 +2595,21 @@ const usageWork = {
                 /other folders? hold/.test(all.other ?? ""),
             JSON.stringify({ projects: all.projects, other: all.other })
         );
+        const splitSet = [...all.split].sort();
         rec(
-            "1b. All usage has no Live limits, a Spent on list of eight rows, and a split by project",
+            "1b. All usage has no Live limits, a Spent on list of eight rows, and a split by project sorted by spend",
             all.scope === "all" &&
                 !all.sections.includes("Live limits") &&
                 all.list?.title === "Spent on" &&
                 all.list.rows.length === USAGE_WORK_COLLAPSED_ROWS &&
-                JSON.stringify(all.split) === JSON.stringify([USAGE_WORK_ARC, USAGE_WORK_SIEM, "other"]),
-            JSON.stringify({ scope: all.scope, sections: all.sections, list: all.list?.title, rows: all.list?.rows, split: all.split })
+                JSON.stringify(splitSet) === JSON.stringify([USAGE_WORK_ARC, USAGE_WORK_SIEM, "other"].sort()) &&
+                all.splitBySpend,
+            JSON.stringify({ scope: all.scope, sections: all.sections, list: all.list?.title, rows: all.list?.rows, split: all.split, bySpend: all.splitBySpend })
         );
-        await h.shot("cdp-shots/usage-work-all.png");
+        await usageShots(h, "usage-work-all", [["[data-usage-list]", "list"], ...USAGE_BELOW]);
 
         const more = usageWorkClick("[data-usage-detail] [data-usage-more]");
         const expanded = await view(more, `(s.list?.rows.length ?? 0) > ${USAGE_WORK_COLLAPSED_ROWS}`);
-        await h.shot("cdp-shots/usage-work-expanded.png");
         const collapsed = await view(more, `s.list?.rows.length === ${USAGE_WORK_COLLAPSED_ROWS}`);
         rec(
             "2. the toggle expands the list past eight rows and collapses it again",
@@ -2489,17 +2625,33 @@ const usageWork = {
 
         const project = await openArc();
         rec(
-            "3. a project page has its header, its share of all usage and spend, Runs and sessions, and a split by kind",
+            "3. a project page has its header, its share of all usage and spend, Runs and sessions, and a split by kind sorted by spend",
             project.clicked &&
                 project.settled &&
                 project.title === "arc" &&
                 project.shares.usage != null &&
                 project.shares.spend != null &&
                 project.list?.title === "Runs and sessions" &&
-                JSON.stringify(project.split) === JSON.stringify(["orchestrator", "quick", "session"]),
-            JSON.stringify({ title: project.title, shares: project.shares, list: project.list?.title, rows: project.list?.rows, split: project.split })
+                JSON.stringify([...project.split].sort()) === JSON.stringify(["orchestrator", "quick", "session"]) &&
+                project.splitBySpend,
+            JSON.stringify({ title: project.title, shares: project.shares, list: project.list?.title, rows: project.list?.rows, split: project.split, bySpend: project.splitBySpend })
         );
-        await h.shot("cdp-shots/usage-work-project.png");
+
+        // a session opened from the project's list keeps the project card pressed and comes Back to it
+        const fromProject = await openSession();
+        rec(
+            "3b. a session opened from arc's list reads Back to arc, keeps arc pressed, and shows one model and no list",
+            fromProject.clicked &&
+                fromProject.settled &&
+                fromProject.back === "Back to arc" &&
+                fromProject.projects.some((p) => p.key === USAGE_WORK_ARC && p.pressed) &&
+                fromProject.title === "Trace the usage scan" &&
+                fromProject.list == null &&
+                fromProject.only,
+            JSON.stringify({ back: fromProject.back, title: fromProject.title, projects: fromProject.projects.map((p) => [p.key, p.pressed]), list: fromProject.list, only: fromProject.only })
+        );
+        await usageShots(h, "usage-work-project-session");
+        await view(usageWorkClick("[data-usage-detail] [data-usage-back]"), `${usageWorkScope(arcScope)} && s.list != null`);
 
         const run = await openRunPage();
         const roles = ["lead", "worker", "reviewer"];
@@ -2515,7 +2667,6 @@ const usageWork = {
                 roles.every((r) => run.split.includes(r)),
             JSON.stringify({ back: run.back, openRun: run.openRun, list: run.list, split: run.split })
         );
-        await h.shot("cdp-shots/usage-work-run.png");
 
         const back = await view(
             usageWorkClick("[data-usage-detail] [data-usage-back]"),
@@ -2526,13 +2677,9 @@ const usageWork = {
             back.clicked && back.settled && back.back == null,
             JSON.stringify({ scope: back.scope, list: back.list?.title, rows: back.list?.rows })
         );
-        await h.shot("cdp-shots/usage-work-back.png");
 
         const allAgain = await allUsage();
-        const session = await view(
-            usageWorkClick(`[data-usage-item="${USAGE_WORK_SESSION_ITEM}"]`),
-            usageWorkScope(USAGE_WORK_SESSION_ITEM)
-        );
+        const session = await openSession();
         rec(
             "6. a session page has no ranked list and no open button, and splits by token class",
             allAgain.settled &&
@@ -2544,7 +2691,6 @@ const usageWork = {
                 session.split.every((k) => USAGE_WORK_CLASSES.includes(k)),
             JSON.stringify({ title: session.title, back: session.back, list: session.list, openRun: session.openRun, split: session.split })
         );
-        await h.shot("cdp-shots/usage-work-session.png");
 
         // the unpriced session ranks last by estimate, so its row is past the first eight
         await allUsage();
@@ -2563,7 +2709,6 @@ const usageWork = {
                 !reported.row.includes(`≈ $${USAGE_WORK_PI_COST}`),
             JSON.stringify(reported)
         );
-        await h.shot("cdp-shots/usage-work-reported.png");
 
         const selected = await openArc();
         const allTime = await view(
@@ -2584,11 +2729,28 @@ const usageWork = {
                 after: { scope: allTime.scope, window: allTime.window, lens: allTime.lens, projects: allTime.projects.map((p) => [p.key, p.pressed]) },
             })
         );
-        await h.shot("cdp-shots/usage-work-window-reset.png");
-        const week = await view(`press(windowButton("7 days"))`, `s.window === "7 days" && s.list != null`);
+        // the same with a session drilled into: the window switch leaves it for All usage, with no Back
+        const drilled = await openSession();
+        const week = await view(
+            `press(windowButton("7 days"))`,
+            `s.window === "7 days" && s.scope === "all" && s.list != null`
+        );
+        rec(
+            "8b. changing the window with a session open returns By work to All usage, with no Back",
+            drilled.settled &&
+                drilled.back != null &&
+                week.clicked &&
+                week.settled &&
+                week.back == null &&
+                week.projects.every((p) => !p.pressed),
+            JSON.stringify({
+                before: { scope: drilled.scope, back: drilled.back, window: drilled.window },
+                after: { scope: week.scope, back: week.back, window: week.window, projects: week.projects.map((p) => [p.key, p.pressed]) },
+            })
+        );
 
         const provider = await view(
-            usageWorkClick('[data-usage-lens="provider"]'),
+            `press(groupButton("Lens", "By provider"))`,
             `s.lens === "provider" && s.sections.includes("Live limits")`
         );
         rec(
@@ -2601,10 +2763,9 @@ const usageWork = {
                 provider.list == null,
             JSON.stringify({ window: week.window, harnesses: provider.harnesses, sections: provider.sections, scope: provider.scope })
         );
-        await h.shot("cdp-shots/usage-work-provider.png");
 
         // last, because it leaves the surface or raises the router's notice
-        await view(usageWorkClick('[data-usage-lens="work"]'), `s.lens === "work" && s.list != null`);
+        await view(lensWork, `s.lens === "work" && s.list != null`);
         await openArc();
         const runPage = await openRunPage();
         const opened = await h.ev(`(async () => {
@@ -2635,12 +2796,122 @@ const usageWork = {
                 opened.errors.length === 0,
             `${brief(runPage)} ${JSON.stringify(opened)}`
         );
-        await h.shot("cdp-shots/usage-work-open-run.png");
 
         return steps;
     },
     async teardown(h, ctx) {
         await h.ev(restoreLocalStorage("wave:dev-usage-buckets", ctx.prevUsage));
+        await h.ev("location.reload()");
+        await new Promise((r) => setTimeout(r, 2500));
+        await h.goto("cockpit");
+    },
+};
+
+// --- usage-states: the Usage surface's loading, no-quota, empty-window and refresh-error states ----------
+// Each is reached through the DEV fixture seam (devUsageFixture in usagestore.ts): delayMs holds the fixture
+// back so the skeleton shows, an empty fixture empties the window, and { fail: true } fails the load so the
+// last-good buckets stay on screen under the banner.
+const USAGE_STATES_DELAY_MS = 6000;
+
+// seeds the usage fixture, reloads so the store's module state starts over, and waits for the nav rail
+async function usageReloadWith(h, fixture) {
+    await h.ev(`localStorage.setItem('wave:dev-usage-buckets', ${JSON.stringify(JSON.stringify(fixture))})`);
+    await h.ev("location.reload()");
+    await h.ev(`(async () => {
+        for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+            await new Promise((r) => setTimeout(r, 500));
+        }
+    })()`);
+    await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+}
+
+const usageStates = {
+    name: "usage-states",
+    surface: "usage",
+    async arrange(h) {
+        const ctx = {
+            prevUsage: await h.ev(`localStorage.getItem('wave:dev-usage-buckets')`),
+            prevRate: await h.ev(`localStorage.getItem('wave:ratelimits')`),
+        };
+        await h.ev(`localStorage.setItem('wave:ratelimits', ${JSON.stringify(JSON.stringify(usageRateLimits()))})`);
+        // verify.mjs opens Usage next, and its mount starts the held-back load
+        await usageReloadWith(h, { ...buildUsageFixture(), delayMs: USAGE_STATES_DELAY_MS });
+        return ctx;
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+
+        const loading = await usageEv(
+            h,
+            `await until(() => document.querySelector("[data-usage-skeleton]") != null, 3000);
+            return {
+                skeletons: document.querySelectorAll("[data-usage-skeleton]").length,
+                limits: document.querySelectorAll("[data-usage-limit]").length,
+                split: document.querySelector("[data-usage-split]") != null,
+            };`
+        );
+        rec(
+            "1. while the load is held back the skeleton shows beside the live limits, with no split yet",
+            loading.skeletons > 0 && loading.limits === 2 && !loading.split,
+            JSON.stringify(loading)
+        );
+        await h.shot("cdp-shots/usage-loading.png");
+
+        const noQuota = await usageEv(
+            h,
+            `const loaded = await until(() => document.querySelector("[data-usage-stats]") != null, ${USAGE_STATES_DELAY_MS + 6000});
+            const clicked = press(document.querySelector('[data-usage-scopes] [data-usage-harness="pi"]'));
+            await until(() => detail()?.getAttribute("data-usage-detail") === "pi" && document.querySelector("[data-usage-noquota]") != null, 3000);
+            return {
+                loaded,
+                clicked,
+                note: text(document.querySelector("[data-usage-noquota]")) || null,
+                stats: document.querySelector("[data-usage-stats]") != null,
+            };`
+        );
+        rec(
+            "2. the Pi card has no quota reading, and its history still shows",
+            noQuota.loaded && noQuota.clicked && (noQuota.note ?? "").startsWith("No quota reading for Pi") && noQuota.stats,
+            JSON.stringify(noQuota)
+        );
+        await h.shot("cdp-shots/usage-noquota.png");
+
+        await usageReloadWith(h, { buckets: [], sessions: [] });
+        await h.goto("usage");
+        const empty = await usageEv(
+            h,
+            `const shown = await until(() => document.querySelector("[data-usage-empty]") != null);
+            return { shown, daily: document.querySelector("[data-usage-daily]") != null };`
+        );
+        rec("3. an empty window says so and draws no Daily chart", empty.shown && !empty.daily, JSON.stringify(empty));
+        await h.shot("cdp-shots/usage-empty.png");
+
+        await usageReloadWith(h, buildUsageFixture());
+        await h.goto("usage");
+        const before = await usageEv(h, `return await until(() => document.querySelector("[data-usage-stats]") != null);`);
+        // fail is read before buckets, so this alone fails the reload the next mount starts
+        await h.ev(`localStorage.setItem('wave:dev-usage-buckets', ${JSON.stringify(JSON.stringify({ fail: true }))})`);
+        await h.goto("cockpit");
+        await h.goto("usage");
+        const failed = await usageEv(
+            h,
+            `const banner = () => text(document.querySelector("[data-usage-scopes]")?.previousElementSibling);
+            const shown = await until(() => banner().includes("Couldn’t refresh"));
+            return { shown, banner: banner(), stats: document.querySelector("[data-usage-stats]") != null };`
+        );
+        rec(
+            "4. a failed refresh raises the banner over the last loaded usage",
+            before && failed.shown && failed.stats,
+            JSON.stringify({ loadedBefore: before, ...failed })
+        );
+        await h.shot("cdp-shots/usage-error.png");
+
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(restoreLocalStorage("wave:dev-usage-buckets", ctx.prevUsage));
+        await h.ev(restoreLocalStorage("wave:ratelimits", ctx.prevRate));
         await h.ev("location.reload()");
         await new Promise((r) => setTimeout(r, 2500));
         await h.goto("cockpit");
@@ -17514,6 +17785,7 @@ export const SCENARIOS = [
     jarvisVolunteer,
     usageCharts,
     usageWork,
+    usageStates,
     attentionCrossChannel,
     attentionPopup,
     cockpitNeedsYouCrossChannel,
