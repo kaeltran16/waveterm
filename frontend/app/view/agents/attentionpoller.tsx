@@ -11,7 +11,10 @@
 // the desktop popup window, whose click it answers.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { wsLinkAtom } from "@/app/store/wslink";
 import { openTarget } from "@/app/view/jarvis/openref";
+import { expressionFor, postureFor } from "@/app/view/jarvis/petcondition";
+import { petSignalsFrom } from "@/app/view/jarvis/petsignals";
 import { fireAndForget } from "@/util/util";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
@@ -24,9 +27,24 @@ import {
     POPUP_SHOW_EVENT,
     POPUP_WINDOW_LABEL,
     popupBubble,
+    type PopupFace,
 } from "./attentionpopup";
 import { popupTarget } from "./attentionpopuptarget";
 import { attentionAtom, loadAttention, taskbarSignal } from "./attentionstore";
+import { savedRateLimitsAtom } from "./ratelimitstore";
+
+// the face the main window's avatar wears with this list, derived here rather than read back from PetView:
+// PetView mounts after the poller, so its render for this list has not happened yet
+function popupFaceFor(model: AgentsViewModel, attention: AttentionItem[]): PopupFace {
+    const signals = petSignalsFrom({
+        agents: globalStore.get(model.agentsAtom),
+        savedRateLimits: globalStore.get(savedRateLimitsAtom),
+        now: Date.now(),
+        attention,
+        link: globalStore.get(wsLinkAtom),
+    });
+    return { expression: expressionFor(signals), posture: postureFor(signals) };
+}
 
 async function bringForward(): Promise<void> {
     const win = getCurrentWindow();
@@ -46,7 +64,7 @@ export function AttentionPoller({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         const focused = document.hasFocus();
         const signal = taskbarSignal(seen.current, attention, focused);
-        const bubble = popupBubble(seen.current, attention, focused);
+        const bubble = popupBubble(seen.current, attention, focused, popupFaceFor(model, attention));
         seen.current = attention;
         if (signal != null) {
             const request = signal === "flash" ? UserAttentionType.Informational : null;
@@ -55,7 +73,7 @@ export function AttentionPoller({ model }: { model: AgentsViewModel }) {
         if (bubble != null) {
             fireAndForget(() => emitTo(POPUP_WINDOW_LABEL, POPUP_SHOW_EVENT, bubble));
         }
-    }, [attention]);
+    }, [attention, model]);
     useEffect(() => {
         const hide = () => fireAndForget(() => emitTo(POPUP_WINDOW_LABEL, POPUP_HIDE_EVENT));
         window.addEventListener("focus", hide);

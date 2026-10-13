@@ -11,11 +11,10 @@
 // It never draws a number. The nav badge owns the count; the avatar owns the kind (design §3).
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { linkLostSince, wsLinkAtom } from "@/app/store/wslink";
+import { wsLinkAtom } from "@/app/store/wslink";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { liveWindowAgents, providerPlanUsage } from "@/app/view/agents/agentsviewmodel";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
-import { mergeRateLimitWindows, savedRateLimitsAtom, topProviderUsage } from "@/app/view/agents/ratelimitstore";
+import { savedRateLimitsAtom } from "@/app/view/agents/ratelimitstore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion, useMotionValue, useReducedMotion } from "motion/react";
@@ -26,7 +25,7 @@ import type { AvatarThree } from "./avatarthree";
 import { openTarget } from "./openref";
 import { closePeek } from "./peekstore";
 import { PetBubble } from "./petbubble";
-import { expressionFor, heldLandFrom, postureFor, type PetSignals } from "./petcondition";
+import { expressionFor, postureFor, type PetSignals } from "./petcondition";
 import { bubbleClick } from "./petjoin";
 import {
     activityLevel,
@@ -43,6 +42,7 @@ import {
     utteranceEnvelope,
 } from "./petmotion";
 import { PetPeek } from "./petpeek";
+import { petSignalsFrom } from "./petsignals";
 import {
     markPetSpoke,
     petBubbleAtom,
@@ -59,12 +59,6 @@ import {
     type PetCorner,
 } from "./petstore";
 import { nextUtterance, unreadAfterLeaving, unreadAfterSaying } from "./petvoice";
-
-// pkg/jarvis/attention.go's three kinds. Named here rather than inlined so the mapping to the avatar's
-// posture vocabulary is one line to check against the server.
-const ATTENTION_GATE = "dag-gate";
-const ATTENTION_ESCALATION = "escalation";
-const ATTENTION_ASK = "ask";
 
 // The one utterance kind that ripples. Punctuation is not decoration on every event — a wave that crossed
 // the network for each of the ten kinds would be constant motion and would stop meaning anything. A
@@ -99,41 +93,16 @@ const AVATAR_PX = 132;
 // softness they buy back.
 const MAX_DPR = 2;
 
-function count(items: AttentionItem[], kind: string): number {
-    return items.reduce((n, i) => (i.kind === kind ? n + 1 : n), 0);
-}
-
 // Every signal the avatar reads.
 function usePetSignals(model: AgentsViewModel): PetSignals {
-    const agents = useAtomValue(model.agentsAtom);
-    const saved = useAtomValue(savedRateLimitsAtom);
-    const now = useAtomValue(model.nowAtom);
-    const attention = useAtomValue(attentionAtom);
-    const wsLink = useAtomValue(wsLinkAtom);
-
-    // the link atom only changes on open and close, so the 1s nowAtom is what sees the grace run out
-    const lostAt = linkLostSince(wsLink, now);
-    const donuts = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now);
-    const top = topProviderUsage(donuts);
-    const rateLimit =
-        top != null
-            ? {
-                  provider: top.provider,
-                  pct: top.pct,
-                  resetAt: donuts.find((d) => d.provider === top.provider)?.fivehour.reset,
-              }
-            : undefined;
-
-    return {
-        link: lostAt != null ? { lostAt } : undefined,
-        heldLand: heldLandFrom(attention),
-        rateLimit,
-        attention: {
-            reviewGates: count(attention, ATTENTION_GATE),
-            escalations: count(attention, ATTENTION_ESCALATION),
-            blockedWorkers: count(attention, ATTENTION_ASK),
-        },
-    };
+    return petSignalsFrom({
+        agents: useAtomValue(model.agentsAtom),
+        savedRateLimits: useAtomValue(savedRateLimitsAtom),
+        // the link atom only changes on open and close, so the 1s nowAtom is what sees the grace run out
+        now: useAtomValue(model.nowAtom),
+        attention: useAtomValue(attentionAtom),
+        link: useAtomValue(wsLinkAtom),
+    });
 }
 
 // Nearest corner from where the drag was released. Only the horizontal half of the drop is read: the
