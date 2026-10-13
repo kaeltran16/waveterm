@@ -50,6 +50,8 @@ const TermCacheFileName = "cache:term:full";
 const MinDataProcessedForCache = 100 * 1024;
 export const SupportsImageInput = true;
 const MaxRepaintTransactionMs = 2000;
+const WebglRetryDelayMs = 2000;
+const WebglLossWindowMs = 30_000;
 
 // detect webgl support
 function detectWebGLSupport(): boolean {
@@ -283,10 +285,30 @@ export class TermWrap {
         });
         // a gpu reset paints a lost webgl canvas white (with a sad face) while the addon waits up to 3s
         // for a restore; drop to the dom renderer at once instead. the event doesn't bubble, so capture it.
-        const contextLostHandler = () => this.setTermRenderer("dom");
+        // webgl is retried once the gpu is back, unless losses keep coming, so a flaky gpu can't loop.
+        let lastLossTs = 0;
+        let retryTimer: ReturnType<typeof setTimeout> = null;
+        const contextLostHandler = () => {
+            const now = Date.now();
+            const repeated = now - lastLossTs < WebglLossWindowMs;
+            lastLossTs = now;
+            this.setTermRenderer("dom");
+            clearTimeout(retryTimer);
+            if (!repeated) {
+                retryTimer = setTimeout(() => {
+                    try {
+                        this.setTermRenderer("webgl");
+                    } catch (e) {
+                        // chromium turns webgl off after repeated gpu crashes; the addon then throws
+                        console.log("[termwrap] webgl retry failed, staying on dom", this.blockId, e);
+                    }
+                }, WebglRetryDelayMs);
+            }
+        };
         this.connectElem.addEventListener("webglcontextlost", contextLostHandler, true);
         this.toDispose.push({
             dispose: () => {
+                clearTimeout(retryTimer);
                 this.connectElem.removeEventListener("webglcontextlost", contextLostHandler, true);
             },
         });
