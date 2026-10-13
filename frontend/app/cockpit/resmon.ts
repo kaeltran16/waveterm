@@ -110,6 +110,22 @@ const KIND_NOUNS: Record<string, string> = {
     runcmd: "run command",
 };
 
+// an agent tab's group label is its tab name, which is the project for every tab launched in one, so the
+// Agent tree's name for it (custom name, else the agent's ai-title) leads and the project moves to the detail.
+// agent tabs are most groups, so their kind words are dropped; the read-only kinds keep theirs.
+export function groupHeader(g: ResMonGroup, treeName: string | undefined): { title: string; detail: string } {
+    const procs = processes(g.rows.length);
+    if (g.ownerkind !== "agenttab") {
+        return { title: g.label, detail: `${ownerKindWords(g.ownerkind)} · ${procs}` };
+    }
+    const name = treeName?.trim();
+    if (!name) {
+        return { title: g.label, detail: procs };
+    }
+    const project = g.label && !name.includes(g.label) ? `${g.label} · ` : "";
+    return { title: name, detail: project + procs };
+}
+
 export function ownerKindWords(kind: string): string {
     return KIND_WORDS[kind] ?? kind;
 }

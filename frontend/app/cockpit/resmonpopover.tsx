@@ -10,6 +10,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { buildResMonBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { liveAgentBaseAtom, liveTerminalsAtom } from "@/app/view/agents/liveagents";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ChevronRight, CircleAlert, X } from "lucide-react";
@@ -18,12 +19,12 @@ import {
     fmtAge,
     fmtCpu,
     fmtMem,
+    groupHeader,
     isExpanded,
     killChildrenConfirmText,
     killChildrenTargets,
     killConfirmText,
     orderGroups,
-    ownerKindWords,
     rowLabel,
     subtreeSize,
     type ResMonUi,
@@ -202,7 +203,18 @@ function currentGroups(): ResMonGroup[] {
     return globalStore.get(resmonSnapshotAtom)?.groups ?? [];
 }
 
-function GroupBlock({ g, ui, now }: { g: ResMonGroup; ui: ResMonUi; now: number }) {
+function GroupBlock({
+    g,
+    treeName,
+    ui,
+    now,
+}: {
+    g: ResMonGroup;
+    treeName: string | undefined;
+    ui: ResMonUi;
+    now: number;
+}) {
+    const { title, detail } = groupHeader(g, treeName);
     const expanded = isExpanded(ui, g.key);
     const targets = killChildrenTargets(g);
     const groupConfirm = ui.confirm?.kind === "group" && ui.confirm.key === g.key;
@@ -214,11 +226,12 @@ function GroupBlock({ g, ui, now }: { g: ResMonGroup; ui: ResMonUi; now: number 
                 data-resmon-cursor={cursor ? "" : undefined}
                 className={cn(GRID, "h-[34px]", cursor && "bg-surface-selected")}
             >
+                {/* a group row has no PID or Running, so its name spans those cells */}
                 <button
                     type="button"
                     aria-expanded={expanded}
                     onClick={() => dispatchResMon({ type: "toggle", key: g.key })}
-                    className="flex min-w-0 cursor-pointer items-center gap-2 text-left"
+                    className="col-span-3 flex min-w-0 cursor-pointer items-center gap-2 pr-3 text-left"
                 >
                     <ChevronRight
                         size={12}
@@ -227,16 +240,10 @@ function GroupBlock({ g, ui, now }: { g: ResMonGroup; ui: ResMonUi; now: number 
                         className={cn("shrink-0 text-ink-mid transition-transform", expanded && "rotate-90")}
                     />
                     <span className={cn("h-2 w-2 shrink-0 rounded-[2px]", swatchClass(g))} />
-                    {/* the label is what tells groups apart, so the kind words give way first */}
-                    <span className="max-w-full shrink-0 truncate text-[12.5px] font-semibold text-primary">
-                        {g.label}
-                    </span>
-                    <span className="min-w-0 truncate text-[11px] text-muted">
-                        {ownerKindWords(g.ownerkind)} · {count(g.rows.length, "process")}
-                    </span>
+                    {/* the detail is short, so a long name gives way instead */}
+                    <span className="min-w-0 truncate text-[12.5px] font-semibold text-primary">{title}</span>
+                    <span className="shrink-0 whitespace-nowrap text-[11px] text-muted">{detail}</span>
                 </button>
-                <span />
-                <span />
                 <span className="text-right font-mono text-[12px] font-medium text-primary">{fmtCpu(g.cpu)}</span>
                 <span className="text-right font-mono text-[12px] text-secondary">{fmtMem(g.mem)}</span>
                 <span className="flex justify-end">
@@ -255,7 +262,7 @@ function GroupBlock({ g, ui, now }: { g: ResMonGroup; ui: ResMonUi; now: number 
             </div>
             {groupConfirm && (
                 <ConfirmRow
-                    text={killChildrenConfirmText(g)}
+                    text={killChildrenConfirmText({ ...g, label: title })}
                     verb={`Kill ${targets.length}`}
                     className="mx-2.5 mb-2 py-2"
                 />
@@ -276,6 +283,13 @@ export function ResMonPopover({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(resmonOpenAtom);
     const snap = useAtomValue(resmonSnapshotAtom);
     const ui = useAtomValue(resmonUiAtom);
+    const agents = useAtomValue(liveAgentBaseAtom);
+    const terminals = useAtomValue(liveTerminalsAtom);
+    // the names the Agent tree shows, keyed by the terminal block that owns each tab's job
+    const treeNames = useMemo(
+        () => new Map([...agents, ...terminals].map((a) => [a.blockId, a.name])),
+        [agents, terminals]
+    );
     const bindings = useMemo(() => buildResMonBindings(model), [model]);
     useKeybindings(bindings);
     const visible = open && (snap == null || snap.supported);
@@ -376,7 +390,13 @@ export function ResMonPopover({ model }: { model: AgentsViewModel }) {
                             </div>
                             <div className="min-h-0 flex-1 overflow-y-auto">
                                 {groups.map((g) => (
-                                    <GroupBlock key={g.key} g={g} ui={ui} now={now} />
+                                    <GroupBlock
+                                        key={g.key}
+                                        g={g}
+                                        treeName={treeNames.get(g.ownerid)}
+                                        ui={ui}
+                                        now={now}
+                                    />
                                 ))}
                                 {empty && (
                                     <div className="flex flex-col items-center gap-1 px-3.5 pb-6 pt-5">

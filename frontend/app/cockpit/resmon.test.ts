@@ -8,6 +8,7 @@ import {
     fmtAge,
     fmtCpu,
     fmtMem,
+    groupHeader,
     isExpanded,
     killChildrenConfirmText,
     killChildrenTargets,
@@ -172,6 +173,37 @@ describe("owner words", () => {
             "run worker",
             "run command",
         ]);
+    });
+});
+
+describe("groupHeader", () => {
+    it("titles an agent tab by its Agent tree name, with its project and process count as the detail", () => {
+        expect(groupHeader(waveterm, "Fix resmon labels")).toEqual({
+            title: "Fix resmon labels",
+            detail: "waveterm · 7 processes",
+        });
+    });
+
+    it("drops the project when the tree name already carries it", () => {
+        expect(groupHeader(waveterm, "waveterm")).toEqual({ title: "waveterm", detail: "7 processes" });
+        expect(groupHeader(waveterm, "Fix resmon labels · waveterm")).toEqual({
+            title: "Fix resmon labels · waveterm",
+            detail: "7 processes",
+        });
+    });
+
+    it("keeps the tab name without a tree name", () => {
+        expect(groupHeader(waveterm, undefined)).toEqual({ title: "waveterm", detail: "7 processes" });
+        expect(groupHeader(waveterm, "  ")).toEqual({ title: "waveterm", detail: "7 processes" });
+    });
+
+    it("keeps the backend label and the kind words for every other owner kind", () => {
+        const worker = group("job:1:1", "runworker", "Run X · Task 2", [proc(1, 0, "pi.exe")]);
+        expect(groupHeader(worker, "Something else")).toEqual({
+            title: "Run X · Task 2",
+            detail: "Run worker · 1 process",
+        });
+        expect(groupHeader(arc, undefined)).toEqual({ title: "Arc", detail: "App, read-only · 2 processes" });
     });
 });
 
