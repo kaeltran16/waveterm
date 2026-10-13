@@ -619,7 +619,7 @@ you.
 | **Worker may be stuck** (worktree unchanged 20 min while active, or the same failure 3x) | `dag tell`, `dag retry`, `dag escalate`, or lets it run | same |
 | **Worker never started** (5 min after spawn, its terminal's shell never came up) | `dag retry` | same |
 | **Final stage failed** | writes a fix plan and runs `dag submit --round --plan <fix plan>` (tasks only: the round runs the run's own Verify, Setup, Check and Final, and a fix plan naming different ones is refused); puts it to you when no round is left or the fix is a product call | a failed last round, or a product call |
-| **Run finished** | fixes and commits what the landed tasks left behind, writes a judgment-only report to a file (a line per task, its decisions and why, wrap-up commits, open issues; the engine records landed commits, worktrees left behind, counts and unverified reasons in the sealed record), runs one round for the open issues inside the goal when the wake says a round is left, and adds the rest to the run's effort, then completes on its own with `wsh jarvis complete --report <file>` | a question only when a decision is needed (a failed verification or a deviation), then the Done face |
+| **Run finished** | fixes and commits what the landed tasks left behind, writes a judgment-only report to a file (a line per task, its decisions and why, wrap-up commits, open issues; the engine records landed commits, worktrees left behind, counts and unverified reasons in the sealed record), runs one round for the open issues inside the goal when the wake says a round is left, and adds the rest to the run's effort; fixes a land conflict the wake names, and only reports any other land blocker (never touching uncommitted changes that are not its own); then completes on its own with `wsh jarvis complete --report <file>`, which lands the branch and prints `landed <sha>` or `held: <reason>` for its report | a question only when a decision is needed (a failed verification or a deviation), then the Done face |
 
 In `dag status`, a running worker that has written nothing lately reads `idle Nm`, or `running a command Nm · <tool>`
 while its processes are busy (a long test writes no transcript); a flagged one reads `stuck? <reason>`. Each done task shows one presence line naming its non-empty report sections and
@@ -924,9 +924,14 @@ and the rail names the branch it committed on:
 
 A branch-landed run's work reaches its base without you. When the run completes (the lead's `complete`, or the
 engine closing a lead-free run), the engine seals the evidence, then merges `wave/<runId>` into the base branch in
-the project checkout. The merge is `git merge --no-ff` with the plan's title (else the goal's first line) as its
-subject and `Arc-Run: <runId>` as its trailer. It then removes the landing tree and deletes the branch; the
-evidence keeps the branch's tip. Landing is its own step with its own state, so completion never waits on it.
+the project checkout. The merge is `git merge --no-ff` with the plan's title (else the goal's first line) as a
+conventional subject, typed from the branch's own commits (`feat(cockpit): Shared Surface Toolbar`), and
+`Arc-Run: <runId>` as its trailer. Every land gets that subject, whether the engine starts it or you do with
+`wsh runs land` or **Retry land**: all of them go through one land function. It then removes the landing tree and
+deletes the branch; the evidence keeps the branch's tip. Landing is its own step with its own state (`pending`,
+`landed`, `held`). The lead's `wsh jarvis complete` waits for it and prints the outcome, `landed <sha>` or
+`held: <reason>`, before the lead exits and its tab closes, so the lead's report can say where the land stands
+(a second `wsh jarvis complete --report <file>` replaces the report). A lead-free run's land runs in the background.
 
 Before merging, the engine takes these steps:
 
@@ -955,16 +960,31 @@ It **holds** the land, with a reason, and leaves the checkout as it was, when:
 
 Uncommitted edits to other files do not hold it, and survive the merge.
 
-A conflict with the base is predicted before the lead leaves, because the land runs after `complete` has closed
-the lead's tab. At run finished the engine runs `git merge-tree` of the branch against the base, which touches no
-tree. When it finds a conflict, the wake ends with "The land into <base> will conflict in <files>: merge <base>
-into this tree, resolve, commit, then complete". The lead's `wsh jarvis complete` checks again and is refused while
-the conflict stands. `wsh jarvis complete --hold-land` completes anyway, for when the human decides to leave it,
-and the land then holds as above. The base can still move between `complete` and the merge; a conflict that
-arrives then holds the land.
+At run finished the engine checks what the land would hold on, so the lead can act or report it while its tab is
+still open. It runs the land's cheap checkout checks (branch, mid-operation, staged changes, unstaged edits to files
+the run changes, a differing untracked file, a detached HEAD) and `git merge-tree` of the branch against the base,
+which touches no tree. The wake ends with one line per blocker, each saying what the lead may do:
 
-A held land raises a **land held** item under Waiting on you: "The run's branch was not merged back: <reason>".
-Clear the reason, then run `wsh runs land <run-id>`, which retries and prints where the land stands. The Jarvis
+- a conflict: "The land into <base> will conflict in <files>: merge <base> into this tree, resolve, commit, then
+  complete". The lead's `wsh jarvis complete` checks again and is refused while the conflict stands.
+  `wsh jarvis complete --hold-land` completes anyway, for when the human decides to leave it, and the land then
+  holds as above.
+- uncommitted changes in the checkout: they belong to another session or to you, never to the lead, so the wake
+  tells it not to commit, stash, restore or delete them, only to name them in its report.
+- any other checkout state (another branch, a git operation in progress, a detached HEAD): yours to clear; the
+  lead leaves the checkout alone and reports it.
+
+The checkout and the base can still change between the wake and the merge; whatever arrives then holds the land,
+and `complete` prints that hold.
+
+A hold made only by uncommitted changes in the checkout (staged changes, unstaged edits to files the run changes, a
+differing untracked file) clears itself: the watchdog re-runs the land's checkout check every 30 seconds and lands
+the run once those changes are committed, stashed or moved aside, with the force the land was given. Every other
+hold waits for you. A dismissed hold is not retried.
+
+A held land raises a **land held** item under Waiting on you: "The run's branch was not merged back: <reason>". For
+a hold on uncommitted changes its line says the run lands by itself once they are gone. Otherwise clear the reason,
+then run `wsh runs land <run-id>`, which retries and prints where the land stands. The Jarvis
 peek's row does the same with **Retry land** (a branch you merged by hand lands at once), and **Dismiss** drops
 the item for a branch that will never land: the branch stays, and a later retry that holds raises it again.
 `wsh runs land <run-id> --force` lands a run whose final stage failed; it is your call only. When the last final

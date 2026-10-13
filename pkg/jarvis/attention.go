@@ -421,6 +421,10 @@ func landHeldItem(ch AttentionChannel, run *waveobj.Run) (wshrpc.AttentionItem, 
 		return wshrpc.AttentionItem{}, false
 	}
 	effortOID, chunkLabel := attribution(run)
+	why := fmt.Sprintf("The work is on wave/%s. Clear the reason, then run `wsh runs land %s`.", run.ID, run.ID)
+	if run.Land.Dirty {
+		why = fmt.Sprintf("The work is on wave/%s. It lands by itself once those changes are committed, stashed or moved aside; `wsh runs land %s` tries now.", run.ID, run.ID)
+	}
 	return wshrpc.AttentionItem{
 		Kind:         AttentionRunLandHeld,
 		Key:          "run-land-held:" + run.ID,
@@ -433,7 +437,7 @@ func landHeldItem(ch AttentionChannel, run *waveobj.Run) (wshrpc.AttentionItem, 
 		WaitingSince: run.CompletedTs,
 		EffortOID:    effortOID,
 		ChunkLabel:   chunkLabel,
-		Why:          fmt.Sprintf("The work is on wave/%s. Clear the reason, then run `wsh runs land %s`.", run.ID, run.ID),
+		Why:          why,
 	}, true
 }
 
