@@ -1,8 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Shared surface chrome — the single source of truth for cockpit surface headers, empty states, and
-// load-error banners. Modeled on the original cockpit header + CockpitEmptyState.
+// Shared surface chrome — the single source of truth for cockpit surface headers (SurfaceToolbar),
+// empty states, and load-error banners.
 // See docs/superpowers/specs/2026-07-14-cross-surface-consistency-scaffold-design.md.
 
 import { cardVariants } from "@/app/element/motiontokens";
@@ -10,6 +10,53 @@ import { cn } from "@/util/util";
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
 
+// no overflow-hidden: Radar's audits popover and Code's project picker open out of this header.
+// when the controls do not fit one row it wraps rather than clipping them; py-[10px] lands a single
+// row of 28-30px controls at exactly 52px. actions takes min-w-0 so a truncating fact placed there
+// (Diff's range summary) can shrink instead of wrapping.
+export function SurfaceToolbar({
+    title,
+    children,
+    actions,
+    className,
+}: {
+    title: string;
+    children?: ReactNode;
+    actions?: ReactNode;
+    className?: string;
+}) {
+    return (
+        <header
+            data-surface-toolbar
+            className={cn(
+                "flex min-h-[52px] flex-none flex-wrap items-center gap-x-3.5 gap-y-2 border-b border-border bg-background px-5 py-[10px]",
+                className
+            )}
+        >
+            <h1 className="text-[15px] font-semibold text-primary">{title}</h1>
+            {children}
+            <span className="flex-1" />
+            {actions != null ? <div className="flex min-w-0 items-center gap-2">{actions}</div> : null}
+        </header>
+    );
+}
+
+// a flex-wrap row breaks on each item's max-content width, so a nowrap fact wraps to a new line before
+// it shrinks: a fact meant to truncate needs "min-w-0 flex-1 basis-0 truncate" to take the spacer's place.
+export function ToolbarFact({ children, className }: { children: ReactNode; className?: string }) {
+    return (
+        <span
+            className={cn(
+                "flex min-w-0 items-center gap-1.5 whitespace-nowrap font-mono text-[11.5px] text-muted",
+                className
+            )}
+        >
+            {children}
+        </span>
+    );
+}
+
+// superseded by SurfaceToolbar; deleted once no surface renders it.
 export function SurfaceHeader({
     title,
     badge,
