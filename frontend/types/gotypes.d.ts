@@ -1242,6 +1242,11 @@ declare global {
         reports: RadarReport[];
     };
 
+    // wshrpc.CommandListRefusedRoutesRtnData
+    type CommandListRefusedRoutesRtnData = {
+        routes: RefusedRouteInfo[];
+    };
+
     // wshrpc.CommandListTaskDossiersRtnData
     type CommandListTaskDossiersRtnData = {
         dossiers: SpaceSummary[];
@@ -2422,6 +2427,14 @@ declare global {
         actual: string;
         expected: string;
         whynotcovered: string;
+    };
+
+    // wshrpc.RefusedRouteInfo
+    type RefusedRouteInfo = {
+        runtime: string;
+        model?: string;
+        text: string;
+        ts: number;
     };
 
     // wshrpc.ResMonGroup

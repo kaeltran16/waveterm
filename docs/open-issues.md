@@ -80,10 +80,6 @@ Cockpit and surfaces:
 
 Orchestrator:
 
-- **Route picker lists a route the account cannot run (F14)** (held 2026-10-06) — `pi --list-models`
-  itself lists `openai-codex/gpt-5.3-codex-spark`, which the provider rejects, so a catalog check at
-  spawn would pass it. Revive when dead routes are more than a stray row, as a denylist learned from
-  spawn failures. Source: `docs/orchestrator-redesign-flaws.md` F14.
 - **Cross-run Verify hold under `--landing checkout`** (2026-09-15) — one run's failed Verify does not
   hold another run's merges in the same checkout. Branch landing, the default, is unaffected.
 - **Lead-authored task routing, Phase 4** (2026-09-17) — the cost/outcome measurement gate. Revive on

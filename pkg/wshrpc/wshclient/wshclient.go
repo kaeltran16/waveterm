@@ -690,6 +690,12 @@ func ListRadarReportsCommand(w *wshutil.WshRpc, data wshrpc.CommandListRadarRepo
 	return resp, err
 }
 
+// command "listrefusedroutes", wshserver.ListRefusedRoutesCommand
+func ListRefusedRoutesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListRefusedRoutesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListRefusedRoutesRtnData](w, "listrefusedroutes", nil, opts)
+	return resp, err
+}
+
 // command "listtaskdossiers", wshserver.ListTaskDossiersCommand
 func ListTaskDossiersCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListTaskDossiersRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListTaskDossiersRtnData](w, "listtaskdossiers", nil, opts)

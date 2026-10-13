@@ -16,7 +16,8 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
     const win = getCurrentWindow();
     return (
         <div
-            data-tauri-drag-region
+            // "deep": a bare attribute drags only on the bar's own pixels, not its children; buttons still opt out
+            data-tauri-drag-region="deep"
             className="flex h-[46px] shrink-0 items-center gap-4 border-b border-border bg-surface pl-4"
         >
             <div className="flex items-center gap-[9px]">

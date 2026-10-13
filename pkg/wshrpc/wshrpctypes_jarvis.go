@@ -29,8 +29,9 @@ type JarvisCommands interface {
 	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                                   // write the global Jarvis profile to the vault's config/jarvis-profile.json
 	ListHarnessesCommand(ctx context.Context) (*CommandListHarnessesRtnData, error)                                                        // installed coding-agent harnesses (catalog); excludes API-only backends like OpenRouter
 	// RefreshRouteCatalogCommand clears the cached run-route model catalog; the next
-	// ListHarnessesCommand re-enumerates from the installed harnesses.
+	// ListHarnessesCommand re-enumerates from the installed harnesses. It also forgets refused routes.
 	RefreshRouteCatalogCommand(ctx context.Context) error
+	ListRefusedRoutesCommand(ctx context.Context) (*CommandListRefusedRoutesRtnData, error)                              // routes a provider refused (401/403) within runroute.RefusedRouteTTL; a file read, cheap enough for every picker open
 	JarvisStateCommand(ctx context.Context, data CommandJarvisStateData) (*CommandJarvisStateRtnData, error)             // work-ledger query: per-project active/shipped/timeline/delta + source health
 	JarvisStatusCommand(ctx context.Context, data CommandJarvisStatusData) (*CommandJarvisStatusRtnData, error)          // capture accounting: note counts, distill queue
 	JarvisCtxCommand(ctx context.Context, data CommandJarvisCtxData) (*CommandJarvisCtxRtnData, error)                   // resolve the run context (channel/run/dag) owning the caller's block
@@ -108,6 +109,18 @@ type HarnessInfo struct {
 
 type CommandListHarnessesRtnData struct {
 	Harnesses []HarnessInfo `json:"harnesses"`
+}
+
+// RefusedRouteInfo is a route its provider refused (a 401 or 403) during a run, so the route picker can warn.
+type RefusedRouteInfo struct {
+	Runtime string `json:"runtime"`
+	Model   string `json:"model,omitempty"` // "" for the runtime's own default
+	Text    string `json:"text"`
+	Ts      int64  `json:"ts"`
+}
+
+type CommandListRefusedRoutesRtnData struct {
+	Routes []RefusedRouteInfo `json:"routes"`
 }
 
 // SpaceSummary is one focusable task (Presence C). Objective is the human label; Ticket a secondary tag.

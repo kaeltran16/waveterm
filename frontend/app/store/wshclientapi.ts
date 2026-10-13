@@ -696,6 +696,12 @@ export class RpcApiType {
         return client.wshRpcCall("listradarreports", data, opts);
     }
 
+    // command "listrefusedroutes" [call]
+    ListRefusedRoutesCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListRefusedRoutesRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listrefusedroutes", null, opts);
+        return client.wshRpcCall("listrefusedroutes", null, opts);
+    }
+
     // command "listtaskdossiers" [call]
     ListTaskDossiersCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListTaskDossiersRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listtaskdossiers", null, opts);
