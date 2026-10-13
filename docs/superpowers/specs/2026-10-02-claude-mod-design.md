@@ -196,6 +196,14 @@ The picker's steps are pure (`ask-core.ts`, vitest); the race was checked once w
 `claude plugin test` on a scratch copy (the runner and vitest both claim `*.test.ts`, so no
 engine-level test is checked in). Steps 2 to 5 below describe the card side, unchanged.
 
+Amended (2026-10-13): **every question goes to Claude's own dialog; the pane and its `wsh ask --wait`
+race are gone.** The 144-column floor made the same question draw as the mod's pane on a wide
+terminal and as Claude's dialog on a narrow one (a 142-column work terminal), and in Claude's
+fullscreen mode the pane docks as a full-height column beside the transcript. The dialog reads the
+same everywhere and draws option previews. The hook now only marks the ask as in the dialog; the
+settings hooks show the card, which answers by keystrokes (`pkg/agentask/encode.go`, which already
+drives the preview layout). Older text in this section describes the removed pane.
+
 1. **Questions the card cannot show go native.** Any question with `kind` `text` or `number`, or with
    no options, means the whole call goes to `next(e)` (the current path, unchanged).
 2. **Wait on the card.** `$.process.spawn({ argv: [wsh, 'ask', '--wait'], input: <questions json> })`
