@@ -47,7 +47,7 @@ import {
     startScan,
     type RadarScope,
 } from "./radarstore";
-import { SurfaceError } from "./surfacescaffold";
+import { SurfaceError, SurfaceToolbar } from "./surfacescaffold";
 
 const POPOVER =
     "absolute top-[calc(100%+6px)] z-[60] box-border flex flex-col rounded-xl border border-edge-strong bg-surface-raised p-1.5 shadow-popover";
@@ -100,7 +100,7 @@ function ScopeSelector({ scope, onSelect }: { scope: RadarScope | null; onSelect
     );
 }
 
-// The line under the subject bar. With findings on screen the audit summary opens the audited-commit list,
+// Radar's toolbar fact. With findings on screen the audit summary opens the audited-commit list,
 // which is otherwise the body itself.
 function MetaLine({ report, view }: { report: RadarReport; view: RadarView }) {
     const [open, setOpen] = useState(false);
@@ -108,7 +108,7 @@ function MetaLine({ report, view }: { report: RadarReport; view: RadarView }) {
     const tally = auditTally(rows);
     const summary = auditSummary(tally);
     return (
-        <div className="relative flex items-center gap-[7px] pb-[11px] font-mono text-[11.5px] text-muted">
+        <div className="relative flex items-center gap-[7px] font-mono text-[11.5px] text-muted">
             <span>{reportMetaAge(report, Date.now())} ·</span>
             {view === "report" && rows.length > 0 ? (
                 <button
@@ -249,16 +249,11 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
     return (
         <MotionConfig reducedMotion="user">
             <div className="flex h-full w-full flex-col bg-background">
-                {loadError != null ? (
-                    <SurfaceError message={loadError} onRetry={() => fireAndForget(retryRadarLoad)} />
-                ) : null}
                 {/* subject bar: which repository, and what its last scan audited */}
-                <div className="flex-none px-[18px] pt-3.5">
-                    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2 pb-1.5">
-                        <h1 className="flex-none text-[16px] font-bold text-primary">Radar</h1>
-                        <ScopeSelector scope={scope} onSelect={selectScope} />
-                        <span className="flex-1" />
-                        {(isReport || view === "old-format") && scope ? (
+                <SurfaceToolbar
+                    title="Radar"
+                    actions={
+                        (isReport || view === "old-format") && scope ? (
                             <button
                                 type="button"
                                 data-radar-rescan
@@ -268,10 +263,18 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                                 <RefreshCw className="h-3 w-3" />
                                 Re-scan
                             </button>
-                        ) : null}
+                        ) : null
+                    }
+                >
+                    {/* overhangs the toolbar's padding by its extra pixel, so a single row stays 52px */}
+                    <div className="-my-px">
+                        <ScopeSelector scope={scope} onSelect={selectScope} />
                     </div>
-                    {isReport && report ? <MetaLine report={report} view={view} /> : <div className="pb-2" />}
-                </div>
+                    {isReport && report ? <MetaLine report={report} view={view} /> : null}
+                </SurfaceToolbar>
+                {loadError != null ? (
+                    <SurfaceError message={loadError} onRetry={() => fireAndForget(retryRadarLoad)} />
+                ) : null}
 
                 {phase === "ready" && isReport && report ? <FailedAuditsStrip report={report} /> : null}
                 <div data-radar-view={phase === "ready" ? view : undefined} className="min-h-0 flex-1">
