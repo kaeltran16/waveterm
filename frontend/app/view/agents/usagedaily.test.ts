@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { harnessChartColor, harnessChartLabel, legendSeries, modelLegend, modelRows, modelShade } from "./usagedaily";
+import {
+    harnessChartColor,
+    harnessChartLabel,
+    legendSeries,
+    modelLegend,
+    modelRows,
+    modelShade,
+    yDomainMax,
+} from "./usagedaily";
 import { modelKey, type DailyUsage, type ModelSeries } from "./usagestats";
 
 function series(harness: string, provider: string, model: string, tokens: number, spendUsd = 0): ModelSeries {
@@ -162,5 +170,24 @@ describe("modelRows", () => {
     it("zero-fills a key with no entry", () => {
         const c = modelKey("codex", "openai", "gpt-5.5");
         expect(modelRows(daily, [a, c], "tokens")[0]).toEqual({ day: "08-10", values: { [a]: 10, [c]: 0 }, total: 10 });
+    });
+});
+
+describe("yDomainMax", () => {
+    it("lets the tallest cent-sized Spend day fill the plot", () => {
+        expect(yDomainMax("spend", [0.03, 0.05])).toBe(0.05);
+    });
+
+    it("floors all-zero Spend at one cent", () => {
+        expect(yDomainMax("spend", [0, 0])).toBe(0.01);
+        expect(yDomainMax("spend", [])).toBe(0.01);
+    });
+
+    it("floors all-zero Tokens at 1", () => {
+        expect(yDomainMax("tokens", [0, 0])).toBe(1);
+    });
+
+    it("tops Tokens at the tallest day", () => {
+        expect(yDomainMax("tokens", [500, 78000])).toBe(78000);
     });
 });

@@ -108,7 +108,7 @@ export const CLASS_FILL: Record<TokenClass, string> = {
     input: "bg-success",
 };
 
-function localDayKey(ms: number): string {
+export function localDayKey(ms: number): string {
     const d = new Date(ms);
     const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");

@@ -121,3 +121,11 @@ export function modelRows(daily: DailyUsage[], keys: string[], metric: UsageMetr
         return { day: d.day.slice(5), values, total: keys.reduce((s, k) => s + values[k], 0) };
     });
 }
+
+// a window with nothing in it still needs a non-empty y domain: one token, or one cent of spend
+const Y_FLOOR: Record<UsageMetric, number> = { tokens: 1, spend: 0.01 };
+
+// the y scale's top: the tallest day, so it fills the plot on either metric
+export function yDomainMax(metric: UsageMetric, totals: number[]): number {
+    return Math.max(Y_FLOOR[metric], ...totals);
+}

@@ -2070,7 +2070,17 @@ const usageCharts = {
             );
             const clicked = press(spendButton);
             await until(() => legendRows().length > 0 && legendRows().every((r) => r.value.startsWith("$")), 3000);
-            return { clicked, tokens, spend: legendRows() };`
+            // a stacked bar's height from its geometry (getBBox ignores the entrance scaleY)
+            const plot = card?.querySelector("[data-usage-plot]");
+            const plotH = Number(plot?.getAttribute("data-usage-plot") ?? 0);
+            const tallest = Math.max(
+                0,
+                ...[...(plot?.querySelectorAll("[data-usage-day]") ?? [])].map((col) => {
+                    const tops = [...col.querySelectorAll("path[fill]")].map((p) => p.getBBox().y);
+                    return tops.length ? plotH - Math.min(...tops) : 0;
+                })
+            );
+            return { clicked, tokens, spend: legendRows(), plotH, tallest };`
         );
         rec(
             "5b. Spend keeps the legend's Tokens order and reads every legend value in dollars",
@@ -2079,6 +2089,11 @@ const usageCharts = {
                 JSON.stringify(metric.spend.map((r) => r.key)) === JSON.stringify(metric.tokens.map((r) => r.key)) &&
                 metric.spend.every((r) => r.value.startsWith("$")),
             JSON.stringify({ tokens: metric.tokens, spend: metric.spend })
+        );
+        rec(
+            "5b2. on Spend the tallest stacked bar fills at least half the plot",
+            metric.plotH > 0 && metric.tallest >= metric.plotH / 2,
+            JSON.stringify({ plotH: metric.plotH, tallest: metric.tallest })
         );
         await h.shot("cdp-shots/usage-main-daily-spend.png");
         await usageEv(
@@ -2135,6 +2150,15 @@ const usageCharts = {
             return true;`
         );
 
+        // the Daily chart's day columns and its token total, the sum of the legend's per-model readings
+        const dailyRange = `const scale = { "": 1, K: 1e3, M: 1e6, B: 1e9 };
+            const tokens = legendRows().reduce((sum, r) => {
+                const m = /^([\\d.]+)([KMB]?)$/.exec(r.value);
+                return m ? sum + Number(m[1]) * scale[m[2]] : NaN;
+            }, 0);
+            return { days: document.querySelectorAll("[data-usage-daily] [data-usage-day]").length, tokens };`;
+        const week = await usageEv(h, dailyRange);
+
         // The brush only exists on All-time with >14 days, so the default 7d window never renders it.
         const clicked = await usageEv(h, `return press(groupButton("Range", "All time"));`);
         let brush = { skipped: true };
@@ -2160,6 +2184,12 @@ const usageCharts = {
             }
         }
         rec("6. All-time renders the brush strip under the chart", !!brush.brushStrip, JSON.stringify(brush));
+        const allTime = await usageEv(h, dailyRange);
+        rec(
+            "6b. 7 days draws at most 7 day columns, and All time's Daily token total is larger",
+            week.days > 0 && week.days <= 7 && week.tokens > 0 && allTime.tokens > week.tokens,
+            JSON.stringify({ week, allTime })
+        );
 
         // The scope bar keys each card by data-usage-harness (a text query would match the detail's own copy
         // of a provider name). Every seeded harness needs a card plus the pinned aggregate.
@@ -2863,16 +2893,26 @@ const usageStates = {
             `const loaded = await until(() => document.querySelector("[data-usage-stats]") != null, ${USAGE_STATES_DELAY_MS + 6000});
             const clicked = press(document.querySelector('[data-usage-scopes] [data-usage-harness="pi"]'));
             await until(() => detail()?.getAttribute("data-usage-detail") === "pi" && document.querySelector("[data-usage-noquota]") != null, 3000);
+            // Pi's bars grow in from scaleY 0, so the shot waits for every bar's entrance to finish
+            const bars = () => [...document.querySelectorAll("[data-usage-daily] [data-usage-plot] path[fill]")];
+            const grown = (p) => ["none", "matrix(1, 0, 0, 1, 0, 0)"].includes(getComputedStyle(p).transform);
+            const barsGrown = await until(() => bars().length > 0 && bars().every(grown), 3000);
             return {
                 loaded,
                 clicked,
                 note: text(document.querySelector("[data-usage-noquota]")) || null,
                 stats: document.querySelector("[data-usage-stats]") != null,
+                bars: bars().length,
+                barsGrown,
             };`
         );
         rec(
-            "2. the Pi card has no quota reading, and its history still shows",
-            noQuota.loaded && noQuota.clicked && (noQuota.note ?? "").startsWith("No quota reading for Pi") && noQuota.stats,
+            "2. the Pi card has no quota reading, and its history still shows with its bars grown",
+            noQuota.loaded &&
+                noQuota.clicked &&
+                (noQuota.note ?? "").startsWith("No quota reading for Pi") &&
+                noQuota.stats &&
+                noQuota.barsGrown,
             JSON.stringify(noQuota)
         );
         await h.shot("cdp-shots/usage-noquota.png");

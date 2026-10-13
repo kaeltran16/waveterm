@@ -21,6 +21,7 @@ import { useLayoutEffect, useState } from "react";
 import {
     legendSeries,
     modelRows,
+    yDomainMax,
     type LegendGroup,
     type LegendModel,
     type ModelRow,
@@ -102,9 +103,11 @@ export function DailyChart({
     const plotH = Math.max(PLOT_MIN_H, size.height - brushH - MARGIN.top - MARGIN.bottom);
     const axisFmt = (v: number) => (metric === "tokens" ? fmt(v) : usd(v));
 
+    const viewTotals = view.map((r) => r.total);
+    const rowTotals = rows.map((r) => r.total);
     const x = scaleBand<string>({ domain: view.map((r) => r.day), range: [0, innerW], padding: 0.28 });
     const y = scaleLinear<number>({
-        domain: [0, Math.max(1, ...view.map((r) => r.total))],
+        domain: [0, yDomainMax(metric, viewTotals)],
         range: [plotH, 0],
         nice: true,
     });
@@ -119,7 +122,7 @@ export function DailyChart({
     const bx = scaleBand<number>({ domain: rows.map((_, i) => i), range: [0, innerW], padding: 0.2 });
     const bxLinear = scaleLinear<number>({ domain: [0, Math.max(1, rows.length - 1)], range: [0, innerW] });
     const byLinear = scaleLinear<number>({ domain: [0, 1], range: [BRUSH_H, 0] });
-    const brushMax = Math.max(1, ...rows.map((r) => r.total));
+    const brushMax = yDomainMax(metric, rowTotals);
 
     // Cumulative y-offset from the bottom for each model segment (legend order, bottom-up), plus the
     // height of the top (highest) non-zero segment — only that one gets rounded top corners.
@@ -186,7 +189,7 @@ export function DailyChart({
                     <div ref={setHost} className="relative min-w-0 flex-1" style={{ minHeight: hostMinH }}>
                         <div className="absolute inset-0">
                             <svg ref={containerRef} width={width} height={plotH + MARGIN.top + MARGIN.bottom}>
-                                <g transform={`translate(${MARGIN.left},${MARGIN.top})`}>
+                                <g data-usage-plot={plotH} transform={`translate(${MARGIN.left},${MARGIN.top})`}>
                                     <AxisLeft
                                         scale={y}
                                         numTicks={3}
@@ -247,7 +250,12 @@ export function DailyChart({
                                                 tooltipTop: MARGIN.top + Math.max(0, y(r.total) - 12),
                                             });
                                         return (
-                                            <g key={r.day} onMouseEnter={onEnter} onMouseLeave={hideTooltip}>
+                                            <g
+                                                key={r.day}
+                                                data-usage-day={r.day}
+                                                onMouseEnter={onEnter}
+                                                onMouseLeave={hideTooltip}
+                                            >
                                                 {/* hit target spans the whole column, wider than the mark */}
                                                 <rect
                                                     x={x(r.day) ?? 0}

@@ -11,7 +11,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
-import { aggregateBuckets } from "./usagestats";
+import { aggregateBuckets, localDayKey } from "./usagestats";
 
 const DEFAULT_WINDOW_DAYS = 7;
 
@@ -61,6 +61,19 @@ function devUsageFixture(): DevUsageFixture | undefined {
     }
 }
 
+// the fixture's reply cut to the window the RPC would scan (usagestats.windowStart: local midnight
+// windowDays-1 days back; 0 is all time), keeping a session only while one of its buckets survives
+function windowedReply(reply: CommandGetUsageStatsRtnData, windowDays: number): CommandGetUsageStatsRtnData {
+    if (windowDays <= 0) return reply;
+    const start = new Date();
+    start.setDate(start.getDate() - (windowDays - 1));
+    const startKey = localDayKey(start.getTime());
+    const buckets = reply.buckets.filter((b) => b.day >= startKey);
+    const kept = new Set(buckets.map((b) => `${b.harness}\u0000${b.session}`));
+    const sessions = reply.sessions.filter((s) => kept.has(`${s.harness}\u0000${s.session}`));
+    return { buckets, sessions };
+}
+
 // Monotonic request id: the latest loadUsage wins. Replaces a single `loading` bool that silently
 // dropped a window switch fired while a prior load was in flight (and let a slow prior-window response
 // land after the switch and clobber the new window's data). Now a switch always issues a fresh request
@@ -85,7 +98,10 @@ export async function loadUsage(windowDays = DEFAULT_WINDOW_DAYS): Promise<void>
         if (fixture?.fail) {
             throw new Error("dev usage fixture: fail");
         }
-        const reply = fixture?.reply ?? (await RpcApi.GetUsageStatsCommand(TabRpcClient, { windowdays: windowDays }));
+        const reply =
+            fixture?.reply != null
+                ? windowedReply(fixture.reply, windowDays)
+                : await RpcApi.GetUsageStatsCommand(TabRpcClient, { windowdays: windowDays });
         if (seq !== loadSeq) {
             return; // a newer load superseded this one — ignore its result
         }
