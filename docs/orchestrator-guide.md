@@ -782,10 +782,12 @@ could not relaunch or has already relaunched 3 times; its questions then come to
 Gatekeeper still stays out of orchestrator runs, the engine plan reviewer still reviews the plan, and **Take over**
 on a worker question still works.
 
-The setting can change mid-run. Turning it on answers the lead's own waiting question (spec review, plan review,
-the land question) with one line telling it to decide, wakes it with the autonomous rules, and hands the worker
-questions you were holding back to the lead. Turning it off wakes the lead to ask you again from its next
-decision; calls it already made stand.
+The setting can change mid-run, from the run sheet's Adjust panel or the palette's **Go autonomous** / **Ask me
+again**. Turning it on answers the lead's own waiting question (spec review, plan review, the land question) with
+one line telling it to decide, wakes it with the autonomous rules, and hands the worker questions you were holding
+back to the lead; a waiting question whose picker takes no typed answer stays with you, and the save says so.
+Turning it off wakes the lead to ask you again from its next decision; calls it already made stand. A run with no
+lead yet gets no wake: its lead reads the setting when it starts.
 
 ---
 
