@@ -3325,6 +3325,15 @@ async function popupFaces(h, popup, posture) {
     return { popup: pick(faces.popup), main: pick(faces.main) };
 }
 
+// postureFor (frontend/app/view/jarvis/petcondition.ts) over the whole attention list, as petsignals.ts counts it:
+// a gate or escalation another run left in the dev store outranks the fixture's own ask
+const POPUP_POSTURE_RANK = [
+    ["dag-gate", "review-gate"],
+    ["escalation", "escalation"],
+    ["ask", "blocked-worker"],
+];
+const popupPostureFor = (items) => POPUP_POSTURE_RANK.find(([kind]) => items.some((i) => i.kind === kind))?.[1] ?? "none";
+
 const popupSameFace = (f, posture) =>
     f.popup?.renderer === "canvas" &&
     f.popup.posture === posture &&
@@ -3614,7 +3623,8 @@ const attentionPopup = {
         // 12 to 14. an ask on the fixture run's worker block, raised with the run's gates lifted so the ask is the only
         // waiting kind; Arc gaining focus hides the bubble well inside BUBBLE_MS
         const askStep = "12. an ask raises a popup reading Asking you, the worker's name and the question";
-        const askFaceStep = "13. the ask popup's avatar wears the main window's face, blocked-worker, drawn on the 2D canvas";
+        const askFaceStep =
+            "13. the ask popup's avatar wears the main window's face, blocked-worker unless another run's waiting outranks it, drawn on the 2D canvas";
         const focusStep = "14. the popup leaves when Arc gains focus";
         if (!ctx.workerBlockId) {
             rec(askStep, false, `the fixture run has no worker block to raise an ask on: ${JSON.stringify(ctx.workerSeen)}`);
@@ -3633,11 +3643,18 @@ const attentionPopup = {
             const askedAt = Date.now();
             let askCard = null;
             let askFaces = null;
+            let askPosture = null;
+            let askOthers = null;
             let hidden = { ok: false, why: "no popup to hide" };
             if (asked.ok) {
                 await popup.shot("cdp-shots/attention-popup-ask.png");
                 askCard = await popup.ev(POPUP_DETAIL);
-                askFaces = await popupFaces(h, popup, "blocked-worker");
+                const waiting = (await h.rpc("getattention", null)).items || [];
+                askPosture = popupPostureFor(waiting);
+                askOthers = waiting
+                    .filter((i) => i.runid !== ctx.runId && ["dag-gate", "escalation"].includes(i.kind))
+                    .map((i) => [i.kind, i.runid]);
+                askFaces = await popupFaces(h, popup, askPosture);
                 await popup.shot("cdp-shots/attention-popup-avatar-ask.png");
                 await h.ev(`window.dispatchEvent(new Event("focus"))`);
                 hidden = await popupUntil(popup, popupGone, POPUP_FOCUS_HIDE_MS);
@@ -3659,7 +3676,11 @@ const attentionPopup = {
                     card: askCard && { label: askCard.label, name: askCard.name, text: askCard.text, more: askCard.more },
                 })
             );
-            rec(askFaceStep, askFaces != null && popupSameFace(askFaces, "blocked-worker"), JSON.stringify(askFaces));
+            rec(
+                askFaceStep,
+                askFaces != null && askPosture !== "none" && popupSameFace(askFaces, askPosture),
+                JSON.stringify({ expected: askPosture, outrankedBy: askOthers, faces: askFaces })
+            );
             rec(
                 focusStep,
                 hidden.ok && sinceShownMs < POPUP_BUBBLE_MS,
