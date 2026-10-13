@@ -17,9 +17,8 @@ func TestSpecFor_knownRuntimes(t *testing.T) {
 		bin  string
 		arg0 string
 	}{
-		"claude":   {"claude", "-p"},
-		"codex":    {"codex", "exec"},
-		"opencode": {"opencode", "run"},
+		"claude": {"claude", "-p"},
+		"codex":  {"codex", "exec"},
 	}
 	for rt, want := range cases {
 		spec, ok := SpecFor(rt)
@@ -152,28 +151,6 @@ func TestClaudeParseLine_extractsAssistantText(t *testing.T) {
 	}
 }
 
-func TestOpencodeParseLine_extractsText(t *testing.T) {
-	// real `opencode run --format json` events (captured 2026-08-07)
-	skip := []string{
-		`{"type":"step_start","timestamp":1786080035726,"sessionID":"ses_x","part":{"id":"p1","messageID":"m1","sessionID":"ses_x","snapshot":"s","type":"step-start"}}`,
-		`{"type":"reasoning","timestamp":1786080035800,"sessionID":"ses_x","part":{"id":"p2","messageID":"m1","sessionID":"ses_x","type":"reasoning","text":"thinking..."}}`,
-		`{"type":"step_finish","timestamp":1786080036726,"sessionID":"ses_x","part":{"id":"p3","messageID":"m1","sessionID":"ses_x","type":"step-finish","reason":"stop","cost":0,"tokens":{"input":1,"output":1,"reasoning":0,"cache":{"read":0,"write":0}}}}`,
-	}
-	for _, line := range skip {
-		if ev := opencodeParseLine([]byte(line)); ev.Text != "" || ev.Complete || ev.Err != nil {
-			t.Errorf("expected skip for %q, got %+v", line, ev)
-		}
-	}
-	reply := `{"type":"text","timestamp":1786080036000,"sessionID":"ses_x","part":{"id":"p4","messageID":"m1","sessionID":"ses_x","type":"text","text":"pong"}}`
-	ev := opencodeParseLine([]byte(reply))
-	if ev.Text != "pong" {
-		t.Errorf("expected text part 'pong', got %+v", ev)
-	}
-	if ev := opencodeParseLine([]byte("not json")); ev.Text != "" {
-		t.Error("garbage line should not parse as a reply")
-	}
-}
-
 func TestCleanTUI_stripsAnsiAndBoxDrawing(t *testing.T) {
 	// a TUI-style runtime repaints: ANSI CSI, OSC, box-drawing, CR repaints.
 	raw := "\x1b[2J\x1b[H┌────────┐\r\n│ working…│\r\x1b[32mpong\x1b[0m\r\n└────────┘"
@@ -197,11 +174,6 @@ func TestSpecFor_streamingModes(t *testing.T) {
 	claude, _ := SpecFor("claude")
 	if claude.ParseLine == nil {
 		t.Error("claude should use JSONL line parsing (stream-json)")
-	}
-
-	opencode, _ := SpecFor("opencode")
-	if opencode.ParseLine == nil {
-		t.Error("opencode should use JSONL line parsing (run --format json)")
 	}
 }
 
@@ -239,7 +211,7 @@ func TestSpecForTier_neverMutatesTheSharedSpec(t *testing.T) {
 
 func TestSpecForTier_nonClaudeRuntimesAreUnchanged(t *testing.T) {
 	// only claude and pi have a --model contract here; a tier must not invent flags for the others.
-	for _, rt := range []string{"codex", "opencode"} {
+	for _, rt := range []string{"codex"} {
 		base, _ := SpecFor(rt)
 		spec, ok := SpecForTier(rt, TierCheap)
 		if !ok {
@@ -373,7 +345,7 @@ func TestResolveHeadlessRuntime(t *testing.T) {
 		{"pi", "pi"},
 		{"claude", "claude"},
 		{"codex", "codex"},
-		{"opencode", "opencode"},
+		{"opencode", "openrouter"},
 		{"bogus", "openrouter"},
 	}
 	for _, tc := range cases {

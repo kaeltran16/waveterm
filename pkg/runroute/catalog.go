@@ -17,12 +17,12 @@ import (
 )
 
 // ModelEntry is one selectable model for a runtime, sourced from the harness itself: enumerated
-// (pi, opencode), derived from the harness's own surface (claude --help aliases, codex config), or
+// (pi), derived from the harness's own surface (claude --help aliases, codex config), or
 // free-form (accepted everywhere, never listed here). Never a maintained static catalog.
 type ModelEntry struct {
 	Runtime     string
-	Model       string // exact id handed to the harness; pi/opencode include the provider prefix
-	Provider    string // pi: provider column; opencode: id prefix; else ""
+	Model       string // exact id handed to the harness; pi includes the provider prefix
+	Provider    string // pi: provider column; else ""
 	ContextHint string // pi: context column; else ""
 	Default     bool   // the harness's own configured default (claude settings.json / codex config.toml)
 }
@@ -35,7 +35,6 @@ var catalogCommand = func(ctx context.Context, bin string, args ...string) ([]by
 const catalogProbeTimeout = 15 * time.Second
 
 var (
-	modelLineRe      = regexp.MustCompile(`^([a-zA-Z0-9_-]+)/(.+)$`)
 	piContextRe      = regexp.MustCompile(`^[0-9][0-9.]*[KMB]?$`)
 	claudeAliasOutRe = regexp.MustCompile(`'([a-zA-Z0-9]+)'`)
 )
@@ -46,8 +45,6 @@ func enumerateCatalog(ctx context.Context, runtime string) ([]ModelEntry, error)
 	switch runtime {
 	case "pi":
 		entries, err = enumeratePi(ctx)
-	case "opencode":
-		entries, err = enumerateOpenCode(ctx)
 	case "claude":
 		entries, err = enumerateClaude(ctx)
 	case "codex":
@@ -81,26 +78,6 @@ func enumeratePi(ctx context.Context) ([]ModelEntry, error) {
 			continue // the context column anchors the table shape; anything else is not a row
 		}
 		entries = append(entries, ModelEntry{Runtime: "pi", Provider: fields[0], Model: fields[0] + "/" + fields[1], ContextHint: fields[2]})
-	}
-	return entries, nil
-}
-
-func enumerateOpenCode(ctx context.Context) ([]ModelEntry, error) {
-	out, err := catalogCommand(ctx, "opencode", "models")
-	if err != nil {
-		return nil, err
-	}
-	var entries []ModelEntry
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		m := modelLineRe.FindStringSubmatch(line)
-		if m == nil {
-			continue // opencode prints provider/model ids; anything else is noise or a header
-		}
-		entries = append(entries, ModelEntry{Runtime: "opencode", Provider: m[1], Model: line})
 	}
 	return entries, nil
 }

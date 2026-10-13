@@ -36,12 +36,12 @@ func TestAdoptSeedsTheFirstCopyIntoTheVault(t *testing.T) {
 }
 
 func TestAdoptTurnsAFrontmatterVariantIntoADelta(t *testing.T) {
-	p := testPaths(t, "", ".codex", ".config/opencode")
+	p := testPaths(t, "", ".codex", ".claude")
 	writeFile(t, filepath.Join(p.Home, ".codex", "AGENTS.md"), "# Prefs\n")
 	writeFile(t, filepath.Join(p.Home, ".codex", "skills", "orch", skillFile),
 		"---\nname: orch\ntool: codex\n---\nsame body\n")
-	writeFile(t, filepath.Join(p.Home, ".config", "opencode", "skills", "orch", skillFile),
-		"---\nname: orch\ntool: opencode\n---\nsame body\n")
+	writeFile(t, filepath.Join(p.Home, ".claude", "skills", "orch", skillFile),
+		"---\nname: orch\ntool: claude\n---\nsame body\n")
 
 	plan, err := Adopt(p, true, nil)
 	if err != nil {
@@ -50,17 +50,18 @@ func TestAdoptTurnsAFrontmatterVariantIntoADelta(t *testing.T) {
 	if len(plan.Unresolved) != 0 {
 		t.Fatalf("a frontmatter-only variant must not be unresolved: %+v", plan.Unresolved)
 	}
-	if got := readFile(t, filepath.Join(p.SkillsRoot, "orch", deltaDirName, "opencode.yaml")); got != "tool: opencode\n" {
-		t.Fatalf("opencode delta = %q, want only the differing key", got)
+	// adopt seeds the first copy in catalog order (claude) and keeps the other's difference as a delta
+	if got := readFile(t, filepath.Join(p.SkillsRoot, "orch", deltaDirName, "codex.yaml")); got != "tool: codex\n" {
+		t.Fatalf("codex delta = %q, want only the differing key", got)
 	}
 	// each harness ends up with its own flavour of the same shared body
 	codex := readFile(t, filepath.Join(p.Home, ".codex", "skills", "orch", skillFile))
-	opencode := readFile(t, filepath.Join(p.Home, ".config", "opencode", "skills", "orch", skillFile))
+	claude := readFile(t, filepath.Join(p.Home, ".claude", "skills", "orch", skillFile))
 	if codex != "---\nname: orch\ntool: codex\n---\nsame body\n" {
 		t.Fatalf("codex copy = %q", codex)
 	}
-	if opencode != "---\nname: orch\ntool: opencode\n---\nsame body\n" {
-		t.Fatalf("opencode copy = %q", opencode)
+	if claude != "---\nname: orch\ntool: claude\n---\nsame body\n" {
+		t.Fatalf("claude copy = %q", claude)
 	}
 }
 

@@ -239,9 +239,21 @@ func TestSkillRowsReportsPerHarnessState(t *testing.T) {
 	if got := byName["effort-tracking"].States["codex"]; got != stateSynced {
 		t.Errorf("effort-tracking codex = %q, want synced", got)
 	}
-	// opencode has no config root here, so it is not synced at all
-	if got := byName["graphify"].States["opencode"]; got != stateAbsent {
-		t.Errorf("graphify opencode = %q, want absent", got)
+}
+
+func TestSkillRowsMarksAHarnessWithNoConfigRootAbsent(t *testing.T) {
+	p := testPaths(t, "canonical\n", ".codex")
+	seedSkill(t, p, "graphify")
+	if _, err := Apply(p, false); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := SkillRows(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// claude has no config root here, so it is not synced at all
+	if len(rows) != 1 || rows[0].States["claude"] != stateAbsent {
+		t.Fatalf("rows = %+v, want claude absent", rows)
 	}
 }
 

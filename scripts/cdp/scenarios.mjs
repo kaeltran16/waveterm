@@ -6368,7 +6368,7 @@ const harnessPicker = {
             JSON.stringify(order)
         );
 
-        // open the picker, assert installed/disabled rows, then select OpenCode
+        // open the picker, assert installed/disabled rows, then select Claude Code
         await h.ev(`(() => {
             const b = document.querySelector('[data-testid="harness-picker"][data-harness-operation="run-worker"]');
             if (!b) return false;
@@ -6393,24 +6393,24 @@ const harnessPicker = {
         );
 
         // every catalog row renders its brand mark as a LOCAL bundled asset (same-origin in dev), and
-        // the OpenCode and Pi marks must actually decode (naturalWidth > 0), not be dead srcs.
+        // the Claude Code and Pi marks must actually decode (naturalWidth > 0), not be dead srcs.
         const marks = await h.ev(`(() => {
             const imgs = [...document.querySelectorAll('[data-testid^="harness-option-"] img')];
             const sameOrigin = (src) => { try { return new URL(src).origin === location.origin; } catch { return false; } };
             return {
                 count: imgs.length,
-                opencode: imgs.some((i) => i.src.includes("opencode") && i.naturalWidth > 0),
+                claude: imgs.some((i) => i.src.includes("claude") && i.naturalWidth > 0),
                 pi: imgs.some((i) => i.src.includes("pi.svg") && i.naturalWidth > 0),
                 remote: imgs.filter((i) => !sameOrigin(i.src)).length,
             };
         })()`);
         rec(
-            "5. picker rows render local loaded runtime marks for OpenCode and Pi",
-            marks.count >= 2 && marks.opencode && marks.pi && marks.remote === 0,
+            "5. picker rows render local loaded runtime marks for Claude Code and Pi",
+            marks.count >= 2 && marks.claude && marks.pi && marks.remote === 0,
             JSON.stringify(marks)
         );
         const picked = await h.ev(`(() => {
-            const o = document.querySelector('[data-testid="harness-option-opencode"]');
+            const o = document.querySelector('[data-testid="harness-option-claude"]');
             if (!o) return false;
             o.click();
             return true;
@@ -6418,8 +6418,8 @@ const harnessPicker = {
         await settle(600); // wait for SetConfigCommand to persist
         const afterOpen = await picker("run-worker");
         rec(
-            "6. selecting OpenCode persists it as the shared preference",
-            picked && afterOpen != null && afterOpen.runtime === "opencode",
+            "6. selecting Claude Code persists it as the shared preference",
+            picked && afterOpen != null && afterOpen.runtime === "claude",
             JSON.stringify(afterOpen)
         );
 
@@ -6441,7 +6441,7 @@ const harnessPicker = {
         })()`);
         rec(
             "7. bare goal footer names the preferred harness",
-            footerText.includes("OpenCode"),
+            footerText.includes("Claude Code"),
             `footer=${footerText.slice(0, 80)}`
         );
         const oneOff = await h.ev(`(() => {
@@ -6460,13 +6460,13 @@ const harnessPicker = {
             "8. explicit @ask shows Codex · one-off, preference unchanged",
             oneOff &&
                 footerOneOff.includes("one-off") &&
-                footerOneOff.includes("OpenCode") &&
+                footerOneOff.includes("Claude Code") &&
                 !footerOneOff.includes("preferred codex"),
             `footer=${footerOneOff.slice(0, 100)}`
         );
 
         // Pi selection is conditional on installation: the row always exists (step 4), but selecting it
-        // only when pi is on PATH. Restore OpenCode afterward so the remaining steps keep their
+        // only when pi is on PATH. Restore Claude Code afterward so the remaining steps keep their
         // expected preference.
         const piRow = await h.ev(`(() => {
             const o = document.querySelector('[data-testid="harness-option-pi"]');
@@ -6482,7 +6482,7 @@ const harnessPicker = {
             await settle(600); // wait for SetConfigCommand to persist
             piPicked = await picker("run-worker");
             const restored = await h.ev(`(() => {
-                const o = document.querySelector('[data-testid="harness-option-opencode"]');
+                const o = document.querySelector('[data-testid="harness-option-claude"]');
                 if (!o) return false;
                 o.click();
                 return true;

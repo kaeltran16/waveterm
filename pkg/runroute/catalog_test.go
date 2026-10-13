@@ -17,13 +17,6 @@ opencode      claude-opus-4-8                  1M       128K     yes       yes
 opencode      deepseek-v4-pro                  1M       384K     yes       no
 `
 
-const opencodeModelsFixture = `opencode/big-pickle
-opencode/deepseek-v4-flash
-opencode/deepseek-v4-pro
-openai/gpt-5.4
-openai/gpt-5.4-fast
-`
-
 const claudeHelpFixture = `Usage: claude [options]
 
 Options:
@@ -63,22 +56,6 @@ func TestParsePiTable(t *testing.T) {
 	}
 	if entries[2].ContextHint != "1M" {
 		t.Fatalf("context hint wrong: %+v", entries[2])
-	}
-}
-
-func TestParseOpenCodeModels(t *testing.T) {
-	orig := catalogCommand
-	catalogCommand = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
-		return []byte(opencodeModelsFixture), nil
-	}
-	defer func() { catalogCommand = orig }()
-
-	entries, err := enumerateOpenCode(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 5 || entries[3].Model != "openai/gpt-5.4" || entries[3].Provider != "openai" {
-		t.Fatalf("opencode entries wrong: %+v", entries)
 	}
 }
 
@@ -150,15 +127,15 @@ func TestCatalogCacheWithinTTL(t *testing.T) {
 	calls := 0
 	catalogCommand = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		calls++
-		return []byte(opencodeModelsFixture), nil
+		return []byte(piListModelsFixture), nil
 	}
 	nowFn = func() time.Time { return time.Unix(1000, 0) }
 	defer func() { catalogCommand, nowFn = origCmd, origNow }()
 
-	if got := ModelsForRuntime(context.Background(), "opencode"); len(got) != 5 {
-		t.Fatalf("first fetch: want 5 entries, got %d", len(got))
+	if got := ModelsForRuntime(context.Background(), "pi"); len(got) != 4 {
+		t.Fatalf("first fetch: want 4 entries, got %d", len(got))
 	}
-	if got := ModelsForRuntime(context.Background(), "opencode"); len(got) != 5 {
+	if got := ModelsForRuntime(context.Background(), "pi"); len(got) != 4 {
 		t.Fatalf("second fetch must hit cache")
 	}
 	if calls != 1 {
@@ -173,14 +150,14 @@ func TestCatalogCacheExpires(t *testing.T) {
 	calls := 0
 	catalogCommand = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		calls++
-		return []byte(opencodeModelsFixture), nil
+		return []byte(piListModelsFixture), nil
 	}
 	nowFn = func() time.Time { return time.Unix(1000, 0) }
 	defer func() { catalogCommand, nowFn = origCmd, origNow }()
 
-	ModelsForRuntime(context.Background(), "opencode")
+	ModelsForRuntime(context.Background(), "pi")
 	nowFn = func() time.Time { return time.Unix(1000+24*60*60+1, 0) }
-	if got := ModelsForRuntime(context.Background(), "opencode"); len(got) != 5 {
+	if got := ModelsForRuntime(context.Background(), "pi"); len(got) != 4 {
 		t.Fatal("expired cache must re-enumerate")
 	}
 	if calls != 2 {
@@ -191,19 +168,19 @@ func TestCatalogCacheExpires(t *testing.T) {
 func TestRefreshRouteCatalogClears(t *testing.T) {
 	origCmd, origNow := catalogCommand, nowFn
 	catalogCommand = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
-		return []byte(opencodeModelsFixture), nil
+		return []byte(piListModelsFixture), nil
 	}
 	nowFn = func() time.Time { return time.Unix(1000, 0) }
 	defer func() { catalogCommand, nowFn = origCmd, origNow }()
 
-	ModelsForRuntime(context.Background(), "opencode")
+	ModelsForRuntime(context.Background(), "pi")
 	RefreshRouteCatalog()
 	calls := 0
 	catalogCommand = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		calls++
-		return []byte(opencodeModelsFixture), nil
+		return []byte(piListModelsFixture), nil
 	}
-	ModelsForRuntime(context.Background(), "opencode")
+	ModelsForRuntime(context.Background(), "pi")
 	if calls != 1 {
 		t.Fatalf("refresh must force a re-enumeration, got %d calls", calls)
 	}
@@ -212,21 +189,21 @@ func TestRefreshRouteCatalogClears(t *testing.T) {
 func TestCatalogKeepsStaleOnProbeFailure(t *testing.T) {
 	origCmd, origNow := catalogCommand, nowFn
 	catalogCommand = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
-		return []byte(opencodeModelsFixture), nil
+		return []byte(piListModelsFixture), nil
 	}
 	nowFn = func() time.Time { return time.Unix(1000, 0) }
 	defer func() { catalogCommand, nowFn = origCmd, origNow }()
 
-	ModelsForRuntime(context.Background(), "opencode")
+	ModelsForRuntime(context.Background(), "pi")
 	catalogCommand = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return nil, fmt.Errorf("cli vanished")
 	}
 	nowFn = func() time.Time { return time.Unix(1000+25*60*60, 0) }
-	if got := ModelsForRuntime(context.Background(), "opencode"); len(got) != 5 {
+	if got := ModelsForRuntime(context.Background(), "pi"); len(got) != 4 {
 		t.Fatalf("stale cache must survive a probe failure, got %d", len(got))
 	}
 	nowFn = func() time.Time { return time.Unix(1000+26*60*60, 0) }
-	if got := ModelsForRuntime(context.Background(), "opencode"); len(got) != 5 {
+	if got := ModelsForRuntime(context.Background(), "pi"); len(got) != 4 {
 		t.Fatalf("repeated failures must keep serving stale, got %d", len(got))
 	}
 	// manual refresh drops the stale entry; garbage with no usable cache is free-form-only
@@ -234,7 +211,7 @@ func TestCatalogKeepsStaleOnProbeFailure(t *testing.T) {
 	catalogCommand = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return []byte("garbage\n"), nil
 	}
-	if got := ModelsForRuntime(context.Background(), "opencode"); len(got) != 0 {
+	if got := ModelsForRuntime(context.Background(), "pi"); len(got) != 0 {
 		t.Fatalf("garbage with no usable stale cache must yield free-form-only, got %d", len(got))
 	}
 }

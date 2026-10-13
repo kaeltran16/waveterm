@@ -37,8 +37,8 @@ func TestListHarnessesReturnsCatalogWithoutOpenRouter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListHarnessesCommand: %v", err)
 	}
-	if len(rtn.Harnesses) != 4 {
-		t.Fatalf("len = %d, want 4", len(rtn.Harnesses))
+	if len(rtn.Harnesses) != 3 {
+		t.Fatalf("len = %d, want 3", len(rtn.Harnesses))
 	}
 	for _, info := range rtn.Harnesses {
 		if info.Runtime == "openrouter" {

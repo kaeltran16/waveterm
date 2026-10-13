@@ -73,7 +73,6 @@ type RuntimeSpec struct {
 var runtimeSpecs = map[string]RuntimeSpec{
 	"claude":     {Bin: "claude", BaseArgs: []string{"-p", "--output-format", "stream-json", "--verbose"}, PromptViaStdin: true, ParseLine: claudeParseLine},
 	"codex":      {Bin: "codex", BaseArgs: []string{"exec", "--json"}, PromptViaStdin: true, ParseLine: codexParseLine},
-	"opencode":   {Bin: "opencode", BaseArgs: []string{"run", "--format", "json"}, PromptViaStdin: false, ParseLine: opencodeParseLine},
 	"pi":         {Bin: "pi", BaseArgs: []string{"--mode", "json", "--no-session", "--no-extensions"}, PromptViaStdin: false, ParseLine: piParseLine},
 	"openrouter": {ApiBackend: &openrouterBackend{}},
 }
@@ -126,30 +125,6 @@ func claudeParseLine(line []byte) ParsedEvent {
 		return ParsedEvent{}
 	}
 	return ParsedEvent{Text: b.String()}
-}
-
-// opencodeParseLine extracts assistant text from an `opencode run --format json` JSONL event.
-// Verified 2026-08-07: run --format json emits one event per line; assistant text arrives as a
-// `text` event whose part.type is "text". step_start/step_finish/reasoning/tool events carry no
-// reply text and are skipped. Streaming is incremental — each text event carries its own delta.
-func opencodeParseLine(line []byte) ParsedEvent {
-	var ev struct {
-		Type string `json:"type"`
-		Part struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"part"`
-	}
-	if json.Unmarshal(line, &ev) != nil {
-		return ParsedEvent{}
-	}
-	if ev.Type != "text" || ev.Part.Type != "text" {
-		return ParsedEvent{}
-	}
-	if strings.TrimSpace(ev.Part.Text) == "" {
-		return ParsedEvent{}
-	}
-	return ParsedEvent{Text: ev.Part.Text}
 }
 
 // piParseLine extracts Pi's stream from a `pi --mode json --no-session --no-extensions` session.
@@ -243,7 +218,7 @@ func modelForTier(tier Tier) string {
 }
 
 // SpecForTier resolves a runtime spec with the tier's model selection applied.
-// For claude, it appends a --model alias to BaseArgs. pi/codex/opencode keep their own default.
+// For claude, it appends a --model alias to BaseArgs. pi/codex keep their own default.
 // For openrouter, every tier sets spec.Model to the one configured model.
 // Other runtimes are returned unchanged.
 func SpecForTier(runtime string, tier Tier) (RuntimeSpec, bool) {
@@ -291,7 +266,7 @@ func resolveHeadlessRuntime(configured string) string {
 // HeadlessSpecForTier resolves a spec for the configured headless runtime at the given tier. Every
 // background AI feature calls this instead of hardcoding a runtime, so the headless:runtime setting
 // is honored uniformly. Tier→model mapping is SpecForTier's job: openrouter sets Model from the
-// configured tier IDs, claude appends a --model alias, pi/codex/opencode use the harness's own default.
+// configured tier IDs, claude appends a --model alias, pi/codex use the harness's own default.
 func HeadlessSpecForTier(tier Tier) (RuntimeSpec, bool) {
 	return SpecForTier(HeadlessRuntime(), tier)
 }

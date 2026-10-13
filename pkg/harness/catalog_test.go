@@ -13,8 +13,8 @@ import (
 
 func TestListExcludesAPIBackends(t *testing.T) {
 	got := List()
-	if len(got) != 4 {
-		t.Fatalf("len(List()) = %d, want 4", len(got))
+	if len(got) != 3 {
+		t.Fatalf("len(List()) = %d, want 3", len(got))
 	}
 	for _, spec := range got {
 		if spec.Runtime == "openrouter" {
@@ -24,12 +24,12 @@ func TestListExcludesAPIBackends(t *testing.T) {
 }
 
 func TestLookupCapabilities(t *testing.T) {
-	for _, runtime := range []string{"pi", "claude", "codex", "opencode"} {
+	for _, runtime := range []string{"pi", "claude", "codex"} {
 		spec, ok := Lookup(runtime)
 		if !ok || !spec.ConsultCapable || spec.Bin == "" {
 			t.Fatalf("invalid %s spec: %+v, ok=%v", runtime, spec, ok)
 		}
-		// run workers are claude and pi only; codex and opencode stay consult-only
+		// run workers are claude and pi only; codex stays consult-only
 		if wantWorker := runtime == "pi" || runtime == "claude"; spec.RunWorkerCapable != wantWorker {
 			t.Fatalf("%s RunWorkerCapable = %v, want %v", runtime, spec.RunWorkerCapable, wantWorker)
 		}
@@ -41,7 +41,7 @@ func TestCatalogOrderAndPiCapabilities(t *testing.T) {
 	for _, spec := range List() {
 		runtimes = append(runtimes, spec.Runtime)
 	}
-	want := []string{"pi", "claude", "codex", "opencode"}
+	want := []string{"pi", "claude", "codex"}
 	if !reflect.DeepEqual(runtimes, want) {
 		t.Fatalf("runtimes = %v, want %v", runtimes, want)
 	}
@@ -62,8 +62,8 @@ func TestValidateInstalled(t *testing.T) {
 	if _, err := ValidateInstalled("claude", OperationRunWorker); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ValidateInstalled("opencode", OperationRunWorker); err == nil || !strings.Contains(err.Error(), "does not support run workers") {
-		t.Fatalf("opencode run worker error = %v", err)
+	if _, err := ValidateInstalled("codex", OperationRunWorker); err == nil || !strings.Contains(err.Error(), "does not support run workers") {
+		t.Fatalf("codex run worker error = %v", err)
 	}
 	if _, err := ValidateInstalled("missing", OperationConsult); err == nil || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf("unknown runtime error = %v", err)
@@ -122,7 +122,6 @@ func TestConfigSurfacePaths(t *testing.T) {
 	cases := []struct{ runtime, steering, skills string }{
 		{"claude", filepath.Join(home, ".claude", "CLAUDE.md"), filepath.Join(home, ".claude", "skills")},
 		{"codex", filepath.Join(home, ".codex", "AGENTS.md"), filepath.Join(home, ".codex", "skills")},
-		{"opencode", filepath.Join(home, ".config", "opencode", "AGENTS.md"), filepath.Join(home, ".config", "opencode", "skills")},
 		{"pi", filepath.Join(home, ".pi", "agent", "AGENTS.md"), ""},
 	}
 	for _, c := range cases {
@@ -144,7 +143,7 @@ func TestConfigRootIsSteeringParent(t *testing.T) {
 	for _, c := range []struct{ runtime, want string }{
 		{"pi", filepath.Join(home, ".pi", "agent")},
 		{"claude", filepath.Join(home, ".claude")},
-		{"opencode", filepath.Join(home, ".config", "opencode")},
+		{"codex", filepath.Join(home, ".codex")},
 	} {
 		spec, _ := Lookup(c.runtime)
 		if got := spec.ConfigRoot(home); got != c.want {

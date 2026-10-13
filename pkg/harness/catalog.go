@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Package harness is the catalog of installed coding-agent harnesses (Pi, Claude Code, Codex, OpenCode).
+// Package harness is the catalog of installed coding-agent harnesses (Pi, Claude Code, Codex).
 // It owns identity, capabilities, executable lookup, and installation probing so that
 // consult (pkg/consult) and Run workers (pkg/jarvis) share one source of truth and never silently
 // fall back to another harness. OpenRouter is an API-backed utility runtime and intentionally lives
@@ -43,11 +43,9 @@ var specs = []Spec{
 		SteeringRel: []string{".pi", "agent", "AGENTS.md"}},
 	{Runtime: "claude", Bin: "claude", Label: "Claude Code", ConsultCapable: true, RunWorkerCapable: true,
 		SteeringRel: []string{".claude", "CLAUDE.md"}, SkillsRel: []string{".claude", "skills"}},
-	// run workers are claude and pi only (docs/deferred.md, 2026-09-14); codex and opencode still consult
+	// run workers are claude and pi only (docs/deferred.md, 2026-09-14); codex still consults
 	{Runtime: "codex", Bin: "codex", Label: "Codex", ConsultCapable: true, RunWorkerCapable: false,
 		SteeringRel: []string{".codex", "AGENTS.md"}, SkillsRel: []string{".codex", "skills"}},
-	{Runtime: "opencode", Bin: "opencode", Label: "OpenCode", ConsultCapable: true, RunWorkerCapable: false,
-		SteeringRel: []string{".config", "opencode", "AGENTS.md"}, SkillsRel: []string{".config", "opencode", "skills"}},
 }
 
 // SteeringPath is the harness's home-level steering file under home.

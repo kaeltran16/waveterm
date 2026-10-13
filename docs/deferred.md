@@ -313,6 +313,23 @@ still run on codex and opencode; only the unattended run path lost them.
   runtime also needs the redesign's per-harness pieces (wake, compaction rules, ask delivery) before it can
   lead. codex additionally needs its `livenessRuntimes` entry back.
 
+## OpenCode in the harness catalog (2026-10-13)
+
+OpenCode leaves the harness catalog: no Setup row (it counted toward "N of N harnesses out of date"), no
+instruction or skill sync into `~/.config/opencode`, and no consults. It had 0 sessions in the 7 days
+measured; Codex had 9 and stays. Launching an OpenCode agent tab, its status plugin and its transcripts
+are untouched.
+
+- **What was removed:** the opencode `Spec` in `pkg/harness/catalog.go`, its consult runtime and
+  `opencodeParseLine` in `pkg/consult/consult.go`, and `enumerateOpenCode` in `pkg/runroute/catalog.go`
+  (reached only through the catalog).
+- **Recovery:**
+  - `git show 51b0213a:pkg/harness/catalog.go`
+  - `git show 51b0213a:pkg/consult/consult.go`
+  - `git show 51b0213a:pkg/consult/consult_test.go`
+  - `git show 51b0213a:pkg/runroute/catalog.go`
+  - `git show 51b0213a:pkg/runroute/catalog_test.go`
+
 ## Diff surface — hiding whitespace-only files from the change list (2026-09-11)
 
 Deferred by finding F4 of the git-compare-viewer parity initiative
