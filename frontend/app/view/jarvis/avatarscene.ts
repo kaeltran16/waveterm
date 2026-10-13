@@ -286,7 +286,8 @@ const STRUT_COUNT = 6;
 
 // Inbound pulses, one per strut. The seeds are irregular so the packets never read as a chase around the
 // ring, and the cycle is longer than the run down the strut, so each one is dark part of the time and the
-// number lit keeps changing: load reads as traffic, never as a count.
+// number lit keeps changing between 2 and 6: load reads as traffic, never as a count. The ring is never all
+// dark while agents work, by choice: a gap would read as a stall.
 const PULSE_SEEDS = [0, 0.53, 0.21, 0.77, 0.38, 0.91];
 const PULSE_SPREAD = 3.1;
 const PULSE_CYCLE = 1.6;

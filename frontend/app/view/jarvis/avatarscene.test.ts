@@ -549,6 +549,12 @@ describe("buildAvatarScene — activity", () => {
         expect(Math.max(...counts)).toBeGreaterThan(1);
     });
 
+    it("never goes all dark while agents work, because a gap reads as a stall", () => {
+        for (let step = 0; step < 1600; step++) {
+            expect(buildAvatarScene(input({ activity: 1, pulseClock: step * 0.001 })).pulses).toBeGreaterThan(0);
+        }
+    });
+
     it("still dims when quiet, however busy", () => {
         const loud = buildAvatarScene(input({ activity: 1, pulseClock: 0.4 }));
         const quiet = buildAvatarScene(input({ activity: 1, pulseClock: 0.4, quiet: true }));
