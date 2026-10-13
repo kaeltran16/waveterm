@@ -91,7 +91,6 @@ export class TermWrap {
     onSearchResultsDidChange?: (result: { resultIndex: number; resultCount: number }) => void;
     toDispose: TermTypes.IDisposable[] = [];
     webglAddon: WebglAddon | null = null;
-    webglContextLossDisposable: TermTypes.IDisposable | null = null;
     webglEnabledAtom: jotai.PrimitiveAtom<boolean>;
     pasteActive: boolean = false;
     lastUpdated: number;
@@ -282,6 +281,15 @@ export class TermWrap {
                 this.connectElem.removeEventListener("drop", dropGuard);
             },
         });
+        // a gpu reset paints a lost webgl canvas white (with a sad face) while the addon waits up to 3s
+        // for a restore; drop to the dom renderer at once instead. the event doesn't bubble, so capture it.
+        const contextLostHandler = () => this.setTermRenderer("dom");
+        this.connectElem.addEventListener("webglcontextlost", contextLostHandler, true);
+        this.toDispose.push({
+            dispose: () => {
+                this.connectElem.removeEventListener("webglcontextlost", contextLostHandler, true);
+            },
+        });
         this.handleResize();
         const pasteHandler = this.pasteHandler.bind(this);
         this.connectElem.addEventListener("paste", pasteHandler, true);
@@ -318,17 +326,12 @@ export class TermWrap {
             }
         }
         if (this.webglAddon != null) {
-            this.webglContextLossDisposable?.dispose();
-            this.webglContextLossDisposable = null;
             this.webglAddon.dispose();
             this.webglAddon = null;
             globalStore.set(this.webglEnabledAtom, false);
         }
         if (renderer === "webgl") {
             const addon = new WebglAddon();
-            this.webglContextLossDisposable = addon.onContextLoss(() => {
-                this.setTermRenderer("dom");
-            });
             this.terminal.loadAddon(addon);
             this.webglAddon = addon;
             globalStore.set(this.webglEnabledAtom, true);
@@ -413,8 +416,6 @@ export class TermWrap {
             }
         });
         this.promptMarkers = [];
-        this.webglContextLossDisposable?.dispose();
-        this.webglContextLossDisposable = null;
         this.terminal.dispose();
         this.toDispose.forEach((d) => {
             try {
