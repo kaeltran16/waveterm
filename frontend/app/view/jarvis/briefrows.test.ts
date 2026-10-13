@@ -11,6 +11,7 @@ import {
     lineOpenTarget,
     projectName,
     queueLine,
+    readsAsInView,
     runKindLegs,
     runRowFace,
     sessionLine,
@@ -533,5 +534,21 @@ describe("lineOpenTarget", () => {
         expect(lineOpenTarget(null)).toBeNull();
         expect(lineOpenTarget({ oref: "" })).toBeNull();
         expect(lineOpenTarget({ oref: "nonsense:x" })).toBeNull();
+    });
+});
+
+describe("readsAsInView", () => {
+    it("needs half of a short region on screen, not just its head peeking in", () => {
+        expect(readsAsInView(40, 300, 900)).toBe(false);
+        expect(readsAsInView(150, 300, 900)).toBe(true);
+    });
+
+    it("needs half the viewport filled when the region is taller than the screen", () => {
+        expect(readsAsInView(400, 2000, 900)).toBe(false);
+        expect(readsAsInView(450, 2000, 900)).toBe(true);
+    });
+
+    it("never counts a region that is not laid out", () => {
+        expect(readsAsInView(0, 0, 900)).toBe(false);
     });
 });

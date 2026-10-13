@@ -31,6 +31,32 @@ export const briefingCursorAtom = atomWithStorage<number | null>("jarvis.briefin
     getOnInit: true,
 });
 
+// A look at Behind you does not clear it at once: each acknowledged visit is held for an hour before it
+// moves the cursor, so rows you only glanced at stay to be read properly.
+export const SEEN_HOLD_MS = 60 * 60 * 1000;
+export type SeenMark = { through: number; at: number };
+export const briefingSeenMarksAtom = atomWithStorage<SeenMark[]>("jarvis.briefing.seenmarks", [], undefined, {
+    getOnInit: true,
+});
+// the default storage is localStorage, which is synchronous, so its value is never the promise it is typed as
+const readCursor = () => globalStore.get(briefingCursorAtom) as number | null;
+const readMarks = () => globalStore.get(briefingSeenMarksAtom) as SeenMark[];
+
+// Folds every mark older than the hold into the cursor; the cursor only ever moves forward.
+export function settleSeen(
+    cursor: number | null,
+    marks: SeenMark[],
+    now: number
+): { cursor: number | null; marks: SeenMark[] } {
+    const valid = (Array.isArray(marks) ? marks : []).filter(
+        (m) => Number.isFinite(m?.through) && Number.isFinite(m?.at)
+    );
+    const due = valid.filter((m) => m.at <= now - SEEN_HOLD_MS);
+    const kept = valid.filter((m) => m.at > now - SEEN_HOLD_MS);
+    const settled = due.reduce<number | null>((c, m) => (c == null || m.through > c ? m.through : c), cursor);
+    return { cursor: settled, marks: kept };
+}
+
 const fetchedBriefingStateAtom = atom<BriefingLoadState>({
     snapshot: null,
     loading: false,
@@ -69,7 +95,18 @@ export async function loadBriefingAsync(): Promise<void> {
     const gen = ++loadGeneration;
     const queryStartedAt = Date.now();
     const sevenDaysAgo = queryStartedAt - SEVEN_DAYS_MS;
-    const stored = globalStore.get(briefingCursorAtom);
+    const prevCursor = readCursor();
+    const prevMarks = readMarks();
+    const settled = settleSeen(prevCursor, prevMarks, queryStartedAt);
+    if (settled.cursor !== prevCursor || settled.marks.length !== prevMarks.length) {
+        try {
+            globalStore.set(briefingCursorAtom, settled.cursor);
+            globalStore.set(briefingSeenMarksAtom, settled.marks);
+        } catch {
+            // an unsaved settle only repeats on the next load; this one still reads the settled cursor
+        }
+    }
+    const stored = settled.cursor;
     const actualCursor = validCursor(stored, queryStartedAt) ? stored : sevenDaysAgo;
     // min() serves both requirements in one request: the client filters Delta back to actualCursor,
     // while the response still carries the stable seven-day Shipped window when the cursor is newer.
@@ -117,20 +154,27 @@ export function loadBriefing(): void {
 export type BriefingAckState = "idle" | "waiting" | "saved" | "failed";
 export const briefingAckAtom = atom<BriefingAckState>("idle") as PrimitiveAtom<BriefingAckState>;
 
-// Advances the visit cursor to the current snapshot's query start. Called by the view after a short
-// dwell on loaded content, not at load completion — a glance-and-close must not mark the delta seen.
+// Records that the current snapshot was seen through its query start; the cursor reaches it once the
+// mark is SEEN_HOLD_MS old. Called by the view after a dwell on Behind you, not at load completion — a
+// glance-and-close must not mark the delta seen.
 export function ackBriefingVisit(): void {
     const st = globalStore.get(fetchedBriefingStateAtom);
     if (st.snapshot == null || !st.snapshot.complete || st.loading) {
         return;
     }
     try {
-        // re-read before the write: a slower second window must not regress a cursor another window
-        // already advanced past its own query start. Only positivity is re-checked — a peer's cursor
-        // may legitimately exceed this snapshot's queryStartedAt.
-        const cur = globalStore.get(briefingCursorAtom);
-        const curValid = typeof cur === "number" && Number.isFinite(cur) && cur > 0;
-        globalStore.set(briefingCursorAtom, Math.max(curValid ? cur : 0, st.snapshot.queryStartedAt));
+        // re-read before the write: a peer window may already hold a later mark, and a mark that adds
+        // nothing past it or the cursor is dropped rather than stacked
+        const through = st.snapshot.queryStartedAt;
+        const cur = readCursor();
+        const marks = readMarks();
+        const latest = Math.max(
+            typeof cur === "number" && Number.isFinite(cur) ? cur : 0,
+            ...marks.map((m) => m.through)
+        );
+        if (through > latest) {
+            globalStore.set(briefingSeenMarksAtom, [...marks, { through, at: Date.now() }]);
+        }
         globalStore.set(briefingAckAtom, "saved");
     } catch {
         // keep the accepted snapshot and say the marker was not saved; repetition beats a lost event.
@@ -139,17 +183,24 @@ export function ackBriefingVisit(): void {
 }
 
 // "mark seen" (design L287, L1794): the visit cursor jumps to this snapshot's query start now instead of
-// after the dwell, and the Brief re-reads so Behind you empties. Returns the undo.
+// after the dwell and the hold, and the Brief re-reads so Behind you empties. Returns the undo.
 export function markBriefingSeen(): () => void {
-    const prev = globalStore.get(briefingCursorAtom);
+    const prev = readCursor();
+    const prevMarks = readMarks();
     const st = globalStore.get(fetchedBriefingStateAtom);
     if (st.snapshot == null) {
         return () => {};
     }
-    globalStore.set(briefingCursorAtom, st.snapshot.queryStartedAt);
+    const through = st.snapshot.queryStartedAt;
+    globalStore.set(briefingCursorAtom, through);
+    globalStore.set(
+        briefingSeenMarksAtom,
+        prevMarks.filter((m) => m.through > through)
+    );
     loadBriefing();
     return () => {
         globalStore.set(briefingCursorAtom, prev);
+        globalStore.set(briefingSeenMarksAtom, prevMarks);
         loadBriefing();
     };
 }

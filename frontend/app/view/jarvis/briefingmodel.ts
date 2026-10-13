@@ -15,7 +15,7 @@ export const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 // being discarded here. capRegion applies them.
 export const EFFORT_CAP = 6;
 export const ACTIVE_CAP = 8;
-export const DELTA_CAP = 10;
+export const DELTA_CAP = 5;
 export const SHIPPED_CAP = 3;
 
 export interface CappedRows<T> {

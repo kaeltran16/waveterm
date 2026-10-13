@@ -85,6 +85,7 @@ import {
     lineOpenTarget,
     projectName,
     queueLine,
+    readsAsInView,
     RUN_KIND_FILTERS,
     runKindLegs,
     runRowFace,
@@ -430,6 +431,10 @@ const briefExpandedAtom = atom<Partial<Record<RegionId, boolean>>>({});
 // the same reason as the two above.
 const briefStaleOpenAtom = atom(false);
 const briefShippedOpenAtom = atom(false);
+// how long Behind you must stay on screen before its rows count as seen
+const BEHIND_DWELL_MS = 10_000;
+const IN_VIEW_STEPS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
+
 // which kind of run Runs and Shipped each show; module scope for the same reason
 const briefRunKindAtom = atom<RunKindFilter>("all") as PrimitiveAtom<RunKindFilter>;
 const briefShippedKindAtom = atom<RunKindFilter>("all") as PrimitiveAtom<RunKindFilter>;
@@ -587,16 +592,35 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         globalStore.set(persistedSubjectAtom, null);
     }, [storedSubject, dossiers, channels, restoreConsumed, consumeRestore]);
 
-    // dwell, not load: a glance-and-close must leave the delta unseen so it repeats on the next visit.
+    // dwell, not load: a glance-and-close must leave the delta unseen so it repeats on the next visit. The
+    // dwell counts only while Behind you is on screen: it sits below Runs, so a dwell on the Brief alone
+    // marked rows seen that were never scrolled to.
     const snapshotComplete = snapshot?.complete === true;
     const queryStartedAt = snapshot?.queryStartedAt;
+    const [behindEl, setBehindEl] = useState<HTMLElement | null>(null);
+    const [behindInView, setBehindInView] = useState(false);
     useEffect(() => {
-        if (!snapshotComplete) {
+        if (behindEl == null) {
+            setBehindInView(false);
             return;
         }
-        const t = window.setTimeout(ackBriefingVisit, 3000);
+        const io = new IntersectionObserver(
+            ([e]) =>
+                setBehindInView(
+                    readsAsInView(e.intersectionRect.height, e.boundingClientRect.height, window.innerHeight)
+                ),
+            { threshold: IN_VIEW_STEPS }
+        );
+        io.observe(behindEl);
+        return () => io.disconnect();
+    }, [behindEl]);
+    useEffect(() => {
+        if (!snapshotComplete || !behindInView) {
+            return;
+        }
+        const t = window.setTimeout(ackBriefingVisit, BEHIND_DWELL_MS);
         return () => window.clearTimeout(t);
-    }, [snapshotComplete, queryStartedAt]);
+    }, [snapshotComplete, queryStartedAt, behindInView]);
 
     const agents = fixture != null ? BRIEFING_FIXTURES[fixture].agents : liveAgents;
     // the plan-gate modal reads the roster out of this atom, and the Stage was its only writer
@@ -1737,7 +1761,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                     </Region>
                                 ) : null}
                                 {view.shows("behind") ? (
-                                    <section data-jarvis-brief-region="behind" className="flex flex-col gap-[9px]">
+                                    <section
+                                        ref={setBehindEl}
+                                        data-jarvis-brief-region="behind"
+                                        className="flex flex-col gap-[9px]"
+                                    >
                                         <div className="flex items-center gap-[9px]">
                                             <span className={cn(REGION_LABEL, "text-ink-mid")}>Behind you</span>
                                             <span className="h-px min-w-3 flex-1 bg-edge-faint" />

@@ -267,6 +267,12 @@ export function sessionWindow(
 export type RunKindFilter = "all" | "orchestrator" | "quick";
 export const RUN_KIND_FILTERS: readonly RunKindFilter[] = ["all", "orchestrator", "quick"];
 
+// Whether Behind you is on screen enough to have been read: half of it, or half the viewport when it is
+// taller than that. Any visible pixel was too loose, since its head peeks in below Runs while you read them.
+export function readsAsInView(visible: number, height: number, viewport: number): boolean {
+    return height > 0 && visible >= Math.min(height, viewport) / 2;
+}
+
 export type RunType = "quick run" | "orchestrator";
 
 export function runType(mode: string): RunType {

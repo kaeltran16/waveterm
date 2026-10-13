@@ -320,7 +320,7 @@ describe("briefing projection", () => {
         const m = projectBriefing(input(state));
         expect(m.delta).toHaveLength(12);
         expect(m.counts.delta).toBe(12); // the pill keeps the true count
-        expect(capRegion(m.delta, DELTA_CAP, false)).toMatchObject({ more: 2 });
+        expect(capRegion(m.delta, DELTA_CAP, false)).toMatchObject({ more: 7 });
     });
 
     it("projects every active leg and shipped row, each capped on its own", () => {

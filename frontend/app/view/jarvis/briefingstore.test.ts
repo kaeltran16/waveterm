@@ -33,8 +33,12 @@ import {
     ackBriefingVisit,
     briefingAckAtom,
     briefingCursorAtom,
+    briefingSeenMarksAtom,
     briefingStateAtom,
     loadBriefingAsync,
+    markBriefingSeen,
+    SEEN_HOLD_MS,
+    settleSeen,
 } from "./briefingstore";
 
 const T0 = 1_800_000_000_000;
@@ -55,6 +59,7 @@ describe("briefing cursor", () => {
         lsMock.clear();
         lsMock.failWrites = false;
         globalStore.set(briefingCursorAtom, null);
+        globalStore.set(briefingSeenMarksAtom, []);
         globalStore.set(briefingAckAtom, "idle");
         vi.spyOn(Date, "now").mockReturnValue(T0);
         (RpcApi.JarvisStateCommand as ReturnType<typeof vi.fn>).mockReset();
@@ -73,7 +78,9 @@ describe("briefing cursor", () => {
         const st = globalStore.get(briefingStateAtom);
         expect(st.snapshot?.complete).toBe(true);
         ackBriefingVisit();
-        expect(globalStore.get(briefingCursorAtom)).toBe(T0);
+        // the look is held, not applied: the cursor waits out the hour
+        expect(globalStore.get(briefingCursorAtom)).toBe(null);
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([{ through: T0, at: T0 }]);
         expect(globalStore.get(briefingAckAtom)).toBe("saved");
     });
 
@@ -100,7 +107,7 @@ describe("briefing cursor", () => {
         resolve({ state: completeState() });
         await pending;
         ackBriefingVisit();
-        expect(globalStore.get(briefingCursorAtom)).toBe(T0);
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([{ through: T0, at: T0 + 60_000 }]);
     });
 
     it("does not advance on RPC failure and keeps the previous snapshot", async () => {
@@ -124,6 +131,7 @@ describe("briefing cursor", () => {
         expect(st.snapshot?.state.sources.runs).toBe(false);
         ackBriefingVisit();
         expect(globalStore.get(briefingCursorAtom)).toBe(T0 - DAY);
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([]);
         expect(globalStore.get(briefingAckAtom)).toBe("waiting");
     });
 
@@ -136,7 +144,7 @@ describe("briefing cursor", () => {
         resolveA({ state: completeState() }); // generation A lands late
         await a;
         ackBriefingVisit();
-        expect(globalStore.get(briefingCursorAtom)).toBe(T0);
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([{ through: T0, at: T0 }]);
         expect(globalStore.get(briefingStateAtom).snapshot?.queryStartedAt).toBe(T0);
     });
 
@@ -160,5 +168,66 @@ describe("briefing cursor", () => {
         await loadBriefingAsync();
         ackBriefingVisit();
         expect(globalStore.get(briefingCursorAtom)).toBe(T0 + 10_000);
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([]);
+    });
+
+    it("keeps seen rows for the hold, then clears them on the next load", async () => {
+        globalStore.set(briefingCursorAtom, T0 - DAY);
+        mockStateRpc(completeState());
+        await loadBriefingAsync();
+        ackBriefingVisit();
+
+        vi.spyOn(Date, "now").mockReturnValue(T0 + SEEN_HOLD_MS - 1);
+        await loadBriefingAsync();
+        expect(globalStore.get(briefingStateAtom).snapshot?.actualCursor).toBe(T0 - DAY);
+
+        vi.spyOn(Date, "now").mockReturnValue(T0 + SEEN_HOLD_MS);
+        await loadBriefingAsync();
+        expect(globalStore.get(briefingStateAtom).snapshot?.actualCursor).toBe(T0);
+        expect(globalStore.get(briefingCursorAtom)).toBe(T0);
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([]);
+    });
+
+    it("holds each look on its own clock, so a later look does not delay an earlier one", async () => {
+        mockStateRpc(completeState());
+        await loadBriefingAsync();
+        ackBriefingVisit(); // seen through T0 at T0
+
+        vi.spyOn(Date, "now").mockReturnValue(T0 + SEEN_HOLD_MS / 2);
+        await loadBriefingAsync();
+        ackBriefingVisit(); // seen through T0 + half the hold
+
+        vi.spyOn(Date, "now").mockReturnValue(T0 + SEEN_HOLD_MS);
+        await loadBriefingAsync();
+        expect(globalStore.get(briefingStateAtom).snapshot?.actualCursor).toBe(T0);
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([
+            { through: T0 + SEEN_HOLD_MS / 2, at: T0 + SEEN_HOLD_MS / 2 },
+        ]);
+    });
+
+    it("mark seen clears at once and its undo restores the held marks", async () => {
+        globalStore.set(briefingCursorAtom, T0 - DAY);
+        mockStateRpc(completeState());
+        await loadBriefingAsync();
+        ackBriefingVisit();
+        const undo = markBriefingSeen();
+        expect(globalStore.get(briefingCursorAtom)).toBe(T0);
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([]);
+        undo();
+        expect(globalStore.get(briefingCursorAtom)).toBe(T0 - DAY);
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([{ through: T0, at: T0 }]);
+    });
+});
+
+describe("settleSeen", () => {
+    it("never moves the cursor back for a mark behind it", () => {
+        expect(settleSeen(T0, [{ through: T0 - DAY, at: T0 - DAY }], T0)).toEqual({ cursor: T0, marks: [] });
+    });
+
+    it("drops malformed marks from storage", () => {
+        expect(settleSeen(null, [{ through: "x" } as unknown as { through: number; at: number }], T0)).toEqual({
+            cursor: null,
+            marks: [],
+        });
     });
 });
