@@ -163,6 +163,36 @@ describe("extractShellTasks", () => {
         expect(extractShellTasks([...startWait, userString(killed)])).toEqual([]);
     });
 
+    it("drops a task the agent stopped with TaskStop, which writes no notification", () => {
+        const stop = JSON.stringify({
+            type: "assistant",
+            message: {
+                role: "assistant",
+                content: [{ type: "tool_use", id: "toolu_02St", name: "TaskStop", input: { task_id: "bqjiuoxr7" } }],
+            },
+        });
+        const stopped = JSON.stringify({
+            type: "user",
+            message: {
+                role: "user",
+                content: [
+                    {
+                        tool_use_id: "toolu_02St",
+                        type: "tool_result",
+                        content: '{"message":"Successfully stopped task: bqjiuoxr7 (sleep 30)","task_id":"bqjiuoxr7"}',
+                    },
+                ],
+            },
+            toolUseResult: {
+                message: "Successfully stopped task: bqjiuoxr7 (sleep 30)",
+                task_id: "bqjiuoxr7",
+                task_type: "local_bash",
+                command: "sleep 30",
+            },
+        });
+        expect(extractShellTasks([...startWait, stop, stopped])).toEqual([]);
+    });
+
     it("drops a task stopped when the previous session ended, including the multi-task form with no task-id", () => {
         const single = notification(
             "bqjiuoxr7",

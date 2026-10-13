@@ -133,7 +133,8 @@ function notificationContent(rec: any): string | null {
 
 /** Pure: the running and failed background shell tasks in transcript JSONL lines, in start order.
  *  A start is a user record carrying toolUseResult.backgroundTaskId; a <task-notification> for that
- *  id (queue-operation enqueue or user-role string, the later one winning) settles it. A notification
+ *  id (queue-operation enqueue or user-role string, the later one winning) settles it, and a
+ *  successful TaskStop result for it drops it. A notification
  *  for an id with no start in the lines is ignored. Unparseable lines are skipped. */
 export function extractShellTasks(lines: string[]): ShellTask[] {
     const toolUses = new Map<string, any>();
@@ -156,6 +157,13 @@ export function extractShellTasks(lines: string[]): ShellTask[] {
                     toolUses.set(block.id, block);
                 }
             }
+            continue;
+        }
+        // a TaskStop usually writes no killed notification; its success result is the only record.
+        // a failed stop's toolUseResult is an error string, so it never matches.
+        const stoppedId = rec.type === "user" ? rec?.toolUseResult?.task_id : undefined;
+        if (typeof stoppedId === "string" && tasks.has(stoppedId)) {
+            tasks.get(stoppedId).state = "gone";
             continue;
         }
         const started = rec.type === "user" ? startedTask(rec, toolUses) : null;
