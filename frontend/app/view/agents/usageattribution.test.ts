@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     buildAttribution,
+    classSplit,
     itemScopeKey,
     listPage,
     otherFoldersText,
@@ -10,6 +11,7 @@ import {
     scopeItems,
     scopeList,
     scopeSplit,
+    splitTable,
     type SplitPart,
     type WorkScope,
 } from "./usageattribution";
@@ -256,6 +258,15 @@ describe("splits", () => {
         expectSumsTo(quick);
     });
 
+    it("names each split's label column", () => {
+        const headOf = (scope: WorkScope) => scopeSplit(attr, scope, statsOf(scope).split).head;
+        expect(headOf(ALL)).toBe("project");
+        expect(headOf(project)).toBe("kind");
+        expect(headOf(run)).toBe("role");
+        expect(headOf(session)).toBe("class");
+        expect(classSplit(statsOf(ALL).split).head).toBe("class");
+    });
+
     it("gives a project the aggregate of exactly its buckets, and All usage today's totals", () => {
         const mine = buckets.filter((b) => ["lead", "w1", "w2", "rev", "ver", "quick", "solo"].includes(b.session));
         expect(statsOf(project)).toEqual(aggregateBuckets(mine, NOW));
@@ -341,5 +352,70 @@ describe("ranked list", () => {
         expect(listPage(scopeList(few, ALL, "last 7 days")!, false).moreLabel).toBe("Show all 10");
         const short = buildAttribution([bkt("only", 1)], []);
         expect(listPage(scopeList(short, ALL, "last 7 days")!, false).hasMore).toBe(false);
+    });
+});
+
+describe("split table", () => {
+    const part = (key: string, tokens: number, spendUsd: number): SplitPart => ({
+        key,
+        label: key,
+        fill: "bg-accent",
+        tokens,
+        spendUsd,
+    });
+
+    it("orders rows by spend even where the token order differs", () => {
+        const table = splitTable({
+            parts: [part("cacheRead", 80 * M, 4), part("cacheWrite", 5 * M, 30), part("output", 10 * M, 20)],
+            head: "class",
+            note: "",
+        });
+        expect(table.head).toBe("class");
+        expect(table.rows.map((r) => r.key)).toEqual(["cacheWrite", "output", "cacheRead"]);
+    });
+
+    it("breaks spend ties by tokens, then key", () => {
+        const table = splitTable({
+            parts: [part("b", 1, 0), part("a", 1, 0), part("c", 2, 0)],
+            head: "kind",
+            note: "",
+        });
+        expect(table.rows.map((r) => r.key)).toEqual(["c", "a", "b"]);
+    });
+
+    it("totals the columns and gives each row its share of them", () => {
+        const table = splitTable({
+            parts: [part("a", 3 * M, 30), part("b", 1 * M, 10)],
+            head: "project",
+            note: "",
+        });
+        expect(table.tokens).toBe(sum(table.rows, (r) => r.tokens));
+        expect(table.spendUsd).toBe(sum(table.rows, (r) => r.spendUsd));
+        expect(table.rows.map((r) => [r.tokenPct, r.spendPct, r.tokenBarPct, r.spendBarPct])).toEqual([
+            [75, 75, 75, 75],
+            [25, 25, 25, 25],
+        ]);
+    });
+
+    it("reads 0, never NaN, when nothing is priced", () => {
+        const table = splitTable({ parts: [part("a", 3 * M, 0), part("b", 1 * M, 0)], head: "class", note: "" });
+        expect(table.spendUsd).toBe(0);
+        for (const r of table.rows) {
+            expect(r.spendPct).toBe(0);
+            expect(r.spendBarPct).toBe(0);
+        }
+    });
+
+    it("keeps a tiny non-zero share visible and draws nothing for a zero one", () => {
+        const table = splitTable({
+            parts: [part("big", 1_000_000, 1000), part("tiny", 1, 0.0001), part("none", 0, 0)],
+            head: "project",
+            note: "",
+        });
+        const tiny = table.rows.find((r) => r.key === "tiny")!;
+        expect(tiny.tokenPct).toBeLessThan(0.3);
+        expect([tiny.tokenBarPct, tiny.spendBarPct]).toEqual([0.3, 0.3]);
+        const none = table.rows.find((r) => r.key === "none")!;
+        expect([none.tokenPct, none.tokenBarPct, none.spendBarPct]).toEqual([0, 0, 0]);
     });
 });
