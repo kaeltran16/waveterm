@@ -8,6 +8,7 @@
 export interface ShellTask {
     id: string;
     description: string;
+    command?: string; // verbatim, which the kill matches the task's process by
     startedTs?: number;
     outputPath?: string;
 }
@@ -68,17 +69,19 @@ function startedTask(rec: any, toolUses: Map<string, any>): ShellTask | null {
     }
     const result = content.find((b: any) => b?.type === "tool_result");
     const input = toolUses.get(result?.tool_use_id)?.input ?? {};
+    const command = typeof input.command === "string" ? input.command : "";
     const description =
         typeof input.description === "string" && input.description.trim() !== ""
             ? input.description.trim()
-            : String(input.command ?? "").slice(0, COMMAND_DESCRIPTION_MAX);
+            : command.slice(0, COMMAND_DESCRIPTION_MAX);
     const outputPath =
-        redirectTarget(String(input.command ?? ""), typeof rec.cwd === "string" ? rec.cwd : undefined) ??
+        redirectTarget(command, typeof rec.cwd === "string" ? rec.cwd : undefined) ??
         /Output is being written to: (.+?)\.(?:\s|$)/.exec(toolResultText(result?.content))?.[1];
     const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
     return {
         id,
         description,
+        ...(command !== "" ? { command } : {}),
         ...(Number.isFinite(ts) ? { startedTs: ts } : {}),
         ...(outputPath ? { outputPath } : {}),
     };
@@ -180,6 +183,21 @@ export function extractShellTasks(lines: string[]): ShellTask[] {
 
 export function isStandingBy(state: string, tasks: ShellTask[]): boolean {
     return state === "idle" && tasks.length > 0;
+}
+
+/** Pure: what to tell the user after a kill, or null when the row leaving says it. */
+export function shellKillNote(r: ResMonKillRtnData, description: string): string | null {
+    switch (r.outcome) {
+        case "killed":
+            return null;
+        case "gone":
+            return `"${description}" had already ended.`;
+        case "failed":
+            // the OS text ends in its own period
+            return `Could not kill "${description}"${r.error ? `: ${r.error.replace(/\.$/, "")}` : ""}.`;
+        default:
+            return `Not killed: "${description}" is not a process of this agent's tab.`;
+    }
 }
 
 export function shellTasksLabel(n: number): string {

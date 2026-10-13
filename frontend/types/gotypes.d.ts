@@ -1356,6 +1356,14 @@ declare global {
         tree: boolean;
     };
 
+    // wshrpc.CommandResMonKillShellTaskData
+    type CommandResMonKillShellTaskData = {
+        ownerid: string;
+        taskid: string;
+        command: string;
+        startedts: number;
+    };
+
     // wshrpc.CommandResMonSnapshotData
     type CommandResMonSnapshotData = object;
 

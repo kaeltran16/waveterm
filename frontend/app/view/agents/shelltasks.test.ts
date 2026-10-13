@@ -7,6 +7,7 @@ import {
     isStandingBy,
     outputTail,
     redirectTarget,
+    shellKillNote,
     shellTasksLabel,
     type ShellTask,
 } from "./shelltasks";
@@ -89,11 +90,12 @@ const waitDone = notification(
 );
 
 describe("extractShellTasks", () => {
-    it("lists a running task with its description, start time and output path", () => {
+    it("lists a running task with its description, command, start time and output path", () => {
         expect(extractShellTasks(startWait)).toEqual([
             {
                 id: "bqjiuoxr7",
                 description: "Wait 30 seconds in the background",
+                command: "sleep 30",
                 startedTs: Date.parse("2026-10-06T08:55:39.046Z"),
                 outputPath: `${OUT_DIR}\\bqjiuoxr7.output`,
             },
@@ -311,6 +313,22 @@ describe("isStandingBy", () => {
             expect(isStandingBy(state, running)).toBe(false);
             expect(isStandingBy(state, [])).toBe(false);
         }
+    });
+});
+
+describe("shellKillNote", () => {
+    it("says nothing for a kill, since the row leaving says it", () => {
+        expect(shellKillNote({ outcome: "killed", killed: 2 }, "Run the dev app")).toBeNull();
+    });
+
+    it("names the task for every other outcome, with the OS text on a failure", () => {
+        expect(shellKillNote({ outcome: "gone", killed: 0 }, "Run the dev app")).toBe(
+            '"Run the dev app" had already ended.'
+        );
+        expect(shellKillNote({ outcome: "failed", killed: 0, error: "Access is denied." }, "Run the dev app")).toBe(
+            'Could not kill "Run the dev app": Access is denied.'
+        );
+        expect(shellKillNote({ outcome: "refused", killed: 0 }, "Run the dev app")).toMatch(/^Not killed: /);
     });
 });
 

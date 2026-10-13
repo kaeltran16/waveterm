@@ -6,12 +6,13 @@
 // leave. Standing by is not stored here: consumers derive it with isStandingBy from the agent's state and
 // its entry. Also holds which task's output peek is open.
 
+import { pushToast } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentVM } from "./agentsviewmodel";
-import { extractShellTasks, outputTail, SHELL_TAIL_LINES, type ShellTask } from "./shelltasks";
+import { extractShellTasks, outputTail, SHELL_TAIL_LINES, shellKillNote, type ShellTask } from "./shelltasks";
 
 export interface ShellTaskPeekRef {
     parentId: string;
@@ -144,5 +145,31 @@ export async function readShellTaskOutput(path: string): Promise<string[]> {
         return outputTail(tr.lines ?? []);
     } catch {
         return [];
+    }
+}
+
+/** Kill a task's processes in its agent's block (pkg/resmon). A killed task leaves the list at once; claude
+ *  then reports it failed, so the next read agrees and a task still running comes back. */
+export async function killShellTask(parentId: string, blockId: string, task: ShellTask): Promise<void> {
+    let r: ResMonKillRtnData;
+    try {
+        r = await RpcApi.ResMonKillShellTaskCommand(TabRpcClient, {
+            ownerid: blockId,
+            taskid: task.id,
+            command: task.command ?? "",
+            startedts: task.startedTs ?? 0,
+        });
+    } catch (e) {
+        r = { outcome: "failed", killed: 0, error: e instanceof Error ? e.message : String(e) };
+    }
+    if (r.outcome === "killed") {
+        setList(
+            parentId,
+            (globalStore.get(shellTasksByIdAtom)[parentId] ?? []).filter((t) => t.id !== task.id)
+        );
+    }
+    const note = shellKillNote(r, task.description);
+    if (note != null) {
+        pushToast({ title: "Kill shell task", message: note, level: r.outcome === "gone" ? "info" : "error" });
     }
 }

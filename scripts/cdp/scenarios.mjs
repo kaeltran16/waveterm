@@ -12016,6 +12016,51 @@ const shellTasksScenario = {
             JSON.stringify(expanded)
         );
 
+        // 3b. Kill: a row's X shows on hover; right-click offers its output and Kill task. The fixture block has
+        // no live job, so the kill reaches wavesrv and comes back refused: a toast, and the row stays
+        const killAt = await centerOf(`taskRow("bshlines")`);
+        if (killAt) await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: killAt.x, y: killAt.y });
+        const kill = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            const x = () => taskRow("bshlines")?.querySelector("[data-shell-task-kill]");
+            await until(() => x() != null && getComputedStyle(x()).opacity === "1", 20);
+            const hovered = x() ? getComputedStyle(x()).opacity : null;
+            const other = taskRow(${JSON.stringify(SHELL_RUNNING.find((t) => t.id !== "bshlines").id)})?.querySelector("[data-shell-task-kill]");
+            const unhovered = other ? getComputedStyle(other).opacity : null;
+            return { label: x()?.getAttribute("aria-label"), hovered, unhovered };
+        })()`);
+        await h.shot("cdp-shots/shell-tasks-kill-hover.png");
+        const menu = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            const r = taskRow("bshlines").getBoundingClientRect();
+            taskRow("bshlines").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 40, clientY: r.top + 10 }));
+            const item = (label) => [...document.querySelectorAll("span.whitespace-nowrap")].find((el) => el.textContent === label)?.parentElement;
+            await until(() => item("Kill task") != null, 20);
+            return ["Show output", "Kill task"].filter((l) => item(l) != null);
+        })()`);
+        await h.shot("cdp-shots/shell-tasks-kill-menu.png");
+        const killed = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            const item = (label) => [...document.querySelectorAll("span.whitespace-nowrap")].find((el) => el.textContent === label)?.parentElement;
+            item("Kill task")?.click();
+            const toast = () => [...document.querySelectorAll("[data-notification-toast]")].find((t) => t.textContent.includes("Kill shell task"));
+            await until(() => toast() != null, 40);
+            const msg = text(toast());
+            toast()?.click();
+            return { toast: msg, rowStays: taskRow("bshlines") != null, menuClosed: item("Kill task") == null };
+        })()`);
+        rec(
+            "3b. Kill: the X shows on the hovered row only; right-click offers Show output and Kill task; a refused kill toasts and keeps the row",
+            kill.label === "Kill tail the dev server log" &&
+                kill.hovered === "1" &&
+                kill.unhovered === "0" &&
+                menu.join(",") === "Show output,Kill task" &&
+                killed.toast?.includes("Not killed") &&
+                killed.rowStays === true &&
+                killed.menuClosed === true,
+            JSON.stringify({ kill, menu, killed })
+        );
+
         // 4. Interactive: the output opens in a peek beside the tree, re-reads live, and every way it closes
         const clickRow = (id) =>
             h.ev(`(async () => {
