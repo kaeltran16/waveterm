@@ -91,6 +91,11 @@ export const lastCodeProjectAtom = atomWithStorage<CodeProject | null>("code.pro
 }) as PrimitiveAtom<CodeProject | null>;
 export const codeIndexAtom = atom<CodeIndex | null>(null) as PrimitiveAtom<CodeIndex | null>;
 export const codeIndexErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+// A directory that is not a repository: browsable, but with no change tracking. Derived from the one
+// index so nothing else has to be told; false while the index loads.
+export const codePlainAtom = atom((get) => get(codeIndexAtom)?.isRepo === false);
+// the reason a git-only affordance gives for being disabled in a plain directory
+export const NOT_TRACKED = "Not a git repository — no change tracking";
 export const codeExpandedAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
 export const codeFileAtom = atom<CodeFile>({ kind: "none" }) as PrimitiveAtom<CodeFile>;
 export const codeHistoryAtom = atom<History>(EMPTY_HISTORY) as PrimitiveAtom<History>;
@@ -267,7 +272,7 @@ export function canRestoreProject(stored: CodeProject | null, registry: Record<s
     return false;
 }
 
-export type CodeBodyPhase = "no-projects" | "no-project" | "error" | "loading" | "not-repo" | "ready";
+export type CodeBodyPhase = "no-projects" | "no-project" | "error" | "loading" | "ready";
 
 // What CodeBody shows. A stored project the restore effect is about to reopen is "loading": that effect
 // runs after the first paint, and "No project selected" there is a false claim. More states than LoadPhase
@@ -289,16 +294,17 @@ export function codeBodyPhase(p: {
     if (p.indexError != null) {
         return "error";
     }
-    if (p.index == null) {
-        return "loading";
-    }
-    return p.index.isRepo ? "ready" : "not-repo";
+    return p.index == null ? "loading" : "ready";
 }
 
 // Code's view of the one project list: name and path only, because a pick is persisted (lastCodeProjectAtom)
 export function registeredProjects(registry: Record<string, ProjectKeywords> | undefined): CodeProject[] {
     return buildProjectList(registry, null).map(({ name, path }) => ({ name, path }));
 }
+
+// The RPC default (5s) binds the server's context, which would cut a large directory walk short of the
+// server's own 10s limit; this ceiling sits above it so the walk's limit is the one that decides.
+const LIST_FILES_RPC_TIMEOUT_MS = 20_000;
 
 // Any project's file list, through the same cache Code browses with: the universal search's Files scope
 // lists the active project's files off Code, and a later visit to Code then starts warm.
@@ -307,7 +313,11 @@ export async function loadFileIndex(path: string): Promise<CodeIndex> {
     if (cached != null) {
         return cached;
     }
-    const res = await RpcApi.GitListFilesCommand(TabRpcClient, { cwd: path });
+    const res = await RpcApi.GitListFilesCommand(
+        TabRpcClient,
+        { cwd: path, allowplain: true },
+        { timeout: LIST_FILES_RPC_TIMEOUT_MS }
+    );
     const idx: CodeIndex = { paths: res.files ?? [], isRepo: res.isrepo, truncated: res.truncated ?? false };
     indexCache.set(path, idx);
     return idx;
