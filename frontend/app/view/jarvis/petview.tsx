@@ -11,10 +11,10 @@
 // It never draws a number. The nav badge owns the count; the avatar owns the kind (design §3).
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { wsLinkAtom } from "@/app/store/wslink";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { liveWindowAgents, providerPlanUsage } from "@/app/view/agents/agentsviewmodel";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
-import { mergeRateLimitWindows, savedRateLimitsAtom, topProviderUsage } from "@/app/view/agents/ratelimitstore";
+import { savedRateLimitsAtom } from "@/app/view/agents/ratelimitstore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion, useMotionValue, useReducedMotion } from "motion/react";
@@ -28,15 +28,21 @@ import { PetBubble } from "./petbubble";
 import { expressionFor, postureFor, type PetSignals } from "./petcondition";
 import { bubbleClick } from "./petjoin";
 import {
-    breathPhase,
+    activityLevel,
+    advancePhase,
+    breathFromPhase,
+    breathPeriodMs,
     idleOrbit,
     impulseEnvelope,
     JOLT_MS,
+    MAX_STEP_MS,
     nextFrameDelay,
+    pulseRate,
     RIPPLE_MS,
     utteranceEnvelope,
 } from "./petmotion";
 import { PetPeek } from "./petpeek";
+import { petSignalsFrom } from "./petsignals";
 import {
     markPetSpoke,
     petBubbleAtom,
@@ -46,18 +52,13 @@ import {
     petSpokeAtAtom,
     petUnreadAtom,
     petWatermarkAtom,
+    petWorkingOverrideAtom,
     rememberSaid,
     setPetCorner,
     setPetWatermark,
     type PetCorner,
 } from "./petstore";
 import { nextUtterance, unreadAfterLeaving, unreadAfterSaying } from "./petvoice";
-
-// pkg/jarvis/attention.go's three kinds. Named here rather than inlined so the mapping to the avatar's
-// posture vocabulary is one line to check against the server.
-const ATTENTION_GATE = "dag-gate";
-const ATTENTION_ESCALATION = "escalation";
-const ATTENTION_ASK = "ask";
 
 // The one utterance kind that ripples. Punctuation is not decoration on every event — a wave that crossed
 // the network for each of the ten kinds would be constant motion and would stop meaning anything. A
@@ -92,36 +93,16 @@ const AVATAR_PX = 132;
 // softness they buy back.
 const MAX_DPR = 2;
 
-function count(items: AttentionItem[], kind: string): number {
-    return items.reduce((n, i) => (i.kind === kind ? n + 1 : n), 0);
-}
-
 // Every signal the avatar reads.
 function usePetSignals(model: AgentsViewModel): PetSignals {
-    const agents = useAtomValue(model.agentsAtom);
-    const saved = useAtomValue(savedRateLimitsAtom);
-    const now = useAtomValue(model.nowAtom);
-    const attention = useAtomValue(attentionAtom);
-
-    const donuts = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now);
-    const top = topProviderUsage(donuts);
-    const rateLimit =
-        top != null
-            ? {
-                  provider: top.provider,
-                  pct: top.pct,
-                  resetAt: donuts.find((d) => d.provider === top.provider)?.fivehour.reset,
-              }
-            : undefined;
-
-    return {
-        rateLimit,
-        attention: {
-            reviewGates: count(attention, ATTENTION_GATE),
-            escalations: count(attention, ATTENTION_ESCALATION),
-            blockedWorkers: count(attention, ATTENTION_ASK),
-        },
-    };
+    return petSignalsFrom({
+        agents: useAtomValue(model.agentsAtom),
+        savedRateLimits: useAtomValue(savedRateLimitsAtom),
+        // the link atom only changes on open and close, so the 1s nowAtom is what sees the grace run out
+        now: useAtomValue(model.nowAtom),
+        attention: useAtomValue(attentionAtom),
+        link: useAtomValue(wsLinkAtom),
+    });
 }
 
 // Nearest corner from where the drag was released. Only the horizontal half of the drop is read: the
@@ -142,6 +123,9 @@ export function PetView({ model }: { model: AgentsViewModel }) {
     const events = useAtomValue(petEventsAtom);
     const watermark = useAtomValue(petWatermarkAtom);
     const agents = useAtomValue(model.agentsAtom);
+    const workingOverride = useAtomValue(petWorkingOverrideAtom);
+    // load is a tempo, never a presence: it does not enter `quiet` below
+    const working = workingOverride ?? agents.filter((a) => a.state === "working").length;
     const reduce = useReducedMotion() === true;
     // Both a ref and state for the same element: the bubble and the peek need it as state to re-position
     // when it lands, while the render loop needs it as a ref so acquiring it does not re-run the effect and
@@ -169,8 +153,8 @@ export function PetView({ model }: { model: AgentsViewModel }) {
 
     // Everything the loop needs, in a ref rather than in the closure: the loop is started once per mount,
     // and reading state through a ref keeps a condition change from tearing down the GL context.
-    const frameRef = useRef({ expression, posture, quiet, size, reduce });
-    frameRef.current = { expression, posture, quiet, size, reduce };
+    const frameRef = useRef({ expression, posture, quiet, size, reduce, working });
+    frameRef.current = { expression, posture, quiet, size, reduce, working };
 
     // The mood actually being drawn, which lags the condition while a change eases in. Seeded settled
     // rather than from at-rest, so booting into a fault shows the fault instead of animating into it —
@@ -182,6 +166,10 @@ export function PetView({ model }: { model: AgentsViewModel }) {
     // them directly, and putting them in state would re-render the component sixty times a second.
     const rippleAtRef = useRef<number | null>(null);
     const joltAtRef = useRef<number | null>(null);
+    // Accumulated rather than derived from the clock, so a change in the working count changes the tempo
+    // without jumping the breath or the pulses to another position.
+    const breathPhaseRef = useRef(0);
+    const pulseClockRef = useRef(0);
 
     useEffect(() => {
         const glCanvas = glCanvasRef.current;
@@ -253,6 +241,11 @@ export function PetView({ model }: { model: AgentsViewModel }) {
             // the user does not want any. The register still changes, it just does not travel there.
             moodRef.current = f.reduce ? settledMood(f.expression) : approachMood(moodRef.current, f.expression, dt);
 
+            const breathMs = breathPeriodMs(f.working);
+            const activity = activityLevel(f.working);
+            breathPhaseRef.current = advancePhase(breathPhaseRef.current, dt, breathMs);
+            pulseClockRef.current += (Math.max(0, Math.min(MAX_STEP_MS, dt)) / 1_000) * pulseRate(activity);
+
             const rippleAt = rippleAtRef.current;
             const rippleElapsed = rippleAt == null ? null : now - rippleAt;
             const ripple =
@@ -268,7 +261,9 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 now,
                 yaw: orbit.yaw,
                 pitch: orbit.pitch,
-                breath: breathPhase(now),
+                breath: breathFromPhase(breathPhaseRef.current),
+                activity,
+                pulseClock: pulseClockRef.current,
                 utterance: utteranceEnvelope(now, globalStore.get(petSpokeAtAtom)),
                 ripple,
                 jolt: impulseEnvelope(now, joltAtRef.current, JOLT_MS),
@@ -297,6 +292,9 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                     expression: f.expression.kind,
                     posture: f.posture,
                     renderer: live,
+                    working: f.working,
+                    breathMs: Math.round(breathMs),
+                    pulses: scene.pulses,
                 };
             }
             const delay = nextFrameDelay(resized, f.reduce);

@@ -130,7 +130,12 @@ describe("queueRows — the server's ranking is authoritative", () => {
 
 describe("dedupeUpdates — report each thing once", () => {
     const askEvent: PetEvent = { id: "ask:a1", at: 5, kind: "ask", text: "phase-2 worker is waiting", ref: "block:b1" };
-    const sweep: PetEvent = { id: "sweep:1", at: 4, kind: "sweep", text: "Swept the vault while you were out." };
+    const sweep: PetEvent = {
+        id: "sweep:1",
+        at: 4,
+        kind: "bg-agent-done",
+        text: "Swept the vault while you were out.",
+    };
 
     it("drops a spoken ask that is already a row in the queue", () => {
         expect(dedupeUpdates([askEvent, sweep], [ASK]).map((e) => e.id)).toEqual(["sweep:1"]);
@@ -254,6 +259,18 @@ describe("peekConditions — every standing condition, readout marked", () => {
         const [tired] = peekConditions({ rateLimit: HOT });
         expect(tired.expr.kind).toBe("tired");
         expect(tired.readout).toBe(true);
+    });
+
+    // a lost link has nothing to press; a held land's Retry land and Dismiss live on its own queue row
+    it("marks a lost link a readout and a held land not", () => {
+        const [link, held] = peekConditions({
+            link: { lostAt: 1_800_000_000_000 },
+            heldLand: { runName: "retry budget", reason: "conflict" },
+        });
+        expect(link.expr.kind).toBe("link-lost");
+        expect(link.readout).toBe(true);
+        expect(held.expr.kind).toBe("run-held");
+        expect(held.readout).toBe(false);
     });
 
     it("stays empty when nothing is degraded", () => {

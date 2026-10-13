@@ -47,7 +47,7 @@ func TestBuildAttentionFindsAHeldLandInANonActiveChannel(t *testing.T) {
 	got := items[0]
 	if got.Kind != AttentionRunLandHeld || got.RunId != "r1" || got.ChannelId != "c1" ||
 		got.ChannelName != "alpha" || got.Source != "refactor auth" ||
-		got.Action != "Review" || got.WaitingSince != 500 {
+		got.Action != "Review" || got.WaitingSince != 500 || got.Reason != "dirty" {
 		t.Fatalf("wrong held-land item: %+v", got)
 	}
 }
@@ -478,6 +478,11 @@ func TestUnverifiedRunNamesEachReasonUntilAcknowledged(t *testing.T) {
 	if got[0].Key != "run-unverified:r1" || got[0].ChannelId != "c1" || got[0].Action != "Acknowledge" || !strings.Contains(got[0].Why, "wsh runs ack r1") {
 		t.Fatalf("r1 item = %+v", got[0])
 	}
+	for _, item := range got {
+		if item.Reason != "" {
+			t.Fatalf("run-unverified %s reason = %q, want empty (reason is for run-land-held only)", item.RunId, item.Reason)
+		}
+	}
 }
 
 func TestHeldLandSaysWhy(t *testing.T) {
@@ -492,6 +497,9 @@ func TestHeldLandSaysWhy(t *testing.T) {
 	}
 	if !strings.Contains(got[0].Text, "the checkout is on x, not main") || !strings.Contains(got[0].Why, "wsh runs land r1") {
 		t.Fatalf("item = %+v, want the reason and the retry named", got[0])
+	}
+	if got[0].Reason != "the checkout is on x, not main" {
+		t.Fatalf("reason = %q, want the bare land reason", got[0].Reason)
 	}
 }
 

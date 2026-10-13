@@ -52,8 +52,7 @@ describe("eventFromVolunteer", () => {
         ref: "task:task-a",
     };
 
-    // volunteered knowledge points at exactly one thing, so its `sources` list has exactly one entry — the
-    // field is a list because a distillation pass carries several, not because this register ever does
+    // volunteered knowledge points at exactly one thing, so its `sources` list has exactly one entry
     it("maps a payload to an utterance carrying its one source", () => {
         const ev = eventFromVolunteer(base);
         expect(ev).not.toBeNull();

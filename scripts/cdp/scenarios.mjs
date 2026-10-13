@@ -3132,6 +3132,11 @@ const attentionCrossChannel = {
 const POPUP_URL = "popup.html";
 const POPUP_LABEL = "attention-popup";
 const POPUP_CARD = `document.querySelector("button[data-attention-popup]")`;
+const POPUP_AVATAR = `document.querySelector("canvas[data-attention-popup-avatar]")`;
+// POPUP_AVATAR_PX in frontend/app/view/agents/attentionpopup.ts
+const POPUP_AVATAR_PX = 96;
+// a dag the engine's tick leaves alone and the attention list holds no gate for
+const POPUP_LIFTED_STATUS = "cancelled";
 // BUBBLE_MS in frontend/app/view/jarvis/bubblecard.tsx: how long a bubble stays up
 const POPUP_BUBBLE_MS = 6000;
 const POPUP_LEAVE_SLACK_MS = 3000;
@@ -3250,15 +3255,21 @@ const POPUP_DETAIL = `(async () => {
           )
         : [];
     const name = card?.querySelector("[data-attention-popup-agent-name]");
-    // the visible card is the marked button's parent: it carries the border, the background and the shadow
-    const rect = card?.parentElement.getBoundingClientRect();
+    // the visible card is the marked button's parent: it carries the border, the background and the shadow.
+    // Its parent is the row (card and avatar) the window places in the corner.
+    const box = (el) => {
+        const r = el?.getBoundingClientRect();
+        return r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height } : null;
+    };
     return {
         card: card != null,
         visible,
         hasFocus: document.hasFocus(),
         position,
         size,
-        cardRect: rect ? { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom } : null,
+        rowRect: box(card?.parentElement.parentElement),
+        cardRect: box(card?.parentElement),
+        avatarRect: box(${POPUP_AVATAR}),
         monitor,
         label: text(plain[0]),
         name: text(name),
@@ -3284,19 +3295,59 @@ async function popupUntil(popup, want, ms) {
     return { ...state, ok: false, ms: Date.now() - start };
 }
 
-// how far, in physical px, the card's right and bottom edges are from where the 16px rule puts them. The card's
+// how far, in physical px, the row's right and bottom edges are from where the 16px rule puts them. The row's
 // rect is in the popup page's logical px, from the window's corner; the window's shadow room reaches past it.
 function popupEdgeError(d) {
     const scale = d?.monitor?.scaleFactor;
     const area = d?.monitor?.workArea;
-    if (!scale || !area || !d.position || !d.cardRect) return null;
-    const right = d.position.x + d.cardRect.right * scale;
-    const bottom = d.position.y + d.cardRect.bottom * scale;
+    if (!scale || !area || !d.position || !d.rowRect) return null;
+    const right = d.position.x + d.rowRect.right * scale;
+    const bottom = d.position.y + d.rowRect.bottom * scale;
     return {
         right: area.position.x + area.size.width - right - POPUP_MARGIN * scale,
         bottom: area.position.y + area.size.height - bottom - POPUP_MARGIN * scale,
     };
 }
+
+// both avatars' scenes once each wears posture. The popup's scene outlives its card, so a stale one from an earlier
+// bubble is waited out rather than read; the last pair read either way.
+const POPUP_FACE_WAIT_MS = 2000;
+async function popupFaces(h, popup, posture) {
+    const read = async (ev) => JSON.parse((await ev("JSON.stringify(window.__jarvisAvatarScene ?? null)")) ?? "null");
+    const start = Date.now();
+    let faces;
+    do {
+        faces = { popup: await read(popup.ev), main: await read(h.ev) };
+        if (faces.popup?.posture === posture && faces.main?.posture === posture) break;
+        await popupSleep(150);
+    } while (Date.now() - start < POPUP_FACE_WAIT_MS);
+    const pick = (s) => s && { expression: s.expression, posture: s.posture, renderer: s.renderer };
+    return { popup: pick(faces.popup), main: pick(faces.main) };
+}
+
+const popupSameFace = (f, posture) =>
+    f.popup?.renderer === "canvas" &&
+    f.popup.posture === posture &&
+    f.main?.posture === posture &&
+    f.popup.expression === f.main.expression;
+
+// polls the main page until a popup click has brought it to the run's sheet on Jarvis, focused
+async function popupLanded(h, ctx, since) {
+    let landed;
+    do {
+        landed = { surface: await h.activeSurfaceLabel(), ...(await h.ev(POPUP_MAIN_STATE)) };
+        if (landed.surface === SURFACE_LABEL.jarvis && landed.sheet === ctx.runId && landed.focused === true) break;
+        await popupSleep(200);
+    } while (Date.now() - since < POPUP_OPEN_WAIT_MS);
+    return landed;
+}
+
+const popupLandedOk = (before, landed, ctx) =>
+    before.surface === SURFACE_LABEL.usage &&
+    before.sheet !== ctx.runId &&
+    landed.surface === SURFACE_LABEL.jarvis &&
+    landed.sheet === ctx.runId &&
+    landed.focused === true;
 
 const popupRunItems = async (h, ctx) =>
     ((await h.rpc("getattention", null)).items || []).filter((i) => i.runid === ctx.runId && i.kind === ATTN_KIND);
@@ -3401,11 +3452,14 @@ const attentionPopup = {
         await seedDag(h, ctx, popupPark([first]), attnGateFingerprint);
         const raised = await popupUntil(popup, popupShown, POPUP_RAISE_WAIT_MS);
 
-        // steps 3 to 5 read and click inside the bubble's lifetime, and are judged after
+        // steps 3 to 7 read and click inside the bubble's lifetime, and are judged after
         let gate = null;
+        let gateFaces = null;
         if (raised.ok) {
             await popup.shot("cdp-shots/attention-popup-gate.png");
             gate = await popup.ev(POPUP_DETAIL);
+            gateFaces = await popupFaces(h, popup, "review-gate");
+            await popup.shot("cdp-shots/attention-popup-avatar.png");
             await popup.ev(`${POPUP_CARD}?.click()`);
         }
         const clickedAt = Date.now();
@@ -3427,7 +3481,7 @@ const attentionPopup = {
 
         const edges = popupEdgeError(gate);
         rec(
-            "3. the popup reads Review, the run's source and the gate's text, themed, its card 16px inside the work area's corner",
+            "3. the popup reads Review, the run's source and the gate's text, themed, its row 16px inside the work area's corner",
             gate.label === "Review" &&
                 gate.name === gateItem?.source &&
                 gate.text === gateItem?.text &&
@@ -3448,7 +3502,7 @@ const attentionPopup = {
                 edgeErrorPx: edges,
                 position: gate.position,
                 size: gate.size,
-                cardRect: gate.cardRect,
+                rowRect: gate.rowRect,
                 workArea: gate.monitor?.workArea,
                 scale: gate.monitor?.scaleFactor,
             })
@@ -3458,27 +3512,35 @@ const attentionPopup = {
             gate.visible === true && gate.card === true && gate.hasFocus === false,
             JSON.stringify({ visible: gate.visible, hasFocus: gate.hasFocus })
         );
-
-        let landed;
-        do {
-            landed = { surface: await h.activeSurfaceLabel(), ...(await h.ev(POPUP_MAIN_STATE)) };
-            if (landed.surface === SURFACE_LABEL.jarvis && landed.sheet === ctx.runId && landed.focused === true) break;
-            await popupSleep(200);
-        } while (Date.now() - clickedAt < POPUP_OPEN_WAIT_MS);
         rec(
-            "5. a click on the card opens the run's sheet on Jarvis and brings the main window forward",
-            before.surface === SURFACE_LABEL.usage &&
-                before.sheet !== ctx.runId &&
-                landed.surface === SURFACE_LABEL.jarvis &&
-                landed.sheet === ctx.runId &&
-                landed.focused === true,
+            "5. the popup's avatar wears the main window's face, review-gate while the gate stands, drawn on the 2D canvas",
+            popupSameFace(gateFaces, "review-gate"),
+            JSON.stringify(gateFaces)
+        );
+        const card = gate.cardRect;
+        const avatar = gate.avatarRect;
+        rec(
+            "6. the avatar is 96px, right of the card, its bottom edge level with the card's",
+            card != null &&
+                avatar != null &&
+                Math.abs(avatar.width - POPUP_AVATAR_PX) <= 0.5 &&
+                Math.abs(avatar.height - POPUP_AVATAR_PX) <= 0.5 &&
+                avatar.left > card.right &&
+                Math.abs(avatar.bottom - card.bottom) <= 1,
+            JSON.stringify({ card, avatar })
+        );
+
+        const landed = await popupLanded(h, ctx, clickedAt);
+        rec(
+            "7. a click on the card opens the run's sheet on Jarvis and brings the main window forward",
+            popupLandedOk(before, landed, ctx),
             JSON.stringify({ before, landed, runId: ctx.runId })
         );
 
         const closed = await popupUntil(popup, popupGone, POPUP_HIDE_WAIT_MS);
-        rec("6. after the click the popup holds no card and its window is hidden", closed.ok, JSON.stringify(closed));
+        rec("8. after the click the popup holds no card and its window is hidden", closed.ok, JSON.stringify(closed));
 
-        // 7. the override is still on this document: no reload since step 2. Two gates new in one poll make one bubble.
+        // 9. the override is still on this document: no reload since step 2. Two gates new in one poll make one bubble.
         const stillUnfocused = await h.ev("document.hasFocus()");
         await popupNextPoll(h);
         await seedDag(h, ctx, popupPark([first, second, third]), attnGateFingerprint);
@@ -3492,7 +3554,7 @@ const attentionPopup = {
         // the list is in rank order, so the first of the two is the one the bubble names
         const fresh = (await popupRunItems(h, ctx)).filter((i) => [second, third].includes(i.taskid));
         rec(
-            "7. two gates new in one poll raise one popup naming the first, with +1 more waiting",
+            "9. two gates new in one poll raise one popup naming the first, with +1 more waiting",
             stillUnfocused === false &&
                 more.ok &&
                 fresh.length === 2 &&
@@ -3513,19 +3575,54 @@ const attentionPopup = {
             ? await popupUntil(popup, popupGone, Math.max(0, moreAt + leaveBy - Date.now()))
             : { ok: false, why: "no popup to leave" };
         rec(
-            "8. with nothing clicked, the popup leaves by itself within BUBBLE_MS plus 3s",
+            "10. with nothing clicked, the popup leaves by itself within BUBBLE_MS plus 3s",
             left.ok,
             JSON.stringify({ ...left, sinceShownMs: Date.now() - moreAt, limitMs: leaveBy })
         );
 
-        // 9 and 10. an ask on the fixture run's worker block; Arc gaining focus hides the bubble well inside BUBBLE_MS
-        const askStep = "9. an ask raises a popup reading Asking you, the worker's name and the question";
-        const focusStep = "10. the popup leaves when Arc gains focus";
+        // 11. a fresh popup, raised the way step 9's was, for the last gate; its avatar is clicked instead of its card
+        await h.goto("usage");
+        const avatarBefore = { surface: await h.activeSurfaceLabel(), ...(await h.ev(POPUP_MAIN_STATE)) };
+        await popupNextPoll(h);
+        await seedDag(h, ctx, popupPark(POPUP_TASK_IDS), attnGateFingerprint);
+        const avatarRaised = await popupUntil(popup, popupShown, POPUP_RAISE_WAIT_MS);
+        const avatarClickedAt = Date.now();
+        let avatarClicked = false;
+        if (avatarRaised.ok) {
+            avatarClicked = await popup.ev(`(() => {
+                const avatar = ${POPUP_AVATAR};
+                avatar?.click();
+                return avatar != null;
+            })()`);
+        }
+        const avatarLanded = avatarRaised.ok ? await popupLanded(h, ctx, avatarClickedAt) : null;
+        const avatarClosed = avatarRaised.ok
+            ? await popupUntil(popup, popupGone, POPUP_HIDE_WAIT_MS)
+            : { ok: false, why: "no popup to click" };
+        rec(
+            "11. a click on the avatar lands where a card click does, and the popup hides",
+            avatarRaised.ok && avatarClicked && popupLandedOk(avatarBefore, avatarLanded, ctx) && avatarClosed.ok,
+            JSON.stringify({
+                raised: avatarRaised,
+                clicked: avatarClicked,
+                before: avatarBefore,
+                landed: avatarLanded,
+                closed: avatarClosed,
+            })
+        );
+
+        // 12 to 14. an ask on the fixture run's worker block, raised with the run's gates lifted so the ask is the only
+        // waiting kind; Arc gaining focus hides the bubble well inside BUBBLE_MS
+        const askStep = "12. an ask raises a popup reading Asking you, the worker's name and the question";
+        const askFaceStep = "13. the ask popup's avatar wears the main window's face, blocked-worker, drawn on the 2D canvas";
+        const focusStep = "14. the popup leaves when Arc gains focus";
         if (!ctx.workerBlockId) {
             rec(askStep, false, `the fixture run has no worker block to raise an ask on: ${JSON.stringify(ctx.workerSeen)}`);
+            rec(askFaceStep, false, "no popup to read");
             rec(focusStep, false, "no popup to hide");
         } else {
             const askORef = `block:${ctx.workerBlockId}`;
+            await seedDag(h, ctx, (dag) => ({ ...dag, status: POPUP_LIFTED_STATUS }), attnGateFingerprint);
             await popupNextPoll(h);
             await h.rpc("ask", {
                 oref: askORef,
@@ -3535,10 +3632,13 @@ const attentionPopup = {
             const asked = await popupUntil(popup, popupShown, POPUP_RAISE_WAIT_MS);
             const askedAt = Date.now();
             let askCard = null;
+            let askFaces = null;
             let hidden = { ok: false, why: "no popup to hide" };
             if (asked.ok) {
                 await popup.shot("cdp-shots/attention-popup-ask.png");
                 askCard = await popup.ev(POPUP_DETAIL);
+                askFaces = await popupFaces(h, popup, "blocked-worker");
+                await popup.shot("cdp-shots/attention-popup-avatar-ask.png");
                 await h.ev(`window.dispatchEvent(new Event("focus"))`);
                 hidden = await popupUntil(popup, popupGone, POPUP_FOCUS_HIDE_MS);
             }
@@ -3559,6 +3659,7 @@ const attentionPopup = {
                     card: askCard && { label: askCard.label, name: askCard.name, text: askCard.text, more: askCard.more },
                 })
             );
+            rec(askFaceStep, askFaces != null && popupSameFace(askFaces, "blocked-worker"), JSON.stringify(askFaces));
             rec(
                 focusStep,
                 hidden.ok && sinceShownMs < POPUP_BUBBLE_MS,
@@ -3566,7 +3667,7 @@ const attentionPopup = {
             );
         }
 
-        // 11. focused again, a new item raises nothing
+        // 15. focused again, a new item raises nothing: the gates, lifted for the ask, stand again
         await h.cdp("Page.removeScriptToEvaluateOnNewDocument", { identifier: ctx.unfocusScript });
         ctx.unfocusScript = null;
         await h.ev("delete document.hasFocus");
@@ -3592,7 +3693,7 @@ const attentionPopup = {
             else await popupSleep(500);
         }
         rec(
-            "11. with Arc focused, a new gate raises no popup within one poll",
+            "15. with Arc focused, a new gate raises no popup within one poll",
             focused === true && reported && noise == null,
             JSON.stringify({ focused, emulated: ctx.focusEmulated === true, reported, noise, watchedMs: Date.now() - quietFrom })
         );
@@ -3601,7 +3702,7 @@ const attentionPopup = {
             ctx.focusEmulated = false;
         }
 
-        // 12. the flash shares the popup's condition, so every popup above also asked for one
+        // 16. the flash shares the popup's condition, so every popup above also asked for one
         const errors = (await h.ev("window.__popupErrors")) ?? null;
         const refused = (errors ?? []).filter((line) => POPUP_FLASH_REFUSED.test(line));
         const direct = await h.ev(`(async () => {
@@ -3615,7 +3716,7 @@ const attentionPopup = {
             }
         })()`);
         rec(
-            "12. the taskbar flash request is accepted in the dev app",
+            "16. the taskbar flash request is accepted in the dev app",
             Array.isArray(errors) && refused.length === 0 && direct === "accepted",
             `CDP cannot see the taskbar button itself: this checks only that the request is accepted. ${JSON.stringify({
                 direct,
@@ -4735,6 +4836,301 @@ const jarvisAvatar = {
     },
     async teardown(h) {
         await h.goto("cockpit"); // leave the app where a human expects it
+    },
+};
+
+// --- jarvis avatar faults: link lost > run held > tired, each face in turn ----------------------
+// Link lost is held through the dev-only __waveLink hook, because a real ws drop reconnects at once and
+// stopping wavesrv would stop the dev app with it. Attention is injected through __wavePetStore, and the 10s
+// poll overwrites it, so each state's shot is taken promptly.
+const JARVIS_FAULT_HELD = {
+    key: "run-land-held:cdp-held",
+    kind: "run-land-held",
+    source: "retry budget",
+    text: "retry budget can't land.",
+    reason: "merge conflict in policy.go",
+    action: "Open",
+    waitingsince: 0,
+    channelid: "",
+    runid: "cdp-held",
+    phaseidx: 0,
+};
+const JARVIS_FAULT_GATE = {
+    key: "dag-gate:cdp-gate",
+    kind: "dag-gate",
+    source: "first gate",
+    text: "Approve the gate before the DAG proceeds.",
+    action: "Review",
+    waitingsince: 0,
+    channelid: "",
+    runid: "cdp-gate",
+    phaseidx: 0,
+};
+
+const jarvisAvatarFaults = {
+    name: "jarvis-avatar-faults",
+    surface: "cockpit",
+    async arrange(h) {
+        const ctx = { prevRate: await h.ev(`localStorage.getItem('wave:ratelimits')`) };
+        // a saved snapshot past the ok band would make step 1 tired, so the run starts with none
+        await h.ev(`localStorage.removeItem('wave:ratelimits')`);
+        await reloadApp(h);
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const scene = async () => JSON.parse((await h.ev("JSON.stringify(window.__jarvisAvatarScene ?? null)")) ?? "null");
+        // the scene is published by the frame loop, a render after the signal changes
+        const until = (expression, posture) =>
+            polishWaitFor(
+                h,
+                `window.__jarvisAvatarScene?.expression === ${JSON.stringify(expression)} && window.__jarvisAvatarScene?.posture === ${JSON.stringify(posture)}`,
+                5000
+            );
+        // past MOOD_TAU_MS a few times over, so the shot is the settled face and not the crossfade
+        const settle = () => h.ev("new Promise((r) => setTimeout(r, 1500))");
+        const setAttention = (items) =>
+            h.ev(`globalThis.__wavePetStore.setAttention(${JSON.stringify(items)}.map((i) => ({ ...i, waitingsince: Date.now() - 60000 })))`);
+        const openPeek = async () => {
+            await h.ev(`document.querySelector('[aria-label="Jarvis condition"]')?.click()`);
+            return polishWaitFor(h, `!!document.querySelector('[data-pet-peek]')`, 3000);
+        };
+        const closePeek = async () => {
+            await h.ev(`document.querySelector('[aria-label="Close Jarvis panel"]')?.click()`);
+            await polishWaitFor(h, `!document.querySelector('[data-pet-peek]')`, 3000);
+        };
+        const leadLine = (kind) =>
+            h.ev(`document.querySelector('[data-pet-condition=${JSON.stringify(kind)}]')?.textContent?.trim() ?? null`);
+        const state = async (step, expression, posture, shot, extra = async () => ({ ok: true })) => {
+            const reached = await until(expression, posture);
+            await settle();
+            const s = await scene();
+            const more = await extra();
+            await h.shot(`cdp-shots/jarvis-avatar-fault-${shot}.png`);
+            rec(
+                step,
+                reached && s?.expression === expression && s?.posture === posture && more.ok,
+                JSON.stringify({ expression: s?.expression, posture: s?.posture, toneVar: s?.toneVar, ...more })
+            );
+        };
+
+        try {
+            await h.goto("cockpit");
+            ctx.prevLink = await h.ev("JSON.stringify(globalThis.__waveLink?.get() ?? null)");
+            await h.ev(`globalThis.__waveLink.set({ connected: true, everConnected: true, lostAt: null })`);
+            await setAttention([]);
+            await state("1. with the link up and nothing waiting the avatar is at rest", "at-rest", "none", "at-rest");
+
+            await h.ev(`localStorage.setItem('wave:ratelimits', ${JSON.stringify(JSON.stringify(usageRateLimits()))})`);
+            await reloadApp(h);
+            await h.goto("cockpit");
+            ctx.prevLink = await h.ev("JSON.stringify(globalThis.__waveLink?.get() ?? null)");
+            await setAttention([]);
+            await state("2. a window past the ok band makes it tired", "tired", "none", "tired");
+
+            await h.ev(`globalThis.__waveLink.set({ connected: false, everConnected: true, lostAt: Date.now() - 10000 })`);
+            await state("3. a link down past the grace outranks tired, and the peek leads with it", "link-lost", "none", "link-lost", async () => {
+                const opened = await openPeek();
+                const line = await leadLine("link-lost");
+                return { ok: opened && String(line).startsWith("I can't reach the backend"), opened, line };
+            });
+            await closePeek();
+
+            await h.ev(`globalThis.__waveLink.set({ connected: true, everConnected: true, lostAt: null })`);
+            await setAttention([JARVIS_FAULT_HELD]);
+            await state("4. a held land outranks tired, and the peek names the run and the reason", "run-held", "none", "run-held", async () => {
+                const opened = await openPeek();
+                const line = await leadLine("run-held");
+                return {
+                    ok: opened && line === "retry budget can't land — merge conflict in policy.go.",
+                    opened,
+                    line,
+                };
+            });
+            await closePeek();
+
+            await setAttention([JARVIS_FAULT_HELD, JARVIS_FAULT_GATE]);
+            await state("5. a waiting gate composes with the held land as posture", "run-held", "review-gate", "run-held-gate");
+        } catch (e) {
+            rec("scenario aborted", false, String(e?.message ?? e));
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`jarvis-avatar-faults teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("close the peek", () => h.ev(`document.querySelector('[aria-label="Close Jarvis panel"]')?.click()`));
+        if (ctx?.prevLink != null && ctx.prevLink !== "null") {
+            await step("restore the link", () => h.ev(`globalThis.__waveLink?.set(${ctx.prevLink})`));
+        }
+        await step("clear the injected attention", () => h.ev(`globalThis.__wavePetStore?.setAttention([])`));
+        // the reload is what returns savedRateLimitsAtom to the restored snapshot
+        await step("restore the rate limits", async () => {
+            await h.ev(restoreLocalStorage("wave:ratelimits", ctx?.prevRate ?? null));
+            await reloadApp(h);
+        });
+        await step("return to cockpit", () => h.goto("cockpit"));
+    },
+};
+
+// --- jarvis avatar activity: the working count as tempo and inbound pulses, never presence -------
+// The count is held through the dev-only __wavePetStore.setWorking, because starting six real agents to
+// photograph a tempo is the trade setAttention already makes. motion's useReducedMotion reads the media
+// query once per page load, so the reduced-motion row reloads under the emulation.
+const JARVIS_ACTIVITY_ASK = {
+    key: "ask:cdp-activity",
+    kind: "ask",
+    source: "worker 3",
+    text: "Which branch should I rebase onto?",
+    action: "Answer",
+    waitingsince: 0,
+    channelid: "",
+    runid: "cdp-activity",
+    phaseidx: 0,
+};
+
+const jarvisAvatarActivity = {
+    name: "jarvis-avatar-activity",
+    surface: "cockpit",
+    async arrange(h) {
+        const ctx = { prevRate: await h.ev(`localStorage.getItem('wave:ratelimits')`) };
+        // a saved snapshot past the ok band would make the avatar tired, and tired is never quiet
+        await h.ev(`localStorage.removeItem('wave:ratelimits')`);
+        await reloadApp(h);
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const nap = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        const setWorking = (n) => h.ev(`globalThis.__wavePetStore.setWorking(${JSON.stringify(n)})`);
+        const setAttention = (items) =>
+            h.ev(`globalThis.__wavePetStore.setAttention(${JSON.stringify(items)}.map((i) => ({ ...i, waitingsince: Date.now() - 60000 })))`);
+        const opacity = async () =>
+            Number(await h.ev(`getComputedStyle(document.querySelector('[aria-label="Jarvis condition"]')).opacity`));
+        // the scene is published by the frame loop, so the count lands a frame after setWorking
+        const until = (working, posture) =>
+            polishWaitFor(
+                h,
+                `window.__jarvisAvatarScene?.working === ${working} && window.__jarvisAvatarScene?.posture === ${JSON.stringify(posture)}`,
+                5000
+            );
+        // pulses come and go by design, so a row reads several frames rather than one
+        const sample = async () => {
+            const seen = [];
+            for (let i = 0; i < 10; i++) {
+                seen.push(JSON.parse(await h.ev("JSON.stringify(window.__jarvisAvatarScene ?? null)")));
+                await nap(150);
+            }
+            return seen;
+        };
+        const row = async (step, { name, working, posture, attention, check }) => {
+            // the 10s attention poll can overwrite the injection before or during the samples, so a row whose
+            // posture drifted is read again from a fresh injection
+            let reached = false;
+            let seen = [];
+            let op = NaN;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                await setAttention(attention);
+                await setWorking(working);
+                reached = await until(working, posture);
+                // the opacity tween is 0.3s
+                await nap(400);
+                seen = await sample();
+                op = await opacity();
+                await h.shot(`cdp-shots/jarvis-avatar-activity-${name}-${working}.png`);
+                if (reached && seen.every((s) => s?.posture === posture)) break;
+            }
+            const last = seen[seen.length - 1];
+            const pulses = seen.map((s) => s?.pulses ?? -1);
+            const verdict = check({ breathMs: last?.breathMs, pulses, opacity: op });
+            rec(
+                step,
+                reached && seen.every((s) => s?.posture === posture) && verdict,
+                JSON.stringify({ working: last?.working, breathMs: last?.breathMs, posture: last?.posture, pulses, opacity: op })
+            );
+        };
+        const none = (p) => p.every((n) => n === 0);
+        const some = (p) => p.some((n) => n > 0);
+
+        try {
+            await h.goto("cockpit");
+            await h.ev(`globalThis.__wavePetStore.resetPeek()`);
+
+            await row("1. at rest with nothing working: the 4.8s breath and no pulses", {
+                name: "rest",
+                working: 0,
+                posture: "none",
+                attention: [],
+                check: (r) => r.breathMs === 4800 && none(r.pulses),
+            });
+            await row("2. two working: a quicker breath and pulses, still quiet at 40%", {
+                name: "rest",
+                working: 2,
+                posture: "none",
+                attention: [],
+                check: (r) =>
+                    r.breathMs >= 3300 && r.breathMs <= 3500 && some(r.pulses) && Math.abs(r.opacity - 0.4) < 0.05,
+            });
+            await row("3. six working: the 1.9s breath", {
+                name: "rest",
+                working: 6,
+                posture: "none",
+                attention: [],
+                check: (r) => r.breathMs === 1900 && some(r.pulses) && Math.abs(r.opacity - 0.4) < 0.05,
+            });
+
+            for (const working of [0, 2, 6]) {
+                await row(`4. a worker waiting, ${working} working: blocked-worker at full presence`, {
+                    name: "waiting",
+                    working,
+                    posture: "blocked-worker",
+                    attention: [JARVIS_ACTIVITY_ASK],
+                    check: (r) => r.opacity > 0.95 && (working === 0 ? none(r.pulses) : some(r.pulses)),
+                });
+            }
+
+            await h.cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+            ctx.mediaEmulated = true;
+            await reloadApp(h);
+            await h.goto("cockpit");
+            await row("5. reduced motion at six working: no pulses at all", {
+                name: "reduced",
+                working: 6,
+                posture: "none",
+                attention: [],
+                check: (r) => none(r.pulses),
+            });
+        } catch (e) {
+            rec("scenario aborted", false, String(e?.message ?? e));
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`jarvis-avatar-activity teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("release the working count", () => h.ev(`globalThis.__wavePetStore?.setWorking(null)`));
+        await step("clear the injected attention", () => h.ev(`globalThis.__wavePetStore?.setAttention([])`));
+        if (ctx?.mediaEmulated) {
+            await step("clear the media emulation", () => h.cdp("Emulation.setEmulatedMedia", { features: [] }));
+        }
+        // the reload returns savedRateLimitsAtom to the restored snapshot and motion to the real media query
+        await step("restore the rate limits", async () => {
+            await h.ev(restoreLocalStorage("wave:ratelimits", ctx?.prevRate ?? null));
+            await reloadApp(h);
+        });
+        await step("return to cockpit", () => h.goto("cockpit"));
     },
 };
 
@@ -18509,6 +18905,8 @@ export const SCENARIOS = [
     codeDiff,
     codeMarkdown,
     jarvisAvatar,
+    jarvisAvatarFaults,
+    jarvisAvatarActivity,
     briefSurface,
     briefPeek,
     peekCtrlClick,

@@ -187,6 +187,10 @@ export const petErrandAtom = atom<PetErrand | null>(null) as PrimitiveAtom<PetEr
 // below it already lands somewhere sensible on every launch.
 export const petPeekDestAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
+// A dev-only stand-in for the working-agent count (null = the live count), so the activity register can be
+// photographed at a chosen load without starting that many agents. Only the DEV hook below writes it.
+export const petWorkingOverrideAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
+
 // cdp drives inputs that are either too expensive to arrange through production (a volunteer judge) or
 // must be deterministic (the empty peek). This is compiled out of production builds.
 if (import.meta.env.DEV) {
@@ -209,5 +213,6 @@ if (import.meta.env.DEV) {
         setActStates: (state: Record<string, PetActState>) => globalStore.set(petActStateAtom, state ?? {}),
         // a reply in each status without a live consult behind it
         setErrand: (errand: PetErrand | null) => globalStore.set(petErrandAtom, errand),
+        setWorking: (n: number | null) => globalStore.set(petWorkingOverrideAtom, n ?? null),
     };
 }

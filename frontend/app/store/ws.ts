@@ -1,6 +1,8 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { globalStore } from "@/app/store/jotaiStore";
+import { linkClosed, linkOpened, wsLinkAtom } from "@/app/store/wslink";
 import { buildWsConnUrl, type WebSocket, newWebSocket } from "@/util/wsutil";
 import debug from "debug";
 import { sprintf } from "sprintf-js";
@@ -130,6 +132,8 @@ class WSControl {
         } else {
             dlog("connection error/disconnected");
         }
+        // a failed retry (neither open nor opening) still goes through linkClosed, which keeps the first drop time
+        globalStore.set(wsLinkAtom, linkClosed(globalStore.get(wsLinkAtom), Date.now()));
         if (this.open || this.opening) {
             this.open = false;
             this.opening = false;
@@ -141,6 +145,7 @@ class WSControl {
         dlog("connection open");
         this.open = true;
         this.opening = false;
+        globalStore.set(wsLinkAtom, linkOpened(globalStore.get(wsLinkAtom)));
         this.onOpenTimeoutId = setTimeout(() => {
             this.reconnectTimes = 0;
             dlog("clear reconnect times");

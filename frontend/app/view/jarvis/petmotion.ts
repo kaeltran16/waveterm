@@ -124,12 +124,63 @@ export function nextFrameDelay(resized: boolean, still: boolean): number {
     return (still ? STILL_FRAME_MS : MOTION_FRAME_MS) - VSYNC_SLACK_MS;
 }
 
-export const BREATH_MS = 4_200;
+// The resting breath; load shortens it toward BREATH_MIN_MS, reached at ACTIVITY_FULL working agents.
+export const BREATH_MS = 4_800;
+export const BREATH_MIN_MS = 1_900;
+export const ACTIVITY_FULL = 6;
+// Concave so the first few agents are felt: 2 working already sits near half load.
+const ACTIVITY_CURVE = 0.66;
+// Pulse-clock speed in cycles per second at the lightest load, and what full load adds on top.
+const PULSE_RATE_BASE = 0.25;
+const PULSE_RATE_SPAN = 0.75;
+// A backgrounded window can hand back a multi-second dt on its first frame; same clamp as approachMood.
+export const MAX_STEP_MS = 1_000;
+
+/** 0..1 load from the working-agent count: 0 at none, 1 at ACTIVITY_FULL or more. */
+export function activityLevel(working: number): number {
+    if (!Number.isFinite(working) || working <= 0) {
+        return 0;
+    }
+    return (Math.min(working, ACTIVITY_FULL) / ACTIVITY_FULL) ** ACTIVITY_CURVE;
+}
+
+export function breathPeriodMs(working: number): number {
+    return BREATH_MS - (BREATH_MS - BREATH_MIN_MS) * activityLevel(working);
+}
+
+// 0 at rest, so an idle avatar draws no pulses at all rather than slow ones.
+export function pulseRate(level: number): number {
+    if (!Number.isFinite(level) || level <= 0) {
+        return 0;
+    }
+    return PULSE_RATE_BASE + Math.min(level, 1) * PULSE_RATE_SPAN;
+}
+
+/**
+ * Accumulates a 0..1 phase by one frame's worth of the current period. The loop keeps the phase rather
+ * than deriving it from the clock, so a period change mid-breath changes the speed, never the position.
+ */
+export function advancePhase(phase: number, dtMs: number, periodMs: number): number {
+    const p = Number.isFinite(phase) ? phase : 0;
+    if (!Number.isFinite(periodMs) || !(periodMs > 0)) {
+        return p;
+    }
+    const dt = Number.isFinite(dtMs) ? Math.max(0, Math.min(MAX_STEP_MS, dtMs)) : 0;
+    const next = (p + dt / periodMs) % 1;
+    return next < 0 ? next + 1 : next;
+}
 
 // 0 at rest, 1 at full inhale, back to 0 — a raised cosine so there is no discontinuity at the loop point.
+export function breathFromPhase(phase: number): number {
+    if (!Number.isFinite(phase)) {
+        return 0;
+    }
+    return (1 - Math.cos(phase * Math.PI * 2)) / 2;
+}
+
 export function breathPhase(now: number, periodMs = BREATH_MS): number {
     if (!Number.isFinite(now) || !(periodMs > 0)) {
         return 0;
     }
-    return (1 - Math.cos((now / periodMs) * Math.PI * 2)) / 2;
+    return breathFromPhase(now / periodMs);
 }

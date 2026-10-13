@@ -84,10 +84,16 @@ const ORIGIN: Record<PetCorner, string> = {
 // unremedied condition ends in "no action" rather than in nothing. A spent window reads red, not amber:
 // the line already says "spent", and the dot must not understate it.
 function conditionDot(expr: PetExpression): string {
-    if (expr.kind === "tired") {
-        return expr.pct >= 100 ? "bg-error" : "bg-warning";
+    switch (expr.kind) {
+        case "link-lost":
+            return "bg-muted";
+        case "run-held":
+            return "bg-error";
+        case "tired":
+            return expr.pct >= 100 ? "bg-error" : "bg-warning";
+        default:
+            return "bg-success";
     }
-    return "bg-success";
 }
 
 // A waiting item's dot, by kind. Paired with the kind word (rowKindLabel), which is what keeps the kind

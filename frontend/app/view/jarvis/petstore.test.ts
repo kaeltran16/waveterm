@@ -4,7 +4,7 @@ import { petBubbleAtom, petEventsAtom, petSaidAtom, removePetEvent } from "./pet
 import type { PetEvent } from "./petvoice";
 
 const ASK: PetEvent = { id: "ask:a1", at: 2, kind: "ask", text: "which port?", ref: "block:b1" };
-const SWEEP: PetEvent = { id: "sweep:1", at: 1, kind: "sweep", text: "Swept the vault." };
+const SWEEP: PetEvent = { id: "sweep:1", at: 1, kind: "bg-agent-done", text: "Swept the vault." };
 
 describe("removePetEvent — answered means gone", () => {
     beforeEach(() => {

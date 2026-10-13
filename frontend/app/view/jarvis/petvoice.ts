@@ -4,11 +4,7 @@
 // What Jarvis has to say right now: at most one utterance per call, chosen from the events past the
 // last-seen watermark. Pure, for the same reason as petcondition.ts — the bubble is a renderer.
 //
-// Two rules from the design (§3):
-//   - Push once per event, then wait. One utterance, never a digest.
-//   - Report each thing once. An event whose `reportedAsCondition` is true is already visible in the
-//     condition level, so it is skipped here — but it still advances the watermark, because it *was*
-//     reported. Speaking it too would count the gardener's sweep twice.
+// The rule from the design (§3): push once per event, then wait. One utterance, never a digest.
 
 // Where a knowledge utterance points. `ref` is a frontend navigation address (see openref.ts), which
 // may carry a vault node id inside an oref-shaped string — the same thing askAboutRecord already does
@@ -27,8 +23,6 @@ export interface PetEvent {
     at: number; // epoch ms
     kind:
         | "resume"
-        | "sweep"
-        | "distill-batch"
         | "bg-agent-done"
         // volunteered knowledge: what Jarvis knows about your work, not what the system did
         | "connection"
@@ -47,10 +41,8 @@ export interface PetEvent {
     ref?: string;
     // said once: spoken like any other, but never remembered, and its bubble leaving marks nothing unread
     transient?: boolean;
-    reportedAsCondition?: boolean;
-    // Set on any utterance that has products to open: volunteered knowledge carries one, a distillation
-    // pass carries the notes it wrote. An utterance with none is either housekeeping that produced nothing
-    // openable, or (for a pass) not said at all — see petjoin.ts.
+    // Set on any utterance that has products to open: volunteered knowledge carries the one thing it is
+    // about. An utterance with none has nothing to open.
     sources?: PetEventSource[];
 }
 
@@ -60,8 +52,6 @@ export type NotifyLevel = "info" | "warn" | "error";
 // so the two cannot name the same event differently.
 const KIND_LABEL: Record<PetEvent["kind"], string> = {
     resume: "Where we were",
-    sweep: "While you were out",
-    "distill-batch": "While you were out",
     "bg-agent-done": "While you were out",
     connection: "This just connected",
     "loose-end": "Still open",
@@ -91,7 +81,7 @@ export interface PetSpeech {
     // what to say now, or null for silence
     utterance: PetEvent | null;
     // the watermark to store once said, or null when there was nothing new to consider. It is the newest
-    // event seen — not the one spoken — so a skipped condition-reported event is never re-offered.
+    // event seen.
     watermark: PetWatermark | null;
     // every new event worth remembering, newest first: one bubble speaks, but the peek reads back all of
     // them, so the rest of a burst is not lost behind the one that was said
@@ -113,11 +103,10 @@ export function nextUtterance(events: PetEvent[], seen: PetWatermark | null): Pe
     // narrating twenty stale ones one bubble at a time. The rest are recoverable from the peek.
     const newestFirst = [...unseen].sort((a, b) => (isNewer(a, b) ? -1 : 1));
     const newest = newestFirst[0];
-    const speakable = newestFirst.filter((e) => e.reportedAsCondition !== true);
     return {
-        utterance: speakable[0] ?? null,
+        utterance: newest,
         watermark: { at: newest.at, id: newest.id },
-        heard: speakable.filter((e) => e.transient !== true),
+        heard: newestFirst.filter((e) => e.transient !== true),
     };
 }
 

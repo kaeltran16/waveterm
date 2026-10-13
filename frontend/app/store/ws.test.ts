@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { globalStore } from "./jotaiStore";
 import { WSControl } from "./ws";
+import { INITIAL_LINK, wsLinkAtom } from "./wslink";
 
 function makeWS(): WSControl {
     const ws = new WSControl("", "stable", vi.fn());
@@ -63,5 +65,37 @@ describe("WSControl message queue", () => {
         ws.shutdown();
         expect(ws.noReconnect).toBe(true);
         expect(ws.pingIntervalId).toBeNull();
+    });
+});
+
+describe("WSControl link state", () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        globalStore.set(wsLinkAtom, INITIAL_LINK);
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it("marks the link connected on open and lost on a later close", () => {
+        const ws = makeWS();
+        ws.onopen({} as Event);
+        expect(globalStore.get(wsLinkAtom)).toEqual({ connected: true, everConnected: true, lostAt: null });
+
+        const before = Date.now();
+        ws.onclose({ wasClean: false } as CloseEvent);
+        const link = globalStore.get(wsLinkAtom);
+        expect(link.connected).toBe(false);
+        expect(link.everConnected).toBe(true);
+        expect(link.lostAt).toBeGreaterThanOrEqual(before);
+        expect(link.lostAt).toBeLessThanOrEqual(Date.now());
+    });
+
+    it("keeps the first drop time when a retry fails", () => {
+        const ws = makeWS();
+        ws.onopen({} as Event);
+        ws.onclose({ wasClean: false } as CloseEvent);
+        const lostAt = globalStore.get(wsLinkAtom).lostAt;
+        vi.setSystemTime(Date.now() + 5000);
+        ws.onclose({ wasClean: false } as CloseEvent);
+        expect(globalStore.get(wsLinkAtom).lostAt).toBe(lostAt);
     });
 });

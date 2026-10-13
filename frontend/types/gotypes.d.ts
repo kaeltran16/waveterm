@@ -184,6 +184,7 @@ declare global {
         runid?: string;
         source: string;
         text: string;
+        reason?: string;
         action: string;
         phaseidx: number;
         waitingsince: number;
