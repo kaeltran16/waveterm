@@ -17811,7 +17811,7 @@ async function surfaceHeadersAssert(h, ctx) {
         await h.ev(`localStorage.removeItem(${JSON.stringify(RATE_LIMITS_KEY)})`);
         await polishReload(h);
         const facts = {};
-        for (const [surface, word] of [["sessions", /\blive\b/i], ["usage", /\breporting\b/i]]) {
+        for (const [surface, word] of [["sessions", /\d+ agents? live\b/i], ["usage", /\breporting\b/i]]) {
             await h.goto(surface);
             const t = await toolbar();
             facts[surface] = { ...t, factShown: word.test(t?.text ?? "") };
