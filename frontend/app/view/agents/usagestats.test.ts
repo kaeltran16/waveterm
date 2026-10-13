@@ -5,6 +5,7 @@ import {
     bucketTokens,
     foldModels,
     modelGridClass,
+    modelKey,
     pctStr,
     type ModelUsage,
 } from "./usagestats";
@@ -197,6 +198,7 @@ describe("aggregateBuckets", () => {
             ],
             daily: [],
             providers: [],
+            models: [],
         });
     });
 
@@ -269,6 +271,71 @@ describe("aggregateBuckets", () => {
         expect(piOnly.totals.tokensWindow).toBe(400);
         expect(piOnly.availableHarnesses).toEqual(["pi", "claude"]);
         expect(piOnly.totals.tokensWindowByHarness.claude).toBeUndefined();
+    });
+
+    it("folds byModel per day per model, zero-fills idle days, and orders models by tokens", () => {
+        const opus = modelKey("claude", "anthropic", "claude-opus-4-8");
+        const sonnet = modelKey("claude", "anthropic", "claude-sonnet-4-5");
+        const stats = aggregateBuckets(
+            [
+                bkt({ day: "2026-06-24", input: 100 }),
+                bkt({ day: "2026-06-24", output: 50 }),
+                bkt({ day: today, model: "claude-sonnet-4-5", input: 400 }),
+            ],
+            now
+        );
+        expect(stats.daily.map((d) => d.day)).toEqual(["2026-06-24", "2026-06-25", today]);
+        expect(stats.daily[0].byModel[opus].tokens).toBe(150);
+        expect(stats.daily[0].byModel[opus].spendUsd).toBeGreaterThan(0);
+        expect(stats.daily[1].byModel).toEqual({});
+        expect(Object.keys(stats.daily[2].byModel)).toEqual([sonnet]);
+        expect(stats.models.map((m) => [m.key, m.tokens])).toEqual([
+            [sonnet, 400],
+            [opus, 150],
+        ]);
+        expect(stats.models[1]).toMatchObject({ harness: "claude", provider: "anthropic", model: "claude-opus-4-8" });
+    });
+
+    it("narrows byModel and models under a harness filter", () => {
+        const buckets = [
+            bkt({ harness: "pi", provider: "openai-codex", model: "gpt-5.5", day: today, input: 300 }),
+            bkt({ day: today, input: 200 }),
+        ];
+        const piOnly = aggregateBuckets(buckets, now, "pi");
+        const pi = modelKey("pi", "openai-codex", "gpt-5.5");
+        expect(Object.keys(piOnly.daily[0].byModel)).toEqual([pi]);
+        expect(piOnly.models.map((m) => m.key)).toEqual([pi]);
+    });
+
+    it("keeps the same model id under two harnesses as two series", () => {
+        const stats = aggregateBuckets(
+            [
+                bkt({ harness: "pi", provider: "openai-codex", model: "gpt-5.5", day: today, input: 300 }),
+                bkt({ harness: "codex", provider: "openai", model: "gpt-5.5", day: today, input: 200 }),
+            ],
+            now
+        );
+        const pi = modelKey("pi", "openai-codex", "gpt-5.5");
+        const codex = modelKey("codex", "openai", "gpt-5.5");
+        expect(pi).not.toBe(codex);
+        expect(stats.models.map((m) => m.key)).toEqual([pi, codex]);
+        expect(stats.daily[0].byModel[pi].tokens).toBe(300);
+        expect(stats.daily[0].byModel[codex].tokens).toBe(200);
+    });
+
+    it("excludes a model whose only bucket billed no tokens", () => {
+        const stats = aggregateBuckets(
+            [bkt({ day: today, input: 100 }), bkt({ day: today, model: "claude-haiku-4-5" })],
+            now
+        );
+        expect(stats.models.map((m) => m.model)).toEqual(["claude-opus-4-8"]);
+    });
+});
+
+describe("modelKey", () => {
+    it("is stable and unique per triple", () => {
+        expect(modelKey("pi", "a", "b")).toBe(modelKey("pi", "a", "b"));
+        expect(modelKey("pi", "a/b", "c")).not.toBe(modelKey("pi", "a", "b/c"));
     });
 });
 

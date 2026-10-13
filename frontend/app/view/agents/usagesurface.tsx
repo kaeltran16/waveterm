@@ -53,6 +53,7 @@ import {
     type WorkScope,
     type WorkSplit,
 } from "./usageattribution";
+import { modelLegend } from "./usagedaily";
 import {
     buildUsageRail,
     countReporting,
@@ -1026,14 +1027,15 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
 
     const hasHistory = stats.providers.length > 0 || stats.totals.tokensWindow > 0;
     const revealHistory = useDidBecomeTrue(hasHistory);
-    const railHarnesses = rows.map((r) => r.harness);
-    const chartHarnesses = work
-        ? all
-            ? railHarnesses
-            : railHarnesses.filter((h) => (stats.totals.tokensWindowByHarness[h] ?? 0) > 0)
-        : all
-          ? railHarnesses
-          : [sel];
+    const legend = useMemo(
+        () =>
+            modelLegend(
+                stats.models,
+                rows.map((r) => r.harness),
+                usageMetric
+            ),
+        [stats.models, rows, usageMetric]
+    );
     const windowLabel = usageWindow === "7d" ? "last 7 days" : "all time";
     const scopeLabel = work
         ? scope.kind === "item"
@@ -1220,7 +1222,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                     window={usageWindow}
                                     metric={usageMetric}
                                     onMetric={setUsageMetric}
-                                    harnesses={chartHarnesses}
+                                    legend={legend}
                                 />
 
                                 <div className={modelGridClass(stats.providers.length)}>

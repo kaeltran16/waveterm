@@ -54,6 +54,18 @@ export interface DailyHarnessUsage {
 export interface DailyUsage {
     day: string; // "YYYY-MM-DD"
     byHarness: Record<string, DailyHarnessUsage>;
+    byModel: Record<string, DailyHarnessUsage>; // keyed by modelKey
+}
+
+// one model's window totals. identity is harness + provider + model: pi's openai-codex/gpt-5.5 and
+// codex's openai/gpt-5.5 are two series, never one
+export interface ModelSeries {
+    key: string;
+    harness: string;
+    provider: string;
+    model: string;
+    tokens: number;
+    spendUsd: number;
 }
 
 export interface UsageStats {
@@ -84,6 +96,7 @@ export interface UsageStats {
     split: ClassUsage[]; // all providers, the window, fixed CLASS_ORDER
     daily: DailyUsage[]; // ascending; zero-filled idle days; every day in range (the chart brushes it)
     providers: ProviderUsage[]; // window-scoped by-model, grouped by upstream provider
+    models: ModelSeries[]; // window-scoped; tokens desc then key asc; zero-token models excluded
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -127,6 +140,11 @@ function enumerateDays(startKey: string, endKey: string): string[] {
         cur.setDate(cur.getDate() + 1);
     }
     return days;
+}
+
+// json of the triple: unique (no separator a model id could contain collides) and stable
+export function modelKey(harness: string, provider: string, model: string): string {
+    return JSON.stringify([harness, provider, model]);
 }
 
 // Reuse the pricing path by shaping a bucket as a UsageRecord (pricing reads model + token fields).
@@ -201,6 +219,8 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
     const classTok: Record<TokenClass, number> = { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 };
     const classSpd: Record<TokenClass, number> = { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 };
     const byDay = new Map<string, Record<string, DailyHarnessUsage>>();
+    const byDayModel = new Map<string, Record<string, DailyHarnessUsage>>();
+    const byModel = new Map<string, ModelSeries>();
     const byProvider = new Map<string, Map<string, { tokens: number; spend: number }>>();
     let minDay: string | null = null;
     let maxDay: string | null = null;
@@ -231,6 +251,26 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
         byDay.set(b.day, day);
         if (minDay == null || b.day < minDay) minDay = b.day;
         if (maxDay == null || b.day > maxDay) maxDay = b.day;
+
+        // daily series (window), keyed by model
+        const key = modelKey(b.harness, b.provider, b.model);
+        const dayModels = byDayModel.get(b.day) ?? {};
+        const dm = dayModels[key] ?? { tokens: 0, spendUsd: 0 };
+        dm.tokens += tk;
+        dm.spendUsd += sp;
+        dayModels[key] = dm;
+        byDayModel.set(b.day, dayModels);
+        const series = byModel.get(key) ?? {
+            key,
+            harness: b.harness,
+            provider: b.provider,
+            model: b.model,
+            tokens: 0,
+            spendUsd: 0,
+        };
+        series.tokens += tk;
+        series.spendUsd += sp;
+        byModel.set(key, series);
 
         // by-model (window), grouped by upstream provider. a request that failed before any token was
         // billed still leaves a bucket; it is no usage, and alone it drew an empty provider card
@@ -298,6 +338,7 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
         daily = enumerateDays(minDay, endKey).map((day) => ({
             day,
             byHarness: byDay.get(day) ?? {},
+            byModel: byDayModel.get(day) ?? {},
         }));
     }
 
@@ -315,6 +356,11 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
             return { provider, tokens, models: modelUsages };
         })
         .sort((a, b) => a.provider.localeCompare(b.provider));
+
+    // a failed request's zero-token bucket is no usage; it never yields a legend row
+    const models = [...byModel.values()]
+        .filter((m) => m.tokens > 0)
+        .sort((a, b) => b.tokens - a.tokens || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
     return {
         availableHarnesses,
@@ -342,6 +388,7 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
         split,
         daily,
         providers,
+        models,
     };
 }
 
