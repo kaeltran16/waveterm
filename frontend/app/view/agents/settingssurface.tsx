@@ -256,7 +256,7 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
                 <SurfaceToolbar
                     title="Settings"
                     actions={
-                        <div className="flex w-[240px] items-center gap-2 rounded border border-border bg-surface-raised px-2.5 py-1">
+                        <div className="flex w-[240px] items-center gap-2 rounded border border-border bg-surface-raised px-2.5 py-1.5">
                             <Search size={12} className="flex-none text-muted" />
                             <input
                                 type="text"

@@ -56,39 +56,6 @@ export function ToolbarFact({ children, className }: { children: ReactNode; clas
     );
 }
 
-// superseded by SurfaceToolbar; deleted once no surface renders it.
-export function SurfaceHeader({
-    title,
-    badge,
-    subtitle,
-    actions,
-    border = true,
-}: {
-    title: string;
-    badge?: ReactNode;
-    subtitle?: ReactNode;
-    actions?: ReactNode;
-    border?: boolean;
-}) {
-    return (
-        <div
-            className={cn(
-                "flex flex-none items-start justify-between gap-5 bg-background px-[28px] pb-4 pt-5",
-                border && "border-b border-border"
-            )}
-        >
-            <div className="min-w-0">
-                <div className="flex items-center gap-2.5">
-                    <h1 className="text-[25px] font-bold tracking-[-0.02em] text-primary">{title}</h1>
-                    {badge}
-                </div>
-                {subtitle != null ? <div className="mt-1 text-[13px] text-secondary">{subtitle}</div> : null}
-            </div>
-            {actions != null ? <div className="flex flex-none items-center gap-2">{actions}</div> : null}
-        </div>
-    );
-}
-
 // className exists for one reason: the Jarvis Stage stacks this directly above and below bands that all
 // share one gutter (jarvis/stagemeasure.ts), and px-[30px] put it 6px right of every one of them. A
 // surface that owns its own horizontal measure passes it in; everyone else keeps the default.
