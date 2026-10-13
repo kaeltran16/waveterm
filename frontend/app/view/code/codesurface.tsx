@@ -14,7 +14,7 @@ import { buildCodeBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
-import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "@/app/view/agents/surfacescaffold";
+import { SurfaceEmptyState, SurfaceError, SurfaceToolbar, ToolbarFact } from "@/app/view/agents/surfacescaffold";
 import { sameRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
@@ -166,9 +166,8 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <div className="relative flex h-full w-full flex-col">
-            <SurfaceHeader
+            <SurfaceToolbar
                 title="Code"
-                subtitle={project != null ? `${project.name} · ${project.path}` : "No project selected"}
                 actions={
                     <>
                         <div className="relative">
@@ -293,7 +292,12 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                         </HeaderButton>
                     </>
                 }
-            />
+            >
+                {/* takes the spacer's place so a long path truncates instead of wrapping the actions */}
+                <ToolbarFact className="block min-w-0 flex-1 basis-0 truncate">
+                    {project != null ? `${project.name} · ${project.path}` : "No project selected"}
+                </ToolbarFact>
+            </SurfaceToolbar>
             {indexError != null ? (
                 <SurfaceError
                     message={`Could not list files: ${indexError}`}
