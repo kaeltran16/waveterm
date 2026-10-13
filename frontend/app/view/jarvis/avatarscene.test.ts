@@ -361,6 +361,8 @@ describe("buildAvatarScene — posture", () => {
                 "centreX",
                 "centreY",
                 "extent",
+                // a dev readout for the harness; the renderers never draw it
+                "pulses",
             ])
         );
     });
@@ -515,5 +517,64 @@ describe("buildAvatarScene — punctuation", () => {
         const calm = buildAvatarScene(input({ still: true, jolt: 1, ripple: 0.5, utterance: 1, now: 4_000 }));
         const none = buildAvatarScene(input({ still: true, jolt: 0, ripple: null, utterance: 0, now: 4_000 }));
         expect(calm).toEqual(none);
+    });
+});
+
+describe("buildAvatarScene — activity", () => {
+    it("adds nothing at no load beyond the resting form", () => {
+        const rest = buildAvatarScene(input({ now: 2_000 }));
+        const idle = buildAvatarScene(input({ now: 2_000, activity: 0, pulseClock: 0.3 }));
+        expect(idle.segments.length).toBe(rest.segments.length);
+        expect(idle.pulses).toBe(0);
+        expect(idle).toEqual(rest);
+    });
+
+    it("draws neither pulses nor breath when still", () => {
+        const busy = buildAvatarScene(input({ still: true, activity: 1, pulseClock: 0.3, breath: 0.2 }));
+        const rest = buildAvatarScene(input({ still: true }));
+        expect(busy.pulses).toBe(0);
+        expect(busy).toEqual(rest);
+    });
+
+    it("varies how many pulses are lit, so load never reads as a steady countable ring", () => {
+        const counts = new Set<number>();
+        for (let step = 0; step < 160; step++) {
+            const scene = buildAvatarScene(input({ activity: 1, pulseClock: step * 0.01 }));
+            const hotHeavy = scene.segments.filter((s) => s.tone === "hot" && s.width === STROKE.heavy).length;
+            expect(hotHeavy).toBe(scene.pulses);
+            counts.add(scene.pulses);
+        }
+        expect(counts.size).toBeGreaterThan(2);
+        expect(Math.min(...counts)).toBeLessThan(6);
+        expect(Math.max(...counts)).toBeGreaterThan(1);
+    });
+
+    it("still dims when quiet, however busy", () => {
+        const loud = buildAvatarScene(input({ activity: 1, pulseClock: 0.4 }));
+        const quiet = buildAvatarScene(input({ activity: 1, pulseClock: 0.4, quiet: true }));
+        expect(quiet.pulses).toBe(loud.pulses);
+        quiet.segments.forEach((s, i) => expect(s.alpha).toBeLessThanOrEqual(loud.segments[i].alpha));
+        expect(light(quiet)).toBeLessThan(light(loud));
+    });
+
+    it("turns nothing on load alone, because a constant rotation is a loading spinner", () => {
+        const geometry = (activity: number) => {
+            const scene = buildAvatarScene(input({ activity, now: 3_300, yaw: 1.2, pulseClock: 0.7 }));
+            return {
+                blades: scene.segments
+                    .filter((s) => s.tone === "body" && s.width === STROKE.heavy)
+                    .map((s) => [s.ax, s.ay, s.bx, s.by]),
+                fills: scene.fills.map((f) => f.points),
+            };
+        };
+        expect(geometry(1)).toEqual(geometry(0));
+    });
+
+    it("deepens the breath under load", () => {
+        const swing = (activity: number) => {
+            const at = (breath: number) => buildAvatarScene(input({ activity, breath })).segments[0].alpha;
+            return Math.abs(at(1) - at(0));
+        };
+        expect(swing(1)).toBeGreaterThan(swing(0));
     });
 });

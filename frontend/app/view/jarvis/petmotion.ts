@@ -134,7 +134,7 @@ const ACTIVITY_CURVE = 0.66;
 const PULSE_RATE_BASE = 0.25;
 const PULSE_RATE_SPAN = 0.75;
 // A backgrounded window can hand back a multi-second dt on its first frame; same clamp as approachMood.
-const MAX_STEP_MS = 1_000;
+export const MAX_STEP_MS = 1_000;
 
 /** 0..1 load from the working-agent count: 0 at none, 1 at ACTIVITY_FULL or more. */
 export function activityLevel(working: number): number {

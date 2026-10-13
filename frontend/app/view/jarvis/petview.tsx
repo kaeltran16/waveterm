@@ -29,11 +29,16 @@ import { PetBubble } from "./petbubble";
 import { expressionFor, heldLandFrom, postureFor, type PetSignals } from "./petcondition";
 import { bubbleClick } from "./petjoin";
 import {
-    breathPhase,
+    activityLevel,
+    advancePhase,
+    breathFromPhase,
+    breathPeriodMs,
     idleOrbit,
     impulseEnvelope,
     JOLT_MS,
+    MAX_STEP_MS,
     nextFrameDelay,
+    pulseRate,
     RIPPLE_MS,
     utteranceEnvelope,
 } from "./petmotion";
@@ -47,6 +52,7 @@ import {
     petSpokeAtAtom,
     petUnreadAtom,
     petWatermarkAtom,
+    petWorkingOverrideAtom,
     rememberSaid,
     setPetCorner,
     setPetWatermark,
@@ -148,6 +154,9 @@ export function PetView({ model }: { model: AgentsViewModel }) {
     const events = useAtomValue(petEventsAtom);
     const watermark = useAtomValue(petWatermarkAtom);
     const agents = useAtomValue(model.agentsAtom);
+    const workingOverride = useAtomValue(petWorkingOverrideAtom);
+    // load is a tempo, never a presence: it does not enter `quiet` below
+    const working = workingOverride ?? agents.filter((a) => a.state === "working").length;
     const reduce = useReducedMotion() === true;
     // Both a ref and state for the same element: the bubble and the peek need it as state to re-position
     // when it lands, while the render loop needs it as a ref so acquiring it does not re-run the effect and
@@ -175,8 +184,8 @@ export function PetView({ model }: { model: AgentsViewModel }) {
 
     // Everything the loop needs, in a ref rather than in the closure: the loop is started once per mount,
     // and reading state through a ref keeps a condition change from tearing down the GL context.
-    const frameRef = useRef({ expression, posture, quiet, size, reduce });
-    frameRef.current = { expression, posture, quiet, size, reduce };
+    const frameRef = useRef({ expression, posture, quiet, size, reduce, working });
+    frameRef.current = { expression, posture, quiet, size, reduce, working };
 
     // The mood actually being drawn, which lags the condition while a change eases in. Seeded settled
     // rather than from at-rest, so booting into a fault shows the fault instead of animating into it —
@@ -188,6 +197,10 @@ export function PetView({ model }: { model: AgentsViewModel }) {
     // them directly, and putting them in state would re-render the component sixty times a second.
     const rippleAtRef = useRef<number | null>(null);
     const joltAtRef = useRef<number | null>(null);
+    // Accumulated rather than derived from the clock, so a change in the working count changes the tempo
+    // without jumping the breath or the pulses to another position.
+    const breathPhaseRef = useRef(0);
+    const pulseClockRef = useRef(0);
 
     useEffect(() => {
         const glCanvas = glCanvasRef.current;
@@ -259,6 +272,11 @@ export function PetView({ model }: { model: AgentsViewModel }) {
             // the user does not want any. The register still changes, it just does not travel there.
             moodRef.current = f.reduce ? settledMood(f.expression) : approachMood(moodRef.current, f.expression, dt);
 
+            const breathMs = breathPeriodMs(f.working);
+            const activity = activityLevel(f.working);
+            breathPhaseRef.current = advancePhase(breathPhaseRef.current, dt, breathMs);
+            pulseClockRef.current += (Math.max(0, Math.min(MAX_STEP_MS, dt)) / 1_000) * pulseRate(activity);
+
             const rippleAt = rippleAtRef.current;
             const rippleElapsed = rippleAt == null ? null : now - rippleAt;
             const ripple =
@@ -274,7 +292,9 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 now,
                 yaw: orbit.yaw,
                 pitch: orbit.pitch,
-                breath: breathPhase(now),
+                breath: breathFromPhase(breathPhaseRef.current),
+                activity,
+                pulseClock: pulseClockRef.current,
                 utterance: utteranceEnvelope(now, globalStore.get(petSpokeAtAtom)),
                 ripple,
                 jolt: impulseEnvelope(now, joltAtRef.current, JOLT_MS),
@@ -303,6 +323,9 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                     expression: f.expression.kind,
                     posture: f.posture,
                     renderer: live,
+                    working: f.working,
+                    breathMs: Math.round(breathMs),
+                    pulses: scene.pulses,
                 };
             }
             const delay = nextFrameDelay(resized, f.reduce);

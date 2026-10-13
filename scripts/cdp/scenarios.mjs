@@ -4854,6 +4854,161 @@ const jarvisAvatarFaults = {
     },
 };
 
+// --- jarvis avatar activity: the working count as tempo and inbound pulses, never presence -------
+// The count is held through the dev-only __wavePetStore.setWorking, because starting six real agents to
+// photograph a tempo is the trade setAttention already makes. motion's useReducedMotion reads the media
+// query once per page load, so the reduced-motion row reloads under the emulation.
+const JARVIS_ACTIVITY_ASK = {
+    key: "ask:cdp-activity",
+    kind: "ask",
+    source: "worker 3",
+    text: "Which branch should I rebase onto?",
+    action: "Answer",
+    waitingsince: 0,
+    channelid: "",
+    runid: "cdp-activity",
+    phaseidx: 0,
+};
+
+const jarvisAvatarActivity = {
+    name: "jarvis-avatar-activity",
+    surface: "cockpit",
+    async arrange(h) {
+        const ctx = { prevRate: await h.ev(`localStorage.getItem('wave:ratelimits')`) };
+        // a saved snapshot past the ok band would make the avatar tired, and tired is never quiet
+        await h.ev(`localStorage.removeItem('wave:ratelimits')`);
+        await reloadApp(h);
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const nap = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        const setWorking = (n) => h.ev(`globalThis.__wavePetStore.setWorking(${JSON.stringify(n)})`);
+        const setAttention = (items) =>
+            h.ev(`globalThis.__wavePetStore.setAttention(${JSON.stringify(items)}.map((i) => ({ ...i, waitingsince: Date.now() - 60000 })))`);
+        const opacity = async () =>
+            Number(await h.ev(`getComputedStyle(document.querySelector('[aria-label="Jarvis condition"]')).opacity`));
+        // the scene is published by the frame loop, so the count lands a frame after setWorking
+        const until = (working, posture) =>
+            polishWaitFor(
+                h,
+                `window.__jarvisAvatarScene?.working === ${working} && window.__jarvisAvatarScene?.posture === ${JSON.stringify(posture)}`,
+                5000
+            );
+        // pulses come and go by design, so a row reads several frames rather than one
+        const sample = async () => {
+            const seen = [];
+            for (let i = 0; i < 10; i++) {
+                seen.push(JSON.parse(await h.ev("JSON.stringify(window.__jarvisAvatarScene ?? null)")));
+                await nap(150);
+            }
+            return seen;
+        };
+        const row = async (step, { name, working, posture, attention, check }) => {
+            // the 10s attention poll can overwrite the injection before or during the samples, so a row whose
+            // posture drifted is read again from a fresh injection
+            let reached = false;
+            let seen = [];
+            let op = NaN;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                await setAttention(attention);
+                await setWorking(working);
+                reached = await until(working, posture);
+                // the opacity tween is 0.3s
+                await nap(400);
+                seen = await sample();
+                op = await opacity();
+                await h.shot(`cdp-shots/jarvis-avatar-activity-${name}-${working}.png`);
+                if (reached && seen.every((s) => s?.posture === posture)) break;
+            }
+            const last = seen[seen.length - 1];
+            const pulses = seen.map((s) => s?.pulses ?? -1);
+            const verdict = check({ breathMs: last?.breathMs, pulses, opacity: op });
+            rec(
+                step,
+                reached && seen.every((s) => s?.posture === posture) && verdict,
+                JSON.stringify({ working: last?.working, breathMs: last?.breathMs, posture: last?.posture, pulses, opacity: op })
+            );
+        };
+        const none = (p) => p.every((n) => n === 0);
+        const some = (p) => p.some((n) => n > 0);
+
+        try {
+            await h.goto("cockpit");
+            await h.ev(`globalThis.__wavePetStore.resetPeek()`);
+
+            await row("1. at rest with nothing working: the 4.8s breath and no pulses", {
+                name: "rest",
+                working: 0,
+                posture: "none",
+                attention: [],
+                check: (r) => r.breathMs === 4800 && none(r.pulses),
+            });
+            await row("2. two working: a quicker breath and pulses, still quiet at 40%", {
+                name: "rest",
+                working: 2,
+                posture: "none",
+                attention: [],
+                check: (r) =>
+                    r.breathMs >= 3300 && r.breathMs <= 3500 && some(r.pulses) && Math.abs(r.opacity - 0.4) < 0.05,
+            });
+            await row("3. six working: the 1.9s breath", {
+                name: "rest",
+                working: 6,
+                posture: "none",
+                attention: [],
+                check: (r) => r.breathMs === 1900 && some(r.pulses) && Math.abs(r.opacity - 0.4) < 0.05,
+            });
+
+            for (const working of [0, 2, 6]) {
+                await row(`4. a worker waiting, ${working} working: blocked-worker at full presence`, {
+                    name: "waiting",
+                    working,
+                    posture: "blocked-worker",
+                    attention: [JARVIS_ACTIVITY_ASK],
+                    check: (r) => r.opacity > 0.95 && (working === 0 ? none(r.pulses) : some(r.pulses)),
+                });
+            }
+
+            await h.cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+            ctx.mediaEmulated = true;
+            await reloadApp(h);
+            await h.goto("cockpit");
+            await row("5. reduced motion at six working: no pulses at all", {
+                name: "reduced",
+                working: 6,
+                posture: "none",
+                attention: [],
+                check: (r) => none(r.pulses),
+            });
+        } catch (e) {
+            rec("scenario aborted", false, String(e?.message ?? e));
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`jarvis-avatar-activity teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("release the working count", () => h.ev(`globalThis.__wavePetStore?.setWorking(null)`));
+        await step("clear the injected attention", () => h.ev(`globalThis.__wavePetStore?.setAttention([])`));
+        if (ctx?.mediaEmulated) {
+            await step("clear the media emulation", () => h.cdp("Emulation.setEmulatedMedia", { features: [] }));
+        }
+        // the reload returns savedRateLimitsAtom to the restored snapshot and motion to the real media query
+        await step("restore the rate limits", async () => {
+            await h.ev(restoreLocalStorage("wave:ratelimits", ctx?.prevRate ?? null));
+            await reloadApp(h);
+        });
+        await step("return to cockpit", () => h.goto("cockpit"));
+    },
+};
+
 const JARVIS_PEEK_PROJECT = "verify-jarvis-peek";
 
 // a registered project is the composer's destination (petpeek.tsx: projectListAtom's rows with a channel), and
@@ -18544,6 +18699,7 @@ export const SCENARIOS = [
     codeMarkdown,
     jarvisAvatar,
     jarvisAvatarFaults,
+    jarvisAvatarActivity,
     briefSurface,
     briefPeek,
     peekCtrlClick,

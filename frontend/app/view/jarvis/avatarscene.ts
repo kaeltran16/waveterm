@@ -82,6 +82,8 @@ export interface AvatarScene {
     centreY: number;
     /** largest primitive distance from the centre, css px. Presence is asserted on this. */
     extent: number;
+    /** how many inbound pulse segments this frame drew; 0 with no activity or when still */
+    pulses: number;
 }
 
 export interface AvatarMood {
@@ -137,6 +139,13 @@ export interface SceneInput {
     jolt: number;
     /** reduced motion: no sway, tumble, breath, stutter or punctuation */
     still: boolean;
+    /**
+     * 0..1 load from petmotion's activityLevel; omitted means none. Deepens the breath and runs the inbound
+     * strut pulses. It never clears `quiet`: working agents are not something the avatar has to say.
+     */
+    activity?: number;
+    /** accumulated pulse cycles (unbounded), advanced by the loop at pulseRate so a rate change never jumps */
+    pulseClock?: number;
 }
 
 // Severity reads in the tone before the shape has been parsed: muted for a dead link, error for a held
@@ -275,6 +284,22 @@ const PART_RADIUS: Record<PartKey, number> = { core: 0.36, front: 0.87, mid: 1.0
 
 const STRUT_COUNT = 6;
 
+// Inbound pulses, one per strut. The seeds are irregular so the packets never read as a chase around the
+// ring, and the cycle is longer than the run down the strut, so each one is dark part of the time and the
+// number lit keeps changing: load reads as traffic, never as a count.
+const PULSE_SEEDS = [0, 0.53, 0.21, 0.77, 0.38, 0.91];
+const PULSE_SPREAD = 3.1;
+const PULSE_CYCLE = 1.6;
+// packet length, as a fraction of the run from the strut's outer end to the core brackets
+const PULSE_LENGTH = 0.16;
+const PULSE_CORE_RADIUS = 0.42;
+const PULSE_ALPHA = 0.95;
+
+// The breath's depth in glow, at rest and what full load adds: a faster breath that stayed as shallow
+// only reads as a flicker.
+const BREATH_DEPTH = 0.16;
+const BREATH_DEPTH_LOAD = 0.1;
+
 // Which layers can drop out, and how hard. The core is in the list but last, so the form loses its
 // periphery before it loses its centre — a centre that blinks reads as the whole avatar failing rather
 // than as a signal being lost.
@@ -370,6 +395,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
     const t = now / 1_000;
     const breath = still ? 0 : clamp01(input.breath);
     const utterance = still ? 0 : clamp01(input.utterance);
+    const activity = still ? 0 : clamp01(input.activity ?? 0);
 
     // The whole attitude is the signal: three-quarters-on at rest, square-on while speaking, and turned
     // further away while something waits on you. `face` rides the utterance envelope rather than easing on
@@ -380,7 +406,9 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
     const wave = breath * 2 - 1;
 
     const quietDim = input.quiet ? QUIET_DIM : 1;
-    const glow = (0.5 + 0.5 * mood.energy) * (1 - 0.16 * calm * (0.5 - 0.5 * wave)) * (1 - attention * 0.58) * quietDim;
+    const breathDepth = BREATH_DEPTH + BREATH_DEPTH_LOAD * activity;
+    const glow =
+        (0.5 + 0.5 * mood.energy) * (1 - breathDepth * calm * (0.5 - 0.5 * wave)) * (1 - attention * 0.58) * quietDim;
 
     // Per-layer brightness, in two directions. `lift` is what brightens a layer (a ripple passing over it,
     // the voice lighting the centre) and `drop` is the stutter. They are kept apart because the clamp
@@ -583,17 +611,42 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
     }
     arc(planeFront, 0.91, 0, TAU, "body", STROKE.fine, bodyAlpha(0.5, "front"));
 
-    // the struts, spanning back plane to middle
+    // the struts, spanning back plane to middle, each carrying work inward to the core while agents run
+    const pulseClock = Math.max(0, input.pulseClock ?? 0) || 0;
+    let pulses = 0;
     for (let index = 0; index < STRUT_COUNT; index++) {
         const a = (index * TAU) / STRUT_COUNT + 0.45;
+        const outer: Vec3 = [Math.cos(a) * 1.4, Math.sin(a) * 1.4, -0.38];
         line(
-            [Math.cos(a) * 1.4, Math.sin(a) * 1.4, -0.38],
+            outer,
             [Math.cos(a) * 1.11, Math.sin(a) * 1.11, 0],
             IDENTITY,
             "body",
             STROKE.fine,
             bodyAlpha(0.45, "struts")
         );
+        if (activity <= 0) {
+            continue;
+        }
+        const phase = (pulseClock + PULSE_SEEDS[index] * PULSE_SPREAD) % PULSE_CYCLE;
+        if (phase >= 1) {
+            continue;
+        }
+        const core: Vec3 = [Math.cos(a) * PULSE_CORE_RADIUS, Math.sin(a) * PULSE_CORE_RADIUS, coreAt.z];
+        const along = (u: number): Vec3 => [
+            outer[0] + (core[0] - outer[0]) * u,
+            outer[1] + (core[1] - outer[1]) * u,
+            outer[2] + (core[2] - outer[2]) * u,
+        ];
+        line(
+            along(phase),
+            along(Math.min(1, phase + PULSE_LENGTH)),
+            IDENTITY,
+            "hot",
+            STROKE.heavy,
+            bodyAlpha(PULSE_ALPHA * Math.sin(Math.PI * phase), null)
+        );
+        pulses++;
     }
 
     // the core, recessed behind the middle plane: a lit ring, three brackets, and a hex at the centre
@@ -652,6 +705,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
         centreX,
         centreY,
         extent,
+        pulses,
     };
 }
 
