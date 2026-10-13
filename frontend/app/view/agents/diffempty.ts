@@ -5,7 +5,7 @@
 // Pure: why the diff pane has nothing to draw, in words. Null means there is something to draw, or
 // the pair is still loading and the pane's skeleton is the honest answer.
 
-export type EmptyDiffKind = "nothing" | "nofile" | "toolarge" | "binary" | "unchanged";
+export type EmptyDiffKind = "nothing" | "nocommit" | "nofile" | "toolarge" | "binary" | "unchanged";
 
 export interface EmptyDiff {
     kind: EmptyDiffKind;
@@ -18,12 +18,21 @@ export interface EmptyDiffInput {
     pair: { path: string; binary: boolean; tooLarge: boolean; original: string; modified: string } | null;
     // set when compare's aggregate is selected and lists no files
     nothingToCompare: { base: string; head: string } | null;
+    // set when no commit is open, so there is no file list to pick from either
+    noCommit?: boolean;
 }
 
 export function emptyDiffState(i: EmptyDiffInput): EmptyDiff | null {
     if (i.nothingToCompare != null) {
         const { base, head } = i.nothingToCompare;
         return { kind: "nothing", title: "Nothing to compare", body: `${base} and ${head} have no file differences.` };
+    }
+    if (i.noCommit) {
+        return {
+            kind: "nocommit",
+            title: "Pick a commit to see its changes",
+            body: "Choose one from the history, or move through it with the arrow keys.",
+        };
     }
     if (!i.path) {
         return {

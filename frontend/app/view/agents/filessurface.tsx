@@ -395,6 +395,14 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         );
     }
     const selectedRow = (historyRows ?? []).find((r) => r.hash === selectedCommit) ?? null;
+    // a compare commit row *is* a HistoryRow, so the shipped commit pane takes it directly
+    const compareCommit =
+        (compareRows.find((r) => r.kind === "commit" && r.id === compareSelection) as CompareCommitRow | undefined) ??
+        null;
+    // with no commit open the commit pane would only repeat the diff pane's prompt, so it steps aside;
+    // with no rows to pick from, the history column's own empty state is the only message
+    const noCommit = compareOn ? compareSelection !== AGGREGATE && compareCommit == null : selectedRow == null;
+    const canPick = (compareOn ? compareRows.length : (historyRows?.length ?? 0)) > 0;
     const collapseHistory = () => globalStore.set(historyCollapsedAtom, true);
 
     return (
@@ -606,73 +614,75 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 </>
                             )}
                         </div>
-                        <div className="flex w-[300px] flex-none flex-col border-r border-edge-faint bg-surface">
-                            {compareOn ? (
-                                compareSelection === AGGREGATE ? (
-                                    <AggregatePane
-                                        base={compareRefs?.base ?? ""}
-                                        head={compareRefs?.head ?? ""}
-                                        form={compareForm}
-                                        mergeBase={compareSides?.mergeBase ?? ""}
-                                        changes={compareChanges}
-                                        selectedFile={compareFile}
-                                        onSelectFile={(path) => selectCompareFile(path)}
-                                        onSetForm={(f) =>
-                                            state?.cwd && fireAndForget(() => setCompareForm(state.cwd!, f))
-                                        }
-                                        review={review}
-                                    />
+                        {noCommit ? null : (
+                            <div className="flex w-[300px] flex-none flex-col border-r border-edge-faint bg-surface">
+                                {compareOn ? (
+                                    compareSelection === AGGREGATE ? (
+                                        <AggregatePane
+                                            base={compareRefs?.base ?? ""}
+                                            head={compareRefs?.head ?? ""}
+                                            form={compareForm}
+                                            mergeBase={compareSides?.mergeBase ?? ""}
+                                            changes={compareChanges}
+                                            selectedFile={compareFile}
+                                            onSelectFile={(path) => selectCompareFile(path)}
+                                            onSetForm={(f) =>
+                                                state?.cwd && fireAndForget(() => setCompareForm(state.cwd!, f))
+                                            }
+                                            review={review}
+                                        />
+                                    ) : (
+                                        <CommitPane
+                                            row={compareCommit}
+                                            changes={compareChanges}
+                                            selectedFile={compareFile}
+                                            onSelectFile={(path) => selectCompareFile(path)}
+                                            review={review}
+                                        />
+                                    )
                                 ) : (
-                                    // a compare commit row *is* a HistoryRow, so the shipped pane takes it directly
                                     <CommitPane
-                                        row={
-                                            (compareRows.find(
-                                                (r) => r.kind === "commit" && r.id === compareSelection
-                                            ) as CompareCommitRow | undefined) ?? null
+                                        row={selectedRow}
+                                        caption={
+                                            scope && state
+                                                ? worktreeCaption(scope.range, state.branch, state.head, state.ref)
+                                                : undefined
                                         }
-                                        changes={compareChanges}
-                                        selectedFile={compareFile}
-                                        onSelectFile={(path) => selectCompareFile(path)}
+                                        changes={activeChanges}
+                                        selectedFile={selectedFile}
+                                        onSelectFile={(path) =>
+                                            selectedCommit != null && selectCommitFile(selectedCommit, path)
+                                        }
                                         review={review}
                                     />
-                                )
-                            ) : (
-                                <CommitPane
-                                    row={selectedRow}
-                                    caption={
-                                        scope && state
-                                            ? worktreeCaption(scope.range, state.branch, state.head, state.ref)
-                                            : undefined
+                                )}
+                            </div>
+                        )}
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                            {noCommit && !canPick ? null : (
+                                <DiffPane
+                                    path={shownPath}
+                                    adds={selectedChange?.adds ?? 0}
+                                    dels={selectedChange?.dels ?? 0}
+                                    // "Open in editor" only makes sense for a path that exists in the working tree
+                                    editorCwd={
+                                        !compareOn && selectedCommit === WORKING_TREE ? (state?.cwd ?? null) : null
                                     }
-                                    changes={activeChanges}
-                                    selectedFile={selectedFile}
-                                    onSelectFile={(path) =>
-                                        selectedCommit != null && selectCommitFile(selectedCommit, path)
+                                    // "Open in Code" wants only the repository: the Code surface always shows the
+                                    // working-tree file, and says so itself when the path is gone
+                                    repoCwd={state?.cwd ?? null}
+                                    nothingToCompare={
+                                        compareOn &&
+                                        compareSelection === AGGREGATE &&
+                                        compareChanges != null &&
+                                        compareChanges.files.length === 0
+                                            ? { base: compareRefs?.base ?? "", head: compareRefs?.head ?? "" }
+                                            : null
                                     }
-                                    review={review}
+                                    noCommit={noCommit}
+                                    model={model}
                                 />
                             )}
-                        </div>
-                        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                            <DiffPane
-                                path={shownPath}
-                                adds={selectedChange?.adds ?? 0}
-                                dels={selectedChange?.dels ?? 0}
-                                // "Open in editor" only makes sense for a path that exists in the working tree
-                                editorCwd={!compareOn && selectedCommit === WORKING_TREE ? (state?.cwd ?? null) : null}
-                                // "Open in Code" wants only the repository: the Code surface always shows the
-                                // working-tree file, and says so itself when the path is gone
-                                repoCwd={state?.cwd ?? null}
-                                nothingToCompare={
-                                    compareOn &&
-                                    compareSelection === AGGREGATE &&
-                                    compareChanges != null &&
-                                    compareChanges.files.length === 0
-                                        ? { base: compareRefs?.base ?? "", head: compareRefs?.head ?? "" }
-                                        : null
-                                }
-                                model={model}
-                            />
                         </div>
                     </div>
                 )}

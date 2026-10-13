@@ -3836,8 +3836,14 @@ const gitHistory = {
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const pick = async (name) => {
+            // on a fresh store the projects reach the frontend a moment after createproject, and until
+            // then the surface is its no-source empty state, which has no picker
+            const option = `[data-files-source-option=${JSON.stringify(name)}]`;
+            if (!(await polishWaitFor(h, `!!document.querySelector('[data-files-source-picker]')`, 10000))) {
+                throw new Error("the Diff source picker never rendered");
+            }
             await h.ev(`document.querySelector('[data-files-source-picker]').click()`);
-            await sleep(150);
+            await polishWaitFor(h, `!!document.querySelector(${JSON.stringify(option)})`, 5000);
             const ok = await h.ev(
                 `(() => { const b = document.querySelector('[data-files-source-option=${JSON.stringify(name)}]');
                   if (!b) return false; b.click(); return true; })()`
@@ -3880,6 +3886,25 @@ const gitHistory = {
             `rows=${filtered} chip="${countChip}" gutterStillThere=${gutterStillThere}`
         );
         await h.shot("cdp-shots/git-history-filtered.png");
+
+        // a filter that matches nothing leaves one message, the history's own: the commit pane and the
+        // diff pane step aside rather than each asking for a pick there is nothing to make
+        await h.ev(`document.querySelector('[data-history-filter]').focus()`);
+        await h.cdp("Input.insertText", { text: "-matches-nothing" });
+        await sleep(1200);
+        const noneRows = await rowCount();
+        const noneText = await h.ev(`document.body.innerText`);
+        const diffPane = await present("[data-diff-pane]");
+        rec(
+            "3b. a filter with no matches shows only the history's empty state",
+            noneRows === 0 &&
+                noneText.includes("No commits match") &&
+                !noneText.includes("Select a commit") &&
+                !noneText.includes("Pick a ") &&
+                !diffPane,
+            `rows=${noneRows} diffPane=${diffPane} selectCommit=${noneText.includes("Select a commit")} pick=${noneText.includes("Pick a ")}`
+        );
+        await h.shot("cdp-shots/git-history-no-match.png");
 
         // Escape clears the filters (the header says "Clear filters" with an esc hint), not navigate home
         await h.ev(`document.querySelector('[data-history-filter]').blur()`);

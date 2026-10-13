@@ -26,6 +26,17 @@ describe("emptyDiffState", () => {
             body: "main and origin/main have no file differences.",
         });
     });
+    it("asks for a commit, not a file, when no commit is open", () => {
+        expect(emptyDiffState({ path: null, pair: null, nothingToCompare: null, noCommit: true })).toEqual({
+            kind: "nocommit",
+            title: "Pick a commit to see its changes",
+            body: "Choose one from the history, or move through it with the arrow keys.",
+        });
+        // a file left over from the last commit does not outrank the missing commit
+        expect(emptyDiffState({ path: "a.ts", pair: pair(), nothingToCompare: null, noCommit: true })?.kind).toBe(
+            "nocommit"
+        );
+    });
     it("asks for a file when none is selected", () => {
         expect(emptyDiffState({ path: null, pair: null, nothingToCompare: null })?.kind).toBe("nofile");
     });

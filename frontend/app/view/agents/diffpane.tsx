@@ -67,6 +67,7 @@ export function DiffPane({
     repoCwd,
     model,
     nothingToCompare = null,
+    noCommit = false,
 }: {
     path: string | null;
     adds: number;
@@ -76,6 +77,8 @@ export function DiffPane({
     model: AgentsViewModel;
     // compare's aggregate is selected and the two refs list no files
     nothingToCompare?: { base: string; head: string } | null;
+    // no commit is open; the surface drops the commit pane, so this pane asks for one
+    noCommit?: boolean;
 }) {
     const pair = useAtomValue(diffPairAtom);
     const split = useAtomValue(splitViewAtom);
@@ -113,7 +116,7 @@ export function DiffPane({
     const reviewTitle = reviewed ? "Unmark this file (v)" : "Mark reviewed and open the next file (v)";
     const layout = paneHeaderLayout(width);
     const options = useMemo(() => paneOptions(split && layout.split, ignoreWs), [split, layout.split, ignoreWs]);
-    const empty = emptyDiffState({ path, pair, nothingToCompare });
+    const empty = emptyDiffState({ path, pair, nothingToCompare, noCommit });
 
     const body = () => {
         if (empty) {

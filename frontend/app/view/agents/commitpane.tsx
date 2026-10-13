@@ -84,7 +84,7 @@ export function CommitPane({
     caption,
     review,
 }: {
-    row: HistoryRow | null;
+    row: HistoryRow;
     changes: GitChanges | null;
     selectedFile: string | null;
     onSelectFile: (path: string) => void;
@@ -92,13 +92,6 @@ export function CommitPane({
     // the working-tree row's "measured from what" line; worktreeCaption builds it
     caption?: string;
 }) {
-    if (row == null) {
-        return (
-            <div className="flex h-full items-center justify-center px-[20px] text-center text-[12.5px] text-muted">
-                Select a commit
-            </div>
-        );
-    }
     const isWorkingTree = row.hash === WORKING_TREE;
     const count = changes?.files.length ?? 0;
     return (
