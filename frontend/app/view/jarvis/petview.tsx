@@ -11,6 +11,7 @@
 // It never draws a number. The nav badge owns the count; the avatar owns the kind (design §3).
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { linkLostSince, wsLinkAtom } from "@/app/store/wslink";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { liveWindowAgents, providerPlanUsage } from "@/app/view/agents/agentsviewmodel";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
@@ -25,7 +26,7 @@ import type { AvatarThree } from "./avatarthree";
 import { openTarget } from "./openref";
 import { closePeek } from "./peekstore";
 import { PetBubble } from "./petbubble";
-import { expressionFor, postureFor, type PetSignals } from "./petcondition";
+import { expressionFor, heldLandFrom, postureFor, type PetSignals } from "./petcondition";
 import { bubbleClick } from "./petjoin";
 import {
     breathPhase,
@@ -102,7 +103,10 @@ function usePetSignals(model: AgentsViewModel): PetSignals {
     const saved = useAtomValue(savedRateLimitsAtom);
     const now = useAtomValue(model.nowAtom);
     const attention = useAtomValue(attentionAtom);
+    const wsLink = useAtomValue(wsLinkAtom);
 
+    // the link atom only changes on open and close, so the 1s nowAtom is what sees the grace run out
+    const lostAt = linkLostSince(wsLink, now);
     const donuts = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now);
     const top = topProviderUsage(donuts);
     const rateLimit =
@@ -115,6 +119,8 @@ function usePetSignals(model: AgentsViewModel): PetSignals {
             : undefined;
 
     return {
+        link: lostAt != null ? { lostAt } : undefined,
+        heldLand: heldLandFrom(attention),
         rateLimit,
         attention: {
             reviewGates: count(attention, ATTENTION_GATE),

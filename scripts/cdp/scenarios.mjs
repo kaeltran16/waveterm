@@ -4714,6 +4714,146 @@ const jarvisAvatar = {
     },
 };
 
+// --- jarvis avatar faults: link lost > run held > tired, each face in turn ----------------------
+// Link lost is held through the dev-only __waveLink hook, because a real ws drop reconnects at once and
+// stopping wavesrv would stop the dev app with it. Attention is injected through __wavePetStore, and the 10s
+// poll overwrites it, so each state's shot is taken promptly.
+const JARVIS_FAULT_HELD = {
+    key: "run-land-held:cdp-held",
+    kind: "run-land-held",
+    source: "retry budget",
+    text: "retry budget can't land.",
+    reason: "merge conflict in policy.go",
+    action: "Open",
+    waitingsince: 0,
+    channelid: "",
+    runid: "cdp-held",
+    phaseidx: 0,
+};
+const JARVIS_FAULT_GATE = {
+    key: "dag-gate:cdp-gate",
+    kind: "dag-gate",
+    source: "first gate",
+    text: "Approve the gate before the DAG proceeds.",
+    action: "Review",
+    waitingsince: 0,
+    channelid: "",
+    runid: "cdp-gate",
+    phaseidx: 0,
+};
+
+const jarvisAvatarFaults = {
+    name: "jarvis-avatar-faults",
+    surface: "cockpit",
+    async arrange(h) {
+        const ctx = { prevRate: await h.ev(`localStorage.getItem('wave:ratelimits')`) };
+        // a saved snapshot past the ok band would make step 1 tired, so the run starts with none
+        await h.ev(`localStorage.removeItem('wave:ratelimits')`);
+        await reloadApp(h);
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const scene = async () => JSON.parse((await h.ev("JSON.stringify(window.__jarvisAvatarScene ?? null)")) ?? "null");
+        // the scene is published by the frame loop, a render after the signal changes
+        const until = (expression, posture) =>
+            polishWaitFor(
+                h,
+                `window.__jarvisAvatarScene?.expression === ${JSON.stringify(expression)} && window.__jarvisAvatarScene?.posture === ${JSON.stringify(posture)}`,
+                5000
+            );
+        // past MOOD_TAU_MS a few times over, so the shot is the settled face and not the crossfade
+        const settle = () => h.ev("new Promise((r) => setTimeout(r, 1500))");
+        const setAttention = (items) =>
+            h.ev(`globalThis.__wavePetStore.setAttention(${JSON.stringify(items)}.map((i) => ({ ...i, waitingsince: Date.now() - 60000 })))`);
+        const openPeek = async () => {
+            await h.ev(`document.querySelector('[aria-label="Jarvis condition"]')?.click()`);
+            return polishWaitFor(h, `!!document.querySelector('[data-pet-peek]')`, 3000);
+        };
+        const closePeek = async () => {
+            await h.ev(`document.querySelector('[aria-label="Close Jarvis panel"]')?.click()`);
+            await polishWaitFor(h, `!document.querySelector('[data-pet-peek]')`, 3000);
+        };
+        const leadLine = (kind) =>
+            h.ev(`document.querySelector('[data-pet-condition=${JSON.stringify(kind)}]')?.textContent?.trim() ?? null`);
+        const state = async (step, expression, posture, shot, extra = async () => ({ ok: true })) => {
+            const reached = await until(expression, posture);
+            await settle();
+            const s = await scene();
+            const more = await extra();
+            await h.shot(`cdp-shots/jarvis-avatar-fault-${shot}.png`);
+            rec(
+                step,
+                reached && s?.expression === expression && s?.posture === posture && more.ok,
+                JSON.stringify({ expression: s?.expression, posture: s?.posture, toneVar: s?.toneVar, ...more })
+            );
+        };
+
+        try {
+            await h.goto("cockpit");
+            ctx.prevLink = await h.ev("JSON.stringify(globalThis.__waveLink?.get() ?? null)");
+            await h.ev(`globalThis.__waveLink.set({ connected: true, everConnected: true, lostAt: null })`);
+            await setAttention([]);
+            await state("1. with the link up and nothing waiting the avatar is at rest", "at-rest", "none", "at-rest");
+
+            await h.ev(`localStorage.setItem('wave:ratelimits', ${JSON.stringify(JSON.stringify(usageRateLimits()))})`);
+            await reloadApp(h);
+            await h.goto("cockpit");
+            ctx.prevLink = await h.ev("JSON.stringify(globalThis.__waveLink?.get() ?? null)");
+            await setAttention([]);
+            await state("2. a window past the ok band makes it tired", "tired", "none", "tired");
+
+            await h.ev(`globalThis.__waveLink.set({ connected: false, everConnected: true, lostAt: Date.now() - 10000 })`);
+            await state("3. a link down past the grace outranks tired, and the peek leads with it", "link-lost", "none", "link-lost", async () => {
+                const opened = await openPeek();
+                const line = await leadLine("link-lost");
+                return { ok: opened && String(line).startsWith("I can't reach the backend"), opened, line };
+            });
+            await closePeek();
+
+            await h.ev(`globalThis.__waveLink.set({ connected: true, everConnected: true, lostAt: null })`);
+            await setAttention([JARVIS_FAULT_HELD]);
+            await state("4. a held land outranks tired, and the peek names the run and the reason", "run-held", "none", "run-held", async () => {
+                const opened = await openPeek();
+                const line = await leadLine("run-held");
+                return {
+                    ok: opened && line === "retry budget can't land — merge conflict in policy.go.",
+                    opened,
+                    line,
+                };
+            });
+            await closePeek();
+
+            await setAttention([JARVIS_FAULT_HELD, JARVIS_FAULT_GATE]);
+            await state("5. a waiting gate composes with the held land as posture", "run-held", "review-gate", "run-held-gate");
+        } catch (e) {
+            rec("scenario aborted", false, String(e?.message ?? e));
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`jarvis-avatar-faults teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("close the peek", () => h.ev(`document.querySelector('[aria-label="Close Jarvis panel"]')?.click()`));
+        if (ctx?.prevLink != null && ctx.prevLink !== "null") {
+            await step("restore the link", () => h.ev(`globalThis.__waveLink?.set(${ctx.prevLink})`));
+        }
+        await step("clear the injected attention", () => h.ev(`globalThis.__wavePetStore?.setAttention([])`));
+        // the reload is what returns savedRateLimitsAtom to the restored snapshot
+        await step("restore the rate limits", async () => {
+            await h.ev(restoreLocalStorage("wave:ratelimits", ctx?.prevRate ?? null));
+            await reloadApp(h);
+        });
+        await step("return to cockpit", () => h.goto("cockpit"));
+    },
+};
+
 const JARVIS_PEEK_PROJECT = "verify-jarvis-peek";
 
 // a registered project is the composer's destination (petpeek.tsx: projectListAtom's rows with a channel), and
@@ -18403,6 +18543,7 @@ export const SCENARIOS = [
     codeDiff,
     codeMarkdown,
     jarvisAvatar,
+    jarvisAvatarFaults,
     briefSurface,
     briefPeek,
     peekCtrlClick,

@@ -139,8 +139,13 @@ export interface SceneInput {
     still: boolean;
 }
 
-// Severity reads in the tone before the shape has been parsed: warning for the body clock, accent at rest.
+// Severity reads in the tone before the shape has been parsed: muted for a dead link, error for a held
+// land, warning for the body clock, accent at rest.
 const MOODS: Record<PetExpression["kind"], AvatarMood> = {
+    // grey and nearly planar, cutting out constantly: a signal that is not arriving, not a form in distress
+    "link-lost": { toneVar: "--color-muted", energy: 0.4, align: 0.92, jitter: 0.9, spin: 0.2 },
+    // the planes splayed wide and turning: held work is the one fault the user has to act on
+    "run-held": { toneVar: "--color-error", energy: 0.72, align: 0.35, jitter: 0.06, spin: 0.55 },
     tired: { toneVar: "--color-warning", energy: 0.44, align: 0.8, jitter: 0.03, spin: 0.34 },
     // --color-accent rather than the 500 step: at-rest is the tone shown almost all the time, and the 500
     // step (#667ad1 in the default theme) is the closest of the five to the panel it sits on, so the state

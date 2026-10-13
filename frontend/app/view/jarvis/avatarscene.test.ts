@@ -15,6 +15,9 @@ import type { PetExpression } from "./petcondition";
 
 const AT_REST: PetExpression = { kind: "at-rest" };
 const TIRED: PetExpression = { kind: "tired", provider: "claude", pct: 92 };
+const LINK_LOST: PetExpression = { kind: "link-lost", lostAt: 0 };
+const RUN_HELD: PetExpression = { kind: "run-held", runName: "retry budget", reason: "conflict" };
+const FACES = [AT_REST, TIRED, LINK_LOST, RUN_HELD];
 
 const POSTURES = ["none", "review-gate", "escalation", "blocked-worker"] as const;
 
@@ -47,8 +50,23 @@ function light(scene: AvatarScene): number {
 
 describe("moodFor", () => {
     it("gives every expression a themeable tone token, never a literal colour", () => {
-        for (const e of [AT_REST, TIRED]) {
+        for (const e of FACES) {
             expect(moodFor(e).toneVar).toMatch(/^--color-/);
+        }
+    });
+
+    // the four faces must read apart at 132px: a different tone, or a clearly different plane splay or dropout
+    it("keeps every pair of faces apart in tone or in shape", () => {
+        for (const [i, a] of FACES.entries()) {
+            for (const b of FACES.slice(i + 1)) {
+                const ma = moodFor(a);
+                const mb = moodFor(b);
+                const apart =
+                    ma.toneVar !== mb.toneVar ||
+                    Math.abs(ma.align - mb.align) >= 0.3 ||
+                    Math.abs(ma.jitter - mb.jitter) >= 0.3;
+                expect(apart, `${a.kind} vs ${b.kind}`).toBe(true);
+            }
         }
     });
 

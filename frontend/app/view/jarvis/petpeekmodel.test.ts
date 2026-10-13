@@ -256,6 +256,18 @@ describe("peekConditions — every standing condition, readout marked", () => {
         expect(tired.readout).toBe(true);
     });
 
+    // a lost link has nothing to press; a held land's Retry land and Dismiss live on its own queue row
+    it("marks a lost link a readout and a held land not", () => {
+        const [link, held] = peekConditions({
+            link: { lostAt: 1_800_000_000_000 },
+            heldLand: { runName: "retry budget", reason: "conflict" },
+        });
+        expect(link.expr.kind).toBe("link-lost");
+        expect(link.readout).toBe(true);
+        expect(held.expr.kind).toBe("run-held");
+        expect(held.readout).toBe(false);
+    });
+
     it("stays empty when nothing is degraded", () => {
         expect(peekConditions({})).toEqual([]);
     });

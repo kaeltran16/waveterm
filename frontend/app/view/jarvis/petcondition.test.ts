@@ -4,6 +4,7 @@ import {
     conditionsFor,
     EXPRESSION_RANK,
     expressionFor,
+    heldLandFrom,
     isWindowConstrained,
     postureFor,
     postureLine,
@@ -11,9 +12,27 @@ import {
 } from "./petcondition";
 
 const HOT: PetSignals["rateLimit"] = { provider: "claude", pct: 94, resetAt: 1_800_000_000 };
+const LINK: PetSignals["link"] = { lostAt: 1_800_000_000_000 };
+const HELD: PetSignals["heldLand"] = { runName: "retry budget", reason: "merge conflict in policy.go" };
+
+function attentionItem(kind: string, source: string, reason?: string): AttentionItem {
+    return { kind, key: `${kind}:${source}`, source, text: "", reason, action: "Open", phaseidx: 0, waitingsince: 0 };
+}
 
 describe("expressionFor — each rank fires in isolation", () => {
-    it("rank 2: a depleting window is tired, carrying whose reading it is, the reading, and its reset", () => {
+    it("rank 1: a lost link carries when it dropped", () => {
+        expect(expressionFor({ link: LINK })).toEqual({ kind: "link-lost", lostAt: 1_800_000_000_000 });
+    });
+
+    it("rank 2: a held land carries the run and its reason", () => {
+        expect(expressionFor({ heldLand: HELD })).toEqual({
+            kind: "run-held",
+            runName: "retry budget",
+            reason: "merge conflict in policy.go",
+        });
+    });
+
+    it("rank 3: a depleting window is tired, carrying whose reading it is, the reading, and its reset", () => {
         expect(expressionFor({ rateLimit: HOT })).toEqual({
             kind: "tired",
             provider: "claude",
@@ -31,7 +50,14 @@ describe("expressionFor — strict precedence", () => {
     });
 
     it("ranks the expressions in the design's order", () => {
+        expect(EXPRESSION_RANK["link-lost"]).toBeLessThan(EXPRESSION_RANK["run-held"]);
+        expect(EXPRESSION_RANK["run-held"]).toBeLessThan(EXPRESSION_RANK.tired);
         expect(EXPRESSION_RANK.tired).toBeLessThan(EXPRESSION_RANK["at-rest"]);
+    });
+
+    it("wears link lost over every other fault, and run held over tired", () => {
+        expect(expressionFor({ link: LINK, heldLand: HELD, rateLimit: HOT }).kind).toBe("link-lost");
+        expect(expressionFor({ heldLand: HELD, rateLimit: HOT }).kind).toBe("run-held");
     });
 });
 
@@ -51,6 +77,28 @@ describe("expressionFor — nothing present is at-rest", () => {
 
     it("does not treat a zero reading as a constraint", () => {
         expect(expressionFor({ rateLimit: { provider: "claude", pct: 0 } }).kind).toBe("at-rest");
+    });
+});
+
+describe("heldLandFrom", () => {
+    it("takes the first held land, naming its run and its bare reason", () => {
+        const items = [
+            attentionItem("dag-gate", "gate run"),
+            attentionItem("run-land-held", "first held", "conflict"),
+            attentionItem("run-land-held", "second held", "other"),
+        ];
+        expect(heldLandFrom(items)).toEqual({ runName: "first held", reason: "conflict" });
+    });
+
+    it("reads a missing reason as empty", () => {
+        expect(heldLandFrom([attentionItem("run-land-held", "held run")])).toEqual({ runName: "held run", reason: "" });
+    });
+
+    // unverified runs are common enough that the avatar would sit red most of the day
+    it("never reads an unverified run as a held land", () => {
+        const items = [attentionItem("run-unverified", "unverified run", "no verify")];
+        expect(heldLandFrom(items)).toBeUndefined();
+        expect(expressionFor({ heldLand: heldLandFrom(items) }).kind).toBe("at-rest");
     });
 });
 
@@ -75,6 +123,15 @@ describe("postureFor", () => {
         };
         expect(expressionFor(signals).kind).toBe("tired");
         expect(postureFor(signals)).toBe("escalation");
+    });
+
+    it("composes a waiting gate with a held land", () => {
+        const signals: PetSignals = {
+            heldLand: heldLandFrom([attentionItem("run-land-held", "held run", "conflict")]),
+            attention: { reviewGates: 1, escalations: 0, blockedWorkers: 0 },
+        };
+        expect(expressionFor(signals).kind).toBe("run-held");
+        expect(postureFor(signals)).toBe("review-gate");
     });
 });
 
@@ -107,6 +164,29 @@ describe("wording", () => {
         expect(conditionLine({ kind: "tired", provider: "claude", pct: 100 }, now)).toBe("Claude's window is spent.");
     });
 
+    it("says when the link dropped, in local 24h time", () => {
+        const lostAt = new Date(2026, 9, 13, 9, 5).getTime();
+        expect(conditionLine({ kind: "link-lost", lostAt }, lostAt + 60_000)).toBe(
+            "I can't reach the backend — nothing here has updated since 09:05."
+        );
+    });
+
+    it("names the held run and why it is held", () => {
+        expect(conditionLine({ kind: "run-held", runName: "retry budget", reason: "merge conflict" }, now)).toBe(
+            "retry budget can't land — merge conflict."
+        );
+    });
+
+    // the reason is the raw hold reason, which can be empty or already a sentence
+    it("never prints an empty reason or a doubled period", () => {
+        expect(conditionLine({ kind: "run-held", runName: "retry budget", reason: "" }, now)).toBe(
+            "retry budget can't land."
+        );
+        expect(conditionLine({ kind: "run-held", runName: "retry budget", reason: "base moved." }, now)).toBe(
+            "retry budget can't land — base moved."
+        );
+    });
+
     it("gives every expression and every posture a line", () => {
         expect(conditionLine({ kind: "at-rest" }, now)).not.toBe("");
         expect(postureLine("review-gate")).not.toBe("");
@@ -124,6 +204,15 @@ describe("conditionsFor — every standing condition, in rank order", () => {
         expect(conditionsFor({})).toEqual([]);
     });
 
+    it("lists every standing fault once, in rank order", () => {
+        expect(conditionsFor({ rateLimit: HOT, heldLand: HELD, link: LINK }).map((c) => c.kind)).toEqual([
+            "link-lost",
+            "run-held",
+            "tired",
+        ]);
+        expect(conditionsFor({ link: LINK, heldLand: HELD }).map((c) => c.kind)).toEqual(["link-lost", "run-held"]);
+    });
+
     it("carries each condition whole, so conditionLine can word it without re-deriving", () => {
         expect(conditionsFor({ rateLimit: HOT })).toEqual([
             { kind: "tired", provider: "claude", pct: 94, resetAt: 1_800_000_000 },
@@ -137,7 +226,11 @@ describe("conditionsFor — every standing condition, in rank order", () => {
     // the crossing rule: the creature wears one face, and the peek's lead line must be that same face.
     // Two derivations of the same precedence would let the corner and the panel disagree.
     it("leads with exactly the expression the creature is wearing", () => {
-        for (const signals of [{ rateLimit: HOT }]) {
+        for (const signals of [
+            { rateLimit: HOT },
+            { heldLand: HELD, rateLimit: HOT },
+            { link: LINK, heldLand: HELD },
+        ]) {
             expect(conditionsFor(signals)[0]).toEqual(expressionFor(signals));
         }
     });
