@@ -228,7 +228,7 @@ function RegionHead({
     );
 }
 
-// Which kind of run Runs and Shipped show. Sits beside the region head, not in it: the head is a button.
+// Which kind of run Runs or Shipped show. Sits beside the region head, not in it: the head is a button.
 function RunKindToggle({ value, onChange }: { value: RunKindFilter; onChange: (v: RunKindFilter) => void }) {
     return (
         <div
@@ -430,8 +430,9 @@ const briefExpandedAtom = atom<Partial<Record<RegionId, boolean>>>({});
 // the same reason as the two above.
 const briefStaleOpenAtom = atom(false);
 const briefShippedOpenAtom = atom(false);
-// which kind of run Runs and Shipped show; module scope for the same reason
+// which kind of run Runs and Shipped each show; module scope for the same reason
 const briefRunKindAtom = atom<RunKindFilter>("all") as PrimitiveAtom<RunKindFilter>;
+const briefShippedKindAtom = atom<RunKindFilter>("all") as PrimitiveAtom<RunKindFilter>;
 
 // The plan reveal clips only while its height animates: left clipped, it cut off the chunk and stage menus
 // that drop below the card's edge.
@@ -696,9 +697,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const toggleOnly = (id: RegionId) => setOnly((cur) => (cur === id ? null : id));
     const filtering = query.trim() !== "";
     const [shippedOpen, setShippedOpen] = useAtom(briefShippedOpenAtom);
+    const [shippedKind, setShippedKind] = useAtom(briefShippedKindAtom);
     const shippedAll = useMemo(
-        () => (model_?.shipped ?? []).filter((s) => keepsRunKind(runKind, s.mode)),
-        [model_, runKind]
+        () => (model_?.shipped ?? []).filter((s) => keepsRunKind(shippedKind, s.mode)),
+        [model_, shippedKind]
     );
     const shipped = useMemo(
         () => capRegion(shippedAll, SHIPPED_CAP, shippedOpen || filtering),
@@ -1797,10 +1799,15 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                 <span className="font-normal tracking-[.04em]">
                                                     {shippedAll.length}
                                                 </span>
+                                                <span className="ml-auto font-normal normal-case tracking-normal">
+                                                    <RunKindToggle value={shippedKind} onChange={setShippedKind} />
+                                                </span>
                                             </div>
                                             {shippedAll.length === 0 ? (
                                                 <div className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">
-                                                    Nothing shipped in the last seven days.
+                                                    {shippedKind === "all"
+                                                        ? "Nothing shipped in the last seven days."
+                                                        : `No ${shippedKind} run shipped in the last seven days.`}
                                                 </div>
                                             ) : null}
                                             {shippedLines.map((l) => (

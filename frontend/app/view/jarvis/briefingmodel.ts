@@ -547,8 +547,11 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
 
     // shipped: only the rolling seven-day window (the server may return more when the cursor is
     // older than seven days); `fresh` when the matching run-done event is in the client-side delta.
+    // newest first across projects: the server sorts within each project, and projects by path.
     const shippedItems = projects.flatMap((p) => p.shipped ?? []);
-    const windowedShipped = shippedItems.filter((s) => s.completedts >= input.sevenDaysAgo);
+    const windowedShipped = shippedItems
+        .filter((s) => s.completedts >= input.sevenDaysAgo)
+        .sort((a, b) => b.completedts - a.completedts);
 
     // delta: client-side window back to actualCursor (the server fetched since min(cursor, 7d)),
     // minus current-attention duplicates, minus completions promoted into the shipped section.

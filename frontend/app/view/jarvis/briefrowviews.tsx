@@ -421,6 +421,16 @@ export function ShippedRowView({
             <span className="h-[7px] w-[7px] flex-none rounded-full bg-success/45" />
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <div className="flex min-w-0 items-center gap-2">
+                    {line.runType ? (
+                        <span
+                            className={cn(
+                                "flex-none rounded-[5px] border px-1.5 font-mono text-[10.5px] leading-[17px]",
+                                TYPE_BADGE[line.runType]
+                            )}
+                        >
+                            {line.runType}
+                        </span>
+                    ) : null}
                     <span title={line.title} className="min-w-0 truncate text-[13px] text-ink-hi">
                         {line.title}
                     </span>

@@ -342,6 +342,7 @@ describe("behindGroups", () => {
             target: { oref: "run:r2" },
             hasReport: true,
             fresh: true,
+            runType: "orchestrator",
             group: "shipped",
         });
     });

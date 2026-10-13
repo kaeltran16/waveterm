@@ -184,6 +184,31 @@ describe("briefing projection", () => {
         expect(m.delta[0].title).toBe("old work");
     });
 
+    it("orders shipped rows newest first across projects", () => {
+        const item = (project: string, runoid: string, completedts: number): ShippedItem => ({
+            project,
+            runoid,
+            goal: runoid,
+            summary: "sealed",
+            completedts,
+        });
+        const m = projectBriefing(
+            input(
+                workState([
+                    { project: "/a", active: [], shipped: [item("/a", "a-old", T0 - 3 * DAY)], events: [], delta: [] },
+                    {
+                        project: "/b",
+                        active: [],
+                        shipped: [item("/b", "b-new", T0 - DAY), item("/b", "b-mid", T0 - 2 * DAY)],
+                        events: [],
+                        delta: [],
+                    },
+                ])
+            )
+        );
+        expect(m.shipped.map((s) => s.oref)).toEqual(["run:b-new", "run:b-mid", "run:a-old"]);
+    });
+
     it("removes current attention items from delta rather than showing both", () => {
         const active: ActiveWorkItem[] = [
             {

@@ -51,6 +51,7 @@ export type BriefLine = {
     agentId?: string;
     hasReport?: boolean;
     fresh?: boolean;
+    runType?: RunType;
     group?: "delta" | "shipped";
 };
 
@@ -161,7 +162,7 @@ export function sessionLine(row: ActiveWorkRow, now: number): BriefLine & { stal
 }
 
 export type RunRowFace = {
-    type: "quick run" | "orchestrator" | "agent";
+    type: RunType | "agent";
     meta: string;
     elapsed: string;
     state: string;
@@ -225,7 +226,7 @@ export function runRowFace(i: {
     const linked = ref != null && i.effort != null;
     const stage = linked ? (i.effort.chunkStages[ref.chunklabel] ?? "") : "";
     return {
-        type: orch ? "orchestrator" : "quick run",
+        type: runType(run.mode),
         meta: orch ? `lead · ${i.project}` : `${run.runtime || "claude"} · ${i.project}`,
         elapsed: line.age,
         state,
@@ -265,6 +266,12 @@ export function sessionWindow(
 // the same split runRowFace badges.
 export type RunKindFilter = "all" | "orchestrator" | "quick";
 export const RUN_KIND_FILTERS: readonly RunKindFilter[] = ["all", "orchestrator", "quick"];
+
+export type RunType = "quick run" | "orchestrator";
+
+export function runType(mode: string): RunType {
+    return mode === "orchestrator" ? "orchestrator" : "quick run";
+}
 
 export function keepsRunKind(filter: RunKindFilter, mode: string): boolean {
     return filter === "all" || (mode === "orchestrator") === (filter === "orchestrator");
@@ -400,6 +407,7 @@ export function behindGroups(groups: DeltaGroup[], shipped: ShippedRow[], now: n
                 detail: joined([s.project, headline(s.summary)]),
                 hasReport: s.hasReport,
                 fresh: s.fresh,
+                runType: runType(s.mode),
                 group: "shipped" as const,
             })),
         });
