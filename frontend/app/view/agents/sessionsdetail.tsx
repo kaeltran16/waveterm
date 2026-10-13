@@ -18,11 +18,18 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
 import { formatAgeShort, formatTokens } from "./agentsviewmodel";
-import type { Runtime } from "./launch";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
 import type { LiveSession } from "./sessionsarchivestore";
-import { LEAD_MEMBER, sessionPrimary, type RunMember, type RunView, type Status, type StatusKey } from "./sessionsruns";
+import {
+    LEAD_MEMBER,
+    resumeLaunchOpts,
+    sessionPrimary,
+    type RunMember,
+    type RunView,
+    type Status,
+    type StatusKey,
+} from "./sessionsruns";
 import { projectorFor } from "./transcriptregistry";
 import { TranscriptSkeleton } from "./transcriptskeleton";
 
@@ -90,20 +97,7 @@ export function runSessionPrimary(model: AgentsViewModel, session: LiveSession) 
         return;
     }
     if (session.resumecommand) {
-        const piResume =
-            session.runtime === "pi" && session.resumeargs?.length
-                ? { startupArgs: session.resumeargs, resumePath: session.transcriptpath }
-                : {};
-        fireAndForget(() =>
-            launchAgent(model, {
-                runtime: session.runtime as Runtime,
-                startupCommand: session.resumecommand,
-                task: "",
-                projectPath: session.projectpath,
-                projectName: session.projectname || "agent",
-                ...piResume,
-            })
-        );
+        fireAndForget(() => launchAgent(model, resumeLaunchOpts(session)));
     }
 }
 
