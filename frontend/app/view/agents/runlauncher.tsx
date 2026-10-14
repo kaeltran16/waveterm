@@ -32,6 +32,7 @@ import {
 } from "./runconfig";
 import {
     autonomousAtom,
+    lightReviewerRouteAtom,
     parallelismAtom,
     planPathAtom,
     planPreviewAtom,
@@ -41,6 +42,7 @@ import {
     runRouteAtom,
     runShapeAtom,
     setAutonomous,
+    setLightReviewerRoute,
     setPlanPath,
     setReviewerPicks,
     setReviewerRoute,
@@ -274,6 +276,7 @@ function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
     const workerRoute = useAtomValue(workerRouteAtom);
     const reviewerPicks = useAtomValue(reviewerPicksAtom);
     const reviewerRoute = useAtomValue(reviewerRouteAtom);
+    const lightReviewerRoute = useAtomValue(lightReviewerRouteAtom);
     const openRequest = useAtomValue(routeOpenRequestAtom);
     return (
         <Section label="Routing">
@@ -308,6 +311,16 @@ function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
                             canInherit
                             inheritedLabel="Same as lead"
                         />
+                        <span data-light-reviewers-row className="contents">
+                            <RoutePicker
+                                value={lightReviewerRoute}
+                                onChange={setLightReviewerRoute}
+                                placement="bottom-start"
+                                title="Light reviewers model"
+                                canInherit
+                                inheritedLabel="Sonnet (default)"
+                            />
+                        </span>
                     </>
                 ) : null}
             </div>

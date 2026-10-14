@@ -82,6 +82,7 @@ describe("launchOptsFromConfig", () => {
         planPath: "",
         reviewerPicks: false,
         reviewerRoute: null,
+        lightReviewerRoute: null,
         autonomous: false,
     };
     const workerRoute: RoutePin = { runtime: "claude" };

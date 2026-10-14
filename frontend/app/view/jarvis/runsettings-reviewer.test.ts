@@ -59,6 +59,7 @@ const DRAFT: RunSettingsDraft = {
     workerRoute: null,
     reviewerPicks: false,
     reviewerRoute: null,
+    lightReviewerRoute: null,
     autonomous: false,
 };
 
@@ -145,6 +146,7 @@ describe("the reviewer settings in the sheet's draft", () => {
             workerRoute: null,
             reviewerPicks: true,
             reviewerRoute: REVIEWER,
+            lightReviewerRoute: null,
             autonomous: false,
         });
         expect(runSettingsDraft(engineRun({ reviewerroute: REVIEWER }), null)).toEqual({
@@ -152,6 +154,7 @@ describe("the reviewer settings in the sheet's draft", () => {
             workerRoute: null,
             reviewerPicks: false,
             reviewerRoute: REVIEWER,
+            lightReviewerRoute: null,
             autonomous: false,
         });
     });
