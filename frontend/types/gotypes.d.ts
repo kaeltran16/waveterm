@@ -81,6 +81,7 @@ declare global {
         transcriptpath?: string;
         ts: number;
         usage?: AgentUsage;
+        hook?: string;
     };
 
     // wshrpc.AgentSyncAction

@@ -45,6 +45,7 @@ type ccHookEvent struct {
 	ToolInput        json.RawMessage `json:"tool_input"`
 	Source           string          `json:"source"`
 	NotificationType string          `json:"notification_type"`
+	Trigger          string          `json:"trigger"`
 }
 
 // agentEmission describes what to publish for one hook event. State=="" means no
@@ -82,7 +83,12 @@ func planEmission(ev ccHookEvent) agentEmission {
 			return agentEmission{State: baseds.AgentState_Working, Detail: detailForTool(ev.ToolName, ev.ToolInput), AttachModelTitle: true}
 		}
 	case "PreCompact":
-		// a compaction is work the session cannot take typed input during, and it confirms a typed /compact
+		// a compaction is work the session cannot take typed input during, and it confirms a typed /compact.
+		// an auto one is inside a turn that already reads working, or a background precompute after the turn
+		// ended, which no Stop would close
+		if ev.Trigger == "auto" {
+			return agentEmission{}
+		}
 		return agentEmission{State: baseds.AgentState_Working}
 	case "SessionStart":
 		// the session is back at its prompt once the summary lands. an auto-compaction inside a turn reads
@@ -517,6 +523,7 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		Cwd:            ev.Cwd,
 		TranscriptPath: transcriptPath,
 		Ts:             startedTs,
+		Hook:           ev.HookEventName,
 	}
 	if em.AttachModelTitle && transcriptPath != "" {
 		if agentHookShadow != "" {
