@@ -1014,6 +1014,30 @@ export class RpcApiType {
         return client.wshRpcCall("stoprunworker", data, opts);
     }
 
+    // command "storageclear" [call]
+    StorageClearCommand(client: WshClient, data: CommandStorageClearData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "storageclear", data, opts);
+        return client.wshRpcCall("storageclear", data, opts);
+    }
+
+    // command "storagedelete" [call]
+    StorageDeleteCommand(client: WshClient, data: CommandStorageDeleteData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "storagedelete", data, opts);
+        return client.wshRpcCall("storagedelete", data, opts);
+    }
+
+    // command "storagereport" [call]
+    StorageReportCommand(client: WshClient, opts?: RpcOpts): Promise<StorageReportData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "storagereport", null, opts);
+        return client.wshRpcCall("storagereport", null, opts);
+    }
+
+    // command "storagescan" [call]
+    StorageScanCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "storagescan", null, opts);
+        return client.wshRpcCall("storagescan", null, opts);
+    }
+
     // command "streamagenttranscript" [responsestream]
 	StreamAgentTranscriptCommand(client: WshClient, data: CommandStreamAgentTranscriptData, opts?: RpcOpts): AsyncGenerator<AgentTranscriptUpdate, void, boolean> {
         if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "streamagenttranscript", data, opts);

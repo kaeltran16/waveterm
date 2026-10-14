@@ -1524,6 +1524,17 @@ declare global {
         workeroref: string;
     };
 
+    // wshrpc.CommandStorageClearData
+    type CommandStorageClearData = {
+        ids: string[];
+    };
+
+    // wshrpc.CommandStorageDeleteData
+    type CommandStorageDeleteData = {
+        id: string;
+        tip: string;
+    };
+
     // wshrpc.CommandStreamAckData
     type CommandStreamAckData = {
         id: string;
@@ -2859,6 +2870,87 @@ declare global {
         style: {[key: string]: any};
         clickopts?: StickerClickOptsType;
         display: StickerDisplayOptsType;
+    };
+
+    // wshrpc.StorageClearFailure
+    type StorageClearFailure = {
+        id: string;
+        path?: string;
+        error: string;
+        held?: boolean;
+    };
+
+    // wshrpc.StorageClearResult
+    type StorageClearResult = {
+        ts: number;
+        cleared: number;
+        freed: number;
+        failed?: StorageClearFailure[];
+    };
+
+    // wshrpc.StorageCommit
+    type StorageCommit = {
+        sha: string;
+        subject: string;
+    };
+
+    // wshrpc.StorageItem
+    type StorageItem = {
+        id: string;
+        kind: string;
+        group: string;
+        path?: string;
+        paths?: string[];
+        count?: number;
+        suffix?: string;
+        harness?: string;
+        slot?: number;
+        projectname?: string;
+        projectpath?: string;
+        branch?: string;
+        branchtip?: string;
+        runid?: string;
+        runchannelid?: string;
+        runtitle?: string;
+        runstatus?: string;
+        runlandstate?: string;
+        runlanddismissed?: boolean;
+        runts?: number;
+        runcount?: number;
+        tracked?: boolean;
+        hasgit?: boolean;
+        dirty?: number;
+        onlycount?: number;
+        onlycommits?: StorageCommit[];
+        alsoon?: string;
+        size: number;
+        modts?: number;
+        clearable?: boolean;
+        skip?: string;
+        clearstate?: string;
+        clearerror?: string;
+        clearheld?: boolean;
+    };
+
+    // wshrpc.StorageReportData
+    type StorageReportData = {
+        scants: number;
+        scanning?: boolean;
+        scanstartts?: number;
+        clearing?: boolean;
+        cleartotal?: number;
+        cleardone?: number;
+        items: StorageItem[];
+        errors?: StorageScanError[];
+        lastclear?: StorageClearResult;
+        joberror?: string;
+    };
+
+    // wshrpc.StorageScanError
+    type StorageScanError = {
+        projectname: string;
+        projectpath: string;
+        error: string;
     };
 
     // wshrpc.StreamMeta
