@@ -8,7 +8,7 @@
 import type { LaunchAgentOpts } from "@/app/cockpit/cockpit-actions";
 import { formatAge, type AgentVM } from "./agentsviewmodel";
 import type { Runtime } from "./launch";
-import { runTitle, stageLabel, unmetDeps } from "./runlineage";
+import { planReviewerOf, runTitle, stageLabel, unmetDeps } from "./runlineage";
 import { runComplete } from "./runmodel";
 import type { LiveSession } from "./sessionsarchivestore";
 
@@ -225,10 +225,16 @@ const STAGE_VERDICTS: Record<string, Status> = {
     unverified: { key: "muted", text: "unverified" },
 };
 
-// stageStatus reads the dag's current round of a stage: the round its newest session judged
+// stageStatus reads the dag's current round of a stage: the round its newest session judged. A plan reviewer of
+// that round reads its own verdict, since one lens can pass in a round another failed.
 function stageStatus(role: string, session: LiveSession | undefined, dag: TaskGroup | undefined): Status {
     if (session?.live) {
         return { key: "review", text: role === "verifier" ? "verifying" : "reviewing" };
+    }
+    const verdict =
+        role === "plan-reviewer" ? planReviewerOf(dag?.planreview, session?.stagerunid)?.verdict : undefined;
+    if (verdict != null) {
+        return STAGE_VERDICTS[verdict];
     }
     const state = (role === "verifier" ? dag?.final : dag?.planreview)?.state;
     return STAGE_VERDICTS[state] ?? { key: "done", text: "done" };
