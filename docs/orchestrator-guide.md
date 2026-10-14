@@ -122,9 +122,12 @@ taking the first rung that applies:
 So on Same as lead or a route, Model lines and reviewer picks are ignored, and a run that never opts in runs
 exactly as before. A reviewer pick of the lead's model stores no pin, so it falls to rung 4.
 
-**The reviewer route** is where the engine's judging sessions run: each task's reviewer, the plan reviewer and
-the final verifier. It is the lead's route unless you pick one. Only you set it (the launcher, the profile,
-`wsh runs start`); a lead has no command that writes it.
+**The reviewer route** is where the engine's judging sessions run: each task's reviewer, the plan review's full
+reviewer and the final verifier. It is the lead's route unless you pick one. Only you set it (the launcher, the
+profile, `wsh runs start`); a lead has no command that writes it. **The Light reviewers route** runs the plan
+review's lens reviewers and its round-2 follow-up ([The plan review](#the-plan-review)). Unset, it is Claude Code ·
+`sonnet` on every runtime. You set it in the launcher, the profile or the run sheet; `wsh runs start` has no flag
+for it.
 
 A pi lead needs the `@juicesharp/rpiv-ask-user-question` package (so its questions reach the cockpit) and the
 superpowers package installed into pi itself (the lead plans with `brainstorming` and `writing-plans`).
@@ -166,7 +169,8 @@ sealed.
 | **Parallelism** | How many lanes run at once, 1-8, default 3. Lowerable on a live run. |
 | **Lead model** | The lead's route. It brainstorms, writes the spec and plan, and later judges wakes, so this is the model whose judgment a retry cannot recover. |
 | **Workers model** | The workers setting ([Routes](#4-routes)): Same as lead, Reviewer picks, or a route. Changeable on a live run for tasks not yet dispatched. |
-| **Reviewers model** | The reviewer route: task reviews, the plan review and the final verify. "Same as lead" unless set. |
+| **Reviewers model** | The reviewer route: task reviews, the plan review's full reviewer and the final verify. "Same as lead" unless set. |
+| **Light reviewers model** | The Light reviewers route: the plan review's four lens reviewers and round 2's follow-up. "Sonnet (default)" (Claude Code · `sonnet`) unless set. Changeable on a live run. |
 | **Goal** | What the lead starts from. |
 
 The route picker filters by harness (**All / Pi / Claude Code**) and accepts a custom model id:
@@ -460,42 +464,82 @@ Both flows submit a plan file, and the engine reviews it before any worker start
 `plan-review`, and the scheduler dispatches nothing until the review passes or the lead accepts it. A dag
 submitted as JSON, with no plan file, and a fix round skip it.
 
-The engine starts a fresh plan-reviewer session in the tree where lanes land, on the reviewer route. It reads the
-spec (or, with no spec, the plan's design canvas), the plan and the files they name, and checks that:
+Every reviewer is a fresh session in the tree where lanes land. It reads the spec (or, with no spec, the plan's
+design canvas), the plan and the files they name. The full checklist is that:
 
 - every requirement in the spec has a task;
 - no two tasks edit the same file without a Depends between them;
 - types, functions and flags have the same names in every task that mentions them;
 - each task states its acceptance criteria and names the tests that prove them;
-- the commands the plan names exist.
+- the commands the plan names exist;
+- every task that changes a view, a visual state or an interaction names the scenario step that shows it, and
+  Final runs that scenario; with a Prototype, every board has one.
 
-It also reports gaps in the spec and places where the spec and plan contradict each other. It only reads, and
-ends with `wsh jarvis dag planreview pass "<summary>"` or `wsh jarvis dag planreview fail "<findings>"`. A
-reviewer that ends without a verdict, or runs past 20 minutes, is replaced once. One lost twice fails the review
-with the reason, and the same plan can be submitted again.
+A reviewer also reports gaps in the spec and places where the spec and plan contradict each other. It only reads,
+and ends with `wsh jarvis dag planreview pass "<summary>"` or `wsh jarvis dag planreview fail "<findings>"`. A
+reviewer that ends without a verdict, or runs past 20 minutes, is replaced once; one that is lost twice is **lost**.
 
-- **Pass:** the workers start, and the lead gets a quiet `plan review passed; workers are starting: …` line.
-- **Fail:** the lead wakes with the findings. It revises the plan, puts any spec change to you, and runs
+**Round 1 runs five reviewers at the same time.** The **Full review** runs the whole checklist on the reviewer
+route, and is the only one that picks models ([Model picks](#model-picks)). Four lens reviewers run on the Light
+reviewers route, each checking only its own part of the checklist:
+
+| Lens | Checks |
+|---|---|
+| **Spec coverage** | every requirement has a task; spec gaps and spec/plan contradictions |
+| **Task order and files** | Files/Depends overlaps; names consistent across tasks |
+| **Tests and commands** | acceptance criteria and named tests; the named commands exist |
+| **Final coverage** | each UI change has a Final scenario step; with a Prototype, each board has one |
+
+The round settles once no reviewer is still reviewing: one `plan-reviewed` event, one wake. It passes when the full
+reviewer passed and every lens passed or was lost. A lost lens does not fail the round, since the full reviewer
+covers its area; the round is judged on the others and its text says `Did not finish: <lens> (<why>).` A lost full
+reviewer fails the round. When nothing failed and only the full reviewer was lost, the lead is told to submit the
+same plan again.
+
+**The merged findings** are every failed reviewer's text, whole and attributed, in the table's order, separated by a
+blank line:
+
+```
+[Full review] <its findings>
+
+[Tests and commands] <its findings>
+
+Passed: Spec coverage, Task order and files, Final coverage.
+```
+
+The engine does not dedup across reviewers; the lead does.
+
+- **Pass:** the workers start, and the lead gets a quiet `plan review passed; workers are starting: …` line. One
+  reviewer's pass while others still review does nothing.
+- **Fail:** the lead wakes with the merged findings. It revises the plan, puts any spec change to you, and runs
   `wsh jarvis dag submit` again. While no task has dispatched, a resubmit replaces the failed proposal and opens
   review round 2. A plan run started without a lead gets one launched by this wake.
-- **Reading it:** the dag's status reads `plan-review` both while a reviewer works and after one failed, so
-  `wsh jarvis dag status` prints a `plan review <state> round=N` line: `reviewing` with its age, or `failed` with
-  the start of the findings and who it waits on. `dag submit` prints the same line for the round it opened. A
-  submit whose reply does not come back in time reads the dag again and says whether the plan landed, did not
-  land (resending is safe), or that it cannot tell.
+- **Reading it:** the dag's status reads `plan-review` both while reviewers work and after a round failed, so
+  `wsh jarvis dag status` prints a `plan review <state> round=N` line: `reviewing` with its age and each reviewer's
+  state, or `failed` with the start of the findings and who it waits on. `dag submit` prints the same line for the
+  round it opened. A submit whose reply does not come back in time reads the dag again and says whether the plan
+  landed, did not land (resending is safe), or that it cannot tell. The DAG view shows one chip per reviewer, and
+  the timeline's **Plan reviewed** row one line per reviewer.
+
+**Round 2 is one follow-up reviewer** (**Round-2 follow-up**) on the Light reviewers route. It does not review the
+plan afresh. It gets round 1's merged findings and the plan's changes as a diff against the plan round 1 read (and
+the spec's, or "The spec did not change."). It confirms that each round-1 finding is fixed or soundly declined, and
+checks only the changed lines against the full checklist. Its verdict has one line per round-1 finding, then any new
+findings. On a Reviewer picks run it picks models too, with round 1's pick for each task listed beside it. A lost
+follow-up fails the round.
+
 - **Round 2 fails:** the lead must put it to you, as a **Plan review** ask: the plan's path and one line per
   finding, which opens as the review dialog ([Answering the lead](#answering-the-lead)). If you say to proceed
   anyway, it runs `wsh jarvis dag planreview accept "<your reason>"`, and dispatch starts on the plan as it
   stands.
 
-A lead's resubmit replaces the plan, not your settings: the run's workers setting and reviewer route stay, a change
-you made in the run sheet before it included, and on Reviewer picks the next round's reviewer is asked for picks
-again.
+A lead's resubmit replaces the plan, not your settings: the run's workers setting and both reviewer routes stay, a
+change you made in the run sheet before it included, and on Reviewer picks the follow-up is asked for picks again.
 
 ### Model picks
 
-On a run whose workers setting is Reviewer picks, the plan reviewer also picks a model for every task the plan
-gives no Model line. Its brief lists those tasks and the rule: `sonnet` only for a mechanical, tightly specified
+On a run whose workers setting is Reviewer picks, the full reviewer (in round 2, the follow-up) also picks a model
+for every task the plan gives no Model line. Its brief lists those tasks and the rule: `sonnet` only for a mechanical, tightly specified
 task (a copy of an existing pattern, a field threaded through, prose against written code), `lead` for anything
 with a design choice, with one line on why. Its pass carries one `--pick` per listed task:
 
@@ -507,7 +551,8 @@ The shape is `t-N=<sonnet|lead>: <reason>`. `wsh` refuses anything else before s
 `t-2 sonnet`, a missing reason). The server refuses the pass, naming the task,
 for a missing pick, a pick for a task with a Model line, an unknown or repeated task, an empty reason, a reason of
 more than one line or over 200 characters, and a `sonnet` pick when the claude harness cannot run a worker here
-(it says to pick `lead`). The reviewer then resends. A run not on Reviewer picks refuses any pick.
+(it says to pick `lead`). The reviewer then resends. A run not on Reviewer picks refuses any pick, and a lens reviewer's verdict with a pick
+is refused on any run.
 
 A fail carries picks the same way, and may leave tasks out; those stay on the lead's route. The picks are applied
 to the held tasks at once, so the banner shows them while the review is failed. A resubmit replaces the tasks and
@@ -1138,7 +1183,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag sendback <task> ["<guidance>"]` | one more round for a review-failed task, with your guidance beside the findings |
 | `dag approve <task>` | overrule a failed review; the task lands as it is |
 | `dag review <pass\|fail> "<note>" [--downstream "<note>"] [--for <task ids>] [--unverified "<what, why>"]` | a reviewer's verdict; ends the reviewer's session |
-| `dag planreview <pass\|fail> "<text>" [--pick "t-N=<sonnet\|lead>: <reason>" ...]` | the plan reviewer's verdict; ends its session. On a Reviewer picks run a pass carries one `--pick` per task without a Model line, and a fail the ones it can judge ([Model picks](#model-picks)) |
+| `dag planreview <pass\|fail> "<text>" [--pick "t-N=<sonnet\|lead>: <reason>" ...]` | a plan reviewer's verdict; ends its session. On a Reviewer picks run the full or follow-up reviewer's pass carries one `--pick` per task without a Model line, and a fail the ones it can judge ([Model picks](#model-picks)) |
 | `dag planreview accept "<the human's reason>"` | as the lead, proceed past a failed plan review on the human's word |
 | `dag final pass "<summary>" [--unverified "<what, why>"]` / `dag final fail "<defects>"` | the final verifier's verdict; ends its session |
 | `dag retry <task>` / `dag skip <task>` | retry or skip a failed or stalled task |
