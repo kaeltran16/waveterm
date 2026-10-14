@@ -8,15 +8,17 @@ import { hasCommittedWork } from "./commitmark";
 
 const NO_BLOCK: Atom<Block | undefined> = atom(undefined as Block | undefined);
 
-/** A tick when the agent's latest work is committed (see commitmark.ts); nothing otherwise. */
-export function CommitTick({ blockId }: { blockId: string | undefined }) {
+/** Whether the agent is done and its latest work is committed (see commitmark.ts). */
+export function useCommitDone(blockId: string | undefined, done: boolean): boolean {
     const block = useAtomValue(blockId ? WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)) : NO_BLOCK);
-    if (!hasCommittedWork(block?.meta)) {
-        return null;
-    }
+    return hasCommittedWork(block?.meta, done);
+}
+
+/** The tick that stands in for a done agent's status dot. */
+export function CommitTick() {
     return (
-        <span title="Latest work committed" className="flex shrink-0 items-center">
-            <Check size={12} strokeWidth={2.4} aria-label="Latest work committed" className="text-success" />
+        <span title="Done, latest work committed" className="flex shrink-0 items-center">
+            <Check size={12} strokeWidth={2.4} aria-label="Done, latest work committed" className="text-success" />
         </span>
     );
 }

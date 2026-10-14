@@ -32,7 +32,7 @@ import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from 
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
-import { CommitTick } from "./committick";
+import { CommitTick, useCommitDone } from "./committick";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
@@ -454,6 +454,7 @@ function ParentRow({
     const mark = lead != null ? leadMark(lead.run, agent) : null;
     const tasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standing = isStandingBy(agent.state, tasks);
+    const commitDone = useCommitDone(agent.blockId, agent.state === "idle" && !standing);
     // undefined until the user folds: open while a task runs, as the subagent fold defaults
     const [tasksOverride, setTasksOverride] = useState<boolean>();
     const tasksOpen = tasks.length > 0 && (tasksOverride ?? true);
@@ -545,6 +546,8 @@ function ParentRow({
                             aria-hidden
                             className={cn(LEAD_MARK_CLASS[mark.tone], mark.pulse && PULSE)}
                         />
+                    ) : commitDone ? (
+                        <CommitTick />
                     ) : (
                         <StatusDot
                             state={agent.state}
@@ -562,7 +565,6 @@ function ParentRow({
                             <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-hi">
                                 {agent.name}
                             </div>
-                            <CommitTick blockId={agent.blockId} />
                             {/* a lead's second line holds its workers chip and progress, which need its full width */}
                             {lead ? subsChip : null}
                             {lead ? tasksChip : null}

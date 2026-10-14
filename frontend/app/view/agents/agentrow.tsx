@@ -49,7 +49,7 @@ import { AttentionBanner, BannerChip } from "./attentioncard";
 import { diffStatsByIdAtom } from "./cardgitstore";
 import type { CardShare } from "./cardgridlayout";
 import { finishes, nextSnap, type AgentSnap } from "./cockpitevents";
-import { CommitTick } from "./committick";
+import { CommitTick, useCommitDone } from "./committick";
 import { parseDocReview } from "./docreview";
 import { entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
@@ -310,6 +310,7 @@ export const AgentRow = memo(function AgentRow({
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const shellTasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standingBy = isStandingBy(agent.state, shellTasks);
+    const commitDone = useCommitDone(agent.blockId, idle && !standingBy);
     const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
     const runningShellTasks = shellTasks.length;
     const tasks = useAtomValue(tasksAtomFor(agent.id));
@@ -386,10 +387,15 @@ export const AgentRow = memo(function AgentRow({
         >
             {/* header bar */}
             <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-1.5">
-                <StatusLine agent={agent} nowAtom={nowAtom} standing={standingBy} className="min-w-0 flex-1" />
+                <StatusLine
+                    agent={agent}
+                    nowAtom={nowAtom}
+                    mark={commitDone ? <CommitTick /> : undefined}
+                    standing={standingBy}
+                    className="min-w-0 flex-1"
+                />
                 {subs.length > 0 ? <FanoutBadge subs={subs} onOpen={onOpen} /> : null}
                 {shellTasks.length > 0 ? <ShellTasksBadge tasks={shellTasks} /> : null}
-                <CommitTick blockId={agent.blockId} />
                 {diff ? (
                     <button
                         type="button"
