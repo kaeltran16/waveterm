@@ -1025,6 +1025,30 @@ func StopRunWorkerCommand(w *wshutil.WshRpc, data wshrpc.CommandStopRunWorkerDat
 	return err
 }
 
+// command "storageclear", wshserver.StorageClearCommand
+func StorageClearCommand(w *wshutil.WshRpc, data wshrpc.CommandStorageClearData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "storageclear", data, opts)
+	return err
+}
+
+// command "storagedelete", wshserver.StorageDeleteCommand
+func StorageDeleteCommand(w *wshutil.WshRpc, data wshrpc.CommandStorageDeleteData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "storagedelete", data, opts)
+	return err
+}
+
+// command "storagereport", wshserver.StorageReportCommand
+func StorageReportCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.StorageReportData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.StorageReportData](w, "storagereport", nil, opts)
+	return resp, err
+}
+
+// command "storagescan", wshserver.StorageScanCommand
+func StorageScanCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "storagescan", nil, opts)
+	return err
+}
+
 // command "streamagenttranscript", wshserver.StreamAgentTranscriptCommand
 func StreamAgentTranscriptCommand(w *wshutil.WshRpc, data wshrpc.CommandStreamAgentTranscriptData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate] {
 	return sendRpcRequestResponseStreamHelper[wshrpc.AgentTranscriptUpdate](w, "streamagenttranscript", data, opts)

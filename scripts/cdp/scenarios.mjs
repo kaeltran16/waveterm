@@ -18374,6 +18374,290 @@ const settingsClaudeAccount = {
     },
 };
 
+// --- settings-storage: Settings > Storage over the DEV fixtures (storagedevmock.ts) -----------------------
+// Every state is a fixture: in fixture mode no action reaches wavesrv, it lands on window.__storageLastAction, so
+// no step deletes or creates a real file. The fixture is set before the section opens, so its auto-scan never
+// fires against an empty result. Section content is scoped to its pane, the header's buttons and the index row
+// to their own data attributes, and each dialog to its panel's data-testid.
+const STORAGE_PANE = `document.querySelector('[data-settings-section="storage"]')`;
+const STORAGE_NAV = `document.querySelector('[data-section="storage"]')`;
+const STORAGE_CLEAR = `document.querySelector('[data-storage-clear]')`;
+const STORAGE_RESCAN = `document.querySelector('[data-storage-rescan]')`;
+const STORAGE_CONFIRM = `document.querySelector('[data-testid="storage-confirm"]')`;
+const STORAGE_DELETE_CONFIRM = `document.querySelector('[data-testid="storage-delete-confirm"]')`;
+// storagefixtures.ts: the paths are the fixture machine's, never this one's
+const STORAGE_WT = String.raw`C:\Users\arc\AppData\Local\arc-wt`;
+const STORAGE_LEGACY = String.raw`C:\Users\arc\IdeaProjects\waveterm\.waveterm\worktrees`;
+const STORAGE_SIEM = String.raw`C:\Users\arc\IdeaProjects\cyber_anomaly_detector`;
+const STORAGE_SKIPPED_ID = `legacytree:${STORAGE_LEGACY}\\9e473bf8-e50f-48e2-9a4d-bfb1b79dddcc`;
+const STORAGE_SKIPPED_TIP = "ad962fe1b3c4d5e6f708192a3b4c5d6e7f809a1b";
+const STORAGE_LIVE_ROW = `runtree:${STORAGE_WT}\\dca34385`;
+const STORAGE_LIVE_RUN = "dca34385-7b2e-4c1a-9f3d-2e8b6a1c4d70";
+const STORAGE_HELD_ROW = `runtree:${STORAGE_WT}\\3425249d`;
+// clearPlan(STORAGE_SCENARIOS.storage).ids
+const STORAGE_CLEAR_IDS = [
+    ...["bd67b1fe", "3425249d", "009152b3", "866e3b50", "a6cf3f86"].map((k) => `runtree:${STORAGE_WT}\\${k}`),
+    `legacygroup:${STORAGE_LEGACY}`,
+    `branch:${STORAGE_SIEM}:refs/heads/wave/021cb57c-bf17-4c5c-9f41-ee7373a2cc11`,
+    `branch:${STORAGE_SIEM}:refs/heads/wave/f15cd1a3-d509-48b6-b505-2155fee20b96`,
+    String.raw`finalout:C:\Users\arc\AppData\Local\Temp\arc-final-*`,
+    String.raw`finalout:C:\Users\arc\AppData\Local\arc-final-out-*`,
+];
+const STORAGE_RUN_GONE = "That run no longer exists";
+const storageRow = (id) =>
+    `[...(${STORAGE_PANE}?.querySelectorAll('[data-storage-row]') ?? [])].find((r) => r.getAttribute("data-storage-row") === ${JSON.stringify(id)})`;
+// a dialog's button by its label's start; the label is followed by its key hint
+const storageDialogButton = (dialog, label) =>
+    `[...(${dialog}?.querySelectorAll("button") ?? [])].find((b) => (b.textContent || "").trim().startsWith(${JSON.stringify(label)}))`;
+const storageText = (expr) => `((${expr})?.textContent || "").trim()`;
+const storageAction = (h) => h.ev(`window.__storageLastAction ?? null`);
+const storageResetAction = (h) => h.ev(`(window.__storageLastAction = undefined, true)`);
+const storageSet = (h, name) => h.ev(`(window.__setStorageScenario(${JSON.stringify(name)}), true)`);
+
+const settingsStorage = {
+    name: "settings-storage",
+    surface: "settings",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const shot = (n) => h.shot(`cdp-shots/settings-storage-${n}.png`);
+        const settle = () => polishNap(300);
+
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        await h.goto("settings");
+        const mock = await polishWaitFor(h, `typeof window.__setStorageScenario === "function"`, 10000);
+        if (!mock) {
+            rec("1. storage: the DEV mock is installed with the Settings surface", false, "window.__setStorageScenario never appeared");
+            return steps;
+        }
+        await storageSet(h, "storage");
+        await h.ev(`${STORAGE_NAV}?.click()`);
+        await polishWaitFor(h, `${STORAGE_PANE}?.querySelector('[data-storage-group]') != null`, 5000);
+        await settle();
+        await shot("1-storage");
+        const main = await h.ev(`(() => {
+            const pane = ${STORAGE_PANE};
+            if (!pane) return null;
+            return {
+                groups: [...pane.querySelectorAll('[data-storage-group]')].map((g) => g.getAttribute("data-storage-group")),
+                skippedDelete: (${storageRow(STORAGE_SKIPPED_ID)})?.querySelector('[data-storage-delete]') != null,
+                clear: ${storageText(STORAGE_CLEAR)},
+                nav: ${storageText(STORAGE_NAV)},
+                autoScan: window.__storageLastAction ?? null,
+            };
+        })()`);
+        rec(
+            "1. storage: three groups, the 9e473bf8 row offers Delete anyway, Clear reads 314 MB, the index row says left over",
+            main != null &&
+                JSON.stringify(main.groups) === JSON.stringify(["left", "inuse", "kept"]) &&
+                main.skippedDelete &&
+                main.clear === "Clear 314 MB left over" &&
+                main.nav.includes("left over") &&
+                main.autoScan == null,
+            JSON.stringify(main)
+        );
+
+        await storageResetAction(h);
+        await h.ev(`${STORAGE_CLEAR}?.click()`);
+        await polishWaitFor(h, `${STORAGE_CONFIRM} != null`, 3000);
+        await settle();
+        await shot("2-confirm");
+        const confirm = await h.ev(`(() => {
+            const d = ${STORAGE_CONFIRM};
+            if (!d) return null;
+            return { lines: [...d.querySelectorAll("li")].map((l) => l.textContent.trim()), text: d.textContent };
+        })()`);
+        await h.ev(`${storageDialogButton(STORAGE_CONFIRM, "Cancel")}?.click()`);
+        const confirmGone = await polishWaitFor(h, `${STORAGE_CONFIRM} == null`, 3000);
+        const afterCancel = await storageAction(h);
+        rec(
+            "2. confirm: Clear asks with the three kind lines, the 9e473bf8 skip and the tail; Cancel closes it and sends nothing",
+            confirm != null &&
+                confirm.lines.length === 3 &&
+                confirm.text.includes(String.raw`Skips .waveterm\worktrees\9e473bf8`) &&
+                confirm.text.includes("Live runs and kept items are never touched.") &&
+                confirmGone &&
+                afterCancel == null,
+            JSON.stringify({ lines: confirm?.lines, gone: confirmGone, action: afterCancel })
+        );
+
+        await storageResetAction(h);
+        await h.ev(`${STORAGE_CLEAR}?.click()`);
+        await polishWaitFor(h, `${STORAGE_CONFIRM} != null`, 3000);
+        await h.ev(`${storageDialogButton(STORAGE_CONFIRM, "Clear left over")}?.click()`);
+        const ctaGone = await polishWaitFor(h, `${STORAGE_CONFIRM} == null`, 3000);
+        const cleared = await storageAction(h);
+        await shot("3-clear-cta");
+        rec(
+            "3. Clear left over closes the dialog and clears the 10 clearable fixture ids",
+            ctaGone &&
+                cleared?.kind === "clear" &&
+                JSON.stringify([...(cleared.ids ?? [])].sort()) === JSON.stringify([...STORAGE_CLEAR_IDS].sort()),
+            JSON.stringify({ gone: ctaGone, action: cleared })
+        );
+
+        const openDelete = async () => {
+            await h.ev(`(${storageRow(STORAGE_SKIPPED_ID)})?.querySelector('[data-storage-delete]')?.click()`);
+            return polishWaitFor(h, `${STORAGE_DELETE_CONFIRM} != null`, 3000);
+        };
+        await storageResetAction(h);
+        await openDelete();
+        await settle();
+        await shot("4-deleteone");
+        const del = await h.ev(`(() => {
+            const d = ${STORAGE_DELETE_CONFIRM};
+            if (!d) return null;
+            return {
+                commits: [...d.querySelectorAll("li")].map((l) => l.textContent.trim()),
+                cta: ${storageText(storageDialogButton(STORAGE_DELETE_CONFIRM, "Delete and lose"))},
+            };
+        })()`);
+        await h.ev(`${storageDialogButton(STORAGE_DELETE_CONFIRM, "Cancel")}?.click()`);
+        const delGone = await polishWaitFor(h, `${STORAGE_DELETE_CONFIRM} == null`, 3000);
+        rec(
+            "4. deleteone: Delete anyway lists the 2 commits and offers Delete and lose 2 commits; Cancel closes it",
+            del != null && del.commits.length === 2 && del.cta.startsWith("Delete and lose 2 commits") && delGone,
+            JSON.stringify({ ...del, gone: delGone, action: await storageAction(h) })
+        );
+
+        await storageResetAction(h);
+        await openDelete();
+        await h.ev(`${storageDialogButton(STORAGE_DELETE_CONFIRM, "Delete and lose 2 commits")}?.click()`);
+        const deleteGone = await polishWaitFor(h, `${STORAGE_DELETE_CONFIRM} == null`, 3000);
+        const deleted = await storageAction(h);
+        await shot("5-delete-cta");
+        rec(
+            "5. Delete and lose 2 commits closes the dialog and deletes the 9e473bf8 row at its tip",
+            deleteGone && deleted?.kind === "delete" && deleted.id === STORAGE_SKIPPED_ID && deleted.tip === STORAGE_SKIPPED_TIP,
+            JSON.stringify({ gone: deleteGone, action: deleted })
+        );
+
+        await storageResetAction(h);
+        await h.ev(`${STORAGE_RESCAN}?.click()`);
+        await settle();
+        const scanned = await storageAction(h);
+        await shot("6-rescan");
+        rec("6. Rescan starts a scan", scanned?.kind === "scan", JSON.stringify(scanned));
+
+        await storageResetAction(h);
+        await h.ev(`(${storageRow(STORAGE_LIVE_ROW)})?.querySelector('[data-storage-run]')?.click()`);
+        const toast = await polishWaitFor(
+            h,
+            `[...document.querySelectorAll('[data-notification-toast]')].some((t) => (t.textContent || "").includes(${JSON.stringify(STORAGE_RUN_GONE)}))`,
+            5000
+        );
+        const opened = await storageAction(h);
+        await shot("7-owner-link");
+        rec(
+            "7. the dca34385 owner link opens its run, which the fixture store lacks: That run no longer exists",
+            opened?.kind === "open" && opened.runId === STORAGE_LIVE_RUN && toast,
+            JSON.stringify({ action: opened, toast })
+        );
+        await h.goto("settings");
+        await storageSet(h, "storage");
+        await h.ev(`${STORAGE_NAV}?.click()`);
+        await polishWaitFor(h, `${STORAGE_PANE}?.querySelector('[data-storage-group]') != null`, 5000);
+
+        await storageSet(h, "clearing");
+        await settle();
+        await shot("8-clearing");
+        const clearing = await h.ev(`(() => {
+            const pane = ${STORAGE_PANE};
+            if (!pane) return null;
+            return {
+                clear: ${storageText(STORAGE_CLEAR)},
+                clearDisabled: ${STORAGE_CLEAR}?.disabled ?? null,
+                rescanDisabled: ${STORAGE_RESCAN}?.disabled ?? null,
+                text: pane.textContent,
+                deletes: pane.querySelectorAll('[data-storage-delete]').length,
+            };
+        })()`);
+        rec(
+            "8. clearing: Clear reads Clearing 7 of 10… and is disabled, Rescan too; rows say Cleared and Clearing…; no Delete anyway",
+            clearing != null &&
+                clearing.clear === "Clearing 7 of 10…" &&
+                clearing.clearDisabled === true &&
+                clearing.rescanDisabled === true &&
+                clearing.text.includes("Cleared") &&
+                clearing.text.includes("Clearing…") &&
+                clearing.deletes === 0,
+            JSON.stringify({ ...clearing, text: undefined })
+        );
+
+        await storageSet(h, "cleared");
+        await settle();
+        await shot("9-cleared");
+        const done = await h.ev(`(() => ({
+            result: ${storageText(`${STORAGE_PANE}?.querySelector('[data-storage-result]')`)},
+            held: ${storageText(storageRow(STORAGE_HELD_ROW))},
+            clear: ${storageText(STORAGE_CLEAR)},
+        }))()`);
+        rec(
+            "9. cleared: the result names the held folder, its row reads In use by a process, Clear reads Clear again",
+            done.result.includes(String.raw`arc-wt\3425249d`) &&
+                done.held.includes("In use by a process") &&
+                done.clear === "Clear again",
+            JSON.stringify(done)
+        );
+
+        await storageSet(h, "scanning");
+        await settle();
+        await shot("10-scanning");
+        const scanning = await h.ev(`(() => {
+            const pane = ${STORAGE_PANE};
+            if (!pane) return null;
+            return {
+                skeleton: pane.querySelector('[data-storage-skeleton]') != null,
+                stats: [...pane.querySelectorAll('[data-storage-stat]')].map((s) => s.children[1]?.textContent.trim()),
+                clear: ${STORAGE_CLEAR} != null,
+            };
+        })()`);
+        rec(
+            "10. scanning: the skeleton shows, the stats read …, and there is no Clear",
+            scanning != null &&
+                scanning.skeleton &&
+                JSON.stringify(scanning.stats) === JSON.stringify(["…", "…", "…"]) &&
+                !scanning.clear,
+            JSON.stringify(scanning)
+        );
+
+        await storageSet(h, "error");
+        await settle();
+        await shot("11-error");
+        const errored = await h.ev(`(() => {
+            const pane = ${STORAGE_PANE};
+            if (!pane) return null;
+            return {
+                banner: ${storageText(`${STORAGE_PANE}?.querySelector('[data-storage-error]')`)},
+                rows: [...pane.querySelectorAll('[data-storage-row]')]
+                    .filter((r) => (r.getAttribute("data-storage-row") + r.textContent).includes("cyber_anomaly_detector")).length,
+            };
+        })()`);
+        rec(
+            "11. error: the banner names cyber_anomaly_detector and none of its rows list",
+            errored != null && errored.banner.includes("cyber_anomaly_detector") && errored.rows === 0,
+            JSON.stringify(errored)
+        );
+
+        await storageSet(h, "clean");
+        await settle();
+        await shot("12-clean");
+        const clean = await h.ev(`({
+            empty: ${STORAGE_PANE}?.querySelector('[data-storage-empty]') != null,
+            clear: ${STORAGE_CLEAR} != null,
+        })`);
+        rec("12. clean: Left over says nothing is left over, and there is no Clear", clean.empty && !clean.clear, JSON.stringify(clean));
+        return steps;
+    },
+    async teardown(h) {
+        await h.ev(`window.__setStorageScenario?.("live")`).catch(() => {});
+        await h.goto("cockpit");
+    },
+};
+
 // --- motion gaps ---------------------------------------------------------------------------------
 // The cockpit toast and the Setup tab panel used to cut in and out. Each check samples in-page, in one
 // evaluation, because a CDP round trip per sample is slower than the animations it measures: an observer
@@ -20124,6 +20408,7 @@ export const SCENARIOS = [
     settingsRadarAudit,
     settingsVaultSync,
     settingsClaudeAccount,
+    settingsStorage,
     jarvisMotion,
     // before brief-inline-tracker, which leaves a briefing fixture on over the seeded data
     briefDesignParity,
