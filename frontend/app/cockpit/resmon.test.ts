@@ -8,6 +8,7 @@ import {
     fmtAge,
     fmtCpu,
     fmtMem,
+    fmtSize,
     groupHeader,
     isExpanded,
     killChildrenConfirmText,
@@ -111,6 +112,18 @@ describe("formatting", () => {
         expect(fmtMem(1.9 * 1024 * MB)).toBe("1.9 GB");
         expect(fmtMem(0)).toBe("0 MB");
         expect(fmtMem(-1)).toBe("–");
+    });
+    it("formats sizes under 1 MiB in bytes or KB, and as fmtMem from 1 MiB up", () => {
+        expect(fmtSize(0)).toBe("0 B");
+        expect(fmtSize(512)).toBe("512 B");
+        expect(fmtSize(8192)).toBe("8 KB");
+        expect(fmtSize(MB)).toBe("1 MB");
+        expect(fmtSize(14.6 * 1024 * MB)).toBe("14.6 GB");
+    });
+    it("keeps fmtMem unchanged at 1 MiB and above", () => {
+        expect(fmtMem(MB)).toBe("1 MB");
+        expect(fmtMem(14.6 * 1024 * MB)).toBe("14.6 GB");
+        expect(fmtMem(8192)).toBe("0 MB");
     });
     it("formats age across the second, minute, hour and day edges", () => {
         const now = 10_000_000_000;

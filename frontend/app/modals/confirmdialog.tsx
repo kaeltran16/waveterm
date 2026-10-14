@@ -36,6 +36,7 @@ interface ConfirmDialogProps {
     onAlt?: () => void;
     onConfirm: () => void;
     onClose: () => void;
+    testId?: string; // set as data-testid on the panel, so a CDP scenario can scope to this dialog
 }
 
 export function ConfirmDialog({
@@ -51,6 +52,7 @@ export function ConfirmDialog({
     onAlt,
     onConfirm,
     onClose,
+    testId,
 }: ConfirmDialogProps) {
     useEffect(() => {
         if (!open) {
@@ -69,7 +71,7 @@ export function ConfirmDialog({
     const t = TONE[tone];
     return (
         <ModalShell open={open} onClose={onClose} align="center" className="w-full max-w-[440px]">
-            <div className="px-[22px] pt-[22px] pb-[18px]">
+            <div data-testid={testId} className="px-[22px] pt-[22px] pb-[18px]">
                 <div className="flex items-start gap-3.5">
                     <div
                         className={cn(
