@@ -1014,8 +1014,9 @@ Before merging, the engine takes these steps:
   merges the base into the landing tree without committing and runs Check, then Verify with `ARC_VERIFY_CHANGED`
   listing what differs from the verified commit. It then aborts that merge. When the base has not moved and
   every changed path is Markdown, it skips Check, which cannot scope itself; Verify still runs.
-- It removes an untracked file in the checkout that is identical to one the run adds, such as the spec or plan the
-  lead wrote there before submit.
+- It removes an untracked file in the checkout that is a version of one the run adds, such as the spec or plan the
+  lead wrote or adopted there before submit: the one the run adds, or any the run's branch held before, including a
+  docs snapshot a resubmit amended away (its reflog keeps it), so a spec the run revised still replaces its original.
 - The land notes the base commits that arrived after that check, "merged onto N commits that landed on <base>
   during the run; the combination was not verified".
 
@@ -1026,7 +1027,7 @@ It **holds** the land, with a reason, and leaves the checkout as it was, when:
 - the checkout is on another branch;
 - the checkout is stopped mid-merge, mid-rebase or mid-cherry-pick;
 - the checkout has staged changes;
-- an untracked file in the checkout differs from one the run adds;
+- an untracked file in the checkout differs from every version the run held of one it adds;
 - the land's Check or Verify fails (a Check that already failed on the base at submit only adds a note), or
   the run conflicts with the base in the landing tree;
 - the landing tree is stopped mid-merge;
