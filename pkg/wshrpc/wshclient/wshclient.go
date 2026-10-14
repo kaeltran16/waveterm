@@ -157,6 +157,12 @@ func CanvasServeCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) (s
 	return resp, err
 }
 
+// command "checkmemoryhygiene", wshserver.CheckMemoryHygieneCommand
+func CheckMemoryHygieneCommand(w *wshutil.WshRpc, data wshrpc.CommandCheckMemoryHygieneData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "checkmemoryhygiene", data, opts)
+	return err
+}
+
 // command "claudeaccountremove", wshserver.ClaudeAccountRemoveCommand
 func ClaudeAccountRemoveCommand(w *wshutil.WshRpc, data wshrpc.CommandClaudeAccountData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "claudeaccountremove", data, opts)
@@ -285,6 +291,12 @@ func DagStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandDagStatusData, opts 
 // command "dagsubmit", wshserver.DagSubmitCommand
 func DagSubmitCommand(w *wshutil.WshRpc, data wshrpc.CommandDagSubmitData, opts *wshrpc.RpcOpts) (*waveobj.TaskGroup, error) {
 	resp, err := sendRpcRequestCallHelper[*waveobj.TaskGroup](w, "dagsubmit", data, opts)
+	return resp, err
+}
+
+// command "decidememorychange", wshserver.DecideMemoryChangeCommand
+func DecideMemoryChangeCommand(w *wshutil.WshRpc, data wshrpc.CommandDecideMemoryChangeData, opts *wshrpc.RpcOpts) (*wshrpc.MemHygieneProject, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.MemHygieneProject](w, "decidememorychange", data, opts)
 	return resp, err
 }
 
@@ -681,6 +693,12 @@ func ListDossiersCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Comma
 // command "listharnesses", wshserver.ListHarnessesCommand
 func ListHarnessesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListHarnessesRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListHarnessesRtnData](w, "listharnesses", nil, opts)
+	return resp, err
+}
+
+// command "listmemoryhygiene", wshserver.ListMemoryHygieneCommand
+func ListMemoryHygieneCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListMemoryHygieneRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListMemoryHygieneRtnData](w, "listmemoryhygiene", nil, opts)
 	return resp, err
 }
 

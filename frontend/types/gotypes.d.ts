@@ -523,6 +523,11 @@ declare global {
         runid: string;
     };
 
+    // wshrpc.CommandCheckMemoryHygieneData
+    type CommandCheckMemoryHygieneData = {
+        project: string;
+    };
+
     // wshrpc.CommandClaudeAccountData
     type CommandClaudeAccountData = {
         accountuuid: string;
@@ -696,6 +701,13 @@ declare global {
         planpath?: string;
         specpath?: string;
         round?: boolean;
+    };
+
+    // wshrpc.CommandDecideMemoryChangeData
+    type CommandDecideMemoryChangeData = {
+        project: string;
+        changeid: string;
+        verdict: string;
     };
 
     // wshrpc.CommandDeleteBlockData
@@ -1234,6 +1246,11 @@ declare global {
     // wshrpc.CommandListHarnessesRtnData
     type CommandListHarnessesRtnData = {
         harnesses: HarnessInfo[];
+    };
+
+    // wshrpc.CommandListMemoryHygieneRtnData
+    type CommandListMemoryHygieneRtnData = {
+        projects: MemHygieneProject[];
     };
 
     // wshrpc.CommandListRadarReportsData
@@ -2136,6 +2153,107 @@ declare global {
         reviewerroute?: RoutePin;
         landing?: string;
         autonomous?: boolean;
+    };
+
+    // wshrpc.MemChange
+    type MemChange = {
+        id: string;
+        kind: string;
+        group: string;
+        title: string;
+        note: string;
+        applylabel: string;
+        effect: string;
+        files: MemFileRef[];
+        evidence: MemEvidence[];
+        diffs: MemDiff[];
+        indexdelta: MemIndexDelta;
+        ownindexdelta: MemIndexDelta;
+        op: MemOp;
+        status: string;
+        conflictfile: string;
+        decidedat: number;
+        backupuntil: number;
+        applyid: string;
+    };
+
+    // wshrpc.MemDiff
+    type MemDiff = {
+        path: string;
+        note: string;
+        lines: MemDiffLine[];
+    };
+
+    // wshrpc.MemDiffLine
+    type MemDiffLine = {
+        sign: string;
+        text: string;
+    };
+
+    // wshrpc.MemEvidence
+    type MemEvidence = {
+        tone: string;
+        text: string;
+        code: string;
+    };
+
+    // wshrpc.MemFileRef
+    type MemFileRef = {
+        path: string;
+        sha256: string;
+    };
+
+    // wshrpc.MemHygieneProject
+    type MemHygieneProject = {
+        project: string;
+        path: string;
+        checkedat: number;
+        nextcheckat: number;
+        checking: boolean;
+        lasterror: string;
+        memories: number;
+        sessions: number;
+        folder: string;
+        sharedwith: string[];
+        ownfolder: string;
+        formershared: string;
+        switchedat: number;
+        index: MemIndexStats;
+        ownindex?: MemIndexStats;
+        changes: MemChange[];
+    };
+
+    // wshrpc.MemIndexDelta
+    type MemIndexDelta = {
+        lines: number;
+        bytes: number;
+    };
+
+    // wshrpc.MemIndexStats
+    type MemIndexStats = {
+        exists: boolean;
+        lines: number;
+        bytes: number;
+    };
+
+    // wshrpc.MemOp
+    type MemOp = {
+        folder: string;
+        memories: string[];
+        old: string;
+        new: string;
+        indexremove: string[];
+        indexadd: string;
+        indexfolder: string;
+        writename: string;
+        writebody: string;
+        docpath: string;
+        docsection: string;
+        docpassage: string;
+        tofolder: string;
+        settingspath: string;
+        settingsvalue: string;
+        stripharvester: boolean;
     };
 
     // waveobj.MetaTSType
