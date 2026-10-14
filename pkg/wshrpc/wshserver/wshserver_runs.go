@@ -429,6 +429,9 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		if data.ReviewerRoute == nil {
 			data.ReviewerRoute = resolved.ReviewerRoute
 		}
+		if data.LightReviewerRoute == nil {
+			data.LightReviewerRoute = resolved.LightReviewerRoute
+		}
 		if data.Autonomous == nil {
 			data.Autonomous = &resolved.Autonomous
 		}
@@ -443,6 +446,9 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if err := validateRoute("reviewerRoute", data.ReviewerRoute, true); err != nil {
 		return nil, err
 	}
+	if err := validateRoute("lightReviewerRoute", data.LightReviewerRoute, true); err != nil {
+		return nil, err
+	}
 	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, resolved.Principles, mode, playbook, time.Now().UnixMilli())
 	if data.DeferStart {
 		run.Status = jarvis.RunStatus_Planning
@@ -452,6 +458,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	run.WorkerRoute = data.WorkerRoute
 	run.ReviewerPicks = reviewerPicks
 	run.ReviewerRoute = data.ReviewerRoute
+	run.LightReviewerRoute = data.LightReviewerRoute
 	run.Autonomous = data.Autonomous != nil && *data.Autonomous
 	run.Orchestration = orchestration // prompt-shaping only; DagSubmit stays open to either choice
 	// out-of-band widths are rejected rather than clamped: a caller asking for 40 workers has a wrong

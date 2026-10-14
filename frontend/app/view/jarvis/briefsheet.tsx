@@ -43,6 +43,7 @@ import {
     autonomousAtom,
     endRunConfigDraft,
     hydrateRunConfigFromProfile,
+    lightReviewerRouteAtom,
     parallelismAtom,
     planPathAtom,
     planPreviewAtom,
@@ -101,6 +102,7 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
     const workerRoute = useAtomValue(workerRouteAtom);
     const reviewerPicks = useAtomValue(reviewerPicksAtom);
     const reviewerRoute = useAtomValue(reviewerRouteAtom);
+    const lightReviewerRoute = useAtomValue(lightReviewerRouteAtom);
     const autonomous = useAtomValue(autonomousAtom);
     const parallelism = useAtomValue(parallelismAtom);
     const startFrom = useAtomValue(startAtom);
@@ -132,6 +134,7 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
         planPath,
         reviewerPicks,
         reviewerRoute,
+        lightReviewerRoute,
         autonomous,
     };
     const planStart = shape === "orchestrator" && startFrom === "plan";

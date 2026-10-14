@@ -53,6 +53,7 @@ import {
     workerSubtext,
     type RunInfo,
 } from "./runlineage";
+import { planReviewLensTitle } from "./runtimeline";
 import {
     toggleRunCollapsed,
     toggleRunDoneOpen,
@@ -835,10 +836,8 @@ function WorkerRow({
 }
 
 // A session the engine started to judge the whole run, under the run like a task's worker and named by its stage.
-// a finished stage's dot, by verdict: accepted means the review failed and the lead proceeded anyway. passed
-// draws a check instead, like a landed worker
+// a finished stage's dot, by verdict. passed draws a check instead, like a landed worker
 const STAGE_OUTCOME_DOT: Record<Exclude<StageOutcome, "passed">, string> = {
-    accepted: "bg-warning",
     unverified: "bg-warning",
     failed: "bg-error",
 };
@@ -848,11 +847,13 @@ function StageRow({
     agent,
     stageRole,
     outcome,
+    lens,
 }: {
     model: AgentsViewModel;
     agent: AgentVM;
     stageRole: string;
     outcome?: StageOutcome;
+    lens?: string;
 }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const now = useAtomValue(model.nowAtom);
@@ -887,7 +888,9 @@ function StageRow({
                 )}
             </Slot>
             <div className="min-w-0 flex-1">
-                <div className="truncate text-[12.5px] font-medium text-ink-hi">{stageLabel(stageRole)}</div>
+                <div className="truncate text-[12.5px] font-medium text-ink-hi">
+                    {lens ? `${stageLabel(stageRole)} · ${planReviewLensTitle(lens)}` : stageLabel(stageRole)}
+                </div>
                 <div className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
                     {stageSubline(outcome, formatAgeShort(displayAgeMs(agent, now)))}
                 </div>
@@ -1160,6 +1163,7 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                                         agent={r.agent}
                                         stageRole={r.stageRole}
                                         outcome={r.outcome}
+                                        lens={r.lens}
                                     />
                                 );
                                 break;

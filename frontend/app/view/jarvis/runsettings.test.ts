@@ -107,6 +107,7 @@ describe("runSettingsDraft", () => {
             workerRoute: route,
             reviewerPicks: false,
             reviewerRoute: null,
+            lightReviewerRoute: null,
             autonomous: false,
         });
     });
@@ -121,6 +122,7 @@ describe("runSettingsDraft", () => {
             workerRoute: route,
             reviewerPicks: false,
             reviewerRoute: null,
+            lightReviewerRoute: null,
             autonomous: false,
         });
     });
@@ -154,6 +156,7 @@ describe("draftIsDirty", () => {
             workerRoute: null,
             reviewerPicks: false,
             reviewerRoute: null,
+            lightReviewerRoute: null,
             autonomous: false,
         };
         expect(draftIsDirty(base, { ...base })).toBe(false);
@@ -170,6 +173,7 @@ describe("settingsPayload", () => {
             workerRoute: { runtime: "pi" } as RoutePin,
             reviewerPicks: false,
             reviewerRoute: null,
+            lightReviewerRoute: null,
             autonomous: false,
         };
         expect(settingsPayload("c1", "r1", draft, { ...draft, parallelism: 2 })).toEqual({
@@ -187,6 +191,7 @@ describe("settingsPayload", () => {
             workerRoute: null,
             reviewerPicks: false,
             reviewerRoute: null,
+            lightReviewerRoute: null,
             autonomous: false,
         };
         // a stored 0 means no width yet: the server refuses 0, so an Approvals-only save must leave it out
@@ -202,6 +207,7 @@ describe("settingsPayload", () => {
             workerRoute: null,
             reviewerPicks: false,
             reviewerRoute: null,
+            lightReviewerRoute: null,
             autonomous: true,
         };
         const off = { ...draft, autonomous: false };
@@ -303,9 +309,7 @@ describe("draftSeedKey", () => {
     it("changes on a pre-dag width or worker route", () => {
         const base = draftSeedKey(engineRun(), null);
         expect(draftSeedKey(engineRun({ parallelism: 6 }), null)).not.toBe(base);
-        expect(draftSeedKey(engineRun({ workerroute: { runtime: "pi" } as RoutePin }), null)).not.toBe(
-            base
-        );
+        expect(draftSeedKey(engineRun({ workerroute: { runtime: "pi" } as RoutePin }), null)).not.toBe(base);
     });
 
     it("ignores an update that leaves the effective settings alone", () => {
@@ -326,6 +330,7 @@ describe("effectiveRunConfig", () => {
             workerRoute: worker,
             reviewerPicks: false,
             reviewerRoute: null,
+            lightReviewerRoute: null,
             autonomous: true,
         });
         expect(got).toEqual({
@@ -335,6 +340,7 @@ describe("effectiveRunConfig", () => {
             workerRoute: worker,
             reviewerPicks: false,
             reviewerRoute: null,
+            lightReviewerRoute: null,
             autonomous: true,
         });
     });
@@ -352,6 +358,7 @@ describe("engineDefaultsPatch", () => {
             workerRoute: { runtime: "pi" } as RoutePin,
             reviewerPicks: false,
             reviewerRoute: null,
+            lightReviewerRoute: null,
             autonomous: true,
         };
         expect(engineDefaultsPatch(existing, config)).toEqual({
@@ -373,6 +380,7 @@ describe("engineDefaultsPatch", () => {
             workerRoute: null,
             reviewerPicks: false,
             reviewerRoute: null,
+            lightReviewerRoute: null,
             autonomous: false,
         };
         expect(engineDefaultsPatch({ autonomous: true } as ProfileOverride, config).autonomous).toBe(false);
@@ -387,10 +395,49 @@ describe("engineDefaultsPatch", () => {
             workerRoute: null,
             reviewerPicks: false,
             reviewerRoute: null,
+            lightReviewerRoute: null,
             autonomous: false,
         });
         expect(patched.route).toBeUndefined();
         expect(patched.workerroute).toBeUndefined();
         expect(patched.defaultmode).toBe("pipeline");
+    });
+});
+
+describe("the Light reviewers route in the sheet's draft", () => {
+    const LIGHT = { runtime: "claude", model: "haiku" } as RoutePin;
+    const DRAFT = runSettingsDraft(engineRun({ parallelism: 3 }), null);
+
+    it("seeds from the group once a dag exists, else from the run, and null without one", () => {
+        expect(runSettingsDraft(engineRun(), submittedGroup({ lightreviewerroute: LIGHT })).lightReviewerRoute).toEqual(
+            LIGHT
+        );
+        expect(runSettingsDraft(engineRun({ lightreviewerroute: LIGHT }), null).lightReviewerRoute).toEqual(LIGHT);
+        expect(runSettingsDraft(engineRun(), null).lightReviewerRoute).toBeNull();
+    });
+
+    it("is dirty and re-seeds on a change", () => {
+        expect(draftIsDirty(DRAFT, { ...DRAFT, lightReviewerRoute: LIGHT })).toBe(true);
+        const run = engineRun({ dagoref: "d1" });
+        expect(draftSeedKey(run, submittedGroup({ lightreviewerroute: LIGHT }))).not.toBe(
+            draftSeedKey(run, submittedGroup())
+        );
+    });
+
+    // the server applies the route as sent, so the default goes out as an absent field
+    it("carries a set route in the payload, and leaves it out for the default", () => {
+        expect(settingsPayload("c1", "r1", { ...DRAFT, lightReviewerRoute: LIGHT }, DRAFT).lightreviewerroute).toEqual(
+            LIGHT
+        );
+        expect(settingsPayload("c1", "r1", DRAFT, DRAFT)).not.toHaveProperty("lightreviewerroute");
+        const run = engineRun({ lightreviewerroute: LIGHT });
+        expect(settingsChangePayload("c1", "r1", run, null, { parallelism: 4 }).lightreviewerroute).toEqual(LIGHT);
+    });
+
+    it("saves it as a project default", () => {
+        const draft = { ...DRAFT, lightReviewerRoute: LIGHT };
+        expect(engineDefaultsPatch({}, effectiveRunConfig(engineRun(), draft)).lightreviewerroute).toEqual(LIGHT);
+        const cleared = engineDefaultsPatch({ lightreviewerroute: LIGHT }, effectiveRunConfig(engineRun(), DRAFT));
+        expect(cleared.lightreviewerroute).toBeUndefined();
     });
 });

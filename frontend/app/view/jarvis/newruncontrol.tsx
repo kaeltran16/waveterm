@@ -43,6 +43,7 @@ import {
     autonomousAtom,
     endRunConfigDraft,
     hydrateRunConfigFromProfile,
+    lightReviewerRouteAtom,
     parallelismAtom,
     planPathAtom,
     planPreviewAtom,
@@ -53,6 +54,7 @@ import {
     routeTouchedAtom,
     runRouteAtom,
     runShapeAtom,
+    setLightReviewerRoute,
     setPlanPath,
     setReviewerPicks,
     setReviewerRoute,
@@ -111,9 +113,17 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     );
 }
 
-function ModelRow({ label, children }: { label: string; children: ReactNode }) {
+function ModelRow({
+    label,
+    attrs,
+    children,
+}: {
+    label: string;
+    attrs?: Record<`data-${string}`, string>;
+    children: ReactNode;
+}) {
     return (
-        <div className="flex items-center gap-2">
+        <div {...attrs} className="flex items-center gap-2">
             <span className="w-[74px] flex-none text-[12px] text-ink-mid">{label}</span>
             <div className={FULL_WIDTH_PICKER}>{children}</div>
         </div>
@@ -125,6 +135,7 @@ function ModelsSection({ orchestrator }: { orchestrator: boolean }) {
     const workerRoute = useAtomValue(workerRouteAtom);
     const reviewerPicks = useAtomValue(reviewerPicksAtom);
     const reviewerRoute = useAtomValue(reviewerRouteAtom);
+    const lightReviewerRoute = useAtomValue(lightReviewerRouteAtom);
     const openRequest = useAtomValue(routeOpenRequestAtom);
     return (
         <div className="flex flex-col gap-2">
@@ -163,6 +174,16 @@ function ModelsSection({ orchestrator }: { orchestrator: boolean }) {
                             title="Reviewers model"
                             canInherit
                             inheritedLabel="Same as lead"
+                        />
+                    </ModelRow>
+                    <ModelRow label="Light reviewers" attrs={{ "data-light-reviewers-row": "" }}>
+                        <RoutePicker
+                            value={lightReviewerRoute}
+                            onChange={setLightReviewerRoute}
+                            placement="bottom-start"
+                            title="Light reviewers model"
+                            canInherit
+                            inheritedLabel="Sonnet (default)"
                         />
                     </ModelRow>
                 </>
@@ -306,6 +327,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const workerRoute = useAtomValue(workerRouteAtom);
     const reviewerPicks = useAtomValue(reviewerPicksAtom);
     const reviewerRoute = useAtomValue(reviewerRouteAtom);
+    const lightReviewerRoute = useAtomValue(lightReviewerRouteAtom);
     const autonomous = useAtomValue(autonomousAtom);
     const startFrom = useAtomValue(startAtom);
     const planPath = useAtomValue(planPathAtom);
@@ -331,6 +353,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         planPath,
         reviewerPicks,
         reviewerRoute,
+        lightReviewerRoute,
         autonomous,
         prototype,
     };
