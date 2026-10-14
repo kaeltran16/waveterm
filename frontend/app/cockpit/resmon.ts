@@ -5,7 +5,8 @@
 // cursor/expand/confirm reducer. resmonstore.ts feeds it the snapshot; the readout and popover only render it.
 
 const UNAVAILABLE = "–";
-const MIB = 1024 * 1024;
+const KIB = 1024;
+const MIB = 1024 * KIB;
 const GIB = 1024 * MIB;
 const MB_LIMIT = 1000;
 const ARC_KEY = "arc";
@@ -27,6 +28,17 @@ export function fmtMem(bytes: number): string {
         return `${mb} MB`;
     }
     return `${(bytes / GIB).toFixed(1)} GB`;
+}
+
+// fmtMem with the small sizes it rounds away: a folder of 8 KB must not read "0 MB"
+export function fmtSize(bytes: number): string {
+    if (bytes < 0 || bytes >= MIB) {
+        return fmtMem(bytes);
+    }
+    if (bytes < KIB) {
+        return `${Math.round(bytes)} B`;
+    }
+    return `${Math.round(bytes / KIB)} KB`;
 }
 
 export function fmtAge(createTs: number, now: number): string {

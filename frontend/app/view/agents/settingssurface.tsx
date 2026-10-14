@@ -71,6 +71,9 @@ import {
     type SettingSectionDef,
 } from "./settingsmodel";
 import { takePendingSettingsSection } from "./settingsstore";
+import { navSummary } from "./storagemodel";
+import { StorageHeaderActions, StorageSection } from "./storagesection";
+import { loadStorage, startStoragePoll, storageReportAtom } from "./storagestore";
 import { SurfaceToolbar } from "./surfacescaffold";
 import { ACCENT_SWATCHES, activePalette, colorOf, THEMES, type OverrideRole } from "./themes";
 import { DEFAULT_THEME_PRESET, themeOverridesAtom, themePresetAtom } from "./themestore";
@@ -224,7 +227,7 @@ const RowCtx = createContext<RowCtxValue>({
     revert: () => {},
 });
 
-export function SettingsSurface(_props: { model: AgentsViewModel }) {
+export function SettingsSurface({ model }: { model: AgentsViewModel }) {
     const reduce = useReducedMotion();
     const [query, setQuery] = useState("");
     const [flagRuntime, setFlagRuntime] = useState<Runtime>("claude");
@@ -239,6 +242,21 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
         const want = takePendingSettingsSection();
         if (want != null) {
             setWanted(want);
+        }
+    }, []);
+
+    // the index shows the Storage report's totals, so it loads with the surface, not with the section
+    useEffect(() => {
+        fireAndForget(loadStorage);
+        return startStoragePoll();
+    }, []);
+
+    // DEV-ONLY: installed with the surface so CDP can set a fixture before the Storage section opens
+    useEffect(() => {
+        if (import.meta.env.DEV) {
+            void import("./storagedevmock").then((m) => {
+                window.__setStorageScenario = m.setStorageScenario;
+            });
         }
     }, []);
 
@@ -294,7 +312,9 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
                                             {section.blurb}
                                         </div>
                                     </div>
-                                    {sectionChanged > 0 ? (
+                                    {section.id === "storage" ? (
+                                        <StorageHeaderActions />
+                                    ) : sectionChanged > 0 ? (
                                         <button
                                             type="button"
                                             onClick={() => bindings.resetSection(section)}
@@ -313,7 +333,12 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
                                     className="min-w-0 flex-1 overflow-y-auto px-[28px] pb-12 pt-2"
                                 >
                                     <RowCtx.Provider value={ctx}>
-                                        <SectionBody id={section.id} runtime={flagRuntime} onRuntime={setFlagRuntime} />
+                                        <SectionBody
+                                            id={section.id}
+                                            model={model}
+                                            runtime={flagRuntime}
+                                            onRuntime={setFlagRuntime}
+                                        />
                                     </RowCtx.Provider>
                                 </motion.div>
                             </>
@@ -336,6 +361,8 @@ function SectionIndex({
     onSelect: (id: string) => void;
     changed: ReadonlySet<string>;
 }) {
+    const storage = navSummary(useAtomValue(storageReportAtom));
+    const pill = "flex-none rounded-sm px-1.5 py-0.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.06em]";
     return (
         <div className="flex w-[340px] flex-none flex-col border-r border-border">
             <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-10 pt-3">
@@ -350,6 +377,7 @@ function SectionIndex({
                             {g.sections.map((s) => {
                                 const on = s.id === selected;
                                 const n = changedCount(s, changed);
+                                const isStorage = s.id === "storage";
                                 return (
                                     <button
                                         key={s.id}
@@ -374,15 +402,20 @@ function SectionIndex({
                                         {n > 0 ? (
                                             <span
                                                 className={cn(
-                                                    "flex-none rounded-sm px-1.5 py-0.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.06em]",
+                                                    pill,
                                                     on ? "bg-accentbg text-accent" : "bg-accentbg/70 text-accent-soft"
                                                 )}
                                             >
                                                 {n} changed
                                             </span>
                                         ) : null}
+                                        {isStorage && storage.pill != null ? (
+                                            <span className={cn(pill, "bg-warning/12 text-warning")}>
+                                                {storage.pill}
+                                            </span>
+                                        ) : null}
                                         <span className="flex-none font-mono text-[10.5px] text-muted">
-                                            {countLabel(s.rows.length)}
+                                            {isStorage ? storage.count : countLabel(s.rows.length)}
                                         </span>
                                     </button>
                                 );
@@ -687,7 +720,17 @@ function SecretInput({ placeholder, onCommit }: { placeholder: string; onCommit:
     );
 }
 
-function SectionBody({ id, runtime, onRuntime }: { id: string; runtime: Runtime; onRuntime: (r: Runtime) => void }) {
+function SectionBody({
+    id,
+    model,
+    runtime,
+    onRuntime,
+}: {
+    id: string;
+    model: AgentsViewModel;
+    runtime: Runtime;
+    onRuntime: (r: Runtime) => void;
+}) {
     switch (id) {
         case "appearance":
             return <AppearanceSection />;
@@ -707,6 +750,8 @@ function SectionBody({ id, runtime, onRuntime }: { id: string; runtime: Runtime;
             return <MemorySection />;
         case "headless":
             return <HeadlessAISection />;
+        case "storage":
+            return <StorageSection model={model} />;
         case "about":
             return <AboutSection />;
         default:

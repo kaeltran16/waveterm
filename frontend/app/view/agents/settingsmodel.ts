@@ -347,6 +347,13 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
             ],
         },
         {
+            id: "storage",
+            name: "Storage",
+            blurb: "What Arc and its agents keep on this machine, which run left it, and whether anything still needs it.",
+            group: "Data",
+            rows: [],
+        },
+        {
             id: "about",
             name: "About",
             blurb: "Versions of the shell and the backend it spawned.",

@@ -53,6 +53,7 @@ type WshRpcInterface interface {
 	UiCommands
 	StreamCommands
 	ResMonCommands
+	StorageCommands
 	WshRpcRemoteFileInterface
 	WshRpcFileInterface
 }

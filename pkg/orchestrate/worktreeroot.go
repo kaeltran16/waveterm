@@ -76,7 +76,7 @@ func WorktreeDir(projectPath, key string) string {
 }
 
 func legacyWorktreeDir(projectPath, key string) string {
-	return filepath.Join(projectPath, ".waveterm", "worktrees", key)
+	return filepath.Join(LegacyWorktreesDir(projectPath), key)
 }
 
 // worktreeDir is the engine tree for key. A legacy in-project tree wins, so a run in flight when the root moved
