@@ -71,7 +71,10 @@ func validateGlobalEngineDefaults(p waveobj.JarvisProfile) error {
 	if err := validateWorkersSetting(p.WorkerRoute, p.ReviewerPicks); err != nil {
 		return err
 	}
-	return validateRoute("reviewerRoute", p.ReviewerRoute, false)
+	if err := validateRoute("reviewerRoute", p.ReviewerRoute, false); err != nil {
+		return err
+	}
+	return validateRoute("lightReviewerRoute", p.LightReviewerRoute, false)
 }
 
 // validateEngineDefaults validates a profile override's engine sections before any write.
@@ -102,7 +105,10 @@ func validateEngineDefaults(o *waveobj.ProfileOverride) error {
 	if err := validateRoute("workerRoute", o.WorkerRoute, false); err != nil {
 		return err
 	}
-	return validateRoute("reviewerRoute", o.ReviewerRoute, false)
+	if err := validateRoute("reviewerRoute", o.ReviewerRoute, false); err != nil {
+		return err
+	}
+	return validateRoute("lightReviewerRoute", o.LightReviewerRoute, false)
 }
 
 // errDagLinkedDuringSettings marks the one interleave that cannot be avoided: a group appeared between
@@ -148,12 +154,16 @@ func (ws *WshServer) SetRunSettingsCommand(ctx context.Context, data wshrpc.Comm
 	if err := validateRoute("reviewerRoute", data.ReviewerRoute, true); err != nil {
 		return err
 	}
+	if err := validateRoute("lightReviewerRoute", data.LightReviewerRoute, true); err != nil {
+		return err
+	}
 	settings := jarvis.PendingEngineSettings{
-		Parallelism:   data.Parallelism,
-		WorkerRoute:   data.WorkerRoute,
-		ReviewerPicks: data.ReviewerPicks,
-		ReviewerRoute: data.ReviewerRoute,
-		Autonomous:    data.Autonomous,
+		Parallelism:        data.Parallelism,
+		WorkerRoute:        data.WorkerRoute,
+		ReviewerPicks:      data.ReviewerPicks,
+		ReviewerRoute:      data.ReviewerRoute,
+		LightReviewerRoute: data.LightReviewerRoute,
+		Autonomous:         data.Autonomous,
 	}
 
 	for attempt := 0; attempt < runSettingsAttempts; attempt++ {
