@@ -9317,10 +9317,7 @@ async function teardownFixtureRun(h, ctx, name, restore) {
         await step("delete the worker blocks", () => deleteChannelWorkerBlocks(h, ctx.channelId));
         await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
     }
-    await step("reload onto the live roster", async () => {
-        await h.ev("location.reload()");
-        await new Promise((r) => setTimeout(r, 2500));
-    });
+    await step("reload onto the live roster", () => h.reload());
     // engine trees live under the arc-wt root, not the temp dir, and a cancel leaves the landing tree: only a land
     // removes it. A worker just stopped holds its lane's tree for a moment, hence the retries.
     const trees = new Set(ctx.landPath ? [resolve(ctx.landPath)] : []);
