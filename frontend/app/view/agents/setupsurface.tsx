@@ -19,6 +19,7 @@ import type { AgentsViewModel } from "./agents";
 import { formatAgo } from "./agentsviewmodel";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
+import { MemoryHeader, MemoryTab } from "./setupmemory";
 import {
     changedLineCount,
     harnessRowLabel,
@@ -87,6 +88,7 @@ const FADE_IN = {
 const TABS: { key: SetupTab; label: string }[] = [
     { key: "instructions", label: "Instructions" },
     { key: "skills", label: "Skills" },
+    { key: "memory", label: "Memory" },
 ];
 
 function useRows(): AgentSyncHarness[] {
@@ -757,7 +759,18 @@ export function SetupSurface({ model }: { model: AgentsViewModel }) {
     return (
         <MotionConfig reducedMotion="user">
             <div className="flex h-full min-h-0 flex-col bg-background">
-                <SurfaceToolbar title="Setup" actions={tab === "instructions" ? <HeaderStatus /> : <SkillsHeader />}>
+                <SurfaceToolbar
+                    title="Setup"
+                    actions={
+                        tab === "instructions" ? (
+                            <HeaderStatus />
+                        ) : tab === "skills" ? (
+                            <SkillsHeader />
+                        ) : (
+                            <MemoryHeader />
+                        )
+                    }
+                >
                     <Tabs />
                 </SurfaceToolbar>
                 <motion.div
@@ -768,7 +781,13 @@ export function SetupSurface({ model }: { model: AgentsViewModel }) {
                     aria-labelledby={`setup-tab-${tab}`}
                     className="flex min-h-0 flex-1"
                 >
-                    {tab === "instructions" ? <InstructionsTab /> : <SkillsTab model={model} />}
+                    {tab === "instructions" ? (
+                        <InstructionsTab />
+                    ) : tab === "skills" ? (
+                        <SkillsTab model={model} />
+                    ) : (
+                        <MemoryTab />
+                    )}
                 </motion.div>
             </div>
         </MotionConfig>

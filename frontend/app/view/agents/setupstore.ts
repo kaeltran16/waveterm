@@ -22,7 +22,7 @@ import {
 } from "./setupmodel";
 import { adoptKeep, type SkillKeep } from "./skillsmatrix";
 
-export type SetupTab = "instructions" | "skills";
+export type SetupTab = "instructions" | "skills" | "memory";
 
 // local filesystem reads behind an rpc with no default timeout: a stalled backend must reject rather
 // than leave the pane on "Reading…" forever

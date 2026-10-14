@@ -36,6 +36,8 @@ const (
 	DagEventTaskStalled = "dag:task-stalled" // type: string (task id)
 	DagEventTaskRetried = "dag:task-retried" // type: string (task id)
 	Event_RunEvent      = "run:event"        // type: wshrpc.RunEventData
+
+	Event_MemHygieneUpdate = "memhygiene:update" // type: none (the setup memory tab re-lists on it)
 )
 
 var AllEvents []string = []string{
@@ -59,6 +61,7 @@ var AllEvents []string = []string{
 	DagEventTaskStalled,
 	DagEventTaskRetried,
 	Event_RunEvent,
+	Event_MemHygieneUpdate,
 }
 
 type WaveEvent struct {
