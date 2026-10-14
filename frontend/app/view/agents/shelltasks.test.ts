@@ -4,14 +4,11 @@
 import { describe, expect, it } from "vitest";
 import {
     extractShellTasks,
-    failedLabel,
-    isFailedExitLine,
     isStandingBy,
     outputTail,
     redirectTarget,
-    shellTaskStatus,
+    shellKillNote,
     shellTasksLabel,
-    visibleShellTasks,
     type ShellTask,
 } from "./shelltasks";
 
@@ -93,12 +90,12 @@ const waitDone = notification(
 );
 
 describe("extractShellTasks", () => {
-    it("lists a running task with its description, start time and output path", () => {
+    it("lists a running task with its description, command, start time and output path", () => {
         expect(extractShellTasks(startWait)).toEqual([
             {
                 id: "bqjiuoxr7",
                 description: "Wait 30 seconds in the background",
-                state: "running",
+                command: "sleep 30",
                 startedTs: Date.parse("2026-10-06T08:55:39.046Z"),
                 outputPath: `${OUT_DIR}\\bqjiuoxr7.output`,
             },
@@ -115,10 +112,10 @@ describe("extractShellTasks", () => {
 
     it("ignores a queue-operation remove", () => {
         const remove = JSON.stringify({ type: "queue-operation", operation: "remove", content: waitDone });
-        expect(extractShellTasks([...startWait, remove]).map((t) => t.state)).toEqual(["running"]);
+        expect(extractShellTasks([...startWait, remove]).map((t) => t.id)).toEqual(["bqjiuoxr7"]);
     });
 
-    it("keeps a failed task with the exit code from its summary", () => {
+    it("drops a failed task as it does a completed one", () => {
         const lines = [
             bashUse("toolu_01Jt", { command: "find / -name '*.db'", description: "Find wave SQLite database files" }),
             bashStart("toolu_01Jt", "bk9lllfkv"),
@@ -131,27 +128,18 @@ describe("extractShellTasks", () => {
                 )
             ),
         ];
-        expect(extractShellTasks(lines)).toEqual([
-            expect.objectContaining({
-                id: "bk9lllfkv",
-                description: "Find wave SQLite database files",
-                state: "failed",
-                exitCode: 1,
-            }),
-        ]);
+        expect(extractShellTasks(lines)).toEqual([]);
     });
 
-    it("lets the later notification win when both shapes arrive", () => {
+    it("drops a task the agent killed from another command, which claude reports failed with exit code 127", () => {
         const failed = notification(
             "bqjiuoxr7",
             "toolu_01Ma",
             "failed",
-            'Background command "x" failed with exit code 2'
+            'Background command "Wait 30 seconds in the background" failed with exit code 127'
         );
-        expect(extractShellTasks([...startWait, enqueue(failed), userString(waitDone)])).toEqual([]);
-        expect(extractShellTasks([...startWait, enqueue(waitDone), userString(failed)])).toEqual([
-            expect.objectContaining({ state: "failed", exitCode: 2 }),
-        ]);
+        expect(extractShellTasks([...startWait, enqueue(failed)])).toEqual([]);
+        expect(extractShellTasks([...startWait, enqueue(failed), userString(failed)])).toEqual([]);
     });
 
     it("drops a killed task", () => {
@@ -227,7 +215,7 @@ describe("extractShellTasks", () => {
     it("ignores a Monitor event, which carries no status", () => {
         const event =
             '<task-notification>\n<task-id>bqjiuoxr7</task-id>\n<summary>Monitor event: "x"</summary>\n<event>done</event>\n</task-notification>';
-        expect(extractShellTasks([...startWait, userString(event)]).map((t) => t.state)).toEqual(["running"]);
+        expect(extractShellTasks([...startWait, userString(event)]).map((t) => t.id)).toEqual(["bqjiuoxr7"]);
     });
 
     it("falls back to the command cut to 60 characters when there is no description", () => {
@@ -280,6 +268,9 @@ describe("redirectTarget", () => {
         ['task dev > "/tmp/my log.txt"', "/tmp/my log.txt"],
         ["task dev > out.log", "C:\\repo/out.log"],
         ["echo a > /tmp/first.log; task dev > /tmp/second.log", "/tmp/second.log"],
+        ['tail -f /dev/null | task dev > "$TEMP/claude/dev.log" 2>&1', "$TEMP/claude/dev.log"],
+        ["flutter analyze > ${TMPDIR}/a.log", "${TMPDIR}/a.log"],
+        ["task dev > $TMP\\a.log", "$TMP\\a.log"],
     ])("%s -> %s", (command, want) => {
         expect(redirectTarget(command, CWD)).toBe(want);
     });
@@ -295,6 +286,8 @@ describe("redirectTarget", () => {
         'node -e "if (a > b) process.exit(1)"',
         "node -e 'console.log(1 > 0)'",
         "task dev > $LOG",
+        "task dev > $TEMPLATE/a.log",
+        "task dev > $TEMP/$NAME.log",
     ])("%s has no readable redirect", (command) => {
         expect(redirectTarget(command, CWD)).toBeUndefined();
     });
@@ -304,28 +297,15 @@ describe("redirectTarget", () => {
     });
 });
 
-describe("visibleShellTasks", () => {
-    it("keeps running and failed tasks", () => {
-        const tasks: ShellTask[] = [
-            { id: "a", description: "a", state: "running" },
-            { id: "b", description: "b", state: "failed", exitCode: 1 },
-        ];
-        expect(visibleShellTasks(tasks)).toEqual(tasks);
-    });
-});
-
 describe("isStandingBy", () => {
-    const running: ShellTask[] = [{ id: "a", description: "a", state: "running" }];
-    const failedOnly: ShellTask[] = [{ id: "b", description: "b", state: "failed", exitCode: 1 }];
+    const running: ShellTask[] = [{ id: "a", description: "a" }];
 
     it("is true only for idle with a running task", () => {
         expect(isStandingBy("idle", running)).toBe(true);
-        expect(isStandingBy("idle", [...failedOnly, ...running])).toBe(true);
     });
 
     it("is false for idle with no running task", () => {
         expect(isStandingBy("idle", [])).toBe(false);
-        expect(isStandingBy("idle", failedOnly)).toBe(false);
     });
 
     it("is false while working or asking, with or without a running task", () => {
@@ -333,6 +313,22 @@ describe("isStandingBy", () => {
             expect(isStandingBy(state, running)).toBe(false);
             expect(isStandingBy(state, [])).toBe(false);
         }
+    });
+});
+
+describe("shellKillNote", () => {
+    it("says nothing for a kill, since the row leaving says it", () => {
+        expect(shellKillNote({ outcome: "killed", killed: 2 }, "Run the dev app")).toBeNull();
+    });
+
+    it("names the task for every other outcome, with the OS text on a failure", () => {
+        expect(shellKillNote({ outcome: "gone", killed: 0 }, "Run the dev app")).toBe(
+            '"Run the dev app" had already ended.'
+        );
+        expect(shellKillNote({ outcome: "failed", killed: 0, error: "Access is denied." }, "Run the dev app")).toBe(
+            'Could not kill "Run the dev app": Access is denied.'
+        );
+        expect(shellKillNote({ outcome: "refused", killed: 0 }, "Run the dev app")).toMatch(/^Not killed: /);
     });
 });
 
@@ -369,36 +365,5 @@ describe("outputTail", () => {
         expect(tail.join("\n").length).toBeLessThanOrEqual(64 * 1024);
         expect(tail.length).toBeLessThan(lines.length);
         expect(tail.at(-1)).toBe(lines.at(-1));
-    });
-});
-
-describe("shellTaskStatus", () => {
-    const running: ShellTask = { id: "t1", description: "d", state: "running" };
-    const failed: ShellTask = { id: "t2", description: "d", state: "failed", exitCode: 2 };
-
-    it("reads a running task as running and live", () => {
-        expect(shellTaskStatus(running, false)).toEqual({ label: "running", tone: "accent", live: true });
-    });
-
-    it("reads a failed task with its exit code, not live", () => {
-        expect(shellTaskStatus(failed, false)).toEqual({ label: "failed · exit 2", tone: "error", live: false });
-        expect(failedLabel({ ...failed, exitCode: undefined })).toBe("failed");
-    });
-
-    it("reads a task that left the list as finished, not live, whatever its last state", () => {
-        expect(shellTaskStatus(running, true)).toEqual({ label: "finished", tone: "muted", live: false });
-    });
-});
-
-describe("isFailedExitLine", () => {
-    it("marks a trailing nonzero exit line", () => {
-        expect(isFailedExitLine("[exited with code 1]", true)).toBe(true);
-        expect(isFailedExitLine("  [exited with code -1] ", true)).toBe(true);
-    });
-
-    it("leaves a zero exit, an earlier line, and ordinary output unmarked", () => {
-        expect(isFailedExitLine("[exited with code 0]", true)).toBe(false);
-        expect(isFailedExitLine("[exited with code 1]", false)).toBe(false);
-        expect(isFailedExitLine("exited with code 1", true)).toBe(false);
     });
 });

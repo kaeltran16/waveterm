@@ -73,8 +73,15 @@ import {
     visibleSubagents,
     type SubagentState,
 } from "./session-models/sessionviewmodel";
-import { failedLabel, isStandingBy, shellTasksLabel, visibleShellTasks, type ShellTask } from "./shelltasks";
-import { focusShellTaskAtom, shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
+import { isStandingBy, shellTasksLabel, type ShellTask } from "./shelltasks";
+import { ShellTaskPeek } from "./shelltaskpeek";
+import {
+    killShellTask,
+    shellReadAtByIdAtom,
+    shellReadPending,
+    shellTaskPeekAtom,
+    shellTasksByIdAtom,
+} from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { useSubagentTracking } from "./subagenttracking";
@@ -330,64 +337,96 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
 }
 
 // A parent's background shell tasks under it, nested like its subagents. A row with an output file opens
-// that output in the center pane over the parent's terminal (a second click closes it); one without has
-// nothing to show, so it is not a click target.
-function ShellTaskRows({ model, parentId, tasks }: { model: AgentsViewModel; parentId: string; tasks: ShellTask[] }) {
+// that output in a peek beside the tree (a second click closes it); one without has nothing to show, so it
+// is not a click target. A task of an agent with a terminal block can be killed from its X or right-click.
+function ShellTaskRows({
+    model,
+    parentId,
+    blockId,
+    tasks,
+}: {
+    model: AgentsViewModel;
+    parentId: string;
+    blockId: string | undefined;
+    tasks: ShellTask[];
+}) {
     const now = useAtomValue(model.nowAtom);
-    const focusShell = useAtomValue(focusShellTaskAtom);
+    const peek = useAtomValue(shellTaskPeekAtom);
+    const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+    const peekTask = peek?.parentId === parentId ? tasks.find((t) => t.id === peek.taskId) : undefined;
+    const togglePeek = (t: ShellTask) =>
+        globalStore.set(shellTaskPeekAtom, peekTask?.id === t.id ? null : { parentId, taskId: t.id });
+    const kill = (t: ShellTask) => {
+        if (blockId) {
+            fireAndForget(() => killShellTask(parentId, blockId, t));
+        }
+    };
+    const onContextMenu = (e: React.MouseEvent, t: ShellTask) => {
+        const items: ContextMenuItem[] = [];
+        if (t.outputPath) {
+            items.push({ label: peekTask?.id === t.id ? "Hide output" : "Show output", click: () => togglePeek(t) });
+        }
+        if (blockId) {
+            items.push({ label: "Kill task", icon: <X size={15} />, danger: true, click: () => kill(t) });
+        }
+        if (items.length > 0) {
+            ContextMenuModel.getInstance().showContextMenu(items, e);
+        }
+    };
     return (
         <>
             {tasks.map((t) => {
-                const failed = t.state === "failed";
-                const open = focusShell?.parentId === parentId && focusShell.taskId === t.id;
+                const open = peekTask?.id === t.id;
                 return (
                     <div
                         key={t.id}
+                        ref={open ? setAnchor : undefined}
                         data-shell-task={t.id}
                         onClick={() => {
-                            if (!t.outputPath) {
-                                return;
+                            if (t.outputPath) {
+                                togglePeek(t);
                             }
-                            if (open) {
-                                globalStore.set(focusShellTaskAtom, null);
-                                return;
-                            }
-                            globalStore.set(model.focusIdAtom, parentId);
-                            globalStore.set(focusShellTaskAtom, { parentId, taskId: t.id });
                         }}
+                        onContextMenu={(e) => onContextMenu(e, t)}
                         className={cn(
-                            "relative flex items-center gap-[9px] rounded-[9px] py-[6px] pl-[28px] pr-[11px]",
+                            "group relative flex items-center gap-[9px] rounded-[9px] py-[6px] pl-[28px] pr-[11px]",
                             t.outputPath && "cursor-pointer",
                             open ? "bg-accentbg" : t.outputPath && "hover:bg-surface-hover"
                         )}
                     >
                         <Guides depth={1} />
                         <Slot>
-                            <span
-                                className={cn(
-                                    "h-[7px] w-[7px] shrink-0 rounded-full",
-                                    failed ? "bg-error" : "bg-accent"
-                                )}
-                            />
+                            <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-accent" />
                         </Slot>
                         <div className="min-w-0 flex-1">
                             <div className="truncate font-mono text-[11.5px] font-medium text-secondary">
                                 {t.description}
                             </div>
-                            <div
-                                className={cn(
-                                    "mt-[3px] truncate font-mono text-[10.5px]",
-                                    failed ? "text-error" : "text-muted"
-                                )}
-                            >
-                                {failed
-                                    ? failedLabel(t)
-                                    : `running · ${formatAgeShort(t.startedTs != null ? Math.max(0, now - t.startedTs) : undefined)}`}
+                            <div className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
+                                {`running · ${formatAgeShort(t.startedTs != null ? Math.max(0, now - t.startedTs) : undefined)}`}
                             </div>
                         </div>
+                        {blockId ? (
+                            <button
+                                type="button"
+                                data-shell-task-kill
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    kill(t);
+                                }}
+                                aria-label={`Kill ${t.description}`}
+                                title="Kill task"
+                                className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[5px] text-muted opacity-0 hover:bg-error/15 hover:text-error focus-visible:opacity-100 group-hover:opacity-100"
+                            >
+                                <X size={13} aria-hidden />
+                            </button>
+                        ) : null}
                     </div>
                 );
             })}
+            {peekTask != null && anchor != null ? (
+                <ShellTaskPeek key={peekTask.id} model={model} task={peekTask} anchor={anchor} />
+            ) : null}
         </>
     );
 }
@@ -412,11 +451,20 @@ function ParentRow({
     const asking = agent.state === "asking";
     const review = asking ? parseDocReview(agent.ask) : null;
     const mark = lead != null ? leadMark(lead.run, agent) : null;
-    const tasks = visibleShellTasks(useAtomValue(shellTasksByIdAtom)[agent.id] ?? []);
+    const tasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standing = isStandingBy(agent.state, tasks);
     // undefined until the user folds: open while a task runs, as the subagent fold defaults
     const [tasksOverride, setTasksOverride] = useState<boolean>();
-    const tasksOpen = tasks.length > 0 && (tasksOverride ?? tasks.some((t) => t.state === "running"));
+    const tasksOpen = tasks.length > 0 && (tasksOverride ?? true);
+    // a peek whose row went away (its task ended, or the fold closed) must not come back when the fold
+    // reopens, nor hold Esc while nothing shows
+    const peek = useAtomValue(shellTaskPeekAtom);
+    const peekShown = peek?.parentId === agent.id && tasksOpen && tasks.some((t) => t.id === peek.taskId);
+    useEffect(() => {
+        if (peek?.parentId === agent.id && !peekShown) {
+            globalStore.set(shellTaskPeekAtom, null);
+        }
+    }, [peek, peekShown, agent.id]);
     // held until a shell-task read since the Stop lands, so a just-launched task never settles first;
     // nextSnap is idempotent for the same inputs, so advancing it in render is safe
     const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
@@ -427,11 +475,10 @@ function ParentRow({
 
     const renaming = useAtomValue(renamingRowAtom) === agent.id;
 
-    // picking the parent means its own terminal, so a task output or subagent interior over it closes
+    // picking the parent means its own terminal, so a subagent interior over it closes
     const select = () => {
         globalStore.set(model.focusIdAtom, agent.id);
         globalStore.set(model.focusReplyAtom, false);
-        globalStore.set(focusShellTaskAtom, null);
         globalStore.set(focusSubagentAtom, null);
     };
     const onContextMenu = (e: React.MouseEvent) => {
@@ -611,7 +658,7 @@ function ParentRow({
                         exit="exit"
                         className="overflow-hidden"
                     >
-                        <ShellTaskRows model={model} parentId={agent.id} tasks={tasks} />
+                        <ShellTaskRows model={model} parentId={agent.id} blockId={agent.blockId} tasks={tasks} />
                     </motion.div>
                 ) : null}
             </AnimatePresence>

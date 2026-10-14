@@ -11763,9 +11763,10 @@ const agentRailFileLink = {
 // --- shell-tasks: an idle agent with a background shell task still running reads standing by -----------
 // docs/superpowers/plans/2026-10-12-shell-task-standing-by.md. A plain fixture agent, idle past the 5-minute grace
 // window, whose transcript starts five Bash background tasks in the record shapes claude writes: four running (output
-// with lines, an empty output, an output path that does not exist, output redirected to a /tmp log) and one failed. Standing by is all that keeps its
+// with lines, an empty output, an output path that does not exist, output redirected to a /tmp log) and one failed,
+// which is not listed: a task that ended is gone however it ended. Standing by is all that keeps its
 // card on the grid, so finishing the four running tasks parks it in the Idle section. A second agent, idle a minute,
-// holds one failed task and nothing running: its card is the plain Finished band with a one-task chip. A third
+// holds one failed task and nothing running: its card is the plain Finished band with no chip. A third
 // agent starts working with no tasks: steps 7-9 start a task and turn it idle right behind it, as a Stop does.
 const SHELL_AGENT = { id: "fx-shell-tasks", name: "shell-tasks agent" };
 const SHELL_FAILED_AGENT = { id: "fx-shell-failed", name: "shell-failed agent" };
@@ -11816,7 +11817,7 @@ const SHELL_LIB = `
     const tasksChip = (name) => treeRow(name)?.querySelector('button[aria-label$="shell tasks"]') ?? null;
     const taskRow = (id) => tree()?.querySelector('[data-shell-task="' + id + '"]') ?? null;
     const taskRowIds = () => [...(tree()?.querySelectorAll("[data-shell-task]") ?? [])].map((r) => r.getAttribute("data-shell-task"));
-    const pane = () => document.querySelector("[data-shell-task-pane]");
+    const peek = () => document.querySelector("[data-shell-task-peek]");
     // the first dot in a card header or a tree row is the agent's own
     const dot = (el) => {
         const d = el?.querySelector("span.rounded-full");
@@ -12017,14 +12018,15 @@ const shellTasksScenario = {
         await h.shot("cdp-shots/shell-tasks-main.png");
         await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 5, y: 940 });
         rec(
-            "1. Main: the card reads Standing by with 4 shell tasks running, its dot accent and still, the chip lists all five, no finished event yet",
+            "1. Main: the card reads Standing by with 4 shell tasks running, its dot accent and still, the chip lists the four running and not the failed one, no finished event yet",
             band.label.includes("standing by") &&
                 band.label.includes("4 shell tasks running") &&
                 !band.label.includes("finished") &&
                 band.dot?.bg === "var(--color-accent)" &&
                 band.dot?.pulse === false &&
-                band.chip === "5 shell tasks" &&
-                SHELL_TASKS.every((t) => list.includes(t.description)) &&
+                band.chip === "4 shell tasks" &&
+                SHELL_RUNNING.every((t) => list.includes(t.description)) &&
+                !list.includes(SHELL_TASKS.find((t) => t.failed).description) &&
                 band.finished.length === 0,
             JSON.stringify({ ...band, text: band.text.slice(0, 200), label: undefined, list })
         );
@@ -12035,12 +12037,12 @@ const shellTasksScenario = {
             return { text: text(c), label: band(c), dot: dot(c), chip: text(c?.querySelector("[data-shell-tasks-chip]")) };
         })()`);
         rec(
-            "1b. an idle agent with only a failed task shows the plain Finished band, a muted dot and a 1 shell task chip",
+            "1b. an idle agent with only a failed task shows the plain Finished band, a muted dot and no shell tasks chip",
             other.label.includes("finished") &&
                 !other.label.includes("standing by") &&
                 other.dot?.bg === "var(--color-muted)" &&
                 other.dot?.pulse === false &&
-                other.chip === "1 shell task",
+                other.chip === "",
             JSON.stringify({ ...other, text: other.text.slice(0, 200), label: undefined })
         );
 
@@ -12066,9 +12068,9 @@ const shellTasksScenario = {
         })()`);
         await h.shot("cdp-shots/shell-tasks-tree-collapsed.png");
         rec(
-            "2. TreeCollapsed: the row's chip reads 5 shell tasks, folded, with no task rows and a still accent dot",
+            "2. TreeCollapsed: the row's chip reads 4 shell tasks, folded, with no task rows and a still accent dot",
             folded.ok === true &&
-                folded.chip.includes("5 shell tasks") &&
+                folded.chip.includes("4 shell tasks") &&
                 folded.expanded === "false" &&
                 folded.rows.length === 0 &&
                 folded.dot?.bg === "var(--color-accent)" &&
@@ -12084,11 +12086,11 @@ const shellTasksScenario = {
             JSON.stringify(folded.header)
         );
 
-        // 3. TreeExpanded: five rows, four running and one failed
+        // 3. TreeExpanded: the four running tasks' rows, none for the failed one
         const expanded = await h.ev(`(async () => {
             ${SHELL_LIB}
             tasksChip(${mainName})?.click();
-            await until(() => taskRowIds().length === ${SHELL_TASKS.length}, 20);
+            await until(() => taskRowIds().length === ${SHELL_RUNNING.length}, 20);
             await new Promise((r) => setTimeout(r, 400));
             return {
                 expanded: tasksChip(${mainName})?.getAttribute("aria-expanded"),
@@ -12098,132 +12100,197 @@ const shellTasksScenario = {
         await h.shot("cdp-shots/shell-tasks-tree-expanded.png");
         const sub = (id) => expanded.rows.find((r) => r.id === id)?.lines[1] ?? "";
         rec(
-            "3. TreeExpanded: five task rows, four running and one failed · exit 1",
+            "3. TreeExpanded: four running task rows, and no row for the failed task",
             expanded.expanded === "true" &&
-                expanded.rows.length === SHELL_TASKS.length &&
+                expanded.rows.length === SHELL_RUNNING.length &&
                 SHELL_RUNNING.every((t) => /^running · /.test(sub(t.id))) &&
-                sub("bshfail") === "failed · exit 1",
+                !expanded.rows.some((r) => r.id === "bshfail"),
             JSON.stringify(expanded)
         );
 
-        // 4. Interactive: the output opens over the terminal in the center pane, re-reads live, and closes
+        // 3b. Kill: a row's X shows on hover; right-click offers its output and Kill task. The fixture block has
+        // no live job, so the kill reaches wavesrv and comes back refused: a toast, and the row stays
+        const killAt = await centerOf(`taskRow("bshlines")`);
+        if (killAt) await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: killAt.x, y: killAt.y });
+        const kill = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            const x = () => taskRow("bshlines")?.querySelector("[data-shell-task-kill]");
+            await until(() => x() != null && getComputedStyle(x()).opacity === "1", 20);
+            const hovered = x() ? getComputedStyle(x()).opacity : null;
+            const other = taskRow(${JSON.stringify(SHELL_RUNNING.find((t) => t.id !== "bshlines").id)})?.querySelector("[data-shell-task-kill]");
+            const unhovered = other ? getComputedStyle(other).opacity : null;
+            return { label: x()?.getAttribute("aria-label"), hovered, unhovered };
+        })()`);
+        await h.shot("cdp-shots/shell-tasks-kill-hover.png");
+        const menu = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            const r = taskRow("bshlines").getBoundingClientRect();
+            taskRow("bshlines").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 40, clientY: r.top + 10 }));
+            const item = (label) => [...document.querySelectorAll("span.whitespace-nowrap")].find((el) => el.textContent === label)?.parentElement;
+            await until(() => item("Kill task") != null, 20);
+            return ["Show output", "Kill task"].filter((l) => item(l) != null);
+        })()`);
+        await h.shot("cdp-shots/shell-tasks-kill-menu.png");
+        const killed = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            const item = (label) => [...document.querySelectorAll("span.whitespace-nowrap")].find((el) => el.textContent === label)?.parentElement;
+            item("Kill task")?.click();
+            const toast = () => [...document.querySelectorAll("[data-notification-toast]")].find((t) => t.textContent.includes("Kill shell task"));
+            await until(() => toast() != null, 40);
+            const msg = text(toast());
+            toast()?.click();
+            return { toast: msg, rowStays: taskRow("bshlines") != null, menuClosed: item("Kill task") == null };
+        })()`);
+        rec(
+            "3b. Kill: the X shows on the hovered row only; right-click offers Show output and Kill task; a refused kill toasts and keeps the row",
+            kill.label === "Kill tail the dev server log" &&
+                kill.hovered === "1" &&
+                kill.unhovered === "0" &&
+                menu.join(",") === "Show output,Kill task" &&
+                killed.toast?.includes("Not killed") &&
+                killed.rowStays === true &&
+                killed.menuClosed === true,
+            JSON.stringify({ kill, menu, killed })
+        );
+
+        // 4. Interactive: the output opens in a peek beside the tree, re-reads live, and every way it closes
         const clickRow = (id) =>
             h.ev(`(async () => {
                 ${SHELL_LIB}
                 taskRow(${JSON.stringify(id)})?.click();
                 await new Promise((r) => setTimeout(r, 400));
             })()`);
-        const paneState = (id, want) =>
+        const peekState = (id, want) =>
             h.ev(`(async () => {
                 ${SHELL_LIB}
                 const want = ${JSON.stringify(want ?? null)};
-                await until(() => pane()?.getAttribute("data-shell-task-pane") === ${JSON.stringify(id)} && (want == null || text(pane()).includes(want)), 40);
+                await until(() => peek()?.getAttribute("data-shell-task-peek") === ${JSON.stringify(id)} && (want == null || text(peek()).includes(want)), 40);
                 await new Promise((r) => setTimeout(r, 300));
-                const p = pane();
+                const p = peek();
                 if (!p) return null;
-                const r = p.getBoundingClientRect();
-                const c = p.parentElement.getBoundingClientRect();
-                const log = p.querySelector(".bg-surface-code");
-                const rows = [...(log?.querySelectorAll(".whitespace-pre-wrap") ?? [])];
+                const lines = p.innerText.split("\\n").map((s) => s.trim()).filter(Boolean);
                 return {
-                    id: p.getAttribute("data-shell-task-pane"),
+                    id: p.getAttribute("data-shell-task-peek"),
                     text: text(p),
                     state: text(p.querySelector("[data-shell-task-state]")),
-                    lastLineError: rows.at(-1)?.classList.contains("text-error") ?? false,
-                    fills: Math.abs(r.width - c.width) <= 1 && Math.abs(r.height - c.height) <= 1 && Math.abs(r.top - c.top) <= 1,
-                    logHeight: Math.round(log?.getBoundingClientRect().height ?? 0),
-                    centerWidth: Math.round(c.width),
-                    headerHidden: header()?.checkVisibility() === false,
-                    treeShown: tree() != null,
+                    footer: lines.at(-1) ?? "",
+                    besideTree: p.getBoundingClientRect().left >= (tree()?.getBoundingClientRect().right ?? Infinity),
+                    headerShown: header()?.checkVisibility() === true,
                     rowOpen: taskRow(${JSON.stringify(id)})?.classList.contains("bg-accentbg") ?? false,
                 };
             })()`);
-        const paneGone = () =>
+        const peekGone = () =>
             h.ev(`(async () => {
                 ${SHELL_LIB}
-                return (await until(() => pane() == null, 20)) && (await until(() => header()?.checkVisibility() === true, 20));
+                return await until(() => peek() == null, 20);
             })()`);
         // Escape where the user's focus is, so the keybinding dispatcher's window listener sees it as a keypress
         const escape = () =>
             h.ev(`(document.activeElement || document.body).dispatchEvent(
                 new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true })
             )`);
-        const clickBack = () => h.ev(`document.querySelector('[data-shell-task-pane] button[title^="Back to parent"]')?.click()`);
+        const closeButton = () => h.ev(`document.querySelector('[data-shell-task-peek] button[aria-label="Close output"]')?.click()`);
 
         await clickRow("bshlines");
-        const lines = await paneState("bshlines", "ready on :5173");
-        await h.shot("cdp-shots/shell-tasks-pane-lines.png");
+        const lines = await peekState("bshlines", "ready on :5173");
+        await h.shot("cdp-shots/shell-tasks-peek-lines.png");
         rec(
-            "4a. Interactive: the running task's output fills the center pane over the hidden terminal, breadcrumb parent › task, state running, its row highlighted",
+            "4a. Interactive: the running task's output opens in a peek beside the tree, the terminal still showing, state running, footer last 64 KB · live, its row highlighted",
             lines?.id === "bshlines" &&
                 SHELL_TASKS[0].output.every((l) => lines.text.includes(l)) &&
-                lines.text.includes(SHELL_AGENT.name) &&
-                lines.text.includes(SHELL_TASKS[0].description) &&
                 lines.state === "running" &&
-                lines.fills === true &&
-                lines.centerWidth > 600 &&
-                lines.logHeight > 500 &&
-                lines.headerHidden === true &&
-                lines.treeShown === true &&
+                lines.footer.endsWith("last 64 KB · live") &&
+                lines.besideTree === true &&
+                lines.headerShown === true &&
                 lines.rowOpen === true,
             JSON.stringify(lines)
         );
 
         appendFileSync(join(ctx.cwd, "bshlines.output"), SHELL_APPENDED_LINE + "\n");
-        const live = await paneState("bshlines", SHELL_APPENDED_LINE);
+        const live = await peekState("bshlines", SHELL_APPENDED_LINE);
         rec(
-            "4b. a line appended to a running task's output appears in the open pane",
+            "4b. a line appended to a running task's output appears in the open peek",
             live?.text.includes(SHELL_APPENDED_LINE) === true,
             JSON.stringify(live?.text)
         );
 
-        await clickBack();
-        const backed = await paneGone();
         await clickRow("bshlines");
-        await paneState("bshlines");
+        const toggled = await peekGone();
+        await clickRow("bshlines");
+        await peekState("bshlines");
+        await closeButton();
+        const closed = await peekGone();
+        await clickRow("bshlines");
+        await peekState("bshlines");
         await escape();
-        const escaped = await paneGone();
+        const escaped = await peekGone();
+        // Esc closes only the peek: agent:back would have left the Agent surface for Cockpit
+        const stayed = await h.ev(`(() => { ${SHELL_LIB} return tree()?.checkVisibility() === true; })()`);
         await clickRow("bshlines");
-        await paneState("bshlines");
+        await peekState("bshlines");
+        // the peek dismisses on pointerdown, so a real press: on the agent's own row, outside the peek and its task row
+        const outside = await centerOf(`treeRow(${JSON.stringify(SHELL_AGENT.name)})`);
+        if (outside) {
+            await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: outside.x, y: outside.y });
+            for (const type of ["mousePressed", "mouseReleased"]) {
+                await h.cdp("Input.dispatchMouseEvent", { type, x: outside.x, y: outside.y, button: "left", clickCount: 1 });
+            }
+        }
+        const pressedOut = await peekGone();
         await clickRow("bshlines");
-        const toggled = await paneGone();
+        await peekState("bshlines");
+        const folding = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            tasksChip(${mainName})?.click();
+            const gone = await until(() => peek() == null, 20);
+            tasksChip(${mainName})?.click();
+            await until(() => taskRowIds().length === ${SHELL_RUNNING.length}, 20);
+            await new Promise((r) => setTimeout(r, 400));
+            return gone;
+        })()`);
+        // the Agent surface stays mounted off-screen, so a peek left open would float over the next surface
+        await clickRow("bshlines");
+        await peekState("bshlines");
+        await h.goto("cockpit");
+        const leftSurface = await peekGone();
+        await h.goto("agent");
+        const notBack = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            await new Promise((r) => setTimeout(r, 600));
+            return peek() == null;
+        })()`);
         rec(
-            "4c. the pane closes back to the terminal on the breadcrumb back button, Esc, and re-clicking its row",
-            backed && escaped && toggled,
-            JSON.stringify({ backed, escaped, toggled })
+            "4c. the peek closes on re-clicking its row, the close button, Esc (staying on Agent), a press outside, folding the chip, and leaving the surface",
+            toggled && closed && escaped && stayed && pressedOut && folding && leftSurface && notBack,
+            JSON.stringify({ toggled, closed, escaped, stayed, pressedOut, folding, leftSurface, notBack })
         );
 
         await clickRow("bshempty");
-        const empty = await paneState("bshempty", "No output yet.");
-        await h.shot("cdp-shots/shell-tasks-pane-empty.png");
-        await clickRow("bshfail");
-        const failed = await paneState("bshfail", "[exited with code 1]");
-        await h.shot("cdp-shots/shell-tasks-pane-failed.png");
+        const empty = await peekState("bshempty", "No output yet.");
+        await h.shot("cdp-shots/shell-tasks-peek-empty.png");
         rec(
-            "4d. the empty task's pane reads No output yet. (running); the failed task's ends in an error-colored [exited with code 1] (failed · exit 1)",
+            "4d. the empty task's peek reads No output yet. (running, live)",
             empty?.text.includes("No output yet.") === true &&
                 empty.state === "running" &&
-                failed?.text.includes("[exited with code 1]") === true &&
-                failed.state === "failed · exit 1" &&
-                failed.lastLineError === true,
-            JSON.stringify({ empty, failed })
+                empty.footer.endsWith("last 64 KB · live"),
+            JSON.stringify(empty)
         );
 
         // 5. a missing output file reads as no output, not an error
         await clickRow("bshgone");
-        const gone = await paneState("bshgone", "No output yet.");
-        await h.shot("cdp-shots/shell-tasks-pane-missing.png");
+        const gone = await peekState("bshgone", "No output yet.");
+        await h.shot("cdp-shots/shell-tasks-peek-missing.png");
         rec(
             "5. the task whose output file does not exist reads No output yet., with no error text",
             gone?.text.includes("No output yet.") === true && !/error|enoent|no such file|cannot|failed/i.test(gone.text),
             JSON.stringify(gone)
         );
 
-        // 5a. a command that redirects its stdout leaves claude's output file empty; the pane reads the redirect target
+        // 5a. a command that redirects its stdout leaves claude's output file empty; the peek reads the redirect target
         const redirTask = SHELL_TASKS.find((t) => t.redirect);
         await clickRow(redirTask.id);
-        const redir = await paneState(redirTask.id, redirTask.output.at(-1));
-        await h.shot("cdp-shots/shell-tasks-pane-redirect.png");
+        const redir = await peekState(redirTask.id, redirTask.output.at(-1));
+        await h.shot("cdp-shots/shell-tasks-peek-redirect.png");
         rec(
             "5a. the task whose command redirects to a /tmp log shows that log's lines, not No output yet. (running)",
             redir != null &&
@@ -12232,10 +12299,8 @@ const shellTasksScenario = {
                 redir.state === "running",
             JSON.stringify(redir)
         );
-
-        // left open on a running task, so step 6a can see the pane outlive the task's clean finish
-        await clickRow("bshlines");
-        await paneState("bshlines");
+        await closeButton();
+        await peekGone();
 
         const resume = await h.ev(`(async () => {
             ${SHELL_LIB}
@@ -12280,39 +12345,17 @@ const shellTasksScenario = {
             JSON.stringify(parked)
         );
 
-        // 6a. the pane left open on bshlines outlives its clean finish: same output, state finished
-        await h.goto("agent");
-        const finishedPane = await h.ev(`(async () => {
-            ${SHELL_LIB}
-            await until(() => text(pane()?.querySelector("[data-shell-task-state]")) === "finished", 40);
-            return {
-                id: pane()?.getAttribute("data-shell-task-pane") ?? null,
-                state: text(pane()?.querySelector("[data-shell-task-state]")),
-                text: text(pane()),
-            };
-        })()`);
-        await h.shot("cdp-shots/shell-tasks-pane-finished.png");
-        rec(
-            "6a. the open pane of a task that finished cleanly stays open with its output, its state reading finished",
-            finishedPane.id === "bshlines" &&
-                finishedPane.state === "finished" &&
-                finishedPane.text.includes(SHELL_APPENDED_LINE),
-            JSON.stringify(finishedPane)
-        );
-        await escape();
-        await paneGone();
 
         await h.goto("agent");
         const after = await h.ev(`(async () => {
             ${SHELL_LIB}
-            await until(() => tasksChip(${mainName}) != null, 20);
+            await until(() => treeRow(${mainName}) != null, 20);
             if (!headerDot().name) treeRow(${mainName})?.click();
-            if (tasksChip(${mainName})?.getAttribute("aria-expanded") === "false") tasksChip(${mainName}).click();
-            await until(() => taskRowIds().includes("bshfail"), 20);
+            await until(() => tasksChip(${mainName}) == null, 20);
             await until(() => headerDot().name, 20);
             await new Promise((r) => setTimeout(r, 600));
             return {
-                chip: text(tasksChip(${mainName})),
+                chip: tasksChip(${mainName}) == null ? null : text(tasksChip(${mainName})),
                 rows: taskRowIds().filter((id) => ${JSON.stringify(SHELL_TASKS.map((t) => t.id))}.includes(id)),
                 dot: dot(treeRow(${mainName})),
                 header: headerDot(),
@@ -12320,9 +12363,9 @@ const shellTasksScenario = {
         })()`);
         await h.shot("cdp-shots/shell-tasks-tree-finished.png");
         rec(
-            "6b. the tree keeps only the failed task row under a 1 shell task chip, and the dot is no longer accent",
-            after.chip.includes("1 shell task") &&
-                after.rows.join() === "bshfail" &&
+            "6b. the tree has no shell tasks chip and no task rows, and the dot is no longer accent",
+            after.chip === null &&
+                after.rows.length === 0 &&
                 after.dot != null &&
                 after.dot.bg !== "var(--color-accent)" &&
                 after.dot.pulse === false,

@@ -44,7 +44,7 @@ describe("agent actions", () => {
         expect(applies("agent:nudge", thing({ state: "asking" }))).toBe(false);
     });
     it("does not nudge an idle agent standing by on a running shell task", () => {
-        globalStore.set(shellTasksByIdAtom, { tab1: [{ id: "b1", description: "dev server", state: "running" }] });
+        globalStore.set(shellTasksByIdAtom, { tab1: [{ id: "b1", description: "dev server" }] });
         try {
             expect(applies("agent:nudge", thing({ state: "idle" }))).toBe(false);
         } finally {

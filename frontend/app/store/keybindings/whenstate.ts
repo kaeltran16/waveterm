@@ -30,7 +30,7 @@ import { canvasStateAtom } from "@/app/view/agents/canvasstore";
 import { compareOnAtom } from "@/app/view/agents/comparestore";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
-import { focusShellTaskAtom } from "@/app/view/agents/shelltasksstore";
+import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
@@ -67,7 +67,7 @@ export const PREDICATE_ATOMS: Atom<unknown>[] = [
     listNavAtom, // buildListNavBindings: active
     renamingRowAtom, // buildAgentBindings: subagent:back, shelltask:back
     focusSubagentAtom, // buildAgentBindings: subagent:back, agent:back
-    focusShellTaskAtom, // buildAgentBindings: shelltask:back, agent:back
+    shellTaskPeekAtom, // buildAgentBindings: shelltask:back, agent:back
 ];
 
 function bumpWhenVersion() {

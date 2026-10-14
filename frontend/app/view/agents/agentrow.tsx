@@ -226,20 +226,15 @@ function ShellTasksBadge({ tasks }: { tasks: ShellTask[] }) {
                 className="absolute right-0 top-[24px] z-30 w-[300px] rounded-[9px] border border-edge-strong bg-surface-raised p-2 shadow-popover-lg"
             >
                 <div data-shell-tasks-list className="flex flex-col gap-1.5">
-                    {tasks.map((t) => {
-                        const color = t.state === "failed" ? "var(--color-error)" : "var(--color-accent)";
-                        return (
-                            <div key={t.id} className="flex items-center gap-2">
-                                <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: color }} />
-                                <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-secondary">
-                                    {t.description}
-                                </span>
-                                <span className="font-mono text-[10.5px] font-semibold" style={{ color }}>
-                                    {t.state}
-                                </span>
-                            </div>
-                        );
-                    })}
+                    {tasks.map((t) => (
+                        <div key={t.id} className="flex items-center gap-2">
+                            <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-accent" />
+                            <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-secondary">
+                                {t.description}
+                            </span>
+                            <span className="font-mono text-[10.5px] font-semibold text-accent">running</span>
+                        </div>
+                    ))}
                 </div>
             </PopoverReveal>
         </div>
@@ -316,7 +311,7 @@ export const AgentRow = memo(function AgentRow({
     const shellTasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standingBy = isStandingBy(agent.state, shellTasks);
     const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
-    const runningShellTasks = shellTasks.filter((t) => t.state === "running").length;
+    const runningShellTasks = shellTasks.length;
     const tasks = useAtomValue(tasksAtomFor(agent.id));
     const prog = tasks && tasks.length > 0 ? taskProgress(tasks) : undefined;
     const showComposer = composerOpen;

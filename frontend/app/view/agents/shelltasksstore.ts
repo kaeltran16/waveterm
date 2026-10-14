@@ -4,43 +4,31 @@
 // Background shell tasks per agent, read from its transcript tail. Mirrors subagentsstore.ts: refresh
 // on enter and when the agent turns idle, scheduleShellTasks (debounced) on transcript activity, drop on
 // leave. Standing by is not stored here: consumers derive it with isStandingBy from the agent's state and
-// its entry. Also holds which task's output pane is open, exclusive with the subagent interior.
+// its entry. Also holds which task's output peek is open.
 
+import { pushToast } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentVM } from "./agentsviewmodel";
-import { extractShellTasks, outputTail, SHELL_TAIL_LINES, visibleShellTasks, type ShellTask } from "./shelltasks";
-import { focusSubagentAtom } from "./subagentsstore";
+import { extractShellTasks, outputTail, SHELL_TAIL_LINES, shellKillNote, type ShellTask } from "./shelltasks";
 
-export interface FocusShellTask {
+export interface ShellTaskPeekRef {
     parentId: string;
     taskId: string;
 }
 
-// per agent-id -> its running and failed shell tasks
+// per agent-id -> its running shell tasks
 export const shellTasksByIdAtom = atom<Record<string, ShellTask[]>>({}) as PrimitiveAtom<Record<string, ShellTask[]>>;
 
 // per agent-id -> when its last completed shell-task read started, success or failure. A finish held
 // since the agent turned idle waits for a read that started at or after it (shellReadPending)
 export const shellReadAtByIdAtom = atom<Record<string, number>>({}) as PrimitiveAtom<Record<string, number>>;
 
-// the task whose output pane is open in the focused view's center (null = show the parent terminal)
-export const focusShellTaskAtom = atom<FocusShellTask | null>(null) as PrimitiveAtom<FocusShellTask | null>;
-
-// both panes swap in over the same terminal, so opening one closes the other. Subscribed here, not at each
-// writer, because the subagent interior is opened from the tree, the rail and the run body
-globalStore.sub(focusShellTaskAtom, () => {
-    if (globalStore.get(focusShellTaskAtom) != null && globalStore.get(focusSubagentAtom) != null) {
-        globalStore.set(focusSubagentAtom, null);
-    }
-});
-globalStore.sub(focusSubagentAtom, () => {
-    if (globalStore.get(focusSubagentAtom) != null && globalStore.get(focusShellTaskAtom) != null) {
-        globalStore.set(focusShellTaskAtom, null);
-    }
-});
+// the task whose output peek is open beside the tree; an atom, not row state, so Esc in the keybinding
+// registry can close it
+export const shellTaskPeekAtom = atom<ShellTaskPeekRef | null>(null) as PrimitiveAtom<ShellTaskPeekRef | null>;
 
 // transcript activity stops while an agent sits idle, so a running task's finish is only seen by polling
 export const SHELL_POLL_MS = 5000;
@@ -65,7 +53,7 @@ function setList(id: string, list: ShellTask[] | null): void {
 
 /** Tail the agent's transcript, project its shell tasks, and store them. Guarded so a superseding
  *  load (or a drop) discards a slower older result. A failed read keeps the last known list, so an
- *  absent entry always means no visible tasks and never reads as a task finishing. */
+ *  absent entry always means no running tasks and never reads as a task finishing. */
 export async function refreshShellTasks(id: string, transcriptPath: string | undefined): Promise<void> {
     const seq = (loadSeq.get(id) ?? 0) + 1;
     loadSeq.set(id, seq);
@@ -83,7 +71,7 @@ export async function refreshShellTasks(id: string, transcriptPath: string | und
         if (loadSeq.get(id) !== seq) {
             return;
         }
-        setList(id, visibleShellTasks(extractShellTasks(tr.lines ?? [])));
+        setList(id, extractShellTasks(tr.lines ?? []));
         setReadAt(id, startedAt);
     } catch {
         // keep the last known list: the next poll or transcript activity retries. The read still
@@ -139,17 +127,17 @@ export function dropShellTasks(id: string): void {
     loadSeq.set(id, (loadSeq.get(id) ?? 0) + 1);
     setList(id, null);
     setReadAt(id, null);
-    if (globalStore.get(focusShellTaskAtom)?.parentId === id) {
-        globalStore.set(focusShellTaskAtom, null);
+    if (globalStore.get(shellTaskPeekAtom)?.parentId === id) {
+        globalStore.set(shellTaskPeekAtom, null);
     }
 }
 
-/** Pure: the tracked agents whose stored tasks include a running one, the ones worth polling. */
+/** Pure: the tracked agents with a stored (running) task, the ones worth polling. */
 export function shellTaskPollIds(trackedIds: string[], byId: Record<string, ShellTask[]>): string[] {
-    return trackedIds.filter((id) => byId[id]?.some((t) => t.state === "running"));
+    return trackedIds.filter((id) => (byId[id]?.length ?? 0) > 0);
 }
 
-/** The last lines of a task's output file, trimmed for the output pane. A missing or unreadable file
+/** The last lines of a task's output file, trimmed for the output peek. A missing or unreadable file
  *  reads as no output rather than an error. */
 export async function readShellTaskOutput(path: string): Promise<string[]> {
     try {
@@ -157,5 +145,31 @@ export async function readShellTaskOutput(path: string): Promise<string[]> {
         return outputTail(tr.lines ?? []);
     } catch {
         return [];
+    }
+}
+
+/** Kill a task's processes in its agent's block (pkg/resmon). A killed task leaves the list at once; claude
+ *  then reports it failed, so the next read agrees and a task still running comes back. */
+export async function killShellTask(parentId: string, blockId: string, task: ShellTask): Promise<void> {
+    let r: ResMonKillRtnData;
+    try {
+        r = await RpcApi.ResMonKillShellTaskCommand(TabRpcClient, {
+            ownerid: blockId,
+            taskid: task.id,
+            command: task.command ?? "",
+            startedts: task.startedTs ?? 0,
+        });
+    } catch (e) {
+        r = { outcome: "failed", killed: 0, error: e instanceof Error ? e.message : String(e) };
+    }
+    if (r.outcome === "killed") {
+        setList(
+            parentId,
+            (globalStore.get(shellTasksByIdAtom)[parentId] ?? []).filter((t) => t.id !== task.id)
+        );
+    }
+    const note = shellKillNote(r, task.description);
+    if (note != null) {
+        pushToast({ title: "Kill shell task", message: note, level: r.outcome === "gone" ? "info" : "error" });
     }
 }
