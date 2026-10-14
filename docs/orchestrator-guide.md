@@ -613,7 +613,7 @@ you.
 | **Verify failed** after a merge | fixes it, commits, `dag merge <task> --continue` (re-runs Verify at HEAD) | same |
 | **Review failed** twice, or the reviewer couldn't do its job | reads the findings in `dag status`; `dag sendback <task> "<guidance>"`, `dag approve <task>`, retry, escalate, skip or forward | forwarded review failures |
 | **A passed task with a note for later tasks** that the engine could not deliver (nothing unfinished follows the task, or a named task already finished or without a live terminal) | amends the pending tasks the note affects (`dag amend`), or tells a running one (`dag tell`) | nothing |
-| **A worker's question** | answers from the spec, plan and code, or forwards a product call with a note | forwarded questions and any it does not answer within **10 minutes** |
+| **A worker's question** | answers from the spec, plan and code; a product or scope call it asks you itself, with what it checked and its recommendation, and relays your choice with `dag answer` (it checks `dag asks` first, in case you answered on the run sheet) | its own ask, and any question it has not answered within **10 minutes**, which moves to you with `dag answer` refused to the lead from then on, even while its own ask is open |
 | **Task failed** with its retry spent | `dag retry`, `dag escalate --model`, `dag skip`, or forwards | forwarded failures |
 | **Worker hung** (15 min silent, process alive, no ask pending) | same as a failure | same |
 | **Worker may be stuck** (worktree unchanged 20 min while active, or the same failure 3x) | `dag tell`, `dag retry`, `dag escalate`, or lets it run | same |
