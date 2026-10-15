@@ -89,6 +89,11 @@ const CORNER_CLASS: Record<PetCorner, string> = {
 // (avatarscene.ts), so this is the only size and nothing multiplies it.
 const AVATAR_PX = 132;
 
+// How far the avatar reaches up from a surface's bottom edge: its 40px corner inset, less the 28px hints footer the
+// surfaces end above, plus its own height. A scroll container ends with this much room, so its last row can scroll
+// out from under the avatar.
+export const AVATAR_SURFACE_REACH_PX = 40 - 28 + AVATAR_PX;
+
 // The backing store is capped at 2x: past that the bloom's half-resolution targets cost more than the
 // softness they buy back.
 const MAX_DPR = 2;

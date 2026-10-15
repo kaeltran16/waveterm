@@ -20,6 +20,7 @@ import { SkeletonLine } from "@/app/element/skeleton";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { openTarget } from "@/app/view/jarvis/openref";
+import { AVATAR_SURFACE_REACH_PX } from "@/app/view/jarvis/petview";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { MotionConfig, motion } from "motion/react";
@@ -900,7 +901,8 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                 </div>
 
                 <div data-usage-detail={work ? scopeId(scope) : sel} className="min-h-0 flex-1 overflow-y-auto">
-                    <div className="flex flex-col gap-5 px-7 pb-12 pt-[18px]">
+                    {/* the end clears the avatar by one gap-5, or it covers Where it goes' Total at full scroll */}
+                    <div className="flex flex-col gap-5 px-7 pt-[18px]" style={{ paddingBottom: AVATAR_SURFACE_REACH_PX + 20 }}>
                         {work && workItem != null && scope.kind === "item" ? (
                             <button
                                 type="button"
