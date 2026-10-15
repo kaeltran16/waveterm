@@ -145,7 +145,10 @@ export function SurfaceError({
     actionLabel?: string;
 }) {
     return (
-        <div className="mx-[28px] mt-3 flex items-center gap-3 rounded-[10px] border border-error/40 bg-error/10 px-3.5 py-2.5 text-[12.5px] text-error">
+        <div
+            data-surface-error
+            className="mx-[28px] mt-3 flex items-center gap-3 rounded-[10px] border border-error/40 bg-error/10 px-3.5 py-2.5 text-[12.5px] text-error"
+        >
             <span className="flex-1">{message}</span>
             {onRetry != null ? (
                 <button

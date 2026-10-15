@@ -3002,7 +3002,7 @@ const usageStates = {
         await h.goto("usage");
         const failed = await usageEv(
             h,
-            `const banner = () => text(document.querySelector("[data-usage-scopes]")?.previousElementSibling);
+            `const banner = () => text(document.querySelector("[data-usage-scopes]")?.parentElement?.querySelector("[data-surface-error]"));
             const shown = await until(() => banner().includes("Couldn’t refresh"));
             return { shown, banner: banner(), stats: document.querySelector("[data-usage-stats]") != null };`
         );
