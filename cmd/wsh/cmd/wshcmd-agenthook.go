@@ -137,10 +137,13 @@ func canvasRevealFor(ev ccHookEvent) (address string, cwd string, ok bool) {
 	return "canvas:" + m[2], m[1], true
 }
 
-// workStampKey names the block meta key a finished tool call stamps, so the cockpit can tick an agent whose
-// last commit came after its last edit. PostToolUse fires only for a call that succeeded, so a commit with
-// nothing to commit stamps nothing. "" for every other event.
+// workStampKey names the block meta key an event stamps, so the cockpit can tick an agent whose last commit
+// came after both its last edit and the start of its latest turn. PostToolUse fires only for a call that
+// succeeded, so a commit with nothing to commit stamps nothing. "" for every other event.
 func workStampKey(ev ccHookEvent) string {
+	if ev.HookEventName == "UserPromptSubmit" {
+		return waveobj.MetaKey_AgentTurnStartTs
+	}
 	if ev.HookEventName != "PostToolUse" {
 		return ""
 	}

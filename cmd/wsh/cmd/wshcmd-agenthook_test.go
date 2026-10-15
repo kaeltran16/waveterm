@@ -339,6 +339,8 @@ func TestWorkStampKey(t *testing.T) {
 		{"read", post("Read"), ""},
 		{"commit before it ran", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Bash", ToolInput: json.RawMessage(`{"command":"git commit -m x"}`)}, ""},
 		{"edit before it ran", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Edit"}, ""},
+		{"prompt submitted", ccHookEvent{HookEventName: "UserPromptSubmit"}, waveobj.MetaKey_AgentTurnStartTs},
+		{"turn ended", ccHookEvent{HookEventName: "Stop"}, ""},
 	}
 	for _, c := range cases {
 		if got := workStampKey(c.ev); got != c.want {

@@ -2333,6 +2333,7 @@ declare global {
         "agent:transcriptpath"?: string;
         "agent:lastcommitts"?: number;
         "agent:lasteditts"?: number;
+        "agent:turnstartts"?: number;
         count?: number;
     };
 

@@ -23,6 +23,14 @@ describe("hasCommittedWork", () => {
         expect(hasCommittedWork({}, true)).toBe(false);
     });
 
+    it("ticks a commit made during the latest turn", () => {
+        expect(hasCommittedWork({ "agent:turnstartts": 150, "agent:lastcommitts": 200 }, true)).toBe(true);
+    });
+
+    it("does not carry a commit from an earlier turn into a later one", () => {
+        expect(hasCommittedWork({ "agent:lastcommitts": 200, "agent:turnstartts": 300 }, true)).toBe(false);
+    });
+
     it("does not tick an agent that is still working, even with committed work", () => {
         expect(hasCommittedWork({ "agent:lasteditts": 100, "agent:lastcommitts": 200 }, false)).toBe(false);
     });
