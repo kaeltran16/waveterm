@@ -8326,6 +8326,34 @@ const briefDesignParity = {
             detail: JSON.stringify({ before: before.length, orchOnly, after: after.length }),
         });
 
+        // (i) the Initiatives project filter narrows to one project's initiatives, then all brings every row back
+        const PROJECT = (p) => `[...document.querySelectorAll('[data-jarvis-initiative-project] button')].find((b) => b.innerText.trim() === '${p}')`;
+        const initiativeProjects = `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].map((r) => r.querySelector(':scope > div:first-child > span:nth-of-type(3)')?.innerText.trim().split(' · ').pop() ?? null)`;
+        const options = await h.ev(
+            `[...document.querySelectorAll('[data-jarvis-initiative-project] button')].map((b) => b.innerText.trim())`
+        );
+        const picked = options.find((o) => o !== "all" && o !== "no project") ?? null;
+        const allRows = await h.ev(initiativeProjects);
+        if (picked != null) {
+            await h.ev(`${PROJECT(picked)}?.click()`);
+            await parityNap(h, 700);
+        }
+        const pickedRows = await h.ev(initiativeProjects);
+        await h.shot("cdp-shots/brief-design-parity-i-project.png");
+        await h.ev(`${PROJECT("all")}?.click()`);
+        await parityNap(h, 700);
+        const restored = await h.ev(initiativeProjects);
+        steps.push({
+            step: "i. the Initiatives project filter leaves only that project's initiatives, and all restores the list",
+            ok:
+                picked != null &&
+                pickedRows.length > 0 &&
+                pickedRows.every((p) => p === picked) &&
+                pickedRows.length < allRows.length &&
+                restored.length === allRows.length,
+            detail: JSON.stringify({ options, picked, all: allRows.length, pickedRows, restored: restored.length }),
+        });
+
         return steps;
     },
     async teardown(h, ctx) {

@@ -81,6 +81,8 @@ import {
     behindGroups,
     filterLines,
     initiativeLine,
+    initiativeProjects,
+    keepsProject,
     keepsRunKind,
     lineOpenTarget,
     projectName,
@@ -229,32 +231,63 @@ function RegionHead({
     );
 }
 
-// Which kind of run Runs or Shipped show. Sits beside the region head, not in it: the head is a button.
-function RunKindToggle({ value, onChange }: { value: RunKindFilter; onChange: (v: RunKindFilter) => void }) {
+// A region's filter: which kind of run Runs or Shipped show, which project Initiatives does. Sits beside
+// the region head, not in it: the head is a button.
+function FilterToggle<T>({
+    label,
+    tag,
+    options,
+    value,
+    onChange,
+    wrap = false,
+}: {
+    label: string;
+    // the data attribute a CDP scenario finds the group by
+    tag: string;
+    options: { value: T; label: string }[];
+    value: T;
+    onChange: (v: T) => void;
+    // a list as long as the projects wraps rather than squeeze the region head to nothing
+    wrap?: boolean;
+}) {
     return (
         <div
             role="group"
-            aria-label="Show runs of kind"
-            data-jarvis-run-kind
-            className="flex flex-none items-center gap-1"
+            aria-label={label}
+            {...{ [tag]: "" }}
+            className={cn("flex items-center gap-1", wrap ? "min-w-0 flex-wrap justify-end" : "flex-none")}
         >
-            {RUN_KIND_FILTERS.map((k) => (
+            {options.map((o) => (
                 <button
-                    key={k}
+                    key={o.label}
                     type="button"
-                    aria-pressed={value === k}
-                    onClick={() => onChange(k)}
+                    aria-pressed={value === o.value}
+                    onClick={() => onChange(o.value)}
                     className={cn(
                         "cursor-pointer rounded-[5px] border px-1.5 py-px font-mono text-[10.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                        value === k
+                        value === o.value
                             ? "border-edge-strong text-ink-hi"
                             : "border-transparent text-muted hover:text-ink-hi"
                     )}
                 >
-                    {k}
+                    {o.label}
                 </button>
             ))}
         </div>
+    );
+}
+
+const RUN_KIND_OPTIONS = RUN_KIND_FILTERS.map((k) => ({ value: k, label: k }));
+
+function RunKindToggle({ value, onChange }: { value: RunKindFilter; onChange: (v: RunKindFilter) => void }) {
+    return (
+        <FilterToggle
+            label="Show runs of kind"
+            tag="data-jarvis-run-kind"
+            options={RUN_KIND_OPTIONS}
+            value={value}
+            onChange={onChange}
+        />
     );
 }
 
@@ -438,6 +471,8 @@ const IN_VIEW_STEPS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
 // which kind of run Runs and Shipped each show; module scope for the same reason
 const briefRunKindAtom = atom<RunKindFilter>("all") as PrimitiveAtom<RunKindFilter>;
 const briefShippedKindAtom = atom<RunKindFilter>("all") as PrimitiveAtom<RunKindFilter>;
+// which project Initiatives shows, null for every one; module scope for the same reason
+const briefInitiativeProjectAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
 // The plan reveal clips only while its height animates: left clipped, it cut off the chunk and stage menus
 // that drop below the card's edge.
@@ -669,7 +704,30 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const behindOpen = expanded.behind === true;
     const queueSummary = useMemo(() => summarizeAttentionQueue(queue, Date.now()), [queue]);
 
-    const effortWindow = useMemo(() => capRegion(efforts, EFFORT_CAP, initiativesOpen), [efforts, initiativesOpen]);
+    // archived initiatives come off the effort list, not the briefing, and show only on request
+    const [showArchived, setShowArchived] = useState(false);
+    const archivedSummaries = useAtomValue(archivedEffortsAtom);
+    const archivedCards = useMemo(() => archivedSummaries.map(buildEffortCard), [archivedSummaries]);
+    useEffect(() => {
+        fireAndForget(loadArchivedEfforts);
+    }, []);
+    // the project filter narrows before the cap, so a project with older initiatives still fills the window
+    const [pickedProject, setPickedProject] = useAtom(briefInitiativeProjectAtom);
+    const projectOptions = useMemo(
+        () => initiativeProjects(showArchived ? [...efforts, ...archivedCards] : efforts),
+        [efforts, archivedCards, showArchived]
+    );
+    // a pick whose last initiative went away reads as every project rather than an empty region
+    const project = pickedProject != null && projectOptions.includes(pickedProject) ? pickedProject : null;
+    const projectEfforts = useMemo(() => efforts.filter((e) => keepsProject(project, e.project)), [efforts, project]);
+    const effortWindow = useMemo(
+        () => capRegion(projectEfforts, EFFORT_CAP, initiativesOpen),
+        [projectEfforts, initiativesOpen]
+    );
+    const archivedShown = useMemo(
+        () => archivedCards.filter((c) => keepsProject(project, c.project)),
+        [archivedCards, project]
+    );
     const [runKind, setRunKind] = useAtom(briefRunKindAtom);
     const sessions = useMemo(
         () =>
@@ -730,13 +788,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         () => capRegion(shippedAll, SHIPPED_CAP, shippedOpen || filtering),
         [shippedAll, shippedOpen, filtering]
     );
-    // archived initiatives come off the effort list, not the briefing, and show only on request
-    const [showArchived, setShowArchived] = useState(false);
-    const archivedSummaries = useAtomValue(archivedEffortsAtom);
-    const archivedCards = useMemo(() => archivedSummaries.map(buildEffortCard), [archivedSummaries]);
-    useEffect(() => {
-        fireAndForget(loadArchivedEfforts);
-    }, []);
     // a delete waiting out its undo window is already gone as far as the reader is concerned
     const pendingDeletes = useAtomValue(pendingDeleteKeysAtom);
     // leaving the Brief or the app inside the window still performs the delete the user did not undo;
@@ -757,7 +808,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 query
             ),
             initiatives: filterLines(
-                [...effortWindow.rows, ...(showArchived ? archivedCards : [])]
+                [...effortWindow.rows, ...(showArchived ? archivedShown : [])]
                     .filter((r) => !pendingDeletes.has(effortKey(r.oref)))
                     .map(initiativeLine),
                 query
@@ -770,7 +821,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 .map((g) => ({ ...g, lines: filterLines(g.lines, query) }))
                 .filter((g) => g.lines.length > 0),
         };
-    }, [queue, effortWindow, showArchived, archivedCards, sessions, deltaGroups, shipped, query, pendingDeletes]);
+    }, [queue, effortWindow, showArchived, archivedShown, sessions, deltaGroups, shipped, query, pendingDeletes]);
     const staleCount = lines.sessions.filter((l) => l.stale).length;
     const waitingShown = waitingOpen || filtering;
     const view = useMemo(() => {
@@ -1126,7 +1177,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         globalStore.set(briefGraphRecordAtom, null);
     };
     const projectCount = snapshot?.state.projects?.length ?? 0;
-    const paused = efforts.filter((e) => e.status === "paused").length;
+    const paused = projectEfforts.filter((e) => e.status === "paused").length;
     const liveN = view.sessionLines.filter((l) => !l.stale).length;
     const visitCursor = useAtomValue(briefingCursorAtom);
     const deltaRowsN = lines.behind.filter((g) => g.label !== SHIPPED_LABEL).reduce((n, g) => n + g.lines.length, 0);
@@ -1531,10 +1582,28 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         meta={paused > 0 ? `${paused} paused` : "all moving"}
                                         only={only === "initiatives"}
                                         onOnly={() => toggleOnly("initiatives")}
+                                        tools={
+                                            projectOptions.length > 1 ? (
+                                                <FilterToggle
+                                                    label="Show initiatives of project"
+                                                    tag="data-jarvis-initiative-project"
+                                                    options={[
+                                                        { value: null, label: "all" },
+                                                        ...projectOptions.map((p) => ({
+                                                            value: p,
+                                                            label: p || "no project",
+                                                        })),
+                                                    ]}
+                                                    value={project}
+                                                    onChange={setPickedProject}
+                                                    wrap
+                                                />
+                                            ) : undefined
+                                        }
                                     >
                                         <div className="flex flex-col">
                                             {lines.initiatives.length === 0 ? (
-                                                filtering ? (
+                                                filtering || project != null ? (
                                                     <NoMatch />
                                                 ) : (
                                                     <span className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">
@@ -1679,7 +1748,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                 expanded={initiativesOpen}
                                                 onToggle={() => toggleRegion("initiatives")}
                                             />
-                                            {archivedCards.length > 0 ? (
+                                            {archivedShown.length > 0 ? (
                                                 <button
                                                     type="button"
                                                     data-jarvis-brief-archived={showArchived ? "hide" : "show"}
@@ -1688,7 +1757,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                 >
                                                     {showArchived
                                                         ? "Hide archived"
-                                                        : `Show ${archivedCards.length} archived`}
+                                                        : `Show ${archivedShown.length} archived`}
                                                 </button>
                                             ) : null}
                                         </div>
