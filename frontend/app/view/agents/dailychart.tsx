@@ -9,14 +9,14 @@
 //
 // Split out of usagesurface.tsx: it is the largest component there and its tooltip/brush change with it.
 
-import { MOTION } from "@/app/element/motiontokens";
+import { MOTION, cardVariants } from "@/app/element/motiontokens";
 import { Segmented } from "@/app/element/segmented";
 import useResizeObserver from "@react-hook/resize-observer";
 import { AxisBottom, AxisLeft } from "@visx/axis";
 import { Brush } from "@visx/brush";
 import { scaleBand, scaleLinear } from "@visx/scale";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
-import { motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useLayoutEffect, useState } from "react";
 import {
     barPath,
@@ -216,12 +216,19 @@ export function DailyChart({
                                         // the entrance grows a column from its baseline; a data change after it tweens
                                         // each segment's d, so bars slide and resize instead of snapping
                                         const transition = {
-                                            scaleY: { delay: ri * 0.025, duration: MOTION.durMacro, ease: MOTION.easeFluid },
+                                            scaleY: {
+                                                delay: ri * 0.025,
+                                                duration: MOTION.durMacro,
+                                                ease: MOTION.easeFluid,
+                                            },
                                             d: { duration: MOTION.durMacro, ease: MOTION.easeFluid },
                                         };
                                         // SVG needs transformBox:fill-box for transformOrigin:bottom to mean what
                                         // it means on a DOM element
-                                        const originStyle = { transformBox: "fill-box" as const, transformOrigin: "bottom" };
+                                        const originStyle = {
+                                            transformBox: "fill-box" as const,
+                                            transformOrigin: "bottom",
+                                        };
                                         const onEnter = () =>
                                             showTooltip({
                                                 tooltipData: r,
@@ -385,38 +392,65 @@ function Swatch({ fill }: { fill: string }) {
     return <span className="h-[8px] w-[8px] flex-none rounded-[2px]" style={{ background: fill }} />;
 }
 
-// rows are not clickable: the legend reads out the stack, it does not filter it
+// Rows are not clickable: the legend reads out the stack, it does not filter it. A scope change brings
+// models in, takes them out and re-ranks them, so rows and groups slide and fade. They measure only when that order
+// changes (layoutDependency), or the card shifting as the content above it resizes would slide every row in from
+// where the card used to be. Each moving element is a motion.div directly under its AnimatePresence: popLayout pops
+// an exit through a ref on its direct child, and a component there leaves the exiting row's gap behind.
 function Legend({ groups, fmtValue }: { groups: LegendGroup[]; fmtValue: (v: number) => string }) {
+    const order = groups.map((g) => `${g.harness}:${g.showHead}:${g.models.map((m) => m.key).join(",")}`).join("|");
     return (
-        <div data-usage-legend className="flex w-[330px] flex-none flex-col">
-            {groups.map((g) => (
-                <div key={g.harness}>
-                    {g.showHead ? (
-                        <div
-                            data-usage-legend-group={g.harness}
-                            className="flex items-baseline pb-1 pt-2 font-mono text-[10px] text-ink-mid"
-                        >
-                            <span className="flex-1 font-bold uppercase tracking-[0.08em]">{g.label}</span>
-                            <span>
-                                {fmtValue(g.value)} · {pctStr(g.pct)}
-                            </span>
-                        </div>
-                    ) : null}
-                    {g.models.map((m) => (
-                        <LegendRow key={m.key} m={m} fmtValue={fmtValue} />
-                    ))}
-                </div>
-            ))}
+        <div data-usage-legend className="relative flex w-[330px] flex-none flex-col">
+            <AnimatePresence mode="popLayout" initial={false}>
+                {groups.map((g) => (
+                    <motion.div
+                        key={g.harness}
+                        layout="position"
+                        layoutDependency={order}
+                        variants={cardVariants}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="relative"
+                    >
+                        {g.showHead ? (
+                            <div
+                                data-usage-legend-group={g.harness}
+                                className="flex items-baseline pb-1 pt-2 font-mono text-[10px] text-ink-mid"
+                            >
+                                <span className="flex-1 font-bold uppercase tracking-[0.08em]">{g.label}</span>
+                                <span>
+                                    {fmtValue(g.value)} · {pctStr(g.pct)}
+                                </span>
+                            </div>
+                        ) : null}
+                        <AnimatePresence mode="popLayout" initial={false}>
+                            {g.models.map((m) => (
+                                <motion.div
+                                    key={m.key}
+                                    layout="position"
+                                    layoutDependency={order}
+                                    variants={cardVariants}
+                                    initial="initial"
+                                    animate="animate"
+                                    exit="exit"
+                                    data-usage-model={m.key}
+                                    className="grid grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-x-2 border-t border-edge-faint py-[6px] font-mono text-[11px]"
+                                >
+                                    <LegendCells m={m} fmtValue={fmtValue} />
+                                </motion.div>
+                            ))}
+                        </AnimatePresence>
+                    </motion.div>
+                ))}
+            </AnimatePresence>
         </div>
     );
 }
 
-function LegendRow({ m, fmtValue }: { m: LegendModel; fmtValue: (v: number) => string }) {
+function LegendCells({ m, fmtValue }: { m: LegendModel; fmtValue: (v: number) => string }) {
     return (
-        <div
-            data-usage-model={m.key}
-            className="grid grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-x-2 border-t border-edge-faint py-[6px] font-mono text-[11px]"
-        >
+        <>
             <Swatch fill={m.fill} />
             <span className="truncate text-secondary" title={m.title}>
                 {m.model}
@@ -424,6 +458,6 @@ function LegendRow({ m, fmtValue }: { m: LegendModel; fmtValue: (v: number) => s
             <span className="text-muted">
                 <span className="text-secondary">{fmtValue(m.value)}</span> · {pctStr(m.pct)}
             </span>
-        </div>
+        </>
     );
 }

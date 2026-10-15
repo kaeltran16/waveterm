@@ -1942,9 +1942,12 @@ const USAGE_LIB = `
         return !!ok();
     };
     const chartSvg = () => document.querySelector("[data-usage-daily] svg");
+    // the legend and split rows fade out over a scope change and steps move on as soon as the new ones show, so a row
+    // still on its way out (motion's popLayout marks the leaving element data-motion-pop-id) is not part of the list
+    const liveRows = (selector) => [...document.querySelectorAll(selector)].filter((r) => !r.closest("[data-motion-pop-id]"));
     // a legend row is swatch, model id, then "<value> · <pct>" with the value in its own span
     const legendRows = () =>
-        [...document.querySelectorAll("[data-usage-legend] [data-usage-model]")].map((r) => ({
+        liveRows("[data-usage-legend] [data-usage-model]").map((r) => ({
             key: r.getAttribute("data-usage-model"),
             model: text(r.children[1]),
             title: r.children[1]?.getAttribute("title") ?? null,
@@ -1956,7 +1959,7 @@ const USAGE_LIB = `
         return m ? Number(m[1]) * (m[2] ? 1000 : 1) : NaN;
     };
     const splitRows = () =>
-        [...document.querySelectorAll("[data-usage-split] [data-usage-split-part]")].map((r) => ({
+        liveRows("[data-usage-split] [data-usage-split-part]").map((r) => ({
             key: r.getAttribute("data-usage-split-part"),
             spend: usdValue(text(r)),
         }));
@@ -2281,7 +2284,7 @@ const usageCharts = {
             return {
                 clicked,
                 models: legendRows().map((r) => r.model),
-                hasReasoning: [...document.querySelectorAll("[data-usage-split] [data-usage-split-part]")].some((p) =>
+                hasReasoning: liveRows("[data-usage-split] [data-usage-split-part]").some((p) =>
                     text(p).includes("Reasoning")
                 ),
                 hasReportedCostLabel: d.includes("Reported cost"),
@@ -2428,7 +2431,7 @@ const usageCharts = {
                 only: text(only) || null,
                 title: only?.querySelector("[title]")?.getAttribute("title") ?? null,
                 legendRows: legendRows().map((r) => r.key),
-                groups: [...document.querySelectorAll("[data-usage-legend-group]")].map((g) =>
+                groups: liveRows("[data-usage-legend-group]").map((g) =>
                     g.getAttribute("data-usage-legend-group")
                 ),
             };`
