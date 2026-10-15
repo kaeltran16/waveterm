@@ -129,3 +129,14 @@ const Y_FLOOR: Record<UsageMetric, number> = { tokens: 1, spend: 0.01 };
 export function yDomainMax(metric: UsageMetric, totals: number[]): number {
     return Math.max(Y_FLOOR[metric], ...totals);
 }
+
+// One stack segment: rounded top corners, flat baseline (a rect's rx rounds all four, so a capped top segment read as a
+// detached pill above a square bar). Every segment draws the same commands, a lower one with radius 0 and an empty one
+// with height 0, and coordinates round to 0.01 so none is written in exponent notation: motion tweens d only between
+// strings of the same shape, which is what lets a bar grow or shrink instead of snapping when the data changes.
+export function barPath(x: number, y: number, w: number, h: number, r: number): string {
+    const n = (v: number) => Math.round(v * 100) / 100;
+    const rr = Math.max(0, Math.min(r, w / 2, h));
+    const [l, t, rt, b] = [n(x), n(y), n(x + w), n(y + h)];
+    return `M${l},${b}V${n(y + rr)}Q${l},${t} ${n(x + rr)},${t}H${n(x + w - rr)}Q${rt},${t} ${rt},${n(y + rr)}V${b}Z`;
+}

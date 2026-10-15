@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    barPath,
     harnessChartColor,
     harnessChartLabel,
     legendSeries,
@@ -189,5 +190,30 @@ describe("yDomainMax", () => {
 
     it("tops Tokens at the tallest day", () => {
         expect(yDomainMax("tokens", [500, 78000])).toBe(78000);
+    });
+});
+
+describe("barPath", () => {
+    // motion tweens a path's d only between strings with the same commands and number count
+    const shape = (d: string) => d.replace(/-?[\d.]+/g, "#");
+
+    it("draws every segment with the same commands, whatever its radius or height", () => {
+        const capped = shape(barPath(10, 20, 30, 100, 4));
+        expect(shape(barPath(10, 20, 30, 100, 0))).toBe(capped);
+        expect(shape(barPath(10, 120, 30, 0, 4))).toBe(capped);
+        expect(shape(barPath(10, 20, 30, 2, 4))).toBe(capped);
+    });
+
+    it("rounds only the top corners, by at most half the width or the full height", () => {
+        expect(barPath(10, 20, 30, 100, 4)).toBe("M10,120V24Q10,20 14,20H36Q40,20 40,24V120Z");
+        expect(barPath(10, 20, 30, 2, 4)).toBe("M10,22V22Q10,20 12,20H38Q40,20 40,22V22Z");
+    });
+
+    it("draws a square bar at radius 0", () => {
+        expect(barPath(10, 20, 30, 100, 0)).toBe("M10,120V20Q10,20 10,20H40Q40,20 40,20V120Z");
+    });
+
+    it("never writes a coordinate in exponent notation", () => {
+        expect(barPath(1e-9, 1e-7, 30, 100, 0)).not.toMatch(/e/);
     });
 });

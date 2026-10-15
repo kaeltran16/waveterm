@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The Usage tab's one real chart: daily columns stacked by model over a band day-axis, beside a
-// legend grouped by harness. On visx for scales/ticks/tooltip, but the bars are motion.rect so the
+// legend grouped by harness. On visx for scales/ticks/tooltip, but the bars are motion.path so the
 // cockpit keeps ONE animation system —
 // visx supplies no animation of its own, which is why it was chosen over recharts (whose built-in
 // tween re-grows from the baseline on every data change, and usagesurface refreshes silently every 60s).
 //
 // Split out of usagesurface.tsx: it is the largest component there and its tooltip/brush change with it.
 
-import { MOTION, easeFluidCss } from "@/app/element/motiontokens";
+import { MOTION } from "@/app/element/motiontokens";
 import { Segmented } from "@/app/element/segmented";
 import useResizeObserver from "@react-hook/resize-observer";
 import { AxisBottom, AxisLeft } from "@visx/axis";
@@ -19,6 +19,7 @@ import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import { motion, useReducedMotion } from "motion/react";
 import { useLayoutEffect, useState } from "react";
 import {
+    barPath,
     legendSeries,
     modelRows,
     yDomainMax,
@@ -42,16 +43,6 @@ const BAR_MAX = 30;
 // range had painted only 13% of its bars 3.2s after mount, so the chart read as EMPTY on arrival.
 // A cascade across hundreds of columns communicates nothing anyway — it only reads as motion at small n.
 const STAGGER_MAX_COLS = 40;
-// A rect's rx rounds ALL FOUR corners, so using it for the top segment made that segment read as a
-// detached pill floating above a square bar instead of as the cap of one stack. The stack has to read as
-// a single bar: rounded top, flat baseline. Hence paths with top-only corners — the lower segment goes
-// fully square whenever something sits above it. (The pre-visx chart got this from `rounded-t-[3px]`.)
-function barPath(x: number, y: number, w: number, h: number, r: number): string {
-    const rr = Math.max(0, Math.min(r, w / 2, h));
-    if (rr === 0) return `M${x},${y}h${w}v${h}h${-w}Z`;
-    return `M${x},${y + h}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${y + h}Z`;
-}
-
 export function DailyChart({
     daily,
     window: win,
@@ -222,27 +213,15 @@ export function DailyChart({
                                     {view.map((r, ri) => {
                                         const cx = (x(r.day) ?? 0) + (x.bandwidth() - bandW) / 2;
                                         const { offsets, top } = segmentOffsets(r);
-                                        const grow =
-                                            reduce || !cascade
-                                                ? {}
-                                                : {
-                                                      initial: { scaleY: 0 },
-                                                      animate: { scaleY: 1 },
-                                                      transition: {
-                                                          delay: ri * 0.025,
-                                                          duration: MOTION.durMacro,
-                                                          ease: MOTION.easeFluid,
-                                                      },
-                                                  };
+                                        // the entrance grows a column from its baseline; a data change after it tweens
+                                        // each segment's d, so bars slide and resize instead of snapping
+                                        const transition = {
+                                            scaleY: { delay: ri * 0.025, duration: MOTION.durMacro, ease: MOTION.easeFluid },
+                                            d: { duration: MOTION.durMacro, ease: MOTION.easeFluid },
+                                        };
                                         // SVG needs transformBox:fill-box for transformOrigin:bottom to mean what
                                         // it means on a DOM element
-                                        const originStyle = {
-                                            transformBox: "fill-box" as const,
-                                            transformOrigin: "bottom",
-                                            transition: reduce
-                                                ? undefined
-                                                : `height ${MOTION.durMacro}s ${easeFluidCss}`,
-                                        };
+                                        const originStyle = { transformBox: "fill-box" as const, transformOrigin: "bottom" };
                                         const onEnter = () =>
                                             showTooltip({
                                                 tooltipData: r,
@@ -291,12 +270,17 @@ export function DailyChart({
                                                     }
                                                     const hPx = plotH - y(v);
                                                     const yPx = y(offsets[i] + v);
-                                                    const radius = top?.index === i ? 4 : 0;
+                                                    const d = barPath(cx, yPx, bandW, hPx, top?.index === i ? 4 : 0);
+                                                    // reducedMotion="user" stops transforms but not a d tween
+                                                    if (reduce) {
+                                                        return <path key={m.key} d={d} fill={m.fill} />;
+                                                    }
                                                     return (
                                                         <motion.path
                                                             key={m.key}
-                                                            {...grow}
-                                                            d={barPath(cx, yPx, bandW, hPx, radius)}
+                                                            initial={cascade ? { scaleY: 0, d } : false}
+                                                            animate={{ scaleY: 1, d }}
+                                                            transition={transition}
                                                             fill={m.fill}
                                                             style={originStyle}
                                                         />
