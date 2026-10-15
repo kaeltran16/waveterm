@@ -90,6 +90,8 @@ function startedTask(rec: any, toolUses: Map<string, any>): ShellTask | null {
 // a stdout redirect outside quotes: `>`, `>>`, `1>` or `&>`, then a quoted or bare target. `2>` and `>&2`
 // never match, so a stderr-only redirect leaves the output in claude's own file
 const STDOUT_REDIRECT = /(?:^|[\s;|&(])(?:1|&)?>>?\s*("[^"]*"|'[^']*'|[^\s;|&<>()]+)/g;
+// a `cd` that starts a command, so a relative redirect after it lands in its directory
+const CD = /(?:^|[;|&(])\s*cd\s+("[^"]*"|'[^']*'|[^\s;|&<>()]+)/g;
 const QUOTED = /"[^"]*"|'[^']*'/g;
 const DISCARD_TARGET = /^(?:\/dev\/|nul$)/i;
 const ABSOLUTE_TARGET = /^(?:[/~]|[A-Za-z]:[\\/])/;
@@ -98,26 +100,45 @@ const TEMP_VAR_TARGET = /^\$\{?(?:TEMP|TMP|TMPDIR)\}?(?=[/\\]|$)/;
 
 /** Pure: the file a shell command's stdout ends up in, when it redirects it away from claude's output file.
  *  The last redirect wins. Git Bash forms (/tmp, /c/, ~) and a leading temp-dir variable are left for wavesrv
- *  to resolve; a relative target is joined to cwd, and one with any other variable in it is not readable. */
+ *  to resolve; a relative target is joined to cwd as moved by any `cd` before the redirect, and one with any
+ *  other variable in it is not readable. */
 export function redirectTarget(command: string, cwd: string | undefined): string | undefined {
     // quoted text is masked so a `>` inside a quoted script is not a redirect; targets are cut from the original
     const masked = command.replace(QUOTED, (q) => q[0] + "_".repeat(q.length - 2) + q[0]);
     let target: string | undefined;
+    let at = 0;
     for (const m of masked.matchAll(STDOUT_REDIRECT)) {
-        const start = m.index + m[0].length - m[1].length;
-        target = command.slice(start, start + m[1].length).replace(/^(["'])(.*)\1$/, "$2");
+        target = matchedWord(command, m);
+        at = m.index;
     }
     if (target == null || target === "" || DISCARD_TARGET.test(target)) {
         return undefined;
     }
-    const tempVar = TEMP_VAR_TARGET.test(target);
-    if (/[$`]/.test(target.replace(TEMP_VAR_TARGET, ""))) {
+    let dir = cwd;
+    for (const m of masked.matchAll(CD)) {
+        if (m.index >= at) {
+            break;
+        }
+        const to = matchedWord(command, m);
+        dir = to === "-" ? undefined : resolvePath(to, dir);
+    }
+    return resolvePath(target, dir);
+}
+
+// the match's captured word, cut from the unmasked command and unquoted
+function matchedWord(command: string, m: RegExpMatchArray): string {
+    const start = m.index + m[0].length - m[1].length;
+    return command.slice(start, start + m[1].length).replace(/^(["'])(.*)\1$/, "$2");
+}
+
+function resolvePath(path: string, base: string | undefined): string | undefined {
+    if (/[$`]/.test(path.replace(TEMP_VAR_TARGET, ""))) {
         return undefined;
     }
-    if (tempVar || ABSOLUTE_TARGET.test(target)) {
-        return target;
+    if (TEMP_VAR_TARGET.test(path) || ABSOLUTE_TARGET.test(path)) {
+        return path;
     }
-    return cwd ? `${cwd.replace(/[\\/]$/, "")}/${target}` : undefined;
+    return base ? `${base.replace(/[\\/]$/, "")}/${path}` : undefined;
 }
 
 function notificationContent(rec: any): string | null {

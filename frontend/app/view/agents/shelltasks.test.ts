@@ -271,6 +271,11 @@ describe("redirectTarget", () => {
         ['tail -f /dev/null | task dev > "$TEMP/claude/dev.log" 2>&1', "$TEMP/claude/dev.log"],
         ["flutter analyze > ${TMPDIR}/a.log", "${TMPDIR}/a.log"],
         ["task dev > $TMP\\a.log", "$TMP\\a.log"],
+        ['cd "$TEMP/g9-prod" && python g9.py > g9.log 2>&1; grep x g9.log', "$TEMP/g9-prod/g9.log"],
+        ["cd sub && task dev > out.log", "C:\\repo/sub/out.log"],
+        ["cd /c/work && cd logs && task dev > out.log", "/c/work/logs/out.log"],
+        ["cd /c/work && task dev > /tmp/a.log", "/tmp/a.log"],
+        ["task dev > out.log; cd /c/elsewhere", "C:\\repo/out.log"],
     ])("%s -> %s", (command, want) => {
         expect(redirectTarget(command, CWD)).toBe(want);
     });
@@ -288,6 +293,8 @@ describe("redirectTarget", () => {
         "task dev > $LOG",
         "task dev > $TEMPLATE/a.log",
         "task dev > $TEMP/$NAME.log",
+        "cd $DIR && task dev > out.log",
+        "cd - && task dev > out.log",
     ])("%s has no readable redirect", (command) => {
         expect(redirectTarget(command, CWD)).toBeUndefined();
     });

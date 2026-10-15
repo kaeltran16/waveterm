@@ -82,8 +82,8 @@ async function steerTurn($: EngineInterface, text: string) {
 }
 
 // why this session may not run the shell command; null when it may, and always outside Arc
-async function refusal($: EngineInterface, command: string): Promise<string | null> {
-    return active ? denial(command, await $.session.cwd()) : null;
+async function refusal($: EngineInterface, command: string, background?: boolean): Promise<string | null> {
+    return active ? denial(command, await $.session.cwd(), background === true) : null;
 }
 
 // set while a question is in claude's own dialog, where the settings hooks beneath show the card for it.
@@ -212,12 +212,12 @@ export const register: Register = (on) => {
 
     // refused in code: a prompt's rule is one the model can talk itself out of
     on("tool.call", { tool: "Bash" }, async ($, e, next) => {
-        const why = await refusal($, e.command);
+        const why = await refusal($, e.command, e.run_in_background);
         return why === null ? next(e) : { deny: why };
     });
 
     on("tool.call", { tool: "PowerShell" }, async ($, e, next) => {
-        const why = await refusal($, e.command);
+        const why = await refusal($, e.command, e.run_in_background);
         return why === null ? next(e) : { deny: why };
     });
 
