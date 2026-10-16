@@ -116,7 +116,6 @@ declare global {
 
     type HeaderElem =
         | IconButtonDecl
-        | ToggleIconButtonDecl
         | HeaderText
         | HeaderInput
         | HeaderDiv
@@ -138,11 +137,6 @@ declare global {
         elemtype: "iconbutton";
         click?: (e: React.MouseEvent<any>) => void;
         longClick?: (e: React.MouseEvent<any>) => void;
-    };
-
-    type ToggleIconButtonDecl = IconButtonCommon & {
-        elemtype: "toggleiconbutton";
-        active: jotai.WritableAtom<boolean, [boolean], void>;
     };
 
     type HeaderTextButton = {
@@ -211,17 +205,6 @@ declare global {
         elemtype: "menubutton";
     } & MenuButtonProps;
 
-    type SearchAtoms = {
-        searchValue: PrimitiveAtom<string>;
-        resultsIndex: PrimitiveAtom<number>;
-        resultsCount: PrimitiveAtom<number>;
-        isOpen: PrimitiveAtom<boolean>;
-        focusInput: PrimitiveAtom<number>;
-        regex?: PrimitiveAtom<boolean>;
-        caseSensitive?: PrimitiveAtom<boolean>;
-        wholeWord?: PrimitiveAtom<boolean>;
-    };
-
     declare type ViewComponentProps<T extends ViewModel> = {
         blockId: string;
         blockRef: React.RefObject<HTMLDivElement>;
@@ -257,7 +240,6 @@ declare global {
         // Optional header text or elements for the view.
         viewText?: jotai.Atom<string | HeaderElem[]>;
 
-
         // Icon button displayed before the title in the header.
         preIconButton?: jotai.Atom<IconButtonDecl>;
 
@@ -274,9 +256,6 @@ declare global {
 
         // If true, removes padding inside the block content area.
         noPadding?: jotai.Atom<boolean>;
-
-        // Atoms used for managing search functionality within the block.
-        searchAtoms?: SearchAtoms;
 
         // The main view component associated with this ViewModel.
         viewComponent: ViewComponent<ViewModel>;
@@ -314,7 +293,6 @@ declare global {
         command: string;
         msgFn: (msg: RpcMessage) => void;
     };
-
 }
 
 export {};
