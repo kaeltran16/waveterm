@@ -30,10 +30,11 @@ import {
     ZOOM_MIN,
     type EdgeFocus,
 } from "./dagcanvas";
-import { DagDetailRail, openTaskFromGraph } from "./dagdetailrail";
+import { DagDetailRail } from "./dagdetailrail";
 import { taskBriefs, useDagDigest } from "./dagdigest";
 import { FINAL_NODE_ID, finalEdgeStyle, withFinalNode } from "./dagfinal";
-import { DagFinalRail, openFinalFromGraph } from "./dagfinalrail";
+import { openFinalFromGraph } from "./dagfinalpeek";
+import { DagFinalRail } from "./dagfinalrail";
 import { DagGraphHeader } from "./daggraph-header";
 import { CARD_H, CARD_W, computeLayout, edgeKey, laneBand, lanesOf, type Point } from "./daglayout";
 import {
@@ -54,6 +55,7 @@ import {
     type RoutedEdgeData,
 } from "./dagnodes";
 import { buildViewData, hoveredTaskAtom, mergeReadyIds, selectedTaskIdAtom, useDagGroup } from "./dagstore";
+import { openTaskFromGraph } from "./dagtaskpeek";
 import { enterOpensTask } from "./taskcorrelate";
 import { stageEntries, stageTone, type StageEntry } from "./taskroute";
 

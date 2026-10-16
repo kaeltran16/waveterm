@@ -85,7 +85,7 @@ const GLYPH = new Map<GlyphKind, Glyph>([
     ["waiting", NO_MARK],
 ]);
 
-function StateGlyph({ kind }: { kind: GlyphKind }) {
+export function StateGlyph({ kind }: { kind: GlyphKind }) {
     const g = GLYPH.get(kind) ?? NO_MARK;
     return (
         <span className="relative mt-px h-[14px] w-[14px] flex-none">
@@ -176,6 +176,11 @@ const FINAL_GLYPH: Record<FinalTone, GlyphKind> = {
     fail: "failed",
     warn: "attention",
 };
+
+export function finalGlyph(tone: FinalTone): GlyphKind {
+    return FINAL_GLYPH[tone];
+}
+
 const FINAL_BORDER: Record<FinalTone, string> = {
     wait: "border-edge-strong",
     run: "border-accent/50",
@@ -203,7 +208,7 @@ export function DagFinalNode({ data }: NodeProps) {
             >
                 <Handle type="target" position={Position.Left} isConnectable={false} className="!opacity-0" />
                 <div className="flex w-full items-start gap-2">
-                    <StateGlyph kind={FINAL_GLYPH[view.tone]} />
+                    <StateGlyph kind={finalGlyph(view.tone)} />
                     <span className="min-w-0 truncate text-[12.5px] font-semibold leading-[17px] text-ink-hi">
                         Final verification
                     </span>

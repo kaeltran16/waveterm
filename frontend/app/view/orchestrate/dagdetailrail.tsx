@@ -1,6 +1,4 @@
 import { Markdown } from "@/app/element/markdown";
-import { globalStore } from "@/app/store/jotaiStore";
-import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { MONO_META } from "@/app/view/jarvis/briefstyle";
@@ -13,11 +11,12 @@ import { RoutePicker } from "../agents/routepicker";
 import { useRunUsage } from "../agents/runtokenstore";
 import { modelsText, summarizeUsage, usageText } from "../agents/runusage";
 import { StatusLine } from "../agents/statusline";
-import { closeDagModal, dagModalAgentsContextAtom } from "./dagmodalstate";
+import { dagModalAgentsContextAtom } from "./dagmodalstate";
 import { dagActionError, dagActionRoute, routeSourceLabel, type DagViewNode } from "./dagstore";
+import { openFromGraph } from "./dagtaskpeek";
 import { escalatePayload } from "./escalate";
 import { TaskModelPick } from "./modelpicksview";
-import { openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "./taskcorrelate";
+import { resolveTaskWorker, type TaskWorkerView } from "./taskcorrelate";
 
 // the mockup's open rail (RAIL_H_DESC 340) minus its closed rail (RAIL_H 108): the description gets exactly
 // the height the rail grows by, so opening it never pushes the header or actions out of the rail
@@ -90,7 +89,7 @@ export function DagDetailRail({
                         {view.meta ? ` · ${view.meta}` : ""}
                     </div>
                     <div className="truncate font-mono text-[10.5px] text-secondary">
-                        <span className="text-ink-mid">review</span> · {view.reviewLine}
+                        <span className="text-ink-mid">review</span> · {view.review.route} · {view.review.state}
                     </div>
                     {spent ? (
                         <div className="truncate font-mono text-[10.5px] text-secondary">
@@ -268,24 +267,6 @@ function SelectedTaskWorker({
 // stable no-run atom for a task that has not been dispatched (runAtom is oref-cached, so per-run atoms keep
 // identity across renders; a static Atom is needed for the no-run slot so the hook count never varies)
 const NO_RUN_ATOM = atom<Run | undefined>(undefined);
-
-// openTaskFromGraph opens a task's worker from a double-click or Enter, to the same place the rail's button
-// goes. It loads the child run first rather than reading its atom: only the selected task's run is
-// subscribed, and an unloaded run would resolve a live worker as unavailable.
-export async function openTaskFromGraph(task: TaskNode): Promise<void> {
-    const childRun = task.runid ? await WOS.loadAndPinWaveObject<Run>(WOS.makeORef("run", task.runid)) : undefined;
-    const ctx = globalStore.get(dagModalAgentsContextAtom);
-    if (ctx == null) return;
-    openFromGraph(resolveTaskWorker({ id: task.id, runid: task.runid }, childRun, ctx.agents), ctx.model);
-}
-
-// openFromGraph is openTaskWorker for the graph's own entry points. A child run lands on the Brief, the
-// surface this modal covers, so the modal closes first; left open, the run opened out of sight behind it and
-// the press looked like it did nothing.
-function openFromGraph(worker: TaskWorkerView, model: AgentsViewModel): void {
-    if (worker.state === "unavailable") closeDagModal();
-    openTaskWorker(worker, model);
-}
 
 // runEscalate re-queues a failed/stalled task on the exact model the human picked; one judged hop.
 function runEscalate(group: TaskGroup, view: DagViewNode, route: RoutePin) {

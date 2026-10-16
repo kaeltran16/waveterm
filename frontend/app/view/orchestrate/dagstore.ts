@@ -56,7 +56,7 @@ export interface DagViewNode {
     actions: string[]; // approve | sendback | retry | skip | merge
     route: DagNodeRoute;
     tag: string | null; // the card's model tag, when the task runs off the workers model
-    reviewLine: string; // the rail's review line after "review · "
+    review: { state: string; route: string }; // how the review went, and who reviews on which model
 }
 export interface DagViewEdge {
     source: string;
@@ -112,7 +112,7 @@ export function buildViewData(
                 resolvedModel: capability?.resolvedmodel ?? "unavailable",
             },
             tag: cardModelTag(t, owner, group),
-            reviewLine: `${reviewerLabel} · ${reviewerModel} · ${reviewStateText(t)}`,
+            review: { state: reviewStateText(t), route: `${reviewerLabel} · ${reviewerModel}` },
         };
     });
     const edges: DagViewEdge[] = [];

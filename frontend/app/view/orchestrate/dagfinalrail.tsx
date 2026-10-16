@@ -1,20 +1,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { globalStore } from "@/app/store/jotaiStore";
 import { MONO_META } from "@/app/view/jarvis/briefstyle";
 import { finalStageEndable } from "@/app/view/jarvis/runsheetmodel";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
-import type { AgentVM } from "../agents/agentsviewmodel";
-import { jumpToAgent } from "../agents/channelsprimitives";
-import {
-    finalRowFocusId,
-    isFinalStageId,
-    shownStep,
-    type FinalStageView,
-    type FinalStepKey,
-} from "../agents/finalstage";
+import { shownStep, type FinalStageView, type FinalStepKey } from "../agents/finalstage";
 import {
     EndFinalStage,
     FinalKeptOutput,
@@ -25,6 +16,7 @@ import {
 } from "../agents/finalstageviews";
 import { fmtDuration } from "../agents/runcompletion";
 import { DESC_MAX_PX } from "./dagdetailrail";
+import { openFinalFromGraph, verifierTabId } from "./dagfinalpeek";
 import { dagModalAgentsContextAtom } from "./dagmodalstate";
 import { reviewerRouteOf } from "./taskroute";
 
@@ -33,21 +25,6 @@ const OUTPUT_LINES = 6;
 // the end form opens under its button, and the modal clips what leaves the rail: a running stage's rail is
 // at least tall enough to hold it
 const END_FORM_ROOM_PX = 190;
-
-// the current round's verifier session, when its tab is in the roster
-function verifierTabId(group: TaskGroup, owner: Run, agents: AgentVM[] | undefined): string | undefined {
-    if (agents == null) return undefined;
-    const id = finalRowFocusId({ runId: owner.id, dag: group }, agents);
-    return isFinalStageId(id) ? undefined : id;
-}
-
-// openFinalFromGraph opens the verifier in Agent, from the rail's link, a double-click or Enter. With no
-// verifier session in the roster there is nothing to open.
-export function openFinalFromGraph(group: TaskGroup, owner: Run): void {
-    const ctx = globalStore.get(dagModalAgentsContextAtom);
-    const tabId = verifierTabId(group, owner, ctx?.agents);
-    if (ctx != null && tabId != null) jumpToAgent(ctx.model, tabId);
-}
 
 // when the verifier starts, until it has: after the Final command, or beside the other commands
 function verifierLine(group: TaskGroup, view: FinalStageView): string {
