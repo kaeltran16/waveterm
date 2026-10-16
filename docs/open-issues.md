@@ -66,13 +66,11 @@ Cockpit and surfaces:
   (`filestore.db`, `db_file_data`, `name='term'`) and resizing did not repaint. Never reproduced. Revive
   when it is seen again: note the block id and keep `waveapp.log` before touching the pane. No repro
   loop exists, because nothing exposes the xterm buffer to CDP.
-- **Cross-surface ideas from the cockpit-focus spec** (2026-09-22; focus itself was removed 2026-10-06) —
-  relationship annotation, companion split, time correlation, drag courier.
-- **Resource linking beyond navigation** (2026-09-17) — Related Work, the Work Trail strip, structured
-  refs, file/diff/commit/session targets (a Usage session page waits on the session target), a shared
-  action builder.
-- **Cross-surface Back history and its context strip** (2026-09-17) — parked as `09e86573` on
-  `feat/surface-integration`; keep the branch while this is open.
+- **Session target in `openTarget`** (2026-09-17) — revive when opening a session from a Usage session
+  page is wanted.
+- **Sessions "All activity" feed peek** (2026-10-01) — revive when the feed rows carry a run, agent or
+  effort target.
+- **Terminal file drop pastes the path** (2026-09-30) — revive when file drops onto a terminal are wanted.
 - **Composer attachments** (2026-09-18) — the New run goal has them since 2026-10-12; revive the Steer half
   and drag-drop when attaching a file to a steer is wanted.
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /
@@ -82,8 +80,6 @@ Orchestrator:
 
 - **Cross-run Verify hold under `--landing checkout`** (2026-09-15) — one run's failed Verify does not
   hold another run's merges in the same checkout. Branch landing, the default, is unaffected.
-- **Lead-authored task routing, Phase 4** (2026-09-17) — the cost/outcome measurement gate. Revive on
-  evidence that cheap-first routing waste is common.
 - **DAG liveness batching (M1)** — 42.7 ms per running task per 30 s tick on 191 session files; build
   the per-schedule snapshot only when the corpus nears ~3,000 files.
 - **Automated board rendering** for the final verifier — revive when a verdict misses a layout defect a
@@ -107,26 +103,24 @@ Memory hygiene:
 - **Pi and Codex memory, merges across batches, a retention score / LRU ordering** (2026-10-14) — each
   with its own revive condition in `docs/deferred.md`.
 
-Jarvis (what survived the 2026-09-22/23 memory and recall-arm removals):
+Jarvis:
 
-- **U2 Tasks:** in-Wave `## Notes` editing; decision supersede UI (backend `SupersedeDecision` exists);
-  manual dossier creation; live push.
-- **U3 Graph:** search/filter; read rail; cross-surface nav out of a node; whole-vault attribution; the
-  visual constants (opacity/width/dash/`RUN_SQUARE_SCALE`) want a dense-vault legibility check.
-- **E Continuity:** a cheap model tier for boundary summaries; completed-task prose re-freshness; a
-  per-task resume card beyond the pet's newest-narrative peek.
-- **D attribution tuning:** `timeBoxMs` 30d, `weightLayer3` 0.3 (needs a human ground-truth pass),
-  `weightLayer2` 0.8 (needs dispatch goals carrying ticket ids).
-- **Jarvis Briefing:** generic cross-project progress needs a Wave-owned workstream/milestone contract —
-  its own product/data-model session.
-- **Pet:** courier gestures (build the store and the gestures together); higher acting tiers.
-- **Pi Part B:** `wave_create_widget` pi tool + `wsh widget` vdom CLI — when a concrete consumer appears.
+- **A per-task resume card** beyond the pet's newest-narrative peek — when an ambient surface wants it.
 
 ---
 
 ## 4 · Declined / permanent limitations (do not resurface)
 
-- Cockpit light/Paper theme — declined; code removed 2026-08-24 (`docs/deferred.md`).
+- Declined 2026-10-16 after weeks held with no trigger (`docs/deferred.md` "Declined 2026-10-16" has the
+  recovery lines): the cockpit-focus remnants (relationship annotation, companion split, time correlation,
+  drag courier); pet courier gestures and higher acting tiers; resource linking beyond navigation;
+  cross-surface Back and its context strip (branch `feat/surface-integration` kept); Diff repository actions;
+  Diff hiding whitespace-only files; lead-authored routing Phase 4; Jarvis U2 Tasks editing and U3 graph
+  follow-ups.
+- Dropped 2026-10-16 as superseded or unpluggable: Jarvis Briefing cross-project progress (efforts carry
+  done/total), Jarvis D attribution tuning and E's cheap tier (their consumers, proactive resurfacing and
+  recall, are gone), Pi Part B `wave_create_widget` (the vdom commands it wrapped no longer exist).
+- Cockpit light/Paper theme — declined; code removed 2026-08-24.
 - Gatekeeper v1.1 (make-a-rule + countdown) — revive only on recurring-ask or misfire evidence. Measured
   2026-10-12 over 879 structured asks since 08-11: 737 distinct headers, and the ones that recur (spec
   review, scope, plan review, commit) are approval gates, not routine asks a rule could answer.
