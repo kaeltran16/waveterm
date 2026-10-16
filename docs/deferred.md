@@ -126,8 +126,9 @@ Nothing was built for these, so there is nothing to recover from git.
   sibling sites (`docs/superpowers/specs/2026-10-06-radar-fix-sibling-audit-design.md`).
 - **Why:** its last two scans kept 0 findings and 9 finished investigations found no defect. A hand trial on
   2026-10-06 that read the code around 5 fix commits found a real sibling bug in 2 and a conditional one in 1.
-- **Revive when** chunk 8 of `effort:1557171a-e61d-4b29-83fd-fc7f818e6131` measures the audit as not worth
-  keeping and metadata signals are wanted back.
+- **Revive when** the sibling audit itself is retired and metadata signals are wanted back. Its keep-or-retire
+  measurement (chunk 8 of `effort:1557171a-e61d-4b29-83fd-fc7f818e6131`, archived) decided keep on 2026-10-06:
+  16 fix commits audited, 5 with a sibling bug, 0 false positives.
 - **Recover** with `git show 78fe087a:pkg/reporadar/<file>`, where `<file>` is one of `collect.go`,
   `collect_config.go`, `collect_dependency.go`, `collect_git.go`, `collect_runs.go`, `collect_structure.go`,
   `collect_transcript.go`, `modes.go`, `prepare.go`, `security.go`, `synth.go`, `validate.go` (each with its

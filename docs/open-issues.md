@@ -31,7 +31,8 @@ Status legend:
 
 Tracked in their own initiatives, not here:
 
-- **Arc Claude mod live verify** (usage strip, card answer, Esc, dag child ask, settings hooks) — effort `99832658`, chunk 9.
+- **Claude mod cache-miss notice** — chunks 18–20 of effort `99832658` (archived with them pending): the
+  avatar bubble, a transcript over 4 MiB reporting no miss, and a live check that was never run.
 - **Orchestrator wall-clock** — effort `b1fe5d7e`: live-verify the unit-tested fixes, the round-2 final tree lock, the Timing section live check.
 
 ---
@@ -91,8 +92,8 @@ Orchestrator:
 
 Radar:
 
-- **Metadata collectors and the clustering pipeline** (retired 2026-10-06) — revive when chunk 8 of
-  `effort:1557171a-e61d-4b29-83fd-fc7f818e6131` measures the fix-sibling audit as not worth keeping.
+- **Metadata collectors and the clustering pipeline** (retired 2026-10-06) — revive only if the fix-sibling
+  audit is itself retired; its measurement decided keep on 2026-10-06.
 - **Security review audits** (held 2026-10-13) — revive with a classifier flag for trust-boundary commits
   and a fresh probe; `docs/deferred.md` keeps the probe's prompt.
 - **Missing test coverage audits** (held 2026-10-13) — revive if Radar is to report test gaps as their own
