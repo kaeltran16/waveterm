@@ -312,7 +312,11 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 
 - **Setup** runs in every new lane worktree before its first worker (2-minute limit), and once in a run's own
   branch tree when the plan is submitted. A plan with no Setup line takes the project's checked-in `.arc/setup`
-  (one command) as its Setup. **Verify** runs where lanes land (the project checkout, or the run's
+  (one command) as its Setup. With neither, every engine tree gets the main checkout's installed `node_modules`
+  junctioned in, beside each tracked `package.json` whose manifests match main's; the worker's prompt names any
+  dir left unlinked because its manifests differ, and a `.arc/setup` holding `true` opts out. Every plan command
+  and worker runs with `pnpm_config_verify_deps_before_run=false`, since pnpm's install-before-run would purge the
+  shared folder through the junction. **Verify** runs where lanes land (the project checkout, or the run's
   own branch tree) after every batch of lane merges (20-minute limit), with `ARC_VERIFY_CHANGED` naming a file
   that lists the paths the batch changed, one per line: a Verify that reads it should test only what those paths
   can break.
