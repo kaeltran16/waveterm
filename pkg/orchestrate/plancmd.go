@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
+	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 )
 
 const (
@@ -347,6 +348,7 @@ func (b *tailBuffer) appendPartial(p []byte) {
 }
 
 func (b *tailBuffer) scanLine(line string) {
+	line = utilfn.StripANSI(line)
 	trimmed := strings.TrimSpace(line)
 	switch {
 	case b.panicLeft > 0:
@@ -408,7 +410,8 @@ func (b *tailBuffer) maybePublish(now time.Time) {
 	}
 }
 
-// String drops a multi-byte character the cut went through rather than rendering half of it.
+// String drops a multi-byte character the cut went through rather than rendering half of it, and the color
+// escapes a tool writes into a pipe anyway (vitest does on Windows), which every reader shows as raw text.
 func (b *tailBuffer) String() string {
-	return strings.TrimSpace(strings.ToValidUTF8(string(b.buf), ""))
+	return strings.TrimSpace(utilfn.StripANSI(strings.ToValidUTF8(string(b.buf), "")))
 }

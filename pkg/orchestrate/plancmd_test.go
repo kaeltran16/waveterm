@@ -286,6 +286,21 @@ func TestFailureOutputKeepsTheFailingTestPastTheTail(t *testing.T) {
 	}
 }
 
+func TestTailBufferStripsColorEscapes(t *testing.T) {
+	b := &tailBuffer{max: MaxPlanOutputLen}
+	// vitest's file row, its SGR escapes split across writes the way a pipe delivers them
+	writeAll(b, "\x1b[32m✓\x1b[39m src/a.test.tsx \x1b[2m(\x1b[22m\x1b[2m20 tests\x1b", "[22m\x1b[2m)\x1b[22m \x1b[33m1682\x1b[2mms\x1b[22m\x1b[39m\n",
+		"\x1b[31m--- FAIL: TestColored (0.01s)\x1b[39m\n", "    colored_test.go:3: broken\n", noisyLog(300))
+	short := &tailBuffer{max: MaxPlanOutputLen}
+	writeAll(short, "\x1b[32m✓\x1b[39m src/a.test.tsx \x1b[2m(\x1b[22m\x1b[2m20 tests\x1b", "[22m\x1b[2m)\x1b[22m\n")
+	if got, want := short.String(), "✓ src/a.test.tsx (20 tests)"; got != want {
+		t.Fatalf("String() = %q, want %q", got, want)
+	}
+	if out := b.failureOutput(); !strings.HasPrefix(out, "--- FAIL: TestColored (0.01s)\n    colored_test.go:3: broken") || strings.Contains(out, "\x1b") {
+		t.Fatalf("a colored failure block was not kept as plain text: %q", out[:200])
+	}
+}
+
 func TestFailureOutputJoinsALineSplitAcrossWrites(t *testing.T) {
 	b := &tailBuffer{max: MaxPlanOutputLen}
 	writeAll(b, "--- FA", "IL: TestSplit (0.00s)\r\n    split_test.go:9: bro", "ken\r\n", noisyLog(300))
