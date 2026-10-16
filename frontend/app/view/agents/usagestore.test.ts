@@ -90,6 +90,13 @@ describe("loadUsage", () => {
         expect(globalStore.get(usageLoadedAtom)).toBe(true);
     });
 
+    it("asks for more than the 5s default rpc budget, since a full transcript scan can run past it", async () => {
+        getStats.mockResolvedValue(response);
+        await loadUsage(0);
+        const opts = getStats.mock.calls[0][2];
+        expect(opts?.timeout).toBeGreaterThan(5000);
+    });
+
     it("latest window load wins: a late stale response does not overwrite the newer window's data", async () => {
         let resolveOld!: (v: any) => void;
         getStats

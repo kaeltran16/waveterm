@@ -14,6 +14,8 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { aggregateBuckets, localDayKey } from "./usagestats";
 
 const DEFAULT_WINDOW_DAYS = 7;
+// the scan walks every transcript in the window: measured 1.3s-11.7s on a 2.7 GB ~/.claude/projects, past the 5s default
+const USAGE_RPC_TIMEOUT_MS = 60_000;
 
 export const usageBucketsAtom = atom<UsageBucket[]>([]) as PrimitiveAtom<UsageBucket[]>;
 // what each bucket's session was: its title, project, run and role. set from the same reply as the buckets
@@ -101,7 +103,11 @@ export async function loadUsage(windowDays = DEFAULT_WINDOW_DAYS): Promise<void>
         const reply =
             fixture?.reply != null
                 ? windowedReply(fixture.reply, windowDays)
-                : await RpcApi.GetUsageStatsCommand(TabRpcClient, { windowdays: windowDays });
+                : await RpcApi.GetUsageStatsCommand(
+                      TabRpcClient,
+                      { windowdays: windowDays },
+                      { timeout: USAGE_RPC_TIMEOUT_MS }
+                  );
         if (seq !== loadSeq) {
             return; // a newer load superseded this one — ignore its result
         }
