@@ -342,6 +342,11 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 - Headings are `### Task N` or `## Task N`, numbered 1, 2, 3… in order.
 - `**Depends on:**` must be the first line after the heading. Left out, the task depends on the task before it,
   so a plan with no Depends lines is **serial**. `none` means independent. References must point backwards.
+  A dependency on a long task for its interface alone (a type, a wire field, a table, a signature) is the
+  common way a plan grows a long chain: land the interface first as its own small task, and the implementation
+  and its users depend on that and run side by side. Measured over 69 finished runs (2026-10-15), worker time
+  on the longest chain was about 70% of the task phase, while a replay at a width of 8 instead of 3 shortened
+  the runs by about 2%.
 - `**Model:** <model>` pins one task's worker model: a model id or alias as `dag escalate --model` takes it
   (`sonnet`, `claude-opus-5-5`, a pi `provider/model`), not in backticks, resolved on the lead's harness. It goes
   in the task's head block with its Chunk lines: after the Depends line, or first under the heading when there is
@@ -470,6 +475,8 @@ design canvas), the plan and the files they name. The full checklist is that:
 - every requirement in the spec has a task;
 - no two tasks edit the same file without a Depends between them;
 - types, functions and flags have the same names in every task that mentions them;
+- no task waits for another's long implementation when it needs only its interface: the interface lands first
+  as its own small task;
 - each task states its acceptance criteria and names the tests that prove them;
 - the commands the plan names exist;
 - every task that changes a view, a visual state or an interaction names the scenario step that shows it, and
