@@ -31,8 +31,6 @@ Status legend:
 
 Tracked in their own initiatives, not here:
 
-- **Claude mod cache-miss notice** — chunks 18–20 of effort `99832658` (archived with them pending): the
-  avatar bubble, a transcript over 4 MiB reporting no miss, and a live check that was never run.
 - **Orchestrator wall-clock** — effort `b1fe5d7e`: live-verify the unit-tested fixes, the round-2 final tree lock, the Timing section live check.
 
 ---
