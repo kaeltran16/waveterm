@@ -57,6 +57,11 @@ const LOOK = new Map<NodeKind, Look>([
     ["waiting", { bg: "bg-surface", border: "border-edge-mid", label: "text-ink-mid", word: "text-ink-mid" }],
 ]);
 
+// the state word's tone, shared with the peek's header so the card and its node agree
+export function wordTone(t: TaskNode): string {
+    return (LOOK.get(kindOf(t)) ?? LOOK.get("waiting")).word;
+}
+
 const tok = (name: string) => `var(--color-${name})`;
 
 type Glyph = { ring: string; fill: string; mark: string; markFill: string; markStroke: string };
