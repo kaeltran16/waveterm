@@ -75,7 +75,6 @@ export class TermViewModel implements ViewModel {
     termCursorBlinkUnsubFn: () => void;
     isCmdController: jotai.Atom<boolean>;
     isRestarting: jotai.PrimitiveAtom<boolean>;
-    searchAtoms?: SearchAtoms;
 
     constructor({ blockId, nodeModel, tabModel }: ViewModelInitType) {
         this.viewType = "term";
@@ -333,10 +332,6 @@ export class TermViewModel implements ViewModel {
     }
 
     giveFocus(): boolean {
-        if (this.searchAtoms && globalStore.get(this.searchAtoms.isOpen)) {
-            console.log("search is open, not giving focus");
-            return true;
-        }
         if (this.termRef?.current?.terminal) {
             this.termRef.current.terminal.focus();
             return true;

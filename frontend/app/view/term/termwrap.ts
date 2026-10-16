@@ -20,7 +20,6 @@ import * as services from "@/store/services";
 import { PLATFORM, PlatformMacOS } from "@/util/platformutil";
 import { base64ToArray, fireAndForget } from "@/util/util";
 import { FitAddon } from "@xterm/addon-fit";
-import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -82,7 +81,6 @@ export class TermWrap {
     terminal: Terminal;
     connectElem: HTMLDivElement;
     fitAddon: FitAddon;
-    searchAddon: SearchAddon;
     serializeAddon: SerializeAddon;
     mainFileSubject: SubjectWithRef<WSFileEventData>;
     loaded: boolean;
@@ -90,7 +88,6 @@ export class TermWrap {
     handleResize_debounced: () => void;
     hasResized: boolean;
     sendDataHandler: (data: string) => void;
-    onSearchResultsDidChange?: (result: { resultIndex: number; resultCount: number }) => void;
     toDispose: TermTypes.IDisposable[] = [];
     webglAddon: WebglAddon | null = null;
     webglEnabledAtom: jotai.PrimitiveAtom<boolean>;
@@ -140,8 +137,6 @@ export class TermWrap {
         this.terminal = new Terminal(options);
         this.fitAddon = new FitAddon();
         this.serializeAddon = new SerializeAddon();
-        this.searchAddon = new SearchAddon();
-        this.terminal.loadAddon(this.searchAddon);
         this.terminal.loadAddon(this.fitAddon);
         this.terminal.loadAddon(this.serializeAddon);
         this.terminal.loadAddon(
@@ -382,12 +377,6 @@ export class TermWrap {
                     if (!globalStore.get(copyOnSelectAtom)) {
                         return;
                     }
-                    // Don't copy-on-select when the search bar has focus — navigating
-                    // search results changes the terminal selection programmatically.
-                    const active = document.activeElement;
-                    if (active != null && active.closest(".search-container") != null) {
-                        return;
-                    }
                     let selectedText = this.terminal.getSelection();
                     if (selectedText.length > 0) {
                         if (globalStore.get(trimTrailingWhitespaceAtom) !== false) {
@@ -398,9 +387,6 @@ export class TermWrap {
                 })
             )
         );
-        if (this.onSearchResultsDidChange != null) {
-            this.toDispose.push(this.searchAddon.onDidChangeResults(this.onSearchResultsDidChange.bind(this)));
-        }
 
         this.mainFileSubject = getFileSubject(this.getZoneId(), TermFileName);
         this.mainFileSubject.subscribe(this.handleNewFileSubjectData.bind(this));
