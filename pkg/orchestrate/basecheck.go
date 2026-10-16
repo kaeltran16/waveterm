@@ -109,15 +109,13 @@ func withDetachedTree(ctx context.Context, project, name, label, commit, setup s
 			log.Printf("removing the %s %s: %v", label, wt, err)
 		}
 	}()
-	if setup != "" {
-		setupCtx := ctx
-		if o, ok := jobobject.OwnerFrom(ctx); ok {
-			o.Cmd = PlanCmd_Setup
-			setupCtx = jobobject.WithOwner(ctx, o)
-		}
-		if _, err := runPlanCommand(setupCtx, wt, setup, nil, SetupTimeout, nil); err != nil {
-			return &treeStepError{"Setup failed in the " + label, errors.New(failureDetail(err))}
-		}
+	setupCtx := ctx
+	if o, ok := jobobject.OwnerFrom(ctx); ok {
+		o.Cmd = PlanCmd_Setup
+		setupCtx = jobobject.WithOwner(ctx, o)
+	}
+	if _, _, err := PrepareTree(setupCtx, wt, setup); err != nil {
+		return &treeStepError{"Setup failed in the " + label, errors.New(failureDetail(err))}
 	}
 	return fn(wt)
 }

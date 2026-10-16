@@ -523,3 +523,11 @@ func TestStartRunWorkerRefusesATabThatIsGone(t *testing.T) {
 		t.Fatal("a worker whose tab is gone cannot be started")
 	}
 }
+
+// an agent in a tree whose node_modules links into the main checkout must not let pnpm reinstall it
+func TestMakeWorkerBlockMetaTurnsOffPnpmsInstallBeforeRun(t *testing.T) {
+	meta := makeWorkerBlockMeta(RunWorkerSpec{Bin: "claude"}, "/proj", false)
+	if got := meta.GetStringMap(waveobj.MetaKey_CmdEnv, false)["pnpm_config_verify_deps_before_run"]; got != "false" {
+		t.Fatalf("cmd:env pnpm_config_verify_deps_before_run = %q, want false; meta %#v", got, meta)
+	}
+}
