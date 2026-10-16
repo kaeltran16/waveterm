@@ -571,7 +571,7 @@ failed review left out, a fix round's tasks) run on the lead's route unless they
 
 **Where picks show.** The run's timeline lists them under the **Plan reviewed** row, one `t-N · <model> · <reason>`
 line each. A task card whose model differs from the run's workers model carries a tag, `<model> · plan`,
-`· review`, `· you`, `· escalated` or `· pinned`, and the DAG view's detail rail names where the task's worker
+`· review`, `· you`, `· escalated` or `· pinned`, and the task's peek in the DAG view names where its worker
 model came from (`plan's pick`, `reviewer's pick`, `your pick`, `escalated`, `pinned`, `workers route`,
 `same as lead`). The graph header shows the workers setting and the reviewer route as chips.
 
@@ -619,10 +619,10 @@ from its conflict and failed Verify, then taking the answer to its question:
 
 ### The DAG view
 
-**Open DAG** shows the task graph with a **Lifecycle** rail (filters All / Task / Attention). Selecting a node
-shows its detail panel. Per-node buttons appear only when a node needs a decision: `retry` / `skip` /
-`escalate` on a failed or stalled task, `resolve` on a blocked merge or failed Verify, `merge` on a lane end
-the engine is not merging itself. **Cancel** in its header cancels the DAG.
+**Open DAG** shows the task graph with a **Lifecycle** rail (filters All / Task / Attention). Clicking a node
+opens its peek beside it; a second click, a background click or `Esc` closes it. The peek's action bar has buttons
+only when the node needs a decision: Retry / Skip / Escalate… on a failed or stalled task, Approve / Send back on a
+gate, Resolve on a blocked merge or failed Verify, Merge on a lane end the engine is not merging itself. **Cancel** in its header cancels the DAG.
 
 ![The Route DAG view](images/orchestrator-guide/17-dag.png)
 
@@ -947,7 +947,7 @@ finalizing the Agents tree has a **Final verification** row under the run, befor
 focused, its pane shows the step pipeline, the running command, the output's last lines and End final stage, and
 its rail the round, commit, tree, reviewers route and step list; when the verifier starts, the same row becomes
 its session. The lead's rail carries a Final verification block and reads Verifying. In the DAG view the stage is
-the last node, with an edge from every task nothing depends on; selecting it opens a bottom rail with the plan's
+the last node, with an edge from every task nothing depends on; selecting it opens its peek beside the node with the plan's
 commands, each step's state, the output and End final stage. A step's time comes from its event, so a step whose
 event is no longer held shows its state with no time, and the round then shows no total. Each step that ends records a
 `final-step` run event (`round`, `step`, `ms`, `ok`), so a run's timeline shows where the stage's minutes went.
