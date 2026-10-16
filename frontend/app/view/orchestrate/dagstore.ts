@@ -6,7 +6,7 @@ import { cardModelTag, reviewerRouteOf, reviewStateText, taskRoute, type RouteSo
 
 export { routeSourceLabel } from "./taskroute";
 
-// selectedTaskIdAtom is shared by the live graph and its detail rail. Opening or closing a modal resets
+// selectedTaskIdAtom is shared by the live graph and its peek. Opening or closing a modal resets
 // it through dagmodalstate.ts, while node clicks and keyboard navigation update it directly.
 export const selectedTaskIdAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
