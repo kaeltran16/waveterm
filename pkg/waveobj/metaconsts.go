@@ -72,6 +72,7 @@ const (
 	MetaKey_SessionLabel                     = "session:label"
 	MetaKey_SessionProject                   = "session:project"
 	MetaKey_SessionEffort                    = "session:effort"
+	MetaKey_SessionBrainstorm                = "session:brainstorm"
 	MetaKey_SessionCollapsedGroups           = "session:collapsedgroups"
 
 	MetaKey_AppLoom                          = "app:loom"

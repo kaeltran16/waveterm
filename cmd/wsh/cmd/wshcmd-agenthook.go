@@ -29,6 +29,12 @@ const canvasRevealTimeoutMs = 2000
 // frontend/app/view/agents/canvasmodel.ts.
 var canvasBoardPathRe = regexp.MustCompile(`(?i)^(.+?)[\\/]\.superpowers[\\/]design[\\/]([^\\/]+)[\\/]project[\\/][^\\/]+\.dc\.html$`)
 
+// a brainstorm state file: <project>/.superpowers/brainstorm/<topic>/brainstorm.json. Mirrors
+// parseBrainstormPath in frontend/app/view/agents/brainstormmodel.ts.
+var brainstormFilePathRe = regexp.MustCompile(`(?i)^(.+?)[\\/]\.superpowers[\\/]brainstorm[\\/]([^\\/]+)[\\/]brainstorm\.json$`)
+
+const brainstormContextText = "You are inside Arc. Also follow the arc:brainstorm skill for this brainstorm: keep its state in .superpowers/brainstorm/<topic>/brainstorm.json, where Arc shows it, instead of long playbacks in the terminal; use arc:design boards instead of the visual companion's server."
+
 // `git [global options] commit`, anywhere in a compound command; `commit-tree` and words ending in git miss
 var gitCommitRe = regexp.MustCompile(`(?:^|[\s;&|(])git(?:\s+(?:-[cC]\s+\S+|--?[\w.-]+(?:=\S+)?))*\s+commit(?:\s|$)`)
 
@@ -135,6 +141,53 @@ func canvasRevealFor(ev ccHookEvent) (address string, cwd string, ok bool) {
 		return "", "", false
 	}
 	return "canvas:" + m[2], m[1], true
+}
+
+// brainstormRevealFor names the brainstorm an agent just wrote the state file of, and the project it sits
+// in, so the cockpit attaches it without the agent asking. ok is false for every other event.
+func brainstormRevealFor(ev ccHookEvent) (address string, cwd string, ok bool) {
+	if ev.HookEventName != "PostToolUse" {
+		return "", "", false
+	}
+	switch ev.ToolName {
+	case "Write", "Edit", "MultiEdit":
+	default:
+		return "", "", false
+	}
+	m := brainstormFilePathRe.FindStringSubmatch(stringField(ev.ToolInput, "file_path"))
+	if m == nil || !filepath.IsAbs(m[1]) {
+		return "", "", false
+	}
+	return "brainstorm:" + m[2], m[1], true
+}
+
+// brainstormContextFor reports whether the event is the superpowers brainstorming skill starting, the
+// moment the arc:brainstorm skill's instructions are injected beside it.
+func brainstormContextFor(ev ccHookEvent) bool {
+	if ev.HookEventName != "PostToolUse" || ev.ToolName != "Skill" {
+		return false
+	}
+	switch stringField(ev.ToolInput, "skill") {
+	case "superpowers:brainstorming", "brainstorming":
+		return true
+	}
+	return false
+}
+
+// skillContextOutput is the hook output that adds the brainstorm context to the turn, "" when the event
+// is not a brainstorming skill start.
+func skillContextOutput(ev ccHookEvent) string {
+	if !brainstormContextFor(ev) {
+		return ""
+	}
+	out, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
+		"hookEventName":     "PostToolUse",
+		"additionalContext": brainstormContextText,
+	}})
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }
 
 // workStampKey names the block meta key an event stamps, so the cockpit can tick an agent whose last commit
@@ -424,6 +477,8 @@ var (
 	agentHookAgent  string
 	agentHookShadow string
 	agentHookState  string
+
+	agentHookSkillContext bool
 )
 
 func init() {
@@ -431,6 +486,7 @@ func init() {
 	agentHookCmd.Flags().StringVar(&agentHookAgent, "agent", "claude", "agent identity to stamp (claude | opencode)")
 	agentHookCmd.Flags().StringVar(&agentHookShadow, "shadow", "", "opencode shadow transcript path to report as the transcript")
 	agentHookCmd.Flags().StringVar(&agentHookState, "state", "", "explicit agent state (opencode path; claude derives it from the hook payload)")
+	agentHookCmd.Flags().BoolVar(&agentHookSkillContext, "skill-context", false, "print the context a started skill adds to the turn, and report nothing")
 }
 
 // hookDebugLine appends one diagnostic line to ~/.claude/arc-hook-debug.log when WAVETERM_HOOK_DEBUG
@@ -478,6 +534,12 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 			hookDebugLine("skip: unmarshal hook event failed")
 			return nil
 		}
+	}
+	if agentHookSkillContext {
+		if out := skillContextOutput(ev); out != "" {
+			_, _ = os.Stdout.WriteString(out + "\n")
+		}
+		return nil
 	}
 	em := planEmission(ev)
 	if agentHookShadow != "" {
@@ -554,6 +616,16 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		}, &wshrpc.RpcOpts{Route: wshutil.RouteId_Cockpit, Timeout: canvasRevealTimeoutMs})
 		if err != nil {
 			hookDebugLine("canvas reveal failed address=" + address + " err=" + err.Error())
+		}
+	}
+	if address, cwd, ok := brainstormRevealFor(ev); ok {
+		_, err := wshclient.UiRevealCommand(RpcClient, wshrpc.CommandUiRevealData{
+			Address:       address,
+			CallerBlockId: os.Getenv("WAVETERM_BLOCKID"),
+			CallerCwd:     cwd,
+		}, &wshrpc.RpcOpts{Route: wshutil.RouteId_Cockpit, Timeout: canvasRevealTimeoutMs})
+		if err != nil {
+			hookDebugLine("brainstorm reveal failed address=" + address + " err=" + err.Error())
 		}
 	}
 	hookDebugLine("published event=" + ev.HookEventName + " state=" + em.State + " oref=" + oref.String())
