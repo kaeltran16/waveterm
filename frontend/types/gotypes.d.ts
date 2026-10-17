@@ -375,6 +375,12 @@ declare global {
         oref: string;
     };
 
+    // wshrpc.CommandAgentPromptData
+    type CommandAgentPromptData = {
+        blockid: string;
+        text: string;
+    };
+
     // wshrpc.CommandAgentSyncAdoptData
     type CommandAgentSyncAdoptData = {
         apply?: boolean;

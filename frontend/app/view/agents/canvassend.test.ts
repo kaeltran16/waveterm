@@ -11,11 +11,11 @@ const AGENT = { id: "a1", name: "Arc", blockId: "blk-1" } as AgentVM;
 const DIR = "/p/.superpowers/design/t";
 const MARK: Mark = { x: 10, y: 10, w: 40, h: 40, note: "too wide" };
 
-type Fake = SendIO & { typed: [string, string][]; written: string[]; made: string[] };
+type Fake = SendIO & { sent: [string, string][]; written: string[]; made: string[] };
 
 function fakeIO(over: Partial<SendIO> = {}): Fake {
     const io: Fake = {
-        typed: [],
+        sent: [],
         written: [],
         made: [],
         capture: async () => new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }),
@@ -28,8 +28,8 @@ function fakeIO(over: Partial<SendIO> = {}): Fake {
         write: async (path) => {
             io.written.push(path);
         },
-        type: async (blockId, text) => {
-            io.typed.push([blockId, text]);
+        prompt: async (blockId, text) => {
+            io.sent.push([blockId, text]);
         },
         ...over,
     };
@@ -60,13 +60,13 @@ afterEach(() => {
 });
 
 describe("sendCanvasMark", () => {
-    it("saves the next feedback picture, types one line into the agent, then goes back to the terminal", async () => {
+    it("saves the next feedback picture, sends one line to the agent as a prompt, then goes back to the terminal", async () => {
         const io = fakeIO();
         await sendCanvasMark(AGENT, io);
         expect(io.made).toEqual([`${DIR}/feedback`]);
         expect(io.written).toEqual([`${DIR}/feedback/004.png`]);
-        expect(io.typed).toEqual([
-            ["blk-1", canvasHandoffLine(".superpowers/design/t/feedback/004.png", "States.dc.html", MARK) + "\r"],
+        expect(io.sent).toEqual([
+            ["blk-1", canvasHandoffLine(".superpowers/design/t/feedback/004.png", "States.dc.html", MARK)],
         ]);
         const s = getCanvas("a1")!;
         expect(s.mode).toBe("terminal");
@@ -109,18 +109,18 @@ describe("sendCanvasMark", () => {
         ["list", { list: fail }],
         ["write", { write: fail }],
         ["board rect", { boardRect: (): null => null }],
-    ])("a %s failure throws, types nothing, and keeps the mark", async (_name, over) => {
+    ])("a %s failure throws, sends nothing, and keeps the mark", async (_name, over) => {
         const io = fakeIO(over as Partial<SendIO>);
         await expect(sendCanvasMark(AGENT, io)).rejects.toThrow(Error);
-        expect(io.typed).toEqual([]);
+        expect(io.sent).toEqual([]);
         const s = getCanvas("a1")!;
         expect(s.mark).toEqual(MARK);
         expect(s.mode).toBe("canvas");
         expect(s.marking).toBe(true);
     });
 
-    it("a typing failure throws and keeps the mark", async () => {
-        const io = fakeIO({ type: fail });
+    it("a send failure throws and keeps the mark", async () => {
+        const io = fakeIO({ prompt: fail });
         await expect(sendCanvasMark(AGENT, io)).rejects.toThrow("boom");
         expect(getCanvas("a1")!.mark).toEqual(MARK);
     });
@@ -146,18 +146,20 @@ describe("sendCanvasMark", () => {
             },
         });
         await expect(sendCanvasMark({ ...AGENT, blockId: undefined }, io)).rejects.toThrow(
-            "This agent has no terminal to type into"
+            "This agent has no session to send to"
         );
         expect(captured).toBe(false);
     });
 
     it("names the first board when none is picked", async () => {
-        updateCanvas("a1", (s) => ({ ...s, board: null, boards: [{ name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 }] }));
+        updateCanvas("a1", (s) => ({
+            ...s,
+            board: null,
+            boards: [{ name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 }],
+        }));
         const io = fakeIO({ list: async () => [] });
         await sendCanvasMark(AGENT, io);
-        expect(io.typed[0][1]).toBe(
-            canvasHandoffLine(".superpowers/design/t/feedback/001.png", "Main.dc.html", MARK) +"\r"
-        );
+        expect(io.sent[0][1]).toBe(canvasHandoffLine(".superpowers/design/t/feedback/001.png", "Main.dc.html", MARK));
     });
 
     it("keeps a Windows dir's separators", async () => {

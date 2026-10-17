@@ -18767,7 +18767,7 @@ const canvasSwap = {
 };
 
 // --- canvas mark: a box drawn on the board opens the review's note card under it, Esc drops the mark, and Enter
-// sends it at once: a feedback picture without the card, one line typed into the agent, and back to the terminal --
+// sends it at once: a feedback picture without the card, one line handed to the agent, and back to the terminal --
 const CANVAS_MARK_NOTE = `document.querySelector("[data-canvas-mark-note]")`;
 const CANVAS_MARK_BOX = `document.querySelector("[data-canvas-mark]")`;
 const CANVAS_MARK_TEXT = "make it wider";
@@ -18867,13 +18867,14 @@ const canvasMark = {
 
         await h.cdp("Input.insertText", { text: CANVAS_MARK_TEXT });
         await polishNap(200);
-        // the xterm draws to a canvas, so what the send types is read off its controllerinput call instead
+        // what the send hands the agent is read off its rpc calls: the prompt, and anything typed into the pty
         await h.ev(`(() => {
             const c = window.TabRpcClient;
-            window.__markTyped = [];
+            window.__markSent = [];
             window.__markRpc = c.wshRpcCall;
             c.wshRpcCall = function (cmd, data, opts) {
-                if (cmd === "controllerinput") window.__markTyped.push({ block: data.blockid, text: atob(data.inputdata64) });
+                if (cmd === "agentprompt") window.__markSent.push({ cmd, block: data.blockid, text: data.text });
+                if (cmd === "controllerinput") window.__markSent.push({ cmd, block: data.blockid, text: atob(data.inputdata64) });
                 return window.__markRpc.call(this, cmd, data, opts);
             };
             return true;
@@ -18891,22 +18892,17 @@ const canvasMark = {
             back && saved,
             JSON.stringify({ back, saved, card: error })
         );
-        const typed = await h.ev(`(() => {
+        const sent = await h.ev(`(() => {
             window.TabRpcClient.wshRpcCall = window.__markRpc;
-            return window.__markTyped;
+            return window.__markSent;
         })()`);
-        // atob gives bytes as latin-1 chars, so the em dash is compared as its utf-8 bytes
-        const want = unescape(
-            encodeURIComponent(
-                `look at .superpowers/design/${CANVAS_TOPIC}/feedback/001.png — mark on ${CANVAS_BOARD}: ${CANVAS_MARK_TEXT}\r`
-            )
-        );
-        // the terminal getting focus back reports it (ESC [I) through the same call
-        const lines = (typed ?? []).filter((t) => !/^\x1b\[[IO]$/.test(t.text));
+        const want = `look at .superpowers/design/${CANVAS_TOPIC}/feedback/001.png — mark on ${CANVAS_BOARD}: ${CANVAS_MARK_TEXT}`;
+        // the terminal getting focus back reports it (ESC [I) through controllerinput, which is not the send
+        const calls = (sent ?? []).filter((t) => !/^\x1b\[[IO]$/.test(t.text));
         rec(
-            "5. one line naming the picture and the note is typed into the agent",
-            lines.length === 1 && lines[0].block === ctx.blockId && lines[0].text === want,
-            JSON.stringify(typed)
+            "5. one line naming the picture and the note goes to the agent as a prompt, not typed into its composer",
+            calls.length === 1 && calls[0].cmd === "agentprompt" && calls[0].block === ctx.blockId && calls[0].text === want,
+            JSON.stringify(sent)
         );
         await h.shot("cdp-shots/canvas-mark-sent.png");
         return steps;

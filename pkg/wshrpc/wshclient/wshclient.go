@@ -43,6 +43,12 @@ func AgentControlCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentControlData,
 	return sendRpcRequestResponseStreamHelper[wshrpc.AgentControlMsg](w, "agentcontrol", data, opts)
 }
 
+// command "agentprompt", wshserver.AgentPromptCommand
+func AgentPromptCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentPromptData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "agentprompt", data, opts)
+	return err
+}
+
 // command "agentslist", wshserver.AgentsListCommand
 func AgentsListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentsListRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentsListRtnData](w, "agentslist", nil, opts)
