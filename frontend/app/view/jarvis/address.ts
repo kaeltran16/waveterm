@@ -15,6 +15,7 @@ export type OpenTarget =
     | { kind: "radar"; reportId: string; findingId?: string }
     | { kind: "note"; noteId: string }
     | { kind: "canvas"; topic: string; board?: string }
+    | { kind: "brainstorm"; topic: string }
     | { kind: "memhygiene"; project: string };
 
 export type Unsupported = { kind: "unsupported"; message: string };
@@ -62,6 +63,10 @@ export function parseAddress(address: string, hint?: AddressHint): OpenTarget | 
             return parseVaultNode(id, hint?.sourceType);
         case "canvas":
             return parseCanvas(id);
+        case "brainstorm":
+            return isCanvasSegment(id)
+                ? { kind: "brainstorm", topic: id }
+                : { kind: "unsupported", message: CANNOT_OPEN };
         default:
             return { kind: "unsupported", message: CANNOT_OPEN };
     }

@@ -94,6 +94,7 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
             projectLabel: meta["session:project"],
             runORef: sessionRunORef(meta, termBlock?.meta),
             effortORef: meta["session:effort"],
+            brainstormFile: meta["session:brainstorm"],
             title,
             pinned: meta["session:pinned"] === true,
             isAgentsTab,
