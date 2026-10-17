@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The agent's design-local canvas, shown on the Agent surface in place of its (still mounted, hidden) terminal.
+// The agent's design canvas, shown on the Agent surface in place of its (still mounted, hidden) terminal.
 // Thin: what it shows comes from canvasmodel/canvasmarks, and what it knows comes from the agent's canvas state,
 // which useCanvasPoller keeps current.
 

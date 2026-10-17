@@ -108,6 +108,13 @@ function managedCell(skill: AgentSyncSkill, col: AgentSyncSkillColumn): SkillCel
             return { runtime: col.runtime, label: "Not synced", tone: "warn", title };
         case "unmanaged":
             return { runtime: col.runtime, label: "Own copy", tone: "none" };
+        case "plugin":
+            return {
+                runtime: col.runtime,
+                label: "Plugin",
+                tone: "ok",
+                title: `Loaded as arc:${skill.name} from the Arc plugin`,
+            };
     }
     return { runtime: col.runtime, ...NOTHING };
 }

@@ -65,7 +65,7 @@ carries the notes too. The Code `.md` preview and the run report are not done.
   `inlinemarkdown.tsx` serve ~13 files, including doc review and plan preview. Build quoting once, and check
   whether `MarkdownMessage` can merge into the shared renderer. Not yet checked whether it is deliberately
   light for chat messages.
-- Process: new UI, so an orchestrator run that starts with `/design-local`.
+- Process: new UI, so an orchestrator run that starts with `/arc:design`.
 
 ### 2. Engine stages and gates as graph nodes (pending a user answer)
 

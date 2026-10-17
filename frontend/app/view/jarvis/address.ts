@@ -82,7 +82,7 @@ function parseVaultNode(id: string, sourceType: string | undefined): OpenTarget 
     return { kind: "unsupported", message: CANNOT_OPEN };
 }
 
-// a design-local topic and board are single path segments; anything that could walk the tree is refused here
+// a design canvas topic and board are single path segments; anything that could walk the tree is refused here
 const CANVAS_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const BOARD_EXT = ".dc.html";
 

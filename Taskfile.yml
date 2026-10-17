@@ -281,13 +281,15 @@ tasks:
             - cmd/wsh/cmd/pi-simplify-gate-core-extension.ts
 
     sync:claudemod:
-        desc: Copy the authored Claude mods (claude/arc-mod, claude/arc-view-mod) into their go:embed locations cmd/wsh/cmd/claude-mod and claude-view-mod (generated, never hand-edited), without their tests or engine-written types.
+        desc: Copy the authored Claude mods (claude/arc-mod, claude/arc-view-mod) into their go:embed locations cmd/wsh/cmd/claude-mod and claude-view-mod (generated, never hand-edited), without their tests or engine-written types. Arc's shipped skills (skills/) go into the arc mod's skills/, so Claude Code lists them as arc:<skill>.
         cmds:
             - for: [{ src: arc-mod, dst: claude-mod }, { src: arc-view-mod, dst: claude-view-mod }]
               cmd: rm -rf cmd/wsh/cmd/{{.ITEM.dst}} && cp -r claude/{{.ITEM.src}} cmd/wsh/cmd/{{.ITEM.dst}} && rm -rf cmd/wsh/cmd/{{.ITEM.dst}}/.claude-plugin/types && rm -f cmd/wsh/cmd/{{.ITEM.dst}}/hooks/*.test.ts
+            - mkdir -p cmd/wsh/cmd/claude-mod/skills && for d in skills/*/; do cp -r "$d" cmd/wsh/cmd/claude-mod/skills/; done
         sources:
             - claude/arc-mod/**/*
             - claude/arc-view-mod/**/*
+            - skills/**/*
         generates:
             - cmd/wsh/cmd/claude-mod/**/*
             - cmd/wsh/cmd/claude-view-mod/**/*

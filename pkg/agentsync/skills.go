@@ -303,26 +303,53 @@ func shippedTree(shipped fs.FS, name string) (map[string][]byte, error) {
 	return out, nil
 }
 
+// retiredShipped are names Arc once shipped skills under. Nothing marks a vault copy as shipped, so a
+// seed removes them by name; the reconcile then removes the harness copies Arc wrote for them.
+var retiredShipped = []string{"cockpit-runs", "cockpit-ui", "design-local", "effort-tracking"}
+
+// shippedNames lists the skills Arc ships. nil ships none.
+func shippedNames(shipped fs.FS) (map[string]bool, error) {
+	out := map[string]bool{}
+	if shipped == nil {
+		return out, nil
+	}
+	entries, err := fs.ReadDir(shipped, ".")
+	if err != nil {
+		return nil, fmt.Errorf("listing shipped skills: %w", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			out[e.Name()] = true
+		}
+	}
+	return out, nil
+}
+
 // seedShippedSkills makes each shipped skill in the vault match what Arc ships, so the reconcile
 // that follows projects the shipped copy. The .arc delta directory is the user's and survives.
 func seedShippedSkills(skillsRoot string, shipped fs.FS) error {
 	if shipped == nil {
 		return nil
 	}
-	entries, err := fs.ReadDir(shipped, ".")
+	names, err := shippedNames(shipped)
 	if err != nil {
-		return fmt.Errorf("listing shipped skills: %w", err)
+		return err
 	}
-	for _, e := range entries {
-		if !e.IsDir() {
+	for _, name := range retiredShipped {
+		if names[name] {
 			continue
 		}
-		want, err := shippedTree(shipped, e.Name())
+		if err := os.RemoveAll(filepath.Join(skillsRoot, name)); err != nil {
+			return fmt.Errorf("removing retired shipped skill %s: %w", name, err)
+		}
+	}
+	for name := range names {
+		want, err := shippedTree(shipped, name)
 		if err != nil {
 			return err
 		}
-		if err := mirrorTree(filepath.Join(skillsRoot, e.Name()), want, isDeltaPath); err != nil {
-			return fmt.Errorf("seeding shipped skill %s: %w", e.Name(), err)
+		if err := mirrorTree(filepath.Join(skillsRoot, name), want, isDeltaPath); err != nil {
+			return fmt.Errorf("seeding shipped skill %s: %w", name, err)
 		}
 	}
 	return nil
@@ -375,7 +402,17 @@ const (
 	stateDiffers   = "differs"
 	stateUnmanaged = "unmanaged"
 	stateAbsent    = "absent"
+	statePlugin    = "plugin"
 )
+
+// pluginRuntime loads the shipped skills from Arc's own Claude Code plugin (claude/arc-mod), which
+// names them arc:<skill>. A copy in its skills directory as well would list each skill twice.
+const pluginRuntime = "claude"
+
+// fromPlugin reports whether a harness gets this skill from the Arc plugin rather than a projection.
+func fromPlugin(runtime, name string, shipped map[string]bool) bool {
+	return runtime == pluginRuntime && shipped[name]
+}
 
 // skillStateFor compares the rendered tree against what is on disk. An unmanaged directory is
 // reported and never opened — the user's copy is not Arc's to read a verdict from.
@@ -393,10 +430,15 @@ func skillStateFor(dir string, observed map[string]ObservedEntry, name string, w
 }
 
 // reconcileSkills renders every canonical skill into each present harness that scans a fixed skills
-// directory. The skills directory itself is created when missing: that is Arc's own target, unlike
-// the harness config root, which Arc never creates.
+// directory, except the shipped skills a harness loads from the Arc plugin. The skills directory
+// itself is created when missing: that is Arc's own target, unlike the harness config root, which
+// Arc never creates.
 func reconcileSkills(p Paths, dryRun bool) ([]Action, error) {
 	canonical, err := canonicalSkills(p.SkillsRoot)
+	if err != nil {
+		return nil, err
+	}
+	shipped, err := shippedNames(p.Shipped)
 	if err != nil {
 		return nil, err
 	}
@@ -416,6 +458,9 @@ func reconcileSkills(p Paths, dryRun bool) ([]Action, error) {
 		}
 		wanted := make(map[string]bool, len(canonical))
 		for _, name := range canonical {
+			if fromPlugin(spec.Runtime, name, shipped) {
+				continue
+			}
 			wanted[name] = true
 			want, err := renderSkill(p.SkillsRoot, name, spec.Runtime)
 			if err != nil {
@@ -478,7 +523,7 @@ func Apply(p Paths, dryRun bool) ([]Action, error) {
 type SkillRow struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	// States maps runtime -> synced | differs | unmanaged | absent. A harness with no fixed skills
+	// States maps runtime -> synced | differs | unmanaged | absent | plugin. A harness with no fixed skills
 	// directory (pi) never appears: it reads an explicit list of paths from its own settings.
 	States map[string]string `json:"states"`
 	// Deltas maps runtime -> what that harness overrides: frontmatter keys and sidecar paths.
@@ -574,6 +619,10 @@ func SkillRows(p Paths) ([]SkillRow, error) {
 	if err != nil {
 		return nil, err
 	}
+	shipped, err := shippedNames(p.Shipped)
+	if err != nil {
+		return nil, err
+	}
 	rows := make([]SkillRow, 0, len(canonical))
 	for _, name := range canonical {
 		rows = append(rows, SkillRow{
@@ -603,6 +652,10 @@ func SkillRows(p Paths) ([]SkillRow, error) {
 			byName[e.Name] = e
 		}
 		for i := range rows {
+			if fromPlugin(spec.Runtime, rows[i].Name, shipped) {
+				rows[i].States[spec.Runtime] = statePlugin
+				continue
+			}
 			want, err := renderSkill(p.SkillsRoot, rows[i].Name, spec.Runtime)
 			if err != nil {
 				return nil, err

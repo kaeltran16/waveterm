@@ -25,7 +25,7 @@ const transcriptTailBytes = 64 * 1024
 // a hook has 10s in all; the reveal only attaches, so the cockpit answers at once or not at all
 const canvasRevealTimeoutMs = 2000
 
-// a design-local board: <project>/.superpowers/design/<topic>/project/<Board>.dc.html. Mirrors BOARD_PATH in
+// a design canvas board: <project>/.superpowers/design/<topic>/project/<Board>.dc.html. Mirrors BOARD_PATH in
 // frontend/app/view/agents/canvasmodel.ts.
 var canvasBoardPathRe = regexp.MustCompile(`(?i)^(.+?)[\\/]\.superpowers[\\/]design[\\/]([^\\/]+)[\\/]project[\\/][^\\/]+\.dc\.html$`)
 

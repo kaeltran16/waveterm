@@ -1,17 +1,20 @@
 ---
-name: effort-tracking
-description: Use when a task is too big for one run, when tracking multi-part work, or when brainstorming a large effort — creates and updates Wave effort trackers via `wsh effort`.
+name: initiatives
+description: Use when a task is too big for one run, when tracking multi-part work, or when brainstorming a large initiative — creates and updates Arc initiatives via `wsh effort`.
 ---
 
-# Effort Tracking
+# Initiatives
 
-Big efforts — a migration, an enablement rollout, a multi-week refactor — are too large for one
-Run. Wave effort trackers hold the phase list with statuses, owners, and dated note trails, and the
-cockpit's briefing surfaces them as cards with an inline chunk tracker.
+Big initiatives — a migration, an enablement rollout, a multi-week refactor — are too large for one
+Run. An initiative holds the phase list with statuses, owners, and dated note trails, and the
+cockpit's briefing surfaces it as a card with an inline chunk tracker.
+
+The CLI calls an initiative an effort: `wsh effort`, the `<effort>` argument, and `effort:<oid>`
+addresses all name one.
 
 ## When to create
 
-At design approval (or when a task decomposes into 3+ ordered phases), create one tracker:
+At design approval (or when a task decomposes into 3+ ordered phases), create one initiative:
 
 ```bash
 wsh effort create "<title>" --chunk "<phase 1>" --chunk "<phase 2>" [--project X] [--ticket T] [--parent <oid>]
@@ -22,11 +25,11 @@ paste-and-tick list. Ticked lines become `done`; chunks you plan but have not st
 `pending` (never pre-mark done).
 
 The project defaults to the Arc project holding the current directory; pass `--project` only when
-the effort belongs to another one.
+the initiative belongs to another one.
 
 ## When the route is still unclear
 
-An effort too foggy to name its phases gets a tracker of decisions first, not build steps:
+An initiative too foggy to name its phases gets a chunk list of decisions first, not build steps:
 
 - **`Decide: <question>`** — one chunk per question you can state precisely now, even if it cannot be
   answered yet. Order it after the decisions it hangs on (`chunk move`).
@@ -45,13 +48,13 @@ An effort too foggy to name its phases gets a tracker of decisions first, not bu
 
 | Command | What it does |
 |---|---|
-| `wsh effort list [--project P] [--archived]` | efforts: oid, title, status, done/total, active chunk; archived hidden unless `--archived` |
+| `wsh effort list [--project P] [--archived]` | initiatives: oid, title, status, done/total, active chunk; archived hidden unless `--archived` |
 | `wsh effort show <effort>` | full detail: chunks, statuses, owners, note trails |
 | `wsh effort rename <effort> <title>` | retitle |
 | `wsh effort project <effort> <project\|"">` | set/clear project |
 | `wsh effort ticket <effort> <ticket\|"">` | set/clear ticket |
-| `wsh effort status <effort> <active\|paused\|done\|archived>` | effort-level status |
-| `wsh effort unarchive <effort>` | restore an archived effort to the status it held when archived |
+| `wsh effort status <effort> <active\|paused\|done\|archived>` | initiative-level status |
+| `wsh effort unarchive <effort>` | restore an archived initiative to the status it held when archived |
 | `wsh effort link <effort> --parent <effort>` / `unlink` | parent link (e.g. sub-migration under the rollout) |
 | `wsh effort delete <effort> [--force]` | delete (refuses unless archived or `--force`) |
 | `wsh effort advance <effort> [--note "..."]` | active chunk → done; marker moves to the next non-done chunk |
@@ -72,7 +75,7 @@ Chunks are always referenced by exact label, never index.
 ## Ticking conventions
 
 - **Claim a chunk** when you start work on it: `wsh effort chunk attach <effort> "<chunk>" --agent <tabid>`
-  (or `--run <oid>` for a run). The cockpit's effort detail shows who is working where.
+  (or `--run <oid>` for a run). The cockpit's initiative detail shows who is working where.
 - **Tick a chunk `done` only when the work is actually complete** — not when you start, not when you
   think you are close: `wsh effort chunk status <effort> "<chunk>" done --note "..."`.
 - **Annotate every significant state change** with `--note` — the note becomes the chunk's dated
@@ -81,8 +84,8 @@ Chunks are always referenced by exact label, never index.
   handoffs, or set the next chunk `active` explicitly.
 - **Reopen undoes**: `wsh effort reopen <effort> "<chunk>"` when a done chunk turns out not to be.
 - **Blocked is a state, not a note**: `wsh effort chunk status <effort> "<chunk>" blocked --note "why"`.
-  The briefing's attention banner folds blocked chunks in, so a stuck effort stays visible.
-- **Skipped shrinks the denominator**: an effort that finishes by skipping still reads 100%.
+  The briefing's attention banner folds blocked chunks in, so a stuck initiative stays visible.
+- **Skipped shrinks the denominator**: an initiative that finishes by skipping still reads 100%.
 - Run↔chunk links detach automatically when the run's evidence seals; session workrefs detach at
   session end. Nothing auto-ticks — completion is always a deliberate action.
 

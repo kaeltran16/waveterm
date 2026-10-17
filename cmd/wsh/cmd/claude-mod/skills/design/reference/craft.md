@@ -1,0 +1,314 @@
+# Designing well — the long form
+
+SKILL.md carries the short rules; this is the reasoning and the detail
+behind it. Read it when the user pushes back on a design call, or for
+the specific sections a piece needs — landing-page anatomy, wireframe
+rounds, phone prototypes. The content rules every canvas follows are at
+the end.
+
+## Designing well (craft, not format)
+
+The cross-cutting content rules at the end of this file — no filler content, ask
+before adding material, targeted changes stay targeted, follow an
+existing design's visual vocabulary, the AI-slop tropes, the
+copyrighted-designs rule — all apply with full force on a design
+canvas. What follows is specific to designing.
+
+### Settle the aesthetic
+
+A repo design system (`DESIGN.md` or the like) settles it: follow that
+and skip the rest of this section. Without one, references or a brand
+from the user, get their input before committing — ask, or sketch 2–4
+genuinely different low-fi direction artboards they can SEE — rather
+than picking your own aesthetic (this is how you get slop). A concrete
+subject, asset or brand IS input; with nobody to ask, commit to one
+nameable direction and say so rather than ending on a question. Once
+settled, a decision stays settled.
+
+Ground the direction in the subject: what the design is for, who uses
+it, and the one thing they should remember. Bold and minimal both work;
+the key is intentionality, not intensity, then precision in spacing,
+type and detail. Commit to a small system:
+
+- A type pairing: a distinctive display face over a refined body face,
+  1–3 families. Google Fonts load in a canvas (one
+  `fonts.googleapis.com/css2?family=…&display=swap` `<link>` in
+  `<helmet>`; no other webfont host does), each with a system fallback
+  of close metrics.
+- Foreground/background: a color tone (warm, cool, neutral); subtly
+  toned whites and blacks (whites below 0.02 saturation).
+- Accents: 0–2, in oklch, sharing chroma and lightness, varying hue.
+  Prefer the brand or design system's colors; if too restrictive,
+  derive harmonious oklch colors from them rather than inventing new.
+- Motion, where the design carries it (CSS in the artboard): one
+  well-orchestrated moment, not scattered effects.
+
+### Hi-fi mockups are rooted in context
+
+Good hi-fi designs do not start from scratch — they are rooted in
+existing design context: the user's codebase or repo, brand assets,
+screenshots of the existing product, an attached design system. Spend
+time acquiring that context before designing, and ask the user for it
+if you can't find it. Mocking a full product from scratch is a LAST
+RESORT and will lead to poor design. State your assumptions, context,
+and design reasoning early, and show work to the user as soon as
+there is something to react to.
+
+If you do not have an icon, asset, or component, draw a placeholder:
+in hi-fi design, a placeholder is better than a bad attempt at the
+real thing.
+
+### Variations and options on the canvas
+
+The multi-artboard canvas is built for exploring options — use it
+deliberately:
+
+- When a direction decision is still open (overall direction, hero
+  layout, type pairing, color stance, density), settle it BEFORE
+  building the full deliverable. Offer 2–4 genuinely different
+  candidates, each exploring an axis you can name ("Warm editorial" vs
+  "Dense data-first") — five shades of one aesthetic is no choice at
+  all. Decision fidelity is not deliverable fidelity: low-fi sketch
+  artboards are enough to pick a direction.
+- Give each option an honest motivation and its main tradeoff, in your
+  reply, not on its artboard — a set where only your favorite gets a
+  case made for it is a rigged vote.
+- Keep option names stable: once an artboard is "Option B" or
+  "Warm editorial", it keeps that identity — never renumber or rename
+  options across turns.
+- When the direction is settled and the user wants variations to keep,
+  give 3+ across several dimensions — by-the-book designs that match
+  existing patterns alongside novel interactions, layouts, metaphors
+  and visual styles; remix the brand's visual DNA (scale, fills,
+  texture, rhythm, layering, type treatments). The goal is atomic
+  variations the user can mix and match, not the perfect option.
+- For early exploration, wireframe: breadth over polish, 3–5 distinct
+  approaches per idea, simple shapes, placeholder text, minimal color
+  — sketchy, low-fi, focused on structure and flow.
+
+### Layout that survives edits
+
+Strongly prefer flex/grid with `gap` over inline flow. Lay out
+sibling groups (buttons, chips, icons, cards, nav items, toolbars)
+with `display: flex`/`grid` plus `gap:`, not inline siblings spaced
+by source whitespace or per-element margins — gap spacing survives
+reordering, deleting and duplicating (and claude.ai's drag tools);
+whitespace text nodes don't. Inline flow is for runs of text with the occasional
+`<a>`/`<strong>`/`<em>` inside a sentence, not for laying out UI
+elements. And lean on modern CSS: `text-wrap: pretty`, CSS grid, and
+other advanced effects are your friends.
+
+### Appropriate scales
+
+In generated MOCKUP content (a phone-screen artboard's buttons and
+rows), hit targets should never be less than 44px. For print artboards, 12pt
+is the minimum body type — and text in any design should be sized for
+its real viewing distance.
+
+### Accessible as drawn
+
+Draw controls with the real elements even in a static mockup: `<button>`,
+`<a href>`, and `<input>` paired with a `<label>`. A div or span with
+`role` or `onClick` looks the same, but Tab skips it and a screen reader
+has nothing to announce. Give an icon-only button an `aria-label`. Keep
+text at a contrast of at least 4.5:1 against what is behind it (3:1 from
+24px). What fails most often is caption grey, and coloured fills under
+white text: darken both. Colors that must be told apart also differ in
+lightness, not hue alone; prefer blue/orange to red/green.
+
+### Landing pages and marketing artboards
+
+Build with marketing-page anatomy: a hero that states the offer in one
+sentence with one clear call to action; proof the visitor can trust
+(testimonials, client logos, numbers — drawn from the user's material,
+or visibly marked placeholders); benefit sections that answer a
+visitor's actual doubts rather than listing features. One primary
+action per page, repeated down the page — not three competing buttons.
+
+For a landing page, the copy is the product. Write specific copy
+grounded in what the user told you — their product, their customers,
+their voice. Never lorem ipsum, never "Welcome to our website", never
+interchangeable marketing filler that could describe any business.
+Where a real fact is missing (a price, a date, an address), put in a
+visibly marked placeholder like [YOUR PRICE] for the user to fill —
+don't fabricate one. And design for a phone width as you write: no
+headlines that break badly, squashed grids or text too small to read.
+
+The defaults a model reaches for on a marketing piece (the general
+list is "AI tells to design past", below):
+
+- The hero fits the first viewport: headline two lines at most,
+  subtext twenty words at most, the action visible without scrolling.
+- Four text elements at most in the hero: an optional eyebrow,
+  headline, subtext, actions (one primary, at most one secondary).
+  Trust logos, pricing teasers and feature bullets get their own
+  section below.
+- A button label fits on one line, three words at most. Navigation
+  fits on one line.
+- No row of three equal feature cards, and no layout family repeated
+  down a page: at most two image-and-text splits in a row.
+- A small uppercase label above a heading: at most one section in
+  three.
+- No "big headline left, small paragraph floating right" section
+  header. Stack them.
+- No scroll cues, locale, time or weather strips, rotated text, or a
+  strip of caps words along the bottom of a hero.
+- No pills or tags laid over an image, no invented photo credits.
+- No product screenshot faked from styled rectangles: use the real
+  image or a marked placeholder.
+- A quote runs three lines at most and carries a name and a role.
+
+### Mobile prototypes
+
+No fake chrome: do NOT draw a fake iOS status bar (the "9:41 ·
+battery · wifi" strip) or a fake virtual keyboard. On a real phone
+the real status bar and keyboard render on top of your layout — a
+painted fake looks doubled up and childish. Leave that space alone.
+The same applies in a desktop device-frame artboard: no fake status
+bar inside the phone rectangle.
+
+### Recreating an existing UI
+
+When the user asks to recreate a UI whose source you can reach — a
+repo checkout, pasted files, an attached design system — build from
+the real source, not your training-data memory of the app: explore
+what exists, read the components and styles, and copy the assets the
+page actually loads (icons, fonts, images, stylesheets — not
+bundler-only component source). Copy exact numeric values — paddings,
+radii, font sizes, line-heights — from the source; never round or
+snap them to a 4/8-px grid or a framework default. Claude is better
+at recreating and editing interfaces from code and design context
+than from screenshots: when source is available, treat screenshots as
+high-level guidance only. If you can't read the source, stop and say
+so rather than inventing from memory. (And the shared
+copyrighted-designs rule governs whether to recreate at all.)
+
+### AI tells to design past
+
+Adapted from taste-skill (github.com/Leonxlnx/taste-skill, MIT), its
+v2 skill and its redesign audit, keeping only what holds on a canvas
+in any stack. Each is a default a model reaches for when it tries to
+look designed. Check finished artboards against the list before
+handing them over. The design system wins wherever it says otherwise:
+a system that specifies a middle-dot count label or a mono eyebrow is
+not a tell. The tells that only a marketing piece can commit sit under
+"Landing pages and marketing artboards", above.
+
+Locks, held across every artboard of a flow:
+
+- One accent, used the same way everywhere: no blue button on a
+  rose-accented page, no stray teal badge.
+- One corner-radius rule. Mixed radii need a rule you can state
+  ("controls are pills, cards are 16") and follow without exception.
+- One theme per page: sections do not flip between light and dark.
+- One copy register: not mono telemetry, editorial prose and
+  marketing punch in the same piece.
+- One label per intent: "Get in touch", "Contact us" and "Let's talk"
+  on one page are the same button with three names.
+
+States:
+
+- Draw loading, empty and error, not only the successful state.
+  Loading takes the shape of the layout it replaces; an empty state
+  says how to fill it; a form error sits under its field.
+- Hover, pressed and keyboard focus are states too: when the brief
+  asks for a control's states, draw them as variants beside it. A
+  focus ring is never designed away.
+- Navigation marks the current place, and every screen of a flow has
+  a way back.
+- Labels sit above inputs. A placeholder is never the label.
+
+Alignment:
+
+- Side-by-side cards or panels align their shared parts: titles,
+  values and actions start on the same line whatever the content
+  length, and actions pin to the bottom.
+- Centre by eye, not by the box: an icon beside text or a glyph in a
+  round button often needs a pixel or two.
+
+Structure:
+
+- Cards only where elevation means hierarchy; otherwise group with
+  space or one divider. No hairline under every row of a long list:
+  group the rows or pick another component.
+- A grid has exactly as many cells as there is content.
+- No section numbers (`01 / Capabilities`), no `1 / 4` counters on
+  tiles.
+- Not a modal for every action: a simple one edits in place, in a
+  panel or in an expanding row.
+- Not a filled button beside a ghost button by reflex: a secondary
+  action can be a text link.
+
+Type:
+
+- Numbers that are compared or that change in place use tabular
+  figures (`font-variant-numeric: tabular-nums`).
+- Headings and labels in sentence case, not title case.
+- A small uppercase label above a heading is the exception, not the
+  rhythm of the screen.
+- No single word alone on a last line: `text-wrap: balance` on a
+  heading, `pretty` on body text.
+
+Decoration:
+
+- No status dots unless they report real state. No version stamps,
+  and no crosshair or grid lines that organize nothing.
+- The middle dot is not the default separator: one per line at most.
+- No neon or outer glow, no gradient text. A shadow is tinted toward
+  its ground, not pure black on a light page.
+
+Copy:
+
+- Re-read every visible string before handing over. Cute-but-wrong
+  wordplay, forced metaphor and mock-poetic labels ("Field notes",
+  "Quietly trusted by") become a plain functional sentence.
+- No filler verbs: elevate, seamless, unleash, next-gen,
+  revolutionize.
+- Messages are plain and active: "Couldn't save your changes. Try
+  again.", not "Oops!". No exclamation mark on a success message.
+- Sample data in a product mockup is specific and uneven (`47.2%`,
+  not `50%`), with names plausible for the locale, never John Doe or
+  Acme. A figure presented as a claim is still a placeholder.
+- Name the step ("Install"), not its number ("Step 1"). No em-dash in
+  interface copy.
+
+## Content rules for every canvas
+
+These rules are about the CONTENT authored into the artboards.
+
+- **Do not add filler content.** Never pad a design with placeholder
+  text, dummy sections, or informational material just to fill space.
+  Every element should earn its place. If a section feels empty, that's
+  a design problem to solve with layout and composition — not by
+  inventing content. One thousand no's for every yes. Avoid "data slop"
+  — unnecessary numbers, icons, or stats that are not useful. Less is
+  more; bias towards minimalism.
+- **Ask before adding material.** If you think additional sections,
+  pages, copy, or content would improve the design, ask the user first
+  rather than unilaterally adding it. The user knows their audience and
+  goals better than you do.
+- **Targeted changes stay targeted.** When the user asks for a small,
+  targeted change — some text, a color, one element — change ONLY that:
+  leave all other layout, spacing, margins, fonts, sizes, positions,
+  colors, and content exactly as they are; don't redesign or "improve"
+  parts you weren't asked to touch. A redesign, a new direction, or a
+  from-scratch request is different — then make the substantial changes
+  they're asking for. If you think a broader change would help a small
+  request, finish what they asked and SUGGEST the rest rather than
+  applying it unprompted.
+- **Follow an existing design's visual vocabulary.** When adding to an
+  existing UI or document, understand its visual vocabulary first, and
+  follow it: match copywriting style, color palette, tone, hover/click
+  states, animation styles, shadow + card + layout patterns, density,
+  etc.
+- **Avoid AI slop tropes:** including but not limited to aggressive use
+  of gradient backgrounds, emoji (unless explicitly part of the brand),
+  containers with rounded corners and left-border accent color, and
+  overused font families (Inter, Roboto, Arial, Fraunces).
+- **Recreate from source**, not from memory or screenshots: see
+  "Recreating an existing UI" above.
+- **Do not recreate copyrighted designs.** If asked to recreate a
+  company's distinctive UI patterns, proprietary command structures, or
+  branded visual elements, refuse unless the user says they work at
+  that company (ask when it's unclear). Instead, understand what the
+  user wants to build and help them create an original design.
