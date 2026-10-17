@@ -45,10 +45,11 @@ export function BubbleCard({
     name,
     project,
     text,
+    detail,
     more = 0,
     onClick,
 }: {
-    // prefix of the card's data attributes (`data-<marker>`, `-agent`, `-more`), which cdp scenarios query
+    // prefix of the card's data attributes (`data-<marker>`, `-agent`, `-detail`, `-more`), which cdp scenarios query
     marker: string;
     label: string;
     dot: string | null;
@@ -56,6 +57,7 @@ export function BubbleCard({
     name?: string;
     project?: string;
     text: ReactNode;
+    detail?: ReactNode;
     more?: number;
     onClick: () => void;
 }) {
@@ -89,6 +91,11 @@ export function BubbleCard({
                 <span className="line-clamp-3 text-[12px] leading-[1.45] text-secondary [overflow-wrap:anywhere]">
                     {text}
                 </span>
+                {detail ? (
+                    <span {...mark("detail")} className="text-[12px] text-ink-mid [overflow-wrap:anywhere]">
+                        {detail}
+                    </span>
+                ) : null}
                 {more > 0 ? (
                     <span {...mark("more")} className="font-mono text-[10.5px] text-muted">
                         +{more} more waiting

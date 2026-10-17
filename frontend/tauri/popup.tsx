@@ -115,6 +115,7 @@ function Popup() {
         emitTo(MAIN_WINDOW_LABEL, POPUP_OPEN_EVENT, { key: bubble.key }).catch(logFailure("open"));
         hide();
     };
+    const brainstorm = bubble.kind === "brainstorm";
     return (
         // the padding is the window's room for the card's shadow
         <div ref={frame} className="w-fit p-6">
@@ -122,10 +123,11 @@ function Popup() {
                 <BubbleCard
                     marker="attention-popup"
                     label={bubble.label}
-                    dot="bg-accent"
-                    tone="text-muted"
+                    dot={brainstorm ? "bg-warning" : "bg-accent"}
+                    tone={brainstorm ? "text-warning" : "text-muted"}
                     name={bubble.name}
                     text={<PlainInlineMarkdown text={bubble.text} />}
+                    detail={bubble.detail}
                     more={bubble.more}
                     onClick={open}
                 />

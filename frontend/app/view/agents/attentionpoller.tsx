@@ -18,8 +18,8 @@ import { petSignalsFrom } from "@/app/view/jarvis/petsignals";
 import { fireAndForget } from "@/util/util";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
-import { useAtomValue } from "jotai";
-import { useEffect, useRef } from "react";
+import { atom, useAtomValue, type Atom } from "jotai";
+import { useEffect, useMemo, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
 import {
     POPUP_HIDE_EVENT,
@@ -31,6 +31,8 @@ import {
 } from "./attentionpopup";
 import { popupTarget } from "./attentionpopuptarget";
 import { attentionAtom, loadAttention, taskbarSignal } from "./attentionstore";
+import { asksUser, brainstormAttention } from "./brainstormmodel";
+import { brainstormsAtom } from "./brainstormstore";
 import { savedRateLimitsAtom } from "./ratelimitstore";
 
 // the face the main window's avatar wears with this list, derived here rather than read back from PetView:
@@ -44,6 +46,21 @@ function popupFaceFor(model: AgentsViewModel, attention: AttentionItem[]): Popup
         link: globalStore.get(wsLinkAtom),
     });
     return { expression: expressionFor(signals), posture: postureFor(signals) };
+}
+
+// the un-overlaid roster: the overlay already reads an asking brainstorm as "asking", which asksUser would refuse
+function brainstormItemsAtom(model: AgentsViewModel): Atom<AttentionItem[]> {
+    return atom((get) => {
+        const brainstorms = get(brainstormsAtom);
+        const items: AttentionItem[] = [];
+        for (const agent of get(model.baseRosterAtom)) {
+            const b = brainstorms[agent.id];
+            if (b?.file != null && asksUser(b.file, agent)) {
+                items.push(brainstormAttention({ agentId: agent.id, agentName: agent.name, topic: b.topic }, b.file));
+            }
+        }
+        return items;
+    });
 }
 
 async function bringForward(): Promise<void> {
@@ -60,12 +77,15 @@ export function AttentionPoller({ model }: { model: AgentsViewModel }) {
         return () => clearInterval(t);
     }, []);
     const attention = useAtomValue(attentionAtom);
+    const brainstormItems = useAtomValue(useMemo(() => brainstormItemsAtom(model), [model]));
+    // server items first, so their rank wins; the in-app lists stay the server's alone
+    const outward = useMemo(() => [...attention, ...brainstormItems], [attention, brainstormItems]);
     const seen = useRef<AttentionItem[]>([]);
     useEffect(() => {
         const focused = document.hasFocus();
-        const signal = taskbarSignal(seen.current, attention, focused);
-        const bubble = popupBubble(seen.current, attention, focused, popupFaceFor(model, attention));
-        seen.current = attention;
+        const signal = taskbarSignal(seen.current, outward, focused);
+        const bubble = popupBubble(seen.current, outward, focused, popupFaceFor(model, attention));
+        seen.current = outward;
         if (signal != null) {
             const request = signal === "flash" ? UserAttentionType.Informational : null;
             fireAndForget(() => getCurrentWindow().requestUserAttention(request));
@@ -73,7 +93,7 @@ export function AttentionPoller({ model }: { model: AgentsViewModel }) {
         if (bubble != null) {
             fireAndForget(() => emitTo(POPUP_WINDOW_LABEL, POPUP_SHOW_EVENT, bubble));
         }
-    }, [attention, model]);
+    }, [outward, attention, model]);
     useEffect(() => {
         const hide = () => fireAndForget(() => emitTo(POPUP_WINDOW_LABEL, POPUP_HIDE_EVENT));
         window.addEventListener("focus", hide);
@@ -83,7 +103,9 @@ export function AttentionPoller({ model }: { model: AgentsViewModel }) {
         const unlisten = listen<{ key: string }>(POPUP_OPEN_EVENT, (event) => {
             // apart from the open, so a refused window call still lands the click
             fireAndForget(bringForward);
-            const item = globalStore.get(attentionAtom).find((i) => i.key === event.payload.key);
+            const item = [...globalStore.get(attentionAtom), ...globalStore.get(brainstormItemsAtom(model))].find(
+                (i) => i.key === event.payload.key
+            );
             const target = item != null ? popupTarget(item, globalStore.get(model.agentsAtom)) : null;
             if (target != null) {
                 fireAndForget(() => openTarget(model, target));
