@@ -3,41 +3,42 @@
 
 import { ModalShell } from "@/app/modals/modalshell";
 import { modalsModel } from "@/app/store/modalmodel";
+import { X } from "lucide-react";
 import type { AgentActionEntry } from "./agentsviewmodel";
-import { ToolDetailBody } from "./narrationtimeline";
+import { StatusSquare, ToolDetailBody, VERB } from "./narrationtimeline";
 import { formatDuration } from "./tooldetail";
 
 // Viewport-level full-detail view for one tool call. Pushed via
 // modalsModel.pushModal("AgentToolDetailModal", { action }). The card is overflow-hidden, so detail
 // that exceeds the inline budget escalates here where there is room. Reuses ToolDetailBody (shared
-// with the inline view). Rides the shared ModalShell chrome (scrim, motion, Esc), like every modal.
+// with the inline view) and the row's own outcome mark and verb, so the modal reads as that row opened.
+// Rides the shared ModalShell chrome (scrim, motion, Esc), like every modal; the body runs edge to edge
+// inside it rather than as a second framed box.
 export function AgentToolDetailModal({ action }: { action: AgentActionEntry }) {
     const close = () => modalsModel.popModal();
-    const ok = action.outcome !== "fail";
     return (
         <ModalShell open onClose={close} className="w-[min(720px,90vw)]">
-            <div className="px-4 pt-5 pb-4">
-                <div className="flex w-full items-center gap-2.5 border-b border-edge-faint pb-3">
-                    <span className={ok ? "text-success" : "text-error"}>{ok ? "✓" : "✗"}</span>
-                    <span className="font-mono text-xxxs font-bold uppercase tracking-[0.06em] text-feed-label">
-                        {action.verb}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-primary">{action.target}</span>
-                    {action.durationMs ? (
-                        <span className="font-mono text-[11px] text-muted">{formatDuration(action.durationMs)}</span>
-                    ) : null}
-                    <button
-                        type="button"
-                        onClick={close}
-                        className="rounded-[7px] border border-edge-mid px-2 py-1 text-muted hover:text-primary"
-                    >
-                        ✕
-                    </button>
-                </div>
-                <div className="mt-3 w-full max-h-[70vh] overflow-y-auto rounded-[10px] border border-edge-faint bg-surface-code">
-                    {action.detail ? <ToolDetailBody detail={action.detail} variant="modal" /> : null}
-                </div>
+            <div className="flex items-center gap-2.5 border-b border-border py-3 pl-[18px] pr-3">
+                <StatusSquare ok={action.outcome !== "fail"} />
+                <span className={VERB}>{action.verb}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-primary">{action.target}</span>
+                {action.durationMs ? (
+                    <span className="font-mono text-[11px] text-muted">{formatDuration(action.durationMs)}</span>
+                ) : null}
+                <button
+                    type="button"
+                    aria-label="Close"
+                    onClick={close}
+                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[7px] text-muted hover:bg-surface-hover hover:text-primary"
+                >
+                    <X size={15} strokeWidth={2} />
+                </button>
             </div>
+            {action.detail ? (
+                <div className="max-h-[70vh] overflow-y-auto bg-surface-code">
+                    <ToolDetailBody detail={action.detail} variant="modal" />
+                </div>
+            ) : null}
         </ModalShell>
     );
 }

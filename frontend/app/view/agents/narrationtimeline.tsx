@@ -50,9 +50,11 @@ function ExitChip({ exit }: { exit: number }) {
     );
 }
 
-function StatusSquare({ ok }: { ok: boolean }) {
+export function StatusSquare({ ok }: { ok: boolean }) {
     return (
         <span
+            role="img"
+            aria-label={ok ? "Succeeded" : "Failed"}
             className={cn(
                 "flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px]",
                 ok ? "bg-success/15 text-success" : "bg-error/15 text-error"
@@ -73,7 +75,7 @@ function Affordance({ toModal, open }: { toModal: boolean; open: boolean }) {
 }
 
 const TOOL_ROW = "flex items-center gap-2 rounded-[6px] px-1.5 py-[3px]";
-const VERB = "min-w-[50px] shrink-0 font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted";
+export const VERB = "min-w-[50px] shrink-0 font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted";
 const TARGET = "min-w-0 truncate font-mono text-[11.5px] text-ink-mid";
 // 30px = the row's 6px padding + the 16px status square + the 8px gap, so the panel sits under the target
 const DETAIL_PANEL = "mb-1.5 ml-[30px] mt-1 overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code";

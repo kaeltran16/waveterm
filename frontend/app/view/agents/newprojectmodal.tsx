@@ -4,10 +4,17 @@
 import { DialogButton } from "@/app/modals/dialogbutton";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
+import { formatChordString } from "@/util/keysym";
 import { useAtomValue } from "jotai";
+import { CircleAlert, X } from "lucide-react";
 import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { registerProject } from "./projectsstore";
+
+// an rpc error's message, without the "Error: " String() puts in front of it
+function errorText(e: unknown): string {
+    return e instanceof Error ? e.message : String(e);
+}
 
 export function NewProjectModal({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(model.newProjectOpenAtom);
@@ -30,7 +37,7 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
             globalStore.set(model.projectFilterAtom, name.trim());
             close();
         } catch (e) {
-            setError(String(e));
+            setError(`Could not add the project: ${errorText(e)}`);
         }
     };
     // Native OS folder picker (Tauri dialog plugin). Dynamic import keeps non-Tauri contexts (preview,
@@ -50,18 +57,23 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
                 setError(null);
             }
         } catch (e) {
-            setError(String(e));
+            setError(`Could not open the folder picker: ${errorText(e)}`);
         }
     };
     return (
         <ModalShell open={open} onClose={close} onSubmit={() => void create()} className="w-[min(480px,92vw)]" topClass="pt-[14vh]" dismissOnBackdrop={false}>
             {open ? (
                 <>
-                <div className="flex items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
-                    <span className="flex-1 text-[15px] font-semibold text-primary">New project</span>
-                    <span className="rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-muted">
-                        esc
-                    </span>
+                <div className="flex items-center gap-[10px] border-b border-border py-[13px] pl-[18px] pr-3">
+                    <h2 className="m-0 flex-1 text-[15px] font-semibold text-primary">New project</h2>
+                    <button
+                        type="button"
+                        aria-label="Close"
+                        onClick={close}
+                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[7px] text-muted hover:bg-surface-hover hover:text-primary"
+                    >
+                        <X size={15} strokeWidth={2} />
+                    </button>
                 </div>
                 <div className="flex flex-col gap-[15px] px-[18px] py-4">
                     <div>
@@ -96,14 +108,19 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
                             </button>
                         </div>
                     </div>
-                    {error ? <div className="text-[12px] text-error">{error}</div> : null}
+                    {error ? (
+                        <div role="alert" className="flex items-start gap-2 text-[12px] text-error">
+                            <CircleAlert size={14} aria-hidden className="mt-px shrink-0" />
+                            <span>{error}</span>
+                        </div>
+                    ) : null}
                 </div>
                 <div className="flex items-center gap-3 border-t border-border px-[18px] py-[13px]">
                     <div className="flex-1" />
                     <DialogButton variant="secondary" hint="esc" onClick={close}>
                         Cancel
                     </DialogButton>
-                    <DialogButton variant="primary" hint="⌘⏎" disabled={!canCreate} onClick={() => void create()}>
+                    <DialogButton variant="primary" hint={formatChordString("Cmd:Enter")} disabled={!canCreate} onClick={() => void create()}>
                         Create project
                     </DialogButton>
                 </div>
