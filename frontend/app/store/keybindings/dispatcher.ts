@@ -3,6 +3,7 @@
 
 import { resmonOpenAtom } from "@/app/cockpit/resmonstore";
 import { anyModalOpen } from "@/app/modals/modalstack";
+import { contextMenuAtom } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
@@ -91,6 +92,9 @@ export function deriveKeyContext(): KeyContext {
         globalStore.get(finalShotsViewerOpenAtom) ||
         // the Resource Manager popover is window chrome too, and its arrows, Enter, x and Escape are surface keys
         globalStore.get(resmonOpenAtom) ||
+        // a context menu moves its highlight with the arrows and closes on Escape; uncounted, the Brief's
+        // list cursor took the arrows and Escape left the surface under the open menu
+        globalStore.get(contextMenuAtom) != null ||
         globalStore.get(modalsModel.modalsAtom).length > 0;
     return {
         surface,

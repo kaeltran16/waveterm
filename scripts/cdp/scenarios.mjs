@@ -8516,7 +8516,7 @@ const briefDesignParity = {
         });
 
         // (h) the Runs kind filter narrows Runs to one badge, then all brings every row back
-        const KIND = (k) => `[...document.querySelectorAll('[data-jarvis-run-kind] button')].find((b) => b.innerText.trim() === '${k}')`;
+        const KIND = (k) => `document.querySelector('[data-jarvis-run-kind] [data-filter-option="${k}"]')`;
         const runBadges = `[...document.querySelectorAll('[data-jarvis-brief-row="session"]')].map((r) => r.querySelector(':scope > div > div > span')?.innerText.trim() ?? null)`;
         const before = await h.ev(runBadges);
         await h.ev(`${KIND("orchestrator")}?.click()`);
@@ -8533,10 +8533,10 @@ const briefDesignParity = {
         });
 
         // (i) the Initiatives project filter narrows to one project's initiatives, then all brings every row back
-        const PROJECT = (p) => `[...document.querySelectorAll('[data-jarvis-initiative-project] button')].find((b) => b.innerText.trim() === '${p}')`;
+        const PROJECT = (p) => `document.querySelector('[data-jarvis-initiative-project] [data-filter-option="${p}"]')`;
         const initiativeProjects = `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].map((r) => r.querySelector(':scope > div:first-child > span:nth-of-type(3)')?.innerText.trim().split(' · ').pop() ?? null)`;
         const options = await h.ev(
-            `[...document.querySelectorAll('[data-jarvis-initiative-project] button')].map((b) => b.innerText.trim())`
+            `[...document.querySelectorAll('[data-jarvis-initiative-project] [data-filter-option]')].map((b) => b.dataset.filterOption)`
         );
         const picked = options.find((o) => o !== "all" && o !== "no project") ?? null;
         const allRows = await h.ev(initiativeProjects);

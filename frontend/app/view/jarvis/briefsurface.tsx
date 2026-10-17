@@ -22,7 +22,7 @@
 
 import { pushToast } from "@/app/cockpit/notificationstore";
 import { cardVariants, computeEntrances, initialEntranceState, MOTION, paneReveal } from "@/app/element/motiontokens";
-import { ContextMenuModel } from "@/app/store/contextmenu";
+import { contextMenuAtom, ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildJarvisBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
@@ -42,7 +42,7 @@ import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom, type Atom, type PrimitiveAtom } from "jotai";
-import { ArrowUpRight, Copy, Search, SlidersHorizontal, X } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Copy, Search, SlidersHorizontal, X } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig, type Variants } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AutonomyLadder } from "./autonomyladderview";
@@ -79,16 +79,19 @@ import { BriefProfileModal } from "./briefprofileview";
 import { briefRestorePlan } from "./briefrestore";
 import {
     behindGroups,
+    filterAsMenu,
     filterLines,
     initiativeLine,
     initiativeProjects,
     keepsProject,
     keepsRunKind,
     lineOpenTarget,
+    projectCounts,
     projectName,
     queueLine,
     readsAsInView,
     RUN_KIND_FILTERS,
+    runKindCounts,
     runKindLegs,
     runRowFace,
     sessionLine,
@@ -231,64 +234,109 @@ function RegionHead({
     );
 }
 
-// A region's filter: which kind of run Runs or Shipped show, which project Initiatives does. Sits beside
-// the region head, not in it: the head is a button.
-function FilterToggle<T>({
-    label,
-    tag,
-    options,
-    value,
-    onChange,
-    wrap = false,
-}: {
+// A region's filter: which kind of run Runs or Shipped show, which project Initiatives does. The first
+// option is always all.
+type FilterSpec<T> = {
     label: string;
-    // the data attribute a CDP scenario finds the group by
+    // what the menu's face calls the choice: "project", "kind"
+    noun: string;
+    // the data attribute a CDP scenario finds the filter by
     tag: string;
-    options: { value: T; label: string }[];
+    options: { value: T; label: string; count?: number }[];
     value: T;
     onChange: (v: T) => void;
-    // a list as long as the projects wraps rather than squeeze the region head to nothing
-    wrap?: boolean;
-}) {
+};
+
+// A few choices sit as a line of chips under the head, where they never squeeze it; past FILTER_LINE_MAX
+// they become one menu in the head, which a long project list cannot wrap.
+type FilterSlot = { menu: boolean; node: ReactNode };
+
+function filterSlot<T>(spec: FilterSpec<T>): FilterSlot {
+    const menu = filterAsMenu(spec.options.length);
+    return { menu, node: menu ? <FilterMenu {...spec} /> : <FilterLine {...spec} /> };
+}
+
+function FilterLine<T>({ label, tag, options, value, onChange }: FilterSpec<T>) {
     return (
-        <div
-            role="group"
-            aria-label={label}
-            {...{ [tag]: "" }}
-            className={cn("flex items-center gap-1", wrap ? "min-w-0 flex-wrap justify-end" : "flex-none")}
-        >
+        <div role="group" aria-label={label} {...{ [tag]: "" }} className="flex flex-wrap items-center gap-1">
             {options.map((o) => (
                 <button
                     key={o.label}
                     type="button"
                     aria-pressed={value === o.value}
+                    data-filter-option={o.label}
                     onClick={() => onChange(o.value)}
                     className={cn(
-                        "cursor-pointer rounded-[5px] border px-1.5 py-px font-mono text-[10.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                        "flex cursor-pointer items-baseline gap-1.5 rounded-[5px] border px-1.5 py-px font-mono text-[10.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                         value === o.value
                             ? "border-edge-strong text-ink-hi"
                             : "border-transparent text-muted hover:text-ink-hi"
                     )}
                 >
                     {o.label}
+                    {o.count != null ? (
+                        <span className={cn("tabular-nums", value === o.value ? "text-ink-mid" : "text-muted")}>
+                            {o.count}
+                        </span>
+                    ) : null}
                 </button>
             ))}
         </div>
     );
 }
 
-const RUN_KIND_OPTIONS = RUN_KIND_FILTERS.map((k) => ({ value: k, label: k }));
-
-function RunKindToggle({ value, onChange }: { value: RunKindFilter; onChange: (v: RunKindFilter) => void }) {
+function FilterMenu<T>({ label, noun, tag, options, value, onChange }: FilterSpec<T>) {
+    // the one context menu may be a row's, so open means it holds this filter's items
+    const shown = useRef<ContextMenuItem[] | null>(null);
+    const open = useAtomValue(contextMenuAtom)?.items === shown.current && shown.current != null;
+    const picked = options.find((o) => o.value === value) ?? options[0];
+    // opened at the face rather than the pointer, so Enter on the face drops it in the same place
+    const show = (e: React.MouseEvent<HTMLButtonElement>) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        shown.current = [
+            { type: "header", label },
+            ...options.map(
+                (o): ContextMenuItem => ({
+                    type: "radio",
+                    label: o.label,
+                    checked: o.value === value,
+                    sublabel: o.count != null ? String(o.count) : undefined,
+                    click: () => onChange(o.value),
+                })
+            ),
+        ];
+        globalStore.set(contextMenuAtom, { x: r.left, y: r.bottom, items: shown.current });
+    };
     return (
-        <FilterToggle
-            label="Show runs of kind"
-            tag="data-jarvis-run-kind"
-            options={RUN_KIND_OPTIONS}
-            value={value}
-            onChange={onChange}
-        />
+        <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={open}
+            aria-label={label}
+            {...{ [tag]: "" }}
+            onClick={show}
+            className="flex flex-none cursor-pointer items-center gap-1.5 rounded-[5px] border border-edge-strong px-[7px] py-px font-mono text-[10.5px] text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+            <span className="text-muted">{noun}</span>
+            {picked.label}
+            <ChevronDown size={10} aria-hidden className="text-muted" />
+        </button>
     );
+}
+
+function runKindFilter(
+    value: RunKindFilter,
+    onChange: (v: RunKindFilter) => void,
+    counts: Record<RunKindFilter, number>
+): FilterSlot {
+    return filterSlot({
+        label: "Show runs of kind",
+        noun: "kind",
+        tag: "data-jarvis-run-kind",
+        options: RUN_KIND_FILTERS.map((k) => ({ value: k, label: k, count: counts[k] })),
+        value,
+        onChange,
+    });
 }
 
 function Region({
@@ -302,6 +350,7 @@ function Region({
     only,
     onOnly,
     tools,
+    filter,
     children,
 }: {
     id: RegionId;
@@ -314,6 +363,7 @@ function Region({
     only: boolean;
     onOnly: () => void;
     tools?: ReactNode;
+    filter?: FilterSlot;
     children: ReactNode;
 }) {
     const region = REGIONS[id];
@@ -322,15 +372,17 @@ function Region({
     );
     return (
         <section data-jarvis-brief-region={id} className={cn("flex flex-col", gap)}>
-            {tools != null ? (
+            {tools != null || filter?.menu ? (
                 // a control cannot nest inside the head, which is itself a button
                 <div className="flex items-center gap-2.5">
                     {head}
                     {tools}
+                    {filter?.menu ? filter.node : null}
                 </div>
             ) : (
                 head
             )}
+            {filter != null && !filter.menu ? filter.node : null}
             {empty ? (
                 <div className="flex items-center gap-[11px] rounded-[10px] border border-dashed border-edge-strong bg-surface px-4 py-3">
                     {region.ok ? (
@@ -713,10 +765,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     }, []);
     // the project filter narrows before the cap, so a project with older initiatives still fills the window
     const [pickedProject, setPickedProject] = useAtom(briefInitiativeProjectAtom);
-    const projectOptions = useMemo(
-        () => initiativeProjects(showArchived ? [...efforts, ...archivedCards] : efforts),
+    const projectCards = useMemo(
+        () => (showArchived ? [...efforts, ...archivedCards] : efforts),
         [efforts, archivedCards, showArchived]
     );
+    const projectOptions = useMemo(() => initiativeProjects(projectCards), [projectCards]);
+    const perProject = useMemo(() => projectCounts(projectCards), [projectCards]);
     // a pick whose last initiative went away reads as every project rather than an empty region
     const project = pickedProject != null && projectOptions.includes(pickedProject) ? pickedProject : null;
     const projectEfforts = useMemo(() => efforts.filter((e) => keepsProject(project, e.project)), [efforts, project]);
@@ -735,6 +789,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 ? { rows: [], more: 0 }
                 : sessionWindow(runKindLegs(model_, runKind), sessionsOpen, Date.now()),
         [model_, sessionsOpen, runKind]
+    );
+    const runCounts = useMemo(
+        () =>
+            runKindCounts(
+                (model_?.activeRuns ?? []).map((r) => r.mode),
+                model_?.directAgents.length ?? 0
+            ),
+        [model_]
     );
     // moment 1: which rows are new to YOU. Excludes `behind` deliberately — that region is entirely
     // since-your-last-visit by construction, so marking it would mark every row and its own label
@@ -784,6 +846,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         () => (model_?.shipped ?? []).filter((s) => keepsRunKind(shippedKind, s.mode)),
         [model_, shippedKind]
     );
+    const shippedCounts = useMemo(() => runKindCounts((model_?.shipped ?? []).map((s) => s.mode)), [model_]);
+    const shippedFilter = runKindFilter(shippedKind, setShippedKind, shippedCounts);
     const shipped = useMemo(
         () => capRegion(shippedAll, SHIPPED_CAP, shippedOpen || filtering),
         [shippedAll, shippedOpen, filtering]
@@ -1582,23 +1646,24 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         meta={paused > 0 ? `${paused} paused` : "all moving"}
                                         only={only === "initiatives"}
                                         onOnly={() => toggleOnly("initiatives")}
-                                        tools={
-                                            projectOptions.length > 1 ? (
-                                                <FilterToggle
-                                                    label="Show initiatives of project"
-                                                    tag="data-jarvis-initiative-project"
-                                                    options={[
-                                                        { value: null, label: "all" },
-                                                        ...projectOptions.map((p) => ({
-                                                            value: p,
-                                                            label: p || "no project",
-                                                        })),
-                                                    ]}
-                                                    value={project}
-                                                    onChange={setPickedProject}
-                                                    wrap
-                                                />
-                                            ) : undefined
+                                        filter={
+                                            projectOptions.length > 1
+                                                ? filterSlot({
+                                                      label: "Show initiatives of project",
+                                                      noun: "project",
+                                                      tag: "data-jarvis-initiative-project",
+                                                      options: [
+                                                          { value: null, label: "all", count: projectCards.length },
+                                                          ...projectOptions.map((p) => ({
+                                                              value: p,
+                                                              label: p || "no project",
+                                                              count: perProject.get(p),
+                                                          })),
+                                                      ],
+                                                      value: project,
+                                                      onChange: setPickedProject,
+                                                  })
+                                                : undefined
                                         }
                                     >
                                         <div className="flex flex-col">
@@ -1772,7 +1837,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         meta={`${liveN} live`}
                                         only={only === "sessions"}
                                         onOnly={() => toggleOnly("sessions")}
-                                        tools={<RunKindToggle value={runKind} onChange={setRunKind} />}
+                                        filter={runKindFilter(runKind, setRunKind, runCounts)}
                                     >
                                         <div className="flex flex-col">
                                             {filtering && view.sessionLines.length === 0 ? <NoMatch /> : null}
@@ -1896,10 +1961,15 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                 <span className="font-normal tracking-[.04em]">
                                                     {shippedAll.length}
                                                 </span>
-                                                <span className="ml-auto font-normal normal-case tracking-normal">
-                                                    <RunKindToggle value={shippedKind} onChange={setShippedKind} />
-                                                </span>
+                                                {shippedFilter.menu ? (
+                                                    <span className="ml-auto font-normal normal-case tracking-normal">
+                                                        {shippedFilter.node}
+                                                    </span>
+                                                ) : null}
                                             </div>
+                                            {shippedFilter.menu ? null : (
+                                                <div className="px-[11px] pb-1">{shippedFilter.node}</div>
+                                            )}
                                             {shippedAll.length === 0 ? (
                                                 <div className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">
                                                     {shippedKind === "all"

@@ -3,6 +3,7 @@
 
 import { resmonOpenAtom } from "@/app/cockpit/resmonstore";
 import { registerModal } from "@/app/modals/modalstack";
+import { contextMenuAtom } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel, SurfaceKey } from "@/app/view/agents/agents";
 import { docReviewAtom } from "@/app/view/agents/docreview";
@@ -86,6 +87,7 @@ describe("deriveKeyContext", () => {
         globalStore.set(docReviewAtom, null);
         globalStore.set(petPeekOpenAtom, false);
         globalStore.set(resmonOpenAtom, false);
+        globalStore.set(contextMenuAtom, null);
         vi.unstubAllGlobals();
     });
 
@@ -150,6 +152,15 @@ describe("deriveKeyContext", () => {
         const unbind = initKeybindingDispatcher(model);
         expect(deriveKeyContext().modalOpen).toBe(false);
         globalStore.set(model.newInitiativeOpenAtom, true);
+        expect(deriveKeyContext().modalOpen).toBe(true);
+        unbind();
+    });
+
+    // the Brief's filter menu and row menus: their arrows and Escape belong to the menu, not the list
+    it("counts an open context menu as a modal", () => {
+        const unbind = bindModel("jarvis");
+        expect(deriveKeyContext().modalOpen).toBe(false);
+        globalStore.set(contextMenuAtom, { items: [], x: 0, y: 0 });
         expect(deriveKeyContext().modalOpen).toBe(true);
         unbind();
     });
