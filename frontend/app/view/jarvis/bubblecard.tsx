@@ -68,7 +68,7 @@ export function BubbleCard({
                 onClick={onClick}
                 className="flex w-full cursor-pointer flex-col gap-1.5 rounded-[12px] px-3 py-[11px] text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-                <BubbleLabel label={label} dot={dot} tone={tone} className="text-[9px]" />
+                <BubbleLabel label={label} dot={dot} tone={tone} className="text-[10.5px]" />
                 {name ? (
                     <span {...mark("agent")} className="flex min-w-0 items-baseline gap-1.5">
                         <span
@@ -78,7 +78,7 @@ export function BubbleCard({
                             {name}
                         </span>
                         {project ? (
-                            <span {...mark("agent-project")} className="flex-none font-mono text-[10px] text-muted">
+                            <span {...mark("agent-project")} className="flex-none font-mono text-[10.5px] text-muted">
                                 {project}
                             </span>
                         ) : null}
@@ -90,7 +90,7 @@ export function BubbleCard({
                     {text}
                 </span>
                 {more > 0 ? (
-                    <span {...mark("more")} className="font-mono text-[10px] text-muted">
+                    <span {...mark("more")} className="font-mono text-[10.5px] text-muted">
                         +{more} more waiting
                     </span>
                 ) : null}

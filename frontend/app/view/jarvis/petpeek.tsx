@@ -279,7 +279,7 @@ function QueueRow({
                     <div title={row.source} className="truncate text-[12px] font-semibold text-primary">
                         <InlineMarkdown text={row.source} />
                     </div>
-                    <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[10px] text-muted">
+                    <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[10.5px] text-muted">
                         <span
                             className={cn("h-1.5 w-1.5 flex-none rounded-full", ROW_DOT[row.kind] ?? "bg-edge-strong")}
                         />
@@ -312,7 +312,7 @@ function QueueRow({
 function EventMeta({ event, now, className }: { event: PetEvent; now: number; className?: string }) {
     const tone = eventTone(event);
     return (
-        <span className={cn("flex items-center gap-1.5 font-mono text-[10px] text-muted", className)}>
+        <span className={cn("flex items-center gap-1.5 font-mono text-[10.5px] text-muted", className)}>
             {tone.dot != null ? <span className={cn("h-1.5 w-1.5 flex-none rounded-full", tone.dot)} /> : null}
             <span className={event.kind === "notify" ? tone.label : undefined}>{eventLabel(event)}</span>
             <span>· {ageLabel(Math.max(0, now - event.at))}</span>
@@ -398,7 +398,7 @@ function LatestUpdate({
             onClick={onClick}
             className={cn("px-3.5 pb-3 pt-2.5", onClick != null && "cursor-pointer hover:bg-surface-hover")}
         >
-            <div className="mb-1 flex items-center gap-1.5 font-mono text-[9.5px] text-muted">
+            <div className="mb-1 flex items-center gap-1.5 font-mono text-[10.5px] text-muted">
                 <EventLabel event={event} />
                 <span>· {ageLabel(Math.max(0, now - event.at))}</span>
             </div>
@@ -447,10 +447,10 @@ function UpdatesDrawer({
                 onClick={onToggle}
                 className="flex min-h-8 w-full items-center gap-2 pl-3.5 pr-3 text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
             >
-                <span className="flex-none font-mono text-[9.5px] font-semibold uppercase tracking-[0.09em] text-muted">
+                <span className="flex-none font-mono text-[10.5px] font-semibold uppercase tracking-[0.09em] text-muted">
                     {label}
                 </span>
-                <span className="flex-none rounded-full border border-edge-mid px-1.5 font-mono text-[9.5px] font-semibold leading-[15px] text-ink-mid">
+                <span className="flex-none rounded-full border border-edge-mid px-1.5 font-mono text-[10.5px] font-semibold leading-[16px] text-ink-mid">
                     {updates.length}
                 </span>
                 {/* the newest update stands in for the drawer while it is shut. Open, it would be the very
@@ -489,7 +489,7 @@ function KeyHints({ hints }: { hints: { keys: string[]; label: string }[] }) {
                     {hint.keys.map((key) => (
                         <kbd
                             key={key}
-                            className="rounded-[4px] border border-edge-mid bg-surface px-1 font-mono text-[10px] leading-[15px] text-ink-mid"
+                            className="rounded-[4px] border border-edge-mid bg-surface px-1 font-mono text-[10.5px] leading-[16px] text-ink-mid"
                         >
                             {key}
                         </kbd>
@@ -835,7 +835,7 @@ export function PetPeek({
                                                         {condition.readout ? (
                                                             <span
                                                                 title="this condition has no remedy — it is a readout"
-                                                                className="mt-px flex-none font-mono text-[9.5px] text-muted"
+                                                                className="mt-px flex-none font-mono text-[10.5px] text-muted"
                                                             >
                                                                 no action
                                                             </span>

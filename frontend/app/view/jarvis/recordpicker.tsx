@@ -50,7 +50,7 @@ export function RecordPicker({ onPick, onCancel }: { onPick: (dossierId: string)
                         onClick={() => onPick(r.id)}
                         className="flex cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1 text-left transition-colors duration-[140ms] hover:bg-surface-hover"
                     >
-                        <span className="flex-none font-mono text-[10px] text-accent-soft">{r.id.slice(0, 8)}</span>
+                        <span className="flex-none font-mono text-[10.5px] text-accent-soft">{r.id.slice(0, 8)}</span>
                         <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">{r.objective}</span>
                     </button>
                 ))

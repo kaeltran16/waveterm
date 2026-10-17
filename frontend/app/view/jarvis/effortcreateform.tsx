@@ -10,6 +10,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { projectListAtom } from "@/app/view/agents/projectsstore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { Check } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 import { loadBriefingAsync, stateRpcTimeoutMs } from "./briefingstore";
 import { briefUndo } from "./briefundo";
@@ -246,11 +247,13 @@ export function EffortCreateForm({
                                             >
                                                 <span
                                                     className={cn(
-                                                        "flex h-[13px] w-[13px] flex-none items-center justify-center rounded-[3px] border text-[10px] font-bold text-background",
+                                                        "flex h-[13px] w-[13px] flex-none items-center justify-center rounded-[3px] border text-background",
                                                         l.checked ? "border-success bg-success" : "border-edge-strong"
                                                     )}
                                                 >
-                                                    {l.checked ? "✓" : ""}
+                                                    {l.checked ? (
+                                                        <Check className="h-[11px] w-[11px]" strokeWidth={3} aria-hidden />
+                                                    ) : null}
                                                 </span>
                                                 <span
                                                     className={cn(

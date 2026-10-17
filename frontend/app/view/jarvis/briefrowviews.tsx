@@ -111,7 +111,7 @@ function WorkOnButton({ resume, focused, onWork }: { resume: InitiativeResume; f
             )}
         >
             {go ? "Go to it" : "Work on"}
-            <span className="rounded-[4px] border border-current/35 px-1 text-[9.5px] leading-[14px]">w</span>
+            <span className="rounded-[4px] border border-current/35 px-1 text-[10.5px] leading-[15px]">w</span>
         </button>
     );
 }

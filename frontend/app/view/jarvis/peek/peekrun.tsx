@@ -62,7 +62,7 @@ function PhaseCell({ phase }: { phase: PeekPhase }) {
             data-peek-run-phase={phase.label}
             className="flex min-w-0 flex-col gap-1 rounded-[8px] border border-edge-mid px-2.5 py-2"
         >
-            <span className="font-mono text-[10px] uppercase tracking-[.06em] text-muted">{phase.label}</span>
+            <span className="font-mono text-[10.5px] uppercase tracking-[.06em] text-muted">{phase.label}</span>
             <span className={cn("flex min-w-0 items-center gap-1.5 text-[12px] font-semibold", TONE_TEXT[phase.tone])}>
                 <ToneMark tone={phase.tone} size={11} />
                 <span className="truncate">{phase.state}</span>
