@@ -3,20 +3,17 @@
 
 import { describe, expect, it } from "vitest";
 import {
-    addMark,
     boxToMark,
     canvasHandoffLine,
     cropRect,
     feedbackRelPath,
     nextFeedbackName,
-    removeMark,
-    setMarkNote,
     visibleRect,
     type Mark,
 } from "./canvasmarks";
 
-function mark(note: string, x = 0): Mark {
-    return { x, y: 0, w: 20, h: 20, note };
+function mark(note: string): Mark {
+    return { x: 0, y: 0, w: 20, h: 20, note };
 }
 
 describe("boxToMark", () => {
@@ -28,25 +25,6 @@ describe("boxToMark", () => {
         expect(boxToMark({ x0: 0, y0: 0, x1: 10, y1: 40 })).toBeNull();
         expect(boxToMark({ x0: 0, y0: 0, x1: 40, y1: 10 })).toBeNull();
         expect(boxToMark({ x0: 0, y0: 0, x1: 11, y1: 11 })).toEqual({ x: 0, y: 0, w: 11, h: 11, note: "" });
-    });
-});
-
-describe("mark list", () => {
-    it("appends a big enough box and ignores a click-sized one", () => {
-        const one = addMark([], { x0: 0, y0: 0, x1: 11, y1: 11 });
-        expect(one).toHaveLength(1);
-        expect(addMark(one, { x0: 0, y0: 0, x1: 10, y1: 40 })).toBe(one);
-    });
-
-    it("removes by index and keeps the rest in order", () => {
-        expect(removeMark([mark("a"), mark("b"), mark("c")], 1).map((m) => m.note)).toEqual(["a", "c"]);
-    });
-
-    it("sets one mark's note", () => {
-        const marks = [mark("a"), mark("b")];
-        const next = setMarkNote(marks, 1, "too wide");
-        expect(next.map((m) => m.note)).toEqual(["a", "too wide"]);
-        expect(marks[1].note).toBe("b");
     });
 });
 
@@ -73,21 +51,15 @@ describe("feedbackRelPath", () => {
 });
 
 describe("canvasHandoffLine", () => {
-    it("numbers the marks, names an empty note, and stays one line", () => {
-        const line = canvasHandoffLine(".superpowers/design/t/feedback/003.png", "Main.dc.html", [
-            mark("too wide"),
-            mark("  "),
-            mark("a\nb"),
-        ]);
-        expect(line).toBe(
-            "look at .superpowers/design/t/feedback/003.png — marks on Main.dc.html: 1 too wide; 2 (no note); 3 a b"
+    it("names the board and the note, and stays one line", () => {
+        expect(canvasHandoffLine(".superpowers/design/t/feedback/003.png", "Main.dc.html", mark("a\nb  c"))).toBe(
+            "look at .superpowers/design/t/feedback/003.png — mark on Main.dc.html: a b c"
         );
     });
 
-    // only the line matters: a ; inside a note is kept as written
-    it("keeps a semicolon in a note verbatim", () => {
-        expect(canvasHandoffLine("f.png", "Main.dc.html", [mark("a; b")])).toBe(
-            "look at f.png — marks on Main.dc.html: 1 a; b"
+    it("names an empty note", () => {
+        expect(canvasHandoffLine("f.png", "Main.dc.html", mark("  "))).toBe(
+            "look at f.png — mark on Main.dc.html: (no note)"
         );
     });
 });

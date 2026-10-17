@@ -7,7 +7,6 @@ import type { Mark } from "./canvasmarks";
 import {
     attachCanvas,
     canvasOwner,
-    clearMarks,
     detachCanvas,
     focusedCanvas,
     focusedCanvasMode,
@@ -15,6 +14,7 @@ import {
     selectCanvasBoard,
     selectCanvasTab,
     setCanvasMode,
+    setMark,
     setMarking,
     stepCanvasBoard,
     updateCanvas,
@@ -29,8 +29,8 @@ const BOARDS = [
     { name: "States.dc.html", x: 0, y: 0, w: 1440, h: 900 },
 ];
 
-function withMarks(id: string): void {
-    updateCanvas(id, (s) => ({ ...s, marking: true, marks: [MARK], boards: BOARDS }));
+function withMark(id: string): void {
+    updateCanvas(id, (s) => ({ ...s, marking: true, mark: MARK, boards: BOARDS }));
 }
 
 afterEach(() => {
@@ -51,7 +51,7 @@ describe("attachCanvas", () => {
             lastModifiedMs: null,
             lastViewedMs: 100,
             marking: false,
-            marks: [],
+            mark: null,
             reloadKey: 0,
         });
     });
@@ -61,26 +61,26 @@ describe("attachCanvas", () => {
         expect(getCanvas("a1").board).toBe("States.dc.html");
     });
 
-    it("resets the board and marks for a new topic", () => {
+    it("resets the board and mark for a new topic", () => {
         attachCanvas("a1", { ...A, board: "States.dc.html" }, 100);
-        withMarks("a1");
+        withMark("a1");
         updateCanvas("a1", (s) => ({ ...s, base: BASE }));
         attachCanvas("a1", { topic: "u", dir: "/p/.superpowers/design/u", projectDir: "/p" }, 200);
         const s = getCanvas("a1");
         expect(s.board).toBeNull();
-        expect(s.marks).toEqual([]);
+        expect(s.mark).toBeNull();
         expect(s.base).toBeNull();
     });
 
     it("keeps the base and the current board for the same topic", () => {
         attachCanvas("a1", { ...A, board: "States.dc.html" }, 100);
-        withMarks("a1");
+        withMark("a1");
         updateCanvas("a1", (s) => ({ ...s, base: BASE }));
         attachCanvas("a1", A, 200);
         const s = getCanvas("a1");
         expect(s.base).toBe(BASE);
         expect(s.board).toBe("States.dc.html");
-        expect(s.marks).toEqual([MARK]);
+        expect(s.mark).toEqual(MARK);
     });
 
     it("drops the base when the same topic is re-attached from another project", () => {
@@ -99,15 +99,15 @@ describe("setCanvasMode", () => {
         expect(getCanvas("a1").lastViewedMs).toBe(500);
     });
 
-    it("drops marking and marks on leaving it", () => {
+    it("drops marking and the mark on leaving it", () => {
         attachCanvas("a1", A, 100);
         setCanvasMode("a1", "canvas", 500);
-        withMarks("a1");
+        withMark("a1");
         setCanvasMode("a1", "terminal", 600);
         const s = getCanvas("a1");
         expect(s.mode).toBe("terminal");
         expect(s.marking).toBe(false);
-        expect(s.marks).toEqual([]);
+        expect(s.mark).toBeNull();
     });
 
     it("changes only the agent it names", () => {
@@ -128,37 +128,37 @@ describe("setCanvasMode", () => {
 });
 
 describe("board switches", () => {
-    it("steps the board and drops the marks", () => {
+    it("steps the board and drops the mark", () => {
         attachCanvas("a1", A, 100);
-        withMarks("a1");
+        withMark("a1");
         stepCanvasBoard("a1", 1);
         expect(getCanvas("a1").board).toBe("States.dc.html");
-        expect(getCanvas("a1").marks).toEqual([]);
+        expect(getCanvas("a1").mark).toBeNull();
     });
 
-    it("selects a board and drops the marks", () => {
+    it("selects a board and drops the mark", () => {
         attachCanvas("a1", A, 100);
-        withMarks("a1");
+        withMark("a1");
         selectCanvasBoard("a1", "States.dc.html");
         expect(getCanvas("a1").board).toBe("States.dc.html");
-        expect(getCanvas("a1").marks).toEqual([]);
+        expect(getCanvas("a1").mark).toBeNull();
     });
 
     it("opens on the first board's own tab, and All keeps the selected board", () => {
         attachCanvas("a1", A, 100);
-        withMarks("a1");
+        withMark("a1");
         expect(getCanvas("a1").all).toBe(false);
         selectCanvasBoard("a1", "States.dc.html");
-        withMarks("a1");
+        withMark("a1");
         selectCanvasTab("a1", "all");
-        expect(getCanvas("a1")).toMatchObject({ all: true, board: "States.dc.html", marks: [] });
+        expect(getCanvas("a1")).toMatchObject({ all: true, board: "States.dc.html", mark: null });
         selectCanvasTab("a1", "Main.dc.html");
         expect(getCanvas("a1")).toMatchObject({ all: false, board: "Main.dc.html" });
     });
 
     it("picking a board on the All canvas keeps the All view", () => {
         attachCanvas("a1", A, 100);
-        withMarks("a1");
+        withMark("a1");
         selectCanvasTab("a1", "all");
         selectCanvasBoard("a1", "States.dc.html");
         expect(getCanvas("a1")).toMatchObject({ all: true, board: "States.dc.html" });
@@ -166,9 +166,9 @@ describe("board switches", () => {
 
     it("steps from the last board to All and on to the first", () => {
         attachCanvas("a1", { ...A, board: "States.dc.html" }, 100);
-        withMarks("a1");
+        withMark("a1");
         stepCanvasBoard("a1", 1);
-        expect(getCanvas("a1")).toMatchObject({ all: true, marks: [] });
+        expect(getCanvas("a1")).toMatchObject({ all: true, mark: null });
         stepCanvasBoard("a1", 1);
         expect(getCanvas("a1")).toMatchObject({ all: false, board: "Main.dc.html" });
     });
@@ -184,20 +184,20 @@ describe("board switches", () => {
 });
 
 describe("marking", () => {
-    it("drops the marks when marking ends", () => {
+    it("drops the mark when marking ends", () => {
         attachCanvas("a1", A, 100);
-        withMarks("a1");
+        withMark("a1");
         setMarking("a1", false);
         expect(getCanvas("a1").marking).toBe(false);
-        expect(getCanvas("a1").marks).toEqual([]);
+        expect(getCanvas("a1").mark).toBeNull();
     });
 
-    it("clears the marks and keeps marking on", () => {
+    it("clears the mark and keeps marking on", () => {
         attachCanvas("a1", A, 100);
-        withMarks("a1");
-        clearMarks("a1");
+        withMark("a1");
+        setMark("a1", null);
         expect(getCanvas("a1").marking).toBe(true);
-        expect(getCanvas("a1").marks).toEqual([]);
+        expect(getCanvas("a1").mark).toBeNull();
     });
 });
 

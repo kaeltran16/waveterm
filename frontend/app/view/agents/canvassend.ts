@@ -1,12 +1,13 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Send: a picture of the board with its marks goes to <canvas>/feedback/NNN.png, then one line naming it is
-// typed into the agent. Every failure throws before the line is typed, and the marks stay for a retry.
+// Send: a picture of the board with its mark goes to <canvas>/feedback/NNN.png, then one line naming it goes
+// to the agent as a prompt: its mod runs it, leaving the composer alone, and a session with no mod has it
+// typed. Every failure throws before the line is sent, and the mark stays for a retry.
 
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { arrayToBase64, makeConnRoute, stringToBase64 } from "@/util/util";
+import { arrayToBase64, makeConnRoute } from "@/util/util";
 import { invoke } from "@tauri-apps/api/core";
 import type { AgentVM } from "./agentsviewmodel";
 import {
@@ -27,7 +28,7 @@ export type SendIO = {
     mkdir(path: string): Promise<void>;
     list(path: string): Promise<string[]>;
     write(path: string, bytes: Uint8Array): Promise<void>;
-    type(blockId: string, text: string): Promise<void>;
+    prompt(blockId: string, text: string): Promise<void>;
 };
 
 function errText(e: unknown): string {
@@ -88,24 +89,24 @@ export const tauriSendIO: SendIO = {
     async write(path, bytes) {
         await RpcApi.FileWriteCommand(TabRpcClient, { info: { path }, data64: arrayToBase64(bytes) });
     },
-    async type(blockId, text) {
-        await RpcApi.ControllerInputCommand(TabRpcClient, { blockid: blockId, inputdata64: stringToBase64(text) });
+    async prompt(blockId, text) {
+        await RpcApi.AgentPromptCommand(TabRpcClient, { blockid: blockId, text });
     },
 };
 
-export async function sendCanvasMarks(agent: AgentVM, io: SendIO = tauriSendIO): Promise<void> {
+export async function sendCanvasMark(agent: AgentVM, io: SendIO = tauriSendIO): Promise<void> {
     const s = getCanvas(agent.id);
-    if (s == null || s.marks.length === 0) {
+    if (s?.mark == null) {
         throw new Error("Nothing to send");
     }
     if (!agent.blockId) {
-        throw new Error("This agent has no terminal to type into");
+        throw new Error("This agent has no session to send to");
     }
     const rect = io.boardRect();
     if (rect == null) {
         throw new Error("The board isn't on screen");
     }
-    // first, while the overlay and the marks are still drawn
+    // first, while the overlay and the mark are still drawn
     const png = await step("Couldn't capture the board", async () => io.crop(await io.capture(), rect));
     const dir = canvasFeedbackDir(s.dir);
     const name = await step(`Couldn't save the picture in ${dir}`, async () => {
@@ -114,7 +115,7 @@ export async function sendCanvasMarks(agent: AgentVM, io: SendIO = tauriSendIO):
         await io.write(canvasFeedbackFile(s.dir, next), new Uint8Array(await png.arrayBuffer()));
         return next;
     });
-    const line = canvasHandoffLine(feedbackRelPath(s.topic, name), shownBoard(s).name, s.marks);
-    await step(`Couldn't type into ${agent.name}`, () => io.type(agent.blockId!, line + "\r"));
+    const line = canvasHandoffLine(feedbackRelPath(s.topic, name), shownBoard(s).name, s.mark);
+    await step(`Couldn't send to ${agent.name}`, () => io.prompt(agent.blockId!, line));
     setCanvasMode(agent.id, "terminal", Date.now());
 }

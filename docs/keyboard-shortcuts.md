@@ -152,8 +152,8 @@ A link inside an item view does a full open, even with `Ctrl` held.
 |---|---|
 | `c` | Show the agent's canvas; from the canvas, back to the terminal |
 | `[` / `]` | Previous / next board |
-| `m` | Mark parts of the board; in mark mode, stop marking |
-| `Ctrl`+`Enter` | Send the marks to the agent (from mark mode) |
+| `m` | Mark part of the board; in mark mode, stop marking |
+| `Enter` / `Esc` | In the note under a drawn box: send the mark to the agent / drop it |
 
 ### Agent: brainstorm mode
 

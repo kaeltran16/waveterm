@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The DOM half of the review dialog's quoted notes (docreviewnotes.ts is the model): reading a selection as
-// offsets into the document's text, painting the quoted passages, the note field under a selection, and the
-// rail's list of notes.
+// offsets into the document's text, painting the quoted passages, the note field under a selection (its card
+// is shared with the canvas's mark note), and the rail's list of notes.
 
 import { cn } from "@/util/util";
 import { ChevronDown, X } from "lucide-react";
@@ -153,32 +153,62 @@ export function NoteField(p: {
         inputRef.current?.focus({ preventScroll: true });
     }, [p.pending]);
 
-    // stopped so the dialog's window listener neither hides the dialog nor submits; ctrl+enter passes through
-    const onKeyDown = (e: KeyboardEvent) => {
-        if (plainKey(e, "Enter")) {
-            e.preventDefault();
-            e.stopPropagation();
-            p.onAdd();
-        } else if (e.key === "Escape") {
-            e.stopPropagation();
-            p.onCancel();
-        }
-    };
-
     return (
         <div
             ref={fieldRef}
             data-doc-note-field
             onMouseUp={(e) => e.stopPropagation()}
-            className="absolute z-[2] flex w-[340px] flex-col gap-2 rounded-[8px] border border-edge-strong bg-surface-raised p-2 shadow-popover-sm"
+            className={cn("z-[2]", NOTE_CARD)}
         >
-            <input
-                ref={inputRef}
-                type="text"
+            <NoteCardBody
+                inputRef={inputRef}
                 value={p.draft}
-                onChange={(e) => p.onDraft(e.target.value)}
+                onChange={p.onDraft}
+                onSubmit={p.onAdd}
+                onCancel={p.onCancel}
+                label="Note on the selected passage"
+                action="Add note"
+            />
+        </div>
+    );
+}
+
+// the floating note card a quoted passage and a drawn canvas mark both open; the caller positions it
+export const NOTE_CARD =
+    "absolute flex w-[340px] flex-col gap-2 rounded-[8px] border border-edge-strong bg-surface-raised p-2 shadow-popover-sm";
+
+export function NoteCardBody(p: {
+    inputRef: RefObject<HTMLInputElement | null>;
+    value: string;
+    onChange: (v: string) => void;
+    onSubmit: () => void;
+    onCancel: () => void;
+    label: string;
+    action: string;
+    busy?: boolean;
+}) {
+    // stopped so the dialog's window listener neither hides the dialog nor submits; ctrl+enter passes through
+    const onKeyDown = (e: KeyboardEvent) => {
+        if (plainKey(e, "Enter")) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!p.busy) {
+                p.onSubmit();
+            }
+        } else if (e.key === "Escape") {
+            e.stopPropagation();
+            p.onCancel();
+        }
+    };
+    return (
+        <>
+            <input
+                ref={p.inputRef}
+                type="text"
+                value={p.value}
+                onChange={(e) => p.onChange(e.target.value)}
                 onKeyDown={onKeyDown}
-                aria-label="Note on the selected passage"
+                aria-label={p.label}
                 placeholder={NOTE_PLACEHOLDER}
                 className="w-full rounded-[6px] border border-accent bg-background px-2 py-1.5 text-[13px] leading-[1.5] text-primary outline-none placeholder:text-muted"
             />
@@ -195,16 +225,17 @@ export function NoteField(p: {
                 </button>
                 <button
                     type="button"
-                    onClick={p.onAdd}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-[6px] bg-accent px-[9px] py-[5px] text-[12px] font-semibold leading-[1.3] text-background hover:bg-accenthover"
+                    onClick={p.onSubmit}
+                    disabled={p.busy}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-[6px] bg-accent px-[9px] py-[5px] text-[12px] font-semibold leading-[1.3] text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-50"
                 >
-                    Add note
+                    {p.action}
                     <span className="rounded-[4px] bg-background/20 px-[5px] font-mono text-[10.5px] font-normal">
                         Enter
                     </span>
                 </button>
             </div>
-        </div>
+        </>
     );
 }
 

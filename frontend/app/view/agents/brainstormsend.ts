@@ -4,19 +4,28 @@
 // Every brainstorm action reaches the agent as one line typed into its terminal; Arc never writes brainstorm.json.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
+import { stringToBase64 } from "@/util/util";
 import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 import { brainstormLine, runPrefill, type BrainstormAction } from "./brainstormmodel";
 import type { BrainstormState } from "./brainstormstore";
-import { tauriSendIO, type SendIO } from "./canvassend";
 
-type TypeIO = Pick<SendIO, "type">;
+type TypeIO = { type(blockId: string, text: string): Promise<void> };
+
+// typed, not sent as a prompt: the spec has every brainstorm action reach the terminal as a typed line
+const tauriTypeIO: TypeIO = {
+    async type(blockId, text) {
+        await RpcApi.ControllerInputCommand(TabRpcClient, { blockid: blockId, inputdata64: stringToBase64(text) });
+    },
+};
 
 export async function sendBrainstorm(
     agent: AgentVM,
     action: BrainstormAction,
-    io: TypeIO = tauriSendIO
+    io: TypeIO = tauriTypeIO
 ): Promise<void> {
     const line = brainstormLine(action);
     if (line == null) {
@@ -46,7 +55,7 @@ export async function approveAndOpenRun(
     model: AgentsViewModel,
     agent: AgentVM,
     s: BrainstormState,
-    io: TypeIO = tauriSendIO
+    io: TypeIO = tauriTypeIO
 ): Promise<void> {
     await sendBrainstorm(agent, { kind: "approved" }, io);
     openRunLauncher(model, agent, s);
