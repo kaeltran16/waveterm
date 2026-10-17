@@ -16,6 +16,7 @@
 // Nothing is written until Save, and a refused save leaves the draft standing with the server's message.
 // Autonomy is not here: it is one policy for all work, set from the Brief header.
 
+import { Skeleton } from "@/app/element/skeleton";
 import { ModalShell } from "@/app/modals/modalshell";
 import { channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
@@ -680,9 +681,7 @@ export function BriefProfileModal({
                             {error}
                         </p>
                     ) : null}
-                    {!ready && error == null ? (
-                        <div className="h-24 animate-pulse rounded-[8px] bg-edge-strong motion-reduce:animate-none" />
-                    ) : null}
+                    {!ready && error == null ? <Skeleton className="h-24 rounded-[8px]" /> : null}
                     {isGlobal && globalDraft != null ? (
                         <>
                             <section className="flex flex-col gap-2">

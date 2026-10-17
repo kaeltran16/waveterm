@@ -10,6 +10,7 @@
 // All derivations are runsheetmodel.ts; this file maps them to DOM and to the verbs that already exist.
 
 import { PaneReveal } from "@/app/element/panereveal";
+import { Skeleton } from "@/app/element/skeleton";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -327,7 +328,7 @@ function FinalThumb({
             </span>
             <span className="flex min-w-0 items-center gap-[5px]">
                 <span className={cn("size-1.5 flex-none rounded-full", VERDICT_DOT[shot.verdict])} />
-                <span className="min-w-0 truncate font-mono text-[10px] text-secondary">{shot.name}</span>
+                <span className="min-w-0 truncate font-mono text-[10.5px] text-secondary">{shot.name}</span>
             </span>
         </button>
     );
@@ -839,8 +840,8 @@ function EmptyTasks({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }) {
     if (loading) {
         return (
             <div data-jarvis-brief-sheet-state="loading" className="flex flex-col gap-[11px] pt-0.5">
-                <span className="h-[30px] animate-pulse rounded-[8px] bg-edge-strong motion-reduce:animate-none" />
-                <span className="h-[30px] w-[72%] animate-pulse rounded-[8px] bg-edge-strong motion-reduce:animate-none" />
+                <Skeleton className="h-[30px] rounded-[8px]" />
+                <Skeleton className="h-[30px] w-[72%] rounded-[8px]" />
             </div>
         );
     }
@@ -867,7 +868,7 @@ function Evidence({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }) {
     if (ev == null) {
         return (
             <div data-jarvis-brief-sheet-state="loading" className="flex flex-col gap-[11px] pt-[18px]">
-                <span className="h-[30px] animate-pulse rounded-[8px] bg-edge-strong motion-reduce:animate-none" />
+                <Skeleton className="h-[30px] rounded-[8px]" />
                 <span className="text-[12px] text-ink-mid">Sealing this run's evidence…</span>
             </div>
         );

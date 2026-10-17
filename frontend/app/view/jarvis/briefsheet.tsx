@@ -17,6 +17,7 @@
 // of a launch, and its own docblock says so — the goal and its Run live in the composer that used to sit
 // directly below it on the Stage.
 
+import { Skeleton } from "@/app/element/skeleton";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildChannelsAskBindings } from "@/app/store/keybindings/bindings";
@@ -317,7 +318,7 @@ function SheetChannelPending({ channelId }: { channelId: string }) {
     }
     return (
         <div data-jarvis-brief-sheet-state="loading" className="flex min-h-0 flex-1 flex-col gap-2 p-4">
-            <span className="h-8 animate-pulse rounded-[8px] bg-edge-strong motion-reduce:animate-none" />
+            <Skeleton className="h-8 rounded-[8px]" />
             <span className="text-[12px] text-secondary">Reading this project…</span>
         </div>
     );
