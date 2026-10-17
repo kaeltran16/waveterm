@@ -51,11 +51,6 @@ export const routeTouchedAtom = atom(false) as PrimitiveAtom<boolean>;
 // setup is the failure mode being guarded against.
 export const configTouchedAtom = atom(false) as PrimitiveAtom<boolean>;
 
-export function setParallelism(next: number): void {
-    globalStore.set(configTouchedAtom, true);
-    globalStore.set(parallelismAtom, clampParallelism(next));
-}
-
 export function setRunShape(next: RunShape): void {
     globalStore.set(configTouchedAtom, true);
     globalStore.set(runShapeAtom, next);
@@ -152,15 +147,6 @@ export function setRunRoute(next: RoutePin | null): void {
     globalStore.set(configTouchedAtom, true);
     globalStore.set(routeTouchedAtom, true);
     globalStore.set(runRouteAtom, next);
-}
-
-// A launch blocked for want of a usable route. The composer pairs this with revealing the launcher (the
-// picker only exists while the launcher is on the Stage), and RoutePicker's open effect runs on mount, so
-// a bump that lands before the picker exists still opens it.
-export const routeOpenRequestAtom = atom(0) as PrimitiveAtom<number>;
-
-export function requestRouteOpen(): void {
-    globalStore.set(routeOpenRequestAtom, (n) => n + 1);
 }
 
 // Every control is per-channel: carrying an orchestrator-with-6-workers setup onto the next channel

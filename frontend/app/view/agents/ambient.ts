@@ -128,6 +128,3 @@ export function makeAmbientProvider(
         },
     };
 }
-
-// The pre-load state: no data, so no tags anywhere. Identical to the provider over an empty vault.
-export const emptyAmbientProvider: AmbientProvider = makeAmbientProvider(null);

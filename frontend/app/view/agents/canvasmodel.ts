@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Pure: what the canvas pane derives from a design-local folder, its server, and the agent's canvas state.
+// Pure: what the canvas pane derives from a design canvas folder, its server, and the agent's canvas state.
 
 import type { CanvasState } from "./canvasstore";
 
@@ -55,7 +55,7 @@ function placeBoards(entries: { name: string; entry: unknown }[]): CanvasBoard[]
     return boards;
 }
 
-// canvas.json is written by the design-local skill, not by Arc, so anything malformed reads as the one board
+// canvas.json is written by the design skill, not by Arc, so anything malformed reads as the one board
 // every canvas has rather than as an error
 export function boardsFromCanvasJson(json: unknown): CanvasBoard[] {
     const fallback = [MAIN_FALLBACK];

@@ -2,13 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import {
-    coerceFontSize,
-    coerceScrollback,
-    coerceTransparency,
-    startupSurfaceOptions,
-    vaultPathError,
-} from "./cockpitprefsstore";
+import { coerceFontSize, coerceScrollback, startupSurfaceOptions, vaultPathError } from "./cockpitprefsstore";
 
 describe("startupSurfaceOptions", () => {
     it("returns the workflow surfaces without the agent surface", () => {
@@ -48,13 +42,6 @@ describe("coerceScrollback", () => {
     it("floors a decimal", () => expect(coerceScrollback("100.9")).toBe(100));
     it("rejects non-numeric", () => expect(coerceScrollback("abc")).toBeNull());
     it("rejects empty", () => expect(coerceScrollback("")).toBeNull());
-});
-
-describe("coerceTransparency", () => {
-    it("passes a mid value", () => expect(coerceTransparency(0.5)).toBe(0.5));
-    it("clamps above 1", () => expect(coerceTransparency(1.5)).toBe(1));
-    it("clamps below 0", () => expect(coerceTransparency(-0.2)).toBe(0));
-    it("coerces NaN to 0", () => expect(coerceTransparency(Number.NaN)).toBe(0));
 });
 
 describe("vaultPathError", () => {

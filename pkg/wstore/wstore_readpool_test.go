@@ -41,9 +41,9 @@ func TestReadPoolReadsCommittedData(t *testing.T) {
 // "read" helper at runtime instead of letting it silently bypass the write connection.
 func TestReadPoolRejectsWrites(t *testing.T) {
 	ctx := context.Background()
-	err := WithReadTx(ctx, func(tx *TxWrap) error {
+	_, err := WithReadTxRtn(ctx, func(tx *TxWrap) (struct{}, error) {
 		tx.Exec("INSERT INTO db_channel (oid, version, data) VALUES (?, ?, ?)", "ro-test", 1, "{}")
-		return tx.Err
+		return struct{}{}, tx.Err
 	})
 	if err == nil {
 		t.Fatal("expected a write through the read-only pool to error, got nil")

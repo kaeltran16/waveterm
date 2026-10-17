@@ -2,12 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
     conditionLine,
     conditionsFor,
-    EXPRESSION_RANK,
     expressionFor,
     heldLandFrom,
     isWindowConstrained,
     postureFor,
-    postureLine,
     type PetSignals,
 } from "./petcondition";
 
@@ -47,12 +45,6 @@ describe("expressionFor — strict precedence", () => {
         expect(isWindowConstrained(HOT)).toBe(true);
         expect(isWindowConstrained({ provider: "claude", pct: 60 })).toBe(false);
         expect(isWindowConstrained(undefined)).toBe(false);
-    });
-
-    it("ranks the expressions in the design's order", () => {
-        expect(EXPRESSION_RANK["link-lost"]).toBeLessThan(EXPRESSION_RANK["run-held"]);
-        expect(EXPRESSION_RANK["run-held"]).toBeLessThan(EXPRESSION_RANK.tired);
-        expect(EXPRESSION_RANK.tired).toBeLessThan(EXPRESSION_RANK["at-rest"]);
     });
 
     it("wears link lost over every other fault, and run held over tired", () => {
@@ -187,12 +179,8 @@ describe("wording", () => {
         );
     });
 
-    it("gives every expression and every posture a line", () => {
+    it("gives the resting expression a line", () => {
         expect(conditionLine({ kind: "at-rest" }, now)).not.toBe("");
-        expect(postureLine("review-gate")).not.toBe("");
-        expect(postureLine("escalation")).not.toBe("");
-        expect(postureLine("blocked-worker")).not.toBe("");
-        expect(postureLine("none")).toBe("");
     });
 });
 

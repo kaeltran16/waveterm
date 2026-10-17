@@ -1,9 +1,9 @@
 ---
-name: design-local
-description: Make a multi-artboard .dc.html design canvas locally, in a gitignored scratch folder, in the Claude Design format. Use when the user asks to /design-local something, or for a UI mockup or prototype of a new screen or a redesign.
+name: design
+description: Make a multi-artboard .dc.html design canvas locally, in a gitignored scratch folder, in the Claude Design format. Use when the user asks for a design canvas, or for a UI mockup or prototype of a new screen or a redesign.
 ---
 
-# Design, local
+# Design canvas
 
 A design canvas you write to a scratch folder and serve to the user's browser. It is scaffolding:
 it settles a design before code, and once the feature ships the code is the design. So a canvas

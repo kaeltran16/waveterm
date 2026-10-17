@@ -1,5 +1,5 @@
 ---
-name: cockpit-runs
+name: runs
 description: Use when you need to start an Arc run (quick, or orchestrator from a goal or a plan file), check on or cancel a run, or see what is waiting on the user — via `wsh runs`; or message a live agent tab and read its answer — via `wsh agents`.
 ---
 

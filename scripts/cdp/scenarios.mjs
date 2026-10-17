@@ -8653,7 +8653,7 @@ const briefDesignParity = {
         });
 
         // (h) the Runs kind filter narrows Runs to one badge, then all brings every row back
-        const KIND = (k) => `[...document.querySelectorAll('[data-jarvis-run-kind] button')].find((b) => b.innerText.trim() === '${k}')`;
+        const KIND = (k) => `document.querySelector('[data-jarvis-run-kind] [data-filter-option="${k}"]')`;
         const runBadges = `[...document.querySelectorAll('[data-jarvis-brief-row="session"]')].map((r) => r.querySelector(':scope > div > div > span')?.innerText.trim() ?? null)`;
         const before = await h.ev(runBadges);
         await h.ev(`${KIND("orchestrator")}?.click()`);
@@ -8670,10 +8670,10 @@ const briefDesignParity = {
         });
 
         // (i) the Initiatives project filter narrows to one project's initiatives, then all brings every row back
-        const PROJECT = (p) => `[...document.querySelectorAll('[data-jarvis-initiative-project] button')].find((b) => b.innerText.trim() === '${p}')`;
+        const PROJECT = (p) => `document.querySelector('[data-jarvis-initiative-project] [data-filter-option="${p}"]')`;
         const initiativeProjects = `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].map((r) => r.querySelector(':scope > div:first-child > span:nth-of-type(3)')?.innerText.trim().split(' · ').pop() ?? null)`;
         const options = await h.ev(
-            `[...document.querySelectorAll('[data-jarvis-initiative-project] button')].map((b) => b.innerText.trim())`
+            `[...document.querySelectorAll('[data-jarvis-initiative-project] [data-filter-option]')].map((b) => b.dataset.filterOption)`
         );
         const picked = options.find((o) => o !== "all" && o !== "no project") ?? null;
         const allRows = await h.ev(initiativeProjects);
@@ -22271,6 +22271,102 @@ const termLinkTooltip = {
     },
 };
 
+// The title host (element/titletooltip.tsx) on whichever titled control the cockpit shows uncovered: it is the
+// mechanism under test, not one control's text, so the scenario does not pin a title that may move.
+const LOOK_TITLED = `(() => {
+    const ok = (el) => {
+        if (el.closest(".monaco-editor, .xterm")) return false;
+        const r = el.getBoundingClientRect();
+        if (r.width < 4 || r.height < 4 || r.bottom > innerHeight || r.right > innerWidth) return false;
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return hit != null && (hit === el || el.contains(hit));
+    };
+    const all = [...document.querySelectorAll('[title]:not([title=""])')].filter(ok);
+    return { hover: all[0] ?? null, focus: all.find((el) => el.matches("button, a[href], [tabindex]")) ?? null };
+})()`;
+
+const titleTooltip = {
+    name: "title-tooltip",
+    surface: "cockpit",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await lookOpen(h, "cockpit");
+        const target = await lookEval(h, `
+            await nap(600);
+            const el = ${LOOK_TITLED}.hover;
+            if (el == null) return null;
+            el.setAttribute("data-look-title", "");
+            const r = el.getBoundingClientRect();
+            // somewhere to move off to that no title covers
+            let away = null;
+            for (let y = innerHeight - 40; y > 0 && away == null; y -= 37) {
+                for (let x = innerWidth / 2; x < innerWidth && away == null; x += 53) {
+                    const hit = document.elementFromPoint(x, y);
+                    if (hit != null && hit.closest("[title], [data-arc-title]") == null) away = { x: Math.round(x), y: Math.round(y) };
+                }
+            }
+            return { title: el.getAttribute("title"), x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), away };
+        `);
+        if (target == null) return [skipStep("hovering a titled control shows its title in the house tooltip", "no uncovered titled control on the cockpit")];
+        await lookHover(h, target.x, target.y);
+        const shown = await lookEval(h, `
+            const tip = () => document.querySelector("[data-title-tooltip]");
+            await until(() => tip() != null, 2000);
+            const el = document.querySelector("[data-look-title]");
+            return { tip: tip()?.innerText ?? null, titleWhileHovered: el?.getAttribute("title") ?? null };
+        `);
+        const look = await h.ev(LOOK_TOOLTIP_STYLE);
+        await h.shot(lookShot("title-tooltip"));
+        steps.push({
+            step: "hovering a titled control shows its title in the house tooltip, with the native one held back",
+            ok: shown.tip === target.title && shown.titleWhileHovered === null && tooltipLookOk(look),
+            detail: JSON.stringify({ target, ...shown, look }),
+        });
+
+        await lookHover(h, target.away?.x ?? 1, target.away?.y ?? 1);
+        const left = await lookEval(h, `
+            await until(() => document.querySelector("[data-title-tooltip]") == null, 2000);
+            const el = document.querySelector("[data-look-title]");
+            return { gone: document.querySelector("[data-title-tooltip]") == null, title: el?.getAttribute("title") ?? null, parked: el?.hasAttribute("data-arc-title") ?? null };
+        `);
+        steps.push({
+            step: "moving off hides the tooltip and gives the control its title back",
+            ok: left.gone && left.title === target.title && left.parked === false,
+            detail: JSON.stringify(left),
+        });
+
+        // a key first, so the focus that follows counts as keyboard focus (:focus-visible)
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
+        const focused = await lookEval(h, `
+            const el = ${LOOK_TITLED}.focus;
+            if (el == null) return null;
+            el.focus();
+            await until(() => document.querySelector("[data-title-tooltip]") != null, 2000);
+            const out = { title: el.getAttribute("title"), tip: document.querySelector("[data-title-tooltip]")?.innerText ?? null };
+            el.blur();
+            return out;
+        `);
+        steps.push(
+            focused == null
+                ? skipStep("keyboard focus on a titled control shows the tooltip and keeps the title", "no focusable titled control on the cockpit")
+                : {
+                      step: "keyboard focus on a titled control shows the tooltip and keeps the title for screen readers",
+                      ok: focused.tip != null && focused.tip === focused.title,
+                      detail: JSON.stringify(focused),
+                  }
+        );
+        return steps;
+    },
+    async teardown(h) {
+        await lookHover(h, 1, 1);
+        await h.ev(`document.querySelector("[data-look-title]")?.removeAttribute("data-look-title")`);
+    },
+};
+
 // TaskDetail and its DecisionLog, in the run sheet's record band: a run with one attributed record that has
 // decisions. The record is named by the goal's slug and lives in the vault across runs, so its decisions are
 // appended once.
@@ -22627,8 +22723,7 @@ const agentComposer = {
 // The run sheet's done face, its cancel, survivor and ask cards, and the Code surface's stale bar had no step that
 // shows them. Each scenario asserts only what the component says today; a polish task adds the step for what it
 // changes. A run's state is written onto a deferred run, the way final-shots seeds one, since no engine reaches it
-// on demand. RunBody's completion page and worker card are not here: only runs stored before slice 5c reach them
-// (sheetRoute).
+// on demand. Every run, the ones stored before slice 5c included, now opens in RunSheet; run-sheet-legacy shows it.
 
 // writes the run, reads it back, and reloads: UpdateObject publishes nothing, and the Brief reads a boot snapshot
 async function lookSeedRun(h, ctx, patch) {
@@ -22821,6 +22916,105 @@ const runSheetCardsLook = {
     },
     async teardown(h, ctx) {
         await teardownFixtureRun(h, ctx, "run-sheet-cards");
+    },
+};
+
+// the shapes the removed legacy route sent to the pipeline rail: a done run with no orchestration stamp, one parked at a
+// plan gate, and a pipeline run. No run created today takes them (createrun stamps orchestration "engine"), so each is
+// written onto a deferred run; every one must open in the run sheet and say its goal
+const runSheetLegacyLook = {
+    name: "run-sheet-legacy",
+    surface: "jarvis",
+    async arrange(h) {
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-run-sheet-legacy-")) };
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-run-sheet-legacy", projectpath: ctx.cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: LOOK_RUN_GOAL,
+                runtime: "claude",
+                mode: "orchestrator",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        if (ctx.arrangeError != null) return [{ step: "0. arrange", ok: false, detail: ctx.arrangeError }];
+        const steps = [];
+        const sheetRead = (done) =>
+            lookEval(h, `
+                const sheet = () => document.querySelector(${JSON.stringify(done ? '[data-run-sheet="done"]' : "[data-run-sheet]")});
+                await until(() => sheet() != null, 8000);
+                await nap(600);
+                const text = flat(sheet());
+                return {
+                    sheet: sheet() != null,
+                    goal: text.includes(${JSON.stringify(LOOK_RUN_GOAL)}),
+                    files: ${JSON.stringify(LOOK_RUN_FILES.map((f) => f.path))}.filter((p) => !text.includes(p)),
+                };
+            `);
+        const now = Date.now();
+        await lookSeedRun(h, ctx, {
+            status: "done",
+            mode: "orchestrator",
+            orchestration: "",
+            runtime: "claude",
+            report: "",
+            phases: [
+                { kind: "plan", state: "done", startedts: now - 655_000, donets: now - 520_000, artifacts: ["docs/plan.md"] },
+                { kind: "execute", state: "done", gate: true, startedts: now - 520_000, donets: now - 30_000 },
+            ],
+            evidence: {
+                capturedts: now,
+                hash: "",
+                summary: "Raised the retry budget to 8 and added Submit, with a test for each.",
+                files: LOOK_RUN_FILES,
+                addtotal: 20,
+                deltotal: 3,
+                verifs: LOOK_RUN_VERIFS,
+                artifacts: [{ path: "docs/retry.md", kind: "doc", size: 2140 }],
+                runtimems: 412_000,
+                durationms: 655_000,
+            },
+        });
+        let opened = await lookOpenRun(h, ctx);
+        let s = await sheetRead(true);
+        await h.shot(lookShot("run-sheet-legacy-done"));
+        steps.push({
+            step: "a done run stored before slice 5c opens in the run sheet with its goal and landed files",
+            ok: opened === true && s.sheet && s.goal && s.files.length === 0,
+            detail: JSON.stringify({ opened, ...s }),
+        });
+        await lookSeedRun(h, ctx, { status: "awaiting-review", plangatepending: true });
+        opened = await lookOpenRun(h, ctx);
+        s = await sheetRead(false);
+        await h.shot(lookShot("run-sheet-legacy-plan-gate"));
+        steps.push({
+            step: "a run parked at a plan gate opens in the run sheet with its goal",
+            ok: opened === true && s.sheet && s.goal,
+            detail: JSON.stringify({ opened, ...s }),
+        });
+        await lookSeedRun(h, ctx, { status: "executing", plangatepending: false, mode: "pipeline" });
+        opened = await lookOpenRun(h, ctx);
+        s = await sheetRead(false);
+        await h.shot(lookShot("run-sheet-legacy-pipeline"));
+        steps.push({
+            step: "a pipeline run opens in the run sheet with its goal",
+            ok: opened === true && s.sheet && s.goal,
+            detail: JSON.stringify({ opened, ...s }),
+        });
+        return steps;
+    },
+    async teardown(h, ctx) {
+        // the last seeded run is executing, so the ordinary teardown can cancel it
+        await teardownFixtureRun(h, ctx, "run-sheet-legacy");
     },
 };
 
@@ -23506,9 +23700,11 @@ export const SCENARIOS = [
     contextMenu,
     cockpitRailTooltip,
     termLinkTooltip,
+    titleTooltip,
     taskDetail,
     ambientTags,
     runSheetDoneLook,
+    runSheetLegacyLook,
     runSheetCardsLook,
     codeStaleBarLook,
     uiDrift,

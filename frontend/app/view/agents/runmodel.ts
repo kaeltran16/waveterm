@@ -356,11 +356,6 @@ export function resolveActiveRunId(visibleRuns: Run[], current: string | undefin
     return defaultRunId(visibleRuns);
 }
 
-// One tone per phase, for a run tab's compact progress dots.
-export function phaseProgressDots(run: Run): PhaseTone[] {
-    return (run.phases ?? []).map((p) => phaseStateView(p.state).tone);
-}
-
 // Stable per-phase ids for the shared no-cascade entrance guard: a newly-appended phase animates in,
 // a run switch/first mount is silent (the guard treats a new scope id as already-present).
 export function phaseRailIds(run: Run): string[] {

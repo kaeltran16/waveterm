@@ -6,6 +6,7 @@ package agentsync
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -52,7 +53,7 @@ func TestStatusReportsSteeringState(t *testing.T) {
 func TestStatusCountsManagedAndUnmanagedSkills(t *testing.T) {
 	p := testPaths(t, "canonical\n", ".codex")
 	seedSkill(t, p, "graphify")
-	seedSkill(t, p, "effort-tracking")
+	seedSkill(t, p, "initiatives")
 	// the user's own directory under a canonical name: Arc writes neither it nor a rendered copy
 	occupied := filepath.Join(p.Home, ".codex", "skills", "graphify")
 	writeFile(t, filepath.Join(occupied, "SKILL.md"), "mine\n")
@@ -76,8 +77,8 @@ func TestStatusCountsManagedAndUnmanagedSkills(t *testing.T) {
 func TestPiSkillsNote(t *testing.T) {
 	claudeSkills := filepath.Join("C:", "Users", "k", ".claude", "skills")
 	vaultSkills := filepath.Join("C:", "vault", "skills")
-	if note := piSkillsNote([]string{claudeSkills, "!" + filepath.Join(claudeSkills, "simplify")}, claudeSkills, vaultSkills); note == "" {
-		t.Error("a pointer at the claude skills dir must be reported as reaching the farm")
+	if note := piSkillsNote([]string{claudeSkills, "!" + filepath.Join(claudeSkills, "simplify")}, claudeSkills, vaultSkills); !strings.Contains(note, "vault") {
+		t.Errorf("note = %q: a pointer at the claude skills dir must say Arc's own skills are only in the vault", note)
 	}
 	if note := piSkillsNote([]string{vaultSkills}, claudeSkills, vaultSkills); note == "" {
 		t.Error("a pointer straight at the vault must be reported as reaching the farm")

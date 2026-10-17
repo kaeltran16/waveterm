@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package canvasserve serves design-local canvas folders over wavesrv's web listener, so no agent has
+// Package canvasserve serves design canvas folders over wavesrv's web listener, so no agent has
 // to run a server of its own. A board loads in an iframe, which cannot send Arc's auth header, so a
 // folder is reached through an unguessable token in the path instead.
 package canvasserve
@@ -35,7 +35,7 @@ var (
 	roots  = map[string]string{} // token -> design dir
 )
 
-// only ever a design-local root, never an arbitrary folder
+// only ever a design canvas root, never an arbitrary folder
 func validateDesignDir(dir string) (string, error) {
 	if !filepath.IsAbs(dir) {
 		return "", fmt.Errorf("%s is not an absolute path", dir)

@@ -99,22 +99,15 @@ interface HarnessPickerProps {
     operation: HarnessOperation;
     placement?: Placement;
     className?: string;
-    // bumped by a blocked composer submission to focus and open the picker
-    openRequest?: number;
 }
 
-export function HarnessPicker({ operation, placement = "top-start", className, openRequest = 0 }: HarnessPickerProps) {
+export function HarnessPicker({ operation, placement = "top-start", className }: HarnessPickerProps) {
     const pref = useAtomValue(harnessPreferenceAtom);
     const harnesses = useAtomValue(harnessesAtom);
     const [open, setOpen] = useState(false);
     useEffect(() => () => setOpen(false), []);
     // with an empty catalog the face would read "Unknown: <runtime>" for the rest of the session
     useEmptyCatalogRetry(true, harnesses.length === 0);
-    useEffect(() => {
-        if (openRequest > 0) {
-            setOpen(true);
-        }
-    }, [openRequest]);
 
     const runtime = pref.route?.runtime ?? "";
     const face = harnessPickerFace(runtime, harnesses, operation);

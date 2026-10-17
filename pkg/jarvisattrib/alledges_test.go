@@ -22,7 +22,7 @@ func TestAllEdgesMatchesEdgesForAcrossDossiers(t *testing.T) {
 	ch := &waveobj.Channel{OID: chID, Name: "auth channel", ProjectPath: "/repo/app", Meta: make(waveobj.MetaMapType)}
 	mk := func(oid, goal string) *waveobj.Run {
 		return &waveobj.Run{OID: oid, ID: oid, ChannelOID: chID, Goal: goal, ProjectPath: "/repo/app",
-			Status: "done", CreatedTs: nowFn() - probationMs - 1000, CompletedTs: nowFn() - 1000,
+			Status: "done", CreatedTs: nowFn() - 2000, CompletedTs: nowFn() - 1000,
 			Meta: make(waveobj.MetaMapType)}
 	}
 	if err := wstore.DBInsert(ctx, ch); err != nil {

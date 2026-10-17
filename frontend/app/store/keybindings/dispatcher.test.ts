@@ -3,6 +3,7 @@
 
 import { resmonOpenAtom } from "@/app/cockpit/resmonstore";
 import { registerModal } from "@/app/modals/modalstack";
+import { contextMenuAtom } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel, SurfaceKey } from "@/app/view/agents/agents";
 import { docReviewAtom } from "@/app/view/agents/docreview";
@@ -12,9 +13,16 @@ import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import { atom } from "jotai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildFinalShotsBindings, buildGlobalBindings, buildJarvisBindings, buildListNavBindings } from "./bindings";
-import { deriveKeyContext, focusClaimed, initKeybindingDispatcher, isEditableTarget } from "./dispatcher";
+import {
+    controlOwnsKey,
+    deriveKeyContext,
+    focusClaimed,
+    initKeybindingDispatcher,
+    isEditableTarget,
+} from "./dispatcher";
 import { listNavAtom } from "./listnav";
 import { matchBinding } from "./matcher";
+import { bindingsAtom } from "./store";
 
 // Element stubs rather than jsdom: the suite runs in vitest's node environment, and the three fields
 // this predicate reads are the whole contract.
@@ -86,6 +94,7 @@ describe("deriveKeyContext", () => {
         globalStore.set(docReviewAtom, null);
         globalStore.set(petPeekOpenAtom, false);
         globalStore.set(resmonOpenAtom, false);
+        globalStore.set(contextMenuAtom, null);
         vi.unstubAllGlobals();
     });
 
@@ -150,6 +159,15 @@ describe("deriveKeyContext", () => {
         const unbind = initKeybindingDispatcher(model);
         expect(deriveKeyContext().modalOpen).toBe(false);
         globalStore.set(model.newInitiativeOpenAtom, true);
+        expect(deriveKeyContext().modalOpen).toBe(true);
+        unbind();
+    });
+
+    // the Brief's filter menu and row menus: their arrows and Escape belong to the menu, not the list
+    it("counts an open context menu as a modal", () => {
+        const unbind = bindModel("jarvis");
+        expect(deriveKeyContext().modalOpen).toBe(false);
+        globalStore.set(contextMenuAtom, { items: [], x: 0, y: 0 });
         expect(deriveKeyContext().modalOpen).toBe(true);
         unbind();
     });
@@ -253,5 +271,115 @@ describe("the Final check viewer over the Jarvis surface", () => {
         expect(picked("Escape")).toBe("surface:back-home");
         expect(picked("z")).not.toBe("final-shots:zoom");
         unbind();
+    });
+});
+
+describe("a control reached with Tab keeps Enter and Space", () => {
+    const button = () => Object.assign(el("BUTTON"), { disabled: false, hasAttribute: () => false });
+    const key = (k: string, mods: Partial<WaveKeyboardEvent> = {}) =>
+        ({ key: k, code: "", type: "keydown", ...mods }) as WaveKeyboardEvent;
+
+    it("is the tabbed-to button's own Enter and Space", () => {
+        const b = button();
+        expect(controlOwnsKey(key("Enter"), b, b)).toBe(true);
+        expect(controlOwnsKey(key(" "), b, b)).toBe(true);
+    });
+
+    it("is not when focus came by a click, with a modifier, for another key, or on a non-control", () => {
+        const b = button();
+        expect(controlOwnsKey(key("Enter"), b, null)).toBe(false);
+        expect(controlOwnsKey(key("Enter", { shift: true }), b, b)).toBe(false);
+        expect(controlOwnsKey(key("j"), b, b)).toBe(false);
+        const div = el("DIV");
+        expect(controlOwnsKey(key("Enter"), div, div)).toBe(false);
+        const off = Object.assign(el("BUTTON"), { disabled: true });
+        expect(controlOwnsKey(key("Enter"), off, off)).toBe(false);
+    });
+
+    // the regression: Tab to a Brief button, press Enter, and list:activate opened the cursor row instead
+    describe("through the dispatcher", () => {
+        afterEach(() => {
+            globalStore.set(listNavAtom, null);
+            globalStore.set(bindingsAtom, []);
+            vi.unstubAllGlobals();
+        });
+
+        function setup() {
+            const listeners = new Map<string, (e: unknown) => void>();
+            vi.stubGlobal("window", {
+                addEventListener: (t: string, f: (e: unknown) => void) => listeners.set(t, f),
+                removeEventListener: () => {},
+            });
+            const doc = { activeElement: null as Element | null };
+            vi.stubGlobal("document", doc);
+            const model = {
+                surfaceAtom: atom<SurfaceKey>("jarvis"),
+                paletteOpenAtom: atom(false),
+                newAgentOpenAtom: atom(false),
+                newRunOpenAtom: atom(false),
+                newInitiativeOpenAtom: atom(false),
+                newProjectOpenAtom: atom(false),
+            } as unknown as AgentsViewModel;
+            const activate = vi.fn();
+            globalStore.set(listNavAtom, {
+                surface: "jarvis",
+                navigableIds: ["a"],
+                cursorId: "a",
+                setCursor() {},
+                activate,
+            });
+            globalStore.set(bindingsAtom, buildListNavBindings(model));
+            const unbind = initKeybindingDispatcher(model);
+            const press = (k: string) => {
+                const e = { key: k, code: "", type: "keydown", preventDefault: vi.fn(), stopImmediatePropagation() {} };
+                listeners.get("keydown")!(e);
+                return e.preventDefault.mock.calls.length > 0;
+            };
+            const focus = (target: Element) => {
+                doc.activeElement = target;
+                listeners.get("focusin")!({ target });
+            };
+            const pointer = () => listeners.get("pointerdown")!({});
+            return { press, focus, pointer, activate, unbind };
+        }
+
+        it("leaves Enter to a button focused with Tab", () => {
+            const { press, focus, activate, unbind } = setup();
+            const b = button();
+            press("Tab");
+            focus(b);
+            expect(press("Enter")).toBe(false);
+            expect(activate).not.toHaveBeenCalled();
+            unbind();
+        });
+
+        it("still opens the cursor row when the button was focused by a click", () => {
+            const { press, focus, pointer, activate, unbind } = setup();
+            pointer();
+            focus(button());
+            expect(press("Enter")).toBe(true);
+            expect(activate).toHaveBeenCalledOnce();
+            unbind();
+        });
+
+        it("hands Enter back to the list once the tabbed-to button is clicked", () => {
+            const { press, focus, pointer, activate, unbind } = setup();
+            press("Tab");
+            focus(button());
+            pointer();
+            expect(press("Enter")).toBe(true);
+            expect(activate).toHaveBeenCalledOnce();
+            unbind();
+        });
+
+        it("still opens the cursor row once a key other than Tab moved focus", () => {
+            const { press, focus, activate, unbind } = setup();
+            press("Tab");
+            press("j");
+            focus(button());
+            expect(press("Enter")).toBe(true);
+            expect(activate).toHaveBeenCalledOnce();
+            unbind();
+        });
     });
 });

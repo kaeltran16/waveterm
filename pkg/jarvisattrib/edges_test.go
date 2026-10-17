@@ -52,7 +52,7 @@ func TestEveryBucketIsReachableFromSomeFiringLayer(t *testing.T) {
 }
 
 func TestRefConversionRoundTrip(t *testing.T) {
-	oref, ok := refToRunORef(runRef("abc123"))
+	oref, ok := refToRunORef("run-abc123")
 	if !ok || oref != "run:abc123" {
 		t.Fatalf("refToRunORef = %q,%v want run:abc123,true", oref, ok)
 	}

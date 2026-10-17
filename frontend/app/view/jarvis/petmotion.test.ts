@@ -46,11 +46,6 @@ describe("idleOrbit", () => {
         expect(ORBIT_MS % ORBIT_PITCH_MS).not.toBe(0);
     });
 
-    it("never depends on a pointer, because nothing about the turn is a response to one", () => {
-        // the whole point of the replacement: same clock, same angle, wherever the cursor is
-        expect(idleOrbit(1_234)).toEqual(idleOrbit(1_234));
-    });
-
     it("returns no rotation for a non-finite clock", () => {
         expect(idleOrbit(Number.NaN)).toEqual({ yaw: 0, pitch: 0 });
     });

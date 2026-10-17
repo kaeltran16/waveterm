@@ -50,7 +50,6 @@ import {
     resetRunConfigForChannel,
     reviewerPicksAtom,
     reviewerRouteAtom,
-    routeOpenRequestAtom,
     routeTouchedAtom,
     runRouteAtom,
     runShapeAtom,
@@ -136,18 +135,11 @@ function ModelsSection({ orchestrator }: { orchestrator: boolean }) {
     const reviewerPicks = useAtomValue(reviewerPicksAtom);
     const reviewerRoute = useAtomValue(reviewerRouteAtom);
     const lightReviewerRoute = useAtomValue(lightReviewerRouteAtom);
-    const openRequest = useAtomValue(routeOpenRequestAtom);
     return (
         <div className="flex flex-col gap-2">
             <span className={FIELD_LABEL}>Models</span>
             <ModelRow label="Lead">
-                <RoutePicker
-                    value={route}
-                    onChange={setRunRoute}
-                    placement="bottom-start"
-                    openRequest={openRequest}
-                    title="Lead model"
-                />
+                <RoutePicker value={route} onChange={setRunRoute} placement="bottom-start" title="Lead model" />
             </ModelRow>
             {orchestrator ? (
                 <>

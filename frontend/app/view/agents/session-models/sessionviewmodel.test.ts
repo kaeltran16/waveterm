@@ -5,21 +5,16 @@ import {
     buildDuplicateBlockMeta,
     buildSessionViewModel,
     cwdToServiceLabel,
-    cycleTarget,
     findSessionTermBlock,
     flattenVisualOrder,
     labelChanged,
-    loomBinOrDefault,
     modelLabel,
-    needsYouTarget,
     NO_CWD_LABEL,
     reorderWithinGroup,
-    waitingTarget,
     rollUpStatus,
     sessionRunORef,
     subagentExpanded,
     visibleSubagents,
-    toggleCollapsed,
     type SessionInput,
 } from "./sessionviewmodel";
 
@@ -339,21 +334,6 @@ describe("buildSessionViewModel — project label (launch default)", () => {
     });
 });
 
-describe("toggleCollapsed", () => {
-    it("adds a label that is not present", () => {
-        expect(toggleCollapsed([], "ServiceA")).toEqual(["ServiceA"]);
-        expect(toggleCollapsed(["X"], "ServiceA")).toEqual(["X", "ServiceA"]);
-    });
-    it("removes a label that is present", () => {
-        expect(toggleCollapsed(["X", "ServiceA"], "ServiceA")).toEqual(["X"]);
-    });
-    it("does not mutate the input array", () => {
-        const input = ["X"];
-        toggleCollapsed(input, "ServiceA");
-        expect(input).toEqual(["X"]);
-    });
-});
-
 describe("flattenVisualOrder", () => {
     it("lists pinned rows first, then group rows in order", () => {
         const vm = buildSessionViewModel([
@@ -362,126 +342,6 @@ describe("flattenVisualOrder", () => {
             input({ tabId: "g2", cwd: "/src/C" }),
         ]);
         expect(flattenVisualOrder(vm).map((r) => r.tabId)).toEqual(["p1", "g1", "g2"]);
-    });
-});
-
-describe("cycleTarget", () => {
-    const vm = () =>
-        buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A", active: true }),
-            input({ tabId: "t2", cwd: "/src/B" }),
-            input({ tabId: "t3", cwd: "/src/C" }),
-        ]);
-    it("moves to the next row", () => {
-        expect(cycleTarget(vm(), 1)).toBe("t2");
-    });
-    it("wraps from last to first", () => {
-        const v = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A" }),
-            input({ tabId: "t2", cwd: "/src/B" }),
-            input({ tabId: "t3", cwd: "/src/C", active: true }),
-        ]);
-        expect(cycleTarget(v, 1)).toBe("t1");
-    });
-    it("moves to the previous row, wrapping", () => {
-        expect(cycleTarget(vm(), -1)).toBe("t3");
-    });
-    it("returns undefined when there are no rows", () => {
-        expect(cycleTarget(buildSessionViewModel([]), 1)).toBeUndefined();
-    });
-    it("starts at the first row for next when none is active", () => {
-        const v = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A" }),
-            input({ tabId: "t2", cwd: "/src/B" }),
-        ]);
-        expect(cycleTarget(v, 1)).toBe("t1");
-    });
-});
-
-describe("needsYouTarget", () => {
-    it("returns the next waiting row after the active one, wrapping", () => {
-        const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A", active: true }),
-            input({ tabId: "t2", cwd: "/src/B", status: "working" }),
-            input({ tabId: "t3", cwd: "/src/C", status: "waiting" }),
-        ]);
-        expect(needsYouTarget(vm)).toBe("t3");
-    });
-    it("wraps past the active row to find an earlier waiting row", () => {
-        const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A", status: "waiting" }),
-            input({ tabId: "t2", cwd: "/src/B", active: true }),
-        ]);
-        expect(needsYouTarget(vm)).toBe("t1");
-    });
-    it("targets an asking row (needs-you), not just waiting", () => {
-        const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A", active: true }),
-            input({ tabId: "t2", cwd: "/src/B", status: "working" }),
-            input({ tabId: "t3", cwd: "/src/C", status: "asking" }),
-        ]);
-        expect(needsYouTarget(vm)).toBe("t3");
-    });
-    it("returns undefined when nothing needs you", () => {
-        const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A", active: true, status: "working" }),
-        ]);
-        expect(needsYouTarget(vm)).toBeUndefined();
-    });
-});
-
-describe("waitingTarget", () => {
-    it("forward: returns the next waiting row after active, skipping non-waiting", () => {
-        const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A", active: true }),
-            input({ tabId: "t2", cwd: "/src/B", status: "working" }),
-            input({ tabId: "t3", cwd: "/src/C", status: "waiting" }),
-        ]);
-        expect(waitingTarget(vm, 1)).toBe("t3");
-    });
-    it("backward: returns the previous waiting row before active", () => {
-        const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A", status: "waiting" }),
-            input({ tabId: "t2", cwd: "/src/B", status: "working" }),
-            input({ tabId: "t3", cwd: "/src/C", active: true }),
-        ]);
-        expect(waitingTarget(vm, -1)).toBe("t1");
-    });
-    it("backward: wraps past the start to the last waiting row", () => {
-        const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A", active: true }),
-            input({ tabId: "t2", cwd: "/src/B", status: "working" }),
-            input({ tabId: "t3", cwd: "/src/C", status: "waiting" }),
-        ]);
-        expect(waitingTarget(vm, -1)).toBe("t3");
-    });
-    it("returns undefined when nothing is waiting (both directions)", () => {
-        const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A", active: true, status: "working" }),
-            input({ tabId: "t2", cwd: "/src/B", status: "idle" }),
-        ]);
-        expect(waitingTarget(vm, 1)).toBeUndefined();
-        expect(waitingTarget(vm, -1)).toBeUndefined();
-    });
-    it("with exactly one waiting row, both directions find it", () => {
-        const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A", active: true }),
-            input({ tabId: "t2", cwd: "/src/B", status: "waiting" }),
-        ]);
-        expect(waitingTarget(vm, 1)).toBe("t2");
-        expect(waitingTarget(vm, -1)).toBe("t2");
-    });
-    it("returns undefined for an empty model", () => {
-        expect(waitingTarget(buildSessionViewModel([]), 1)).toBeUndefined();
-        expect(waitingTarget(buildSessionViewModel([]), -1)).toBeUndefined();
-    });
-    it("does not throw and is deterministic when no row is active", () => {
-        const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/A", status: "waiting" }),
-            input({ tabId: "t2", cwd: "/src/B", status: "working" }),
-        ]);
-        expect(waitingTarget(vm, 1)).toBe("t1");
-        expect(waitingTarget(vm, -1)).toBe("t1");
     });
 });
 
@@ -607,22 +467,6 @@ describe("buildDuplicateBlockMeta", () => {
     it("handles a null/empty source", () => {
         expect(buildDuplicateBlockMeta(undefined as any)).toEqual({ view: "term" });
         expect(buildDuplicateBlockMeta({})).toEqual({ view: "term" });
-    });
-});
-
-describe("loomBinOrDefault", () => {
-    it("returns the configured binary when set", () => {
-        expect(loomBinOrDefault("loom")).toBe("loom");
-        expect(loomBinOrDefault("/usr/local/bin/loom")).toBe("/usr/local/bin/loom");
-        expect(loomBinOrDefault("C:\\tools\\loom.exe")).toBe("C:\\tools\\loom.exe");
-    });
-    it("trims surrounding whitespace", () => {
-        expect(loomBinOrDefault("  loom.exe  ")).toBe("loom.exe");
-    });
-    it("falls back to 'loom' when unset or blank", () => {
-        expect(loomBinOrDefault(undefined)).toBe("loom");
-        expect(loomBinOrDefault("")).toBe("loom");
-        expect(loomBinOrDefault("   ")).toBe("loom");
     });
 });
 

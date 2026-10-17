@@ -23,19 +23,6 @@ func TestSyncMap_Get(t *testing.T) {
 	}
 }
 
-func TestSyncMap_GetEx(t *testing.T) {
-	sm := MakeSyncMap[int]()
-	sm.Set("key1", 1)
-	value, ok := sm.GetEx("key1")
-	if !ok || value != 1 {
-		t.Errorf("expected 1, got %d", value)
-	}
-	value, ok = sm.GetEx("key2")
-	if ok || value != 0 {
-		t.Errorf("expected 0, got %d", value)
-	}
-}
-
 func TestSyncMap_Delete(t *testing.T) {
 	sm := MakeSyncMap[int]()
 	sm.Set("key1", 1)

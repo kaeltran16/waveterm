@@ -29,13 +29,6 @@ func (sm *SyncMap[T]) Get(key string) T {
 	return sm.m[key]
 }
 
-func (sm *SyncMap[T]) GetEx(key string) (T, bool) {
-	sm.lock.Lock()
-	defer sm.lock.Unlock()
-	v, ok := sm.m[key]
-	return v, ok
-}
-
 func (sm *SyncMap[T]) Delete(key string) {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()

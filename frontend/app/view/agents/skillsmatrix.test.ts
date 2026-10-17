@@ -127,6 +127,12 @@ describe("skillRows cells", () => {
         expect(cells("vaulted")).toEqual(["Synced", "Not synced", "Own copy", "—"]);
     });
 
+    it("shows a shipped skill Claude loads from the Arc plugin under its arc: name", () => {
+        const d = data({ skills: [{ name: "runs", states: { claude: "plugin", codex: "synced" } }] });
+        const cell = skillRows(d, {})[0].cells[0];
+        expect(cell).toMatchObject({ label: "Plugin", tone: "ok", title: "Loaded as arc:runs from the Arc plugin" });
+    });
+
     it("shows what each unmanaged copy carries", () => {
         expect(cells("translate")).toEqual(["Differs", "Body differs", "—", "—"]);
         expect(cells("lint")).toEqual(["Differs", "description", "—", "—"]);

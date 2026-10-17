@@ -22,8 +22,7 @@ const (
 
 // Lifecycle windows in UnixMilli — PLACEHOLDER tuning, see docs/deferred.md.
 const (
-	probationMs int64 = 24 * 60 * 60 * 1000      // before an inferred edge may harden
-	timeBoxMs   int64 = 30 * 24 * 60 * 60 * 1000 // a never-reinforced layer-3 edge older than this decays
+	timeBoxMs int64 = 30 * 24 * 60 * 60 * 1000 // a never-reinforced layer-3 edge older than this decays
 )
 
 const (
@@ -120,8 +119,6 @@ func BucketFor(layers []int) string {
 	}
 }
 
-func runRef(oid string) string { return "run-" + oid }
-
 func refToRunORef(ref string) (string, bool) {
 	if s, ok := strings.CutPrefix(ref, "run-"); ok && s != "" {
 		return "run:" + s, true
@@ -134,15 +131,6 @@ func orefToRunRef(oref string) (string, bool) {
 		return "run-" + s, true
 	}
 	return "", false
-}
-
-func containsLayer(ls []int, x int) bool {
-	for _, l := range ls {
-		if l == x {
-			return true
-		}
-	}
-	return false
 }
 
 func dedupSortLayers(ls []int) []int {

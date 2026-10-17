@@ -15,7 +15,6 @@ import {
     leadWorker,
     liveWorkers,
     phaseStateView,
-    phaseProgressDots,
     phaseRailIds,
     phaseThread,
     phaseWorkers,
@@ -353,16 +352,6 @@ describe("resolveActiveRunId", () => {
     });
     it("returns undefined when nothing is visible", () => {
         expect(resolveActiveRunId([], "b")).toBeUndefined();
-    });
-});
-
-describe("phaseProgressDots", () => {
-    it("maps each phase to its tone in order", () => {
-        const r = run({ phases: [phase({ state: "done" }), phase({ state: "running" }), phase({ state: "pending" })] });
-        expect(phaseProgressDots(r)).toEqual(["done", "running", "pending"]);
-    });
-    it("is empty for a run with no phases", () => {
-        expect(phaseProgressDots(run({ phases: [] }))).toEqual([]);
     });
 });
 

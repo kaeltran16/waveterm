@@ -52,7 +52,7 @@ function state(over: Partial<CanvasState>): CanvasState {
 describe("boardsFromCanvasJson", () => {
     const MAIN = { name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 };
 
-    it("reads the design-local shape in its order", () => {
+    it("reads the design canvas shape in its order", () => {
         const json = {
             boards: {
                 "Main.dc.html": { x: 0, y: 0, w: 1440, h: 900 },

@@ -133,21 +133,9 @@ func WithTxRtn[RT any](ctx context.Context, fn func(tx *TxWrap) (RT, error)) (rt
 // connection only narrowed its window; it never closed it. The read pool may widen the window. The
 // real fix (fold spawn+attach into one write tx) is a separate open item, out of scope for Phase 0.
 
-// WithReadTx runs fn against the read-only pool. Pure reads only; a write errors (mode=ro). If ctx
+// WithReadTxRtn runs fn against the read-only pool. Pure reads only; a write errors (mode=ro). If ctx
 // already carries a TxWrap (a read nested inside a write), txwrap reuses that transaction and this
 // pool is bypassed — nested reads stay on the write connection and see its uncommitted state.
-func WithReadTx(ctx context.Context, fn func(tx *TxWrap) error) (rtnErr error) {
-	waveobj.ContextUpdatesBeginTx(ctx)
-	defer func() {
-		if rtnErr != nil {
-			waveobj.ContextUpdatesRollbackTx(ctx)
-		} else {
-			waveobj.ContextUpdatesCommitTx(ctx)
-		}
-	}()
-	return txwrap.WithTx(ctx, readDB, fn)
-}
-
 func WithReadTxRtn[RT any](ctx context.Context, fn func(tx *TxWrap) (RT, error)) (rtnVal RT, rtnErr error) {
 	waveobj.ContextUpdatesBeginTx(ctx)
 	defer func() {

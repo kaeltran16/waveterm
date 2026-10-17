@@ -15,7 +15,7 @@ import (
 )
 
 // Decision is the typed projection of one decision record. Rationale is the human-owned prose; every
-// other field is machine-owned. Hash is the baseHash for a later SupersedeDecision.
+// other field is machine-owned. Hash is the record's content hash.
 type Decision struct {
 	ID         string
 	Created    int64
@@ -140,12 +140,4 @@ func LoadDecision(r *wavevault.Retriever, id string) (*Decision, error) {
 		Rationale:  strings.TrimSpace(stripBlocks(nb.Body, "links")),
 		Hash:       nb.Node.ContentHash,
 	}, nil
-}
-
-// SupersedeDecision mutates only the decision's status (active | superseded | reverted) — the single
-// case B rewrites an existing record. The diff-validator guarantees the human rationale is untouched.
-func SupersedeDecision(v *wavevault.Vault, decID, status, baseHash string) (*wavevault.WriteResult, error) {
-	return v.Write(decID, DecisionSpec(), []wavevault.RegionEdit{
-		{Kind: wavevault.FrontmatterKey, Name: "status", Value: status},
-	}, baseHash)
 }

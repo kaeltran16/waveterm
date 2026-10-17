@@ -458,7 +458,7 @@ describe("setup fixture transitions", () => {
         expect(summary().lastAdoptApply).toMatchObject({ outcome: "noop" });
         await expect(rt.call("agentsyncadopt", { apply: false, names: ["ghost"] })).rejects.toThrow(/unknown skill/);
         await expect(rt.call("agentsyncadopt", { apply: false, names: ["commit-helper"] })).rejects.toThrow(/managed skill/);
-        await expect(rt.call("agentsyncadopt", { apply: false, names: ["design-local"] })).rejects.toThrow(/managed skill/);
+        await expect(rt.call("agentsyncadopt", { apply: false, names: ["design"] })).rejects.toThrow(/managed skill/);
         await expect(
             rt.call("agentsyncadopt", { apply: false, names: ["identical-copy"], keep: { "identical-copy": "opencode" } })
         ).rejects.toThrow(/invalid keep/);
@@ -495,16 +495,17 @@ describe("setup fixture transitions", () => {
     it("reseeds a shipped body on apply, keeps its .arc deltas, and refuses a canonical edit of a shipped skill", async () => {
         const { fixture, rt } = runtimeFor("setup-skills");
         const before = rt.snapshot().contents;
-        expect(before.vault["design-local"]).toContain("shipped body v1");
+        expect(before.vault["design"]).toContain("shipped body v1");
         expect(Object.keys(before.deltas).length).toBeGreaterThan(0);
-        const onDisk = fixture.files.find((f) => f.path.endsWith(join("design-local", "SKILL.md")));
-        expect(onDisk.content).toBe(before.vault["design-local"]);
-        expect(fixture.files.some((f) => f.path.includes(join("design-local", ".arc", "codex", "agents", "openai.yaml")))).toBe(true);
-        expect(() => rt.control("editSource", { name: "design-local", content: "x" })).toThrow(/not a user-owned vault skill/);
+        const onDisk = fixture.files.find((f) => f.path.endsWith(join("design", "SKILL.md")));
+        expect(onDisk.content).toBe(before.vault["design"]);
+        expect(fixture.files.some((f) => f.path.includes(join("design", ".arc", "codex", "agents", "openai.yaml")))).toBe(true);
+        expect(() => rt.control("editSource", { name: "design", content: "x" })).toThrow(/not a user-owned vault skill/);
         await rt.call("agentsyncapply", {});
         const after = rt.snapshot().contents;
-        expect(after.vault["design-local"]).toContain("shipped body v2");
-        expect(after.dests["design-local/claude"]).toBe(after.vault["design-local"]);
+        expect(after.vault["design"]).toContain("shipped body v2");
+        expect(after.dests["design/codex"]).toBe(after.vault["design"]);
+        expect(after.dests["design/claude"]).toBeUndefined();
         expect(after.deltas).toEqual(before.deltas);
     });
 
@@ -695,7 +696,7 @@ describe("setup fixture transitions", () => {
         const byName = Object.fromEntries(fixture.skills.skills.map((k) => [k.name, k]));
         expect(byName["commit-helper"]).toMatchObject({ sourcekind: "vault" });
         expect(byName["commit-helper"].sourcepath).toContain("commit-helper");
-        expect(byName["design-local"]).toMatchObject({ sourcekind: "shipped", sourcepath: "skills/design-local/SKILL.md" });
+        expect(byName["design"]).toMatchObject({ sourcekind: "shipped", sourcepath: "skills/design/SKILL.md" });
         expect(byName["legacy-notes"].sourcekind).toBe("unknown");
         expect("sourcekind" in byName["plain-notes"]).toBe(false);
         // both carry a real, inspectable source, so read-only can only come from ownership, not a missing path
@@ -704,7 +705,7 @@ describe("setup fixture transitions", () => {
             expect(file?.content).toContain(`${n} vault source body`);
             expect(relative(fixture.ownedDir, byName[n].sourcepath).startsWith("..")).toBe(false);
         }
-        expect(byName["design-local"].deltas).toEqual({ codex: ["agents/openai.yaml"] });
+        expect(byName["design"].deltas).toEqual({ codex: ["agents/openai.yaml"] });
         expect(fixture.skills.piskills.sources.some((s) => s.runtime === "claude" && s.entry.startsWith("~/"))).toBe(true);
         expect(fixture.skills.piskills.sources.every((s) => !s.path.includes("\\"))).toBe(true);
         const states = new Set(Object.values(fixture.skills.piskills.states));

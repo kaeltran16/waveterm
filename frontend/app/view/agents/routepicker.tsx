@@ -54,7 +54,6 @@ export function RoutePicker({
     canInherit = false,
     inheritedLabel = "Inherit route",
     placement = "top-start",
-    openRequest = 0,
     title,
     size = "default",
     disabled = false,
@@ -66,7 +65,6 @@ export function RoutePicker({
     canInherit?: boolean;
     inheritedLabel?: string;
     placement?: Placement;
-    openRequest?: number;
     title?: string;
     size?: "default" | "compact";
     disabled?: boolean;
@@ -85,11 +83,6 @@ export function RoutePicker({
     const triggerRef = useRef<HTMLButtonElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
     const rowRefs = useRef(new Map<string, HTMLButtonElement>());
-    useEffect(() => {
-        if (openRequest > 0) {
-            setOpen(true);
-        }
-    }, [openRequest]);
     // custom/free-form ids may be namespace-valid without catalog presence, so the face never
     // claims "unavailable" — resolution happens server-side at dispatch.
     const harness = value == null ? undefined : harnesses.find((h) => h.runtime === value.runtime);

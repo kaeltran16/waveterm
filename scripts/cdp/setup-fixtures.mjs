@@ -523,13 +523,12 @@ function buildFixture(name, ownedDir) {
             addFile(join(vaultRoot, n, ".arc", `${rt}.yaml`), "model: fixture-model\n");
             contents.deltas[relative(ownedDir, join(vaultRoot, n, ".arc", `${rt}.yaml`))] = "model: fixture-model\n";
         }
-        for (const rt of Object.keys(roots)) {
-            contents.dests[`${n}/${rt}`] = rt === "claude" ? stale : current;
-        }
+        // claude loads a shipped skill from the arc plugin, so only codex holds a projected copy
+        contents.dests[`${n}/codex`] = stale;
         return {
             name: n,
             description: `${n} fixture skill`,
-            states: { claude: "differs", codex: "synced" },
+            states: { claude: "plugin", codex: "differs" },
             sourcekind: "shipped",
             sourcepath: `skills/${n}/${SKILL_FILE}`,
             ...over,
@@ -540,8 +539,8 @@ function buildFixture(name, ownedDir) {
     const managed = [
         vaultSkill("commit-helper", { deltas: { claude: ["model"] }, states: { claude: "synced", codex: "unmanaged" } }),
         vaultSkill("vault-drift", { states: { claude: "differs", codex: "synced" } }),
-        shipped("design-local", { deltas: { codex: ["agents/openai.yaml"] } }),
-        shipped("cockpit-ui"),
+        shipped("design", { deltas: { codex: ["agents/openai.yaml"] } }),
+        shipped("cockpit"),
         // ownership metadata that is unknown or absent must stay read-only even with a readable source path
         vaultSkill("legacy-notes", { sourcekind: "unknown" }),
         omitSourceKind(vaultSkill("plain-notes")),
@@ -600,8 +599,8 @@ function buildFixture(name, ownedDir) {
         states: {
             "commit-helper": "available",
             "vault-drift": "not-synced",
-            "design-local": "available",
-            "cockpit-ui": "available",
+            "design": "available",
+            "cockpit": "available",
             "legacy-notes": "unknown",
             "plain-notes": "excluded",
         },

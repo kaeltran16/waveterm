@@ -15,7 +15,6 @@ import {
     detailExceedsInline,
     detailLineCount,
     displayAgeMs,
-    focusedAskId,
     formatAge,
     formatAgeShort,
     formatAgo,
@@ -915,19 +914,6 @@ describe("partitionBackgrounded", () => {
         const out = partitionBackgrounded(working, new Set());
         expect(out.active.map((x) => x.id)).toEqual(["a", "b"]);
         expect(out.backgrounded).toEqual([]);
-    });
-});
-
-describe("focusedAskId", () => {
-    it("is undefined when nothing is asking", () => {
-        expect(focusedAskId([], "a")).toBeUndefined();
-    });
-    it("is the cursor when the cursor is on an ask", () => {
-        expect(focusedAskId(["a", "b"], "b")).toBe("b");
-    });
-    it("falls back to the first ask when the cursor is not an ask", () => {
-        expect(focusedAskId(["a", "b"], "z")).toBe("a");
-        expect(focusedAskId(["a", "b"], undefined)).toBe("a");
     });
 });
 

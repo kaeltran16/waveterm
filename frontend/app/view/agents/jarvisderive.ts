@@ -94,12 +94,6 @@ export function buildFleetSnapshot(messages: ChannelMessage[], agents: AgentVM[]
         .filter((w) => w.state !== "gone" || (dismissTs.get(w.oref) ?? 0) <= (activeTs.get(w.oref) ?? 0));
 }
 
-// Live-fleet spend: sum of each live worker's session cost. A gone worker carries no usage (its AgentVM
-// left the roster), so the total reflects currently-running workers, not lifetime channel spend.
-export function fleetCostUsd(snapshot: WorkerState[]): number {
-    return snapshot.reduce((sum, w) => sum + (w.costUsd ?? 0), 0);
-}
-
 // the set of ask ids Jarvis has auto-answered across all channels (drives every "needs you" surface).
 // takes one message list per channel.
 export function answeredAskIdsAcross(messageLists: ChannelMessage[][]): Set<string> {

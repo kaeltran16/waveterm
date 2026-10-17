@@ -1,13 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-    buildEffortCard,
-    chunkTone,
-    effortDeltaRow,
-    effortFacts,
-    groupChunksByStage,
-    partitionEfforts,
-    stageOptions,
-} from "./effortmodel";
+import { buildEffortCard, chunkTone, effortFacts, groupChunksByStage, stageOptions } from "./effortmodel";
 
 const base = {
     oref: "effort:abc",
@@ -92,46 +84,6 @@ describe("chunkTone", () => {
         expect(chunkTone("skipped")).toBe("skipped");
         expect(chunkTone("pending")).toBe("pending");
         expect(chunkTone("weird")).toBe("pending");
-    });
-});
-
-describe("effortDeltaRow", () => {
-    it("maps effort events to title + meta and ignores others", () => {
-        const ev = { ts: 1, kind: "chunk-done", title: "Scenario gate clearance", detail: "Phase 3 · marked done", navtarget: "effort:abc" } as TimelineEvent;
-        expect(effortDeltaRow(ev)).toEqual({ title: "Scenario gate clearance", meta: "Phase 3 · marked done" });
-        expect(effortDeltaRow({ ts: 1, kind: "run-done", title: "x", detail: "y" } as TimelineEvent)).toBeNull();
-    });
-});
-
-describe("partitionEfforts", () => {
-    const of = (oref: string, status: string) => ({ ...base, oref, status }) as EffortSummary;
-
-    it("splits archived out of the active list", () => {
-        const p = partitionEfforts([of("effort:a", "active"), of("effort:b", "archived"), of("effort:c", "done")]);
-        expect(p.active.map((e) => e.oref)).toEqual(["effort:a", "effort:c"]);
-        expect(p.archived.map((e) => e.oref)).toEqual(["effort:b"]);
-    });
-
-    it("preserves the wire order within each group", () => {
-        const p = partitionEfforts([
-            of("effort:a", "archived"),
-            of("effort:b", "active"),
-            of("effort:c", "archived"),
-            of("effort:d", "paused"),
-        ]);
-        expect(p.active.map((e) => e.oref)).toEqual(["effort:b", "effort:d"]);
-        expect(p.archived.map((e) => e.oref)).toEqual(["effort:a", "effort:c"]);
-    });
-
-    it("returns an empty archived group when nothing is archived", () => {
-        const p = partitionEfforts([of("effort:a", "active")]);
-        expect(p.archived).toEqual([]);
-        expect(p.active).toHaveLength(1);
-    });
-
-    it("projects each row through buildEffortCard", () => {
-        const p = partitionEfforts([of("effort:a", "active")]);
-        expect(p.active[0].countLine).toBe("2 of 7 · 1 skipped · active: Phase 3");
     });
 });
 

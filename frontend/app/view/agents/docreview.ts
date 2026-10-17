@@ -13,7 +13,7 @@ export const DOC_REVIEW_HEADERS = { spec: "Spec review", plan: "Plan review" } a
 
 export type DocReviewKind = keyof typeof DOC_REVIEW_HEADERS;
 
-// what the path names: a markdown document, or a design-local canvas board (.dc.html)
+// what the path names: a markdown document, or a design canvas board (.dc.html)
 export type DocReviewDoc = "markdown" | "canvas";
 
 export interface DocReview {

@@ -85,47 +85,6 @@ func TestAppendDecisionCommitsAsJarvis(t *testing.T) {
 	}
 }
 
-func TestSupersedeDecisionPreservesRationale(t *testing.T) {
-	fixedNow(t, 1753324800000)
-	v := newVault(t)
-	taskID, _, err := CreateDossier(v, DossierFacts{Ticket: "PROJ-11", Objective: "y"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	decID, err := AppendDecision(v, DecisionFacts{
-		TaskID: taskID, Actor: "worker-1", Provenance: "worker-report",
-		Rationale: "chose approach A because it needs no migration", Summary: "approach a",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	r := v.Retriever(wavevault.AllScope())
-	before, err := LoadDecision(r, decID)
-	if err != nil {
-		t.Fatalf("LoadDecision: %v", err)
-	}
-	if before.Status != "active" {
-		t.Fatalf("initial status = %q", before.Status)
-	}
-	res, err := SupersedeDecision(v, decID, "superseded", before.Hash)
-	if err != nil {
-		t.Fatalf("SupersedeDecision: %v", err)
-	}
-	if res.Conflict {
-		t.Fatal("no concurrent edit — Conflict must be false")
-	}
-	after, err := LoadDecision(v.Retriever(wavevault.AllScope()), decID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.Status != "superseded" {
-		t.Fatalf("status = %q, want superseded", after.Status)
-	}
-	if after.Rationale != before.Rationale {
-		t.Fatalf("rationale changed across a status mutation: %q -> %q", before.Rationale, after.Rationale)
-	}
-}
-
 // A decision's subject must live in frontmatter, not only in the filename. Readers see frontmatter +
 // body, never the node id — so a subject that exists only in the filename is lost, and the decision
 // cannot be found by what it is about (J9b). The
@@ -156,23 +115,12 @@ func TestAppendDecisionStampsSubjectIntoFrontmatter(t *testing.T) {
 		t.Fatal("test is vacuous: the body happens to contain the subject, so frontmatter is not the only carrier")
 	}
 
-	// the new machine key must survive a status rewrite rather than be stripped as human-owned
 	d, err := LoadDecision(v.Retriever(wavevault.AllScope()), decID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if d.Summary != subject {
 		t.Fatalf("projected Summary = %q, want %q", d.Summary, subject)
-	}
-	if _, err := SupersedeDecision(v, decID, "superseded", d.Hash); err != nil {
-		t.Fatalf("SupersedeDecision: %v", err)
-	}
-	after, err := LoadDecision(v.Retriever(wavevault.AllScope()), decID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.Summary != subject {
-		t.Fatalf("summary lost across a status mutation: %q", after.Summary)
 	}
 }
 

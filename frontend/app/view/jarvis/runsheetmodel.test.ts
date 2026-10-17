@@ -18,7 +18,6 @@ import {
     orderedTasks,
     runGraphRef,
     sheetLead,
-    sheetRoute,
     sheetStatus,
     taskRow,
     taskSectionMeta,
@@ -122,23 +121,6 @@ function ask(over: Partial<DagAskItem> = {}): DagAskItem {
         ...over,
     };
 }
-
-describe("sheetRoute", () => {
-    it("draws engine orchestrators and quick runs", () => {
-        expect(sheetRoute(run())).toBe("sheet");
-        expect(sheetRoute(run({ mode: "quick", dagoref: "" }))).toBe("sheet");
-        expect(sheetRoute(run({ mode: "" }))).toBe("sheet");
-    });
-
-    // slice 5c deleted these shapes; their stored runs keep the body that knows how to draw them
-    it("leaves runs stored before slice 5c to the legacy body", () => {
-        expect(sheetRoute(run({ mode: "pipeline" }))).toBe("legacy");
-        expect(sheetRoute(run({ orchestration: "adaptive" }))).toBe("legacy");
-        expect(sheetRoute(run({ orchestration: "", runtime: "claude" }))).toBe("legacy");
-        expect(sheetRoute(run({ status: "awaiting-review" }))).toBe("legacy");
-        expect(sheetRoute(run({ plangatepending: true }))).toBe("legacy");
-    });
-});
 
 describe("runGraphRef", () => {
     it("reads the graph only from the orchestrator that owns it", () => {

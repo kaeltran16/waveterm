@@ -65,7 +65,7 @@ carries the notes too. The Code `.md` preview and the run report are not done.
   `inlinemarkdown.tsx` serve ~13 files, including doc review and plan preview. Build quoting once, and check
   whether `MarkdownMessage` can merge into the shared renderer. Not yet checked whether it is deliberately
   light for chat messages.
-- Process: new UI, so an orchestrator run that starts with `/design-local`.
+- Process: new UI, so an orchestrator run that starts with `/arc:design`.
 
 ### 2. Engine stages and gates as graph nodes (pending a user answer)
 
@@ -74,7 +74,7 @@ branches, and the dev UI highlights live execution ([ADK graphs](https://adk.dev
 (`frontend/app/view/orchestrate/daggraph.tsx`, `dagnodes.tsx`) draws only task cards and lane bands. Setup,
 merge Verify, review, Final, plan review and asks waiting on the user appear only as edge styles ("needs-you",
 "waiting") or in the timeline rail. Drawing them as nodes would show where a run is actually stuck. Worth
-building only if the user opens the graph when a run looks stuck. `DagOverview` is unmounted, and the graph
+building only if the user opens the graph when a run looks stuck. `DagOverview` was deleted, and the graph
 opens only as a modal from the Brief.
 
 ### 3. Retire the Code surface's "Send to agent" (re-measure)

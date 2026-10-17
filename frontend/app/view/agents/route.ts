@@ -12,12 +12,6 @@ export type EffectiveRoute = {
     capability?: RouteCapability;
 };
 
-export interface RoutePickerSection {
-    runtime: string;
-    label: string;
-    capabilities: RouteCapability[];
-}
-
 export function normalizeRoute(runtime: string, model?: string): RoutePin | null {
     if (!runtime) {
         return null;
@@ -66,12 +60,6 @@ export function normalizeProfileOverrideRoute(override: ProfileOverride): Profil
     }
     const route = normalizeRoute(override.route.runtime, override.route.model);
     return route == null ? { ...override, route: undefined } : { ...override, route };
-}
-
-export function routePickerItems(harnesses: HarnessInfo[]): RoutePickerSection[] {
-    return harnesses
-        .filter((h) => (h.routecapabilities ?? []).length > 0)
-        .map((h) => ({ runtime: h.runtime, label: h.label, capabilities: h.routecapabilities ?? [] }));
 }
 
 export interface PickerModelRow {
