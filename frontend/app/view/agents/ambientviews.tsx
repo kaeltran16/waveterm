@@ -10,8 +10,11 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 import { ageLabel, type AmbientRef, type AmbientTag } from "./ambient";
-import { AMBIENT_BOX, AMBIENT_EYEBROW } from "./ambientcard";
 import { ambientProviderAtom, ensureAmbient } from "./ambientstore";
+
+// the ambient surface treatment: recessed panel, never the emphasis of the row it sits in.
+const AMBIENT_BOX = "rounded-[9px] border border-border bg-surface px-3 py-2";
+const AMBIENT_EYEBROW = "font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-muted";
 
 // Bucket -> chip weight. Mirrors jarvisgraphderive.attributionStyle's three steps, expressed as tokens
 // rather than raw opacity: a chip is text, and the graph's 0.35 floor is unreadable at 9px.

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Reusable right-rail: a thin always-visible strip that expands to a 300px scroll panel.
-// Content-agnostic — callers pass a list of {icon,label,content} sections and a caller-owned
+// Content-agnostic — callers pass a list of {label,content} sections and a caller-owned
 // openAtom (so each surface keeps its own persistence/default). Owns width, border, and the
 // width-reveal animation. Collapsed, it shows a single expand button (the first section's icon
 // represents the rail) — one affordance, since per-section jump anchors all just opened the panel.
@@ -18,7 +18,7 @@ import { Tooltip } from "./tooltip";
 
 export interface RailSection {
     id: string;
-    icon: ReactNode; // the first section's icon is the rail's collapsed glyph; others are unused for now
+    icon?: ReactNode; // the first section's icon is the rail's collapsed glyph when no strip replaces it; others are unused
     label: string; // in-content headings are caller-owned
     content: ReactNode;
 }

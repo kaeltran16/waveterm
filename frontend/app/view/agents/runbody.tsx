@@ -7,8 +7,8 @@
 // two-face composer, profile drawer, context panel) while reusing the phase-rail internals unchanged.
 // RunBody owns the run-scoped live machinery: the liveness clock, the transcript streams for the run's
 // running-phase workers (what makes the rail narrate live), and the phase-rail entrance guard. Given a
-// selected `run` as a prop; steering is the merged surface's composer Talk face, so the body hides the
-// old inline Steer affordance (hideSteer). See runmodel.ts for all derivations. The gate/ask/blocked/
+// selected `run` as a prop; steering is the merged surface's composer Talk face. See runmodel.ts for all
+// derivations. The gate/ask/blocked/
 // starting/ship/cancel/triage card family lives in runcards.tsx.
 
 import { useSettle } from "@/app/element/motionhooks";
@@ -26,11 +26,9 @@ import { DagOverview } from "../orchestrate/dagoverview";
 import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
 import { AmbientTags } from "./ambientviews";
-import { steerWorker } from "./channelactions";
 import { jumpToAgent } from "./channelsprimitives";
 import { runAtom } from "./channelsstore";
 import { ChildAskCard } from "./childaskcard";
-import { ComposerShell } from "./composer-shell";
 import { harnessesAtom } from "./harnessstore";
 import { InlineMarkdown } from "./inlinemarkdown";
 import { MarkdownMessage } from "./markdownmessage";
@@ -60,7 +58,6 @@ import {
     recordedWorkerTabs,
     runRuntimeView,
     runStatusView,
-    steerTarget,
 } from "./runmodel";
 import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
 import { sessionSidebarViewModelAtom } from "./session-models/sessionsidebarmodel";
@@ -138,128 +135,62 @@ export function CompactStepper({ run, expanded, onToggle }: { run: Run; expanded
     );
 }
 
-// The run header (status + goal) and, unless hidden, the old inline Steer affordance shared by the
-// pipeline rail body and the orchestrator body. Steer state is owned by the caller and passed down so it
-// resets on run switch. The steer target is the current phase's lead (steerTarget); the button is
-// disabled when there is none (terminal run / no live worker). The merged surface passes hideSteer — its
-// composer Talk face replaces the inline Steer affordance entirely.
-export function RunHeader({
-    run,
-    agents,
-    channel,
-    steering,
-    steerDraft,
-    setSteerDraft,
-    onSteerToggle,
-    onSteerClose,
-    hideSteer,
-}: {
-    run: Run;
-    agents: AgentVM[];
-    channel: Channel;
-    steering: boolean;
-    steerDraft: string;
-    setSteerDraft: (s: string) => void;
-    onSteerToggle: () => void;
-    onSteerClose: () => void;
-    hideSteer?: boolean;
-}) {
-    const target = steerTarget(run, agents);
+// The run header (status + goal) shared by the pipeline rail body and the orchestrator body.
+export function RunHeader({ run, agents, channel }: { run: Run; agents: AgentVM[]; channel: Channel }) {
     const [goalExpanded, setGoalExpanded] = useState(false);
     const runtimeHarnesses = useAtomValue(harnessesAtom);
     const runtimeView = runRuntimeView(run, runtimeHarnesses);
     return (
-        <>
-            <div className="mb-4 flex items-start gap-3">
-                <div className="min-w-0 flex-1">
-                    <div className="mb-1.5 flex items-center gap-2">
-                        <StatusPill
-                            status={run.status}
-                            land={run.land}
-                            survivorCount={cancelSurvivors(run, agents).length}
-                        />
-                        <span
-                            data-testid="run-runtime"
-                            data-run-legacy={runtimeView.legacy ? "true" : "false"}
-                            className="inline-flex items-center gap-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-muted"
-                        >
-                            <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
-                            {runtimeView.label}
-                        </span>
-                        <AmbientTags oref={`run:${run.id}`} />
-                    </div>
-                    {/* the collapsed goal is a two-line heading and takes the width; expanded it becomes real
-                        prose (markdown, paragraphs) and caps at a reading measure */}
-                    <div
-                        onClick={() => setGoalExpanded((v) => !v)}
-                        title={goalExpanded ? "Collapse" : "Expand"}
-                        className="w-full cursor-pointer text-[19px] font-bold leading-tight tracking-[-0.01em] text-primary hover:opacity-90"
+        <div className="mb-4 flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+                <div className="mb-1.5 flex items-center gap-2">
+                    <StatusPill
+                        status={run.status}
+                        land={run.land}
+                        survivorCount={cancelSurvivors(run, agents).length}
+                    />
+                    <span
+                        data-testid="run-runtime"
+                        data-run-legacy={runtimeView.legacy ? "true" : "false"}
+                        className="inline-flex items-center gap-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-muted"
                     >
-                        {goalExpanded ? (
-                            <MarkdownMessage
-                                text={run.goal}
-                                className={cn(STAGE_PROSE, "text-[15px] font-semibold leading-snug text-primary")}
-                            />
-                        ) : (
-                            <div className="line-clamp-2">
-                                <InlineMarkdown text={run.goal} />
-                            </div>
-                        )}
-                    </div>
+                        <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
+                        {runtimeView.label}
+                    </span>
+                    <AmbientTags oref={`run:${run.id}`} />
                 </div>
-                <div className="flex flex-none gap-1.5">
-                    {run.dagoref ? (
-                        <button
-                            type="button"
-                            onClick={() => openDagLive(channel.oid, run.id, "dag:" + run.dagoref)}
-                            title="Open the engine task DAG for this run"
-                            className="cursor-pointer rounded border border-accent/50 px-2.5 py-1.5 text-[11.5px] font-semibold text-accent-soft hover:border-accent"
-                        >
-                            Open DAG
-                        </button>
-                    ) : null}
+                {/* the collapsed goal is a two-line heading and takes the width; expanded it becomes real
+                    prose (markdown, paragraphs) and caps at a reading measure */}
+                <div
+                    onClick={() => setGoalExpanded((v) => !v)}
+                    title={goalExpanded ? "Collapse" : "Expand"}
+                    className="w-full cursor-pointer text-[19px] font-bold leading-tight tracking-[-0.01em] text-primary hover:opacity-90"
+                >
+                    {goalExpanded ? (
+                        <MarkdownMessage
+                            text={run.goal}
+                            className={cn(STAGE_PROSE, "text-[15px] font-semibold leading-snug text-primary")}
+                        />
+                    ) : (
+                        <div className="line-clamp-2">
+                            <InlineMarkdown text={run.goal} />
+                        </div>
+                    )}
                 </div>
-                {!hideSteer ? (
-                    <div className="flex flex-none gap-1.5">
-                        <button
-                            type="button"
-                            disabled={!target}
-                            onClick={onSteerToggle}
-                            className="rounded border border-edge-mid px-2.5 py-1.5 text-[11.5px] font-semibold text-secondary hover:border-edge-strong disabled:opacity-40"
-                        >
-                            Steer
-                        </button>
-                    </div>
+            </div>
+            <div className="flex flex-none gap-1.5">
+                {run.dagoref ? (
+                    <button
+                        type="button"
+                        onClick={() => openDagLive(channel.oid, run.id, "dag:" + run.dagoref)}
+                        title="Open the engine task DAG for this run"
+                        className="cursor-pointer rounded border border-accent/50 px-2.5 py-1.5 text-[11.5px] font-semibold text-accent-soft hover:border-accent"
+                    >
+                        Open DAG
+                    </button>
                 ) : null}
             </div>
-            {!hideSteer && steering && target ? (
-                <div className="mb-4 max-w-[760px]">
-                    <ComposerShell
-                        value={steerDraft}
-                        onChange={setSteerDraft}
-                        autoFocus
-                        placeholder={`Steer ${target.name}…`}
-                        sendLabel="Steer ⏎"
-                        onSubmit={() => {
-                            const text = steerDraft.trim();
-                            if (!target || !text) {
-                                return;
-                            }
-                            setSteerDraft("");
-                            onSteerClose();
-                            fireAndForget(() =>
-                                steerWorker({
-                                    channelId: channel.oid,
-                                    workerORef: `tab:${target.id}`,
-                                    agents,
-                                    text,
-                                })
-                            );
-                        }}
-                    />
-                </div>
-            ) : null}
-        </>
+        </div>
     );
 }
 
@@ -369,12 +300,6 @@ export function OrchestratorBody({
     run,
     now,
     liveTabIds,
-    steering,
-    steerDraft,
-    setSteerDraft,
-    onSteerToggle,
-    onSteerClose,
-    hideSteer,
 }: {
     model: AgentsViewModel;
     channel: Channel;
@@ -382,12 +307,6 @@ export function OrchestratorBody({
     run: Run;
     now: number;
     liveTabIds: Set<string>;
-    steering: boolean;
-    steerDraft: string;
-    setSteerDraft: (s: string) => void;
-    onSteerToggle: () => void;
-    onSteerClose: () => void;
-    hideSteer?: boolean;
 }) {
     const idx = currentPhaseIndex(run);
     const thread = phaseThread(run, idx, agents, liveTabIds);
@@ -401,17 +320,7 @@ export function OrchestratorBody({
         // theirs, or its measure centres 5px right of every other band on the Stage.
         <div className={cn(STAGE_BAND_INSET, "sc flex min-h-0 flex-1 flex-col overflow-y-auto")}>
             <div className={cn(STAGE_GUTTER, "flex min-h-0 flex-1 flex-col pb-3 pt-5")}>
-                <RunHeader
-                    run={run}
-                    agents={agents}
-                    channel={channel}
-                    steering={steering}
-                    steerDraft={steerDraft}
-                    setSteerDraft={setSteerDraft}
-                    onSteerToggle={onSteerToggle}
-                    onSteerClose={onSteerClose}
-                    hideSteer={hideSteer}
-                />
+                <RunHeader run={run} agents={agents} channel={channel} />
                 {/* below the header, not in its row: a flex sibling of the title squeezed it into a column */}
                 {run.dagoref ? <ChildAskCard channelId={channel.oid} runId={run.id} /> : null}
                 <RunTimeline channel={channel} run={run} />
@@ -586,7 +495,6 @@ export function PhaseRail({
 // The inner render of a single selected run — owns the run-scoped live machinery (liveness clock, the
 // transcript streams for the run's running-phase workers, and the phase-rail entrance guard) so the
 // merged surface just renders <RunBody run={selected} /> and gets the same live behavior RunsView had.
-// Steering is the merged surface's composer Talk face, so the body hides the old inline Steer affordance.
 export function RunBody({
     model,
     channel,
@@ -660,7 +568,6 @@ export function RunBody({
     // signature array each render re-pins while the user is at the bottom (releases on scroll-up).
     const stick = useStickToBottom([run.status, railKey, now]);
 
-    const noop = () => {};
     if (run.status === "done" && run.evidence) {
         return <RunCompletion channel={channel} run={run} model={model} />;
     }
@@ -673,12 +580,6 @@ export function RunBody({
                 run={run}
                 now={now}
                 liveTabIds={liveTabIds}
-                steering={false}
-                steerDraft=""
-                setSteerDraft={noop}
-                onSteerToggle={noop}
-                onSteerClose={noop}
-                hideSteer
             />
         );
     }
@@ -686,17 +587,7 @@ export function RunBody({
         <div className="relative flex min-h-0 flex-1 flex-col">
             <div ref={stick.scrollRef} onScroll={stick.onScroll} className={cn(STAGE_SCROLLER, "sc min-h-0 flex-1")}>
                 <div className={cn(STAGE_GUTTER, "pb-3 pt-5")}>
-                    <RunHeader
-                        run={run}
-                        agents={agents}
-                        channel={channel}
-                        steering={false}
-                        steerDraft=""
-                        setSteerDraft={noop}
-                        onSteerToggle={noop}
-                        onSteerClose={noop}
-                        hideSteer
-                    />
+                    <RunHeader run={run} agents={agents} channel={channel} />
                     <RunTimeline channel={channel} run={run} />
                     <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
                     {run.status === "executing" && primaryWorker ? <RunRollup agent={primaryWorker} now={now} /> : null}

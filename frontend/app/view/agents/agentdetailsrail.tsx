@@ -32,7 +32,6 @@ import { FinalStageRail } from "./finalstagerail";
 import { capFiles, statusColor } from "./gitstatus";
 import { entriesAtomFor, liveEntriesByIdAtom } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
-import { RAIL_ICON } from "./railicons";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
 import { agentProject, roleRunId } from "./runlineage";
 import { NeedsYouSection, RunSection, TaskSection, useRunAsks } from "./runrailsections";
@@ -323,7 +322,6 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                   {
                       id: "subagent",
                       label: "Subagent",
-                      icon: RAIL_ICON.subagents,
                       content: (
                           <div className="flex flex-col gap-[6px]">
                               <SubLabel>Subagent of {agent.name}</SubLabel>
@@ -361,7 +359,6 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const details: RailSection = {
         id: "details",
         label: "Details",
-        icon: RAIL_ICON.info,
         content: (
             <div>
                 {/* only the lead's rail: a worker's own question is already on screen, in its terminal's picker */}
@@ -435,7 +432,6 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
               {
                   id: "final",
                   label: "Final verification",
-                  icon: RAIL_ICON.autonomy,
                   content: <FinalStageRail key={finalRun.runId} model={model} run={finalRun} />,
               },
           ]
@@ -450,7 +446,6 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                   {
                       id: "run",
                       label: role.kind === "worker" ? "Task" : "Run",
-                      icon: RAIL_ICON.autonomy,
                       content:
                           role.kind === "worker" ? (
                               <TaskSection
@@ -469,7 +464,6 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
         {
             id: "usage",
             label: "Token usage",
-            icon: RAIL_ICON.usage,
             content: <TokenUsageSection />,
         },
         ...(!sub && subs.length > 0
@@ -477,7 +471,6 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                   {
                       id: "subagents",
                       label: "Subagents",
-                      icon: RAIL_ICON.subagents,
                       content: (
                           <div>
                               <div className="mb-[11px] flex items-center justify-between">
@@ -540,7 +533,6 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                   {
                       id: "tools",
                       label: "Tools used",
-                      icon: RAIL_ICON.tools,
                       content: (
                           <div>
                               <div className="mb-[11px]">
@@ -567,7 +559,6 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                   {
                       id: "files",
                       label: "Files touched",
-                      icon: RAIL_ICON.files,
                       content: (
                           <div>
                               <div className="mb-[11px]">
