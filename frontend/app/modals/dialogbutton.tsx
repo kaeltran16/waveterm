@@ -19,6 +19,13 @@ const VARIANTS: Record<DialogButtonVariant, string> = {
     danger: "border-error/40 bg-error/15 text-error-soft font-bold hover:bg-error/25 hover:border-error",
 };
 
+// no ink token clears 4.5:1 on the solid accent or the error tint, so those hints keep the button's own ink
+const HINT_INK: Record<DialogButtonVariant, string> = {
+    secondary: "text-muted",
+    primary: "",
+    danger: "",
+};
+
 interface DialogButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     variant?: DialogButtonVariant;
     hint?: string; // small key-hint chip, e.g. "⏎" or "esc"
@@ -44,7 +51,7 @@ export function DialogButton({
             {...rest}
         >
             {children}
-            {hint && <kbd className="ml-0.5 font-mono text-[10px] font-normal opacity-55">{hint}</kbd>}
+            {hint && <kbd className={cn("ml-0.5 font-mono text-[10.5px] font-normal", HINT_INK[variant])}>{hint}</kbd>}
         </button>
     );
 }

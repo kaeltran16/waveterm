@@ -79,7 +79,7 @@ function MenuLevel({
                     return (
                         <div
                             key={i}
-                            className="px-2.5 pb-1 pt-2 font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-muted"
+                            className="px-2.5 pb-1 pt-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.06em] text-muted"
                         >
                             {item.label}
                         </div>
