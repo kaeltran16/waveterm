@@ -124,6 +124,84 @@ func TestCanvasRevealFor(t *testing.T) {
 	}
 }
 
+func TestBrainstormRevealFor(t *testing.T) {
+	post := func(tool, path string) ccHookEvent {
+		input, _ := json.Marshal(map[string]string{"file_path": path})
+		return ccHookEvent{HookEventName: "PostToolUse", ToolName: tool, ToolInput: input}
+	}
+	root := t.TempDir()
+	file := filepath.Join(root, ".superpowers", "brainstorm", "consumer-lag-alerts", "brainstorm.json")
+	hits := map[string]ccHookEvent{
+		"write":           post("Write", file),
+		"edit":            post("Edit", file),
+		"multiedit":       post("MultiEdit", file),
+		"forward slashes": post("Write", root+"/.superpowers/brainstorm/consumer-lag-alerts/brainstorm.json"),
+	}
+	for name, ev := range hits {
+		address, cwd, ok := brainstormRevealFor(ev)
+		if !ok || address != "brainstorm:consumer-lag-alerts" || cwd != root {
+			t.Errorf("%s: got (%q, %q, %v)", name, address, cwd, ok)
+		}
+	}
+	pre := post("Write", file)
+	pre.HookEventName = "PreToolUse"
+	misses := map[string]ccHookEvent{
+		"before the write lands": pre,
+		"a read":                 post("Read", file),
+		"another file name":      post("Write", filepath.Join(root, ".superpowers", "brainstorm", "t", "notes.json")),
+		"nested under the topic": post("Write", filepath.Join(root, ".superpowers", "brainstorm", "t", "x", "brainstorm.json")),
+		"a relative path":        post("Write", filepath.Join(".superpowers", "brainstorm", "t", "brainstorm.json")),
+		"no file path":           {HookEventName: "PostToolUse", ToolName: "Write"},
+	}
+	for name, ev := range misses {
+		if address, _, ok := brainstormRevealFor(ev); ok {
+			t.Errorf("%s: revealed %q", name, address)
+		}
+	}
+}
+
+func TestBrainstormContextFor(t *testing.T) {
+	skill := func(name string) ccHookEvent {
+		input, _ := json.Marshal(map[string]string{"skill": name})
+		return ccHookEvent{HookEventName: "PostToolUse", ToolName: "Skill", ToolInput: input}
+	}
+	for _, name := range []string{"superpowers:brainstorming", "brainstorming"} {
+		if !brainstormContextFor(skill(name)) {
+			t.Errorf("%s: not ok", name)
+		}
+	}
+	pre := skill("superpowers:brainstorming")
+	pre.HookEventName = "PreToolUse"
+	notSkill := skill("superpowers:brainstorming")
+	notSkill.ToolName = "Read"
+	for name, ev := range map[string]ccHookEvent{
+		"another skill": skill("superpowers:writing-plans"),
+		"another tool":  notSkill,
+		"pre tool use":  pre,
+	} {
+		if brainstormContextFor(ev) {
+			t.Errorf("%s: ok", name)
+		}
+	}
+
+	out := skillContextOutput(skill("superpowers:brainstorming"))
+	var parsed struct {
+		HookSpecificOutput struct {
+			HookEventName     string `json:"hookEventName"`
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("output is not json: %v", err)
+	}
+	if parsed.HookSpecificOutput.HookEventName != "PostToolUse" || !strings.Contains(parsed.HookSpecificOutput.AdditionalContext, "arc:brainstorm") {
+		t.Errorf("output = %q", out)
+	}
+	if skillContextOutput(skill("superpowers:writing-plans")) != "" {
+		t.Error("another skill produced output")
+	}
+}
+
 func TestDetailForToolBashTruncated(t *testing.T) {
 	long := ""
 	for i := 0; i < 100; i++ {

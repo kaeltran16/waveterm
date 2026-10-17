@@ -70,6 +70,36 @@ describe("popupBubble", () => {
     });
 });
 
+describe("popupBubble for a brainstorm question", () => {
+    const question = item({
+        kind: "brainstorm",
+        key: "brainstorm:t1:5",
+        source: "lag-alerts",
+        text: "Who reads the page first?",
+        reason: "For “What on-call sees” · question 5",
+        action: "brainstorm",
+    });
+
+    it("reads the agent's name, brainstorm, the question and the part it is for", () => {
+        expect(popupBubble([], [question], false)).toEqual({
+            key: "brainstorm:t1:5",
+            kind: "brainstorm",
+            label: "lag-alerts · brainstorm",
+            name: undefined,
+            text: "Who reads the page first?",
+            detail: "For “What on-call sees” · question 5",
+            more: 0,
+            face: undefined,
+        });
+    });
+    it("is null while focused", () => {
+        expect(popupBubble([], [question], true)).toBeNull();
+    });
+    it("is null for a question already seen", () => {
+        expect(popupBubble([question], [question], false)).toBeNull();
+    });
+});
+
 describe("popupFace", () => {
     const gate: PopupFace = { expression: { kind: "tired", provider: "claude", pct: 92 }, posture: "review-gate" };
 

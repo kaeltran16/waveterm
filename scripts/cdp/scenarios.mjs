@@ -18766,6 +18766,1122 @@ const canvasSwap = {
     },
 };
 
+// --- brainstorm mode: an agent's brainstorm.json drawn beside its terminal, every action one typed line ---------
+// (docs/superpowers/specs/2026-10-18-brainstorm-mode-design.md). The terminal is opened as canvas-swap opens its own
+// and made a roster agent by publishing the agent:status `wsh agentstatus` would. Each step writes that step's
+// brainstorm.json, the agent's side of the protocol, and waits for the poller to draw it. A typed line is read
+// twice: from the page's own controllerinput calls, which say exactly what was sent, and from the terminal's
+// scrollback, which says it reached the shell (which runs each one as a failing command).
+const BS_TOPIC = "consumer-lag-alerts";
+// a second topic revealed from the same terminal, whose file never parses
+const BS_UNREADABLE_TOPIC = "lag-alerts-unreadable";
+const BS_SPEC = "docs/superpowers/specs/2026-10-18-consumer-lag-alerts-design.md";
+const BS_BOARDS = ["Page.dc.html", "PageB.dc.html"];
+const BS_RUN = "7f3a21c0-4d1e-4b6a-9c2f-1e8d7a6b5c40";
+const BS_PANE = `document.querySelector("[data-brainstorm-pane]")`;
+const BS_SWITCH = `document.querySelector('[role="group"][aria-label="Show terminal or brainstorm"]')`;
+const BS_TREE_LINE = `document.querySelector("[data-brainstorm-tree-line]")`;
+const BS_EDIT = `document.querySelector("[data-brainstorm-pane] [data-brainstorm-edit]")`;
+const BS_ANSWER = `document.querySelector("[data-brainstorm-pane] [data-brainstorm-answer]")`;
+const BS_BUILDER_ANSWER = `document.querySelector("[data-brainstorm-builder-question] textarea")`;
+const BS_APPROVE_BAR = `document.querySelector("[data-brainstorm-approve-bar]")`;
+const BS_QUESTION_CARD = `document.querySelector("[data-brainstorm-question]")`;
+const BS_POPUP_CARD = `document.querySelector("button[data-attention-popup]")`;
+const bsPartSel = (id) => `document.querySelector('[data-brainstorm-pane] [data-brainstorm-part="${id}"]')`;
+// BRAINSTORM_POLL_MS is 3s, so a write shows inside two ticks
+const BS_POLL_WAIT_MS = 7000;
+// the attach lands between ticks, then two failed reads in a row
+const BS_ERROR_WAIT_MS = 10000;
+const BS_TYPED_WAIT_MS = 5000;
+const BS_ROSTER_WAIT_MS = 10000;
+const BS_NOTHING_TYPED_MS = 800;
+const BS_SCROLLBACK_LINES = 400;
+// the shell's prompt ends its last row: pwsh and cmd end in >, bash and zsh in $, # or %
+const BS_PROMPT = /[>$#%]$/;
+const BS_PROMPT_WAIT_MS = 20000;
+const BS_SHIFT = 8;
+const BS_B_KEY = { key: "b", code: "KeyB", keyCode: 66 };
+const BS_KEY_DEF = {
+    Enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
+    Escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 },
+};
+
+// the copy is the canvas's (.superpowers/design/brainstorm-mode): Main's parts and history, Handoff's check
+const BS_PART = {
+    intent: {
+        title: "Intent and why",
+        from: "answer 1",
+        body: "When a consumer group falls behind, the people who own it hear first, not an analyst downstream. Last Tuesday enrichment fell two hours behind before anyone knew.",
+    },
+    goals: {
+        title: "Goals",
+        from: "answer 2",
+        body: "On-call is paged only when lag keeps growing. #siem-ops gets a heads-up at 10 minutes so someone can look before it becomes a page.",
+    },
+    anti: {
+        title: "Anti-goals",
+        from: "answer 3",
+        body: "A 3am page for a rebalance that recovers by itself in 40 seconds. Any alert that fires during a planned replay.",
+    },
+    current: {
+        title: "Current state",
+        from: "recon",
+        body: "kafka-exporter already scrapes 14 consumer groups into Prometheus; 3 of them are enrichment. There are no lag rules in Alertmanager today.",
+    },
+    constraints: {
+        title: "Constraints",
+        from: "answer 2",
+        body: "Alerts go through the existing Alertmanager and its Slack and PagerDuty receivers. No new service, no new bot.",
+    },
+    thresholds: {
+        title: "When it pages",
+        from: "answer 4",
+        body: "Page when lag on any enrichment partition has grown for 5 straight minutes and is past 15 minutes. A rebalance that recovers inside 2 minutes never pages.",
+    },
+    page: {
+        title: "What on-call sees",
+        from: "mockup",
+        body: "The page leads with the lag, the trend and how many partitions are stuck, then links the runbook and the Grafana panel.",
+        boards: BS_BOARDS,
+    },
+    builder: {
+        title: "Left to the builder",
+        from: "",
+        body: "Filled in last: the parts you hand over, such as rule file layout and test fixtures.",
+    },
+};
+const BS_ADDED = "The recording rules need Prometheus 2.45 or later for the new lag functions; staging runs 2.41.";
+const BS_WHY = "your answer 4 named the lag growth rate, which needs those functions.";
+const BS_Q1 = { n: 1, text: "What is the moment you found yourself wishing this existed?", part: "intent" };
+const BS_Q4 = {
+    n: 4,
+    text: "Walk me through the last time lag bit you. What did you see first, and how long before someone noticed?",
+    part: "thresholds",
+};
+const BS_Q5 = { n: 5, text: "If on-call could read only one number in the page, which would it be?", part: "page" };
+// oldest first, as the agent appends them; the pane draws them newest first
+const BS_HISTORY = [
+    {
+        kind: "question",
+        n: 1,
+        q: BS_Q1.text,
+        a: "Last Tuesday, when enrichment was two hours behind and we heard it from an analyst.",
+        into: ["intent"],
+    },
+    {
+        kind: "question",
+        n: 2,
+        q: "Who gets woken up, and who just needs to know?",
+        a: "On-call only if it keeps growing. The channel can hear about it at 10 minutes.",
+        into: ["goals", "constraints"],
+    },
+    {
+        kind: "question",
+        n: 3,
+        q: "What would make you wince if I got this wrong?",
+        a: "Paging at 3am for a rebalance that fixes itself in 40 seconds.",
+        into: ["anti"],
+    },
+    {
+        kind: "recon",
+        q: "I offered to look at your Prometheus targets and Alertmanager rules. You said yes.",
+        a: "14 consumer groups scraped by kafka-exporter, 3 on enrichment. No lag rules yet.",
+        into: ["current"],
+    },
+];
+const BS_ANSWER_LINES = ["Enrichment lag went from zero to two hours over lunch.", "Nobody noticed until an analyst asked."];
+const BS_HISTORY_Q4 = [
+    ...BS_HISTORY,
+    { kind: "question", n: 4, q: BS_Q4.text, a: BS_ANSWER_LINES.join(" "), into: ["thresholds"] },
+];
+const BS_EDITED = "Alerts go through the existing Alertmanager only. No new service.";
+const BS_BUILDER_Q = "When a lag page fires, should it also hold the enrichment autoscaler at its current size, or only report?";
+const BS_BUILDER_A = "Only report. Scaling stays a human call.";
+
+const bsParts = (states, over = {}) =>
+    Object.entries(states).map(([id, state]) => ({ id, state, ...BS_PART[id], ...(over[id] ?? {}) }));
+const bsFile = (over) => ({
+    v: 1,
+    title: "Consumer lag alerts",
+    spec: BS_SPEC,
+    canvas: BS_TOPIC,
+    question: null,
+    working: null,
+    parts: [],
+    history: [],
+    done: false,
+    check: null,
+    run: null,
+    ...over,
+});
+const BS_MID_STATES = {
+    intent: "yours",
+    goals: "yours",
+    anti: "yours",
+    current: "guess",
+    constraints: "guess",
+    thresholds: "asked",
+    page: "guess",
+    builder: "open",
+};
+// five yours, two guesses, one open: the compaction and exited boards' counts
+const BS_LATE_STATES = { ...BS_MID_STATES, current: "yours", constraints: "yours", thresholds: "guess" };
+const BS_ASKED = { thresholds: { body: "" } };
+const BS_FILES = {
+    justStarted: bsFile({ question: BS_Q1, parts: bsParts({ intent: "asked" }, { intent: { body: "" } }) }),
+    mid: bsFile({ question: BS_Q4, parts: bsParts(BS_MID_STATES, BS_ASKED), history: BS_HISTORY }),
+    answered: bsFile({
+        question: BS_Q5,
+        parts: bsParts({ ...BS_MID_STATES, thresholds: "guess" }),
+        history: BS_HISTORY_Q4,
+    }),
+    working: bsFile({
+        working: "Writing “When it pages” from your answer.",
+        parts: bsParts(BS_MID_STATES, BS_ASKED),
+        history: BS_HISTORY_Q4,
+    }),
+    changed: bsFile({
+        question: BS_Q5,
+        parts: bsParts(
+            { ...BS_MID_STATES, current: "yours", thresholds: "guess" },
+            { constraints: { body: `${BS_PART.constraints.body} ${BS_ADDED}`, was: BS_PART.constraints.body, why: BS_WHY } }
+        ),
+        history: BS_HISTORY_Q4,
+    }),
+    late: bsFile({ question: BS_Q5, parts: bsParts(BS_LATE_STATES), history: BS_HISTORY_Q4 }),
+    lateWorking: bsFile({
+        working: "Writing “What on-call sees” from your answer.",
+        parts: bsParts(BS_LATE_STATES),
+        history: BS_HISTORY_Q4,
+    }),
+};
+const BS_HANDOFF_PARTS = bsParts(Object.fromEntries(Object.keys(BS_PART).map((id) => [id, "yours"])), {
+    intent: { body: "When a consumer group falls behind, the people who own it hear first, not an analyst downstream." },
+    thresholds: {
+        body: "Page when lag on any enrichment partition has grown for 5 straight minutes and is past 15 minutes.",
+    },
+    anti: { body: "A 3am page for a rebalance that recovers by itself. Any alert during a planned replay." },
+    builder: { body: "Rule file layout, test fixtures for the recording rules, the runbook’s wording." },
+});
+const BS_CHECK = {
+    yours: [
+        {
+            q: BS_BUILDER_Q,
+            why: "Holding it changes what gets built: the rule then needs write access to the autoscaler.",
+        },
+    ],
+    calls: [
+        {
+            text: "Lag is judged per partition, not per group: one stuck partition hides in a group average.",
+            part: "thresholds",
+        },
+        { text: "The 15-minute line lives in the alert rules per consumer group, not in code.", part: "thresholds" },
+        { text: "Planned replays are silenced by an Alertmanager silence the replay script creates.", part: "anti" },
+    ],
+    answered: [
+        "Which exporter? kafka-exporter, from the recon.",
+        "Does two hours of lag lose data? No: topic retention is 7 days.",
+    ],
+    touched: ["intent", "thresholds", "anti", "builder"],
+};
+// the touched parts in the file's order, which is the order the check draws them in
+const BS_TOUCHED_ORDER = ["intent", "anti", "thresholds", "builder"];
+const BS_HANDOFF = bsFile({ done: true, parts: BS_HANDOFF_PARTS, history: BS_HISTORY_Q4, check: BS_CHECK });
+const BS_HANDOFF_ANSWERED = {
+    ...BS_HANDOFF,
+    check: { ...BS_CHECK, yours: [{ ...BS_CHECK.yours[0], a: BS_BUILDER_A, into: "anti" }] },
+};
+
+function bsWrite(ctx, file) {
+    writeFileSync(ctx.file, typeof file === "string" ? file : JSON.stringify(file, null, 2));
+}
+
+// everything a step judges on the Agent surface, in one read. innerText, so text in sibling elements reads apart
+const bsRead = (h, ctx) =>
+    h.ev(`(() => {
+        const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+        const pane = ${BS_PANE};
+        const sw = ${BS_SWITCH};
+        const term = document.querySelector('[data-agent-terminal="${ctx.tabId}"]');
+        const btn = (el) => (el ? { disabled: el.disabled, title: el.title } : null);
+        const btns = (label) =>
+            [...(pane?.querySelectorAll("button") ?? [])].filter((b) => flat(b) === label).map(btn);
+        return {
+            view: pane?.getAttribute("data-brainstorm-view") ?? null,
+            text: flat(pane),
+            counts: flat(pane?.querySelector("[data-brainstorm-counts]")),
+            question: flat(pane?.querySelector("[data-brainstorm-question]")),
+            answerBox: !!pane?.querySelector("[data-brainstorm-answer]"),
+            working: flat(pane?.querySelector("[data-brainstorm-working]")),
+            stale: flat(pane?.querySelector("[data-brainstorm-stale]")),
+            check: btn(pane?.querySelector("[data-brainstorm-check-btn]")),
+            approve: btn(pane?.querySelector("[data-brainstorm-approve]")),
+            approveBar: flat(pane?.querySelector("[data-brainstorm-approve-bar]")),
+            builder: flat(pane?.querySelector("[data-brainstorm-builder-question]")),
+            exited: flat(pane?.querySelector("[data-brainstorm-exited]")),
+            resume: !!pane?.querySelector("[data-brainstorm-resume]"),
+            parts: [...(pane?.querySelectorAll("[data-brainstorm-part]") ?? [])].map((p) => ({
+                id: p.getAttribute("data-brainstorm-part"),
+                state: p.getAttribute("data-state"),
+                text: flat(p),
+                calls: [...p.querySelectorAll("span")].filter((s) => flat(s.firstElementChild) === "Agent’s call").length,
+            })),
+            history: [...(pane?.querySelectorAll("[data-brainstorm-history] > div") ?? [])].map((r) => ({
+                label: flat(r.querySelector("span")),
+                text: flat(r),
+            })),
+            confirm: btns("That’s right"),
+            guessFor: btns("Guess for me").length,
+            switch: sw
+                ? [...sw.querySelectorAll("button")].map((b) => ({ label: flat(b), pressed: b.getAttribute("aria-pressed") }))
+                : null,
+            hint: flat(sw?.nextElementSibling),
+            compacted: flat(document.querySelector("[data-brainstorm-compacted]")),
+            terminal: term ? !term.classList.contains("hidden") : null,
+            treeLine: flat(${BS_TREE_LINE}),
+        };
+    })()`);
+
+// polls the surface until want(read) holds; the last read, whether it did, and the wait
+async function bsUntil(h, ctx, want, ms = BS_POLL_WAIT_MS) {
+    const start = Date.now();
+    let s;
+    do {
+        s = await bsRead(h, ctx).catch((e) => ({ error: String(e?.message ?? e), parts: [], history: [] }));
+        if (s.error == null && want(s)) return { ...s, ok: true, ms: Date.now() - start };
+        await polishNap(250);
+    } while (Date.now() - start < ms);
+    return { ...s, ok: false, ms: Date.now() - start };
+}
+
+const bsStates = (s) => Object.fromEntries((s?.parts ?? []).map((p) => [p.id, p.state]));
+const bsPart = (s, id) => s?.parts?.find((p) => p.id === id);
+const bsBrief = (s) => ({ ok: s.ok, ms: s.ms, view: s.view, error: s.error, text: (s.text ?? "").slice(0, 300) });
+
+// clicks the button labelled `label` inside the scope, and says what it found
+const bsClick = (h, scope, label) =>
+    h.ev(`(() => {
+        const b = [...(${scope}?.querySelectorAll("button") ?? [])]
+            .find((x) => (x.textContent || "").replace(/\\s+/g, " ").trim() === ${JSON.stringify(label)});
+        if (!b) return "missing";
+        if (b.disabled) return "disabled";
+        b.click();
+        return "clicked";
+    })()`);
+
+// a real click, which puts the page in focus: CDP key and text input reach nothing without it
+async function bsMouseClick(h, elExpr) {
+    const box = await h.ev(`(() => {
+        const el = ${elExpr};
+        el?.scrollIntoView({ block: "center" });
+        const r = el?.getBoundingClientRect();
+        return r && r.width > 0 ? { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } : null;
+    })()`);
+    if (!box) return false;
+    for (const type of ["mousePressed", "mouseReleased"]) {
+        await h.cdp("Input.dispatchMouseEvent", { type, x: box.x, y: box.y, button: "left", clickCount: 1 });
+    }
+    return true;
+}
+
+// Shift is bound nowhere, so the probe seeing it proves key events reach the page
+async function bsKeysArrive(h) {
+    await h.ev(`(() => {
+        window.__bsSeen = [];
+        window.__bsProbe = (e) => window.__bsSeen.push(e.key);
+        window.addEventListener("keydown", window.__bsProbe, true);
+        return true;
+    })()`);
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: BS_SHIFT });
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
+    await polishNap(200);
+    const seen = await h.ev(`window.__bsSeen.includes("Shift")`);
+    await h.ev(`window.removeEventListener("keydown", window.__bsProbe, true)`);
+    return seen === true;
+}
+
+// React's change path, for when CDP text input does not reach the page
+const bsSetValue = (elExpr, value) => `(() => {
+    const el = ${elExpr};
+    if (!el) return false;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(el, ${JSON.stringify(value)});
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+})()`;
+
+// types into a textarea the way a user does; "set" when the text had to go through bsSetValue instead
+async function bsFill(h, elExpr, text) {
+    await bsMouseClick(h, elExpr);
+    await h.ev(bsSetValue(elExpr, ""));
+    await h.cdp("Input.insertText", { text });
+    if ((await h.ev(`${elExpr}?.value ?? null`)) === text) return "keys";
+    await h.ev(bsSetValue(elExpr, text));
+    return "set";
+}
+
+// a key in the focused textarea; without CDP input the keydown is dispatched on the element, which reaches React's
+// handler but not the browser's own action
+async function bsKey(h, elExpr, name, via, shift = false) {
+    const { text, ...def } = BS_KEY_DEF[name];
+    const modifiers = shift ? BS_SHIFT : 0;
+    if (via === "keys") {
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", modifiers, ...def, ...(text ? { text } : {}) });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", modifiers, ...def });
+    } else {
+        await h.ev(
+            `${elExpr}?.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(def.key)}, code: ${JSON.stringify(def.code)}, shiftKey: ${shift}, bubbles: true, cancelable: true }))`
+        );
+    }
+    await polishNap(300);
+}
+
+// records every line the page types into a terminal, decoded. The xterm's own focus in/out reports (ESC [I, ESC [O,
+// sent while the shell has focus reporting on) travel the same call and are left out
+const BS_TYPED_INSTALL = `(() => {
+    const c = window.TabRpcClient;
+    if (!c) return false;
+    if (c.__bsOrig) return true;
+    c.__bsOrig = c.wshRpcCall;
+    const call = c.wshRpcCall.bind(c);
+    window.__bsTyped = [];
+    c.wshRpcCall = (command, data, opts) => {
+        if (command === "controllerinput" && data?.inputdata64) {
+            const bytes = Uint8Array.from(atob(data.inputdata64), (ch) => ch.charCodeAt(0));
+            const text = new TextDecoder().decode(bytes);
+            if (!/^\\x1b\\[[IO]$/.test(text)) window.__bsTyped.push({ block: data.blockid, text });
+        }
+        return call(command, data, opts);
+    };
+    return true;
+})()`;
+const BS_TYPED_REMOVE = `(() => {
+    const c = window.TabRpcClient;
+    if (c?.__bsOrig) {
+        c.wshRpcCall = c.__bsOrig;
+        delete c.__bsOrig;
+    }
+    return true;
+})()`;
+
+async function bsTermText(h, ctx, sep = "") {
+    const r = await h.rpc(
+        "termgetscrollbacklines",
+        { linestart: 0, lineend: BS_SCROLLBACK_LINES, lastcommand: false },
+        { route: `feblock:${ctx.blockId}`, timeout: 5000 }
+    );
+    return (r?.lines ?? []).join(sep);
+}
+
+// the shell's pty can break a long row with a hard newline, so rows are compared with every space dropped
+const bsSquash = (s) => s.replace(/\s+/g, "");
+const bsCount = (hay, line) => bsSquash(hay).split(bsSquash(line)).length - 1;
+
+async function bsMark(h, ctx, line) {
+    const typed = await h.ev(`(window.__bsTyped ?? []).length`);
+    const shown = line == null ? 0 : bsCount(await bsTermText(h, ctx).catch(() => ""), line);
+    return { typed, shown };
+}
+
+const bsSentSince = (h, mark) => h.ev(`(window.__bsTyped ?? []).slice(${mark.typed})`);
+
+// what an action typed since `mark`: exactly line + CR into the agent's block, once, and the terminal shows it
+async function bsTyped(h, ctx, mark, line) {
+    let sent = [];
+    for (let waited = 0; waited < BS_TYPED_WAIT_MS && sent.length === 0; waited += 250) {
+        sent = await bsSentSince(h, mark);
+        if (sent.length === 0) await polishNap(250);
+    }
+    let shown = mark.shown;
+    let termError = null;
+    for (let waited = 0; waited < BS_TYPED_WAIT_MS && shown <= mark.shown; waited += 250) {
+        try {
+            shown = bsCount(await bsTermText(h, ctx), line);
+        } catch (e) {
+            termError = String(e?.message ?? e);
+        }
+        if (shown <= mark.shown) await polishNap(250);
+    }
+    sent = await bsSentSince(h, mark);
+    const ok = sent.length === 1 && sent[0].block === ctx.blockId && sent[0].text === `${line}\r` && shown > mark.shown;
+    return { ok, detail: { want: line, sent, inTerminal: shown > mark.shown, termError } };
+}
+
+async function bsNothingTyped(h, mark) {
+    await polishNap(BS_NOTHING_TYPED_MS);
+    const sent = await bsSentSince(h, mark);
+    return { ok: sent.length === 0, sent };
+}
+
+const bsPublishStatus = (h, ctx) =>
+    h.rpc("eventpublish", {
+        event: "agent:status",
+        scopes: [`block:${ctx.blockId}`],
+        persist: 1,
+        data: { oref: `block:${ctx.blockId}`, state: "idle", agent: "claude", cwd: ctx.cwd, ts: Date.now() },
+    });
+
+// carries no version, so the terminal's own status (term-model.ts) ignores it; only the agent's exit signal reads it
+const bsPublishProc = (h, ctx, status, code) =>
+    h.rpc("eventpublish", {
+        event: "controllerstatus",
+        scopes: [`block:${ctx.blockId}`],
+        data: { blockid: ctx.blockId, shellprocstatus: status, shellprocexitcode: code },
+    });
+
+const bsReveal = (h, ctx, topic) =>
+    h.rpc("uireveal", { address: `brainstorm:${topic}`, callerblockid: ctx.blockId, callercwd: ctx.cwd }, UI_ROUTE);
+
+const bsTabMeta = async (h, ctx) =>
+    (await waveService(h, "object", "GetObject", [`tab:${ctx.tabId}`]))?.meta?.["session:brainstorm"] ?? null;
+
+async function bsShowPane(h) {
+    if (await h.ev(`!!${BS_PANE}`)) return true;
+    await bsClick(h, BS_SWITCH, "Brainstorm");
+    return polishWaitFor(h, `!!${BS_PANE}`, 3000);
+}
+
+// the agent's row in the tree: the nearest ancestor of its brainstorm line that holds the status dot
+const BS_ROW = `(() => {
+    let row = ${BS_TREE_LINE};
+    while (row && !row.querySelector("span.rounded-full[style]")) row = row.parentElement;
+    return row;
+})()`;
+const BS_ROW_READ = `(() => {
+    const row = ${BS_ROW};
+    const dot = row?.querySelector("span.rounded-full[style]");
+    return {
+        name: (row?.querySelector(".font-medium")?.textContent ?? "").trim(),
+        dotStyle: dot?.getAttribute("style") ?? null,
+        dotPulse: dot?.classList.contains("pulse-dot") ?? null,
+    };
+})()`;
+
+// the popup's card: its label and text are its unmarked children, in that order
+const BS_POPUP_READ = `(async () => {
+    const flat = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
+    const card = ${BS_POPUP_CARD};
+    const plain = card
+        ? [...card.children].filter((c) => ![...c.attributes].some((a) => a.name.startsWith("data-attention-popup")))
+        : [];
+    return {
+        card: card != null,
+        visible: await window.__TAURI_INTERNALS__.invoke("plugin:window|is_visible", { label: "attention-popup" }),
+        label: flat(plain[0]),
+        text: flat(plain[1]),
+        detail: flat(card?.querySelector("[data-attention-popup-detail]")),
+    };
+})()`;
+
+const brainstormMode = {
+    name: "brainstorm-mode",
+    surface: "agent",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-brainstorm-"));
+        const ctx = { cwd, file: join(cwd, ".superpowers", "brainstorm", BS_TOPIC, "brainstorm.json") };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            // the New run window approve opens needs a registered project; the agent's project label names it
+            await h.rpc("createproject", { name: BS_TOPIC, path: cwd });
+            ctx.project = BS_TOPIC;
+            await waitForProjectInConfig(h, BS_TOPIC);
+            await polishReload(h);
+            mkdirSync(dirname(ctx.file), { recursive: true });
+            const project = join(cwd, ".superpowers", "design", BS_TOPIC, "project");
+            mkdirSync(project, { recursive: true });
+            writeFileSync(
+                join(project, "canvas.json"),
+                JSON.stringify({ boards: Object.fromEntries(BS_BOARDS.map((b) => [b, { w: 1440 }])), order: BS_BOARDS })
+            );
+            for (const b of BS_BOARDS) {
+                writeFileSync(join(project, b), `<!doctype html><title>${b}</title><h1 style="font:64px sans-serif">${b}</h1>`);
+            }
+            bsWrite(ctx, BS_FILES.justStarted);
+            await openCanvasTerminal(h, ctx, BS_TOPIC);
+            await bsPublishStatus(h, ctx);
+        } catch (e) {
+            ctx.launchError = String(e?.message ?? e);
+            return ctx;
+        }
+        await h.goto("agent");
+        // an agent row, not a terminal row: the tree line draws only on agent rows
+        ctx.inRoster = await polishWaitFor(
+            h,
+            `!!document.querySelector('[data-agent-terminal="${ctx.tabId}"]') && !document.querySelector('[data-tree-terminal="${ctx.tabId}"]')`,
+            BS_ROSTER_WAIT_MS
+        );
+        return ctx;
+    },
+    async assert(h, ctx) {
+        if (ctx.launchError != null) {
+            return [skipStep("brainstorm mode", `could not verify: the terminal launch failed: ${ctx.launchError}`)];
+        }
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+        const TERM = `document.querySelector('[data-agent-terminal="${ctx.tabId}"]')`;
+        // a line typed before the shell's first prompt can be lost, and the terminal is where typed lines are read
+        let prompt = "";
+        for (const start = Date.now(); ctx.inRoster && Date.now() - start < BS_PROMPT_WAIT_MS; await polishNap(250)) {
+            const rows = (await bsTermText(h, ctx, "\n").catch(() => "")).split("\n").filter((r) => r.trim() !== "");
+            prompt = rows.at(-1)?.trim() ?? "";
+            if (BS_PROMPT.test(prompt)) break;
+        }
+        rec(
+            "0. the terminal is a roster agent at its shell's prompt",
+            ctx.inRoster === true && BS_PROMPT.test(prompt),
+            { tab: ctx.tabId, inRoster: ctx.inRoster, lastRow: prompt }
+        );
+        if (!ctx.inRoster) return steps;
+        await h.ev(BS_TYPED_INSTALL);
+        // tagged before any switch: a remount would drop the attribute with the node
+        const tagged = await h.ev(`(() => {
+            const t = ${TERM};
+            t.setAttribute("data-verify-mark", "brainstorm-mode");
+            const x = t.querySelector(".xterm");
+            if (x) x.setAttribute("data-verify-mark", "brainstorm-mode");
+            return { xterm: !!x, visible: !t.classList.contains("hidden") };
+        })()`);
+
+        // 0b. the reveal attaches: the switcher appears and the tab meta names the file
+        let revealError = null;
+        try {
+            await bsReveal(h, ctx, BS_TOPIC);
+        } catch (e) {
+            revealError = String(e?.message ?? e);
+        }
+        const switcher = await polishWaitFor(h, `!!${BS_SWITCH}`, 3000);
+        const meta = await bsTabMeta(h, ctx).catch((e) => `error: ${e?.message ?? e}`);
+        rec(
+            "0b. uireveal brainstorm:<topic> from the agent's terminal attaches it: the header switcher, the tab meta",
+            revealError == null && switcher && meta === ctx.file && tagged.visible,
+            { revealError, switcher, meta, want: ctx.file, terminalVisible: tagged.visible }
+        );
+        if (!switcher) return steps;
+
+        // 1. just started
+        await bsClick(h, BS_SWITCH, "Brainstorm");
+        const s1 = await bsUntil(h, ctx, (s) => s.question.includes("Question 1"));
+        await h.shot("cdp-shots/brainstorm-mode-1.png");
+        const asked1 = bsPart(s1, "intent");
+        rec(
+            "1. just started: Question 1, the skip and parts hints, no Guess for me, its one part Asked now",
+            s1.ok &&
+                s1.view === "design" &&
+                s1.text.includes("Rather skip the questions and have me start? Say so.") &&
+                s1.text.includes("Parts appear here as the conversation finds them.") &&
+                s1.guessFor === 0 &&
+                s1.parts.length === 1 &&
+                asked1?.state === "asked" &&
+                asked1.text.includes("Asked now"),
+            { ...bsBrief(s1), guessFor: s1.guessFor, parts: s1.parts }
+        );
+        ctx.agentName = (await h.ev(BS_ROW_READ))?.name ?? "";
+
+        // 2. mid-conversation
+        bsWrite(ctx, BS_FILES.mid);
+        const s2 = await bsUntil(h, ctx, (s) => s.question.includes("Question 4"));
+        await polishWaitFor(h, `${bsPartSel("page")}?.querySelectorAll("[data-brainstorm-thumb] iframe").length === 2`, BS_POLL_WAIT_MS);
+        const thumbs = await h.ev(`(() => {
+            const p = ${bsPartSel("page")};
+            return {
+                frames: p?.querySelectorAll("[data-brainstorm-thumb] iframe").length ?? 0,
+                labels: [...(p?.querySelectorAll("[data-brainstorm-open-board]") ?? [])]
+                    .map((b) => (b.previousElementSibling?.textContent ?? "").trim()),
+            };
+        })()`);
+        await h.shot("cdp-shots/brainstorm-mode-2.png");
+        rec(
+            "2. mid-conversation: counts 3 yours, 3 guesses, 2 open; Question 4 for When it pages; the check disabled",
+            s2.ok &&
+                s2.view === "design" &&
+                s2.counts === "3 yours 3 guesses 2 open" &&
+                s2.question.includes("for When it pages") &&
+                s2.question.includes(BS_Q4.text) &&
+                s2.check?.disabled === true,
+            { ...bsBrief(s2), counts: s2.counts, question: s2.question, check: s2.check }
+        );
+        rec(
+            "2b. four Earlier rows, newest first, each saying where it went",
+            JSON.stringify(s2.history.map((r) => r.label)) === JSON.stringify(["Recon", "Q3", "Q2", "Q1"]) &&
+                s2.history.every((r) => r.text.includes("Went into")) &&
+                s2.history[2]?.text.includes("Went into Goals, Constraints"),
+            s2.history
+        );
+        rec(
+            "2c. part states: yours ×3, guess ×3, asked, open",
+            JSON.stringify(bsStates(s2)) === JSON.stringify(BS_MID_STATES),
+            { states: bsStates(s2), want: BS_MID_STATES }
+        );
+        rec(
+            "2d. the page part shows both mockups, the first labelled option A of 2",
+            thumbs.frames === 2 && thumbs.labels[0] === "Page.dc.html · option A of 2",
+            thumbs
+        );
+
+        let mark = await bsMark(h, ctx, "brainstorm: confirm current");
+        const confirmed = await bsClick(h, bsPartSel("current"), "That’s right");
+        const confirmTyped = await bsTyped(h, ctx, mark, "brainstorm: confirm current");
+        rec("2e. That’s right on Current state types its confirm", confirmed === "clicked" && confirmTyped.ok, {
+            confirmed,
+            ...confirmTyped.detail,
+        });
+
+        const editLine = `brainstorm: edit constraints: ${BS_EDITED}`;
+        mark = await bsMark(h, ctx, editLine);
+        const editOpened = await bsClick(h, bsPartSel("constraints"), "Edit");
+        await polishWaitFor(h, `!!${BS_EDIT}`, 2000);
+        const prefill = await h.ev(`${BS_EDIT}?.value ?? null`);
+        await bsMouseClick(h, BS_EDIT);
+        const via = (await bsKeysArrive(h)) ? "keys" : "set";
+        await bsKey(h, BS_EDIT, "Escape", via);
+        const escClosed = await h.ev(`!${BS_EDIT}`);
+        const escQuiet = await bsNothingTyped(h, mark);
+        rec(
+            "2f. Edit on Constraints opens prefilled with its body; Escape closes it and types nothing",
+            editOpened === "clicked" && prefill === BS_PART.constraints.body && escClosed && escQuiet.ok,
+            { editOpened, prefill, escClosed, typed: escQuiet.sent, keys: via }
+        );
+        await bsClick(h, bsPartSel("constraints"), "Edit");
+        await polishWaitFor(h, `!!${BS_EDIT}`, 2000);
+        const editVia = await bsFill(h, BS_EDIT, BS_EDITED);
+        await bsKey(h, BS_EDIT, "Enter", editVia);
+        const editTyped = await bsTyped(h, ctx, mark, editLine);
+        const editClosed = await polishWaitFor(h, `!${BS_EDIT}`, 2000);
+        rec("2g. Edit, new text, Enter types the edit as one line and closes the box", editTyped.ok && editClosed, {
+            ...editTyped.detail,
+            editClosed,
+            keys: editVia,
+        });
+
+        mark = await bsMark(h, ctx, "brainstorm: guess");
+        const guessed = await bsClick(h, BS_QUESTION_CARD, "Guess for me");
+        const guessTyped = await bsTyped(h, ctx, mark, "brainstorm: guess");
+        rec("2h. Guess for me types brainstorm: guess", guessed === "clicked" && guessTyped.ok, {
+            guessed,
+            ...guessTyped.detail,
+        });
+        mark = await bsMark(h, ctx, "brainstorm: skip questions");
+        const skipped = await bsClick(h, BS_QUESTION_CARD, "Skip the questions");
+        const skipTyped = await bsTyped(h, ctx, mark, "brainstorm: skip questions");
+        rec("2i. Skip the questions types brainstorm: skip questions", skipped === "clicked" && skipTyped.ok, {
+            skipped,
+            ...skipTyped.detail,
+        });
+
+        const answerLine = BS_ANSWER_LINES.join(" ");
+        mark = await bsMark(h, ctx, answerLine);
+        const answerVia = await bsFill(h, BS_ANSWER, BS_ANSWER_LINES[0]);
+        await bsKey(h, BS_ANSWER, "Enter", answerVia, true);
+        if (answerVia === "keys") {
+            await h.cdp("Input.insertText", { text: BS_ANSWER_LINES[1] });
+        } else {
+            await h.ev(bsSetValue(BS_ANSWER, BS_ANSWER_LINES.join("\n")));
+        }
+        const twoLines = await h.ev(`${BS_ANSWER}?.value ?? null`);
+        const shiftQuiet = await bsNothingTyped(h, mark);
+        rec(
+            "2j. Shift+Enter puts a newline in the answer and types nothing",
+            twoLines === BS_ANSWER_LINES.join("\n") && shiftQuiet.ok,
+            { value: twoLines, typed: shiftQuiet.sent, keys: answerVia }
+        );
+        await bsKey(h, BS_ANSWER, "Enter", answerVia);
+        const answerTyped = await bsTyped(h, ctx, mark, answerLine);
+        const cleared = await polishWaitFor(h, `${BS_ANSWER}?.value === ""`, 2000);
+        rec("2k. Enter types the two lines as one line and clears the box", answerTyped.ok && cleared, {
+            ...answerTyped.detail,
+            cleared,
+        });
+
+        bsWrite(ctx, BS_FILES.answered);
+        const s2b = await bsUntil(h, ctx, (s) => s.question.includes("Question 5"));
+        await h.shot("cdp-shots/brainstorm-mode-2-answered.png");
+        rec(
+            "2l. the next file: Question 5 for What on-call sees, and Q4 leads Earlier, into When it pages",
+            s2b.ok &&
+                s2b.question.includes("for What on-call sees") &&
+                s2b.history[0]?.label === "Q4" &&
+                s2b.history[0]?.text.includes("Went into When it pages") &&
+                bsPart(s2b, "thresholds")?.state === "guess",
+            { ...bsBrief(s2b), question: s2b.question, history: s2b.history[0], states: bsStates(s2b) }
+        );
+
+        // 3. open full size
+        await h.ev(`${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")?.click()`);
+        const s3 = await bsUntil(h, ctx, (s) => s.view === "board", 3000);
+        const board = await h.ev(`(() => {
+            const flat = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
+            const labels = [...(${BS_PANE}?.querySelectorAll("button") ?? [])].map(flat);
+            return { mark: labels.includes("Mark"), back: labels.includes("Back to the design"), canvas: !!${BS_PANE}?.querySelector("[data-canvas-pane]") };
+        })()`);
+        await h.shot("cdp-shots/brainstorm-mode-3.png");
+        await bsClick(h, BS_PANE, "Back to the design");
+        const s3back = await bsUntil(h, ctx, (s) => s.view === "design", 3000);
+        rec(
+            "3. Open full size shows the board with Mark and Back to the design; back returns to the design",
+            s3.ok && board.mark && board.back && board.canvas && s3back.ok,
+            { board: s3.view, ...board, back: s3back.view }
+        );
+
+        // 4. between questions
+        bsWrite(ctx, BS_FILES.working);
+        const s4 = await bsUntil(h, ctx, (s) => s.working !== "");
+        await h.shot("cdp-shots/brainstorm-mode-4.png");
+        const writing = bsPart(s4, "thresholds");
+        rec(
+            "4. between questions: the working card, no answer box, When it pages Being written, confirms disabled, Q4 · just now",
+            s4.ok &&
+                s4.working.includes("Writing “When it pages” from your answer. The next question comes after.") &&
+                !s4.answerBox &&
+                s4.question === "" &&
+                writing?.state === "writing" &&
+                writing.text.includes("Being written") &&
+                s4.confirm.length > 0 &&
+                s4.confirm.every((b) => b.disabled) &&
+                s4.history[0]?.label === "Q4 · just now",
+            { ...bsBrief(s4), working: s4.working, answerBox: s4.answerBox, writing, confirm: s4.confirm, newest: s4.history[0] }
+        );
+
+        // 5. a confirmed part changed
+        bsWrite(ctx, BS_FILES.changed);
+        const s5 = await bsUntil(h, ctx, (s) => bsPart(s, "constraints")?.state === "changed");
+        const diff = await h.ev(`(() => {
+            const p = ${bsPartSel("constraints")};
+            const rows = [...(p?.querySelectorAll("div") ?? [])].filter((d) => d.firstElementChild?.textContent === "+ ");
+            return rows.map((d) => (d.textContent ?? "").trim());
+        })()`);
+        await h.shot("cdp-shots/brainstorm-mode-5.png");
+        const changed = bsPart(s5, "constraints");
+        rec(
+            "5. a confirmed part changed: Changed since you confirmed it, the added sentence as a + line, Why",
+            s5.ok &&
+                changed.text.includes("Changed since you confirmed it") &&
+                diff.length === 1 &&
+                diff[0] === `+ ${BS_ADDED}` &&
+                changed.text.includes(`Why: ${BS_WHY}`),
+            { ...bsBrief(s5), part: changed?.text, diff }
+        );
+        mark = await bsMark(h, ctx, "brainstorm: keep constraints");
+        const kept = await bsClick(h, bsPartSel("constraints"), "Keep the change");
+        const keepTyped = await bsTyped(h, ctx, mark, "brainstorm: keep constraints");
+        rec("5b. Keep the change types brainstorm: keep constraints", kept === "clicked" && keepTyped.ok, {
+            kept,
+            ...keepTyped.detail,
+        });
+        mark = await bsMark(h, ctx, "brainstorm: restore constraints");
+        const restored = await bsClick(h, bsPartSel("constraints"), "Put mine back");
+        const restoreTyped = await bsTyped(h, ctx, mark, "brainstorm: restore constraints");
+        rec("5c. Put mine back types brainstorm: restore constraints", restored === "clicked" && restoreTyped.ok, {
+            restored,
+            ...restoreTyped.detail,
+        });
+
+        // 6. after a compaction: b goes back to the terminal, which was hidden, not remounted
+        await bsMouseClick(h, `${BS_PANE}?.querySelector("span.font-mono")`);
+        const delivered = await bsKeysArrive(h);
+        const pressB = async (to) => {
+            if (delivered) await pressCanvasKey(h, BS_B_KEY);
+            else await bsClick(h, BS_SWITCH, to);
+        };
+        await pressB("Terminal");
+        const s6 = await bsUntil(h, ctx, (s) => s.view == null && s.terminal === true, 3000);
+        const same = await h.ev(`(() => {
+            const t = ${TERM};
+            const x = t?.querySelector(".xterm");
+            return {
+                sameNode: t?.getAttribute("data-verify-mark") === "brainstorm-mode",
+                sameXterm: x == null ? null : x.getAttribute("data-verify-mark") === "brainstorm-mode",
+            };
+        })()`);
+        const keyed = delivered ? "b" : "the Terminal segment (CDP keys did not reach the page)";
+        rec(
+            `6. ${keyed} returns to the terminal, the same node, Terminal pressed and the B switch view hint`,
+            s6.ok &&
+                same.sameNode &&
+                (tagged.xterm ? same.sameXterm === true : true) &&
+                s6.switch?.find((b) => b.label === "Terminal")?.pressed === "true" &&
+                s6.hint.includes("switch view"),
+            { ...bsBrief(s6), terminal: s6.terminal, ...same, switch: s6.switch, hint: s6.hint }
+        );
+        bsWrite(ctx, { ...BS_FILES.late, compacted: Date.now() });
+        const banner =
+            "The agent compacted its context and re-read its brainstorm file: 5 parts yours, 2 guesses, 1 open. Nothing was lost.";
+        const s6b = await bsUntil(h, ctx, (s) => s.compacted !== "");
+        await h.shot("cdp-shots/brainstorm-mode-6.png");
+        rec("6b. a compaction since brainstorm mode was last shown puts the banner over the terminal", s6b.compacted === banner, {
+            ok: s6b.ok,
+            ms: s6b.ms,
+            compacted: s6b.compacted,
+        });
+        // back in the terminal the xterm holds focus and would take the b; leave it the way Esc does
+        await h.ev(`(() => {
+            document.activeElement?.blur?.();
+            document.querySelector("[data-cockpit-surface-wrap]")?.focus();
+            return true;
+        })()`);
+        await pressB("Brainstorm");
+        const s6c = await bsUntil(h, ctx, (s) => s.view != null, 3000);
+        await pressB("Terminal");
+        const s6d = await bsUntil(h, ctx, (s) => s.view == null && s.terminal === true, 3000);
+        rec(
+            `6c. ${delivered ? "b" : "the Brainstorm segment"} shows the brainstorm; back in the terminal the banner is gone`,
+            s6c.ok && s6d.ok && s6d.compacted === "",
+            { shown: s6c.view, back: s6d.ok, compacted: s6d.compacted }
+        );
+        if (!delivered) {
+            steps.push(skipStep("6d. the b key itself", "CDP key events never reached the page; drove the switcher instead"));
+        }
+
+        // 7. the tree line and the attention popup
+        bsWrite(ctx, BS_FILES.late);
+        const s7 = await bsUntil(h, ctx, (s) => s.treeLine === "Brainstorm · asking question 5");
+        const row = await h.ev(BS_ROW_READ);
+        rec(
+            "7. the agent's row reads Brainstorm · asking question 5, with the asking dot",
+            s7.ok && (row.dotStyle ?? "").includes("var(--color-warning)") && row.dotPulse === true,
+            { treeLine: s7.treeLine, ...row }
+        );
+        let popup = null;
+        try {
+            popup = ctx.popup = await h.page("popup.html");
+        } catch (e) {
+            steps.push(skipStep("7b. the popup shows the question", `no popup page: ${e?.message ?? e}`));
+        }
+        if (popup) {
+            // the question leaves the outward list, then comes back while Arc reads as unfocused: new to the popup
+            await h.ev("document.hasFocus = () => false");
+            bsWrite(ctx, BS_FILES.lateWorking);
+            const away = await bsUntil(h, ctx, (s) => s.treeLine === "Brainstorm · writing up your answer");
+            bsWrite(ctx, BS_FILES.late);
+            const start = Date.now();
+            let card;
+            do {
+                card = await popup.ev(BS_POPUP_READ).catch((e) => ({ error: String(e?.message ?? e) }));
+                if (card.visible === true && card.text === BS_Q5.text) break;
+                await polishNap(150);
+            } while (Date.now() - start < BS_POLL_WAIT_MS);
+            if (card.card) await popup.shot("cdp-shots/brainstorm-mode-7-popup.png");
+            await h.shot("cdp-shots/brainstorm-mode-7.png");
+            await h.ev("delete document.hasFocus");
+            await h.ev(`window.dispatchEvent(new Event("focus"))`);
+            rec(
+                "7b. unfocused, a new question raises the popup: <agent> · brainstorm, the question, For “What on-call sees” · question 5",
+                away.ok &&
+                    card.visible === true &&
+                    ctx.agentName !== "" &&
+                    card.label === `${ctx.agentName} · brainstorm` &&
+                    card.text === BS_Q5.text &&
+                    card.detail === "For “What on-call sees” · question 5",
+                { away: away.treeLine, agent: ctx.agentName, card }
+            );
+        }
+
+        // 8. builder check, before your answer
+        bsWrite(ctx, BS_HANDOFF);
+        await bsShowPane(h);
+        const s8 = await bsUntil(h, ctx, (s) => s.view === "check");
+        const untouchedBtn = await h.ev(`(${BS_PANE}?.querySelector("[data-brainstorm-untouched]")?.textContent ?? "").trim()`);
+        await h.shot("cdp-shots/brainstorm-mode-8.png");
+        const calls = Object.fromEntries(s8.parts.map((p) => [p.id, p.calls]));
+        rec(
+            "8. builder check: Only you can answer · 1, It had 6 questions, the agent's calls under their parts, approve disabled",
+            s8.ok &&
+                s8.builder.includes("Only you can answer · 1") &&
+                s8.builder.includes(BS_BUILDER_Q) &&
+                s8.text.includes("It had 6 questions") &&
+                s8.text.includes("8 yours · nothing open · the agent has no more questions") &&
+                JSON.stringify(s8.parts.map((p) => p.id)) === JSON.stringify(BS_TOUCHED_ORDER) &&
+                calls.thresholds === 2 &&
+                calls.anti === 1 &&
+                untouchedBtn === "Show the 4 parts the builder did not touch" &&
+                s8.approve?.disabled === true &&
+                s8.approve.title === "Answer the builder’s question first",
+            { ...bsBrief(s8), builder: s8.builder, parts: s8.parts.map((p) => p.id), calls, untouchedBtn, approve: s8.approve }
+        );
+        await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-untouched]")?.click()`);
+        const s8b = await bsUntil(h, ctx, (s) => s.parts.length === 8, 2000);
+        rec("8b. Show the 4 parts draws all eight", s8b.ok, { parts: s8b.parts.map((p) => p.id) });
+        mark = await bsMark(h, ctx, "brainstorm: keep talking");
+        const talked = await bsClick(h, BS_APPROVE_BAR, "Keep talking");
+        const talkTyped = await bsTyped(h, ctx, mark, "brainstorm: keep talking");
+        rec("8c. Keep talking types brainstorm: keep talking", talked === "clicked" && talkTyped.ok, {
+            talked,
+            ...talkTyped.detail,
+        });
+        const builderLine = `brainstorm: builder answer: ${BS_BUILDER_A}`;
+        mark = await bsMark(h, ctx, builderLine);
+        const builderVia = await bsFill(h, BS_BUILDER_ANSWER, BS_BUILDER_A);
+        await bsKey(h, BS_BUILDER_ANSWER, "Enter", builderVia);
+        const builderTyped = await bsTyped(h, ctx, mark, builderLine);
+        rec("8d. answering the builder's question types it as a builder answer", builderTyped.ok, {
+            ...builderTyped.detail,
+            keys: builderVia,
+        });
+
+        // 9. builder check, after your answer
+        bsWrite(ctx, BS_HANDOFF_ANSWERED);
+        const s9 = await bsUntil(h, ctx, (s) => s.text.includes("You answered"));
+        await h.shot("cdp-shots/brainstorm-mode-9.png");
+        rec(
+            "9. You answered, ending Added to Anti-goals; approve enabled",
+            s9.ok &&
+                s9.text.includes(`You answered ${BS_BUILDER_A} Added to Anti-goals.`) &&
+                s9.builder === "" &&
+                s9.approve?.disabled === false,
+            { ...bsBrief(s9), approve: s9.approve }
+        );
+        mark = await bsMark(h, ctx, null);
+        const changeClicked = await bsClick(h, BS_APPROVE_BAR, "Change");
+        const changeOpen = await polishWaitFor(h, `!!${NEW_RUN}`, 3000);
+        const changeQuiet = await bsNothingTyped(h, mark);
+        await h.ev(PEEKS_ESC);
+        const changeClosed = await polishWaitFor(h, `!${NEW_RUN}`, 3000);
+        rec("9b. Change opens the New run window and types nothing", changeClicked === "clicked" && changeOpen && changeQuiet.ok && changeClosed, {
+            changeClicked,
+            changeOpen,
+            typed: changeQuiet.sent,
+            changeClosed,
+        });
+        mark = await bsMark(h, ctx, "brainstorm: approved");
+        const approved = await bsClick(h, BS_APPROVE_BAR, "Approve and start run");
+        const approveTyped = await bsTyped(h, ctx, mark, "brainstorm: approved");
+        const runOpen = await polishWaitFor(h, `!!${NEW_RUN}`, 3000);
+        const goal = `Build Consumer lag alerts as specified in ${join(ctx.cwd, ...BS_SPEC.split("/"))}.`;
+        const prototype = join(ctx.cwd, ".superpowers", "design", BS_TOPIC, "project", BS_BOARDS[0]);
+        await polishWaitFor(h, `${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value === ${JSON.stringify(goal)}`, 3000);
+        const launcher = await h.ev(`({
+            goal: ${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value ?? null,
+            text: ${flatText(NEW_RUN)},
+        })`);
+        await h.shot("cdp-shots/brainstorm-mode-9-run.png");
+        await h.ev(PEEKS_ESC);
+        const runClosed = await polishWaitFor(h, `!${NEW_RUN}`, 3000);
+        rec(
+            "9c. Approve types brainstorm: approved and opens New run with the spec's absolute path and the prototype",
+            approved === "clicked" &&
+                approveTyped.ok &&
+                runOpen &&
+                launcher.goal === goal &&
+                launcher.text.includes(`Prototype · ${prototype}`) &&
+                runClosed,
+            { approved, ...approveTyped.detail, runOpen, goal: launcher.goal, wantGoal: goal, prototype, text: launcher.text.slice(0, 400), runClosed }
+        );
+        bsWrite(ctx, { ...BS_HANDOFF_ANSWERED, run: BS_RUN });
+        const s9d = await bsUntil(h, ctx, (s) => s.approveBar.startsWith("Run "));
+        await h.shot("cdp-shots/brainstorm-mode-9-started.png");
+        rec(
+            "9d. with run set the bar reads Run 7f3a21c0 started with Open run, and the tree line Brainstorm done · run 7f3a21c0",
+            s9d.ok && s9d.approveBar === "Run 7f3a21c0 started Open run" && s9d.treeLine === "Brainstorm done · run 7f3a21c0",
+            { approveBar: s9d.approveBar, treeLine: s9d.treeLine }
+        );
+
+        // 10. agent exited
+        bsWrite(ctx, BS_FILES.late);
+        await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes("Question 5"));
+        await bsPublishProc(h, ctx, "done", 1);
+        const s10 = await bsUntil(h, ctx, (s) => s.view === "exited", 3000);
+        await h.shot("cdp-shots/brainstorm-mode-10.png");
+        const summary =
+            "The brainstorm is saved: 5 parts yours, 2 guesses, and question 5 still unanswered. A new agent reads it and carries on from that question.";
+        const exitedHead = new RegExp(`^${ctx.agentName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} exited with code 1 at \\d{2}:\\d{2} `);
+        rec(
+            "10. the agent exited: <name> exited with code 1 at, what is saved, Resume in a new agent",
+            s10.ok && ctx.agentName !== "" && exitedHead.test(s10.exited) && s10.exited.includes(summary) && s10.resume,
+            { exited: s10.exited, agent: ctx.agentName, resume: s10.resume }
+        );
+        await bsClick(h, BS_PANE, "Open the design");
+        const s10b = await bsUntil(h, ctx, (s) => s.view === "design", 2000);
+        rec("10b. Open the design shows the design", s10b.ok, { view: s10b.view });
+        await bsPublishProc(h, ctx, "running", 0);
+
+        // 11. an unreadable file. Over a file read before, the last good contents stay with a banner
+        bsWrite(ctx, '{ "v": 1, "title": ');
+        const s11 = await bsUntil(h, ctx, (s) => s.stale !== "", BS_ERROR_WAIT_MS);
+        await h.shot("cdp-shots/brainstorm-mode-11-stale.png");
+        rec(
+            "11. a broken rewrite keeps the last good design, with the could-not-read banner after two polls",
+            s11.ok && s11.view === "design" && s11.stale.includes("this is the last version it read") && s11.stale.includes("not valid JSON"),
+            { view: s11.view, ms: s11.ms, stale: s11.stale }
+        );
+        // with no good read behind it, a broken file is the error view; a second topic replaces the first
+        const unreadable = join(ctx.cwd, ".superpowers", "brainstorm", BS_UNREADABLE_TOPIC, "brainstorm.json");
+        mkdirSync(dirname(unreadable), { recursive: true });
+        writeFileSync(unreadable, "{ not json");
+        let reveal2 = null;
+        try {
+            await bsReveal(h, ctx, BS_UNREADABLE_TOPIC);
+        } catch (e) {
+            reveal2 = String(e?.message ?? e);
+        }
+        const meta2 = await bsTabMeta(h, ctx).catch((e) => `error: ${e?.message ?? e}`);
+        await bsShowPane(h);
+        const s11b = await bsUntil(h, ctx, (s) => s.view === "error", BS_ERROR_WAIT_MS);
+        await h.shot("cdp-shots/brainstorm-mode-11.png");
+        rec(
+            "11b. a second topic's unreadable file replaces the first: the error view with the parse error and the path",
+            reveal2 == null &&
+                meta2 === unreadable &&
+                s11b.ok &&
+                s11b.text.includes("Arc could not read this brainstorm") &&
+                s11b.text.includes("not valid JSON") &&
+                s11b.text.includes(unreadable),
+            { reveal2, meta2, ...bsBrief(s11b) }
+        );
+
+        // 12. file gone
+        bsWrite(ctx, BS_FILES.late);
+        let reveal3 = null;
+        try {
+            await bsReveal(h, ctx, BS_TOPIC);
+        } catch (e) {
+            reveal3 = String(e?.message ?? e);
+        }
+        await bsShowPane(h);
+        const s12a = await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes("Question 5"));
+        rmSync(ctx.file, { force: true });
+        const s12 = await bsUntil(h, ctx, (s) => s.view === "removed");
+        await h.shot("cdp-shots/brainstorm-mode-12.png");
+        rec(
+            "12. deleting brainstorm.json shows that the file is gone",
+            reveal3 == null && s12a.ok && s12.ok && s12.text.includes(`${BS_TOPIC}'s brainstorm file is gone`),
+            { reveal3, back: s12a.view, ...bsBrief(s12) }
+        );
+        const backed = await bsClick(h, BS_PANE, "Back to terminal");
+        const s12b = await bsUntil(h, ctx, (s) => s.view == null && s.switch == null && s.terminal === true, 3000);
+        const meta3 = await bsTabMeta(h, ctx).catch((e) => `error: ${e?.message ?? e}`);
+        await h.shot("cdp-shots/brainstorm-mode-12-back.png");
+        rec(
+            "12b. Back to terminal: no pane, the terminal visible, no brainstorm switcher, the tab meta cleared",
+            backed === "clicked" && s12b.ok && meta3 == null,
+            { backed, view: s12b.view, switch: s12b.switch, terminal: s12b.terminal, meta3 }
+        );
+        return steps;
+    },
+    // best-effort, so one failed step does not strand the rest
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`brainstorm-mode teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("restore document.hasFocus", () => h.ev("delete document.hasFocus"));
+        // the app's own hide: the main window gaining focus
+        await step("hide the popup", () => h.ev(`window.dispatchEvent(new Event("focus"))`));
+        await step("close the popup's session", () => ctx.popup?.close());
+        await step("close the New run window", () => h.ev(`${NEW_RUN} ? (${PEEKS_ESC}, true) : false`));
+        await step("stop recording typed lines", () => h.ev(BS_TYPED_REMOVE));
+        if (ctx.blockId) await step("clear the exit", () => bsPublishProc(h, ctx, "running", 0));
+        if (ctx.tabId) {
+            await step("close the terminal tab", () =>
+                waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false])
+            );
+        }
+        if (ctx.project) await step("delete the project", () => h.rpc("deleteproject", { name: ctx.project }));
+        await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
+        await step("go home", () => h.goto("cockpit"));
+    },
+};
+
 // --- canvas mark: a box drawn on the board opens the review's note card under it, Esc drops the mark, and Enter
 // sends it at once: a feedback picture without the card, one line handed to the agent, and back to the terminal --
 const CANVAS_MARK_NOTE = `document.querySelector("[data-canvas-mark-note]")`;
@@ -23828,6 +24944,7 @@ export const SCENARIOS = [
     modelPicks,
     planReviewRounds,
     canvasSwap,
+    brainstormMode,
     canvasMark,
     canvasTabsScenario,
     agentTerminalNames,

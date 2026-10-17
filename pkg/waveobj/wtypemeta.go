@@ -76,6 +76,7 @@ type MetaTSType struct {
 	SessionLabel           string   `json:"session:label,omitempty"`           // tab (user-set custom name; overrides the agent-derived row label)
 	SessionProject         string   `json:"session:project,omitempty"`         // tab (launch-time project name; roster group + boot label below the ai-title)
 	SessionEffort          string   `json:"session:effort,omitempty"`          // tab ("effort:<oid>": the initiative the session was launched from, or last read or wrote through `wsh effort`)
+	SessionBrainstorm      string   `json:"session:brainstorm,omitempty"`      // tab (absolute path of the brainstorm.json the session's agent writes)
 	SessionCollapsedGroups []string `json:"session:collapsedgroups,omitempty"` // workspace
 
 	// for loom git client (Wave Agent Sessions fork)

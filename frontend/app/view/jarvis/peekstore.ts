@@ -10,7 +10,10 @@ import { atom, type PrimitiveAtom } from "jotai";
 import type { OpenTarget } from "./address";
 import { petPeekOpenAtom } from "./petstore";
 
-export type PeekTarget = Exclude<OpenTarget, { kind: "channel" } | { kind: "canvas" } | { kind: "memhygiene" }>;
+export type PeekTarget = Exclude<
+    OpenTarget,
+    { kind: "channel" } | { kind: "canvas" } | { kind: "brainstorm" } | { kind: "memhygiene" }
+>;
 
 export type PeekItem = { target: PeekTarget; status: "loading" | "ready" };
 

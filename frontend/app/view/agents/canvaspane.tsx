@@ -56,6 +56,8 @@ import { NOTE_CARD, NoteCardBody } from "./docreviewnotesview";
 // the app bar's buttons
 export const CANVAS_BTN =
     "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[8px] border border-edge-mid bg-surface-raised px-[12px] py-[6px] text-[12.5px] font-semibold text-primary hover:border-edge-strong hover:bg-surface-hover";
+export const CANVAS_PRIMARY_BTN =
+    "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[8px] bg-accent px-[12px] py-[7px] text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-50";
 
 // room above a board's frame for its label; the scroll pane's top padding
 const CANVAS_TOP_PAD = 36;
@@ -74,7 +76,8 @@ function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasState): v
     globalStore.set(model.newRunOpenAtom, true);
 }
 
-export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
+// onBack: shown inside a brainstorm, which owns the way back and the run launch
+export function CanvasPane({ model, agent, onBack }: { model: AgentsViewModel; agent: AgentVM; onBack?: () => void }) {
     const s = useAtomValue(canvasStateAtom(agent.id));
     const now = useAtomValue(model.nowAtom);
     const [measureRef, scrollRef, rect] = useDimensionsWithCallbackRef<HTMLDivElement>();
@@ -106,6 +109,11 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
     return (
         <div data-canvas-pane className="flex min-h-0 flex-1 flex-col">
             <div className="flex flex-none items-center gap-[10px] border-b border-edge-faint bg-surface px-[22px] py-[8px]">
+                {onBack != null ? (
+                    <button type="button" onClick={onBack} className={CANVAS_BTN}>
+                        Back to the design
+                    </button>
+                ) : null}
                 <span className="font-mono text-[12px] font-semibold text-secondary">{s.topic}</span>
                 {s.boards.length > 0 ? (
                     <Segmented
@@ -149,7 +157,7 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
                                 Open in browser
                             </button>
                         ) : null}
-                        {s.boards.length > 0 ? (
+                        {s.boards.length > 0 && onBack == null ? (
                             <button type="button" onClick={() => openBuildRun(model, agent, s)} className={CANVAS_BTN}>
                                 Build this…
                             </button>
@@ -423,7 +431,7 @@ function MarkNote(p: {
     );
 }
 
-function EdgeState({ children }: { children: ReactNode }) {
+export function EdgeState({ children }: { children: ReactNode }) {
     return (
         <div className="flex flex-1 flex-col items-center justify-center gap-[10px] p-[24px] text-center">
             {children}
@@ -431,7 +439,7 @@ function EdgeState({ children }: { children: ReactNode }) {
     );
 }
 
-const EXPLAINER = "max-w-[440px] text-[13px] leading-[1.5] text-secondary";
+export const EXPLAINER = "max-w-[440px] text-[13px] leading-[1.5] text-secondary";
 
 // wavesrv serves the canvas itself, so this is a refusal or a dropped request, and the poller's next tick retries
 function ServerDown() {

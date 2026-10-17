@@ -13,6 +13,11 @@ describe("popupTarget", () => {
             tabId: "tab1",
         });
     });
+    it("opens the brainstorm of its item even when its source names a roster agent", () => {
+        expect(
+            popupTarget(item({ kind: "brainstorm", key: "brainstorm:tab1:5", oref: "brainstorm:lag" }), agents)
+        ).toEqual({ kind: "brainstorm", topic: "lag" });
+    });
     it("opens the radar report of a triage item", () => {
         expect(popupTarget(item({ kind: "radar-triage", oref: "radarreport:r1" }), agents)).toEqual({
             kind: "radar",

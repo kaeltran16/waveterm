@@ -107,6 +107,7 @@ export interface AgentVM {
     sessionId?: string; // pi control-channel session id (agentstatus --session-id)
     runId?: string; // the run this agent works for, when a run spawned it: a lead's own run, a worker's child run
     effortId?: string; // the initiative this agent works on: launched from it, or last read or wrote through `wsh effort`
+    brainstormFile?: string; // session:brainstorm on the tab: the attached brainstorm.json's absolute path
     atPrompt?: boolean; // the raw status was waiting or idle, whatever state it folds to: a lead between wakes
 }
 
@@ -492,6 +493,7 @@ export interface LiveAgentInput {
     sessionId?: string; // pi control-channel session id (agentstatus --session-id)
     runORef?: string; // jarvis:runoref on the tab: "run:<id>"
     effortORef?: string; // session:effort on the tab: "effort:<oid>"
+    brainstormFile?: string; // session:brainstorm on the tab
 }
 
 /** Pure: one live row -> an AgentVM. `asking` (a pending AskUserQuestion) maps straight to asking so
@@ -525,6 +527,9 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
     if (input.effortORef?.startsWith("effort:")) {
         vm.effortId = input.effortORef.slice("effort:".length);
     }
+    if (input.brainstormFile) {
+        vm.brainstormFile = input.brainstormFile;
+    }
     if (input.status === "waiting" || input.status === "idle") {
         vm.atPrompt = true;
     }
@@ -546,6 +551,7 @@ export interface TerminalRowInput {
     termBlockOref?: string;
     isAgentsTab?: boolean;
     agent?: string; // session:agent runtime, set at launch for agent tabs (never for terminals)
+    brainstormFile?: string; // session:brainstorm on the tab
 }
 
 /** Pure: the plain-terminal sessions — rows that own a term block but never emitted an agent status
@@ -576,6 +582,7 @@ export function deriveTerminalVMs(
             kind: "terminal",
             agent: "terminal", // selects the "Terminal" pill in the header (runtimeMeta)
             blockId: row.termBlockOref.split(":")[1],
+            ...(row.brainstormFile ? { brainstormFile: row.brainstormFile } : {}),
         });
     }
     return out;

@@ -26,6 +26,9 @@ import { AgentDetailsRail } from "./agentdetailsrail";
 import { AgentHeader } from "./agentheader";
 import { AgentLaunchHero } from "./agentlaunchhero";
 import { AgentTree } from "./agenttree";
+import { compactedSummary } from "./brainstormmodel";
+import { BrainstormPane } from "./brainstormpane";
+import { brainstormAtom } from "./brainstormstore";
 import { CanvasPane } from "./canvaspane";
 import { useCanvasPoller } from "./canvaspoller";
 import { canvasStateAtom } from "./canvasstore";
@@ -62,7 +65,14 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         focusId != null ? (mountable.find((a) => a.id === focusId) ?? ended?.agent ?? stage?.agent) : undefined;
     const agent = focused ?? agents.find((a) => a.id === order[0]) ?? agents[0] ?? terminals[0];
     const showSub = focusSub != null && focusSub.parentId === agent?.id;
-    const canvasMode = useAtomValue(canvasStateAtom(agent?.id ?? ""))?.mode === "canvas";
+    const brainstorm = useAtomValue(brainstormAtom(agent?.id ?? ""));
+    const brainstormMode = brainstorm?.mode === "brainstorm";
+    // an agent with a brainstorm never shows its canvas: the brainstorm pane opens its boards
+    const canvasMode = useAtomValue(canvasStateAtom(agent?.id ?? ""))?.mode === "canvas" && brainstorm == null;
+    // both hide the terminal and the rail
+    const paneMode = canvasMode || brainstormMode;
+    const compacted = brainstorm?.file?.compacted;
+    const showCompacted = !paneMode && compacted != null && compacted > brainstorm!.lastViewedMs;
     useCanvasPoller(model, agent);
 
     // sync focusId to the defaulted agent so the tree highlights it and ←/→ start from the right place
@@ -110,25 +120,25 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         }
     }, [agent?.id]);
 
-    // canvas mode hides the terminal, and a hidden xterm can still hold focus and eat c/[/]/m, so entering it
-    // pulls focus to the wrapper; returning to the same agent's terminal hands focus back to its xterm
-    const lastCanvas = useRef<{ id: string; on: boolean } | null>(null);
+    // canvas and brainstorm modes hide the terminal, and a hidden xterm can still hold focus and eat b/c/[/]/m,
+    // so entering one pulls focus to the wrapper; returning to the same agent's terminal hands focus back to its xterm
+    const lastPane = useRef<{ id: string; on: boolean } | null>(null);
     useEffect(() => {
-        const prev = lastCanvas.current;
-        lastCanvas.current = agent != null ? { id: agent.id, on: canvasMode } : null;
+        const prev = lastPane.current;
+        lastPane.current = agent != null ? { id: agent.id, on: paneMode } : null;
         if (agent == null || prev == null) {
             return;
         }
-        if (canvasMode && (!prev.on || prev.id !== agent.id)) {
+        if (paneMode && (!prev.on || prev.id !== agent.id)) {
             wrapRef.current?.focus();
-        } else if (!canvasMode && prev.on && prev.id === agent.id) {
+        } else if (!paneMode && prev.on && prev.id === agent.id) {
             wrapRef.current?.querySelector<HTMLElement>(`[data-agent-terminal="${agent.id}"] .xterm-helper-textarea`)?.focus();
         }
-    }, [agent?.id, canvasMode]);
+    }, [agent?.id, paneMode]);
 
     // the surface stays mounted, so the effects above never run on a switch back to it, and arriving left
     // focus on <body>: typing reached the agent only after a click. Arriving hands focus to the live
-    // terminal, or the wrapper when none is showing (canvas, subagent interior, no terminal).
+    // terminal, or the wrapper when none is showing (canvas, brainstorm, subagent interior, no terminal).
     useEffect(() => {
         const wrap = wrapRef.current;
         if (
@@ -159,13 +169,25 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     return (
         <MotionConfig reducedMotion="user">
             <div ref={wrapRef} tabIndex={0} data-cockpit-surface-wrap className="flex h-full w-full bg-background outline-none">
-                {/* the tree stays in canvas mode: hiding it made reaching another agent a round trip through the terminal */}
+                {/* the tree stays in canvas and brainstorm modes: hiding it made reaching another agent a round trip
+                    through the terminal */}
                 {!fullscreen ? <AgentTree model={model} /> : null}
                 <div className="flex min-w-0 flex-1 flex-col">
                     {/* terminal stack stays mounted (hidden) while a subagent interior is shown, so
                         returning to the parent never remounts/replays the live TUI (frame-stacking) */}
                     <div className={cn("flex min-h-0 flex-1 flex-col", showSub && "hidden")}>
                         <AgentHeader model={model} agent={agent} />
+                        {showCompacted ? (
+                            <div
+                                data-brainstorm-compacted
+                                className="mx-[16px] mt-[12px] flex flex-none items-center gap-[10px] rounded-[8px] border border-edge-mid bg-surface-raised px-[12px] py-[10px]"
+                            >
+                                <span className="h-[7px] w-[7px] flex-none rounded-full bg-accent" aria-hidden />
+                                <span className="flex-1 text-[13px] leading-[1.45] text-secondary">
+                                    {compactedSummary(brainstorm!.file!)}
+                                </span>
+                            </div>
+                        ) : null}
                         {mountable
                             .filter((a) => a.blockId != null)
                             .map((a) => (
@@ -174,7 +196,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                                     data-agent-terminal={a.id}
                                     className={cn(
                                         "min-h-0 flex-1",
-                                        a.id === agent.id && !canvasMode ? "flex flex-col" : "hidden"
+                                        a.id === agent.id && !paneMode ? "flex flex-col" : "hidden"
                                     )}
                                 >
                                     <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
@@ -184,6 +206,8 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <EndedTranscript model={model} agent={agent} />
                         ) : stage != null && agent.id === stage.agent.id ? (
                             <FinalStagePane model={model} run={stage.run} />
+                        ) : brainstormMode ? (
+                            <BrainstormPane model={model} agent={agent} />
                         ) : canvasMode ? (
                             <CanvasPane model={model} agent={agent} />
                         ) : agent.blockId == null ? (
@@ -194,7 +218,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                     </div>
                     {showSub ? <SubagentInterior sub={focusSub!} parentName={agent.name} /> : null}
                 </div>
-                {!fullscreen && !canvasMode && agent.kind !== "terminal" ? (
+                {!fullscreen && !paneMode && agent.kind !== "terminal" ? (
                     <AgentDetailsRail model={model} agent={agent} />
                 ) : null}
             </div>

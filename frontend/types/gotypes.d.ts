@@ -2334,6 +2334,7 @@ declare global {
         "session:label"?: string;
         "session:project"?: string;
         "session:effort"?: string;
+        "session:brainstorm"?: string;
         "session:collapsedgroups"?: string[];
         "app:loom"?: boolean;
         "agent:transcriptpath"?: string;

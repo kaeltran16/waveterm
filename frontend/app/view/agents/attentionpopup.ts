@@ -15,12 +15,23 @@ export const POPUP_OPEN_EVENT = "attention-popup:open";
 // the face the main window's avatar wears, drawn again beside the popup's card
 export type PopupFace = { expression: PetExpression; posture: PetPosture };
 
-export type PopupBubble = { key: string; label: string; name: string; text: string; more: number; face?: PopupFace };
+export type PopupBubble = {
+    key: string;
+    kind?: "brainstorm";
+    label: string;
+    name?: string;
+    text: string;
+    // a second line under the text: which part of the design a brainstorm question is for
+    detail?: string;
+    more: number;
+    face?: PopupFace;
+};
 
 export const POPUP_AT_REST: PopupFace = { expression: { kind: "at-rest" }, posture: "none" };
 export const POPUP_AVATAR_PX = 96;
 
 const ASK_KIND = "ask";
+const BRAINSTORM_KIND = "brainstorm";
 const ASK_LABEL = "Asking you";
 const POPUP_MARGIN = 16;
 
@@ -46,6 +57,18 @@ export function popupBubble(
         return null;
     }
     const [first] = fresh;
+    if (first.kind === BRAINSTORM_KIND) {
+        return {
+            key: first.key,
+            kind: BRAINSTORM_KIND,
+            label: `${first.source} · brainstorm`,
+            name: undefined,
+            text: first.text,
+            detail: first.reason,
+            more: fresh.length - 1,
+            face,
+        };
+    }
     return {
         key: first.key,
         label: first.kind === ASK_KIND ? ASK_LABEL : first.action,

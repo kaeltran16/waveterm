@@ -1,0 +1,173 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+// Keeps every attached brainstorm in step with its brainstorm.json, and re-attaches brainstorms from tab meta
+// after a restart. The step is pure over an injected IO so it can be tested; BrainstormPoller runs it every
+// BRAINSTORM_POLL_MS from the always-mounted cockpit root.
+
+import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { base64ToString } from "@/util/util";
+import { useEffect } from "react";
+import type { AgentsViewModel } from "./agents";
+import {
+    BRAINSTORM_POLL_MS,
+    brainstormFilePath,
+    parseBrainstorm,
+    parseBrainstormPath,
+    type BrainstormFile,
+} from "./brainstormmodel";
+import {
+    attachBrainstorm,
+    brainstormsAtom,
+    detachBrainstorm,
+    getBrainstorm,
+    updateBrainstorm,
+    type BrainstormState,
+} from "./brainstormstore";
+import { boardsFromCanvasJson, boardUrl, canvasDesignDir } from "./canvasmodel";
+import { tauriCanvasIO } from "./canvaspoller";
+
+const CANVAS_JSON = "canvas.json";
+const HTTP_OK = 200;
+// one failed read is an agent mid-write; the second in a row is a broken file
+const FAILED_READS_FOR_ERROR = 2;
+
+export type BrainstormIO = {
+    stat(path: string): Promise<{ exists: boolean; modifiedMs: number | null }>;
+    read(path: string): Promise<string>;
+    // asks wavesrv to serve a project's design folder; the base URL it is served under, or null when it refuses
+    serve(designDir: string): Promise<string | null>;
+    canvasJson(url: string): Promise<unknown>;
+};
+
+function listsBoards(f: BrainstormFile): boolean {
+    return f.parts.some((p) => p.boards != null && p.boards.length > 0);
+}
+
+// the thumbnails take their sizes from the canvas's canvas.json, re-read on each change of the brainstorm file
+async function readBoards(
+    s: BrainstormState,
+    f: BrainstormFile,
+    io: BrainstormIO
+): Promise<Pick<BrainstormState, "base" | "boards"> | null> {
+    if (f.canvas == null || !listsBoards(f)) {
+        return null;
+    }
+    const base = s.base ?? (await io.serve(canvasDesignDir(s.cwd)));
+    if (base == null) {
+        return null;
+    }
+    return { base, boards: boardsFromCanvasJson(await io.canvasJson(boardUrl(base, f.canvas, CANVAS_JSON))) };
+}
+
+async function readFile(path: string, io: BrainstormIO): Promise<{ file: BrainstormFile } | { error: string }> {
+    let text: string;
+    try {
+        text = await io.read(path);
+    } catch (e) {
+        return { error: `brainstorm.json could not be read: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    const parsed = parseBrainstorm(text);
+    return "file" in parsed ? { file: parsed.file } : { error: parsed.error };
+}
+
+export async function pollBrainstormOnce(s: BrainstormState, io: BrainstormIO): Promise<Partial<BrainstormState>> {
+    const st = await io.stat(s.path);
+    if (!st.exists) {
+        return { removed: true };
+    }
+    if (st.modifiedMs != null && st.modifiedMs === s.modifiedMs && s.failedReads === 0 && !s.removed) {
+        return {};
+    }
+    const read = await readFile(s.path, io);
+    if ("error" in read) {
+        const failedReads = s.failedReads + 1;
+        return failedReads >= FAILED_READS_FOR_ERROR ? { failedReads, error: read.error } : { failedReads };
+    }
+    const patch: Partial<BrainstormState> = {
+        file: read.file,
+        error: null,
+        failedReads: 0,
+        removed: false,
+        modifiedMs: st.modifiedMs,
+    };
+    return { ...patch, ...(await readBoards(s, read.file, io)) };
+}
+
+export function reconcileBrainstorms(
+    attached: Record<string, Pick<BrainstormState, "path">>,
+    roster: { id: string; brainstormFile?: string }[]
+): { attach: { agentId: string; topic: string; cwd: string }[]; detach: string[] } {
+    const attach: { agentId: string; topic: string; cwd: string }[] = [];
+    for (const r of roster) {
+        const parsed = r.brainstormFile ? parseBrainstormPath(r.brainstormFile) : null;
+        // compared through brainstormFilePath, which is how an attached state spells its path
+        if (parsed != null && attached[r.id]?.path !== brainstormFilePath(parsed.cwd, parsed.topic)) {
+            attach.push({ agentId: r.id, ...parsed });
+        }
+    }
+    // an empty roster is the boot window before the sidebar loads, not every agent gone
+    const ids = new Set(roster.map((r) => r.id));
+    const detach = roster.length === 0 ? [] : Object.keys(attached).filter((id) => !ids.has(id));
+    return { attach, detach };
+}
+
+export const tauriBrainstormIO: BrainstormIO = {
+    async stat(path) {
+        const info = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path } });
+        return info == null || info.notfound
+            ? { exists: false, modifiedMs: null }
+            : { exists: true, modifiedMs: info.modtime ?? null };
+    },
+    async read(path) {
+        const data = await RpcApi.FileReadCommand(TabRpcClient, { info: { path } });
+        return data?.data64 ? base64ToString(data.data64) : "";
+    },
+    serve: tauriCanvasIO.serve,
+    async canvasJson(url) {
+        const res = await tauriCanvasIO.get(url);
+        return res.status === HTTP_OK ? res.json : undefined;
+    },
+};
+
+// A result that lands after the brainstorm was detached or replaced is dropped rather than written over it.
+async function pollAndMerge(agentId: string, io: BrainstormIO): Promise<void> {
+    const s = getBrainstorm(agentId);
+    if (s == null || s.removed) {
+        return;
+    }
+    const patch = await pollBrainstormOnce(s, io);
+    if (Object.keys(patch).length > 0) {
+        updateBrainstorm(agentId, (cur) => (cur.path === s.path ? { ...cur, ...patch } : cur));
+    }
+}
+
+export function BrainstormPoller({ model }: { model: AgentsViewModel }): null {
+    useEffect(() => {
+        // a poll can outlast the interval (a slow wavesrv), so one agent's reads never stack
+        const busy = new Set<string>();
+        const tick = () => {
+            const roster = [...globalStore.get(model.agentsAtom), ...globalStore.get(model.terminalsAtom)];
+            const { attach, detach } = reconcileBrainstorms(globalStore.get(brainstormsAtom), roster);
+            detach.forEach(detachBrainstorm);
+            for (const a of attach) {
+                attachBrainstorm(a.agentId, a, Date.now());
+            }
+            for (const id of Object.keys(globalStore.get(brainstormsAtom))) {
+                if (busy.has(id)) {
+                    continue;
+                }
+                busy.add(id);
+                pollAndMerge(id, tauriBrainstormIO)
+                    .catch((e) => console.warn("brainstorm poll failed", id, e))
+                    .finally(() => busy.delete(id));
+            }
+        };
+        tick();
+        const t = setInterval(tick, BRAINSTORM_POLL_MS);
+        return () => clearInterval(t);
+    }, [model]);
+    return null;
+}

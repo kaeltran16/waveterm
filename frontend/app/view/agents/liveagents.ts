@@ -67,6 +67,7 @@ export const liveAgentBaseAtom: Atom<AgentVM[]> = atom((get) => {
                 project: registeredProjectFor(row.cwd ?? "", projects) || row.projectLabel,
                 runORef: row.runORef,
                 effortORef: row.effortORef,
+                brainstormFile: row.brainstormFile,
                 sessionId: status.sessionid,
             },
             now

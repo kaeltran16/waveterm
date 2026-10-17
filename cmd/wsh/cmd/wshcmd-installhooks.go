@@ -43,6 +43,8 @@ var managedHooks = []managedHook{
 	{Event: "PreToolUse", Matcher: "AskUserQuestion", Args: "ask", Timeout: 3600},
 	{Event: "PostToolUse", Args: "agent-hook", Timeout: 10, Async: true},
 	{Event: "PostToolUse", Matcher: "AskUserQuestion", Args: "ask --clear", Timeout: 10},
+	// synchronous: its output is the turn's added context, which a background hook's never reaches
+	{Event: "PostToolUse", Matcher: "Skill", Args: "agent-hook --skill-context", Timeout: 10},
 	{Event: "Notification", Args: "agent-hook", Timeout: 10},
 	{Event: "Stop", Args: "agent-hook", Timeout: 10},
 	{Event: "SubagentStop", Args: "agent-hook", Timeout: 10},
@@ -105,7 +107,7 @@ func isManagedCommand(command string) bool {
 	switch strings.TrimSpace(rest) {
 	// the agent-memory-* entries name removed subcommands and stay listed so a reinstall still
 	// recognizes — and therefore strips — a hook an older Arc wrote
-	case "agent-hook", "ask", "ask --clear", "jarvis dag rules --inject",
+	case "agent-hook", "agent-hook --skill-context", "ask", "ask --clear", "jarvis dag rules --inject",
 		"agent-memory-hook", "agent-memory-project", "agent-memory-project --inject":
 		return true
 	}

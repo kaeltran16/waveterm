@@ -18,6 +18,7 @@ import { CockpitShell } from "@/app/view/agents/cockpitshell";
 import { NowTicker } from "@/app/view/agents/nowticker";
 import { BackgroundAgentsPoller } from "@/app/view/agents/backgroundagentspoller";
 import { AttentionPoller } from "@/app/view/agents/attentionpoller";
+import { BrainstormPoller } from "@/app/view/agents/brainstormpoller";
 import { NewAgentModal } from "@/app/view/agents/newagentmodal";
 import { NewInitiativeHost } from "@/app/view/jarvis/newinitiativecontrol";
 import { NewRunModalHost } from "@/app/view/jarvis/newruncontrol";
@@ -125,6 +126,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             <NowTicker model={model} />
             <BackgroundAgentsPoller />
             <AttentionPoller model={model} />
+            <BrainstormPoller model={model} />
             <PulseDriver />
             <PetSources model={model} />
             <ResMonPopover model={model} />

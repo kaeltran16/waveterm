@@ -8,6 +8,13 @@ import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { parseAddress, type OpenTarget } from "@/app/view/jarvis/address";
 
 export function popupTarget(item: AttentionItem, agents: AgentVM[]): OpenTarget | null {
+    // its source names the agent, so askAgent could claim it; the brainstorm address lands in brainstorm mode
+    if (item.kind === "brainstorm" && item.oref) {
+        const parsed = parseAddress(item.oref);
+        if (parsed.kind !== "unsupported") {
+            return parsed;
+        }
+    }
     const agent = askAgent(item, agents);
     if (agent != null) {
         return { kind: "agent", tabId: agent.id };

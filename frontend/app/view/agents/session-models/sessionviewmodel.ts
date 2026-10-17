@@ -61,6 +61,7 @@ export interface SessionInput {
     projectLabel?: string; // launch-time project name: a non-sticky default below title, above the agent name
     runORef?: string; // jarvis:runoref, stamped on a run's lead and worker tabs at spawn
     effortORef?: string; // session:effort, the initiative the session was launched from or last touched
+    brainstormFile?: string; // session:brainstorm, the attached brainstorm.json's absolute path
     pinned: boolean;
     isAgentsTab?: boolean;
     cwd?: string;
@@ -82,6 +83,7 @@ export interface SessionRowVM {
     cwd?: string; // the session terminal's cwd; resolves the registered project the agent works in
     runORef?: string; // the run this session works for: a lead's own run, a worker's child run
     effortORef?: string; // the initiative this session works on
+    brainstormFile?: string; // the brainstorm.json attached to this session
     agent?: string; // session:agent runtime (claude/codex/…); undefined for plain terminals
     status: SessionStatus;
     active: boolean;
@@ -168,6 +170,7 @@ function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
         cwd: s.cwd,
         runORef: s.runORef,
         effortORef: s.effortORef,
+        brainstormFile: s.brainstormFile,
         agent: s.agent,
         status,
         active: s.active,

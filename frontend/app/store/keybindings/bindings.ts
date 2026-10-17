@@ -17,6 +17,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { focusedBrainstorm, setBrainstormMode } from "@/app/view/agents/brainstormstore";
 import { paneState } from "@/app/view/agents/canvasmodel";
 import {
     focusedCanvas,
@@ -156,9 +157,10 @@ const clickThrough = (selector: string): boolean | void => {
 };
 
 // `[` `]` belong to the boards in canvas mode, so the surface switch stands down while the focused agent shows
-// its canvas. The agent switches stay live: the tree stays on screen beside the canvas.
+// its canvas (never for an agent with a brainstorm). The agent switches stay live: the tree stays on screen
+// beside the canvas.
 const inAgentCanvas = (model: AgentsViewModel, ctx: KeyContext) =>
-    ctx.surface === "agent" && focusedCanvasMode(model) != null;
+    ctx.surface === "agent" && focusedCanvasMode(model) != null && focusedBrainstorm(model) == null;
 
 // Spec §5 (agent-tab-fixes): the second Ctrl+C closes the *focused* session — agent or plain
 // terminal alike (the UI labels both "terminal": "Close terminal — ends the agent"). Returns null
@@ -795,10 +797,13 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         const agent = globalStore.get(model.agentsAtom).find((a) => a.id === id);
         return agent != null && parseDocReview(agent.ask) != null ? agent.id : null;
     };
-    // canvas mode hides the rail, the terminal and the other agents, so their keys stand down there
-    const noCanvas = () => focusedCanvasMode(model) == null;
+    const brainstorm = () => focusedBrainstorm(model);
+    const inBrainstorm = (ctx: KeyContext) => agentNav(ctx) && brainstorm()?.mode === "brainstorm";
+    // an agent with a brainstorm never shows its canvas, so the canvas keys stand down for it
+    const canvas = () => (brainstorm() == null ? focusedCanvas(model) : null);
+    // canvas and brainstorm modes hide the rail and the terminal, so their keys stand down there
+    const noCanvas = () => canvas()?.mode !== "canvas" && brainstorm()?.mode !== "brainstorm";
     const nav = (ctx: KeyContext) => agentNav(ctx) && noCanvas();
-    const canvas = () => focusedCanvas(model);
     const inCanvas = (ctx: KeyContext) => agentNav(ctx) && canvas()?.mode === "canvas";
     const boardReady = (ctx: KeyContext) => inCanvas(ctx) && !canvas()!.marking && paneState(canvas()!) === "board";
     const focusId = () => globalStore.get(model.focusIdAtom);
@@ -937,8 +942,8 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 document.querySelector<HTMLElement>("[data-cockpit-surface-wrap]")?.focus();
             },
         },
-        // c and m change meaning with the canvas's state, so each is two bindings with exclusive when()s
-        // and every footer chip keeps a static label
+        // b, c and m change meaning with the brainstorm's or the canvas's state, so each is two bindings with
+        // exclusive when()s and every footer chip keeps a static label
         {
             id: "agent:canvas-open",
             keys: "c",
@@ -954,6 +959,22 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             label: "Back to the terminal",
             when: inCanvas,
             run: () => setCanvasMode(focusId(), "terminal", Date.now()),
+        },
+        {
+            id: "agent:brainstorm-open",
+            keys: "b",
+            group: "Agent",
+            label: "Show the agent's brainstorm",
+            when: (ctx) => agentNav(ctx) && brainstorm()?.mode === "terminal",
+            run: () => setBrainstormMode(focusId(), "brainstorm", Date.now()),
+        },
+        {
+            id: "agent:brainstorm-close",
+            keys: "b",
+            group: "Agent",
+            label: "Back to the terminal from the brainstorm",
+            when: inBrainstorm,
+            run: () => setBrainstormMode(focusId(), "terminal", Date.now()),
         },
         {
             id: "agent:canvas-prev",

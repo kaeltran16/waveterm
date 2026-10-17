@@ -29,6 +29,8 @@ import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
+import { isAsking, treeLine, type BrainstormFile } from "./brainstormmodel";
+import { brainstormAtom } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
@@ -209,7 +211,9 @@ function FoldChip({
 function CanvasTag({ model, id }: { model: AgentsViewModel; id: string }) {
     const canvas = useAtomValue(canvasStateAtom(id));
     const showing = useAtomValue(model.focusIdAtom) === id && canvas?.mode === "canvas";
-    if (canvas == null) {
+    // an agent with a brainstorm never shows its canvas: the brainstorm pane opens its boards
+    const brainstorm = useAtomValue(brainstormAtom(id));
+    if (canvas == null || brainstorm != null) {
         return null;
     }
     return (
@@ -232,6 +236,33 @@ function CanvasTag({ model, id }: { model: AgentsViewModel; id: string }) {
                 <span aria-label="updated since you last looked" className="h-[5px] w-[5px] rounded-full bg-accent" />
             ) : null}
         </button>
+    );
+}
+
+// replaces a row's branch text while the agent brainstorms; a finished one links to the run it started
+function BrainstormTreeLine({ model, f, asking }: { model: AgentsViewModel; f: BrainstormFile; asking: boolean }) {
+    const line = treeLine(f, asking);
+    const done = line.runId != null;
+    return (
+        <span data-brainstorm-tree-line className="truncate text-[11.5px]">
+            <span className={done ? "text-ink-mid" : "text-warning"}>{line.lead}</span>
+            <span className="text-muted"> · </span>
+            {done ? (
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        fireAndForget(() => openTarget(model, { kind: "run", runId: line.runId! }));
+                    }}
+                    title="Open the run"
+                    className="cursor-pointer text-ink-mid hover:underline"
+                >
+                    {line.text}
+                </button>
+            ) : (
+                <span className="text-ink-mid">{line.text}</span>
+            )}
+        </span>
     );
 }
 
@@ -451,6 +482,7 @@ function ParentRow({
     const selected = focusId === agent.id;
     const asking = agent.state === "asking";
     const review = asking ? parseDocReview(agent.ask) : null;
+    const brainstormFile = useAtomValue(brainstormAtom(agent.id))?.file;
     const mark = lead != null ? leadMark(lead.run, agent) : null;
     const tasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standing = isStandingBy(agent.state, tasks);
@@ -576,7 +608,16 @@ function ParentRow({
                         <div className="mt-[3px] flex min-w-0 items-center gap-[6px]">
                             {subsChip}
                             {tasksChip}
-                            <span className="truncate font-mono text-[10.5px] text-muted">{branch || "—"}</span>
+                            {brainstormFile != null ? (
+                                // the roster overlay already turned a question the file asks into state "asking"
+                                <BrainstormTreeLine
+                                    model={model}
+                                    f={brainstormFile}
+                                    asking={asking && isAsking(brainstormFile)}
+                                />
+                            ) : (
+                                <span className="truncate font-mono text-[10.5px] text-muted">{branch || "—"}</span>
+                            )}
                         </div>
                     )}
                 </div>
