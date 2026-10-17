@@ -27,7 +27,7 @@ export function NewInitiativeControl({ model }: { model: AgentsViewModel }) {
             className="flex h-[28px] flex-none cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[8px] border border-edge-mid px-2.5 text-[12px] font-semibold text-secondary hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
             New initiative
-            <kbd className="font-mono text-[10px] font-normal text-muted">⇧N</kbd>
+            <kbd className="font-mono text-[10.5px] font-normal text-muted">⇧N</kbd>
         </button>
     );
 }

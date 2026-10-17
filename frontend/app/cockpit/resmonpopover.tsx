@@ -181,9 +181,7 @@ function ProcessRow({
             <span className="text-right font-mono text-[12px] text-secondary">{fmtMem(row.mem)}</span>
             <span className="flex justify-end">
                 {row.tag ? (
-                    <span className="rounded-[4px] bg-white/[0.05] px-1.5 py-px text-[10.5px] text-muted">
-                        {row.tag}
-                    </span>
+                    <span className="rounded-[4px] bg-edge-mid px-1.5 py-px text-[10.5px] text-muted">{row.tag}</span>
                 ) : g.killable ? (
                     <button
                         type="button"

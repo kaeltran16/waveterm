@@ -22,6 +22,7 @@
 
 import { pushToast } from "@/app/cockpit/notificationstore";
 import { cardVariants, computeEntrances, initialEntranceState, MOTION, paneReveal } from "@/app/element/motiontokens";
+import { Skeleton } from "@/app/element/skeleton";
 import { contextMenuAtom, ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildJarvisBindings } from "@/app/store/keybindings/bindings";
@@ -1542,7 +1543,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                 {Object.entries(REGIONS).map(([id, r]) => (
                                     <div key={id} className="flex min-h-0 flex-1 flex-col gap-2">
                                         <span className={cn(REGION_LABEL, "text-feed-label")}>{r.label}</span>
-                                        <div className="min-h-12 flex-1 animate-pulse rounded-[10px] bg-edge-strong motion-reduce:animate-none" />
+                                        <Skeleton className="min-h-12 flex-1 rounded-[10px]" />
                                     </div>
                                 ))}
                             </motion.div>

@@ -42,7 +42,7 @@ function EdgeChip({ tag }: { tag: AmbientTag }) {
                 style={{ borderTopStyle: line.style, borderTopWidth: line.weightPx, borderTopColor: "currentColor" }}
             />
             <span className="truncate text-[11.5px] font-semibold text-secondary">{tag.label}</span>
-            <span className="flex-none font-mono text-[9.5px] text-muted">{edgeLabel(tag)}</span>
+            <span className="flex-none font-mono text-[10.5px] text-muted">{edgeLabel(tag)}</span>
         </span>
     );
 }

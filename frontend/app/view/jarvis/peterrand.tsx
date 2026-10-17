@@ -35,7 +35,7 @@ function ErrandReply({ errand }: { errand: PetErrandState }) {
     const status = REPLY_STATUS[errand.status];
     return (
         <div className="rounded-[8px] border border-border bg-surface px-[9px] py-[7px]">
-            <div className="mb-[3px] flex items-center gap-1.5 font-mono text-[9.5px] text-muted">
+            <div className="mb-[3px] flex items-center gap-1.5 font-mono text-[10.5px] text-muted">
                 <span className={cn("h-[5px] w-[5px] flex-none rounded-full", status.dot)} />
                 {errand.runtime} · {status.word}
             </div>

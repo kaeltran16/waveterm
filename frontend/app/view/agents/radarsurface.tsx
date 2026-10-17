@@ -4,6 +4,7 @@
 import { MOTION } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { Skeleton, SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
+import { useEscapeClose } from "@/app/hook/useEscapeClose";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
@@ -59,10 +60,13 @@ const POPOVER =
 function ScopeSelector({ scope, onSelect }: { scope: RadarScope | null; onSelect: (s: RadarScope) => void }) {
     const entries = useAtomValue(projectListAtom);
     const [open, setOpen] = useState(false);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    useEscapeClose(open, () => setOpen(false), triggerRef);
 
     return (
         <div className="relative">
             <button
+                ref={triggerRef}
                 type="button"
                 aria-label={scope ? `Scanned project: ${scope.name}` : "Select a project to scan"}
                 onClick={() => setOpen((v) => !v)}
@@ -105,6 +109,8 @@ function ScopeSelector({ scope, onSelect }: { scope: RadarScope | null; onSelect
 // which is otherwise the body itself.
 function MetaLine({ report, view }: { report: RadarReport; view: RadarView }) {
     const [open, setOpen] = useState(false);
+    const toggleRef = useRef<HTMLButtonElement>(null);
+    useEscapeClose(open, () => setOpen(false), toggleRef);
     const rows = auditRows(report);
     const tally = auditTally(rows);
     const summary = auditSummary(tally);
@@ -113,6 +119,7 @@ function MetaLine({ report, view }: { report: RadarReport; view: RadarView }) {
             <span>{reportMetaAge(report, Date.now())} ·</span>
             {view === "report" && rows.length > 0 ? (
                 <button
+                    ref={toggleRef}
                     type="button"
                     data-radar-audits-toggle
                     aria-expanded={open}

@@ -27,6 +27,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { canvasStateAtom } from "@/app/view/agents/canvasstore";
+import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { compareOnAtom } from "@/app/view/agents/comparestore";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
@@ -63,6 +64,7 @@ export const PREDICATE_ATOMS: Atom<unknown>[] = [
     petPeekOpenAtom, // surface:back-home
     briefPeekRecordAtom, // surface:back-home
     dagModalStateAtom, // surface:back-home
+    escapeMenusOpenAtom, // surface:back-home
     codeTreeFocusedAtom, // buildCodeBindings: inTree
     listNavAtom, // buildListNavBindings: active
     renamingRowAtom, // buildAgentBindings: subagent:back, shelltask:back

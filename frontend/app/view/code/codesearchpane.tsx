@@ -35,7 +35,7 @@ const FLAGS: { key: SearchFlag; glyph: string; title: string }[] = [
 const FIELD_CLASS =
     "w-full rounded-[8px] border bg-surface px-2 py-1 text-[12px] text-primary outline-none placeholder:text-muted";
 const SMALL_BUTTON_CLASS =
-    "cursor-pointer rounded-[6px] px-1.5 py-[2px] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent";
+    "cursor-pointer rounded-[6px] px-1.5 py-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 export function CodeSearchPane({ model }: { model: AgentsViewModel }) {
     const project = useAtomValue(codeProjectAtom);
@@ -200,7 +200,7 @@ function SearchBody({
                 <button
                     type="button"
                     onClick={onRetry}
-                    className="mt-1 cursor-pointer rounded-[6px] border border-border px-2 py-[3px] text-[11px] hover:text-primary"
+                    className="mt-1 cursor-pointer rounded-[6px] border border-border px-2 py-[3px] text-[11px] hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                     Retry
                 </button>
@@ -232,7 +232,7 @@ function SearchBody({
                                         );
                                     }
                                 }}
-                                className="flex w-full cursor-pointer gap-2 px-3 py-[2px] text-left text-[11.5px] hover:bg-accent/10 focus-visible:bg-accent/10 focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-accent"
+                                className="flex w-full cursor-pointer gap-2 px-3 py-[2px] text-left text-[11.5px] hover:bg-accent/10 focus-visible:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                             >
                                 <span className="w-[34px] flex-none text-right font-mono text-[10.5px] text-muted">
                                     {match.line}

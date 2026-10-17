@@ -63,7 +63,7 @@ import { subagentsByIdAtom } from "./subagentsstore";
 
 // uniform 25x23 control box (handoff header buttons)
 const CTL_BOX =
-    "flex h-[23px] w-[25px] shrink-0 cursor-pointer items-center justify-center rounded-sm border border-edge-mid text-secondary hover:border-edge-strong hover:bg-white/[0.04]";
+    "flex h-[23px] w-[25px] shrink-0 cursor-pointer items-center justify-center rounded-sm border border-edge-mid text-secondary hover:border-edge-strong hover:bg-surface-hover";
 
 // the header's count chips (subagents, tasks, diff); each adds its own hover
 const CHIP =

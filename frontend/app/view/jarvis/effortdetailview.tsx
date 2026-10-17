@@ -12,6 +12,7 @@
 // which the per-chunk sidebar deliberately does not show.
 
 import { PaneReveal } from "@/app/element/panereveal";
+import { Skeleton } from "@/app/element/skeleton";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { SectionLabel } from "@/app/view/agents/sectionlabel";
@@ -459,10 +460,7 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
                 {effort == null && error == null ? (
                     <div className="flex flex-col gap-4">
                         {["title", "facts", "notes"].map((k) => (
-                            <div
-                                key={k}
-                                className="h-10 animate-pulse rounded-[10px] bg-edge-strong motion-reduce:animate-none"
-                            />
+                            <Skeleton key={k} className="h-10 rounded-[10px]" />
                         ))}
                     </div>
                 ) : null}

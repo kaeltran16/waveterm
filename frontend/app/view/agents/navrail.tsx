@@ -90,12 +90,12 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
                 <span className="relative z-[1]">
                     {ICON[key]}
                     {badge > 0 ? (
-                        <span className="absolute -right-2 -top-1.5 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-asking px-1 font-mono text-[9px] font-bold text-background">
+                        <span className="absolute -right-2 -top-1.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-asking px-1 font-mono text-[10.5px] leading-none font-bold text-background">
                             {badge}
                         </span>
                     ) : null}
                 </span>
-                {narrow ? null : <span className="relative z-[1] text-[10px] font-semibold">{label}</span>}
+                {narrow ? null : <span className="relative z-[1] text-[10.5px] font-semibold">{label}</span>}
             </button>
         );
     };

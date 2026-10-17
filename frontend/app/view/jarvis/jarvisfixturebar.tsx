@@ -20,7 +20,7 @@ export function JarvisFixtureBar() {
             className="flex flex-wrap items-center gap-1 border-b border-dashed border-edge-mid bg-surface px-4 py-1.5"
         >
             <div data-testid="jarvis-briefing-fixture-bar" className="flex flex-wrap items-center gap-1">
-                <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted">briefing</span>
+                <span className="mr-1 text-[10.5px] font-semibold uppercase tracking-wide text-muted">briefing</span>
                 {(Object.keys(BRIEFING_FIXTURES) as BriefingFixtureName[]).map((s) => (
                     <button
                         key={s}

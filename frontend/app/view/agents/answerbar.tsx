@@ -137,14 +137,14 @@ function QuestionGroup({
                                 ? accent.selected
                                 : isRecommended
                                   ? accent.rec
-                                  : "border-border hover:bg-white/[0.04]"
+                                  : "border-border hover:bg-surface-hover"
                         )}
                     >
                         {showNum ? (
                             <span
                                 className={cn(
                                     "mt-px inline-flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[4px] font-mono text-[10.5px]",
-                                    isSelected ? accent.numSel : "bg-black/30 text-secondary"
+                                    isSelected ? accent.numSel : "bg-background text-secondary"
                                 )}
                             >
                                 {oi + 1}
@@ -206,7 +206,7 @@ function QuestionGroup({
             {options.length === 0 ? null : withPreview ? (
                 <div className="mt-2.5 flex gap-3">
                     <div className="min-w-0 flex-1">{optionList}</div>
-                    <div className="hidden w-[min(46%,340px)] shrink-0 rounded border border-border bg-black/20 p-3 md:block">
+                    <div className="hidden w-[min(46%,340px)] shrink-0 rounded border border-border bg-surface-code p-3 md:block">
                         {preview ? (
                             <pre className="overflow-x-auto whitespace-pre font-mono text-[11.5px] leading-[1.5] text-primary">
                                 {previewBody(preview)}
@@ -235,14 +235,14 @@ function QuestionGroup({
                                         ? cn(accent.selected, "font-semibold text-primary")
                                         : isRecommended
                                           ? cn(accent.rec, "font-semibold text-primary")
-                                          : "border-border text-primary hover:bg-white/[0.04]"
+                                          : "border-border text-primary hover:bg-surface-hover"
                                 )}
                             >
                                 {showNum ? (
                                     <span
                                         className={cn(
                                             "inline-flex h-[16px] w-[16px] items-center justify-center rounded-[4px] font-mono text-[10.5px]",
-                                            isSelected ? accent.numSel : "bg-black/30 text-secondary"
+                                            isSelected ? accent.numSel : "bg-background text-secondary"
                                         )}
                                     >
                                         {oi + 1}
@@ -276,7 +276,7 @@ function QuestionGroup({
                     }}
                     placeholder="or type your own answer…"
                     className={cn(
-                        "mt-2 w-full rounded border bg-black/20 px-3 py-2 text-[12.5px] text-primary placeholder:text-muted focus:outline-none",
+                        "mt-2 w-full rounded border bg-background px-3 py-2 text-[12.5px] text-primary placeholder:text-muted focus:outline-none",
                         (text ?? "").trim() !== "" ? accent.selected : "border-border focus:border-accent/60"
                     )}
                 />
@@ -338,7 +338,7 @@ export function AnswerBar({
                 type="button"
                 onClick={onDismiss}
                 title="Dismiss this question (pi: cancels the ask; claude: closes the panel copy)"
-                className="flex cursor-pointer rounded-sm px-1.5 py-0.5 text-muted hover:bg-white/[0.04] hover:text-secondary"
+                className="flex cursor-pointer rounded-sm px-1.5 py-0.5 text-muted hover:bg-surface-hover hover:text-secondary"
             >
                 <X size={12} aria-hidden />
             </button>
@@ -423,7 +423,7 @@ export function AnswerBar({
                             onClick={() => onSelectQuestion?.(qi)}
                             className={cn(
                                 "flex cursor-pointer items-center gap-1.5 rounded-sm border px-2.5 py-1 text-[12px]",
-                                active ? accent.tab : "border-border text-secondary hover:bg-white/[0.04]"
+                                active ? accent.tab : "border-border text-secondary hover:bg-surface-hover"
                             )}
                         >
                             <span className={cn("h-1.5 w-1.5 rounded-full", answered ? accent.dot : "bg-muted/40")} />

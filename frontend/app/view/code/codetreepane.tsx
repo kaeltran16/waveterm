@@ -300,7 +300,7 @@ function NameInput({
                 className="min-w-0 flex-1 rounded-[4px] border border-border bg-surface px-1 py-[1px] text-[12px] text-primary outline-none"
             />
             {err != null ? (
-                <span title={nameErrorMessage(err)} className="flex-none text-[10px] text-error">
+                <span title={nameErrorMessage(err)} className="flex-none text-[10.5px] text-error">
                     {nameErrorMessage(err)}
                 </span>
             ) : null}

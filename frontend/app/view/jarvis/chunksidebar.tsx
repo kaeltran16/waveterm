@@ -162,7 +162,7 @@ export function ChunkSidebar({
                 exit="exit"
                 aria-label="Chunk"
                 data-jarvis-chunk-sidebar
-                className="absolute inset-y-0 right-0 z-[4] flex w-[460px] flex-col overflow-hidden border-l border-border bg-background @max-[1280px]:shadow-[-18px_0_44px_var(--color-background)] @max-[980px]:w-[min(460px,92cqw)]"
+                className="absolute inset-y-0 right-0 z-[4] flex w-[460px] flex-col overflow-hidden border-l border-border bg-background @max-[1280px]:shadow-sheet-side @max-[980px]:w-[min(460px,92cqw)]"
             >
                 <div className="flex flex-none items-center gap-2 border-b border-edge-faint px-[13px] py-[9px]">
                     <span className={cn(REGION_LABEL, "text-ink-mid")}>Chunk</span>

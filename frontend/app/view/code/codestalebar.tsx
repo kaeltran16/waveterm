@@ -29,7 +29,7 @@ export function CodeStaleBar() {
             <button
                 type="button"
                 onClick={() => fireAndForget(reloadFromDisk)}
-                className="flex-none cursor-pointer rounded-[6px] border border-warning/40 px-2 py-[2px] font-semibold hover:bg-warning/15"
+                className="flex-none cursor-pointer rounded-[6px] border border-warning/40 px-2 py-[2px] font-semibold hover:bg-warning/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
                 {dirty ? "Discard my edits and reload" : "Reload"}
             </button>

@@ -12,7 +12,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { formatChordString } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Check, Plus, SquareTerminal, X } from "lucide-react";
+import { Check, ChevronDown, Plus, SquareTerminal, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -41,7 +41,7 @@ const RUNTIMES: { id: Runtime; name: string }[] = [
     { id: "terminal", name: "Terminal" },
 ];
 
-const LABEL = "font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted";
+const LABEL = "font-mono text-[10.5px] font-semibold uppercase tracking-[0.1em] text-muted";
 
 export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(model.newAgentOpenAtom);
@@ -463,9 +463,9 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                                                     type="button"
                                                     aria-label="Show branches"
                                                     onClick={() => setBranchListOpen((v) => !v)}
-                                                    className="cursor-pointer px-3 py-2 text-[10px] text-muted hover:text-primary"
+                                                    className="cursor-pointer px-3 py-2 text-muted hover:text-primary"
                                                 >
-                                                    ▾
+                                                    <ChevronDown size={12} aria-hidden />
                                                 </button>
                                             ) : null}
                                         </div>

@@ -122,7 +122,7 @@ export function CollapsibleRail({
                                 )}
                             >
                                 {title != null ? (
-                                    <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
+                                    <span className="font-mono text-[10.5px] font-bold uppercase tracking-[.12em] text-muted">
                                         {title}
                                     </span>
                                 ) : null}
