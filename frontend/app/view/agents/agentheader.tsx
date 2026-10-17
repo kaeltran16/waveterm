@@ -23,6 +23,8 @@ import { confirmCloseSession, interruptAgent } from "./agentactions";
 import { contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
+import { isAsking } from "./brainstormmodel";
+import { brainstormAtom, setBrainstormMode } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
@@ -105,6 +107,9 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const railVisible = useAtomValue(railVisibleAtom);
     const fullscreen = useAtomValue(terminalFullscreenAtom);
     const canvas = useAtomValue(canvasStateAtom(agent.id));
+    const brainstorm = useAtomValue(brainstormAtom(agent.id));
+    // the roster overlay already turned a question the file asks into state "asking"
+    const brainstormAsking = brainstorm?.file != null && isAsking(brainstorm.file) && agent.state === "asking";
     const lineage = useRunLineage(model, agent);
     const project = agentProject(useAtomValue(model.lineageAtom), useAtomValue(model.agentsAtom), agent);
     const name =
@@ -288,7 +293,42 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         <ChevronLeft size={12} strokeWidth={2} aria-hidden />
                     </button>
                 ) : null}
-                {canvas != null ? (
+                {brainstorm != null ? (
+                    <>
+                        <Segmented
+                            role="group"
+                            ariaLabel="Show terminal or brainstorm"
+                            value={brainstorm.mode}
+                            options={[
+                                { key: "terminal", label: "Terminal", title: `Terminal (${formatChordString("b")})` },
+                                {
+                                    key: "brainstorm",
+                                    label: (
+                                        <>
+                                            Brainstorm
+                                            {brainstormAsking ? (
+                                                <span
+                                                    aria-label="asking you"
+                                                    className="h-[6px] w-[6px] rounded-full bg-warning"
+                                                />
+                                            ) : null}
+                                        </>
+                                    ),
+                                    title: `Brainstorm (${formatChordString("b")})`,
+                                },
+                            ]}
+                            onChange={(m) => setBrainstormMode(agent.id, m, Date.now())}
+                        />
+                        {brainstorm.mode === "terminal" ? (
+                            <span className="flex items-center gap-[6px] text-[11.5px] text-muted">
+                                <span className="rounded-[5px] border border-b-2 border-edge-strong px-[6px] font-mono text-[11px] text-secondary">
+                                    B
+                                </span>
+                                switch view
+                            </span>
+                        ) : null}
+                    </>
+                ) : canvas != null ? (
                     <Segmented
                         role="group"
                         ariaLabel="Show terminal or canvas"

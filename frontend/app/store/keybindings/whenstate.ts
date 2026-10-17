@@ -26,6 +26,7 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { brainstormAtom } from "@/app/view/agents/brainstormstore";
 import { canvasStateAtom } from "@/app/view/agents/canvasstore";
 import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { compareOnAtom } from "@/app/view/agents/comparestore";
@@ -80,22 +81,31 @@ for (const predicateAtom of PREDICATE_ATOMS) {
     globalStore.sub(predicateAtom, bumpWhenVersion);
 }
 
-// The canvas predicates (buildAgentBindings, and the surface/agent switches in buildGlobalBindings) read the
-// focused agent's canvasStateAtom: one atom per agent, picked by a model-owned focus id, so it can't be a
-// static PREDICATE_ATOMS entry. This follows the focus and re-subscribes; the completeness test counts these
-// two atoms as watched here. Returns the unsubscribe.
+// The canvas and brainstorm predicates (buildAgentBindings, and the surface/agent switches in buildGlobalBindings)
+// read the focused agent's canvasStateAtom and brainstormAtom: one atom per agent, picked by a model-owned focus
+// id, so neither can be a static PREDICATE_ATOMS entry. This follows the focus and re-subscribes both; the
+// completeness test counts these three atoms as watched here. Returns the unsubscribe.
 export function watchFocusedCanvas(model: AgentsViewModel): () => void {
-    let unsubCanvas = () => {};
+    let unsub = () => {};
     const follow = () => {
-        unsubCanvas();
+        unsub();
         const id = globalStore.get(model.focusIdAtom);
-        unsubCanvas = id ? globalStore.sub(canvasStateAtom(id), bumpWhenVersion) : () => {};
+        if (id) {
+            const unsubCanvas = globalStore.sub(canvasStateAtom(id), bumpWhenVersion);
+            const unsubBrainstorm = globalStore.sub(brainstormAtom(id), bumpWhenVersion);
+            unsub = () => {
+                unsubCanvas();
+                unsubBrainstorm();
+            };
+        } else {
+            unsub = () => {};
+        }
         bumpWhenVersion();
     };
     const unsubFocus = globalStore.sub(model.focusIdAtom, follow);
     follow();
     return () => {
         unsubFocus();
-        unsubCanvas();
+        unsub();
     };
 }

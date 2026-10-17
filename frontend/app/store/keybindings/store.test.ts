@@ -5,6 +5,12 @@ import { registerModal } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import {
+    attachBrainstorm,
+    brainstormAtom,
+    detachBrainstorm,
+    setBrainstormMode,
+} from "@/app/view/agents/brainstormstore";
+import {
     attachCanvas,
     canvasStateAtom,
     detachCanvas,
@@ -153,6 +159,58 @@ describe("keybinding conflict invariant", () => {
             setMarking("a1", true);
             expect(() => assertNoConflicts(all)).not.toThrow();
         } finally {
+            detachCanvas("a1");
+        }
+    });
+
+    // an agent with a brainstorm never shows its canvas, so b takes over and c stands down
+    it("the two b bindings never both match, and every surface's bindings stay conflict-free with a brainstorm", () => {
+        const model = withCanvas();
+        attachBrainstorm("a1", { topic: "bs", cwd: "/p" }, 0);
+        globalStore.set(listNavAtom, null);
+        const askRef = { current: { id: "w1", state: "asking" } as AgentVM };
+        const all = [
+            ...buildGlobalBindings(model),
+            ...buildListNavBindings(model),
+            ...buildChannelsAskBindings(model, askRef),
+            ...buildJarvisBindings(),
+            ...buildCockpitBindings(),
+            ...buildAgentBindings(model),
+            ...buildFilesBindings(),
+            ...buildCodeBindings(),
+        ];
+        const open = all.find((x) => x.id === "agent:brainstorm-open")!;
+        const close = all.find((x) => x.id === "agent:brainstorm-close")!;
+        const live = (id: string, ctx: KeyContext) => all.find((x) => x.id === id)!.when!(ctx);
+        const agentCtx: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+        try {
+            expect(open.keys).toBe("b");
+            expect(close.keys).toBe("b");
+            for (const mode of ["terminal", "brainstorm"] as const) {
+                setBrainstormMode("a1", mode, 1);
+                for (const ctx of contexts()) {
+                    expect(open.when!(ctx) && close.when!(ctx)).toBe(false);
+                }
+                expect(() => assertNoConflicts(all)).not.toThrow();
+                expect(live("agent:canvas-open", agentCtx)).toBe(false);
+            }
+            setBrainstormMode("a1", "terminal", 2);
+            expect(open.when!(agentCtx)).toBe(true);
+            expect(live("agent:toggle-rail", agentCtx)).toBe(true);
+            setBrainstormMode("a1", "brainstorm", 3);
+            expect(close.when!(agentCtx)).toBe(true);
+            // brainstorm mode stands down what canvas mode does: the rail, fullscreen and Escape
+            expect(live("agent:toggle-rail", agentCtx)).toBe(false);
+            expect(live("agent:fullscreen", agentCtx)).toBe(false);
+            expect(live("agent:back", agentCtx)).toBe(false);
+            // the canvas's own c stays down even when the canvas was left in canvas mode
+            setCanvasMode("a1", "canvas", 4);
+            expect(live("agent:canvas-close", agentCtx)).toBe(false);
+            expect(() => assertNoConflicts(all)).not.toThrow();
+            detachBrainstorm("a1");
+            expect(open.when!(agentCtx) || close.when!(agentCtx)).toBe(false);
+        } finally {
+            detachBrainstorm("a1");
             detachCanvas("a1");
         }
     });
@@ -383,8 +441,14 @@ describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
             detachCanvas("a1");
         }
 
-        // the focus id and the focused agent's canvas atom are watched by watchFocusedCanvas, not listed
-        const registered = new Set<unknown>([...PREDICATE_ATOMS, model.focusIdAtom, canvasStateAtom("a1")]);
+        // the focus id and the focused agent's canvas and brainstorm atoms are watched by watchFocusedCanvas,
+        // not listed
+        const registered = new Set<unknown>([
+            ...PREDICATE_ATOMS,
+            model.focusIdAtom,
+            canvasStateAtom("a1"),
+            brainstormAtom("a1"),
+        ]);
         const missing = [...seen].filter((a) => !registered.has(a));
         const unused = PREDICATE_ATOMS.filter((a) => !seen.has(a));
         expect(missing).toEqual([]); // a when() predicate reads an atom whenstate.ts doesn't watch

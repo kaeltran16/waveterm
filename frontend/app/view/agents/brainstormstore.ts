@@ -115,7 +115,8 @@ export function openBrainstormBoard(agentId: string, board: string | null): void
     updateBrainstorm(agentId, (s) => ({ ...s, board }));
 }
 
+// read through the per-agent atom, the one watchFocusedCanvas (whenstate.ts) subscribes for the key predicates
 export function focusedBrainstorm(model: AgentsViewModel): BrainstormState | null {
     const id = globalStore.get(model.focusIdAtom);
-    return id ? getBrainstorm(id) : null;
+    return id ? globalStore.get(brainstormAtom(id)) : null;
 }

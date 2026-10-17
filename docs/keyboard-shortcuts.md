@@ -155,6 +155,14 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `m` | Mark parts of the board; in mark mode, stop marking |
 | `Ctrl`+`Enter` | Send the marks to the agent (from mark mode) |
 
+### Agent: brainstorm mode
+
+`b` works when the focused agent has a brainstorm; such an agent never shows canvas mode, so `c` does nothing for it. In brainstorm mode, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm.
+
+| Keys | Action |
+|---|---|
+| `b` | Show the agent's brainstorm; from the brainstorm, back to the terminal |
+
 ### Jarvis
 
 | Keys | Action |

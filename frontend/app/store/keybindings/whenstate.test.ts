@@ -8,6 +8,7 @@
 // flipping diffScopeAtom directly when the picker jumps to a different agent).
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { attachBrainstorm, detachBrainstorm, setBrainstormMode } from "@/app/view/agents/brainstormstore";
 import { attachCanvas, detachCanvas, setCanvasMode } from "@/app/view/agents/canvasstore";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
@@ -172,5 +173,44 @@ describe("watchFocusedCanvas", () => {
         setCanvasMode("a2", "canvas", 3);
         globalStore.set(model.focusIdAtom, "a1");
         expect(globalStore.get(whenVersionAtom)).toBe(before);
+    });
+
+    it("bumps on the focused agent's brainstorm changes and follows the focus, and stops when unsubscribed", () => {
+        const model = { focusIdAtom: atom<string | undefined>("a1") as PrimitiveAtom<string | undefined> } as any;
+        attachBrainstorm("a1", { topic: "t1", cwd: "/p" }, 0);
+        attachBrainstorm("a2", { topic: "t2", cwd: "/p" }, 0);
+        const stop = watchFocusedCanvas(model);
+        try {
+            let before = globalStore.get(whenVersionAtom);
+            setBrainstormMode("a1", "brainstorm", 1);
+            expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
+
+            before = globalStore.get(whenVersionAtom);
+            setBrainstormMode("a2", "brainstorm", 1); // not focused: nothing a predicate reads changed
+            expect(globalStore.get(whenVersionAtom)).toBe(before);
+
+            before = globalStore.get(whenVersionAtom);
+            globalStore.set(model.focusIdAtom, "a2");
+            expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
+            before = globalStore.get(whenVersionAtom);
+            setBrainstormMode("a2", "terminal", 2); // now the focused one
+            expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
+            before = globalStore.get(whenVersionAtom);
+            setBrainstormMode("a1", "terminal", 2); // the one focus left
+            expect(globalStore.get(whenVersionAtom)).toBe(before);
+            before = globalStore.get(whenVersionAtom);
+            detachBrainstorm("a2"); // the focused one going away is a change too
+            expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
+        } finally {
+            stop();
+            detachBrainstorm("a1");
+            detachBrainstorm("a2");
+        }
+        attachBrainstorm("a2", { topic: "t2", cwd: "/p" }, 0);
+        const before = globalStore.get(whenVersionAtom);
+        setBrainstormMode("a2", "brainstorm", 3);
+        globalStore.set(model.focusIdAtom, "a1");
+        expect(globalStore.get(whenVersionAtom)).toBe(before);
+        detachBrainstorm("a2");
     });
 });
