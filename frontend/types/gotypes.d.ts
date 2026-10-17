@@ -1827,6 +1827,7 @@ declare global {
         status: string;
         links: string[];
         rationale: string;
+        summary: string;
     };
 
     // wshrpc.DossierDetail

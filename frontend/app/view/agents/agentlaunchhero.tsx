@@ -3,12 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The Agent-tab "No terminal running" state (handoff dc.html tui.notLaunched, lines 569-583): a
-// launch CTA + a list of recent Claude sessions (from recentsessionsstore) you can click to resume.
+// launch CTA + a list of recent sessions (from recentsessionsstore), each marked with its runtime, to resume.
 // Resume + launch both route through launchAgent; resume passes `claude --resume <id>` and no task,
 // so the agent picks up its prior session in its original cwd.
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
+import { formatChordString } from "@/util/keysym";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect } from "react";
@@ -16,6 +17,7 @@ import type { AgentsViewModel } from "./agents";
 import { formatAge, formatTokens } from "./agentsviewmodel";
 import type { Runtime } from "./launch";
 import { loadRecentSessions, recentSessionsAtom } from "./recentsessionsstore";
+import { RuntimeMark } from "./runtimemark";
 
 export function AgentLaunchHero({ model }: { model: AgentsViewModel }) {
     const sessions = useAtomValue(recentSessionsAtom);
@@ -56,14 +58,17 @@ export function AgentLaunchHero({ model }: { model: AgentsViewModel }) {
                 </div>
                 <div className="text-[16px] font-semibold text-primary">No terminal running</div>
                 <p className="mt-2 max-w-[350px] text-[13px] leading-[1.55] text-muted">
-                    Launch a Claude Code agent — the full TUI runs live right here.
+                    Start an agent and its full TUI runs live right here.
                 </p>
                 <button
                     type="button"
                     onClick={launchFresh}
-                    className="mt-[22px] flex cursor-pointer items-center gap-2 rounded-[9px] bg-accent px-[18px] py-[10px] text-[13px] font-semibold text-background hover:opacity-90"
+                    className="mt-[22px] flex cursor-pointer items-center gap-2 rounded-[9px] bg-accent px-[18px] py-[10px] text-[13px] font-semibold text-background hover:bg-accenthover"
                 >
-                    Launch new terminal
+                    New agent
+                    <span className="rounded-sm bg-background/15 px-[6px] py-[2px] font-mono text-[10.5px] font-semibold">
+                        {formatChordString("Ctrl:n")}
+                    </span>
                 </button>
 
                 {sessions != null && sessions.length > 0 ? (
@@ -72,7 +77,7 @@ export function AgentLaunchHero({ model }: { model: AgentsViewModel }) {
                             <span>Recent sessions</span>
                             <span className="opacity-60">{sessions.length}</span>
                             <div className="flex-1" />
-                            <span className="opacity-60">click to resume</span>
+                            <span className="opacity-60">select one to resume</span>
                         </div>
                         {sessions.map((s) => (
                             <button
@@ -81,7 +86,11 @@ export function AgentLaunchHero({ model }: { model: AgentsViewModel }) {
                                 onClick={() => resume(s)}
                                 className="flex w-full cursor-pointer items-center gap-[11px] border-t border-border px-[14px] py-[11px] text-left hover:bg-surface-hover"
                             >
-                                <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-accent" />
+                                <RuntimeMark
+                                    runtime={s.runtime}
+                                    className="w-4 shrink-0 text-center text-[11px] leading-none text-muted"
+                                    imageClassName="h-4 w-4 shrink-0"
+                                />
                                 <div className="min-w-0 flex-1">
                                     <div className="truncate text-[12.5px] font-semibold text-primary">
                                         {s.task || "(untitled session)"}

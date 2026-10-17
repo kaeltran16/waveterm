@@ -14,56 +14,6 @@
     position: relative;
 }
 
-// Empty-cockpit glyph ambience. CSS-driven (not framer): repeat:Infinity keyframe loops don't run
-// when nested under the entrance motion.div's variant tree. step-end gives the caret a hard,
-// terminal-authentic block blink. Each runs ~11s after the empty state appears and then rests: an
-// infinite loop keeps the page producing frames for as long as it is on screen (measured +6-10% of a
-// core in the GPU process per loop, whichever one), and every frame competes with typing.
-@keyframes cockpit-empty-float {
-    0%,
-    100% {
-        transform: translateY(0);
-    }
-    50% {
-        transform: translateY(-6px);
-    }
-}
-@keyframes cockpit-empty-glow {
-    0%,
-    100% {
-        opacity: 0.55;
-    }
-    50% {
-        opacity: 1;
-    }
-}
-@keyframes cockpit-empty-caret {
-    0%,
-    100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0;
-    }
-}
-.cockpit-empty-glyph {
-    animation: cockpit-empty-float 5.5s ease-in-out 2;
-}
-// forwards holds the keyframes' resting 0.55, which differs from the element's own opacity
-.cockpit-empty-glow {
-    animation: cockpit-empty-glow 3.6s ease-in-out 3 forwards;
-}
-.cockpit-empty-caret {
-    animation: cockpit-empty-caret 1.1s step-end 10;
-}
-@media (prefers-reduced-motion: reduce) {
-    .cockpit-empty-glyph,
-    .cockpit-empty-glow,
-    .cockpit-empty-caret {
-        animation: none;
-    }
-}
-
 // xterm ships `.xterm .xterm-viewport { background-color: #000 }` in its own stylesheet. The terminal
 // now paints an opaque themed background (deriveTermTheme), but during a resize the viewport can be
 // visible for a frame before xterm repaints — which read as a black seam inside a themed cockpit.

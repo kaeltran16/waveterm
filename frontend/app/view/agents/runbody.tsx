@@ -136,7 +136,17 @@ export function CompactStepper({ run, expanded, onToggle }: { run: Run; expanded
 }
 
 // The run header (status + goal) shared by the pipeline rail body and the orchestrator body.
-export function RunHeader({ run, agents, channel }: { run: Run; agents: AgentVM[]; channel: Channel }) {
+export function RunHeader({
+    model,
+    run,
+    agents,
+    channel,
+}: {
+    model: AgentsViewModel;
+    run: Run;
+    agents: AgentVM[];
+    channel: Channel;
+}) {
     const [goalExpanded, setGoalExpanded] = useState(false);
     const runtimeHarnesses = useAtomValue(harnessesAtom);
     const runtimeView = runRuntimeView(run, runtimeHarnesses);
@@ -157,7 +167,7 @@ export function RunHeader({ run, agents, channel }: { run: Run; agents: AgentVM[
                         <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
                         {runtimeView.label}
                     </span>
-                    <AmbientTags oref={`run:${run.id}`} />
+                    <AmbientTags model={model} oref={`run:${run.id}`} />
                 </div>
                 {/* the collapsed goal is a two-line heading and takes the width; expanded it becomes real
                     prose (markdown, paragraphs) and caps at a reading measure */}
@@ -320,7 +330,7 @@ export function OrchestratorBody({
         // theirs, or its measure centres 5px right of every other band on the Stage.
         <div className={cn(STAGE_BAND_INSET, "sc flex min-h-0 flex-1 flex-col overflow-y-auto")}>
             <div className={cn(STAGE_GUTTER, "flex min-h-0 flex-1 flex-col pb-3 pt-5")}>
-                <RunHeader run={run} agents={agents} channel={channel} />
+                <RunHeader model={model} run={run} agents={agents} channel={channel} />
                 {/* below the header, not in its row: a flex sibling of the title squeezed it into a column */}
                 {run.dagoref ? <ChildAskCard channelId={channel.oid} runId={run.id} /> : null}
                 <RunTimeline channel={channel} run={run} />
@@ -587,7 +597,7 @@ export function RunBody({
         <div className="relative flex min-h-0 flex-1 flex-col">
             <div ref={stick.scrollRef} onScroll={stick.onScroll} className={cn(STAGE_SCROLLER, "sc min-h-0 flex-1")}>
                 <div className={cn(STAGE_GUTTER, "pb-3 pt-5")}>
-                    <RunHeader run={run} agents={agents} channel={channel} />
+                    <RunHeader model={model} run={run} agents={agents} channel={channel} />
                     <RunTimeline channel={channel} run={run} />
                     <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
                     {run.status === "executing" && primaryWorker ? <RunRollup agent={primaryWorker} now={now} /> : null}
