@@ -30,6 +30,29 @@ export function lastKeyActivityTs(): number {
     return lastKeyTs;
 }
 
+// A control reached with Tab owns Enter and Space, as it does anywhere on the web: without this the Brief's
+// list:activate took Enter from a tabbed-to button and opened the cursor row instead. One focused by a click
+// does not, or the chip just pressed with the mouse would take the Enter meant for the list cursor.
+let tabbing = false;
+let tabbedTo: Element | null = null;
+
+function isPressable(el: Element): boolean {
+    const tag = el.tagName;
+    return (
+        (tag === "BUTTON" && !(el as HTMLButtonElement).disabled) ||
+        (tag === "A" && el.hasAttribute("href")) ||
+        tag === "SUMMARY"
+    );
+}
+
+// Exported for its unit test.
+export function controlOwnsKey(e: WaveKeyboardEvent, active: Element | null, tabbed: Element | null): boolean {
+    if (active == null || active !== tabbed || e.shift || e.control || e.alt || e.meta) {
+        return false;
+    }
+    return (e.key === "Enter" || e.key === " ") && isPressable(active);
+}
+
 function setLeader(next: string | null): void {
     leader = next;
     globalStore.set(activeLeaderAtom, next);
@@ -147,16 +170,33 @@ export function initKeybindingDispatcher(model: AgentsViewModel): () => void {
     boundModel = model;
     const onKeyDown = (e: KeyboardEvent) => {
         lastKeyTs = Date.now();
+        tabbing = e.key === "Tab";
         const waveEvent = keyutil.adaptFromReactOrNativeKeyEvent(e);
+        if (controlOwnsKey(waveEvent, document.activeElement, tabbedTo)) {
+            return;
+        }
         const handled = handleWaveEvent(waveEvent);
         if (handled) {
             e.preventDefault();
             e.stopImmediatePropagation();
         }
     };
+    const onFocusIn = (e: FocusEvent) => {
+        tabbedTo = tabbing ? (e.target as Element) : null;
+        tabbing = false;
+    };
+    // a click on the control Tab already focused moves no focus, so it clears the mark itself
+    const onPointerDown = () => {
+        tabbing = false;
+        tabbedTo = null;
+    };
     window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("focusin", onFocusIn, true);
+    window.addEventListener("pointerdown", onPointerDown, true);
     return () => {
         window.removeEventListener("keydown", onKeyDown, true);
+        window.removeEventListener("focusin", onFocusIn, true);
+        window.removeEventListener("pointerdown", onPointerDown, true);
         boundModel = null;
     };
 }
