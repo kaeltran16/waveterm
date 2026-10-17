@@ -172,7 +172,7 @@ function SendToAgent({ model, rel, projectName }: { model: AgentsViewModel; rel:
             <PopoverReveal
                 open={open}
                 origin="top right"
-                className="absolute right-0 top-[calc(100%+6px)] z-20 w-[280px] overflow-hidden rounded-[10px] border border-border bg-surface p-2 shadow-lg"
+                className="absolute right-0 top-[calc(100%+6px)] z-20 w-[280px] overflow-hidden rounded-[10px] border border-border bg-surface p-2 shadow-popover-md"
             >
                 <p className="px-1 pb-1 font-mono text-[10.5px] text-muted">{compose()}</p>
                 <input
@@ -203,7 +203,7 @@ function SendToAgent({ model, rel, projectName }: { model: AgentsViewModel; rel:
                             className="flex w-full cursor-pointer items-center justify-between rounded-[6px] px-2 py-1 text-left text-[11.5px] text-secondary hover:bg-accent/10 hover:text-primary"
                         >
                             <span className="min-w-0 truncate">{t.name}</span>
-                            <span className="flex-none pl-2 font-mono text-[10px] text-muted">{t.state}</span>
+                            <span className="flex-none pl-2 font-mono text-[10.5px] text-muted">{t.state}</span>
                         </button>
                     ))
                 )}

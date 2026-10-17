@@ -187,7 +187,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                             <PopoverReveal
                                 open={pickerOpen}
                                 origin="top right"
-                                className="absolute right-0 top-[calc(100%+6px)] z-20 max-h-[70vh] min-w-[240px] overflow-y-auto rounded-[10px] border border-border bg-surface shadow-lg"
+                                className="absolute right-0 top-[calc(100%+6px)] z-20 max-h-[70vh] min-w-[240px] overflow-y-auto rounded-[10px] border border-border bg-surface shadow-popover-md"
                             >
                                 <PickerHeading first>Projects</PickerHeading>
                                 {projects.length === 0 ? (

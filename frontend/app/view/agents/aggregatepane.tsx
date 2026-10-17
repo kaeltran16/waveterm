@@ -67,7 +67,7 @@ export function AggregatePane({
                             )}
                         >
                             {f === "mergebase" ? "Since the split" : "Tip to tip"}
-                            <span className="font-mono text-[10px] font-normal text-ink-faint">
+                            <span className="font-mono text-[10.5px] font-normal text-ink-faint">
                                 {f === "mergebase" ? "···" : "··"}
                             </span>
                         </button>

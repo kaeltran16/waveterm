@@ -348,7 +348,7 @@ export function DailyChart({
                                 <TooltipInPortal
                                     left={tooltipLeft}
                                     top={tooltipTop}
-                                    className="!rounded-[7px] !border !border-border !bg-surface-raised !px-[10px] !py-[7px] !shadow-lg"
+                                    className="!rounded-[7px] !border !border-border !bg-surface-raised !px-[10px] !py-[7px] !shadow-popover-sm"
                                 >
                                     <div className="mb-[5px] font-mono text-[10.5px] font-semibold text-primary">
                                         {tooltipData.day}
@@ -416,7 +416,7 @@ function Legend({ groups, fmtValue }: { groups: LegendGroup[]; fmtValue: (v: num
                         {g.showHead ? (
                             <div
                                 data-usage-legend-group={g.harness}
-                                className="flex items-baseline pb-1 pt-2 font-mono text-[10px] text-ink-mid"
+                                className="flex items-baseline pb-1 pt-2 font-mono text-[10.5px] text-ink-mid"
                             >
                                 <span className="flex-1 font-bold uppercase tracking-[0.08em]">{g.label}</span>
                                 <span>

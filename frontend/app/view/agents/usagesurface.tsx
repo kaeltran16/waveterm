@@ -241,7 +241,7 @@ function ScopeCard({
                 <span className={cn("h-2 w-2 flex-none rounded-full", dot)} />
                 <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">{name}</span>
                 <span
-                    className="flex-none rounded-[4px] px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.06em]"
+                    className="flex-none rounded-[4px] px-1.5 py-0.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.06em]"
                     style={{ color: pillColor, backgroundColor: PILL_TINT }}
                 >
                     {pill}

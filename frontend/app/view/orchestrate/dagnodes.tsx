@@ -133,7 +133,7 @@ export function DagCardNode({ data }: NodeProps) {
                     {task.id} · <span className={look.word}>{word}</span> · {fact}
                 </span>
                 {view.tag ? (
-                    <span className="flex-none rounded-[5px] border border-edge-mid bg-surface-raised px-[5px] text-[10px] text-accent-soft">
+                    <span className="flex-none rounded-[5px] border border-edge-mid bg-surface-raised px-[5px] text-[10.5px] text-accent-soft">
                         {view.tag}
                     </span>
                 ) : null}

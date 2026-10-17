@@ -253,7 +253,7 @@ export function DiffPane({
                         {layout.labelled ? (
                             <>
                                 {reviewed ? "Reviewed" : "Mark reviewed"}
-                                <kbd className="font-mono text-[10px] text-ink-faint">v</kbd>
+                                <kbd className="font-mono text-[10.5px] text-ink-faint">v</kbd>
                             </>
                         ) : null}
                     </button>
