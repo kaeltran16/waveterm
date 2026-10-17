@@ -98,6 +98,7 @@ const surfaceSmoke = {
         );
         // last: these swap the live roster for a fixture one, which the steps above must not see
         steps.push(...(await cacheMissNoticeSteps(h, ctx)));
+        steps.push(await floorStep(h, `no visible text in the nav rail is under ${MIN_FONT_PX}px`, `document.querySelector("nav")`));
         return steps;
     },
     async teardown(h, ctx) {
@@ -548,6 +549,29 @@ const briefSurface = {
 
         await h.shot("cdp-shots/brief-surface.png");
         await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="true"]')?.click()`);
+        steps.push(await floorStep(h, `10. no visible text on the Brief is under ${MIN_FONT_PX}px`, `document.querySelector('[data-jarvis-region="brief"]')`));
+
+        // the first load's frame, through a briefing fixture made for it on the app's own fixture table
+        await lookEval(h, `
+            const { BRIEFING_FIXTURES } = await mod("app/view/jarvis/briefingfixtures.ts");
+            const { briefingFixtureAtom } = await mod("app/view/jarvis/briefingstore.ts");
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            BRIEFING_FIXTURES.uiDriftLoading = { load: { snapshot: null, loading: true, error: null }, agents: [], attention: [] };
+            window.__uiDriftPriorFixture = globalStore.get(briefingFixtureAtom);
+            globalStore.set(briefingFixtureAtom, "uiDriftLoading");
+        `);
+        const first = await lookPlaceholders(h, `document.querySelector('[data-jarvis-brief-state="loading"]')`);
+        await h.shot(lookShot("brief-surface-loading"));
+        await lookEval(h, `
+            const { BRIEFING_FIXTURES } = await mod("app/view/jarvis/briefingfixtures.ts");
+            const { briefingFixtureAtom } = await mod("app/view/jarvis/briefingstore.ts");
+            (await mod("app/store/jotaiStore.ts")).globalStore.set(briefingFixtureAtom, window.__uiDriftPriorFixture ?? null);
+            delete BRIEFING_FIXTURES.uiDriftLoading;
+        `);
+        steps.push({
+            ...placeholderStep("11. the Brief's first load holds one 48px-floor block under each region's label", first, { minHeight: 48, radius: "10px" }),
+            ok: first.length === 4 && first.every((_, i) => placeholderStep("", first, { minHeight: 48, radius: "10px" }, i).ok),
+        });
         return steps;
     },
     async teardown(h) {
@@ -1647,8 +1671,10 @@ const peekItemViews = {
                 } : null;
             })()`);
             await h.shot(shot);
+            floors[shot] = await paintEval(h, `return floorWalk([document.querySelector("[data-pet-peek-item]")]);`);
             return { result, ready, view };
         };
+        const floors = {};
 
         const agent = await peek(
             `agent:${TREE_RAIL_LEAD_ID}`,
@@ -1741,6 +1767,12 @@ const peekItemViews = {
         await h.shot("cdp-shots/peek-item-gone.png");
         rec("9. a deleted target's peek says it no longer exists", gone === true, String(gone));
         await closePopup();
+        const short = Object.entries(floors).filter(([, s]) => !floorOk(s));
+        rec(
+            `10. no visible text in any item peek is under ${MIN_FONT_PX}px`,
+            Object.keys(floors).length === 6 && short.length === 0,
+            JSON.stringify(Object.fromEntries(Object.entries(floors).map(([k, s]) => [k, floorDetail(s)])))
+        );
         return steps;
     },
     async teardown(h, ctx) {
@@ -2130,6 +2162,17 @@ const usageCharts = {
         );
         rec("5. no native title tooltips on the chart", titles === 0, String(titles));
 
+        const tipShadow = await paintEval(h, `
+            const bar = document.querySelector("[data-usage-daily] svg")?.querySelector("path[fill]");
+            for (const type of ["pointerover", "mouseover", "mouseenter"]) bar?.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+            for (let i = 0; i < 20 && document.querySelector("[data-usage-tip-total]") == null; i++) await new Promise((r) => setTimeout(r, 100));
+            const tip = document.querySelector("[data-usage-tip-total]")?.closest('[class*="shadow-popover"]') ?? null;
+            const out = shadowVs(tip, "shadow-popover-sm");
+            bar?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body }));
+            return out;
+        `);
+        rec("5b. the daily chart's tooltip casts shadow-popover-sm over no raw overlay", tipShadow.ok === true, JSON.stringify(tipShadow));
+
         // All usage, By provider, 7 days, loaded. The Spend metric is shot and checked between the Daily and
         // the split shots, so the parts below the fold go one by one here rather than through usageShots.
         await h.shot("cdp-shots/usage-main.png");
@@ -2463,6 +2506,7 @@ const usageCharts = {
                 lens.lists === 0,
             JSON.stringify(lens)
         );
+        steps.push(await floorStep(h, `18. no visible text on the Usage surface is under ${MIN_FONT_PX}px`, SURFACE_ROOT));
 
         return steps;
     },
@@ -4166,6 +4210,7 @@ const gitHistory = {
                 scrollAfterRange === scrollBeforeRange,
             `working="${summaryWorking}" compare="${summaryCompare}" back="${summaryBack}" scroll=${scrollBeforeRange} -> ${scrollAfterRange}`
         );
+        const historyFloor = await floorStep(h, `11. no visible text on the Diff surface's history is under ${MIN_FONT_PX}px`, SURFACE_ROOT);
 
         await pick(ctx.names.notRepo);
         const calm = await present("[data-not-a-repo]");
@@ -4186,6 +4231,7 @@ const gitHistory = {
             `failure=${failed} evidence="${evidence.slice(0, 120)}"`
         );
         await h.shot("cdp-shots/git-history-failed.png");
+        steps.push(historyFloor);
 
         return steps;
     },
@@ -4370,6 +4416,7 @@ func Submit(id string) error {
             `clicked=${opened} monaco=${editor} paneWidth=${paneWidth}`
         );
         await h.shot("cdp-shots/diff-compare.png");
+        steps.push(await floorStep(h, `6. no visible text on the Diff surface is under ${MIN_FONT_PX}px`, SURFACE_ROOT));
 
         return steps;
     },
@@ -5570,6 +5617,7 @@ const jarvisPeek = {
             };
         })()`);
         await h.shot("cdp-shots/jarvis-peek-busy.png");
+        const busyFloor = await paintEval(h, `return floorWalk([document.querySelector("[data-pet-peek]")]);`);
         await press("ArrowDown", "ArrowDown", 40);
         const movedCursor = await h.ev(`document.querySelector('[data-pet-cursor="true"]')?.closest('[data-pet-row]')?.getAttribute('data-pet-row') ?? null`);
         await press("/", "Slash", 191);
@@ -5632,6 +5680,7 @@ const jarvisPeek = {
         );
         const stayed = (await h.activeSurfaceLabel()) === SURFACE_LABEL.cockpit;
         rec("8. dismissing the global peek stays on the current surface", stayed, String(stayed));
+        rec(`9. no visible text in the busy peek is under ${MIN_FONT_PX}px`, floorOk(busyFloor), floorDetail(busyFloor));
         return steps;
     },
     async teardown(h, ctx) {
@@ -5703,6 +5752,7 @@ const jarvisVolunteer = {
         await h.ev("new Promise((r) => setTimeout(r, 400))");
         steps.push({ step: "knowledge utterance pushed to the creature", ok: pushed === true, detail: String(pushed) });
         await h.shot("cdp-shots/jarvis-volunteer-bubble.png");
+        const bubbleFloor = await paintEval(h, `return floorWalk([document.querySelector("[data-pet-bubble]")]);`);
 
         // the bubble carries the register's label, which is the compiler-enforced half of the vocabulary.
         // Lowercased before matching: the label is styled `uppercase`, and innerText returns the RENDERED
@@ -5735,6 +5785,7 @@ const jarvisVolunteer = {
             detail: `clicked=${opened} open=${peekOpen}`,
         });
         await h.shot("cdp-shots/jarvis-volunteer-peek.png");
+        const peekFloor = await paintEval(h, `return floorWalk([document.querySelector("[data-pet-peek]")]);`);
 
         // with no attention queue, the adaptive card shows the latest update directly. It keeps its Open act:
         // compacting the card must not turn the volunteered fact into a dead readout.
@@ -5770,6 +5821,8 @@ const jarvisVolunteer = {
         // surface it just navigated away from, is stranded
         const peekClosed = await h.ev(`document.querySelector('[data-pet-peek]') == null`);
         steps.push({ step: "peek closed on navigation", ok: peekClosed === true, detail: String(peekClosed) });
+        steps.push({ step: `no visible text in the bubble is under ${MIN_FONT_PX}px`, ok: floorOk(bubbleFloor), detail: floorDetail(bubbleFloor) });
+        steps.push({ step: `no visible text in the peek is under ${MIN_FONT_PX}px`, ok: floorOk(peekFloor), detail: floorDetail(peekFloor) });
 
         return steps;
     },
@@ -6132,6 +6185,7 @@ const codeSidebar = {
             detail: JSON.stringify(restored),
         });
         await h.shot("cdp-shots/code-sidebar.png");
+        steps.push(await floorStep(h, `no visible text on the Code surface is under ${MIN_FONT_PX}px`, SURFACE_ROOT));
         return steps;
     },
     async teardown(h, ctx) {
@@ -6333,6 +6387,22 @@ const codePlainDir = {
         rec("the Diff toggle is disabled", diff === true, `disabled=${diff}`);
         await h.shot("cdp-shots/code-plain-dir.png");
 
+        // the path bar's send popover and the project picker sit on the popover shadow scale
+        const SEND = `[...document.querySelectorAll("button")].find((b) => /^(Copy reference|Send to agent)$/.test((b.textContent || "").trim()))`;
+        const PICKER = `document.querySelector("[data-code-project-picker]")`;
+        for (const [label, shot, trigger] of [
+            ["path bar's send popover", "send", SEND],
+            ["project picker", "picker", PICKER],
+        ]) {
+            await h.ev(`${trigger}?.click()`);
+            await sleep(400);
+            const s = await paintEval(h, `return shadowVs((${trigger})?.parentElement.querySelector('[class*="shadow-popover"]') ?? null, "shadow-popover-md");`);
+            await h.shot(lookShot(`code-plain-dir-${shot}`));
+            await h.ev(`${trigger}?.click()`);
+            await sleep(300);
+            rec(`the ${label} casts shadow-popover-md over no raw overlay`, s.ok === true, JSON.stringify(s));
+        }
+
         await h.ev(`document.querySelector('[data-code-column-tab="search"]')?.click()`);
         await sleep(300);
         await h.ev(`(() => {
@@ -6353,6 +6423,38 @@ const codePlainDir = {
             `hits=${JSON.stringify(hits)}`
         );
         await h.shot("cdp-shots/code-plain-dir-search.png");
+
+        const PANE = `document.querySelector("[data-code-search-input]")?.parentElement?.parentElement`;
+        const flag = await tabOnto(h, `${PANE}?.querySelector("[data-code-search-flag]")`);
+        await h.shot(lookShot("code-plain-dir-search-focus"));
+        const unlabelled = await h.ev(unlabelledButtons(PANE));
+        rec(
+            "Tab onto a search pane button shows the focus ring, and every icon-only button there is labelled",
+            flag.focused && flag.ring && unlabelled === 0,
+            JSON.stringify({ ...flag, unlabelled })
+        );
+        steps.push(await floorStep(h, `no visible text on the Code surface is under ${MIN_FONT_PX}px`, SURFACE_ROOT));
+
+        // a file gone from disk: the viewer's Refresh index lives in surfacescaffold.tsx, which no task changes,
+        // so whether it rings is recorded, not required
+        rmSync(join(ctx.dir, "sub", "inner.txt"));
+        await h.ev(`document.querySelector('[data-code-column-tab="files"]')?.click()`);
+        await sleep(300);
+        await h.ev(`(() => {
+            const sub = [...document.querySelectorAll('[data-code-tree] [role="treeitem"]')].find((r) => r.textContent.trim() === "sub");
+            if (sub?.getAttribute("aria-expanded") === "false") sub.click();
+        })()`);
+        await sleep(400);
+        await h.ev(`[...document.querySelectorAll('[data-code-tree] [role="treeitem"]')].find((r) => r.textContent.includes("inner.txt"))?.click()`);
+        const REFRESH = `[...document.querySelectorAll("button")].find((b) => (b.textContent || "").trim() === "Refresh index")`;
+        const shown = await poll(`!!${REFRESH}`, 10);
+        const refresh = shown ? await tabOnto(h, REFRESH) : null;
+        if (shown) await h.shot(lookShot("code-plain-dir-missing-focus"));
+        rec(
+            "finding: the viewer's Refresh index (surfacescaffold.tsx) under Tab - recorded, not required",
+            true,
+            JSON.stringify(shown ? { ...refresh, ring: refresh.ring ? "rings" : "no ring" } : { shown: false })
+        );
         return steps;
     },
     async teardown(h, ctx) {
@@ -6467,6 +6569,16 @@ func Budget() int {
             detail: `toggled=${toDiff} mounted=${mounted}`,
         });
         await h.shot("cdp-shots/code-diff.png");
+        steps.push(await floorStep(h, `no visible text on the Code surface's diff is under ${MIN_FONT_PX}px`, SURFACE_ROOT));
+        // codediffview draws no button of its own; the mode toggle above it lives in codepathbar.tsx, outside the
+        // focus pass, so whether it rings is recorded, not required
+        const toggle = await tabOnto(h, `document.querySelector('[data-code-view-mode="diff"]')`);
+        await h.shot(lookShot("code-diff-toolbar-focus"));
+        steps.push({
+            step: "finding: the diff view's mode toggle (codepathbar.tsx) under Tab - recorded, not required",
+            ok: true,
+            detail: JSON.stringify({ ...toggle, ring: toggle.ring ? "rings" : "no ring" }),
+        });
 
         // `d` is gated on !editable, so focus has to leave Monaco first
         await h.ev(`(() => {
@@ -8119,6 +8231,17 @@ const briefProfile = {
                 globalLight.face !== "",
             JSON.stringify({ project: projectLight, global: globalLight })
         );
+        steps.push(await floorStep(h, `5. no visible text in the profile modal is under ${MIN_FONT_PX}px`, PROFILE_MODAL));
+
+        // the modal's loading frame: reopened with the profile read held
+        await closeProfile(h);
+        await holdRpc(h, "GetJarvisProfileCommand");
+        await openProfileOn(h, BRIEF_PROFILE_PROJECT);
+        const loading = await lookPlaceholders(h, PROFILE_MODAL);
+        await h.shot(lookShot("brief-profile-loading"));
+        await releaseRpc(h, "GetJarvisProfileCommand");
+        await closeProfile(h);
+        steps.push(placeholderStep("6. while the profile reads, the modal holds its 96px block", loading, { height: 96, radius: "8px" }));
         return steps;
     },
     async teardown(h, ctx) {
@@ -8181,6 +8304,12 @@ const briefInlineTracker = {
             detail: JSON.stringify({ before, after }),
         });
         await h.shot("cdp-shots/brief-inline-tracker-expanded.png");
+        const expandedFloor = await floorStep(
+            h,
+            `1b. no visible text in the expanded initiative is under ${MIN_FONT_PX}px`,
+            `document.querySelector('[data-jarvis-initiative-detail]')`
+        );
+        let menuShadow = null;
 
         // 2. only the stage holding the next chunk starts open
         const stages = await h.ev(`[...document.querySelectorAll('[data-jarvis-tracker-stage]')].map((b) => b.getAttribute('aria-expanded'))`);
@@ -8266,6 +8395,7 @@ const briefInlineTracker = {
                 return m ? [...m.querySelectorAll('button')].map((b) => b.querySelector('.flex-1')?.textContent.trim() ?? "") : null;
             })()`);
             await h.shot("cdp-shots/brief-inline-tracker-menu.png");
+            menuShadow = await paintEval(h, `return shadowVs(document.querySelector("[data-jarvis-tracker-menu]"), "shadow-popover-md");`);
             // real keys again: the menu's Escape rung is a window-capture binding, and it must close the
             // menu without also backing out of the surface
             for (const type of ["keyDown", "keyUp"]) {
@@ -8346,6 +8476,13 @@ const briefInlineTracker = {
             ok: collapsed.detail === false && collapsed.chunks === 0,
             detail: JSON.stringify(collapsed),
         });
+        steps.push(expandedFloor);
+        const menuStep = "10. the open tracker menu casts shadow-popover-md over no raw overlay";
+        steps.push(
+            menuShadow != null
+                ? { step: menuStep, ok: menuShadow.ok === true, detail: JSON.stringify(menuShadow) }
+                : skipStep(menuStep, "no initiative with chunks in this dev store - ui-drift renders the menu through the module")
+        );
 
         return steps;
     },
@@ -9105,6 +9242,77 @@ const RAIL_VISIBLE_KEY = "agent.rail.visible";
 // the text glyphs the polish replaced with lucide icons
 const TREE_RAIL_GLYPHS = ["↳", "◆", "▸", "▾", "›_", "↗", "‹"];
 const MIN_FONT_PX = 10.5;
+
+// Page functions for the design-rule checks (2026-10-17 drift plan), spliced into an evaluated body:
+// floorWalk counts each visible text node under the roots and lists those set under MIN_FONT_PX, or is null when a
+// root is missing; rawOverlay says a colour is a translucent white or black, the overlay the theme tokens replaced,
+// read off a canvas so any computed syntax (rgba, oklab, color-mix) compares; shadowVs sets an element's computed
+// box-shadow beside that of a probe given the token's class, both without the zero-sized layers tailwind stacks under
+// it. The probe takes the class rather than var(--token): tailwind emits a theme variable only into the utilities
+// that use it. A class used only under a container variant goes on a probe inside a container of the given width.
+const PAINT_LIB = `
+    const floorWalk = (roots) => {
+        if (roots.some((r) => r == null)) return null;
+        const offenders = [];
+        let seen = 0;
+        for (const root of roots) {
+            const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+            for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+                const text = n.data.trim();
+                if (!text) continue;
+                const range = document.createRange();
+                range.selectNodeContents(n);
+                const r = range.getBoundingClientRect();
+                if (r.width === 0 || r.height === 0) continue;
+                const cs = getComputedStyle(n.parentElement);
+                if (cs.visibility === "hidden" || Number(cs.opacity) === 0) continue;
+                seen++;
+                if (parseFloat(cs.fontSize) < ${MIN_FONT_PX}) offenders.push(text.slice(0, 40) + " @" + cs.fontSize);
+            }
+        }
+        return { seen, offenders };
+    };
+    const rgbaOf = (color) => {
+        const c = document.createElement("canvas");
+        c.width = c.height = 1;
+        const x = c.getContext("2d");
+        x.fillStyle = color;
+        x.fillRect(0, 0, 1, 1);
+        return [...x.getImageData(0, 0, 1, 1).data];
+    };
+    const rawOverlay = (color) => {
+        const [r, g, b, a] = rgbaOf(color);
+        return a > 0 && a < 255 && ((r >= 250 && g >= 250 && b >= 250) || (r <= 5 && g <= 5 && b <= 5));
+    };
+    const shadowLayers = (s) =>
+        s === "none" ? "" : s.split(/,(?![^(]*\\))/).map((t) => t.trim()).filter((t) => !/0px 0px 0px 0px$/.test(t)).join(", ");
+    const shadowVs = (el, cls, containerPx) => {
+        const wrap = document.createElement("div");
+        if (containerPx != null) wrap.style.cssText = "container-type:inline-size;width:" + containerPx + "px";
+        const probe = document.createElement("div");
+        probe.className = cls;
+        wrap.append(probe);
+        document.body.append(wrap);
+        const want = shadowLayers(getComputedStyle(probe).boxShadow);
+        wrap.remove();
+        if (el == null) return { found: false, want };
+        const cs = getComputedStyle(el);
+        const got = shadowLayers(cs.boxShadow);
+        return { found: true, got, want, bg: cs.backgroundColor, raw: rawOverlay(cs.backgroundColor), ok: want !== "" && got === want && !rawOverlay(cs.backgroundColor) };
+    };
+`;
+const paintEval = (h, body) => h.ev(`(async () => { ${PAINT_LIB} ${body} })()`);
+// the active surface: the region beside the nav rail
+const SURFACE_ROOT = `document.querySelector("nav")?.nextElementSibling`;
+const floorOk = (s) => s != null && s.seen > 0 && s.offenders.length === 0;
+const floorDetail = (s) => (s == null ? "a root is missing" : `checked ${s.seen} text nodes; offenders=${JSON.stringify(s.offenders)}`);
+
+// the floor check on the view under each root expression, as a step
+async function floorStep(h, step, ...roots) {
+    const s = await paintEval(h, `return floorWalk([${roots.join(", ")}]);`);
+    return { step, ok: floorOk(s), detail: floorDetail(s) };
+}
+
 const TREE_RAIL_LEAD_ID = "fx-lead";
 
 function treeRailRoster(runId, now, leadName = TREE_RAIL_LEAD, leadExtra = {}) {
@@ -9421,34 +9629,7 @@ const agentTreeRail = {
             JSON.stringify(labels)
         );
 
-        const small = await h.ev(`(() => {
-            const min = ${MIN_FONT_PX};
-            const offenders = [];
-            let seen = 0;
-            for (const root of [${TREE}, ${RAIL}]) {
-                if (!root) continue;
-                const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-                for (let n = walk.nextNode(); n; n = walk.nextNode()) {
-                    const text = n.data.trim();
-                    if (!text) continue;
-                    const range = document.createRange();
-                    range.selectNodeContents(n);
-                    const r = range.getBoundingClientRect();
-                    if (r.width === 0 || r.height === 0) continue;
-                    const cs = getComputedStyle(n.parentElement);
-                    if (cs.visibility === "hidden" || Number(cs.opacity) === 0) continue;
-                    seen++;
-                    const px = parseFloat(cs.fontSize);
-                    if (px < min) offenders.push(text.slice(0, 40) + " @" + cs.fontSize);
-                }
-            }
-            return { seen, offenders };
-        })()`);
-        rec(
-            "5. no visible text in the tree or the rail is under 10.5px",
-            small.seen > 0 && small.offenders.length === 0,
-            `checked ${small.seen} text nodes; offenders=${JSON.stringify(small.offenders)}`
-        );
+        steps.push(await floorStep(h, "5. no visible text in the tree or the rail is under 10.5px", TREE, RAIL));
 
         const collapse = await h.ev(`(() => {
             const b = ${RAIL}?.querySelector('[aria-label="Collapse panel"]');
@@ -10611,38 +10792,17 @@ const cockpitPolish = {
             ctx.arrangeError ?? `runId=${ctx.runId}`
         );
 
-        const small = await h.ev(`(() => {
-            const root = ${COCKPIT};
-            if (!root) return null;
-            const min = ${MIN_FONT_PX};
-            const offenders = [];
-            let seen = 0;
-            const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-            for (let n = walk.nextNode(); n; n = walk.nextNode()) {
-                const text = n.data.trim();
-                if (!text) continue;
-                const range = document.createRange();
-                range.selectNodeContents(n);
-                const r = range.getBoundingClientRect();
-                if (r.width === 0 || r.height === 0) continue;
-                const cs = getComputedStyle(n.parentElement);
-                if (cs.visibility === "hidden" || Number(cs.opacity) === 0) continue;
-                seen++;
-                const px = parseFloat(cs.fontSize);
-                if (px < min) offenders.push(text.slice(0, 40) + " @" + cs.fontSize);
-            }
-            return { seen, offenders };
-        })()`);
-        rec(
-            "1. no visible text on the Cockpit is under 10.5px",
-            small != null && small.seen > 0 && small.offenders.length === 0,
-            small == null
-                ? "no [data-cockpit-surface]"
-                : `checked ${small.seen} text nodes; offenders=${JSON.stringify(small.offenders)}`
-        );
+        steps.push(await floorStep(h, "1. no visible text on the Cockpit is under 10.5px", COCKPIT));
 
         const mark = await h.ev(LEAD_MARK_EXPR);
         rec("2. the lead card's header leads with an svg (the Workflow icon)", mark === "svg", `mark=${mark}`);
+
+        const chips = await paintEval(h, `
+            const bar = document.querySelector("[data-cockpit-hints]");
+            const keys = [...(bar?.querySelectorAll("span.font-mono") ?? [])];
+            return { bar: bar != null, keys: keys.length, raw: keys.filter((k) => rawOverlay(getComputedStyle(k).backgroundColor)).map((k) => k.textContent) };
+        `);
+        rec("3. the HintsBar's key chips have no raw white or black overlay background", chips.bar && chips.keys > 0 && chips.raw.length === 0, JSON.stringify(chips));
         return steps;
     },
     async teardown(h, ctx) {
@@ -10927,39 +11087,13 @@ const runSheetPolish = {
             ctx.arrangeError ?? JSON.stringify({ runId: ctx.runId, opened: ctx.opened })
         );
 
-        const small = await h.ev(`(() => {
-            const roots = [
-                document.querySelector("[data-run-sheet]"),
-                document.querySelector("[data-jarvis-brief-sheet] > header"),
-            ];
-            if (roots.some((r) => r == null)) return null;
-            const min = ${MIN_FONT_PX};
-            const offenders = [];
-            let seen = 0;
-            for (const root of roots) {
-                const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-                for (let n = walk.nextNode(); n; n = walk.nextNode()) {
-                    const text = n.data.trim();
-                    if (!text) continue;
-                    const range = document.createRange();
-                    range.selectNodeContents(n);
-                    const r = range.getBoundingClientRect();
-                    if (r.width === 0 || r.height === 0) continue;
-                    const cs = getComputedStyle(n.parentElement);
-                    if (cs.visibility === "hidden" || Number(cs.opacity) === 0) continue;
-                    seen++;
-                    const px = parseFloat(cs.fontSize);
-                    if (px < min) offenders.push(text.slice(0, 40) + " @" + cs.fontSize);
-                }
-            }
-            return { seen, offenders };
-        })()`);
-        rec(
-            "1. no visible text on the run sheet or its header is under 10.5px",
-            small != null && small.seen > 0 && small.offenders.length === 0,
-            small == null
-                ? "no [data-run-sheet] or [data-jarvis-brief-sheet] > header"
-                : `checked ${small.seen} text nodes; offenders=${JSON.stringify(small.offenders)}`
+        steps.push(
+            await floorStep(
+                h,
+                "1. no visible text on the run sheet or its header is under 10.5px",
+                RUN_SHEET,
+                `document.querySelector("[data-jarvis-brief-sheet] > header")`
+            )
         );
 
         const bar = await h.ev(`document.querySelector("[data-run-sheet] [role=img]")?.getAttribute("aria-label") ?? null`);
@@ -10975,6 +11109,24 @@ const runSheetPolish = {
             timeline === true,
             JSON.stringify({ toggled: ctx.timelineOpened, timeline })
         );
+
+        // the loading frames: the run's task graph read back to loading, then the channel's
+        // the header's "reading the plan" line is a loading state too, with no placeholder in it
+        const LOADING = (sheet) =>
+            `([...document.querySelectorAll('${sheet} [data-jarvis-brief-sheet-state="loading"]')].find((e) => e.querySelector(".animate-pulse")) ?? null)`;
+        const dagOref = `dag:${(await waveService(h, "object", "GetObject", [`run:${ctx.runId}`]))?.dagoref}`;
+        await holdObject(h, dagOref);
+        const tasks = await lookPlaceholders(h, LOADING("[data-run-sheet]"));
+        await h.shot(lookShot("run-sheet-tasks-loading"));
+        await releaseObject(h, dagOref);
+        steps.push(placeholderStep("4. while the task graph loads, the tasks list holds its first 30px bar", tasks, { height: 30, radius: "8px" }));
+        steps.push(placeholderStep("4b. and its second, at 72% width", tasks, { height: 30, radius: "8px", share: 72 }, 1));
+        const channelOref = `channel:${ctx.channelId}`;
+        await holdObject(h, channelOref);
+        const project = await lookPlaceholders(h, LOADING("[data-jarvis-brief-sheet]"));
+        await h.shot(lookShot("run-sheet-channel-loading"));
+        await releaseObject(h, channelOref);
+        steps.push(placeholderStep("5. while the run's channel loads, the sheet holds its 32px Reading this project bar", project, { height: 32, radius: "8px" }));
         return steps;
     },
     async teardown(h, ctx) {
@@ -11555,6 +11707,7 @@ const recordBandDetachRestore = {
             restored.ok === true && restored.detachedRow === false && !afterRestore.includes(RECORD_BAND_RECORD),
             JSON.stringify({ ...restored, stored: afterRestore })
         );
+        steps.push(await floorStep(h, `4. no visible text in the record band is under ${MIN_FONT_PX}px`, RECORD_BAND));
         return steps;
     },
     async teardown(h, ctx) {
@@ -12696,6 +12849,7 @@ const DAG_PEEK_TASKS = [
     { id: "t-4", label: "noop 4", description: "do nothing, stop immediately", deps: ["t-1"], gate: false, state: "" },
 ];
 const DAG_PEEK_CMDS = { check: "true", verify: "true", finalcmd: "true" };
+const DAG_PEEK_TAG_MODEL = "haiku";
 const DAG_PEEK_REFUSAL = "dag-peek refused this retry on the page";
 // the old hover peek opened after 400ms
 const DAG_PEEK_HOVER_MS = 700;
@@ -12826,8 +12980,15 @@ const dagPeekScenario = {
                     ...dag,
                     ...DAG_PEEK_CMDS,
                     final: null,
+                    // t-4 pinned to a model off the workers route, so its card carries a tag chip
                     tasks: dag.tasks.map((t) =>
-                        t.id === "t-2" ? { ...t, state: "done" } : t.id === "t-3" ? { ...t, state: "failed", escalations: 0 } : t
+                        t.id === "t-2"
+                            ? { ...t, state: "done" }
+                            : t.id === "t-3"
+                              ? { ...t, state: "failed", escalations: 0 }
+                              : t.id === "t-4"
+                                ? { ...t, runspec: { ...t.runspec, model: DAG_PEEK_TAG_MODEL } }
+                                : t
                     ),
                 }),
                 dagPeekPrint
@@ -13136,6 +13297,31 @@ const dagPeekScenario = {
         const hoverCard = await h.ev(dagPeekAnyCard);
         if (bgAt) await dagPeekMouse(h, "mouseMoved", bgAt);
         rec("l. hovering a node for 700ms opens nothing", () => nodeAt != null && hoverCard === false, { nodeAt, hoverCard });
+
+        // the tagged card: its chip passes the floor on one line, and the card keeps an untagged card's height
+        const chip = await paintEval(h, `
+            const card = (id) => ${DAG_PEEK_MODAL}?.querySelector('[data-dag-node="' + id + '"]');
+            const tag = [...(card("t-4")?.querySelectorAll("span") ?? [])].find((s) => /pinned$/.test((s.textContent || "").trim()));
+            return {
+                tag: tag?.textContent.trim() ?? null,
+                lines: tag ? tag.getClientRects().length : null,
+                // nothing clipped inside the chip, and the chip inside its card
+                fits: tag
+                    ? tag.scrollWidth <= tag.clientWidth &&
+                      tag.scrollHeight <= tag.clientHeight &&
+                      tag.getBoundingClientRect().bottom <= card("t-4").getBoundingClientRect().bottom &&
+                      tag.getBoundingClientRect().right <= card("t-4").getBoundingClientRect().right
+                    : null,
+                floor: floorWalk([tag ?? null]),
+                heights: [card("t-4"), card("t-1")].map((c) => c?.getBoundingClientRect().height ?? null),
+            };
+        `);
+        await h.shot(lookShot("dag-peek-tag"));
+        rec(
+            "m. a tagged card's chip passes the floor on one line, and the card is as tall as an untagged one",
+            () => chip.tag != null && chip.lines === 1 && chip.fits && floorOk(chip.floor) && chip.heights[0] != null && chip.heights[0] === chip.heights[1],
+            { ...chip, floor: floorDetail(chip.floor) }
+        );
         return steps;
     },
     async teardown(h, ctx) {
@@ -14963,6 +15149,17 @@ const briefInitiativesPolish = {
             sidebarUp && !/unstaged/i.test(crumb) && sweptOk(sidebarSweep),
             JSON.stringify({ sidebarUp, unstaged: /unstaged/i.test(crumb), sweep: sidebarSweep })
         );
+        const SIDEBAR = `document.querySelector('[data-jarvis-chunk-sidebar]')`;
+        steps.push(await floorStep(h, `3b. no visible text in the Chunk sidebar is under ${MIN_FONT_PX}px`, SIDEBAR));
+
+        // 3c. under a 1280px container the sidebar overlays the content, on the side-sheet shadow
+        await h.cdp("Emulation.setDeviceMetricsOverride", OBS_NARROW);
+        await polishNap(500);
+        const side = await paintEval(h, `return shadowVs(${SIDEBAR}, "@max-[1280px]:shadow-sheet-side", ${OBS_NARROW.width});`);
+        await h.shot(lookShot("brief-initiatives-polish-sidebar-narrow"));
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        await polishNap(300);
+        rec("3c. at a 1000px window the Chunk sidebar casts shadow-sheet-side over no raw overlay", side.ok === true, JSON.stringify(side));
 
         // 4. its activity link opens the grouped feed
         await h.ev(
@@ -14989,6 +15186,34 @@ const briefInitiativesPolish = {
             sheetUp && feed != null && feed.today && feed.notes >= 1 && feed.next && feed.bar && sweptOk(sheetSweep),
             JSON.stringify({ feed, sweep: sheetSweep })
         );
+        steps.push(await floorStep(h, `4b. no visible text in the initiative sheet is under ${MIN_FONT_PX}px`, SHEET));
+
+        // 5. the sheet's loading frame: the initiative dropped from the detail cache, with its re-read held
+        const oref = `effort:${ctx.flat}`;
+        await holdRpc(h, "EffortGetCommand");
+        await lookEval(h, `
+            const { effortDetailAtom } = await mod("app/view/jarvis/effortstore.ts");
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const cache = new Map(globalStore.get(effortDetailAtom));
+            window.__uiDriftEffort = cache.get(${JSON.stringify(oref)});
+            cache.delete(${JSON.stringify(oref)});
+            globalStore.set(effortDetailAtom, cache);
+        `);
+        const loading = await lookPlaceholders(h, SHEET);
+        await h.shot(lookShot("brief-initiatives-polish-loading"));
+        await lookEval(h, `
+            const { effortDetailAtom } = await mod("app/view/jarvis/effortstore.ts");
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const cache = new Map(globalStore.get(effortDetailAtom));
+            if (window.__uiDriftEffort != null) cache.set(${JSON.stringify(oref)}, window.__uiDriftEffort);
+            delete window.__uiDriftEffort;
+            globalStore.set(effortDetailAtom, cache);
+        `);
+        await releaseRpc(h, "EffortGetCommand");
+        steps.push({
+            ...placeholderStep("5. while the initiative loads, its sheet holds three 40px blocks", loading, { height: 40, radius: "10px" }),
+            ok: loading.length === 3 && loading.every((_, i) => placeholderStep("", loading, { height: 40, radius: "10px" }, i).ok),
+        });
         return steps;
     },
     async teardown(h, ctx) {
@@ -15420,6 +15645,8 @@ const newRunWindow = {
             listed != null && listed.labels[0] === "Recent" && listed.labels.includes("All projects") && listed.inRecent,
             JSON.stringify(listed)
         );
+        // the picker shows only while its list is open
+        steps.push(await floorStep(h, `2b. no visible text in the open project picker is under ${MIN_FONT_PX}px`, `${NEW_RUN_LIST}?.parentElement`));
 
         await h.ev(setInputExpr(`${NEW_RUN}?.querySelector('input[aria-label="Search projects"]')`, NEW_RUN_PROJECT));
         await polishNap(300);
@@ -18105,6 +18332,11 @@ const radarReport = {
                 })
             );
         }
+
+        await radarMock(h, "results", "report");
+        await radarClick(h, '[data-radar-group="open"] [data-radar-finding-row]');
+        await polishWaitFor(h, radarHas("[data-radar-finding-detail]"), 3000);
+        steps.push(await floorStep(h, `12. no visible text on a report with a finding open is under ${MIN_FONT_PX}px`, RADAR_ROOT));
         return steps;
     },
     async teardown(h, ctx) {
@@ -19312,6 +19544,17 @@ const settingsClaudeAccount = {
         await h.ev(`${CLAUDE_ACCT_PANE}?.querySelector('[data-setting-row="claudeaccount.accounts"]')?.scrollIntoView({ block: "center" })`);
         await polishNap(200);
         await h.shot("cdp-shots/settings-claude-account.png");
+        const avatars = await paintEval(h, `
+            const rows = [...(${CLAUDE_ACCT_PANE}?.querySelectorAll('[data-testid="claude-account-row"]:not([data-active])') ?? [])];
+            return rows.map((r) => {
+                const bg = getComputedStyle(r.firstElementChild).backgroundColor;
+                return { bg, raw: rawOverlay(bg) };
+            });
+        `);
+        rec("3b. an inactive account's avatar has no raw white or black overlay background", avatars.length > 0 && avatars.every((a) => !a.raw), JSON.stringify(avatars));
+        steps.push(
+            await floorStep(h, `3c. no visible text in the accounts list is under ${MIN_FONT_PX}px`, `${CLAUDE_ACCT_PANE}?.querySelector('[data-setting-row="claudeaccount.accounts"]')`)
+        );
 
         await h.ev(`${CLAUDE_ACCT_CHECK}?.click()`);
         const noNew = await polishWaitFor(h, `${CLAUDE_ACCT_PANE}?.querySelector('[data-testid="claude-account-nonew"]') != null`, 10_000);
@@ -19437,6 +19680,17 @@ const settingsStorage = {
                 main.autoScan == null,
             JSON.stringify(main)
         );
+        // the populated pane: the muted tag chips sit on the edge ramp, and nothing in it paints a raw overlay
+        const paint = await paintEval(h, `
+            const pane = ${STORAGE_PANE};
+            const all = pane ? [pane, ...pane.querySelectorAll("*")] : [];
+            const muted = all.filter((el) => el.classList.contains("bg-edge-mid") && el.classList.contains("text-ink-mid"));
+            const raw = all.filter((el) => rawOverlay(getComputedStyle(el).backgroundColor)).map((el) => String(el.className).slice(0, 60));
+            return { muted: muted.length, raw };
+        `);
+        const storageFloor = await floorStep(h, `1c. no visible text in the populated storage pane is under ${MIN_FONT_PX}px`, STORAGE_PANE);
+        rec("1b. the muted tag chips render, and nothing in the pane has a raw white or black overlay background", paint.muted > 0 && paint.raw.length === 0, JSON.stringify(paint));
+        steps.push(storageFloor);
 
         await storageResetAction(h);
         await h.ev(`${STORAGE_CLEAR}?.click()`);
@@ -19680,6 +19934,7 @@ const motionGaps = {
             JSON.stringify(enter)
         );
         await h.shot("cdp-shots/motion-gaps-toast.png");
+        const cockpitFloor = await floorStep(h, `4. no visible text on the Cockpit is under ${MIN_FONT_PX}px`, COCKPIT);
 
         // 2. a dismissed toast stays attached while it fades, then leaves
         const exit = await h.ev(`(async () => {
@@ -19724,6 +19979,7 @@ const motionGaps = {
             JSON.stringify(fade)
         );
         await h.shot("cdp-shots/motion-gaps-setup.png");
+        steps.push(cockpitFloor);
         return steps;
     },
     async teardown(h) {
@@ -20197,8 +20453,25 @@ const resmonLive = {
 
         await resmonBlur(h);
         await h.ev(resmonClick(resmonReadout(RESMON_FOOTER)));
+        // a group starts collapsed: its rows render only once it is expanded
+        await polishWaitFor(h, `!!${resmonChevron(found.group)}`, 10000);
+        await h.ev(`(() => {
+            const c = ${resmonChevron(found.group)};
+            if (c?.getAttribute("aria-expanded") === "false") c.click();
+        })()`);
         await polishWaitFor(h, `!!document.querySelector('[data-resmon-row="${found.pid}"]')`, 10000);
         await shot("1-listed");
+        // the shell row's core tag chip, on the edge ramp rather than a white overlay
+        const chips = await paintEval(h, `
+            const group = document.querySelector('[data-resmon-popover] [data-resmon-group="${found.group}"]');
+            const tags = [...(group?.querySelectorAll("[data-resmon-row] span") ?? [])].filter(
+                (s) => s.children.length === 0 && /^(shell|agent|launcher|console)$/.test((s.textContent || "").trim())
+            );
+            return tags.map((t) => ({ tag: t.textContent.trim(), bg: getComputedStyle(t).backgroundColor, raw: rawOverlay(getComputedStyle(t).backgroundColor) }));
+        `);
+        const floor = await floorStep(h, `2c. no visible text in the resource popover is under ${MIN_FONT_PX}px`, `document.querySelector("[data-resmon-popover]")`);
+        rec("2b. the group's tag chip has no raw white or black overlay background", chips.length > 0 && chips.every((c) => !c.raw), JSON.stringify(chips));
+        steps.push(floor);
         const clicked = await h.ev(
             resmonClick(`document.querySelector('[data-resmon-row="${found.pid}"] button[aria-label^="Kill"]')`)
         );
@@ -21364,6 +21637,36 @@ const LOOK_LIB = `
     const button = (from, re) => [...(from?.querySelectorAll("button") ?? [])].find((b) => re.test(flat(b)));
     // the topmost: a sheet is a modal dialog too, and a confirm opens over it
     const dialog = () => [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')].pop() ?? null;
+    // a pre-bundled dependency at the url the app loaded it from: another url is another instance, a second React
+    const dep = (name) => {
+        const hit = performance.getEntriesByType("resource").map((e) => e.name).find((n) => n.split("?")[0].endsWith("/.vite/deps/" + name + ".js"));
+        if (hit == null) throw new Error("no vite dep url for " + name);
+        return import(hit);
+    };
+    // renders a component of the app's module into a host pinned over the page, under the app's jotai store unless
+    // given another; host.render(props) re-renders it. unmountAll removes every host.
+    const mount = async (path, name, props, { store, style = "" } = {}) => {
+        const [R, RD, J, S, M] = await Promise.all([dep("react"), dep("react-dom_client"), dep("jotai"), mod("app/store/jotaiStore.ts"), mod(path)]);
+        const React = R.default ?? R;
+        const host = document.createElement("div");
+        host.setAttribute("data-look-mount", name);
+        host.style.cssText = "position:fixed;left:120px;top:90px;z-index:9000;padding:12px;background:var(--color-background);" + style;
+        document.body.append(host);
+        const root = (RD.createRoot ?? RD.default.createRoot)(host);
+        host.render = (p) => root.render(React.createElement(J.Provider, { store: store ?? S.globalStore }, React.createElement(M[name], p)));
+        host.render(props);
+        (window.__lookMounts ??= []).push({ root, host });
+        await nap(250);
+        return host;
+    };
+    const unmountAll = () => {
+        for (const { root, host } of window.__lookMounts ?? []) {
+            root.unmount();
+            host.remove();
+        }
+        window.__lookMounts = [];
+    };
+    ${PAINT_LIB}
 `;
 const lookEval = (h, body) => h.ev(`(async () => { ${LOOK_LIB} ${body} })()`);
 const lookShot = (name) => `cdp-shots/look-${name}.png`;
@@ -21383,6 +21686,77 @@ const lookClosePopModals = (h) =>
         const { modalsModel } = await mod("app/store/modalmodel.ts");
         while (modalsModel.hasOpenModals()) modalsModel.popModal();
     `);
+
+// Holds a view in its loading frame through the app's module: an RpcApi command that never replies, or a wave
+// object read back to loading with its fetch dropped. Each release puts the real one back.
+const holdRpc = (h, command) =>
+    lookEval(h, `
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
+        (window.__heldRpc ??= {})[${JSON.stringify(command)}] ??= RpcApi[${JSON.stringify(command)}];
+        RpcApi[${JSON.stringify(command)}] = () => new Promise(() => {});
+    `);
+const releaseRpc = (h, command) =>
+    lookEval(h, `
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
+        const held = window.__heldRpc?.[${JSON.stringify(command)}];
+        if (held) RpcApi[${JSON.stringify(command)}] = held;
+        delete window.__heldRpc?.[${JSON.stringify(command)}];
+    `);
+// value undefined holds the object loading; a value (a page expression, which may read `current`) shows that copy
+// of it instead. A live object is pushed again on each change, so the hold is put back after every push.
+const holdObject = (h, oref, value) =>
+    lookEval(h, `
+        const WOS = await mod("app/store/wos.ts");
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const wov = WOS.getWaveObjectValue(${JSON.stringify(oref)});
+        const current = globalStore.get(wov.dataAtom).value;
+        const held = ${value === undefined ? `{ value: null, loading: true, error: false }` : `{ value: ${value}, loading: false, error: false }`};
+        wov.pendingPromise = new Promise(() => {});
+        globalStore.set(wov.dataAtom, held);
+        (window.__heldObject ??= {})[${JSON.stringify(oref)}] = globalStore.sub(wov.dataAtom, () => {
+            if (globalStore.get(wov.dataAtom) !== held) globalStore.set(wov.dataAtom, held);
+        });
+    `);
+const releaseObject = (h, oref) =>
+    lookEval(h, `
+        const WOS = await mod("app/store/wos.ts");
+        window.__heldObject?.[${JSON.stringify(oref)}]?.();
+        delete window.__heldObject?.[${JSON.stringify(oref)}];
+        WOS.getWaveObjectValue(${JSON.stringify(oref)}).pendingPromise = null;
+        await WOS.reloadWaveObject(${JSON.stringify(oref)});
+    `);
+
+// The Skeleton placeholders under a root (Skeleton draws animate-pulse on bg-edge-strong), each with its size and
+// corner, and a step on the one at index i against what its class names: height or min-height in px, the width as a
+// share of its parent, the radius.
+const lookPlaceholders = (h, root) =>
+    lookEval(h, `
+        const all = () => [...((${root})?.querySelectorAll(".animate-pulse.bg-edge-strong") ?? [])];
+        await until(() => all().length > 0, 4000);
+        await nap(300);
+        return all().map((el) => {
+            const r = el.getBoundingClientRect();
+            const cs = getComputedStyle(el);
+            const pcs = getComputedStyle(el.parentElement);
+            const room = el.parentElement.clientWidth - parseFloat(pcs.paddingLeft) - parseFloat(pcs.paddingRight);
+            return {
+                height: Math.round(r.height * 10) / 10,
+                share: Math.round((r.width / room) * 100),
+                minHeight: cs.minHeight,
+                radius: cs.borderTopLeftRadius,
+            };
+        });
+    `);
+function placeholderStep(step, got, want, i = 0) {
+    const p = got[i];
+    const ok =
+        p != null &&
+        p.radius === want.radius &&
+        (want.height == null || Math.abs(p.height - want.height) < 0.6) &&
+        (want.minHeight == null || (p.minHeight === `${want.minHeight}px` && p.height >= want.minHeight)) &&
+        Math.abs(p.share - (want.share ?? 100)) <= 1;
+    return { step, ok, detail: JSON.stringify({ got: p ?? null, of: got.length, want }) };
+}
 
 const cockpitEmptyState = {
     name: "cockpit-empty-state",
@@ -21431,11 +21805,16 @@ const agentLaunchHero = {
             return [skipStep("the Agent surface with nothing focused shows the launch hero", "an agent is focused in this profile - run it on a fresh store (final-verify.mjs)")];
         }
         await h.shot(lookShot("agent-launch-hero"));
+        const heroFloor = await lookEval(h, `
+            const title = [...document.querySelectorAll("div")].find((d) => d.children.length === 0 && flat(d) === "No terminal running");
+            return floorWalk([title?.closest("div.h-full.w-full") ?? null]);
+        `);
         // the CTA's label says what it opens
         const opened = await lookEval(h, `
             button(document, /^New agent/)?.click();
             return until(() => [...document.querySelectorAll('[role="dialog"] h2')].some((x) => flat(x) === "New agent"), 3000);
         `);
+        const modalFloor = await lookEval(h, `await nap(300); return floorWalk([dialog() ?? document.querySelector('[role="dialog"]')]);`);
         // the modal rides newAgentOpenAtom, not modalsModel: its own close button shuts it
         await lookEval(h, `document.querySelector('[role="dialog"] button[aria-label="Close"]')?.click();`);
         return [
@@ -21445,6 +21824,8 @@ const agentLaunchHero = {
                 detail: JSON.stringify(s),
             },
             { step: "New agent opens the New agent modal", ok: opened === true, detail: `opened=${opened}` },
+            { step: `no visible text in the launch hero is under ${MIN_FONT_PX}px`, ok: floorOk(heroFloor), detail: floorDetail(heroFloor) },
+            { step: `no visible text in the New agent modal is under ${MIN_FONT_PX}px`, ok: floorOk(modalFloor), detail: floorDetail(modalFloor) },
         ];
     },
     async teardown() {},
@@ -21501,6 +21882,8 @@ const newProjectModal = {
         `);
         await h.shot(lookShot("new-project-modal-filled"));
         steps.push({ step: "with a name and a path, Create project is enabled", ok: filled.createDisabled === false, detail: JSON.stringify(filled) });
+        const floor = await lookEval(h, `return floorWalk([dialog()]);`);
+        steps.push({ step: `no visible text in the New project modal is under ${MIN_FONT_PX}px`, ok: floorOk(floor), detail: floorDetail(floor) });
         return steps;
     },
     async teardown(h) {
@@ -21734,6 +22117,7 @@ const contextMenu = {
                 label: getComputedStyle(row.querySelector("span.whitespace-nowrap")).fontFamily,
                 border: panel ? getComputedStyle(panel).borderTopColor : null,
                 edge,
+                floor: floorWalk([panel ?? null, ${LOOK_MENU_ROW("Last activity")}?.parentElement ?? null]),
             };
         `);
         await h.shot(lookShot("context-menu"));
@@ -21748,6 +22132,7 @@ const contextMenu = {
                 ok: !/mono/i.test(look.label) && look.border === look.edge,
                 detail: JSON.stringify(look),
             },
+            { step: `no visible text in the menu or its submenu is under ${MIN_FONT_PX}px`, ok: floorOk(look.floor), detail: floorDetail(look.floor) },
         ];
     },
     async teardown(h) {
@@ -21776,6 +22161,9 @@ const cockpitRailTooltip = {
     },
     async assert(h) {
         await lookOpen(h, "cockpit");
+        // the expanded rail's heading is the text the floor raised; collapsing hides it
+        const floor = await lookEval(h, `return floorWalk([${LOOK_EVENTS_RAIL}]);`);
+        const floorDone = { step: `no visible text in the expanded Events rail is under ${MIN_FONT_PX}px`, ok: floorOk(floor), detail: floorDetail(floor) };
         const glyph = await lookEval(h, `
             const rail = () => ${LOOK_EVENTS_RAIL};
             rail()?.querySelector('button[aria-label="Collapse panel"]')?.click();
@@ -21786,7 +22174,7 @@ const cockpitRailTooltip = {
             return r ? { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } : null;
         `);
         if (glyph == null) {
-            return [{ step: "collapsing the Events rail leaves its glyph", ok: false, detail: "no collapsed Events glyph" }];
+            return [{ step: "collapsing the Events rail leaves its glyph", ok: false, detail: "no collapsed Events glyph" }, floorDone];
         }
         await lookHover(h, glyph.x, glyph.y);
         const tip = await lookEval(h, `
@@ -21802,6 +22190,7 @@ const cockpitRailTooltip = {
         return [
             { step: "hovering the collapsed Events glyph shows its Events tooltip", ok: tip.shown, detail: JSON.stringify({ glyph, ...tip }) },
             { step: "the tooltip is a bordered 11.5px surface with a popover shadow", ok: tooltipLookOk(look), detail: JSON.stringify(look) },
+            floorDone,
         ];
     },
     async teardown(h) {
@@ -22028,7 +22417,7 @@ const taskDetail = {
             button(${LOOK_BAND}, /^→ archived$/)?.click();
             const ok = await until(() => /Mark this task archived\\?/.test(flat(dialog())), 2000);
             await nap(400);
-            return { ok, confirm: button(dialog(), /^Yes, archived/) != null };
+            return { ok, confirm: button(dialog(), /^Yes, archived/) != null, floor: floorWalk([dialog()]) };
         `);
         await h.shot(lookShot("task-detail-archive-confirm"));
         const cancelled = await lookEval(h, `
@@ -22039,8 +22428,10 @@ const taskDetail = {
         rec(
             "4. → archived asks first with a danger confirm, and Cancel leaves the record as it was",
             confirm.ok && confirm.confirm && cancelled === true && status === top.status,
-            JSON.stringify({ ...confirm, cancelled, status })
+            JSON.stringify({ ...confirm, floor: undefined, cancelled, status })
         );
+        steps.push(await floorStep(h, `5. no visible text in the record band is under ${MIN_FONT_PX}px`, LOOK_BAND));
+        rec(`5b. no visible text in the archive confirm is under ${MIN_FONT_PX}px`, floorOk(confirm.floor), floorDetail(confirm.floor));
         return steps;
     },
     async teardown(h, ctx) {
@@ -22222,6 +22613,7 @@ const agentComposer = {
             ok: card.ok && card.restEdge != null && card.focusEdge !== card.restEdge && card.unclipped === true && card.oneLine === true,
             detail: JSON.stringify(card),
         });
+        steps.push(await floorStep(h, `no visible text on the Cockpit, its Idle list open, is under ${MIN_FONT_PX}px`, COCKPIT));
         return steps;
     },
     async teardown(h, ctx) {
@@ -22331,12 +22723,24 @@ const runSheetDoneLook = {
             };
         `);
         await h.shot(lookShot("run-sheet-done"));
+        const floor = await floorStep(h, `no visible text on the done run's sheet is under ${MIN_FONT_PX}px`, `document.querySelector('[data-run-sheet="done"]')`);
+
+        // the evidence's loading frame: the run without its evidence, with the seal the sheet then asks for held
+        const runOref = `run:${ctx.runId}`;
+        await holdRpc(h, "SealRunEvidenceCommand");
+        await holdObject(h, runOref, "{ ...current, evidence: undefined }");
+        const sealing = await lookPlaceholders(h, `document.querySelector('[data-run-sheet="done"] [data-jarvis-brief-sheet-state="loading"]')`);
+        await h.shot(lookShot("run-sheet-done-sealing"));
+        await releaseObject(h, runOref);
+        await releaseRpc(h, "SealRunEvidenceCommand");
         return [
             {
                 step: "a done run with sealed evidence shows its goal, every landed file, the check tally and the diff link",
                 ok: opened === true && s.done && s.goal && s.files.length === 0 && s.checks && s.diffLink,
                 detail: JSON.stringify({ opened, ...s }),
             },
+            floor,
+            placeholderStep("while the evidence seals, the sheet holds its 30px bar", sealing, { height: 30, radius: "8px" }),
         ];
     },
     async teardown(h, ctx) {
@@ -22412,6 +22816,7 @@ const runSheetCardsLook = {
             ok: /Clarifying question/.test(ask),
             detail: ask.slice(0, 240),
         });
+        steps.push(await floorStep(h, `no visible text on the asking run's sheet is under ${MIN_FONT_PX}px`, `document.querySelector("[data-jarvis-brief-sheet]")`));
         return steps;
     },
     async teardown(h, ctx) {
@@ -22472,6 +22877,15 @@ const codeStaleBarLook = {
             ok: opened === true && clean != null && clean.text.includes(`${LOOK_STALE_FILE} changed on disk`) && clean.button === "Reload",
             detail: JSON.stringify({ opened, clean }),
         });
+        const reload = await tabOnto(h, `document.querySelector("[data-code-stale] button")`);
+        await h.shot(lookShot("code-stale-bar-focus"));
+        const unlabelled = await h.ev(unlabelledButtons(`document.querySelector("[data-code-stale]")`));
+        steps.push({
+            step: "Tab onto Reload shows the focus ring, and no stale-bar button is unlabelled",
+            ok: reload.focused && reload.ring && unlabelled === 0,
+            detail: JSON.stringify({ ...reload, unlabelled }),
+        });
+        steps.push(await floorStep(h, `no visible text in the stale bar is under ${MIN_FONT_PX}px`, `document.querySelector("[data-code-stale]")`));
 
         const reloaded = await lookEval(h, `
             document.querySelector("[data-code-stale] button")?.click();
@@ -22505,6 +22919,487 @@ const codeStaleBarLook = {
     async teardown(h, ctx) {
         await h.goto("cockpit");
         if (ctx?.dir) rmSync(ctx.dir, { recursive: true, force: true });
+    },
+};
+
+// --- ui-drift: what the drift pass changed that no other scenario reaches -------------------------------------------
+// docs/superpowers/plans/2026-10-17-ui-drift-polish.md. A view no app path shows on a fresh store is rendered through
+// the app's own module (LOOK_LIB's mount) with made-up props; the Radar menus open on radardevmock's fixtures, and the
+// brief toast shows on the Brief through its own atom.
+const DRIFT_PLAN = ["# Drift plan", "", "Raise every label to the floor.", "", "### Task 1: Raise the floor", "", "- swap the glyphs", "- grow the pills", ""].join("\n");
+const DRIFT_ASK = {
+    id: "drift-ask",
+    name: "drift asker",
+    task: "pick a floor",
+    state: "asking",
+    ask: {
+        questions: [
+            {
+                question: "Which text floor applies to the rail?",
+                header: "Floor",
+                options: [
+                    { label: "10.5px", description: "The house floor every surface keeps" },
+                    { label: "11px (Recommended)", description: "One step up, for the rail alone" },
+                    { label: "12px", description: "The body size" },
+                ],
+            },
+        ],
+    },
+};
+const DRIFT_AGENTS = [
+    { id: "drift-1", name: "drift one", task: "raise the rail", state: "idle", project: "waveterm", activity: "finished the pass", activeMs: 3_600_000 },
+    { id: "drift-2", name: "drift two", task: "swap the glyphs", state: "working", project: "waveterm", activity: "reading files", activeMs: 420_000 },
+];
+// the ink tokens a hint may wear
+const DRIFT_INKS = ["text-muted", "text-ink-faint", "text-ink-mid", "text-secondary", "text-primary", "text-ink-hi"];
+const DRIFT_BADGE = 12;
+const DRIFT_CONTRAST = 4.5;
+const DRIFT_SWITCHER = `document.querySelector('[data-project-switcher="bar"]')`;
+
+async function lookKey(h, key, code, keyCode) {
+    for (const type of ["keyDown", "keyUp"]) await h.cdp("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode: keyCode });
+}
+
+// moves focus onto the element by a real Tab key, from a focusable put just before it, and reads whether the
+// focused element shows a ring (a spread-only box-shadow layer)
+async function tabOnto(h, target) {
+    const placed = await h.ev(`(() => {
+        const t = ${target};
+        if (!t) return false;
+        const s = document.createElement("span");
+        s.tabIndex = 0;
+        s.setAttribute("data-tab-sentinel", "");
+        t.before(s);
+        s.focus();
+        return document.activeElement === s;
+    })()`);
+    if (placed) await lookKey(h, "Tab", "Tab", 9);
+    await polishNap(200);
+    return h.ev(`(() => {
+        const t = ${target};
+        const shadow = t ? getComputedStyle(t).boxShadow : null;
+        const out = { placed: ${placed}, focused: t != null && document.activeElement === t, shadow, ring: shadow != null && / 0px 0px 0px [1-9]/.test(shadow) };
+        document.querySelector("[data-tab-sentinel]")?.remove();
+        return out;
+    })()`);
+}
+// the buttons under a root with no text and no aria-label
+const unlabelledButtons = (root) =>
+    `[...((${root})?.querySelectorAll("button") ?? [])].filter((b) => (b.textContent || "").trim() === "" && !(b.getAttribute("aria-label") || "").trim()).length`;
+
+// the center of the first element an expression finds, for a real pointer move
+const lookCenter = (h, expr) =>
+    h.ev(`(() => {
+        const r = (${expr})?.getBoundingClientRect();
+        return r ? { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } : null;
+    })()`);
+
+// opens a hand-rolled menu with its trigger, presses a real Escape and reads whether the menu closed onto its
+// trigger. Each of them draws its click-catching backdrop beside the trigger while it is open.
+async function driftEscape(h, step, trigger) {
+    const read = `
+        const t = ${trigger};
+        const { escapeMenusOpenAtom } = await mod("app/hook/useEscapeClose.ts");
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const open = () => t?.parentElement?.querySelector(":scope > .fixed.inset-0") != null;
+    `;
+    const surface = await h.activeSurfaceLabel();
+    const opened = await lookEval(h, `${read}
+        if (t == null) return null;
+        t.click();
+        await until(open, 3000);
+        await nap(300);
+        return { open: open(), menus: globalStore.get(escapeMenusOpenAtom) };
+    `);
+    await lookKey(h, "Escape", "Escape", 27);
+    const closed = await lookEval(h, `${read}
+        await until(() => !open(), 2000);
+        return { open: open(), menus: globalStore.get(escapeMenusOpenAtom), focused: t != null && document.activeElement === t };
+    `);
+    const after = await h.activeSurfaceLabel();
+    return {
+        step,
+        ok: opened?.open === true && opened.menus > 0 && closed.open === false && closed.menus === 0 && closed.focused && after === surface,
+        detail: JSON.stringify({ opened, closed, surface, after }),
+    };
+}
+
+// hovers the element an expression finds and reads its background at rest and under the pointer
+async function driftHover(h, expr) {
+    const rest = await paintEval(h, `const el = ${expr}; return el ? getComputedStyle(el).backgroundColor : null;`);
+    const at = await lookCenter(h, expr);
+    if (at) await lookHover(h, at.x, at.y);
+    await polishNap(250);
+    const hover = await paintEval(h, `
+        const el = ${expr};
+        if (!el) return null;
+        const c = getComputedStyle(el).backgroundColor;
+        return { color: c, raw: rawOverlay(c) };
+    `);
+    await lookHover(h, 1, 1);
+    return { rest, hover: hover?.color ?? null, raw: hover?.raw ?? null, at };
+}
+const hoverOk = (r) => r.rest != null && r.hover != null && r.hover !== r.rest && r.raw === false;
+
+const DRIFT_HOST = (name) => `document.querySelector('[data-look-mount="${name}"]')`;
+
+async function driftView(h, label, path, name, props, opts, ready = "true") {
+    const s = await lookEval(h, `
+        unmountAll();
+        const host = await mount(${JSON.stringify(path)}, ${JSON.stringify(name)}, ${props}, ${opts});
+        await until(() => ${ready}, 8000);
+        await nap(300);
+        return { floor: floorWalk([host]), text: flat(host).slice(0, 80) };
+    `);
+    await h.shot(lookShot(`ui-drift-${label}`));
+    return { step: `${label} renders with no visible text under ${MIN_FONT_PX}px`, ok: floorOk(s.floor), detail: `${floorDetail(s.floor)} text=${JSON.stringify(s.text)}` };
+}
+
+const uiDrift = {
+    name: "ui-drift",
+    surface: "cockpit",
+    async arrange(h) {
+        const dir = mkdtempSync(join(tmpdir(), "verify-ui-drift-"));
+        const planPath = join(dir, "drift-plan.md");
+        writeFileSync(planPath, DRIFT_PLAN);
+        return { dir, planPath, priorScope: await h.ev(`localStorage.getItem(${JSON.stringify(RADAR_SCOPE_KEY)})`) };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const run = async (step, fn) => {
+            try {
+                steps.push(await fn());
+            } catch (e) {
+                steps.push({ step, ok: false, detail: String(e?.message ?? e) });
+            }
+        };
+        await lookOpen(h, "cockpit");
+
+        // the seven views no other scenario shows
+        await run("planpreview", async () => {
+            const s = await lookEval(h, `
+                unmountAll();
+                const props = { path: ${JSON.stringify(ctx.planPath)} };
+                const open = await mount("app/view/agents/planpreview.tsx", "PlanPreview", props, { style: "width:560px" });
+                const shut = await mount("app/view/agents/planpreview.tsx", "PlanPreview", props, { style: "width:560px;top:420px" });
+                await until(() => /lines/.test(flat(open)) && /lines/.test(flat(shut)), 8000);
+                shut.querySelector("button")?.click();
+                await nap(300);
+                const toggle = (host) => {
+                    const b = host.querySelector("button");
+                    return { svg: b?.querySelector("svg") != null, glyph: /[▼▶]/.test(flat(b)), open: host.querySelector(".max-h-\\\\[320px\\\\]") != null };
+                };
+                return { open: toggle(open), shut: toggle(shut), floor: floorWalk([open, shut]) };
+            `);
+            await h.shot(lookShot("ui-drift-planpreview"));
+            steps.push({ step: `planpreview renders with no visible text under ${MIN_FONT_PX}px`, ok: floorOk(s.floor), detail: floorDetail(s.floor) });
+            return {
+                step: "planpreview's toggle holds an svg icon and no ▼/▶ text, open and closed",
+                ok: s.open.svg && !s.open.glyph && s.open.open && s.shut.svg && !s.shut.glyph && !s.shut.open,
+                detail: JSON.stringify({ open: s.open, shut: s.shut }),
+            };
+        });
+        await run("effortcreateform", () =>
+            driftView(h, "effortcreateform", "app/view/jarvis/effortcreateform.tsx", "EffortCreateForm", "{ onClose() {} }", `{ style: "width:640px" }`)
+        );
+        await run("recordpicker", () =>
+            driftView(
+                h,
+                "recordpicker",
+                "app/view/jarvis/recordpicker.tsx",
+                "RecordPicker",
+                "{ onPick() {}, onCancel() {} }",
+                `{ style: "width:420px" }`,
+                `${DRIFT_HOST("RecordPicker")}?.querySelector(".animate-pulse") == null`
+            )
+        );
+        await run("aggregatepane", () =>
+            driftView(
+                h,
+                "aggregatepane",
+                "app/view/agents/aggregatepane.tsx",
+                "AggregatePane",
+                `{
+                    base: "main",
+                    head: "drift/polish",
+                    form: "mergebase",
+                    mergeBase: "4f1c2a9",
+                    changes: {
+                        files: [
+                            { path: "frontend/app/view/agents/navrail.tsx", status: "M", adds: 2, dels: 2 },
+                            { path: "scripts/cdp/scenarios.mjs", status: "M", adds: 140, dels: 60 },
+                            { path: "frontend/app/hook/useEscapeClose.ts", status: "A", adds: 34, dels: 0 },
+                        ],
+                        adds: 176,
+                        dels: 62,
+                    },
+                    selectedFile: null,
+                    onSelectFile() {},
+                    onSetForm() {},
+                    review: null,
+                }`,
+                `{ style: "width:440px;height:520px;display:flex;flex-direction:column" }`
+            )
+        );
+
+        // answerbar: an option at rest, under the pointer and selected
+        await run("answerbar", async () => {
+            const OPTION = (i) => `${DRIFT_HOST("AnswerBar")}?.querySelectorAll("button")[${i}]`;
+            const props = (sel) => `{ agent: ${JSON.stringify(DRIFT_ASK)}, selections: ${sel}, numbered: true, onToggle() {}, onSubmit() {} }`;
+            const s = await lookEval(h, `
+                unmountAll();
+                const host = await mount("app/view/agents/answerbar.tsx", "AnswerBar", ${props("{}")}, { style: "width:560px" });
+                return { options: host.querySelectorAll("button").length, floor: floorWalk([host]) };
+            `);
+            steps.push({ step: `answerbar renders with no visible text under ${MIN_FONT_PX}px`, ok: floorOk(s.floor), detail: floorDetail(s.floor) });
+            await h.shot(lookShot("ui-drift-answerbar-rest"));
+            const hovered = await driftHover(h, OPTION(2));
+            await lookHover(h, hovered.at?.x ?? 1, hovered.at?.y ?? 1);
+            await polishNap(250);
+            await h.shot(lookShot("ui-drift-answerbar-hover"));
+            await lookHover(h, 1, 1);
+            const selected = await paintEval(h, `
+                ${DRIFT_HOST("AnswerBar")}.render(${props("{ 0: new Set([1]) }")});
+                await new Promise((r) => setTimeout(r, 250));
+                const c = getComputedStyle(${OPTION(1)}).backgroundColor;
+                return { color: c, raw: rawOverlay(c) };
+            `);
+            await h.shot(lookShot("ui-drift-answerbar-selected"));
+            const restRaw = await paintEval(h, `return rawOverlay(${JSON.stringify(hovered.rest ?? "")});`);
+            return {
+                step: "an answerbar option reads differently at rest, hovered and selected, and none is a raw white or black overlay",
+                ok:
+                    s.options === 3 &&
+                    hoverOk(hovered) &&
+                    !restRaw &&
+                    selected.raw === false &&
+                    selected.color !== hovered.rest &&
+                    selected.color !== hovered.hover,
+                detail: JSON.stringify({ options: s.options, hovered, restRaw, selected }),
+            };
+        });
+
+        // the cockpit's idle and backgrounded lanes and an agent card: their hovers sit on the surface ramp
+        for (const [name, path, props] of [
+            ["IdleSection", "app/view/agents/idlesection.tsx", `{ agents: ${JSON.stringify([DRIFT_AGENTS[0]])}, onOpen() {} }`],
+            ["BackgroundedSection", "app/view/agents/backgroundedsection.tsx", `{ agents: ${JSON.stringify([DRIFT_AGENTS[1]])}, onRestore() {} }`],
+        ]) {
+            const label = name.toLowerCase();
+            await run(label, async () => {
+                const s = await lookEval(h, `
+                    unmountAll();
+                    const host = await mount(${JSON.stringify(path)}, ${JSON.stringify(name)}, ${props}, { style: "width:560px" });
+                    // the section header is a clickable div
+                    host.querySelector(".cursor-pointer")?.click();
+                    await until(() => host.querySelector('[class*="hover:bg-surface-hover"]') != null, 3000);
+                    await nap(400);
+                    return { floor: floorWalk([host]) };
+                `);
+                await h.shot(lookShot(`ui-drift-${label}`));
+                steps.push({ step: `${label} renders with no visible text under ${MIN_FONT_PX}px`, ok: floorOk(s.floor), detail: floorDetail(s.floor) });
+                const r = await driftHover(h, `${DRIFT_HOST(name)}?.querySelector('[class*="hover:bg-surface-hover"]')`);
+                return { step: `${label}'s hovered row changes background and is no raw white or black overlay`, ok: hoverOk(r), detail: JSON.stringify(r) };
+            });
+        }
+        await run("agentrow", async () => {
+            const made = await lookEval(h, `
+                unmountAll();
+                const J = await dep("jotai");
+                const { cardShare } = await mod("app/view/agents/cardgridlayout.ts");
+                const noop = () => {};
+                const host = await mount("app/view/agents/agentrow.tsx", "AgentRow", {
+                    agent: ${JSON.stringify(DRIFT_AGENTS[1])},
+                    nowAtom: J.atom(Date.now()),
+                    isCursor: false,
+                    selections: {},
+                    texts: {},
+                    sent: false,
+                    composerOpen: false,
+                    onCursor: noop, onOpen: noop, onOpenTerminal: noop, onOpenDiff: noop, onOpenComposer: noop,
+                    onToggleAnswer: noop, onAnswerText: noop, onSubmitAnswer: noop, onBackground: noop,
+                    share: cardShare(false, false),
+                }, { style: "width:560px;height:360px;display:flex;flex-direction:column" });
+                return host.querySelector('button[title="Open terminal (T)"]') != null;
+            `);
+            const r = await driftHover(h, `${DRIFT_HOST("AgentRow")}?.querySelector('button[title="Open terminal (T)"]')`);
+            return { step: "an agent card's header control changes background under the pointer and is no raw white or black overlay", ok: made && hoverOk(r), detail: JSON.stringify({ made, ...r }) };
+        });
+
+        // the nav rail at 78px with a two-digit count, in a store of its own so no live badge is touched
+        await run("navrail", async () => {
+            const s = await lookEval(h, `
+                unmountAll();
+                const J = await dep("jotai");
+                const { attentionAtom } = await mod("app/view/agents/attentionstore.ts");
+                const store = J.createStore();
+                const items = (n, extra) => Array.from({ length: n }, (_, i) => ({ id: "drift-" + JSON.stringify(extra) + i, kind: "ask", ...extra }));
+                store.set(attentionAtom, [...items(${DRIFT_BADGE}, {}), ...items(${DRIFT_BADGE}, { channelid: "drift" }), ...items(3, { kind: "radar-triage" })]);
+                const host = await mount("app/view/agents/navrail.tsx", "NavRail", { model: { surfaceAtom: J.atom("cockpit") } }, { store, style: "left:300px;top:40px;height:860px;padding:0;display:flex" });
+                const nav = host.querySelector("nav");
+                const labels = [...nav.querySelectorAll("button")].map((b) => [...b.children].find((c) => c.tagName === "SPAN" && !c.classList.contains("absolute") && c.querySelector("svg") == null)).filter(Boolean);
+                const lines = labels.map((l) => {
+                    const one = l.cloneNode();
+                    one.textContent = "X";
+                    l.parentElement.append(one);
+                    const line = one.getBoundingClientRect().height;
+                    one.remove();
+                    return { text: flat(l), height: l.getBoundingClientRect().height, line };
+                });
+                const badges = [...nav.querySelectorAll("span.bg-asking")].map((b) => ({ text: flat(b), scroll: b.scrollWidth, client: b.clientWidth }));
+                return { width: getComputedStyle(nav).width, lines, badges, floor: floorWalk([nav]) };
+            `);
+            await h.shot(lookShot("ui-drift-navrail"));
+            const twoDigit = s.badges.filter((b) => b.text === String(DRIFT_BADGE));
+            return {
+                step: "the 78px nav rail keeps every label on one line, fits a two-digit count in its pill and passes the floor",
+                ok:
+                    s.width === "78px" &&
+                    s.lines.length === 10 &&
+                    s.lines.every((l) => l.height <= l.line + 0.5) &&
+                    twoDigit.length === 2 &&
+                    s.badges.every((b) => b.scroll <= b.client) &&
+                    floorOk(s.floor),
+                detail: JSON.stringify({ ...s, floor: floorDetail(s.floor) }),
+            };
+        });
+
+        // DialogButton's key hint on the three styles
+        await run("dialogbutton", async () => {
+            const s = await lookEval(h, `
+                unmountAll();
+                const kinds = [["secondary", "Cancel", "esc"], ["primary", "Save", "⏎"], ["danger", "Delete", "⏎"]];
+                const hosts = [];
+                for (const [i, [variant, children, hint]] of kinds.entries()) {
+                    hosts.push(await mount("app/modals/dialogbutton.tsx", "DialogButton", { variant, hint, children }, { style: "top:420px;left:" + (120 + i * 190) + "px;background:var(--color-surface-raised)" }));
+                }
+                const ink = (cls) => {
+                    const p = document.createElement("span");
+                    p.className = cls;
+                    document.body.append(p);
+                    const c = getComputedStyle(p).color;
+                    p.remove();
+                    return c;
+                };
+                const inks = ${JSON.stringify(DRIFT_INKS)}.map(ink);
+                const lum = (rgb) => {
+                    const f = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+                    return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+                };
+                const over = (top, under) => [0, 1, 2].map((k) => (top[k] * top[3] + under[k] * (255 - top[3])) / 255);
+                const contrast = (a, b) => {
+                    const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+                    return (x + 0.05) / (y + 0.05);
+                };
+                return hosts.map((host, i) => {
+                    const b = host.querySelector("button");
+                    const k = b.querySelector("kbd");
+                    let opacity = 1;
+                    for (let el = k; el && el !== host; el = el.parentElement) opacity = Math.min(opacity, Number(getComputedStyle(el).opacity));
+                    const bg = over(rgbaOf(getComputedStyle(b).backgroundColor), [...rgbaOf(getComputedStyle(host).backgroundColor).slice(0, 3), 255]);
+                    const color = getComputedStyle(k).color;
+                    return {
+                        variant: kinds[i][0],
+                        px: parseFloat(getComputedStyle(k).fontSize),
+                        opacity,
+                        color,
+                        ink: inks.includes(color),
+                        own: color === getComputedStyle(b).color,
+                        contrast: Math.round(contrast(over(rgbaOf(color), [...bg, 255]), bg) * 100) / 100,
+                    };
+                });
+            `);
+            await h.shot(lookShot("ui-drift-dialogbutton"));
+            const ok = (b) =>
+                b.px >= MIN_FONT_PX && b.opacity >= 1 && b.contrast >= DRIFT_CONTRAST && (b.variant === "secondary" ? b.ink : b.own);
+            return {
+                step: `a DialogButton's hint is at least ${MIN_FONT_PX}px at full opacity: an ink token on secondary, the button's own ink on primary and danger, at ${DRIFT_CONTRAST}:1 or more`,
+                ok: s.length === 3 && s.every(ok),
+                detail: JSON.stringify(s),
+            };
+        });
+
+        // the tracker's status menu on a one-chunk plan
+        await run("tracker menu", async () => {
+            const s = await lookEval(h, `
+                unmountAll();
+                const row = { label: "Raise the floor", status: "active", stage: "", tone: "active", trail: [], workrefs: [] };
+                const rows = [
+                    { kind: "facts", id: "drift/facts", oref: "effort:drift", count: "1 chunk · 0 done" },
+                    { kind: "chunk", id: "drift/c", oref: "effort:drift", row, notes: 0, next: true },
+                ];
+                const fields = { oid: "drift", title: "Drift", effortStatus: "active", total: 1, stages: [], canMove: () => false };
+                const edits = new Proxy(fields, { get: (t, k) => (k in t ? t[k] : () => {}) });
+                const host = await mount("app/view/jarvis/inlinetrackerview.tsx", "InitiativeDetail", { rows, cursor: undefined, edits, onSelectChunk() {}, onToggleStage() {} }, { style: "width:620px" });
+                host.querySelector("[data-jarvis-chunk-status]")?.click();
+                await until(() => host.querySelector("[data-jarvis-tracker-menu]") != null, 3000);
+                await nap(400);
+                return shadowVs(host.querySelector("[data-jarvis-tracker-menu]"), "shadow-popover-md");
+            `);
+            await h.shot(lookShot("ui-drift-tracker-menu"));
+            return { step: "the tracker's status menu casts shadow-popover-md over no raw overlay", ok: s.ok === true, detail: JSON.stringify(s) };
+        });
+        await lookEval(h, `unmountAll();`);
+
+        // the Brief's toast, shown through its own atom
+        await run("brief toast", async () => {
+            await h.goto("jarvis");
+            const s = await lookEval(h, `
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                const { briefToastAtom } = await mod("app/view/jarvis/briefundo.ts");
+                globalStore.set(briefToastAtom, { id: Date.now(), text: "Chunk deleted", undo: () => {} });
+                const toast = () => document.querySelector("[data-jarvis-brief-toast]");
+                await until(() => toast() != null, 3000);
+                await nap(500);
+                return shadowVs(toast(), "shadow-popover-md");
+            `);
+            await h.shot(lookShot("ui-drift-brief-toast"));
+            await lookEval(h, `
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                globalStore.set((await mod("app/view/jarvis/briefundo.ts")).briefToastAtom, null);
+            `);
+            return { step: "the brief toast casts shadow-popover-md over no raw overlay", ok: s.ok === true, detail: JSON.stringify(s) };
+        });
+
+        // Escape closes each hand-rolled menu onto its trigger, and only the menu
+        const shown = (await radarOpen(h)) && (await radarMock(h, "results", "report"));
+        if (!shown) {
+            steps.push({ step: "the radar's results fixture draws its report", ok: false, detail: "no report view" });
+        } else {
+            await run("scope", () =>
+                driftEscape(h, "Escape closes Radar's project scope menu and focuses its trigger", `${RADAR_ROOT}?.querySelector('button[aria-label^="Scanned project"], button[aria-label="Select a project to scan"]')`)
+            );
+            await run("audits", () =>
+                driftEscape(h, "Escape closes Radar's audited-commits popover and focuses its toggle", `${RADAR_ROOT}?.querySelector("[data-radar-audits-toggle]")`)
+            );
+            await radarClick(h, '[data-radar-group="open"] [data-radar-finding-row]');
+            await polishWaitFor(h, radarHas("[data-radar-finding-detail]"), 3000);
+            await run("dismiss", () =>
+                driftEscape(
+                    h,
+                    "Escape closes a finding's Dismiss menu and focuses its button",
+                    `[...(${RADAR_ROOT}?.querySelectorAll("[data-radar-finding-detail] button") ?? [])].find((b) => (b.textContent || "").trim() === "Dismiss")`
+                )
+            );
+            await run("switcher radar", () => driftEscape(h, "Escape closes the project switcher on Radar and focuses it, staying on Radar", DRIFT_SWITCHER));
+        }
+        await h.goto("agent");
+        await run("switcher agent", () => driftEscape(h, "Escape closes the project switcher on Agent and focuses it, staying on Agent", DRIFT_SWITCHER));
+        return steps;
+    },
+    async teardown(h, ctx) {
+        try {
+            await lookHover(h, 1, 1);
+            await lookEval(h, `unmountAll();`);
+            await h.ev(`window.__setRadarScenario?.('live')`);
+            await h.ev(
+                ctx.priorScope == null
+                    ? `localStorage.removeItem(${JSON.stringify(RADAR_SCOPE_KEY)})`
+                    : `localStorage.setItem(${JSON.stringify(RADAR_SCOPE_KEY)}, ${JSON.stringify(ctx.priorScope)})`
+            );
+        } finally {
+            rmSync(ctx.dir, { recursive: true, force: true });
+            await h.goto("cockpit");
+        }
     },
 };
 
@@ -22616,6 +23511,7 @@ export const SCENARIOS = [
     runSheetDoneLook,
     runSheetCardsLook,
     codeStaleBarLook,
+    uiDrift,
     // last: its fixture roster stands in for the live one until its teardown reloads
     agentComposer,
 ];
