@@ -45,7 +45,7 @@ on the base app.
 
 ### Task 2: Settle whether the jarvis-volunteer, code-sidebar and brief-surface failures are on the base
 
-**Depends on:** none
+**Depends on:** Task 1
 **Files:** `scripts/cdp/scenarios.mjs`, `frontend/app/view/code/codesurface.tsx`, `frontend/app/view/code/codesearchpane.tsx`, `frontend/app/view/jarvis/briefsurface.tsx`, `frontend/app/view/jarvis/briefrowviews.tsx`, `frontend/app/view/jarvis/petpeek.tsx`, `frontend/app/view/jarvis/bubblecard.tsx`
 
 If the cause is in another file this run changed, fix it there and name the file in Differs from plan.
