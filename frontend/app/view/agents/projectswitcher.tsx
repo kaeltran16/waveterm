@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { useEscapeClose } from "@/app/hook/useEscapeClose";
 import { globalStore } from "@/app/store/jotaiStore";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ChevronDown, Plus } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsFromAgents } from "./agentsviewmodel";
 import { projectListAtom, removeProject, switcherProjects } from "./projectsstore";
@@ -29,6 +30,8 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
         setConfirming(null);
         setOpen(false);
     };
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    useEscapeClose(open, close, triggerRef);
     const select = (v: string) => {
         globalStore.set(model.projectFilterAtom, v);
         close();
@@ -40,6 +43,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
     return (
         <div className="relative">
             <button
+                ref={triggerRef}
                 type="button"
                 data-project-switcher={variant}
                 title={copy.title}

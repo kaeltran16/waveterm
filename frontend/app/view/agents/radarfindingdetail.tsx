@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { useEscapeClose } from "@/app/hook/useEscapeClose";
 import { globalStore } from "@/app/store/jotaiStore";
 import { openInCode } from "@/app/view/code/codestore";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
@@ -10,7 +11,7 @@ import { AVATAR_SURFACE_REACH_PX } from "@/app/view/jarvis/petview";
 import { landOn } from "@/app/view/jarvis/returnsurface";
 import { cn, fireAndForget } from "@/util/util";
 import { ArrowRight, ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatAgo } from "./agentsviewmodel";
 import { ambientRefForFinding } from "./ambient";
@@ -79,9 +80,12 @@ function investigationDetail(inv: RadarInvestigation, now: number): string {
 
 function DismissMenu({ finding, onPick }: { finding: RadarFinding; onPick: (entry: DismissReason) => void }) {
     const [open, setOpen] = useState(false);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    useEscapeClose(open, () => setOpen(false), triggerRef);
     return (
         <div className="relative">
             <button
+                ref={triggerRef}
                 type="button"
                 aria-expanded={open}
                 onClick={() => setOpen((v) => !v)}

@@ -11,6 +11,7 @@ import {
     resmonUiAtom,
 } from "@/app/cockpit/resmonstore";
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
+import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { anyModalOpen } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
@@ -134,6 +135,11 @@ const navigate = (ctx: KeyContext) => (!ctx.editable || ctx.leader != null) && !
 // is what assertNoConflicts exists to catch. During leader mode the matcher intercepts Escape ahead of
 // any binding (matcher.ts), so nothing is lost by keeping these strict.
 const navigateStrict = (ctx: KeyContext) => !ctx.editable && !ctx.modalOpen;
+
+// Every Escape binding that can be live under a hand-rolled dropdown (useEscapeClose) carries this. The
+// dispatcher runs on window capture and stops propagation when a binding runs, so the dropdown's own bubble
+// listener never sees the key unless the bindings stand down while it is open.
+const noEscapeMenuOpen = () => globalStore.get(escapeMenusOpenAtom) === 0;
 
 // Deep (non-home) surfaces whose Escape returns to the Cockpit. Excludes cockpit (already home), agent
 // (owns Escape via buildAgentBindings: exit fullscreen / back), and settings.
@@ -376,7 +382,9 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 // note", and going home too would do both at once
                 globalStore.get(noteChunkAtom) == null &&
                 // and the plan-editing menu above it, the innermost rung of all
-                globalStore.get(trackerMenuAtom) == null,
+                globalStore.get(trackerMenuAtom) == null &&
+                // and any hand-rolled dropdown (useEscapeClose): it closes on Escape and returns focus itself
+                noEscapeMenuOpen(),
             run: () => backOrHome(model),
         },
     ];
@@ -571,7 +579,10 @@ export function buildJarvisBindings(): Binding[] {
         group: "Jarvis",
         label: "Back out of the Chunk sidebar",
         when: (ctx) =>
-            onJarvis(ctx) && globalStore.get(noteChunkAtom) != null && globalStore.get(trackerMenuAtom) == null,
+            onJarvis(ctx) &&
+            globalStore.get(noteChunkAtom) != null &&
+            globalStore.get(trackerMenuAtom) == null &&
+            noEscapeMenuOpen(),
         run: () => {
             if (globalStore.get(readingNoteAtom).size > 0) {
                 globalStore.set(readingNoteAtom, new Set());
@@ -587,7 +598,7 @@ export function buildJarvisBindings(): Binding[] {
         keys: "Escape",
         group: "Jarvis",
         label: "Close the plan menu",
-        when: (ctx) => onJarvis(ctx) && globalStore.get(trackerMenuAtom) != null,
+        when: (ctx) => onJarvis(ctx) && globalStore.get(trackerMenuAtom) != null && noEscapeMenuOpen(),
         run: () => globalStore.set(trackerMenuAtom, null),
     };
 
@@ -810,6 +821,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 ctx.surface === "agent" &&
                 !ctx.modalOpen &&
                 globalStore.get(renamingRowAtom) == null &&
+                noEscapeMenuOpen() &&
                 globalStore.get(focusSubagentAtom) != null,
             run: () => globalStore.set(focusSubagentAtom, null),
         },
@@ -823,6 +835,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 ctx.surface === "agent" &&
                 !ctx.modalOpen &&
                 globalStore.get(renamingRowAtom) == null &&
+                noEscapeMenuOpen() &&
                 globalStore.get(shellTaskPeekAtom) != null,
             run: () => globalStore.set(shellTaskPeekAtom, null),
         },
@@ -833,6 +846,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             label: "Back, else to Cockpit (or exit fullscreen)",
             when: (ctx) =>
                 agentNavStrict(ctx) &&
+                noEscapeMenuOpen() &&
                 globalStore.get(focusSubagentAtom) == null &&
                 globalStore.get(shellTaskPeekAtom) == null &&
                 noCanvas(),
@@ -1105,7 +1119,7 @@ export function buildFilesBindings(): Binding[] {
             keys: "Escape",
             group: "Diff",
             label: "Clear filters",
-            when: filtering,
+            when: (ctx) => filtering(ctx) && noEscapeMenuOpen(),
             run: () => clearHistoryFilters(),
         },
         {
@@ -1171,7 +1185,7 @@ export function buildFilesBindings(): Binding[] {
             keys: "Escape",
             group: "Diff",
             label: "Back to history",
-            when: inCompare,
+            when: (ctx) => inCompare(ctx) && noEscapeMenuOpen(),
             run: () => leaveCompare(),
         },
         {

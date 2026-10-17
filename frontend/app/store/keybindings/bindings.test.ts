@@ -5,6 +5,7 @@ import { RESMON_UI_INITIAL } from "@/app/cockpit/resmon";
 import { resmonOpenAtom, resmonSnapshotAtom, resmonUiAtom } from "@/app/cockpit/resmonstore";
 import { globalStore } from "@/app/store/jotaiStore";
 import { SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
+import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
@@ -26,7 +27,12 @@ import { activeReviewAtom } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
-import { graphPeekOpenAtom, briefPeekRecordAtom } from "@/app/view/jarvis/jarvisstore";
+import {
+    graphPeekOpenAtom,
+    briefPeekRecordAtom,
+    noteChunkAtom,
+    trackerMenuAtom,
+} from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import { peekTarget } from "@/app/view/jarvis/openref";
 import { itemKeyCommand } from "@/app/view/jarvis/peekitemmodel";
@@ -147,6 +153,8 @@ describe("Escape back to the Cockpit", () => {
             (b) => b.id === "surface:back-home"
         )!;
 
+    afterEach(() => globalStore.set(escapeMenusOpenAtom, 0));
+
     it("leaves a deep surface, but is not bound on the Cockpit itself", () => {
         globalStore.set(graphPeekOpenAtom, false);
         globalStore.set(autonomyPanelOpenAtom, false);
@@ -181,6 +189,17 @@ describe("Escape back to the Cockpit", () => {
         expect(b.when!(ctx("usage"))).toBe(true);
     });
 
+    // the radar and project-switcher dropdowns close on Escape through useEscapeClose, a window bubble listener the
+    // capture-phase dispatcher would starve if this binding ran first
+    it("yields to an open useEscapeClose menu on every deep surface", () => {
+        const b = backHome();
+        globalStore.set(escapeMenusOpenAtom, 1);
+        expect(b.when!(ctx("radar"))).toBe(false);
+        expect(b.when!(ctx("code"))).toBe(false);
+        globalStore.set(escapeMenusOpenAtom, 0);
+        expect(b.when!(ctx("radar"))).toBe(true);
+    });
+
     // The Brief mounts two overlays that take Escape themselves and were missing from this list, so one
     // press both closed the overlay and left the surface — and because the overlay's owner state was never
     // cleared, returning to the Brief showed it open again. The peek is the Brief's only record
@@ -203,6 +222,80 @@ describe("Escape back to the Cockpit", () => {
         expect(b.when!(ctx("jarvis"))).toBe(false);
         globalStore.set(dagModalStateAtom, null);
         expect(b.when!(ctx("jarvis"))).toBe(true);
+    });
+});
+
+// the capture-phase dispatcher stops propagation when a binding runs, so useEscapeClose's bubble listener
+// only sees Escape if every binding that could be live under the menu stands down while one is open
+describe("Escape bindings yield to an open useEscapeClose menu", () => {
+    const base = { editable: false, modalOpen: false, leader: null };
+    const agentCtx: KeyContext = { ...base, surface: "agent" };
+    const filesCtx: KeyContext = { ...base, surface: "files" };
+    const jarvisCtx: KeyContext = { ...base, surface: "jarvis" };
+    const compare = {
+        repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
+        range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
+    } as any;
+
+    afterEach(() => {
+        globalStore.set(escapeMenusOpenAtom, 0);
+        globalStore.set(focusSubagentAtom, null);
+        globalStore.set(shellTaskPeekAtom, null);
+        globalStore.set(historyFiltersAtom, NO_FILTERS);
+        globalStore.set(diffScopeAtom, null);
+        globalStore.set(noteChunkAtom, null);
+        globalStore.set(trackerMenuAtom, null);
+    });
+
+    // arranges the state that makes the binding live, then shows the menu alone flips it off and back on
+    const yields = (when: (ctx: KeyContext) => boolean, c: KeyContext) => {
+        globalStore.set(escapeMenusOpenAtom, 0);
+        expect(when(c)).toBe(true);
+        globalStore.set(escapeMenusOpenAtom, 1);
+        expect(when(c)).toBe(false);
+        globalStore.set(escapeMenusOpenAtom, 0);
+        expect(when(c)).toBe(true);
+    };
+
+    it("agent:back", () => {
+        const b = buildAgentBindings(stubModel()).find((x) => x.id === "agent:back")!;
+        yields(b.when!, agentCtx);
+    });
+
+    it("subagent:back", () => {
+        globalStore.set(focusSubagentAtom, { parentId: "p", agentId: "s" } as any);
+        const b = buildAgentBindings(stubModel()).find((x) => x.id === "subagent:back")!;
+        yields(b.when!, agentCtx);
+    });
+
+    it("shelltask:back", () => {
+        globalStore.set(shellTaskPeekAtom, { parentId: "p", taskId: "t" });
+        const b = buildAgentBindings(stubModel()).find((x) => x.id === "shelltask:back")!;
+        yields(b.when!, agentCtx);
+    });
+
+    it("files:clear-filters", () => {
+        globalStore.set(historyFiltersAtom, { author: "dana", path: "", text: "" });
+        const b = buildFilesBindings().find((x) => x.id === "files:clear-filters")!;
+        yields(b.when!, filesCtx);
+    });
+
+    it("files:exit-compare", () => {
+        globalStore.set(diffScopeAtom, compare);
+        const b = buildFilesBindings().find((x) => x.id === "files:exit-compare")!;
+        yields(b.when!, filesCtx);
+    });
+
+    it("jarvis:close-notes", () => {
+        globalStore.set(noteChunkAtom, "chunk-1");
+        const b = buildJarvisBindings().find((x) => x.id === "jarvis:close-notes")!;
+        yields(b.when!, jarvisCtx);
+    });
+
+    it("jarvis:close-tracker-menu", () => {
+        globalStore.set(trackerMenuAtom, "menu-1");
+        const b = buildJarvisBindings().find((x) => x.id === "jarvis:close-tracker-menu")!;
+        yields(b.when!, jarvisCtx);
     });
 });
 
