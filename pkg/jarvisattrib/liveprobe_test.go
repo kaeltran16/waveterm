@@ -104,7 +104,7 @@ func TestLiveCorpusShape(t *testing.T) {
 		t.Fatalf("gatherLookups: %v", err)
 	}
 	now := nowFn()
-	var inProbation, pastTimeBox, undated int
+	var pastTimeBox, undated int
 	oldestAgeMs := int64(0)
 	for _, r := range runs {
 		ts := r.CompletedTs
@@ -119,15 +119,12 @@ func TestLiveCorpusShape(t *testing.T) {
 		if age > oldestAgeMs {
 			oldestAgeMs = age
 		}
-		if age < probationMs {
-			inProbation++
-		}
 		if age > timeBoxMs {
 			pastTimeBox++
 		}
 	}
-	t.Logf("runs=%d undated=%d inProbation(<%dh)=%d pastTimeBox(>%dd)=%d oldestRunAge=%.1fd",
-		len(runs), undated, probationMs/(60*60*1000), inProbation, timeBoxMs/msPerDay,
+	t.Logf("runs=%d undated=%d pastTimeBox(>%dd)=%d oldestRunAge=%.1fd",
+		len(runs), undated, timeBoxMs/msPerDay,
 		pastTimeBox, float64(oldestAgeMs)/float64(msPerDay))
 	if pastTimeBox == 0 {
 		t.Logf("timeBoxMs is still unexercised: no run is older than %d days, so no layer-3 edge has "+

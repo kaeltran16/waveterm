@@ -11,7 +11,6 @@ import {
     refusedNote,
     refusedRouteFor,
     resolveEffectiveRoute,
-    routePickerItems,
     scopePickerSections,
 } from "./route";
 
@@ -93,11 +92,6 @@ describe("route derivation", () => {
     it("keeps the channel override's model and drops a stale tier", () => {
         expect(normalizeProfileOverrideRoute({ route: { runtime: "claude", model: "opus", tier: "mid" } })).toEqual({ route: pin("claude", "opus") });
         expect(normalizeProfileOverrideRoute({ route: { runtime: "" } })).toEqual({ route: undefined });
-    });
-
-    it("builds picker rows exclusively from backend capabilities", () => {
-        const pi = [runtimeDefault("pi"), cap("pi", "opencode/deepseek-v4-pro")];
-        expect(routePickerItems([harness("pi", pi), harness("codex")])).toEqual([{ runtime: "pi", label: "PI", capabilities: pi }]);
     });
 });
 

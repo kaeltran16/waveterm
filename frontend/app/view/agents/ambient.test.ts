@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ambientRefForFinding, emptyAmbientProvider, makeAmbientProvider } from "./ambient";
+import { ambientRefForFinding, makeAmbientProvider } from "./ambient";
 
 const NOW = 10_000_000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -63,8 +63,9 @@ describe("makeAmbientProvider", () => {
     });
 
     it("degrades to nothing before the map loads", () => {
-        expect(emptyAmbientProvider.tagsFor({ oref: "run:r1" })).toEqual([]);
-        expect(emptyAmbientProvider.decisionsFor({ links: ["task-auth"] })).toEqual([]);
+        const empty = makeAmbientProvider(null);
+        expect(empty.tagsFor({ oref: "run:r1" })).toEqual([]);
+        expect(empty.decisionsFor({ links: ["task-auth"] })).toEqual([]);
     });
 });
 

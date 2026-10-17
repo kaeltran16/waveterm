@@ -619,18 +619,6 @@ export function partitionBackgrounded(
     return { active, backgrounded };
 }
 
-/** Pure: the asking agent whose body is expanded in the spotlight. The cursor's ask wins when the
- *  cursor is on an ask; otherwise the first ask. Undefined when nothing is asking. */
-export function focusedAskId(askingIds: string[], cursorId: string | undefined): string | undefined {
-    if (askingIds.length === 0) {
-        return undefined;
-    }
-    if (cursorId != null && askingIds.includes(cursorId)) {
-        return cursorId;
-    }
-    return askingIds[0];
-}
-
 /** Pure: the ask to jump to after `current`, cycling with wrap. Defaults to the first ask when
  *  `current` is absent or no longer in the list. Undefined for an empty list. */
 export function nextAskId(ids: string[], current?: string): string | undefined {
@@ -925,21 +913,6 @@ export function matchesProjectFilter(agent: AgentVM, filter: string): boolean {
  *  filter is applied separately by the caller so the live-section counts can ignore it. */
 export function filterAgents(agents: AgentVM[], projectFilter: string, liveOnly: boolean): AgentVM[] {
     return agents.filter((a) => matchesProjectFilter(a, projectFilter) && (!liveOnly || a.state !== "idle"));
-}
-
-/** Pure: the highest reported 5-hour plan pct across agents, or undefined if none report one. */
-export function topFiveHourPct(agents: AgentVM[]): number | undefined {
-    let top: number | undefined;
-    for (const a of agents) {
-        const p = a.usage?.fivehourpct;
-        if (p == null) {
-            continue;
-        }
-        if (top == null || p > top) {
-            top = p;
-        }
-    }
-    return top;
 }
 
 // --- card data types --------------------------------------------------------

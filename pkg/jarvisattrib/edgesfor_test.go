@@ -3,6 +3,7 @@ package jarvisattrib
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
@@ -17,9 +18,9 @@ func TestEdgesForEndToEnd(t *testing.T) {
 	chID := "aaaaaaaa-0000-0000-0000-000000000001"
 	runID := "bbbbbbbb-0000-0000-0000-000000000001"
 	ch := &waveobj.Channel{OID: chID, Name: "oauth channel", ProjectPath: "/repo/app", Meta: make(waveobj.MetaMapType)}
-	// CreatedTs old enough to be past probation immediately; ticket in Goal drives the layer-2 hit.
+	// the ticket in Goal drives the layer-2 hit
 	run := &waveobj.Run{OID: runID, ID: runID, ChannelOID: chID, Goal: "PROJ-142 pkce flow",
-		ProjectPath: "/repo/app", Status: "done", CreatedTs: nowFn() - probationMs - 1000, CompletedTs: nowFn() - 1000,
+		ProjectPath: "/repo/app", Status: "done", CreatedTs: nowFn() - 2000, CompletedTs: nowFn() - 1000,
 		Meta: make(waveobj.MetaMapType)}
 	if err := wstore.DBInsert(ctx, ch); err != nil {
 		t.Fatalf("insert channel: %v", err)
@@ -37,33 +38,17 @@ func TestEdgesForEndToEnd(t *testing.T) {
 		t.Fatalf("CreateDossier: %v", err)
 	}
 
-	// 1) inferred layer-2 edge, informing (not yet hardened)
+	// 1) inferred layer-2 edge, informing
 	edges, err := EdgesFor(ctx, v, id)
 	if err != nil {
 		t.Fatalf("EdgesFor: %v", err)
 	}
 	got := findEdge(edges, "run:"+runID)
-	if got == nil || got.State != StateInforming || !containsLayer(got.Layers, 2) || got.Confidence != weightLayer2 {
+	if got == nil || got.State != StateInforming || !slices.Contains(got.Layers, 2) || got.Confidence != weightLayer2 {
 		t.Fatalf("expected informing layer-2 edge, got %+v (all=%+v)", got, edges)
 	}
 
-	// Backfill returns the same informing edge as a proposal
-	proposals, err := backfill(ctx, v, id)
-	if err != nil || findEdge(proposals, "run:"+runID) == nil {
-		t.Fatalf("backfill missing the proposal: %+v err=%v", proposals, err)
-	}
-
-	// 2) harden promotes the deterministic, past-probation edge into canonical refs
-	if err := harden(ctx, v, id); err != nil {
-		t.Fatalf("harden: %v", err)
-	}
-	edges, _ = EdgesFor(ctx, v, id)
-	got = findEdge(edges, "run:"+runID)
-	if got == nil || got.State != StateConfirmed || !containsLayer(got.Layers, 1) || got.Confidence != 1.0 {
-		t.Fatalf("after harden expected confirmed layer-1 edge, got %+v", got)
-	}
-
-	// 3) Detach suppresses it
+	// 2) Detach suppresses it
 	if err := Detach(ctx, v, id, "run:"+runID); err != nil {
 		t.Fatalf("Detach: %v", err)
 	}

@@ -77,12 +77,6 @@ func windowsOverlap(d *jarvisdossier.Dossier, run *waveobj.Run, now int64) bool 
 	return run.CreatedTs <= dEnd && runEnd(run, now) >= d.Created
 }
 
-// pastProbation reports whether an inferred edge is old enough to harden. Age is the age of the Run the
-// edge is built on — re-derived from Run.CreatedTs, so a cache rebuild computes it identically.
-func pastProbation(run *waveobj.Run, now int64) bool {
-	return now-run.CreatedTs >= probationMs
-}
-
 // extractLayer3 fires a weak structural edge when the run is in one of the dossier's anchor repos and
 // their windows overlap. Self-corrects: a concrete different ticket in the run's commits retracts it.
 // Time-boxes: a never-reinforced run finished beyond the time-box decays (not returned).

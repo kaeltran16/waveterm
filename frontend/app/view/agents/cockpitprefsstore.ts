@@ -50,14 +50,6 @@ export function coerceScrollback(raw: string): number | null {
     return Math.min(SCROLLBACK_MAX, Math.max(SCROLLBACK_MIN, Math.floor(n)));
 }
 
-// Clamp a transparency value to [0, 1]. Non-finite input coerces to 0 (fully opaque).
-export function coerceTransparency(n: number): number {
-    if (!Number.isFinite(n)) {
-        return 0;
-    }
-    return Math.min(1, Math.max(0, n));
-}
-
 // Decide whether a stat result is a valid vault target. Returns an error message to surface, or null
 // when the folder is safe to save. Callers skip the stat (and this check) for an empty path — clearing
 // the override is valid and falls back to the default vault dir.

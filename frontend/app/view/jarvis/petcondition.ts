@@ -41,15 +41,6 @@ export type PetExpression =
 
 export type PetPosture = "review-gate" | "escalation" | "blocked-worker" | "none";
 
-// The rank of each expression, exported so the precedence is assertable rather than inferred from the
-// order of ifs below.
-export const EXPRESSION_RANK: Record<PetExpression["kind"], number> = {
-    "link-lost": 1,
-    "run-held": 2,
-    tired: 3,
-    "at-rest": 4,
-};
-
 const ATTENTION_LAND_HELD = "run-land-held";
 
 // Held lands only: an unverified run is common enough that the avatar would sit red most of the day, so
@@ -142,15 +133,4 @@ export function conditionLine(expr: PetExpression, nowMs: number): string {
 function clockTime(epochMs: number): string {
     const d = new Date(epochMs);
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-const POSTURE_LINE: Record<PetPosture, string> = {
-    "review-gate": "A review gate is waiting on you.",
-    escalation: "Something escalated to you.",
-    "blocked-worker": "A worker is blocked on your reply.",
-    none: "",
-};
-
-export function postureLine(posture: PetPosture): string {
-    return POSTURE_LINE[posture];
 }

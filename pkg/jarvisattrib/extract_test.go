@@ -2,6 +2,7 @@
 package jarvisattrib
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
@@ -13,7 +14,7 @@ func TestLayer2MatchesTicket(t *testing.T) {
 
 	// hit via Run.Goal
 	e, ok := extractLayer2(d, &waveobj.Run{OID: "r1", Goal: "implement PROJ-142 pkce"}, "", nil)
-	if !ok || e.RunORef != "run:r1" || e.Confidence != weightLayer2 || !containsLayer(e.Layers, 2) {
+	if !ok || e.RunORef != "run:r1" || e.Confidence != weightLayer2 || !slices.Contains(e.Layers, 2) {
 		t.Fatalf("goal match: %+v ok=%v", e, ok)
 	}
 	if e.Provenance != provTicket || e.State != StateInforming {
@@ -47,7 +48,7 @@ func TestLayer3AnchoredCorrelation(t *testing.T) {
 
 	// in anchor repo + overlapping window + no contradicting ticket → weak edge
 	e, ok := extractLayer3(d, run, anchor, nil, now)
-	if !ok || e.Confidence != weightLayer3 || e.Provenance != provStructural || !containsLayer(e.Layers, 3) {
+	if !ok || e.Confidence != weightLayer3 || e.Provenance != provStructural || !slices.Contains(e.Layers, 3) {
 		t.Fatalf("expected weak structural edge, got %+v ok=%v", e, ok)
 	}
 
@@ -92,16 +93,6 @@ func TestLayer3TerminalRunWithoutCompletionEndsAtCreation(t *testing.T) {
 	live := &waveobj.Run{OID: "r4", ProjectPath: "/repo/app", Status: "executing", CreatedTs: now - 9000}
 	if _, ok := extractLayer3(d, live, anchor, nil, now); !ok {
 		t.Fatal("a still-running run extends to now and correlates")
-	}
-}
-
-func TestPastProbation(t *testing.T) {
-	const now = int64(2_000_000_000_000)
-	if pastProbation(&waveobj.Run{CreatedTs: now - 1000}, now) {
-		t.Fatal("a fresh run is within probation")
-	}
-	if !pastProbation(&waveobj.Run{CreatedTs: now - probationMs - 1}, now) {
-		t.Fatal("a run older than the probation window is past probation")
 	}
 }
 
@@ -199,11 +190,11 @@ func TestAssembleMergesAndOrders(t *testing.T) {
 		byORef[e.RunORef] = e
 	}
 	// r0: canonical (layer 1), confirmed, confidence 1.0
-	if e := byORef["run:r0"]; e.State != StateConfirmed || e.Confidence != 1.0 || !containsLayer(e.Layers, 1) {
+	if e := byORef["run:r0"]; e.State != StateConfirmed || e.Confidence != 1.0 || !slices.Contains(e.Layers, 1) {
 		t.Fatalf("r0 layer-1 edge wrong: %+v", e)
 	}
 	// r1: ticket match AND same-repo/window prior → layers {2,3}, confidence max = 0.8, provenance ticket
-	if e := byORef["run:r1"]; !containsLayer(e.Layers, 2) || !containsLayer(e.Layers, 3) || e.Confidence != 0.8 || e.Provenance != provTicket {
+	if e := byORef["run:r1"]; !slices.Contains(e.Layers, 2) || !slices.Contains(e.Layers, 3) || e.Confidence != 0.8 || e.Provenance != provTicket {
 		t.Fatalf("r1 merged edge wrong: %+v", e)
 	}
 	// r2: weak structural only

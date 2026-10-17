@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
-import { answeredAskIdsAcross, buildFleetSnapshot, fleetCostUsd, needsHuman, type WorkerState } from "./jarvisderive";
+import { answeredAskIdsAcross, buildFleetSnapshot, needsHuman } from "./jarvisderive";
 
 // one channel's message list
 function chan(messages: Partial<ChannelMessage>[]): ChannelMessage[] {
@@ -174,18 +174,5 @@ describe("buildFleetSnapshot dismiss", () => {
         const snap = buildFleetSnapshot(chan([dispatch("tab:w1", 1), dismiss("tab:ghost", 2)]), [] as unknown as AgentVM[]);
         expect(snap).toHaveLength(1);
         expect(snap[0].oref).toBe("tab:w1");
-    });
-});
-
-describe("fleetCostUsd", () => {
-    const w = (over: Partial<WorkerState>): WorkerState => ({ oref: "tab:x", name: "claude", state: "working", ...over });
-    it("sums costUsd across live workers", () => {
-        expect(fleetCostUsd([w({ costUsd: 1.25 }), w({ costUsd: 0.75 })])).toBe(2);
-    });
-    it("ignores workers with no cost (gone or unreported)", () => {
-        expect(fleetCostUsd([w({ costUsd: 1.5 }), w({ state: "gone" }), w({})])).toBe(1.5);
-    });
-    it("is 0 for an empty fleet", () => {
-        expect(fleetCostUsd([])).toBe(0);
     });
 });

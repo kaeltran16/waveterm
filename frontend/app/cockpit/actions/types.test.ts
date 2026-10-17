@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { kindOfKey } from "./index";
 import { actionsFor, verbRows, type ThingAction, type ThingKindDef } from "./types";
 
 type T = { id: string; live: boolean };
@@ -31,10 +30,5 @@ describe("action registry", () => {
         const rows = verbRows(def, [e("1", true), e("2", false), e("3", true)]).filter((r) => r.action === cancel);
         expect(rows.map((r) => r.key)).toEqual(["action:t:cancel:run:1", "action:t:cancel:run:3"]);
         expect(rows[0].search).toBe("Cancel run run 1");
-    });
-    it("kindOfKey resolves by prefix", () => {
-        expect(kindOfKey("run:abc")?.noun).toBe("Run");
-        expect(kindOfKey("effort:effort:x")?.noun).toBe("Initiative");
-        expect(kindOfKey("widen")).toBeUndefined();
     });
 });

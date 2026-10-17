@@ -8,12 +8,6 @@ import (
 	"testing"
 )
 
-func TestOpenrouterModelDefaults(t *testing.T) {
-	if m := "deepseek/deepseek-v4-flash"; OpenrouterCheapModel() != m {
-		t.Logf("OpenrouterCheapModel: got %q, expected %q (when no config set)", OpenrouterCheapModel(), m)
-	}
-}
-
 func TestDecodeOpenrouterStreamReadsUsage(t *testing.T) {
 	stream := "data: {\"model\":\"deepseek/deepseek-v4-pro\",\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\n" +
 		"data: {\"model\":\"deepseek/deepseek-v4-pro\",\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n" +

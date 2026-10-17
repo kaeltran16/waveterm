@@ -181,26 +181,6 @@ export function setActiveRunId(channelId: string, runId: string | undefined): vo
     globalStore.set(activeRunIdAtom, { ...prev, [channelId]: runId });
 }
 
-// The composer's draft, keyed by subject id like the atoms above — one box serves every face, so one
-// keyed store does too (a channel subject's id *is* its channel oid). A single string carried a
-// half-typed question onto the next subject, where one Enter would have dispatched it against that
-// subject instead of the one it was written for.
-export const jarvisDraftAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
-
-export function setJarvisDraft(subjectId: string, text: string): void {
-    const prev = globalStore.get(jarvisDraftAtom);
-    globalStore.set(jarvisDraftAtom, { ...prev, [subjectId]: text });
-}
-
-// "this subject is asking which channel to dispatch into". Keyed for the same reason and by the same key:
-// the prompt only means anything beside the draft that raised it, so the two travel together.
-export const channelPickingAtom = atom<Record<string, boolean>>({}) as PrimitiveAtom<Record<string, boolean>>;
-
-export function setChannelPicking(subjectId: string, picking: boolean): void {
-    const prev = globalStore.get(channelPickingAtom);
-    globalStore.set(channelPickingAtom, { ...prev, [subjectId]: picking });
-}
-
 // "the user is composing a new run in this channel", keyed by channel id. Sticky, because clearing the
 // active run id cannot express it: resolveActiveRunId reads undefined as "pick one for me" and lands back
 // on the most-recent non-terminal run — the very run the Talk face was steering. So while any run in a

@@ -15,54 +15,10 @@ import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import {
     activeRunIdAtom,
     activeSubjectAtom,
-    channelPickingAtom,
-    jarvisDraftAtom,
     persistedSubjectAtom,
     selectSubject,
     setActiveRunId,
-    setChannelPicking,
-    setJarvisDraft,
 } from "./jarvissubjectstore";
-
-const draftFor = (subjectId: string) => globalStore.get(jarvisDraftAtom)[subjectId] ?? "";
-const pickingFor = (subjectId: string) => globalStore.get(channelPickingAtom)[subjectId] ?? false;
-
-describe("per-subject composer state", () => {
-    beforeEach(() => {
-        globalStore.set(jarvisDraftAtom, {});
-        globalStore.set(channelPickingAtom, {});
-    });
-
-    // the defect: jarvisDraftAtom was a single string, so a half-typed question typed on one thread was
-    // still in the box on the next subject — and one Enter there would dispatch it against that subject.
-    it("does not carry a draft from one subject to another", () => {
-        setJarvisDraft("thread-1", "@run tighten the record band copy");
-        expect(draftFor("thread-2")).toBe("");
-    });
-
-    it("returns each subject to the draft it was left with", () => {
-        setJarvisDraft("thread-1", "why worktrees?");
-        setJarvisDraft("thread-2", "what changed here?");
-        expect(draftFor("thread-1")).toBe("why worktrees?");
-        expect(draftFor("thread-2")).toBe("what changed here?");
-    });
-
-    it("clears a subject's draft on submit without touching the others", () => {
-        setJarvisDraft("thread-1", "why worktrees?");
-        setJarvisDraft("thread-2", "what changed here?");
-        setJarvisDraft("thread-1", "");
-        expect(draftFor("thread-1")).toBe("");
-        expect(draftFor("thread-2")).toBe("what changed here?");
-    });
-
-    // the picker's twin defect: an open "Dispatch into which channel?" prompt was component state on a
-    // component that never unmounts, so it followed the user too — offering to dispatch the old draft.
-    it("does not carry an open channel picker to another subject", () => {
-        setChannelPicking("thread-1", true);
-        expect(pickingFor("thread-1")).toBe(true);
-        expect(pickingFor("thread-2")).toBe(false);
-    });
-});
 
 describe("setActiveRunId", () => {
     it("keys the active run by channel, leaving other channels alone", () => {

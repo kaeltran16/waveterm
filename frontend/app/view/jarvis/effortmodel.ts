@@ -193,29 +193,3 @@ export function effortFacts(effort: Effort, all: EffortSummary[]): EffortFacts {
             })),
     };
 }
-
-const EFFORT_DELTA_KINDS = new Set(["effort-created", "chunk-done", "chunk-added", "chunk-status", "effort-status", "effort-note"]);
-
-// delta rows carry Title = effort title, Detail = "<label> · <stamp>" (Task 1 fold); the param is
-// structural so both wire TimelineEvents and the briefing's derived DeltaRows can feed it.
-export function effortDeltaRow(ev: { kind: string; title: string; detail?: string | null }): {
-    title: string;
-    meta: string;
-} | null {
-    if (!EFFORT_DELTA_KINDS.has(ev.kind)) return null;
-    return { title: ev.title, meta: ev.detail ?? "" };
-}
-
-// The efforts list splits archived rows into their own group so "show archived" is a render toggle
-// rather than a second fetch shape. Wire order is already newest-updated first; both groups keep it.
-export function partitionEfforts(efforts: EffortSummary[]): {
-    active: EffortCardModel[];
-    archived: EffortCardModel[];
-} {
-    const active: EffortCardModel[] = [];
-    const archived: EffortCardModel[] = [];
-    for (const e of efforts) {
-        (e.status === "archived" ? archived : active).push(buildEffortCard(e));
-    }
-    return { active, archived };
-}

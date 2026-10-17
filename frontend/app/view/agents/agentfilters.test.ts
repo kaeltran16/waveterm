@@ -2,14 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import {
-    filterAgents,
-    matchesProjectFilter,
-    projectOf,
-    projectsFromAgents,
-    topFiveHourPct,
-    type AgentVM,
-} from "./agentsviewmodel";
+import { filterAgents, matchesProjectFilter, projectOf, projectsFromAgents, type AgentVM } from "./agentsviewmodel";
 
 const P = "/h/.claude/projects/C--Users-u-IdeaProjects-waveterm/x.jsonl";
 const Q = "/h/.claude/projects/C--Users-u-IdeaProjects-loom/y.jsonl";
@@ -94,20 +87,5 @@ describe("filterAgents", () => {
     });
     it("composes project + liveOnly", () => {
         expect(filterAgents(agents, "waveterm", true).map((a) => a.id)).toEqual(["a"]);
-    });
-});
-
-describe("topFiveHourPct", () => {
-    it("returns the highest non-null fivehourpct", () => {
-        expect(
-            topFiveHourPct([
-                mk("a", "working", { usage: { fivehourpct: 30 } }),
-                mk("b", "working", { usage: { fivehourpct: 71 } }),
-                mk("c", "working", { usage: {} }),
-            ])
-        ).toBe(71);
-    });
-    it("returns undefined when no agent reports a 5h pct", () => {
-        expect(topFiveHourPct([mk("a", "working"), mk("b", "working", { usage: {} })])).toBeUndefined();
     });
 });

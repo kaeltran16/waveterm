@@ -38,7 +38,6 @@ import {
     planPreviewAtom,
     reviewerPicksAtom,
     reviewerRouteAtom,
-    routeOpenRequestAtom,
     runRouteAtom,
     runShapeAtom,
     setAutonomous,
@@ -277,17 +276,10 @@ function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
     const reviewerPicks = useAtomValue(reviewerPicksAtom);
     const reviewerRoute = useAtomValue(reviewerRouteAtom);
     const lightReviewerRoute = useAtomValue(lightReviewerRouteAtom);
-    const openRequest = useAtomValue(routeOpenRequestAtom);
     return (
         <Section label="Routing">
             <div className="flex flex-wrap items-center gap-2">
-                <RoutePicker
-                    value={route}
-                    onChange={setRunRoute}
-                    placement="bottom-start"
-                    openRequest={openRequest}
-                    title="Lead model"
-                />
+                <RoutePicker value={route} onChange={setRunRoute} placement="bottom-start" title="Lead model" />
                 {showWorkerRoute ? (
                     <>
                         <RoutePicker

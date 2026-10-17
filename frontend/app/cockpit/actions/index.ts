@@ -14,8 +14,3 @@ export const THING_KINDS: ThingKindDef<any>[] = [
     INITIATIVE_KIND,
     PROJECT_KIND,
 ];
-
-export function kindOfKey(key: string): ThingKindDef<any> | undefined {
-    const prefix = key.split(":", 1)[0];
-    return THING_KINDS.find((def) => def.kind === prefix);
-}

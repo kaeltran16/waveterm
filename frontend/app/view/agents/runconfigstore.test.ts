@@ -13,15 +13,12 @@ import {
     parallelismAtom,
     planPathAtom,
     planPreviewAtom,
-    requestRouteOpen,
     resetRunConfig,
     resetRunConfigForChannel,
-    routeOpenRequestAtom,
     routeTouchedAtom,
     runRouteAtom,
     runShapeAtom,
     setAutonomous,
-    setParallelism,
     setPlanPath,
     setRunRoute,
     setRunShape,
@@ -44,7 +41,7 @@ describe("resetRunConfig", () => {
         globalStore.set(runShapeAtom, "orchestrator");
         globalStore.set(workerRouteAtom, pin("opus"));
         setRunRoute(pin("sonnet"));
-        setParallelism(7);
+        stepParallelism(7 - DEFAULT_PARALLELISM);
 
         resetRunConfig();
 
@@ -84,16 +81,6 @@ describe("setRunRoute", () => {
     });
 });
 
-describe("setParallelism", () => {
-    it("stores only widths the engine accepts", () => {
-        setParallelism(MAX_PARALLELISM + 5);
-        expect(globalStore.get(parallelismAtom)).toBe(MAX_PARALLELISM);
-
-        setParallelism(0);
-        expect(globalStore.get(parallelismAtom)).toBe(1);
-    });
-});
-
 describe("stepParallelism", () => {
     // clicks batch: a stepper that computed `par + 1` from its render closure re-read the same stale
     // value for every click in the batch, so a fast double-click advanced one step. Measured over CDP
@@ -121,14 +108,6 @@ describe("stepParallelism", () => {
     });
 });
 
-describe("requests", () => {
-    it("bumps the route-open counter for a repeated blocked launch", () => {
-        const before = globalStore.get(routeOpenRequestAtom);
-        requestRouteOpen();
-        expect(globalStore.get(routeOpenRequestAtom)).toBe(before + 1);
-    });
-});
-
 describe("resetRunConfigForChannel", () => {
     // every surface but Agent unmounts on switch, so the composer's mount effect fires again on the
     // same channel. A mount-keyed reset would throw away a configured-but-unlaunched run for the cost
@@ -136,7 +115,7 @@ describe("resetRunConfigForChannel", () => {
     it("survives a remount on the same channel", () => {
         resetRunConfigForChannel("ch-1");
         globalStore.set(runShapeAtom, "orchestrator");
-        setParallelism(6);
+        stepParallelism(6 - DEFAULT_PARALLELISM);
 
         resetRunConfigForChannel("ch-1");
 
@@ -147,7 +126,7 @@ describe("resetRunConfigForChannel", () => {
     it("clears the configuration when the channel actually changes", () => {
         resetRunConfigForChannel("ch-1");
         globalStore.set(runShapeAtom, "orchestrator");
-        setParallelism(6);
+        stepParallelism(6 - DEFAULT_PARALLELISM);
 
         resetRunConfigForChannel("ch-2");
 
@@ -170,7 +149,7 @@ describe("resetRunConfigForChannel", () => {
     it("keeps hand-made choices across a channel change when the caller asks it to", () => {
         resetRunConfigForChannel("ch-1", true);
         setRunShape("orchestrator");
-        setParallelism(6);
+        stepParallelism(6 - DEFAULT_PARALLELISM);
 
         resetRunConfigForChannel("ch-2", true);
 
@@ -196,7 +175,7 @@ describe("resetRunConfigForChannel", () => {
 describe("endRunConfigDraft", () => {
     it("clears the touched flag so a later profile save hydrates", () => {
         setRunShape("orchestrator");
-        setParallelism(6);
+        stepParallelism(6 - DEFAULT_PARALLELISM);
         expect(globalStore.get(configTouchedAtom)).toBe(true);
 
         endRunConfigDraft({ playbook: [], defaultmode: "orchestrator", parallelism: 5 } as JarvisProfile);
@@ -215,7 +194,7 @@ describe("endRunConfigDraft", () => {
     it("returns the next draft to the channel's saved defaults, not to the launched one", () => {
         setRunShape("orchestrator");
         setWorkerRoute(pin("haiku"));
-        setParallelism(6);
+        stepParallelism(6 - DEFAULT_PARALLELISM);
 
         endRunConfigDraft({
             playbook: [],
@@ -232,7 +211,7 @@ describe("endRunConfigDraft", () => {
     it("falls back to the launch baselines when the channel has no profile", () => {
         setRunShape("orchestrator");
         setWorkerRoute(pin("opus"));
-        setParallelism(6);
+        stepParallelism(6 - DEFAULT_PARALLELISM);
 
         endRunConfigDraft(null);
 
@@ -270,7 +249,7 @@ describe("hydrateRunConfigFromProfile", () => {
     // a save while the user is mid-composition must not repaint the controls under them
     it("never overwrites a configuration the user has edited by hand", () => {
         setRunShape("orchestrator");
-        setParallelism(2);
+        stepParallelism(2 - DEFAULT_PARALLELISM);
         setWorkerRoute(pin("haiku"));
 
         hydrateRunConfigFromProfile({
