@@ -27,7 +27,13 @@ Out of scope, and not to be touched by any task:
 - Any file not in a task's Files line. Another session has uncommitted work in this checkout, including
   `motiontokens.ts`, `runmodel.ts`, `runlauncher.tsx`, `routepicker.tsx`, `newruncontrol.tsx` and `profilemodel.ts`.
 
-Tasks 1 to 6 change no `scripts/cdp/scenarios.mjs`; Task 7 adds every scenario step, after they merge.
+Tasks 1 to 6 change no `scripts/cdp/scenarios.mjs`; Task 7 adds every scenario step, after they merge. Each task's
+acceptance names the steps Task 7 adds for it (its "step" lines); Task 7 owns them all. Two checks recur:
+
+- A **shadow check** reads the element's computed `box-shadow` and compares it with that of a probe `div` given the
+  intended token class (for example `shadow-popover-md`), and checks its computed background is not a raw white or
+  black overlay.
+- A **floor check** walks the view's root for visible text under `MIN_FONT_PX` (the helper Task 7 extracts).
 
 **Verify:** `node scripts/verify.mjs ./pkg/waveobj`
 **Check:** `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`
@@ -54,20 +60,29 @@ new-run-window, record-band-detach-restore and ui-drift scenarios, whose floor c
 ### Task 2: Raise the shell, modal and agent views' text to the floor and replace their glyph icons
 
 **Depends on:** none
-**Files:** `frontend/app/element/collapsiblerail.tsx`, `frontend/app/element/contextmenu.tsx`, `frontend/app/modals/dialogbutton.tsx`, `frontend/app/view/agents/agentlaunchhero.tsx`, `frontend/app/view/agents/codeblock.tsx`, `frontend/app/view/agents/navrail.tsx`, `frontend/app/view/agents/newagentmodal.tsx`, `frontend/app/view/agents/newprojectmodal.tsx`, `frontend/app/view/agents/planpreview.tsx`, `frontend/app/view/agents/runcards.tsx`
+**Files:** `frontend/app/element/collapsiblerail.tsx`, `frontend/app/element/contextmenu.tsx`, `frontend/app/modals/dialogbutton.tsx`, `frontend/app/view/agents/agentlaunchhero.tsx`, `frontend/app/view/agents/codeblock.tsx`, `frontend/app/view/agents/navrail.tsx`, `frontend/app/view/agents/newagentmodal.tsx`, `frontend/app/view/agents/newprojectmodal.tsx`, `frontend/app/view/agents/planpreview.tsx`
 
 - Text floor: `collapsiblerail.tsx` 126; `contextmenu.tsx` 82; `agentlaunchhero.tsx` 76; `codeblock.tsx` 28, 63;
-  `newagentmodal.tsx` 44 (the `LABEL` constant), 466; `newprojectmodal.tsx` 80, 92; `planpreview.tsx` 66, 79, 88;
-  `runcards.tsx` 180, 242.
+  `newagentmodal.tsx` 44 (the `LABEL` constant), 466; `newprojectmodal.tsx` 80, 92; `planpreview.tsx` 66, 79, 88.
+  `runcards.tsx` 180, 242 and 253 (BlockedCard, TriageChip, ShipMarker) are left alone: only `runbody.tsx`, a
+  pre-slice-5c view, renders them.
 - `dialogbutton.tsx` 47: the shortcut hint is 10px at `opacity-55`. Raise it and replace the opacity with an ink
   token (`text-muted` or `text-ink-faint`) that keeps the 4.5:1 contrast floor on both button styles.
 - `navrail.tsx` 93 is the count badge in a 15px pill and 98 the label under each rail icon. Raise both; grow the pill
   so a two-digit count fits, and keep every label on one line in the 78px rail (the narrow 56px rail hides labels).
-- Glyphs: `planpreview.tsx` 65 (`▼`/`▶` → lucide `ChevronDown`/`ChevronRight`), `runcards.tsx` 253.
+- Glyphs: `planpreview.tsx` 65 (`▼`/`▶` → lucide `ChevronDown`/`ChevronRight`).
 
 Acceptance: no text under 10.5px and no glyph icon left in these files. Shown by the Final's surface-smoke,
-cockpit-rail-tooltip, context-menu, task-detail, agent-launch-hero, new-project-modal, run-sheet-cards and ui-drift
-scenarios.
+cockpit-rail-tooltip, context-menu, task-detail, agent-launch-hero, new-project-modal and ui-drift scenarios, with
+these Task 7 steps:
+
+- step (ui-drift): the navrail at the 78px width with a two-digit count on a badge (a fixture, or the module rendered
+  with a count of 12): every label is one line (its height equals one line box), the count fits its pill
+  (`scrollWidth <= clientWidth`), and the rail passes the floor check; one `lookShot`.
+- step (ui-drift): a `DialogButton` with a `hint`, on both button styles: the hint is at least 10.5px, has no
+  `opacity` below 1, and its color is an ink token; one `lookShot`.
+- step (ui-drift): `planpreview` with a section open and one closed: each toggle holds an `svg` icon and no `▼`/`▶`
+  text.
 
 ### Task 3: Raise the diff, usage, Code and DAG views' text to the floor and put their shadows on the popover scale
 
@@ -81,7 +96,13 @@ scenarios.
   `codepathbar.tsx` 175, `codesurface.tsx` 190.
 
 Acceptance: no text under 10.5px and no `shadow-sm|md|lg|xl` left in these files. Shown by the Final's git-history,
-diff-compare, usage-charts, code-plain-dir, code-sidebar, dag-peek and ui-drift scenarios.
+diff-compare, usage-charts, code-plain-dir, code-sidebar, dag-peek and ui-drift scenarios, with these Task 7 steps:
+
+- step (usage-charts): hover a daily-chart bar so its tooltip shows; shadow check against the step Task 3 chose.
+- step (code-plain-dir or code-sidebar): open the `codepathbar` popover and the `codesurface` project picker; a shadow
+  check on each, one `lookShot` each.
+- step (dag-peek, or ui-drift through the module): a DAG card with a tag chip (`view.tag`): the chip passes the floor
+  check and fits on its line, and the card's height equals an untagged card's.
 
 ### Task 4: Replace raw white/black overlays and hand-rolled shadows with tokens
 
@@ -92,15 +113,37 @@ diff-compare, usage-charts, code-plain-dir, code-sidebar, dag-peek and ui-drift 
   `idlesection.tsx` 42; `backgroundedsection.tsx` 44; `settingssurface.tsx` 1106 (not 559, the toggle knob);
   `storagesection.tsx` 50; `resmonpopover.tsx` 184; `cockpithelp.tsx` 41. A hover keeps reading as a hover and a
   selected chip as selected on the default theme: compare against the house selected row (`bg-surface-selected`).
-- Shadows: `brieftoast.tsx` 32 and `inlinetrackerview.tsx` 509 hand-roll the same `0 12px 34px` recipe, and
-  `chunksidebar.tsx` 165 a side-sheet `-18px 0 44px`. Use a `shadow-popover-*` step where one reads the same. If none
-  does, add one token to `@theme` with a "why" comment and use it at both identical sites, rather than a recipe each.
-- `DESIGN.md`: under Typography, state the floor (no visible text under 10.5px; `text-xxs`/`text-xxxs` remain only
-  in the pre-slice-5c run views). Under Elevation, list any shadow token this task adds.
+- Shadows: `brieftoast.tsx` 32 and `inlinetrackerview.tsx` 509 hand-roll `0 12px 34px`, the geometry of
+  `shadow-popover-md`: use that step at both. `chunksidebar.tsx` 165 hand-rolls a side-sheet `-18px 0 44px`, which no
+  popover step matches (they all cast downward): add one `--shadow-sheet-side` token to `@theme` with a "why" comment
+  and use it there, still only under `@max-[1280px]`, where the sheet overlays the content.
+- `DESIGN.md`: under Typography, state the floor (no visible text under 10.5px). Say `text-xxs`/`text-xxxs` and
+  sub-floor sizes remain in the pre-slice-5c run views (including `runcards.tsx`'s BlockedCard, TriageChip and
+  ShipMarker, which only `runbody.tsx` renders), and are pending in `routepicker.tsx`, `runlauncher.tsx` and
+  `newruncontrol.tsx`, which this plan does not touch. Under Elevation, list `--shadow-sheet-side`.
 
 Acceptance: no `bg-white`, `bg-black` or hand-rolled `shadow-[` elevation left in these files except
 `settingssurface.tsx` 559. Shown by the Final's cockpit-polish, agent-composer, brief-inline-tracker,
-brief-initiatives-polish, settings-storage, settings-claude-account, resmon-live, motion-gaps and ui-drift scenarios.
+brief-initiatives-polish, settings-storage, settings-claude-account, resmon-live, motion-gaps and ui-drift scenarios,
+with these Task 7 steps:
+
+- step (ui-drift): an `answerbar` with options, shot at rest, with one option hovered (CDP mouse move) and with one
+  selected. The hovered option's computed background differs from the resting one, the selected one's equals a probe
+  with `bg-surface-selected`, and none is a raw white or black overlay; one `lookShot` per state.
+- step (cockpit-polish): the cockpit `HintsBar` (`[data-cockpit-hints]`) key chips have no raw white overlay
+  background.
+- step (resmon-live): in the open resmon popover, the element at `resmonpopover.tsx` 184 has no raw white or black
+  overlay background.
+- step (brief-inline-tracker): an open tracker menu (`[data-jarvis-tracker-menu]`): shadow check against
+  `shadow-popover-md`. Where the store has no initiative with chunks, ui-drift renders the menu through the module.
+- step (ui-drift, or brief-inline-tracker's undo toast where it runs): a brief toast (`[data-jarvis-brief-toast]`):
+  shadow check against `shadow-popover-md`, one `lookShot`. The toast shows through the app's undo path when the
+  plan has two chunks, and through the module otherwise.
+- step (brief-initiatives-polish): the chunk sidebar (`[data-jarvis-chunk-sidebar]`) shot with the viewport narrowed
+  to `OBS_NARROW` (1000px) so its container is under 1280px: shadow check against `shadow-sheet-side`, then the
+  viewport restored.
+- step (settings-storage, and `idlesection`, `backgroundedsection` and `agentrow` in ui-drift): the swapped hover and
+  chip backgrounds are no raw white or black overlay.
 
 ### Task 5: Use the shared Skeleton for every loading placeholder
 
@@ -114,8 +157,12 @@ brief-initiatives-polish, settings-storage, settings-claude-account, resmon-live
   skeleton's `animate-pulse`: keep it true.
 - Text floor: `runsheet.tsx` 330.
 
-Acceptance: no `animate-pulse` left in these files. Shown by the Final's run-sheet-polish, run-sheet-done,
-brief-surface, brief-profile and brief-initiatives-polish scenarios.
+Acceptance: no hand-written `animate-pulse` class left in these files (the `briefsurface.tsx` 1466 comment may still
+name it). Shown by the Final's run-sheet-polish, run-sheet-done, brief-surface, brief-profile and
+brief-initiatives-polish scenarios, with this Task 7 step for each of the seven placeholders: hold the view in its
+loading frame (the `__recordPeekFor(..., { hold: true })` pattern, a delayed RPC through the module, or rendering the
+loading branch through the module), assert an element with `animate-pulse` and `bg-edge-strong` keeps the
+placeholder's size, and take one `lookShot`. A placeholder no path can hold is a `skipStep` that says why.
 
 ### Task 6: Close the hand-rolled dropdowns on Escape and give the Code surface's buttons focus and labels
 
@@ -131,7 +178,14 @@ brief-surface, brief-profile and brief-initiatives-polish scenarios.
 
 Acceptance: each of the four menus closes on Escape with focus back on its trigger, and no button in the Code files
 lacks a `focus-visible:` ring. Shown by the Final's new-run-window, radar-report, code-diff, code-plain-dir,
-code-stale-bar and ui-drift scenarios.
+code-stale-bar and ui-drift scenarios, with these Task 7 steps:
+
+- step (ui-drift, one per menu): open the menu, press Escape (CDP `Input.dispatchKeyEvent`): the menu is gone and
+  `document.activeElement` is the trigger that opened it.
+- step (code-diff, code-stale-bar, code-plain-dir): move focus by Tab key events onto a button in each of
+  `codeviewer`, `codediffview`, `codestalebar` and `codesearchpane`: the focused button's computed `box-shadow` shows
+  the ring (not `none`), with one `lookShot` per file; and every icon-only button (no text content) in those views
+  has a non-empty `aria-label`.
 
 ### Task 7: Scenario steps for every view the plan changed
 
@@ -143,11 +197,12 @@ code-stale-bar and ui-drift scenarios.
   Tasks 1 to 6 changed, on that view's root, after its existing steps.
 - Add a `ui-drift` scenario, registered before `agentComposer` (which must stay last), that reaches what no
   existing scenario shows: `planpreview`, `effortcreateform`, `recordpicker`, `aggregatepane`, `answerbar`,
-  `idlesection` and `backgroundedsection`, plus one Escape-closes-the-menu step per Task 6 menu. Check the floor on
-  each and take one screenshot each with `lookShot`. Reach a state through the app's own path where one exists, and
-  through the app's module as the `look` scenarios do otherwise. A view no path reaches without live agents is a
-  `skipStep` that says why, never a pass.
+  `idlesection` and `backgroundedsection`. Check the floor on each and take one screenshot each with `lookShot`.
+- Add every "step" line in Tasks 2 to 6's acceptance, in the scenario that line names. Reach a state through the
+  app's own path where one exists, and through the app's module as the `look` scenarios do otherwise. Only a step
+  those lines allow to skip may be a `skipStep`, and it says why; the navrail, dialogbutton, DAG chip, answerbar,
+  brief toast, Escape and focus-ring steps always reach their view, through the module if no path does.
 - Run `node scripts/cdp/final-verify.mjs` on the named scenarios you changed and fix what fails. A failure that
   shows a Task 1 to 6 file still breaking a rule is fixed in that file, which this task may then edit.
 
-Acceptance: every step passes or skips with a reason, and `ui-drift` is in the Final line's list.
+Acceptance: every step passes or skips with a reason allowed above, and `ui-drift` is in the Final line's list.
