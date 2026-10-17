@@ -377,6 +377,9 @@ runtime logos stay image assets.
   animate opacity + scale, never x/y; `MotionConfig reducedMotion="user"`.
 - **Modals** — `modalshell.tsx` with `role="dialog"` + `aria-modal`, Escape
   to close, focus trap; rendered centrally via `ModalsRenderer`.
+- **Tooltips** — a plain `title` attribute is the tooltip: `element/titletooltip.tsx` draws every one in the
+  `TOOLTIP_SURFACE` look on hover and on keyboard focus, so no call site wraps a title in a component. The
+  `Tooltip` component is for rich content only, and an element inside one carries no `title` of its own.
 - **Accessibility** — `aria-label` on every icon-only control; `aria-live`
   on feed/result regions; `focus-visible` treatment on every interactive
   control.

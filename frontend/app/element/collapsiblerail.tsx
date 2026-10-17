@@ -44,7 +44,6 @@ function ExtraIcon({ ei }: { ei: RailExtraIcon }) {
                 type="button"
                 onClick={ei.onClick}
                 aria-label={ei.ariaLabel}
-                title={ei.ariaLabel}
                 className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[8px] text-[18px] text-accent hover:bg-surface-hover hover:text-accent-soft"
             >
                 {ei.icon}

@@ -21882,6 +21882,102 @@ const termLinkTooltip = {
     },
 };
 
+// The title host (element/titletooltip.tsx) on whichever titled control the cockpit shows uncovered: it is the
+// mechanism under test, not one control's text, so the scenario does not pin a title that may move.
+const LOOK_TITLED = `(() => {
+    const ok = (el) => {
+        if (el.closest(".monaco-editor, .xterm")) return false;
+        const r = el.getBoundingClientRect();
+        if (r.width < 4 || r.height < 4 || r.bottom > innerHeight || r.right > innerWidth) return false;
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return hit != null && (hit === el || el.contains(hit));
+    };
+    const all = [...document.querySelectorAll('[title]:not([title=""])')].filter(ok);
+    return { hover: all[0] ?? null, focus: all.find((el) => el.matches("button, a[href], [tabindex]")) ?? null };
+})()`;
+
+const titleTooltip = {
+    name: "title-tooltip",
+    surface: "cockpit",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await lookOpen(h, "cockpit");
+        const target = await lookEval(h, `
+            await nap(600);
+            const el = ${LOOK_TITLED}.hover;
+            if (el == null) return null;
+            el.setAttribute("data-look-title", "");
+            const r = el.getBoundingClientRect();
+            // somewhere to move off to that no title covers
+            let away = null;
+            for (let y = innerHeight - 40; y > 0 && away == null; y -= 37) {
+                for (let x = innerWidth / 2; x < innerWidth && away == null; x += 53) {
+                    const hit = document.elementFromPoint(x, y);
+                    if (hit != null && hit.closest("[title], [data-arc-title]") == null) away = { x: Math.round(x), y: Math.round(y) };
+                }
+            }
+            return { title: el.getAttribute("title"), x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), away };
+        `);
+        if (target == null) return [skipStep("hovering a titled control shows its title in the house tooltip", "no uncovered titled control on the cockpit")];
+        await lookHover(h, target.x, target.y);
+        const shown = await lookEval(h, `
+            const tip = () => document.querySelector("[data-title-tooltip]");
+            await until(() => tip() != null, 2000);
+            const el = document.querySelector("[data-look-title]");
+            return { tip: tip()?.innerText ?? null, titleWhileHovered: el?.getAttribute("title") ?? null };
+        `);
+        const look = await h.ev(LOOK_TOOLTIP_STYLE);
+        await h.shot(lookShot("title-tooltip"));
+        steps.push({
+            step: "hovering a titled control shows its title in the house tooltip, with the native one held back",
+            ok: shown.tip === target.title && shown.titleWhileHovered === null && tooltipLookOk(look),
+            detail: JSON.stringify({ target, ...shown, look }),
+        });
+
+        await lookHover(h, target.away?.x ?? 1, target.away?.y ?? 1);
+        const left = await lookEval(h, `
+            await until(() => document.querySelector("[data-title-tooltip]") == null, 2000);
+            const el = document.querySelector("[data-look-title]");
+            return { gone: document.querySelector("[data-title-tooltip]") == null, title: el?.getAttribute("title") ?? null, parked: el?.hasAttribute("data-arc-title") ?? null };
+        `);
+        steps.push({
+            step: "moving off hides the tooltip and gives the control its title back",
+            ok: left.gone && left.title === target.title && left.parked === false,
+            detail: JSON.stringify(left),
+        });
+
+        // a key first, so the focus that follows counts as keyboard focus (:focus-visible)
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
+        const focused = await lookEval(h, `
+            const el = ${LOOK_TITLED}.focus;
+            if (el == null) return null;
+            el.focus();
+            await until(() => document.querySelector("[data-title-tooltip]") != null, 2000);
+            const out = { title: el.getAttribute("title"), tip: document.querySelector("[data-title-tooltip]")?.innerText ?? null };
+            el.blur();
+            return out;
+        `);
+        steps.push(
+            focused == null
+                ? skipStep("keyboard focus on a titled control shows the tooltip and keeps the title", "no focusable titled control on the cockpit")
+                : {
+                      step: "keyboard focus on a titled control shows the tooltip and keeps the title for screen readers",
+                      ok: focused.tip != null && focused.tip === focused.title,
+                      detail: JSON.stringify(focused),
+                  }
+        );
+        return steps;
+    },
+    async teardown(h) {
+        await lookHover(h, 1, 1);
+        await h.ev(`document.querySelector("[data-look-title]")?.removeAttribute("data-look-title")`);
+    },
+};
+
 // TaskDetail and its DecisionLog, in the run sheet's record band: a run with one attributed record that has
 // decisions. The record is named by the goal's slug and lives in the vault across runs, so its decisions are
 // appended once.
@@ -22611,6 +22707,7 @@ export const SCENARIOS = [
     contextMenu,
     cockpitRailTooltip,
     termLinkTooltip,
+    titleTooltip,
     taskDetail,
     ambientTags,
     runSheetDoneLook,

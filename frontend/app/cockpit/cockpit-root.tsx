@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { ContextMenuHost } from "@/app/element/contextmenuhost";
 import { PulseDriver } from "@/app/element/pulsedriver";
+import { TitleTooltipHost } from "@/app/element/titletooltip";
 import { ModalsRenderer } from "@/app/modals/modalsrenderer";
 import { atoms } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -143,6 +144,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             <PetView model={model} />
             <ModalsRenderer />
             <ContextMenuHost />
+            <TitleTooltipHost />
             <NotificationToasts />
         </div>
     );
