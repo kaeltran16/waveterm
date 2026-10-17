@@ -25,7 +25,9 @@ is not fixed here. Do not weaken, skip or delete a step to make it pass.
 ### Task 1: Fix the jarvis-peek and radar-report failures this run caused
 
 **Depends on:** none
-**Files:** `scripts/cdp/scenarios.mjs`, and any app file this run changed that the cause is in
+**Files:** `scripts/cdp/scenarios.mjs`, `frontend/app/hook/useEscapeClose.ts`, `frontend/app/store/keybindings/bindings.ts`, `frontend/app/view/agents/radarfindingdetail.tsx`, `frontend/app/view/agents/radarsurface.tsx`, `frontend/app/view/agents/navrail.tsx`
+
+If the cause is in another file this run changed, fix it there and name the file in Differs from plan.
 
 - Run `jarvis-peek` and `radar-report` on this tree's app with `scripts/cdp/final-verify.mjs jarvis-peek radar-report`,
   and reproduce both failures.
@@ -44,7 +46,9 @@ on the base app.
 ### Task 2: Settle whether the jarvis-volunteer, code-sidebar and brief-surface failures are on the base
 
 **Depends on:** none
-**Files:** `scripts/cdp/scenarios.mjs`, and any app file this run changed that the cause is in
+**Files:** `scripts/cdp/scenarios.mjs`, `frontend/app/view/code/codesurface.tsx`, `frontend/app/view/code/codesearchpane.tsx`, `frontend/app/view/jarvis/briefsurface.tsx`, `frontend/app/view/jarvis/briefrowviews.tsx`, `frontend/app/view/jarvis/petpeek.tsx`, `frontend/app/view/jarvis/bubblecard.tsx`
+
+If the cause is in another file this run changed, fix it there and name the file in Differs from plan.
 
 - Run `jarvis-volunteer`, `code-sidebar` and `brief-surface` with `scripts/cdp/final-verify.mjs` on the base app,
   using the base scenarios: a detached worktree at `bf923e39a`. Then run them on this tree's app.
