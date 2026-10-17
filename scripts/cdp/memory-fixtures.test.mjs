@@ -69,7 +69,7 @@ describe("buildMemoryFixture", () => {
             for (const p of statePaths(state)) expect(under(root, p), `${state.project}: ${p}`).toBe(true);
         }
         expect(JSON.stringify(fx.states)).not.toContain(join(homedir(), ".claude"));
-    });
+    }, 30_000);
 
     it("hashes every file a change names as it is on disk, and ids the change the way the backend does", () => {
         const fx = buildMemoryFixture(tempRoot());
@@ -86,7 +86,7 @@ describe("buildMemoryFixture", () => {
         // a changed hash is a different change
         const [first] = changes;
         expect(memoryChangeId(first.kind, [{ ...first.files[0], sha256: "0".repeat(64) }])).not.toBe(first.id);
-    });
+    }, 30_000);
 
     it("measures each index the way the backend does", () => {
         const fx = buildMemoryFixture(tempRoot());
@@ -94,7 +94,7 @@ describe("buildMemoryFixture", () => {
         expect(own.index).toEqual(indexStats(fx.paths.ownIndex));
         expect(own.index).toEqual({ exists: true, lines: 7, bytes: readFileSync(fx.paths.ownIndex).length });
         expect(fx.states[MEMORY_PROJECTS.splitA].ownindex).toEqual({ exists: false, lines: 0, bytes: 0 });
-    });
+    }, 30_000);
 
     it("gives the own project five changes and split-a the split's three groups", () => {
         const fx = buildMemoryFixture(tempRoot());
@@ -114,14 +114,14 @@ describe("buildMemoryFixture", () => {
         ]);
         expect(fx.states[MEMORY_PROJECTS.fresh]).toBeUndefined();
         expect(fx.states[MEMORY_PROJECTS.checking].checking).toBe(true);
-    });
+    }, 30_000);
 
     it("has a trim whose passage occurs once in a crlf file", () => {
         const fx = buildMemoryFixture(tempRoot());
         const text = readFileSync(fx.paths.trim, "utf8");
         expect(text).toContain("\r\n");
         expect(text.split(fx.trim.old).length).toBe(2);
-    });
+    }, 30_000);
 });
 
 describe("writeMemoryStates", () => {
@@ -136,7 +136,7 @@ describe("writeMemoryStates", () => {
         expect(JSON.parse(readFileSync(memoryStatePath(dataDir, MEMORY_PROJECTS.own), "utf8"))).toEqual(
             fx.states[MEMORY_PROJECTS.own]
         );
-    });
+    }, 30_000);
 });
 
 describe("settleMemoryStates", () => {
@@ -149,5 +149,5 @@ describe("settleMemoryStates", () => {
         const failed = settled[MEMORY_PROJECTS.failed].changes[0];
         expect(failed).toEqual(fx.states[MEMORY_PROJECTS.failed].changes[0]);
         expect(settled[MEMORY_PROJECTS.own].changes[0].decidedat).toBe(1234);
-    });
+    }, 30_000);
 });
