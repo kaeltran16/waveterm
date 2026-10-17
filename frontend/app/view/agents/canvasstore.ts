@@ -26,7 +26,8 @@ export type CanvasState = {
     lastModifiedMs: number | null;
     lastViewedMs: number;
     marking: boolean;
-    marks: Mark[];
+    // drawn and not yet sent; a new box replaces it
+    mark: Mark | null;
     reloadKey: number;
 };
 
@@ -63,7 +64,7 @@ export function attachCanvas(
         const keep = board === prev.board && all === prev.all;
         // the base is the old project's design folder, so a canvas re-attached from another project drops it
         const base = a.projectDir === prev.projectDir ? prev.base : null;
-        next = { ...prev, dir: a.dir, projectDir: a.projectDir, board, all, base, marks: keep ? prev.marks : [] };
+        next = { ...prev, dir: a.dir, projectDir: a.projectDir, board, all, base, mark: keep ? prev.mark : null };
     } else {
         next = {
             topic: a.topic,
@@ -78,7 +79,7 @@ export function attachCanvas(
             lastModifiedMs: null,
             lastViewedMs: now,
             marking: false,
-            marks: [],
+            mark: null,
             reloadKey: 0,
         };
     }
@@ -102,13 +103,13 @@ export function canvasOwner(topic: string): string | null {
 
 export function setCanvasMode(agentId: string, mode: "terminal" | "canvas", now: number): void {
     updateCanvas(agentId, (s) =>
-        mode === "canvas" ? { ...s, mode, lastViewedMs: now } : { ...s, mode, marking: false, marks: [] }
+        mode === "canvas" ? { ...s, mode, lastViewedMs: now } : { ...s, mode, marking: false, mark: null }
     );
 }
 
-// marks are drawn over one board where it sits on screen, so any board or view switch drops them
+// a mark is drawn over one board where it sits on screen, so any board or view switch drops it
 function withTab(s: CanvasState, tab: string | null): CanvasState {
-    return tab === ALL_TAB ? { ...s, all: true, marks: [] } : { ...s, all: false, board: tab ?? s.board, marks: [] };
+    return tab === ALL_TAB ? { ...s, all: true, mark: null } : { ...s, all: false, board: tab ?? s.board, mark: null };
 }
 
 // [ and ] walk the tabs, All included
@@ -123,15 +124,15 @@ export function selectCanvasTab(agentId: string, tab: string): void {
 // a board picked on the All canvas: the view stays, the selection moves
 
 export function selectCanvasBoard(agentId: string, board: string): void {
-    updateCanvas(agentId, (s) => ({ ...s, board, marks: [] }));
+    updateCanvas(agentId, (s) => ({ ...s, board, mark: null }));
 }
 
 export function setMarking(agentId: string, on: boolean): void {
-    updateCanvas(agentId, (s) => ({ ...s, marking: on, marks: on ? s.marks : [] }));
+    updateCanvas(agentId, (s) => ({ ...s, marking: on, mark: on ? s.mark : null }));
 }
 
-export function clearMarks(agentId: string): void {
-    updateCanvas(agentId, (s) => ({ ...s, marks: [] }));
+export function setMark(agentId: string, mark: Mark | null): void {
+    updateCanvas(agentId, (s) => ({ ...s, mark }));
 }
 
 export function focusedCanvas(model: AgentsViewModel): CanvasState | null {

@@ -987,18 +987,6 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             when: (ctx) => inCanvas(ctx) && canvas()!.marking,
             run: () => setMarking(focusId(), false),
         },
-        {
-            id: "agent:canvas-send",
-            keys: "Ctrl:Enter",
-            group: "Agent",
-            label: "Send the marks to the agent",
-            // live inside a note input on purpose: the last note is where the user finishes
-            when: (ctx) => {
-                const s = focusedCanvasMode(model);
-                return ctx.surface === "agent" && !ctx.modalOpen && s?.marking === true && s.marks.length > 0;
-            },
-            run: () => clickThrough("[data-canvas-send]"),
-        },
     ];
 }
 

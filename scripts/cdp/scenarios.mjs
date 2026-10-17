@@ -18766,6 +18766,154 @@ const canvasSwap = {
     },
 };
 
+// --- canvas mark: a box drawn on the board opens the review's note card under it, Esc drops the mark, and Enter
+// sends it at once: a feedback picture without the card, one line typed into the agent, and back to the terminal --
+const CANVAS_MARK_NOTE = `document.querySelector("[data-canvas-mark-note]")`;
+const CANVAS_MARK_BOX = `document.querySelector("[data-canvas-mark]")`;
+const CANVAS_MARK_TEXT = "make it wider";
+const CANVAS_MARK_SEND_WAIT_MS = 8000;
+const CANVAS_MARK_ENTER = { key: "Enter", code: "Enter", keyCode: 13 };
+const CANVAS_MARK_ESC = { key: "Escape", code: "Escape", keyCode: 27 };
+
+const pressMarkKey = async (h, { key, code, keyCode }) => {
+    const text = key === "Enter" ? "\r" : undefined;
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key, code, text, windowsVirtualKeyCode: keyCode });
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: keyCode });
+    await polishNap(400);
+};
+
+// a real drag over the board, in window coordinates, from 15%/15% to 45%/40% of its visible rect
+async function dragMarkBox(h) {
+    const r = await h.ev(`(() => {
+        const b = document.querySelector("[data-canvas-board]")?.getBoundingClientRect();
+        return b ? { x: b.x, y: b.y, w: b.width, h: b.height } : null;
+    })()`);
+    if (r == null) return false;
+    const at = (fx, fy) => ({ x: Math.round(r.x + r.w * fx), y: Math.round(r.y + r.h * fy) });
+    const [a, b] = [at(0.15, 0.15), at(0.45, 0.4)];
+    await h.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...a, button: "left", buttons: 1, clickCount: 1 });
+    for (const t of [0.33, 0.66, 1]) {
+        const p = { x: Math.round(a.x + (b.x - a.x) * t), y: Math.round(a.y + (b.y - a.y) * t) };
+        await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...p, button: "left", buttons: 1 });
+    }
+    await h.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...b, button: "left", buttons: 0, clickCount: 1 });
+    await polishNap(300);
+    return true;
+}
+
+const canvasMark = {
+    name: "canvas-mark",
+    surface: "agent",
+    arrange: canvasSwap.arrange,
+    async assert(h, ctx) {
+        if (ctx.launchError != null) {
+            return [skipStep("canvas mark", `could not verify: the terminal launch failed: ${ctx.launchError}`)];
+        }
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec("0. the launched terminal is in the roster", ctx.inRoster === true, `tab=${ctx.tabId}`);
+        if (!ctx.inRoster) return steps;
+
+        await h.rpc(
+            "uireveal",
+            { address: `canvas:${CANVAS_TOPIC}`, callerblockid: ctx.blockId, callercwd: ctx.cwd },
+            UI_ROUTE
+        );
+        await polishWaitFor(h, `!!${CANVAS_TREE_TAG}`, 3000);
+        await h.ev(`${CANVAS_TREE_TAG}?.click()`);
+        const board = await polishWaitFor(h, `!!document.querySelector("[data-canvas-board] iframe")`, 5000);
+        await h.ev(`[...(${CANVAS_PANE}?.querySelectorAll("button") ?? [])]
+            .find((b) => (b.textContent || "").trim() === "Mark")?.click()`);
+        const hint = await polishWaitFor(
+            h,
+            `(${CANVAS_PANE}?.textContent || "").includes("Drag a box around what you want changed")`,
+            2000
+        );
+        rec("1. Mark puts the board in mark mode", board && hint, `board=${board} hint=${hint}`);
+
+        // Esc in the card drops the mark and leaves mark mode on
+        await dragMarkBox(h);
+        const first = await polishWaitFor(h, `!!${CANVAS_MARK_NOTE}`, 2000);
+        await pressMarkKey(h, CANVAS_MARK_ESC);
+        const dropped = await h.ev(`({ note: !!${CANVAS_MARK_NOTE}, box: !!${CANVAS_MARK_BOX},
+            hint: (${CANVAS_PANE}?.textContent || "").includes("Drag a box around") })`);
+        rec(
+            "2. Esc in the note card drops the mark and keeps marking",
+            first && !dropped.note && !dropped.box && dropped.hint,
+            JSON.stringify({ first, ...dropped })
+        );
+
+        await dragMarkBox(h);
+        await polishWaitFor(h, `!!${CANVAS_MARK_NOTE}`, 2000);
+        const card = await h.ev(`(() => {
+            const n = ${CANVAS_MARK_NOTE}?.getBoundingClientRect();
+            const m = ${CANVAS_MARK_BOX}?.getBoundingClientRect();
+            const input = ${CANVAS_MARK_NOTE}?.querySelector("input");
+            const send = [...(${CANVAS_MARK_NOTE}?.querySelectorAll("button") ?? [])].map((b) => (b.textContent || "").trim());
+            return n && m ? {
+                below: Math.round(n.top) >= Math.round(m.bottom),
+                nearLeft: Math.abs(n.left - m.left) < 2,
+                focused: document.activeElement === input,
+                buttons: send,
+            } : null;
+        })()`);
+        rec(
+            "3. a drawn box opens the note card under it, its input focused, with Cancel Esc and Send Enter",
+            card != null && card.below && card.nearLeft && card.focused &&
+                card.buttons.some((t) => t.startsWith("Cancel")) && card.buttons.some((t) => t.startsWith("Send to")),
+            JSON.stringify(card)
+        );
+        await h.shot("cdp-shots/canvas-mark-note.png");
+
+        await h.cdp("Input.insertText", { text: CANVAS_MARK_TEXT });
+        await polishNap(200);
+        // the xterm draws to a canvas, so what the send types is read off its controllerinput call instead
+        await h.ev(`(() => {
+            const c = window.TabRpcClient;
+            window.__markTyped = [];
+            window.__markRpc = c.wshRpcCall;
+            c.wshRpcCall = function (cmd, data, opts) {
+                if (cmd === "controllerinput") window.__markTyped.push({ block: data.blockid, text: atob(data.inputdata64) });
+                return window.__markRpc.call(this, cmd, data, opts);
+            };
+            return true;
+        })()`);
+        await pressMarkKey(h, CANVAS_MARK_ENTER);
+        const back = await polishWaitFor(h, `!${CANVAS_PANE}`, CANVAS_MARK_SEND_WAIT_MS);
+        const feedback = join(ctx.cwd, ".superpowers", "design", CANVAS_TOPIC, "feedback", "001.png");
+        const saved = existsSync(feedback);
+        if (saved) {
+            writeFileSync("cdp-shots/canvas-mark-feedback.png", readFileSync(feedback));
+        }
+        const error = await h.ev(`${CANVAS_MARK_NOTE}?.textContent ?? null`);
+        rec(
+            "4. Enter sends at once: the picture is saved and the agent is back on its terminal",
+            back && saved,
+            JSON.stringify({ back, saved, card: error })
+        );
+        const typed = await h.ev(`(() => {
+            window.TabRpcClient.wshRpcCall = window.__markRpc;
+            return window.__markTyped;
+        })()`);
+        // atob gives bytes as latin-1 chars, so the em dash is compared as its utf-8 bytes
+        const want = unescape(
+            encodeURIComponent(
+                `look at .superpowers/design/${CANVAS_TOPIC}/feedback/001.png — mark on ${CANVAS_BOARD}: ${CANVAS_MARK_TEXT}\r`
+            )
+        );
+        // the terminal getting focus back reports it (ESC [I) through the same call
+        const lines = (typed ?? []).filter((t) => !/^\x1b\[[IO]$/.test(t.text));
+        rec(
+            "5. one line naming the picture and the note is typed into the agent",
+            lines.length === 1 && lines[0].block === ctx.blockId && lines[0].text === want,
+            JSON.stringify(typed)
+        );
+        await h.shot("cdp-shots/canvas-mark-sent.png");
+        return steps;
+    },
+    teardown: canvasSwap.teardown,
+};
+
 // --- agent terminal names: two background terminals with one name read apart, and a header with no facts has no
 // stray dash line -------------------------------------------------------------------------------------------
 const TERM_NAMES_LABEL = "verify-terms";
@@ -23684,6 +23832,7 @@ export const SCENARIOS = [
     modelPicks,
     planReviewRounds,
     canvasSwap,
+    canvasMark,
     canvasTabsScenario,
     agentTerminalNames,
     resmonFooter,

@@ -27,7 +27,7 @@ function state(over: Partial<CanvasState> = {}): CanvasState {
         lastModifiedMs: null,
         lastViewedMs: 0,
         marking: false,
-        marks: [],
+        mark: null,
         reloadKey: 0,
         ...over,
     };

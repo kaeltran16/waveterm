@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Pure: the marks a user draws on a board, and what they become when sent to the agent.
+// Pure: the mark a user draws on a board, and what it becomes when sent to the agent.
 
 import { handoffLine } from "@/app/view/code/codehandoff";
 
@@ -24,19 +24,6 @@ export function boxToMark(b: Box): Mark | null {
     return { x: Math.min(b.x0, b.x1), y: Math.min(b.y0, b.y1), w, h, note: "" };
 }
 
-export function addMark(marks: Mark[], b: Box): Mark[] {
-    const m = boxToMark(b);
-    return m == null ? marks : [...marks, m];
-}
-
-export function removeMark(marks: Mark[], i: number): Mark[] {
-    return marks.filter((_, j) => j !== i);
-}
-
-export function setMarkNote(marks: Mark[], i: number, note: string): Mark[] {
-    return marks.map((m, j) => (j === i ? { ...m, note } : m));
-}
-
 export function nextFeedbackName(entryNames: string[]): string {
     let max = 0;
     for (const name of entryNames) {
@@ -52,9 +39,9 @@ export function feedbackRelPath(topic: string, name: string): string {
     return `.superpowers/design/${topic}/feedback/${name}`;
 }
 
-export function canvasHandoffLine(relPath: string, board: string, marks: Mark[]): string {
-    const parts = marks.map((m, i) => `${i + 1} ${m.note.replace(/\s+/g, " ").trim() || "(no note)"}`);
-    return handoffLine({ rel: relPath, note: `marks on ${board}: ${parts.join("; ")}` });
+export function canvasHandoffLine(relPath: string, board: string, mark: Mark): string {
+    const note = mark.note.replace(/\s+/g, " ").trim() || "(no note)";
+    return handoffLine({ rel: relPath, note: `mark on ${board}: ${note}` });
 }
 
 // a board taller than its pane scrolls, so only the part inside the pane is on screen to capture

@@ -13,11 +13,19 @@ import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
 import { formatChordString } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { SquareDashed, X } from "lucide-react";
-import { useEffect, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
+import { SquareDashed } from "lucide-react";
+import {
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+    type ReactNode,
+    type PointerEvent as ReactPointerEvent,
+    type RefObject,
+} from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
-import { addMark, removeMark, setMarkNote, type Box, type Mark } from "./canvasmarks";
+import { boxToMark, type Box, type Mark } from "./canvasmarks";
 import {
     ALL_TAB,
     boardLabel,
@@ -33,30 +41,27 @@ import {
     updatedAgo,
     type BoardFrame,
 } from "./canvasmodel";
-import { sendCanvasMarks } from "./canvassend";
+import { sendCanvasMark } from "./canvassend";
 import {
     canvasStateAtom,
-    clearMarks,
     detachCanvas,
     selectCanvasBoard,
     selectCanvasTab,
+    setMark,
     setMarking,
-    updateCanvas,
     type CanvasState,
 } from "./canvasstore";
+import { NOTE_CARD, NoteCardBody } from "./docreviewnotesview";
 
-// the app bar's secondary and primary buttons
+// the app bar's buttons
 export const CANVAS_BTN =
     "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[8px] border border-edge-mid bg-surface-raised px-[12px] py-[6px] text-[12.5px] font-semibold text-primary hover:border-edge-strong hover:bg-surface-hover";
-export const CANVAS_PRIMARY_BTN =
-    "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[8px] bg-accent px-[12px] py-[7px] text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-50";
 
 // room above a board's frame for its label; the scroll pane's top padding
 const CANVAS_TOP_PAD = 36;
 const LABEL_OFFSET = 22;
 
-const MARK_CHIP =
-    "h-[20px] w-[20px] rounded-full bg-accent text-center font-mono text-[11px] font-bold leading-[20px] text-background";
+const NOTE_GAP = 6;
 
 // New run opens as an orchestrator run on the agent's project, with this canvas as the run's prototype
 function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasState): void {
@@ -95,6 +100,7 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
     const layout = canvasLayout(shownBoards(s), rect?.width ?? 0);
     const scale = layout.scale;
     const marking = s.marking && pane === "board";
+    const markFrame = marking && s.mark != null ? layout.frames.find((f) => f.board.name === board.name) : undefined;
     const meta = [updatedAgo(now, s.lastModifiedMs), `${Math.round(scale * 100)}%`].filter(Boolean).join(" · ");
 
     return (
@@ -118,7 +124,7 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
                 {pane === "board" ? <span className="font-mono text-[10.5px] text-muted">{meta}</span> : null}
                 <button
                     type="button"
-                    title={`Mark parts of the board (${formatChordString("m")})`}
+                    title={`Mark part of the board (${formatChordString("m")})`}
                     aria-pressed={marking}
                     disabled={pane !== "board"}
                     onClick={() => setMarking(agent.id, !s.marking)}
@@ -184,21 +190,29 @@ export function CanvasPane({ model, agent }: { model: AgentsViewModel; agent: Ag
                                     onSelect={() => selectCanvasBoard(agent.id, f.board.name)}
                                 >
                                     {marking && f.board.name === board.name ? (
-                                        <MarkLayer agentId={agent.id} marks={s.marks} />
+                                        <MarkLayer agentId={agent.id} mark={s.mark} />
                                     ) : null}
                                 </BoardFrameView>
                             ))}
+                            {markFrame != null ? (
+                                <MarkNote
+                                    agent={agent}
+                                    mark={s.mark!}
+                                    frame={markFrame}
+                                    width={layout.width}
+                                    scrollRef={scrollRef}
+                                />
+                            ) : null}
                         </div>
                     </div>
                 )}
-                {marking ? <MarkTray agent={agent} marks={s.marks} /> : null}
             </div>
         </div>
     );
 }
 
 // A board the user hasn't picked wears a transparent cover: its iframe would swallow the click, and the first
-// click on a board should pick it (the one marks and Open in browser act on), not operate it
+// click on a board should pick it (the one a mark and Open in browser act on), not operate it
 function BoardFrameView({
     frame,
     scale,
@@ -274,8 +288,8 @@ function BoardFrameView({
 }
 
 // Arc DOM over the iframe, so the iframe can't take the pointer or focus while marking, and the window capture
-// includes the boxes
-function MarkLayer({ agentId, marks }: { agentId: string; marks: Mark[] }) {
+// includes the box
+function MarkLayer({ agentId, mark }: { agentId: string; mark: Mark | null }) {
     const [draft, setDraft] = useState<Box | null>(null);
     const at = (e: ReactPointerEvent<HTMLDivElement>) => {
         const r = e.currentTarget.getBoundingClientRect();
@@ -292,9 +306,13 @@ function MarkLayer({ agentId, marks }: { agentId: string; marks: Mark[] }) {
             setDraft({ ...draft, x1: p.x, y1: p.y });
         }
     };
+    // a click-sized box keeps the mark already drawn
     const up = () => {
         if (draft != null) {
-            updateCanvas(agentId, (s) => ({ ...s, marks: addMark(s.marks, draft) }));
+            const next = boxToMark(draft);
+            if (next != null) {
+                setMark(agentId, next);
+            }
             setDraft(null);
         }
     };
@@ -306,20 +324,18 @@ function MarkLayer({ agentId, marks }: { agentId: string; marks: Mark[] }) {
             onPointerCancel={() => setDraft(null)}
             className="absolute inset-0 cursor-crosshair select-none rounded-[8px] outline outline-2 -outline-offset-1 outline-accent"
         >
-            {marks.length === 0 && draft == null ? (
+            {mark == null && draft == null ? (
                 <div className="pointer-events-none absolute left-1/2 top-[64px] -translate-x-1/2 rounded-full bg-accentbg px-[12px] py-[5px] text-[12.5px] font-semibold text-accent-soft">
                     Drag a box around what you want changed
                 </div>
             ) : null}
-            {marks.map((m, i) => (
+            {mark != null && draft == null ? (
                 <div
-                    key={i}
+                    data-canvas-mark
                     className="pointer-events-none absolute rounded-[6px] border-2 border-accent bg-accentbg"
-                    style={{ left: m.x, top: m.y, width: m.w, height: m.h }}
-                >
-                    <span className={cn("absolute left-[-11px] top-[-11px]", MARK_CHIP)}>{i + 1}</span>
-                </div>
-            ))}
+                    style={{ left: mark.x, top: mark.y, width: mark.w, height: mark.h }}
+                />
+            ) : null}
             {draft != null ? (
                 <div
                     className="pointer-events-none absolute rounded-[6px] border-2 border-dashed border-accent"
@@ -335,17 +351,54 @@ function MarkLayer({ agentId, marks }: { agentId: string; marks: Mark[] }) {
     );
 }
 
-function MarkTray({ agent, marks }: { agent: AgentVM; marks: Mark[] }) {
-    const agentId = agent.id;
+// the capture is of the window, so what must stay out of the picture needs a painted frame without it first
+const nextPaint = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+
+// The review dialog's note card, under the box (above it when the pane has no room below): Enter sends the mark
+// at once, Esc drops it. It sits beside the board frames rather than in one, since a frame clips its content.
+function MarkNote(p: {
+    agent: AgentVM;
+    mark: Mark;
+    frame: BoardFrame;
+    width: number;
+    scrollRef: RefObject<HTMLDivElement | null>;
+}) {
+    const { agent, mark, frame } = p;
+    const fieldRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
     const [sending, setSending] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const noMarks = marks.length === 0;
+
+    // placed by hand before paint, in the frames' container, which starts CANVAS_TOP_PAD into the scroller
+    useLayoutEffect(() => {
+        const field = fieldRef.current;
+        const scroller = p.scrollRef.current;
+        if (field == null || scroller == null) {
+            return;
+        }
+        const viewTop = scroller.scrollTop - CANVAS_TOP_PAD;
+        const viewBottom = viewTop + scroller.clientHeight;
+        const below = frame.top + mark.y + mark.h + NOTE_GAP;
+        const above = frame.top + mark.y - NOTE_GAP - field.offsetHeight;
+        const fitsBelow = below + field.offsetHeight <= viewBottom;
+        field.style.top = `${fitsBelow || above < viewTop ? below : above}px`;
+        field.style.left = `${Math.max(0, Math.min(frame.left + mark.x, p.width - field.offsetWidth))}px`;
+        inputRef.current?.focus({ preventScroll: true });
+    }, [mark.x, mark.y, mark.w, mark.h, frame.left, frame.top, p.width]);
+
+    // the card hides while it sends, which drops the input's focus; a failed send gives it back
+    useEffect(() => {
+        if (!sending) {
+            inputRef.current?.focus({ preventScroll: true });
+        }
+    }, [sending]);
 
     const send = async () => {
         setSending(true);
         setError(null);
         try {
-            await sendCanvasMarks(agent);
+            await nextPaint();
+            await sendCanvasMark(agent);
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
         } finally {
@@ -354,60 +407,18 @@ function MarkTray({ agent, marks }: { agent: AgentVM; marks: Mark[] }) {
     };
 
     return (
-        <div className="flex flex-none items-start gap-[16px] border-t border-border bg-surface px-[22px] py-[12px]">
-            <div className="flex min-w-0 flex-1 flex-col gap-[6px]">
-                {marks.length === 0 ? (
-                    <span className="py-[6px] text-[13px] text-muted">
-                        No marks yet. Each box you draw gets a number and a note here.
-                    </span>
-                ) : null}
-                {marks.map((m, i) => (
-                    <div key={i} className="flex items-center gap-[10px]">
-                        <span className={cn("flex-none", MARK_CHIP)}>{i + 1}</span>
-                        <input
-                            aria-label={`Note for mark ${i + 1}`}
-                            placeholder="What should change here? (optional)"
-                            value={m.note}
-                            onChange={(e) =>
-                                updateCanvas(agentId, (s) => ({ ...s, marks: setMarkNote(s.marks, i, e.target.value) }))
-                            }
-                            className="min-w-0 flex-1 rounded-[7px] border border-edge-mid bg-surface-raised px-[10px] py-[6px] text-[13px] text-primary outline-none"
-                        />
-                        <button
-                            type="button"
-                            aria-label={`Remove mark ${i + 1}`}
-                            onClick={() => updateCanvas(agentId, (s) => ({ ...s, marks: removeMark(s.marks, i) }))}
-                            className="flex-none cursor-pointer rounded-[7px] border border-edge-mid bg-surface-raised p-[6px] leading-none text-secondary hover:border-edge-strong"
-                        >
-                            <X size={14} strokeWidth={1.9} aria-hidden />
-                        </button>
-                    </div>
-                ))}
-            </div>
-            <div className="flex flex-none flex-col items-end gap-[6px]">
-                <div data-canvas-tray-actions className="flex items-center gap-[10px]">
-                    <button type="button" onClick={() => clearMarks(agentId)} className={CANVAS_BTN}>
-                        Clear
-                    </button>
-                    <button
-                        type="button"
-                        data-canvas-send
-                        title={`Send the marks to the agent (${formatChordString("Ctrl:Enter")})`}
-                        disabled={noMarks || sending}
-                        onClick={() => void send()}
-                        className={cn(
-                            CANVAS_PRIMARY_BTN,
-                            noMarks && "bg-surface-hover text-muted hover:bg-surface-hover disabled:opacity-100"
-                        )}
-                    >
-                        {sending ? "Sending…" : `Send to ${agent.name}`}
-                    </button>
-                </div>
-                <span className="text-[12px] text-muted">
-                    Saves a picture of the board with your marks, then types one line into the agent.
-                </span>
-                {error != null ? <span className="max-w-[440px] text-[12px] text-error">{error}</span> : null}
-            </div>
+        <div ref={fieldRef} data-canvas-mark-note className={cn("z-[2]", NOTE_CARD, sending && "invisible")}>
+            <NoteCardBody
+                inputRef={inputRef}
+                value={mark.note}
+                onChange={(note) => setMark(agent.id, { ...mark, note })}
+                onSubmit={() => void send()}
+                onCancel={() => setMark(agent.id, null)}
+                label="What should change in the marked part"
+                action={`Send to ${agent.name}`}
+                busy={sending}
+            />
+            {error != null ? <span className="text-[12px] text-error">{error}</span> : null}
         </div>
     );
 }

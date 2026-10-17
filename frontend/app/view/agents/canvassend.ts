@@ -1,8 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Send: a picture of the board with its marks goes to <canvas>/feedback/NNN.png, then one line naming it is
-// typed into the agent. Every failure throws before the line is typed, and the marks stay for a retry.
+// Send: a picture of the board with its mark goes to <canvas>/feedback/NNN.png, then one line naming it is
+// typed into the agent. Every failure throws before the line is typed, and the mark stays for a retry.
 
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -93,9 +93,9 @@ export const tauriSendIO: SendIO = {
     },
 };
 
-export async function sendCanvasMarks(agent: AgentVM, io: SendIO = tauriSendIO): Promise<void> {
+export async function sendCanvasMark(agent: AgentVM, io: SendIO = tauriSendIO): Promise<void> {
     const s = getCanvas(agent.id);
-    if (s == null || s.marks.length === 0) {
+    if (s?.mark == null) {
         throw new Error("Nothing to send");
     }
     if (!agent.blockId) {
@@ -105,7 +105,7 @@ export async function sendCanvasMarks(agent: AgentVM, io: SendIO = tauriSendIO):
     if (rect == null) {
         throw new Error("The board isn't on screen");
     }
-    // first, while the overlay and the marks are still drawn
+    // first, while the overlay and the mark are still drawn
     const png = await step("Couldn't capture the board", async () => io.crop(await io.capture(), rect));
     const dir = canvasFeedbackDir(s.dir);
     const name = await step(`Couldn't save the picture in ${dir}`, async () => {
@@ -114,7 +114,7 @@ export async function sendCanvasMarks(agent: AgentVM, io: SendIO = tauriSendIO):
         await io.write(canvasFeedbackFile(s.dir, next), new Uint8Array(await png.arrayBuffer()));
         return next;
     });
-    const line = canvasHandoffLine(feedbackRelPath(s.topic, name), shownBoard(s).name, s.marks);
+    const line = canvasHandoffLine(feedbackRelPath(s.topic, name), shownBoard(s).name, s.mark);
     await step(`Couldn't type into ${agent.name}`, () => io.type(agent.blockId!, line + "\r"));
     setCanvasMode(agent.id, "terminal", Date.now());
 }
