@@ -1103,7 +1103,7 @@ function ClaudeAccountItem({
                     "flex h-[30px] w-[30px] flex-none items-center justify-center rounded-full border text-[13px] font-bold",
                     row.active
                         ? "border-rt-claude-line bg-rt-claude-soft text-rt-claude"
-                        : "border-edge-mid bg-white/5 text-ink-mid"
+                        : "border-edge-mid bg-surface-hover text-ink-mid"
                 )}
             >
                 {row.initial}

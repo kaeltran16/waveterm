@@ -178,6 +178,9 @@
     /* an empty state's primary CTA: an accent glow under the top-edge highlight. It reads the accent at use, so a
        runtime theme recolours it. */
     --shadow-cta: 0 14px 34px color-mix(in srgb, var(--color-accent) 34%, transparent), var(--shadow-inset-highlight);
+    /* a right-docked sheet overlaying content casts left, which no popover step does (they all cast down); the
+       popover-xl recipe turned sideways. */
+    --shadow-sheet-side: -18px 0 44px rgba(0, 0, 0, 0.55);
 
     /* ANSI fallback only. buildThemeVars (view/agents/themes.ts) derives these per theme and writes
        them onto the document root at runtime, so these literals apply only before the first theme

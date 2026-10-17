@@ -47,7 +47,7 @@ const HEADER_BUTTON = "flex-none rounded border px-[13px] py-[7px] text-[12px] f
 const GROUP_DOT: Record<string, string> = { left: "bg-warning", inuse: "bg-success", kept: "bg-ink-faint" };
 const GROUP_BAR: Record<string, string> = { left: "bg-warning", inuse: "bg-success", kept: "bg-edge-strong" };
 const TAG_TONE: Record<string, string> = {
-    muted: "bg-white/5 text-ink-mid",
+    muted: "bg-edge-mid text-ink-mid",
     success: "bg-success/12 text-success",
     accent: "bg-accent/12 text-accent",
     error: "bg-error/12 text-error",

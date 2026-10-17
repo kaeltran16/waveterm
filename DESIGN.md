@@ -133,6 +133,7 @@ spacing:
   shadow-popover-line: "0 1px 3px rgba(0, 0, 0, 0.4)"
   shadow-inset-highlight: "inset 0 1px 0 rgba(255, 255, 255, 0.28)"
   shadow-cta: "0 14px 34px color-mix(in srgb, accent 34%, transparent), shadow-inset-highlight"
+  shadow-sheet-side: "-18px 0 44px rgba(0, 0, 0, 0.55)"
 rounded:
   sm: 6px
   md: 8px
@@ -305,6 +306,16 @@ Weights come from Tailwind defaults
 (`font-medium/semibold/bold`); no weight or leading tokens exist — do not
 invent them.
 
+**Text floor: no visible text under 10.5px.** Use `text-[10.5px]` for the
+smallest tier, not `text-xxs`/`text-xxxs` or another sub-floor size; the CDP
+scenarios check it (`MIN_FONT_PX` in `scripts/cdp/scenarios.mjs`). The
+sub-floor sizes remain in the run views only runs stored before slice 5c
+reach (`runcompletionsurface.tsx`, `runworkercard.tsx`, `runtimelineview.tsx`,
+`runbody.tsx`, `orchestrate/dagoverview.tsx`, and `runcards.tsx`'s
+BlockedCard, TriageChip and ShipMarker, which only `runbody.tsx` renders), and
+are still pending in `routepicker.tsx`, `runlauncher.tsx` and
+`newruncontrol.tsx`.
+
 ## Layout
 
 Flexbox everywhere; grid only for card grids. The recurring chrome combo is
@@ -342,7 +353,9 @@ plus `shadow-popover-sm/md/lg/xl/2xl` (lighter popovers), `shadow-popover-soft`
 (diffuse), `shadow-popover-line` (1px micro-shadows), and
 `shadow-inset-highlight` (the white top-edge highlight on filled CTAs), and
 `shadow-cta` (an empty state's primary CTA: an accent glow over that
-highlight). Do not hand-roll new shadow recipes in `className`/`style` — reuse the scale.
+highlight). `shadow-sheet-side` (`-18px 0 44px rgba(0,0,0,0.55)`) is the one
+sideways recipe: a right-docked sheet that overlays the content, such as the
+chunk sidebar under 1280px. Do not hand-roll new shadow recipes in `className`/`style` — reuse the scale.
 
 ## Shapes
 

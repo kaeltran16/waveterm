@@ -38,9 +38,7 @@ export function HintsBar({ ready, onOpenHelp }: { ready: boolean; onOpenHelp: ()
             {ready &&
                 HINTS.map(([k, d]) => (
                     <span key={k} className="flex items-center gap-1">
-                        <span className="rounded-[4px] bg-white/[0.06] px-1.5 py-0.5 font-mono text-secondary">
-                            {k}
-                        </span>
+                        <span className="rounded-[4px] bg-edge-mid px-1.5 py-0.5 font-mono text-secondary">{k}</span>
                         {d}
                     </span>
                 ))}
