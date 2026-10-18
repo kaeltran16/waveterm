@@ -13,6 +13,8 @@ import {
     scopeSplit,
     splitTable,
     type SplitPart,
+    type WorkList,
+    type WorkRow,
     type WorkScope,
 } from "./usageattribution";
 import { aggregateBuckets } from "./usagestats";
@@ -413,5 +415,198 @@ describe("split table", () => {
         expect([tiny.tokenBarPct, tiny.spendBarPct]).toEqual([0.3, 0.3]);
         const none = table.rows.find((r) => r.key === "none")!;
         expect([none.tokenPct, none.tokenBarPct, none.spendBarPct]).toEqual([0, 0, 0]);
+    });
+});
+
+describe("work item makeup", () => {
+    it("ranks a run's sessions by spend whatever order their buckets arrive in", () => {
+        const attr = buildAttribution([bkt("rev", 1), bkt("w1", 2), bkt("lead", 4)], RUN_SESSIONS);
+        const [run] = attr.items;
+        expect(run.sessions.map((s) => [s.key, s.role])).toEqual([
+            ["claude:lead", "lead"],
+            ["claude:w1", "worker"],
+            ["claude:rev", "reviewer"],
+        ]);
+        expect(run.buckets).toEqual([bkt("lead", 4), bkt("w1", 2), bkt("rev", 1)]);
+    });
+
+    it("titles a run with no goal by its lead, not by its costliest session", () => {
+        const sessions = [
+            inRun("lead", "lead", { title: "Lead title", rungoal: "" }),
+            inRun("w1", "worker", { title: "Worker title", rungoal: "" }),
+        ];
+        const attr = buildAttribution([bkt("lead", 1), bkt("w1", 3)], sessions);
+        expect(attr.items[0].sessions[0].title).toBe("Worker title");
+        expect(attr.items[0].title).toBe("Lead title");
+    });
+
+    it("titles a leadless run with no goal by its costliest session", () => {
+        const sessions = [
+            inRun("w1", "worker", { title: "Small worker", rungoal: "" }),
+            inRun("w2", "worker", { title: "Big worker", rungoal: "" }),
+        ];
+        const attr = buildAttribution([bkt("w1", 1), bkt("w2", 3)], sessions);
+        expect(attr.items[0].title).toBe("Big worker");
+    });
+
+    it("lists each harness once, costliest session's first, on an item and across the window", () => {
+        const sessions = [
+            inRun("lead", "lead"),
+            inRun("w", "worker", { harness: "pi" }),
+            inRun("w2", "worker"),
+            ses("solo", { project: WAVE }),
+        ];
+        const buckets = [bkt("lead", 4), bkt("w", 2, { harness: "pi" }), bkt("w2", 1), bkt("solo", 1)];
+        const attr = buildAttribution(buckets, sessions);
+        expect(attr.items[0].harnesses).toEqual(["claude", "pi"]);
+        expect(attr.items[1].harnesses).toEqual(["claude"]);
+        expect(attr.harnesses).toEqual(["claude", "pi"]);
+    });
+
+    it("keeps the role of a directory-listed session and an empty one for an unlisted session", () => {
+        const run = buildAttribution(RUN_BUCKETS, RUN_SESSIONS).items[0];
+        expect(run.sessions.map((s) => s.role)).toEqual(["lead", "worker", "worker", "reviewer", "verifier"]);
+        const ghost = buildAttribution([bkt("ghost", 1)], []).items[0];
+        expect(ghost.sessions[0].role).toBe("");
+    });
+
+    it("sums every bucket of one session", () => {
+        const attr = buildAttribution([bkt("s", 1), bkt("s", 2, { day: "2026-10-07" })], [ses("s", { project: WAVE })]);
+        expect(attr.items).toHaveLength(1);
+        expect(attr.items[0]).toMatchObject({ tokens: 3 * M, spendUsd: 75 });
+        expect(attr.items[0].buckets).toEqual([bkt("s", 1), bkt("s", 2, { day: "2026-10-07" })]);
+    });
+
+    it("drops a session that billed nothing and reported nothing", () => {
+        const attr = buildAttribution([bkt("none", 0), bkt("real", 1)], []);
+        expect(attr.items.map((it) => it.key)).toEqual(["session:claude:real"]);
+        expect(attr.total.tokens).toBe(M);
+    });
+});
+
+describe("amounts", () => {
+    const unpriced = (session: string, over: Partial<UsageBucket> = {}) =>
+        bkt(session, 0, { model: "gpt-6.1-sol", input: M, ...over });
+
+    it("counts only priced models as priced tokens, and sums reported costs", () => {
+        const attr = buildAttribution(
+            [bkt("s", 2), unpriced("s", { reportedcostusd: 0.25 }), unpriced("s", { reportedcostusd: 0.5 })],
+            [ses("s", { project: WAVE })]
+        );
+        const expected = { tokens: 4 * M, spendUsd: 50, pricedTokens: 2 * M, reportedCostUsd: 0.75 };
+        expect(attr.total).toStrictEqual(expected);
+        expect(attr.items[0]).toMatchObject(expected);
+        expect(attr.projects[0]).toMatchObject(expected);
+    });
+
+    it("leaves reportedCostUsd off an amount nothing reported a cost for", () => {
+        const attr = buildAttribution([...RUN_BUCKETS, unpriced("bare")], RUN_SESSIONS);
+        expect(attr.total).toStrictEqual({ tokens: 11 * M, spendUsd: 250, pricedTokens: 10 * M });
+        expect(attr.items.map((it) => it.reportedCostUsd)).toEqual([undefined, undefined]);
+        expect(attr.items[1].sessions[0]).not.toHaveProperty("reportedCostUsd");
+    });
+
+    it("gives a project of unpriced work a share of 0, not NaN, and still a row", () => {
+        const attr = buildAttribution([unpriced("only")], [ses("only", { project: WAVE })]);
+        expect(attr.total.spendUsd).toBe(0);
+        expect(attr.projects.map((p) => [p.key, p.sharePct])).toEqual([[WAVE, 0]]);
+    });
+
+    it("ranks projects by their total spend, not by their top item", () => {
+        const attr = buildAttribution(
+            [bkt("x", 10), bkt("y1", 6), bkt("y2", 6), bkt("y3", 6)],
+            [
+                ses("x", { project: "C:/work/x" }),
+                ses("y1", { project: "C:/work/y" }),
+                ses("y2", { project: "C:/work/y" }),
+                ses("y3", { project: "C:/work/y" }),
+            ]
+        );
+        expect(attr.items[0].project).toBe("C:/work/x");
+        expect(attr.projects.map((p) => [p.label, p.count])).toEqual([
+            ["y", 3],
+            ["x", 1],
+        ]);
+    });
+});
+
+describe("list rows and summary", () => {
+    const buckets = [...RUN_BUCKETS, bkt("q", 3), bkt("solo", 2), bkt("ghost", 1)];
+    const sessions = [
+        ...RUN_SESSIONS,
+        ses("q", { project: WAVE, runid: "rq", runmode: "quick", rungoal: "Quick fix" }),
+        ses("solo", { project: WAVE, title: "Solo" }),
+    ];
+    const attr = buildAttribution(buckets, sessions);
+    const tail =
+        " A run counts its lead, workers and reviewers together; open one to see it the same way as this page.";
+
+    it("names each row's kind, with its project under All usage and a session count only for a multi-session run", () => {
+        const rows = scopeList(attr, ALL, "last 7 days")!.rows;
+        expect(rows.map((r) => [r.title, r.sub, r.isRun])).toEqual([
+            ["Ship usage attribution", "waveterm · orchestrator run · 5 sessions", true],
+            ["Quick fix", "waveterm · quick run", true],
+            ["Solo", "waveterm · session", false],
+            ["ghost", "session", false],
+        ]);
+    });
+
+    it("drops the project from a project's rows", () => {
+        const rows = scopeList(attr, resolveScope(attr, WAVE, null), "last 7 days")!.rows;
+        expect(rows.map((r) => r.sub)).toEqual(["orchestrator run · 5 sessions", "quick run", "session"]);
+    });
+
+    it("says only the kinds of work the scope holds", () => {
+        const onlyRun = buildAttribution(RUN_BUCKETS, RUN_SESSIONS);
+        expect(scopeList(onlyRun, ALL, "all time")!.summary).toBe(`1 orchestrator run took ≈ $250.${tail}`);
+
+        const quickAndSession = buildAttribution(
+            [bkt("q", 1), bkt("solo", 2)],
+            [
+                ses("q", { project: WAVE, runid: "rq", runmode: "quick", rungoal: "Quick fix" }),
+                ses("solo", { project: WAVE }),
+            ]
+        );
+        expect(scopeList(quickAndSession, ALL, "all time")!.summary).toBe(
+            `1 quick run ≈ $25.00 and 1 session no run started ≈ $50.00.${tail}`
+        );
+    });
+});
+
+describe("list page bars", () => {
+    const row = (key: string, cost: number): WorkRow => ({
+        key,
+        title: key,
+        sub: "",
+        isRun: false,
+        tokens: 0,
+        spendUsd: cost,
+        cost,
+        reported: false,
+    });
+    const listOf = (...costs: number[]): WorkList => ({
+        title: "Spent on",
+        meta: "",
+        rows: costs.map((c, i) => row(`r${i}`, c)),
+        nav: true,
+    });
+
+    it("sizes each bar against the first row, at least 1 and at most 100", () => {
+        // the first row's reported cost can sit below a later row's, so a bar can pass 100 before the cap
+        expect(listPage(listOf(20, 10, 0.05, 40), false).rows.map((r) => r.pct)).toEqual([100, 50, 1, 100]);
+    });
+
+    it("draws every bar at 1 when no row costs anything", () => {
+        expect(listPage(listOf(0, 0), false).rows.map((r) => r.pct)).toEqual([1, 1]);
+    });
+
+    it("pages an empty list without a row or a more link", () => {
+        expect(listPage(listOf(), false)).toEqual({ rows: [], hasMore: false, moreLabel: "Show all 0" });
+    });
+
+    it("offers more only past eight rows", () => {
+        const eight = Array.from({ length: 8 }, () => 1);
+        expect(listPage(listOf(...eight), false).hasMore).toBe(false);
+        expect(listPage(listOf(...eight, 1), false)).toMatchObject({ hasMore: true, moreLabel: "Show all 9" });
     });
 });
