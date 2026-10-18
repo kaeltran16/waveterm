@@ -4,6 +4,7 @@
 package jarvisbackfill
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
@@ -333,5 +334,45 @@ func TestBuildPlanSkipsRunsWithBlankGoal(t *testing.T) {
 	}
 	if len(p.Skipped) != 1 {
 		t.Errorf("blank-goal run should be reported as skipped")
+	}
+}
+
+// dossiers run oldest first, and two created together order by owner run, whatever order the history
+// arrived in
+func TestBuildPlanOrdersDossiersByCreatedThenOwner(t *testing.T) {
+	base := int64(1_000_000)
+	runs := []*waveobj.Run{
+		run("a2", "second same-day fix", "done", base+day, base+2*day),
+		run("a1", "first same-day fix", "done", base+day, base+2*day),
+		run("z0", "earliest fix", "done", base, base+day),
+	}
+	p := BuildPlan(runs, nil, base+5*day)
+	var owners []string
+	for _, d := range p.Dossiers {
+		owners = append(owners, d.OwnerRun)
+	}
+	if want := []string{"z0", "a1", "a2"}; !reflect.DeepEqual(owners, want) {
+		t.Fatalf("dossier owners = %v, want %v", owners, want)
+	}
+}
+
+// decisions order by summary, and among equal summaries the first recorded keeps the plain one while
+// the later gets the run discriminator
+func TestBuildPlanOrdersDecisionsBySummary(t *testing.T) {
+	base := int64(1_000_000)
+	runs := []*waveobj.Run{run("r1", "some work", "done", base, base+day)}
+	reps := []*waveobj.RadarReport{report(
+		finding("f1", "bravo", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: "b"}),
+		finding("f2", "alpha", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: "a1"}),
+		finding("f3", "alpha", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: "a2"}),
+	)}
+	p := BuildPlan(runs, reps, base+5*day)
+	var got [][2]string
+	for _, d := range p.Decisions {
+		got = append(got, [2]string{d.Facts.Summary, d.Facts.Rationale})
+	}
+	want := [][2]string{{"alpha", "a1"}, {"r1 — alpha", "a2"}, {"bravo", "b"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("decisions (summary, rationale) = %v, want %v", got, want)
 	}
 }

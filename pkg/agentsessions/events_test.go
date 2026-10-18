@@ -3,7 +3,10 @@
 
 package agentsessions
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestClipText(t *testing.T) {
 	if got := clipText("  hello   world  "); got != "hello world" {
@@ -143,6 +146,51 @@ func TestExtractCodexEvents(t *testing.T) {
 	errored := got.Events[len(got.Events)-2]
 	if errored.Type != "errored" || errored.Text != "failed: redis-cli ping" {
 		t.Errorf("event = %+v", errored)
+	}
+}
+
+// the started text is the first real user prompt and the finished text the last non-blank assistant
+// answer; only a shell commit and a failed call become events
+func TestExtractCodexEvents_timeline(t *testing.T) {
+	lines := []string{
+		`{"type":"response_item","timestamp":"2026-07-10T09:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>cwd</environment_context>"},{"type":"input_text","text":"<skill>x</skill>"},{"type":"input_text","text":"Migrate to redis"}]}}`,
+		`{"type":"response_item","timestamp":"2026-07-10T09:00:02.000Z","payload":{"type":"function_call","name":"shell_command","call_id":"c1","arguments":"{\"command\":\"redis-cli ping\"}"}}`,
+		`{"type":"response_item","timestamp":"2026-07-10T09:00:03.000Z","payload":{"type":"function_call_output","call_id":"c1","output":"Exit code: 0\nPONG"}}`,
+		`{"type":"response_item","timestamp":"2026-07-10T09:00:04.000Z","payload":{"type":"function_call","name":"apply_patch","call_id":"c2","arguments":"{\"command\":\"git commit -m \\\"not a shell\\\"\"}"}}`,
+		`{"type":"response_item","timestamp":"2026-07-10T09:00:05.000Z","payload":{"type":"function_call","name":"shell_command","call_id":"c3","arguments":"{\"command\":\"git commit -m \\\"move sessions to redis\\\"\"}"}}`,
+		`{"type":"response_item","timestamp":"2026-07-10T09:00:06.000Z","payload":{"type":"function_call_output","output":"Exit code: 1"}}`,
+		`{"type":"response_item","timestamp":"2026-07-10T09:00:07.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Redis is live"}]}}`,
+		`{"type":"response_item","timestamp":"2026-07-10T09:00:08.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"  "}]}}`,
+		`{"type":"response_item","timestamp":"2026-07-10T09:00:09.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"thanks"}]}}`,
+	}
+	got := extractCodexEvents(lines)
+	want := []SessionEvent{
+		{Type: "started", Ts: 1783674000000, Text: "Migrate to redis"},
+		{Type: "committed", Ts: 1783674005000, Text: "move sessions to redis"},
+		{Type: "finished", Ts: 1783674009000, Text: "Redis is live"},
+	}
+	if !reflect.DeepEqual(got.Events, want) {
+		t.Fatalf("events = %+v, want %+v", got.Events, want)
+	}
+	if got.Status != "done" || got.DurationMs != 9000 {
+		t.Errorf("status = %q duration = %d, want done 9000", got.Status, got.DurationMs)
+	}
+}
+
+// a record without a timestamp does not end the session: the window runs to the last timed record
+func TestExtractCodexEvents_untimedRecordKeepsTheWindow(t *testing.T) {
+	lines := []string{
+		`{"type":"response_item","timestamp":"2026-07-10T09:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Migrate to redis"}]}}`,
+		`{"type":"response_item","timestamp":"2026-07-10T09:00:05.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done"}]}}`,
+		`{"type":"event_msg","payload":{"type":"token_count"}}`,
+	}
+	got := extractCodexEvents(lines)
+	want := []SessionEvent{
+		{Type: "started", Ts: 1783674000000, Text: "Migrate to redis"},
+		{Type: "finished", Ts: 1783674005000, Text: "Done"},
+	}
+	if !reflect.DeepEqual(got.Events, want) || got.DurationMs != 5000 {
+		t.Fatalf("events = %+v duration = %d, want %+v and 5000", got.Events, got.DurationMs, want)
 	}
 }
 

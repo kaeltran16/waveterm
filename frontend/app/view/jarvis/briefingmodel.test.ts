@@ -345,6 +345,327 @@ describe("briefing projection", () => {
     });
 });
 
+describe("briefing projection fields", () => {
+    const quiet = { shipped: [], events: [], delta: [] };
+    const onlyActive = (active: ActiveWorkItem[]) =>
+        projectBriefing(input(workState([{ project: "/p/one", active, ...quiet }])));
+
+    it("reads every field of a run from its snapshot item, defaulting what the item leaves out", () => {
+        const m = onlyActive([
+            runItem({
+                title: "ship ledger",
+                detail: "status: blocked",
+                navtarget: "run:r-1",
+                workerorefs: ["tab:a"],
+                mode: "orchestrator",
+                ts: T0 - HOUR,
+            }),
+            runItem({
+                title: "bare",
+                detail: undefined,
+                navtarget: undefined,
+                mode: undefined,
+                workerorefs: undefined,
+                ts: T0 - 2 * HOUR,
+            }),
+            runItem({ title: "plain detail", detail: "needs a human", navtarget: "task:run:r-3", ts: T0 - 3 * HOUR }),
+        ]);
+        expect(m.activeRuns).toEqual([
+            {
+                oref: "run:r-1",
+                oid: "r-1",
+                goal: "ship ledger",
+                project: "/p/one",
+                status: "blocked",
+                workerOrefs: ["tab:a"],
+                mode: "orchestrator",
+                ts: T0 - HOUR,
+            },
+            {
+                oref: "run:",
+                oid: "",
+                goal: "bare",
+                project: "/p/one",
+                status: "",
+                workerOrefs: [],
+                mode: "",
+                ts: T0 - 2 * HOUR,
+            },
+            {
+                // only a leading run: is the type prefix; the same text inside an id is part of it
+                oref: "task:run:r-3",
+                oid: "task:run:r-3",
+                goal: "plain detail",
+                project: "/p/one",
+                status: "needs a human",
+                workerOrefs: [],
+                mode: "",
+                ts: T0 - 3 * HOUR,
+            },
+        ]);
+    });
+
+    it("orders runs of one status newest first, then by oref, whatever order they arrive in", () => {
+        const at = (navtarget: string, ts: number) => runItem({ navtarget, ts });
+        const m = onlyActive([
+            at("run:r-old", T0 - 3 * HOUR),
+            at("run:r-new", T0 - HOUR),
+            at("run:z", T0 - 2 * HOUR),
+            at("run:a", T0 - 2 * HOUR),
+        ]);
+        expect(m.activeRuns.map((r) => r.oref)).toEqual(["run:r-new", "run:a", "run:z", "run:r-old"]);
+    });
+
+    it("takes only blockers into the blocker rows, and only runs into the run rows", () => {
+        const m = onlyActive([
+            { project: "/p/one", kind: "attention", title: "an ask", detail: "d", ts: T0, navtarget: "run:r-9" },
+            runItem({ navtarget: "run:r-1" }),
+            {
+                project: "/p/one",
+                kind: "blocker",
+                title: "gate",
+                detail: "needs X",
+                ts: T0 - HOUR,
+                navtarget: "task:d-1",
+            },
+        ]);
+        expect(m.activeRuns.map((r) => r.oref)).toEqual(["run:r-1"]);
+        expect(m.blockers).toEqual([
+            { oref: "task:d-1", objective: "gate", blockers: "needs X", project: "/p/one", ts: T0 - HOUR },
+        ]);
+    });
+
+    it("defaults a blocker's missing detail, target and scope, and keeps an unscoped one null", () => {
+        const m = onlyActive([
+            { project: "", kind: "blocker", title: "bare", ts: T0 - HOUR },
+            {
+                project: "/p/one",
+                kind: "blocker",
+                title: "scoped",
+                detail: "waits",
+                ts: T0 - 2 * HOUR,
+                navtarget: "task:d-2",
+            },
+        ]);
+        expect(m.blockers).toEqual([
+            { oref: "", objective: "bare", blockers: "", project: null, ts: T0 - HOUR },
+            { oref: "task:d-2", objective: "scoped", blockers: "waits", project: "/p/one", ts: T0 - 2 * HOUR },
+        ]);
+    });
+
+    it("orders blockers newest first, then by oref, whatever order they arrive in", () => {
+        const at = (navtarget: string, ts: number): ActiveWorkItem => ({
+            project: "/p/one",
+            kind: "blocker",
+            title: navtarget,
+            ts,
+            navtarget,
+        });
+        const m = onlyActive([
+            at("task:old", T0 - 3 * HOUR),
+            at("task:new", T0 - HOUR),
+            at("task:z", T0 - 2 * HOUR),
+            at("task:a", T0 - 2 * HOUR),
+        ]);
+        expect(m.blockers.map((b) => b.oref)).toEqual(["task:new", "task:a", "task:z", "task:old"]);
+    });
+
+    it("projects each direct agent's fields, asking agents first, then the roster order", () => {
+        const roster = [
+            agent({ id: "w1", name: "loom", task: "ship it", activeMs: 120_000, blockedMs: 7_000 }),
+            agent({
+                id: "a1",
+                name: "quill",
+                state: "asking",
+                task: undefined,
+                agent: undefined,
+                project: undefined,
+                blockedMs: 60_000,
+                activeMs: 300_000,
+            }),
+            agent({ id: "a2", name: "sage", state: "asking", task: "t2", blockedMs: undefined, activeMs: 300_000 }),
+            agent({ id: "w2", name: "flux", activeMs: undefined }),
+        ];
+        const m = projectBriefing(input(workState([]), roster));
+        expect(m.directAgents).toEqual([
+            {
+                oref: "agent:a1",
+                id: "a1",
+                name: "quill",
+                task: "quill",
+                runtime: "",
+                project: null,
+                state: "asking",
+                startedTs: T0 - 60_000,
+            },
+            {
+                oref: "agent:a2",
+                id: "a2",
+                name: "sage",
+                task: "t2",
+                runtime: "claude",
+                project: "waveterm",
+                state: "asking",
+                startedTs: T0,
+            },
+            {
+                oref: "agent:w1",
+                id: "w1",
+                name: "loom",
+                task: "ship it",
+                runtime: "claude",
+                project: "waveterm",
+                state: "working",
+                startedTs: T0 - 120_000,
+            },
+            {
+                oref: "agent:w2",
+                id: "w2",
+                name: "flux",
+                task: "ship the briefing",
+                runtime: "claude",
+                project: "waveterm",
+                state: "working",
+                startedTs: T0,
+            },
+        ]);
+    });
+
+    it("projects every shipped field and marks fresh only the run whose completion is in the delta", () => {
+        const shipped: ShippedItem[] = [
+            {
+                project: "waveterm",
+                runoid: "r-a",
+                goal: "ga",
+                summary: "done a",
+                completedts: T0 - DAY,
+                hasreport: true,
+                effortoid: "e-1",
+                chunklabel: "c1",
+                mode: "orchestrator",
+            },
+            { project: "waveterm", runoid: "r-b", goal: "gb", completedts: T0 - 2 * DAY, hasreport: false },
+            // exactly seven days old is still inside the window
+            { project: "waveterm", runoid: "r-c", goal: "gc", completedts: T0 - 7 * DAY },
+        ];
+        const delta: TimelineEvent[] = [
+            { ts: T0 - DAY, kind: "run-done", title: "ga", navtarget: "run:r-a" },
+            { ts: T0 - DAY, kind: "run-created", title: "ga", navtarget: "run:r-a" },
+            { ts: T0 - 2 * DAY, kind: "run-created", title: "gb", navtarget: "run:r-b" },
+        ];
+        const m = projectBriefing(
+            input(workState([{ project: "waveterm", active: [], shipped, events: delta, delta }]), [], T0 - 9 * DAY)
+        );
+        expect(m.shipped).toEqual([
+            {
+                oref: "run:r-a",
+                goal: "ga",
+                project: "waveterm",
+                summary: "done a",
+                completedTs: T0 - DAY,
+                fresh: true,
+                hasReport: true,
+                effortOid: "e-1",
+                chunkLabel: "c1",
+                mode: "orchestrator",
+            },
+            {
+                oref: "run:r-b",
+                goal: "gb",
+                project: "waveterm",
+                summary: "",
+                completedTs: T0 - 2 * DAY,
+                fresh: false,
+                hasReport: false,
+                effortOid: "",
+                chunkLabel: "",
+                mode: "",
+            },
+            {
+                oref: "run:r-c",
+                goal: "gc",
+                project: "waveterm",
+                summary: "",
+                completedTs: T0 - 7 * DAY,
+                fresh: false,
+                hasReport: false,
+                effortOid: "",
+                chunkLabel: "",
+                mode: "",
+            },
+        ]);
+        // only the completion is promoted into shipped; the same run's other events stay in the delta
+        expect(m.delta.map((d) => [d.kind, d.oref])).toEqual([
+            ["run-created", "run:r-a"],
+            ["run-created", "run:r-b"],
+        ]);
+    });
+
+    it("projects every delta field, keeps an event exactly at the cursor, and nulls what it lacks", () => {
+        const delta: TimelineEvent[] = [
+            { ts: T0 - DAY, kind: "decision", title: "chose sqlite", detail: "because", navtarget: "decision:d1" },
+            { ts: T0 - DAY - 1, kind: "decision", title: "too old" },
+            { ts: T0 - HOUR, kind: "decision", title: "bare" },
+        ];
+        const m = projectBriefing(
+            input(workState([{ project: "waveterm", active: [], shipped: [], events: delta, delta }]))
+        );
+        expect(m.delta).toEqual([
+            {
+                key: `decision:${T0 - DAY}:chose sqlite`,
+                ts: T0 - DAY,
+                kind: "decision",
+                title: "chose sqlite",
+                wording: "Decision recorded",
+                detail: "because",
+                oref: "decision:d1",
+            },
+            {
+                key: `decision:${T0 - HOUR}:bare`,
+                ts: T0 - HOUR,
+                kind: "decision",
+                title: "bare",
+                wording: "Decision recorded",
+                detail: null,
+                oref: null,
+            },
+        ]);
+    });
+
+    it("names each source leg the snapshot could not read", () => {
+        const sources = (runs: boolean, dossiers: boolean) => {
+            const state = workState([]);
+            state.sources = { runs, sessions: true, dossiers, efforts: true, attention: "volatile" };
+            return projectBriefing(input(state)).health;
+        };
+        expect(sources(true, false)).toEqual({ complete: false, missingLegs: ["Records"], attentionState: "volatile" });
+        expect(sources(false, false)).toEqual({
+            complete: false,
+            missingLegs: ["Runs", "Records"],
+            attentionState: "volatile",
+        });
+    });
+
+    it("orders the efforts newest-updated first whatever order the wire sent", () => {
+        const effortAt = (title: string, updatedts: number) => ({
+            oref: `effort:${title}`,
+            title,
+            status: "active",
+            done: 0,
+            total: 1,
+            updatedts,
+            chunks: [{ label: "c", status: "pending" }],
+        });
+        const state = workState([]);
+        state.efforts = [
+            effortAt("old", T0 - 3 * HOUR),
+            effortAt("new", T0 - HOUR),
+            effortAt("mid", T0 - 2 * HOUR),
+        ] as WorkState["efforts"];
+        expect(projectBriefing(input(state)).efforts.map((e) => e.title)).toEqual(["new", "mid", "old"]);
+    });
+});
+
 describe("delta grouping", () => {
     // fixed local noon — calendar-day buckets must not depend on the runner's TZ.
     const NOON = new Date(2027, 0, 15, 12, 0, 0).getTime();
@@ -673,6 +994,175 @@ describe("buildAttentionQueue", () => {
         const q = buildAttentionQueue({ attention: [item({})], efforts });
         expect(q.map((r) => r.kind)).toEqual(["dag gate", "chunk blocked"]);
         expect(q[1]!.ts).toBeNull();
+    });
+});
+
+describe("buildAttentionQueue rows", () => {
+    const item = attentionItem;
+    const rowOf = (a: AttentionItem, efforts: EffortCardModel[] = []) =>
+        buildAttentionQueue({ attention: [a], efforts })[0]!;
+
+    it("carries every field of a wire row through", () => {
+        const row = rowOf(
+            item({
+                kind: "dag-blocked",
+                key: "dag-blocked:d1:t-3",
+                runid: "r1",
+                taskid: "t-3",
+                retry: true,
+                why: "the task failed twice",
+                cites: ["a.go"],
+                effortoid: "e-7",
+                chunklabel: "rebase",
+            }),
+            [{ oref: "effort:e-7", title: "Reliability", blockedChunks: [] } as EffortCardModel]
+        );
+        expect(row).toEqual({
+            key: "dag-blocked:d1:t-3",
+            kind: "dag blocked",
+            title: "Approve before Jarvis proceeds.",
+            source: "ship the ledger",
+            detail: "ship the ledger · #waveterm",
+            ts: T0 - HOUR,
+            action: "Review",
+            nav: { kind: "channel", channelId: "ch-1", runId: "r1" },
+            tone: "error",
+            attrib: "Reliability · rebase",
+            why: "the task failed twice",
+            cites: ["a.go"],
+            wireKind: "dag-blocked",
+            channelId: "ch-1",
+            runId: "r1",
+            taskId: "t-3",
+            retry: true,
+        });
+    });
+
+    it("defaults what a wire row leaves out", () => {
+        const row = rowOf(item({ channelid: undefined, runid: undefined, taskid: undefined, retry: undefined }));
+        expect(row).toMatchObject({ channelId: "", runId: null, taskId: "", retry: false, action: null, nav: null });
+    });
+
+    it("reads retry as set only when the wire says true", () => {
+        expect(rowOf(item({ retry: false })).retry).toBe(false);
+        expect(rowOf(item({ retry: true })).retry).toBe(true);
+    });
+
+    it("keeps the action of a row that has a channel to land on", () => {
+        expect(rowOf(item({ action: "Review" })).action).toBe("Review");
+    });
+
+    it("names no run on the nav when the item carries none", () => {
+        expect(rowOf(item({ runid: undefined })).nav).toEqual({ kind: "channel", channelId: "ch-1", runId: null });
+        expect(rowOf(item({ runid: undefined })).runId).toBeNull();
+        expect(rowOf(item({ runid: "" })).runId).toBeNull();
+    });
+
+    it("adds the channel to the detail only for a row that has one", () => {
+        expect(rowOf(item({ channelid: "", channelname: "waveterm", runid: "" })).detail).toBe("ship the ledger");
+        expect(rowOf(item({ channelname: undefined })).detail).toBe("ship the ledger");
+    });
+
+    it("leaves no stray separator when the row has no source", () => {
+        expect(rowOf(item({ source: "" })).detail).toBe("#waveterm");
+    });
+
+    it("degrades a triage row whose report is an empty oref to the channel rule", () => {
+        const noChannel = rowOf(item({ kind: "radar-triage", channelid: "", channelname: "", runid: "", oref: "" }));
+        expect(noChannel.nav).toBeNull();
+        expect(noChannel.action).toBeNull();
+        const channel = rowOf(item({ kind: "radar-triage", oref: "" }));
+        expect(channel.nav).toEqual({ kind: "channel", channelId: "ch-1", runId: "r1" });
+    });
+
+    it("names no initiative without an effort oid, whatever chunk it carries", () => {
+        expect(rowOf(item({ effortoid: undefined, chunklabel: "backfill" })).attrib).toBe("");
+        expect(rowOf(item({ effortoid: "", chunklabel: "backfill" })).attrib).toBe("");
+    });
+
+    it("matches an effort by the oid after its leading effort: prefix only", () => {
+        const efforts = [{ oref: "pre-effort:e-7", title: "Mislabelled", blockedChunks: [] } as EffortCardModel];
+        expect(rowOf(item({ effortoid: "pre-e-7", chunklabel: "c" }), efforts).attrib).toBe("c");
+        expect(rowOf(item({ effortoid: "pre-effort:e-7", chunklabel: "c" }), efforts).attrib).toBe("Mislabelled · c");
+    });
+
+    it("rows a blocked chunk with its initiative as source and detail, and nothing to retry", () => {
+        const rows = buildAttentionQueue({
+            attention: [],
+            efforts: [{ oref: "effort:e-1", title: "Gate", blockedChunks: ["Phase 5"] } as EffortCardModel],
+        });
+        expect(rows).toEqual([
+            {
+                key: "chunk:effort:e-1:Phase 5",
+                kind: "chunk blocked",
+                title: "Phase 5",
+                source: "Gate",
+                detail: "Gate",
+                ts: null,
+                action: "Open",
+                nav: { kind: "effort", oref: "effort:e-1" },
+                tone: "asking",
+                attrib: "",
+                why: "",
+                cites: [],
+                wireKind: "chunk-blocked",
+                channelId: "",
+                runId: null,
+                taskId: "",
+                retry: false,
+            },
+        ]);
+    });
+
+    it("rows a record blocker with its project, and a scopeless one with empty text", () => {
+        const rows = buildAttentionQueue({
+            attention: [],
+            efforts: [],
+            blockers: [
+                { oref: "task:d1", objective: "Clear the gate", blockers: "waits on SRE", project: "p", ts: 5 },
+                { oref: "", objective: "Loose end", blockers: "", project: null, ts: 6 },
+            ],
+        });
+        expect(rows).toEqual([
+            {
+                key: "blocker:task:d1",
+                kind: "blocked",
+                wireKind: "blocker",
+                title: "Clear the gate",
+                source: "p",
+                detail: "p",
+                ts: 5,
+                action: "Open",
+                nav: { kind: "record", oref: "task:d1" },
+                tone: "asking",
+                attrib: "",
+                why: "waits on SRE",
+                cites: [],
+                channelId: "",
+                runId: null,
+                taskId: "",
+                retry: false,
+            },
+            {
+                key: "blocker:",
+                kind: "blocked",
+                wireKind: "blocker",
+                title: "Loose end",
+                source: "",
+                detail: "",
+                ts: 6,
+                action: "Open",
+                nav: null,
+                tone: "asking",
+                attrib: "",
+                why: "",
+                cites: [],
+                channelId: "",
+                runId: null,
+                taskId: "",
+                retry: false,
+            },
+        ]);
     });
 });
 
