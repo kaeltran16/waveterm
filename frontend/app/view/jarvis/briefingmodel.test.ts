@@ -236,6 +236,51 @@ describe("briefing projection", () => {
         expect(m.activeRuns).toHaveLength(0); // attention is queue-only, never an active-work row
     });
 
+    it("removes a delta event only when ts, title and detail all equal a current attention item's", () => {
+        const attention: ActiveWorkItem = {
+            project: "/p/one",
+            kind: "attention",
+            title: "the ask",
+            detail: "check it",
+            ts: T0 - HOUR,
+        };
+        const ev = (over: Partial<TimelineEvent>): TimelineEvent => ({
+            ts: T0 - HOUR,
+            kind: "decision",
+            title: "the ask",
+            detail: "check it",
+            ...over,
+        });
+        const delta: TimelineEvent[] = [
+            ev({}),
+            ev({ ts: T0 - 2 * HOUR }),
+            ev({ title: "another ask" }),
+            ev({ detail: "check something else" }),
+            ev({ ts: T0 - 3 * HOUR, title: "unrelated", detail: "unrelated" }),
+        ];
+        const m = projectBriefing(
+            input(workState([{ project: "waveterm", active: [attention], shipped: [], events: [], delta }]))
+        );
+        expect(m.delta.map((d) => [d.ts, d.title, d.detail])).toEqual([
+            [T0 - 2 * HOUR, "the ask", "check it"],
+            [T0 - HOUR, "another ask", "check it"],
+            [T0 - HOUR, "the ask", "check something else"],
+            [T0 - 3 * HOUR, "unrelated", "unrelated"],
+        ]);
+    });
+
+    it("orders active runs newest first, then by oref when they are equally new", () => {
+        const runs = [
+            runItem({ ts: T0 - 3 * HOUR, navtarget: "run:r-a" }),
+            runItem({ ts: T0 - HOUR, navtarget: "run:r-c" }),
+            runItem({ ts: T0 - HOUR, navtarget: "run:r-b" }),
+        ];
+        const m = projectBriefing(
+            input(workState([{ project: "waveterm", active: runs, shipped: [], events: [], delta: [] }]))
+        );
+        expect(m.activeRuns.map((r) => r.oref)).toEqual(["run:r-b", "run:r-c", "run:r-a"]);
+    });
+
     it("labels unscoped blockers and keeps their target", () => {
         const active: ActiveWorkItem[] = [
             {
@@ -799,6 +844,85 @@ describe("unified active work", () => {
         // tab-2's status changed a moment ago (a new prompt), which resets the time in its state
         const after = order([agent({ id: "tab-1", activeMs: 2 * HOUR }), agent({ id: "tab-2", activeMs: 1000 })]);
         expect(after).toEqual(before);
+    });
+
+    it("joins only the meta parts that are present", () => {
+        const rows = mergeActiveWork({
+            activeRuns: [run({ status: "" })],
+            blockers: [],
+            directAgents: [agentRow({ runtime: "" }), agentRow({ id: "a2", oref: "agent:a2", project: null })],
+        });
+        expect(rows.find((r) => r.kind === "run")!.meta).toBe("waveterm");
+        expect(rows.filter((r) => r.kind === "agent").map((r) => r.meta)).toEqual(["waveterm", "claude"]);
+    });
+
+    it("chips a run with its own status, or running when it has none", () => {
+        const rows = mergeActiveWork({
+            activeRuns: [run({ status: "queued" }), run({ oref: "run:r2", status: "" })],
+            blockers: [],
+            directAgents: [],
+        });
+        expect(rows.find((r) => r.oref === "run:r1")!.chip).toEqual({ label: "queued", tone: "running" });
+        expect(rows.find((r) => r.oref === "run:r2")!.chip).toEqual({ label: "running", tone: "running" });
+    });
+
+    it("gives a scoped blocker no chip and a working agent a running chip", () => {
+        const rows = mergeActiveWork({
+            activeRuns: [],
+            blockers: [blocker({ project: "waveterm" })],
+            directAgents: [agentRow({ state: "working" })],
+        });
+        expect(rows.find((r) => r.kind === "blocker")!.chip).toBeNull();
+        expect(rows.find((r) => r.kind === "agent")!.chip).toEqual({ label: "working", tone: "running" });
+    });
+
+    it("puts a blocker and an asking agent ahead of a newer running run", () => {
+        const rows = mergeActiveWork({
+            activeRuns: [run({ ts: T0 })],
+            blockers: [blocker({ ts: T0 - 5 * HOUR })],
+            directAgents: [agentRow({ state: "asking", startedTs: T0 - 6 * HOUR })],
+        });
+        expect(rows.map((r) => r.kind)).toEqual(["blocker", "agent", "run"]);
+    });
+
+    it("keeps agents in roster order whatever their timestamps say", () => {
+        const rows = mergeActiveWork({
+            activeRuns: [],
+            blockers: [],
+            directAgents: [
+                agentRow({ id: "a1", oref: "agent:a1", startedTs: T0 - 5 * HOUR }),
+                agentRow({ id: "a2", oref: "agent:a2", startedTs: T0 - HOUR }),
+                agentRow({ id: "a3", oref: "agent:a3", startedTs: T0 - 3 * HOUR }),
+            ],
+        });
+        expect(rows.map((r) => r.oref)).toEqual(["agent:a1", "agent:a2", "agent:a3"]);
+    });
+
+    it("puts the dated rows of a tier ahead of its agents, newest first", () => {
+        const rows = mergeActiveWork({
+            activeRuns: [run({ oref: "run:a", ts: T0 - 3 * HOUR }), run({ oref: "run:b", ts: T0 - HOUR })],
+            blockers: [],
+            directAgents: [agentRow({ startedTs: T0 })],
+        });
+        expect(rows.map((r) => r.oref)).toEqual(["run:b", "run:a", "agent:a1"]);
+    });
+
+    it("keeps the input order of two rows that share an identity and a timestamp", () => {
+        const rows = mergeActiveWork({
+            activeRuns: [run({ goal: "first", ts: T0 }), run({ goal: "second", ts: T0 })],
+            blockers: [],
+            directAgents: [],
+        });
+        expect(rows.map((r) => r.name)).toEqual(["first", "second"]);
+    });
+
+    it("keeps the order of rows already sorted by identity when timestamps collide", () => {
+        const rows = mergeActiveWork({
+            activeRuns: [run({ oref: "run:a", ts: T0 }), run({ oref: "run:z", ts: T0 })],
+            blockers: [],
+            directAgents: [],
+        });
+        expect(rows.map((r) => r.oref)).toEqual(["run:a", "run:z"]);
     });
 
     it("stays deterministic when timestamps collide", () => {

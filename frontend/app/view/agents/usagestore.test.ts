@@ -97,6 +97,47 @@ describe("loadUsage", () => {
         expect(opts?.timeout).toBeGreaterThan(5000);
     });
 
+    it("sends the window it was asked for to the RPC", async () => {
+        getStats.mockResolvedValue(response);
+        await loadUsage(30);
+        expect(getStats.mock.calls[0][1]).toStrictEqual({ windowdays: 30 });
+    });
+
+    it("leaves no sessions when the reply carries none", async () => {
+        globalStore.set(usageSessionsAtom, sessions);
+        getStats.mockResolvedValue(response);
+        await loadUsage(7);
+        expect(globalStore.get(usageSessionsAtom)).toStrictEqual([]);
+    });
+
+    it("does not flag an error when a superseded load throws", async () => {
+        let rejectOld!: (e: Error) => void;
+        getStats
+            .mockImplementationOnce(() => new Promise((_, rej) => (rejectOld = rej)))
+            .mockResolvedValueOnce(response);
+        const pOld = loadUsage(7);
+        await loadUsage(0);
+        rejectOld(new Error("late failure"));
+        await pOld;
+        expect(globalStore.get(usageErrorAtom)).toBe(false);
+    });
+
+    it("keeps the skeleton while the newer window loads, even as a superseded load settles", async () => {
+        let resolveOld!: (v: any) => void;
+        let resolveNew!: (v: any) => void;
+        getStats
+            .mockImplementationOnce(() => new Promise((r) => (resolveOld = r)))
+            .mockImplementationOnce(() => new Promise((r) => (resolveNew = r)));
+        const pOld = loadUsage(7);
+        const pNew = loadUsage(0);
+        resolveOld(response);
+        await pOld;
+        expect(globalStore.get(usageLoadedAtom)).toBe(false);
+        resolveNew(response);
+        await pNew;
+        expect(globalStore.get(usageLoadedAtom)).toBe(true);
+    });
+
     it("latest window load wins: a late stale response does not overwrite the newer window's data", async () => {
         let resolveOld!: (v: any) => void;
         getStats

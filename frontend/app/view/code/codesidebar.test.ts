@@ -33,6 +33,12 @@ describe("Code sidebar preferences", () => {
         });
     });
 
+    it("keeps the collapse preference when the stored widths are missing or null", () => {
+        const collapsed = { widths: CODE_SIDEBAR_DEFAULT_WIDTHS, open: false };
+        expect(parseCodeSidebarPrefs(JSON.stringify({ open: false }))).toEqual(collapsed);
+        expect(parseCodeSidebarPrefs(JSON.stringify({ widths: null, open: false }))).toEqual(collapsed);
+    });
+
     it("round-trips mode widths and collapse preference", () => {
         const prefs = { widths: { files: 240, search: 410, changed: 360 }, open: false };
         expect(parseCodeSidebarPrefs(codeSidebarPrefsJson(prefs))).toEqual(prefs);

@@ -114,6 +114,51 @@ describe("skillGroups", () => {
         const names = skillGroups(sample(), {}).flatMap((g) => g.rows.map((r) => r.name));
         expect(names.filter((n) => n === "vaulted")).toHaveLength(1);
     });
+
+    it("orders Only-in groups by harness column, whatever order the copies were found in", () => {
+        const groups = groupsOf(
+            data({
+                unmanaged: [
+                    move("opencode", "o", { seed: true }),
+                    move("codex", "x", { seed: true }),
+                    move("claude", "c", { seed: true }),
+                ],
+            })
+        );
+        expect(groups).toEqual([
+            { title: "Only in Claude Code", names: ["c"] },
+            { title: "Only in Codex", names: ["x"] },
+            { title: "Only in OpenCode", names: ["o"] },
+        ]);
+    });
+
+    it("runs the widest Same-copy group first even when a narrower skill is found first", () => {
+        const groups = groupsOf(
+            data({
+                unmanaged: [
+                    move("claude", "narrow", { seed: true }),
+                    move("codex", "narrow"),
+                    move("claude", "wide", { seed: true }),
+                    move("codex", "wide"),
+                    move("opencode", "wide"),
+                ],
+            })
+        );
+        expect(groups.map((g) => g.title)).toEqual(["Same copy in 3 harnesses", "Same copy in 2 harnesses"]);
+    });
+
+    it("sorts the skills inside a group by name", () => {
+        const groups = groupsOf(
+            data({
+                unmanaged: [
+                    move("claude", "zeta", { seed: true }),
+                    move("claude", "alpha", { seed: true }),
+                    move("claude", "mid", { seed: true }),
+                ],
+            })
+        );
+        expect(groups).toEqual([{ title: "Only in Claude Code", names: ["alpha", "mid", "zeta"] }]);
+    });
 });
 
 describe("skillRows cells", () => {
@@ -142,6 +187,51 @@ describe("skillRows cells", () => {
 
     it("shows which copy a keep chooses and which it replaces", () => {
         expect(cells("translate", { translate: "codex" })).toEqual(["Replaced", "Kept", "—", "—"]);
+    });
+
+    it("lists a skill's copies in column order, whatever order they were found in", () => {
+        const d = data({
+            unmanaged: [
+                move("opencode", "scrambled"),
+                move("claude", "scrambled", { seed: true }),
+                move("codex", "scrambled"),
+                move("claude", "ordered", { seed: true }),
+                move("codex", "ordered"),
+                move("opencode", "ordered"),
+            ],
+        });
+        const copies = (name: string) =>
+            skillRows(d, {})
+                .find((r) => r.name === name)!
+                .copies.map((c) => c.runtime);
+        expect(copies("scrambled")).toEqual(["claude", "codex", "opencode"]);
+        expect(copies("ordered")).toEqual(["claude", "codex", "opencode"]);
+    });
+
+    it("titles a managed cell with the harness's overrides, and leaves the title off when it has none", () => {
+        const d = data({
+            skills: [
+                {
+                    name: "tuned",
+                    states: { claude: "synced", codex: "differs", opencode: "synced" },
+                    deltas: { claude: ["description", "model"], codex: ["tools"] },
+                },
+            ],
+        });
+        const cells = skillRows(d, {})[0].cells;
+        expect(cells[0]).toStrictEqual({
+            runtime: "claude",
+            label: "Synced",
+            tone: "ok",
+            title: "Overrides description, model",
+        });
+        expect(cells[1]).toStrictEqual({
+            runtime: "codex",
+            label: "Not synced",
+            tone: "warn",
+            title: "Overrides tools",
+        });
+        expect(cells[2]).toStrictEqual({ runtime: "opencode", label: "Synced", tone: "ok", title: undefined });
     });
 });
 

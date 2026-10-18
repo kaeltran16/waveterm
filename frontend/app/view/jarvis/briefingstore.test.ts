@@ -85,18 +85,103 @@ describe("briefing cursor", () => {
     });
 
     it.each([
-        ["malformed", JSON.stringify("abc")],
-        ["nonpositive", JSON.stringify(0)],
-        ["negative", JSON.stringify(-5)],
-        ["future", JSON.stringify(T0 + 1000)],
+        ["malformed", "abc"],
+        ["numeric string", "5"],
+        ["nonpositive", 0],
+        ["negative", -5],
+        ["future", T0 + 1000],
+        ["not a number", NaN],
+        ["infinite", Infinity],
     ])("falls back to seven days ago for a %s cursor", async (_name, stored) => {
-        lsMock.store.set("jarvis.briefing.lastseen", stored);
+        globalStore.set(briefingCursorAtom, stored as number);
         mockStateRpc(completeState());
         await loadBriefingAsync();
-        expect(RpcApi.JarvisStateCommand).toHaveBeenCalledWith(expect.anything(), {
-            project: "",
-            sincems: T0 - SEVEN_DAYS_MS,
-        }, { timeout: 180_000 });
+        expect(RpcApi.JarvisStateCommand).toHaveBeenCalledWith(
+            expect.anything(),
+            {
+                project: "",
+                sincems: T0 - SEVEN_DAYS_MS,
+            },
+            { timeout: 180_000 }
+        );
+        expect(globalStore.get(briefingStateAtom).snapshot?.actualCursor).toBe(T0 - SEVEN_DAYS_MS);
+    });
+
+    it.each([
+        ["right now", T0, T0 - SEVEN_DAYS_MS],
+        ["a day ago", T0 - DAY, T0 - SEVEN_DAYS_MS],
+        ["ten days ago", T0 - 10 * DAY, T0 - 10 * DAY],
+    ])(
+        "reads a cursor from %s as the visit and fetches from the earlier of it and seven days ago",
+        async (_name, cursor, since) => {
+            globalStore.set(briefingCursorAtom, cursor);
+            mockStateRpc(completeState());
+            await loadBriefingAsync();
+            expect(RpcApi.JarvisStateCommand).toHaveBeenCalledWith(
+                expect.anything(),
+                {
+                    project: "",
+                    sincems: since,
+                },
+                { timeout: 180_000 }
+            );
+            expect(globalStore.get(briefingStateAtom).snapshot?.actualCursor).toBe(cursor);
+        }
+    );
+
+    it("shows the load in progress over the previous snapshot with the old error cleared", async () => {
+        mockStateRpc(completeState());
+        await loadBriefingAsync();
+        const previous = globalStore.get(briefingStateAtom).snapshot;
+        (RpcApi.JarvisStateCommand as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("rpc broke"));
+        await loadBriefingAsync();
+        expect(globalStore.get(briefingStateAtom).error).toBe("rpc broke");
+        let resolve!: (v: CommandJarvisStateRtnData) => void;
+        (RpcApi.JarvisStateCommand as ReturnType<typeof vi.fn>).mockReturnValue(new Promise((r) => (resolve = r)));
+        const pending = loadBriefingAsync();
+        expect(globalStore.get(briefingStateAtom)).toStrictEqual({ snapshot: previous, loading: true, error: null });
+        resolve({ state: completeState() });
+        await pending;
+    });
+
+    it("ends a failed load not loading, with the error text and the previous snapshot", async () => {
+        mockStateRpc(completeState());
+        await loadBriefingAsync();
+        const previous = globalStore.get(briefingStateAtom).snapshot;
+        (RpcApi.JarvisStateCommand as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("rpc broke"));
+        await loadBriefingAsync();
+        expect(globalStore.get(briefingStateAtom)).toStrictEqual({
+            snapshot: previous,
+            loading: false,
+            error: "rpc broke",
+        });
+    });
+
+    it("is not complete when the records leg is missing, even with the runs leg present", async () => {
+        mockStateRpc({
+            projects: [],
+            sources: { runs: true, sessions: true, dossiers: false, efforts: true, attention: "volatile" },
+        });
+        await loadBriefingAsync();
+        expect(globalStore.get(briefingStateAtom).snapshot?.complete).toBe(false);
+    });
+
+    it("writes nothing to storage when no seen mark is due", async () => {
+        globalStore.set(briefingCursorAtom, T0 - DAY);
+        globalStore.set(briefingSeenMarksAtom, [{ through: T0 - 1000, at: T0 - 1000 }]);
+        const setItem = vi.spyOn(lsMock, "setItem");
+        mockStateRpc(completeState());
+        await loadBriefingAsync();
+        expect(setItem).not.toHaveBeenCalled();
+    });
+
+    it("drops a due mark that is behind the cursor without moving the cursor", async () => {
+        globalStore.set(briefingCursorAtom, T0 - 1000);
+        globalStore.set(briefingSeenMarksAtom, [{ through: T0 - DAY, at: T0 - DAY }]);
+        mockStateRpc(completeState());
+        await loadBriefingAsync();
+        expect(globalStore.get(briefingCursorAtom)).toBe(T0 - 1000);
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([]);
     });
 
     it("acknowledgment advances from queryStartedAt, never response time", async () => {
@@ -148,6 +233,40 @@ describe("briefing cursor", () => {
         expect(globalStore.get(briefingStateAtom).snapshot?.queryStartedAt).toBe(T0);
     });
 
+    it("a stale generation's late snapshot does not overwrite the current one", async () => {
+        let resolveA!: (v: CommandJarvisStateRtnData) => void;
+        (RpcApi.JarvisStateCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce(new Promise((r) => (resolveA = r)));
+        const a = loadBriefingAsync();
+        mockStateRpc(completeState()); // generation B resolves immediately
+        await loadBriefingAsync();
+        resolveA({
+            state: {
+                projects: [],
+                sources: { runs: false, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
+            },
+        }); // generation A lands late, and looks different
+        await a;
+        const st = globalStore.get(briefingStateAtom);
+        expect(st.snapshot?.complete).toBe(true);
+        expect(st.loading).toBe(false);
+        expect(st.error).toBeNull();
+    });
+
+    it("a stale generation's late failure does not set an error on the current load", async () => {
+        let rejectA!: (e: Error) => void;
+        (RpcApi.JarvisStateCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+            new Promise((_r, rej) => (rejectA = rej))
+        );
+        const a = loadBriefingAsync();
+        mockStateRpc(completeState());
+        await loadBriefingAsync();
+        rejectA(new Error("late failure"));
+        await a;
+        const st = globalStore.get(briefingStateAtom);
+        expect(st.error).toBeNull();
+        expect(st.snapshot?.complete).toBe(true);
+    });
+
     it("flags the unsaved marker when localStorage writes fail during acknowledgment", async () => {
         lsMock.failWrites = true;
         try {
@@ -169,6 +288,46 @@ describe("briefing cursor", () => {
         ackBriefingVisit();
         expect(globalStore.get(briefingCursorAtom)).toBe(T0 + 10_000);
         expect(globalStore.get(briefingSeenMarksAtom)).toEqual([]);
+    });
+
+    it("acknowledging before any load does nothing", async () => {
+        vi.resetModules();
+        const fresh = await import("./briefingstore");
+        const { globalStore: freshStore } = await import("@/app/store/jotaiStore");
+        expect(() => fresh.ackBriefingVisit()).not.toThrow();
+        expect(freshStore.get(fresh.briefingAckAtom)).toBe("idle");
+        expect(freshStore.get(fresh.briefingSeenMarksAtom)).toEqual([]);
+    });
+
+    it("does not stack a mark that reaches only as far as a mark already held", async () => {
+        const held = { through: T0, at: T0 - 1000 };
+        globalStore.set(briefingSeenMarksAtom, [held]);
+        mockStateRpc(completeState());
+        await loadBriefingAsync();
+        ackBriefingVisit();
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([held]);
+        expect(globalStore.get(briefingAckAtom)).toBe("saved");
+    });
+
+    it("does not add a mark that reaches only as far as the cursor", async () => {
+        globalStore.set(briefingCursorAtom, T0);
+        mockStateRpc(completeState());
+        await loadBriefingAsync();
+        ackBriefingVisit();
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([]);
+        expect(globalStore.get(briefingAckAtom)).toBe("saved");
+    });
+
+    it.each([
+        ["malformed", "abc"],
+        ["not a number", NaN],
+        ["infinite", Infinity],
+    ])("treats a %s stored cursor as no cursor when acknowledging", async (_name, stored) => {
+        globalStore.set(briefingCursorAtom, stored as number);
+        mockStateRpc(completeState());
+        await loadBriefingAsync();
+        ackBriefingVisit();
+        expect(globalStore.get(briefingSeenMarksAtom)).toEqual([{ through: T0, at: T0 }]);
     });
 
     it("keeps seen rows for the hold, then clears them on the next load", async () => {
@@ -229,5 +388,23 @@ describe("settleSeen", () => {
             cursor: null,
             marks: [],
         });
+    });
+
+    it("ignores a mark whose through or at is not a finite number", () => {
+        const marks = [
+            { through: "x", at: T0 - 2 * SEEN_HOLD_MS },
+            { through: T0, at: "1" },
+        ] as unknown as { through: number; at: number }[];
+        expect(settleSeen(null, marks, T0)).toEqual({ cursor: null, marks: [] });
+    });
+
+    it("moves the cursor to the latest due mark and keeps the marks still held", () => {
+        const held = { through: T0, at: T0 - SEEN_HOLD_MS + 1 };
+        const marks = [{ through: T0 - 2 * DAY, at: T0 - 2 * DAY }, { through: T0 - DAY, at: T0 - DAY }, held];
+        expect(settleSeen(T0 - 3 * DAY, marks, T0)).toEqual({ cursor: T0 - DAY, marks: [held] });
+    });
+
+    it("lets a due mark seed an empty cursor whatever its value", () => {
+        expect(settleSeen(null, [{ through: 0, at: 0 }], T0)).toEqual({ cursor: 0, marks: [] });
     });
 });

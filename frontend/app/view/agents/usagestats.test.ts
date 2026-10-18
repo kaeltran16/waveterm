@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { aggregateBuckets, bucketSpend, bucketTokens, modelKey, pctStr } from "./usagestats";
+import { aggregateBuckets, bucketSpend, bucketTokens, modelKey, pctStr, usd } from "./usagestats";
+
+describe("usd", () => {
+    it("prints thousands as K, whole dollars from 100, and cents below", () => {
+        expect([usd(2500), usd(1000), usd(999.6), usd(100), usd(99.5), usd(0)]).toEqual([
+            "$2.5K",
+            "$1K",
+            "$1000",
+            "$100",
+            "$99.50",
+            "$0.00",
+        ]);
+    });
+});
 
 describe("bucket helpers", () => {
     it("counts every token class and prices a bucket the way the aggregate does", () => {
@@ -276,6 +289,154 @@ describe("aggregateBuckets", () => {
             now
         );
         expect(stats.models.map((m) => m.model)).toEqual(["claude-opus-4-8"]);
+    });
+});
+
+describe("aggregateBuckets sums", () => {
+    const now = Date.parse("2026-06-26T12:00:00.000Z");
+    const today = "2026-06-26";
+    const M = 1_000_000;
+
+    it("splits every token class with its own tokens and spend", () => {
+        const stats = aggregateBuckets(
+            [bkt({ input: 1 * M, output: 2 * M, reasoning: 3 * M, cacheread: 4 * M, cachecreate: 5 * M })],
+            now
+        );
+        // opus: $5 in, $25 out, $0.5 cache read, $6.25 cache write per 1M; reasoning bills as output
+        expect(stats.split.map((s) => [s.cls, s.tokens, s.spendUsd])).toEqual([
+            ["cacheRead", 4 * M, 2],
+            ["reasoning", 3 * M, 75],
+            ["output", 2 * M, 50],
+            ["cacheWrite", 5 * M, 31.25],
+            ["input", 1 * M, 5],
+        ]);
+    });
+
+    it("sums spend into today, the week, the window, the daily rows and the model series", () => {
+        const stats = aggregateBuckets(
+            [
+                bkt({ day: today, output: 1 * M }), // $25
+                bkt({ day: today, input: 1 * M }), // $5
+                bkt({ harness: "codex", provider: "openai", model: "gpt-5.5", day: today, input: 1 * M }), // $5
+                bkt({ day: "2026-06-20", output: 1 * M }), // first day of the rolling week, $25
+                bkt({ day: "2026-06-19", output: 1 * M }), // a day before it, $25
+            ],
+            now
+        );
+        expect(stats.totals).toMatchObject({
+            tokensToday: 3 * M,
+            spendTodayUsd: 35,
+            tokensWeek: 4 * M,
+            spendWeekUsd: 60,
+            tokensWindow: 5 * M,
+            spendWindowUsd: 85,
+            tokensTodayByHarness: { claude: 2 * M, codex: 1 * M },
+        });
+        const last = stats.daily[stats.daily.length - 1];
+        expect(last.day).toBe(today);
+        expect(last.byHarness).toEqual({
+            claude: { tokens: 2 * M, spendUsd: 30 },
+            codex: { tokens: 1 * M, spendUsd: 5 },
+        });
+        expect(stats.models.map((m) => [m.harness, m.tokens, m.spendUsd])).toEqual([
+            ["claude", 4 * M, 80],
+            ["codex", 1 * M, 5],
+        ]);
+    });
+
+    it("covers the week by the share of its tokens that are priced", () => {
+        const stats = aggregateBuckets(
+            [
+                bkt({ day: today, input: 100 }),
+                bkt({ day: today, model: "no-such-model", input: 300 }),
+                bkt({ day: "2026-06-01", input: 1000 }), // priced, but outside the week
+            ],
+            now
+        );
+        expect(stats.totals.pricedTokensWeek).toBe(100);
+        expect(stats.totals.pricingCoverageWeekPct).toBe(25);
+        expect(stats.totals.pricedTokensWindow).toBe(1100);
+        expect(stats.totals.pricingCoverageWindowPct).toBeCloseTo((1100 / 1400) * 100, 9);
+    });
+
+    it("gives no week coverage when the week holds no tokens", () => {
+        const stats = aggregateBuckets([bkt({ day: "2026-06-01", input: 100 })], now);
+        expect(stats.totals.pricingCoverageWeekPct).toBeNull();
+        expect(stats.totals.pricingCoverageWindowPct).toBe(100);
+    });
+
+    it("keeps the reported cost of the week apart from the whole window's", () => {
+        const stats = aggregateBuckets(
+            [
+                bkt({
+                    harness: "opencode",
+                    provider: "openai",
+                    model: "gpt-5.5",
+                    day: today,
+                    input: 10,
+                    reportedcostusd: 1.5,
+                }),
+                bkt({ harness: "claude", day: today, input: 10 }), // reports nothing
+                bkt({
+                    harness: "pi",
+                    provider: "openai-codex",
+                    model: "gpt-5.5",
+                    day: "2026-06-01",
+                    input: 10,
+                    reportedcostusd: 2,
+                }),
+            ],
+            now
+        );
+        expect(stats.totals).toMatchObject({
+            reportedCostWeekUsd: 1.5,
+            reportedCostWeekPresent: true,
+            reportedCostWeekHarnesses: ["opencode"],
+            reportedCostWindowUsd: 3.5,
+            reportedCostWindowPresent: true,
+            reportedCostWindowHarnesses: ["opencode", "pi"],
+        });
+    });
+
+    it("reports no week cost when only an older bucket reported one", () => {
+        const stats = aggregateBuckets([bkt({ day: "2026-06-01", input: 10, reportedcostusd: 2 })], now);
+        expect(stats.totals).toMatchObject({
+            reportedCostWeekUsd: 0,
+            reportedCostWeekPresent: false,
+            reportedCostWeekHarnesses: [],
+            reportedCostWindowUsd: 2,
+            reportedCostWindowPresent: true,
+        });
+    });
+
+    it("counts a day as active only when it billed tokens", () => {
+        const stats = aggregateBuckets([bkt({ day: today, input: 100 }), bkt({ day: "2026-06-24" })], now);
+        expect(stats.totals.activeDays).toBe(1);
+        expect(stats.daily.map((d) => d.day)).toEqual(["2026-06-24", "2026-06-25", today]);
+    });
+});
+
+describe("aggregateBuckets day range", () => {
+    const now = Date.parse("2026-06-26T12:00:00.000Z");
+    const dayKeys = (buckets: UsageBucket[]) => aggregateBuckets(buckets, now).daily.map((d) => d.day);
+
+    it("starts at the earliest day and runs to the latest, whatever order the buckets arrive in", () => {
+        const buckets = [
+            bkt({ day: "2026-06-26", input: 10 }),
+            bkt({ day: "2026-06-28", input: 10 }), // a day ahead of today
+            bkt({ day: "2026-06-24", input: 10 }),
+        ];
+        expect(dayKeys(buckets)).toEqual(["2026-06-24", "2026-06-25", "2026-06-26", "2026-06-27", "2026-06-28"]);
+        expect(dayKeys([...buckets].reverse())).toEqual(dayKeys(buckets));
+    });
+
+    it("runs on to today when every bucket is older", () => {
+        expect(dayKeys([bkt({ day: "2026-06-23", input: 10 })])).toEqual([
+            "2026-06-23",
+            "2026-06-24",
+            "2026-06-25",
+            "2026-06-26",
+        ]);
     });
 });
 

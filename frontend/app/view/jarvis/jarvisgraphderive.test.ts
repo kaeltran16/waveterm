@@ -74,6 +74,22 @@ describe("attributionStyle", () => {
     });
 });
 
+describe("attributionStyle by bucket", () => {
+    const style = (over: { bucket?: string; provenance?: string; state?: string }) => attributionStyle(over);
+
+    it("draws each bucket at its own opacity and width, an unknown or absent one as weak", () => {
+        expect(style({ bucket: "strong" })).toEqual({ dashed: false, semantic: false, opacity: 1, width: 1.4 });
+        expect(style({ bucket: "medium" })).toEqual({ dashed: false, semantic: false, opacity: 0.6, width: 1.0 });
+        expect(style({ bucket: "weak" })).toEqual({ dashed: false, semantic: false, opacity: 0.35, width: 0.7 });
+        expect(style({})).toEqual({ dashed: false, semantic: false, opacity: 0.35, width: 0.7 });
+    });
+
+    it("flags semantic only for the semantic provenance", () => {
+        expect(style({ provenance: "semantic" }).semantic).toBe(true);
+        expect(style({ provenance: "lexical" }).semantic).toBe(false);
+    });
+});
+
 describe("linkKey", () => {
     it("distinguishes wikilink from attribution on the same endpoints", () => {
         expect(linkKey({ from: "a", to: "b", kind: "wikilink" } as GraphLink)).not.toEqual(

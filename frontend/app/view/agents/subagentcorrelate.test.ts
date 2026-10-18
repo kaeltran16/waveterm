@@ -58,4 +58,20 @@ describe("correlateSubagents", () => {
         const out = correlateSubagents([], [file({ firstprompt: "Investigate the crash\nmore detail" })]);
         expect(out[0].type).toBe("Investigate the crash");
     });
+
+    const labelOf = (firstprompt: string) => correlateSubagents([], [file({ firstprompt })])[0].type;
+
+    it("labels an unmatched file with its first non-blank line, trimmed", () => {
+        expect(labelOf("\n   \n  Indented line  \nsecond")).toBe("Indented line");
+    });
+
+    it("cuts a fallback label to 40 characters and leaves one of 40 whole", () => {
+        expect(labelOf("x".repeat(40))).toBe("x".repeat(40));
+        expect(labelOf("x".repeat(41))).toBe("x".repeat(40));
+        expect(labelOf("y".repeat(80) + "\nnext")).toBe("y".repeat(40));
+    });
+
+    it("labels an unmatched file with a blank prompt as subagent", () => {
+        expect(labelOf("  \n ")).toBe("subagent");
+    });
 });
