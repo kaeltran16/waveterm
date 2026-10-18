@@ -183,4 +183,44 @@ describe("matchBinding — leader continuations", () => {
             result: { kind: "run", binding: chord },
         });
     });
+
+    it("reprocesses the chord in the caller's context, with the leader cleared", () => {
+        const chord = bind({ id: "s1", keys: "Ctrl:1", when: (c) => c.surface === "cockpit" && c.leader == null });
+        expect(matchBinding(ev("1", { control: true }), { ...navCtx, leader: "g" }, [seqFiles, chord])).toEqual({
+            kind: "resetAndProcess",
+            result: { kind: "run", binding: chord },
+        });
+    });
+
+    it("ignores a sequence under another leader whose continuation is the key pressed", () => {
+        const other = bind({ id: "x-b", keys: "x b", when: leaderAware });
+        expect(matchBinding(ev("b"), { ...navCtx, leader: "g" }, [other, seqFiles])).toEqual({ kind: "reset" });
+    });
+
+    it("a single bound to the leader letter itself still runs under the leader", () => {
+        const bareG = bind({ id: "bare-g", keys: "g", when: leaderAware });
+        expect(matchBinding(ev("g"), { ...navCtx, leader: "g" }, [seqFiles, bareG])).toEqual({
+            kind: "run",
+            binding: bareG,
+        });
+    });
+});
+
+describe("matchBinding — bindings and prefixes outside leader mode", () => {
+    it("treats a binding with no guard as always active", () => {
+        const b = bind({ id: "plain", keys: "j" });
+        expect(matchBinding(ev("j"), navCtx, [b])).toEqual({ kind: "run", binding: b });
+        expect(matchBinding(ev("j"), editCtx, [b])).toEqual({ kind: "run", binding: b });
+    });
+
+    it("an active sequence does not turn every other key into a leader entry", () => {
+        const seq = bind({ id: "go-files", keys: "g f", when: leaderAware });
+        expect(matchBinding(ev("q"), navCtx, [seq])).toEqual({ kind: "none" });
+    });
+
+    it("enters the leader of the sequence whose prefix is pressed, not the first one listed", () => {
+        const g = bind({ id: "go-files", keys: "g f", when: leaderAware });
+        const x = bind({ id: "x-b", keys: "x b", when: leaderAware });
+        expect(matchBinding(ev("x"), navCtx, [g, x])).toEqual({ kind: "enterLeader", leader: "x" });
+    });
 });

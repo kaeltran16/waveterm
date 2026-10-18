@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1260,6 +1261,11 @@ func TestHistoryLogReportsFailureDetail(t *testing.T) {
 	if !strings.Contains(h.Failure.Command, "log") {
 		t.Errorf("Command = %q, want it to name the log invocation", h.Failure.Command)
 	}
+	// no Skip and no Grep add no flag for them
+	wantCmd := "git log --date-order --no-color --decorate=full --pretty=format:%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%D%x1f%s%x1e --max-count=200 no-such-ref-anywhere"
+	if h.Failure.Command != wantCmd {
+		t.Errorf("Command = %q, want %q", h.Failure.Command, wantCmd)
+	}
 	// the failure panel prints the command verbatim, where a raw separator byte draws as a box
 	if strings.ContainsAny(h.Failure.Command, fieldSep+recordSep) {
 		t.Errorf("Command = %q, want git's %%x escapes, not raw separator bytes", h.Failure.Command)
@@ -1269,9 +1275,10 @@ func TestHistoryLogReportsFailureDetail(t *testing.T) {
 	}
 }
 
-// A freshly initialised repo has no commits, and git log exits 128 there. That is an empty history,
-// not a failed read: reporting it as a failure would greet every new project with an error panel.
-func TestHistoryLogEmptyRepoIsNotAFailure(t *testing.T) {
+// A freshly initialised repo has no commits. With no Ref, HistoryLog walks --all, which exits 0 there, so
+// this reads as an empty history, not a failed read: reporting it as a failure would greet every new
+// project with an error panel. Naming the unborn branch is TestHistoryLogUnbornRefIsEmptyHistory.
+func TestHistoryLogNoRefInEmptyRepoIsEmptyHistory(t *testing.T) {
 	dir := t.TempDir()
 	gitAuthored(t, dir, "init", "--initial-branch=main")
 	h, err := HistoryLog(context.Background(), dir, HistoryOpts{})
@@ -1282,10 +1289,52 @@ func TestHistoryLogEmptyRepoIsNotAFailure(t *testing.T) {
 		t.Error("IsRepo = false, want true for an initialised repo with no commits")
 	}
 	if h.Failure != nil {
-		t.Errorf("Failure = %+v, want nil for an unborn branch", h.Failure)
+		t.Errorf("Failure = %+v, want nil for a repo with no commits", h.Failure)
 	}
 	if len(h.Commits) != 0 {
 		t.Errorf("got %d commits, want 0", len(h.Commits))
+	}
+}
+
+// naming the unborn branch makes git log itself fail; rev-parse --verify exits 1 for the missing HEAD, which is
+// still empty history
+func TestHistoryLogUnbornRefIsEmptyHistory(t *testing.T) {
+	dir := t.TempDir()
+	gitAuthored(t, dir, "init", "--initial-branch=main")
+	h, err := HistoryLog(context.Background(), dir, HistoryOpts{Ref: "main"})
+	if err != nil {
+		t.Fatalf("HistoryLog: %v", err)
+	}
+	if want := (&History{IsRepo: true}); !reflect.DeepEqual(h, want) {
+		t.Errorf("HistoryLog = %+v, want %+v", h, want)
+	}
+}
+
+// a fatal error from rev-parse --verify (here a corrupt packed-refs) is a failed read, not an unborn branch
+func TestHistoryLogFatalVerifyIsAFailure(t *testing.T) {
+	dir := repoBranchMerge(t)
+	gitAuthored(t, dir, "pack-refs", "--all")
+	if err := os.WriteFile(filepath.Join(dir, ".git", "packed-refs"), []byte("garbage line here\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h, err := HistoryLog(context.Background(), dir, HistoryOpts{})
+	if err != nil {
+		t.Fatalf("HistoryLog: %v", err)
+	}
+	if !h.IsRepo || h.Commits != nil || h.Failure == nil || h.Failure.ExitCode != 128 {
+		t.Fatalf("HistoryLog = %+v (failure %+v), want a repo with no commits and an exit-128 failure", h, h.Failure)
+	}
+}
+
+// the .git directory itself is inside a repository but not inside its work tree
+func TestHistoryLogGitDirIsNotARepo(t *testing.T) {
+	dir := repoBranchMerge(t)
+	h, err := HistoryLog(context.Background(), filepath.Join(dir, ".git"), HistoryOpts{})
+	if err != nil {
+		t.Fatalf("HistoryLog: %v", err)
+	}
+	if want := (&History{IsRepo: false}); !reflect.DeepEqual(h, want) {
+		t.Errorf("HistoryLog = %+v, want %+v", h, want)
 	}
 }
 

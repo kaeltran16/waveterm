@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -484,5 +485,94 @@ func TestScanFinalAndTranscripts(t *testing.T) {
 	}
 	if countKind(items, wshrpc.StorageKind_Transcripts) != 1 {
 		t.Fatal("a missing ~/.pi must not be a row")
+	}
+}
+
+// a run tree whose run was stored after the scan takes that run's project; with no run it has none, and once
+// its folder is gone with no branch left it is gone
+func TestProbeRunTreeTakesTheProjectOfARunStoredSinceTheScan(t *testing.T) {
+	env := useScanEnv(t)
+	ctx := context.Background()
+	repo := newRepo(t)
+	registerProject(t, "proj", repo)
+	runID := uuid.NewString()
+	dir := filepath.Join(env.root, runID+"-t-1")
+	mkdirs(t, dir)
+	items, _, err := scan(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := findItem(items, wshrpc.StorageKind_RunTree, dir)
+	if item == nil || item.ProjectPath != "" {
+		t.Fatalf("tree of an unstored run = %+v, want a row with no project", item)
+	}
+	fresh, err := probe(ctx, *item)
+	if err != nil || fresh.ProjectPath != "" || fresh.RunId != "" {
+		t.Fatalf("probe with the run still unstored = %+v %v, want no run and no project", fresh, err)
+	}
+	storeRun(t, &waveobj.Run{OID: runID, ProjectPath: repo, Status: "done"})
+	fresh, err = probe(ctx, *item)
+	if err != nil || pathKey(fresh.ProjectPath) != pathKey(repo) || fresh.RunId != runID {
+		t.Fatalf("probe once the run is stored = %+v %v, want the run's project %s", fresh, err, repo)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := probe(ctx, *item); err != ErrGone {
+		t.Fatalf("probe of the removed branchless folder = %v, want ErrGone", err)
+	}
+}
+
+// a legacy group whose project can no longer be read keeps its members and is skipped, not dropped
+func TestProbeLegacyGroupOfAnUnreadableProject(t *testing.T) {
+	useScanEnv(t)
+	ctx := context.Background()
+	repo := newRepo(t)
+	registerProject(t, "proj", repo)
+	legacy := orchestrate.LegacyWorktreesDir(repo)
+	run := storeRun(t, &waveobj.Run{ProjectPath: repo, Status: "done"})
+	for lane := 1; lane <= 2; lane++ {
+		mkdirs(t, filepath.Join(legacy, run.OID+"-t-"+strconv.Itoa(lane), "leftover"))
+	}
+	items, _, err := scan(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := findItem(items, wshrpc.StorageKind_LegacyGroup, legacy)
+	if g == nil || g.Count != 2 {
+		t.Fatalf("legacy group = %+v, want 2 members", g)
+	}
+	if err := os.Rename(repo, repo+"-moved"); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := probe(ctx, *g)
+	if err != nil || fresh.Skip != wshrpc.StorageSkip_Unreadable || fresh.Count != 2 || !reflect.DeepEqual(fresh.Paths, g.Paths) {
+		t.Fatalf("probe of the moved project's group = %+v %v, want its 2 members kept and skipped as unreadable", fresh, err)
+	}
+}
+
+// Final shots count their dags; other path rows keep the count of their member paths
+func TestProbeFinalRowsCount(t *testing.T) {
+	env := useScanEnv(t)
+	ctx := context.Background()
+	root := orchestrate.FinalShotsRoot()
+	mkdirs(t,
+		filepath.Join(root, uuid.NewString(), "1"), filepath.Join(root, uuid.NewString(), "1"),
+		filepath.Join(env.appData, "arc-final-out-1"), filepath.Join(env.appData, "arc-final-out-2"),
+		filepath.Join(env.appData, "another-app"),
+	)
+	t.Cleanup(func() { os.RemoveAll(root) })
+	items, _, err := scan(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ kind, path string }{{wshrpc.StorageKind_FinalShots, root}, {wshrpc.StorageKind_FinalOut, env.appData}} {
+		item := findItem(items, c.kind, c.path)
+		if item == nil {
+			t.Fatalf("no %s row for %s", c.kind, c.path)
+		}
+		if fresh, err := probe(ctx, *item); err != nil || fresh.Count != 2 {
+			t.Fatalf("probe of %s = %+v %v, want count 2", c.kind, fresh, err)
+		}
 	}
 }

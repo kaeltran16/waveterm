@@ -129,6 +129,91 @@ func TestExtractClaudeEvents_errorKeepsSessionDone(t *testing.T) {
 	}
 }
 
+// the started text is the first user text block and the finished text the last non-blank assistant text; a
+// non-commit Bash call, a successful tool result and an untimed record add no event and do not end the window
+func TestExtractClaudeEvents_timeline(t *testing.T) {
+	lines := []string{
+		`{"type":"user","timestamp":"2026-07-10T12:00:00.000Z","message":{"content":[{"type":"text","text":"Fix the coupon gap"}]}}`,
+		`{"type":"assistant","timestamp":"2026-07-10T12:00:02.000Z","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls -la"}}]}}`,
+		`{"type":"user","timestamp":"2026-07-10T12:00:03.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":false}]}}`,
+		`{"type":"user","timestamp":"2026-07-10T12:00:04.000Z","message":{"content":[{"type":"text","text":"Now the refunds"}]}}`,
+		`{"type":"assistant","timestamp":"2026-07-10T12:00:05.000Z","message":{"content":[{"type":"text","text":"Coupons covered"}]}}`,
+		`{"type":"assistant","timestamp":"2026-07-10T12:00:06.000Z","message":{"content":[{"type":"text","text":"  "}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"git commit -m \"untimed\""}}]}}`,
+	}
+	got := extractClaudeEvents(lines)
+	want := sessionEvents{
+		Events: []SessionEvent{
+			{Type: "started", Ts: 1783684800000, Text: "Fix the coupon gap"},
+			{Type: "finished", Ts: 1783684806000, Text: "Coupons covered"},
+		},
+		Status:     "done",
+		StartedTs:  1783684800000,
+		DurationMs: 6000,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+// records out of timestamp order: status comes from the latest event, and the duration never goes negative
+func TestExtractClaudeEvents_outOfOrder(t *testing.T) {
+	lines := []string{
+		`{"type":"user","timestamp":"2026-07-10T12:00:10.000Z","message":{"content":"Plan the migration"}}`,
+		`{"type":"assistant","timestamp":"2026-07-10T12:00:20.000Z","message":{"content":[{"type":"tool_use","id":"t1","name":"AskUserQuestion","input":{"questions":[{"question":"Proceed?"}]}}]}}`,
+		`{"type":"assistant","timestamp":"2026-07-10T12:00:05.000Z","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"git commit -m \"early\""}}]}}`,
+	}
+	got := extractClaudeEvents(lines)
+	want := sessionEvents{
+		Events: []SessionEvent{
+			{Type: "committed", Ts: 1783684805000, Text: "early"},
+			{Type: "started", Ts: 1783684810000, Text: "Plan the migration"},
+			{Type: "asked", Ts: 1783684820000, Text: "Proceed?"},
+		},
+		Status:     "waiting",
+		StartedTs:  1783684810000,
+		DurationMs: 0,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+// events at the same time keep transcript order, so a commit after an ask in one message leaves the session done
+func TestExtractClaudeEvents_sameTimeKeepsOrder(t *testing.T) {
+	lines := []string{
+		`{"type":"user","timestamp":"2026-07-10T12:00:00.000Z","message":{"content":"Ship it"}}`,
+		`{"type":"assistant","timestamp":"2026-07-10T12:00:05.000Z","message":{"content":[{"type":"tool_use","id":"t1","name":"AskUserQuestion","input":{"questions":[{"question":"Proceed?"}]}},{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"git commit -m \"ship\""}}]}}`,
+	}
+	got := extractClaudeEvents(lines)
+	want := sessionEvents{
+		Events: []SessionEvent{
+			{Type: "started", Ts: 1783684800000, Text: "Ship it"},
+			{Type: "asked", Ts: 1783684805000, Text: "Proceed?"},
+			{Type: "committed", Ts: 1783684805000, Text: "ship"},
+			{Type: "finished", Ts: 1783684805000, Text: "finished"},
+		},
+		Status:     "done",
+		StartedTs:  1783684800000,
+		DurationMs: 5000,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+// a transcript with no timestamps has no window to anchor a started or finished event on
+func TestExtractClaudeEvents_untimed(t *testing.T) {
+	lines := []string{
+		`{"type":"user","message":{"content":"hi"}}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}`,
+	}
+	got := extractClaudeEvents(lines)
+	if want := (sessionEvents{Status: "done"}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
 func TestExtractCodexEvents(t *testing.T) {
 	lines := []string{
 		`{"type":"session_meta","timestamp":"2026-07-10T09:00:00.000Z","payload":{"cwd":"/home/me/payments-api","git":{"branch":"feat/redis"}}}`,
