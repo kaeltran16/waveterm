@@ -1,4 +1,4 @@
-import { atom } from "jotai";
+import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { globalStore } from "@/app/store/jotaiStore";
 import { atoms } from "@/app/store/global-atoms";
@@ -36,6 +36,9 @@ vi.mock("@/app/store/wos", () => ({
 
 import { launchAgent } from "./cockpit-actions";
 
+// the mock above makes the workspace atom writable; its real type is read-only.
+const workspaceAtom = atoms.workspace as unknown as PrimitiveAtom<Workspace>;
+
 function fakeModel() {
     return {
         pendingLaunchesAtom: atom([]),
@@ -52,7 +55,7 @@ afterEach(() => {
     agentSyncApply.mockClear();
     createWorktree.mockReset().mockResolvedValue({ worktreepath: "C:/wt/feat-x" });
     h.tab = { blockids: ["blk-1"] };
-    globalStore.set(atoms.workspace, { oid: "ws1", tabids: [] } as any);
+    globalStore.set(workspaceAtom, { oid: "ws1", tabids: [] } as any);
 });
 
 const agentOpts = {
@@ -129,7 +132,7 @@ describe("launchAgent", () => {
 
     it("refuses to launch without an active workspace", async () => {
         for (const ws of [undefined, {}]) {
-            globalStore.set(atoms.workspace, ws as any);
+            globalStore.set(workspaceAtom, ws as any);
             await expect(launchAgent(fakeModel(), agentOpts)).rejects.toThrow("no active workspace");
         }
         expect(createTab).not.toHaveBeenCalled();
