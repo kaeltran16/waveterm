@@ -20,8 +20,11 @@ vi.mock("@/app/store/wshclientapi", () => ({
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import {
+    compareAggregateAtom,
+    compareErrorAtom,
     compareOnAtom,
     compareRefsAtom,
+    compareSelectedFileAtom,
     compareSidesAtom,
     enterCompare,
     fetchStateOf,
@@ -29,6 +32,7 @@ import {
     leaveCompare,
     runFetch,
     setCompareForm,
+    setCompareRefs,
     swapCompareRefs,
 } from "./comparestore";
 import type { DiffScope } from "./diffscope";
@@ -264,5 +268,173 @@ describe("remote refs, swap and fetch", () => {
             at: 0,
             failure: null,
         });
+    });
+});
+
+describe("setCompareRefs", () => {
+    const changed = (...paths: string[]) => ({
+        isrepo: true,
+        statusz: paths.map((p) => `M  ${p}\0`).join(""),
+        numstat: paths.map((p) => `1\t0\t${p}\n`).join(""),
+    });
+    const commit = (hash: string) => ({ hash }) as unknown as HistoryCommit;
+    const split = { isrepo: true, ahead: [], behind: [], mergebase: "m1" };
+    const comparing: DiffScope = {
+        ...base,
+        range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: base.range },
+    };
+
+    it("writes the pair into a comparing scope, which stays the one source of truth", async () => {
+        globalStore.set(diffScopeAtom, comparing);
+        divergence.mockResolvedValue(split);
+        compareChanges.mockResolvedValue(changed());
+
+        await setCompareRefs("/repo", "x", "y");
+
+        expect(globalStore.get(diffScopeAtom)!.range).toStrictEqual({
+            kind: "compare",
+            base: "x",
+            head: "y",
+            form: "mergebase",
+            from: base.range,
+        });
+    });
+
+    it("leaves a scope that is not comparing, and a missing scope, as they were", async () => {
+        divergence.mockResolvedValue(split);
+        compareChanges.mockResolvedValue(changed());
+
+        globalStore.set(diffScopeAtom, base);
+        await setCompareRefs("/repo", "x", "y");
+        expect(globalStore.get(diffScopeAtom)).toStrictEqual(base);
+
+        globalStore.set(diffScopeAtom, null);
+        await setCompareRefs("/repo", "x", "y");
+        expect(globalStore.get(diffScopeAtom)).toBeNull();
+    });
+
+    it("asks for two refs and reads nothing when either is blank", async () => {
+        for (const [from, to] of [
+            ["", "feat"],
+            ["main", ""],
+        ]) {
+            globalStore.set(compareErrorAtom, null);
+            await setCompareRefs("/repo", from, to);
+            expect(globalStore.get(compareErrorAtom)).toBe("Pick two refs to compare.");
+        }
+        expect(divergence).not.toHaveBeenCalled();
+        expect(compareChanges).not.toHaveBeenCalled();
+    });
+
+    it("says it is not a repository when either read says so, and shows no sides", async () => {
+        for (const [div, agg] of [
+            [{ ...split, isrepo: false }, changed("a.ts")],
+            [split, { ...changed("a.ts"), isrepo: false }],
+        ]) {
+            divergence.mockResolvedValue(div);
+            compareChanges.mockResolvedValue(agg);
+            await setCompareRefs("/repo", "main", "feat");
+            expect(globalStore.get(compareErrorAtom)).toBe("Not a git repository.");
+            expect(globalStore.get(compareSidesAtom)).toBeNull();
+            expect(globalStore.get(compareAggregateAtom)).toBeNull();
+        }
+    });
+
+    it("keeps both commit columns as read, and reads absent ones as empty", async () => {
+        compareChanges.mockResolvedValue(changed());
+
+        divergence.mockResolvedValue({
+            isrepo: true,
+            ahead: [commit("a1")],
+            behind: [commit("b1"), commit("b2")],
+            mergebase: "m1",
+            mergebasets: 5,
+        });
+        await setCompareRefs("/repo", "main", "feat");
+        expect(globalStore.get(compareSidesAtom)).toStrictEqual({
+            ahead: [commit("a1")],
+            behind: [commit("b1"), commit("b2")],
+            mergeBase: "m1",
+            mergeBaseTs: 5,
+        });
+
+        divergence.mockResolvedValue({ isrepo: true });
+        await setCompareRefs("/repo", "main", "feat");
+        expect(globalStore.get(compareSidesAtom)).toStrictEqual({
+            ahead: [],
+            behind: [],
+            mergeBase: "",
+            mergeBaseTs: 0,
+        });
+    });
+
+    it("opens the first changed file, and none when nothing changed", async () => {
+        divergence.mockResolvedValue(split);
+
+        compareChanges.mockResolvedValue(changed("a.ts", "b.ts"));
+        await setCompareRefs("/repo", "main", "feat");
+        expect(globalStore.get(compareSelectedFileAtom)).toBe("a.ts");
+
+        compareChanges.mockResolvedValue(changed());
+        await setCompareRefs("/repo", "main", "feat");
+        expect(globalStore.get(compareSelectedFileAtom)).toBeNull();
+    });
+
+    it("drops a read the refs have moved past", async () => {
+        let releaseFirst: (v: any) => void = () => {};
+        divergence.mockImplementationOnce(() => new Promise((res) => (releaseFirst = res)));
+        divergence.mockResolvedValue({ ...split, mergebase: "m-second" });
+        compareChanges.mockResolvedValue(changed("b.ts"));
+
+        const slow = setCompareRefs("/repo", "a", "a2");
+        await setCompareRefs("/repo", "b", "b2");
+        releaseFirst({ ...split, mergebase: "m-first" });
+        await slow;
+
+        expect(globalStore.get(compareSidesAtom)!.mergeBase).toBe("m-second");
+    });
+});
+
+describe("runFetch while and after it runs", () => {
+    it("shows the fetch running with the last failure cleared and the clock kept", async () => {
+        const old = { command: "git fetch", exitcode: 1, stderr: "old" };
+        globalStore.set(fetchStatesAtom, { "/repo": { running: false, at: 7, failure: old } });
+        globalStore.set(compareRefsAtom, null);
+        let release: (v: any) => void = () => {};
+        gitFetch.mockImplementation(() => new Promise((res) => (release = res)));
+
+        const pending = runFetch("/repo");
+        expect(fetchStateOf(globalStore.get(fetchStatesAtom), "/repo")).toStrictEqual({
+            running: true,
+            at: 7,
+            failure: null,
+        });
+
+        release({ isrepo: true, fetchedat: 9 });
+        await pending;
+    });
+
+    // the client's timeout binds the server's context, so the default would cancel a slow fetch under git
+    it("fetches this repository with the raised budget", async () => {
+        globalStore.set(compareRefsAtom, null);
+        gitFetch.mockResolvedValue({ isrepo: true, fetchedat: 1 });
+
+        await runFetch("/repo");
+
+        expect(gitFetch).toHaveBeenCalledWith({}, { cwd: "/repo" }, { timeout: 60000 });
+    });
+
+    it("has no comparison to re-read when no pair was ever picked", async () => {
+        globalStore.set(compareRefsAtom, null);
+        gitFetch.mockResolvedValue({ isrepo: true, fetchedat: 5 });
+
+        await runFetch("/repo");
+
+        expect(fetchStateOf(globalStore.get(fetchStatesAtom), "/repo")).toEqual({
+            running: false,
+            at: 5,
+            failure: null,
+        });
+        expect(divergence).not.toHaveBeenCalled();
     });
 });

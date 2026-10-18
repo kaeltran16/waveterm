@@ -95,6 +95,40 @@ describe("loading both sides of a diff", () => {
     });
 });
 
+describe("what each side reports about itself", () => {
+    it("reads the working-tree side by its path in the repository", async () => {
+        fileAtRef.mockResolvedValue({ content: "committed\n" });
+        fileRead.mockResolvedValue({ data64: b64("edited\n") });
+        await loadDiffPair("/repo", "src/x.ts", { kind: "worktree", anchorRef: "HEAD" });
+        expect(fileRead).toHaveBeenCalledWith(expect.anything(), { info: { path: "\\repo\\src\\x.ts" } });
+    });
+
+    it("is neither binary nor too large when neither side says so", async () => {
+        fileAtRef.mockResolvedValue({ content: "text\n" });
+        await loadDiffPair("/repo", "a.ts", { kind: "commit", hash: "aaa" });
+        expect(globalStore.get(diffPairAtom)).toStrictEqual({
+            path: "a.ts",
+            original: "text\n",
+            modified: "text\n",
+            binary: false,
+            tooLarge: false,
+            size: 0,
+        });
+    });
+
+    it("is binary when git has no text for the sides", async () => {
+        fileAtRef.mockResolvedValue({ content: "", binary: true });
+        await loadDiffPair("/repo", "logo.png", { kind: "commit", hash: "aaa" });
+        expect(globalStore.get(diffPairAtom)).toMatchObject({ binary: true, tooLarge: false });
+    });
+
+    it("is too large when both sides exceed the cap", async () => {
+        fileAtRef.mockResolvedValue({ content: "", toolarge: true, size: 3_000_000 });
+        await loadDiffPair("/repo", "lock.json", { kind: "commit", hash: "aaa" });
+        expect(globalStore.get(diffPairAtom)).toMatchObject({ binary: false, tooLarge: true, size: 3_000_000 });
+    });
+});
+
 describe("refreshing the pair already on screen", () => {
     // The change poll replaces the working-tree state every few seconds, and the surface re-reads the
     // open file with it. Blanking the atom first would flash the skeleton on every tick.

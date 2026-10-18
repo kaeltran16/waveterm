@@ -16,6 +16,7 @@ vi.mock("./agentsessionstore", () => ({ ensureSessionStart: (...a: any[]) => ens
 import { scopeKey, type DiffScope } from "./diffscope";
 import {
     consumeFileLink,
+    filesErrorAtom,
     filesSelectedPathAtom,
     filesStateAtom,
     loadFilesForScope,
@@ -44,6 +45,7 @@ afterEach(() => {
     ensureSessionStart.mockReset();
     globalStore.set(filesStateAtom, null);
     globalStore.set(filesSelectedPathAtom, null);
+    globalStore.set(filesErrorAtom, false);
 });
 
 describe("loadFilesForScope, run range", () => {
@@ -118,6 +120,76 @@ describe("loadFilesForScope, working range on an agent", () => {
 
         expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt" });
         expect(ensureSessionStart).not.toHaveBeenCalled();
+    });
+});
+
+describe("loadFilesForScope outcomes", () => {
+    const clean = { isrepo: true, branch: "main", statusz: "", numstat: "" };
+
+    it("settles on an empty state, without reading git, when the subject has no directory", async () => {
+        resolveCwd.mockResolvedValue("");
+
+        await loadFilesForScope(
+            { ...agentScopeVal("a-none"), range: { kind: "working" } },
+            { transcriptPath: "/t.jsonl" }
+        );
+
+        expect(gitChanges).not.toHaveBeenCalled();
+        expect(globalStore.get(filesStateAtom)).toStrictEqual({
+            cwd: null,
+            branch: "",
+            isRepo: false,
+            changes: null,
+            ref: "",
+            head: "",
+        });
+        expect(globalStore.get(filesErrorAtom)).toBe(false);
+    });
+
+    // two loads race: the slow read of the first must not overwrite what the second already showed
+    it("drops a read the scope has moved past", async () => {
+        let releaseFirst: (v: any) => void = () => {};
+        gitChanges.mockImplementationOnce(() => new Promise((res) => (releaseFirst = res)));
+        gitChanges.mockResolvedValue({ ...clean, branch: "second" });
+
+        const slow = loadFilesForScope(projectScopeVal("p-a", "/repo-a"));
+        await new Promise((r) => setTimeout(r, 0));
+        await loadFilesForScope(projectScopeVal("p-b", "/repo-b"));
+        releaseFirst({ ...clean, branch: "first" });
+        await slow;
+
+        expect(globalStore.get(filesStateAtom)?.branch).toBe("second");
+    });
+
+    it("records the commit HEAD pointed at, and an empty one when the read carries none", async () => {
+        gitChanges.mockResolvedValue({ ...clean, head: "deadbeef" });
+        await loadFilesForScope(projectScopeVal("proj"));
+        expect(globalStore.get(filesStateAtom)?.head).toBe("deadbeef");
+
+        gitChanges.mockResolvedValue(clean);
+        await loadFilesForScope(projectScopeVal("proj"));
+        expect(globalStore.get(filesStateAtom)?.head).toBe("");
+    });
+
+    it("clears the error flag when a refresh succeeds after a failed read", async () => {
+        gitChanges.mockRejectedValueOnce(new Error("git gone"));
+        await loadFilesForScope(projectScopeVal("proj"));
+        expect(globalStore.get(filesErrorAtom)).toBe(true);
+
+        gitChanges.mockResolvedValue(clean);
+        await reloadChanges("/repo");
+
+        expect(globalStore.get(filesErrorAtom)).toBe(false);
+    });
+
+    it("selects nothing on a first load that has no changed file", async () => {
+        gitChanges.mockResolvedValue(clean);
+        await loadFilesForScope(projectScopeVal("proj"));
+        expect(globalStore.get(filesSelectedPathAtom)).toBeNull();
+
+        gitChanges.mockResolvedValue({ isrepo: false, branch: "" });
+        await loadFilesForScope(projectScopeVal("proj"));
+        expect(globalStore.get(filesSelectedPathAtom)).toBeNull();
     });
 });
 
