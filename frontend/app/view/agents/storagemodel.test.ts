@@ -328,3 +328,160 @@ describe("auto-scan and polling", () => {
         expect(navSummary(null)).toEqual({ count: "…", pill: null });
     });
 });
+
+describe("storage row text", () => {
+    const BRANCH = "wave/5c5c5c5c-0000-4000-8000-000000000000";
+    const one = (over: Partial<StorageItem>): StorageRowVM =>
+        storageSections(
+            { scants: 1, items: [{ id: "x", kind: "runtree", group: "left", size: 0, ...over }] },
+            NOW
+        ).flatMap((s) => s.rows)[0];
+
+    describe("kind line", () => {
+        it("names a run tree by its suffix and says whether git and tracking are there", () => {
+            const tree = (suffix?: string) => one({ suffix, hasgit: true, tracked: true }).kind;
+            expect(tree()).toBe("landing tree · in git");
+            expect(tree("-final")).toBe("final tree · in git");
+            expect(tree("-t-3")).toBe("lane tree · in git");
+            expect(tree("-x")).toBe("run tree · in git");
+        });
+        it("says an old in-project tree without a .git is emptied", () => {
+            expect(one({ kind: "legacytree", hasgit: false, tracked: false }).kind).toBe(
+                "old in-project tree, emptied · not in git"
+            );
+            expect(one({ kind: "legacytree", hasgit: true, dirty: 2 }).kind).toBe(
+                "checkout, old in-project layout · 2 uncommitted files"
+            );
+        });
+        it("calls a branch a dismissed held land only when it is held and dismissed", () => {
+            const branch = (runlandstate: string, runlanddismissed: boolean) =>
+                one({ kind: "branch", runlandstate, runlanddismissed }).kind;
+            expect(branch("held", true)).toBe("branch only · held land you dismissed");
+            expect(branch("held", false)).toBe("branch only, no folder");
+            expect(branch("landed", true)).toBe("branch only, no folder");
+        });
+        it("describes each Final kind", () => {
+            expect(one({ kind: "finalslot", group: "kept", slot: 2 }).kind).toBe(
+                "Final build slot 2 · warm cargo target"
+            );
+            expect(one({ kind: "finalstores", group: "kept" }).kind).toBe("dev-app stores of past Finals");
+        });
+        it("names the harness behind a transcripts row", () => {
+            expect(one({ kind: "transcripts", group: "kept", harness: "pi" }).kind).toBe("pi sessions and config");
+            expect(one({ kind: "transcripts", group: "kept", harness: "claude" }).kind).toBe(
+                "Claude Code session transcripts"
+            );
+        });
+    });
+
+    describe("owner meta", () => {
+        it("gives the Final-stage and transcripts kinds their fixed line", () => {
+            expect(one({ kind: "finalstores", group: "kept" }).ownerMeta).toBe("dropped by the next Final on the slot");
+            expect(one({ kind: "finalshots", group: "kept" }).ownerMeta).toBe("swept at 30 days");
+            expect(one({ kind: "transcripts", group: "kept" }).ownerMeta).toBe("read by Usage and Sessions");
+        });
+        it("joins the project and the run's state with a middle dot, as a string", () => {
+            const owned = { runid: "r1", runstatus: "done", runts: NOW };
+            expect(one({ ...owned, projectname: "arc" }).ownerMeta).toBe("arc · finished 09:40");
+            expect(one({ ...owned }).ownerMeta).toBe("finished 09:40");
+        });
+        it("adds no run state to a row no run owns", () => {
+            expect(one({ projectname: "arc", runstatus: "cancelled", runts: NOW }).ownerMeta).toBe("arc");
+        });
+    });
+
+    describe("what clearing loses", () => {
+        it("says why an item was not cleared, with a fallback reason", () => {
+            expect(one({ clearstate: "skipped", clearerror: "a file is open" }).loses).toBe(
+                "Not cleared: a file is open"
+            );
+            expect(one({ clearstate: "skipped" }).loses).toBe("Not cleared: it changed since the scan");
+        });
+        it("names the slot whose next Final builds cold, and what a transcripts clear costs", () => {
+            expect(one({ kind: "finalslot", group: "kept", slot: 2 }).loses).toBe(
+                "The next Final on slot 2 builds the app cold"
+            );
+            expect(one({ kind: "transcripts", group: "kept" }).loses).toBe(
+                "Usage history and Sessions for those sessions"
+            );
+        });
+        it("calls an unreadable item unknown rather than nothing", () => {
+            expect(one({ skip: "unreadable" }).loses).toBe("Unknown: its run or git state couldn’t be read");
+        });
+        it("counts uncommitted files and unique commits", () => {
+            expect(one({ dirty: 3 }).loses).toBe("3 uncommitted files");
+            expect(one({ onlycount: 2, dirty: 1, branch: BRANCH }).loses).toBe(
+                "2 commits only on wave/5c5c5c5c and 1 uncommitted file"
+            );
+        });
+    });
+
+    describe("sort order within a section", () => {
+        const ids = (items: Partial<StorageItem>[]) =>
+            storageSections(
+                {
+                    scants: 1,
+                    items: items.map((it, i) => ({ id: `i${i}`, kind: "runtree", group: "left", size: 0, ...it })),
+                },
+                NOW
+            ).flatMap((s) => s.rows.map((r) => r.id));
+
+        it("lists Kept by size, largest first, whatever order they arrive in", () => {
+            expect(
+                ids([
+                    { group: "kept", size: 10 },
+                    { group: "kept", size: 30 },
+                    { group: "kept", size: 20 },
+                ])
+            ).toEqual(["i1", "i2", "i0"]);
+        });
+        it("lists In use by newest, ignoring the kind order Left over uses", () => {
+            expect(
+                ids([
+                    { group: "inuse", kind: "runtree", modts: 100 },
+                    { group: "inuse", kind: "branch", modts: 300 },
+                    { group: "inuse", kind: "legacytree", modts: 200 },
+                ])
+            ).toEqual(["i1", "i2", "i0"]);
+        });
+    });
+});
+
+describe("deletePlan wording", () => {
+    const CHECKOUT = "C:\\arc-wt\\5c5c5c5c-0000-4000-8000-000000000000";
+    const BRANCH = "wave/5c5c5c5c-0000-4000-8000-000000000000";
+    const plan = (over: Partial<StorageItem>) =>
+        deletePlan({ id: "x", kind: "runtree", group: "left", size: 2 * 1024 * 1024, ...over });
+
+    it("marks the branch name strong in a branch-only lead", () => {
+        const p = plan({ kind: "branch", branch: BRANCH });
+        expect(p.lead).toStrictEqual([
+            { text: "Deletes the branch " },
+            { text: "wave/5c5c5c5c", strong: true },
+            { text: "." },
+        ]);
+    });
+    it("treats a branch row as branch-only even when it carries a path", () => {
+        const p = plan({ kind: "branch", branch: BRANCH, path: CHECKOUT });
+        expect(p.title).toBe("Delete wave/5c5c5c5c?");
+        expect(text(p.lead)).toBe("Deletes the branch wave/5c5c5c5c.");
+    });
+    it("treats a row without a path as branch-only whatever its kind", () => {
+        const p = plan({ kind: "runtree", branch: BRANCH });
+        expect(p.title).toBe("Delete wave/5c5c5c5c?");
+        expect(text(p.lead)).toBe("Deletes the branch wave/5c5c5c5c.");
+    });
+    it("deletes only the checkout when it has no branch", () => {
+        const p = plan({ path: CHECKOUT });
+        expect(p.title).toBe("Delete 5c5c5c5c?");
+        expect(text(p.lead)).toBe("Deletes the checkout arc-wt\\5c5c5c5c (2 MB).");
+    });
+    it("says this commit for one unique commit and these N commits for more", () => {
+        expect(text(plan({ branch: BRANCH, onlycount: 1 }).lead)).toBe(
+            "Deletes the branch wave/5c5c5c5c. This commit is on no other branch and is lost for good:"
+        );
+        expect(text(plan({ branch: BRANCH, onlycount: 2 }).lead)).toBe(
+            "Deletes the branch wave/5c5c5c5c. These 2 commits are on no other branch and are lost for good:"
+        );
+    });
+});

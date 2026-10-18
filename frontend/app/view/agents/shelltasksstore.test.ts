@@ -14,7 +14,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import type { AgentVM } from "./agentsviewmodel";
 import { agentTransitions, type AgentSnap } from "./cockpitevents";
-import { isStandingBy, type ShellTask } from "./shelltasks";
+import { isStandingBy, SHELL_TAIL_LINES, type ShellTask } from "./shelltasks";
 import {
     dropShellTasks,
     readShellTaskOutput,
@@ -69,6 +69,91 @@ describe("refreshShellTasks", () => {
         transcript.mockResolvedValue({ lines: [] });
         await refreshShellTasks("a1", "C:/tmp/a1.jsonl");
         expect("a1" in globalStore.get(shellTasksByIdAtom)).toBe(false);
+    });
+
+    const startWait = [
+        JSON.stringify({
+            type: "assistant",
+            timestamp: "2026-10-06T08:55:38.000Z",
+            message: {
+                role: "assistant",
+                content: [
+                    {
+                        type: "tool_use",
+                        id: "toolu_01",
+                        name: "Bash",
+                        input: { run_in_background: true, command: "sleep 30", description: "wait" },
+                    },
+                ],
+            },
+        }),
+        JSON.stringify({
+            type: "user",
+            timestamp: "2026-10-06T08:55:39.000Z",
+            message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_01", content: "started" }] },
+            toolUseResult: { backgroundTaskId: "bg1" },
+        }),
+    ];
+
+    it("reads the tail of the transcript and stores the running tasks it finds", async () => {
+        transcript.mockResolvedValue({ lines: startWait });
+        await refreshShellTasks("store1", "C:/tmp/store1.jsonl");
+        expect(transcript).toHaveBeenCalledWith({}, { path: "C:/tmp/store1.jsonl", maxlines: SHELL_TAIL_LINES });
+        expect(globalStore.get(shellTasksByIdAtom).store1.map((t) => t.id)).toEqual(["bg1"]);
+    });
+
+    it("an agent with no transcript drops its list and records the read without calling the RPC", async () => {
+        vi.useFakeTimers({ now: 4000 });
+        globalStore.set(shellTasksByIdAtom, { nopath: [task("t1")] });
+        await refreshShellTasks("nopath", undefined);
+        expect(transcript).not.toHaveBeenCalled();
+        expect("nopath" in globalStore.get(shellTasksByIdAtom)).toBe(false);
+        expect(globalStore.get(shellReadAtByIdAtom).nopath).toBe(4000);
+    });
+
+    // each test below holds one call open so a later call or a drop supersedes it
+    const deferred = () => {
+        let resolve: (v: { lines: string[] }) => void = () => {};
+        let reject: (e: Error) => void = () => {};
+        const promise = new Promise<{ lines: string[] }>((res, rej) => {
+            resolve = res;
+            reject = rej;
+        });
+        return { promise, resolve, reject };
+    };
+
+    it("discards a slower older read once a newer one has been made", async () => {
+        const older = deferred();
+        transcript.mockReturnValueOnce(older.promise as any).mockResolvedValueOnce({ lines: [] });
+        globalStore.set(shellTasksByIdAtom, {});
+        const first = refreshShellTasks("race1", "C:/tmp/race1.jsonl");
+        await refreshShellTasks("race1", "C:/tmp/race1.jsonl");
+        older.resolve({ lines: startWait });
+        await first;
+        expect("race1" in globalStore.get(shellTasksByIdAtom)).toBe(false);
+    });
+
+    it("discards a read that was in flight when the agent was dropped and read again", async () => {
+        const older = deferred();
+        transcript.mockReturnValueOnce(older.promise as any).mockResolvedValueOnce({ lines: [] });
+        const first = refreshShellTasks("race2", "C:/tmp/race2.jsonl");
+        dropShellTasks("race2");
+        await refreshShellTasks("race2", "C:/tmp/race2.jsonl");
+        older.resolve({ lines: startWait });
+        await first;
+        expect("race2" in globalStore.get(shellTasksByIdAtom)).toBe(false);
+    });
+
+    it("a superseded read that fails does not overwrite the newer read's start time", async () => {
+        vi.useFakeTimers({ now: 1000 });
+        const older = deferred();
+        transcript.mockReturnValueOnce(older.promise as any).mockResolvedValueOnce({ lines: [] });
+        const first = refreshShellTasks("race3", "C:/tmp/race3.jsonl");
+        vi.setSystemTime(2000);
+        await refreshShellTasks("race3", "C:/tmp/race3.jsonl");
+        older.reject(new Error("timeout"));
+        await first;
+        expect(globalStore.get(shellReadAtByIdAtom).race3).toBe(2000);
     });
 });
 
