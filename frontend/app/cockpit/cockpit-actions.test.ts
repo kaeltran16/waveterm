@@ -1,5 +1,5 @@
 import { atom, type PrimitiveAtom } from "jotai";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { globalStore } from "@/app/store/jotaiStore";
 import { atoms } from "@/app/store/global-atoms";
 
@@ -47,7 +47,7 @@ function fakeModel() {
     } as any;
 }
 
-afterEach(() => {
+beforeEach(() => {
     createTab.mockReset().mockResolvedValue("tab-1");
     setMeta.mockClear();
     reloadWaveObject.mockClear();
@@ -69,11 +69,6 @@ const agentOpts = {
 const metaOf = (oref: string) => setMeta.mock.calls.find((c) => c[1]?.oref === oref)?.[1].meta;
 
 describe("launchAgent", () => {
-    beforeEach(() => {
-        createTab.mockResolvedValue("tab-1");
-        createWorktree.mockResolvedValue({ worktreepath: "C:/wt/feat-x" });
-    });
-
     it("reloads the configured block's WOS object so the sidebar sees the agent meta (not stale shell)", async () => {
         createTab.mockResolvedValue("tab-1");
         await launchAgent(fakeModel(), {
@@ -191,8 +186,11 @@ describe("launchAgent", () => {
         const model = fakeModel();
         const earlier = { tabId: "t0", blockId: "b0", name: "old", project: "p0", ts: 1 };
         globalStore.set(model.pendingLaunchesAtom, [earlier]);
-        await launchAgent(model, { ...agentOpts, label: "Fix login" });
-        now.mockRestore();
+        try {
+            await launchAgent(model, { ...agentOpts, label: "Fix login" });
+        } finally {
+            now.mockRestore();
+        }
         expect(globalStore.get(model.pendingLaunchesAtom)).toStrictEqual([
             earlier,
             { tabId: "tab-1", blockId: "blk-1", name: "Fix login", project: "proj", ts: 1234 },
