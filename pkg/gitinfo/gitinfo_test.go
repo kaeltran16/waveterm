@@ -1275,9 +1275,10 @@ func TestHistoryLogReportsFailureDetail(t *testing.T) {
 	}
 }
 
-// A freshly initialised repo has no commits, and git log exits 128 there. That is an empty history,
-// not a failed read: reporting it as a failure would greet every new project with an error panel.
-func TestHistoryLogEmptyRepoIsNotAFailure(t *testing.T) {
+// A freshly initialised repo has no commits. With no Ref, HistoryLog walks --all, which exits 0 there, so
+// this reads as an empty history, not a failed read: reporting it as a failure would greet every new
+// project with an error panel. Naming the unborn branch is TestHistoryLogUnbornRefIsEmptyHistory.
+func TestHistoryLogNoRefInEmptyRepoIsEmptyHistory(t *testing.T) {
 	dir := t.TempDir()
 	gitAuthored(t, dir, "init", "--initial-branch=main")
 	h, err := HistoryLog(context.Background(), dir, HistoryOpts{})
@@ -1288,7 +1289,7 @@ func TestHistoryLogEmptyRepoIsNotAFailure(t *testing.T) {
 		t.Error("IsRepo = false, want true for an initialised repo with no commits")
 	}
 	if h.Failure != nil {
-		t.Errorf("Failure = %+v, want nil for an unborn branch", h.Failure)
+		t.Errorf("Failure = %+v, want nil for a repo with no commits", h.Failure)
 	}
 	if len(h.Commits) != 0 {
 		t.Errorf("got %d commits, want 0", len(h.Commits))
