@@ -1,10 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { launchPiTab } from "@/app/cockpit/cockpit-actions";
 import { RESMON_UI_INITIAL } from "@/app/cockpit/resmon";
 import { resmonOpenAtom, resmonSnapshotAtom, resmonUiAtom } from "@/app/cockpit/resmonstore";
 import { globalStore } from "@/app/store/jotaiStore";
 import { SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
+import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,17 +21,21 @@ import {
     setMarking,
     updateCanvas,
 } from "@/app/view/agents/canvasstore";
+import { gotoChange } from "@/app/view/agents/diffnav";
+import { ignoreWsAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { docReviewAtom } from "@/app/view/agents/docreview";
 import { graphOnAtom, historyFiltersAtom, historyScrollAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { activeReviewAtom } from "@/app/view/agents/reviewmarks";
+import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
 import {
     graphPeekOpenAtom,
     briefPeekRecordAtom,
+    chunkMoveAtom,
     noteChunkAtom,
     trackerMenuAtom,
 } from "@/app/view/jarvis/jarvisstore";
@@ -39,7 +45,12 @@ import { itemKeyCommand } from "@/app/view/jarvis/peekitemmodel";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { peekKeyCommand } from "@/app/view/jarvis/petpeekmodel";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
-import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
+import {
+    codeCursorAtom,
+    codeIndexAtom,
+    codeTreeFocusedAtom,
+    startCreate,
+} from "@/app/view/code/codestore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
     buildAgentBindings,
@@ -62,6 +73,20 @@ import type { KeyContext } from "./types";
 vi.mock("@/app/view/jarvis/openref", async (orig) => ({
     ...(await orig<typeof import("@/app/view/jarvis/openref")>()),
     peekTarget: vi.fn(async () => ({ ok: true })),
+}));
+
+// the launch, diff-navigation and create-row functions reach for the backend and the mounted editor
+vi.mock("@/app/cockpit/cockpit-actions", async (orig) => ({
+    ...(await orig<typeof import("@/app/cockpit/cockpit-actions")>()),
+    launchPiTab: vi.fn(async () => {}),
+}));
+vi.mock("@/app/view/agents/diffnav", async (orig) => ({
+    ...(await orig<typeof import("@/app/view/agents/diffnav")>()),
+    gotoChange: vi.fn(() => true),
+}));
+vi.mock("@/app/view/code/codestore", async (orig) => ({
+    ...(await orig<typeof import("@/app/view/code/codestore")>()),
+    startCreate: vi.fn(),
 }));
 
 // the canvas guards read the focused agent id from the model
@@ -956,6 +981,12 @@ describe("agent canvas mode keys", () => {
         expect(getCanvas("a1")!.board).toBe("Main.dc.html");
     });
 
+    it("m starts marking on a loaded board", () => {
+        setCanvasMode("a1", "canvas", 1);
+        find("agent:mark-start").run(nav);
+        expect(getCanvas("a1")!.marking).toBe(true);
+    });
+
     it("c from canvas mode goes back to the terminal", () => {
         setCanvasMode("a1", "canvas", 1);
         find("agent:canvas-close").run(nav);
@@ -1163,5 +1194,620 @@ describe("Resource Manager popover bindings", () => {
         run("resmon:next");
         run("resmon:enter");
         expect(globalStore.get(resmonUiAtom).expanded.arc).toBe(true);
+    });
+});
+
+describe("global bindings", () => {
+    const build = (surface: SurfaceKey = "cockpit", extra: object = {}) => {
+        const model = {
+            surfaceAtom: atom<SurfaceKey>(surface),
+            paletteOpenAtom: atom(false),
+            newAgentOpenAtom: atom(false),
+            ...extra,
+        } as any;
+        const bindings = buildGlobalBindings(model);
+        return { model, bindings, find: (id: string) => bindings.find((b) => b.id === id)! };
+    };
+    const at = (surface: SurfaceKey, over: Partial<KeyContext> = {}): KeyContext => ({ ...ctx(surface), ...over });
+
+    // earlier suites leave a compare scope behind, and compare owns Escape
+    beforeEach(() => globalStore.set(diffScopeAtom, null));
+    afterEach(() => {
+        globalStore.set(historyFiltersAtom, NO_FILTERS);
+        globalStore.set(noteChunkAtom, null);
+        globalStore.set(trackerMenuAtom, null);
+        globalStore.set(cheatsheetOpenAtom, false);
+        vi.mocked(launchPiTab).mockClear();
+    });
+
+    describe("surface cycle", () => {
+        const last = SURFACE_ORDER[SURFACE_ORDER.length - 1];
+
+        it("enters from an unlisted surface at the end the direction points away from", () => {
+            const { model, find } = build("settings");
+            find("surface:prev").run(ctx("settings"));
+            expect(globalStore.get(model.surfaceAtom)).toBe(last);
+            globalStore.set(model.surfaceAtom, "settings");
+            find("surface:next").run(ctx("settings"));
+            expect(globalStore.get(model.surfaceAtom)).toBe(SURFACE_ORDER[0]);
+        });
+
+        it("steps one place from a listed surface, in the middle of the order", () => {
+            const { model, find } = build(SURFACE_ORDER[1]);
+            find("surface:next").run(ctx());
+            expect(globalStore.get(model.surfaceAtom)).toBe(SURFACE_ORDER[2]);
+            globalStore.set(model.surfaceAtom, SURFACE_ORDER[1]);
+            find("surface:prev").run(ctx());
+            expect(globalStore.get(model.surfaceAtom)).toBe(SURFACE_ORDER[0]);
+        });
+
+        it("both switches stand down while typing, under a modal and in the agent's canvas, and are live otherwise", () => {
+            const { find } = build();
+            for (const id of ["surface:next", "surface:prev"]) {
+                const b = find(id);
+                expect(b.when!(at("cockpit")), id).toBe(true);
+                expect(b.when!(at("cockpit", { editable: true })), id).toBe(false);
+                expect(b.when!(at("cockpit", { modalOpen: true })), id).toBe(false);
+            }
+        });
+    });
+
+    it("binds Ctrl+1..n to each surface in rail order, hidden from the palette", () => {
+        const { model, bindings } = build();
+        const chords = bindings.filter((b) => /^Ctrl:\d$/.test(b.keys));
+        expect(chords.map((b) => [b.id, b.keys, b.paletteHidden])).toEqual(
+            SURFACE_ORDER.map((s, i) => [`surface:${s}`, `Ctrl:${i + 1}`, true])
+        );
+        for (const [i, chord] of chords.entries()) {
+            globalStore.set(model.surfaceAtom, "settings");
+            chord.run(ctx());
+            expect(globalStore.get(model.surfaceAtom)).toBe(SURFACE_ORDER[i]);
+        }
+    });
+
+    it("keeps the rows that would only duplicate another out of the palette", () => {
+        const { find } = build();
+        for (const id of ["palette", "leader:enter", "go:palette", "close-agent"]) {
+            expect(find(id).paletteHidden, id).toBe(true);
+        }
+    });
+
+    it("advertises the leader chord only while a field holds focus and no modal is open", () => {
+        const b = build().find("leader:enter");
+        expect(b.when!(at("agent", { editable: true }))).toBe(true);
+        expect(b.when!(at("agent", { editable: false }))).toBe(false);
+        expect(b.when!(at("agent", { editable: true, modalOpen: true }))).toBe(false);
+    });
+
+    it("g p opens the search, and keeps it open on a second press", () => {
+        const { model, find } = build();
+        find("go:palette").run(ctx());
+        find("go:palette").run(ctx());
+        expect(globalStore.get(model.paletteOpenAtom)).toBe(true);
+    });
+
+    it("Ctrl+N opens the new-agent dialog, but not over another modal", () => {
+        const { model, find } = build();
+        const b = find("new-agent");
+        expect(b.when!(at("cockpit"))).toBe(true);
+        expect(b.when!(at("cockpit", { modalOpen: true }))).toBe(false);
+        b.run(ctx());
+        expect(globalStore.get(model.newAgentOpenAtom)).toBe(true);
+    });
+
+    it("Ctrl+Shift+N launches a Pi tab on the model", () => {
+        const { model, find } = build();
+        find("launch:pi").run(ctx());
+        expect(launchPiTab).toHaveBeenCalledWith(model);
+    });
+
+    it("the agent cycle and Ctrl+C belong to the Agent surface and drive the model's focus cycle", () => {
+        const cycleFocus = vi.fn();
+        const { find } = build("agent", { cycleFocus });
+        for (const id of ["cycle-agent-next", "cycle-agent-prev", "close-agent"]) {
+            expect(find(id).when!(at("agent")), id).toBe(true);
+            expect(find(id).when!(at("cockpit")), id).toBe(false);
+        }
+        find("cycle-agent-next").run(ctx("agent"));
+        expect(cycleFocus).toHaveBeenLastCalledWith(false);
+        find("cycle-agent-prev").run(ctx("agent"));
+        expect(cycleFocus).toHaveBeenLastCalledWith(true);
+    });
+
+    it("? opens the cheat sheet", () => {
+        build().find("help").run(ctx());
+        expect(globalStore.get(cheatsheetOpenAtom)).toBe(true);
+    });
+
+    describe("Escape back to the Cockpit", () => {
+        const files = at("files");
+
+        it("stands down on the Diff surface only while a history filter is active", () => {
+            const b = build().find("surface:back-home");
+            expect(b.when!(files)).toBe(true);
+            globalStore.set(historyFiltersAtom, { author: "dana", path: "", text: "" });
+            expect(b.when!(files)).toBe(false);
+            // the filter rule is the Diff surface's own
+            expect(b.when!(at("usage"))).toBe(true);
+        });
+
+        it("stands down while the Brief's Chunk sidebar or plan menu is open", () => {
+            const b = build().find("surface:back-home");
+            const jarvis = at("jarvis");
+            globalStore.set(noteChunkAtom, "chunk-1");
+            expect(b.when!(jarvis)).toBe(false);
+            globalStore.set(noteChunkAtom, null);
+            globalStore.set(trackerMenuAtom, "menu-1");
+            expect(b.when!(jarvis)).toBe(false);
+            globalStore.set(trackerMenuAtom, null);
+            expect(b.when!(jarvis)).toBe(true);
+        });
+
+        it("goes home when no jump brought the user here", () => {
+            const { model, find } = build("jarvis");
+            find("surface:back-home").run(ctx("jarvis"));
+            expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+        });
+    });
+});
+
+describe("list-nav bindings, edge cases", () => {
+    const chan: KeyContext = { surface: "jarvis", editable: false, modalOpen: false, leader: null };
+    const find = (id: string) => buildListNavBindings(stubModel()).find((b) => b.id === id)!;
+
+    afterEach(() => {
+        globalStore.set(listNavAtom, null);
+        vi.mocked(peekTarget).mockClear();
+    });
+
+    it("hides every row from the palette: each is a cursor key, not a command", () => {
+        const bindings = buildListNavBindings(stubModel());
+        expect(bindings.map((b) => b.id)).toEqual([
+            "list:next-j",
+            "list:prev-k",
+            "list:next",
+            "list:prev",
+            "list:activate",
+            "list:peek",
+        ]);
+        expect(bindings.map((b) => b.paletteHidden)).toEqual([true, true, true, true, true, true]);
+    });
+
+    it("moving with no controller published does nothing", () => {
+        globalStore.set(listNavAtom, null);
+        expect(find("list:next-j").run(chan)).toBeUndefined();
+    });
+
+    it("moving over an empty list leaves the cursor where it is", () => {
+        const setCursor = vi.fn();
+        globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor });
+        find("list:next-j").run(chan);
+        expect(setCursor).not.toHaveBeenCalled();
+    });
+
+    it("Space declines the key and peeks nothing when the cursor row has no target", () => {
+        globalStore.set(listNavAtom, {
+            surface: "jarvis",
+            navigableIds: ["a"],
+            cursorId: "a",
+            setCursor() {},
+            peekTarget: () => null,
+        });
+        expect(find("list:peek").run(chan)).toBe(false);
+        expect(peekTarget).not.toHaveBeenCalled();
+    });
+});
+
+describe("Brief answer keys", () => {
+    const jarvis: KeyContext = { surface: "jarvis", editable: false, modalOpen: false, leader: null };
+    const agent = {
+        id: "w1",
+        state: "asking",
+        ask: { askId: "a1", questions: [{ header: "h", question: "q", options: [{ label: "A" }, { label: "B" }] }] },
+    } as any;
+    const build = (current: any = agent) => {
+        const model = {
+            answerTabAtom: atom<Record<string, number>>({}),
+            answerSelAtom: atom({}),
+            answerTextAtom: atom({}),
+            toggleAnswer: vi.fn(),
+            submitAnswer: vi.fn(),
+        } as any;
+        return { model, bindings: buildChannelsAskBindings(model, { current }) };
+    };
+
+    it("binds the digits 1 to 9, hidden from the palette, and Enter to submit", () => {
+        const { bindings } = build();
+        const digits = bindings.slice(0, 9);
+        expect(digits.map((b) => [b.id, b.keys, b.paletteHidden])).toEqual(
+            Array.from({ length: 9 }, (_, i) => [`channels:answer-${i + 1}`, String(i + 1), true])
+        );
+        const submit = bindings.find((b) => b.id === "channels:submit")!;
+        expect(bindings).toHaveLength(10);
+        expect(submit.keys).toBe("Enter");
+        expect(submit.paletteHidden).toBe(true);
+    });
+
+    it("is live only on the Jarvis surface, out of a field and a modal, with an asking worker published", () => {
+        const { bindings } = build();
+        const when = bindings[0].when!;
+        expect(when(jarvis)).toBe(true);
+        expect(when({ ...jarvis, surface: "cockpit" })).toBe(false);
+        expect(when({ ...jarvis, editable: true })).toBe(false);
+        expect(when({ ...jarvis, modalOpen: true })).toBe(false);
+        expect(build(null).bindings[0].when!(jarvis)).toBe(false);
+    });
+
+    it("toggles the option the digit names, and lets a digit past the last option pass", () => {
+        const { model, bindings } = build();
+        bindings[1].run(jarvis);
+        expect(model.toggleAnswer).toHaveBeenCalledOnce();
+        expect(model.toggleAnswer).toHaveBeenCalledWith("w1", 0, 1);
+        expect(bindings[2].run(jarvis)).toBe(false);
+        expect(model.toggleAnswer).toHaveBeenCalledOnce();
+    });
+});
+
+describe("Jarvis keys, the surface's own controls", () => {
+    const jarvis: KeyContext = { surface: "jarvis", editable: false, modalOpen: false, leader: null };
+    const find = (id: string) => buildJarvisBindings().find((b) => b.id === id)!;
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        globalStore.set(graphPeekOpenAtom, false);
+        globalStore.set(noteChunkAtom, null);
+        globalStore.set(trackerMenuAtom, null);
+        globalStore.set(chunkMoveAtom, null);
+        globalStore.set(activeSubjectAtom, null);
+        globalStore.set(activeChannelRunsAtom, []);
+        globalStore.set(activeRunIdAtom, {});
+    });
+
+    it("closing the Chunk sidebar is live only on the Jarvis surface, with a note open and no plan menu", () => {
+        const b = find("jarvis:close-notes");
+        globalStore.set(noteChunkAtom, "chunk-1");
+        expect(b.when!(jarvis)).toBe(true);
+        expect(b.when!({ ...jarvis, surface: "cockpit" })).toBe(false);
+        globalStore.set(trackerMenuAtom, "menu-1");
+        expect(b.when!(jarvis)).toBe(false);
+        globalStore.set(trackerMenuAtom, null);
+        globalStore.set(noteChunkAtom, null);
+        expect(b.when!(jarvis)).toBe(false);
+    });
+
+    it("the plan menu's Escape is live only on the Jarvis surface, and closes the menu", () => {
+        const b = find("jarvis:close-tracker-menu");
+        globalStore.set(trackerMenuAtom, "menu-1");
+        expect(b.when!(jarvis)).toBe(true);
+        expect(b.when!({ ...jarvis, surface: "cockpit" })).toBe(false);
+        b.run(jarvis);
+        expect(globalStore.get(trackerMenuAtom)).toBeNull();
+    });
+
+    describe("run switching", () => {
+        const channel = () => globalStore.set(activeSubjectAtom, { kind: "channel", id: "ch1" });
+        const runs = (...rows: [string, string][]) =>
+            globalStore.set(
+                activeChannelRunsAtom,
+                rows.map(([id, status]) => ({ id, status })) as any
+            );
+
+        it("passes the key when the subject is not a channel, even if runs are loaded", () => {
+            globalStore.set(activeSubjectAtom, { kind: "dossier", id: "d1" });
+            runs(["r1", "running"], ["r2", "running"]);
+            expect(find("jarvis:next-run").run(jarvis)).toBe(false);
+            expect(globalStore.get(activeRunIdAtom)).toEqual({});
+        });
+
+        it("passes the key for a lone finished run instead of selecting it", () => {
+            channel();
+            runs(["r1", "done"]);
+            expect(find("jarvis:next-run").run(jarvis)).toBe(false);
+            expect(globalStore.get(activeRunIdAtom)).toEqual({});
+        });
+
+        it("passes the key at either end of the list, and switches with no result in between", () => {
+            channel();
+            runs(["r1", "running"], ["r2", "running"]);
+            globalStore.set(activeRunIdAtom, { ch1: "r2" });
+            expect(find("jarvis:next-run").run(jarvis)).toBe(false);
+            expect(find("jarvis:prev-run").run(jarvis)).toBeUndefined();
+            expect(globalStore.get(activeRunIdAtom)).toEqual({ ch1: "r1" });
+            expect(find("jarvis:prev-run").run(jarvis)).toBe(false);
+            expect(globalStore.get(activeRunIdAtom)).toEqual({ ch1: "r1" });
+        });
+    });
+
+    describe("chunk moves", () => {
+        it.each([
+            ["jarvis:chunk-up", "up"],
+            ["jarvis:chunk-down", "down"],
+        ])("%s is live on the Stage only while the sidebar publishes a mover, and calls it with %s", (id, dir) => {
+            const b = find(id);
+            expect(b.when!(jarvis)).toBe(false);
+            const move = vi.fn();
+            // a function value would be taken for an updater
+            globalStore.set(chunkMoveAtom, () => move);
+            expect(b.when!(jarvis)).toBe(true);
+            expect(b.when!({ ...jarvis, surface: "cockpit" })).toBe(false);
+            globalStore.set(graphPeekOpenAtom, true);
+            expect(b.when!(jarvis)).toBe(false);
+            b.run(jarvis);
+            expect(move).toHaveBeenCalledOnce();
+            expect(move).toHaveBeenCalledWith(dir);
+        });
+    });
+
+    describe("click-through keys", () => {
+        it.each([
+            ["jarvis:new-run", "[data-new-run]"],
+            ["jarvis:new-initiative", "[data-jarvis-new-initiative]"],
+            ["jarvis:work-on", '[data-jarvis-brief-cursor="true"] [data-jarvis-work-on]'],
+            ["jarvis:record-band", "[data-jarvis-band-toggle]"],
+        ])("%s clicks %s, and passes the key when it is not drawn", (id, selector) => {
+            const click = vi.fn();
+            const querySelector = vi.fn(() => ({ click }));
+            vi.stubGlobal("document", { querySelector });
+            expect(find(id).run(jarvis)).toBeUndefined();
+            expect(querySelector).toHaveBeenCalledWith(selector);
+            expect(click).toHaveBeenCalledOnce();
+
+            vi.stubGlobal("document", { querySelector: () => null });
+            expect(find(id).run(jarvis)).toBe(false);
+        });
+    });
+
+    it("the composer's Escape is live only on the Jarvis surface, inside a field, and hidden from the palette", () => {
+        const b = find("jarvis:blur-composer");
+        expect(b.paletteHidden).toBe(true);
+        expect(b.when!({ ...jarvis, editable: true })).toBe(true);
+        expect(b.when!({ ...jarvis, surface: "cockpit", editable: true })).toBe(false);
+        expect(b.when!({ ...jarvis, editable: true, modalOpen: true })).toBe(false);
+    });
+});
+
+describe("Agent keys, stepping and toggles", () => {
+    const nav: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+    const build = (focus = "b") => {
+        const model = {
+            orderAtom: atom(["a", "b", "c"]),
+            focusIdAtom: atom<string | undefined>(focus),
+            focusReplyAtom: atom(true),
+            agentsAtom: atom([{ id: "a", state: "working" }]),
+        } as any;
+        return { model, find: (id: string) => buildAgentBindings(model).find((b) => b.id === id)! };
+    };
+
+    afterEach(() => {
+        globalStore.set(railVisibleAtom, true);
+        globalStore.set(terminalFullscreenAtom, false);
+        globalStore.set(focusSubagentAtom, null);
+        globalStore.set(shellTaskPeekAtom, null);
+        globalStore.set(docReviewAtom, null);
+    });
+
+    it.each([
+        ["agent:prev", "a"],
+        ["agent:prev-k", "a"],
+        ["agent:next", "c"],
+        ["agent:next-j", "c"],
+    ])("%s moves the focus to %s and drops any open reply box", (id, expected) => {
+        const { model, find } = build();
+        find(id).run(nav);
+        expect(globalStore.get(model.focusIdAtom)).toBe(expected);
+        expect(globalStore.get(model.focusReplyAtom)).toBe(false);
+    });
+
+    it("toggles the rail and fullscreen, and F11 toggles fullscreen too", () => {
+        const { find } = build();
+        const rail = globalStore.get(railVisibleAtom);
+        find("agent:toggle-rail").run(nav);
+        expect(globalStore.get(railVisibleAtom)).toBe(!rail);
+
+        globalStore.set(terminalFullscreenAtom, false);
+        find("agent:fullscreen").run(nav);
+        expect(globalStore.get(terminalFullscreenAtom)).toBe(true);
+        find("agent:fullscreen-chord").run(nav);
+        expect(globalStore.get(terminalFullscreenAtom)).toBe(false);
+        find("agent:fullscreen-chord").run(nav);
+        expect(globalStore.get(terminalFullscreenAtom)).toBe(true);
+    });
+
+    it("keeps the review and F11 duplicates out of the palette", () => {
+        const { find } = build();
+        expect(find("agent:review").paletteHidden).toBe(true);
+        expect(find("agent:fullscreen-chord").paletteHidden).toBe(true);
+    });
+
+    it("returning to the nav is live only on the Agent surface, while a field holds focus", () => {
+        const b = build().find("agent:return-nav");
+        expect(b.when!({ ...nav, editable: true })).toBe(true);
+        expect(b.when!({ ...nav, editable: false })).toBe(false);
+        expect(b.when!({ ...nav, surface: "cockpit", editable: true })).toBe(false);
+    });
+
+    it("lets the review key pass when the focused agent is not on the roster", () => {
+        const { find } = build("gone");
+        expect(find("agent:review").run(nav)).toBe(false);
+        expect(globalStore.get(docReviewAtom)).toBeNull();
+    });
+
+    it.each([
+        ["subagent:back", () => globalStore.set(focusSubagentAtom, { parentId: "p", agentId: "s" } as any)],
+        ["shelltask:back", () => globalStore.set(shellTaskPeekAtom, { parentId: "p", taskId: "t" })],
+    ])("%s is live on the Agent surface only, and not under a modal", (id, arrange) => {
+        arrange();
+        const b = build().find(id);
+        expect(b.when!(nav)).toBe(true);
+        expect(b.when!({ ...nav, surface: "cockpit" })).toBe(false);
+        expect(b.when!({ ...nav, modalOpen: true })).toBe(false);
+    });
+});
+
+describe("Diff keys, DOM and toggles", () => {
+    const on = { surface: "files", editable: false, modalOpen: false, leader: null } as KeyContext;
+    const find = (id: string) => buildFilesBindings().find((b) => b.id === id)!;
+    const compare = {
+        repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
+        range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
+    } as any;
+
+    beforeEach(() => {
+        globalStore.set(diffScopeAtom, null);
+        globalStore.set(historyFiltersAtom, NO_FILTERS);
+        globalStore.set(historyScrollAtom, 0);
+        vi.mocked(gotoChange).mockClear();
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const stubElement = (el: object | null) => {
+        const querySelector = vi.fn(() => el);
+        vi.stubGlobal("document", { querySelector });
+        return querySelector;
+    };
+
+    it("focuses the history filter field when it is on screen", () => {
+        const el = { focus: vi.fn() };
+        const querySelector = stubElement(el);
+        expect(find("files:filter").run(on)).toBeUndefined();
+        expect(querySelector).toHaveBeenCalledWith("[data-history-filter]");
+        expect(el.focus).toHaveBeenCalledOnce();
+    });
+
+    it("flips split view and whitespace handling on each press", () => {
+        globalStore.set(splitViewAtom, false);
+        globalStore.set(ignoreWsAtom, false);
+        find("files:toggle-split").run(on);
+        find("files:toggle-whitespace").run(on);
+        expect(globalStore.get(splitViewAtom)).toBe(true);
+        expect(globalStore.get(ignoreWsAtom)).toBe(true);
+        find("files:toggle-split").run(on);
+        find("files:toggle-whitespace").run(on);
+        expect(globalStore.get(splitViewAtom)).toBe(false);
+        expect(globalStore.get(ignoreWsAtom)).toBe(false);
+    });
+
+    it("asks the editor for the next and previous change", () => {
+        find("files:next-change").run(on);
+        expect(gotoChange).toHaveBeenLastCalledWith("next");
+        find("files:prev-change").run(on);
+        expect(gotoChange).toHaveBeenLastCalledWith("previous");
+    });
+
+    it("Escape clears the active history filters", () => {
+        globalStore.set(historyFiltersAtom, { author: "dana", path: "", text: "" });
+        find("files:clear-filters").run(on);
+        expect(globalStore.get(historyFiltersAtom)).toEqual(NO_FILTERS);
+    });
+
+    it("g g still resets the history scroll when the scroll container is not on screen", () => {
+        globalStore.set(historyScrollAtom, 800);
+        stubElement(null);
+        find("files:top").run(on);
+        expect(globalStore.get(historyScrollAtom)).toBe(0);
+    });
+
+    it("c clicks the compare chip, and passes the key when none is drawn", () => {
+        const click = vi.fn();
+        const querySelector = stubElement({ click });
+        expect(find("files:compare").run(on)).toBeUndefined();
+        expect(querySelector).toHaveBeenCalledWith('[data-range-chip="compare"]');
+        expect(click).toHaveBeenCalledOnce();
+        stubElement(null);
+        expect(find("files:compare").run(on)).toBe(false);
+    });
+
+    it("c inside compare clicks the ref pair", () => {
+        globalStore.set(diffScopeAtom, compare);
+        const click = vi.fn();
+        const querySelector = stubElement({ click });
+        expect(find("files:change-refs").run(on)).toBeUndefined();
+        expect(querySelector).toHaveBeenCalledWith("[data-ref-pair]");
+        expect(click).toHaveBeenCalledOnce();
+    });
+
+    it("Escape inside compare returns to the range compare was entered from", () => {
+        globalStore.set(diffScopeAtom, compare);
+        find("files:exit-compare").run(on);
+        expect(globalStore.get(diffScopeAtom)).toEqual({ ...compare, range: { kind: "working" } });
+    });
+});
+
+describe("Code keys, posture and the tree", () => {
+    const code: KeyContext = { surface: "code", editable: false, modalOpen: false, leader: null };
+    const find = (id: string) => buildCodeBindings().find((b) => b.id === id)!;
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        globalStore.set(codeTreeFocusedAtom, false);
+        globalStore.set(codeIndexAtom, null);
+        globalStore.set(codeCursorAtom, null);
+        vi.mocked(startCreate).mockClear();
+    });
+
+    it.each(["code:back", "code:forward", "code:refresh", "code:diff"])(
+        "%s is live on the Code surface out of a field and a modal",
+        (id) => {
+            const b = find(id);
+            expect(b.when!(code)).toBe(true);
+            expect(b.when!({ ...code, surface: "cockpit" })).toBe(false);
+            expect(b.when!({ ...code, editable: true })).toBe(false);
+            expect(b.when!({ ...code, modalOpen: true })).toBe(false);
+        }
+    );
+
+    it("save is bound to the Code surface alone, whatever focus holds", () => {
+        const b = find("code:save");
+        expect(b.when!({ ...code, editable: true })).toBe(true);
+        expect(b.when!({ ...ctx("cockpit"), editable: true })).toBe(false);
+    });
+
+    it.each(["code:search", "code:focus-tree", "code:focus-editor"])(
+        "%s is live on the Code surface, from the editor too, but not under a modal",
+        (id) => {
+            const b = find(id);
+            expect(b.when!(code)).toBe(true);
+            expect(b.when!({ ...code, editable: true })).toBe(true);
+            expect(b.when!({ ...code, surface: "cockpit" })).toBe(false);
+            expect(b.when!({ ...code, modalOpen: true })).toBe(false);
+        }
+    );
+
+    it("moves the tree cursor on j and lets the key pass at the last row", () => {
+        globalStore.set(codeIndexAtom, { paths: ["a.ts", "b.ts"], isRepo: true, truncated: false });
+        globalStore.set(codeCursorAtom, "a.ts");
+        expect(find("code:tree-next").run(code)).toBeUndefined();
+        expect(globalStore.get(codeCursorAtom)).toBe("b.ts");
+        expect(find("code:tree-next").run(code)).toBe(false);
+        expect(find("code:tree-prev").run(code)).toBeUndefined();
+        expect(globalStore.get(codeCursorAtom)).toBe("a.ts");
+        expect(find("code:tree-prev").run(code)).toBe(false);
+    });
+
+    it("n starts a new file and Shift+N a new folder", () => {
+        find("code:new-file").run(code);
+        expect(startCreate).toHaveBeenLastCalledWith(false);
+        find("code:new-folder").run(code);
+        expect(startCreate).toHaveBeenLastCalledWith(true);
+        expect(startCreate).toHaveBeenCalledTimes(2);
+    });
+
+    // the tree is focused one frame after the sidebar opens, so a focus() before that lands on a hidden node
+    it("waits a frame to focus the tree once the collapsed sidebar has been opened", () => {
+        const treeFocus = vi.fn();
+        const tree = { closest: () => null, focus: treeFocus };
+        const opener = { classList: { contains: () => false }, click: vi.fn(), focus: vi.fn() };
+        vi.stubGlobal("document", {
+            querySelector: (selector: string) => (selector.includes("Expand Code sidebar") ? opener : tree),
+        });
+        const frames: (() => void)[] = [];
+        vi.stubGlobal("window", { requestAnimationFrame: (cb: () => void) => frames.push(cb) });
+
+        find("code:focus-tree").run(code);
+
+        expect(treeFocus).not.toHaveBeenCalled();
+        expect(frames).toHaveLength(1);
+        frames[0]();
+        expect(treeFocus).toHaveBeenCalledOnce();
     });
 });
