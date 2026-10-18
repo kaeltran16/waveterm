@@ -137,7 +137,7 @@ describe("dagProgressLabel", () => {
         }
     });
     it("says whether a leadless run's lead has started", () => {
-        expect(dagProgressLabel(info("running"), true)).toBe("2/3 · lead starts if needed");
+        expect(dagProgressLabel(info("running"), true)).toBe("2/3 · no lead yet");
         expect(dagProgressLabel(info("running", tasks, true), true)).toBe("2/3 · lead closed");
     });
     it("hands a done dag to the finished-run label", () => {

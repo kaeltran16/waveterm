@@ -439,9 +439,7 @@ describe("leadActivity", () => {
         expect(leadActivity(run(), { ...lead, activity: "judging t-2" } as AgentVM, false)).toBe("judging t-2");
     });
     it("says who holds the run's judgment when there is no lead or it is down", () => {
-        expect(leadActivity(run(), undefined, false)).toBe(
-            "engine running · a lead starts at the first judgment event"
-        );
+        expect(leadActivity(run(), undefined, false)).toBe("engine running · no lead, none needed yet");
         expect(leadActivity(run(), lead, true)).toBe("lead down · its events come to you");
     });
     it("names a finished run's end", () => {

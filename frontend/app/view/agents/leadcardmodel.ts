@@ -365,7 +365,7 @@ export function leadActivity(run: RunInfo, lead: AgentVM | undefined, leadDown: 
         return "lead down · its events come to you";
     }
     if (lead == null) {
-        return "engine running · a lead starts at the first judgment event";
+        return "engine running · no lead, none needed yet";
     }
     if (leadStandingBy(lead, run)) {
         const running =

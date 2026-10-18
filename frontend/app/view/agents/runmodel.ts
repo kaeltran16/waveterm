@@ -51,7 +51,7 @@ export function dagProgressLabel(
     }
     if (leadless) {
         // a plan-path run gets its lead only at its first judgment event, so no lead yet is the normal case
-        return `${done}/${total} · ${run.leadStarted ? "lead closed" : "lead starts if needed"}`;
+        return `${done}/${total} · ${run.leadStarted ? "lead closed" : "no lead yet"}`;
     }
     return `${done}/${total} done`;
 }
