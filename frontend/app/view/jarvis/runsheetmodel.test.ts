@@ -6,7 +6,7 @@ import { taskStripLabel } from "@/app/view/agents/runstrip";
 import { describe, expect, it } from "vitest";
 import type { DigestState } from "../orchestrate/dagdigest";
 import type { TaskWorkerView } from "../orchestrate/taskcorrelate";
-import type { RunSettingsDraft } from "./runsettings";
+import type { LinkedGroupRead, RunSettingsDraft } from "./runsettings";
 import {
     autonomousResolvedNote,
     configLine,
@@ -392,6 +392,335 @@ describe("sheetStatus", () => {
         expect(s.meta.map((m) => m.text)).toEqual(["cancelled 30s ago", "2 survivors"]);
         const clean = sheetStatus(read({ run: run({ status: "cancelled" }) }));
         expect(clean.sub).toBe("stopped after 2 of 4 tasks");
+    });
+});
+
+describe("daggedStatus", () => {
+    const strip = { kind: "strip" } as const;
+    const muted = (text: string) => ({ text, tone: "muted" as const });
+    const warn = (text: string) => ({ text, tone: "warning" as const });
+    const dag = (state: DigestState, g: TaskGroup | null, groupRead: LinkedGroupRead = "ready") => ({
+        digest: state,
+        group: g,
+        groupRead,
+    });
+    const GRAPH = ["running", "running", "done", "done"];
+    const live = (over: Partial<DagStatusDigest> = {}, counts: Partial<DagStatusCounts> = {}) =>
+        dag(fresh(digest(over, counts)), group(GRAPH));
+    // the chips every healthy read carries from the default digest
+    const BASE_META = [muted("18m elapsed"), muted("workers 31m"), muted("updated 3s ago")];
+
+    it("reads the task graph, on the run's own clock, until the first digest arrives", () => {
+        const s = sheetStatus(read({ dag: dag({ loading: true, stale: false }, null, "loading") }));
+        expect(s).toEqual({
+            verb: "Executing",
+            sub: "reading the task graph…",
+            tone: "muted",
+            pulse: true,
+            meter: null,
+            meta: [muted("18m elapsed")],
+            next: null,
+            retry: false,
+        });
+    });
+
+    it("keeps reading the graph while a ready group's first digest loads", () => {
+        const s = sheetStatus(read({ dag: dag({ loading: true, stale: false }, group(GRAPH)) }));
+        expect(s.sub).toBe("reading the task graph…");
+        expect(s.pulse).toBe(true);
+        expect(s.retry).toBe(false);
+    });
+
+    it.each<[string, DigestState, TaskGroup | null, LinkedGroupRead, boolean]>([
+        ["a group read that failed", { loading: false, stale: false }, null, "error", false],
+        ["a group that is missing", { loading: false, stale: false }, null, "missing", false],
+        ["a failed group read beside a held group and digest", fresh(digest()), group(GRAPH), "error", false],
+        ["a failed group read while its digest loads", { loading: true, stale: false }, null, "error", false],
+        [
+            "a failed group read with a group held while its digest loads",
+            { loading: true, stale: false },
+            group(GRAPH),
+            "error",
+            false,
+        ],
+        ["a ready read with no group", fresh(digest()), null, "ready", false],
+        ["a digest read that failed", { loading: false, stale: false, error: "boom" }, group(GRAPH), "ready", true],
+    ])("refuses to guess for %s", (_name, state, g, groupRead, retry) => {
+        const s = sheetStatus(read({ dag: dag(state, g, groupRead) }));
+        expect(s).toEqual({
+            verb: "Executing",
+            sub: "the run is live, but its task graph could not be read",
+            tone: "error",
+            pulse: false,
+            meter: null,
+            meta: [muted("18m elapsed"), { text: "dag unavailable", tone: "error" }],
+            next: "unknown",
+            retry,
+        });
+    });
+
+    it("reads elapsed time off the digest's own clock before the run's launch time", () => {
+        const s = sheetStatus(read({ run: run({ createdts: NOW - 5 * MIN }), dag: live() }));
+        expect(s.meta[0]).toEqual(muted("18m elapsed"));
+    });
+
+    it("falls back to the run's launch time when the digest carries no clock", () => {
+        const g = group(GRAPH);
+        for (const durations of [undefined, { elapsedms: 0 }]) {
+            const s = sheetStatus(
+                read({ run: run({ createdts: NOW - 5 * MIN }), dag: dag(fresh(digest({ durations })), g) })
+            );
+            expect(s.meta[0]).toEqual(muted("5m elapsed"));
+        }
+    });
+
+    it("dates a failed refresh by the last good read and never presents it as current", () => {
+        const s = sheetStatus(
+            read({
+                dag: dag(
+                    fresh(digest(), { stale: true, error: "boom", lastUpdatedTs: NOW - 2 * MIN }),
+                    group(["done", "done", "done", "running"])
+                ),
+            })
+        );
+        expect(s).toEqual({
+            verb: "Status is stale",
+            sub: "the last status read failed; these figures are 2m old",
+            tone: "muted",
+            pulse: false,
+            meter: { kind: "stale", done: 2, total: 4 },
+            meta: [warn("as of 2m ago"), warn("refresh failed")],
+            next: "unknown — the engine's next move could not be read",
+            retry: true,
+        });
+    });
+
+    it("says the read failed without a date when no digest was ever confirmed current", () => {
+        const s = sheetStatus(
+            read({
+                dag: dag(fresh(digest(), { stale: true, error: "boom", lastUpdatedTs: undefined }), group(GRAPH)),
+            })
+        );
+        expect(s.verb).toBe("Status is stale");
+        expect(s.sub).toBe("the last status read failed");
+        expect(s.meta).toEqual([warn("refresh failed")]);
+    });
+
+    it("is stale only when a refresh both left the digest stale and failed, and none is in flight", () => {
+        const verdict = (over: Partial<DigestState>) =>
+            sheetStatus(read({ dag: dag(fresh(digest(), over), group(GRAPH)) }));
+        expect(verdict({ error: "boom" }).verb).toBe("Executing");
+        const staleOnly = verdict({ stale: true });
+        expect(staleOnly.verb).toBe("Executing");
+        expect(staleOnly.meta).toContainEqual(muted("refreshing"));
+        expect(verdict({ stale: true, error: "boom", loading: true }).verb).toBe("Executing");
+    });
+
+    it("lists every report figure as a chip, with only an unverified run in warning", () => {
+        const s = sheetStatus(
+            read({
+                dag: live(
+                    {
+                        report: {
+                            workerms: 31 * MIN,
+                            commits: [{ taskid: "t-1", commit: "a91c4f2" }],
+                            answered: 2,
+                            forwarded: 1,
+                            unverified: true,
+                        },
+                    },
+                    { attention: 1, mergeready: 3 }
+                ),
+            })
+        );
+        expect(s.meta).toEqual([
+            muted("18m elapsed"),
+            muted("workers 31m"),
+            muted("landed 1"),
+            muted("answered 2"),
+            muted("forwarded 1"),
+            warn("unverified"),
+            warn("attention 1"),
+            warn("merge 3"),
+            muted("updated 3s ago"),
+        ]);
+    });
+
+    it("leaves out the updated chip when no digest was ever confirmed current", () => {
+        const s = sheetStatus(read({ dag: dag(fresh(digest(), { lastUpdatedTs: undefined }), group(GRAPH)) }));
+        expect(s.meta).toEqual([muted("18m elapsed"), muted("workers 31m")]);
+    });
+
+    it("waits on you, pulsing, with the meter and the digest's next line, for a question that is yours", () => {
+        const s = sheetStatus(read({ userAsks: [ask()] }));
+        expect(s).toEqual({
+            verb: "Waiting on you",
+            sub: "task 1's worker asked a question 40s ago",
+            tone: "warning",
+            pulse: true,
+            meter: strip,
+            meta: BASE_META,
+            next: "waiting for a slot — task 1, task 2 still running",
+            retry: false,
+        });
+    });
+
+    it("says the lead asked when the run's own worker is the one asking", () => {
+        const s = sheetStatus(read({ workerAsking: true }));
+        expect(s.verb).toBe("Waiting on you");
+        expect(s.sub).toBe("the lead asked you a question");
+        expect(s.pulse).toBe(true);
+        expect(s.retry).toBe(false);
+    });
+
+    it("lands, pulsing and with nothing to retry, once the graph is done", () => {
+        const s = sheetStatus(
+            read({
+                dag: dag(
+                    fresh(
+                        digest(
+                            { health: "done", next: { kind: "terminal", terminalstatus: "done" } },
+                            { done: 4, running: 0 }
+                        )
+                    ),
+                    group(["done", "done", "done", "done"], { status: "done" })
+                ),
+            })
+        );
+        expect(s).toEqual({
+            verb: "Landing",
+            sub: "all 4 tasks done, nothing left to dispatch",
+            tone: "warning",
+            pulse: true,
+            meter: strip,
+            meta: BASE_META,
+            next: "nothing to dispatch — the lead is finishing the run",
+            retry: false,
+        });
+    });
+
+    it("does not land for a terminal graph that did not finish done", () => {
+        const s = sheetStatus(read({ dag: live({ next: { kind: "terminal", terminalstatus: "failed" } }) }));
+        expect(s.verb).toBe("Executing");
+        expect(s.next).toBe("finished (failed)");
+    });
+
+    it("does not land for a next step that is not terminal", () => {
+        const s = sheetStatus(read({ dag: live({ next: { kind: "dispatch", terminalstatus: "done" } }) }));
+        expect(s.verb).toBe("Executing");
+        expect(s.next).toBe("dispatching next task");
+    });
+
+    it("counts only the tasks whose worktree is waiting on cleanup", () => {
+        const s = sheetStatus(
+            read({
+                dag: dag(
+                    fresh(
+                        digest(
+                            {
+                                health: "needs-you",
+                                next: { kind: "human-action", taskids: ["t-2", "t-3"], actions: ["retry-cleanup"] },
+                                tasks: [
+                                    { taskid: "t-1" } as DagTaskDigest,
+                                    { taskid: "t-2", humanactions: ["retry-cleanup"] } as DagTaskDigest,
+                                    { taskid: "t-3", humanactions: ["retry-cleanup"] } as DagTaskDigest,
+                                ],
+                            },
+                            { attention: 2, running: 0 }
+                        )
+                    ),
+                    group(["done", "done", "done", "done"])
+                ),
+            })
+        );
+        expect(s).toEqual({
+            verb: "Cleanup failed",
+            sub: "2 worktrees could not be removed",
+            tone: "warning",
+            pulse: false,
+            meter: strip,
+            meta: [muted("18m elapsed"), muted("workers 31m"), warn("attention 2"), muted("updated 3s ago")],
+            next: "worktrees not removed: task 2, task 3 — wsh jarvis dag retry-cleanup",
+            retry: false,
+        });
+    });
+
+    describe("when a decision is waiting on the human", () => {
+        const needing = (counts: Partial<DagStatusCounts>, taskids: string[]) =>
+            sheetStatus(
+                read({
+                    dag: dag(
+                        fresh(
+                            digest(
+                                { health: "needs-you", next: { kind: "human-action", taskids, actions: ["retry"] } },
+                                counts
+                            )
+                        ),
+                        group(["stalled", "failed", "done", "running"])
+                    ),
+                })
+            );
+
+        it("keeps executing while other work runs, pulsing, with nothing to retry", () => {
+            expect(needing({ attention: 0, running: 1 }, ["t-1", "t-2"])).toEqual({
+                verb: "Executing",
+                sub: "1 of 4 done · 2 tasks need you",
+                tone: "warning",
+                pulse: true,
+                meter: strip,
+                meta: BASE_META,
+                next: "waiting on you — retry: task 1, task 2",
+                retry: false,
+            });
+        });
+
+        it("waits on you when nothing else is running", () => {
+            expect(needing({ attention: 1, running: 0 }, ["t-1"])).toEqual({
+                verb: "Waiting on you",
+                sub: "1 task needs you; nothing else is running",
+                tone: "warning",
+                pulse: true,
+                meter: strip,
+                meta: [...BASE_META.slice(0, 2), warn("attention 1"), BASE_META[2]],
+                next: "waiting on you — retry: task 1",
+                retry: false,
+            });
+        });
+
+        it("counts the tasks that need you from the attention count, else from the next step's ids", () => {
+            expect(needing({ attention: 3, running: 1 }, ["t-1"]).sub).toBe("1 of 4 done · 3 tasks need you");
+            expect(needing({ attention: 0, running: 1 }, ["t-1", "t-2"]).sub).toBe("1 of 4 done · 2 tasks need you");
+        });
+    });
+
+    it("executes, pulsing and with nothing to retry, and names the workers live only while some are", () => {
+        const idle = sheetStatus(
+            read({
+                dag: dag(
+                    fresh(digest({ next: { kind: "dispatch", taskids: ["t-3"] } }, { running: 0 })),
+                    group(["done", "done", "pending", "pending"])
+                ),
+            })
+        );
+        expect(idle).toEqual({
+            verb: "Executing",
+            sub: "2 of 4 tasks done",
+            tone: "success",
+            pulse: true,
+            meter: strip,
+            meta: BASE_META,
+            next: "dispatching task 3",
+            retry: false,
+        });
+        const busy = sheetStatus(
+            read({
+                dag: dag(
+                    fresh(digest({ next: { kind: "dispatch", taskids: ["t-3"] } }, { running: 1 })),
+                    group(["done", "done", "running", "pending"])
+                ),
+            })
+        );
+        expect(busy.sub).toBe("2 of 4 tasks done, 1 worker live");
     });
 });
 
