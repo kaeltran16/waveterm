@@ -183,6 +183,55 @@ describe("sessionLine", () => {
             agentId: "t1",
         });
     });
+
+    const agent = (chip: ActiveWorkRow["chip"]): ActiveWorkRow => ({
+        key: "agent:t1:1",
+        kind: "agent",
+        oref: "agent:t1",
+        name: "lead",
+        meta: "claude · cad",
+        chip,
+        ts: NOW - DAY,
+    });
+
+    it("draws a running agent live, named by its state, and carries its id but no run oid", () => {
+        const line = sessionLine(agent({ label: "working", tone: "running" }), NOW);
+        expect(line).toMatchObject({
+            kind: "▶ agent",
+            kindTone: "active",
+            state: "working",
+            stateTone: "ok",
+            agentId: "t1",
+        });
+        expect(line.runOid).toBeUndefined();
+    });
+
+    it("draws an agent that is neither running nor waiting muted", () => {
+        expect(sessionLine(agent({ label: "idle", tone: "muted" }), NOW)).toMatchObject({
+            kind: "· agent",
+            kindTone: "muted",
+            state: "idle",
+            stateTone: "muted",
+        });
+    });
+
+    it("keeps a run's state muted by its age even while it runs, and carries no agent id", () => {
+        const line = sessionLine({ ...run, ts: NOW - DAY }, NOW);
+        expect(line).toMatchObject({ kind: "▶ run", kindTone: "active", state: "1d", stateTone: "muted" });
+        expect(line.agentId).toBeUndefined();
+    });
+
+    it("draws a run with no chip as idle, not running", () => {
+        expect(sessionLine({ ...run, chip: null }, NOW)).toMatchObject({
+            kind: "· run",
+            kindTone: "muted",
+            stateTone: "muted",
+        });
+    });
+
+    it("strips only a leading run: prefix from the oref", () => {
+        expect(sessionLine({ ...run, oref: "sub:run:r1" }, NOW).runOid).toBe("sub:run:r1");
+    });
 });
 
 describe("sessionWindow", () => {
@@ -316,6 +365,92 @@ describe("behindGroups", () => {
         expect([group.lines[0].note, group.lines[0].detail]).toEqual(["", "created · marked paused"]);
     });
 
+    it("reads the digest off the newest event whatever order the rows arrive in", () => {
+        const [group] = behindGroups(
+            [
+                {
+                    label: "Today",
+                    rows: [
+                        delta({ key: "1", ts: NOW - 3 * MIN, title: "oldest", detail: "A · Oldest note. x" }),
+                        delta({ key: "2", ts: NOW - 2 * MIN, title: "middle", detail: "A · Middle note." }),
+                        delta({ key: "3", ts: NOW - MIN, title: "newest", detail: "A · Newest note. y" }),
+                    ],
+                },
+            ],
+            [],
+            NOW
+        );
+        expect(group.lines).toHaveLength(1);
+        expect(group.lines[0]).toMatchObject({
+            title: "newest",
+            note: "Newest note.",
+            detail: "3 notes",
+            state: "1m",
+        });
+    });
+
+    it("counts as notes only a chunk event that wrote text, not a bookkeeping line or another kind", () => {
+        const [group] = behindGroups(
+            [
+                {
+                    label: "Today",
+                    rows: [
+                        delta({ key: "1", ts: NOW - MIN, detail: "A · " }),
+                        delta({ key: "2", ts: NOW - 2 * MIN, kind: "chunk-added", detail: "B · renamed from X" }),
+                        delta({ key: "3", ts: NOW - 3 * MIN, kind: "effort-status", detail: "paused" }),
+                        delta({ key: "4", ts: NOW - 4 * MIN, detail: "A · Real note. More." }),
+                    ],
+                },
+            ],
+            [],
+            NOW
+        );
+        expect([group.lines[0].note, group.lines[0].detail]).toEqual([
+            "Real note.",
+            "1 note · 1 chunk added · marked paused",
+        ]);
+    });
+
+    it("points a row at its own address, or at nothing when it has none", () => {
+        const [group] = behindGroups(
+            [
+                {
+                    label: "Today",
+                    rows: [
+                        delta({
+                            key: "a",
+                            kind: "run-done",
+                            wording: "Run completed",
+                            detail: "summary",
+                            oref: "run:r1",
+                        }),
+                        delta({ key: "b", kind: "decision", wording: "Decision", detail: "kept", oref: undefined }),
+                    ],
+                },
+            ],
+            [],
+            NOW
+        );
+        expect(group.lines.map((l) => l.target)).toEqual([{ oref: "run:r1" }, null]);
+    });
+
+    it("rewords a status only for a record, and only when the detail is a status", () => {
+        const [group] = behindGroups(
+            [
+                {
+                    label: "Today",
+                    rows: [
+                        delta({ key: "a", kind: "decision", wording: "Decision", detail: "status: kept", oref: "d:1" }),
+                        delta({ key: "b", kind: "dossier", wording: "Record updated", detail: "blocked", oref: "d:2" }),
+                    ],
+                },
+            ],
+            [],
+            NOW
+        );
+        expect(group.lines.map((l) => l.detail)).toEqual(["status: kept", "blocked"]);
+    });
+
     it("keeps shipped runs as their own group", () => {
         const groups = behindGroups(
             [],
@@ -387,6 +522,27 @@ describe("design row helpers", () => {
         expect(projectName("C:\\x\\orch-demo", {} as never)).toBe("orch-demo");
         expect(projectName("", {} as never)).toBe("");
     });
+    it("names no project for an empty path, even one the registry also holds empty", () => {
+        expect(projectName("", { blank: { path: "" } })).toBe("");
+    });
+    it("matches a registered path whatever its slashes, trailing slashes and case, and returns the registry key", () => {
+        const projects = { Arc: { path: "C:/x/app" } };
+        expect(projectName("c:\\X\\App\\", projects)).toBe("Arc");
+        expect(projectName("C:/x/app//", projects)).toBe("Arc");
+    });
+    it("takes the first project whose path matches, skipping those with no path or another path", () => {
+        const projects = { none: {}, other: { path: "C:/x/other" }, Arc: { path: "C:/x/app" } };
+        expect(projectName("C:/x/app", projects)).toBe("Arc");
+    });
+    it("falls back to the path's last segment when no registered path matches", () => {
+        expect(projectName("C:/x/zzz", { none: {}, Arc: { path: "C:/x/app" } })).toBe("zzz");
+        expect(projectName("C:/x/zzz", null)).toBe("zzz");
+        expect(projectName("C:/x/app//", {})).toBe("app");
+        expect(projectName("C:/x/a/b", {})).toBe("b");
+    });
+    it("does not treat a slash inside a path as a trailing one when matching", () => {
+        expect(projectName("C:/x/a/b", { ab: { path: "C:/x/ab" } })).toBe("b");
+    });
     it("says since when the delta runs", () => {
         const now = new Date(2026, 8, 23, 10, 0).getTime();
         expect(sinceLabel(new Date(2026, 8, 22, 18, 40).getTime(), now, false)).toBe("since yesterday 18:40");
@@ -451,6 +607,77 @@ describe("runRowFace", () => {
     it("a cancelled run reads stopped, faint, and cannot be stopped again", () => {
         const f = runRowFace({ line, run: { ...run, status: "cancelled" } as Run, asking: false, project: "p" });
         expect(f).toMatchObject({ state: "stopped", stateTone: "faint", dot: "idle", canStop: false, stopped: true });
+    });
+
+    const agentLine = { ...line, runOid: undefined, agentId: "a1", meta: "claude · waveterm" } as BriefLine;
+    const agentFace = (state: string, asking: boolean, over: Partial<BriefLine> = {}) =>
+        runRowFace({ line: { ...agentLine, state, ...over }, asking, project: "" });
+
+    it("a direct agent reads its own state, live and stoppable by nothing", () => {
+        expect(agentFace("waiting", false)).toStrictEqual({
+            type: "agent",
+            meta: "claude · waveterm",
+            elapsed: "2h",
+            state: "waiting",
+            stateTone: "ok",
+            dot: "live",
+            asking: false,
+            canStop: false,
+            stopped: false,
+            chunkLabel: "",
+            effortOref: "",
+            chunk: "",
+        });
+    });
+    it("a direct agent asks when the roster says so or when its own line does", () => {
+        for (const f of [agentFace("working", true), agentFace("asking", false)]) {
+            expect(f).toMatchObject({ state: "asking", stateTone: "asking", dot: "asking", asking: true });
+        }
+    });
+
+    it.each([
+        ["blocked", "blocked", "asking", "live", true, false],
+        ["awaiting-review", "review", "asking", "live", true, false],
+        ["cancelled", "stopped", "faint", "idle", false, true],
+        ["done", "done", "ok", "done", false, false],
+        ["planning", "planning", "ok", "live", true, false],
+        ["executing", "running", "ok", "live", true, false],
+        [undefined, "running", "ok", "live", true, false],
+    ])("reads a run whose status is %s", (status, state, stateTone, dot, canStop, stopped) => {
+        const f = runRowFace({ line, run: { ...run, status } as unknown as Run, asking: false, project: "p" });
+        expect([f.state, f.stateTone, f.dot, f.canStop, f.stopped]).toEqual([state, stateTone, dot, canStop, stopped]);
+        expect(f.asking).toBe(false);
+    });
+
+    it("names the run's own runtime, falling back to claude when it has none", () => {
+        const quick = (runtime: string) =>
+            runRowFace({ line, run: { ...run, mode: "", runtime } as Run, asking: false, project: "p" }).meta;
+        expect([quick("pi"), quick("")]).toEqual(["pi · p", "claude · p"]);
+    });
+
+    it("carries the linked chunk's label, effort and stage, or none when the run names no effort", () => {
+        const linked = runRowFace({ line, run, asking: false, project: "p", effort });
+        expect([linked.chunk, linked.effortOref, linked.chunkLabel]).toEqual([
+            "N1 box upgrade",
+            "effort:e1",
+            "Scenario gate clearance · Phase 2 · upgrade",
+        ]);
+        const unstaged = runRowFace({
+            line,
+            run: { ...run, effortref: { effortoid: "e1", chunklabel: "Other" } } as unknown as Run,
+            asking: false,
+            project: "p",
+            effort,
+        });
+        expect(unstaged.chunkLabel).toBe("Scenario gate clearance · unstaged");
+        const bare = runRowFace({
+            line,
+            run: { ...run, effortref: undefined } as Run,
+            asking: false,
+            project: "p",
+            effort,
+        });
+        expect([bare.chunk, bare.effortOref, bare.chunkLabel]).toEqual(["", "", ""]);
     });
 });
 
