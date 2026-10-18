@@ -50,6 +50,17 @@ describe("buildAgentTree", () => {
         expect(parents.map((p) => p.agent.id)).toEqual(["b", "a", "c"]);
     });
 
+    it("sorts a reversed roster into every ranked position, with unranked ids last", () => {
+        const agents = [
+            vm("x", "working", WAVE),
+            vm("c", "working", WAVE),
+            vm("b", "working", WAVE),
+            vm("a", "working", WAVE),
+        ];
+        const parents = buildAgentTree(agents, ["a", "b", "c"]).filter((r) => r.kind === "parent") as any[];
+        expect(parents.map((p) => p.agent.id)).toEqual(["a", "b", "c", "x"]);
+    });
+
     it("falls back to UNGROUPED_PROJECT when no transcript path", () => {
         const rows = buildAgentTree([vm("a", "idle")], ["a"]);
         expect(rows[0]).toMatchObject({ kind: "group", project: UNGROUPED_PROJECT });
@@ -405,6 +416,57 @@ describe("buildAgentTree with run lineage", () => {
             ]);
         });
 
+        it("is a row with no agent when its verifier session is named but not in the roster", () => {
+            const r = staged([task("t-1", "done")], "finalizing", {
+                state: "verifying",
+                round: 1,
+                verifierrunid: "v1",
+            });
+            expect(tree(r)).toEqual(["group:waveterm:1:0", "lead:run-1:1", "done:1:false", "final:-"]);
+        });
+
+        it("does not take a verifier session with no run id as the row's agent when no verifier is named", () => {
+            const r = staged([task("t-1", "done")], "finalizing");
+            const rows = buildAgentTree(
+                [agent("lead", "idle"), agent("s1", "working")],
+                ["lead", "s1"],
+                lineage([r], { ...LEAD, s1: VERIFIER })
+            );
+            expect(shape(rows)).toEqual([
+                "group:waveterm:2:0",
+                "lead:run-1:1",
+                "done:1:false",
+                "stage:verifier:s1",
+                "final:-",
+            ]);
+        });
+
+        it("leaves a verifier session a stage row while the stage is not showing yet", () => {
+            const r = staged([task("t-1", "running")], "running", { state: "", round: 1, verifierrunid: "v1" });
+            expect(tree(r, ["v1"])).toEqual([
+                "group:waveterm:2:0",
+                "lead:run-1:2",
+                "worker:t-1:-",
+                "stage:verifier:v1",
+            ]);
+        });
+
+        it("gives a verifier session no lens, even when a plan reviewer shares its run", () => {
+            const r = staged([task("t-1", "running")], "running", { state: "", round: 1, verifierrunid: "v1" });
+            r.dag.planreview = {
+                state: "reviewing",
+                round: 1,
+                reviewers: [{ lens: "full", state: "reviewing", runid: "v1" }],
+            };
+            const rows = buildAgentTree(
+                [agent("lead", "idle"), verifierAgent("v1")],
+                ["lead", "v1"],
+                lineage([r], { ...LEAD, v1: VERIFIER })
+            );
+            expect(rows.find((x) => x.kind === "stage")).toMatchObject({ stageRole: "verifier", lens: undefined });
+            expect(shape(rows)).toContain("stage:verifier:v1");
+        });
+
         it("counts toward the lead's live only while the stage runs", () => {
             const live = (final: FinalStage) =>
                 tree(staged([task("t-1", "done")], "finalizing", final)).find((s) => s.startsWith("lead:"));
@@ -415,6 +477,94 @@ describe("buildAgentTree with run lineage", () => {
             expect(live({ state: "failed", round: 1 })).toBe("lead:run-1:0");
             expect(live({ state: "passed", round: 1 })).toBe("lead:run-1:0");
         });
+    });
+
+    it("gives a second lead of the same run a plain row of its own", () => {
+        const r = run("run-1", [task("t-1", "pending")]);
+        const rows = buildAgentTree(
+            [agent("lead1", "working"), agent("lead2", "working")],
+            ["lead1", "lead2"],
+            lineage([r], {
+                lead1: { kind: "lead", runId: "run-1" },
+                lead2: { kind: "lead", runId: "run-1" },
+            })
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:2:0", "lead:run-1:0", "queued:1:false", "parent:lead2"]);
+    });
+
+    it("adds an asking lead to the group's attn on top of the workers waiting on you", () => {
+        const r = run("run-1", [task("t-1", "running")]);
+        const rows = buildAgentTree(
+            [agent("lead", "asking"), agent("w1", "asking", "")],
+            ["lead", "w1"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+            })
+        );
+        expect(rows[0]).toStrictEqual({ kind: "group", project: "waveterm", count: 2, attn: 2 });
+    });
+
+    it("keeps the worker the task is waiting on as the row, and nests the other tabs held first, in roster order", () => {
+        const r = run("run-1", [
+            { id: "t-1", label: "t-1", state: "running", runid: "work-run", reviewrunid: "review-run" } as TaskNode,
+        ]);
+        const rows = buildAgentTree(
+            [
+                agent("lead", "working"),
+                { ...agent("old1", "idle", ""), runId: "old-run-1" },
+                { ...agent("reviewer", "asking", ""), runId: "review-run" },
+                { ...agent("old2", "idle", ""), runId: "old-run-2" },
+                { ...agent("worker", "working", ""), runId: "work-run" },
+            ],
+            ["lead", "old1", "reviewer", "old2", "worker"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                old1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+                reviewer: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+                old2: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+                worker: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+            })
+        );
+        // an asking tab opens the fold, even though the others in it are not asking
+        expect(shape(rows)).toEqual([
+            "group:waveterm:2:1",
+            "lead:run-1:1",
+            "worker:t-1:worker:+3v",
+            "  nested:t-1:reviewer",
+            "  nested:t-1:old1",
+            "  nested:t-1:old2",
+        ]);
+    });
+
+    it("leads with the reviewer's tab when the worker's is gone, ahead of an earlier attempt's", () => {
+        const rows = buildAgentTree(
+            [
+                agent("lead", "working"),
+                { ...agent("old", "idle", ""), runId: "old-run" },
+                { ...agent("reviewer", "working", ""), runId: "review-run" },
+            ],
+            ["lead", "old", "reviewer"],
+            lineage([reviewing()], {
+                ...reviewRoles,
+                old: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+            })
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:2:0", "lead:run-1:1", "worker:t-1:reviewer:+1>"]);
+    });
+
+    it("reports a task with no extra tabs as not extras-open, even when its fold key is set", () => {
+        const r = run("run-1", [task("t-1", "running")]);
+        const rows = buildAgentTree(
+            [agent("lead", "working"), agent("w1", "working", "")],
+            ["lead", "w1"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+            }),
+            { collapsed: new Set(), doneOpen: new Map(), queuedOpen: new Set(), extrasOpen: new Set(["run-1:t-1"]) }
+        );
+        expect(rows.find((x) => x.kind === "worker")).toMatchObject({ extras: 0, extrasOpen: false });
     });
 
     it("nests the done fold, then live workers in plan order, then a closed queued fold under their lead", () => {
@@ -677,6 +827,58 @@ describe("buildAgentTree with run lineage", () => {
             lineage([], { w1: { kind: "worker", leadRunId: "gone", taskId: "t-1" } })
         );
         expect(shape(rows)).toEqual(["group:waveterm:1:0", "parent:w1"]);
+    });
+});
+
+describe("stageOutcome", () => {
+    const stageRun = (dag?: Partial<TaskGroup>): RunInfo =>
+        ({
+            runId: "run-1",
+            channelId: "ch",
+            title: "t",
+            project: "waveterm",
+            dag: dag && ({ oid: "dag-1", runid: "run-1", tasks: [], ...dag } as TaskGroup),
+        }) as RunInfo;
+
+    it("is undefined for a stage the dag has no record of, whoever asks", () => {
+        for (const r of [stageRun(), stageRun({ tasks: [] })]) {
+            expect(stageOutcome(r, "plan-reviewer", "rv")).toBeUndefined();
+            expect(stageOutcome(r, "verifier", "ver")).toBeUndefined();
+        }
+    });
+
+    it("is undefined for a session with no run id, even in a later round", () => {
+        const r = stageRun({
+            planreview: { state: "reviewing", round: 2 },
+            final: { state: "final", round: 2, verifierrunid: "ver" },
+        });
+        expect(stageOutcome(r, "plan-reviewer", undefined)).toBeUndefined();
+        expect(stageOutcome(r, "verifier", undefined)).toBeUndefined();
+    });
+
+    it("reads the current final verifier's verdict from the stage's state", () => {
+        const verdict = (state: string) =>
+            stageOutcome(stageRun({ final: { state, round: 1, verifierrunid: "ver" } }), "verifier", "ver");
+        expect(verdict("passed")).toBe("passed");
+        expect(verdict("unverified")).toBe("unverified");
+        expect(verdict("failed")).toBe("failed");
+        expect(verdict("verifying")).toBeUndefined();
+    });
+
+    it("does not read a verifier's verdict from the plan review", () => {
+        const r = stageRun({
+            planreview: { state: "failed", round: 1, reviewers: [{ lens: "full", state: "failed", runid: "ver" }] },
+            final: { state: "passed", round: 1, verifierrunid: "ver" },
+        });
+        expect(stageOutcome(r, "verifier", "ver")).toBe("passed");
+    });
+
+    it("reads a verifier from an earlier final round as failed, and a first-round stranger as none", () => {
+        const later = stageRun({ final: { state: "verifying", round: 2, verifierrunid: "v2" } });
+        expect(stageOutcome(later, "verifier", "v1")).toBe("failed");
+        expect(stageOutcome(later, "verifier", "v2")).toBeUndefined();
+        const first = stageRun({ final: { state: "verifying", round: 1, verifierrunid: "v2" } });
+        expect(stageOutcome(first, "verifier", "v1")).toBeUndefined();
     });
 });
 

@@ -56,6 +56,12 @@ describe("parseGitChanges", () => {
         expect(r.files[0]).toEqual({ path: "sub/renamed.txt", status: "R", adds: 2, dels: 3 });
     });
 
+    it("ignores a numstat line that names no path, rather than keying it under an empty path", () => {
+        const r = parseGitChanges(` M ${NUL}`, "5\t3\t\n");
+        expect(r.files).toEqual([{ path: "", status: "M", adds: 0, dels: 0 }]);
+        expect(r).toMatchObject({ adds: 0, dels: 0 });
+    });
+
     it("leaves an ordinary path with a literal arrow-free name alone", () => {
         const r = parseGitChanges(` M a=>b.txt${NUL}`, "4\t0\ta=>b.txt\n");
         expect(r.files[0]).toEqual({ path: "a=>b.txt", status: "M", adds: 4, dels: 0 });

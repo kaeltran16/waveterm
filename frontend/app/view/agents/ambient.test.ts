@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ambientRefForFinding, makeAmbientProvider } from "./ambient";
 
 const NOW = 10_000_000;
@@ -60,6 +60,71 @@ describe("makeAmbientProvider", () => {
 
     it("reaches decisions through a wikilink too", () => {
         expect(provider.decisionsFor({ links: ["task-quiet"] }).map((d) => d.id)).toEqual(["dec-3"]);
+    });
+
+    it("ages decisions against the real clock when none is injected", () => {
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(NOW);
+            expect(makeAmbientProvider(DATA).decisionsFor({ oref: "run:r1" })[0].ageMs).toBe(2 * DAY);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("tags a task once when two edges of an object name it, keeping the first", () => {
+        const dup = makeAmbientProvider({
+            tasks: [{ id: "task-auth", label: "PROJ-142" }],
+            edges: [
+                {
+                    oref: "run:r1",
+                    dossierid: "task-auth",
+                    provenance: "dispatch",
+                    bucket: "strong",
+                    state: "confirmed",
+                },
+                {
+                    oref: "run:r1",
+                    dossierid: "task-auth",
+                    provenance: "structural",
+                    bucket: "weak",
+                    state: "informing",
+                },
+            ],
+            decisions: [],
+        });
+        expect(dup.tagsFor({ oref: "run:r1" })).toEqual([
+            { label: "PROJ-142", taskId: "task-auth", bucket: "strong", state: "confirmed" },
+        ]);
+    });
+
+    it("lists a decision once when two of the object's tasks carry it", () => {
+        const shared = makeAmbientProvider(
+            {
+                ...DATA,
+                decisions: [
+                    { dossierid: "task-auth", id: "dec-x", title: "from auth", created: NOW - DAY },
+                    { dossierid: "task-shell", id: "dec-x", title: "from shell", created: NOW - DAY },
+                ],
+            },
+            () => NOW
+        );
+        expect(shared.decisionsFor({ oref: "run:r1" })).toEqual([
+            { id: "dec-x", taskId: "task-auth", title: "from auth", ageMs: DAY },
+        ]);
+    });
+
+    it("shows the first three decisions and no more", () => {
+        const many = makeAmbientProvider({
+            ...DATA,
+            decisions: ["a", "b", "c", "d", "e"].map((n) => ({
+                dossierid: "task-auth",
+                id: `dec-${n}`,
+                title: n,
+                created: NOW - DAY,
+            })),
+        });
+        expect(many.decisionsFor({ oref: "run:r1" }).map((d) => d.id)).toEqual(["dec-a", "dec-b", "dec-c"]);
     });
 
     it("degrades to nothing before the map loads", () => {

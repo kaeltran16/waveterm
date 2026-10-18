@@ -50,6 +50,15 @@ describe("previewBody", () => {
         expect(previewBody("```ts\nconst a = 1;\n  b();\n```")).toBe("const a = 1;\n  b();");
         expect(previewBody("```\n| x |\n```\n")).toBe("| x |");
     });
+    it("unwraps a fence around nothing, and one whose fence lines carry spaces", () => {
+        expect(previewBody("```\n```")).toBe("");
+        expect(previewBody("  ```\ncode\n```")).toBe("code");
+        expect(previewBody("```\ncode\n  ```")).toBe("code");
+        expect(previewBody("```\ncode\n```  ")).toBe("code");
+    });
+    it("leaves a preview alone when its last line opens a fence of its own", () => {
+        expect(previewBody("```\ncode\n```ts")).toBe("```\ncode\n```ts");
+    });
     it("leaves a preview alone when a fence wraps only part of it", () => {
         const mixed = "intro\n```\ncode\n```";
         expect(previewBody(mixed)).toBe(mixed);

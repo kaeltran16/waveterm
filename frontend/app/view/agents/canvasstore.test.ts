@@ -83,6 +83,21 @@ describe("attachCanvas", () => {
         expect(s.mark).toEqual(MARK);
     });
 
+    it("drops the mark when a reveal moves to another board of the same topic", () => {
+        attachCanvas("a1", { ...A, board: "Main.dc.html" }, 100);
+        withMark("a1");
+        attachCanvas("a1", { ...A, board: "States.dc.html" }, 200);
+        expect(getCanvas("a1")).toMatchObject({ board: "States.dc.html", mark: null });
+    });
+
+    it("drops the mark when a reveal leaves the All view for the board already selected", () => {
+        attachCanvas("a1", { ...A, board: "States.dc.html" }, 100);
+        selectCanvasTab("a1", "all");
+        withMark("a1");
+        attachCanvas("a1", { ...A, board: "States.dc.html" }, 200);
+        expect(getCanvas("a1")).toMatchObject({ all: false, board: "States.dc.html", mark: null });
+    });
+
     it("drops the base when the same topic is re-attached from another project", () => {
         attachCanvas("a1", A, 100);
         updateCanvas("a1", (s) => ({ ...s, base: BASE }));

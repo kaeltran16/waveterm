@@ -21,10 +21,13 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 import { scopeKey } from "./diffscope";
 import { filesStateAtom, requestFileLink } from "./filesstore";
 import {
+    activeChangesAtom,
+    historyAppendAtom,
     historyCommitsAtom,
     historyFailureAtom,
     historyFiltersAtom,
     historyHasMoreAtom,
+    historyHeadAtom,
     historyLoadStartedAtom,
     historyRowsAtom,
     historyScrollAtom,
@@ -35,12 +38,13 @@ import {
     resetHistory,
     restoreNoticeAtom,
     retryHistory,
+    selectCommit,
     selectedCommitAtom,
     selectedFileAtom,
     setHistoryOpts,
     startFromTop,
 } from "./githistorystore";
-import { NO_FILTERS } from "./historyquery";
+import { HISTORY_PAGE_SIZE, NO_FILTERS } from "./historyquery";
 import { WORKING_TREE } from "./historyrows";
 
 const CWD = "C:/repo";
@@ -458,5 +462,247 @@ describe("startFromTop", () => {
         expect(globalStore.get(historyFiltersAtom)).toEqual(NO_FILTERS);
         expect(globalStore.get(historyScrollAtom)).toBe(0);
         expect(globalStore.get(restoreNoticeAtom)).toBeNull();
+    });
+});
+
+const deferred = () => {
+    let resolve!: (v: any) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+};
+
+const page = (n: number, prefix = "c") =>
+    Array.from({ length: n }, (_, i) => commit(`${prefix}${i}`, `commit ${prefix}${i}`));
+
+describe("loadHistory, how a read settles", () => {
+    it("reads nothing for no repository, and clears what was loaded", async () => {
+        await loadHistory(CWD, {});
+        gitHistory.mockClear();
+        await loadHistory(null, {});
+        expect(gitHistory).not.toHaveBeenCalled();
+        expect(globalStore.get(historyCommitsAtom)).toBeNull();
+    });
+
+    it("does not start the slow-read clock while the rows of the same subject are on screen", async () => {
+        await loadHistory(CWD, {});
+        gitHistory.mockReturnValueOnce(new Promise(() => {}));
+        void loadHistory(CWD, {});
+        expect(globalStore.get(historyCommitsAtom)).toHaveLength(2);
+        expect(globalStore.get(historyLoadStartedAtom)).toBeNull();
+    });
+
+    it("drops a read that a later read for another subject has superseded", async () => {
+        const slow = deferred();
+        gitHistory.mockReturnValueOnce(slow.promise);
+        const first = loadHistory("/a", {});
+        gitHistory.mockResolvedValueOnce({ isrepo: true, head: "bbb", commits: [commit("bbb", "b")] });
+        await loadHistory("/b", {});
+        slow.resolve({ isrepo: true, head: "aaa", commits: [commit("aaa", "a")] });
+        await first;
+        expect(globalStore.get(historyCommitsAtom)?.map((x) => x.hash)).toEqual(["bbb"]);
+        expect(globalStore.get(historyHeadAtom)).toBe("bbb");
+    });
+
+    it("shows an empty list for a directory that is not a repository, and records no head", async () => {
+        gitHistory.mockResolvedValueOnce({ isrepo: false });
+        await loadHistory("/plain", {});
+        expect(globalStore.get(historyCommitsAtom)).toEqual([]);
+        expect(globalStore.get(historyHasMoreAtom)).toBe(false);
+        expect(globalStore.get(historyHeadAtom)).toBe("");
+        expect(globalStore.get(historyFailureAtom)).toBeNull();
+    });
+
+    it("surfaces a described git failure with an empty list", async () => {
+        const failure = { command: "git log", exitcode: 128, stderr: "fatal: bad object" };
+        gitHistory.mockResolvedValueOnce({ isrepo: true, head: "aaa", failure });
+        await loadHistory("/broken", {});
+        expect(globalStore.get(historyFailureAtom)).toEqual(failure);
+        expect(globalStore.get(historyCommitsAtom)).toEqual([]);
+        expect(globalStore.get(historyHasMoreAtom)).toBe(false);
+    });
+
+    it("turns a rejected read into an empty list with a synthesized failure", async () => {
+        globalStore.set(historyHasMoreAtom, true);
+        gitHistory.mockRejectedValueOnce(new Error("socket closed"));
+        await loadHistory("/rejected", {});
+        expect(globalStore.get(historyCommitsAtom)).toEqual([]);
+        expect(globalStore.get(historyHasMoreAtom)).toBe(false);
+        expect(globalStore.get(historyFailureAtom)).toEqual({
+            command: "githistory",
+            exitcode: -1,
+            stderr: "socket closed",
+        });
+    });
+
+    it("ignores a rejection from a read the scope has moved past", async () => {
+        const slow = deferred();
+        gitHistory.mockReturnValueOnce(slow.promise);
+        const read = loadHistory("/gone", {});
+        resetHistory();
+        slow.reject(new Error("socket closed"));
+        await read;
+        expect(globalStore.get(historyCommitsAtom)).toBeNull();
+        expect(globalStore.get(historyFailureAtom)).toBeNull();
+    });
+});
+
+describe("loadMoreHistory", () => {
+    const loaded = async () => {
+        gitHistory.mockResolvedValue({ isrepo: true, head: "aaa1111", commits: page(HISTORY_PAGE_SIZE) });
+        await loadHistory(CWD, {});
+        await settle();
+        gitHistory.mockClear();
+    };
+
+    it("asks git for the page after the ones loaded, and appends it", async () => {
+        await loaded();
+        gitHistory.mockResolvedValue({ isrepo: true, head: "aaa1111", commits: page(3, "n") });
+        await loadMoreHistory();
+        expect(gitHistory).toHaveBeenCalledTimes(1);
+        expect(gitHistory.mock.calls[0][1]).toEqual({ cwd: CWD, limit: HISTORY_PAGE_SIZE, skip: HISTORY_PAGE_SIZE });
+        expect(globalStore.get(historyCommitsAtom)).toHaveLength(HISTORY_PAGE_SIZE + 3);
+        expect(globalStore.get(historyHasMoreAtom)).toBe(false);
+        expect(globalStore.get(historyAppendAtom)).toBe("idle");
+    });
+
+    it("reads nothing when the surface has no working directory", async () => {
+        await loaded();
+        globalStore.set(filesStateAtom, null);
+        await loadMoreHistory();
+        expect(gitHistory).not.toHaveBeenCalled();
+        expect(globalStore.get(historyAppendAtom)).toBe("idle");
+    });
+
+    it("reads nothing before the first page has loaded", async () => {
+        globalStore.set(historyHasMoreAtom, true);
+        await loadMoreHistory();
+        expect(gitHistory).not.toHaveBeenCalled();
+        expect(globalStore.get(historyAppendAtom)).toBe("idle");
+    });
+
+    it("reads nothing while an append is already in flight", async () => {
+        await loaded();
+        globalStore.set(historyAppendAtom, "loading");
+        await loadMoreHistory();
+        expect(gitHistory).not.toHaveBeenCalled();
+    });
+
+    it("drops a page that arrives after the scope moved on", async () => {
+        await loaded();
+        const slow = deferred();
+        gitHistory.mockReturnValueOnce(slow.promise);
+        const more = loadMoreHistory();
+        resetHistory();
+        slow.resolve({ isrepo: true, head: "aaa1111", commits: page(3, "late") });
+        await more;
+        expect(globalStore.get(historyCommitsAtom)).toBeNull();
+    });
+
+    it("marks the footer failed, and keeps the page being read, when git reports a failure", async () => {
+        await loaded();
+        gitHistory.mockResolvedValue({ isrepo: true, failure: { command: "git log", exitcode: 1, stderr: "x" } });
+        await loadMoreHistory();
+        expect(globalStore.get(historyAppendAtom)).toBe("failed");
+        expect(globalStore.get(historyCommitsAtom)).toHaveLength(HISTORY_PAGE_SIZE);
+        expect(globalStore.get(historyHasMoreAtom)).toBe(true);
+    });
+});
+
+describe("selectCommit", () => {
+    const CH = { isrepo: true, statusz: "M  x.ts\0", numstat: "1\t0\tx.ts\n" };
+
+    it("reads a commit's own change set and opens its first file", async () => {
+        await selectCommit(CWD, "bbb2222");
+        expect(gitCommitChanges).toHaveBeenCalledTimes(1);
+        expect(gitCommitChanges).toHaveBeenCalledWith({}, { cwd: CWD, hash: "bbb2222" });
+        expect(globalStore.get(selectedCommitAtom)).toBe("bbb2222");
+        expect(globalStore.get(activeChangesAtom)?.files).toEqual([{ path: "x.ts", status: "M", adds: 1, dels: 0 }]);
+        expect(globalStore.get(selectedFileAtom)).toBe("x.ts");
+    });
+
+    it("selects no file for a commit that changed none", async () => {
+        gitCommitChanges.mockResolvedValue({ isrepo: true, statusz: "", numstat: "" });
+        await selectCommit(CWD, "bbb2222");
+        expect(globalStore.get(activeChangesAtom)?.files).toEqual([]);
+        expect(globalStore.get(selectedFileAtom)).toBeNull();
+    });
+
+    it("drops a change set that arrives after the selection moved on", async () => {
+        const slow = deferred();
+        gitCommitChanges.mockReturnValueOnce(slow.promise);
+        const read = selectCommit(CWD, "bbb2222");
+        globalStore.set(selectedCommitAtom, "ccc3333");
+        slow.resolve(CH);
+        await read;
+        expect(globalStore.get(activeChangesAtom)).toBeNull();
+        expect(globalStore.get(selectedFileAtom)).toBeNull();
+    });
+
+    it("reads the working-tree row from the scope's change set, with no git call", async () => {
+        await selectCommit(CWD, WORKING_TREE);
+        expect(gitCommitChanges).not.toHaveBeenCalled();
+        expect(globalStore.get(selectedFileAtom)).toBe("docs/open-issues.md");
+    });
+
+    it("selects no file on the working-tree row when the scope's change set is empty", async () => {
+        globalStore.set(filesStateAtom, {
+            cwd: CWD,
+            branch: "main",
+            isRepo: true,
+            changes: { files: [] } as any,
+            ref: "",
+            head: "aaa1111",
+        });
+        await selectCommit(CWD, WORKING_TREE);
+        expect(globalStore.get(selectedFileAtom)).toBeNull();
+    });
+});
+
+describe("loadHistory selection settling, what is re-read", () => {
+    it("selects nothing for an empty history", async () => {
+        globalStore.set(filesStateAtom, {
+            cwd: CWD,
+            branch: "main",
+            isRepo: true,
+            changes: { files: [] } as any,
+            ref: "",
+            head: "aaa1111",
+        });
+        gitHistory.mockResolvedValue({ isrepo: true, head: "aaa1111", commits: [] });
+        await loadHistory(CWD, {});
+        await settle();
+        expect(gitCommitChanges).not.toHaveBeenCalled();
+        expect(globalStore.get(selectedCommitAtom)).toBeNull();
+    });
+
+    it("does not re-read a kept selection whose file is already open", async () => {
+        globalStore.set(selectedCommitAtom, "aaa1111");
+        globalStore.set(selectedFileAtom, "x.ts");
+        await loadHistory(CWD, {});
+        await settle();
+        expect(gitCommitChanges).not.toHaveBeenCalled();
+        expect(globalStore.get(selectedFileAtom)).toBe("x.ts");
+    });
+
+    it("re-reads a kept selection that has no file open", async () => {
+        globalStore.set(selectedCommitAtom, "aaa1111");
+        await loadHistory(CWD, {});
+        await settle();
+        expect(gitCommitChanges).toHaveBeenCalledTimes(1);
+        expect(gitCommitChanges).toHaveBeenCalledWith({}, { cwd: CWD, hash: "aaa1111" });
+        expect(globalStore.get(selectedFileAtom)).toBe("x.ts");
+    });
+
+    it("moves to the default row when the remembered one is gone, even with a file open", async () => {
+        globalStore.set(selectedCommitAtom, "gone000");
+        globalStore.set(selectedFileAtom, "stale.ts");
+        await loadHistory(CWD, {});
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+        expect(globalStore.get(selectedFileAtom)).toBe("docs/open-issues.md");
     });
 });
