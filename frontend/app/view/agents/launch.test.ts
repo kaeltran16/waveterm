@@ -181,6 +181,26 @@ describe("buildLaunchMeta", () => {
         expect(m["cmd:args"]).toEqual(["--session", "C:\\old\\s.jsonl", "--model", "x"]);
         expect(m["agent:baseargs"]).toEqual(["--session", "C:\\old\\s.jsonl", "--model", "x"]);
     });
+    it("forces the swap-token JWT into an agent's env", () => {
+        const m = buildLaunchMeta({ runtime: "claude", startupCommand: "claude", task: "go", cwd: "/x" });
+        expect(m["cmd:jwt"]).toBe(true);
+    });
+    it("falls back to the runtime's own command for a blank startup command", () => {
+        for (const startupCommand of ["", "   "]) {
+            const m = buildLaunchMeta({ runtime: "claude", startupCommand, task: "go", cwd: "/x" });
+            expect(m).toMatchObject({ cmd: "claude", "cmd:args": ["go"], "agent:baseargs": [] });
+        }
+    });
+    it("splits a startup command on runs of whitespace without empty args", () => {
+        const m = buildLaunchMeta({ runtime: "claude", startupCommand: "  claude   --model \t opus ", task: "go", cwd: "/x" });
+        expect(m).toMatchObject({ cmd: "claude", "agent:baseargs": ["--model", "opus"], "cmd:args": ["--model", "opus", "go"] });
+    });
+    it("sets no cwd when the spec has none", () => {
+        const agent = buildLaunchMeta({ runtime: "claude", startupCommand: "claude", task: "go", cwd: "" });
+        expect(agent).not.toHaveProperty("cmd:cwd");
+        const terminal = buildLaunchMeta({ runtime: "terminal", startupCommand: "", task: "", cwd: "" });
+        expect(terminal).toStrictEqual({ view: "term", controller: "shell" });
+    });
 });
 
 describe("sessionIdFromTranscript", () => {

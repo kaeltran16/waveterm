@@ -258,6 +258,96 @@ describe("buildLeadCard", () => {
         );
     });
 
+    it("labels a row by its task label, falling back to the task id", () => {
+        const run = runInfo([task("t1", "running", { label: "Build auth" }), task("t2", "running", { label: "" })]);
+        expect(buildLeadCard(input(run)).rows.map((r) => r.label)).toEqual(["Build auth", "t2"]);
+    });
+
+    it("tones a stalled row warn and a failed one err, each with its own reason", () => {
+        const run = runInfo([
+            task("t1", "stalled"),
+            task("t2", "failed"),
+            task("t3", "failed", { lastfailurekind: "timeout" }),
+        ]);
+        expect(buildLeadCard(input(run)).rows.map((r) => [r.tone, r.sub])).toEqual([
+            ["warn", "t1 · no output · process alive"],
+            ["err", "t2 · failed"],
+            ["err", "t3 · timeout"],
+        ]);
+    });
+
+    it("names why a blocked merge or a failed Verify is stuck", () => {
+        const run = runInfo([task("t1", "blocked-merge"), task("t2", "verify-failed")]);
+        expect(buildLeadCard(input(run)).rows.map((r) => [r.tone, r.sub])).toEqual([
+            ["err", "t1 · merge conflict"],
+            ["err", "t2 · Verify failed"],
+        ]);
+    });
+
+    it("ages each landed row by its own task's run time", () => {
+        const run = runInfo([task("t1", "done"), task("t2", "done")], {
+            durations: {
+                elapsedms: 0,
+                tasks: [
+                    { taskid: "t2", runms: 5 * 60_000 },
+                    { taskid: "t1", runms: 12 * 60_000 },
+                ],
+            },
+        });
+        expect(buildLeadCard(input(run)).done.map((r) => r.age)).toEqual(["12m", "5m"]);
+    });
+
+    it("waits for a slot only the task the digest says waits for one", () => {
+        const run = runInfo([task("t1", "pending"), task("t2", "pending")], {
+            tasks: [
+                { taskid: "t9", waitreason: "parallelism" } as DagTaskDigest,
+                { taskid: "t2", waitreason: "parallelism" } as DagTaskDigest,
+            ],
+        });
+        expect(buildLeadCard(input(run)).waiting.map((r) => [r.sub, r.tag, r.waitOn])).toEqual([
+            ["t1 · queued", "queued", undefined],
+            ["t2 · waiting for a slot", "for a slot", "slot"],
+        ]);
+    });
+
+    it("asks you inline only when the digest says the question is yours and the worker holds one", () => {
+        const worker = { id: "w2", name: "t2", task: "t2", state: "asking", runId: "c2", activity: "waiting" } as AgentVM;
+        const yoursNoAsk = runInfo([task("t2", "running", { runid: "c2" })], {
+            tasks: [{ taskid: "t2", waitreason: "ask" } as DagTaskDigest],
+        });
+        const noAsk = buildLeadCard(input(yoursNoAsk, [worker]));
+        expect(noAsk.rows[0]).toMatchObject({ tone: "run", needsYou: false, actions: ["tell"], sub: "t2 · waiting" });
+        expect(noAsk.rows[0].inline).toBeUndefined();
+        expect(noAsk.askCount).toBe(0);
+
+        const asking = { ...worker, ask: { questions: [{ question: "?" }] } } as AgentVM;
+        const notYours = runInfo([task("t2", "running", { runid: "c2" })], {
+            tasks: [{ taskid: "t2" } as DagTaskDigest],
+        });
+        const held = buildLeadCard(input(notYours, [asking]));
+        expect(held.rows[0]).toMatchObject({ tone: "run", needsYou: false, actions: ["tell"] });
+        expect(held.rows[0].inline).toBeUndefined();
+        expect(held.askCount).toBe(0);
+    });
+
+    it("needs you for a held question or a lead that is asking, and not otherwise", () => {
+        const run = runInfo([task("t1", "running")]);
+        expect(buildLeadCard(input(run)).needsYou).toBe(false);
+        const asking = { ...lead, state: "asking" } as AgentVM;
+        expect(buildLeadCard(input(run, [], { lead: asking })).needsYou).toBe(true);
+    });
+
+    it("is not planning once the dag exists", () => {
+        expect(buildLeadCard(input(runInfo([task("t1", "running")]))).planning).toBe(false);
+    });
+
+    it("names a lead with no model or agent as just the lead", () => {
+        const bare = { id: "lead", name: "auth-lead", task: "", state: "working" } as AgentVM;
+        expect(buildLeadCard(input(runInfo([]), [], { lead: bare })).settings).toBe(
+            "lead · workers sonnet · 3 at a time"
+        );
+    });
+
     it("names the branch a run lands on when it has its own", () => {
         const run = { ...runInfo([]), runId: "0123456789abcdef", landPath: "/p/.waveterm/worktrees/0123456789abcdef" };
         expect(buildLeadCard(input(run)).settings).toBe(
@@ -275,6 +365,13 @@ describe("isLeadDown", () => {
         expect(isLeadDown([ev("lead-wake-failed", 10)])).toBe(true);
         expect(isLeadDown([ev("lead-wake-failed", 10), ev("lead-launched", 20)])).toBe(false);
         expect(isLeadDown([ev("lead-launched", 5), ev("lead-wake-failed", 10)])).toBe(true);
+    });
+    it("goes by the newest wake failure, whatever order the events arrive in", () => {
+        expect(isLeadDown([ev("lead-wake-failed", 10), ev("lead-launched", 15), ev("lead-wake-failed", 20)])).toBe(true);
+        expect(isLeadDown([ev("lead-wake-failed", 20), ev("lead-launched", 15), ev("lead-wake-failed", 10)])).toBe(true);
+    });
+    it("is not thrown off by a newer event of another kind", () => {
+        expect(isLeadDown([ev("lead-launched", 5), ev("lead-wake-failed", 10), ev("task-done", 30)])).toBe(true);
     });
 });
 
