@@ -6,6 +6,7 @@ package agentobserve
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -111,4 +112,68 @@ func jsonStr(s string) string {
 	}
 	b = append(b, '"')
 	return string(b)
+}
+
+// Resolve reads each transcript's head: the first cwd and the first timestamp count, past a large first line.
+func TestResolveReadsTranscriptHead(t *testing.T) {
+	blockCwd := `C:\work\demo`
+	base := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
+	stamp := func(min int) string { return jsonStr(base.Add(time.Duration(min) * time.Minute).Format(time.RFC3339)) }
+	at := func(min int) int64 { return base.Add(time.Duration(min) * time.Minute).UnixMilli() }
+	setup := func(t *testing.T, files map[string][]string) (string, string) {
+		root := t.TempDir()
+		dir := filepath.Join(root, SlugifyCwd(blockCwd))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for name, lines := range files {
+			body := ""
+			for _, l := range lines {
+				body += l + "\n"
+			}
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return root, dir
+	}
+
+	t.Run("first cwd wins and the start comes from a later record", func(t *testing.T) {
+		root, dir := setup(t, map[string][]string{"a.jsonl": {
+			`{"cwd":` + jsonStr(blockCwd) + `}`,
+			`{"cwd":"/elsewhere","timestamp":` + stamp(0) + `}`,
+		}})
+		got := Resolve(root, blockCwd, at(0))
+		want := Resolution{Path: filepath.Join(dir, "a.jsonl"), MatchCount: 1, Method: "createtime"}
+		if got != want {
+			t.Fatalf("Resolve = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("first timestamp wins and the cwd comes from a later record", func(t *testing.T) {
+		// a.jsonl starts at 0 and b.jsonl at 15; a process created at 1 is a's. Were a's start read from its
+		// second record (20), b would be the closer one.
+		root, dir := setup(t, map[string][]string{
+			"a.jsonl": {`{"timestamp":` + stamp(0) + `}`, `{"cwd":` + jsonStr(blockCwd) + `,"timestamp":` + stamp(20) + `}`},
+			"b.jsonl": {`{"cwd":` + jsonStr(blockCwd) + `,"timestamp":` + stamp(15) + `}`},
+		})
+		got := Resolve(root, blockCwd, at(1))
+		want := Resolution{Path: filepath.Join(dir, "a.jsonl"), MatchCount: 2, Method: "createtime"}
+		if got != want {
+			t.Fatalf("Resolve = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a first line over a megabyte is read past", func(t *testing.T) {
+		pad := strings.Repeat("x", 2*1024*1024)
+		root, dir := setup(t, map[string][]string{"a.jsonl": {
+			`{"type":"summary","pad":"` + pad + `"}`,
+			`{"cwd":` + jsonStr(blockCwd) + `,"timestamp":` + stamp(0) + `}`,
+		}})
+		got := Resolve(root, blockCwd, at(0))
+		want := Resolution{Path: filepath.Join(dir, "a.jsonl"), MatchCount: 1, Method: "createtime"}
+		if got != want {
+			t.Fatalf("Resolve = %+v, want %+v", got, want)
+		}
+	})
 }

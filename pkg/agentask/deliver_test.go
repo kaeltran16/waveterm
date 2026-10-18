@@ -361,6 +361,58 @@ func TestDeliverAnswer_ProseForADagTaskIsTakenOnce(t *testing.T) {
 	}
 }
 
+// only an answer typed for a known dag task is recorded: without both ids there is no task whose transcript to read
+func TestDeliverAnswer_ProseWithoutDagIsNotTaken(t *testing.T) {
+	GlobalRegistry = MakeRegistry()
+	stubKeys(t)
+	p := prosePending()
+	p.TaskId = "t-0"
+	GlobalRegistry.Set("block:b1", p)
+	if ok, err := DeliverAnswer("block:b1", "", []baseds.AgentAnswerItem{{Text: "B"}}); !ok || err != nil {
+		t.Fatalf("want (true,nil), got (%v,%v)", ok, err)
+	}
+	if GlobalRegistry.TakeTypedAnswer("", "t-0", "B", time.Now().UnixMilli()) {
+		t.Fatal("an answer for a task with no dag must not be recorded")
+	}
+}
+
+// a picker answer types no prompt, so even for a dag task there is nothing for the engine to skip
+func TestDeliverAnswer_PickerAnswerForADagTaskIsNotTaken(t *testing.T) {
+	GlobalRegistry = MakeRegistry()
+	stubKeys(t)
+	GlobalRegistry.Set("block:b1", PendingAsk{AskId: "a1", BlockId: "b1", Questions: oneQuestion(), DagOID: "g1", TaskId: "t-0"})
+	if ok, err := DeliverAnswer("block:b1", "", []baseds.AgentAnswerItem{{SelectedIndexes: []int{0}}}); !ok || err != nil {
+		t.Fatalf("want (true,nil), got (%v,%v)", ok, err)
+	}
+	if GlobalRegistry.TakeTypedAnswer("g1", "t-0", "", time.Now().UnixMilli()) {
+		t.Fatal("a picker answer must not be recorded as typed")
+	}
+}
+
+// keystrokes go one per write with KeystrokeDelay between each, and the first goes at once
+func TestDeliverAnswer_SpacesKeystrokes(t *testing.T) {
+	GlobalRegistry = MakeRegistry()
+	GlobalRegistry.Set("tab:t1", PendingAsk{AskId: "a1", BlockId: "b1", Questions: oneQuestion()})
+	var at []time.Time
+	orig := sendInput
+	sendInput = func(string, []byte) error { at = append(at, time.Now()); return nil }
+	defer func() { sendInput = orig }()
+
+	start := time.Now()
+	if ok, err := DeliverAnswer("tab:t1", "", []baseds.AgentAnswerItem{{SelectedIndexes: []int{1}}}); !ok || err != nil {
+		t.Fatalf("want (true,nil), got (%v,%v)", ok, err)
+	}
+	if len(at) != 2 {
+		t.Fatalf("want 2 keystrokes for index 1, got %d", len(at))
+	}
+	if first := at[0].Sub(start); first >= KeystrokeDelay {
+		t.Fatalf("the first keystroke must not wait, it came after %v", first)
+	}
+	if gap := at[1].Sub(at[0]); gap < KeystrokeDelay {
+		t.Fatalf("want at least %v between keystrokes, got %v", KeystrokeDelay, gap)
+	}
+}
+
 // free text to a preview question lands as a prompt, so for a dag task it is the engine's to skip like a prose answer
 func TestDeliverAnswer_FreeTextToPreviewQuestionIsTakenAsTyped(t *testing.T) {
 	GlobalRegistry = MakeRegistry()
