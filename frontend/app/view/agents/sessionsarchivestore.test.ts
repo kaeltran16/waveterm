@@ -55,6 +55,33 @@ describe("overlayLive", () => {
     });
 });
 
+describe("overlayLive: what the overlay keeps and decides", () => {
+    it("keeps a live session's other events, in order, and drops only the finished one", () => {
+        const events = [ev("started", 1, "go"), ev("committed", 2, "c1"), ev("finished", 3)];
+        const [s] = overlayLive([mk({ events })], [mkAgent()], 1000);
+        expect(s.events).toEqual([ev("started", 1, "go"), ev("committed", 2, "c1")]);
+    });
+    it("leaves an ended session's events as scanned, finished included", () => {
+        const events = [ev("started", 1), ev("finished", 2)];
+        const [s] = overlayLive([mk({ events, transcriptpath: "/other.jsonl" })], [mkAgent()], 1000);
+        expect(s.events).toEqual(events);
+    });
+    it("does not flag a live session that is not asking", () => {
+        const [s] = overlayLive([mk()], [mkAgent({ state: "working" })], 1000);
+        expect(s.live).toBe(true);
+        expect(s.needsAttention).toBe(false);
+    });
+    it("does not flag an ended session that finished", () => {
+        const [s] = overlayLive([mk({ status: "done" })], [], 1000);
+        expect(s.needsAttention).toBe(false);
+    });
+    it("ignores a roster agent with no transcript path, and still matches the others", () => {
+        const roster = [mkAgent({ id: "t0", transcriptPath: undefined }), mkAgent()];
+        const [s] = overlayLive([mk()], roster, 1000);
+        expect(s.liveId).toBe("t1");
+    });
+});
+
 describe("session filters and selection", () => {
     const list = overlayLive(
         [
@@ -108,6 +135,47 @@ describe("groupByRecency", () => {
         const groups = groupByRecency(list, now);
         expect(groups.map((g) => g.key)).toEqual(["live", "today", "earlier"]);
         expect(groups[0].items.map((s) => s.id)).toEqual(["live"]);
+    });
+});
+
+describe("groupByRecency: ordering and membership", () => {
+    const now = new Date("2026-07-10T12:00:00Z").getTime();
+    const startOfToday = new Date(now).setHours(0, 0, 0, 0);
+    const item = (id: string, lastactivets: number, live = false) => ({ id, live, lastactivets });
+    const ids = (g: { items: { id: string }[] }) => g.items.map((i) => i.id);
+
+    it("orders each group newest-first whatever order the list came in", () => {
+        const groups = groupByRecency(
+            [
+                item("l1", 10, true),
+                item("l2", 30, true),
+                item("t1", startOfToday + 10),
+                item("t2", startOfToday + 30),
+                item("e1", startOfToday - 30),
+                item("e2", startOfToday - 10),
+            ],
+            now
+        );
+        expect(groups.map((g) => [g.key, g.label, ids(g)])).toEqual([
+            ["live", "Live now", ["l2", "l1"]],
+            ["today", "Today", ["t2", "t1"]],
+            ["earlier", "Earlier", ["e2", "e1"]],
+        ]);
+    });
+
+    it("counts activity at the first instant of today as today, and the instant before as earlier", () => {
+        const groups = groupByRecency([item("edge", startOfToday), item("before", startOfToday - 1)], now);
+        expect(groups.map((g) => [g.key, ids(g)])).toEqual([
+            ["today", ["edge"]],
+            ["earlier", ["before"]],
+        ]);
+    });
+
+    it("holds only the groups that have sessions, and nothing for an empty list", () => {
+        expect(groupByRecency([item("l", 5, true)], now).map((g) => [g.key, ids(g)])).toEqual([["live", ["l"]]]);
+        expect(groupByRecency([item("e", 5)], now).map((g) => [g.key, ids(g)])).toEqual([["earlier", ["e"]]]);
+        expect(groupByRecency([item("t", startOfToday + 5)], now).map((g) => [g.key, ids(g)])).toEqual([["today", ["t"]]]);
+        expect(groupByRecency([], now)).toEqual([]);
     });
 });
 

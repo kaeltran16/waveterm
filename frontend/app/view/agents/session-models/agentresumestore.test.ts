@@ -4,17 +4,23 @@ import { persistResume, shouldPersistResume, shouldRelaunchWorker } from "./agen
 const setMeta = vi.fn();
 const reloadWaveObject = vi.fn();
 
-vi.mock("@/app/store/jotaiStore", () => ({ globalStore: { get: () => true } }));
+let rememberFlags = true;
+let block: { meta: Record<string, unknown> } | undefined;
+
+const piBlock = (over: Record<string, unknown> = {}) => ({
+    meta: {
+        controller: "cmd",
+        cmd: "pi",
+        "agent:baseargs": ["--session", "C:\\old\\s.jsonl", "--model", "x"],
+        "cmd:args": ["--session", "C:\\old\\s.jsonl", "--model", "x"],
+        ...over,
+    },
+});
+
+vi.mock("@/app/store/jotaiStore", () => ({ globalStore: { get: () => rememberFlags } }));
 vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: { SetMetaCommand: (...a: any[]) => setMeta(...a) } }));
 vi.mock("@/app/store/wos", () => ({
-    getObjectValue: () => ({
-        meta: {
-            controller: "cmd",
-            cmd: "pi",
-            "agent:baseargs": ["--session", "C:\\old\\s.jsonl", "--model", "x"],
-            "cmd:args": ["--session", "C:\\old\\s.jsonl", "--model", "x"],
-        },
-    }),
+    getObjectValue: () => block,
     reloadWaveObject: (...a: any[]) => reloadWaveObject(...a),
 }));
 
@@ -45,6 +51,8 @@ describe("persistResume (pi)", () => {
     beforeEach(() => {
         setMeta.mockClear();
         reloadWaveObject.mockClear();
+        rememberFlags = true;
+        block = piBlock();
     });
 
     it("bakes the full transcript path as pi's resume args", async () => {
@@ -71,6 +79,111 @@ describe("persistResume (pi)", () => {
         const oref = "block:pi-3";
         await persistResume(oref, "pi", undefined);
         expect(setMeta).not.toHaveBeenCalled();
+    });
+});
+
+describe("persistResume (gates)", () => {
+    beforeEach(() => {
+        setMeta.mockClear();
+        reloadWaveObject.mockClear();
+        rememberFlags = true;
+        block = piBlock();
+    });
+
+    it("writes nothing when Remember flags is off", async () => {
+        rememberFlags = false;
+        await persistResume("block:gate-1", "pi", "/s/a.jsonl");
+        expect(setMeta).not.toHaveBeenCalled();
+    });
+
+    it("writes nothing for a block it cannot find", async () => {
+        block = undefined;
+        await persistResume("block:gate-2", "pi", "/s/a.jsonl");
+        expect(setMeta).not.toHaveBeenCalled();
+    });
+
+    it("writes nothing for a block that is not a cmd controller, even with a resumable cmd", async () => {
+        block = piBlock({ controller: "shell", cmd: "claude" });
+        await persistResume("block:gate-3", "claude", "/s/abc.jsonl");
+        expect(setMeta).not.toHaveBeenCalled();
+    });
+
+    it("writes nothing for a cmd that is not claude, opencode or pi", async () => {
+        block = piBlock({ cmd: "codex" });
+        await persistResume("block:gate-4", "claude", "/s/abc.jsonl");
+        expect(setMeta).not.toHaveBeenCalled();
+    });
+
+    it("writes nothing for a block launched before resume support (no baseargs)", async () => {
+        block = piBlock({ "agent:baseargs": undefined });
+        await persistResume("block:gate-5", "pi", "/s/a.jsonl");
+        expect(setMeta).not.toHaveBeenCalled();
+        block = piBlock({ cmd: "claude", "agent:baseargs": undefined });
+        await persistResume("block:gate-5b", "claude", "/s/abc.jsonl");
+        expect(setMeta).not.toHaveBeenCalled();
+    });
+});
+
+describe("persistResume (claude and opencode)", () => {
+    beforeEach(() => {
+        setMeta.mockClear();
+        reloadWaveObject.mockClear();
+        rememberFlags = true;
+    });
+
+    it("bakes the session id from the transcript's file name ahead of the base args", async () => {
+        block = piBlock({ cmd: "claude", "agent:baseargs": ["--model", "x"], "cmd:args": ["--model", "x"] });
+        await persistResume("block:c-1", "claude", "/home/me/.claude/projects/p/abc-123.jsonl");
+        expect(setMeta).toHaveBeenCalledTimes(1);
+        expect(setMeta.mock.calls[0][1]).toEqual({
+            oref: "block:c-1",
+            meta: { "cmd:args": ["--resume", "abc-123", "--model", "x"] },
+        });
+    });
+
+    it("bakes opencode's session id the same way", async () => {
+        block = piBlock({ cmd: "opencode", "agent:baseargs": ["--model", "x"], "cmd:args": ["--model", "x"] });
+        await persistResume("block:o-1", "opencode", "/s/ses_1.jsonl");
+        expect(setMeta.mock.calls[0][1]).toEqual({
+            oref: "block:o-1",
+            meta: { "cmd:args": ["-s", "ses_1", "--model", "x"] },
+        });
+    });
+
+    it("writes when the block has no cmd:args yet", async () => {
+        block = piBlock({ cmd: "claude", "agent:baseargs": ["--model", "x"], "cmd:args": undefined });
+        await persistResume("block:c-2", "claude", "/s/abc.jsonl");
+        expect(setMeta.mock.calls[0][1]).toEqual({
+            oref: "block:c-2",
+            meta: { "cmd:args": ["--resume", "abc", "--model", "x"] },
+        });
+    });
+
+    it("skips the write when the block already carries the resume args, and remembers it did", async () => {
+        const args = ["--resume", "abc", "--model", "x"];
+        block = piBlock({ cmd: "claude", "agent:baseargs": ["--model", "x"], "cmd:args": args });
+        await persistResume("block:c-3", "claude", "/s/abc.jsonl");
+        expect(setMeta).not.toHaveBeenCalled();
+        block = piBlock({ cmd: "claude", "agent:baseargs": ["--model", "x"], "cmd:args": ["--model", "x"] });
+        await persistResume("block:c-3", "claude", "/s/abc.jsonl");
+        expect(setMeta).not.toHaveBeenCalled();
+    });
+
+    it("writes when the block's args differ from the resume args only in one value", async () => {
+        block = piBlock({
+            cmd: "claude",
+            "agent:baseargs": ["--model", "x"],
+            "cmd:args": ["--resume", "abc", "--model", "y"],
+        });
+        await persistResume("block:c-4", "claude", "/s/abc.jsonl");
+        expect(setMeta).toHaveBeenCalledTimes(1);
+    });
+
+    it("keys pi's dedup on the whole path, so two sessions with one file name are both written", async () => {
+        block = piBlock();
+        await persistResume("block:p-1", "pi", "/one/s.jsonl");
+        await persistResume("block:p-1", "pi", "/two/s.jsonl");
+        expect(setMeta.mock.calls.map((c) => c[1].meta["cmd:args"][1])).toEqual(["/one/s.jsonl", "/two/s.jsonl"]);
     });
 });
 
