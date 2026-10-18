@@ -78,6 +78,10 @@ function userString(content: string): string {
     return JSON.stringify({ type: "user", timestamp: "2026-10-06T08:56:09.083Z", message: { role: "user", content } });
 }
 
+function toolResultTo(toolUseId: string, text = "ok") {
+    return { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: text }] };
+}
+
 const startWait = [
     bashUse("toolu_01Ma", { command: "sleep 30", description: "Wait 30 seconds in the background" }),
     bashStart("toolu_01Ma", "bqjiuoxr7"),
@@ -252,6 +256,174 @@ describe("extractShellTasks", () => {
         expect(extractShellTasks(["not json", "", "null", ...startWait, "{truncated"]).map((t) => t.id)).toEqual([
             "bqjiuoxr7",
         ]);
+    });
+});
+
+describe("extractShellTasks record shapes", () => {
+    const ids = (lines: string[]) => extractShellTasks(lines).map((t) => t.id);
+    const startRec = (over: Record<string, unknown>) =>
+        JSON.stringify({
+            type: "user",
+            timestamp: "2026-10-06T08:55:39.046Z",
+            message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_x", content: "ok" }] },
+            toolUseResult: { backgroundTaskId: "bnew001" },
+            ...over,
+        });
+
+    it("starts nothing from an ordinary tool result, which carries no background task id", () => {
+        const ordinary = JSON.stringify({
+            type: "user",
+            message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_y", content: "done" }] },
+            toolUseResult: { stdout: "done" },
+        });
+        expect(extractShellTasks([...startWait, ordinary])).toEqual([expect.objectContaining({ id: "bqjiuoxr7" })]);
+        expect(extractShellTasks([ordinary])).toEqual([]);
+    });
+
+    it("starts nothing from an empty background task id", () => {
+        expect(extractShellTasks([startRec({ toolUseResult: { backgroundTaskId: "" } })])).toEqual([]);
+    });
+
+    it("starts nothing from a record whose content is not a list of blocks", () => {
+        expect(ids([startRec({ message: { role: "user", content: "text" } })])).toEqual([]);
+        expect(ids([startRec({ message: { role: "user" } })])).toEqual([]);
+    });
+
+    it("starts a task only from a user record", () => {
+        expect(ids([startRec({ type: "system" })])).toEqual([]);
+        expect(ids([startRec({ type: "user" })])).toEqual(["bnew001"]);
+    });
+
+    it("finds the tool result among the blocks of its record, not just the first block", () => {
+        const lines = [
+            bashUse("toolu_06B", { command: "sleep 9", description: "Sleep nine" }),
+            startRec({
+                message: {
+                    role: "user",
+                    content: [
+                        { type: "text", text: "note" },
+                        { type: "tool_result", tool_use_id: "toolu_06B", content: "started" },
+                    ],
+                },
+            }),
+        ];
+        expect(extractShellTasks(lines)).toEqual([
+            {
+                id: "bnew001",
+                description: "Sleep nine",
+                command: "sleep 9",
+                startedTs: Date.parse("2026-10-06T08:55:39.046Z"),
+            },
+        ]);
+    });
+
+    it("takes a tool use from an assistant tool_use block only", () => {
+        const imposter = JSON.stringify({
+            type: "assistant",
+            message: {
+                role: "assistant",
+                content: [{ type: "text", id: "toolu_07I", input: { command: "echo hi", description: "imposter" } }],
+            },
+        });
+        const start = startRec({
+            message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_07I", content: "ok" }] },
+        });
+        expect(extractShellTasks([imposter, start])[0].description).toBe("");
+    });
+
+    it("does not file a tool_use block with no id under a missing tool_use_id", () => {
+        const idless = JSON.stringify({
+            type: "assistant",
+            message: {
+                role: "assistant",
+                content: [{ type: "tool_use", name: "Bash", input: { command: "echo hi", description: "ghost" } }],
+            },
+        });
+        const start = startRec({ message: { role: "user", content: [{ type: "tool_result", content: "ok" }] } });
+        expect(extractShellTasks([idless, start])[0].description).toBe("");
+    });
+
+    it("describes a task by its trimmed description, else the command, and omits a command it never had", () => {
+        const described = (input: Record<string, unknown>) =>
+            extractShellTasks([bashUse("toolu_08D", input), startRec({ message: toolResultTo("toolu_08D") })])[0];
+        expect(described({ command: "make all", description: "  Build it  " }).description).toBe("Build it");
+        expect(described({ command: "make all", description: "   " }).description).toBe("make all");
+        expect(described({ command: "make all", description: 5 }).description).toBe("make all");
+        expect(described({ description: "Only described" })).toStrictEqual({
+            id: "bnew001",
+            description: "Only described",
+            startedTs: Date.parse("2026-10-06T08:55:39.046Z"),
+        });
+    });
+
+    it("takes the start time only from a string timestamp", () => {
+        expect(extractShellTasks([startRec({ timestamp: 5 })])[0]).not.toHaveProperty("startedTs");
+        expect(extractShellTasks([startRec({ timestamp: undefined })])[0]).not.toHaveProperty("startedTs");
+        expect(extractShellTasks([startRec({ timestamp: "not a date" })])[0]).not.toHaveProperty("startedTs");
+    });
+
+    it("joins a relative redirect to the record's cwd, and ignores a cwd that is not a string", () => {
+        const lines = (cwd: unknown) => [
+            bashUse("toolu_09C", { command: "task dev > out.log" }),
+            startRec({ cwd, message: toolResultTo("toolu_09C", "Output is being written to: /claude/b.output.") }),
+        ];
+        expect(extractShellTasks(lines("C:\\repo"))[0].outputPath).toBe("C:\\repo/out.log");
+        expect(extractShellTasks(lines(42))[0].outputPath).toBe("/claude/b.output");
+        expect(extractShellTasks(lines(undefined))[0].outputPath).toBe("/claude/b.output");
+    });
+
+    it("reads claude's output file from a result that ends at the path's period", () => {
+        const lines = [
+            bashUse("toolu_10O", { command: "sleep 5" }),
+            startRec({ message: toolResultTo("toolu_10O", "Output is being written to: /claude/tasks/b1.output.") }),
+        ];
+        expect(extractShellTasks(lines)[0].outputPath).toBe("/claude/tasks/b1.output");
+    });
+
+    it("lists no output path for a start with no redirect and no output notice", () => {
+        expect(extractShellTasks([startRec({})])[0]).not.toHaveProperty("outputPath");
+    });
+
+    it("ignores a toolUseResult task_id on a record that is not a user record", () => {
+        const stray = JSON.stringify({ type: "system", toolUseResult: { task_id: "bqjiuoxr7" } });
+        expect(ids([...startWait, stray])).toEqual(["bqjiuoxr7"]);
+    });
+
+    it("lets a TaskStop result for a task that is not running leave the rest of its record to be read", () => {
+        const both = startRec({ toolUseResult: { task_id: "bnotrunning", backgroundTaskId: "bnew002" } });
+        expect(ids([both])).toEqual(["bnew002"]);
+    });
+});
+
+describe("extractShellTasks finish notifications", () => {
+    const ids = (lines: string[]) => extractShellTasks(lines).map((t) => t.id);
+
+    it("takes a finish only from a queue-operation enqueue with string content", () => {
+        const wrongType = JSON.stringify({ type: "summary", operation: "enqueue", content: waitDone });
+        const objectContent = JSON.stringify({
+            type: "queue-operation",
+            operation: "enqueue",
+            content: { text: waitDone },
+        });
+        expect(ids([...startWait, wrongType, objectContent])).toEqual(["bqjiuoxr7"]);
+    });
+
+    it("takes a finish only from a user record whose message content is a string", () => {
+        const wrongType = JSON.stringify({ type: "system", message: { role: "user", content: waitDone } });
+        const objectContent = JSON.stringify({ type: "user", message: { role: "user", content: { text: waitDone } } });
+        const noMessage = JSON.stringify({ type: "user", toolUseResult: { stdout: "x" } });
+        expect(ids([...startWait, wrongType, objectContent, noMessage])).toEqual(["bqjiuoxr7"]);
+    });
+
+    it("matches a task id with a dot in it whole when a dead session lists it", () => {
+        const dotted = [bashUse("toolu_11D", { command: "sleep 1" }), bashStart("toolu_11D", "b.dot1")];
+        const multi = [
+            "<task-notification>",
+            "<status>stopped</status>",
+            "<summary>1 background shell command task didn't finish. Task ids: b.dot1.</summary>",
+            "</task-notification>",
+        ].join("\n");
+        expect(ids([...dotted, enqueue(multi)])).toEqual([]);
     });
 });
 

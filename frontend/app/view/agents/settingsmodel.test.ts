@@ -340,6 +340,58 @@ describe("changedCount", () => {
     });
 });
 
+describe("settingsSections static rows", () => {
+    const rowsOf = (id: string) => sections().find((s) => s.id === id)!.rows;
+    const THEME_KEY = "cockpit.theme.overrides";
+
+    it("lists the Appearance rows with their titles, keys and scope", () => {
+        expect(rowsOf("appearance").map((r) => [r.id, r.title, r.key, r.scope])).toEqual([
+            ["appearance.theme", "Theme", "cockpit.theme.preset", "local"],
+            ["appearance.accent", "Accent", THEME_KEY, "local"],
+            ["appearance.success", "Working / accept", THEME_KEY, "local"],
+            ["appearance.warning", "Asking / attention", THEME_KEY, "local"],
+            ["appearance.error", "Blocked / reject", THEME_KEY, "local"],
+        ]);
+    });
+
+    it("lists the Fonts rows with their titles, keys and scope", () => {
+        expect(rowsOf("fonts").map((r) => [r.id, r.title, r.key, r.scope])).toEqual([
+            ["fonts.sans", "Interface font", "cockpit.font.sans", "local"],
+            ["fonts.mono", "Code font", "cockpit.font.mono", "local"],
+            ["fonts.term", "Terminal font", "term:fontfamily", "synced"],
+        ]);
+    });
+
+    it("lists the General rows with their titles, keys and scope", () => {
+        expect(rowsOf("general").map((r) => [r.id, r.title, r.key, r.scope])).toEqual([
+            ["general.startup", "Startup surface", "cockpit.startup.surface", "local"],
+            ["general.rail", "Show details rail by default", "agent.rail.visible", "local"],
+        ]);
+    });
+
+    it("lists no rows for Storage, whose detail pane draws its own content", () => {
+        expect(rowsOf("storage")).toEqual([]);
+    });
+
+    it("lists the About rows with their titles and keys, none carrying a scope", () => {
+        expect(rowsOf("about").map((r) => [r.id, r.title, r.key, r.scope])).toEqual([
+            ["about.app", "App version", "tauri.conf.json", undefined],
+            ["about.server", "Backend version", "dist/bin", undefined],
+            ["about.buildtime", "Backend build time", "dist/bin", undefined],
+            ["about.platform", "Platform", "runtime", undefined],
+        ]);
+    });
+
+    it("gives every row prose to read, as the detail pane and the search index show the same text", () => {
+        for (const s of sections()) {
+            for (const r of s.rows) {
+                expect(r.title, r.id).not.toBe("");
+                expect(r.desc, r.id).not.toBe("");
+            }
+        }
+    });
+});
+
 describe("countLabel", () => {
     it("singularizes one", () => {
         expect(countLabel(1)).toBe("1 setting");

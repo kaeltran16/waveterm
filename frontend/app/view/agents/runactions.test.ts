@@ -33,6 +33,7 @@ import {
     resolvedProfileAtom,
     channelOverrideAtom,
     createRun,
+    createRunPayload,
 } from "./runactions";
 
 function deferred() {
@@ -66,6 +67,54 @@ describe("profile cache", () => {
         cacheJarvisProfile("channel-1", response);
         expect(globalStore.get(resolvedProfileAtom)["channel-1"]).toBe(response.resolved);
         expect(globalStore.get(channelOverrideAtom)["channel-1"]).toBe(response.override);
+    });
+});
+
+describe("createRunPayload", () => {
+    const base = { channelid: "c", workspaceid: "w", goal: "g", runtime: "pi", mode: undefined, deferstart: undefined };
+
+    it("sends the route's model, and leaves the key out when the route has none", () => {
+        expect(createRunPayload("w", "c", "g", { runtime: "pi", model: "opus" } as RoutePin)).toStrictEqual({
+            ...base,
+            model: "opus",
+        });
+        expect(createRunPayload("w", "c", "g", { runtime: "pi" } as RoutePin)).toStrictEqual(base);
+    });
+
+    it("sends the orchestrator-only options an orchestrator run sets", () => {
+        const payload = createRunPayload("w", "c", "g", { runtime: "pi" } as RoutePin, {
+            mode: "orchestrator",
+            parallelism: 3,
+            planPath: "/plans/p.md",
+            reviewerPicks: false,
+            autonomous: false,
+        });
+        expect(payload).toStrictEqual({
+            ...base,
+            mode: "orchestrator",
+            parallelism: 3,
+            planpath: "/plans/p.md",
+            reviewerpicks: false,
+            autonomous: false,
+        });
+    });
+
+    it("leaves every orchestrator-only key out of an orchestrator run that sets none", () => {
+        expect(createRunPayload("w", "c", "g", { runtime: "pi" } as RoutePin, { mode: "orchestrator" })).toStrictEqual({
+            ...base,
+            mode: "orchestrator",
+        });
+    });
+
+    it("drops the orchestrator-only options from a quick run", () => {
+        const payload = createRunPayload("w", "c", "g", { runtime: "pi" } as RoutePin, {
+            mode: "quick",
+            parallelism: 3,
+            planPath: "/plans/p.md",
+            reviewerPicks: true,
+            autonomous: true,
+        });
+        expect(payload).toStrictEqual({ ...base, mode: "quick" });
     });
 });
 

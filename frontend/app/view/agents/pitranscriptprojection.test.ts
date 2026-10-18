@@ -534,3 +534,347 @@ describe("extractPiTasks edge cases", () => {
         expect(extractPiTasks(lines)).toEqual([{ text: "Fix", done: true }]);
     });
 });
+
+describe("projectPiTranscript action targets", () => {
+    const targetOf = (args: unknown, name = "foo") => {
+        const lines = [session, user("u", "go"), toolCall("x", name, args)];
+        return (projectPiTranscript(lines)[1] as any).target;
+    };
+
+    it("trims string args and keeps a non-string, non-object arg as the bare tool name", () => {
+        expect(targetOf("  ls -la  ")).toBe("ls -la");
+        expect(targetOf(5)).toBe("foo");
+    });
+
+    it("falls to the bare tool name for null args", () => {
+        const call = L({
+            type: "message",
+            id: "call-x",
+            parentId: "u",
+            message: { role: "assistant", content: [{ type: "toolCall", id: "x", name: "foo", arguments: null, args: null }] },
+        });
+        expect((projectPiTranscript([session, user("u", "go"), call])[1] as any).target).toBe("foo");
+    });
+
+    it("shows the trimmed command, skipping a blank or non-string one", () => {
+        expect(targetOf({ command: "  make  " })).toBe("make");
+        expect(targetOf({ command: "   ", path: "src/b.ts" })).toBe("b.ts");
+        expect(targetOf({ command: 5, path: "src/b.ts" })).toBe("b.ts");
+    });
+
+    it("shows the leaf of a path, skipping an empty or non-string one", () => {
+        expect(targetOf({ path: "C:\\repo\\src\\a.ts" })).toBe("a.ts");
+        expect(targetOf({ path: "", pattern: "needle" })).toBe("needle");
+        expect(targetOf({ path: 5, pattern: "needle" })).toBe("needle");
+    });
+
+    it("shows a pattern, then a subject, skipping empty or non-string values", () => {
+        expect(targetOf({ pattern: "needle", subject: "S" })).toBe("needle");
+        expect(targetOf({ pattern: "", subject: "S" })).toBe("S");
+        expect(targetOf({ pattern: 5, subject: "S" })).toBe("S");
+        expect(targetOf({ subject: "", taskId: "7" })).toBe("task #7");
+        expect(targetOf({ subject: 5, taskId: "7" })).toBe("task #7");
+    });
+
+    it("shows a task id, then a task id list, skipping an empty or non-string id", () => {
+        expect(targetOf({ taskId: "3", task_ids: ["1"] })).toBe("task #3");
+        expect(targetOf({ taskId: "", task_ids: ["1", 2] })).toBe("task #1, task #2");
+        expect(targetOf({ taskId: 3, task_ids: ["1"] })).toBe("task #1");
+        expect(targetOf({ task_ids: ["4", "5"], agent: "rev" })).toBe("task #4, task #5");
+    });
+
+    it("shows an agent name, skipping an empty or non-string one", () => {
+        expect(targetOf({ agent: "rev" })).toBe("rev");
+        expect(targetOf({ agent: "" })).toBe("foo");
+        expect(targetOf({ agent: 5 })).toBe("foo");
+    });
+});
+
+describe("projectPiTranscript edit details", () => {
+    const detailOf = (name: string, args: unknown) => {
+        const lines = [session, user("u", "go"), toolCall("x", name, args)];
+        return projectPiTranscript(lines)[1] as any;
+    };
+
+    it("gives no detail for null args", () => {
+        const call = L({
+            type: "message",
+            id: "call-x",
+            parentId: "u",
+            message: { role: "assistant", content: [{ type: "toolCall", id: "x", name: "write", arguments: null, args: null }] },
+        });
+        expect(projectPiTranscript([session, user("u", "go"), call])[1]).toStrictEqual({ kind: "action", verb: "wrote", target: "write" });
+    });
+
+    it("writes an empty path when the path is not a string", () => {
+        const action = detailOf("write", { path: 5, content: "x" });
+        expect(action.detail.files[0]).toMatchObject({ path: "", badge: "A", adds: 1, dels: 0 });
+    });
+
+    it("gives a write detail only for a write with string content", () => {
+        expect(detailOf("write", { path: "a.ts" }).detail).toBeUndefined();
+        expect(detailOf("write", { path: "a.ts", content: 5 }).detail).toBeUndefined();
+        expect(detailOf("edit", { path: "a.ts", content: "x" }).detail).toBeUndefined();
+    });
+
+    it("gives an edit detail only for an edit with an edits array", () => {
+        const edits = [{ oldText: "a", newText: "b" }];
+        expect(detailOf("edit", { path: "a.ts", edits: "nope" }).detail).toBeUndefined();
+        expect(detailOf("bash", { path: "a.ts", edits }).detail).toBeUndefined();
+        expect(detailOf("edit", { path: "a.ts", edits }).detail.files).toHaveLength(1);
+    });
+
+    it("keeps only edits that carry both old and new text", () => {
+        const action = detailOf("edit", {
+            path: "a.ts",
+            edits: [
+                { oldText: "a", newText: "b" },
+                { oldText: "only old" },
+                { newText: "only new" },
+                { oldText: 5, newText: "b" },
+                { oldText: "a", newText: 5 },
+            ],
+        });
+        expect(action.detail.files).toHaveLength(1);
+        expect(action.detail.files[0]).toMatchObject({ path: "a.ts", badge: "M", adds: 1, dels: 1 });
+    });
+
+    it("gives no detail when no edit is usable", () => {
+        expect(detailOf("edit", { path: "a.ts", edits: [] })).toStrictEqual({ kind: "action", verb: "edited", target: "a.ts" });
+        expect(detailOf("edit", { path: "a.ts", edits: [{ oldText: "a" }] })).toStrictEqual({
+            kind: "action",
+            verb: "edited",
+            target: "a.ts",
+        });
+    });
+});
+
+describe("projectPiTranscript text blocks", () => {
+    const userContent = (content: unknown) =>
+        L({ type: "message", id: "u", parentId: null, message: { role: "user", content } });
+
+    it("trims string content and drops blank string content", () => {
+        expect(projectPiTranscript([session, userContent("  hi  ")])).toStrictEqual([{ kind: "user", text: "hi" }]);
+        expect(projectPiTranscript([session, userContent("   ")])).toStrictEqual([]);
+    });
+
+    it("yields nothing for content that is neither a string nor an array", () => {
+        expect(projectPiTranscript([session, userContent(5)])).toStrictEqual([]);
+        expect(projectPiTranscript([session, userContent({ type: "text", text: "x" })])).toStrictEqual([]);
+        expect(projectPiTranscript([session, L({ type: "message", id: "u", parentId: null, message: { role: "user" } })])).toStrictEqual([]);
+    });
+
+    it("keeps text blocks with their text untrimmed and skips every other block", () => {
+        const content = [
+            { type: "text", text: " kept " },
+            { type: "image", text: "not text" },
+            { type: "text" },
+            { type: "text", text: "   " },
+            { type: "text", text: 5 },
+            { type: "text", text: "second" },
+        ];
+        expect(projectPiTranscript([session, userContent(content)])).toStrictEqual([
+            { kind: "user", text: " kept " },
+            { kind: "user", text: "second" },
+        ]);
+    });
+});
+
+describe("projectPiTranscript tool results", () => {
+    const callAt = (id: string, name: string, args: unknown, ts?: unknown, parent = "u") =>
+        L({
+            type: "message",
+            id: "call-" + id,
+            parentId: parent,
+            ...(ts === undefined ? {} : { timestamp: ts }),
+            message: { role: "assistant", content: [{ type: "toolCall", id, name, arguments: args }] },
+        });
+    const resultMsg = (id: string, message: unknown, ts?: unknown) =>
+        L({
+            type: "message",
+            id: "res-" + id,
+            parentId: "call-" + id,
+            ...(ts === undefined ? {} : { timestamp: ts }),
+            message,
+        });
+    const actionOf = (lines: string[]) => projectPiTranscript([session, user("u", "go"), ...lines])[1] as any;
+
+    it("joins a result to its call by a tool_result content block id when the message has none", () => {
+        const action = actionOf([
+            callAt("c1", "read", { path: "a.ts" }),
+            resultMsg("c1", { role: "toolResult", content: [{ type: "tool_result", toolCallId: "c1" }, { type: "text", text: "body" }] }),
+        ]);
+        expect(action.detail).toStrictEqual({ kind: "read", snippet: "body", truncated: false });
+    });
+
+    it("prefers the message-level call id over a content block id", () => {
+        const action = actionOf([
+            callAt("c1", "read", { path: "a.ts" }),
+            resultMsg("c1", {
+                role: "toolResult",
+                toolCallId: "c1",
+                content: [{ type: "tool_result", toolCallId: "other" }, { type: "text", text: "body" }],
+            }),
+        ]);
+        expect(action.detail).toStrictEqual({ kind: "read", snippet: "body", truncated: false });
+    });
+
+    it("skips content blocks that are not tool_result when looking for a call id", () => {
+        const action = actionOf([
+            callAt("c1", "read", { path: "a.ts" }),
+            resultMsg("c1", { role: "toolResult", content: [{ type: "text", toolCallId: "c1", text: "body" }] }),
+        ]);
+        expect(action).toStrictEqual({ kind: "action", verb: "read", target: "a.ts" });
+    });
+
+    it("ignores a result that has no call id and no content", () => {
+        const action = actionOf([callAt("c1", "bash", { command: "ls" }), resultMsg("c1", { role: "toolResult" })]);
+        expect(action).toStrictEqual({ kind: "action", verb: "ran", target: "ls" });
+    });
+
+    it("ignores a result whose call id matches no call", () => {
+        const action = actionOf([
+            callAt("c1", "bash", { command: "ls" }),
+            resultMsg("c1", { role: "toolResult", toolCallId: "ghost", content: "out", isError: true }),
+        ]);
+        expect(action).toStrictEqual({ kind: "action", verb: "ran", target: "ls" });
+    });
+
+    it("only settles an action from a toolResult role message", () => {
+        const action = actionOf([
+            callAt("c1", "bash", { command: "ls" }),
+            resultMsg("c1", { role: "custom", toolCallId: "c1", content: "out", isError: true }),
+        ]);
+        expect(action).toStrictEqual({ kind: "action", verb: "ran", target: "ls" });
+    });
+
+    it("says '1 match' for a single grep match", () => {
+        const action = actionOf([
+            callAt("g1", "grep", { pattern: "x" }),
+            resultMsg("g1", { role: "toolResult", toolCallId: "g1", content: "a.ts:3: x" }),
+        ]);
+        expect(action.summary).toBe("1 match");
+    });
+
+    it("gives bash detail only to a bash result with output", () => {
+        const empty = actionOf([
+            callAt("b1", "bash", { command: "true" }),
+            resultMsg("b1", { role: "toolResult", toolCallId: "b1", content: "" }),
+        ]);
+        expect(empty).toStrictEqual({ kind: "action", verb: "ran", target: "true", outcome: "ok" });
+        const other = actionOf([
+            callAt("l1", "ls", { path: "src" }),
+            resultMsg("l1", { role: "toolResult", toolCallId: "l1", content: "a.ts" }),
+        ]);
+        expect(other).toStrictEqual({ kind: "action", verb: "listed", target: "src" });
+    });
+
+    it("computes a duration only from two valid timestamps with the result not before the call", () => {
+        const ok = { role: "toolResult", toolCallId: "t1", content: "" };
+        const t0 = "2026-08-11T03:00:05.000Z";
+        const duration = (callTs: unknown, resTs: unknown) =>
+            actionOf([callAt("t1", "bash", { command: "x" }, callTs), resultMsg("t1", ok, resTs)]).durationMs;
+        expect(duration(t0, "2026-08-11T03:00:07.500Z")).toBe(2500);
+        expect(duration(t0, t0)).toBe(0);
+        expect(duration(t0, "2026-08-11T03:00:01.000Z")).toBeUndefined();
+        expect(duration(t0, undefined)).toBeUndefined();
+        expect(duration(undefined, t0)).toBeUndefined();
+        expect(duration(undefined, undefined)).toBeUndefined();
+        expect(duration("1990-01-01T00:00:00.000Z", [t0])).toBeUndefined();
+    });
+
+    it("marks fail from a message-level isError or is_error flag", () => {
+        const fail = (flags: object) =>
+            actionOf([
+                callAt("c1", "read", { path: "a.ts" }),
+                resultMsg("c1", { role: "toolResult", toolCallId: "c1", content: "x", ...flags }),
+            ]).outcome;
+        expect(fail({ isError: true })).toBe("fail");
+        expect(fail({ is_error: true })).toBe("fail");
+        expect(fail({ isError: false, is_error: false })).toBeUndefined();
+    });
+
+    it("marks fail from a tool_result content block's isError or is_error flag", () => {
+        const fail = (block: object) =>
+            actionOf([
+                callAt("c1", "read", { path: "a.ts" }),
+                resultMsg("c1", { role: "toolResult", toolCallId: "c1", content: [{ type: "text", text: "x" }, block] }),
+            ]).outcome;
+        expect(fail({ type: "tool_result", isError: true })).toBe("fail");
+        expect(fail({ type: "tool_result", is_error: true })).toBe("fail");
+        expect(fail({ type: "tool_result", isError: false })).toBeUndefined();
+        expect(fail({ type: "text", isError: true })).toBeUndefined();
+        expect(fail({ type: "text", is_error: true })).toBeUndefined();
+    });
+
+    it("does not read failure flags off a non-array content", () => {
+        const action = actionOf([
+            callAt("c1", "read", { path: "a.ts" }),
+            resultMsg("c1", { role: "toolResult", toolCallId: "c1" }),
+        ]);
+        expect(action).toStrictEqual({ kind: "action", verb: "read", target: "a.ts" });
+    });
+});
+
+describe("projectPiTranscript record filtering", () => {
+    it("renders only message records that carry a message", () => {
+        const lines = [
+            session,
+            user("u", "keep"),
+            L({ type: "custom", id: "x", parentId: "u", message: { role: "user", content: "ghost" } }),
+            L({ type: "message", id: "y", parentId: "x" }),
+        ];
+        expect(projectPiTranscript(lines)).toStrictEqual([{ kind: "user", text: "keep" }]);
+    });
+
+    it("keeps a compaction summary only when it is a non-blank string, and tokensBefore only when a number", () => {
+        const compaction = (extra: object) =>
+            projectPiTranscript([session, user("u", "go"), L({ type: "compaction", id: "c", parentId: "u", ...extra })])[1];
+        expect(compaction({})).toStrictEqual({ kind: "compaction" });
+        expect(compaction({ summary: "   ", tokensBefore: "9" })).toStrictEqual({ kind: "compaction" });
+        expect(compaction({ summary: 5 })).toStrictEqual({ kind: "compaction" });
+        expect(compaction({ summary: "kept", tokensBefore: 7 })).toStrictEqual({
+            kind: "compaction",
+            summary: "kept",
+            preTokens: 7,
+        });
+    });
+
+    it("does not link a child to a parent whose id is not a string", () => {
+        const lines = [
+            session,
+            L({ type: "message", id: 5, parentId: null, message: { role: "user", content: "numeric parent" } }),
+            L({ type: "message", id: "a", parentId: 5, message: { role: "assistant", content: "child" } }),
+        ];
+        expect(projectPiTranscript(lines)).toStrictEqual([{ kind: "message", text: "child" }]);
+    });
+});
+
+describe("extractPiTitle record filtering", () => {
+    it("takes the latest non-blank string session name, trimmed", () => {
+        const lines = [
+            session,
+            L({ type: "session_info", id: "s1", parentId: null, name: "  first  " }),
+            L({ type: "session_info", id: "s2", parentId: "s1", name: "   " }),
+            L({ type: "session_info", id: "s3", parentId: "s2", name: 5 }),
+            L({ type: "model_change", id: "s4", parentId: "s3", name: "not a session name" }),
+        ];
+        expect(extractPiTitle(lines)).toBe("first");
+    });
+
+    it("trims a lone session name", () => {
+        const lines = [session, L({ type: "session_info", id: "s1", parentId: null, name: "  padded  " })];
+        expect(extractPiTitle(lines)).toBe("padded");
+    });
+
+    it("falls back to the first user message, skipping records that are not user messages", () => {
+        const lines = [
+            session,
+            L({ type: "model_change", id: "m", parentId: null }),
+            L({ type: "custom", id: "c", parentId: "m", message: { role: "user", content: "ghost" } }),
+            L({ type: "message", id: "a", parentId: "c", message: { role: "assistant", content: "assistant text" } }),
+            L({ type: "message", id: "u", parentId: "a", message: { role: "user", content: "real prompt" } }),
+        ];
+        expect(extractPiTitle(lines)).toBe("real prompt");
+    });
+});
