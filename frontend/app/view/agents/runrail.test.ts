@@ -91,7 +91,9 @@ describe("laneRows", () => {
     });
 
     it("puts the first unfinished task in play, not the lane's last", () => {
-        const g = { tasks: [task("t-1", "done", { merged: true }), task("t-2", "running"), task("t-3", "pending")] } as TaskGroup;
+        const g = {
+            tasks: [task("t-1", "done", { merged: true }), task("t-2", "running"), task("t-3", "pending")],
+        } as TaskGroup;
         const d = { lanes: [["t-1", "t-2", "t-3"]] } as DagStatusDigest;
         expect(laneRows(g, d)).toEqual([
             { key: "A", taskId: "t-2", name: "t-2 · do t-2", hist: "t-1 landed", state: "working", text: "working" },
@@ -130,14 +132,26 @@ describe("laneRows", () => {
             tasks: [task("t-1", "done", { merged: true }), task("t-2", "ready", { deps: ["t-1"] })],
         } as TaskGroup;
         const d = { lanes: [["t-1", "t-2"]] } as DagStatusDigest;
-        expect(laneRows(g, d)[0]).toMatchObject({ taskId: "t-2", hist: "t-1 landed", state: "pending", text: "queued" });
+        expect(laneRows(g, d)[0]).toMatchObject({
+            taskId: "t-2",
+            hist: "t-1 landed",
+            state: "pending",
+            text: "queued",
+        });
     });
 
     it("shows a failing task as failed, with its state as the text", () => {
         const g = { tasks: [task("t-1", "done", { merged: true }), task("t-2", "verify-failed")] } as TaskGroup;
         const d = { lanes: [["t-1", "t-2"]] } as DagStatusDigest;
         expect(laneRows(g, d)).toEqual([
-            { key: "A", taskId: "t-2", name: "t-2 · do t-2", hist: "t-1 landed", state: "failed", text: "verify-failed" },
+            {
+                key: "A",
+                taskId: "t-2",
+                name: "t-2 · do t-2",
+                hist: "t-1 landed",
+                state: "failed",
+                text: "verify-failed",
+            },
         ]);
     });
 

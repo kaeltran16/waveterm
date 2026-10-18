@@ -55,7 +55,10 @@ describe("summarizeUsage", () => {
     });
 
     it("leaves out a model that spent nothing", () => {
-        const s = summarizeUsage([row({ model: "claude-opus-5-5", input: 100_000 }), row({ model: "claude-sonnet-5-5" })])!;
+        const s = summarizeUsage([
+            row({ model: "claude-opus-5-5", input: 100_000 }),
+            row({ model: "claude-sonnet-5-5" }),
+        ])!;
         expect(s.byModel).toEqual([{ model: "opus-5-5", tokens: 100_000 }]);
     });
 

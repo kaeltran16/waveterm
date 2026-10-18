@@ -311,7 +311,14 @@ describe("buildLeadCard", () => {
     });
 
     it("asks you inline only when the digest says the question is yours and the worker holds one", () => {
-        const worker = { id: "w2", name: "t2", task: "t2", state: "asking", runId: "c2", activity: "waiting" } as AgentVM;
+        const worker = {
+            id: "w2",
+            name: "t2",
+            task: "t2",
+            state: "asking",
+            runId: "c2",
+            activity: "waiting",
+        } as AgentVM;
         const yoursNoAsk = runInfo([task("t2", "running", { runid: "c2" })], {
             tasks: [{ taskid: "t2", waitreason: "ask" } as DagTaskDigest],
         });
@@ -367,8 +374,12 @@ describe("isLeadDown", () => {
         expect(isLeadDown([ev("lead-launched", 5), ev("lead-wake-failed", 10)])).toBe(true);
     });
     it("goes by the newest wake failure, whatever order the events arrive in", () => {
-        expect(isLeadDown([ev("lead-wake-failed", 10), ev("lead-launched", 15), ev("lead-wake-failed", 20)])).toBe(true);
-        expect(isLeadDown([ev("lead-wake-failed", 20), ev("lead-launched", 15), ev("lead-wake-failed", 10)])).toBe(true);
+        expect(isLeadDown([ev("lead-wake-failed", 10), ev("lead-launched", 15), ev("lead-wake-failed", 20)])).toBe(
+            true
+        );
+        expect(isLeadDown([ev("lead-wake-failed", 20), ev("lead-launched", 15), ev("lead-wake-failed", 10)])).toBe(
+            true
+        );
     });
     it("is not thrown off by a newer event of another kind", () => {
         expect(isLeadDown([ev("lead-launched", 5), ev("lead-wake-failed", 10), ev("task-done", 30)])).toBe(true);

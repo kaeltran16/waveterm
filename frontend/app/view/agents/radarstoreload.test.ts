@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { globalStore } from "@/app/store/jotaiStore";
+import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import * as WOS from "@/app/store/wos";
 import {
     currentReportIdAtom,
     initRadarScope,

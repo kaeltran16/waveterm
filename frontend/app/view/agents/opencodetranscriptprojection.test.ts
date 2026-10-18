@@ -84,7 +84,8 @@ describe("projectOpencodeTranscript", () => {
         ).toStrictEqual([{ kind: "action", verb: "read", target: "b.go" }]);
     });
     it("takes a file tool's target from file_path, then pattern, else the raw input", () => {
-        const tool = (name: string, input: unknown) => JSON.stringify({ type: "tool", name, state: "completed", input });
+        const tool = (name: string, input: unknown) =>
+            JSON.stringify({ type: "tool", name, state: "completed", input });
         const entries = projectOpencodeTranscript([
             tool("read", JSON.stringify({ file_path: "C:\\x\\y.ts" })),
             tool("grep", JSON.stringify({ pattern: "TODO" })),
@@ -119,10 +120,16 @@ describe("extractOpencodeTitle", () => {
                 `{"type":"user","title":"Not a title","text":"hi"}`,
             ])
         ).toBe("Real title");
-        expect(extractOpencodeTitle([`{"type":"user","title":"Not a title","text":"first words"}`])).toBe("first words");
+        expect(extractOpencodeTitle([`{"type":"user","title":"Not a title","text":"first words"}`])).toBe(
+            "first words"
+        );
     });
     it("skips a session record with a blank, missing or non-string title", () => {
-        for (const session of [`{"type":"session","title":"  "}`, `{"type":"session"}`, `{"type":"session","title":5}`]) {
+        for (const session of [
+            `{"type":"session","title":"  "}`,
+            `{"type":"session"}`,
+            `{"type":"session","title":5}`,
+        ]) {
             expect(extractOpencodeTitle([session, `{"type":"user","text":"hello"}`])).toBe("hello");
         }
     });

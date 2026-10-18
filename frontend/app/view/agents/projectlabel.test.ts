@@ -105,10 +105,12 @@ describe("channelProjectLabel", () => {
     });
 
     it("falls back past registered projects that do not match, and skips one with no path", () => {
-        const projects = { other: { path: "/repo/other" }, none: {}, gone: null, a: { path: "/repo/a" } } as unknown as Record<
-            string,
-            ProjectKeywords
-        >;
+        const projects = {
+            other: { path: "/repo/other" },
+            none: {},
+            gone: null,
+            a: { path: "/repo/a" },
+        } as unknown as Record<string, ProjectKeywords>;
         expect(channelProjectLabel(ch("c1", "/repo/a"), projects)).toBe("a");
         expect(channelProjectLabel(ch("c1", "/repo/missing", "legacy"), projects)).toBe("legacy");
     });
