@@ -178,7 +178,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Shift`+`G` | Graph peek (`Esc` closes) |
 | `Shift`+`J` / `Shift`+`K` | Next / previous run in this channel |
 | `j` / `k` | With a run sheet open: next / previous run in the list it counts (Runs, or Shipped for a finished run) |
-| `1`…`9` | Answer an ask option on a run body |
+| `1`…`9` | With a run sheet open: pick an option on the lead's question card |
 | `Enter` | Submit the answer |
 | `Esc` | Leave the composer |
 
