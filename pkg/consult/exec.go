@@ -275,6 +275,9 @@ func startCmd(ctx context.Context, spec RuntimeSpec, cwd, prompt string) (*exec.
 	if spec.PromptViaStdin {
 		cmd.Stdin = strings.NewReader(prompt)
 	}
+	if _, err := exec.LookPath(spec.Bin); err != nil {
+		return nil, nil, fmt.Errorf("starting %s: %w", spec.Bin, err)
+	}
 	// pty runtimes merge stderr onto the pty; pipe runtimes capture it in an owned file
 	// (see runPipe for why a pipe target + copy goroutine would strand on descendant-held EOF).
 	var stderr *os.File
@@ -285,9 +288,6 @@ func startCmd(ctx context.Context, spec RuntimeSpec, cwd, prompt string) (*exec.
 		}
 		cmd.Stderr = f
 		stderr = f
-	}
-	if _, err := exec.LookPath(spec.Bin); err != nil {
-		return nil, nil, fmt.Errorf("starting %s: %w", spec.Bin, err)
 	}
 	return cmd, stderr, nil
 }

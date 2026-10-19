@@ -230,3 +230,26 @@ func TestRunPipe_closesTheStderrCapture(t *testing.T) {
 		t.Fatalf("closing the capture after the run = %v, want os.ErrClosed", err)
 	}
 }
+
+// a run whose binary is not installed fails before it makes a stderr capture, so it leaves no file behind
+func TestRunPipe_missingBinaryLeavesNoStderrCapture(t *testing.T) {
+	tmp := t.TempDir()
+	for _, k := range []string{"TMP", "TEMP", "TMPDIR"} {
+		t.Setenv(k, tmp)
+	}
+	spec := RuntimeSpec{Bin: "wave-consult-no-such-binary"}
+	if _, err := Run(context.Background(), spec, "", "prompt", func(string) {}); err == nil {
+		t.Fatal("Run of a missing binary returned no error")
+	}
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	for _, e := range entries {
+		left = append(left, e.Name())
+	}
+	if left != nil {
+		t.Fatalf("temp dir holds %v after the failed run, want nothing", left)
+	}
+}
