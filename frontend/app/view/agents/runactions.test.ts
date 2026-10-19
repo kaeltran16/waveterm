@@ -24,16 +24,16 @@ vi.mock("@/app/store/modalmodel", () => ({
 }));
 
 import {
+    cacheJarvisProfile,
     cancelRun,
     cancellingRunIdsAtom,
-    confirmCancelRun,
-    stopRunWorker,
-    stoppingWorkerIdsAtom,
-    cacheJarvisProfile,
-    resolvedProfileAtom,
     channelOverrideAtom,
+    confirmCancelRun,
     createRun,
     createRunPayload,
+    resolvedProfileAtom,
+    stopRunWorker,
+    stoppingWorkerIdsAtom,
 } from "./runactions";
 
 function deferred() {
@@ -121,11 +121,16 @@ describe("createRunPayload", () => {
 describe("createRun", () => {
     it.each([undefined, "quick", "pipeline"])("omits orchestrator options for mode %s", async (mode) => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
-        await createRun("channel-1", "fix", { runtime: "pi" }, {
-            mode,
-            orchestration: "engine",
-            workerRoute: { runtime: "claude", model:"sonnet" },
-        });
+        await createRun(
+            "channel-1",
+            "fix",
+            { runtime: "pi" },
+            {
+                mode,
+                orchestration: "engine",
+                workerRoute: { runtime: "claude", model: "sonnet" },
+            }
+        );
         const payload = createRunCommand.mock.calls[0][1];
         expect(payload.mode).toBe(mode);
         expect(payload).not.toHaveProperty("orchestration");
@@ -134,11 +139,16 @@ describe("createRun", () => {
 
     it("preserves an explicitly selected engine orchestrator", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
-        await createRun("channel-1", "coordinate", { runtime: "pi" }, {
-            mode: "orchestrator",
-            orchestration: "engine",
-            workerRoute: { runtime: "claude", model:"sonnet" },
-        });
+        await createRun(
+            "channel-1",
+            "coordinate",
+            { runtime: "pi" },
+            {
+                mode: "orchestrator",
+                orchestration: "engine",
+                workerRoute: { runtime: "claude", model: "sonnet" },
+            }
+        );
         expect(createRunCommand.mock.calls[0][1]).toMatchObject({
             mode: "orchestrator",
             orchestration: "engine",
@@ -148,13 +158,26 @@ describe("createRun", () => {
 
     it("sends workerRoute when B1b workers picker is set", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
-        await createRun("channel-1", "ship", { runtime: "claude", model:"opus" }, { mode: "orchestrator", workerRoute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } as RoutePin });
-        expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workerroute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } }), expect.anything());
+        await createRun(
+            "channel-1",
+            "ship",
+            { runtime: "claude", model: "opus" },
+            { mode: "orchestrator", workerRoute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } as RoutePin }
+        );
+        expect(createRunCommand).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ workerroute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } }),
+            expect.anything()
+        );
     });
     it("omits workerRoute when workers inherit (collapsed)", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-2" } });
-        await createRun("channel-1", "ship", { runtime: "claude", model:"opus" }, { mode: "orchestrator" });
-        expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), expect.not.objectContaining({ workerroute: expect.anything() }), expect.anything());
+        await createRun("channel-1", "ship", { runtime: "claude", model: "opus" }, { mode: "orchestrator" });
+        expect(createRunCommand).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.not.objectContaining({ workerroute: expect.anything() }),
+            expect.anything()
+        );
     });
     it("maps deferred orchestrator options to the RPC shape", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
@@ -170,13 +193,13 @@ describe("createRun", () => {
                 deferstart: true,
                 radarorigin: undefined,
             },
-            expect.objectContaining({ timeout: expect.any(Number) }),
+            expect.objectContaining({ timeout: expect.any(Number) })
         );
 
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-2" } });
         await createRun("channel-1", "direct", { runtime: "pi" });
         expect(createRunCommand.mock.calls[1][1]).toEqual(
-            expect.objectContaining({ runtime: "pi", mode: undefined, deferstart: undefined }),
+            expect.objectContaining({ runtime: "pi", mode: undefined, deferstart: undefined })
         );
     });
 

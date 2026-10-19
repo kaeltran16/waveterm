@@ -8,18 +8,48 @@ const em = (payload: unknown) => JSON.stringify({ timestamp: "t", type: "event_m
 
 const LINES: string[] = [
     JSON.stringify({ type: "session_meta", payload: { id: "x" } }), // skipped
-    ri({ type: "message", role: "user", content: [{ type: "input_text", text: "<environment_context>\n  <cwd>/proj</cwd>\n</environment_context>" }] }), // synthetic env -> skipped
+    ri({
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "<environment_context>\n  <cwd>/proj</cwd>\n</environment_context>" }],
+    }), // synthetic env -> skipped
     ri({ type: "message", role: "user", content: [{ type: "input_text", text: "list the files" }] }), // user
     ri({ type: "reasoning", summary: [{ type: "summary_text", text: "thinking" }] }), // skipped
     ri({ type: "message", role: "assistant", content: [{ type: "output_text", text: "Listing the directory now." }] }), // message
-    ri({ type: "function_call", name: "shell_command", arguments: JSON.stringify({ command: "ls -la", workdir: "/proj" }), call_id: "c1" }), // ran ls -la
-    em({ type: "guardian_assessment", text: "⚠ Automatic approval review approved (risk: low, authorization: unknown)" }), // NOISE -> skipped
+    ri({
+        type: "function_call",
+        name: "shell_command",
+        arguments: JSON.stringify({ command: "ls -la", workdir: "/proj" }),
+        call_id: "c1",
+    }), // ran ls -la
+    em({
+        type: "guardian_assessment",
+        text: "⚠ Automatic approval review approved (risk: low, authorization: unknown)",
+    }), // NOISE -> skipped
     ri({ type: "function_call_output", call_id: "c1", output: "Exit code: 0\nWall time: 0.4 seconds\nOutput:\n..." }), // c1 -> ok
-    ri({ type: "function_call", name: "shell_command", arguments: JSON.stringify({ command: "go test ./..." }), call_id: "c2" }), // ran go test
+    ri({
+        type: "function_call",
+        name: "shell_command",
+        arguments: JSON.stringify({ command: "go test ./..." }),
+        call_id: "c2",
+    }), // ran go test
     ri({ type: "function_call_output", call_id: "c2", output: "Exit code: 1\nWall time: 2s\nOutput:\nFAIL" }), // c2 -> fail
     ri({ type: "message", role: "assistant", content: [{ type: "output_text", text: "Tests fail; patching." }] }), // message
-    ri({ type: "custom_tool_call", status: "completed", name: "apply_patch", call_id: "c3", input: "*** Begin Patch\n*** Update File: app/foo.py\n@@\n-old\n+new\n*** End Patch" }), // edited foo.py
-    ri({ type: "custom_tool_call_output", call_id: "c3", output: JSON.stringify({ output: "Success. Updated the following files:\nM app/foo.py\n", metadata: { exit_code: 0 } }) }), // edit ok -> no outcome
+    ri({
+        type: "custom_tool_call",
+        status: "completed",
+        name: "apply_patch",
+        call_id: "c3",
+        input: "*** Begin Patch\n*** Update File: app/foo.py\n@@\n-old\n+new\n*** End Patch",
+    }), // edited foo.py
+    ri({
+        type: "custom_tool_call_output",
+        call_id: "c3",
+        output: JSON.stringify({
+            output: "Success. Updated the following files:\nM app/foo.py\n",
+            metadata: { exit_code: 0 },
+        }),
+    }), // edit ok -> no outcome
     ri({ type: "message", role: "developer", content: [{ type: "input_text", text: "system instructions" }] }), // developer -> skipped
     em({ type: "agent_message", message: "Tests fail; patching." }), // duplicate of assistant turn -> skipped
 ];
@@ -43,7 +73,10 @@ describe("projectCodexTranscript", () => {
 
     it("filters out event_msg guardian/auto-review noise entirely", () => {
         const out = projectCodexTranscript([
-            em({ type: "guardian_assessment", text: "⚠ Automatic approval review approved (risk: low, authorization: unknown): Auto-review returned a low-risk allow decision." }),
+            em({
+                type: "guardian_assessment",
+                text: "⚠ Automatic approval review approved (risk: low, authorization: unknown): Auto-review returned a low-risk allow decision.",
+            }),
             em({ type: "token_count", info: { total: 100 } }),
         ]);
         expect(out).toEqual([]);
@@ -51,22 +84,46 @@ describe("projectCodexTranscript", () => {
 
     it("skips the synthetic environment_context user message", () => {
         const out = projectCodexTranscript([
-            ri({ type: "message", role: "user", content: [{ type: "input_text", text: "<environment_context>\n  <cwd>/x</cwd>\n</environment_context>" }] }),
+            ri({
+                type: "message",
+                role: "user",
+                content: [
+                    { type: "input_text", text: "<environment_context>\n  <cwd>/x</cwd>\n</environment_context>" },
+                ],
+            }),
         ]);
         expect(out).toEqual([]);
     });
 
     it("emits an action with no outcome when the call output is missing", () => {
         const out = projectCodexTranscript([
-            ri({ type: "function_call", name: "shell_command", arguments: JSON.stringify({ command: "ls" }), call_id: "z" }),
+            ri({
+                type: "function_call",
+                name: "shell_command",
+                arguments: JSON.stringify({ command: "ls" }),
+                call_id: "z",
+            }),
         ]);
         expect(out).toEqual([{ kind: "action", verb: "ran", target: "ls" }]);
     });
 
     it("skips injected <skill> context blocks but keeps the real prompt", () => {
         const out = projectCodexTranscript([
-            ri({ type: "message", role: "user", content: [{ type: "input_text", text: "$superpowers:brainstorming what else should i add" }] }),
-            ri({ type: "message", role: "user", content: [{ type: "input_text", text: "<skill>\n<name>superpowers:brainstorming</name>\n<path>/x/SKILL.md</path>\n# big skill body ..." }] }),
+            ri({
+                type: "message",
+                role: "user",
+                content: [{ type: "input_text", text: "$superpowers:brainstorming what else should i add" }],
+            }),
+            ri({
+                type: "message",
+                role: "user",
+                content: [
+                    {
+                        type: "input_text",
+                        text: "<skill>\n<name>superpowers:brainstorming</name>\n<path>/x/SKILL.md</path>\n# big skill body ...",
+                    },
+                ],
+            }),
         ]);
         expect(out).toEqual([{ kind: "user", text: "$superpowers:brainstorming what else should i add" }]);
     });
@@ -104,7 +161,13 @@ describe("projectCodexTranscript", () => {
 
 describe("projectCodexTranscript malformed and mistyped records", () => {
     const message = (role: string, content: unknown[]) => ri({ type: "message", role, content });
-    const shell = (callId: string) => ri({ type: "function_call", name: "shell_command", arguments: JSON.stringify({ command: "ls" }), call_id: callId });
+    const shell = (callId: string) =>
+        ri({
+            type: "function_call",
+            name: "shell_command",
+            arguments: JSON.stringify({ command: "ls" }),
+            call_id: callId,
+        });
 
     it("skips a null line, an event_msg turn and a response_item without a payload", () => {
         const out = projectCodexTranscript([
@@ -148,19 +211,28 @@ describe("projectCodexTranscript malformed and mistyped records", () => {
     });
 
     it("ignores an output whose call_id matches no action", () => {
-        expect(projectCodexTranscript([ri({ type: "function_call_output", call_id: "nope", output: "Exit code: 0" })])).toEqual([]);
+        expect(
+            projectCodexTranscript([ri({ type: "function_call_output", call_id: "nope", output: "Exit code: 0" })])
+        ).toEqual([]);
     });
 
     it("fails an action whose custom tool output reports a non-zero exit", () => {
         const out = projectCodexTranscript([
             ri({ type: "custom_tool_call", name: "apply_patch", call_id: "c", input: "*** Update File: app/foo.py" }),
-            ri({ type: "custom_tool_call_output", call_id: "c", output: JSON.stringify({ metadata: { exit_code: 1 } }) }),
+            ri({
+                type: "custom_tool_call_output",
+                call_id: "c",
+                output: JSON.stringify({ metadata: { exit_code: 1 } }),
+            }),
         ]);
         expect(out).toEqual([{ kind: "action", verb: "edited", target: "foo.py", outcome: "fail" }]);
     });
 
     it("does not settle an action from a payload of another type that shares its call_id", () => {
-        const out = projectCodexTranscript([shell("c1"), ri({ type: "web_search_call", call_id: "c1", output: "Exit code: 0" })]);
+        const out = projectCodexTranscript([
+            shell("c1"),
+            ri({ type: "web_search_call", call_id: "c1", output: "Exit code: 0" }),
+        ]);
         expect(out).toEqual([{ kind: "action", verb: "ran", target: "ls" }]);
     });
 });
@@ -168,16 +240,25 @@ describe("projectCodexTranscript malformed and mistyped records", () => {
 describe("projectCodexTranscript tool outcomes", () => {
     const outcomeOf = (output: unknown) =>
         projectCodexTranscript([
-            ri({ type: "function_call", name: "shell_command", arguments: JSON.stringify({ command: "ls" }), call_id: "c" }),
+            ri({
+                type: "function_call",
+                name: "shell_command",
+                arguments: JSON.stringify({ command: "ls" }),
+                call_id: "c",
+            }),
             ri({ type: "function_call_output", call_id: "c", output }),
         ]);
 
     it("settles a ran action ok when its output is not text", () => {
-        expect(outcomeOf({ metadata: { exit_code: 1 } })).toEqual([{ kind: "action", verb: "ran", target: "ls", outcome: "ok" }]);
+        expect(outcomeOf({ metadata: { exit_code: 1 } })).toEqual([
+            { kind: "action", verb: "ran", target: "ls", outcome: "ok" },
+        ]);
     });
 
     it("fails a ran action on an exit code however the label is spaced", () => {
-        expect(outcomeOf("Exit code:  2\nOutput:\nboom")).toEqual([{ kind: "action", verb: "ran", target: "ls", outcome: "fail" }]);
+        expect(outcomeOf("Exit code:  2\nOutput:\nboom")).toEqual([
+            { kind: "action", verb: "ran", target: "ls", outcome: "fail" },
+        ]);
         expect(outcomeOf("Exit code:2")).toEqual([{ kind: "action", verb: "ran", target: "ls", outcome: "fail" }]);
     });
 
@@ -224,23 +305,36 @@ describe("extractCodexTasks", () => {
 
     it("returns [] for an empty plan and skips malformed steps", () => {
         expect(extractCodexTasks([plan([])])).toEqual([]);
-        expect(extractCodexTasks([plan([{ step: 42, status: "pending" }, { step: "real", status: "pending" }])])).toEqual([
-            { text: "real", done: false },
-        ]);
+        expect(
+            extractCodexTasks([
+                plan([
+                    { step: 42, status: "pending" },
+                    { step: "real", status: "pending" },
+                ]),
+            ])
+        ).toEqual([{ text: "real", done: false }]);
     });
 
     describe("reads only an update_plan function call", () => {
         const validPlan = JSON.stringify({ plan: [{ step: "s", status: "completed" }] });
 
         it("from a response_item record", () => {
-            expect(extractCodexTasks([em({ type: "function_call", name: "update_plan", arguments: validPlan })])).toBeUndefined();
+            expect(
+                extractCodexTasks([em({ type: "function_call", name: "update_plan", arguments: validPlan })])
+            ).toBeUndefined();
         });
 
         it("not from another payload type, another tool or arguments that are not text", () => {
-            expect(extractCodexTasks([ri({ type: "custom_tool_call", name: "update_plan", arguments: validPlan })])).toBeUndefined();
-            expect(extractCodexTasks([ri({ type: "function_call", name: "shell_command", arguments: validPlan })])).toBeUndefined();
+            expect(
+                extractCodexTasks([ri({ type: "custom_tool_call", name: "update_plan", arguments: validPlan })])
+            ).toBeUndefined();
+            expect(
+                extractCodexTasks([ri({ type: "function_call", name: "shell_command", arguments: validPlan })])
+            ).toBeUndefined();
             // an array of one string coerces to that string, so only the type check keeps it out
-            expect(extractCodexTasks([ri({ type: "function_call", name: "update_plan", arguments: [validPlan] })])).toBeUndefined();
+            expect(
+                extractCodexTasks([ri({ type: "function_call", name: "update_plan", arguments: [validPlan] })])
+            ).toBeUndefined();
         });
 
         it("and skips a response_item with no payload", () => {
@@ -251,7 +345,12 @@ describe("extractCodexTasks", () => {
     it("does not count arguments whose plan is not an array", () => {
         expect(
             extractCodexTasks([
-                ri({ type: "function_call", name: "update_plan", arguments: JSON.stringify({ plan: "nope" }), call_id: "p" }),
+                ri({
+                    type: "function_call",
+                    name: "update_plan",
+                    arguments: JSON.stringify({ plan: "nope" }),
+                    call_id: "p",
+                }),
             ])
         ).toBeUndefined();
     });

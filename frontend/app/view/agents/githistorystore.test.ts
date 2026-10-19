@@ -236,7 +236,11 @@ describe("range changes do not re-read git", () => {
             commits: [commit("aaa1111", "tip commit"), commit("bbb2222", "older commit")],
         });
 
-        await loadHistory("/repo", { anchor: "bbb2222", anchorLabel: "session start", rowLabel: "Since session start" });
+        await loadHistory("/repo", {
+            anchor: "bbb2222",
+            anchorLabel: "session start",
+            rowLabel: "Since session start",
+        });
         globalStore.set(historyScrollAtom, 420);
         const before = globalStore.get(historyCommitsAtom);
 

@@ -39,8 +39,21 @@ describe("aggregateSessionUsage", () => {
 
     it("sums reported cost across buckets (pi/opencode records) and keeps the estimate separate", () => {
         const s = aggregateSessionUsage([
-            bkt({ harness: "pi", provider: "anthropic", model: "claude-opus-4-8", input: 1_000_000, output: 1_000_000, reportedcostusd: 8.4 }),
-            bkt({ harness: "pi", provider: "anthropic", model: "claude-sonnet-4-5", input: 1_000_000, reportedcostusd: 1.6 }),
+            bkt({
+                harness: "pi",
+                provider: "anthropic",
+                model: "claude-opus-4-8",
+                input: 1_000_000,
+                output: 1_000_000,
+                reportedcostusd: 8.4,
+            }),
+            bkt({
+                harness: "pi",
+                provider: "anthropic",
+                model: "claude-sonnet-4-5",
+                input: 1_000_000,
+                reportedcostusd: 1.6,
+            }),
         ]);
         expect(s.reportedTotalUsd).toBeCloseTo(10, 5);
         expect(s.totalSpendUsd).toBeGreaterThan(0); // estimate still computed for bars/insight
@@ -80,7 +93,14 @@ describe("aggregateSessionUsage", () => {
 
     it("handles a codex session with no cache-write class", () => {
         const s = aggregateSessionUsage([
-            bkt({ harness: "codex", provider: "openai", model: "gpt-5-codex", input: 1_000_000, output: 100_000, cacheread: 500_000 }),
+            bkt({
+                harness: "codex",
+                provider: "openai",
+                model: "gpt-5-codex",
+                input: 1_000_000,
+                output: 100_000,
+                cacheread: 500_000,
+            }),
         ]);
         const write = s.classes.find((c) => c.cls === "cacheWrite")!;
         expect(write.tokens).toBe(0);

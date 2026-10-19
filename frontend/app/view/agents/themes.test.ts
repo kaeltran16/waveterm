@@ -134,13 +134,32 @@ function hue(hex: string): number {
 }
 
 const ANSI_SLOTS = [
-    "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-    "brightBlack", "brightRed", "brightGreen", "brightYellow",
-    "brightBlue", "brightMagenta", "brightCyan", "brightWhite",
+    "black",
+    "red",
+    "green",
+    "yellow",
+    "blue",
+    "magenta",
+    "cyan",
+    "white",
+    "brightBlack",
+    "brightRed",
+    "brightGreen",
+    "brightYellow",
+    "brightBlue",
+    "brightMagenta",
+    "brightCyan",
+    "brightWhite",
 ] as const;
 const BRIGHT_PAIRS: [string, string][] = [
-    ["black", "brightBlack"], ["red", "brightRed"], ["green", "brightGreen"], ["yellow", "brightYellow"],
-    ["blue", "brightBlue"], ["magenta", "brightMagenta"], ["cyan", "brightCyan"], ["white", "brightWhite"],
+    ["black", "brightBlack"],
+    ["red", "brightRed"],
+    ["green", "brightGreen"],
+    ["yellow", "brightYellow"],
+    ["blue", "brightBlue"],
+    ["magenta", "brightMagenta"],
+    ["cyan", "brightCyan"],
+    ["white", "brightWhite"],
 ];
 
 describe("deriveAnsi — structural invariants across every selectable theme", () => {
@@ -267,13 +286,22 @@ describe("buildThemeVars — ANSI custom properties", () => {
         const ansi = deriveAnsi(activePalette("midnight")) as unknown as Record<string, string>;
         // css custom-property name -> AnsiPalette key
         const pairs: [string, string][] = [
-            ["--ansi-black", "black"], ["--ansi-red", "red"], ["--ansi-green", "green"],
-            ["--ansi-yellow", "yellow"], ["--ansi-blue", "blue"], ["--ansi-magenta", "magenta"],
-            ["--ansi-cyan", "cyan"], ["--ansi-white", "white"],
-            ["--ansi-brightblack", "brightBlack"], ["--ansi-brightred", "brightRed"],
-            ["--ansi-brightgreen", "brightGreen"], ["--ansi-brightyellow", "brightYellow"],
-            ["--ansi-brightblue", "brightBlue"], ["--ansi-brightmagenta", "brightMagenta"],
-            ["--ansi-brightcyan", "brightCyan"], ["--ansi-brightwhite", "brightWhite"],
+            ["--ansi-black", "black"],
+            ["--ansi-red", "red"],
+            ["--ansi-green", "green"],
+            ["--ansi-yellow", "yellow"],
+            ["--ansi-blue", "blue"],
+            ["--ansi-magenta", "magenta"],
+            ["--ansi-cyan", "cyan"],
+            ["--ansi-white", "white"],
+            ["--ansi-brightblack", "brightBlack"],
+            ["--ansi-brightred", "brightRed"],
+            ["--ansi-brightgreen", "brightGreen"],
+            ["--ansi-brightyellow", "brightYellow"],
+            ["--ansi-brightblue", "brightBlue"],
+            ["--ansi-brightmagenta", "brightMagenta"],
+            ["--ansi-brightcyan", "brightCyan"],
+            ["--ansi-brightwhite", "brightWhite"],
         ];
         for (const [cssVar, key] of pairs) {
             expect(vars[cssVar], cssVar).toBe(ansi[key]);

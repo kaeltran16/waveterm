@@ -11,8 +11,8 @@ import {
     resumeArgsForOpencode,
     resumeArgsForPi,
     RUNTIME_FLAGS,
-    runtimeLaunchLabel,
     runtimeCreatesAgentPanel,
+    runtimeLaunchLabel,
     runtimeShowsTask,
     runtimeStartupCommand,
     runtimeSupportsWorktree,
@@ -79,9 +79,9 @@ describe("worktreeOutcome", () => {
         );
     });
     it("checks out an existing non-current branch", () => {
-        expect(
-            worktreeOutcome({ branch: "feat/x", currentBranch: "main", branchNames: ["main", "feat/x"] })
-        ).toBe("Checks out existing branch feat/x in a worktree");
+        expect(worktreeOutcome({ branch: "feat/x", currentBranch: "main", branchNames: ["main", "feat/x"] })).toBe(
+            "Checks out existing branch feat/x in a worktree"
+        );
     });
     it("creates a new branch for an unknown name", () => {
         expect(worktreeOutcome({ branch: "feat/new", currentBranch: "main", branchNames: ["main"] })).toBe(
@@ -141,8 +141,18 @@ describe("buildLaunchMeta", () => {
         expect(m).toEqual({ view: "term", controller: "shell", "cmd:cwd": "/x" });
     });
     it("passes the opencode task positionally with cwd", () => {
-        const m = buildLaunchMeta({ runtime: "opencode", startupCommand: "opencode", task: "refactor auth", cwd: "/x" });
-        expect(m).toMatchObject({ cmd: "opencode", "cmd:args": ["refactor auth"], "cmd:shell": false, "cmd:cwd": "/x" });
+        const m = buildLaunchMeta({
+            runtime: "opencode",
+            startupCommand: "opencode",
+            task: "refactor auth",
+            cwd: "/x",
+        });
+        expect(m).toMatchObject({
+            cmd: "opencode",
+            "cmd:args": ["refactor auth"],
+            "cmd:shell": false,
+            "cmd:cwd": "/x",
+        });
         expect(m["agent:baseargs"]).toEqual([]);
     });
     it("passes the pi task positionally like claude/codex", () => {
@@ -192,8 +202,17 @@ describe("buildLaunchMeta", () => {
         }
     });
     it("splits a startup command on runs of whitespace without empty args", () => {
-        const m = buildLaunchMeta({ runtime: "claude", startupCommand: "  claude   --model \t opus ", task: "go", cwd: "/x" });
-        expect(m).toMatchObject({ cmd: "claude", "agent:baseargs": ["--model", "opus"], "cmd:args": ["--model", "opus", "go"] });
+        const m = buildLaunchMeta({
+            runtime: "claude",
+            startupCommand: "  claude   --model \t opus ",
+            task: "go",
+            cwd: "/x",
+        });
+        expect(m).toMatchObject({
+            cmd: "claude",
+            "agent:baseargs": ["--model", "opus"],
+            "cmd:args": ["--model", "opus", "go"],
+        });
     });
     it("sets no cwd when the spec has none", () => {
         const agent = buildLaunchMeta({ runtime: "claude", startupCommand: "claude", task: "go", cwd: "" });
@@ -241,7 +260,12 @@ describe("resumeArgsForOpencode", () => {
         expect(resumeArgsForOpencode("s1", ["--auto"])).toEqual(["-s", "s1", "--auto"]);
     });
     it("preserves value-taking options (does not mistake the value for a prompt)", () => {
-        expect(resumeArgsForOpencode("s1", ["--model", "openai/gpt-5"])).toEqual(["-s", "s1", "--model", "openai/gpt-5"]);
+        expect(resumeArgsForOpencode("s1", ["--model", "openai/gpt-5"])).toEqual([
+            "-s",
+            "s1",
+            "--model",
+            "openai/gpt-5",
+        ]);
     });
     it("drops a prior -s <id> so resuming twice never stacks", () => {
         expect(resumeArgsForOpencode("s2", ["-s", "s1", "--auto"])).toEqual(["-s", "s2", "--auto"]);
@@ -266,12 +290,9 @@ describe("resumeArgsForPi", () => {
         ]);
     });
     it("replaces a prior --session <path> with the new path (never stacks two resume directives)", () => {
-        expect(resumeArgsForPi("C:\\new path\\s.jsonl", ["--session", "C:\\old path\\s.jsonl", "--model", "x"])).toEqual([
-            "--session",
-            "C:\\new path\\s.jsonl",
-            "--model",
-            "x",
-        ]);
+        expect(
+            resumeArgsForPi("C:\\new path\\s.jsonl", ["--session", "C:\\old path\\s.jsonl", "--model", "x"])
+        ).toEqual(["--session", "C:\\new path\\s.jsonl", "--model", "x"]);
     });
     it("keeps the path with spaces as one argv element", () => {
         const args = resumeArgsForPi("C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl");

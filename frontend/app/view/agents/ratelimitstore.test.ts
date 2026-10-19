@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { globalStore } from "@/app/store/jotaiStore";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { liveWindowAgents, providerPlanUsage, type AgentVM } from "./agentsviewmodel";
 import {
     forgetRateLimit,
     mergeRateLimitWindows,
@@ -9,7 +10,6 @@ import {
     topProviderUsage,
     type SavedSnapshot,
 } from "./ratelimitstore";
-import { liveWindowAgents, providerPlanUsage, type AgentVM } from "./agentsviewmodel";
 
 describe("topProviderUsage", () => {
     const now = 1_800_000_000_000;
@@ -54,11 +54,28 @@ describe("topProviderUsage", () => {
 
 describe("account-level donut ignores idle agents' stale snapshots", () => {
     const now = 1_800_000_000_000;
-    const active = { id: "a", name: "A", task: "", state: "working", agent: "claude", usage: { fivehourpct: 80, weekpct: 50 } } as AgentVM;
-    const idleStale = { id: "b", name: "B", task: "", state: "idle", agent: "claude", usage: { fivehourpct: 20, weekpct: 10 } } as AgentVM;
+    const active = {
+        id: "a",
+        name: "A",
+        task: "",
+        state: "working",
+        agent: "claude",
+        usage: { fivehourpct: 80, weekpct: 50 },
+    } as AgentVM;
+    const idleStale = {
+        id: "b",
+        name: "B",
+        task: "",
+        state: "idle",
+        agent: "claude",
+        usage: { fivehourpct: 20, weekpct: 10 },
+    } as AgentVM;
 
     it("shows the active session's live window, not the idle snapshot, regardless of roster order", () => {
-        for (const roster of [[active, idleStale], [idleStale, active]]) {
+        for (const roster of [
+            [active, idleStale],
+            [idleStale, active],
+        ]) {
             const claude = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(roster)), {}, now).find(
                 (d) => d.provider === "claude"
             );
@@ -100,7 +117,11 @@ describe("mergeRateLimitWindows", () => {
     const live = (provider: string, usage: AgentUsage) => ({ provider, usage });
 
     it("prefers live and sets no stale flag", () => {
-        const out = mergeRateLimitWindows([live("claude", { fivehourpct: 62, fivehourreset: 100, weekpct: 41 })], {}, now);
+        const out = mergeRateLimitWindows(
+            [live("claude", { fivehourpct: 62, fivehourreset: 100, weekpct: 41 })],
+            {},
+            now
+        );
         expect(out).toHaveLength(1);
         expect(out[0].fivehour).toEqual({ pct: 62, reset: 100 });
         expect(out[0].week).toEqual({ pct: 41, reset: undefined });
@@ -118,7 +139,13 @@ describe("mergeRateLimitWindows", () => {
 
     it("rolls a window over to empty once its reset has passed", () => {
         const saved: Record<string, SavedSnapshot> = {
-            claude: { fivehourpct: 80, fivehourreset: now / 1000 - 10, weekpct: 30, weekreset: now / 1000 + 600, capturedAt: now - 5000 },
+            claude: {
+                fivehourpct: 80,
+                fivehourreset: now / 1000 - 10,
+                weekpct: 30,
+                weekreset: now / 1000 + 600,
+                capturedAt: now - 5000,
+            },
         };
         const out = mergeRateLimitWindows([], saved, now);
         expect(out[0].fivehour).toEqual({ pct: 0, reset: undefined }); // rolled over

@@ -13,7 +13,10 @@ vi.mock("@/app/store/global", () => ({
     getSettingsKeyAtom: vi.fn((key: string) => key),
     globalStore: { get: mocks.globalGet, set: vi.fn() },
     useBlockAtom: vi.fn((_blockId: string, _key: string, fn: () => unknown) => fn()),
-    WOS: { getWaveObjectAtom: vi.fn((oref: string) => oref), makeORef: vi.fn((type: string, id: string) => `${type}:${id}`) },
+    WOS: {
+        getWaveObjectAtom: vi.fn((oref: string) => oref),
+        makeORef: vi.fn((type: string, id: string) => `${type}:${id}`),
+    },
 }));
 
 vi.mock("@/app/store/keymodel", () => ({ appHandleKeyDown: vi.fn(() => false) }));
@@ -21,7 +24,10 @@ vi.mock("@/app/store/modalmodel", () => ({ modalsModel: {} }));
 vi.mock("@/app/store/wps", () => ({ waveEventSubscribeSingle: vi.fn(() => vi.fn()) }));
 vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: {} }));
 vi.mock("@/app/store/wshrouter", () => ({ makeFeBlockRouteId: vi.fn((blockId: string) => `fe:${blockId}`) }));
-vi.mock("@/app/store/wshrpcutil", () => ({ DefaultRouter: { registerRoute: vi.fn(), unregisterRoute: vi.fn() }, TabRpcClient: {} }));
+vi.mock("@/app/store/wshrpcutil", () => ({
+    DefaultRouter: { registerRoute: vi.fn(), unregisterRoute: vi.fn() },
+    TabRpcClient: {},
+}));
 vi.mock("@/app/view/term/term", () => ({ TerminalView: vi.fn() }));
 vi.mock("@/app/view/term/term-wsh", () => ({ TermWshClient: vi.fn() }));
 vi.mock("@/store/services", () => ({}));

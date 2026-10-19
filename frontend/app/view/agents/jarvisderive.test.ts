@@ -16,9 +16,24 @@ function agent(over: Partial<AgentVM>): AgentVM {
 describe("buildFleetSnapshot", () => {
     it("resolves a dispatched worker to its live state, task, and ask", () => {
         const c = chan([{ kind: "dispatch", author: "claude", text: "harden webhooks", reforef: "tab:t1" }]);
-        const agents = [agent({ id: "t1", name: "claude", state: "asking", task: "harden webhooks", ask: { questions: [{ question: "A or B?" }] } })];
+        const agents = [
+            agent({
+                id: "t1",
+                name: "claude",
+                state: "asking",
+                task: "harden webhooks",
+                ask: { questions: [{ question: "A or B?" }] },
+            }),
+        ];
         expect(buildFleetSnapshot(c, agents)).toEqual([
-            { oref: "tab:t1", name: "claude", state: "asking", task: "harden webhooks", dispatchTask: "harden webhooks", askText: "A or B?" },
+            {
+                oref: "tab:t1",
+                name: "claude",
+                state: "asking",
+                task: "harden webhooks",
+                dispatchTask: "harden webhooks",
+                askText: "A or B?",
+            },
         ]);
     });
 
@@ -33,7 +48,12 @@ describe("buildFleetSnapshot", () => {
         const c = chan([{ kind: "dispatch", author: "claude", text: "reply with token DELEG8", reforef: "tab:t1" }]);
         const agents = [agent({ id: "t1", name: "Provide delegation token", state: "working", task: "" })];
         expect(buildFleetSnapshot(c, agents)).toEqual([
-            { oref: "tab:t1", name: "Provide delegation token", state: "working", dispatchTask: "reply with token DELEG8" },
+            {
+                oref: "tab:t1",
+                name: "Provide delegation token",
+                state: "working",
+                dispatchTask: "reply with token DELEG8",
+            },
         ]);
     });
 
@@ -61,7 +81,14 @@ describe("buildFleetSnapshot", () => {
 
     it("carries the live ask id for an asking worker", () => {
         const c = chan([{ kind: "dispatch", author: "claude", text: "go", reforef: "tab:w1" }]);
-        const agents = [agent({ id: "w1", name: "claude", state: "asking", ask: { oref: "block:w1", askId: "ask1", questions: [{ question: "q?" }] } })];
+        const agents = [
+            agent({
+                id: "w1",
+                name: "claude",
+                state: "asking",
+                ask: { oref: "block:w1", askId: "ask1", questions: [{ question: "q?" }] },
+            }),
+        ];
         const snap = buildFleetSnapshot(c, agents);
         expect(snap[0].askId).toBe("ask1");
     });
@@ -95,7 +122,14 @@ describe("buildFleetSnapshot", () => {
     it("folds an outcome message onto its worker", () => {
         const c = chan([
             { kind: "dispatch", author: "claude", text: "go", reforef: "tab:t1", ts: 1 },
-            { kind: "outcome", author: "claude", text: "hardened webhooks", reforef: "tab:t1", ts: 2, data: JSON.stringify({ status: "done", summary: "hardened webhooks" }) },
+            {
+                kind: "outcome",
+                author: "claude",
+                text: "hardened webhooks",
+                reforef: "tab:t1",
+                ts: 2,
+                data: JSON.stringify({ status: "done", summary: "hardened webhooks" }),
+            },
         ]);
         const snap = buildFleetSnapshot(c, []);
         expect(snap[0].outcome).toEqual({ status: "done", summary: "hardened webhooks" });
@@ -103,7 +137,14 @@ describe("buildFleetSnapshot", () => {
 
     it("ignores an outcome older than the latest dispatch (re-dispatched worker)", () => {
         const c = chan([
-            { kind: "outcome", author: "claude", text: "old", reforef: "tab:t1", ts: 1, data: JSON.stringify({ status: "failed", summary: "old" }) },
+            {
+                kind: "outcome",
+                author: "claude",
+                text: "old",
+                reforef: "tab:t1",
+                ts: 1,
+                data: JSON.stringify({ status: "failed", summary: "old" }),
+            },
             { kind: "dispatch", author: "claude", text: "go again", reforef: "tab:t1", ts: 2 },
         ]);
         const snap = buildFleetSnapshot(c, []);
@@ -113,7 +154,14 @@ describe("buildFleetSnapshot", () => {
     it("ignores an outcome stamped at the same instant as the latest dispatch", () => {
         const c = chan([
             { kind: "dispatch", author: "claude", text: "go", reforef: "tab:t1", ts: 2 },
-            { kind: "outcome", author: "claude", text: "x", reforef: "tab:t1", ts: 2, data: JSON.stringify({ status: "done", summary: "x" }) },
+            {
+                kind: "outcome",
+                author: "claude",
+                text: "x",
+                reforef: "tab:t1",
+                ts: 2,
+                data: JSON.stringify({ status: "done", summary: "x" }),
+            },
         ]);
         expect(buildFleetSnapshot(c, [])[0].outcome).toBeUndefined();
     });
@@ -121,8 +169,22 @@ describe("buildFleetSnapshot", () => {
     it("keeps the newest outcome when an older one arrives later in the list", () => {
         const c = chan([
             { kind: "dispatch", author: "claude", text: "go", reforef: "tab:t1", ts: 1 },
-            { kind: "outcome", author: "claude", text: "new", reforef: "tab:t1", ts: 5, data: JSON.stringify({ status: "done", summary: "new" }) },
-            { kind: "outcome", author: "claude", text: "old", reforef: "tab:t1", ts: 3, data: JSON.stringify({ status: "failed", summary: "old" }) },
+            {
+                kind: "outcome",
+                author: "claude",
+                text: "new",
+                reforef: "tab:t1",
+                ts: 5,
+                data: JSON.stringify({ status: "done", summary: "new" }),
+            },
+            {
+                kind: "outcome",
+                author: "claude",
+                text: "old",
+                reforef: "tab:t1",
+                ts: 3,
+                data: JSON.stringify({ status: "failed", summary: "old" }),
+            },
         ]);
         expect(buildFleetSnapshot(c, [])[0].outcome).toEqual({ status: "done", summary: "new" });
     });
@@ -130,7 +192,14 @@ describe("buildFleetSnapshot", () => {
     it("reads status and summary from the outcome payload ahead of the message text", () => {
         const c = chan([
             { kind: "dispatch", author: "claude", text: "go", reforef: "tab:t1", ts: 1 },
-            { kind: "outcome", author: "claude", text: "flat text", reforef: "tab:t1", ts: 2, data: JSON.stringify({ status: "failed", summary: "tests red" }) },
+            {
+                kind: "outcome",
+                author: "claude",
+                text: "flat text",
+                reforef: "tab:t1",
+                ts: 2,
+                data: JSON.stringify({ status: "failed", summary: "tests red" }),
+            },
         ]);
         expect(buildFleetSnapshot(c, [])[0].outcome).toEqual({ status: "failed", summary: "tests red" });
     });
@@ -178,7 +247,10 @@ describe("buildFleetSnapshot", () => {
             { kind: "dispatch", author: "claude", text: "a", reforef: "tab:t1", ts: 1 },
             { kind: "dispatch", author: "codex", text: "b", reforef: "tab:t2", ts: 2 },
         ]);
-        const agents = [agent({ id: "t0", name: "other", state: "working" }), agent({ id: "t2", name: "second", state: "idle" })];
+        const agents = [
+            agent({ id: "t0", name: "other", state: "working" }),
+            agent({ id: "t2", name: "second", state: "idle" }),
+        ];
         const snap = buildFleetSnapshot(c, agents);
         expect(snap.map((w) => [w.oref, w.name, w.state])).toEqual([
             ["tab:t1", "claude", "gone"],
@@ -198,9 +270,23 @@ describe("buildFleetSnapshot", () => {
 // the cockpit's needs-you count: needsHuman over the ask ids answered in any channel's message list
 describe("answeredAskIdsAcross", () => {
     const answeredCard = (askId: string) =>
-        JSON.stringify({ askORef: "block:a", askId, workerORef: "tab:x", question: "q", options: [{ label: "y" }], choice: 0 });
+        JSON.stringify({
+            askORef: "block:a",
+            askId,
+            workerORef: "tab:x",
+            question: "q",
+            options: [{ label: "y" }],
+            choice: 0,
+        });
     const answeredMsg = (askId: string) =>
-        ({ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answeredCard(askId) }) as ChannelMessage;
+        ({
+            id: "1",
+            kind: "jarvis-answered",
+            author: "jarvis",
+            text: "",
+            ts: 0,
+            data: answeredCard(askId),
+        }) as ChannelMessage;
     const testAgent = (id: string, state: string, askId?: string) =>
         ({
             id,
@@ -237,16 +323,36 @@ describe("answeredAskIdsAcross", () => {
 });
 
 describe("buildFleetSnapshot dismiss", () => {
-    const dispatch = (oref: string, ts: number) => ({ id: String(ts), kind: "dispatch", author: "claude", text: "go", reforef: oref, ts });
-    const dismiss = (oref: string, ts: number) => ({ id: "d" + ts, kind: "dismiss", author: "you", text: "", reforef: oref, ts });
+    const dispatch = (oref: string, ts: number) => ({
+        id: String(ts),
+        kind: "dispatch",
+        author: "claude",
+        text: "go",
+        reforef: oref,
+        ts,
+    });
+    const dismiss = (oref: string, ts: number) => ({
+        id: "d" + ts,
+        kind: "dismiss",
+        author: "you",
+        text: "",
+        reforef: oref,
+        ts,
+    });
     const chan = (msgs: unknown[]) => msgs as ChannelMessage[];
 
     it("hides a gone worker dismissed after its dispatch", () => {
-        const snap = buildFleetSnapshot(chan([dispatch("tab:w1", 1), dismiss("tab:w1", 2)]), [] as unknown as AgentVM[]);
+        const snap = buildFleetSnapshot(
+            chan([dispatch("tab:w1", 1), dismiss("tab:w1", 2)]),
+            [] as unknown as AgentVM[]
+        );
         expect(snap.find((w) => w.oref === "tab:w1")).toBeUndefined();
     });
     it("keeps a gone worker re-dispatched after its dismiss", () => {
-        const snap = buildFleetSnapshot(chan([dispatch("tab:w1", 1), dismiss("tab:w1", 2), dispatch("tab:w1", 3)]), [] as unknown as AgentVM[]);
+        const snap = buildFleetSnapshot(
+            chan([dispatch("tab:w1", 1), dismiss("tab:w1", 2), dispatch("tab:w1", 3)]),
+            [] as unknown as AgentVM[]
+        );
         expect(snap.find((w) => w.oref === "tab:w1")?.state).toBe("gone");
     });
     it("never hides a live worker even if a dismiss exists", () => {
@@ -255,7 +361,10 @@ describe("buildFleetSnapshot dismiss", () => {
         expect(snap.find((w) => w.oref === "tab:w1")?.state).toBe("working");
     });
     it("ignores a dismiss for an oref never dispatched", () => {
-        const snap = buildFleetSnapshot(chan([dispatch("tab:w1", 1), dismiss("tab:ghost", 2)]), [] as unknown as AgentVM[]);
+        const snap = buildFleetSnapshot(
+            chan([dispatch("tab:w1", 1), dismiss("tab:ghost", 2)]),
+            [] as unknown as AgentVM[]
+        );
         expect(snap).toHaveLength(1);
         expect(snap[0].oref).toBe("tab:w1");
     });

@@ -10,7 +10,11 @@ describe("sessionStartTs", () => {
     });
 
     it("reads a Codex session_meta record's top-level timestamp", () => {
-        const line = JSON.stringify({ timestamp: "2026-07-08T00:00:01.000Z", type: "session_meta", payload: { cwd: "/x" } });
+        const line = JSON.stringify({
+            timestamp: "2026-07-08T00:00:01.000Z",
+            type: "session_meta",
+            payload: { cwd: "/x" },
+        });
         expect(sessionStartTs([line])).toBe(sec("2026-07-08T00:00:01.000Z"));
     });
 

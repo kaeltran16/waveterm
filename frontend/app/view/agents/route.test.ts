@@ -15,7 +15,14 @@ import {
 } from "./route";
 
 const harness = (runtime: string, routecapabilities?: RouteCapabilityInfo[]): HarnessInfo =>
-    ({ runtime, label: runtime.toUpperCase(), installed: true, consultcapable: true, runworkercapable: true, routecapabilities }) as HarnessInfo;
+    ({
+        runtime,
+        label: runtime.toUpperCase(),
+        installed: true,
+        consultcapable: true,
+        runworkercapable: true,
+        routecapabilities,
+    }) as HarnessInfo;
 
 // the row the backend lists for a runtime-only pin: no model, so the CLI runs its own default
 const runtimeDefault = (runtime: string): RouteCapabilityInfo => ({ runtime, resolvedmodel: "operator default" });
@@ -68,29 +75,58 @@ describe("capabilityFor", () => {
 
 describe("route derivation", () => {
     it("resolves task, run, channel, then settings", () => {
-        const input = { settings: pin("settings"), channel: pin("channel"), run: pin("run"), task: pin("task"), harnesses: [] };
+        const input = {
+            settings: pin("settings"),
+            channel: pin("channel"),
+            run: pin("run"),
+            task: pin("task"),
+            harnesses: [],
+        };
         expect(resolveEffectiveRoute(input)).toMatchObject({ pin: pin("task"), source: "task" });
         expect(resolveEffectiveRoute({ ...input, task: null })).toMatchObject({ pin: pin("run"), source: "run" });
-        expect(resolveEffectiveRoute({ ...input, task: null, run: null })).toMatchObject({ pin: pin("channel"), source: "channel" });
-        expect(resolveEffectiveRoute({ ...input, task: null, run: null, channel: null })).toMatchObject({ pin: pin("settings"), source: "settings" });
+        expect(resolveEffectiveRoute({ ...input, task: null, run: null })).toMatchObject({
+            pin: pin("channel"),
+            source: "channel",
+        });
+        expect(resolveEffectiveRoute({ ...input, task: null, run: null, channel: null })).toMatchObject({
+            pin: pin("settings"),
+            source: "settings",
+        });
     });
 
     it("treats a cleared channel or task override as inheritance", () => {
-        expect(resolveEffectiveRoute({ settings: pin("settings"), channel: null, run: null, task: null, harnesses: [] })).toMatchObject({ source: "settings" });
-        expect(resolveEffectiveRoute({ settings: pin("settings"), channel: pin("channel"), run: null, task: null, harnesses: [] })).toMatchObject({ source: "channel" });
+        expect(
+            resolveEffectiveRoute({ settings: pin("settings"), channel: null, run: null, task: null, harnesses: [] })
+        ).toMatchObject({ source: "settings" });
+        expect(
+            resolveEffectiveRoute({
+                settings: pin("settings"),
+                channel: pin("channel"),
+                run: null,
+                task: null,
+                harnesses: [],
+            })
+        ).toMatchObject({ source: "channel" });
     });
 
     it("drops a stale tier left on a persisted pin", () => {
-        expect(resolveEffectiveRoute({ settings: null, task: { runtime: "pi", tier: "cheap" }, harnesses: [] })?.pin).toEqual(pin("pi"));
+        expect(
+            resolveEffectiveRoute({ settings: null, task: { runtime: "pi", tier: "cheap" }, harnesses: [] })?.pin
+        ).toEqual(pin("pi"));
     });
 
     it("reports no capability for a runtime the catalog lacks", () => {
-        const selected = resolveEffectiveRoute({ settings: pin("codex"), harnesses: [harness("pi", [runtimeDefault("pi")])] });
+        const selected = resolveEffectiveRoute({
+            settings: pin("codex"),
+            harnesses: [harness("pi", [runtimeDefault("pi")])],
+        });
         expect(selected).toEqual({ pin: pin("codex"), source: "settings", capability: undefined });
     });
 
     it("keeps the channel override's model and drops a stale tier", () => {
-        expect(normalizeProfileOverrideRoute({ route: { runtime: "claude", model: "opus", tier: "mid" } })).toEqual({ route: pin("claude", "opus") });
+        expect(normalizeProfileOverrideRoute({ route: { runtime: "claude", model: "opus", tier: "mid" } })).toEqual({
+            route: pin("claude", "opus"),
+        });
         expect(normalizeProfileOverrideRoute({ route: { runtime: "" } })).toEqual({ route: undefined });
     });
 });
@@ -112,7 +148,10 @@ describe("model-keyed capability lookup", () => {
     });
 
     it("preserves the model through effective-route normalization", () => {
-        const eff = resolveEffectiveRoute({ settings: pin("pi", "opencode/deepseek-v4-pro"), harnesses: flatHarnesses });
+        const eff = resolveEffectiveRoute({
+            settings: pin("pi", "opencode/deepseek-v4-pro"),
+            harnesses: flatHarnesses,
+        });
         expect(eff?.pin.model).toBe("opencode/deepseek-v4-pro");
         expect(eff?.capability?.provider).toBe("opencode");
     });
@@ -122,7 +161,10 @@ describe("picker sections", () => {
     it("builds model-only rows grouped by runtime, excluding the runtime default", () => {
         const sections = buildPickerSections(flatHarnesses);
         expect(sections.map((s) => s.runtime)).toEqual(["pi", "claude"]);
-        expect(sections[0].rows.map((r) => r.model)).toEqual(["opencode/deepseek-v4-flash", "opencode/deepseek-v4-pro"]);
+        expect(sections[0].rows.map((r) => r.model)).toEqual([
+            "opencode/deepseek-v4-flash",
+            "opencode/deepseek-v4-pro",
+        ]);
         expect(sections[0].rows.every((r) => r.label === "PI")).toBe(true);
         expect(sections[1].rows.find((r) => r.model === "opus")?.default).toBe(true);
     });

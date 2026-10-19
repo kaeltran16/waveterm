@@ -1,10 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from "vitest";
 import { createStore } from "jotai";
-import { liveEntriesByIdAtom, lastActivityByIdAtom, tasksByIdAtom } from "./livetranscript";
-import { entriesAtomFor, dropLiveId } from "./livetranscriptatoms";
+import { describe, expect, it } from "vitest";
+import { lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./livetranscript";
+import { dropLiveId, entriesAtomFor } from "./livetranscriptatoms";
 
 describe("per-id atom slices", () => {
     it("reads the id's slice and is referentially stable when an unrelated id changes", () => {
@@ -13,7 +13,10 @@ describe("per-id atom slices", () => {
         const aAtom = entriesAtomFor("a");
         const before = store.get(aAtom);
         // mutate only b's slice (new whole-map object, a's array reference preserved)
-        store.set(liveEntriesByIdAtom, { ...store.get(liveEntriesByIdAtom), b: [{ kind: "message", index: 1, text: "x" } as any] });
+        store.set(liveEntriesByIdAtom, {
+            ...store.get(liveEntriesByIdAtom),
+            b: [{ kind: "message", index: 1, text: "x" } as any],
+        });
         const after = store.get(aAtom);
         expect(after).toBe(before); // a's slice unchanged by reference -> selectAtom will not re-render a
     });

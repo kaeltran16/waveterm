@@ -5,17 +5,17 @@ import { describe, expect, it } from "vitest";
 import {
     acceptDigest,
     cleanupOnly,
+    digestStale,
     formatElapsed,
     freshCounts,
     healthView,
+    lastUpdatedText,
     nextStepText,
     nextStepView,
     planShapeText,
     planWarnings,
     reportChips,
     shouldRefreshDigest,
-    digestStale,
-    lastUpdatedText,
     verifyRowLine,
     waitingText,
     type TaskBrief,
@@ -25,7 +25,16 @@ function digest(version: number): DagStatusDigest {
     return {
         dagversion: version,
         health: "healthy",
-        counts: { total: 1, done: 0, running: 1, stalled: 0, dependencywaiting: 0, attention: 0, recoveredretry: 0, mergeready: 0 },
+        counts: {
+            total: 1,
+            done: 0,
+            running: 1,
+            stalled: 0,
+            dependencywaiting: 0,
+            attention: 0,
+            recoveredretry: 0,
+            mergeready: 0,
+        },
         next: { kind: "dispatch" },
         tasks: [],
         durations: { elapsedms: 0 },
@@ -169,9 +178,9 @@ describe("explicit blockers (finding 6)", () => {
     });
 
     it("names the task a human action is about", () => {
-        expect(
-            nextStepText({ kind: "human-action", taskids: ["t-a"], actions: ["approve", "sendback"] }, briefs)
-        ).toBe("waiting on you — approve / sendback: scaffold API");
+        expect(nextStepText({ kind: "human-action", taskids: ["t-a"], actions: ["approve", "sendback"] }, briefs)).toBe(
+            "waiting on you — approve / sendback: scaffold API"
+        );
     });
 
     // a question the lead still holds is not the human's: acceptance 4 read "waiting on you" for one

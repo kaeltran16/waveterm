@@ -13,11 +13,35 @@ const LINES: string[] = [
             ],
         },
     }),
-    JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", is_error: false }] } }), // edited, non-ran -> no outcome
-    JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "t2", name: "Bash", input: { command: "go test ./...", description: "go test ./..." } }] } }),
-    JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t2", is_error: true }] } }), // ran + error -> fail
-    JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "t3", name: "Bash", input: { description: "go build" } }] } }),
-    JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t3", is_error: false }] } }), // ran + success -> ok
+    JSON.stringify({
+        type: "user",
+        message: { content: [{ type: "tool_result", tool_use_id: "t1", is_error: false }] },
+    }), // edited, non-ran -> no outcome
+    JSON.stringify({
+        type: "assistant",
+        message: {
+            content: [
+                {
+                    type: "tool_use",
+                    id: "t2",
+                    name: "Bash",
+                    input: { command: "go test ./...", description: "go test ./..." },
+                },
+            ],
+        },
+    }),
+    JSON.stringify({
+        type: "user",
+        message: { content: [{ type: "tool_result", tool_use_id: "t2", is_error: true }] },
+    }), // ran + error -> fail
+    JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "tool_use", id: "t3", name: "Bash", input: { description: "go build" } }] },
+    }),
+    JSON.stringify({
+        type: "user",
+        message: { content: [{ type: "tool_result", tool_use_id: "t3", is_error: false }] },
+    }), // ran + success -> ok
     "{ not valid json", // skipped
     JSON.stringify({ type: "file-history-snapshot", foo: 1 }), // unknown type -> ignored
 ];
@@ -40,15 +64,24 @@ describe("projectTranscript", () => {
 
     it("maps unknown tools to a lowercased verb and the salient input", () => {
         const out = projectTranscript([
-            JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "x", name: "WebFetch", input: { pattern: "abc" } }] } }),
+            JSON.stringify({
+                type: "assistant",
+                message: { content: [{ type: "tool_use", id: "x", name: "WebFetch", input: { pattern: "abc" } }] },
+            }),
         ]);
         expect(out).toEqual([{ kind: "action", verb: "webfetch", target: "abc" }]);
     });
 
     it("emits an action with no outcome when tool_use has no id (result can't be matched)", () => {
         const out = projectTranscript([
-            JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: { description: "go test ./..." } }] } }),
-            JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "missing", is_error: true }] } }),
+            JSON.stringify({
+                type: "assistant",
+                message: { content: [{ type: "tool_use", name: "Bash", input: { description: "go test ./..." } }] },
+            }),
+            JSON.stringify({
+                type: "user",
+                message: { content: [{ type: "tool_result", tool_use_id: "missing", is_error: true }] },
+            }),
         ]);
         expect(out).toEqual([{ kind: "action", verb: "ran", target: "go test ./..." }]);
     });
@@ -69,13 +102,18 @@ describe("projectTranscript user turns", () => {
     });
 
     it("projects a user text block as a user entry", () => {
-        const out = projectTranscript([L({ type: "user", message: { content: [{ type: "text", text: "option B" }] } })]);
+        const out = projectTranscript([
+            L({ type: "user", message: { content: [{ type: "text", text: "option B" }] } }),
+        ]);
         expect(out).toEqual([{ kind: "user", text: "option B" }]);
     });
 
     it("emits no user entry for a tool_result-only record but still applies the outcome", () => {
         const out = projectTranscript([
-            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } }] } }),
+            L({
+                type: "assistant",
+                message: { content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } }] },
+            }),
             L({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", is_error: false }] } }),
         ]);
         expect(out).toHaveLength(1);
@@ -87,8 +125,10 @@ describe("projectTranscript commands and isMeta", () => {
     const L = (o: unknown) => JSON.stringify(o);
 
     it("parses a <command-name> user string into a command entry (slash kept, message dropped, args when present)", () => {
-        const withArgs = "<command-name>/review</command-name>\n  <command-message>review</command-message>\n  <command-args>PR #402</command-args>";
-        const bare = "<command-name>/clear</command-name>\n  <command-message>clear</command-message>\n  <command-args></command-args>";
+        const withArgs =
+            "<command-name>/review</command-name>\n  <command-message>review</command-message>\n  <command-args>PR #402</command-args>";
+        const bare =
+            "<command-name>/clear</command-name>\n  <command-message>clear</command-message>\n  <command-args></command-args>";
         expect(projectTranscript([L({ type: "user", message: { content: withArgs } })])).toEqual([
             { kind: "command", name: "/review", args: "PR #402" },
         ]);
@@ -99,15 +139,26 @@ describe("projectTranscript commands and isMeta", () => {
 
     it("normalizes a command-name that lacks a leading slash", () => {
         const out = projectTranscript([
-            L({ type: "user", message: { content: "<command-name>compact</command-name><command-args></command-args>" } }),
+            L({
+                type: "user",
+                message: { content: "<command-name>compact</command-name><command-args></command-args>" },
+            }),
         ]);
         expect(out).toEqual([{ kind: "command", name: "/compact" }]);
     });
 
     it("skips synthetic isMeta user records (skill body dumps, caveats, continuation)", () => {
         const out = projectTranscript([
-            L({ type: "user", isMeta: true, message: { content: [{ type: "text", text: "# Skill body\n\nlong markdown" }] } }),
-            L({ type: "user", isMeta: true, message: { content: "<local-command-caveat>Caveat...</local-command-caveat>" } }),
+            L({
+                type: "user",
+                isMeta: true,
+                message: { content: [{ type: "text", text: "# Skill body\n\nlong markdown" }] },
+            }),
+            L({
+                type: "user",
+                isMeta: true,
+                message: { content: "<local-command-caveat>Caveat...</local-command-caveat>" },
+            }),
             L({ type: "user", message: { content: "real prompt" } }),
         ]);
         expect(out).toEqual([{ kind: "user", text: "real prompt" }]);
@@ -118,7 +169,13 @@ describe("projectTranscript commands and isMeta", () => {
                 type: "assistant",
                 message: {
                     content: [
-                        { type: "tool_use", id: "s1", name: "Skill", input: { skill: "superpowers:brainstorming", args: "design the cache" }, caller: { type: "direct" } },
+                        {
+                            type: "tool_use",
+                            id: "s1",
+                            name: "Skill",
+                            input: { skill: "superpowers:brainstorming", args: "design the cache" },
+                            caller: { type: "direct" },
+                        },
                     ],
                 },
             }),
@@ -128,7 +185,20 @@ describe("projectTranscript commands and isMeta", () => {
 
     it("omits args for a skill chip with no args", () => {
         const out = projectTranscript([
-            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "s2", name: "Skill", input: { skill: "commit" }, caller: { type: "direct" } }] } }),
+            L({
+                type: "assistant",
+                message: {
+                    content: [
+                        {
+                            type: "tool_use",
+                            id: "s2",
+                            name: "Skill",
+                            input: { skill: "commit" },
+                            caller: { type: "direct" },
+                        },
+                    ],
+                },
+            }),
         ]);
         expect(out).toEqual([{ kind: "command", name: "commit", isSkill: true }]);
     });
@@ -142,20 +212,34 @@ describe("projectTranscript compaction", () => {
         content: "Conversation compacted",
         compactMetadata: { trigger: "manual", preTokens: 415334, postTokens: 22859 },
     });
-    const summary = L({ type: "user", isCompactSummary: true, message: { content: "This session is being continued...\n\nSummary:\n**kept**" } });
+    const summary = L({
+        type: "user",
+        isCompactSummary: true,
+        message: { content: "This session is being continued...\n\nSummary:\n**kept**" },
+    });
 
     it("merges an adjacent boundary + summary into one compaction entry", () => {
         expect(projectTranscript([boundary, summary])).toEqual([
-            { kind: "compaction", trigger: "manual", preTokens: 415334, postTokens: 22859, summary: "This session is being continued...\n\nSummary:\n**kept**" },
+            {
+                kind: "compaction",
+                trigger: "manual",
+                preTokens: 415334,
+                postTokens: 22859,
+                summary: "This session is being continued...\n\nSummary:\n**kept**",
+            },
         ]);
     });
 
     it("produces a summary-only compaction when there is no boundary", () => {
-        expect(projectTranscript([summary])).toEqual([{ kind: "compaction", summary: "This session is being continued...\n\nSummary:\n**kept**" }]);
+        expect(projectTranscript([summary])).toEqual([
+            { kind: "compaction", summary: "This session is being continued...\n\nSummary:\n**kept**" },
+        ]);
     });
 
     it("produces a stats-only compaction when there is no summary", () => {
-        expect(projectTranscript([boundary])).toEqual([{ kind: "compaction", trigger: "manual", preTokens: 415334, postTokens: 22859 }]);
+        expect(projectTranscript([boundary])).toEqual([
+            { kind: "compaction", trigger: "manual", preTokens: 415334, postTokens: 22859 },
+        ]);
     });
 
     it("does not fold a real user turn into the compaction", () => {
@@ -183,12 +267,18 @@ describe("projectTranscript task-notification, stdout, and interrupts", () => {
             "</task-notification>",
         ].join("\n");
         expect(projectTranscript([L({ type: "user", message: { content } })])).toEqual([
-            { kind: "notification", summary: 'Agent "Map layout" finished', status: "completed", result: "Here is the report." },
+            {
+                kind: "notification",
+                summary: 'Agent "Map layout" finished',
+                status: "completed",
+                result: "Here is the report.",
+            },
         ]);
     });
 
     it("omits result when the task-notification has none", () => {
-        const content = "<task-notification>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>";
+        const content =
+            "<task-notification>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>";
         expect(projectTranscript([L({ type: "user", message: { content } })])).toEqual([
             { kind: "notification", summary: "done", status: "completed" },
         ]);
@@ -200,12 +290,14 @@ describe("projectTranscript task-notification, stdout, and interrupts", () => {
     });
 
     it("projects [Request interrupted by user] as an interrupted marker, both as a text block and a string", () => {
-        expect(projectTranscript([L({ type: "user", message: { content: [{ type: "text", text: "[Request interrupted by user]" }] } })])).toEqual([
-            { kind: "interrupted" },
-        ]);
-        expect(projectTranscript([L({ type: "user", message: { content: "[Request interrupted by user for tool use]" } })])).toEqual([
-            { kind: "interrupted" },
-        ]);
+        expect(
+            projectTranscript([
+                L({ type: "user", message: { content: [{ type: "text", text: "[Request interrupted by user]" }] } }),
+            ])
+        ).toEqual([{ kind: "interrupted" }]);
+        expect(
+            projectTranscript([L({ type: "user", message: { content: "[Request interrupted by user for tool use]" } })])
+        ).toEqual([{ kind: "interrupted" }]);
     });
 });
 
@@ -221,7 +313,9 @@ describe("extractAiTitle", () => {
     });
 
     it("returns undefined when there is no ai-title, and skips unparseable lines", () => {
-        expect(extractAiTitle([JSON.stringify({ type: "assistant", message: { content: [] } }), "{bad"])).toBeUndefined();
+        expect(
+            extractAiTitle([JSON.stringify({ type: "assistant", message: { content: [] } }), "{bad"])
+        ).toBeUndefined();
         expect(extractAiTitle([])).toBeUndefined();
     });
 
@@ -250,7 +344,10 @@ describe("extractTasks", () => {
         expect(extractTasks([])).toBeUndefined();
         expect(
             extractTasks([
-                JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "e", name: "Edit", input: {} }] } }),
+                JSON.stringify({
+                    type: "assistant",
+                    message: { content: [{ type: "tool_use", id: "e", name: "Edit", input: {} }] },
+                }),
             ])
         ).toBeUndefined();
     });
@@ -291,7 +388,11 @@ describe("extractTasks", () => {
     it("skips unparseable lines and malformed todo entries", () => {
         const out = extractTasks([
             "{ not json",
-            todoUse([{ content: "kept", status: "completed" }, { status: "pending" }, { content: 42, status: "pending" }]),
+            todoUse([
+                { content: "kept", status: "completed" },
+                { status: "pending" },
+                { content: 42, status: "pending" },
+            ]),
         ]);
         expect(out).toEqual([{ text: "kept", done: true }]);
     });
@@ -299,7 +400,9 @@ describe("extractTasks", () => {
     it("ignores a TodoWrite in a record that is not an assistant message", () => {
         const user = JSON.stringify({
             type: "user",
-            message: { content: [{ type: "tool_use", id: "u1", name: "TodoWrite", input: { todos: [{ content: "x" }] } }] },
+            message: {
+                content: [{ type: "tool_use", id: "u1", name: "TodoWrite", input: { todos: [{ content: "x" }] } }],
+            },
         });
         expect(extractTasks([user])).toBeUndefined();
     });
@@ -330,7 +433,10 @@ describe("extractTasks", () => {
 describe("projectTranscript thinking blocks", () => {
     it("skips assistant thinking blocks (internal chain-of-thought is not narration)", () => {
         const lines = [
-            JSON.stringify({ type: "assistant", message: { content: [{ type: "thinking", thinking: "secret reasoning" }] } }),
+            JSON.stringify({
+                type: "assistant",
+                message: { content: [{ type: "thinking", thinking: "secret reasoning" }] },
+            }),
             JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "visible narration" }] } }),
         ];
         const entries = projectTranscript(lines);
@@ -343,7 +449,19 @@ describe("projectTranscript detail", () => {
 
     it("attaches an edit diff from Edit old/new strings", () => {
         const out = projectTranscript([
-            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "e1", name: "Edit", input: { file_path: "/p/a.ts", old_string: "a\nb", new_string: "c" } }] } }),
+            L({
+                type: "assistant",
+                message: {
+                    content: [
+                        {
+                            type: "tool_use",
+                            id: "e1",
+                            name: "Edit",
+                            input: { file_path: "/p/a.ts", old_string: "a\nb", new_string: "c" },
+                        },
+                    ],
+                },
+            }),
             L({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "e1", is_error: false }] } }),
         ]);
         expect(out[0]).toMatchObject({ kind: "action", verb: "edited", target: "a.ts" });
@@ -367,8 +485,25 @@ describe("projectTranscript detail", () => {
 
     it("attaches the raw command (not the description) plus output + exit to a bash detail", () => {
         const out = projectTranscript([
-            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "npm test", description: "run tests" } }] } }),
-            L({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "b1", is_error: false, content: "24 passing" }] } }),
+            L({
+                type: "assistant",
+                message: {
+                    content: [
+                        {
+                            type: "tool_use",
+                            id: "b1",
+                            name: "Bash",
+                            input: { command: "npm test", description: "run tests" },
+                        },
+                    ],
+                },
+            }),
+            L({
+                type: "user",
+                message: {
+                    content: [{ type: "tool_result", tool_use_id: "b1", is_error: false, content: "24 passing" }],
+                },
+            }),
         ]);
         // the line shows the human description; the raw command lives in the detail
         expect(out[0]).toMatchObject({ kind: "action", verb: "ran", target: "run tests" });
@@ -377,7 +512,19 @@ describe("projectTranscript detail", () => {
 
     it("renders a Skill call as a labeled line (verb + skill name) with an args detail", () => {
         const out = projectTranscript([
-            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "s1", name: "Skill", input: { skill: "brainstorming", args: "design the cache" } }] } }),
+            L({
+                type: "assistant",
+                message: {
+                    content: [
+                        {
+                            type: "tool_use",
+                            id: "s1",
+                            name: "Skill",
+                            input: { skill: "brainstorming", args: "design the cache" },
+                        },
+                    ],
+                },
+            }),
         ]);
         expect(out[0]).toMatchObject({ kind: "action", verb: "skill", target: "brainstorming" });
         expect((out[0] as any).detail).toEqual({ kind: "skill", name: "brainstorming", args: "design the cache" });
@@ -385,7 +532,10 @@ describe("projectTranscript detail", () => {
 
     it("omits the args detail field when a Skill call has no args", () => {
         const out = projectTranscript([
-            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "s2", name: "Skill", input: { skill: "commit" } }] } }),
+            L({
+                type: "assistant",
+                message: { content: [{ type: "tool_use", id: "s2", name: "Skill", input: { skill: "commit" } }] },
+            }),
         ]);
         expect(out[0]).toMatchObject({ kind: "action", verb: "skill", target: "commit" });
         expect((out[0] as any).detail).toEqual({ kind: "skill", name: "commit" });
@@ -393,16 +543,32 @@ describe("projectTranscript detail", () => {
 
     it("computes durationMs from record timestamps", () => {
         const out = projectTranscript([
-            L({ type: "assistant", timestamp: "2026-07-08T00:00:00.000Z", message: { content: [{ type: "tool_use", id: "b2", name: "Bash", input: { command: "x" } }] } }),
-            L({ type: "user", timestamp: "2026-07-08T00:00:03.200Z", message: { content: [{ type: "tool_result", tool_use_id: "b2", is_error: false, content: "" }] } }),
+            L({
+                type: "assistant",
+                timestamp: "2026-07-08T00:00:00.000Z",
+                message: { content: [{ type: "tool_use", id: "b2", name: "Bash", input: { command: "x" } }] },
+            }),
+            L({
+                type: "user",
+                timestamp: "2026-07-08T00:00:03.200Z",
+                message: { content: [{ type: "tool_result", tool_use_id: "b2", is_error: false, content: "" }] },
+            }),
         ]);
         expect((out[0] as any).durationMs).toBe(3200);
     });
 
     it("does not leak private scratch fields (_useTs/_tool)", () => {
         const out = projectTranscript([
-            L({ type: "assistant", timestamp: "2026-07-08T00:00:00.000Z", message: { content: [{ type: "tool_use", id: "b3", name: "Bash", input: { command: "x" } }] } }),
-            L({ type: "user", timestamp: "2026-07-08T00:00:01.000Z", message: { content: [{ type: "tool_result", tool_use_id: "b3", is_error: false, content: "out" }] } }),
+            L({
+                type: "assistant",
+                timestamp: "2026-07-08T00:00:00.000Z",
+                message: { content: [{ type: "tool_use", id: "b3", name: "Bash", input: { command: "x" } }] },
+            }),
+            L({
+                type: "user",
+                timestamp: "2026-07-08T00:00:01.000Z",
+                message: { content: [{ type: "tool_result", tool_use_id: "b3", is_error: false, content: "out" }] },
+            }),
         ]);
         expect(Object.keys(out[0])).not.toContain("_useTs");
         expect(Object.keys(out[0])).not.toContain("_tool");
@@ -416,7 +582,9 @@ describe("extractSubagentSpawns", () => {
 
     it("pairs a completed Task with its ok result", () => {
         const lines = [
-            asst([{ type: "tool_use", id: "t1", name: "Task", input: { subagent_type: "Explore", prompt: "look at X" } }]),
+            asst([
+                { type: "tool_use", id: "t1", name: "Task", input: { subagent_type: "Explore", prompt: "look at X" } },
+            ]),
             usr([{ type: "tool_result", tool_use_id: "t1", is_error: false }]),
         ];
         expect(extractSubagentSpawns(lines)).toEqual([
@@ -425,7 +593,9 @@ describe("extractSubagentSpawns", () => {
     });
 
     it("marks a still-running Task as not done", () => {
-        const lines = [asst([{ type: "tool_use", id: "t2", name: "Task", input: { subagent_type: "Plan", prompt: "plan Y" } }])];
+        const lines = [
+            asst([{ type: "tool_use", id: "t2", name: "Task", input: { subagent_type: "Plan", prompt: "plan Y" } }]),
+        ];
         expect(extractSubagentSpawns(lines)[0]).toMatchObject({ done: false, failed: false });
     });
 
@@ -447,7 +617,9 @@ describe("extractSubagentSpawns", () => {
     });
 
     it("lists an Agent tool_use as a spawn like a Task", () => {
-        const lines = [asst([{ type: "tool_use", id: "g1", name: "Agent", input: { subagent_type: "Plan", prompt: "plan it" } }])];
+        const lines = [
+            asst([{ type: "tool_use", id: "g1", name: "Agent", input: { subagent_type: "Plan", prompt: "plan it" } }]),
+        ];
         expect(extractSubagentSpawns(lines)).toStrictEqual([
             { toolUseId: "g1", subagentType: "Plan", prompt: "plan it", done: false, failed: false },
         ]);
@@ -528,7 +700,10 @@ describe("projectTranscript AskUserQuestion", () => {
                         {
                             question: "Which store?",
                             header: "Store",
-                            options: [{ label: "SQLite", description: "Reuse the object store" }, { label: "In-memory map" }],
+                            options: [
+                                { label: "SQLite", description: "Reuse the object store" },
+                                { label: "In-memory map" },
+                            ],
                             picked: [],
                         },
                     ],
@@ -548,7 +723,9 @@ describe("projectTranscript AskUserQuestion", () => {
     it("splits several picks from a typed answer, and counts answers across questions", () => {
         const [action] = projectTranscript([
             ask([store, checks]),
-            result({ answers: { "Which store?": "a bolt file", "Which checks?": "Go tests, CDP scenario, a soak run" } }),
+            result({
+                answers: { "Which store?": "a bolt file", "Which checks?": "Go tests, CDP scenario, a soak run" },
+            }),
         ]) as any[];
         expect(action.summary).toBe("2 answers");
         expect(action.detail.questions[0]).toMatchObject({ picked: [], typed: "a bolt file" });
@@ -572,7 +749,8 @@ describe("projectTranscript AskUserQuestion", () => {
 
 describe("projectTranscript malformed and mistyped records", () => {
     const L = (o: unknown) => JSON.stringify(o);
-    const asst = (blocks: any[], extra: object = {}) => L({ type: "assistant", ...extra, message: { content: blocks } });
+    const asst = (blocks: any[], extra: object = {}) =>
+        L({ type: "assistant", ...extra, message: { content: blocks } });
     const usr = (blocks: any[], extra: object = {}) => L({ type: "user", ...extra, message: { content: blocks } });
     const result = (id: string, content?: unknown, isError = false, extra: object = {}) =>
         usr([{ type: "tool_result", tool_use_id: id, is_error: isError, content }], extra);
@@ -625,7 +803,12 @@ describe("projectTranscript malformed and mistyped records", () => {
     it("attaches a detail only to the tool that owns it", () => {
         const out = projectTranscript([
             asst([
-                { type: "tool_use", id: "a", name: "Read", input: { file_path: "/p/a.ts", old_string: "a", new_string: "b" } },
+                {
+                    type: "tool_use",
+                    id: "a",
+                    name: "Read",
+                    input: { file_path: "/p/a.ts", old_string: "a", new_string: "b" },
+                },
                 { type: "tool_use", id: "b", name: "Read", input: { content: "x" } },
                 { type: "tool_use", id: "c", name: "Read", input: { questions: [{ question: "which?" }] } },
                 { type: "tool_use", id: "d", name: "Read", input: { skill: "foo" }, caller: { type: "direct" } },
@@ -689,12 +872,22 @@ describe("projectTranscript malformed and mistyped records", () => {
             ...(direct ? { caller: { type: "direct" } } : {}),
         });
         const out = projectTranscript([
-            asst([call("a", "  design the cache \n", true), call("b", "   ", true), call("c", "  design the cache \n", false), call("d", "   ", false)]),
+            asst([
+                call("a", "  design the cache \n", true),
+                call("b", "   ", true),
+                call("c", "  design the cache \n", false),
+                call("d", "   ", false),
+            ]),
         ]);
         expect(out).toEqual([
             { kind: "command", name: "commit", isSkill: true, args: "design the cache" },
             { kind: "command", name: "commit", isSkill: true },
-            { kind: "action", verb: "skill", target: "commit", detail: { kind: "skill", name: "commit", args: "design the cache" } },
+            {
+                kind: "action",
+                verb: "skill",
+                target: "commit",
+                detail: { kind: "skill", name: "commit", args: "design the cache" },
+            },
             { kind: "action", verb: "skill", target: "commit", detail: { kind: "skill", name: "commit" } },
         ]);
     });
@@ -778,7 +971,12 @@ describe("projectTranscript malformed and mistyped records", () => {
     it("ignores a tool_result-shaped block of another type or without a tool_use_id", () => {
         const out = projectTranscript([
             asst([{ type: "tool_use", id: "b", name: "Bash", input: { command: "ls" } }]),
-            usr([null, { type: "image", tool_use_id: "b" }, { type: "tool_result" }, { type: "tool_result", tool_use_id: 7 }]),
+            usr([
+                null,
+                { type: "image", tool_use_id: "b" },
+                { type: "tool_result" },
+                { type: "tool_result", tool_use_id: 7 },
+            ]),
         ]);
         expect(out).toEqual([{ kind: "action", verb: "ran", target: "ls" }]);
     });
@@ -798,19 +996,43 @@ describe("projectTranscript malformed and mistyped records", () => {
     });
 
     it("emits nothing for a blank user string", () => {
-        const out = projectTranscript([L({ type: "user", message: { content: "" } }), L({ type: "user", message: { content: "   " } })]);
+        const out = projectTranscript([
+            L({ type: "user", message: { content: "" } }),
+            L({ type: "user", message: { content: "   " } }),
+        ]);
         expect(out).toEqual([]);
     });
 
     describe("AskUserQuestion results", () => {
         const ask = L({
             type: "assistant",
-            message: { content: [{ type: "tool_use", id: "q1", name: "AskUserQuestion", input: { questions: [{ question: "Which?", options: [{ label: "A" }] }] } }] },
+            message: {
+                content: [
+                    {
+                        type: "tool_use",
+                        id: "q1",
+                        name: "AskUserQuestion",
+                        input: { questions: [{ question: "Which?", options: [{ label: "A" }] }] },
+                    },
+                ],
+            },
         });
-        const answered = (extra: object) => L({ type: "user", ...extra, message: { content: [{ type: "tool_result", tool_use_id: "q1", content: "x" }] } });
+        const answered = (extra: object) =>
+            L({
+                type: "user",
+                ...extra,
+                message: { content: [{ type: "tool_result", tool_use_id: "q1", content: "x" }] },
+            });
 
         it("leaves a question unanswered when the result carries no toolUseResult", () => {
-            const bare = [{ kind: "action", verb: "asked", target: "Which?", detail: { kind: "ask", questions: [{ question: "Which?", options: [{ label: "A" }], picked: [] }] } }];
+            const bare = [
+                {
+                    kind: "action",
+                    verb: "asked",
+                    target: "Which?",
+                    detail: { kind: "ask", questions: [{ question: "Which?", options: [{ label: "A" }], picked: [] }] },
+                },
+            ];
             expect(projectTranscript([ask, answered({})])).toEqual(bare);
             expect(projectTranscript([ask, answered({ toolUseResult: null })])).toEqual(bare);
         });
@@ -825,7 +1047,8 @@ describe("projectTranscript malformed and mistyped records", () => {
     });
 
     describe("durations", () => {
-        const use = (ts: unknown) => asst([{ type: "tool_use", id: "b", name: "Bash", input: { command: "x" } }], { timestamp: ts });
+        const use = (ts: unknown) =>
+            asst([{ type: "tool_use", id: "b", name: "Bash", input: { command: "x" } }], { timestamp: ts });
         const res = (ts: unknown) => result("b", "out", false, { timestamp: ts });
         const duration = (lines: string[]) => (projectTranscript(lines)[0] as any).durationMs;
 
@@ -857,7 +1080,9 @@ describe("projectTranscript compaction edge cases", () => {
     const summaryOf = (content: unknown) => L({ type: "user", isCompactSummary: true, message: { content } });
 
     it("joins the text blocks of an array summary", () => {
-        const out = projectTranscript([summaryOf([{ type: "text", text: "part one" }, { type: "image" }, { type: "text", text: "part two" }])]);
+        const out = projectTranscript([
+            summaryOf([{ type: "text", text: "part one" }, { type: "image" }, { type: "text", text: "part two" }]),
+        ]);
         expect(out).toEqual([{ kind: "compaction", summary: "part one\npart two" }]);
     });
 
@@ -875,9 +1100,12 @@ describe("projectTranscript compaction edge cases", () => {
     });
 
     it("carries only the metadata the boundary has", () => {
-        const boundary = (compactMetadata?: object) => L({ type: "system", subtype: "compact_boundary", compactMetadata });
+        const boundary = (compactMetadata?: object) =>
+            L({ type: "system", subtype: "compact_boundary", compactMetadata });
         expect(projectTranscript([boundary()])).toStrictEqual([{ kind: "compaction" }]);
-        expect(projectTranscript([boundary({ trigger: "auto" })])).toStrictEqual([{ kind: "compaction", trigger: "auto" }]);
+        expect(projectTranscript([boundary({ trigger: "auto" })])).toStrictEqual([
+            { kind: "compaction", trigger: "auto" },
+        ]);
         expect(projectTranscript([boundary({ preTokens: 10 })])).toStrictEqual([{ kind: "compaction", preTokens: 10 }]);
         expect(projectTranscript([boundary({ postTokens: 4 })])).toStrictEqual([{ kind: "compaction", postTokens: 4 }]);
     });

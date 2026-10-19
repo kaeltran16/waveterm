@@ -68,10 +68,14 @@ describe("briefing cursor", () => {
     it("first use falls back to seven days ago for the fetch; the cursor moves only on acknowledge", async () => {
         mockStateRpc(completeState());
         await loadBriefingAsync();
-        expect(RpcApi.JarvisStateCommand).toHaveBeenCalledWith(expect.anything(), {
-            project: "",
-            sincems: T0 - SEVEN_DAYS_MS,
-        }, { timeout: 180_000 });
+        expect(RpcApi.JarvisStateCommand).toHaveBeenCalledWith(
+            expect.anything(),
+            {
+                project: "",
+                sincems: T0 - SEVEN_DAYS_MS,
+            },
+            { timeout: 180_000 }
+        );
         // load alone must not mark the delta seen
         expect(globalStore.get(briefingCursorAtom)).toBe(null);
         expect(globalStore.get(briefingAckAtom)).toBe("waiting");

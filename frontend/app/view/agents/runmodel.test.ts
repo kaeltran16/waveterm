@@ -14,8 +14,8 @@ import {
     leadAsker,
     leadWorker,
     liveWorkers,
-    phaseStateView,
     phaseRailIds,
+    phaseStateView,
     phaseThread,
     phaseWorkers,
     planDirty,
@@ -194,7 +194,9 @@ describe("phaseStateView", () => {
 
 describe("currentPhaseIndex", () => {
     it("returns the first running phase", () => {
-        expect(currentPhaseIndex(run({ phases: [phase({ state: "done" }), phase({ state: "running" }), phase()] }))).toBe(1);
+        expect(
+            currentPhaseIndex(run({ phases: [phase({ state: "done" }), phase({ state: "running" }), phase()] }))
+        ).toBe(1);
     });
     it("returns the gated phase when awaiting review", () => {
         const r = run({
@@ -204,13 +206,17 @@ describe("currentPhaseIndex", () => {
         expect(currentPhaseIndex(r)).toBe(1);
     });
     it("returns the last non-skipped phase otherwise", () => {
-        expect(currentPhaseIndex(run({ status: "done", phases: [phase({ state: "done" }), phase({ state: "skipped" })] }))).toBe(0);
+        expect(
+            currentPhaseIndex(run({ status: "done", phases: [phase({ state: "done" }), phase({ state: "skipped" })] }))
+        ).toBe(0);
     });
 });
 
 describe("reviewGate", () => {
     it("is null unless the run is awaiting review", () => {
-        expect(reviewGate(run({ status: "executing", phases: [phase({ gate: true, state: "done" }), phase()] }))).toBeNull();
+        expect(
+            reviewGate(run({ status: "executing", phases: [phase({ gate: true, state: "done" }), phase()] }))
+        ).toBeNull();
     });
     it("returns the done gated phase whose successor is pending", () => {
         const r = run({
@@ -234,7 +240,9 @@ describe("reviewGate edge cases", () => {
         expect(reviewGate(r)).toEqual({ phaseIdx: 2 });
     });
     it("returns a held running phase wherever it sits", () => {
-        expect(reviewGate(awaiting(phase({ state: "done" }), phase({ state: "running", held: true })))).toEqual({ phaseIdx: 1 });
+        expect(reviewGate(awaiting(phase({ state: "done" }), phase({ state: "running", held: true })))).toEqual({
+            phaseIdx: 1,
+        });
     });
     it("is null when no phase is held and no gate has completed", () => {
         expect(reviewGate(awaiting(phase({ state: "done" })))).toBeNull();
@@ -260,13 +268,19 @@ describe("isTerminal / defaultView / defaultRunId", () => {
         expect(defaultView(0)).toBe("chat");
     });
     it("defaultRunId prefers the most-recent non-terminal run", () => {
-        const runs = [run({ id: "a", createdts: 1, status: "done" }), run({ id: "b", createdts: 2, status: "executing" })];
+        const runs = [
+            run({ id: "a", createdts: 1, status: "done" }),
+            run({ id: "b", createdts: 2, status: "executing" }),
+        ];
         expect(defaultRunId(runs)).toBe("b");
     });
     // a finished run is never the default: a channel with nothing live lands on the fresh-run state,
     // and a finished run only shows once the user picks it explicitly.
     it("defaultRunId is undefined when all runs are terminal", () => {
-        const runs = [run({ id: "a", createdts: 1, status: "done" }), run({ id: "b", createdts: 2, status: "cancelled" })];
+        const runs = [
+            run({ id: "a", createdts: 1, status: "done" }),
+            run({ id: "b", createdts: 2, status: "cancelled" }),
+        ];
         expect(defaultRunId(runs)).toBeUndefined();
     });
     it("defaultRunId picks the newest of several live runs whatever their order", () => {
@@ -300,7 +314,16 @@ describe("phaseWorkers", () => {
 
 describe("phaseThread", () => {
     const base = (over: Partial<Run>) =>
-        ({ id: "r", goal: "g", workspaceid: "w", projectpath: "/p", status: "executing", phases: [], createdts: 1, ...over }) as Run;
+        ({
+            id: "r",
+            goal: "g",
+            workspaceid: "w",
+            projectpath: "/p",
+            status: "executing",
+            phases: [],
+            createdts: 1,
+            ...over,
+        }) as Run;
 
     it("shows an ask (fork on execute) when a worker is asking", () => {
         const run = base({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:t1"] }] });
@@ -369,7 +392,10 @@ describe("phaseThread", () => {
     it("shows the gate card only on the gated phase", () => {
         const run = base({
             status: "awaiting-review",
-            phases: [{ kind: "plan", gate: true, state: "done" }, { kind: "execute", state: "pending" }],
+            phases: [
+                { kind: "plan", gate: true, state: "done" },
+                { kind: "execute", state: "pending" },
+            ],
         });
         expect(phaseThread(run, 0, []).showGate).toBe(true);
         expect(phaseThread(run, 1, []).showGate).toBe(false);
@@ -385,7 +411,10 @@ describe("phaseThread", () => {
         ];
         expect(phaseThread(base({ status: "done", phases: twoDone }), 0, []).showShip).toBe(false);
         expect(phaseThread(base({ status: "done", phases: twoDone }), 1, []).showShip).toBe(true);
-        const lastSkipped: RunPhase[] = [{ kind: "execute", state: "done" }, { kind: "execute", state: "skipped" }];
+        const lastSkipped: RunPhase[] = [
+            { kind: "execute", state: "done" },
+            { kind: "execute", state: "skipped" },
+        ];
         expect(phaseThread(base({ status: "done", phases: lastSkipped }), 1, []).showShip).toBe(false);
         expect(phaseThread(base({ status: "executing", phases: twoDone }), 1, []).showShip).toBe(false);
     });
@@ -569,9 +598,14 @@ describe("cancelSurvivors", () => {
 describe("orchestrator derivations", () => {
     function orchHeldRun(): Run {
         return {
-            id: "r1", goal: "g", mode: "orchestrator", status: "awaiting-review",
+            id: "r1",
+            goal: "g",
+            mode: "orchestrator",
+            status: "awaiting-review",
             phases: [{ kind: "orchestrate", state: "running", gate: true, held: true }],
-            createdts: 1, workspaceid: "w", projectpath: "/p",
+            createdts: 1,
+            workspaceid: "w",
+            projectpath: "/p",
         } as unknown as Run;
     }
 
@@ -584,7 +618,6 @@ describe("orchestrator derivations", () => {
         expect(isOrchestrator({ mode: "pipeline" } as unknown as Run)).toBe(false);
         expect(isOrchestrator({} as unknown as Run)).toBe(false);
     });
-
 });
 
 const runtimeHarnesses: HarnessInfo[] = [
