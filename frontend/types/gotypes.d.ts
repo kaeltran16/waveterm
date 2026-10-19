@@ -3169,6 +3169,7 @@ declare global {
         gate?: boolean;
         state: string;
         runid?: string;
+        spawnedts?: number;
         released?: boolean;
         merged?: boolean;
         runspec?: RunSpec;
