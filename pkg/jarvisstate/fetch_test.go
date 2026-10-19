@@ -258,10 +258,8 @@ func TestFetchWorkStateKeysAndFiltersProjects(t *testing.T) {
 	if got := shippedBy(st); !reflect.DeepEqual(got, want) {
 		t.Fatalf("filtered shipped by project = %v, want %v", got, want)
 	}
-	for _, p := range st.Projects {
-		if p.Project != "/p/one" && (len(p.Active)+len(p.Shipped)+len(p.Events)+len(p.Delta)) > 0 {
-			t.Fatalf("filtered state holds work of %q: %+v", p.Project, p)
-		}
+	if len(st.Projects) != 1 || st.Projects[0].Project != "/p/one" {
+		t.Fatalf("filtered projects = %+v, want only /p/one", st.Projects)
 	}
 }
 

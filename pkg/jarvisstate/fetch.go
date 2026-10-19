@@ -141,11 +141,16 @@ func FetchWorkState(ctx context.Context, projectFilter string, sinceMs int64) (w
 
 	byProject := map[string]*wshrpc.ProjectWork{}
 	order := []string{}
-	projectOf := func(p string) string {
+	keyOf := func(p string) string {
 		key := strings.TrimRight(strings.ReplaceAll(p, "\\", "/"), "/")
 		if key == "" {
 			key = "(none)"
 		}
+		return key
+	}
+	// registers only a kept project, so a filter leaves no empty entries for the projects it excludes
+	projectOf := func(p string) string {
+		key := keyOf(p)
 		if _, ok := byProject[key]; !ok {
 			byProject[key] = &wshrpc.ProjectWork{Project: key}
 			order = append(order, key)
@@ -153,7 +158,7 @@ func FetchWorkState(ctx context.Context, projectFilter string, sinceMs int64) (w
 		return key
 	}
 	inProject := func(p string) bool {
-		return projectFilter == "" || projectOf(p) == projectOf(projectFilter)
+		return projectFilter == "" || keyOf(p) == keyOf(projectFilter)
 	}
 	for _, it := range active {
 		if !inProject(it.Project) {
