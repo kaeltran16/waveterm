@@ -27,6 +27,12 @@ import (
 // that outlives it can keep writing indefinitely, and truncation keeps disk bounded.
 const stderrCapBytes = int64(16 << 20)
 
+// createStderrCapture makes a pipe run's owned stderr file; a test swaps it to hold the file and
+// check the run released it.
+var createStderrCapture = func() (*os.File, error) {
+	return os.CreateTemp("", "wave-consult-stderr-*")
+}
+
 // Run executes the runtime in one-shot mode with the given prompt and cwd, calling emit for each
 // reply fragment as it arrives, and returns the complete captured reply.
 func Run(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit func(string)) (string, error) {
@@ -273,7 +279,7 @@ func startCmd(ctx context.Context, spec RuntimeSpec, cwd, prompt string) (*exec.
 	// (see runPipe for why a pipe target + copy goroutine would strand on descendant-held EOF).
 	var stderr *os.File
 	if !spec.UsePty {
-		f, cerr := os.CreateTemp("", "wave-consult-stderr-*")
+		f, cerr := createStderrCapture()
 		if cerr != nil {
 			return nil, nil, fmt.Errorf("creating stderr capture: %w", cerr)
 		}

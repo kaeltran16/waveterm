@@ -10,6 +10,7 @@ package consult
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -202,5 +203,30 @@ func TestRunPipe_removesTheStderrCapture(t *testing.T) {
 	}
 	if left != nil {
 		t.Fatalf("temp dir holds %v after the run, want nothing", left)
+	}
+}
+
+// the run closes its stderr capture, not only removes it: Unix lets an open file be removed, so
+// the closed handle is what shows the release on every platform
+func TestRunPipe_closesTheStderrCapture(t *testing.T) {
+	os.Setenv(fakePiHelperEnv, "1")
+	t.Cleanup(func() { os.Unsetenv(fakePiHelperEnv) })
+	var capture *os.File
+	orig := createStderrCapture
+	createStderrCapture = func() (*os.File, error) {
+		f, err := orig()
+		capture = f
+		return f, err
+	}
+	t.Cleanup(func() { createStderrCapture = orig })
+	if _, err := Run(context.Background(), fakePiSpec("drain"), "", "prompt", func(string) {}); err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if capture == nil {
+		t.Fatal("the run made no stderr capture")
+	}
+	if err := capture.Close(); !errors.Is(err, os.ErrClosed) {
+		os.Remove(capture.Name())
+		t.Fatalf("closing the capture after the run = %v, want os.ErrClosed", err)
 	}
 }
