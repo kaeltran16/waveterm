@@ -346,6 +346,16 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 - Headings are `### Task N` or `## Task N`, numbered 1, 2, 3… in order.
 - `**Depends on:**` must be the first line after the heading. Left out, the task depends on the task before it,
   so a plan with no Depends lines is **serial**. `none` means independent. References must point backwards.
+  **An edge between tasks that share no file must say why.** When the task and one it lists both have Files
+  lines and the two lines share no path, the reference needs a reason in parentheses saying what the task uses
+  from it: `**Depends on:** Task 1 (uses the topOf rows it adds), Task 2`. Submit refuses the bare reference,
+  naming both tasks: give the reason, or drop the edge so the two run at the same time. Nothing else orders two
+  tasks with no file in common, so a needless edge only makes one wait for the other's review (run dfba1693:
+  a fixtures task and an Evidence task were linked because one scenario's screenshot showed both). A shared
+  screenshot or scenario run is not a reason; each task names that scenario step in its acceptance instead.
+  Exempt: an edge between tasks that share a file (the overlap check already demands it), the implicit edge of
+  a task with no Depends line, and an edge to or from a task with no Files line. The plan reviewer checks that
+  each reason holds.
   A dependency on a long task for its interface alone (a type, a wire field, a table, a signature) is the
   common way a plan grows a long chain: land the interface first as its own small task, and the implementation
   and its users depend on that and run side by side. Measured over 69 finished runs (2026-10-15), worker time
@@ -478,6 +488,7 @@ design canvas), the plan and the files they name. The full checklist is that:
 
 - every requirement in the spec has a task;
 - no two tasks edit the same file without a Depends between them;
+- each reason a Depends line gives holds: the dependent task really uses what it names;
 - types, functions and flags have the same names in every task that mentions them;
 - no task waits for another's long implementation when it needs only its interface: the interface lands first
   as its own small task;
@@ -497,7 +508,7 @@ reviewers route, each checking only its own part of the checklist:
 | Lens | Checks |
 |---|---|
 | **Spec coverage** | every requirement has a task; spec gaps and spec/plan contradictions |
-| **Task order and files** | Files/Depends overlaps; names consistent across tasks |
+| **Task order and files** | Files/Depends overlaps; Depends reasons hold; names consistent across tasks |
 | **Tests and commands** | acceptance criteria and named tests; the named commands exist |
 | **Final coverage** | each UI change has a Final scenario step; with a Prototype, each board has one |
 
