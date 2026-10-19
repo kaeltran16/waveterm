@@ -19078,6 +19078,8 @@ const BS_CHECK = {
 // the touched parts in the file's order, which is the order the check draws them in
 const BS_TOUCHED_ORDER = ["intent", "anti", "thresholds", "builder"];
 const BS_HANDOFF = bsFile({ done: true, parts: BS_HANDOFF_PARTS, history: BS_HISTORY_Q4, check: BS_CHECK });
+// every part yours and the agent done, before the builder check: the Ready board
+const BS_READY = bsFile({ done: true, parts: BS_HANDOFF_PARTS, history: BS_HISTORY_Q4 });
 const BS_HANDOFF_ANSWERED = {
     ...BS_HANDOFF,
     check: { ...BS_CHECK, yours: [{ ...BS_CHECK.yours[0], a: BS_BUILDER_A, into: "anti" }] },
@@ -19100,7 +19102,20 @@ const bsRead = (h, ctx) =>
         return {
             view: pane?.getAttribute("data-brainstorm-view") ?? null,
             text: flat(pane),
-            counts: flat(pane?.querySelector("[data-brainstorm-counts]")),
+            toolbar: flat(pane?.firstElementChild),
+            phase: flat(pane?.querySelector('[data-brainstorm-phase] [aria-current="step"]')),
+            progress: flat(pane?.querySelector("[data-brainstorm-progress]")),
+            segments: [...(pane?.querySelectorAll("[data-brainstorm-progress] [data-state]") ?? [])].map((x) =>
+                x.getAttribute("data-state")
+            ),
+            title: flat(pane?.querySelector("h1")),
+            leftShown: !!pane?.querySelector("[data-brainstorm-left]"),
+            left: [...(pane?.querySelectorAll("[data-brainstorm-left-row]") ?? [])].map(flat),
+            ready: flat(pane?.querySelector("[data-brainstorm-ready]")),
+            skipNote: flat(pane?.querySelector("[data-brainstorm-skip-note]")),
+            workingNote: flat(pane?.querySelector("[data-brainstorm-working-note]")),
+            tiles: [...(pane?.querySelectorAll("[data-brainstorm-tile]") ?? [])].map(flat),
+            approveReason: flat(pane?.querySelector("[data-brainstorm-approve-reason]")),
             question: flat(pane?.querySelector("[data-brainstorm-question]")),
             answerBox: !!pane?.querySelector("[data-brainstorm-answer]"),
             working: flat(pane?.querySelector("[data-brainstorm-working]")),
@@ -19454,16 +19469,22 @@ const brainstormMode = {
         await h.shot("cdp-shots/brainstorm-mode-1.png");
         const asked1 = bsPart(s1, "intent");
         rec(
-            "1. just started: Question 1, the skip and parts hints, no Guess for me, its one part Asked now",
+            "1. just started (Fresh): Question 1, the skip note under it, no what's-left list, no Guess for me, its one part Asked now · question 1 pointing left",
             s1.ok &&
                 s1.view === "design" &&
-                s1.text.includes("Rather skip the questions and have me start? Say so.") &&
-                s1.text.includes("Parts appear here as the conversation finds them.") &&
+                s1.phase === "Talking it through" &&
+                s1.progress === "0 of 1 parts yours" &&
+                s1.skipNote ===
+                    "Skipping has the agent write every part as its guess. You confirm or edit each one after, before the builder check." &&
+                !s1.text.includes("Rather skip the questions") &&
+                !s1.leftShown &&
+                s1.text.includes("More parts appear as the conversation finds them.") &&
                 s1.guessFor === 0 &&
                 s1.parts.length === 1 &&
                 asked1?.state === "asked" &&
-                asked1.text.includes("Asked now"),
-            { ...bsBrief(s1), guessFor: s1.guessFor, parts: s1.parts }
+                asked1.text.includes("Asked now · question 1") &&
+                asked1.text.includes("Written from your answer to the question on the left."),
+            { ...bsBrief(s1), phase: s1.phase, progress: s1.progress, skipNote: s1.skipNote, leftShown: s1.leftShown, guessFor: s1.guessFor, parts: s1.parts }
         );
         ctx.agentName = (await h.ev(BS_ROW_READ))?.name ?? "";
 
@@ -19481,15 +19502,57 @@ const brainstormMode = {
         })()`);
         await h.shot("cdp-shots/brainstorm-mode-2.png");
         rec(
-            "2. mid-conversation: counts 3 yours, 3 guesses, 2 open; Question 4 for When it pages; the check disabled",
+            "2. mid-conversation (Main): Talking it through, 3 of 8 parts yours in eight segments, Question 4 for When it pages, no check button",
             s2.ok &&
                 s2.view === "design" &&
-                s2.counts === "3 yours 3 guesses 2 open" &&
+                s2.phase === "Talking it through" &&
+                s2.progress === "3 of 8 parts yours" &&
+                JSON.stringify(s2.segments) ===
+                    JSON.stringify(["yours", "yours", "yours", "guess", "guess", "asked", "guess", "open"]) &&
+                !s2.toolbar.includes("guesses") &&
                 s2.question.includes("for When it pages") &&
                 s2.question.includes(BS_Q4.text) &&
-                s2.check?.disabled === true,
-            { ...bsBrief(s2), counts: s2.counts, question: s2.question, check: s2.check }
+                s2.check === null,
+            { ...bsBrief(s2), phase: s2.phase, progress: s2.progress, segments: s2.segments, toolbar: s2.toolbar, question: s2.question, check: s2.check }
         );
+        rec(
+            "2m. the title and spec head the design column, not the toolbar",
+            s2.title === "Consumer lag alerts" && !s2.toolbar.includes(s2.title) && !s2.toolbar.includes(BS_SPEC) && s2.text.includes(BS_SPEC),
+            { title: s2.title, toolbar: s2.toolbar }
+        );
+        rec(
+            "2n. Before the builder check lists every part not yours, the asked one first",
+            JSON.stringify(s2.left) ===
+                JSON.stringify([
+                    "Answer question 4 When it pages",
+                    "Confirm the agent’s guess Current state",
+                    "Confirm the agent’s guess Constraints",
+                    "Confirm the agent’s guess What on-call sees",
+                    "The agent writes this last Left to the builder",
+                ]),
+            { left: s2.left }
+        );
+        // the design column back at its top, where the last part sits below the fold
+        const builderInView = `(() => {
+            const p = ${bsPartSel("builder")};
+            const col = p?.closest(".overflow-y-auto");
+            if (!p || !col) return false;
+            const r = p.getBoundingClientRect();
+            const c = col.getBoundingClientRect();
+            return r.top >= c.top && r.bottom <= c.bottom;
+        })()`;
+        await h.ev(`(() => {
+            const col = ${bsPartSel("builder")}?.closest(".overflow-y-auto");
+            if (col) col.scrollTop = 0;
+            return true;
+        })()`);
+        const builderBefore = await h.ev(builderInView);
+        await h.ev(`${BS_PANE}?.querySelector('[data-brainstorm-left-row="builder"]')?.click()`);
+        const leftJump = await polishWaitFor(h, builderInView, 3000);
+        rec("2o. a what's-left row scrolls the design to its part, from below the fold into view", builderBefore === false && leftJump, {
+            builderBefore,
+            leftJump,
+        });
         rec(
             "2b. four Earlier rows, newest first, each saying where it went",
             JSON.stringify(s2.history.map((r) => r.label)) === JSON.stringify(["Recon", "Q3", "Q2", "Q1"]) &&
@@ -19630,6 +19693,14 @@ const brainstormMode = {
                 s4.history[0]?.label === "Q4 · just now",
             { ...bsBrief(s4), working: s4.working, answerBox: s4.answerBox, writing, confirm: s4.confirm, newest: s4.history[0] }
         );
+        rec(
+            "4b. Working: the note atop the design says actions open again when the agent asks; no what's-left list",
+            s4.workingNote ===
+                "The agent is writing. Confirm, edit and keep open again when it asks its next question." &&
+                !s4.leftShown &&
+                s4.phase === "Talking it through",
+            { workingNote: s4.workingNote, leftShown: s4.leftShown, phase: s4.phase }
+        );
 
         // 5. a confirmed part changed
         bsWrite(ctx, BS_FILES.changed);
@@ -19647,8 +19718,9 @@ const brainstormMode = {
                 changed.text.includes("Changed since you confirmed it") &&
                 diff.length === 1 &&
                 diff[0] === `+ ${BS_ADDED}` &&
-                changed.text.includes(`Why: ${BS_WHY}`),
-            { ...bsBrief(s5), part: changed?.text, diff }
+                changed.text.includes(`Why: ${BS_WHY}`) &&
+                s5.left.includes("Review what changed Constraints"),
+            { ...bsBrief(s5), part: changed?.text, diff, left: s5.left }
         );
         mark = await bsMark(h, ctx, "brainstorm: keep constraints");
         const kept = await bsClick(h, bsPartSel("constraints"), "Keep the change");
@@ -19765,6 +19837,32 @@ const brainstormMode = {
             );
         }
 
+        // 7c. ready: every part yours, nothing left to ask
+        bsWrite(ctx, BS_READY);
+        await bsShowPane(h);
+        const s7c = await bsUntil(h, ctx, (s) => s.ready !== "");
+        await h.shot("cdp-shots/brainstorm-mode-ready.png");
+        rec(
+            "7c. ready (Ready): 8 of 8 parts yours, Nothing left to ask holding Check with a builder, no what's-left list",
+            s7c.ok &&
+                s7c.view === "design" &&
+                s7c.phase === "Talking it through" &&
+                s7c.progress === "8 of 8 parts yours" &&
+                s7c.segments.length === 8 &&
+                s7c.segments.every((x) => x === "yours") &&
+                s7c.ready.startsWith("Nothing left to ask Every part is yours.") &&
+                s7c.check?.disabled === false &&
+                !s7c.leftShown,
+            { ...bsBrief(s7c), phase: s7c.phase, progress: s7c.progress, ready: s7c.ready, check: s7c.check, leftShown: s7c.leftShown }
+        );
+        mark = await bsMark(h, ctx, "brainstorm: check");
+        const checked = await bsClick(h, `${BS_PANE}?.querySelector("[data-brainstorm-ready]")`, "Check with a builder");
+        const checkTyped = await bsTyped(h, ctx, mark, "brainstorm: check");
+        rec("7d. Check with a builder types brainstorm: check", checked === "clicked" && checkTyped.ok, {
+            checked,
+            ...checkTyped.detail,
+        });
+
         // 8. builder check, before your answer
         bsWrite(ctx, BS_HANDOFF);
         await bsShowPane(h);
@@ -19773,19 +19871,23 @@ const brainstormMode = {
         await h.shot("cdp-shots/brainstorm-mode-8.png");
         const calls = Object.fromEntries(s8.parts.map((p) => [p.id, p.calls]));
         rec(
-            "8. builder check: Only you can answer · 1, It had 6 questions, the agent's calls under their parts, approve disabled",
+            "8. builder check (Check): Builder check current, three count tiles, Only you can answer · 1, the agent's calls under their parts, approve disabled saying why",
             s8.ok &&
                 s8.builder.includes("Only you can answer · 1") &&
                 s8.builder.includes(BS_BUILDER_Q) &&
                 s8.text.includes("It had 6 questions") &&
-                s8.text.includes("8 yours · nothing open · the agent has no more questions") &&
+                s8.phase === "Builder check" &&
+                s8.progress === "8 yours · nothing open" &&
+                JSON.stringify(s8.tiles) ===
+                    JSON.stringify(["1 for you", "3 the agent decided", "2 already in the design"]) &&
+                s8.approveReason === "Answer the builder’s question first" &&
                 JSON.stringify(s8.parts.map((p) => p.id)) === JSON.stringify(BS_TOUCHED_ORDER) &&
                 calls.thresholds === 2 &&
                 calls.anti === 1 &&
                 untouchedBtn === "Show the 4 parts the builder did not touch" &&
                 s8.approve?.disabled === true &&
                 s8.approve.title === "Answer the builder’s question first",
-            { ...bsBrief(s8), builder: s8.builder, parts: s8.parts.map((p) => p.id), calls, untouchedBtn, approve: s8.approve }
+            { ...bsBrief(s8), builder: s8.builder, phase: s8.phase, progress: s8.progress, tiles: s8.tiles, approveReason: s8.approveReason, parts: s8.parts.map((p) => p.id), calls, untouchedBtn, approve: s8.approve }
         );
         await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-untouched]")?.click()`);
         const s8b = await bsUntil(h, ctx, (s) => s.parts.length === 8, 2000);
@@ -19816,8 +19918,9 @@ const brainstormMode = {
             s9.ok &&
                 s9.text.includes(`You answered ${BS_BUILDER_A} Added to Anti-goals.`) &&
                 s9.builder === "" &&
-                s9.approve?.disabled === false,
-            { ...bsBrief(s9), approve: s9.approve }
+                s9.approve?.disabled === false &&
+                s9.approveReason === "",
+            { ...bsBrief(s9), approve: s9.approve, approveReason: s9.approveReason }
         );
         mark = await bsMark(h, ctx, null);
         const changeClicked = await bsClick(h, BS_APPROVE_BAR, "Change");

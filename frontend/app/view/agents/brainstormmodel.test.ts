@@ -5,28 +5,34 @@ import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     BUILDER_PART,
+    approveBlocker,
     asksUser,
     brainstormAttention,
     brainstormCounts,
     brainstormFilePath,
     brainstormLine,
+    brainstormPhase,
     canCheck,
     compactedSummary,
     exitedSummary,
-    handoffSummary,
     handoffView,
     historyRows,
     isAsking,
+    leftPanel,
     orderedParts,
     paneView,
     parseBrainstorm,
     parseBrainstormPath,
     partTitle,
+    partView,
+    phaseSteps,
+    progressView,
     resumePrompt,
     runLine,
     runPrefill,
     sentenceDiff,
     treeLine,
+    whatsLeft,
     withBrainstorm,
     type BrainstormFile,
     type BrainstormPart,
@@ -351,18 +357,16 @@ describe("handoffView", () => {
     };
     const parts = [part("p1", "yours"), part("p2", "yours"), part("p3", "yours")];
 
-    it("counts questions, finds the open one and gates approval", () => {
+    it("counts questions and finds the open one", () => {
         const v = handoffView(file({ parts, check }));
         expect(v.questions).toBe(2 + 1 + 1);
         expect(v.open).toEqual({ q: "q2" });
         expect(v.answered).toEqual([{ q: "q1", a: "ans" }]);
-        expect(v.canApprove).toBe(false);
     });
 
-    it("can approve once every question is answered and no run started", () => {
-        const answered = { ...check, yours: [{ q: "q1", a: "ans" }] };
-        expect(handoffView(file({ parts, check: answered })).canApprove).toBe(true);
-        expect(handoffView(file({ parts, check: answered, run: "r1" })).canApprove).toBe(false);
+    it("counts the three tiles: for you, the agent decided, already in the design", () => {
+        const v = handoffView(file({ parts, check }));
+        expect([v.forYou, v.calls.length, v.already]).toEqual([2, 1, 1]);
     });
 
     it("treats every part as touched when touched is absent", () => {
@@ -378,6 +382,141 @@ describe("handoffView", () => {
     });
 });
 
+describe("partView", () => {
+    const asking = { n: 2, text: "?", part: "a" };
+
+    it("reads a guess that was yours as changed", () => {
+        expect(partView(file(), part("a", "guess"))).toBe("guess");
+        expect(partView(file(), part("a", "guess", { was: "before" }))).toBe("changed");
+    });
+
+    it("reads an asked part as writing only while the agent writes and asks nothing", () => {
+        expect(partView(file({ working: "w" }), part("a", "asked"))).toBe("writing");
+        expect(partView(file({ question: asking }), part("a", "asked"))).toBe("asked");
+        expect(partView(file({ working: "w", question: asking }), part("a", "asked"))).toBe("asked");
+    });
+
+    it("passes yours and open through", () => {
+        expect(partView(file(), part("a", "yours"))).toBe("yours");
+        expect(partView(file(), part("a", "open"))).toBe("open");
+    });
+});
+
+describe("phase", () => {
+    const steps = (f: BrainstormFile) => phaseSteps(f).map((s) => `${s.label}:${s.status}`);
+    const check = { yours: [], calls: [], answered: [] };
+
+    it("talks until a builder check exists", () => {
+        expect(brainstormPhase(file({ done: true }))).toBe("talk");
+        expect(steps(file())).toEqual(["Talking it through:current", "Builder check:todo", "Run:todo"]);
+    });
+
+    it("is on the builder check once the check is written", () => {
+        expect(steps(file({ check }))).toEqual(["Talking it through:done", "Builder check:current", "Run:todo"]);
+    });
+
+    it("is on the run once one started, check or not", () => {
+        expect(brainstormPhase(file({ check, run: "r1" }))).toBe("run");
+        expect(steps(file({ run: "r1" }))).toEqual(["Talking it through:done", "Builder check:done", "Run:current"]);
+    });
+});
+
+describe("progressView", () => {
+    const parts = [part(BUILDER_PART, "open"), part("a", "yours"), part("b", "guess"), part("c", "asked")];
+
+    it("has one segment per part, the builder last, each with its state", () => {
+        expect(progressView(file({ parts })).segments).toEqual([
+            { id: "a", title: "Title a", state: "yours" },
+            { id: "b", title: "Title b", state: "guess" },
+            { id: "c", title: "Title c", state: "asked" },
+            { id: BUILDER_PART, title: `Title ${BUILDER_PART}`, state: "open" },
+        ]);
+    });
+
+    it("reads N of M parts yours while talking", () => {
+        const v = progressView(file({ parts }));
+        expect([v.lead, v.rest]).toEqual(["1 of 4", "parts yours"]);
+        expect(progressView(file()).lead).toBe("0 of 0");
+    });
+
+    it("reads yours and what is open at the builder check", () => {
+        const check = { yours: [], calls: [], answered: [] };
+        const all = file({ check, parts: [part("a", "yours"), part("b", "yours")] });
+        expect([progressView(all).lead, progressView(all).rest]).toEqual(["2 yours", "· nothing open"]);
+        expect(progressView(file({ check, parts })).rest).toBe("· 2 open");
+    });
+});
+
+describe("whatsLeft", () => {
+    it("lists every part not yours, the asked one first, each naming what you do", () => {
+        const f = file({
+            question: { n: 4, text: "?", part: "c" },
+            parts: [
+                part("a", "yours"),
+                part("b", "guess"),
+                part("k", "guess", { was: "old" }),
+                part("c", "asked"),
+                part(BUILDER_PART, "open"),
+            ],
+        });
+        expect(whatsLeft(f).map((r) => [r.id, r.kind, r.text, r.title])).toEqual([
+            ["c", "answer", "Answer question 4", "Title c"],
+            ["b", "confirm", "Confirm the agent’s guess", "Title b"],
+            ["k", "review", "Review what changed", "Title k"],
+            [BUILDER_PART, "last", "The agent writes this last", `Title ${BUILDER_PART}`],
+        ]);
+    });
+
+    it("tells an open part from the builder's, and an asked part the question is not for", () => {
+        const f = file({ question: { n: 2, text: "?", part: "x" }, parts: [part("o", "open"), part("c", "asked")] });
+        expect(whatsLeft(f).map((r) => r.text)).toEqual(["Answer its question", "Not talked through yet"]);
+    });
+
+    it("is empty when every part is yours", () => {
+        expect(whatsLeft(file({ parts: [part("a", "yours")] }))).toEqual([]);
+    });
+});
+
+describe("leftPanel", () => {
+    const q1 = { n: 1, text: "?", part: "a" };
+    const said = [{ kind: "question" as const, n: 1, q: "?", a: "x", into: [] }];
+    const yours = [part("a", "yours")];
+
+    it("holds the builder check once every part is yours and the agent is done", () => {
+        expect(leftPanel(file({ done: true, parts: yours, history: said }))).toBe("ready");
+        expect(leftPanel(file({ done: true, parts: yours }))).toBe("ready");
+    });
+
+    it("holds nothing while the agent writes, even when ready", () => {
+        expect(leftPanel(file({ done: true, parts: yours, working: "w" }))).toBe("none");
+    });
+
+    it("holds nothing beside the first question, and the list otherwise", () => {
+        expect(leftPanel(file({ question: q1, parts: [part("a", "asked")] }))).toBe("none");
+        expect(leftPanel(file({ question: q1, parts: [part("a", "asked")], history: said }))).toBe("left");
+        expect(leftPanel(file({ parts: [part("a", "guess")] }))).toBe("left");
+        expect(leftPanel(file({ parts: yours }))).toBe("left");
+    });
+});
+
+describe("approveBlocker", () => {
+    const check = { yours: [{ q: "q1" }], calls: [], answered: [] };
+    const answered = { ...check, yours: [{ q: "q1", a: "yes" }] };
+
+    it("names the builder's open question", () => {
+        expect(approveBlocker(file({ check }))).toBe("Answer the builder’s question first");
+    });
+
+    it("names the agent writing before anything else", () => {
+        expect(approveBlocker(file({ check, working: "w" }))).toBe("The agent is writing; this opens when it is done");
+    });
+
+    it("is null once approvable or once a run started", () => {
+        expect(approveBlocker(file({ check: answered }))).toBeNull();
+        expect(approveBlocker(file({ check, run: "r1", working: "w" }))).toBeNull();
+    });
+});
+
 describe("summaries", () => {
     const parts = [
         ...["a", "b", "c", "d", "e"].map((id) => part(id, "yours")),
@@ -385,13 +524,6 @@ describe("summaries", () => {
         part("g", "guess"),
         part("h", "open"),
     ];
-
-    it("handoffSummary", () => {
-        const yours8 = file({ done: true, parts: Array.from({ length: 8 }, (_, i) => part(`p${i}`, "yours")) });
-        expect(handoffSummary(yours8)).toBe("8 yours · nothing open · the agent has no more questions");
-        expect(handoffSummary(file({ parts }))).toBe("5 yours · 1 open");
-        expect(handoffSummary(file({ parts, done: true }))).toBe("5 yours · 1 open");
-    });
 
     it("compactedSummary", () => {
         expect(compactedSummary(file({ parts }))).toBe(

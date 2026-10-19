@@ -324,6 +324,99 @@ export function orderedParts(f: BrainstormFile): BrainstormPart[] {
     return [...f.parts.filter((p) => p.id !== BUILDER_PART), ...f.parts.filter((p) => p.id === BUILDER_PART)];
 }
 
+// how a part draws: a guess that was yours reads as changed, an asked part the agent is writing up as writing
+export type PartView = "yours" | "guess" | "changed" | "asked" | "writing" | "open";
+
+export function partView(f: BrainstormFile, p: BrainstormPart): PartView {
+    if (p.state === "guess") {
+        return p.was != null ? "changed" : "guess";
+    }
+    if (p.state === "asked" && f.working != null && f.question == null) {
+        return "writing";
+    }
+    return p.state;
+}
+
+export type Phase = "talk" | "check" | "run";
+export type PhaseStep = { phase: Phase; label: string; status: "done" | "current" | "todo" };
+
+const PHASES: { phase: Phase; label: string }[] = [
+    { phase: "talk", label: "Talking it through" },
+    { phase: "check", label: "Builder check" },
+    { phase: "run", label: "Run" },
+];
+
+export function brainstormPhase(f: BrainstormFile): Phase {
+    if (f.run != null) {
+        return "run";
+    }
+    return f.check != null ? "check" : "talk";
+}
+
+export function phaseSteps(f: BrainstormFile): PhaseStep[] {
+    const at = PHASES.findIndex((p) => p.phase === brainstormPhase(f));
+    return PHASES.map((p, i) => ({ ...p, status: i < at ? "done" : i === at ? "current" : "todo" }));
+}
+
+export type ProgressView = {
+    segments: { id: string; title: string; state: PartState }[];
+    lead: string;
+    rest: string;
+};
+
+// one segment per part, in the order the design draws them; the label reads per phase
+export function progressView(f: BrainstormFile): ProgressView {
+    const parts = orderedParts(f);
+    const { yours, open } = brainstormCounts(f);
+    const segments = parts.map((p) => ({ id: p.id, title: p.title, state: p.state }));
+    if (brainstormPhase(f) === "talk") {
+        return { segments, lead: `${yours} of ${parts.length}`, rest: "parts yours" };
+    }
+    return { segments, lead: `${yours} yours`, rest: open === 0 ? "· nothing open" : `· ${open} open` };
+}
+
+export type LeftKind = "answer" | "confirm" | "review" | "last" | "talk";
+export type LeftRow = { id: string; title: string; kind: LeftKind; text: string };
+
+function leftRow(f: BrainstormFile, p: BrainstormPart): LeftRow | null {
+    const row = (kind: LeftKind, text: string): LeftRow => ({ id: p.id, title: p.title, kind, text });
+    switch (partView(f, p)) {
+        case "yours":
+            return null;
+        case "asked":
+        case "writing":
+            return row("answer", f.question?.part === p.id ? `Answer question ${f.question.n}` : "Answer its question");
+        case "guess":
+            return row("confirm", "Confirm the agent’s guess");
+        case "changed":
+            return row("review", "Review what changed");
+        case "open":
+            return p.id === BUILDER_PART
+                ? row("last", "The agent writes this last")
+                : row("talk", "Not talked through yet");
+    }
+}
+
+// what stands between the design and the builder check: every part not yet yours, the asked one first
+export function whatsLeft(f: BrainstormFile): LeftRow[] {
+    const rows = orderedParts(f)
+        .map((p) => leftRow(f, p))
+        .filter((r): r is LeftRow => r != null);
+    return [...rows.filter((r) => r.kind === "answer"), ...rows.filter((r) => r.kind !== "answer")];
+}
+
+// what the left column holds under the question: the builder check once it is ready, else what stands before it.
+// nothing while the agent writes, nor beside the first question, when the list would only repeat it
+export function leftPanel(f: BrainstormFile): "ready" | "left" | "none" {
+    if (f.working != null) {
+        return "none";
+    }
+    if (canCheck(f)) {
+        return "ready";
+    }
+    return f.history.length === 0 && f.question != null ? "none" : "left";
+}
+
 export type SentenceDiff = { kind: "same" | "added" | "removed"; text: string }[];
 
 function sentences(text: string): string[] {
@@ -365,7 +458,9 @@ export type HandoffView = {
     callsByPart: Record<string, string[]>;
     touched: BrainstormPart[];
     untouched: BrainstormPart[];
-    canApprove: boolean;
+    // the check's three tiles: the builder's questions for you, the calls the agent made, those already answered
+    forYou: number;
+    already: number;
 };
 
 export function handoffView(f: BrainstormFile): HandoffView {
@@ -388,7 +483,8 @@ export function handoffView(f: BrainstormFile): HandoffView {
         callsByPart,
         touched: parts.filter(isTouched),
         untouched: parts.filter((p) => !isTouched(p)),
-        canApprove: open == null && f.run == null,
+        forYou: check.yours.length,
+        already: check.answered.length,
     };
 }
 
@@ -396,12 +492,15 @@ function plural(n: number, one: string, many: string): string {
     return `${n} ${n === 1 ? one : many}`;
 }
 
-export function handoffSummary(f: BrainstormFile): string {
-    const { yours, open } = brainstormCounts(f);
-    if (open === 0 && f.done) {
-        return `${yours} yours · nothing open · the agent has no more questions`;
+// why Approve is off, said in words beside it; null when it is on
+export function approveBlocker(f: BrainstormFile): string | null {
+    if (f.run != null) {
+        return null;
     }
-    return `${yours} yours · ${open} open`;
+    if (f.working != null) {
+        return "The agent is writing; this opens when it is done";
+    }
+    return handoffView(f).open != null ? "Answer the builder’s question first" : null;
 }
 
 export function compactedSummary(f: BrainstormFile): string {
