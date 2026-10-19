@@ -334,10 +334,16 @@ async function cacheMissNoticeSteps(h, ctx) {
 const briefSurface = {
     name: "brief-surface",
     surface: "jarvis",
-    async arrange() {
-        return {};
+    async arrange(h) {
+        const ctx = {};
+        try {
+            ctx.effortId = (await h.rpc("effortcreate", { title: "verify brief-surface: a blocked chunk", chunks: [{ label: "Gate" }] })).effortoid;
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
     },
-    async assert(h) {
+    async assert(h, arranged) {
         const steps = [];
         await h.goto("jarvis");
 
@@ -467,7 +473,7 @@ const briefSurface = {
         });
 
         // An initiative row is one line, and a click expands its plan in place (cd1a9ce4): it has no sheet to
-        // open any more. A row nesting no control of its own is the point: the row is the one affordance.
+        // open any more. The row is the one affordance for opening; its only nested control is Work on (6089a445).
         // The expansion and the sheet are module state, so whatever a previous run left open is closed first.
         await h.ev(`[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`);
         await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')?.click()`);
@@ -479,7 +485,10 @@ const briefSurface = {
             return {
                 rows: rows.length,
                 buttons: rows.filter((r) => r.getAttribute('role') === 'button').length,
-                nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
+                nested: rows.reduce(
+                    (n, r) => n + r.querySelectorAll('button:not([data-jarvis-work-on]), a, input, select, textarea').length,
+                    0
+                ),
                 expanded: rows[0]?.getAttribute('aria-expanded') ?? null,
                 sheet: !!document.querySelector('[data-jarvis-brief-sheet]'),
             };
@@ -497,11 +506,29 @@ const briefSurface = {
         await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
 
-        // The sideways arm into the effort sheet is still the one a blocked chunk takes, and it is still
-        // the only arm the fixture can drive end to end: the sheet's own chrome names the record it is
-        // showing whether or not the detail behind it resolves.
-        await h.ev(`document.querySelector('[data-jarvis-brief-row="queue"]')?.click()`);
-        await h.ev("new Promise((r) => setTimeout(r, 500))");
+        // The sideways arm into the effort sheet is still the one a blocked chunk takes. The router loads an
+        // initiative before it opens the sheet, and the fixture's own is not in any store, so the blocked chunk's
+        // initiative is pointed at the one the arrange made, on a copy of the normal fixture.
+        await lookEval(h, `
+            const { BRIEFING_FIXTURES } = await mod("app/view/jarvis/briefingfixtures.ts");
+            const { briefingFixtureAtom } = await mod("app/view/jarvis/briefingstore.ts");
+            const normal = BRIEFING_FIXTURES.normal;
+            const state = {
+                ...normal.load.snapshot.state,
+                efforts: normal.load.snapshot.state.efforts.map((e) =>
+                    e.oref === "effort:scenario-gate" ? { ...e, oref: ${JSON.stringify(`effort:${arranged.effortId}`)} } : e
+                ),
+            };
+            BRIEFING_FIXTURES.briefSurfaceBlocked = { ...normal, load: { ...normal.load, snapshot: { ...normal.load.snapshot, state } } };
+            (await mod("app/store/jotaiStore.ts")).globalStore.set(briefingFixtureAtom, "briefSurfaceBlocked");
+        `);
+        await h.ev("new Promise((r) => setTimeout(r, 600))");
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
+        await h.ev(
+            `[...document.querySelectorAll('[data-jarvis-brief-row="queue"]')].find((r) => /Scenario gate clearance/.test(r.innerText || ""))?.click()`
+        );
+        await h.ev("new Promise((r) => setTimeout(r, 800))");
         const sheet = await h.ev(`(() => {
             const el = document.querySelector('[data-jarvis-brief-sheet]');
             return {
@@ -511,10 +538,17 @@ const briefSurface = {
         })()`);
         steps.push({
             step: "8. a blocked chunk still opens the initiative's own sheet",
-            ok: sheet.face === "effort" && sheet.label === "initiative",
-            detail: JSON.stringify(sheet),
+            ok: arranged.arrangeError == null && sheet.face === "effort" && sheet.label === "initiative",
+            detail: arranged.arrangeError ?? JSON.stringify(sheet),
         });
         await h.ev(`[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
+        await lookEval(h, `
+            const { BRIEFING_FIXTURES } = await mod("app/view/jarvis/briefingfixtures.ts");
+            const { briefingFixtureAtom } = await mod("app/view/jarvis/briefingstore.ts");
+            (await mod("app/store/jotaiStore.ts")).globalStore.set(briefingFixtureAtom, "normal");
+            delete BRIEFING_FIXTURES.briefSurfaceBlocked;
+        `);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
 
         // F8: the row states what it is waiting on and what it belongs to, on its one line. The "attention"
@@ -574,7 +608,12 @@ const briefSurface = {
         });
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
+        if (ctx?.effortId) {
+            await h.rpc("effortdelete", { effortoid: ctx.effortId }).catch((e) => {
+                console.error(`brief-surface teardown: delete the initiative failed: ${e?.message ?? e}`);
+            });
+        }
         await h.goto("cockpit");
     },
 };
@@ -5336,8 +5375,9 @@ const jarvisPeek = {
     async arrange(h) {
         // petSaidAtom is session-scoped. Reloading gives this scenario a deterministic empty feed while
         // the persisted watermark still prevents old backend facts from speaking again.
-        await h.ev("location.reload()");
-        await h.ev("new Promise((r) => setTimeout(r, 2500))");
+        // a fixed sleep raced a slow boot in Final: the reset then ran before the store existed
+        await h.reload();
+        await polishWaitFor(h, "typeof globalThis.__wavePetStore?.resetPeek === 'function'", 10000);
         const reset = await h.ev(`(() => {
             const store = globalThis.__wavePetStore;
             if (typeof store?.resetPeek !== 'function') return false;
@@ -5717,11 +5757,34 @@ const jarvisPeek = {
 // run (up to 90s) behind a 45-minute quiet window, which is the same live-model limit that keeps the
 // cancel path and the thread-archive path unit-only (git show a4b5bd4f:docs/jarvis-tab.md). The hook is dev-only, exposed
 // by petstore.ts under import.meta.env.DEV.
+//
+// Open lands only on a record the router can load, and a fresh store has none, so the arrange creates a run held by
+// deferstart: CreateRun captures a record named by the goal's slug, which the utterance cites.
+const JARVIS_VOLUNTEER_GOAL = "verify jarvis-volunteer: open a record, do nothing";
+const JARVIS_VOLUNTEER_RECORD = "verify-jarvis-volunteer-open-a-record-do-nothing";
+
 const jarvisVolunteer = {
     name: "jarvis-volunteer",
     surface: "cockpit", // the creature lives in window chrome, so any surface will do; start neutral
-    async arrange() {
-        return { id: `loose-end:cdp-probe:${Date.now()}` };
+    async arrange(h) {
+        const ctx = { id: `loose-end:cdp-probe:${Date.now()}`, cwd: mkdtempSync(join(tmpdir(), "verify-jarvis-volunteer-")) };
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-jarvis-volunteer", projectpath: ctx.cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: JARVIS_VOLUNTEER_GOAL,
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
     },
     async assert(h, ctx) {
         const steps = [];
@@ -5744,13 +5807,13 @@ const jarvisVolunteer = {
                 at: Date.now(),
                 kind: "loose-end",
                 text: "CDP probe - untouched for 21 days",
-                sources: [{ ref: "task:cdp-probe", title: "CDP probe", sourceType: "dossier" }],
+                sources: [{ ref: ${JSON.stringify(`task:${JARVIS_VOLUNTEER_RECORD}`)}, title: "CDP probe", sourceType: "dossier" }],
             });
             return true;
         })()`);
         // the speak effect runs on the events atom, then the bubble mounts
         await h.ev("new Promise((r) => setTimeout(r, 400))");
-        steps.push({ step: "knowledge utterance pushed to the creature", ok: pushed === true, detail: String(pushed) });
+        steps.push({ step: "knowledge utterance pushed to the creature", ok: pushed === true && ctx.arrangeError == null, detail: ctx.arrangeError ?? String(pushed) });
         await h.shot("cdp-shots/jarvis-volunteer-bubble.png");
         const bubbleFloor = await paintEval(h, `return floorWalk([document.querySelector("[data-pet-bubble]")]);`);
 
@@ -5826,7 +5889,7 @@ const jarvisVolunteer = {
 
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.ev(`(() => {
             // close the peek if a failed run left it open, and drop the watermark the injected utterance
             // advanced -- that key is persisted, so leaving it moved is a side effect on the user's own
@@ -5837,6 +5900,16 @@ const jarvisVolunteer = {
             } catch {}
             return true;
         })()`);
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`jarvis-volunteer teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        if (ctx?.runId) await step("cancel the run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId }));
+        if (ctx?.channelId) await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
+        if (ctx?.cwd) await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
         await h.goto("cockpit");
     },
 };
@@ -5981,6 +6054,8 @@ const codeSearch = {
     },
 };
 
+const CODE_SIDEBAR_PROJECT = "verify-code-sidebar";
+
 const codeSidebar = {
     name: "code-sidebar",
     surface: "code",
@@ -5993,15 +6068,26 @@ const codeSidebar = {
                 JSON.stringify({ widths: { files: 280, search: 380, changed: 380 }, open: true })
             )})`
         );
-        return { previous };
+        // Final's fresh store has no project, and the column tabs mount only once Code holds one
+        const ctx = { previous, name: CODE_SIDEBAR_PROJECT };
+        ctx.dir = mkdtempSync(join(tmpdir(), "verify-code-sidebar-"));
+        git(ctx.dir, "init", "-q", "--initial-branch=main");
+        writeFileSync(join(ctx.dir, "main.ts"), "export const answer = 42;\n");
+        git(ctx.dir, "add", ".");
+        git(ctx.dir, "commit", "-q", "-m", "seed the sidebar fixture");
+        await h.rpc("createproject", { name: ctx.name, path: ctx.dir });
+        ctx.madeProject = true;
+        await waitForProjectInConfig(h, ctx.name);
+        return ctx;
     },
     async assert(h, ctx) {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const steps = [];
         await h.goto("code");
         if ((await openProjectPicker(h)) === true) {
-            await sleep(300);
-            await chooseProjectRow(h);
+            const row = `document.querySelector('[data-code-picker-row=${JSON.stringify(ctx.name)}]')`;
+            await polishWaitFor(h, `!!${row}`, 5000);
+            await h.ev(`${row}?.click()`);
             await sleep(1200);
         }
         ctx.previousMode = await h.ev(
@@ -6202,7 +6288,12 @@ const codeSidebar = {
                 else localStorage.setItem('code.sidebar.prefs', previous);
             })()`
         );
-        await h.goto("cockpit");
+        try {
+            if (ctx.madeProject) await h.rpc("deleteproject", { name: ctx.name });
+        } finally {
+            if (ctx.dir) rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 3 });
+            await h.goto("cockpit");
+        }
     },
 };
 
@@ -24377,7 +24468,7 @@ const codeStaleBarLook = {
 };
 
 // --- ui-drift: what the drift pass changed that no other scenario reaches -------------------------------------------
-// docs/superpowers/plans/2026-10-17-ui-drift-polish.md. A view no app path shows on a fresh store is rendered through
+// the UI drift polish (c98ebe7c). A view no app path shows on a fresh store is rendered through
 // the app's own module (LOOK_LIB's mount) with made-up props; the Radar menus open on radardevmock's fixtures, and the
 // brief toast shows on the Brief through its own atom.
 const DRIFT_PLAN = ["# Drift plan", "", "Raise every label to the floor.", "", "### Task 1: Raise the floor", "", "- swap the glyphs", "- grow the pills", ""].join("\n");
