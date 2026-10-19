@@ -164,7 +164,7 @@ describe("isDirty", () => {
     });
     it("ignores a route that names no runtime", () => {
         expect(isDirty({ route: { runtime: "" } }, {})).toBe(false);
-        expect(isDirty({ route: { model: "m" } }, {})).toBe(false);
+        expect(isDirty({ route: { model: "m" } as RoutePin }, {})).toBe(false);
     });
     it("ignores an empty route model", () => {
         expect(isDirty({ route: { runtime: "pi", model: "" } }, { route: { runtime: "pi" } })).toBe(false);

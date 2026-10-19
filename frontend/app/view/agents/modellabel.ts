@@ -19,7 +19,9 @@ function formatVersion(major: string, minor: string | undefined): string {
 
 function versionOf(m: string, family: string): string {
     const at = m.indexOf(family);
-    const nums = (m.slice(at + family.length).match(/\d+/g) ?? []).filter((n) => n.length !== DATE_SNAPSHOT_DIGITS);
+    const nums = (m.slice(at + family.length).match(/\d+/g) ?? ([] as string[])).filter(
+        (n) => n.length !== DATE_SNAPSHOT_DIGITS
+    );
     if (nums.length > 0) {
         return formatVersion(nums[0], nums[1]);
     }
