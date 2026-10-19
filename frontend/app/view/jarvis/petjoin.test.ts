@@ -298,6 +298,26 @@ describe("shouldSpeakAsk", () => {
     it("speaks when there is no oref to match against", () => {
         expect(shouldSpeakAsk(undefined, gateCtx({ focusedBlockId: "abc" }))).toBe(true);
     });
+
+    it("speaks when keyboard focus is in a different block", () => {
+        expect(shouldSpeakAsk("block:abc", gateCtx({ focusedBlockId: "xyz" }))).toBe(true);
+    });
+
+    it("speaks when no block holds keyboard focus", () => {
+        expect(shouldSpeakAsk("block:abc", gateCtx({ focusedBlockId: null }))).toBe(true);
+    });
+
+    it("speaks off the agent surface even when the ask's tab is the focused one", () => {
+        expect(shouldSpeakAsk("block:abc", gateCtx({ surface: "jarvis", focusTabId: "tab1", askTabId: "tab1" }))).toBe(
+            true
+        );
+    });
+
+    it("speaks on the agent surface when neither a focused tab nor an ask tab is known", () => {
+        expect(
+            shouldSpeakAsk("block:abc", gateCtx({ surface: "agent", focusTabId: undefined, askTabId: undefined }))
+        ).toBe(true);
+    });
 });
 
 function bg(over: Partial<BackgroundAgentData> = {}): BackgroundAgentData {

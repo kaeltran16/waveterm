@@ -116,6 +116,81 @@ describe("buildRunPeek: an orchestrator run", () => {
         ]);
     });
 
+    it("marks each task by its state", () => {
+        const states = [
+            "done",
+            "failed",
+            "stalled",
+            "review-failed",
+            "blocked-merge",
+            "verify-failed",
+            "running",
+            "verifying",
+            "reviewing",
+            "pending",
+            "skipped",
+        ];
+        const g = group({ tasks: states.map((state) => task(state, state)) });
+        const marks = buildRunPeek(input({ group: g })).tasks?.map((t) => [t.state, t.mark]);
+        expect(marks).toEqual([
+            ["done", "done"],
+            ["failed", "failed"],
+            ["stalled", "failed"],
+            ["review-failed", "warning"],
+            ["blocked-merge", "warning"],
+            ["verify-failed", "warning"],
+            ["running", "running"],
+            ["verifying", "running"],
+            ["reviewing", "running"],
+            ["pending", "pending"],
+            ["skipped", "pending"],
+        ]);
+    });
+
+    describe("the Tasks phase", () => {
+        const tasksPhase = (states: string[]) =>
+            buildRunPeek(input({ group: group({ tasks: states.map((s, i) => task(`t-${i}`, s)) }) })).phases?.[2];
+
+        it("is running with nothing landed when the graph has no tasks", () => {
+            expect(tasksPhase([])).toStrictEqual({ label: "Tasks", state: "0 of 0 landed", tone: "running" });
+        });
+
+        it("is done once every task landed", () => {
+            expect(tasksPhase(["done", "skipped"])).toStrictEqual({
+                label: "Tasks",
+                state: "2 of 2 landed",
+                tone: "done",
+            });
+        });
+
+        it.each(["failed", "stalled"])("is failed when one task among others is %s", (state) => {
+            expect(tasksPhase(["done", state, "pending"])).toStrictEqual({
+                label: "Tasks",
+                state: "1 of 3 landed",
+                tone: "failed",
+            });
+        });
+
+        it.each(["review-failed", "blocked-merge", "verify-failed"])(
+            "is warning when one task among others is %s",
+            (state) => {
+                expect(tasksPhase(["done", state, "pending"])).toStrictEqual({
+                    label: "Tasks",
+                    state: "1 of 3 landed",
+                    tone: "warning",
+                });
+            }
+        );
+
+        it("reads a failed task before one that needs attention", () => {
+            expect(tasksPhase(["review-failed", "failed"])?.tone).toBe("failed");
+        });
+
+        it("is running while tasks are in flight or waiting", () => {
+            expect(tasksPhase(["done", "running", "pending"])?.tone).toBe("running");
+        });
+    });
+
     it("names the landed commit range and its size", () => {
         expect(buildRunPeek(input()).commits).toBe("139ad29..08c06f2 · 7 commits");
         expect(buildRunPeek(input({ run: run({ endcommit: undefined }), commitCount: undefined })).commits).toBeNull();

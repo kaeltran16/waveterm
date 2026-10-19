@@ -223,6 +223,17 @@ describe("rankProjects", () => {
     it("has nothing to rank in an empty registry", () => {
         expect(rankProjects([], "wave")).toEqual([]);
     });
+
+    it("keeps the registry order across a long run of equal scores", () => {
+        const many = Array.from({ length: 80 }, (_, i) => `ab${String(i).padStart(2, "0")}`);
+        expect(rankProjects(many, "ab")).toEqual(many);
+    });
+
+    it("orders by score, and keeps the registry order among equal scores", () => {
+        // "ab" scores 10 for ab/abx/aby, 7 for a-b, 1 for xaxb
+        const ranked = ["xaxb", "ab", "a-b", "abx", "aby"];
+        expect(rankProjects(ranked, "ab")).toEqual(["ab", "abx", "aby", "a-b", "xaxb"]);
+    });
 });
 
 describe("stepPick", () => {

@@ -3,12 +3,16 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom } from "jotai";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SurfaceKey } from "../agents/agents";
 import { backToOrigin, forgetOrigin, landOn, passReturn, returnToOrigin, returnWhenClosed } from "./returnsurface";
 
 const surfaceAtom = atom<SurfaceKey>("agent");
 const surface = () => globalStore.get(surfaceAtom);
+
+afterEach(() => {
+    vi.restoreAllMocks();
+});
 
 beforeEach(() => {
     forgetOrigin();
@@ -107,6 +111,24 @@ describe("back over a jump", () => {
         expect(backToOrigin()).toBe(true);
         expect(surface()).toBe("agent");
         expect(backToOrigin()).toBe(false);
+    });
+
+    it("stops watching the surface once the last jump is gone", () => {
+        const unsubscribed = vi.fn();
+        const sub = globalStore.sub.bind(globalStore);
+        vi.spyOn(globalStore, "sub").mockImplementation((target, listener) => {
+            const unsub = sub(target, listener);
+            return () => {
+                unsubscribed();
+                unsub();
+            };
+        });
+        landOn(surfaceAtom, "jarvis", "sheet");
+        landOn(surfaceAtom, "code");
+        expect(backToOrigin()).toBe(true);
+        expect(unsubscribed).not.toHaveBeenCalled();
+        expect(backToOrigin()).toBe(true);
+        expect(unsubscribed).toHaveBeenCalledTimes(1);
     });
 
     it("walks back through a chain of jumps, one at a time", () => {
