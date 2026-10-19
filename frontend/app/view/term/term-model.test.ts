@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
     globalGet: vi.fn(),
+    isMac: false,
 }));
 
 vi.mock("@/app/store/global", () => ({
@@ -24,7 +25,7 @@ vi.mock("@/app/store/wshrpcutil", () => ({ DefaultRouter: { registerRoute: vi.fn
 vi.mock("@/app/view/term/term", () => ({ TerminalView: vi.fn() }));
 vi.mock("@/app/view/term/term-wsh", () => ({ TermWshClient: vi.fn() }));
 vi.mock("@/store/services", () => ({}));
-vi.mock("@/util/platformutil", () => ({ isMacOS: () => false, isWindows: () => true }));
+vi.mock("@/util/platformutil", () => ({ isMacOS: () => mocks.isMac, isWindows: () => true }));
 
 import { TermViewModel } from "./term-model";
 
@@ -43,10 +44,11 @@ function makeKeyEvent(key: string, opts: Partial<KeyboardEvent> = {}): KeyboardE
     } as unknown as KeyboardEvent;
 }
 
-function makeModel(pasteHandler = vi.fn()) {
+function makeModel(pasteHandler = vi.fn(), keyDownHandler = vi.fn(() => false)) {
     return {
         blockId: "b1",
-        keyDownHandler: vi.fn(() => false),
+        keyDownHandler,
+        sendDataToController: vi.fn(),
         shouldHandleCtrlVPaste: TermViewModel.prototype.shouldHandleCtrlVPaste,
         handleTerminalKeydown: TermViewModel.prototype.handleTerminalKeydown,
         termRef: { current: { pasteHandler } },
@@ -54,6 +56,7 @@ function makeModel(pasteHandler = vi.fn()) {
 }
 
 beforeEach(() => {
+    mocks.isMac = false;
     mocks.globalGet.mockReturnValue(undefined);
 });
 
@@ -82,5 +85,78 @@ describe("TermViewModel.handleTerminalKeydown", () => {
         expect(event.preventDefault).toHaveBeenCalledOnce();
         expect(event.stopPropagation).toHaveBeenCalledOnce();
         expect(pasteHandler).toHaveBeenCalledOnce();
+    });
+
+    it("ignores anything but a keydown", () => {
+        const pasteHandler = vi.fn();
+        const model = makeModel(pasteHandler);
+        const event = makeKeyEvent("v", { type: "keyup", ctrlKey: true });
+
+        expect(model.handleTerminalKeydown(event)).toBe(true);
+        expect(event.preventDefault).not.toHaveBeenCalled();
+        expect(pasteHandler).not.toHaveBeenCalled();
+    });
+
+    it("stops a key the block's own handler takes", () => {
+        const keyDownHandler = vi.fn(() => true);
+        const model = makeModel(vi.fn(), keyDownHandler);
+        const event = makeKeyEvent("a");
+
+        expect(model.handleTerminalKeydown(event)).toBe(false);
+        expect(keyDownHandler).toHaveBeenCalledOnce();
+        expect(event.preventDefault).toHaveBeenCalledOnce();
+        expect(event.stopPropagation).toHaveBeenCalledOnce();
+    });
+
+    it("lets a plain key through untouched", () => {
+        const pasteHandler = vi.fn();
+        const model = makeModel(pasteHandler);
+        const event = makeKeyEvent("a");
+
+        expect(model.handleTerminalKeydown(event)).toBe(true);
+        expect(event.preventDefault).not.toHaveBeenCalled();
+        expect(pasteHandler).not.toHaveBeenCalled();
+        expect(model.sendDataToController).not.toHaveBeenCalled();
+    });
+
+    it("does not paste on Ctrl+V when the setting turns Ctrl+V paste off", () => {
+        mocks.globalGet.mockReturnValue(false);
+        const pasteHandler = vi.fn();
+        const model = makeModel(pasteHandler);
+        const event = makeKeyEvent("v", { ctrlKey: true });
+
+        expect(model.handleTerminalKeydown(event)).toBe(true);
+        expect(pasteHandler).not.toHaveBeenCalled();
+    });
+
+    it("sends Ctrl-A and Ctrl-E for Cmd+Left and Cmd+Right on macOS only", () => {
+        mocks.isMac = true;
+        const left = makeModel();
+        const leftEvent = makeKeyEvent("ArrowLeft", { metaKey: true });
+        expect(left.handleTerminalKeydown(leftEvent)).toBe(false);
+        expect(left.sendDataToController).toHaveBeenCalledExactlyOnceWith("\x01");
+        expect(leftEvent.preventDefault).toHaveBeenCalledOnce();
+
+        const right = makeModel();
+        expect(right.handleTerminalKeydown(makeKeyEvent("ArrowRight", { metaKey: true }))).toBe(false);
+        expect(right.sendDataToController).toHaveBeenCalledExactlyOnceWith("\x05");
+
+        mocks.isMac = false;
+        const other = makeModel();
+        expect(other.handleTerminalKeydown(makeKeyEvent("ArrowLeft", { metaKey: true }))).toBe(true);
+        expect(other.sendDataToController).not.toHaveBeenCalled();
+    });
+
+    it("sends a newline for Shift+Enter unless term:shiftenternewline is off", () => {
+        const on = makeModel();
+        const onEvent = makeKeyEvent("Enter", { shiftKey: true });
+        expect(on.handleTerminalKeydown(onEvent)).toBe(false);
+        expect(on.sendDataToController).toHaveBeenCalledExactlyOnceWith("\n");
+        expect(onEvent.preventDefault).toHaveBeenCalledOnce();
+
+        mocks.globalGet.mockReturnValue(false);
+        const off = makeModel();
+        off.handleTerminalKeydown(makeKeyEvent("Enter", { shiftKey: true }));
+        expect(off.sendDataToController).not.toHaveBeenCalled();
     });
 });
