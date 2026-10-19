@@ -29,6 +29,45 @@ describe("recoverySummary", () => {
         expect(recoverySummary(events, "t-2")?.retries).toBe(1);
     });
 
+    it("keeps a failure kind from a row stamped at time zero", () => {
+        expect(recoverySummary([retried("t-1", "tool-error", 1, 0)], "t-1")?.lastFailureKind).toBe("tool-error");
+        expect(recoverySummary([failed("t-1", "timeout", 1, 0)], "t-1")?.lastFailureKind).toBe("timeout");
+    });
+
+    it("takes the newest retry's kind whatever order the rows arrive in, and the first of equal stamps", () => {
+        const newestFirst = [retried("t-1", "timeout", 2, 20), retried("t-1", "tool-error", 1, 10)];
+        expect(recoverySummary(newestFirst, "t-1")?.lastFailureKind).toBe("timeout");
+        const tied = [retried("t-1", "timeout", 1, 10), retried("t-1", "tool-error", 2, 10)];
+        expect(recoverySummary(tied, "t-1")?.lastFailureKind).toBe("timeout");
+    });
+
+    it("takes the newest terminal failure's kind whatever order the rows arrive in, and the first of equal stamps", () => {
+        const newestFirst = [failed("t-1", "context-window", 2, 20), failed("t-1", "timeout", 2, 10)];
+        expect(recoverySummary(newestFirst, "t-1")?.lastFailureKind).toBe("context-window");
+        const tied = [failed("t-1", "context-window", 2, 10), failed("t-1", "timeout", 2, 10)];
+        expect(recoverySummary(tied, "t-1")?.lastFailureKind).toBe("context-window");
+    });
+
+    it("ignores another task's terminal failure", () => {
+        const events = [retried("t-1", "tool-error", 1, 10), failed("t-2", "timeout", 3, 20)];
+        expect(recoverySummary(events, "t-1")).toEqual({
+            retries: 1,
+            lastFailureKind: "tool-error",
+            partial: false,
+            terminalFailure: false,
+        });
+        expect(recoverySummary([failed("t-2", "timeout", 1, 20)], "t-1")).toBeNull();
+    });
+
+    it("flags a terminal failure whose attempts the retained retries cannot account for", () => {
+        expect(recoverySummary([failed("t-1", "timeout", 3, 10)], "t-1")).toEqual({
+            retries: 0,
+            lastFailureKind: "timeout",
+            partial: true,
+            terminalFailure: true,
+        });
+    });
+
     it("carries the newest failure kind, not the first one seen", () => {
         const events = [retried("t-1", "tool-error", 1, 10), failed("t-1", "context-window", 2, 20)];
         expect(recoverySummary(events, "t-1")?.lastFailureKind).toBe("context-window");

@@ -84,6 +84,15 @@ describe("chunkRef", () => {
     it("sends an all-digit label as its own index, because the server reads digits as an index", () => {
         const odd = [c("2"), c("x")];
         expect(chunkRef(odd, "2")).toBe("1");
+        expect(chunkRef([c("x"), c("1")], "1")).toBe("2");
+        expect(chunkRef([c("12"), c("x")], "12")).toBe("1");
+    });
+    it("passes a label that only starts or ends with digits through", () => {
+        expect(chunkRef([c("a2"), c("x")], "a2")).toBe("a2");
+        expect(chunkRef([c("2x"), c("y")], "2x")).toBe("2x");
+    });
+    it("keeps an all-digit label that is no chunk's as it is", () => {
+        expect(chunkRef([c("a")], "7")).toBe("7");
     });
 });
 
