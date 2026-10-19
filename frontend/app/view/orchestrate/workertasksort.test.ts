@@ -30,6 +30,10 @@ describe("workerBucket", () => {
         expect(workerBucket(td("none", "failed"), node("done"))).toBe("attention");
     });
 
+    it("buckets a waitreason of failure as attention whatever the node state", () => {
+        expect(workerBucket(td("failure"), node("running"))).toBe("attention");
+    });
+
     it("puts running tasks in the running bucket", () => {
         expect(workerBucket(td("none"), node("running"))).toBe("running");
     });
@@ -39,6 +43,12 @@ describe("workerBucket", () => {
         expect(workerBucket(td("parallelism"), node("pending"))).toBe("waiting");
         expect(workerBucket(td("none"), node("pending"))).toBe("waiting");
         expect(workerBucket(td("none"), node("ready"))).toBe("waiting");
+    });
+
+    it("reads a dependency or parallelism wait as waiting for a state the switch does not name", () => {
+        expect(workerBucket(td("dependency"), node("queued"))).toBe("waiting");
+        expect(workerBucket(td("parallelism"), node("queued"))).toBe("waiting");
+        expect(workerBucket(td("none"), node("queued"))).toBe("done");
     });
 
     it("puts completed/merged/skipped/cancelled in the done bucket", () => {

@@ -75,6 +75,20 @@ describe("projectWhere", () => {
     it("shows the full parent path when home is unknown", () => {
         expect(projectWhere("C:\\Users\\kael02\\IdeaProjects\\waveterm", "")).toBe("C:\\Users\\kael02\\IdeaProjects");
     });
+
+    it("keeps the leading separator and the bare drive's separator when home is unknown", () => {
+        expect(projectWhere("/srv/app", "")).toBe("/srv");
+        expect(projectWhere("D:\\opal", "")).toBe("D:\\");
+    });
+
+    it("compares segments case-sensitively unless home starts with a drive", () => {
+        expect(projectWhere("/AB:/k/src/app", "/ab:/k")).toBe("/AB:/k/src");
+        expect(projectWhere("/C:X/k/src/app", "/c:x/k")).toBe("/C:X/k/src");
+    });
+
+    it("does not add a separator to a parent that merely ends in a colon", () => {
+        expect(projectWhere("/mnt/ab:/app", "/home/k")).toBe("/mnt/ab:");
+    });
 });
 
 describe("recentNames", () => {

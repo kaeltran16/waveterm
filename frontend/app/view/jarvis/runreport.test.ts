@@ -51,6 +51,27 @@ describe("parseRunReport", () => {
         expect(r.sections[3].items[0]).toMatchObject({ dim: true, dot: "faint" });
         expect(r.sections[4].items[0]).toMatchObject({ dim: true, dot: "faint" });
     });
+    it("trims the padding around the title", () => {
+        expect(parseRunReport("#   Padded title   \n")?.title).toBe("Padded title");
+    });
+    it("leaves the title and lead empty when the report has neither", () => {
+        expect(parseRunReport("## Landed\n- abc12345 one")).toStrictEqual({
+            title: "",
+            lead: "",
+            sections: [
+                {
+                    heading: "Landed",
+                    count: "1",
+                    items: [{ text: "one", hash: "abc12345", tag: "", dot: "ok", dim: false }],
+                },
+            ],
+        });
+    });
+    it("ignores a bullet marker that holds nothing", () => {
+        const r = parseRunReport("lead line\n## Landed\n-  \n- real\n");
+        expect(r?.lead).toBe("lead line");
+        expect(r?.sections[0].items.map((i) => i.text)).toEqual(["real"]);
+    });
     it("a blank report is no report", () => {
         expect(parseRunReport("  \n")).toBeNull();
         expect(parseRunReport("# only a title").sections).toEqual([]);

@@ -56,6 +56,54 @@ describe("effortPeekModel", () => {
     });
 });
 
+describe("effortPeekModel, whole", () => {
+    it("builds every field from the effort", () => {
+        expect(effortPeekModel(EFFORT)).toStrictEqual({
+            title: "Cockpit Focus and Peek",
+            status: "active",
+            objective: "Surfaces agree on a subject.",
+            progress: "2 of 4 chunks done",
+            project: "waveterm",
+            segments: ["done", "done", "active", "pending", "skipped"],
+            doneLine: "2 done · slice 1",
+            remaining: [
+                { n: 3, label: "three", status: "active", tone: "active", active: true },
+                { n: 4, label: "four", status: "pending", tone: "pending", active: false },
+            ],
+        });
+    });
+
+    it("names each distinct done stage once, in plan order, leaving out a blank one", () => {
+        const effort = {
+            ...EFFORT,
+            chunks: [
+                chunk("one", "done", "beta"),
+                chunk("two", "done"),
+                chunk("three", "done", "alpha"),
+                chunk("four", "done", "beta"),
+                chunk("five", "active", "gamma"),
+            ],
+        } as Effort;
+        expect(effortPeekModel(effort).doneLine).toBe("4 done · beta · alpha");
+    });
+
+    it("takes the earliest note as the objective whatever order the notes arrive in", () => {
+        const effort = {
+            ...EFFORT,
+            notes: [
+                { ts: 30, text: "last" },
+                { ts: 10, text: "first" },
+                { ts: 20, text: "middle" },
+            ],
+        } as Effort;
+        expect(effortPeekModel(effort).objective).toBe("first");
+    });
+
+    it("has no objective for an effort that carries no notes at all", () => {
+        expect(effortPeekModel({ ...EFFORT, notes: undefined } as Effort).objective).toBeNull();
+    });
+});
+
 describe("effortPeekFacts", () => {
     it("is gone when the effort is missing", () => {
         expect(effortPeekFacts(undefined)).toEqual({ gone: true });

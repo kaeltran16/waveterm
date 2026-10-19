@@ -6,6 +6,7 @@ import {
     groupEvents,
     groupSnippet,
     phaseOf,
+    priority,
     railRows,
     snippetOf,
     stepLabel,
@@ -34,6 +35,27 @@ describe("phaseOf", () => {
     });
 });
 
+describe("priority", () => {
+    it("ranks first output lowest of the headline kinds, then attention, landing and starts", () => {
+        expect(priority("task-first-activity")).toBe(0.5);
+        expect(["task-failed", "task-verify-failed", "child-ask"].map(priority)).toEqual([4, 4, 4]);
+        expect(["task-merged", "task-verify-passed"].map(priority)).toEqual([3, 3]);
+        expect(
+            [
+                "task-done",
+                "task-review-passed",
+                "dag-plan-approved",
+                "task-cleanup-completed",
+                "task-merge-continued",
+            ].map(priority)
+        ).toEqual([2, 2, 2, 2, 2]);
+        expect(
+            ["task-spawned", "task-review-started", "task-verify-started", "task-merge-started"].map(priority)
+        ).toEqual([1, 1, 1, 1]);
+        expect(priority("task-retried")).toBe(0);
+    });
+});
+
 describe("groupEvents", () => {
     it("bursts one phase of one task within 3 minutes into a row, newest row first", () => {
         const g = groupEvents([
@@ -51,6 +73,19 @@ describe("groupEvents", () => {
     });
     it("splits a phase after a pause longer than the burst window", () => {
         expect(groupEvents([ev(0, "task-spawned", "t-1"), ev(4, "task-told", "t-1")])).toHaveLength(2);
+    });
+    it("orders a burst's items and bounds by time whatever order the events arrive in", () => {
+        const g = groupEvents([ev(2, "task-told", "t-1"), ev(0, "task-spawned", "t-1"), ev(1, "task-retried", "t-1")]);
+        expect(g).toHaveLength(1);
+        expect(g[0].items.map((e) => e.ts / MIN)).toEqual([0, 1, 2]);
+        expect(g[0].first).toBe(0);
+        expect(g[0].last).toBe(2 * MIN);
+        expect(g[0].id).toBe("t-1:work@0");
+    });
+    it("keeps an event exactly at the burst window in the burst", () => {
+        const g = groupEvents([ev(0, "task-spawned", "t-1"), ev(3, "task-told", "t-1")]);
+        expect(g).toHaveLength(1);
+        expect(g[0].items).toHaveLength(2);
     });
     it("flags a burst holding an attention event and heads it with that event", () => {
         const g = groupEvents([ev(0, "task-verify-started", "t-2"), ev(1, "task-verify-failed", "t-2")]);

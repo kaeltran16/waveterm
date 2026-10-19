@@ -152,6 +152,22 @@ describe("dedupeUpdates — report each thing once", () => {
         expect(dedupeUpdates([askEvent], [ASK])).toEqual([]);
     });
 
+    it("keeps a spoken ask when only a non-ask row carries its key", () => {
+        const lookalike = item({ kind: "gate", key: "ask:block:b1" });
+        expect(dedupeUpdates([askEvent], [lookalike])).toEqual([askEvent]);
+    });
+
+    it("keeps a non-ask update that carries the ref of a queued ask", () => {
+        const sameRef: PetEvent = { id: "connection:2", at: 3, kind: "connection", text: "A link.", ref: "block:b1" };
+        expect(dedupeUpdates([sameRef], [ASK])).toEqual([sameRef]);
+    });
+
+    it("keeps a spoken ask that has no ref, whatever the queue holds", () => {
+        const refless: PetEvent = { id: "ask:a2", at: 6, kind: "ask", text: "waiting" };
+        const stray = item({ kind: "ask", key: "ask:undefined" });
+        expect(dedupeUpdates([refless], [stray])).toEqual([refless]);
+    });
+
     it("leaves every other kind of update alone", () => {
         const events: PetEvent[] = [
             sweep,

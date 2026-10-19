@@ -17,6 +17,7 @@ import {
     digestStale,
     lastUpdatedText,
     verifyRowLine,
+    waitingText,
     type TaskBrief,
 } from "./dagdigest";
 
@@ -231,6 +232,54 @@ describe("freshness (finding 7)", () => {
         const state = { loading: false, stale: false, digest: digest(1), lastUpdatedTs: 40_000 };
         expect(lastUpdatedText(state, 70_000)).toBe("updated 30s ago");
         expect(lastUpdatedText(state, 400_000)).toBe("updated 6m ago");
+    });
+
+    it("has nothing to report for a status stamped at time zero", () => {
+        expect(lastUpdatedText({ loading: false, stale: false, lastUpdatedTs: 0 }, 100_000)).toBeNull();
+    });
+
+    it("rolls seconds over to minutes at 60s and minutes over to hours at 60m", () => {
+        const at = (secs: number) =>
+            lastUpdatedText({ loading: false, stale: false, lastUpdatedTs: 1 }, 1 + secs * 1000);
+        expect(at(59)).toBe("updated 59s ago");
+        expect(at(60)).toBe("updated 1m ago");
+        expect(at(3599)).toBe("updated 59m ago");
+        expect(at(3600)).toBe("updated 1h ago");
+        expect(at(2 * 3600 + 60)).toBe("updated 2h ago");
+    });
+});
+
+describe("waitingText", () => {
+    const briefs = new Map<string, TaskBrief>([["t-1", { label: "scaffold API", state: "running" }]]);
+    const td = (over: Partial<DagTaskDigest>): DagTaskDigest => ({
+        taskid: "t-2",
+        waitreason: "none",
+        mergestate: "",
+        cleanupstate: "",
+        ...over,
+    });
+
+    it("names the dependencies a task waits on, by label", () => {
+        expect(waitingText(td({ waitreason: "dependency", blockingtaskids: ["t-1", "t-9"] }), briefs)).toBe(
+            "waiting on scaffold API, t-9"
+        );
+    });
+
+    it("names no dependency when the digest lists none, whatever it says is blocking", () => {
+        expect(waitingText(td({ waitreason: "dependency" }), briefs)).toBe("not dispatched yet");
+        expect(waitingText(td({ waitreason: "dependency", blockingtaskids: [] }), briefs)).toBe("not dispatched yet");
+        expect(waitingText(undefined, briefs)).toBe("not dispatched yet");
+    });
+
+    it("says a slot is what a task waits for even when blockers are listed, or none are", () => {
+        expect(waitingText(td({ waitreason: "parallelism", blockingtaskids: ["t-1"] }), briefs)).toBe(
+            "waiting for a worker slot"
+        );
+        expect(waitingText(td({ waitreason: "parallelism" }), briefs)).toBe("waiting for a worker slot");
+    });
+
+    it("does not read blockers into another wait reason", () => {
+        expect(waitingText(td({ waitreason: "none", blockingtaskids: ["t-1"] }), briefs)).toBe("not dispatched yet");
     });
 });
 
