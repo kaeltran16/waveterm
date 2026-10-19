@@ -72,6 +72,7 @@ Other useful commands:
   and `dist/bin` instead of the junctions, which a build writes through into the main checkout.
   `ARC_DEV_NO_GLOBAL_INSTALL=1` keeps it from installing its hooks and `~/.arc/bin/wsh` over yours.
   `scripts/cdp/final-verify.mjs` does all of it; then `CDP_PORT=<port> task verify:ui`.
+- **Worktree-local backend build:** run `mkdir -p dist/bin` before `task worktree:prepare`; prepare leaves a real directory alone instead of junctioning it to the main checkout, so the worktree's wavesrv build stays local.
 
 ### Visual verification (dev)
 
@@ -90,6 +91,7 @@ There is no jsdom/render-test harness for the cockpit — verify rendered UI by 
 - **Before deleting a file, grep every import of it**, including `import type` and re-exports: a type-only import still makes it live.
 - **"Housekeeping" or "cleanup" means removing code and files**, not only updating docs.
 - **Monitoring an orchestrator run means observe and log only.** Do not intervene or draft interventions unless asked.
+- **Merge a feature branch with `--no-ff`** (an explicit merge commit), and run the tests on the merged result before deleting the branch.
 
 ## Architecture
 
