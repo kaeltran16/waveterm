@@ -21797,7 +21797,8 @@ const RESMON_TOTAL_MEM = 7945689498;
 const RESMON_FOOTER = `document.querySelector('[data-hints-footer]')`;
 const RESMON_COCKPIT_HINTS = `document.querySelector('[data-cockpit-hints]')`;
 const RESMON_POPOVER = `document.querySelector('[data-resmon-popover]')`;
-const RESMON_GROUP_ORDER = ["arc", "job:14820", "job:13060", "job:22410", "job:7716"];
+// a run's workers and plan commands share one view, keyed by its run id
+const RESMON_GROUP_ORDER = ["arc", "job:14820", "run:run-a", "run:run-b", "job:7716"];
 // the popover grows in with a scale reveal; measure after it settles
 const RESMON_REVEAL_MS = 500;
 const RESMON_CURSOR_MAX_PRESSES = 40;
@@ -21819,12 +21820,13 @@ function resmonRows(now, rows) {
     }));
 }
 
-function resmonGroup(key, ownerkind, label, runtime, killable, rows) {
+function resmonGroup(key, ownerkind, label, runtime, killable, rows, run) {
     return {
         key,
         ownerkind,
         ownerid: key,
         label,
+        ...(run ? { runid: run.id, role: run.role } : {}),
         ...(runtime ? { runtime } : {}),
         killable,
         cpu: Math.round(rows.reduce((n, r) => n + r.cpu, 0) * 10) / 10,
@@ -21869,19 +21871,26 @@ function resmonFixture(now = Date.now()) {
                 [9932, 1, "cmd.exe", "/c npm run dev", 0.0, 4, { ageMin: 38 }],
                 [9958, 2, "node.exe", "vite --port 5174", 1.1, 846, { ageMin: 38 }],
             ])),
-            resmonGroup("job:13060", "runworker", "cache-miss notice · Task 2", "pi", true, resmonRows(now, [
+            resmonGroup("job:13060", "runworker", "cache-miss notice", "pi", true, resmonRows(now, [
                 [13060, 0, "cmd.exe", "/c pi.cmd", 0.0, 4, { tag: "launcher", ageMin: 16 }],
                 [13072, 1, "conhost.exe", "", 0.0, 8, { tag: "console", ageMin: 16 }],
                 [13104, 1, "node.exe", "pi", 0.9, 274, { tag: "agent", ageMin: 16 }],
                 [21876, 2, "bash.exe", "-c npx vitest run frontend/app/view/agents", 0.0, 6, { ageMin: 1 }],
                 [21890, 3, "node.exe", "vitest run frontend/app/view/agents", 13.7, 802, { ageMin: 1 }],
-            ])),
-            resmonGroup("job:22410", "runcmd", "cleanup round · Verify", "", false, resmonRows(now, [
-                [22410, 0, "bash.exe", "-c node scripts/verify.mjs ./pkg/orchestrate ./pkg/jarvis", 0.0, 6, { ageMin: 4 }],
+            ]), { id: "run-a", role: "Task 2" }),
+            // the run's lead, started first: its core is the launcher, claude, and the arc mod's wsh agentctl
+            resmonGroup("job:17544", "runworker", "cache-miss notice", "claude", true, resmonRows(now, [
+                [17544, 0, "pwsh.exe", '-c "claude --dangerously-skip-permissions"', 0.0, 93, { tag: "launcher", ageMin: 41 }],
+                [1908, 1, "claude.exe", "--dangerously-skip-permissions", 0.1, 378, { tag: "agent", ageMin: 41 }],
+                [25284, 2, "wsh.exe", "agentctl", 0.0, 15, { tag: "control", ageMin: 41 }],
+                [29268, 3, "conhost.exe", "0x4", 0.0, 7, { tag: "console", ageMin: 41 }],
+            ]), { id: "run-a", role: "Lead" }),
+            resmonGroup("job:22410", "runcmd", "cleanup round", "", false, resmonRows(now, [
+                [22410, 0, "bash.exe", "-c node scripts/verify.mjs ./pkg/orchestrate ./pkg/jarvis", 0.0, 6, { tag: "shell", ageMin: 4 }],
                 [22418, 1, "node.exe", "scripts/verify.mjs", 0.3, 58, { ageMin: 4 }],
                 [22502, 2, "go.exe", "test ./pkg/jarvis", 0.4, 140, { ageMin: 3 }],
                 [22590, 3, "jarvis.test.exe", "-test.count=1", 6.7, 1200, { ageMin: 3 }],
-            ])),
+            ]), { id: "run-b", role: "Verify" }),
             resmonGroup("job:7716", "agenttab", "obsidian-notes", "claude", true, resmonRows(now, [
                 [7716, 0, "claude.exe", "", 0.1, 303, { tag: "agent", ageMin: 192 }],
                 [7724, 1, "conhost.exe", "", 0.0, 9, { tag: "console", ageMin: 192 }],
@@ -21954,7 +21963,10 @@ const RESMON_POPOVER_STATE = `(() => {
     const p = ${RESMON_POPOVER};
     if (!p) return null;
     const r = p.getBoundingClientRect();
-    const where = (el) => el.getAttribute('data-resmon-row') ?? el.closest('[data-resmon-group]')?.getAttribute('data-resmon-group');
+    const where = (el) =>
+        el.getAttribute('data-resmon-row') ??
+        (el.hasAttribute('data-resmon-member') ? 'm:' + el.getAttribute('data-resmon-member') : null) ??
+        el.closest('[data-resmon-group]')?.getAttribute('data-resmon-group');
     const cursor = p.querySelector('[data-resmon-cursor]');
     const confirm = p.querySelector('[data-resmon-confirm]');
     return {
@@ -21963,12 +21975,20 @@ const RESMON_POPOVER_STATE = `(() => {
         bottom: r.bottom,
         groups: [...p.querySelectorAll('[data-resmon-group]')].map((g) => ({
             key: g.getAttribute('data-resmon-group'),
+            header: g.querySelector('button[aria-expanded]')?.textContent.trim() ?? '',
             rows: g.querySelectorAll('[data-resmon-row]').length,
-            tags: [...g.querySelectorAll('[data-resmon-row]')].filter((row) => !row.querySelector('button')).length,
             kills: g.querySelectorAll('[data-resmon-row] button[aria-label^="Kill"]').length,
             buttons: g.querySelectorAll('button').length,
+            members: [...g.querySelectorAll('[data-resmon-member]')].map((m) => ({
+                role: m.querySelector('span.font-semibold')?.textContent.trim() ?? '',
+                folded: m.querySelector('[data-resmon-folded]')?.textContent.trim() ?? '',
+                foldedTitle: m.querySelector('[data-resmon-folded]')?.getAttribute('title') ?? '',
+                killChildren: [...m.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Kill children'),
+                readOnly: m.textContent.includes('read-only'),
+                icon: m.querySelector('img')?.getAttribute('alt') ?? (m.querySelector('svg') ? 'svg' : ''),
+            })),
         })),
-        order: [...p.querySelectorAll('[data-resmon-group] > div:first-child, [data-resmon-row]')].map(where),
+        order: [...p.querySelectorAll('[data-resmon-group] > div:first-child, [data-resmon-member], [data-resmon-row]')].map(where),
         cursor: cursor ? where(cursor) : null,
         confirm: confirm ? (confirm.querySelector('span')?.textContent ?? '') : null,
         status: [...p.querySelectorAll('[role="status"]')].map((n) => n.textContent.trim()),
@@ -22259,16 +22279,14 @@ const resmonLive = {
         })()`);
         await polishWaitFor(h, `!!document.querySelector('[data-resmon-row="${found.pid}"]')`, 10000);
         await shot("1-listed");
-        // the shell row's core tag chip, on the edge ramp rather than a white overlay
+        // the shell's member line and its Kill children button, on the surface ramp rather than a white overlay
         const chips = await paintEval(h, `
-            const group = document.querySelector('[data-resmon-popover] [data-resmon-group="${found.group}"]');
-            const tags = [...(group?.querySelectorAll("[data-resmon-row] span") ?? [])].filter(
-                (s) => s.children.length === 0 && /^(shell|agent|launcher|console)$/.test((s.textContent || "").trim())
-            );
+            const line = document.querySelector('[data-resmon-popover] [data-resmon-member="${found.group}"]');
+            const tags = [...(line?.querySelectorAll("button, [data-resmon-folded]") ?? [])];
             return tags.map((t) => ({ tag: t.textContent.trim(), bg: getComputedStyle(t).backgroundColor, raw: rawOverlay(getComputedStyle(t).backgroundColor) }));
         `);
         const floor = await floorStep(h, `2c. no visible text in the resource popover is under ${MIN_FONT_PX}px`, `document.querySelector("[data-resmon-popover]")`);
-        rec("2b. the group's tag chip has no raw white or black overlay background", chips.length > 0 && chips.every((c) => !c.raw), JSON.stringify(chips));
+        rec("2b. the shell's member line has no raw white or black overlay background", chips.length > 0 && chips.every((c) => !c.raw), JSON.stringify(chips));
         steps.push(floor);
         const clicked = await h.ev(
             resmonClick(`document.querySelector('[data-resmon-row="${found.pid}"] button[aria-label^="Kill"]')`)
@@ -22321,20 +22339,42 @@ const resmonMain = {
         const s1 = await resmonPopover(h);
         const readoutTop = await h.ev(`${resmonReadout(RESMON_FOOTER)}?.getBoundingClientRect().top`);
         await shot("1-open");
-        const by = (k) => s1?.groups.find((g) => g.key === k) ?? {};
         const ok1 =
             s1 != null &&
             s1.width === 700 &&
             Math.abs(s1.right - 12) <= 1 &&
             s1.bottom <= readoutTop - 5 &&
             JSON.stringify(s1.groups.map((g) => g.key)) === JSON.stringify(RESMON_GROUP_ORDER) &&
-            by("arc").rows === 0 &&
-            by("job:14820").tags === 2 && by("job:14820").kills === 5 &&
-            by("job:13060").tags === 3 && by("job:13060").kills === 2 &&
-            by("job:22410").rows === 4 && by("job:22410").buttons === 1 &&
-            by("job:7716").tags === 2 && by("job:7716").kills === 0;
-        rec("1. click the readout: 700px, bottom-right; Arc first and collapsed; by CPU; tags on core rows, × on the rest; Verify has no action",
+            s1.groups.every((g) => g.rows === 0 && g.members.length === 0) &&
+            s1.text.includes("2 runs · 2 agent tabs · 31 processes") &&
+            /cache-miss notice\s*Run · 2 agents · 9 processes/.test(s1.groups[2].header) &&
+            /cleanup round\s*Run · 1 command · 4 processes/.test(s1.groups[3].header);
+        rec("1. click the readout: 700px, bottom-right; Arc first, then by CPU, every view collapsed; one view per run, not per worker",
             ok1, JSON.stringify({ width: s1?.width, right: s1?.right, bottom: s1?.bottom, readoutTop, groups: s1?.groups }));
+
+        for (const k of RESMON_GROUP_ORDER.slice(1)) {
+            await h.ev(resmonClick(resmonChevron(k)));
+        }
+        await resmonNap(200);
+        const s1b = await resmonPopover(h);
+        await shot("1b-runs-open");
+        const by = (k) => s1b?.groups.find((g) => g.key === k) ?? { members: [] };
+        const [lead, task2] = by("run:run-a").members;
+        const [verifyCmd] = by("run:run-b").members;
+        const [tab] = by("job:14820").members;
+        const ok1b =
+            by("run:run-a").members.map((m) => m.role).join(",") === "Lead,Task 2" &&
+            lead.folded === "+3" && /wsh\.exe \(control\)/.test(lead.foldedTitle) && !lead.killChildren &&
+            lead.icon === "Claude Code logo" &&
+            task2.folded === "+2" && task2.killChildren && task2.icon === "Pi logo" &&
+            by("run:run-a").rows === 2 && by("run:run-a").kills === 2 &&
+            verifyCmd.role === "Verify" && verifyCmd.readOnly && !verifyCmd.killChildren && verifyCmd.icon === "svg" &&
+            by("run:run-b").rows === 3 && by("run:run-b").kills === 0 &&
+            tab.role === "Agent" && tab.folded === "+1" && tab.killChildren &&
+            by("job:14820").rows === 5 && by("job:14820").kills === 5 &&
+            by("job:7716").rows === 0 && !by("job:7716").members[0]?.killChildren;
+        rec("1b. opened: a run lists its lead and workers by role, each one line with its core folded (+N) and the processes it started under it; Verify is read-only",
+            ok1b, JSON.stringify(s1b?.groups.slice(1)));
 
         await h.ev(resmonClick(resmonChevron("arc")));
         await resmonNap(200);
@@ -22459,6 +22499,9 @@ const resmonStates = {
             c4 === want3 && clicked4 && s4?.status.includes("Killed 5 processes."),
             JSON.stringify({ confirm: c4, clicked: clicked4, status: s4?.status }));
 
+        // Task 2's rows sit in the run's view, which starts collapsed
+        await h.ev(resmonClick(resmonChevron("run:run-a")));
+        await resmonNap(200);
         await resmonArm(h, { outcome: "gone", killed: 0 });
         await h.ev(resmonClick(resmonRowKill(21890)));
         await resmonNap(200);

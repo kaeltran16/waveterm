@@ -1173,13 +1173,13 @@ describe("Resource Manager popover bindings", () => {
     it("moves, asks, cancels and closes", () => {
         globalStore.set(resmonSnapshotAtom, snapshot);
         globalStore.set(resmonOpenAtom, true);
-        // every group starts collapsed: Arc, then waveterm's header, expanded to reach its rows
+        // every view starts collapsed: Arc, then waveterm's header, expanded to reach its member and rows
         run("resmon:next");
         run("resmon:next");
         run("resmon:enter");
         run("resmon:next");
-        expect(globalStore.get(resmonUiAtom).cursor).toBe("job:10/10");
-        run("resmon:kill"); // the agent itself: no confirm
+        expect(globalStore.get(resmonUiAtom).cursor).toBe("m:job:10");
+        run("resmon:kill"); // the member's own line, the agent: no confirm
         expect(globalStore.get(resmonUiAtom).confirm).toBeNull();
         run("resmon:next");
         run("resmon:kill");

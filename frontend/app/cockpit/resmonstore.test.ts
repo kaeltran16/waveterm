@@ -18,7 +18,7 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
-import { RESMON_UI_INITIAL } from "./resmon";
+import { buildViews, RESMON_UI_INITIAL } from "./resmon";
 import {
     confirmResMon,
     dispatchResMon,
@@ -132,7 +132,7 @@ describe("fixture", () => {
     it("opens the popover, and clear unpins, closes and resets the UI state", async () => {
         fixture().set(snap(1));
         fixture().open();
-        dispatchResMon({ type: "askKill", groups: [waveterm], at: `${waveterm.key}/18311` });
+        dispatchResMon({ type: "askKill", views: buildViews([waveterm]), at: `${waveterm.key}/18311` });
         expect(globalStore.get(resmonOpenAtom)).toBe(true);
         vi.mocked(RpcApi.ResMonSnapshotCommand).mockResolvedValue(snap(9));
         fixture().clear();
@@ -147,7 +147,7 @@ describe("confirmResMon", () => {
     it("resolves an armed outcome without the RPC, notes it and clears the confirm", async () => {
         fixture().set(snap(1));
         fixture().killOutcome({ outcome: "killed", killed: 2 });
-        dispatchResMon({ type: "askKill", groups: [waveterm], at: `${waveterm.key}/18244` });
+        dispatchResMon({ type: "askKill", views: buildViews([waveterm]), at: `${waveterm.key}/18244` });
         await confirmResMon();
         expect(RpcApi.ResMonKillCommand).not.toHaveBeenCalled();
         const ui = globalStore.get(resmonUiAtom);
@@ -158,7 +158,7 @@ describe("confirmResMon", () => {
         globalStore.set(resmonSnapshotAtom, snap(1));
         vi.mocked(RpcApi.ResMonKillCommand).mockResolvedValue({ outcome: "gone", killed: 0 });
         vi.mocked(RpcApi.ResMonSnapshotCommand).mockResolvedValue(snap(2));
-        dispatchResMon({ type: "askKill", groups: [waveterm], at: `${waveterm.key}/18311` });
+        dispatchResMon({ type: "askKill", views: buildViews([waveterm]), at: `${waveterm.key}/18311` });
         await confirmResMon();
         expect(RpcApi.ResMonKillCommand).toHaveBeenCalledWith({}, { ownerid: "block-1", pid: 18311, tree: true });
         expect(globalStore.get(resmonUiAtom).notes[waveterm.key].text).toBe(
@@ -169,7 +169,7 @@ describe("confirmResMon", () => {
     it("kills a group's children through the RPC", async () => {
         globalStore.set(resmonSnapshotAtom, snap(1));
         vi.mocked(RpcApi.ResMonKillChildrenCommand).mockResolvedValue({ outcome: "killed", killed: 2 });
-        dispatchResMon({ type: "askChildren", groups: [waveterm], at: waveterm.key });
+        dispatchResMon({ type: "askChildren", views: buildViews([waveterm]), at: waveterm.key });
         await confirmResMon();
         expect(RpcApi.ResMonKillChildrenCommand).toHaveBeenCalledWith({}, { ownerid: "block-1" });
         expect(globalStore.get(resmonUiAtom).notes[waveterm.key].text).toBe("Killed 2 processes.");
@@ -177,7 +177,7 @@ describe("confirmResMon", () => {
     it("turns a rejected RPC into a failed alert", async () => {
         globalStore.set(resmonSnapshotAtom, snap(1));
         vi.mocked(RpcApi.ResMonKillCommand).mockRejectedValue(new Error("EC-TIME: timeout"));
-        dispatchResMon({ type: "askKill", groups: [waveterm], at: `${waveterm.key}/18311` });
+        dispatchResMon({ type: "askKill", views: buildViews([waveterm]), at: `${waveterm.key}/18311` });
         await confirmResMon();
         expect(globalStore.get(resmonUiAtom).notes[waveterm.key]).toEqual({
             text: "Could not kill orchestrate.test.exe (18311): EC-TIME: timeout. It is still running.",

@@ -2660,6 +2660,8 @@ declare global {
         ownerkind: string;
         ownerid?: string;
         label: string;
+        runid?: string;
+        role?: string;
         runtime?: string;
         killable: boolean;
         cpu: number;

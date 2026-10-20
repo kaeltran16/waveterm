@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { launchPiTab } from "@/app/cockpit/cockpit-actions";
-import { orderGroups } from "@/app/cockpit/resmon";
+import { buildViews } from "@/app/cockpit/resmon";
 import {
     confirmResMon,
     dispatchResMon,
@@ -1549,7 +1549,7 @@ export function buildFinalShotsBindings(handlers: {
 export function buildResMonBindings(model: AgentsViewModel): Binding[] {
     const active = (ctx: KeyContext) =>
         globalStore.get(resmonOpenAtom) && !ctx.editable && !anyModalOpen() && !globalStore.get(model.paletteOpenAtom);
-    const groups = () => orderGroups(globalStore.get(resmonSnapshotAtom)?.groups ?? []);
+    const views = () => buildViews(globalStore.get(resmonSnapshotAtom)?.groups ?? []);
     const bind = (id: string, keys: string, label: string, run: () => void): Binding => ({
         id: `resmon:${id}`,
         keys,
@@ -1560,20 +1560,20 @@ export function buildResMonBindings(model: AgentsViewModel): Binding[] {
         run,
     });
     return [
-        bind("prev", "ArrowUp", "Move up", () => dispatchResMon({ type: "move", delta: -1, groups: groups() })),
-        bind("next", "ArrowDown", "Move down", () => dispatchResMon({ type: "move", delta: 1, groups: groups() })),
+        bind("prev", "ArrowUp", "Move up", () => dispatchResMon({ type: "move", delta: -1, views: views() })),
+        bind("next", "ArrowDown", "Move down", () => dispatchResMon({ type: "move", delta: 1, views: views() })),
         bind("enter", "Enter", "Confirm, else expand or collapse the group", () => {
             if (globalStore.get(resmonUiAtom).confirm != null) {
                 void confirmResMon();
             } else {
-                dispatchResMon({ type: "toggle" });
+                dispatchResMon({ type: "toggle", views: views() });
             }
         }),
         bind("kill", "x", "Kill the process and its children", () =>
-            dispatchResMon({ type: "askKill", groups: groups() })
+            dispatchResMon({ type: "askKill", views: views() })
         ),
         bind("kill-children", "Shift:X", "Kill the group's children", () =>
-            dispatchResMon({ type: "askChildren", groups: groups() })
+            dispatchResMon({ type: "askChildren", views: views() })
         ),
         bind("close", "Escape", "Cancel, else close", () => {
             if (globalStore.get(resmonUiAtom).confirm != null) {

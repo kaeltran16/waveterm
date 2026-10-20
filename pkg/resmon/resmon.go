@@ -33,7 +33,9 @@ const (
 // OwnerInfo is what the server knows about an owner that the registry does not.
 type OwnerInfo struct {
 	Kind    string // wshrpc.ResMonOwner_*
-	Label   string
+	Label   string // the tab name; for a run worker or command, the run's title
+	RunId   string // the orchestrator run a worker or command belongs to
+	Role    string // its place in that run: "Lead", "Task 2", "Task 2 Verify"
 	Runtime string // claude | pi | ""
 	Agent   bool   // the block's tab has session:agent: decides the core rule
 }
