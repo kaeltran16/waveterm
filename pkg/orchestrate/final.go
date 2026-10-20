@@ -40,9 +40,25 @@ const (
 	FinalStep_Final  = "final"
 )
 
-// FinalExitUnverified is the Final command's exit code for "could not verify": its last output line says why.
-// Any other non-zero exit is a failure.
+// FinalExitUnverified is the final stage's exit code for "could not verify": its last output line says why. The
+// Final command, Check and Verify may each use it there; any other non-zero exit is a failure.
 const FinalExitUnverified = 3
+
+// exitedUnverified says whether a plan command ended itself with FinalExitUnverified, rather than timing out or being
+// killed. A Check or Verify that cannot reach a tool or service it needs is no defect a fix round could fix.
+func exitedUnverified(err error) bool {
+	var pe *planCommandError
+	return errors.As(err, &pe) && pe.timeout == 0 && pe.killed == "" && pe.exitCode == FinalExitUnverified
+}
+
+// couldNotVerifyItem is the unverified reason of a Check or Verify that exited FinalExitUnverified.
+func couldNotVerifyItem(label, cmd, out string) string {
+	reason := lastOutputLine(out)
+	if reason == "" {
+		reason = "it gave no reason"
+	}
+	return fmt.Sprintf("%s `%s` could not verify: %s", label, cmd, reason)
+}
 
 // MaxFinalRounds is how many times the final stage runs on one dag: the first, and one fix round.
 const MaxFinalRounds = 2
@@ -309,30 +325,40 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 			out, err = runPlanCommand(withRunCmdOwner(ctx, owner.ID, PlanCmd_Check, ""), tree, g.Check, nil, VerifyTimeout, progress)
 			return err == nil, out
 		}) {
-			if !baseCheckFailed(g) {
+			switch {
+			case exitedUnverified(err):
+				res.unverified = append(res.unverified, couldNotVerifyItem("Check", g.Check, out))
+			case !baseCheckFailed(g):
 				res.detail = fmt.Sprintf("Check `%s` failed (%s):\n%s", g.Check, commandReason(err), out)
 				return res
+			default:
+				// a fix round cannot fix someone else's commit, so it goes on as unverified
+				res.unverified = append(res.unverified, sharedCheckFailure(g, "the merged result", failureDetail(err)))
 			}
-			// a fix round cannot fix someone else's commit, so it goes on as unverified
-			res.unverified = append(res.unverified, sharedCheckFailure(g, "the merged result", failureDetail(err)))
 		}
 	}
 	// per merge Verify tested only what each merge changed; the whole suite runs once, here, on the merged result
 	if g.Verify != "" {
 		var out string
 		var flaky []string
-		if !step(FinalStep_Verify, func(progress planProgress) (bool, string) {
+		passed := step(FinalStep_Verify, func(progress planProgress) (bool, string) {
 			out, flaky, err = runVerifyCommand(withRunCmdOwner(ctx, owner.ID, PlanCmd_Verify, ""), tree, g.Verify, unscopedEnv, progress)
 			return err == nil, out
-		}) {
+		})
+		switch {
+		case !passed && exitedUnverified(err):
+			// the merges it stands for stay unclosed: it tested nothing
+			res.unverified = append(res.unverified, couldNotVerifyItem("Verify", g.Verify, out))
+		case !passed:
 			res.detail = fmt.Sprintf("Verify `%s` failed on the merged result (%s):\n%s", g.Verify, commandReason(err), out)
 			return res
-		}
-		for _, test := range flaky {
-			res.unverified = append(res.unverified, flakyItem(test, finalVerifyWhere))
-		}
-		if err := WithDagMutation(dagID, func() error { return landDeferredVerifyLocked(ctx, dagID) }); err != nil {
-			log.Printf("dag %s: closing the chunks of the merges this Verify stood for: %v", dagID, err)
+		default:
+			for _, test := range flaky {
+				res.unverified = append(res.unverified, flakyItem(test, finalVerifyWhere))
+			}
+			if err := WithDagMutation(dagID, func() error { return landDeferredVerifyLocked(ctx, dagID) }); err != nil {
+				log.Printf("dag %s: closing the chunks of the merges this Verify stood for: %v", dagID, err)
+			}
 		}
 	}
 	if g.FinalCmd == "" {
@@ -713,6 +739,45 @@ func EndFinalStage(ctx context.Context, dagID, outcome, reason string) error {
 			})
 		}
 		return settleFinalLocked(ctx, g, owner, false, &afterCommit)
+	})
+	if err != nil {
+		return err
+	}
+	for _, fn := range afterCommit {
+		fn()
+	}
+	return nil
+}
+
+// RerunFinalStage starts a failed final stage over on the human's word, in the same round, so it spends no fix
+// round: what failed was outside the code, a service that was down or a tool not installed, and the human fixed
+// it. The lead, woken to plan a fix round, is told to drop it; the stage's outcome wakes it as before. A run whose
+// land the failure held lands once the rerun passes (retryHeldLands). The caller schedules the dag afterwards.
+func RerunFinalStage(ctx context.Context, dagID string) error {
+	var afterCommit []func()
+	err := withDagMutation(dagID, func() error {
+		g, err := wstore.GetDag(ctx, dagID)
+		if err != nil {
+			return fmt.Errorf("loading dag: %w", err)
+		}
+		f := g.Final
+		switch {
+		case g.Status == DagStatus_Cancelled:
+			return fmt.Errorf("run %s is cancelled; its final stage cannot run again", g.RunID)
+		case f == nil || f.State == "":
+			return fmt.Errorf("run %s's final stage has not started; only a failed one can be rerun", g.RunID)
+		case f.State != FinalState_Failed:
+			return fmt.Errorf("run %s's final stage is %s; only a failed one can be rerun", g.RunID, f.State)
+		}
+		round := f.Round
+		// an empty State is a round not started: the next tick starts it, into the same round's directories
+		g.Final = &waveobj.FinalStage{Round: round}
+		RecomputeDagStatus(g)
+		channelID, runID := g.ChannelId, g.RunID
+		afterCommit = append(afterCommit, func() {
+			PostWake(ctx, channelID, runID, finalRerunWake(round))
+		})
+		return persistDag(ctx, g)
 	})
 	if err != nil {
 		return err

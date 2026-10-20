@@ -97,18 +97,19 @@ func landRunLocked(ctx context.Context, channelID, runID string, force bool) (*w
 	return land, nil
 }
 
-// retryDirtyLands lands again each run held only by uncommitted changes in its checkout (RunLand.Dirty), once the
-// land's own checkout check passes. The changes are another session's or the human's, so the engine waits for them
-// to be committed, stashed or moved aside instead of asking anyone to retry. The watchdog calls it every tick. A
+// retryHeldLands lands again each run held only by uncommitted changes in its checkout (RunLand.Dirty), once the
+// land's own checkout check passes, and each run held by its failed final stage once a rerun of the stage passed
+// (finalHoldLifted). The changes are another session's or the human's, so the engine waits for them to be
+// committed, stashed or moved aside instead of asking anyone to retry. The watchdog calls it every tick. A
 // dismissed hold is the human's to retry, and a run whose land is already under way is skipped.
-func retryDirtyLands(ctx context.Context) {
+func retryHeldLands(ctx context.Context) {
 	runs, err := wstore.GetRunsByLandState(ctx, LandState_Held)
 	if err != nil {
 		log.Printf("listing held lands: %v", err)
 		return
 	}
 	for _, run := range runs {
-		if !run.Land.Dirty || run.Land.Dismissed || !landLocks.TryLock(run.ID) {
+		if run.Land.Dismissed || !(run.Land.Dirty || finalHoldLifted(ctx, run)) || !landLocks.TryLock(run.ID) {
 			continue
 		}
 		goStage("land retry "+run.ID, func() {
@@ -124,6 +125,16 @@ func retryDirtyLands(ctx context.Context) {
 			}
 		})
 	}
+}
+
+// finalHoldLifted says whether a run held by its failed final stage now has a final stage that lets it land: the
+// human reran the stage and it passed, or ended unverified.
+func finalHoldLifted(ctx context.Context, run *waveobj.Run) bool {
+	if run.Land.Reason != finalFailedHold || run.DagORef == "" {
+		return false
+	}
+	g, err := wstore.GetDag(ctx, run.DagORef)
+	return err == nil && finalHold(g) == ""
 }
 
 func saveLand(ctx context.Context, channelID, runID string, land *waveobj.RunLand) error {
@@ -272,6 +283,9 @@ func runDagID(run *waveobj.Run, g *waveobj.TaskGroup) string {
 	return run.ID
 }
 
+// finalFailedHold is the land's reason while a failed final stage holds it.
+const finalFailedHold = "the final stage failed"
+
 // finalHold is why the final stage keeps a run from landing: only passed and unverified land. A run with no dag
 // had no final stage, and the lead's own work lands.
 func finalHold(g *waveobj.TaskGroup) string {
@@ -281,7 +295,7 @@ func finalHold(g *waveobj.TaskGroup) string {
 	case g.Final == nil || !finalTerminal(g.Final.State):
 		return "the final stage has not finished"
 	case g.Final.State == FinalState_Failed:
-		return "the final stage failed"
+		return finalFailedHold
 	}
 	return ""
 }
@@ -290,7 +304,7 @@ func finalHold(g *waveobj.TaskGroup) string {
 // git operation, has staged changes the merge commit would sweep in, has unstaged edits the merge would overwrite,
 // or has an untracked file where the branch adds a different one. dirty is set when only uncommitted changes stand
 // in the way. Those belong to another session or the human, so nothing of the engine's touches them: the land
-// retries by itself once they are gone (retryDirtyLands).
+// retries by itself once they are gone (retryHeldLands).
 func checkoutHold(ctx context.Context, run *waveobj.Run) (reason string, dirty bool) {
 	project, branch := run.ProjectPath, "wave/"+run.ID
 	cur, err := git(ctx, project, "rev-parse", "--abbrev-ref", "HEAD")

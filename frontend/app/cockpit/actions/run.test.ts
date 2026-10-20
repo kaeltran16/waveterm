@@ -278,6 +278,16 @@ describe("run actions", () => {
         expect(applies("run:end-final-failed", thing(orchestrator(), [lead], cancelled))).toBe(false);
     });
 
+    it("rerunning the final stage applies once it failed", () => {
+        const failed = lineage(
+            info({ dag: { ...info().dag, status: "blocked", final: { state: "failed" } as FinalStage } })
+        );
+        expect(applies("run:rerun-final", thing(orchestrator(), [lead], failed))).toBe(true);
+        const running = lineage(info({ dag: { ...info().dag, final: { state: "verifying" } as FinalStage } }));
+        expect(applies("run:rerun-final", thing(orchestrator(), [lead], running))).toBe(false);
+        expect(applies("run:rerun-final", thing(orchestrator(), [lead], lineage(info())))).toBe(false);
+    });
+
     it("refuses to end the final stage without a reason", async () => {
         const action = RUN_KIND.actions.find((a) => a.id === "run:end-final-failed");
         await expect(action.run(thing(orchestrator()), { model: null }, "  ")).rejects.toThrow(/reason/);

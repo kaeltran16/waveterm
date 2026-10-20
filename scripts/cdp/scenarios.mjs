@@ -7290,6 +7290,36 @@ const codeMarkdown = {
             detail: `toggled=${backToPreview} preview=${previewAgain}`,
         });
 
+        // reopening reads the file again; every painted frame must show a document, never the
+        // "Opening…" placeholder that used to sit on screen for the whole render of a large file
+        await h.ev(`(() => {
+            const seen = { frames: 0, placeholder: 0, blank: 0 };
+            const t0 = performance.now();
+            const frame = () => {
+                seen.frames++;
+                const md = document.querySelector('.markdown .heading');
+                const opening = [...document.querySelectorAll('body *')]
+                    .some((e) => e.children.length === 0 && (e.textContent || '').trim() === 'Opening…');
+                if (opening) seen.placeholder++;
+                else if (!md) seen.blank++;
+                if (performance.now() - t0 < 1500) requestAnimationFrame(frame);
+                else window.__codeMarkdownReopen = seen;
+            };
+            requestAnimationFrame(frame);
+        })()`);
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
+        );
+        await sleep(300);
+        const reopened = await setFinderQuery(h, "README.md");
+        await sleep(1500);
+        const reopen = await h.ev(`(() => { const s = window.__codeMarkdownReopen; delete window.__codeMarkdownReopen; return s; })()`);
+        steps.push({
+            step: "reopening the document never paints the Opening… placeholder or an empty pane",
+            ok: reopened === true && reopen != null && reopen.placeholder === 0 && reopen.blank === 0,
+            detail: JSON.stringify({ reopened, ...reopen }),
+        });
+
         return steps;
     },
     async teardown(h) {
@@ -14157,6 +14187,65 @@ const finalShotsScenario = {
     async teardown(h, ctx) {
         if (ctx.cwd) await teardownFixtureRun(h, ctx, "final-shots");
         rmSync(ctx.out, { recursive: true, force: true });
+    },
+};
+
+// --- final-rerun: a failed final stage runs again from the run sheet ------------------------------------------
+// The dag is seeded with a failed round 1 while t-1 is still at work, so the engine leaves the stage alone. The
+// rerun resets it to round 1 not started, which the same busy dag then keeps.
+
+const FR_BTN = `document.querySelector("[data-run-sheet] [data-final-rerun]")`;
+const finalRerunSeed = {
+    state: "failed",
+    round: 1,
+    detail: "Check `docker info` failed (exit 1):\ndocker is not running",
+};
+const finalRerunPrint = (dag) => JSON.stringify([dag?.final?.state ?? null, dag?.final?.round ?? null]);
+
+const finalRerunScenario = {
+    name: "final-rerun",
+    surface: "jarvis",
+    async arrange(h) {
+        const ctx = await arrangeSheetDagRun(h, "final-rerun", RUN_SHEET_POLISH_TASKS);
+        if (ctx.arrangeError != null) return ctx;
+        try {
+            ctx.dagId = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.oid;
+            if (!ctx.dagId) throw new Error("the run has no dag");
+            await seedDag(h, ctx, (dag) => ({ ...dag, final: finalRerunSeed }), finalRerunPrint);
+            ctx.shown = await polishWaitFor(h, `${FR_BTN} != null`, 15_000);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec(
+            "0. the run's sheet opened on a dag seeded with a failed final stage",
+            ctx.arrangeError == null && ctx.opened?.ok === true,
+            ctx.arrangeError ?? JSON.stringify({ runId: ctx.runId, dagId: ctx.dagId, opened: ctx.opened })
+        );
+        if (ctx.arrangeError != null) return steps;
+        const label = await h.ev(`${FR_BTN}?.textContent.trim() ?? null`);
+        rec("1. the dock offers Rerun final stage", ctx.shown === true && label === "Rerun final stage", JSON.stringify({ label }));
+        await h.shot("cdp-shots/final-rerun-1-offered.png");
+
+        await h.ev(`${FR_BTN}?.click()`);
+        const gone = await polishWaitFor(h, `${FR_BTN} == null`, 15_000);
+        const dag = await waveService(h, "object", "GetObject", [`dag:${ctx.dagId}`]);
+        rec(
+            "2. the click reruns the stage: round 1 not started, and the button is gone",
+            gone && dag?.final?.state === "" && dag?.final?.round === 1 && (dag?.final?.detail ?? "") === "",
+            JSON.stringify({ gone, final: dag?.final })
+        );
+        const error = await h.ev(`document.querySelector("[data-run-sheet] .text-error")?.textContent ?? null`);
+        rec("3. the engine refused nothing", error == null, JSON.stringify({ error }));
+        await h.shot("cdp-shots/final-rerun-2-rerun.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        if (ctx.cwd) await teardownFixtureRun(h, ctx, "final-rerun");
     },
 };
 
@@ -25308,6 +25397,7 @@ export const SCENARIOS = [
     agentRailFileLink,
     shellTasksScenario,
     finalShotsScenario,
+    finalRerunScenario,
     finalStageScenario,
     briefInitiativesPolish,
     briefPeeksPolish,

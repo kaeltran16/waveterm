@@ -29,8 +29,16 @@ const TakenOverNote = "taken over from the lead"
 const ForwardedByHuman = "human"
 
 // runFinishedWake is the first line of every run-finished wake. A run with no lead is not given one for it
-// (onlyRunFinished), so the outcome goes on the lines after it and this line stays fixed.
+// (nothingToLaunchFor), so the outcome goes on the lines after it and this line stays fixed.
 const runFinishedWake = "wake: run finished. wsh jarvis dag status"
+
+// finalRerunWakeHead opens the wake that tells a lead the human reran the failed final stage. It asks a lead only to
+// drop a fix plan, so a run with no lead is not given one for it (nothingToLaunchFor).
+const finalRerunWakeHead = "wake: the human reran the final stage"
+
+func finalRerunWake(round int) string {
+	return fmt.Sprintf("%s of round %d; its failure was outside the code. Drop any fix plan for it; the stage's outcome wakes you.", finalRerunWakeHead, round)
+}
 
 // RunFinishedWake states the final stage's outcome, and every reason it could not verify something in full:
 // the lead's report has to carry them.
