@@ -39,6 +39,10 @@ func TestMain(m *testing.M) {
 	startWorker = func(context.Context, string) error { return nil }
 	// a landed dag's verifier would need a workspace to spawn in; only the verifier's own tests start one
 	startVerifier = skipVerifier
+	// the store is shared by every test, and the cap would count the workers earlier tests left live in it;
+	// only the cap's own tests see other dags and a machine's memory
+	liveDags = func(context.Context) ([]*waveobj.TaskGroup, error) { return nil, nil }
+	availableMemory = func() (uint64, error) { return ^uint64(0), nil }
 	// a fixture's worker has no transcript, and the lookup then globs every dir under the root: against the
 	// real ~/.claude/projects that was 1.4M file checks a run, all logged as test inputs for go to re-check
 	sessionsRootFor = func(string) string { return filepath.Join(dir, "sessions") }

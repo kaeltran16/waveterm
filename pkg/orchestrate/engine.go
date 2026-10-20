@@ -677,7 +677,11 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 		}
 	}
 	var spawned []spawnedWorkerInfo
-	for _, taskID := range NextToSpawn(g) {
+	// what the cap holds back stays pending, and a later tick dispatches it once a worker or memory frees up
+	next := NextToSpawn(g)
+	next = next[:claimWorkers(ctx, g, len(next))]
+	defer releaseWorkerClaim(g.OID)
+	for _, taskID := range next {
 		task := taskByID(g, taskID)
 		pin := effectiveTaskRoute(task, owner, g)
 		capability, routeErr := runroute.Resolve(pin)

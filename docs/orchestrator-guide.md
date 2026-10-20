@@ -449,6 +449,12 @@ Depends lines in the plan. Raising parallelism won't help. When slots are short,
 the ready task with the longest chain of tasks waiting behind it, then by task id, so a chain does not queue behind
 tasks nothing depends on.
 
+Parallelism is one run's width. Across every run on the machine the engine also starts at most 8 workers, and
+a new one only while at least 3.5 GB of memory is available: a worker's claude and its typecheck peak at about
+that. While another run waits, a run refills only to its share of the 8. A task held back stays pending and starts
+on a later tick, within 30 seconds of a worker finishing or memory freeing up; `dag status` still lists it as
+ready to dispatch. With no worker live anywhere, one always starts.
+
 ![The backlog plan in the launcher](images/orchestrator-guide/24-plan-dialog-backlog.png)
 
 The New run window lists the parsed plan's tasks with a model column that follows the Workers picker. On
