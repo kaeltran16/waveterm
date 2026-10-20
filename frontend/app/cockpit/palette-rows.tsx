@@ -9,6 +9,7 @@ import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { formatChord } from "@/util/keysym";
 import { cn } from "@/util/util";
 import {
+    Braces,
     Contrast,
     CornerDownRight,
     File,
@@ -76,6 +77,7 @@ export const KIND_ICONS: Partial<Record<GroupKind, LucideIcon>> = {
     "as-goal": Zap,
     widen: Search,
     line: CornerDownRight,
+    symbol: Braces,
     action: Play,
 };
 

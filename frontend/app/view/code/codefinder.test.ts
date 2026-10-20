@@ -142,4 +142,14 @@ describe("parseFinderQuery", () => {
     it("trims surrounding whitespace", () => {
         expect(parseFinderQuery("  a.ts:9  ")).toEqual({ text: "a.ts", line: 9 });
     });
+
+    it("reads a leading @ as a symbol query, with no line", () => {
+        expect(parseFinderQuery("@openPath")).toEqual({ text: "openPath", symbol: true });
+        expect(parseFinderQuery("@ open:12")).toEqual({ text: "open:12", symbol: true });
+        expect(parseFinderQuery("@")).toEqual({ text: "", symbol: true });
+    });
+
+    it("does not read an @ inside a path as a symbol query", () => {
+        expect(parseFinderQuery("node_modules/@types/x.d.ts")).toEqual({ text: "node_modules/@types/x.d.ts" });
+    });
 });

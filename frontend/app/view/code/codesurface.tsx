@@ -76,6 +76,7 @@ import {
     startCreate,
     type CodeProject,
 } from "./codestore";
+import { CodeSymbolsPane } from "./codesymbolspane";
 import { CodeTreePane } from "./codetreepane";
 import { CodeViewer } from "./codeviewer";
 
@@ -97,7 +98,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
     const [typedPath, setTypedPath] = useState("");
 
     // stable array: every run() reads live atoms, so it never needs rebuilding
-    const codeBindings = useMemo(() => buildCodeBindings(), []);
+    const codeBindings = useMemo(() => buildCodeBindings(model), [model]);
     useKeybindings(codeBindings);
     useSyncMonacoTheme();
 
@@ -507,7 +508,7 @@ function CodePanesSkeleton() {
 }
 
 const CODE_SIDEBAR_PREFS_KEY = "code.sidebar.prefs";
-const CODE_SIDEBAR_MODES: readonly CodeSidebarMode[] = ["files", "search", "changed"];
+const CODE_SIDEBAR_MODES: readonly CodeSidebarMode[] = ["files", "search", "changed", "symbols"];
 
 function isCodeEditorFocused(element: Element | null): boolean {
     return (
@@ -748,8 +749,10 @@ function CodePanes({ model }: { model: AgentsViewModel }) {
                         <CodeTreePane model={model} />
                     ) : mode === "search" ? (
                         <CodeSearchPane model={model} />
-                    ) : (
+                    ) : mode === "changed" ? (
                         <CodeChangedPane model={model} />
+                    ) : (
+                        <CodeSymbolsPane />
                     )}
                 </div>
                 <button
