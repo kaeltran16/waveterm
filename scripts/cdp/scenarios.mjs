@@ -2136,17 +2136,17 @@ const usageCharts = {
             JSON.stringify(palette)
         );
 
-        // Live limits render one Meter bar per window (the redesign traded the ArcMeter rings for bars),
-        // and the seeded claude snapshot is 62%/41% so both bars must have a non-zero width.
+        // the Claude scope card draws one Meter bar per quota window, and the seeded claude snapshot is
+        // 62%/41% so both bars must have a non-zero width
         const limits = await h.ev(`(() => {
-            const cards = [...document.querySelectorAll("[data-usage-limit]")];
+            const cards = [...document.querySelectorAll('[data-usage-scopes] [data-usage-harness="claude"] [data-usage-limit]')];
             return cards.map((c) => {
                 const fill = c.querySelector("div[style*='width']");
                 return { kind: c.getAttribute("data-usage-limit"), width: fill ? fill.style.width : "" };
             });
         })()`);
         rec(
-            "3. Live limits render a 5-hour and a weekly bar with a real width",
+            "3. the Claude scope card renders a 5-hour and a weekly bar with a real width",
             limits.length === 2 &&
                 limits.some((l) => l.kind === "fivehour") &&
                 limits.some((l) => l.kind === "week") &&
@@ -2273,7 +2273,7 @@ const usageCharts = {
             JSON.stringify(split)
         );
 
-        // the Claude card: its own Live limits bars and its one model read out on the Daily header
+        // the Claude card: its own quota bars and its one model read out on the Daily header
         const claude = await usageEv(
             h,
             `const clicked = press(document.querySelector('[data-usage-scopes] [data-usage-harness="claude"]'));
@@ -2282,13 +2282,13 @@ const usageCharts = {
                 clicked,
                 pressed: document.querySelector('[data-usage-scopes] [data-usage-harness="claude"]')?.getAttribute("aria-pressed") ?? null,
                 scope: detail()?.getAttribute("data-usage-detail") ?? null,
-                bars: [...document.querySelectorAll("[data-usage-limit]")].map((c) => c.querySelector("div[style*='width']")?.style.width ?? ""),
+                bars: [...document.querySelectorAll('[data-usage-scopes] [data-usage-harness="claude"] [data-usage-limit]')].map((c) => c.querySelector("div[style*='width']")?.style.width ?? ""),
                 only: text(document.querySelector("[data-usage-daily-only]")) || null,
                 legendRows: legendRows().length,
             };`
         );
         rec(
-            "5d. the Claude card is pressed, with its Live limits bars and its one model on the Daily header",
+            "5d. the Claude card is pressed, with its quota bars and its one model on the Daily header",
             claude.clicked &&
                 claude.pressed === "true" &&
                 claude.scope === "claude" &&
@@ -2407,36 +2407,37 @@ const usageCharts = {
             `coverage=${coverage}%`
         );
 
-        // Master-detail INVERTS the old rule: limits are now scoped to the selection, so OpenCode (which
-        // publishes no quota) must show the no-reading note rather than borrowing Claude's bars, and the
-        // aggregate must bring the bars back. A scope switch changing the limits is the feature.
-        const limitsOpenCode = await h.ev(`(() => {
+        // quota sits on each provider's own card, so it does not move with the selection: OpenCode (which
+        // publishes no quota) shows "history only" and no bars while selected, Claude's card keeps its
+        // two bars, and the detail draws no quota of its own on either scope
+        const quotaOf = `(() => {
             const d = document.querySelector("[data-usage-detail]");
+            const card = (k) => document.querySelector('[data-usage-scopes] [data-usage-harness="' + k + '"]');
             return {
                 scope: d ? d.getAttribute("data-usage-detail") : null,
-                bars: document.querySelectorAll("[data-usage-limit]").length,
-                note: (d ? d.textContent || "" : "").includes("No quota reading"),
+                detailBars: d ? d.querySelectorAll("[data-usage-limit]").length : -1,
+                claudeBars: card("claude")?.querySelectorAll("[data-usage-limit]").length ?? 0,
+                openCodeBars: card("opencode")?.querySelectorAll("[data-usage-limit]").length ?? -1,
+                openCodeFact: (card("opencode")?.textContent || "").includes("history only"),
             };
-        })()`);
+        })()`;
+        const limitsOpenCode = await h.ev(quotaOf);
         await h.ev(`(() => {
             const b = document.querySelector('[data-usage-scopes] [data-usage-harness="all"]');
             if (b) b.click();
         })()`);
         await settle(400);
-        const limitsAll = await h.ev(`(() => {
-            const d = document.querySelector("[data-usage-detail]");
-            return {
-                scope: d ? d.getAttribute("data-usage-detail") : null,
-                bars: document.querySelectorAll("[data-usage-limit]").length,
-            };
-        })()`);
+        const limitsAll = await h.ev(quotaOf);
         rec(
-            "12. live limits follow the selected scope",
+            "12. quota stays on the provider cards whichever scope is selected",
             limitsOpenCode.scope === "opencode" &&
-                limitsOpenCode.bars === 0 &&
-                limitsOpenCode.note &&
+                limitsOpenCode.openCodeBars === 0 &&
+                limitsOpenCode.openCodeFact &&
+                limitsOpenCode.claudeBars === 2 &&
+                limitsOpenCode.detailBars === 0 &&
                 limitsAll.scope === "all" &&
-                limitsAll.bars === 2,
+                limitsAll.claudeBars === 2 &&
+                limitsAll.detailBars === 0,
             JSON.stringify({ limitsOpenCode, limitsAll })
         );
 
@@ -2780,9 +2781,8 @@ const usageWork = {
         );
         const splitSet = [...all.split].sort();
         rec(
-            "1b. All usage has no Live limits, a Spent on list of eight rows, and a split by project sorted by spend",
+            "1b. All usage has a Spent on list of eight rows, and a split by project sorted by spend",
             all.scope === "all" &&
-                !all.sections.includes("Live limits") &&
                 all.list?.title === "Spent on" &&
                 all.list.rows.length === USAGE_WORK_COLLAPSED_ROWS &&
                 JSON.stringify(splitSet) === JSON.stringify([USAGE_WORK_ARC, USAGE_WORK_SIEM, "other"].sort()) &&
@@ -2934,10 +2934,10 @@ const usageWork = {
 
         const provider = await view(
             `press(groupButton("Lens", "By provider"))`,
-            `s.lens === "provider" && s.sections.includes("Live limits")`
+            `s.lens === "provider" && s.harnesses.includes("claude")`
         );
         rec(
-            "9. By provider restores the harness rail and the Live limits section",
+            "9. By provider restores the harness rail",
             week.settled &&
                 provider.clicked &&
                 provider.settled &&
@@ -3035,7 +3035,7 @@ const usageStates = {
             };`
         );
         rec(
-            "1. while the load is held back the skeleton shows beside the live limits, with no split yet",
+            "1. while the load is held back the skeleton shows under the Claude card's quota bars, with no split yet",
             loading.skeletons > 0 && loading.limits === 2 && !loading.split,
             JSON.stringify(loading)
         );
@@ -3045,7 +3045,8 @@ const usageStates = {
             h,
             `const loaded = await until(() => document.querySelector("[data-usage-stats]") != null, ${USAGE_STATES_DELAY_MS + 6000});
             const clicked = press(document.querySelector('[data-usage-scopes] [data-usage-harness="pi"]'));
-            await until(() => detail()?.getAttribute("data-usage-detail") === "pi" && document.querySelector("[data-usage-noquota]") != null, 3000);
+            await until(() => detail()?.getAttribute("data-usage-detail") === "pi", 3000);
+            const pi = document.querySelector('[data-usage-scopes] [data-usage-harness="pi"]');
             // Pi's bars grow in from scaleY 0, so the shot waits for every bar's entrance to finish
             const bars = () => [...document.querySelectorAll("[data-usage-daily] [data-usage-plot] path[fill]")];
             const grown = (p) => ["none", "matrix(1, 0, 0, 1, 0, 0)"].includes(getComputedStyle(p).transform);
@@ -3053,7 +3054,8 @@ const usageStates = {
             return {
                 loaded,
                 clicked,
-                note: text(document.querySelector("[data-usage-noquota]")) || null,
+                note: text(pi) || null,
+                piBars: pi?.querySelectorAll("[data-usage-limit]").length ?? -1,
                 stats: document.querySelector("[data-usage-stats]") != null,
                 bars: bars().length,
                 barsGrown,
@@ -3063,7 +3065,8 @@ const usageStates = {
             "2. the Pi card has no quota reading, and its history still shows with its bars grown",
             noQuota.loaded &&
                 noQuota.clicked &&
-                (noQuota.note ?? "").startsWith("No quota reading for Pi") &&
+                (noQuota.note ?? "").includes("history only") &&
+                noQuota.piBars === 0 &&
                 noQuota.stats &&
                 noQuota.barsGrown,
             JSON.stringify(noQuota)
