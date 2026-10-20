@@ -1,7 +1,8 @@
 // skim: highlights the sentences of a reply worth reading (highlight-core.ts). claude marks them, the mod strips the
 // marks before the reply is stored and draws them in the terminal alone, dimming the rest of an explanation.
 // based on ttqteo/claude-skim (MIT, see LICENSE); `wsh install-agent-hooks` installs it beside the arc mods.
-// two /config rows control it: highlight (off: claude is not asked to mark) and dim (/skim flips it).
+// two /config rows control it, which arc's Settings writes too (claude reloads the mod with the new options):
+// highlight (off: claude is not asked to mark) and dim (/skim flips it).
 import type { EngineInterface, Register } from "claude-code";
 import { atom, read, update } from "claude-code";
 import type { Ask } from "../types";

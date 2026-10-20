@@ -50,6 +50,7 @@ type WshRpcInterface interface {
 	NotifyCommands
 	VaultCommands
 	ClaudeAccountCommands
+	ClaudeModCommands
 	UiCommands
 	StreamCommands
 	ResMonCommands

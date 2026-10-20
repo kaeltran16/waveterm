@@ -71,6 +71,26 @@ export function radarClassifyDefault(runtime: string): string {
     return (runtime || RADAR_AUDIT_DEFAULT_RUNTIME) === RADAR_AUDIT_DEFAULT_RUNTIME ? "haiku" : "pi default";
 }
 
+// The skim mod (claude/arc-skim-mod) and the userConfig fields its plugin.json declares; pkg/claudemod writes only these
+export const SKIM_PLUGIN = "arc-skim";
+export const SKIM_FIELDS = [
+    {
+        field: "highlight",
+        title: "Highlight must-read sentences",
+        desc: "Claude marks the sentences of a long reply worth reading, and they draw bold. Off, Claude is not asked, so it costs no tokens.",
+    },
+    {
+        field: "dim",
+        title: "Dim the rest",
+        desc: "Grey a long explanation around its marked sentences. /skim in a claude session flips it too.",
+    },
+] as const;
+
+// An option is on unless stored false, as the mod reads it (settingsOf in claude/arc-skim-mod/hooks/highlight-core.ts)
+export function isModOptionOn(options: Record<string, unknown> | null, field: string): boolean {
+    return options?.[field] !== false;
+}
+
 const THEME_OVERRIDE_KEY = "cockpit.theme.overrides";
 const LAUNCH_FLAGS_KEY = "agent.launch.flags";
 
@@ -221,6 +241,19 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
                     desc: "Run /login in any claude session and sign in with the other account. Arc saves it the next time it checks.",
                 },
             ],
+        },
+        {
+            id: "skim",
+            name: "Skim",
+            blurb: "The Claude Code mod that draws the few sentences of a long reply worth reading in bold. Claude Code's /config shows the same two settings.",
+            group: "Agents",
+            rows: SKIM_FIELDS.map((f) => ({
+                id: `skim.${f.field}`,
+                title: f.title,
+                desc: f.desc,
+                key: `~/.claude/settings.json · pluginConfigs.${SKIM_PLUGIN}.${f.field}`,
+                scope: "local" as const,
+            })),
         },
         {
             id: "run",

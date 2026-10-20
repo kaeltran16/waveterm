@@ -187,6 +187,18 @@ func ClaudeAccountSwitchCommand(w *wshutil.WshRpc, data wshrpc.CommandClaudeAcco
 	return err
 }
 
+// command "claudemodoptions", wshserver.ClaudeModOptionsCommand
+func ClaudeModOptionsCommand(w *wshutil.WshRpc, data wshrpc.CommandClaudeModOptionsData, opts *wshrpc.RpcOpts) (map[string]interface {}, error) {
+	resp, err := sendRpcRequestCallHelper[map[string]interface {}](w, "claudemodoptions", data, opts)
+	return resp, err
+}
+
+// command "claudemodsetoption", wshserver.ClaudeModSetOptionCommand
+func ClaudeModSetOptionCommand(w *wshutil.WshRpc, data wshrpc.CommandClaudeModSetOptionData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "claudemodsetoption", data, opts)
+	return err
+}
+
 // command "consult", wshserver.ConsultCommand
 func ConsultCommand(w *wshutil.WshRpc, data wshrpc.CommandConsultData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk] {
 	return sendRpcRequestResponseStreamHelper[wshrpc.ConsultChunk](w, "consult", data, opts)

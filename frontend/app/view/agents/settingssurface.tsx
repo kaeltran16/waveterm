@@ -54,6 +54,7 @@ import {
     filterSections,
     flagRowId,
     groupSections,
+    isModOptionOn,
     OPENROUTER_SECRET_NAME,
     RADAR_AUDIT_MODEL_KEY,
     RADAR_AUDIT_RUNTIME_KEY,
@@ -64,6 +65,8 @@ import {
     resolveSelection,
     rowKeys,
     settingsSections,
+    SKIM_FIELDS,
+    SKIM_PLUGIN,
     vaultStatusLine,
     vaultSyncButton,
     vaultSyncFailureNote,
@@ -742,6 +745,8 @@ function SectionBody({
             return <NewAgentSection runtime={runtime} onRuntime={onRuntime} />;
         case "claudeaccount":
             return <ClaudeAccountSection />;
+        case "skim":
+            return <SkimSection />;
         case "run":
             return <RunRouteSection />;
         case "terminal":
@@ -963,6 +968,53 @@ function NewAgentSection({ runtime, onRuntime }: { runtime: Runtime; onRuntime: 
                     );
                 })
             )}
+        </div>
+    );
+}
+
+// Read on open, since /config and /skim in any claude session write the same entry. Claude Code reloads the mod in
+// every running session when the entry changes.
+function SkimSection() {
+    const [options, setOptions] = useState<Record<string, unknown> | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const load = async () => {
+        try {
+            setOptions(await RpcApi.ClaudeModOptionsCommand(TabRpcClient, { plugin: SKIM_PLUGIN }));
+        } catch (e) {
+            setError(String(e));
+        }
+    };
+    useEffect(() => {
+        fireAndForget(load);
+    }, []);
+    const flip = (field: string) =>
+        fireAndForget(async () => {
+            setError(null);
+            try {
+                await RpcApi.ClaudeModSetOptionCommand(TabRpcClient, {
+                    plugin: SKIM_PLUGIN,
+                    field,
+                    value: !isModOptionOn(options, field),
+                });
+            } catch (e) {
+                setError(String(e));
+            }
+            await load();
+        });
+    return (
+        <div>
+            {SKIM_FIELDS.map((f) => (
+                <SettingRow key={f.field} id={`skim.${f.field}`}>
+                    <Toggle on={isModOptionOn(options, f.field)} onToggle={() => flip(f.field)} label={f.title} />
+                </SettingRow>
+            ))}
+            {error ? (
+                <div role="alert">
+                    <Note tone="error" testId="skim-error">
+                        {error}
+                    </Note>
+                </div>
+            ) : null}
         </div>
     );
 }
