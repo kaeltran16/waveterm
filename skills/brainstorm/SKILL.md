@@ -6,8 +6,8 @@ description: Use whenever superpowers:brainstorming (or brainstorming) runs insi
 # Brainstorming inside Arc
 
 Follow `superpowers:brainstorming` as usual, with this skill beside it. Arc shows the brainstorm on
-the Agent surface as a pane next to your terminal: the current question with an answer box, the
-design's parts as they form, mockups beside their parts, and at the end a builder check and the
+the Agent surface as a pane next to your terminal: the current question with why you ask it, the
+answers you offer and an answer box, what was decided so far, the design's parts as they form, mockups beside their parts, and at the end a builder check and the
 start of a run. It reads all of that from one file you write. You are its only writer; Arc only
 reads it, and every user action reaches you as one line, sent to you as a message.
 
@@ -37,7 +37,15 @@ gitignored.
   "title": "Consumer lag alerts",
   "spec": "docs/superpowers/specs/2026-10-18-consumer-lag-alerts-design.md",
   "canvas": "consumer-lag-alerts",
-  "question": { "n": 4, "text": "Walk me through the last time lag bit you: what did you see first?", "part": "thresholds" },
+  "question": {
+    "n": 4, "text": "When a group stays past its lag threshold, who gets paged first?", "part": "thresholds",
+    "why": "Every consumer group names an owning team, so paging by owner needs no new config. I can't tell whether every team keeps a rota.",
+    "options": [
+      { "label": "Owning team first, platform after 15 minutes", "detail": "Pages go to who can fix it. Needs every team to keep a rota.", "pick": true },
+      { "label": "Platform on-call first", "detail": "One rota to keep. Platform hands off what it can't fix." },
+      { "label": "Both at once", "detail": "Nothing waits on a hand-off, but every page wakes two people." }
+    ]
+  },
   "parts": [
     { "id": "intent", "title": "Intent and why", "state": "yours", "from": "answer 1", "body": "Page on-call before a consumer falls far enough behind to drop data." },
     { "id": "page", "title": "What on-call sees", "state": "guess", "from": "mockup", "body": "One page per consumer group, with the lag trend.", "boards": ["Page.dc.html"] },
@@ -48,6 +56,8 @@ gitignored.
   ],
   "history": [
     { "kind": "question", "n": 1, "q": "What should this make possible?", "a": "Know before we drop data.", "into": ["intent"] },
+    { "kind": "question", "n": 2, "q": "One threshold for every group, or one per group?", "a": "Per group, with a default to start from", "into": ["thresholds"],
+      "options": [{ "label": "One threshold for every group", "detail": "" }, { "label": "Per group, with a default to start from", "detail": "", "pick": true }], "picked": 1 },
     { "kind": "recon", "q": "I offered to look at your Prometheus targets. You said yes.", "a": "Found 2.45 on every target.", "into": ["constraints"] }
   ],
   "done": false,
@@ -71,9 +81,9 @@ Everything else is optional and read leniently, but write every field as describ
 |---|---|
 | `spec` | The spec path, relative to the project (or absolute). You write the spec there on `brainstorm: check`. |
 | `canvas` | The `arc:design` topic whose boards the parts list: boards live in `.superpowers/design/<canvas>/project/`. Omit it when there are no mockups. |
-| `question` | `{ "n", "text", "part" }`: the question you are waiting on, its number (1, 2, 3, ...), and the id of the part it is for. Leave `part` out for a question about no part (below). `null` while you are not asking. |
+| `question` | `{ "n", "text", "part", "why", "options" }`: the question you are waiting on, its number (1, 2, 3, ...), the id of the part it is for, why you ask it, and the answers you offer (below). Leave `part` out for a question about no part (below). `null` while you are not asking. |
 | `parts[]` | The design, in display order. `title`; `state`; `body` (the part's text); `from` (where it came from: `answer 2`, `mockup`, `recon`); `boards` (board file names under the canvas's `project/`); `was` / `why` (below). |
-| `history[]` | Every finished exchange, oldest first: `kind` (`question` or `recon`), `n` (the question's number), `q`, `a`, `into` (the part ids it went into). |
+| `history[]` | Every finished exchange, oldest first: `kind` (`question` or `recon`), `n` (the question's number), `q`, `a`, `into` (the part ids it went into), and for a question that offered answers, `options` and `picked` (below). |
 | `done` | `true` only when nothing is left to ask. |
 | `check` | The builder check's result (below), else `null`. |
 | `run` | The run id once a run started from this brainstorm, else `null`. |
@@ -92,7 +102,7 @@ terminal.
 
 ## The lines Arc sends
 
-An answer arrives as the user's own text, on one line. Every other action is a `brainstorm:` line:
+An answer arrives as the user's own text, on one line; a picked option arrives as its `label`. Every other action is a `brainstorm:` line:
 
 | Line | What you do |
 |---|---|
@@ -132,12 +142,19 @@ would write the spec to), question 1 in `question` with `n: 1`, its part created
 in any other harness run `wsh ui reveal brainstorm:<topic>` from your terminal.
 
 **On an answer**, in that one write: append the exchange to `history` (with `n`, `q`, `a` and
-`into`), write the part (`guess`, or `yours` when the user's own words are the part), and set the
+`into`; when the question offered `options`, copy them into the entry and set `picked` to the index
+of the one the user's answer is, or leave `picked` out when they answered in their own words), write the part (`guess`, or `yours` when the user's own words are the part), and set the
 next `question` (its part created as `asked` if new). End the turn with the question in the
 terminal too.
 
 **Asking.** One question per turn, as superpowers does. Every question about the design names its
-`part`.
+`part`. Every question carries `why`: one or two sentences on what you already know and what you
+cannot tell without the user, which Arc shows under the question. When the question has natural
+choices, it also carries 2-4 `options`, each `{ "label", "detail" }`: `label` is the answer in a
+few words, `detail` its consequence in one sentence. Mark your recommendation with `"pick": true`
+on exactly one option. Arc shows them as lettered rows the user picks from; the free-text box stays
+for any other answer. An open question (a story, a moment, a number only the user knows) has no
+`options`.
 
 **Every question you wait on is in the file.** Whenever your turn ends waiting on the user, whatever
 the phase (a choice you need before you can go on, a permission, a clarification), that question is

@@ -162,7 +162,8 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 | Keys | Action |
 |---|---|
-| `b` | Show the agent's brainstorm; from the brainstorm, back to the terminal |
+| `b` | Show the agent's brainstorm; from the brainstorm, back to the terminal (while the question offers a B, `b` picks it instead) |
+| `a` / `b` / `c` / `d` | While the brainstorm asks a question with answers to pick from: focus that answer; `Enter` sends it |
 
 ### Jarvis
 

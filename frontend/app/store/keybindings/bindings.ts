@@ -17,7 +17,8 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { focusedBrainstorm, setBrainstormMode } from "@/app/view/agents/brainstormstore";
+import { OPTION_KEYS, optionLetter, pickableOptions } from "@/app/view/agents/brainstormmodel";
+import { focusedBrainstorm, setBrainstormMode, shownBrainstormFile } from "@/app/view/agents/brainstormstore";
 import { paneState } from "@/app/view/agents/canvasmodel";
 import {
     focusedCanvas,
@@ -802,6 +803,11 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     };
     const brainstorm = () => focusedBrainstorm(model);
     const inBrainstorm = (ctx: KeyContext) => agentNav(ctx) && brainstorm()?.mode === "brainstorm";
+    // the asked question's options the pane draws, each picked by its letter
+    const pickable = () => {
+        const s = brainstorm();
+        return s == null ? 0 : pickableOptions(shownBrainstormFile(s), s);
+    };
     // an agent with a brainstorm never shows its canvas, so the canvas keys stand down for it
     const canvas = () => (brainstorm() == null ? focusedCanvas(model) : null);
     // canvas and brainstorm modes hide the rail and the terminal, so their keys stand down there
@@ -976,9 +982,30 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "b",
             group: "Agent",
             label: "Back to the terminal from the brainstorm",
-            when: inBrainstorm,
+            // while the question offers a B, b picks it
+            when: (ctx) => inBrainstorm(ctx) && pickable() < 2,
             run: () => setBrainstormMode(focusId(), "terminal", Date.now()),
         },
+        // a letter focuses its answer row, so Enter, the row's own key, sends it
+        ...OPTION_KEYS.map(
+            (key, i): Binding => ({
+                id: `agent:brainstorm-option-${key}`,
+                keys: key,
+                group: "Agent",
+                label: `Pick answer ${optionLetter(i)} of the brainstorm's question`,
+                paletteHidden: true,
+                when: (ctx) => inBrainstorm(ctx) && pickable() > i,
+                run: () => {
+                    const row = document.querySelector<HTMLElement>(
+                        `[data-brainstorm-pane] [data-brainstorm-option="${i}"]`
+                    );
+                    if (row == null) {
+                        return false;
+                    }
+                    row.focus();
+                },
+            })
+        ),
         {
             id: "agent:canvas-prev",
             keys: "[",

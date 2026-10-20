@@ -8,7 +8,9 @@ import {
     attachBrainstorm,
     brainstormAtom,
     detachBrainstorm,
+    openBrainstormDesign,
     setBrainstormMode,
+    updateBrainstorm,
 } from "@/app/view/agents/brainstormstore";
 import {
     attachCanvas,
@@ -215,6 +217,63 @@ describe("keybinding conflict invariant", () => {
         }
     });
 
+    // a question's options take a-d while the pane draws them, b among them, so b back to the terminal stands down
+    it("the option letters pick while the question shows them, and b picks B instead of leaving", () => {
+        const model = withCanvas();
+        attachBrainstorm("a1", { topic: "bs", cwd: "/p" }, 0);
+        globalStore.set(listNavAtom, null);
+        const all = [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildAgentBindings(model)];
+        const live = (id: string) => all.find((x) => x.id === id)!.when!(agentCtx);
+        const agentCtx: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+        const ask = (labels: string[]) =>
+            updateBrainstorm("a1", (s) => ({
+                ...s,
+                file: {
+                    v: 1,
+                    title: "T",
+                    spec: "",
+                    question: { n: 1, text: "Q", part: "p", options: labels.map((label) => ({ label, detail: "" })) },
+                    working: null,
+                    parts: [],
+                    history: [],
+                    done: false,
+                    check: null,
+                    run: null,
+                },
+            }));
+        try {
+            setBrainstormMode("a1", "brainstorm", 1);
+            ask(["A", "B", "C"]);
+            expect(["a", "b", "c", "d"].map((k) => live(`agent:brainstorm-option-${k}`))).toEqual([
+                true,
+                true,
+                true,
+                false,
+            ]);
+            expect(live("agent:brainstorm-close")).toBe(false);
+            expect(() => assertNoConflicts(all)).not.toThrow();
+            // a typed answer keeps its letters: the dispatcher leaves an editable target alone
+            expect(all.find((x) => x.id === "agent:brainstorm-option-a")!.when!({ ...agentCtx, editable: true })).toBe(
+                false
+            );
+            ask(["A"]);
+            expect(live("agent:brainstorm-option-a")).toBe(true);
+            expect(live("agent:brainstorm-close")).toBe(true);
+            expect(() => assertNoConflicts(all)).not.toThrow();
+            openBrainstormDesign("a1", true);
+            ask(["A", "B"]);
+            expect(live("agent:brainstorm-option-a")).toBe(false);
+            expect(live("agent:brainstorm-close")).toBe(true);
+            setBrainstormMode("a1", "terminal", 2);
+            openBrainstormDesign("a1", false);
+            expect(live("agent:brainstorm-option-a")).toBe(false);
+            expect(live("agent:brainstorm-open")).toBe(true);
+        } finally {
+            detachBrainstorm("a1");
+            detachCanvas("a1");
+        }
+    });
+
     it("global + list-nav (controller active on a plain surface) has no key conflicts", () => {
         const model = stubModel();
         globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor() {} });
@@ -276,7 +335,6 @@ describe("keybinding conflict invariant", () => {
             globalStore.set(listNavAtom, null);
         }
     });
-
 
     it("global + cockpit-grid documentation bindings do not conflict", () => {
         const model = stubModel();
