@@ -7109,6 +7109,36 @@ const codeMarkdown = {
             detail: `toggled=${backToPreview} preview=${previewAgain}`,
         });
 
+        // reopening reads the file again; every painted frame must show a document, never the
+        // "Opening…" placeholder that used to sit on screen for the whole render of a large file
+        await h.ev(`(() => {
+            const seen = { frames: 0, placeholder: 0, blank: 0 };
+            const t0 = performance.now();
+            const frame = () => {
+                seen.frames++;
+                const md = document.querySelector('.markdown .heading');
+                const opening = [...document.querySelectorAll('body *')]
+                    .some((e) => e.children.length === 0 && (e.textContent || '').trim() === 'Opening…');
+                if (opening) seen.placeholder++;
+                else if (!md) seen.blank++;
+                if (performance.now() - t0 < 1500) requestAnimationFrame(frame);
+                else window.__codeMarkdownReopen = seen;
+            };
+            requestAnimationFrame(frame);
+        })()`);
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
+        );
+        await sleep(300);
+        const reopened = await setFinderQuery(h, "README.md");
+        await sleep(1500);
+        const reopen = await h.ev(`(() => { const s = window.__codeMarkdownReopen; delete window.__codeMarkdownReopen; return s; })()`);
+        steps.push({
+            step: "reopening the document never paints the Opening… placeholder or an empty pane",
+            ok: reopened === true && reopen != null && reopen.placeholder === 0 && reopen.blank === 0,
+            detail: JSON.stringify({ reopened, ...reopen }),
+        });
+
         return steps;
     },
     async teardown(h) {

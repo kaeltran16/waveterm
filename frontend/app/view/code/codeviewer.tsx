@@ -19,7 +19,7 @@ import { joinRepoPath } from "@/util/paths";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import type * as MonacoTypes from "monaco-editor";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { isMarkdownPath } from "./codeclassify";
 import { CodeDiffView } from "./codediffview";
 import { remember } from "./codeeditorcache";
@@ -35,6 +35,7 @@ import {
     openInCode,
     refreshIndex,
     setCaretLineReader,
+    type CodeProject,
 } from "./codestore";
 
 // The markdown element defaults to 14px with no padding — sized for the old full-width chat block,
@@ -105,6 +106,48 @@ function keepEditor(ed: MonacoTypes.editor.IStandaloneCodeEditor, key: string): 
     for (const old of remember(kept, key, { model, view: ed.saveViewState() }, KEPT_EDITORS)) {
         old.model.dispose();
     }
+}
+
+// Markdown is memoized, but only a stable link handler lets the memo hold: an inline one re-parsed the
+// whole document on every unrelated re-render, which froze the pane for as long as a large file renders.
+function MarkdownPreview({
+    model,
+    project,
+    path,
+    text,
+}: {
+    model: AgentsViewModel;
+    project: CodeProject | null;
+    path: string;
+    text: string;
+}) {
+    const onClickLink = useCallback(
+        (href: string) => {
+            const target = project != null ? resolveDocLink(path, href) : null;
+            if (target == null) {
+                return false;
+            }
+            fireAndForget(() =>
+                openInCode(model, {
+                    projectPath: project.path,
+                    rel: target.rel,
+                    line: target.line ?? undefined,
+                })
+            );
+            return true;
+        },
+        [model, project, path]
+    );
+    return (
+        <Markdown
+            text={text}
+            scrollable
+            className="h-full"
+            contentClassName="px-5 py-4"
+            fontSizeOverride={DOC_FONT_SIZE}
+            onClickLink={onClickLink}
+        />
+    );
 }
 
 export function CodeViewer({ model }: { model: AgentsViewModel }) {
@@ -185,27 +228,12 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
             // toggle away, and the draft feeds the preview so unsaved edits show what you would save
             if (isMarkdownPath(file.path) && mode === "preview") {
                 return (
-                    <Markdown
+                    <MarkdownPreview
                         key={file.path}
+                        model={model}
+                        project={project}
+                        path={file.path}
                         text={draft?.text ?? file.text}
-                        scrollable
-                        className="h-full"
-                        contentClassName="px-5 py-4"
-                        fontSizeOverride={DOC_FONT_SIZE}
-                        onClickLink={(href) => {
-                            const target = project != null ? resolveDocLink(file.path, href) : null;
-                            if (target == null) {
-                                return false;
-                            }
-                            fireAndForget(() =>
-                                openInCode(model, {
-                                    projectPath: project.path,
-                                    rel: target.rel,
-                                    line: target.line ?? undefined,
-                                })
-                            );
-                            return true;
-                        }}
                     />
                 );
             }

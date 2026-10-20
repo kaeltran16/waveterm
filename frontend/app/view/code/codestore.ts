@@ -689,6 +689,8 @@ export function revealPath(path: string): void {
     globalStore.set(codeExpandedAtom, next);
 }
 
+const OPENING_PLACEHOLDER_DELAY_MS = 150;
+
 export async function openPath(rel: string, opts?: { pushHistory?: boolean; line?: number | null }): Promise<void> {
     const project = globalStore.get(codeProjectAtom);
     if (project == null) {
@@ -718,7 +720,14 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
         return;
     }
 
-    globalStore.set(codeFileAtom, { kind: "loading", path: rel });
+    // the previous file stays up until this one is ready: swapping to the placeholder first left it on
+    // screen for the whole synchronous render of a large markdown document, a visible flash. The
+    // placeholder only appears for a read slow enough to need one.
+    const placeholder = setTimeout(() => {
+        if (current.fileToken === token) {
+            globalStore.set(codeFileAtom, { kind: "loading", path: rel });
+        }
+    }, OPENING_PLACEHOLDER_DELAY_MS);
     try {
         const info = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: abs } });
         if (current.fileToken !== token) {
@@ -758,6 +767,8 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
             path: rel,
             message: e instanceof Error ? e.message : String(e),
         });
+    } finally {
+        clearTimeout(placeholder);
     }
 }
 
