@@ -236,6 +236,20 @@ export function settleSent(
     return turnEnded || (written && agent?.state !== "working") ? null : sent;
 }
 
+// an answer typed in the terminal never passes through Arc: a turn that started after the file last asked is one,
+// pending like a sent answer until that turn ends. A turn that wrote the question itself started before the write
+export function terminalAnswer(
+    f: BrainstormFile,
+    modifiedMs: number | null,
+    agent: Pick<AgentVM, "state"> | undefined,
+    turnStartMs: number | undefined
+): SentLine | null {
+    if (f.question == null || agent?.state !== "working" || modifiedMs == null || turnStartMs == null) {
+        return null;
+    }
+    return turnStartMs > modifiedMs ? { at: turnStartMs, modifiedMs, answer: true } : null;
+}
+
 // the file as Arc shows it: the agent writes once per turn, so while a sent line is pending Arc says the agent is
 // writing, as a `working` the file sets itself would
 export function shownFile(f: BrainstormFile, sent: SentLine | null): BrainstormFile {

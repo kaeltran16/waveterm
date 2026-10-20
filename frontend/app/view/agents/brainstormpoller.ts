@@ -6,6 +6,7 @@
 // BRAINSTORM_POLL_MS from the always-mounted cockpit root.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { base64ToString } from "@/util/util";
@@ -18,6 +19,7 @@ import {
     parseBrainstorm,
     parseBrainstormPath,
     settleSent,
+    terminalAnswer,
     type BrainstormFile,
 } from "./brainstormmodel";
 import {
@@ -134,6 +136,16 @@ export const tauriBrainstormIO: BrainstormIO = {
     },
 };
 
+// `wsh agent-hook` stamps the agent's block on every prompt it submits, the terminal's included
+function turnStartOf(agent: AgentVM | undefined): number | undefined {
+    if (!agent?.blockId) {
+        return undefined;
+    }
+    return globalStore.get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", agent.blockId)))?.meta?.[
+        "agent:turnstartts"
+    ];
+}
+
 // A result that lands after the brainstorm was detached or replaced is dropped rather than written over it. The
 // sent line settles against the agent as the roster has it, before the overlay reads a question as asking.
 async function pollAndMerge(agentId: string, agent: AgentVM | undefined, io: BrainstormIO): Promise<void> {
@@ -146,7 +158,11 @@ async function pollAndMerge(agentId: string, agent: AgentVM | undefined, io: Bra
     if (cur == null || cur.path !== s.path) {
         return;
     }
-    const sent = settleSent(cur.sent, patch.modifiedMs !== undefined ? patch.modifiedMs : cur.modifiedMs, agent);
+    const modifiedMs = patch.modifiedMs !== undefined ? patch.modifiedMs : cur.modifiedMs;
+    const file = patch.file ?? cur.file;
+    const sent =
+        settleSent(cur.sent, modifiedMs, agent) ??
+        (file != null ? terminalAnswer(file, modifiedMs, agent, turnStartOf(agent)) : null);
     if (Object.keys(patch).length > 0 || sent !== cur.sent) {
         updateBrainstorm(agentId, (c) => (c.path === s.path ? { ...c, ...patch, sent } : c));
     }

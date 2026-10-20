@@ -34,6 +34,7 @@ import {
     sentenceDiff,
     settleSent,
     shownFile,
+    terminalAnswer,
     treeLine,
     whatsLeft,
     withBrainstorm,
@@ -281,6 +282,34 @@ describe("settleSent", () => {
 
     it("nothing sent stays nothing", () => {
         expect(settleSent(null, 500, { state: "idle", idleSince: 1500 })).toBeNull();
+    });
+});
+
+describe("terminalAnswer", () => {
+    const asking = file({ question: { n: 2, text: "?", part: "a" }, parts: [part("a", "asked")] });
+    const working = { state: "working" as const };
+
+    it("reads a turn started after the file asked as an answer typed in the terminal", () => {
+        const sent = terminalAnswer(asking, 500, working, 1000);
+        expect(sent).toEqual({ at: 1000, modifiedMs: 500, answer: true });
+        expect(shownFile(asking, sent).question).toBeNull();
+    });
+
+    it("settles like a sent answer once that turn ends", () => {
+        const sent = terminalAnswer(asking, 500, working, 1000);
+        expect(settleSent(sent, 500, { state: "idle", idleSince: 1500 })).toBeNull();
+    });
+
+    it("leaves a question the agent wrote during its current turn showing", () => {
+        expect(terminalAnswer(asking, 1200, working, 1000)).toBeNull();
+    });
+
+    it("needs an open question, a working agent and both stamps", () => {
+        expect(terminalAnswer(file(), 500, working, 1000)).toBeNull();
+        expect(terminalAnswer(asking, 500, { state: "idle" }, 1000)).toBeNull();
+        expect(terminalAnswer(asking, 500, undefined, 1000)).toBeNull();
+        expect(terminalAnswer(asking, 500, working, undefined)).toBeNull();
+        expect(terminalAnswer(asking, null, working, 1000)).toBeNull();
     });
 });
 
