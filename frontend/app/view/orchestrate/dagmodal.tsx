@@ -12,7 +12,7 @@ import { harnessesAtom } from "../agents/harnessstore";
 import { channelProjectLabel } from "../agents/projectlabel";
 import { projectsAtom } from "../agents/projectsstore";
 import { DagGraphView } from "./daggraph";
-import { closeDagModal, dagModalStateAtom, escapeDagModal, type DagModalState } from "./dagmodalstate";
+import { closeDagModal, dagModalStateAtom, dismissDagModal, escapeDagModal, type DagModalState } from "./dagmodalstate";
 import { ModelPicksBanner } from "./modelpicksview";
 import { timelineLayout, type TimelineLayout } from "./timelinefilter";
 import { TimelineRail } from "./timelinerail";
@@ -26,6 +26,9 @@ export function DagModal() {
     const panelRef = useRef<HTMLDivElement>(null);
     const open = state != null;
     const layout = useTimelineLayout();
+
+    // the modal's state is global but the surface hosting it unmounts on switch
+    useEffect(() => dismissDagModal, []);
 
     useEffect(() => {
         if (!open) return;
