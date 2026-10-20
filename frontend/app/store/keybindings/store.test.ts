@@ -177,7 +177,7 @@ describe("keybinding conflict invariant", () => {
             ...buildCockpitBindings(),
             ...buildAgentBindings(model),
             ...buildFilesBindings(),
-            ...buildCodeBindings(),
+            ...buildCodeBindings(stubModel()),
         ];
         const open = all.find((x) => x.id === "agent:brainstorm-open")!;
         const close = all.find((x) => x.id === "agent:brainstorm-close")!;
@@ -250,7 +250,9 @@ describe("keybinding conflict invariant", () => {
     it("global + code-surface bindings do not conflict, editable or not", () => {
         const model = stubModel();
         globalStore.set(listNavAtom, null);
-        expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildCodeBindings()])).not.toThrow();
+        expect(() =>
+            assertNoConflicts([...buildGlobalBindings(model), ...buildCodeBindings(stubModel())])
+        ).not.toThrow();
     });
 
     // The tree keys are bare letters and arrows, live only while the tree pane holds focus. With
@@ -266,7 +268,7 @@ describe("keybinding conflict invariant", () => {
                 assertNoConflicts([
                     ...buildGlobalBindings(model),
                     ...buildListNavBindings(model),
-                    ...buildCodeBindings(),
+                    ...buildCodeBindings(stubModel()),
                 ])
             ).not.toThrow();
         } finally {
@@ -410,7 +412,7 @@ describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
             ...buildCockpitBindings(),
             ...buildAgentBindings(model),
             ...buildFilesBindings(),
-            ...buildCodeBindings(),
+            ...buildCodeBindings(stubModel()),
         ];
 
         // Neutral so no `&&` chain (e.g. surface:back-home's, subagent:back's) short-circuits before

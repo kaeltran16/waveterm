@@ -50,13 +50,16 @@ import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
+    caretWord,
     codeCursorAtom,
     codeRowsAtom,
     codeTreeFocusedAtom,
     codeViewModeAtom,
     confirmDelete,
+    findReferences,
     goBack,
     goForward,
+    goToDefinition,
     openPath,
     refreshIndex,
     saveCurrent,
@@ -1220,7 +1223,7 @@ export function buildFilesBindings(): Binding[] {
     ];
 }
 
-export function buildCodeBindings(): Binding[] {
+export function buildCodeBindings(model: AgentsViewModel): Binding[] {
     const on = (ctx: KeyContext) => ctx.surface === "code" && !ctx.editable && !ctx.modalOpen;
     // Live whenever the tree pane holds focus. Focus is read from an atom, not the DOM:
     // store.test.ts evaluates every `when` in vitest's node environment, where document is
@@ -1420,6 +1423,53 @@ export function buildCodeBindings(): Binding[] {
                 // the pane focuses its input only on mount: nothing remounts it when Search is already
                 // showing, and a collapsed sidebar mounts it hidden, where focus() does nothing
                 window.requestAnimationFrame(focusCodeSearchInput);
+            },
+        },
+        // F12, Shift+F12 and Ctrl+Shift+O are Monaco's own chords for the same three things; this
+        // dispatcher runs on window capture, so these win while the caret is in the editor, which is
+        // where they are pressed — hence the surface gate rather than !editable.
+        {
+            id: "code:definition",
+            keys: "F12",
+            group: "Code",
+            label: "Go to the definition of the word at the caret",
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
+            run: () => {
+                const at = caretWord();
+                if (at == null) {
+                    return false; // no editor, or no word under the caret — let the key pass
+                }
+                void goToDefinition(model, at.word, at.lang).then((listed) => {
+                    if (listed) {
+                        focusCodeSidebarOpener(); // a collapsed sidebar would hide the candidates
+                    }
+                });
+            },
+        },
+        {
+            id: "code:references",
+            keys: "Shift:F12",
+            group: "Code",
+            label: "Find references to the word at the caret",
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
+            run: () => {
+                const at = caretWord();
+                if (at == null) {
+                    return false;
+                }
+                focusCodeSidebarOpener();
+                void findReferences(at.word);
+            },
+        },
+        {
+            id: "code:symbols",
+            keys: "Ctrl:Shift:o",
+            group: "Code",
+            label: "Go to a symbol in the open file",
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
+            run: () => {
+                globalStore.set(model.paletteSeedAtom, "@");
+                globalStore.set(model.paletteOpenAtom, true);
             },
         },
         {

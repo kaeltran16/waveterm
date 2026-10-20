@@ -28,7 +28,7 @@ describe("Code sidebar preferences", () => {
         expect(
             parseCodeSidebarPrefs(JSON.stringify({ widths: { files: 900, search: 180, changed: 312 }, open: false }))
         ).toEqual({
-            widths: { files: 480, search: 200, changed: 312 },
+            widths: { files: 480, search: 200, changed: 312, symbols: 280 },
             open: false,
         });
     });
@@ -40,9 +40,9 @@ describe("Code sidebar preferences", () => {
     });
 
     it("round-trips mode widths and collapse preference", () => {
-        const prefs = { widths: { files: 240, search: 410, changed: 360 }, open: false };
+        const prefs = { widths: { files: 240, search: 410, changed: 360, symbols: 300 }, open: false };
         expect(parseCodeSidebarPrefs(codeSidebarPrefsJson(prefs))).toEqual(prefs);
-        expect(CODE_SIDEBAR_DEFAULT_WIDTHS).toEqual({ files: 280, search: 380, changed: 380 });
+        expect(CODE_SIDEBAR_DEFAULT_WIDTHS).toEqual({ files: 280, search: 380, changed: 380, symbols: 280 });
     });
 });
 
@@ -56,7 +56,7 @@ describe("Code sidebar geometry", () => {
     });
 
     it("clamps each mode independently", () => {
-        const widths = { files: 220, search: 470, changed: 380 };
+        const widths = { files: 220, search: 470, changed: 380, symbols: 280 };
         expect(codeSidebarWidthFor("files", widths, 900)).toBe(220);
         expect(codeSidebarWidthFor("search", widths, 700)).toBe(412);
         expect(codeSidebarWidthFor("changed", widths, 1600)).toBe(380);

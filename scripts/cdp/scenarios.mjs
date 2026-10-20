@@ -6054,6 +6054,187 @@ const codeSearch = {
     },
 };
 
+const CODE_SYMBOLS_PROJECT = "verify-code-symbols";
+// line numbers the steps assert against: alpha 5, beta 9, epsilon 13, Gamma 17, Gamma.Delta 19
+const CODE_SYMBOLS_MAIN = [
+    "package main",
+    "",
+    'import "fmt"',
+    "",
+    "func alpha() {",
+    "\tfmt.Println(beta(), epsilon())",
+    "}",
+    "",
+    "func beta() string {",
+    '\treturn "b"',
+    "}",
+    "",
+    "func epsilon() int {",
+    "\treturn 1",
+    "}",
+    "",
+    "type Gamma struct{}",
+    "",
+    "func (g Gamma) Delta() {}",
+    "",
+].join("\n");
+
+// The outline, the @ finder, and the two shaped searches, against a repo the scenario writes: epsilon is
+// defined twice so F12 on it lists instead of jumping. The caret is read from Monaco's active line number,
+// and placed on a word by a real click, since Monaco takes no text a CDP session types.
+const codeSymbols = {
+    name: "code-symbols",
+    surface: "code",
+    async arrange(h) {
+        const ctx = { name: CODE_SYMBOLS_PROJECT };
+        try {
+            ctx.dir = mkdtempSync(join(tmpdir(), "verify-code-symbols-"));
+            git(ctx.dir, "init", "-q", "--initial-branch=main");
+            writeFileSync(join(ctx.dir, "main.go"), CODE_SYMBOLS_MAIN);
+            mkdirSync(join(ctx.dir, "sub"));
+            writeFileSync(join(ctx.dir, "sub", "x.go"), "package sub\n\nfunc epsilon() int { return 2 }\n");
+            git(ctx.dir, "add", ".");
+            git(ctx.dir, "commit", "-q", "-m", "seed the symbols fixture");
+            await h.rpc("createproject", { name: ctx.name, path: ctx.dir });
+            ctx.madeProject = true;
+            await waitForProjectInConfig(h, ctx.name);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok: ok === true, detail });
+        const poll = async (expr, ms = 6000) => {
+            for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(200)) {
+                const v = await h.ev(expr);
+                if (v) return v;
+            }
+            return h.ev(expr);
+        };
+        const caretLine = `(() => { const el = document.querySelector(".monaco-editor .active-line-number"); return el ? Number(el.textContent.trim()) : null; })()`;
+        const waitCaret = async (line) => {
+            await poll(`${caretLine} === ${line}`);
+            return h.ev(caretLine);
+        };
+        const key = (init) =>
+            h.ev(`(() => {
+                const t = document.activeElement ?? document.body;
+                t.dispatchEvent(new KeyboardEvent("keydown", { ...${JSON.stringify(init)}, bubbles: true, cancelable: true }));
+                return true;
+            })()`);
+        // a real click on a word of a rendered line puts Monaco's caret there
+        const clickWord = async (lineText, word) => {
+            const pt = await h.ev(`(() => {
+                const line = [...document.querySelectorAll(".monaco-editor .view-line")].find((l) => l.textContent.replace(/\\u00a0/g, " ").includes(${JSON.stringify(lineText)}));
+                if (!line) return null;
+                const walk = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+                for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+                    const i = n.textContent.indexOf(${JSON.stringify(word)});
+                    if (i < 0) continue;
+                    const r = document.createRange();
+                    r.setStart(n, i + 1);
+                    r.setEnd(n, i + 2);
+                    const b = r.getBoundingClientRect();
+                    return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+                }
+                return null;
+            })()`);
+            if (pt == null) return false;
+            for (const type of ["mousePressed", "mouseReleased"]) {
+                await h.cdp("Input.dispatchMouseEvent", { type, x: pt.x, y: pt.y, button: "left", clickCount: 1 });
+            }
+            await sleep(250);
+            return true;
+        };
+        const searchTitle = `document.querySelector("[data-code-search-title]")?.textContent?.trim() ?? ""`;
+        const searchSummary = `(() => { const t = document.querySelector("[data-code-search-title]"); const s = t?.nextElementSibling; return s ? (s.textContent || "").trim() : ""; })()`;
+
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        await h.goto("code");
+        rec("Code surface is active", (await h.activeSurfaceLabel()) === SURFACE_LABEL.code, `active=${await h.activeSurfaceLabel()}`);
+
+        const row = `document.querySelector('[data-code-picker-row=${JSON.stringify(ctx.name)}]')`;
+        if (ctx.arrangeError == null && !(await h.ev(`!!${row}`))) {
+            await h.ev(`document.querySelector('[data-code-project-picker]')?.click()`);
+        }
+        const shown = ctx.arrangeError == null && (await polishWaitFor(h, `!!${row}`, 5000));
+        const picked = shown && (await h.ev(`(() => { const r = ${row}; if (!r) return false; r.click(); return true; })()`));
+        rec("select the fixture project", picked, ctx.arrangeError ?? `picked=${picked}`);
+
+        await h.ev(`document.querySelector('[data-code-column-tab="files"]')?.click()`);
+        const opened = await poll(`(() => {
+            const r = [...document.querySelectorAll('[data-code-tree] [role="treeitem"]')].find((x) => x.textContent.trim() === "main.go");
+            if (!r) return false;
+            r.click();
+            return true;
+        })()`);
+        const editor = opened && (await poll(`!!document.querySelector(".monaco-editor .view-line")`));
+        rec("open main.go in the editor", editor === true, `opened=${opened} editor=${editor}`);
+
+        await h.ev(`document.querySelector('[data-code-column-tab="symbols"]')?.click()`);
+        const names = await poll(`(() => {
+            const rows = [...document.querySelectorAll("[data-code-symbol-row]")].map((r) => r.getAttribute("data-code-symbol-row") + "@" + r.getAttribute("data-line"));
+            return rows.length ? rows : null;
+        })()`);
+        const want = ["alpha@5", "beta@9", "epsilon@13", "Gamma@17", "Gamma.Delta@19"];
+        rec("the Symbols tab lists the file's declarations with their lines", JSON.stringify(names) === JSON.stringify(want), `rows=${JSON.stringify(names)}`);
+
+        await h.ev(`document.querySelector('[data-code-symbol-row="Gamma.Delta"]')?.click()`);
+        const afterRow = await waitCaret(19);
+        await h.shot("cdp-shots/code-symbols.png");
+        rec("clicking a symbol row moves the caret to its line", afterRow === 19, `caret=${afterRow}`);
+
+        await h.ev(`document.querySelector('[data-code-symbols-filter]')?.focus()`);
+        await key({ key: "O", code: "KeyO", ctrlKey: true, shiftKey: true });
+        const seeded = await poll(`document.querySelector("input[data-palette-input]")?.value ?? null`);
+        // textContent: the group label is uppercased by CSS, which innerText reports
+        const group = await poll(`document.body.textContent.includes("Symbols in main.go")`);
+        await h.shot("cdp-shots/code-symbols-finder.png");
+        rec("Ctrl+Shift+O opens the search seeded with @, listing the file's symbols", seeded === "@" && group === true, `value=${JSON.stringify(seeded)} group=${group}`);
+
+        const typed = await setFinderQuery(h, "@alpha");
+        const afterPick = await waitCaret(5);
+        rec("@alpha then Enter moves the caret to alpha's line", typed === true && afterPick === 5, `typed=${typed} caret=${afterPick}`);
+        // a click while the closing overlay still covers the editor lands on the overlay
+        await poll(`document.querySelector("input[data-palette-input]") == null`);
+        await sleep(400);
+
+        const onBeta = await clickWord("fmt.Println(beta(), epsilon())", "beta");
+        const onLine = await waitCaret(6);
+        await key({ key: "F12", code: "F12" });
+        const afterDef = await waitCaret(9);
+        rec("F12 on a name with one definition jumps to it", onBeta && onLine === 6 && afterDef === 9, `clicked=${onBeta} caret before=${onLine} after=${afterDef}`);
+
+        const onEps = await clickWord("fmt.Println(beta(), epsilon())", "epsilon");
+        await key({ key: "F12", code: "F12" });
+        const defTitle = await poll(`(${searchTitle}) === "Definitions of epsilon" ? ${searchTitle} : ""`);
+        const defSummary = await poll(`/2 matches in 2 files/.test(${searchSummary}) ? ${searchSummary} : ""`);
+        await h.shot("cdp-shots/code-symbols-definitions.png");
+        rec("F12 on a name defined twice lists both under Definitions of", onEps && defTitle !== "" && defSummary !== "", `clicked=${onEps} title=${JSON.stringify(defTitle)} summary=${JSON.stringify(defSummary)}`);
+
+        const onBeta2 = await clickWord("fmt.Println(beta(), epsilon())", "beta");
+        await key({ key: "F12", code: "F12", shiftKey: true });
+        const refTitle = await poll(`(${searchTitle}) === "References to beta" ? ${searchTitle} : ""`);
+        const refSummary = await poll(`/2 matches in 1 file/.test(${searchSummary}) ? ${searchSummary} : ""`);
+        await h.shot("cdp-shots/code-symbols-references.png");
+        rec("Shift+F12 lists the name's whole-word references under References to", onBeta2 && refTitle !== "" && refSummary !== "", `clicked=${onBeta2} title=${JSON.stringify(refTitle)} summary=${JSON.stringify(refSummary)}`);
+        return steps;
+    },
+    async teardown(h, ctx) {
+        try {
+            await h.ev(`document.querySelector('[data-code-column-tab="files"]')?.click()`);
+            if (ctx.madeProject) await h.rpc("deleteproject", { name: ctx.name });
+        } finally {
+            if (ctx.dir) rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 3 });
+            await h.cdp("Emulation.clearDeviceMetricsOverride");
+            await h.goto("cockpit");
+        }
+    },
+};
+
 const CODE_SIDEBAR_PROJECT = "verify-code-sidebar";
 
 const codeSidebar = {
@@ -25157,6 +25338,7 @@ export const SCENARIOS = [
     surfaceSmoke,
     surfaceHeaders,
     codeSearch,
+    codeSymbols,
     codeSidebar,
     codeGitStatus,
     codePlainDir,

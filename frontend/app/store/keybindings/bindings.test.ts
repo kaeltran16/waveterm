@@ -47,8 +47,11 @@ import { peekKeyCommand } from "@/app/view/jarvis/petpeekmodel";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import {
     codeCursorAtom,
+    caretWord,
     codeIndexAtom,
     codeTreeFocusedAtom,
+    findReferences,
+    goToDefinition,
     startCreate,
 } from "@/app/view/code/codestore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
@@ -87,6 +90,9 @@ vi.mock("@/app/view/agents/diffnav", async (orig) => ({
 vi.mock("@/app/view/code/codestore", async (orig) => ({
     ...(await orig<typeof import("@/app/view/code/codestore")>()),
     startCreate: vi.fn(),
+    caretWord: vi.fn(() => null),
+    goToDefinition: vi.fn(async () => false),
+    findReferences: vi.fn(async () => {}),
 }));
 
 // the canvas guards read the focused agent id from the model
@@ -706,7 +712,7 @@ describe("command palette chord", () => {
 
 describe("code surface bindings", () => {
     const find = (id: string) => {
-        const b = buildCodeBindings().find((x) => x.id === id);
+        const b = buildCodeBindings(stubModel()).find((x) => x.id === id);
         if (b == null) {
             throw new Error(`no binding ${id}`);
         }
@@ -723,7 +729,7 @@ describe("code surface bindings", () => {
     // Files scope here (see "command palette chord" above), so a chord here would be a second,
     // conflicting claim on the same key.
     it("owns no Ctrl+P of its own — the global search binding covers files", () => {
-        expect(buildCodeBindings().find((b) => b.keys === "Ctrl:p")).toBeUndefined();
+        expect(buildCodeBindings(stubModel()).find((b) => b.keys === "Ctrl:p")).toBeUndefined();
     });
 
     it("keeps bare-letter refresh out of the editor, while save survives it", () => {
@@ -873,11 +879,11 @@ describe("agent:review", () => {
 // remote callers (wsh ui do) must get the user's confirmation for these; the keyboard still runs them directly
 describe("destructive bindings", () => {
     it("flags the irreversible actions that do not confirm on their own", () => {
-        expect(buildCodeBindings().find((b) => b.id === "code:save")?.destructive).toBe(true);
+        expect(buildCodeBindings(stubModel()).find((b) => b.id === "code:save")?.destructive).toBe(true);
     });
 
     it("leaves actions that confirm themselves, or can be undone, unflagged", () => {
-        expect(buildCodeBindings().find((b) => b.id === "code:delete")?.destructive).toBeUndefined();
+        expect(buildCodeBindings(stubModel()).find((b) => b.id === "code:delete")?.destructive).toBeUndefined();
     });
 });
 
@@ -1059,7 +1065,7 @@ describe("the open avatar popup keeps its keys on every surface", () => {
             ...buildCockpitBindings(),
             ...buildAgentBindings(model),
             ...buildFilesBindings(),
-            ...buildCodeBindings(),
+            ...buildCodeBindings(stubModel()),
             ...buildJarvisBindings(),
             ...buildJarvisGraphBindings(),
             ...buildChannelsAskBindings(model, { current: { id: "agent-tab" } as any }),
@@ -1735,7 +1741,7 @@ describe("Diff keys, DOM and toggles", () => {
 
 describe("Code keys, posture and the tree", () => {
     const code: KeyContext = { surface: "code", editable: false, modalOpen: false, leader: null };
-    const find = (id: string) => buildCodeBindings().find((b) => b.id === id)!;
+    const find = (id: string) => buildCodeBindings(stubModel()).find((b) => b.id === id)!;
 
     afterEach(() => {
         vi.unstubAllGlobals();
@@ -1762,7 +1768,7 @@ describe("Code keys, posture and the tree", () => {
         expect(b.when!({ ...ctx("cockpit"), editable: true })).toBe(false);
     });
 
-    it.each(["code:search", "code:focus-tree", "code:focus-editor"])(
+    it.each(["code:search", "code:focus-tree", "code:focus-editor", "code:definition", "code:references", "code:symbols"])(
         "%s is live on the Code surface, from the editor too, but not under a modal",
         (id) => {
             const b = find(id);
@@ -1809,5 +1815,39 @@ describe("Code keys, posture and the tree", () => {
         expect(frames).toHaveLength(1);
         frames[0]();
         expect(treeFocus).toHaveBeenCalledOnce();
+    });
+
+    it("F12 and Shift+F12 let the key pass with no word at the caret", () => {
+        vi.mocked(caretWord).mockReturnValue(null);
+        expect(find("code:definition").run(code)).toBe(false);
+        expect(find("code:references").run(code)).toBe(false);
+        expect(goToDefinition).not.toHaveBeenCalled();
+        expect(findReferences).not.toHaveBeenCalled();
+    });
+
+    it("F12 looks up the caret word's definition, and Shift+F12 its references", () => {
+        vi.mocked(caretWord).mockReturnValue({ word: "openPath", lang: "ts" });
+        // the sidebar opener is looked up in the DOM; there is none here
+        vi.stubGlobal("document", { querySelector: () => null });
+        const model = stubModel();
+        const def = buildCodeBindings(model).find((b) => b.id === "code:definition")!;
+        expect(def.run(code)).toBeUndefined();
+        expect(goToDefinition).toHaveBeenLastCalledWith(model, "openPath", "ts");
+        expect(find("code:references").run(code)).toBeUndefined();
+        expect(findReferences).toHaveBeenLastCalledWith("openPath");
+        vi.mocked(caretWord).mockReturnValue(null);
+    });
+
+    it("Ctrl+Shift+O opens the search seeded with @", () => {
+        const model = {
+            ...stubModel(),
+            paletteOpenAtom: atom(false),
+            paletteSeedAtom: atom<string | null>(null) as PrimitiveAtom<string | null>,
+        };
+        buildCodeBindings(model as any)
+            .find((b) => b.id === "code:symbols")!
+            .run(code);
+        expect(globalStore.get(model.paletteSeedAtom)).toBe("@");
+        expect(globalStore.get(model.paletteOpenAtom)).toBe(true);
     });
 });

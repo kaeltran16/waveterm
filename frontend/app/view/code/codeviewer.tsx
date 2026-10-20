@@ -23,6 +23,7 @@ import { useCallback, useEffect } from "react";
 import { isMarkdownPath } from "./codeclassify";
 import { CodeDiffView } from "./codediffview";
 import { remember } from "./codeeditorcache";
+import { langOf, type Lang } from "./codelang";
 import { resolveDocLink } from "./codelink";
 import {
     codeDraftsAtom,
@@ -35,8 +36,10 @@ import {
     openInCode,
     refreshIndex,
     setCaretLineReader,
+    setCaretWordReader,
     type CodeProject,
 } from "./codestore";
+import { wordAt } from "./codesymbolquery";
 
 // The markdown element defaults to 14px with no padding — sized for the old full-width chat block,
 // which reads oversized in a cockpit pane beside the 12px mono source view.
@@ -53,6 +56,7 @@ function sizeLabel(bytes: number): string {
 let editor: MonacoTypes.editor.IStandaloneCodeEditor | null = null;
 
 setCaretLineReader(() => editor?.getPosition()?.lineNumber ?? null);
+setCaretWordReader(codeEditorWordAtCursor);
 
 // The editor unmounts on every file, mode and surface switch. Its model is kept alive and its view
 // state saved here, keyed like drafts by absolute path, so coming back restores the caret, scroll,
@@ -72,6 +76,21 @@ export function codeEditorSelection(): { startLine: number; endLine: number } | 
         return null;
     }
     return { startLine: sel.startLineNumber, endLine: sel.endLineNumber };
+}
+
+// The identifier at the caret and the open file's language. The word is cut by wordAt rather than
+// Monaco's getWordAtPosition, whose per-language word rules (CSS's leading ".") would hand the
+// definition query a name it was not built for; the language comes from codelang for the same reason.
+export function codeEditorWordAtCursor(): { word: string; lang: Lang } | null {
+    const pos = editor?.getPosition();
+    const model = editor?.getModel();
+    const file = globalStore.get(codeFileAtom);
+    if (pos == null || model == null || file.kind !== "text") {
+        return null;
+    }
+    const lang = langOf(file.path);
+    const word = wordAt(model.getLineContent(pos.lineNumber), pos.column, lang);
+    return word == null ? null : { word, lang };
 }
 
 function applyPendingLine(ed: MonacoTypes.editor.IStandaloneCodeEditor): void {

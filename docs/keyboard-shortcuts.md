@@ -70,6 +70,7 @@ One overlay with scopes: All, Needs you, Go to, Agents, Runs, Sessions, Records,
 | `Ctrl`+`Enter` | The selected row's alternate action, named in the footer. On the goal block, open an orchestrator run instead of a Quick one |
 | `Backspace` on an empty query | Leave a picker, then drop back to All |
 | `path:123` in Files | Open the file at that line; a bare `:123` on Code moves the open file |
+| `@` typed first in Files on Code | List the open file's symbols instead of files; `Enter` moves the file to the one selected |
 
 In All, text that names nothing is a goal: Quick and Orchestrate open the New run window with it
 filled in and the active (else last used) project preselected, so the project is confirmed there
@@ -211,6 +212,28 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `u` | Undo the last decision |
 | `j` / `k` (or `↓` / `↑`) | Next / previous file |
 | `Enter` | Apply the review |
+
+### Code
+
+The ones marked "from the editor" also work while the caret is in the editor; the rest need focus
+outside it. The tree keys work while the file tree holds focus.
+
+| Keys | Action |
+|---|---|
+| `Alt`+`←` / `Alt`+`→` | Back / forward through opened files and jumps |
+| `r` | Refresh the file index |
+| `d` | Toggle the diff against HEAD |
+| `Ctrl`+`S` | Save the open file (from the editor) |
+| `Ctrl`+`Shift`+`F` | Search file contents (from the editor) |
+| `Ctrl`+`Shift`+`O` | Go to a symbol in the open file: opens Search seeded with `@` (from the editor) |
+| `F12` | Go to the definition of the word at the caret: one match jumps there, several list in Search (from the editor) |
+| `Shift`+`F12` | Find references to the word at the caret, in Search (from the editor) |
+| `Alt`+`T` / `Alt`+`E` | Focus the file tree / the editor (from the editor) |
+| `j` / `k` (or `↓` / `↑`) in the tree | Next / previous file or folder |
+| `←` / `→` in the tree | Collapse / expand the folder |
+| `Enter` in the tree | Open the file, or toggle the folder |
+| `n` / `Shift`+`N` in the tree | New file / new folder in the cursor's directory |
+| `F2` / `Del` in the tree | Rename / delete the cursor row |
 
 ### Route DAG (the orchestrator run's graph)
 
