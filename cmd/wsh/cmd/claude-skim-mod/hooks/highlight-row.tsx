@@ -1,15 +1,16 @@
 // a reply with marked sentences, as the terminal draws it: the engine's markdown for the unmarked parts, and each
-// line holding a mark run by run, the marked runs on a tinted ground. highlight-core.ts cuts the reply.
+// line holding a mark run by run, the marked runs bold. highlight-core.ts cuts the reply.
 import type { Elements, RenderElement } from "claude-code";
 import type { Run, Segment } from "./highlight-core";
 
 type RowElements = Pick<Elements["terminal"], "Box" | "Text" | "Markdown">;
 
-export type Palette = { markBg: string; markFg?: string };
+export type Palette = { markFg?: string };
 
-// a terminal colour has no alpha, so each theme gets a tint of claude's own orange made for its ground
-const DARK: Palette = { markBg: "#4a3027", markFg: "#f6f3ec" };
-const LIGHT: Palette = { markBg: "#f6dccf" };
+// a marked run is bold in arc's foreground (frontend/tailwindsetup.css) on a dark ground, with no band: every tinted
+// ground tried read as foreign in arc's terminal. arc has no light theme, so a light ground keeps the theme's text
+const DARK: Palette = { markFg: "#e6e9ed" };
+const LIGHT: Palette = {};
 
 export function paletteFor(theme: unknown): Palette {
     return String(theme ?? "").startsWith("light") ? LIGHT : DARK;
@@ -19,9 +20,7 @@ export function paletteFor(theme: unknown): Palette {
 const CODE_COLOR = "permission";
 
 function drawRun({ Text }: RowElements, run: Run, isSkim: boolean, palette: Palette): RenderElement {
-    const marked = run.isMarked
-        ? { backgroundColor: palette.markBg, ...(palette.markFg ? { color: palette.markFg } : {}) }
-        : {};
+    const marked = run.isMarked ? { bold: true, ...(palette.markFg ? { color: palette.markFg } : {}) } : {};
     return (
         <Text
             {...(run.isBold ? { bold: true } : {})}
