@@ -802,27 +802,21 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     return (
         <MotionConfig reducedMotion="user">
             <div className="flex h-full min-h-0 flex-col bg-background">
-                <SurfaceToolbar
-                    title="Usage"
-                    actions={
-                        <>
-                            <Segmented<UsageLens>
-                                value={lens}
-                                onChange={pickLens}
-                                role="group"
-                                ariaLabel="Lens"
-                                options={LENS_OPTIONS}
-                            />
-                            <Segmented<"7d" | "all">
-                                value={usageWindow}
-                                onChange={pickWindow}
-                                role="group"
-                                ariaLabel="Range"
-                                options={RANGE_OPTIONS}
-                            />
-                        </>
-                    }
-                >
+                <SurfaceToolbar title="Usage">
+                    <Segmented<UsageLens>
+                        value={lens}
+                        onChange={pickLens}
+                        role="group"
+                        ariaLabel="Lens"
+                        options={LENS_OPTIONS}
+                    />
+                    <Segmented<"7d" | "all">
+                        value={usageWindow}
+                        onChange={pickWindow}
+                        role="group"
+                        ariaLabel="Range"
+                        options={RANGE_OPTIONS}
+                    />
                     {reporting > 0 ? (
                         <ToolbarFact className="text-accent-soft">
                             <span className="h-1.5 w-1.5 rounded-full bg-accent" />
