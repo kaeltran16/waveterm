@@ -28,6 +28,15 @@ Status legend:
   state ("waits on every task") while the tree's row shows Tree running, and from B3 on the stage row has
   lost focus (no pane). That change touches neither the modal nor focus, so the cause is unproven either
   way. Repro: `ARC_FINAL_OUT=<dir> node scripts/cdp/final-verify.mjs final-stage`, a few runs.
+- **`/wave/stream-file` stalls under parallel requests** (2026-10-20). With six requests in flight,
+  some responses send headers and part of the body, then hang. In one run, plain curl stalled on 1 of
+  240 responses, at 229,376 of 236,935 bytes, so wavesrv is the stalling side. Through Tauri's http
+  plugin, 12 of 60 rounds stalled. Sequential reads (0 of 360) and `/wave/stream-local-file` (0 of
+  240) never stalled. The body goes through the wshrpc stream broker (`pkg/streamclient`) and the
+  router, so the cause is likely there. Markdown images on a local connection avoid it by reading
+  through stream-local-file (`markdown-util.ts`); on a remote connection they still go through
+  stream-file. Repro: six parallel `curl -H "X-AuthKey: …" "<endpoint>/wave/stream-file?path=wsh://local/<png>"`
+  in a loop of 40 rounds.
 
 Tracked in their own initiatives, not here:
 

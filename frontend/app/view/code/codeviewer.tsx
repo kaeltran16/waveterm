@@ -15,11 +15,11 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
 import { CodeEditor } from "@/app/view/codeeditor/codeeditor";
-import { joinRepoPath } from "@/util/paths";
+import { joinRepoPath, splitRepoPath } from "@/util/paths";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import type * as MonacoTypes from "monaco-editor";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { isMarkdownPath } from "./codeclassify";
 import { CodeDiffView } from "./codediffview";
 import { remember } from "./codeeditorcache";
@@ -157,9 +157,18 @@ function MarkdownPreview({
         },
         [model, project, path]
     );
+    // a doc's image paths are relative to the doc, not the repo root
+    const resolveOpts = useMemo(
+        () =>
+            project != null
+                ? { connName: "local", baseDir: joinRepoPath(project.path, splitRepoPath(path).dir) }
+                : null,
+        [project, path]
+    );
     return (
         <Markdown
             text={text}
+            resolveOpts={resolveOpts}
             scrollable
             className="h-full"
             contentClassName="px-5 py-4"
