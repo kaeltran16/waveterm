@@ -33,8 +33,10 @@ func SplitRunKey(key string) (runID, suffix string, ok bool) { return splitRunKe
 func UnlinkReparsePoints(dir string) error { return unlinkReparsePoints(dir) }
 
 // RunKeyForTreeDir maps a folder name under the worktree root to its engine key: a full key as is, a
-// <8-char prefix><suffix> name through the prefix's .run marker. ok=false: no marker, or not an engine name.
+// <8-char prefix><suffix> name through the prefix's .run marker, either with the number a fresh path adds
+// (claimLaneTreeDir) dropped. ok=false: no marker, or not an engine name.
 func RunKeyForTreeDir(root, name string) (string, bool) {
+	name = strings.TrimSuffix(name, treeDirAlt.FindString(name))
 	if _, _, ok := splitRunKey(name); ok {
 		return name, true
 	}
@@ -59,11 +61,11 @@ func RunKeyForTreeDir(root, name string) (string, bool) {
 }
 
 // RemoveRunWorktreeExclusive removes a run tree and its wave/<key> branch through RemoveRunWorktree, holding
-// treeRemovals with TryLock; ErrTreeBusy when the engine holds it. It refuses when worktreeDir(projectPath, key)
+// treeRemovals with TryLock; ErrTreeBusy when the engine holds it. It refuses when laneTree(projectPath, key)
 // is not wantPath, so it can never remove a tree other than the scanned one. wantPath "" removes the branch only,
 // and is refused while the tree is on disk.
 func RemoveRunWorktreeExclusive(ctx context.Context, projectPath, key, wantPath string) error {
-	tree := worktreeDir(projectPath, key)
+	tree := laneTree(ctx, projectPath, key)
 	if wantPath == "" {
 		if _, err := os.Lstat(tree); err == nil {
 			return fmt.Errorf("the branch wave/%s still has its tree %s", key, tree)
@@ -71,10 +73,12 @@ func RemoveRunWorktreeExclusive(ctx context.Context, projectPath, key, wantPath 
 	} else if !samePath(tree, wantPath) {
 		return fmt.Errorf("wave/%s resolves to %s, not %s", key, tree, wantPath)
 	}
-	if !treeRemovals.TryLock(tree) {
+	// the lock is the key's, wherever its tree moved
+	lock := worktreeDir(projectPath, key)
+	if !treeRemovals.TryLock(lock) {
 		return ErrTreeBusy
 	}
-	defer treeRemovals.Unlock(tree)
+	defer treeRemovals.Unlock(lock)
 	return RemoveRunWorktree(ctx, projectPath, key)
 }
 
