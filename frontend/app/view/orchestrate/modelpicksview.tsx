@@ -8,6 +8,7 @@ import { cn } from "@/util/util";
 import { useState } from "react";
 import { shortModel } from "../agents/modelname";
 import { dagActionError, useDagGroup } from "./dagstore";
+import { PEEK_DT } from "./dagtext";
 import { leadModelsPayload, pickRows, picksBanner, setModelPayload, type PickModel } from "./modelpicks";
 import { workersRoute } from "./taskroute";
 
@@ -75,17 +76,17 @@ export function TaskModelPick({ group, owner, task }: { group: TaskGroup; owner:
             setError(dagActionError("setmodel", row.id, e));
         });
     };
-    const errorLine = error && <div className="text-[11px] text-error">{error}</div>;
+    const errorLine = error && <div className="text-[12px] text-error">{error}</div>;
     if (!row.waiting) {
         return (
             <>
-                <dt className="text-[11px] leading-4 text-ink-mid">Model</dt>
-                <dd data-model-pick={row.id} className="m-0 min-w-0 text-[11px] leading-4">
-                    <div className="flex items-center gap-1.5 font-mono text-success">
+                <dt className={PEEK_DT}>Model</dt>
+                <dd data-model-pick={row.id} className="m-0 min-w-0 text-[12px] leading-[18px]">
+                    <div className="flex items-center gap-1.5 font-mono text-[12.5px] text-success">
                         <span className="size-[7px] flex-none rounded-full bg-success pulse-dot" />
                         running on {row.runningModel}
                     </div>
-                    <div className="text-muted">Keeps its model. If it fails, retry it on {lead} from here.</div>
+                    <div className="text-ink-mid">Keeps its model. If it fails, retry it on {lead} from here.</div>
                     {errorLine}
                 </dd>
             </>
@@ -93,7 +94,7 @@ export function TaskModelPick({ group, owner, task }: { group: TaskGroup; owner:
     }
     return (
         <>
-            <dt className="text-[11px] leading-[22px] text-ink-mid">Model</dt>
+            <dt className={cn(PEEK_DT, "leading-6")}>Model</dt>
             <dd data-model-pick={row.id} className="m-0 flex min-w-0 flex-col gap-[3px]">
                 <div className="flex items-center gap-2">
                     <div
@@ -104,11 +105,11 @@ export function TaskModelPick({ group, owner, task }: { group: TaskGroup; owner:
                         <ToggleButton on={row.model === "sonnet"} label="sonnet" onClick={() => setModel("sonnet")} />
                         <ToggleButton on={row.model === "lead"} label={lead} onClick={() => setModel("lead")} />
                     </div>
-                    <span className={cn("font-mono text-[10.5px]", row.changed ? "text-accent-soft" : "text-muted")}>
+                    <span className={cn("font-mono text-[11.5px]", row.changed ? "text-accent-soft" : "text-ink-mid")}>
                         {row.changed ? "you changed it" : "waiting"}
                     </span>
                 </div>
-                {row.reason ? <span className="text-[11px] text-ink-mid">Plan reviewer: {row.reason}</span> : null}
+                {row.reason ? <span className="text-[12px] text-ink-mid">Plan reviewer: {row.reason}</span> : null}
                 {errorLine}
             </dd>
         </>
@@ -122,7 +123,7 @@ function ToggleButton({ on, label, onClick }: { on: boolean; label: string; onCl
             aria-pressed={on}
             onClick={on ? undefined : onClick}
             className={cn(
-                "cursor-pointer rounded-[5px] px-2 py-0.5 font-mono text-[10.5px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                "cursor-pointer rounded-[5px] px-2 py-0.5 font-mono text-[11.5px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
                 on ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:text-ink-hi"
             )}
         >

@@ -6,6 +6,7 @@ import {
     ATTENTION_KINDS,
     eventClickTarget,
     filterEvents,
+    selectionFilter,
     TIMELINE_RAIL_MIN_PX,
     timelineLayout,
 } from "./timelinefilter";
@@ -153,5 +154,15 @@ describe("timelineLayout", () => {
 
     it("treats an unmeasured width as wide rather than flapping to a drawer on the first frame", () => {
         expect(timelineLayout(0)).toBe("rail");
+    });
+});
+
+describe("selectionFilter", () => {
+    it("narrows the rail to a selected task", () => {
+        expect(selectionFilter("t-3")).toBe("task");
+    });
+
+    it("returns to everything when the selection clears", () => {
+        expect(selectionFilter(null)).toBe("all");
     });
 });

@@ -44,6 +44,10 @@ export const ATTENTION_KINDS = new Set<string>([
     "merge-held",
 ]);
 
+// FINAL_FAILED_BLOCK is the engine's BlockingKindFinalFailed: a dag-blocked row of this kind is the final stage
+// failing, not a task.
+export const FINAL_FAILED_BLOCK = "final-failed";
+
 // taskIdOf reads the task a row belongs to; "" for a dag-level row (dag-done, evidence-sealed).
 export function taskIdOf(event: RunEvent): string {
     return detailOf<{ taskid?: string }>(event)?.taskid ?? "";
@@ -60,6 +64,12 @@ export function filterEvents(events: RunEvent[], filter: TimelineFilter, selecte
         default:
             return events;
     }
+}
+
+// selectionFilter is the rail's filter for a graph selection: a selected task narrows the rail to that task, and
+// clearing the selection returns it to everything.
+export function selectionFilter(selectedTaskId: string | null): TimelineFilter {
+    return selectedTaskId ? "task" : "all";
 }
 
 export type TimelineTarget =

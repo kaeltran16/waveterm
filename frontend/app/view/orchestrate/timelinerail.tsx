@@ -16,13 +16,20 @@ import { atom, useAtom, useAtomValue } from "jotai";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { retryRunEvents, useRunEventsState } from "../agents/runeventstore";
-import { eventTitle, planReviewLensTitle, planReviewReviewers, toneFor, tsLabel } from "../agents/runtimeline";
+import {
+    eventTitle,
+    eventTone,
+    planReviewLensTitle,
+    planReviewReviewers,
+    toneFor,
+    tsLabel,
+} from "../agents/runtimeline";
 import { setActiveRunId } from "../jarvis/jarvissubjectstore";
 import { selectedTaskOf } from "./dagfinal";
 import { dagModalAgentsContextAtom } from "./dagmodalstate";
 import { hoveredTaskAtom, selectedTaskIdAtom } from "./dagstore";
 import { relaunchLeadAction } from "./relaunchlead";
-import { eventClickTarget, type TimelineFilter, type TimelineTarget } from "./timelinefilter";
+import { eventClickTarget, selectionFilter, type TimelineFilter, type TimelineTarget } from "./timelinefilter";
 import {
     eventDetail,
     filterGroups,
@@ -49,6 +56,11 @@ const TICK_TONED_H = 9;
 const TICK_MUTED_H = 5;
 const TICK_FADED_OPACITY = 0.2;
 
+// a tone on text meant to be read: muted is for decoration, so a muted kind's words read in ink-mid
+function textTone(tone: string): string {
+    return tone === "text-muted" ? "text-ink-mid" : tone;
+}
+
 // outside the modal there is no agents context and so no shared clock
 const NO_NOW_ATOM = atom(0);
 
@@ -66,7 +78,14 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
     const agentsCtx = useAtomValue(dagModalAgentsContextAtom);
     const tick = useAtomValue(agentsCtx?.model.nowAtom ?? NO_NOW_ATOM);
     const nowMs = agentsCtx ? tick : Date.now();
-    const [filter, setFilter] = useState<TimelineFilter>("all");
+    const [filter, setFilter] = useState<TimelineFilter>(() => selectionFilter(selectedTaskId));
+    // a new graph selection resets the filter: a task narrows the rail to it, and clearing it returns to All.
+    // Adjusted during render rather than in an effect, so no frame shows the old filter over the new selection.
+    const [filterFor, setFilterFor] = useState(selectedTaskId);
+    if (filterFor !== selectedTaskId) {
+        setFilterFor(selectedTaskId);
+        setFilter(selectionFilter(selectedTaskId));
+    }
     const [openGroupId, setOpenGroupId] = useState<string | null>(null);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [relaunching, setRelaunching] = useState(false);
@@ -129,13 +148,18 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
                                 onClick={() => setFilter(f.id)}
                                 aria-pressed={filter === f.id}
                                 className={cn(
-                                    "flex cursor-pointer items-center gap-1.5 rounded-[5px] px-2 py-0.5 font-mono text-[10.5px] tracking-[0.04em] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                                    "flex cursor-pointer items-center gap-1.5 rounded-[5px] px-2 py-[3px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
                                     filter === f.id ? "bg-accent/12 text-accent-soft" : "text-ink-mid hover:text-ink-hi"
                                 )}
                             >
                                 {f.id === "task" && selectedTaskId ? `Task · ${selectedTaskId}` : f.label}
                                 {showCount && (
-                                    <span className={f.id === "attention" && count > 0 ? "text-warning" : "text-muted"}>
+                                    <span
+                                        className={cn(
+                                            "font-mono text-[11.5px] font-normal",
+                                            f.id === "attention" && count > 0 ? "text-warning" : "text-ink-mid"
+                                        )}
+                                    >
                                         {count}
                                     </span>
                                 )}
@@ -207,20 +231,20 @@ function RailHeader({
     onRetry: () => void;
 }) {
     return (
-        <div className="flex flex-none items-center gap-2 border-b border-border px-3 py-2">
+        <div className="flex flex-none items-center gap-2 border-b border-border px-3.5 py-3">
             {layout === "drawer" && (
                 <button
                     type="button"
                     onClick={onToggle}
                     aria-expanded={open}
                     aria-label={open ? "Collapse lifecycle" : "Expand lifecycle"}
-                    className="cursor-pointer text-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                    className="cursor-pointer text-ink-mid focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                 >
                     {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                 </button>
             )}
-            <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-mid">Lifecycle</span>
-            <span className="text-[11.5px] text-secondary">{count} events</span>
+            <span className="text-[13.5px] font-bold text-ink-hi">Lifecycle</span>
+            <span className="text-[12px] text-ink-mid">{count} events</span>
             <StatusPill status={status} onRetry={onRetry} />
         </div>
     );
@@ -234,14 +258,14 @@ function StatusPill({ status, onRetry }: { status: "loading" | "live" | "error";
             <button
                 type="button"
                 onClick={onRetry}
-                className="ml-auto cursor-pointer text-[10.5px] text-warning underline decoration-dotted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                className="ml-auto cursor-pointer text-[12px] text-warning underline decoration-dotted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
             >
                 load failed · retry
             </button>
         );
     }
     return (
-        <span className={"ml-auto text-[10.5px] " + (status === "live" ? "text-success" : "text-muted")}>
+        <span className={"ml-auto text-[12px] " + (status === "live" ? "text-success" : "text-ink-mid")}>
             {status === "live" ? "● live" : "loading…"}
         </span>
     );
@@ -284,7 +308,7 @@ function ActivityStrip({
     const spanMin = Math.max(0, Math.round((nowMs - start) / 60_000));
     const label = `${events.length} events from ${tsLabel(start)} to ${tsLabel(nowMs)}; amber marks need attention`;
     return (
-        <div className="flex-none border-b border-border px-3 pt-2.5 pb-2">
+        <div className="flex-none border-b border-border px-3.5 pt-2.5 pb-2">
             {/* the right padding holds a tick at the very end of the axis, which is drawn 2px wide from its x */}
             <div className="pr-[2px]">
                 <svg role="img" aria-label={label} width="100%" height={STRIP_H} className="block overflow-visible">
@@ -309,7 +333,7 @@ function ActivityStrip({
                     <line x1="100%" x2="100%" y1={0} y2={STRIP_H} stroke="var(--color-accent)" />
                 </svg>
             </div>
-            <div className="mt-1 flex justify-between font-mono text-[10.5px] text-muted">
+            <div className="mt-[5px] flex justify-between font-mono text-[11.5px] text-ink-mid">
                 <span>{tsLabel(start)}</span>
                 <span>{spanMin} min</span>
                 <span>now {tsLabel(nowMs)}</span>
@@ -324,7 +348,7 @@ function NowMarker({ nowMs }: { nowMs: number }) {
             <span className="flex w-5 flex-none justify-center">
                 <span className="size-2 rounded-full bg-accent pulse-dot" />
             </span>
-            <span className="font-mono text-[10.5px] text-accent-soft">now · {tsLabel(nowMs)}</span>
+            <span className="font-mono text-[11.5px] text-accent-soft">now · {tsLabel(nowMs)}</span>
         </div>
     );
 }
@@ -336,7 +360,7 @@ function GapRow({ minutes }: { minutes: number }) {
                 <span className="size-[5px] rounded-full bg-edge-mid" />
             </span>
             <span className="flex-1 border-t border-dashed border-edge-mid" />
-            <span className="font-mono text-[10.5px] text-muted">{minutes} min quiet</span>
+            <span className="font-mono text-[11.5px] text-ink-mid">{minutes} min quiet</span>
             <span className="flex-1 border-t border-dashed border-edge-mid" />
         </div>
     );
@@ -368,7 +392,7 @@ function EmptyRows({
     } else if (filter === "attention") {
         text = "Nothing needs attention";
     }
-    return <div className="py-2.5 pr-3 pl-10 text-[11.5px] text-muted">{text}</div>;
+    return <div className="py-2.5 pr-3 pl-10 text-[12.5px] text-ink-mid">{text}</div>;
 }
 
 // the burst's lifecycle icon on the spine; compact is the run sheet's one-line row
@@ -469,7 +493,7 @@ function GroupRow({
                     <span className="flex w-full items-center gap-1.5">
                         <span
                             className={cn(
-                                "min-w-0 truncate text-[12px] font-semibold",
+                                "min-w-0 truncate text-[13px] font-semibold leading-[18px]",
                                 group.attention ? "text-warning" : "text-ink-hi"
                             )}
                         >
@@ -478,25 +502,25 @@ function GroupRow({
                         {group.taskId && (
                             <span
                                 className={cn(
-                                    "flex-none rounded px-1.5 font-mono text-[10.5px] leading-4",
+                                    "flex-none rounded px-1.5 font-mono text-[11.5px] leading-[18px]",
                                     selected ? "bg-accent/12 text-accent-soft" : "bg-pill text-ink-mid"
                                 )}
                             >
                                 {group.taskId}
                             </span>
                         )}
-                        <span className="ml-auto flex-none font-mono text-[10.5px] text-ink-mid">
+                        <span className="ml-auto flex-none font-mono text-[11.5px] leading-[18px] text-ink-mid">
                             {groupTime(group)}
                         </span>
                     </span>
                     {group.steps.length > 1 && (
-                        <span className="flex flex-wrap gap-[3px]">
+                        <span className="flex flex-wrap gap-1">
                             {group.steps.map((e) => (
                                 <span
                                     key={e.id}
                                     className={cn(
-                                        "rounded bg-pill px-1.5 font-mono text-[10.5px] leading-4",
-                                        toneFor(e.kind)
+                                        "rounded bg-pill px-1.5 font-mono text-[11.5px] leading-[18px]",
+                                        textTone(toneFor(e.kind))
                                     )}
                                 >
                                     {stepLabel(e)}
@@ -505,14 +529,7 @@ function GroupRow({
                         </span>
                     )}
                     {snippet && (
-                        <span
-                            className={cn(
-                                "block truncate font-mono text-[10.5px]",
-                                group.attention ? "text-warning-soft" : "text-ink-mid"
-                            )}
-                        >
-                            {snippet}
-                        </span>
+                        <span className="block truncate text-[12px] leading-[17px] text-ink-mid">{snippet}</span>
                     )}
                 </button>
                 {open && (
@@ -549,17 +566,17 @@ function GroupDetail({
                 const detail = eventDetail(e);
                 return (
                     <div key={e.id} className="flex flex-col gap-0.5">
-                        <div className="flex gap-1.5 font-mono text-[10.5px]">
-                            <span className="text-muted">{tsLabel(e.ts)}</span>
-                            <span className={toneFor(e.kind)}>{eventTitle(e)}</span>
+                        <div className="flex gap-1.5 text-[12px]">
+                            <span className="font-mono text-[11.5px] text-ink-mid">{tsLabel(e.ts)}</span>
+                            <span className={cn("font-semibold", textTone(eventTone(e)))}>{eventTitle(e)}</span>
                         </div>
                         {detail.text && (
-                            <div className="whitespace-pre-line break-words text-[10.5px] leading-[14px] text-secondary">
+                            <div className="whitespace-pre-line break-words text-[12px] leading-[17px] text-secondary">
                                 {detail.text}
                             </div>
                         )}
                         {detail.pre && (
-                            <pre className="m-0 max-h-[160px] overflow-auto whitespace-pre-wrap break-all font-mono text-[10.5px] leading-[14px] text-warning">
+                            <pre className="m-0 max-h-[160px] overflow-auto whitespace-pre-wrap break-all font-mono text-[11.5px] leading-[17px] text-warning">
                                 {detail.pre}
                             </pre>
                         )}
@@ -568,7 +585,7 @@ function GroupDetail({
                                 <div
                                     key={r.lens}
                                     data-plan-review-reviewer={r.lens}
-                                    className="truncate font-mono text-[10.5px] text-ink-mid"
+                                    className="truncate font-mono text-[11.5px] text-ink-mid"
                                 >
                                     {`${planReviewLensTitle(r.lens)} · ${r.state}`}
                                 </div>
@@ -581,12 +598,12 @@ function GroupDetail({
                     type="button"
                     onClick={onRelaunch}
                     disabled={relaunch.disabled}
-                    className="self-start cursor-pointer rounded border border-edge-mid px-2 py-0.5 text-[11px] font-semibold text-secondary hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+                    className="self-start cursor-pointer rounded border border-edge-mid px-2 py-0.5 text-[12px] font-semibold text-secondary hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     {relaunch.disabled ? "Relaunching…" : "Relaunch lead"}
                 </button>
             )}
-            {relaunch && relaunchError && <div className="text-[11px] text-warning">{relaunchError}</div>}
+            {relaunch && relaunchError && <div className="text-[12px] text-warning">{relaunchError}</div>}
         </div>
     );
 }
