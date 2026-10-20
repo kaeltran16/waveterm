@@ -188,6 +188,34 @@ func TestFinalExit3IsUnverifiedWithItsLastLine(t *testing.T) {
 	}
 }
 
+// run bd67b1fe: a Check that found docker down exited 3, the stage failed, and the lead was handed a fix round no
+// code change could pass
+func TestFinalCheckOrVerifyExit3IsUnverifiedAndTheStageGoesOn(t *testing.T) {
+	cases := []struct{ name, verify, check, want string }{
+		{"check", passVerify, "echo probing; echo 'docker is not running'; exit 3", "Check `echo probing; echo 'docker is not running'; exit 3` could not verify: docker is not running"},
+		{"verify", "echo 'docker is not running'; exit 3", "", "Verify `echo 'docker is not running'; exit 3` could not verify: docker is not running"},
+		{"verify with no reason", "exit 3", "", "Verify `exit 3` could not verify: it gave no reason"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out := filepath.ToSlash(t.TempDir())
+			f := finalFixture(t, c.verify, c.check, "echo final > "+out+"/final")
+
+			g := runFinal(t, f)
+
+			if g.Final.State != FinalState_Unverified || g.Status != DagStatus_Done || g.Final.Detail != "" {
+				t.Fatalf("exit 3 is unverified and the dag is done, got %s / %s / %q", g.Final.State, g.Status, g.Final.Detail)
+			}
+			if !slices.Contains(g.Final.Unverified, c.want) {
+				t.Fatalf("want the reason %q, got %q", c.want, g.Final.Unverified)
+			}
+			if _, err := os.Stat(filepath.Join(out, "final")); err != nil {
+				t.Fatalf("the stage goes on to the Final command: %v", err)
+			}
+		})
+	}
+}
+
 func TestFinalOtherExitFails(t *testing.T) {
 	f := finalFixture(t, passVerify, "", "echo 'FAIL board-layout'; exit 2")
 
@@ -713,7 +741,7 @@ func TestRunFinishedWakeSaysWhetherARoundIsLeft(t *testing.T) {
 		if !strings.HasSuffix(w, "\n"+c.want) {
 			t.Fatalf("%s: the wake should end with %q, got %q", c.name, c.want, w)
 		}
-		if !onlyRunFinished([]string{w}) {
+		if !nothingToLaunchFor([]string{w}) {
 			t.Fatalf("%s: a lead-free run must still close by itself on %q", c.name, w)
 		}
 	}
