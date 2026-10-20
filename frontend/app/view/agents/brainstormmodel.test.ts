@@ -14,6 +14,7 @@ import {
     brainstormPhase,
     canCheck,
     compactedSummary,
+    confirmableGuesses,
     exitedSummary,
     handoffView,
     historyRows,
@@ -31,6 +32,8 @@ import {
     runLine,
     runPrefill,
     sentenceDiff,
+    settleSent,
+    shownFile,
     treeLine,
     whatsLeft,
     withBrainstorm,
@@ -205,6 +208,18 @@ describe("counts and gates", () => {
         expect(canCheck(file({ done: true, parts: [part("a", "yours"), part("b", "guess")] }))).toBe(false);
     });
 
+    it("canCheck waits for a question still open, one about no part included", () => {
+        const q = { n: 6, text: "Run the reviewer?", part: "" };
+        expect(canCheck(file({ done: true, question: q, parts: [part("a", "yours")] }))).toBe(false);
+    });
+
+    it("confirmableGuesses counts plain guesses, not changed parts", () => {
+        const g = file({
+            parts: [part("a", "guess"), part("b", "guess", { was: "old" }), part("c", "guess"), part("d", "yours")],
+        });
+        expect(confirmableGuesses(g)).toBe(2);
+    });
+
     it("isAsking is a question with no working line", () => {
         const q = { n: 1, text: "?", part: "a" };
         expect(isAsking(file({ question: q }))).toBe(true);
@@ -240,6 +255,66 @@ describe("withBrainstorm", () => {
     });
 });
 
+describe("settleSent", () => {
+    const sent = { at: 1000, modifiedMs: 500, answer: true };
+
+    it("holds while the file is unchanged and the agent has not ended a turn since", () => {
+        expect(settleSent(sent, 500, { state: "working" })).toBe(sent);
+        expect(settleSent(sent, 500, { state: "idle", idleSince: 900 })).toBe(sent);
+        expect(settleSent(sent, 500, undefined)).toBe(sent);
+    });
+
+    it("settles once the file changes and the agent is not at work", () => {
+        expect(settleSent(sent, 600, { state: "idle", idleSince: 900 })).toBeNull();
+        expect(settleSent(sent, 600, undefined)).toBeNull();
+        expect(settleSent({ ...sent, modifiedMs: null }, 600, { state: "asking" })).toBeNull();
+    });
+
+    it("holds through a write mid-turn, until that turn ends", () => {
+        expect(settleSent(sent, 600, { state: "working" })).toBe(sent);
+        expect(settleSent(sent, 600, { state: "idle", idleSince: 1500 })).toBeNull();
+    });
+
+    it("settles once the agent's turn ends after the send without a write", () => {
+        expect(settleSent(sent, 500, { state: "idle", idleSince: 1500 })).toBeNull();
+    });
+
+    it("nothing sent stays nothing", () => {
+        expect(settleSent(null, 500, { state: "idle", idleSince: 1500 })).toBeNull();
+    });
+});
+
+describe("shownFile", () => {
+    const q = { n: 3, text: "?", part: "a" };
+    const f = file({ question: q, parts: [part("a", "asked")] });
+
+    it("is the file itself with nothing pending", () => {
+        expect(shownFile(f, null)).toBe(f);
+    });
+
+    it("reads a pending answer as the agent writing it up, the question closed", () => {
+        const s = shownFile(f, { at: 1, modifiedMs: 1, answer: true });
+        expect(s.working).toBe("Writing up your answer.");
+        expect(s.question).toBeNull();
+        expect(isAsking(s)).toBe(false);
+        expect(partView(s, s.parts[0])).toBe("writing");
+        expect(treeLine(s, false).text).toBe("writing up your answer");
+    });
+
+    it("reads another pending line as working, the question kept", () => {
+        const s = shownFile(f, { at: 1, modifiedMs: 1, answer: false });
+        expect(s.working).toBe("Taking in your change.");
+        expect(s.question).toBe(q);
+        expect(isAsking(s)).toBe(false);
+        expect(approveBlocker(s)).toBe("The agent is writing; this opens when it is done");
+    });
+
+    it("leaves a working line the file sets itself alone", () => {
+        const w = file({ working: "Writing it" });
+        expect(shownFile(w, { at: 1, modifiedMs: 1, answer: true })).toBe(w);
+    });
+});
+
 describe("treeLine", () => {
     it("says done with the first 8 chars of the run", () => {
         expect(treeLine(file({ run: "abcdef0123456789" }), false)).toEqual({
@@ -264,6 +339,7 @@ describe("brainstormLine", () => {
         expect(brainstormLine({ kind: "guess" })).toBe("brainstorm: guess");
         expect(brainstormLine({ kind: "skip" })).toBe("brainstorm: skip questions");
         expect(brainstormLine({ kind: "confirm", part: "p" })).toBe("brainstorm: confirm p");
+        expect(brainstormLine({ kind: "confirm-all" })).toBe("brainstorm: confirm every guess");
         expect(brainstormLine({ kind: "edit", part: "p", text: "new" })).toBe("brainstorm: edit p: new");
         expect(brainstormLine({ kind: "keep", part: "p" })).toBe("brainstorm: keep p");
         expect(brainstormLine({ kind: "restore", part: "p" })).toBe("brainstorm: restore p");
@@ -271,6 +347,7 @@ describe("brainstormLine", () => {
         expect(brainstormLine({ kind: "builder-answer", text: "x" })).toBe("brainstorm: builder answer: x");
         expect(brainstormLine({ kind: "approved" })).toBe("brainstorm: approved");
         expect(brainstormLine({ kind: "keep-talking" })).toBe("brainstorm: keep talking");
+        expect(brainstormLine({ kind: "run", runId: "r-1" })).toBe("brainstorm: run r-1");
     });
 
     it("joins a multi-line, tab-filled text into one line", () => {
@@ -613,6 +690,11 @@ describe("brainstormAttention", () => {
         expect(brainstormAttention({ agentId: "t", agentName: "n", topic: "x" }, f).reason).toBe(
             "For “ghost” · question 1"
         );
+    });
+
+    it("a question about no part names only its number", () => {
+        const f = file({ question: { n: 6, text: "Run the reviewer?", part: "" } });
+        expect(brainstormAttention({ agentId: "t", agentName: "n", topic: "x" }, f).reason).toBe("Question 6");
     });
 });
 

@@ -10,7 +10,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomFamily } from "jotai/utils";
 import type { AgentsViewModel } from "./agents";
-import { brainstormFilePath, type BrainstormFile } from "./brainstormmodel";
+import { brainstormFilePath, shownFile, type BrainstormFile, type SentLine } from "./brainstormmodel";
 import type { CanvasBoard } from "./canvasmodel";
 
 export type BrainstormState = {
@@ -33,7 +33,14 @@ export type BrainstormState = {
     boards: CanvasBoard[];
     // where wavesrv serves the project's design folder; null until the poller has asked it to
     base: string | null;
+    // the last line Arc sent, until the agent has taken it (the poller settles it)
+    sent: SentLine | null;
 };
+
+// what every view draws: the file, with a pending sent line read as the agent writing
+export function shownBrainstormFile(s: BrainstormState | null | undefined): BrainstormFile | null {
+    return s?.file != null ? shownFile(s.file, s.sent) : null;
+}
 
 // the tab meta key holding the attached brainstorm.json's absolute path
 export const SESSION_BRAINSTORM = "session:brainstorm";
@@ -80,6 +87,7 @@ export function attachBrainstorm(agentId: string, a: { topic: string; cwd: strin
         showDesign: false,
         boards: [],
         base: null,
+        sent: null,
     };
     globalStore.set(brainstormsAtom, { ...globalStore.get(brainstormsAtom), [agentId]: next });
 }

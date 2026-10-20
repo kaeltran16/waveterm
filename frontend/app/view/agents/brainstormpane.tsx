@@ -18,6 +18,7 @@ import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 import {
     approveBlocker,
+    confirmableGuesses,
     exitedSummary,
     handoffView,
     historyRows,
@@ -45,6 +46,7 @@ import {
     brainstormAtom,
     dismissBrainstorm,
     openBrainstormBoard,
+    shownBrainstormFile,
     updateBrainstorm,
     type BrainstormState,
 } from "./brainstormstore";
@@ -152,6 +154,7 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
     if (s == null) {
         return null;
     }
+    const f = shownBrainstormFile(s);
     const view = paneView({
         file: s.file,
         error: s.error,
@@ -171,8 +174,8 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
             ) : view === "board" ? (
                 <CanvasPane model={model} agent={agent} onBack={() => openBrainstormBoard(agent.id, null)} />
             ) : view === "check" ? (
-                <Check model={model} agent={agent} s={s} f={s.file!} />
-            ) : s.file == null ? (
+                <Check model={model} agent={agent} s={s} f={f!} />
+            ) : f == null ? (
                 <>
                     <Toolbar topic={s.topic} />
                     <EdgeState>
@@ -180,7 +183,7 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
                     </EdgeState>
                 </>
             ) : (
-                <Design agent={agent} s={s} f={s.file} />
+                <Design agent={agent} s={s} f={f} />
             )}
         </div>
     );
@@ -322,7 +325,7 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
                         </p>
                     ) : null}
                     {panel === "ready" ? <ReadyCard agent={agent} /> : null}
-                    {panel === "left" ? <WhatsLeft f={f} goTo={goTo} /> : null}
+                    {panel === "left" ? <WhatsLeft agent={agent} f={f} goTo={goTo} /> : null}
                     {rows.length > 0 ? (
                         <section className="flex flex-col">
                             <h2 className="m-0 mb-[4px] text-[12px] font-semibold text-ink-mid">
@@ -413,8 +416,10 @@ function DesignHead({ f }: { f: BrainstormFile }) {
     );
 }
 
-function WhatsLeft({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void }) {
+function WhatsLeft({ agent, f, goTo }: { agent: AgentVM; f: BrainstormFile; goTo: (id: string) => void }) {
     const rows = whatsLeft(f);
+    const guesses = confirmableGuesses(f);
+    const act = useAction();
     return (
         <section
             data-brainstorm-left
@@ -424,6 +429,18 @@ function WhatsLeft({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void 
                 <h2 className={SECTION_HEAD}>Before the builder check</h2>
                 <span className="text-[11.5px] text-muted">every part has to be yours</span>
             </div>
+            {guesses > 1 ? (
+                <button
+                    type="button"
+                    data-brainstorm-confirm-all
+                    disabled={act.busy}
+                    onClick={() => void act.run(() => sendBrainstorm(agent, { kind: "confirm-all" }))}
+                    className={cn(PART_BTN, "self-start")}
+                >
+                    Confirm all {guesses} guesses
+                </button>
+            ) : null}
+            {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
             {rows.length === 0 ? (
                 <span className="py-[5px] text-[12.5px] text-ink-mid">
                     Every part is yours; the agent may still have questions.
@@ -511,6 +528,8 @@ function QuestionCard({
     goTo: (id: string) => void;
 }) {
     const q = f.question!;
+    // guessing or skipping means something only for a question about a part of the design
+    const chips = q.part !== "" && f.check == null;
     const [draft, setDraft] = useState("");
     const act = useAction();
     const send = async (action: BrainstormAction) => {
@@ -554,7 +573,7 @@ function QuestionCard({
                     className={FIELD}
                 />
                 <div className="flex items-center gap-[8px]">
-                    {!fresh ? (
+                    {chips && !fresh ? (
                         <button
                             type="button"
                             disabled={act.busy}
@@ -564,14 +583,16 @@ function QuestionCard({
                             Guess for me
                         </button>
                     ) : null}
-                    <button
-                        type="button"
-                        disabled={act.busy}
-                        onClick={() => void send({ kind: "skip" })}
-                        className={CHIP}
-                    >
-                        Skip the questions
-                    </button>
+                    {chips ? (
+                        <button
+                            type="button"
+                            disabled={act.busy}
+                            onClick={() => void send({ kind: "skip" })}
+                            className={CHIP}
+                        >
+                            Skip the questions
+                        </button>
+                    ) : null}
                     <div className="flex-1" />
                     <EnterSends />
                 </div>
@@ -911,6 +932,9 @@ function Check({
                     ref={leftRef}
                     className="flex w-[430px] flex-none flex-col gap-[18px] overflow-y-auto border-r border-border bg-surface p-[20px] *:flex-none"
                 >
+                    {!working && f.question != null ? (
+                        <QuestionCard agent={agent} f={f} fresh={false} goTo={(id) => scrollToPart(designRef, id)} />
+                    ) : null}
                     <div className="flex flex-col gap-[8px]">
                         <h2 className="m-0 text-[15px] font-semibold text-primary">A builder read the design</h2>
                         <p className="m-0 text-[13px] leading-[1.5] text-ink-mid">

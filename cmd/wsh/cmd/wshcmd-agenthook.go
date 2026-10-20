@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
@@ -175,9 +176,10 @@ func brainstormContextFor(ev ccHookEvent) bool {
 }
 
 // skillContextOutput is the hook output that adds the brainstorm context to the turn, "" when the event
-// is not a brainstorming skill start.
-func skillContextOutput(ev ccHookEvent) string {
-	if !brainstormContextFor(ev) {
+// is not a brainstorming skill start, or the agent is a run's: its prompt routes every question through the
+// cockpit's ask tool, and arc:brainstorm would ask in the terminal instead.
+func skillContextOutput(ev ccHookEvent, runAgent bool) string {
+	if runAgent || !brainstormContextFor(ev) {
 		return ""
 	}
 	out, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
@@ -536,7 +538,7 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if agentHookSkillContext {
-		if out := skillContextOutput(ev); out != "" {
+		if out := skillContextOutput(ev, os.Getenv(jarvis.RunAgentEnv) != ""); out != "" {
 			_, _ = os.Stdout.WriteString(out + "\n")
 		}
 		return nil

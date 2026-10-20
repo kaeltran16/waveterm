@@ -19127,12 +19127,14 @@ const canvasSwap = {
     },
 };
 
-// --- brainstorm mode: an agent's brainstorm.json drawn beside its terminal, every action one typed line ---------
+// --- brainstorm mode: an agent's brainstorm.json drawn beside its terminal, every action one line sent to it -----
 // (docs/superpowers/specs/2026-10-18-brainstorm-mode-design.md). The terminal is opened as canvas-swap opens its own
 // and made a roster agent by publishing the agent:status `wsh agentstatus` would. Each step writes that step's
-// brainstorm.json, the agent's side of the protocol, and waits for the poller to draw it. A typed line is read
-// twice: from the page's own controllerinput calls, which say exactly what was sent, and from the terminal's
-// scrollback, which says it reached the shell (which runs each one as a failing command).
+// brainstorm.json, the agent's side of the protocol, and waits for the poller to draw it. A sent line is read
+// twice: from the page's own agentprompt calls, which say exactly what was sent, and from the terminal's
+// scrollback, which says it reached the shell (a session with no mod has it typed, and the shell runs each one as
+// a failing command). A sent line reads as the agent writing until the agent takes it, so between two sends
+// bsAgentTook plays the agent ending its turn.
 const BS_TOPIC = "consumer-lag-alerts";
 // a second topic revealed from the same terminal, whose file never parses
 const BS_UNREADABLE_TOPIC = "lag-alerts-unreadable";
@@ -19147,6 +19149,7 @@ const BS_ANSWER = `document.querySelector("[data-brainstorm-pane] [data-brainsto
 const BS_BUILDER_ANSWER = `document.querySelector("[data-brainstorm-builder-question] textarea")`;
 const BS_APPROVE_BAR = `document.querySelector("[data-brainstorm-approve-bar]")`;
 const BS_QUESTION_CARD = `document.querySelector("[data-brainstorm-question]")`;
+const BS_CONFIRM_ALL = `document.querySelector("[data-brainstorm-pane] [data-brainstorm-confirm-all]")`;
 const BS_POPUP_CARD = `document.querySelector("button[data-attention-popup]")`;
 const bsPartSel = (id) => `document.querySelector('[data-brainstorm-pane] [data-brainstorm-part="${id}"]')`;
 // BRAINSTORM_POLL_MS is 3s, so a write shows inside two ticks
@@ -19258,6 +19261,9 @@ const BS_HISTORY_Q4 = [
 const BS_EDITED = "Alerts go through the existing Alertmanager only. No new service.";
 const BS_BUILDER_Q = "When a lag page fires, should it also hold the enrichment autoscaler at its current size, or only report?";
 const BS_BUILDER_A = "Only report. Scaling stays a human call.";
+// a question about no part, asked after the builder check: the agent needs a choice before it can go on
+const BS_SIDE_Q = { n: 6, text: "The spec names two Prometheus versions. Should I settle on 2.45 before you approve?" };
+const BS_SIDE_A = "Yes, 2.45.";
 
 const bsParts = (states, over = {}) =>
     Object.entries(states).map(([id, state]) => ({ id, state, ...BS_PART[id], ...(over[id] ?? {}) }));
@@ -19511,8 +19517,8 @@ async function bsKey(h, elExpr, name, via, shift = false) {
     await polishNap(300);
 }
 
-// records every line the page types into a terminal, decoded. The xterm's own focus in/out reports (ESC [I, ESC [O,
-// sent while the shell has focus reporting on) travel the same call and are left out
+// records every line the page sends an agent. Typing into the terminal (controllerinput) is not a send: the xterm
+// reports its own focus in and out (ESC [I, ESC [O) through it
 const BS_TYPED_INSTALL = `(() => {
     const c = window.TabRpcClient;
     if (!c) return false;
@@ -19521,11 +19527,7 @@ const BS_TYPED_INSTALL = `(() => {
     const call = c.wshRpcCall.bind(c);
     window.__bsTyped = [];
     c.wshRpcCall = (command, data, opts) => {
-        if (command === "controllerinput" && data?.inputdata64) {
-            const bytes = Uint8Array.from(atob(data.inputdata64), (ch) => ch.charCodeAt(0));
-            const text = new TextDecoder().decode(bytes);
-            if (!/^\\x1b\\[[IO]$/.test(text)) window.__bsTyped.push({ block: data.blockid, text });
-        }
+        if (command === "agentprompt") window.__bsTyped.push({ block: data?.blockid, text: data?.text });
         return call(command, data, opts);
     };
     return true;
@@ -19560,7 +19562,7 @@ async function bsMark(h, ctx, line) {
 
 const bsSentSince = (h, mark) => h.ev(`(window.__bsTyped ?? []).slice(${mark.typed})`);
 
-// what an action typed since `mark`: exactly line + CR into the agent's block, once, and the terminal shows it
+// what an action sent since `mark`: exactly the line, to the agent's block, once, and the terminal shows it
 async function bsTyped(h, ctx, mark, line) {
     let sent = [];
     for (let waited = 0; waited < BS_TYPED_WAIT_MS && sent.length === 0; waited += 250) {
@@ -19578,7 +19580,7 @@ async function bsTyped(h, ctx, mark, line) {
         if (shown <= mark.shown) await polishNap(250);
     }
     sent = await bsSentSince(h, mark);
-    const ok = sent.length === 1 && sent[0].block === ctx.blockId && sent[0].text === `${line}\r` && shown > mark.shown;
+    const ok = sent.length === 1 && sent[0].block === ctx.blockId && sent[0].text === line && shown > mark.shown;
     return { ok, detail: { want: line, sent, inTerminal: shown > mark.shown, termError } };
 }
 
@@ -19603,6 +19605,19 @@ const bsPublishProc = (h, ctx, status, code) =>
         scopes: [`block:${ctx.blockId}`],
         data: { blockid: ctx.blockId, shellprocstatus: status, shellprocexitcode: code },
     });
+
+// nothing reads as the agent writing: no working card, no working note, approve not held for it
+const BS_NOT_WRITING = `(() => {
+    const pane = document.querySelector("[data-brainstorm-pane]");
+    return !!pane && !pane.querySelector("[data-brainstorm-working]") && !pane.querySelector("[data-brainstorm-working-note]") &&
+        !(pane.querySelector("[data-brainstorm-approve-reason]")?.textContent ?? "").includes("writing");
+})()`;
+
+// the agent took the last sent line and ended its turn without a write: idle since now, which settles the line
+async function bsAgentTook(h, ctx) {
+    await bsPublishStatus(h, ctx);
+    return polishWaitFor(h, BS_NOT_WRITING, BS_POLL_WAIT_MS);
+}
 
 const bsReveal = (h, ctx, topic) =>
     h.rpc("uireveal", { address: `brainstorm:${topic}`, callerblockid: ctx.blockId, callercwd: ctx.cwd }, UI_ROUTE);
@@ -19841,13 +19856,26 @@ const brainstormMode = {
             thumbs
         );
 
-        let mark = await bsMark(h, ctx, "brainstorm: confirm current");
+        let mark = await bsMark(h, ctx, "brainstorm: confirm every guess");
+        const allLabel = await h.ev(`(${BS_CONFIRM_ALL}?.textContent ?? "").trim()`);
+        const confirmedAll = await bsClick(h, BS_PANE, "Confirm all 3 guesses");
+        const allTyped = await bsTyped(h, ctx, mark, "brainstorm: confirm every guess");
+        const allLocked = await polishWaitFor(h, `${bsPartSel("current")}?.querySelector("button")?.disabled === true`, 2000);
+        const allTook = await bsAgentTook(h, ctx);
+        rec(
+            "2e0. Confirm all 3 guesses sends brainstorm: confirm every guess; the parts lock until the agent takes it",
+            allLabel === "Confirm all 3 guesses" && confirmedAll === "clicked" && allTyped.ok && allLocked && allTook,
+            { allLabel, confirmedAll, ...allTyped.detail, allLocked, allTook }
+        );
+
+        mark = await bsMark(h, ctx, "brainstorm: confirm current");
         const confirmed = await bsClick(h, bsPartSel("current"), "That’s right");
         const confirmTyped = await bsTyped(h, ctx, mark, "brainstorm: confirm current");
-        rec("2e. That’s right on Current state types its confirm", confirmed === "clicked" && confirmTyped.ok, {
+        rec("2e. That’s right on Current state sends its confirm", confirmed === "clicked" && confirmTyped.ok, {
             confirmed,
             ...confirmTyped.detail,
         });
+        await bsAgentTook(h, ctx);
 
         const editLine = `brainstorm: edit constraints: ${BS_EDITED}`;
         mark = await bsMark(h, ctx, editLine);
@@ -19860,7 +19888,7 @@ const brainstormMode = {
         const escClosed = await h.ev(`!${BS_EDIT}`);
         const escQuiet = await bsNothingTyped(h, mark);
         rec(
-            "2f. Edit on Constraints opens prefilled with its body; Escape closes it and types nothing",
+            "2f. Edit on Constraints opens prefilled with its body; Escape closes it and sends nothing",
             editOpened === "clicked" && prefill === BS_PART.constraints.body && escClosed && escQuiet.ok,
             { editOpened, prefill, escClosed, typed: escQuiet.sent, keys: via }
         );
@@ -19870,26 +19898,29 @@ const brainstormMode = {
         await bsKey(h, BS_EDIT, "Enter", editVia);
         const editTyped = await bsTyped(h, ctx, mark, editLine);
         const editClosed = await polishWaitFor(h, `!${BS_EDIT}`, 2000);
-        rec("2g. Edit, new text, Enter types the edit as one line and closes the box", editTyped.ok && editClosed, {
+        rec("2g. Edit, new text, Enter sends the edit as one line and closes the box", editTyped.ok && editClosed, {
             ...editTyped.detail,
             editClosed,
             keys: editVia,
         });
+        await bsAgentTook(h, ctx);
 
         mark = await bsMark(h, ctx, "brainstorm: guess");
         const guessed = await bsClick(h, BS_QUESTION_CARD, "Guess for me");
         const guessTyped = await bsTyped(h, ctx, mark, "brainstorm: guess");
-        rec("2h. Guess for me types brainstorm: guess", guessed === "clicked" && guessTyped.ok, {
+        rec("2h. Guess for me sends brainstorm: guess", guessed === "clicked" && guessTyped.ok, {
             guessed,
             ...guessTyped.detail,
         });
+        await bsAgentTook(h, ctx);
         mark = await bsMark(h, ctx, "brainstorm: skip questions");
         const skipped = await bsClick(h, BS_QUESTION_CARD, "Skip the questions");
         const skipTyped = await bsTyped(h, ctx, mark, "brainstorm: skip questions");
-        rec("2i. Skip the questions types brainstorm: skip questions", skipped === "clicked" && skipTyped.ok, {
+        rec("2i. Skip the questions sends brainstorm: skip questions", skipped === "clicked" && skipTyped.ok, {
             skipped,
             ...skipTyped.detail,
         });
+        await bsAgentTook(h, ctx);
 
         const answerLine = BS_ANSWER_LINES.join(" ");
         mark = await bsMark(h, ctx, answerLine);
@@ -19903,17 +19934,31 @@ const brainstormMode = {
         const twoLines = await h.ev(`${BS_ANSWER}?.value ?? null`);
         const shiftQuiet = await bsNothingTyped(h, mark);
         rec(
-            "2j. Shift+Enter puts a newline in the answer and types nothing",
+            "2j. Shift+Enter puts a newline in the answer and sends nothing",
             twoLines === BS_ANSWER_LINES.join("\n") && shiftQuiet.ok,
             { value: twoLines, typed: shiftQuiet.sent, keys: answerVia }
         );
         await bsKey(h, BS_ANSWER, "Enter", answerVia);
         const answerTyped = await bsTyped(h, ctx, mark, answerLine);
-        const cleared = await polishWaitFor(h, `${BS_ANSWER}?.value === ""`, 2000);
-        rec("2k. Enter types the two lines as one line and clears the box", answerTyped.ok && cleared, {
+        // the box empties, or closes with the question while the agent writes the answer up
+        const cleared = await polishWaitFor(h, `(${BS_ANSWER}?.value ?? "") === ""`, 2000);
+        rec("2k. Enter sends the two lines as one line and clears the box", answerTyped.ok && cleared, {
             ...answerTyped.detail,
             cleared,
         });
+        const s2w = await bsUntil(h, ctx, (s) => s.working !== "", 3000);
+        await h.shot("cdp-shots/brainstorm-mode-2-sent.png");
+        const sentPart = bsPart(s2w, "thresholds");
+        rec(
+            "2k2. a sent answer reads as the agent writing it up, before the file changes: the working card, no answer box, When it pages Being written",
+            s2w.ok &&
+                s2w.working.includes("Writing up your answer.") &&
+                !s2w.answerBox &&
+                s2w.question === "" &&
+                sentPart?.state === "writing" &&
+                s2w.treeLine === "Brainstorm · writing up your answer",
+            { ...bsBrief(s2w), working: s2w.working, answerBox: s2w.answerBox, part: sentPart, treeLine: s2w.treeLine }
+        );
 
         bsWrite(ctx, BS_FILES.answered);
         const s2b = await bsUntil(h, ctx, (s) => s.question.includes("Question 5"));
@@ -19995,17 +20040,19 @@ const brainstormMode = {
         mark = await bsMark(h, ctx, "brainstorm: keep constraints");
         const kept = await bsClick(h, bsPartSel("constraints"), "Keep the change");
         const keepTyped = await bsTyped(h, ctx, mark, "brainstorm: keep constraints");
-        rec("5b. Keep the change types brainstorm: keep constraints", kept === "clicked" && keepTyped.ok, {
+        rec("5b. Keep the change sends brainstorm: keep constraints", kept === "clicked" && keepTyped.ok, {
             kept,
             ...keepTyped.detail,
         });
+        await bsAgentTook(h, ctx);
         mark = await bsMark(h, ctx, "brainstorm: restore constraints");
         const restored = await bsClick(h, bsPartSel("constraints"), "Put mine back");
         const restoreTyped = await bsTyped(h, ctx, mark, "brainstorm: restore constraints");
-        rec("5c. Put mine back types brainstorm: restore constraints", restored === "clicked" && restoreTyped.ok, {
+        rec("5c. Put mine back sends brainstorm: restore constraints", restored === "clicked" && restoreTyped.ok, {
             restored,
             ...restoreTyped.detail,
         });
+        await bsAgentTook(h, ctx);
 
         // 6. after a compaction: b goes back to the terminal, which was hidden, not remounted
         await bsMouseClick(h, `${BS_PANE}?.querySelector("span.font-mono")`);
@@ -20128,7 +20175,7 @@ const brainstormMode = {
         mark = await bsMark(h, ctx, "brainstorm: check");
         const checked = await bsClick(h, `${BS_PANE}?.querySelector("[data-brainstorm-ready]")`, "Check with a builder");
         const checkTyped = await bsTyped(h, ctx, mark, "brainstorm: check");
-        rec("7d. Check with a builder types brainstorm: check", checked === "clicked" && checkTyped.ok, {
+        rec("7d. Check with a builder sends brainstorm: check", checked === "clicked" && checkTyped.ok, {
             checked,
             ...checkTyped.detail,
         });
@@ -20162,19 +20209,43 @@ const brainstormMode = {
         await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-untouched]")?.click()`);
         const s8b = await bsUntil(h, ctx, (s) => s.parts.length === 8, 2000);
         rec("8b. Show the 4 parts draws all eight", s8b.ok, { parts: s8b.parts.map((p) => p.id) });
+
+        // 8e. a question about no part, after the check: the check view asks it, with no Guess or Skip
+        bsWrite(ctx, { ...BS_HANDOFF, question: BS_SIDE_Q });
+        const s8e = await bsUntil(h, ctx, (s) => s.question.includes(BS_SIDE_Q.text));
+        await h.shot("cdp-shots/brainstorm-mode-8-side-question.png");
+        const sideChips = await h.ev(`[...(${BS_QUESTION_CARD}?.querySelectorAll("button") ?? [])].map((b) => b.textContent.trim())`);
+        rec(
+            "8e. a question about no part asked in the builder check shows in the check view, Question 6 for no part, no Guess or Skip",
+            s8e.ok &&
+                s8e.view === "check" &&
+                s8e.question.startsWith("Question 6") &&
+                !s8e.question.includes(" for ") &&
+                s8e.answerBox &&
+                sideChips.length === 0,
+            { ...bsBrief(s8e), question: s8e.question, answerBox: s8e.answerBox, sideChips }
+        );
+        mark = await bsMark(h, ctx, BS_SIDE_A);
+        const sideVia = await bsFill(h, BS_ANSWER, BS_SIDE_A);
+        await bsKey(h, BS_ANSWER, "Enter", sideVia);
+        const sideTyped = await bsTyped(h, ctx, mark, BS_SIDE_A);
+        rec("8f. its answer is sent as typed", sideTyped.ok, { ...sideTyped.detail, keys: sideVia });
+        bsWrite(ctx, BS_HANDOFF);
+        await polishWaitFor(h, BS_NOT_WRITING, BS_POLL_WAIT_MS);
         mark = await bsMark(h, ctx, "brainstorm: keep talking");
         const talked = await bsClick(h, BS_APPROVE_BAR, "Keep talking");
         const talkTyped = await bsTyped(h, ctx, mark, "brainstorm: keep talking");
-        rec("8c. Keep talking types brainstorm: keep talking", talked === "clicked" && talkTyped.ok, {
+        rec("8c. Keep talking sends brainstorm: keep talking", talked === "clicked" && talkTyped.ok, {
             talked,
             ...talkTyped.detail,
         });
+        await bsAgentTook(h, ctx);
         const builderLine = `brainstorm: builder answer: ${BS_BUILDER_A}`;
         mark = await bsMark(h, ctx, builderLine);
         const builderVia = await bsFill(h, BS_BUILDER_ANSWER, BS_BUILDER_A);
         await bsKey(h, BS_BUILDER_ANSWER, "Enter", builderVia);
         const builderTyped = await bsTyped(h, ctx, mark, builderLine);
-        rec("8d. answering the builder's question types it as a builder answer", builderTyped.ok, {
+        rec("8d. answering the builder's question sends it as a builder answer", builderTyped.ok, {
             ...builderTyped.detail,
             keys: builderVia,
         });
@@ -20198,7 +20269,7 @@ const brainstormMode = {
         const changeQuiet = await bsNothingTyped(h, mark);
         await h.ev(PEEKS_ESC);
         const changeClosed = await polishWaitFor(h, `!${NEW_RUN}`, 3000);
-        rec("9b. Change opens the New run window and types nothing", changeClicked === "clicked" && changeOpen && changeQuiet.ok && changeClosed, {
+        rec("9b. Change opens the New run window and sends nothing", changeClicked === "clicked" && changeOpen && changeQuiet.ok && changeClosed, {
             changeClicked,
             changeOpen,
             typed: changeQuiet.sent,
@@ -20219,7 +20290,7 @@ const brainstormMode = {
         await h.ev(PEEKS_ESC);
         const runClosed = await polishWaitFor(h, `!${NEW_RUN}`, 3000);
         rec(
-            "9c. Approve types brainstorm: approved and opens New run with the spec's absolute path and the prototype",
+            "9c. Approve sends brainstorm: approved and opens New run with the spec's absolute path and the prototype",
             approved === "clicked" &&
                 approveTyped.ok &&
                 runOpen &&
@@ -20333,7 +20404,7 @@ const brainstormMode = {
         await step("hide the popup", () => h.ev(`window.dispatchEvent(new Event("focus"))`));
         await step("close the popup's session", () => ctx.popup?.close());
         await step("close the New run window", () => h.ev(`${NEW_RUN} ? (${PEEKS_ESC}, true) : false`));
-        await step("stop recording typed lines", () => h.ev(BS_TYPED_REMOVE));
+        await step("stop recording sent lines", () => h.ev(BS_TYPED_REMOVE));
         if (ctx.blockId) await step("clear the exit", () => bsPublishProc(h, ctx, "running", 0));
         if (ctx.tabId) {
             await step("close the terminal tab", () =>

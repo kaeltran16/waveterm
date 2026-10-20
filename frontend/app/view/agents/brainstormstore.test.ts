@@ -48,6 +48,7 @@ describe("attachBrainstorm", () => {
             showDesign: false,
             boards: [],
             base: null,
+            sent: null,
         });
         expect(globalStore.get(brainstormAtom("a1"))?.topic).toBe("lag");
     });

@@ -28,6 +28,7 @@ function state(over: Partial<BrainstormState> = {}): BrainstormState {
         showDesign: false,
         boards: [],
         base: null,
+        sent: null,
         ...over,
     };
 }

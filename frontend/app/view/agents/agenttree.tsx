@@ -30,7 +30,7 @@ import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
 import { isAsking, treeLine, type BrainstormFile } from "./brainstormmodel";
-import { brainstormAtom } from "./brainstormstore";
+import { brainstormAtom, shownBrainstormFile } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
@@ -483,7 +483,7 @@ function ParentRow({
     const selected = focusId === agent.id;
     const asking = agent.state === "asking";
     const review = asking ? parseDocReview(agent.ask) : null;
-    const brainstormFile = useAtomValue(brainstormAtom(agent.id))?.file;
+    const brainstormFile = shownBrainstormFile(useAtomValue(brainstormAtom(agent.id)));
     const mark = lead != null ? leadMark(lead.run, agent) : null;
     const tasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standing = isStandingBy(agent.state, tasks);

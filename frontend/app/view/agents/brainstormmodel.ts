@@ -210,8 +210,39 @@ export function brainstormCounts(f: BrainstormFile): { yours: number; guesses: n
     return { yours: n("yours"), guesses: n("guess"), open: n("asked", "open") };
 }
 
+// a question still open (one about no part can come after done) waits for its answer first
 export function canCheck(f: BrainstormFile): boolean {
-    return f.done && f.parts.length > 0 && f.parts.every((p) => p.state === "yours");
+    return f.done && f.question == null && f.parts.length > 0 && f.parts.every((p) => p.state === "yours");
+}
+
+// a line Arc sent, which the agent has not answered yet: modifiedMs is the file's when it was sent
+export type SentLine = { at: number; modifiedMs: number | null; answer: boolean };
+
+const PENDING_ANSWER = "Writing up your answer.";
+const PENDING_LINE = "Taking in your change.";
+
+// the agent has taken a sent line once its turn ends after the send, or its file changed while it is not at work.
+// A write mid-turn settles nothing: a line sent before that turn ends would join it, not start the next
+export function settleSent(
+    sent: SentLine | null,
+    modifiedMs: number | null,
+    agent: Pick<AgentVM, "state" | "idleSince"> | undefined
+): SentLine | null {
+    if (sent == null) {
+        return null;
+    }
+    const turnEnded = agent?.state === "idle" && agent.idleSince != null && agent.idleSince > sent.at;
+    const written = modifiedMs !== sent.modifiedMs;
+    return turnEnded || (written && agent?.state !== "working") ? null : sent;
+}
+
+// the file as Arc shows it: the agent writes once per turn, so while a sent line is pending Arc says the agent is
+// writing, as a `working` the file sets itself would
+export function shownFile(f: BrainstormFile, sent: SentLine | null): BrainstormFile {
+    if (sent == null || f.working != null) {
+        return f;
+    }
+    return sent.answer ? { ...f, working: PENDING_ANSWER, question: null } : { ...f, working: PENDING_LINE };
 }
 
 export function isAsking(f: BrainstormFile): boolean {
@@ -258,13 +289,15 @@ export type BrainstormAction =
     | { kind: "guess" }
     | { kind: "skip" }
     | { kind: "confirm"; part: string }
+    | { kind: "confirm-all" }
     | { kind: "edit"; part: string; text: string }
     | { kind: "keep"; part: string }
     | { kind: "restore"; part: string }
     | { kind: "check" }
     | { kind: "builder-answer"; text: string }
     | { kind: "approved" }
-    | { kind: "keep-talking" };
+    | { kind: "keep-talking" }
+    | { kind: "run"; runId: string };
 
 // a typed line is one line: every run of whitespace, newlines included, becomes one space
 function oneLine(text: string): string {
@@ -289,6 +322,8 @@ export function brainstormLine(a: BrainstormAction): string | null {
             return "brainstorm: skip questions";
         case "confirm":
             return `brainstorm: confirm ${a.part}`;
+        case "confirm-all":
+            return "brainstorm: confirm every guess";
         case "keep":
             return `brainstorm: keep ${a.part}`;
         case "restore":
@@ -299,6 +334,8 @@ export function brainstormLine(a: BrainstormAction): string | null {
             return "brainstorm: approved";
         case "keep-talking":
             return "brainstorm: keep talking";
+        case "run":
+            return `brainstorm: run ${a.runId}`;
     }
 }
 
@@ -403,6 +440,11 @@ export function whatsLeft(f: BrainstormFile): LeftRow[] {
         .map((p) => leftRow(f, p))
         .filter((r): r is LeftRow => r != null);
     return [...rows.filter((r) => r.kind === "answer"), ...rows.filter((r) => r.kind !== "answer")];
+}
+
+// the guesses one press confirms: a changed part is left out, since it asks keep or restore
+export function confirmableGuesses(f: BrainstormFile): number {
+    return f.parts.filter((p) => partView(f, p) === "guess").length;
 }
 
 // what the left column holds under the question: the builder check once it is ready, else what stands before it.
@@ -558,7 +600,8 @@ export function brainstormAttention(
         key: `brainstorm:${a.agentId}:${q.n}`,
         source: a.agentName,
         text: q.text,
-        reason: `For “${partTitle(f, q.part)}” · question ${q.n}`,
+        // a question outside the design (a choice the agent needs to go on) is for no part
+        reason: q.part ? `For “${partTitle(f, q.part)}” · question ${q.n}` : `Question ${q.n}`,
         action: "brainstorm",
         oref: `brainstorm:${a.topic}`,
         phaseidx: 0,

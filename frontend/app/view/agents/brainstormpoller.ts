@@ -11,11 +11,13 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { base64ToString } from "@/util/util";
 import { useEffect } from "react";
 import type { AgentsViewModel } from "./agents";
+import type { AgentVM } from "./agentsviewmodel";
 import {
     BRAINSTORM_POLL_MS,
     brainstormFilePath,
     parseBrainstorm,
     parseBrainstormPath,
+    settleSent,
     type BrainstormFile,
 } from "./brainstormmodel";
 import {
@@ -132,15 +134,21 @@ export const tauriBrainstormIO: BrainstormIO = {
     },
 };
 
-// A result that lands after the brainstorm was detached or replaced is dropped rather than written over it.
-async function pollAndMerge(agentId: string, io: BrainstormIO): Promise<void> {
+// A result that lands after the brainstorm was detached or replaced is dropped rather than written over it. The
+// sent line settles against the agent as the roster has it, before the overlay reads a question as asking.
+async function pollAndMerge(agentId: string, agent: AgentVM | undefined, io: BrainstormIO): Promise<void> {
     const s = getBrainstorm(agentId);
     if (s == null || s.removed) {
         return;
     }
     const patch = await pollBrainstormOnce(s, io);
-    if (Object.keys(patch).length > 0) {
-        updateBrainstorm(agentId, (cur) => (cur.path === s.path ? { ...cur, ...patch } : cur));
+    const cur = getBrainstorm(agentId);
+    if (cur == null || cur.path !== s.path) {
+        return;
+    }
+    const sent = settleSent(cur.sent, patch.modifiedMs !== undefined ? patch.modifiedMs : cur.modifiedMs, agent);
+    if (Object.keys(patch).length > 0 || sent !== cur.sent) {
+        updateBrainstorm(agentId, (c) => (c.path === s.path ? { ...c, ...patch, sent } : c));
     }
 }
 
@@ -155,12 +163,13 @@ export function BrainstormPoller({ model }: { model: AgentsViewModel }): null {
             for (const a of attach) {
                 attachBrainstorm(a.agentId, a, Date.now());
             }
+            const base = new Map(globalStore.get(model.baseRosterAtom).map((a) => [a.id, a]));
             for (const id of Object.keys(globalStore.get(brainstormsAtom))) {
                 if (busy.has(id)) {
                     continue;
                 }
                 busy.add(id);
-                pollAndMerge(id, tauriBrainstormIO)
+                pollAndMerge(id, base.get(id), tauriBrainstormIO)
                     .catch((e) => console.warn("brainstorm poll failed", id, e))
                     .finally(() => busy.delete(id));
             }

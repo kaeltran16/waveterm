@@ -19,7 +19,7 @@ import {
 } from "./agentsviewmodel";
 import { answerAgentAsk } from "./askanswer";
 import { withBrainstorm } from "./brainstormmodel";
-import { brainstormsAtom } from "./brainstormstore";
+import { brainstormsAtom, shownBrainstormFile } from "./brainstormstore";
 import { CockpitSurface } from "./cockpitsurface";
 import { devRosterAtom, loadDevMockRoster } from "./devmock";
 import { diffScopeAtom } from "./diffscopeatom";
@@ -181,7 +181,7 @@ export class AgentsViewModel implements ViewModel {
             const now = Date.now();
             const brainstorms = get(brainstormsAtom);
             return mergePendingLaunches(get(base), get(pendingAtom), now).map((agent) =>
-                withBrainstorm(agent, brainstorms[agent.id]?.file ?? null, now)
+                withBrainstorm(agent, shownBrainstormFile(brainstorms[agent.id]), now)
             );
         });
         this.lineageAtom = lineageAtomFor(this.agentsAtom);
