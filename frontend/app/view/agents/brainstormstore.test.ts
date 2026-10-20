@@ -46,6 +46,7 @@ describe("attachBrainstorm", () => {
             lastViewedMs: 100,
             board: null,
             showDesign: false,
+            designOpen: false,
             boards: [],
             base: null,
             sent: null,

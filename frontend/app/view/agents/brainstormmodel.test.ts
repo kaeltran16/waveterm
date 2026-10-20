@@ -15,11 +15,14 @@ import {
     canCheck,
     compactedSummary,
     confirmableGuesses,
+    designLabel,
     exitedSummary,
     handoffView,
     historyRows,
     isAsking,
     leftPanel,
+    mainView,
+    optionLetter,
     orderedParts,
     paneView,
     parseBrainstorm,
@@ -27,7 +30,9 @@ import {
     partTitle,
     partView,
     phaseSteps,
+    pickableOptions,
     progressView,
+    questionTrack,
     resumePrompt,
     runLine,
     runPrefill,
@@ -420,7 +425,13 @@ describe("unknown part ids render raw", () => {
 });
 
 describe("historyRows", () => {
-    it("is newest first, labelled Q<n> or Recon", () => {
+    const opts = [
+        { label: "Owner first", detail: "d1", pick: true },
+        { label: "Platform first", detail: "d2" },
+        { label: "Both", detail: "d3" },
+    ];
+
+    it("is newest first, labelled Q<n>, with recon at the bottom", () => {
         const f = file({
             history: [
                 { kind: "question", n: 1, q: "q1", a: "a1", into: [] },
@@ -428,7 +439,194 @@ describe("historyRows", () => {
                 { kind: "question", n: 2, q: "q2", a: "a2", into: [] },
             ],
         });
-        expect(historyRows(f).map((r) => r.label)).toEqual(["Q2", "Recon", "Q1"]);
+        expect(historyRows(f).map((r) => r.label)).toEqual(["Q2", "Q1", "Recon"]);
+    });
+
+    it("lists every option offered, the picked one marked, and no separate answer", () => {
+        const f = file({
+            history: [{ kind: "question", n: 1, q: "q", a: "Platform first", into: [], options: opts, picked: 1 }],
+        });
+        const [r] = historyRows(f);
+        expect(r.options).toEqual([
+            { label: "Owner first", picked: false },
+            { label: "Platform first", picked: true },
+            { label: "Both", picked: false },
+        ]);
+        expect(r.answer).toBeNull();
+        expect(r.ownWords).toBe(false);
+    });
+
+    it("an answer typed instead of an option is drawn after them, in your words", () => {
+        const f = file({ history: [{ kind: "question", n: 1, q: "q", a: "Only at night.", into: [], options: opts }] });
+        const [r] = historyRows(f);
+        expect(r.options.every((o) => !o.picked)).toBe(true);
+        expect(r.answer).toBe("Only at night.");
+        expect(r.ownWords).toBe(true);
+    });
+
+    it("a question with no options shows its answer alone, not as your words", () => {
+        const [r] = historyRows(file({ history: [{ kind: "question", n: 1, q: "q", a: "a1", into: [] }] }));
+        expect(r.options).toEqual([]);
+        expect(r.answer).toBe("a1");
+        expect(r.ownWords).toBe(false);
+    });
+
+    it("recon shows what it found, falling back to what was asked", () => {
+        const f = file({
+            history: [
+                { kind: "recon", q: "rq1", a: "found", into: [] },
+                { kind: "recon", q: "rq2", a: "", into: [] },
+            ],
+        });
+        expect(historyRows(f).map((r) => r.answer)).toEqual(["rq2", "found"]);
+    });
+});
+
+describe("question options", () => {
+    const opts = [
+        { label: "Owner first", detail: "Pages the owner", pick: true },
+        { label: "Platform first", detail: "One rota" },
+    ];
+
+    it("parse with why and options, the pick kept only when true", () => {
+        const r = parseBrainstorm(
+            raw({
+                question: {
+                    n: 4,
+                    text: "Who?",
+                    part: "a",
+                    why: "Every group names a team.",
+                    options: [
+                        { label: "Owner first", detail: "Pages the owner", pick: true },
+                        { label: "Platform first", detail: "One rota", pick: "yes" },
+                    ],
+                },
+            })
+        );
+        expect(r.ok && r.file.question).toEqual({
+            n: 4,
+            text: "Who?",
+            part: "a",
+            why: "Every group names a team.",
+            options: opts,
+        });
+    });
+
+    it("a file without them reads as before", () => {
+        const r = parseBrainstorm(
+            raw({ question: { n: 1, text: "Q" }, history: [{ kind: "question", n: 1, q: "q", a: "a", into: [] }] })
+        );
+        expect(r.ok && r.file.question).toEqual({ n: 1, text: "Q", part: "" });
+        expect(r.ok && r.file.history[0]).toEqual({ kind: "question", n: 1, q: "q", a: "a", into: [] });
+    });
+
+    it("drop an option with no label and a malformed options field, without failing the file", () => {
+        const r = parseBrainstorm(
+            raw({ question: { n: 1, text: "Q", options: [{ detail: "x" }, { label: " " }, "B", { label: "C" }] } })
+        );
+        expect(r.ok && r.file.question?.options).toEqual([{ label: "C", detail: "" }]);
+        const bad = parseBrainstorm(raw({ question: { n: 1, text: "Q", options: "A or B" } }));
+        expect(bad.ok && bad.file.question).toEqual({ n: 1, text: "Q", part: "" });
+    });
+
+    it("keep a history entry's picked index only when it names one of its options", () => {
+        const entry = (picked: unknown) =>
+            parseBrainstorm(
+                raw({ history: [{ kind: "question", n: 1, q: "q", a: "a", into: [], options: opts, picked }] })
+            );
+        const picked = (r: ParseResult) => (r.ok ? r.file.history[0].picked : "error");
+        expect(picked(entry(1))).toBe(1);
+        expect(picked(entry(0))).toBe(0);
+        expect(picked(entry(2))).toBeUndefined();
+        expect(picked(entry(-1))).toBeUndefined();
+        expect(picked(entry(0.5))).toBeUndefined();
+        expect(picked(entry("1"))).toBeUndefined();
+        const r = entry(1);
+        expect(r.ok && r.file.history[0].options).toEqual(opts);
+    });
+
+    it("letter the options A, B, C", () => {
+        expect([0, 1, 2, 3].map(optionLetter)).toEqual(["A", "B", "C", "D"]);
+    });
+});
+
+describe("mainView", () => {
+    const q = { n: 1, text: "Q", part: "a" };
+
+    it("is the question while it asks, the working note while the agent writes, else the design", () => {
+        expect(mainView(file({ question: q }), false)).toBe("question");
+        expect(mainView(file({ working: "w" }), false)).toBe("working");
+        expect(mainView(file({ question: q, working: "w" }), false)).toBe("working");
+        expect(mainView(file(), false)).toBe("design");
+    });
+
+    it("the design opened over either shows the design", () => {
+        expect(mainView(file({ question: q }), true)).toBe("design");
+        expect(mainView(file({ working: "w" }), true)).toBe("design");
+    });
+});
+
+describe("pickableOptions", () => {
+    const options = ["A", "B", "C", "D", "E"].map((label) => ({ label, detail: "" }));
+    const q = { n: 1, text: "Q", part: "a", options: options.slice(0, 3) };
+    const s = { designOpen: false, board: null, removed: false };
+    const check = { yours: [], calls: [], answered: [] };
+
+    it("is the options the question view draws", () => {
+        expect(pickableOptions(file({ question: q }), s)).toBe(3);
+        expect(pickableOptions(file({ question: { ...q, options: undefined } }), s)).toBe(0);
+    });
+
+    it("stops at the number of letter keys", () => {
+        expect(pickableOptions(file({ question: { ...q, options } }), s)).toBe(4);
+    });
+
+    it("is none when nothing draws them: no file, the agent writing, the design or a board open, the file gone", () => {
+        expect(pickableOptions(null, s)).toBe(0);
+        expect(pickableOptions(file({ question: q, working: "w" }), s)).toBe(0);
+        expect(pickableOptions(file({ question: q }), { ...s, designOpen: true })).toBe(0);
+        expect(pickableOptions(file({ question: q }), { ...s, board: "B.dc.html" })).toBe(0);
+        expect(pickableOptions(file({ question: q }), { ...s, removed: true })).toBe(0);
+    });
+
+    it("the check view asks in its own column, design toggle or not", () => {
+        expect(pickableOptions(file({ question: q, check }), { ...s, designOpen: true })).toBe(3);
+    });
+});
+
+describe("questionTrack", () => {
+    it("answered questions, the one asked, then one per open part but the builder's", () => {
+        const f = file({
+            question: { n: 3, text: "Q", part: "c" },
+            history: [
+                { kind: "question", n: 1, q: "q1", a: "a1", into: [] },
+                { kind: "recon", q: "r", a: "r", into: [] },
+                { kind: "question", n: 2, q: "q2", a: "a2", into: [] },
+            ],
+            parts: [
+                part("a", "yours"),
+                part("b", "guess"),
+                part("c", "asked"),
+                part("d", "open"),
+                part(BUILDER_PART, "open"),
+            ],
+        });
+        expect(questionTrack(f)).toEqual(["done", "done", "now", "ahead"]);
+    });
+
+    it("has no now segment while no question is asked", () => {
+        expect(questionTrack(file({ parts: [part("a", "open")] }))).toEqual(["ahead"]);
+    });
+});
+
+describe("designLabel", () => {
+    it("names how many parts are yours", () => {
+        const f = file({ parts: [part("a", "yours"), part("b", "guess"), part("c", "asked")] });
+        expect(designLabel(f)).toBe("The design · 1 of 3 yours");
+    });
+
+    it("is plain with no parts yet", () => {
+        expect(designLabel(file())).toBe("The design");
     });
 });
 

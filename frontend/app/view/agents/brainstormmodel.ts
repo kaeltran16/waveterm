@@ -26,8 +26,19 @@ export type BrainstormPart = {
     was?: string;
     why?: string;
 };
-export type BrainstormQuestion = { n: number; text: string; part: string };
-export type HistoryEntry = { kind: "question" | "recon"; n?: number; q: string; a: string; into: string[] };
+// an answer the agent offers; pick marks the one it recommends
+export type AnswerOption = { label: string; detail: string; pick?: boolean };
+export type BrainstormQuestion = { n: number; text: string; part: string; why?: string; options?: AnswerOption[] };
+// picked is the option's index, absent when the answer was typed in the user's own words
+export type HistoryEntry = {
+    kind: "question" | "recon";
+    n?: number;
+    q: string;
+    a: string;
+    into: string[];
+    options?: AnswerOption[];
+    picked?: number;
+};
 export type BuilderQuestion = { q: string; why?: string; a?: string; into?: string };
 export type BuilderCall = { text: string; part?: string };
 export type BuilderCheck = { yours: BuilderQuestion[]; calls: BuilderCall[]; answered: string[]; touched?: string[] };
@@ -84,6 +95,17 @@ function parsePart(raw: unknown, i: number): BrainstormPart {
     };
 }
 
+// an option with no label is dropped, not an error: the question still reads with the rest and the answer box
+function parseOptions(raw: unknown): AnswerOption[] {
+    return (Array.isArray(raw) ? raw : [])
+        .filter((o): o is Rec => isRecord(o) && typeof o.label === "string" && o.label.trim() !== "")
+        .map((o) => ({
+            label: o.label as string,
+            detail: str(o.detail) ?? "",
+            ...(o.pick === true ? { pick: true } : {}),
+        }));
+}
+
 function parseQuestion(raw: unknown): BrainstormQuestion | null {
     if (raw == null) {
         return null;
@@ -91,20 +113,34 @@ function parseQuestion(raw: unknown): BrainstormQuestion | null {
     if (!isRecord(raw) || typeof raw.n !== "number" || typeof raw.text !== "string") {
         throw new FieldError("question needs a numeric n and a text");
     }
-    return { n: raw.n, text: raw.text, part: str(raw.part) ?? "" };
+    const options = parseOptions(raw.options);
+    return {
+        n: raw.n,
+        text: raw.text,
+        part: str(raw.part) ?? "",
+        ...(str(raw.why) ? { why: str(raw.why) } : {}),
+        ...(options.length > 0 ? { options } : {}),
+    };
 }
 
 function parseHistory(raw: unknown): HistoryEntry[] {
     if (!Array.isArray(raw)) {
         return [];
     }
-    return raw.filter(isRecord).map((h) => ({
-        kind: h.kind === "recon" ? "recon" : "question",
-        ...(typeof h.n === "number" ? { n: h.n } : {}),
-        q: str(h.q) ?? "",
-        a: str(h.a) ?? "",
-        into: strings(h.into),
-    }));
+    return raw.filter(isRecord).map((h) => {
+        const options = parseOptions(h.options);
+        // an index past the options it names reads as an answer in the user's own words
+        const picked = Number.isInteger(h.picked) && (h.picked as number) >= 0 && (h.picked as number) < options.length;
+        return {
+            kind: h.kind === "recon" ? "recon" : "question",
+            ...(typeof h.n === "number" ? { n: h.n } : {}),
+            q: str(h.q) ?? "",
+            a: str(h.a) ?? "",
+            into: strings(h.into),
+            ...(options.length > 0 ? { options } : {}),
+            ...(picked ? { picked: h.picked as number } : {}),
+        };
+    });
 }
 
 function parseCheck(raw: unknown): BuilderCheck | null {
@@ -358,17 +394,94 @@ export function partTitle(f: BrainstormFile, id: string): string {
     return f.parts.find((p) => p.id === id)?.title ?? id;
 }
 
-export type HistoryRow = { label: string; q: string; a: string; into: { id: string; title: string }[] };
+export type HistoryRow = {
+    kind: "question" | "recon";
+    label: string;
+    q: string;
+    // every option the question offered, the picked one marked
+    options: { label: string; picked: boolean }[];
+    // the answer as said, drawn after the options; null when it was one of them
+    answer: string | null;
+    // the question offered options and the user answered in their own words instead
+    ownWords: boolean;
+    into: { id: string; title: string }[];
+};
 
+function historyRow(f: BrainstormFile, h: HistoryEntry, i: number): HistoryRow {
+    const options = (h.options ?? []).map((o, j) => ({ label: o.label, picked: j === h.picked }));
+    const recon = h.kind === "recon";
+    const answer = h.picked != null ? null : (recon ? h.a || h.q : h.a) || null;
+    return {
+        kind: h.kind,
+        label: recon ? "Recon" : `Q${h.n ?? i + 1}`,
+        q: h.q,
+        options,
+        answer,
+        ownWords: answer != null && options.length > 0,
+        into: h.into.map((id) => ({ id, title: partTitle(f, id) })),
+    };
+}
+
+// what was decided, newest first; recon is the ground every question stood on, so it stays at the bottom
 export function historyRows(f: BrainstormFile): HistoryRow[] {
-    return f.history
-        .map((h, i) => ({
-            label: h.kind === "recon" ? "Recon" : `Q${h.n ?? i + 1}`,
-            q: h.q,
-            a: h.a,
-            into: h.into.map((id) => ({ id, title: partTitle(f, id) })),
-        }))
-        .reverse();
+    const rows = f.history.map((h, i) => historyRow(f, h, i)).reverse();
+    return [...rows.filter((r) => r.kind === "question"), ...rows.filter((r) => r.kind === "recon")];
+}
+
+export const OPTION_KEYS = ["a", "b", "c", "d"] as const;
+
+export function optionLetter(i: number): string {
+    return String.fromCharCode("A".charCodeAt(0) + i);
+}
+
+// what the design view's main area holds: the question, or the agent writing, unless the user opened the design
+// over it; with neither, the design itself
+export type MainView = "question" | "working" | "design";
+
+export function mainView(f: BrainstormFile, designOpen: boolean): MainView {
+    if (designOpen) {
+        return "design";
+    }
+    if (f.working != null) {
+        return "working";
+    }
+    return f.question != null ? "question" : "design";
+}
+
+// how many of the asked question's options a letter key picks: as many as the pane draws, up to the keys there are.
+// The check view asks over its own column, so the design toggle never hides its question
+export function pickableOptions(
+    f: BrainstormFile | null,
+    s: { designOpen: boolean; board: string | null; removed: boolean }
+): number {
+    if (f == null || s.board != null || s.removed || !isAsking(f)) {
+        return 0;
+    }
+    if (f.check == null && mainView(f, s.designOpen) !== "question") {
+        return 0;
+    }
+    return Math.min(f.question!.options?.length ?? 0, OPTION_KEYS.length);
+}
+
+// the bar over the question: one segment per question answered, the one asked now, and one per part still open,
+// each of which a question is still to fill. The builder part is written last without one
+export type TrackSegment = "done" | "now" | "ahead";
+
+export function questionTrack(f: BrainstormFile): TrackSegment[] {
+    const done = f.history.filter((h) => h.kind === "question").length;
+    const ahead = f.parts.filter((p) => p.state === "open" && p.id !== BUILDER_PART).length;
+    return [
+        ...Array<TrackSegment>(done).fill("done"),
+        ...(f.question != null ? (["now"] as TrackSegment[]) : []),
+        ...Array<TrackSegment>(ahead).fill("ahead"),
+    ];
+}
+
+export function designLabel(f: BrainstormFile): string {
+    if (f.parts.length === 0) {
+        return "The design";
+    }
+    return `The design · ${brainstormCounts(f).yours} of ${f.parts.length} yours`;
 }
 
 export function orderedParts(f: BrainstormFile): BrainstormPart[] {

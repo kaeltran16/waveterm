@@ -19,33 +19,41 @@ import { projectOf, type AgentVM } from "./agentsviewmodel";
 import {
     approveBlocker,
     confirmableGuesses,
+    designLabel,
     exitedSummary,
     handoffView,
     historyRows,
     leftPanel,
+    mainView,
+    optionLetter,
     orderedParts,
     paneView,
     partTitle,
     partView,
     phaseSteps,
     progressView,
+    questionTrack,
     resumePrompt,
     runLine,
     sentenceDiff,
     whatsLeft,
+    type AnswerOption,
     type BrainstormAction,
     type BrainstormFile,
     type BrainstormPart,
     type BuilderQuestion as BuilderQuestionT,
     type HandoffView,
+    type HistoryRow,
     type LeftKind,
     type PartState,
+    type TrackSegment,
 } from "./brainstormmodel";
 import { approveAndOpenRun, openRunLauncher, sendBrainstorm } from "./brainstormsend";
 import {
     brainstormAtom,
     dismissBrainstorm,
     openBrainstormBoard,
+    openBrainstormDesign,
     shownBrainstormFile,
     updateBrainstorm,
     type BrainstormState,
@@ -75,7 +83,6 @@ const CHIP =
 const FIELD =
     "resize-none rounded-[8px] border border-border bg-background px-[12px] py-[9px] text-[13px] leading-[1.5] text-primary outline-none placeholder:text-muted focus:border-warning/60";
 const LINK = "cursor-pointer text-accent-soft hover:underline";
-const CARD = "overflow-hidden rounded-[8px] border border-edge-mid bg-surface-raised";
 // a card that waits on your answer: the question, the builder's question
 const ASK_CARD = "overflow-hidden rounded-[8px] border border-warning/45 bg-surface-raised";
 const CARD_HEAD = "flex items-center gap-[8px] border-b border-border px-[14px] py-[9px]";
@@ -89,6 +96,11 @@ const SEGMENT_STATE: Record<PartState, string> = {
     guess: "border-[1.5px] border-dashed border-ink-mid",
     asked: "bg-warning",
     open: "border-[1.5px] border-edge-strong",
+};
+const TRACK_STATE: Record<TrackSegment, string> = {
+    done: "bg-success",
+    now: "bg-warning",
+    ahead: "bg-edge-mid",
 };
 const STATE_NAME: Record<PartState, string> = {
     yours: "yours",
@@ -301,104 +313,488 @@ function StaleBanner({ s }: { s: BrainstormState }) {
 
 function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: BrainstormFile }) {
     const partsRef = useRef<HTMLDivElement>(null);
-    const working = f.working != null;
-    const rows = historyRows(f);
-    const fresh = f.history.length === 0;
-    const panel = leftPanel(f);
-    const goTo = (id: string) => scrollToPart(partsRef, id);
+    // a part to scroll to once the design is drawn: a link in the rail or over the question opens it first
+    const [target, setTarget] = useState<string | null>(null);
+    const view = mainView(f, s.designOpen);
+    const goTo = (id: string) => {
+        setTarget(id);
+        openBrainstormDesign(agent.id, true);
+    };
+    const openDesign = () => openBrainstormDesign(agent.id, true);
+    useEffect(() => {
+        if (view === "design" && target != null) {
+            scrollToPart(partsRef, target);
+            setTarget(null);
+        }
+    }, [view, target]);
 
     return (
         <>
             <Toolbar topic={s.topic} f={f} />
             <StaleBanner s={s} />
             <div className="flex min-h-0 flex-1">
-                <div className="flex w-[430px] flex-none flex-col gap-[18px] overflow-y-auto border-r border-border bg-surface p-[20px] *:flex-none">
-                    {working ? (
-                        <WorkingCard working={f.working!} />
-                    ) : f.question != null ? (
-                        <QuestionCard agent={agent} f={f} fresh={fresh} goTo={goTo} />
+                <div className="flex min-w-0 flex-1 flex-col bg-background">
+                    {view === "question" ? (
+                        <QuestionMain agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
+                    ) : view === "working" ? (
+                        <WorkingMain f={f} openDesign={openDesign} />
+                    ) : (
+                        <DesignMain agent={agent} s={s} f={f} partsRef={partsRef} />
+                    )}
+                </div>
+                <DecidedRail f={f} goTo={goTo} />
+            </div>
+        </>
+    );
+}
+
+// one segment per question answered, the one asked now, and one per part a question is still to fill
+function Track({ f }: { f: BrainstormFile }) {
+    return (
+        <div data-brainstorm-track aria-hidden="true" className="flex flex-none gap-[4px] px-[36px] pt-[14px]">
+            {questionTrack(f).map((t, i) => (
+                <span key={i} data-state={t} className={cn("h-[4px] flex-1 rounded-[2px]", TRACK_STATE[t])} />
+            ))}
+        </div>
+    );
+}
+
+// centred while it fits, scrolled from its top once it does not
+function MainBody({ children }: { children: ReactNode }) {
+    return (
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[7%] py-[24px]">
+            <div className="my-auto flex flex-col gap-[26px]">{children}</div>
+        </div>
+    );
+}
+
+function DesignButton({ f, onClick }: { f: BrainstormFile; onClick: () => void }) {
+    return (
+        <button type="button" data-brainstorm-design-btn onClick={onClick} className={CHIP}>
+            {designLabel(f)}
+        </button>
+    );
+}
+
+// the answer controls the question and the check's question share: what is typed, and the one send for both
+function useAnswer(agent: AgentVM) {
+    const [draft, setDraft] = useState("");
+    const act = useAction();
+    const send = async (action: BrainstormAction) => {
+        if ((await act.run(() => sendBrainstorm(agent, action))) && action.kind === "answer") {
+            setDraft("");
+        }
+    };
+    const sendDraft = () => {
+        if (draft.trim() !== "" && !act.busy) {
+            void send({ kind: "answer", text: draft });
+        }
+    };
+    return { draft, setDraft, act, send, sendDraft };
+}
+
+type Answer = ReturnType<typeof useAnswer>;
+
+// a letter key focuses its row (bindings.ts), so Enter, the row's own key, sends it
+function Options({ options, ans, compact }: { options: AnswerOption[]; ans: Answer; compact: boolean }) {
+    return (
+        <div role="group" aria-label="Answers" className={cn("flex flex-col", compact ? "gap-[6px]" : "gap-[10px]")}>
+            {options.map((o, i) => (
+                <button
+                    key={i}
+                    type="button"
+                    data-brainstorm-option={i}
+                    data-pick={o.pick ? "" : undefined}
+                    disabled={ans.act.busy}
+                    onClick={() => void ans.send({ kind: "answer", text: o.label })}
+                    className={cn(
+                        "flex w-full cursor-pointer items-center rounded-[10px] border text-left outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-50",
+                        compact ? "gap-[12px] px-[12px] py-[9px]" : "gap-[18px] px-[20px] py-[16px]",
+                        o.pick
+                            ? "border-accent/55 bg-accent/8 hover:bg-accentbg"
+                            : "border-edge-mid bg-surface hover:border-edge-strong"
+                    )}
+                >
+                    <span
+                        className={cn(
+                            "flex flex-none items-center justify-center rounded-[6px] border border-edge-strong font-mono font-semibold text-secondary",
+                            compact ? "h-[24px] w-[24px] text-[11.5px]" : "h-[30px] w-[30px] text-[13px]"
+                        )}
+                    >
+                        {optionLetter(i)}
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                        <span
+                            className={cn(
+                                "font-semibold text-primary",
+                                compact ? "text-[13.5px] leading-[1.4]" : "text-[17px] leading-[1.35]"
+                            )}
+                        >
+                            {o.label}
+                        </span>
+                        {o.detail ? (
+                            <span
+                                className={cn("text-ink-mid", compact ? "text-[12.5px] leading-[1.45]" : "text-[14px]")}
+                            >
+                                {o.detail}
+                            </span>
+                        ) : null}
+                    </span>
+                    {o.pick ? (
+                        <span className="flex-none text-[12px] font-semibold text-accent-soft">Agent’s pick</span>
                     ) : null}
-                    {fresh && !working && f.question != null ? (
-                        <p data-brainstorm-skip-note className="m-0 px-[2px] text-[12.5px] leading-[1.5] text-ink-mid">
+                </button>
+            ))}
+        </div>
+    );
+}
+
+function AnswerBox({ ans, options }: { ans: Answer; options: boolean }) {
+    return (
+        <div className="flex items-center gap-[12px]">
+            <textarea
+                data-brainstorm-answer
+                aria-label="Your answer"
+                rows={options ? 1 : 3}
+                value={ans.draft}
+                placeholder={options ? "Or type your own answer…" : "Answer in your own words…"}
+                onChange={(e) => ans.setDraft(e.target.value)}
+                onKeyDown={(e) => onEnter(e, ans.sendDraft)}
+                className={cn(FIELD, "min-w-0 flex-1")}
+            />
+            <button
+                type="button"
+                data-brainstorm-ok
+                disabled={ans.draft.trim() === "" || ans.act.busy}
+                onClick={ans.sendDraft}
+                className="flex-none cursor-pointer rounded-[7px] bg-accent px-[14px] py-[7px] text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-50"
+            >
+                OK
+            </button>
+            <span className="flex-none text-[12px] text-muted">press Enter</span>
+        </div>
+    );
+}
+
+function QuestionMain({
+    agent,
+    f,
+    goTo,
+    openDesign,
+}: {
+    agent: AgentVM;
+    f: BrainstormFile;
+    goTo: (id: string) => void;
+    openDesign: () => void;
+}) {
+    const q = f.question!;
+    const fresh = f.history.length === 0;
+    // guessing or skipping means something only for a question about a part of the design
+    const chips = q.part !== "";
+    const ans = useAnswer(agent);
+    return (
+        <div data-brainstorm-question className="flex min-h-0 flex-1 flex-col">
+            <Track f={f} />
+            <MainBody>
+                <div className="flex flex-col gap-[14px]">
+                    <span className="flex items-center gap-[10px] text-[13px] text-warning">
+                        {q.part ? (
+                            <>
+                                <span className="font-mono font-semibold">{q.n} →</span>
+                                <button
+                                    type="button"
+                                    onClick={() => goTo(q.part)}
+                                    className="cursor-pointer border-0 bg-transparent p-0 text-warning hover:underline"
+                                >
+                                    {partTitle(f, q.part)}
+                                </button>
+                            </>
+                        ) : (
+                            <span className="font-mono font-semibold">Question {q.n}</span>
+                        )}
+                    </span>
+                    <h1 className="m-0 whitespace-pre-line text-[30px] font-bold leading-[1.3] text-primary">
+                        {q.text}
+                    </h1>
+                    {q.why ? (
+                        <p data-brainstorm-why className="m-0 text-[16px] leading-[1.6] text-ink-mid">
+                            {q.why}
+                        </p>
+                    ) : null}
+                </div>
+                {q.options != null ? <Options options={q.options} ans={ans} compact={false} /> : null}
+                <AnswerBox ans={ans} options={q.options != null} />
+                <div className="flex flex-col gap-[10px]">
+                    <div className="flex items-center gap-[10px]">
+                        {chips && !fresh ? (
+                            <button
+                                type="button"
+                                disabled={ans.act.busy}
+                                onClick={() => void ans.send({ kind: "guess" })}
+                                className={CHIP}
+                            >
+                                Guess for me
+                            </button>
+                        ) : null}
+                        {chips ? (
+                            <button
+                                type="button"
+                                disabled={ans.act.busy}
+                                onClick={() => void ans.send({ kind: "skip" })}
+                                className={CHIP}
+                            >
+                                Skip the questions
+                            </button>
+                        ) : null}
+                        <div className="flex-1" />
+                        <DesignButton f={f} onClick={openDesign} />
+                    </div>
+                    {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
+                    {fresh && chips ? (
+                        <p data-brainstorm-skip-note className="m-0 text-[12.5px] leading-[1.5] text-ink-mid">
                             Skipping has the agent write every part as its guess. You confirm or edit each one after,
                             before the builder check.
                         </p>
                     ) : null}
+                </div>
+            </MainBody>
+        </div>
+    );
+}
+
+function WorkingMain({ f, openDesign }: { f: BrainstormFile; openDesign: () => void }) {
+    return (
+        <div data-brainstorm-working aria-live="polite" className="flex min-h-0 flex-1 flex-col">
+            <Track f={f} />
+            <MainBody>
+                <div className="flex flex-col gap-[14px]">
+                    <span className="flex items-center gap-[8px] text-[13px] font-semibold text-success">
+                        <span className={cn(SMALL_DOT, "bg-success")} />
+                        Working
+                    </span>
+                    <p className="m-0 text-[22px] font-semibold leading-[1.4] text-primary">{f.working}</p>
+                    <p className="m-0 text-[15px] leading-[1.6] text-ink-mid">The next question comes after.</p>
+                </div>
+                <div className="flex">
+                    <DesignButton f={f} onClick={openDesign} />
+                </div>
+            </MainBody>
+        </div>
+    );
+}
+
+function DesignMain({
+    agent,
+    s,
+    f,
+    partsRef,
+}: {
+    agent: AgentVM;
+    s: BrainstormState;
+    f: BrainstormFile;
+    partsRef: RefObject<HTMLDivElement>;
+}) {
+    const working = f.working != null;
+    const fresh = f.history.length === 0;
+    const panel = leftPanel(f);
+    const goTo = (id: string) => scrollToPart(partsRef, id);
+    // the design opened over the question or the working note: the way back to it
+    const back = s.designOpen ? mainView(f, false) : "design";
+    return (
+        <>
+            {back !== "design" ? (
+                <div className="flex flex-none items-center border-b border-border px-[22px] py-[8px]">
+                    <button
+                        type="button"
+                        data-brainstorm-back
+                        onClick={() => openBrainstormDesign(agent.id, false)}
+                        className={cn(
+                            CHIP,
+                            "flex items-center gap-[8px]",
+                            back === "question" && "border-warning/45 bg-warning/12"
+                        )}
+                    >
+                        <span className={cn(SMALL_DOT, back === "question" ? "bg-warning" : "bg-success")} />
+                        {back === "question"
+                            ? `Back to question ${f.question!.n}`
+                            : "Back to what the agent is writing"}
+                    </button>
+                </div>
+            ) : null}
+            <div ref={partsRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+                <div className="flex flex-col gap-[10px] px-[22px] pb-[40px] pt-[20px]">
+                    <DesignHead f={f} />
+                    {working ? (
+                        <div
+                            data-brainstorm-working-note
+                            className="flex items-center gap-[8px] rounded-[8px] bg-surface px-[14px] py-[8px] text-[12.5px] text-ink-mid"
+                        >
+                            <span className={cn(SMALL_DOT, "bg-success")} />
+                            The agent is writing. Confirm, edit and keep open again when it asks its next question.
+                        </div>
+                    ) : (
+                        <div className="flex items-baseline gap-[8px] px-[14px] pb-[2px]">
+                            <h2 className={SECTION_HEAD}>The design</h2>
+                            <span className="text-[12px] text-muted">
+                                written as you talk; a part is yours once you confirm it
+                            </span>
+                        </div>
+                    )}
                     {panel === "ready" ? <ReadyCard agent={agent} /> : null}
                     {panel === "left" ? <WhatsLeft agent={agent} f={f} goTo={goTo} /> : null}
-                    {rows.length > 0 ? (
-                        <section className="flex flex-col">
-                            <h2 className="m-0 mb-[4px] text-[12px] font-semibold text-ink-mid">
-                                Earlier · {rows.length}
-                            </h2>
-                            <div data-brainstorm-history className="flex flex-col">
-                                {rows.map((h, i) => (
-                                    <div
-                                        key={`${h.label}:${rows.length - i}`}
-                                        className="flex flex-col gap-[5px] border-t border-edge-faint py-[10px]"
-                                    >
-                                        <div className="flex items-baseline gap-[8px]">
-                                            <span className="flex-none font-mono text-[10.5px] text-muted">
-                                                {h.label}
-                                                {i === 0 && working ? " · just now" : ""}
-                                            </span>
-                                            <span className="text-[12.5px] leading-[1.45] text-ink-mid">{h.q}</span>
-                                        </div>
-                                        <div className="text-[13px] leading-[1.5] text-ink-hi">{h.a}</div>
-                                        {h.into.length > 0 ? (
-                                            <div className="text-[11.5px] text-muted">
-                                                Went into{" "}
-                                                {h.into.map((p, j) => (
-                                                    <span key={p.id}>
-                                                        {j > 0 ? ", " : ""}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => goTo(p.id)}
-                                                            className={LINK}
-                                                        >
-                                                            {p.title}
-                                                        </button>
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        ) : null}
-                                    </div>
-                                ))}
-                            </div>
-                        </section>
+                    {orderedParts(f).map((p) => (
+                        <PartCard key={p.id} agent={agent} s={s} f={f} part={p} />
+                    ))}
+                    {fresh ? (
+                        <p className="m-0 px-[14px] pt-[10px] text-[12.5px] leading-[1.5] text-muted">
+                            More parts appear as the conversation finds them.
+                        </p>
                     ) : null}
-                </div>
-                <div ref={partsRef} className="min-w-0 flex-1 overflow-y-auto bg-background">
-                    <div className="flex flex-col gap-[10px] px-[22px] pb-[40px] pt-[20px]">
-                        <DesignHead f={f} />
-                        {working ? (
-                            <div
-                                data-brainstorm-working-note
-                                className="flex items-center gap-[8px] rounded-[8px] bg-surface px-[14px] py-[8px] text-[12.5px] text-ink-mid"
-                            >
-                                <span className={cn(SMALL_DOT, "bg-success")} />
-                                The agent is writing. Confirm, edit and keep open again when it asks its next question.
-                            </div>
-                        ) : (
-                            <div className="flex items-baseline gap-[8px] px-[14px] pb-[2px]">
-                                <h2 className={SECTION_HEAD}>The design</h2>
-                                <span className="text-[12px] text-muted">
-                                    written as you talk; a part is yours once you confirm it
-                                </span>
-                            </div>
-                        )}
-                        {orderedParts(f).map((p) => (
-                            <PartCard key={p.id} agent={agent} s={s} f={f} part={p} />
-                        ))}
-                        {fresh ? (
-                            <p className="m-0 px-[14px] pt-[10px] text-[12.5px] leading-[1.5] text-muted">
-                                More parts appear as the conversation finds them.
-                            </p>
-                        ) : null}
-                    </div>
                 </div>
             </div>
         </>
+    );
+}
+
+function CheckMark() {
+    return (
+        <svg
+            width="13"
+            height="13"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+            className="mt-[3px] flex-none text-success"
+        >
+            <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="1.8" />
+        </svg>
+    );
+}
+
+function EmptyMark() {
+    return (
+        <svg
+            width="13"
+            height="13"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+            className="mt-[3px] flex-none text-ink-faint"
+        >
+            <circle cx="8" cy="8" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+    );
+}
+
+function IntoLinks({
+    into,
+    goTo,
+    className,
+}: {
+    into: HistoryRow["into"];
+    goTo: (id: string) => void;
+    className?: string;
+}) {
+    if (into.length === 0) {
+        return null;
+    }
+    return (
+        <div className={cn("text-[11.5px] text-muted", className)}>
+            Went into{" "}
+            {into.map((p, j) => (
+                <span key={p.id}>
+                    {j > 0 ? ", " : ""}
+                    <button type="button" onClick={() => goTo(p.id)} className={LINK}>
+                        {p.title}
+                    </button>
+                </span>
+            ))}
+        </div>
+    );
+}
+
+// every question answered with all it offered, newest first, and the recon it all stood on at the bottom
+function DecidedRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void }) {
+    const rows = historyRows(f);
+    const decided = rows.filter((r) => r.kind === "question").length;
+    const working = f.working != null;
+    return (
+        <aside
+            data-brainstorm-rail
+            aria-label="Decided so far"
+            className="flex w-[32%] min-w-[280px] max-w-[500px] flex-none flex-col overflow-y-auto border-l border-border bg-surface px-[24px] py-[22px]"
+        >
+            <div className="flex items-baseline gap-[8px] pb-[8px]">
+                <h2 className="m-0 text-[13px] font-semibold text-secondary">Decided so far · {decided}</h2>
+                <span className="text-[12px] text-muted">newest first</span>
+            </div>
+            {rows.length === 0 ? (
+                <p className="m-0 border-t border-border pt-[12px] text-[12.5px] leading-[1.5] text-muted">
+                    Each answer lands here, with the options it was picked from.
+                </p>
+            ) : null}
+            <div data-brainstorm-history className="flex flex-col">
+                {rows.map((h, i) =>
+                    h.kind === "recon" ? (
+                        <div key={`recon:${i}`} className="flex flex-col gap-[5px] border-t border-border py-[12px]">
+                            <span className="font-mono text-[10.5px] text-muted">{h.label}</span>
+                            <span className="text-[12.5px] leading-[1.5] text-ink-mid">{h.answer}</span>
+                            <IntoLinks into={h.into} goTo={goTo} />
+                        </div>
+                    ) : (
+                        <div
+                            key={`${h.label}:${i}`}
+                            className="flex flex-col gap-[8px] border-t border-border py-[12px]"
+                        >
+                            <div className="flex items-baseline gap-[8px]">
+                                <span className="flex-none font-mono text-[10.5px] text-muted">
+                                    {h.label}
+                                    {i === 0 && working ? " · just now" : ""}
+                                </span>
+                                <span className="text-[12.5px] leading-[1.45] text-ink-mid">{h.q}</span>
+                            </div>
+                            <ul
+                                aria-label={`${h.label} answers`}
+                                className="m-0 flex list-none flex-col gap-[5px] p-0 pl-[2px]"
+                            >
+                                {h.options.map((o, j) => (
+                                    <li
+                                        key={j}
+                                        data-picked={o.picked ? "" : undefined}
+                                        className="flex items-start gap-[8px]"
+                                    >
+                                        {o.picked ? <CheckMark /> : <EmptyMark />}
+                                        <span
+                                            className={
+                                                o.picked
+                                                    ? "text-[14px] font-semibold leading-[1.45] text-primary"
+                                                    : "text-[13px] leading-[1.45] text-muted"
+                                            }
+                                        >
+                                            {o.label}
+                                        </span>
+                                    </li>
+                                ))}
+                                {h.answer != null ? (
+                                    <li data-picked="" className="flex items-start gap-[8px]">
+                                        <CheckMark />
+                                        <span className="flex flex-col gap-[1px]">
+                                            {h.ownWords ? (
+                                                <span className="text-[11px] text-success">In your words</span>
+                                            ) : null}
+                                            <span className="text-[14px] font-semibold leading-[1.45] text-primary">
+                                                {h.answer}
+                                            </span>
+                                        </span>
+                                    </li>
+                                ) : null}
+                            </ul>
+                            <IntoLinks into={h.into} goTo={goTo} className="pl-[23px]" />
+                        </div>
+                    )
+                )}
+            </div>
+        </aside>
     );
 }
 
@@ -502,43 +898,10 @@ function ReadyCard({ agent }: { agent: AgentVM }) {
     );
 }
 
-function WorkingCard({ working }: { working: string }) {
-    return (
-        <div data-brainstorm-working aria-live="polite" className={CARD}>
-            <div className={CARD_HEAD}>
-                <span className={cn(SMALL_DOT, "bg-success")} />
-                <span className={cn(CARD_LABEL, "text-success")}>Working</span>
-            </div>
-            <div className="px-[14px] py-[12px] text-[13.5px] leading-[1.5] text-secondary">
-                {working} The next question comes after.
-            </div>
-        </div>
-    );
-}
-
-function QuestionCard({
-    agent,
-    f,
-    fresh,
-    goTo,
-}: {
-    agent: AgentVM;
-    f: BrainstormFile;
-    fresh: boolean;
-    goTo: (id: string) => void;
-}) {
+// a question asked during the builder check: the check keeps its column, so the question is a card in it
+function CheckQuestion({ agent, f, goTo }: { agent: AgentVM; f: BrainstormFile; goTo: (id: string) => void }) {
     const q = f.question!;
-    // guessing or skipping means something only for a question about a part of the design
-    const chips = q.part !== "" && f.check == null;
-    const [draft, setDraft] = useState("");
-    const act = useAction();
-    const send = async (action: BrainstormAction) => {
-        if (await act.run(() => sendBrainstorm(agent, action))) {
-            if (action.kind === "answer") {
-                setDraft("");
-            }
-        }
-    };
+    const ans = useAnswer(agent);
     return (
         <div data-brainstorm-question className={ASK_CARD}>
             <div className={ASK_HEAD}>
@@ -556,47 +919,10 @@ function QuestionCard({
             </div>
             <div className="flex flex-col gap-[12px] p-[14px]">
                 <div className="whitespace-pre-line text-[15px] font-semibold leading-[1.5] text-primary">{q.text}</div>
-                <textarea
-                    data-brainstorm-answer
-                    aria-label="Your answer"
-                    rows={3}
-                    value={draft}
-                    placeholder="Answer in your own words…"
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) =>
-                        onEnter(e, () => {
-                            if (draft.trim() !== "" && !act.busy) {
-                                void send({ kind: "answer", text: draft });
-                            }
-                        })
-                    }
-                    className={FIELD}
-                />
-                <div className="flex items-center gap-[8px]">
-                    {chips && !fresh ? (
-                        <button
-                            type="button"
-                            disabled={act.busy}
-                            onClick={() => void send({ kind: "guess" })}
-                            className={CHIP}
-                        >
-                            Guess for me
-                        </button>
-                    ) : null}
-                    {chips ? (
-                        <button
-                            type="button"
-                            disabled={act.busy}
-                            onClick={() => void send({ kind: "skip" })}
-                            className={CHIP}
-                        >
-                            Skip the questions
-                        </button>
-                    ) : null}
-                    <div className="flex-1" />
-                    <EnterSends />
-                </div>
-                {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
+                {q.why ? <div className="text-[12.5px] leading-[1.5] text-ink-mid">{q.why}</div> : null}
+                {q.options != null ? <Options options={q.options} ans={ans} compact /> : null}
+                <AnswerBox ans={ans} options={q.options != null} />
+                {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
             </div>
         </div>
     );
@@ -802,7 +1128,7 @@ function PartCard({
                                 <path d="M10 6H2M5 3L2 6l3 3" />
                             </svg>
                             {askedHere
-                                ? "Written from your answer to the question on the left."
+                                ? `Written from your answer to question ${f.question!.n}.`
                                 : "Waiting on the agent’s question."}
                         </div>
                     ) : null}
@@ -933,7 +1259,7 @@ function Check({
                     className="flex w-[430px] flex-none flex-col gap-[18px] overflow-y-auto border-r border-border bg-surface p-[20px] *:flex-none"
                 >
                     {!working && f.question != null ? (
-                        <QuestionCard agent={agent} f={f} fresh={false} goTo={(id) => scrollToPart(designRef, id)} />
+                        <CheckQuestion agent={agent} f={f} goTo={(id) => scrollToPart(designRef, id)} />
                     ) : null}
                     <div className="flex flex-col gap-[8px]">
                         <h2 className="m-0 text-[15px] font-semibold text-primary">A builder read the design</h2>
@@ -1332,7 +1658,9 @@ function Exited({
                     </button>
                     <button
                         type="button"
-                        onClick={() => updateBrainstorm(agent.id, (x) => ({ ...x, showDesign: true }))}
+                        onClick={() =>
+                            updateBrainstorm(agent.id, (x) => ({ ...x, showDesign: true, designOpen: true }))
+                        }
                         className={CANVAS_BTN}
                     >
                         Open the design

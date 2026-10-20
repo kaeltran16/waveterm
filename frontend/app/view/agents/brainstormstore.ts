@@ -30,6 +30,8 @@ export type BrainstormState = {
     board: string | null;
     // "Open the design" pressed on the exited card
     showDesign: boolean;
+    // the design opened over the question or the working note; kept here so a board's Back returns to it
+    designOpen: boolean;
     boards: CanvasBoard[];
     // where wavesrv serves the project's design folder; null until the poller has asked it to
     base: string | null;
@@ -85,6 +87,7 @@ export function attachBrainstorm(agentId: string, a: { topic: string; cwd: strin
         lastViewedMs: now,
         board: null,
         showDesign: false,
+        designOpen: false,
         boards: [],
         base: null,
         sent: null,
@@ -121,6 +124,10 @@ export function setBrainstormMode(agentId: string, mode: "terminal" | "brainstor
 
 export function openBrainstormBoard(agentId: string, board: string | null): void {
     updateBrainstorm(agentId, (s) => ({ ...s, board }));
+}
+
+export function openBrainstormDesign(agentId: string, open: boolean): void {
+    updateBrainstorm(agentId, (s) => ({ ...s, designOpen: open }));
 }
 
 // read through the per-agent atom, the one watchFocusedCanvas (whenstate.ts) subscribes for the key predicates
