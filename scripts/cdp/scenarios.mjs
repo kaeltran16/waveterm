@@ -13162,6 +13162,25 @@ const DAG_PEEK_CATALOG_MS = 30_000;
 // t-1's right edge within this of the pane's right edge leaves the card no room on its right
 const DAG_PEEK_FLIP_PX = 200;
 const DAG_PEEK_REFUSAL_KEY = "__dagPeekRefusal";
+// published as the engine's run:events (a run's events cannot be written through an RPC): [kind, detail, ms ago]
+const DAG_PEEK_T3_EVENTS = [
+    ["task-spawned", { taskid: "t-3", worktreems: 1200, setupms: 4000, spawnms: 300 }, 6 * 60_000],
+    ["task-done", { taskid: "t-3" }, 3 * 60_000],
+    ["task-verify-started", { taskid: "t-3" }, 3 * 60_000 - 1000],
+    ["task-verify-failed", { taskid: "t-3", reason: "exit 1", detail: "FAIL\tfrontend/app/view/orchestrate\t0.4s" }, 2 * 60_000],
+    ["task-failed", { taskid: "t-3", attempts: 1, lastfailurekind: "test-failed" }, 2 * 60_000 - 1000],
+];
+const DAG_PEEK_T3_TITLES = ["Task failed", "Verify failed", "Verify started", "Task done", "Task spawned"];
+// the plan reviewer's session is a stage session too, but not the final stage's: its Lifecycle leaves it out
+const DAG_PEEK_FINAL_EVENTS = [
+    ["stage-session-started", { role: "plan-reviewer", lens: "spec" }, 90_000],
+    ["stage-session-started", { role: "verifier", runid: "dag-peek-verifier" }, 60_000],
+    ["land-held", { reason: "dag-peek: the base has uncommitted changes" }, 30_000],
+];
+const DAG_PEEK_FINAL_TITLES = ["Land held", "Final verifier started"];
+const DAG_PEEK_FINAL_EMPTY = "The final stage has not run yet";
+// Type.dc.html: times 11.5px mono, titles 13px, detail 12px
+const DAG_PEEK_ROW_SIZES = { time: "11.5px", title: "13px", detail: "12px" };
 
 const dagPeekPrint = (dag) => {
     const t = (id) => (dag?.tasks ?? []).find((x) => x.id === id);
@@ -13225,6 +13244,36 @@ const DAG_PEEK_EMPTY = `(() => {
     }
     return null;
 })()`;
+const DAG_PEEK_RAIL = `${DAG_PEEK_MODAL}?.querySelector("[data-timeline-rail]")`;
+// the rail's history has loaded: a run:event published before that is overwritten by the load
+const DAG_PEEK_RAIL_LIVE = `(${DAG_PEEK_RAIL}?.textContent ?? "").includes("● live")`;
+// the rail's pressed filter and the task of each row it shows
+const DAG_PEEK_RAIL_STATE = `(() => {
+    const rail = ${DAG_PEEK_RAIL};
+    return {
+        pressed: [...(rail?.querySelectorAll("button[aria-pressed='true']") ?? [])].map((b) => (b.innerText || "").replace(/\\s+/g, " ").trim()),
+        tasks: [...(rail?.querySelectorAll("[data-timeline-row]") ?? [])].map((r) => r.getAttribute("data-timeline-task") ?? ""),
+    };
+})()`;
+// a popup's Lifecycle section: its count, each row's title and attention, and the type sizes of the first row with a detail
+const dagPeekLifecycle = (sel) => `(() => {
+    const lc = ${dagPeekCard(sel)}?.querySelector("[data-dag-peek-lifecycle]");
+    const rows = [...(lc?.querySelectorAll("[data-dag-peek-lifecycle-row]") ?? [])];
+    const size = (el) => (el ? getComputedStyle(el).fontSize : null);
+    // a row without a detail line has nothing to measure it by
+    const first = rows.find((r) => r.children[2]?.children[1] != null)?.children;
+    return {
+        present: lc != null,
+        count: (lc?.querySelector("[data-dag-peek-lifecycle-count]")?.textContent ?? "").trim(),
+        empty: (lc?.querySelector("[data-dag-peek-lifecycle-empty]")?.textContent ?? "").trim(),
+        titles: rows.map((r) => (r.children[2]?.children[0]?.textContent ?? "").trim()),
+        attention: rows.map((r) => r.getAttribute("data-dag-peek-lifecycle-row") === "attention"),
+        sizes: first ? { time: size(first[0]), title: size(first[2]?.children[0]), detail: size(first[2]?.children[1]) } : null,
+    };
+})()`;
+const dagPeekLifecycleRows = (sel, n) =>
+    `(${dagPeekCard(sel)}?.querySelectorAll("[data-dag-peek-lifecycle-row]").length ?? 0) === ${n}`;
+
 const dagPeekBar = (sel) => `[...(${dagPeekCard(sel)}?.querySelectorAll("[data-dag-peek-action]") ?? [])].map((b) => ({
     action: b.getAttribute("data-dag-peek-action"),
     label: b.textContent.trim(),
@@ -13255,6 +13304,25 @@ async function dagPeekSettled(h) {
         await polishNap(300);
     }
     return last;
+}
+
+async function dagPeekPublish(h, ctx, events) {
+    const now = Date.now();
+    for (const [i, [kind, detail, ago]] of events.entries()) {
+        const event = {
+            id: `dag-peek-${kind}-${i}-${now}`,
+            runid: ctx.runId,
+            channelid: ctx.channelId,
+            ts: now - ago,
+            kind,
+            detail: JSON.stringify(detail),
+        };
+        await h.rpc("eventpublish", {
+            event: "run:event",
+            scopes: [`run:${ctx.runId}`],
+            data: { channelid: ctx.channelId, runid: ctx.runId, event },
+        });
+    }
 }
 
 async function dagPeekMouse(h, type, pt, buttons = 0) {
@@ -13570,6 +13638,24 @@ const dagPeekScenario = {
             { openedFinal, rows, geom: iGeom }
         );
 
+        // i2. the final card's Lifecycle: empty while the stage has not run, then the stage's own events only
+        const finalBefore = await h.ev(dagPeekLifecycle(DAG_PEEK_FINAL_SEL));
+        const railLive = await polishWaitFor(h, DAG_PEEK_RAIL_LIVE, 10000);
+        await dagPeekPublish(h, ctx, DAG_PEEK_FINAL_EVENTS);
+        await polishWaitFor(h, dagPeekLifecycleRows(DAG_PEEK_FINAL_SEL, DAG_PEEK_FINAL_TITLES.length), 3000);
+        const finalAfter = await h.ev(dagPeekLifecycle(DAG_PEEK_FINAL_SEL));
+        await h.shot("cdp-shots/dag-peek-final-lifecycle.png");
+        rec(
+            "i2. the final card's Lifecycle says the stage has not run, then lists the verifier's session and the held land newest first, without the plan reviewer's session",
+            () =>
+                finalBefore.present &&
+                finalBefore.empty === DAG_PEEK_FINAL_EMPTY &&
+                railLive &&
+                fstSame(finalAfter.titles, DAG_PEEK_FINAL_TITLES) &&
+                finalAfter.count === `${DAG_PEEK_FINAL_TITLES.length} events`,
+            { finalBefore, railLive, finalAfter }
+        );
+
         // j. Esc closes the card before it closes the modal
         await h.ev(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
         const escClosed = await polishWaitFor(h, `!${dagPeekCard(DAG_PEEK_FINAL_SEL)}`, 3000);
@@ -13626,6 +13712,60 @@ const dagPeekScenario = {
             "m. a tagged card's chip passes the floor on one line, and the card is as tall as an untagged one",
             () => chip.tag != null && chip.lines === 1 && chip.fits && floorOk(chip.floor) && chip.heights[0] != null && chip.heights[0] === chip.heights[1],
             { ...chip, floor: floorDetail(chip.floor) }
+        );
+
+        // n. t-3's popup carries its own lifecycle, newest first, and the rail follows the selection to Task · t-3
+        await polishWaitFor(h, DAG_PEEK_RAIL_LIVE, 10000);
+        await dagPeekPublish(h, ctx, DAG_PEEK_T3_EVENTS);
+        const openedLc = await dagPeekOpen(h, t3, "t-3");
+        await polishWaitFor(h, dagPeekLifecycleRows(t3, DAG_PEEK_T3_TITLES.length), 4000);
+        await polishNap(400);
+        const lc = await h.ev(dagPeekLifecycle(t3));
+        const railTask = await h.ev(DAG_PEEK_RAIL_STATE);
+        // every text node in the popup and the rail: over the floor, and none in muted grey
+        const read = await paintEval(h, `
+            const probe = document.createElement("span");
+            probe.className = "text-muted";
+            document.body.append(probe);
+            const muted = getComputedStyle(probe).color;
+            probe.remove();
+            const roots = [${dagPeekCard(t3)}, ${DAG_PEEK_RAIL}];
+            const mutedText = [];
+            for (const root of roots) {
+                if (!root) continue;
+                const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+                    const text = n.data.trim();
+                    if (text && n.parentElement.getClientRects().length > 0 && getComputedStyle(n.parentElement).color === muted) {
+                        mutedText.push(text.slice(0, 40));
+                    }
+                }
+            }
+            return { floor: floorWalk(roots), mutedText };
+        `);
+        await h.shot("cdp-shots/dag-peek-lifecycle.png");
+        await h.ev(dagPeekClickNode("t-3"));
+        const closedLc = await polishWaitFor(h, `!${dagPeekCard(t3)}`, 3000);
+        await polishNap(300);
+        const railAll = await h.ev(DAG_PEEK_RAIL_STATE);
+        rec(
+            "n. t-3's card lists its five events newest first with the two failures amber, at 11.5/13/12px; the rail switches to Task · t-3 showing only t-3's rows, and back to All when the card closes; no text in either is muted or under the floor",
+            () =>
+                openedLc &&
+                fstSame(lc.titles, DAG_PEEK_T3_TITLES) &&
+                fstSame(lc.attention, [true, true, false, false, false]) &&
+                lc.count === `${DAG_PEEK_T3_TITLES.length} events` &&
+                fstSame(lc.sizes, DAG_PEEK_ROW_SIZES) &&
+                railTask.pressed.length === 1 &&
+                railTask.pressed[0].startsWith("Task · t-3") &&
+                railTask.tasks.length > 0 &&
+                railTask.tasks.every((t) => t === "t-3") &&
+                floorOk(read.floor) &&
+                read.mutedText.length === 0 &&
+                closedLc &&
+                railAll.pressed.length === 1 &&
+                railAll.pressed[0].startsWith("All"),
+            { openedLc, lc, railTask, floor: floorDetail(read.floor), mutedText: read.mutedText, closedLc, railAll }
         );
         return steps;
     },

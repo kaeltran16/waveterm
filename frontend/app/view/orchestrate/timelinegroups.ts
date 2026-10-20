@@ -5,7 +5,7 @@
 // runtimeline's, so this rail and any other timeline cannot disagree about either.
 
 import { detailOf, eventTitle } from "../agents/runtimeline";
-import { ATTENTION_KINDS, taskIdOf, type TimelineFilter } from "./timelinefilter";
+import { ATTENTION_KINDS, FINAL_FAILED_BLOCK, taskIdOf, type TimelineFilter } from "./timelinefilter";
 
 // one phase of one task within BURST_MS reads as one row; a silence of QUIET_MS or more is worth a gap row
 export const BURST_MS = 3 * 60_000;
@@ -226,6 +226,22 @@ export function snippetOf(e: RunEvent): string {
                 : "";
         case "task-first-activity":
             return num(d.sincespawnms) ? `first output ${secs(num(d.sincespawnms))} after spawn` : "";
+        case "task-failed":
+            return [num(d.attempts) ? `attempt ${num(d.attempts)}` : "", str(d.lastfailurekind)]
+                .filter(Boolean)
+                .join(" · ");
+        case "final-step":
+            return [num(d.round) ? `round ${num(d.round)}` : "", num(d.ms) ? secs(num(d.ms)) : ""]
+                .filter(Boolean)
+                .join(" · ");
+        case "land-held":
+            return str(d.reason);
+        case "landed":
+            return [str(d.commit) ? `commit ${str(d.commit).slice(0, 8)}` : "", str(d.title)]
+                .filter(Boolean)
+                .join(" · ");
+        case "dag-blocked":
+            return str(d.kind) === FINAL_FAILED_BLOCK ? "the final stage failed" : "";
         default:
             return "";
     }

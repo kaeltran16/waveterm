@@ -8,11 +8,11 @@ import { Handle, Position, useInternalNode, type EdgeProps, type NodeProps } fro
 import { createContext, useContext } from "react";
 import type { FinalStageView, FinalTone } from "../agents/finalstage";
 import { FinalStepStrip } from "../agents/finalstageviews";
-import { MONO_META } from "../jarvis/briefstyle";
 import { glyphKind, kindOf, wordOf, type EdgeStyle, type GlyphKind, type NodeKind } from "./dagcanvas";
 import { FINAL_NODE_ID } from "./dagfinal";
 import { CARD_H, CARD_W, edgeGeo, type Point, type Rect } from "./daglayout";
 import type { DagViewNode } from "./dagstore";
+import { DAG_META } from "./dagtext";
 
 export type DagCardData = {
     task: TaskNode;
@@ -35,7 +35,7 @@ const LOOK = new Map<NodeKind, Look>([
     ["live", { bg: "bg-lane", border: "border-accent/50", label: "text-ink-hi", word: "text-accent-soft" }],
     ["ready", { bg: "bg-lane", border: "border-edge-strong", label: "text-ink-hi", word: "text-accent-soft" }],
     ["done", { bg: "bg-surface", border: "border-edge-mid", label: "text-secondary", word: "text-success" }],
-    ["inert", { bg: "bg-surface", border: "border-edge-mid", label: "text-muted", word: "text-muted" }],
+    ["inert", { bg: "bg-surface", border: "border-edge-mid", label: "text-ink-mid", word: "text-ink-mid" }],
     ["waiting", { bg: "bg-surface", border: "border-edge-mid", label: "text-ink-mid", word: "text-ink-mid" }],
 ]);
 
@@ -124,16 +124,16 @@ export function DagCardNode({ data }: NodeProps) {
             <Handle type="target" position={Position.Left} isConnectable={false} className="!opacity-0" />
             <div className="flex w-full items-start gap-2">
                 <StateGlyph kind={glyphKind(task)} />
-                <span className={`line-clamp-2 min-w-0 text-[12.5px] font-semibold leading-[17px] ${look.label}`}>
+                <span className={`line-clamp-2 min-w-0 text-[13px] font-semibold leading-[17px] ${look.label}`}>
                     {view.label}
                 </span>
             </div>
-            <div className={`flex items-center gap-1.5 leading-[14px] ${MONO_META}`}>
+            <div className={`flex items-center gap-1.5 leading-4 ${DAG_META}`}>
                 <span className="min-w-0 flex-1 truncate">
                     {task.id} · <span className={look.word}>{word}</span> · {fact}
                 </span>
                 {view.tag ? (
-                    <span className="flex-none rounded-[5px] border border-edge-mid bg-surface-raised px-[5px] text-[10.5px] text-accent-soft">
+                    <span className="flex-none rounded-[5px] border border-edge-mid bg-surface-raised px-[5px] text-[11.5px] text-accent-soft">
                         {view.tag}
                     </span>
                 ) : null}
@@ -190,14 +190,14 @@ export function DagFinalNode({ data }: NodeProps) {
                 <Handle type="target" position={Position.Left} isConnectable={false} className="!opacity-0" />
                 <div className="flex w-full items-start gap-2">
                     <StateGlyph kind={finalGlyph(view.tone)} />
-                    <span className="min-w-0 truncate text-[12.5px] font-semibold leading-[17px] text-ink-hi">
+                    <span className="min-w-0 truncate text-[13px] font-semibold leading-[17px] text-ink-hi">
                         Final verification
                     </span>
                 </div>
-                <span className={`truncate leading-[14px] ${MONO_META}`}>{view.nodeMeta}</span>
+                <span className={`truncate leading-4 ${DAG_META}`}>{view.nodeMeta}</span>
                 <FinalStepStrip view={view} />
             </div>
-            <span className="absolute left-0 top-full mt-[7px] whitespace-nowrap font-mono text-[10.5px] text-muted">
+            <span className={`absolute left-0 top-full mt-[7px] whitespace-nowrap ${DAG_META}`}>
                 on the merged result
             </span>
         </div>
@@ -211,7 +211,7 @@ export function LaneBandNode({ data }: NodeProps) {
             style={{ width: rect.w, height: rect.h }}
             className={`pointer-events-none rounded-2xl border border-dashed border-edge-mid ${dimmed ? "opacity-40" : ""}`}
         >
-            <div className="px-2.5 py-[5px] font-mono text-[10.5px] text-muted">lane · one merge</div>
+            <div className={`px-2.5 py-[5px] ${DAG_META}`}>lane · one merge</div>
         </div>
     );
 }

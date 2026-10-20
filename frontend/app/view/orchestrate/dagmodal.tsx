@@ -93,7 +93,7 @@ export function DagModal() {
                                 <button
                                     type="button"
                                     onClick={closeDagModal}
-                                    className="cursor-pointer rounded-md border border-border bg-surface px-3 py-1.5 text-[11px] font-semibold text-secondary hover:border-edge-strong hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                    className="cursor-pointer rounded-md border border-border bg-surface px-3 py-1.5 text-[12px] font-semibold text-secondary hover:border-edge-strong hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                                 >
                                     Close · Esc
                                 </button>
@@ -123,7 +123,7 @@ function ModalSubtitle({ channelId, runId }: { channelId: string; runId: string 
     const [channel] = useWaveObjectValue<Channel>(`channel:${channelId}`);
     const projects = useAtomValue(projectsAtom);
     return (
-        <p className="font-mono text-[10.5px] uppercase tracking-[.1em] text-muted">
+        <p className="mt-0.5 font-mono text-[11.5px] uppercase tracking-[.06em] text-ink-mid">
             {channelProjectLabel(channel, projects) || channelId} · {runId.slice(0, 13)}
         </p>
     );

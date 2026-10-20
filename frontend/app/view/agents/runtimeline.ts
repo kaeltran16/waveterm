@@ -161,13 +161,38 @@ export function planReviewLensTitle(lens: string): string {
     return PLAN_REVIEW_LENS_TITLE[lens] ?? lens;
 }
 
+// a final-step row is one step of the final stage, and only its detail says which step and how it ended
+const FINAL_STEP_TITLE: Record<string, string> = {
+    tree: "Final tree",
+    check: "Final Check",
+    verify: "Final Verify",
+    final: "Final command",
+};
+
+function finalStepOf(event: RunEvent): { step: string; ok: boolean } {
+    const d = detailOf<{ step?: string; ok?: boolean }>(event);
+    return { step: d?.step ?? "", ok: d?.ok === true };
+}
+
 export function eventTitle(event: RunEvent): string {
     if (event.kind === "stage-session-started") {
         const d = detailOf<{ role?: string; lens?: string }>(event);
         const title = STAGE_ROLE_TITLE[d?.role ?? ""] ?? eventKindTitle(event.kind);
         return d?.lens ? `${title} · ${planReviewLensTitle(d.lens)}` : title;
     }
+    if (event.kind === "final-step") {
+        const { step, ok } = finalStepOf(event);
+        return `${FINAL_STEP_TITLE[step] ?? "Final step"} ${ok ? "passed" : "failed"}`;
+    }
     return eventKindTitle(event.kind);
+}
+
+// eventTone is toneFor for one row: a final step's tone is its outcome, which its kind alone does not carry
+export function eventTone(event: RunEvent): string {
+    if (event.kind === "final-step") {
+        return finalStepOf(event).ok ? "text-success" : "text-warning";
+    }
+    return toneFor(event.kind);
 }
 
 // eventText is one row as every timeline says it: its title, naming the task it is about and what was asked or told.

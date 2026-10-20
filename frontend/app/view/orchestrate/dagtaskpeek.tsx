@@ -17,10 +17,10 @@ import type { AgentsViewModel } from "../agents/agents";
 import { runAtom } from "../agents/channelsstore";
 import { InlineMarkdown } from "../agents/inlinemarkdown";
 import { RoutePicker } from "../agents/routepicker";
+import { useRunEventsState } from "../agents/runeventstore";
 import { useRunUsage } from "../agents/runtokenstore";
 import { modelsText, summarizeUsage, usageText } from "../agents/runusage";
 import { ActivityLine, StatusLine } from "../agents/statusline";
-import { MONO_META } from "../jarvis/briefstyle";
 import { glyphKind, wordOf } from "./dagcanvas";
 import { descriptionLead } from "./dagdescription";
 import type { TaskBrief } from "./dagdigest";
@@ -33,18 +33,18 @@ import {
     PEEK_BTN_ACCENT,
     PEEK_BTN_ACCENT_OPEN,
     PEEK_BTN_PRIMARY,
+    PeekLifecycle,
     type PeekPlace,
 } from "./dagpeekcard";
 import { dagActionError, dagActionRoute, routeSourceLabel, type DagViewNode } from "./dagstore";
+import { PEEK_DD, PEEK_DD_SUB, PEEK_DL, PEEK_DT } from "./dagtext";
 import { escalatePayload } from "./escalate";
 import { TaskModelPick } from "./modelpicksview";
+import { taskLifecycle } from "./peeklifecycle";
 import { openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "./taskcorrelate";
 
-const HINT = "double-click opens its worker · Esc closes";
-
-const DT = "text-[11px] leading-4 text-ink-mid";
-const DD = "m-0 min-w-0 font-mono text-[11px] leading-4";
-const DD_SUB = "truncate text-muted";
+// the footer holds up to three actions beside it; a double-click on the node still opens the worker
+const HINT = "Esc closes";
 
 export function DagTaskPeek({
     group,
@@ -74,6 +74,7 @@ export function DagTaskPeek({
     const tick = useAtomValue(agentsCtx?.model.nowAtom ?? NO_TICK_ATOM);
     const worker = resolveTaskWorker({ id: task.id, runid: task.runid }, childRun, agentsCtx?.agents ?? []);
     const peek = taskPeek(task, digestTask, briefs, tick || Date.now());
+    const { events, status } = useRunEventsState(group.runid, group.channelid);
 
     // escalate opens the route picker; every other action is sent, and a refusal is shown on the card instead
     // of vanishing into an unhandled rejection
@@ -131,7 +132,7 @@ export function DagTaskPeek({
                 ) : actionError ? (
                     <div
                         role="alert"
-                        className="flex items-center gap-1.5 border-t border-border px-3 py-[7px] text-[11.5px] text-error"
+                        className="flex items-center gap-1.5 border-t border-border px-[13px] py-[7px] text-[12px] text-error"
                     >
                         <CircleAlert size={12} aria-hidden className="flex-none" />
                         {actionError}
@@ -154,13 +155,13 @@ export function DagTaskPeek({
         >
             {worker.agent && agentsCtx ? <ActivityLine agent={worker.agent} nowAtom={agentsCtx.model.nowAtom} /> : null}
             {peek.rows.length > 0 ? (
-                <div className="flex flex-col gap-[3px]">
+                <div className="flex flex-col gap-1">
                     {peek.rows.map((row, i) => (
                         <div
                             key={i}
                             className={cn(
-                                "font-mono text-[10.5px] leading-[14px]",
-                                row.tone === "warning" ? "text-warning" : "text-muted"
+                                "font-mono text-[11.5px] leading-[17px]",
+                                row.tone === "warning" ? "text-warning" : "text-ink-mid"
                             )}
                         >
                             {row.text}
@@ -169,35 +170,43 @@ export function DagTaskPeek({
                 </div>
             ) : null}
             {agentsCtx ? <WorkerSession worker={worker} model={agentsCtx.model} /> : null}
-            <dl className="m-0 grid grid-cols-[54px_minmax(0,1fr)] gap-x-2.5 gap-y-2">
-                <dt className={DT}>Worker</dt>
+            <dl className={PEEK_DL}>
+                <dt className={PEEK_DT}>Worker</dt>
                 <dd
-                    className={DD}
+                    className={PEEK_DD}
                     data-dag-node-route={`${view.route.source}:${view.route.runtime}:${view.route.model}`}
                 >
                     <div className="text-secondary">
                         {view.route.runtime} / {view.route.model || "default"}
                     </div>
-                    <div className={DD_SUB}>
+                    <div className={PEEK_DD_SUB}>
                         {routeSourceLabel(view.route.source)} · {view.route.resolvedModel}
                     </div>
                 </dd>
-                <dt className={DT}>Review</dt>
-                <dd className={DD}>
-                    <div className={reviewTone(view.review.state)}>{view.review.state}</div>
-                    <div className={DD_SUB}>{view.review.route}</div>
+                <dt className={PEEK_DT}>Review</dt>
+                <dd className={PEEK_DD}>
+                    <div className={cn("font-sans font-semibold", reviewTone(view.review.state))}>
+                        {view.review.state}
+                    </div>
+                    <div className={PEEK_DD_SUB}>{view.review.route}</div>
                 </dd>
                 <TaskModelPick group={group} owner={owner} task={task} />
                 <TokensRow group={group} taskId={task.id} />
             </dl>
-            <Description text={task.description} />
             {peek.verify ? (
-                <div data-dag-peek-verify={task.id} className="flex flex-col gap-1">
-                    <div className={MONO_META}>{peek.verify.heading}</div>
+                <div data-dag-peek-verify={task.id} className="flex flex-col gap-1.5">
+                    <div
+                        className={cn(
+                            "text-[12.5px] font-semibold leading-[18px]",
+                            peek.verify.tone === "warning" ? "text-warning" : "text-secondary"
+                        )}
+                    >
+                        {peek.verify.heading}
+                    </div>
                     {peek.verify.tail ? (
                         <pre
                             className={cn(
-                                "m-0 max-h-[110px] overflow-auto whitespace-pre-wrap break-all rounded-md border border-edge-mid bg-surface-code px-2 py-1.5 font-mono text-[10.5px] leading-[14px]",
+                                "m-0 max-h-[100px] overflow-auto whitespace-pre-wrap break-all rounded-md border border-edge-mid bg-surface-code px-2.5 py-2 font-mono text-[11.5px] leading-[17px]",
                                 peek.verify.tone === "warning" ? "text-warning" : "text-secondary"
                             )}
                         >
@@ -206,6 +215,12 @@ export function DagTaskPeek({
                     ) : null}
                 </div>
             ) : null}
+            <PeekLifecycle
+                rows={taskLifecycle(events, task.id)}
+                status={status}
+                emptyText="No events for this task yet"
+            />
+            <Description text={task.description} />
         </DagPeekCard>
     );
 }
@@ -227,12 +242,12 @@ function TokensRow({ group, taskId }: { group: TaskGroup; taskId: string }) {
     const spent = summarizeUsage(usage?.rows, taskId);
     return (
         <>
-            <dt className={DT}>Tokens</dt>
-            <dd className={DD}>
-                <div className={spent ? "text-secondary" : "text-muted"}>
+            <dt className={PEEK_DT}>Tokens</dt>
+            <dd className={PEEK_DD}>
+                <div className={spent ? "text-secondary" : "text-ink-mid"}>
                     {spent ? usageText(spent, usage.sealed) : "none yet"}
                 </div>
-                {spent ? <div className={DD_SUB}>{modelsText(spent)}</div> : null}
+                {spent ? <div className={PEEK_DD_SUB}>{modelsText(spent)}</div> : null}
             </dd>
         </>
     );
@@ -245,11 +260,11 @@ function Description({ text }: { text: string | undefined }) {
     const { lead, more } = descriptionLead(text);
     if (!lead && !more) return null;
     return (
-        <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
+        <div className="flex flex-col gap-1.5">
             {open ? (
-                <Markdown text={text} scrollable={false} fontSizeOverride={12} />
+                <Markdown text={text} scrollable={false} fontSizeOverride={12.5} />
             ) : (
-                <div className="line-clamp-3 text-[12px] leading-[1.55] text-secondary">
+                <div className="line-clamp-3 text-[12.5px] leading-[1.6] text-secondary">
                     <InlineMarkdown text={lead} plainLinks />
                 </div>
             )}
@@ -258,7 +273,7 @@ function Description({ text }: { text: string | undefined }) {
                     type="button"
                     onClick={() => setOpen(!open)}
                     aria-expanded={open}
-                    className="cursor-pointer self-start border-0 bg-transparent p-0 text-[11.5px] font-semibold text-accent-soft hover:text-accent"
+                    className="cursor-pointer self-start border-0 bg-transparent p-0 text-[12px] font-semibold text-accent-soft hover:text-accent"
                 >
                     {open ? "Show less" : "Read the full description"}
                 </button>
@@ -281,12 +296,15 @@ function EscalatePanel({
     onRequeue: () => void;
 }) {
     return (
-        <div data-dag-peek-escalate className="flex flex-col gap-2 border-t border-accent/35 bg-accent/6 px-3 py-2.5">
+        <div
+            data-dag-peek-escalate
+            className="flex flex-col gap-2 border-t border-accent/35 bg-accent/6 px-[13px] py-2.5"
+        >
             <div className="flex items-center gap-2">
-                <span className="text-[12px] font-semibold text-ink-hi">Re-queue {taskId} on</span>
+                <span className="text-[13px] font-semibold text-ink-hi">Re-queue {taskId} on</span>
                 <RoutePicker value={route} canInherit={false} onChange={onRoute} placement="top-start" />
             </div>
-            <span className="text-[11px] text-ink-mid">One judged hop: a second failure blocks this task for you.</span>
+            <span className="text-[12px] text-ink-mid">One judged hop: a second failure blocks this task for you.</span>
             <div className="flex justify-end gap-1.5">
                 <button type="button" onClick={onCancel} className={cn(PEEK_BTN, "font-normal")}>
                     Cancel
@@ -305,7 +323,7 @@ function EscalatePanel({
 }
 
 const SESSION_BOX = "flex min-w-0 items-center gap-2 rounded-[8px] border border-edge-mid px-[9px] py-[7px]";
-const SESSION_BTN = "flex-none cursor-pointer rounded-[6px] border px-2 py-[3px] font-mono text-[10.5px]";
+const SESSION_BTN = "flex-none cursor-pointer rounded-[6px] border px-2 py-[3px] text-[12px] font-semibold";
 
 // WorkerSession is the task's worker treatment: the shared status line when dispatched, with Open in Agent,
 // and the explicit pending and worker-unavailable states. A double-click or Enter on the node opens the same
@@ -317,7 +335,7 @@ function WorkerSession({ worker, model }: { worker: TaskWorkerView; model: Agent
     };
     if (worker.state === "pending") {
         return (
-            <div className={cn(SESSION_BOX, "border-dashed font-mono text-[11px] text-ink-mid")}>
+            <div className={cn(SESSION_BOX, "border-dashed text-[12.5px] text-ink-mid")}>
                 <span className="h-1.5 w-1.5 flex-none rounded-full bg-edge-strong" />
                 Not dispatched yet
             </div>
@@ -330,7 +348,7 @@ function WorkerSession({ worker, model }: { worker: TaskWorkerView; model: Agent
                 <button
                     type="button"
                     onClick={open}
-                    className={cn(SESSION_BTN, "border-accent/50 font-bold text-accent-soft hover:border-accent")}
+                    className={cn(SESSION_BTN, "border-accent/50 text-accent-soft hover:border-accent")}
                 >
                     Open in Agent ↗
                 </button>
@@ -339,7 +357,7 @@ function WorkerSession({ worker, model }: { worker: TaskWorkerView; model: Agent
     }
     return (
         <SessionBox>
-            <span className="flex-1 font-mono text-[11px] text-ink-mid">Worker session unavailable</span>
+            <span className="flex-1 text-[12.5px] text-ink-mid">Worker session unavailable</span>
             <button
                 type="button"
                 onClick={open}
