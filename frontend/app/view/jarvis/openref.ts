@@ -16,6 +16,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "../agents/agents";
 import { brainstormFilePath } from "../agents/brainstormmodel";
+import { pollBrainstormNow } from "../agents/brainstormpoller";
 import { attachBrainstorm, brainstormOwner, SESSION_BRAINSTORM, setBrainstormMode } from "../agents/brainstormstore";
 import { canvasDir, canvasProjectDir } from "../agents/canvasmodel";
 import { attachCanvas, canvasOwner, getCanvas, selectCanvasBoard, setCanvasMode } from "../agents/canvasstore";
@@ -491,6 +492,7 @@ async function selectBrainstorm(
         return OK;
     }
     attachBrainstorm(landing.agentId, { topic: target.topic, cwd: landing.cwd }, Date.now());
+    pollBrainstormNow(model, landing.agentId);
     // the attach stands without the meta: it only costs the re-attach after a restart
     try {
         await RpcApi.SetMetaCommand(TabRpcClient, {

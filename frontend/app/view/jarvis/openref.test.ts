@@ -13,6 +13,7 @@ const rpc = vi.hoisted(() => ({
     SetChannelReadCommand: vi.fn(),
     EffortGetCommand: vi.fn(),
     FileInfoCommand: vi.fn(),
+    FileReadCommand: vi.fn(),
     SetMetaCommand: vi.fn(),
     ReadVaultNoteCommand: vi.fn(),
     ListMemoryHygieneCommand: vi.fn(),
@@ -66,6 +67,7 @@ function makeModel(roster: string[] = [], terminals: string[] = []): AgentsViewM
         focusIdAtom: atom<string | undefined>(undefined),
         agentsAtom: atom(roster.map(vm)),
         terminalsAtom: atom<AgentVM[]>(terminals.map(vm)),
+        baseRosterAtom: atom(roster.map(vm)),
     } as unknown as AgentsViewModel;
 }
 
@@ -643,6 +645,30 @@ describe("brainstorm landing", () => {
             oref: "tab:a1",
             meta: { "session:brainstorm": PATH },
         });
+    });
+
+    it("reads the brainstorm file on each reveal instead of waiting for the next poll", async () => {
+        const model = makeModel(["a1"]);
+        const text = (title: string) =>
+            JSON.stringify({
+                v: 1,
+                title,
+                spec: "",
+                question: null,
+                working: null,
+                parts: [],
+                history: [],
+                done: false,
+            });
+        rpc.SetMetaCommand.mockResolvedValue(undefined);
+        rpc.FileInfoCommand.mockResolvedValue({ path: PATH, modtime: 1 });
+        rpc.FileReadCommand.mockResolvedValue({ data64: btoa(text("first")) });
+        await openAddress(model, "brainstorm:lag", { caller }, noReport);
+        await vi.waitFor(() => expect(getBrainstorm("a1")?.file?.title).toBe("first"));
+        rpc.FileInfoCommand.mockResolvedValue({ path: PATH, modtime: 2 });
+        rpc.FileReadCommand.mockResolvedValue({ data64: btoa(text("second")) });
+        await openAddress(model, "brainstorm:lag", { caller }, noReport);
+        await vi.waitFor(() => expect(getBrainstorm("a1")?.file?.title).toBe("second"));
     });
 
     it("still attaches when the tab meta write fails", async () => {

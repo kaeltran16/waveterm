@@ -168,10 +168,38 @@ async function pollAndMerge(agentId: string, agent: AgentVM | undefined, io: Bra
     }
 }
 
+// a poll can outlast the interval (a slow wavesrv), so one agent's reads never stack
+const busy = new Set<string>();
+// a reveal that lands mid-poll reads once more after it: that poll may have read the file before the write
+const again = new Set<string>();
+
+function pollAgent(model: AgentsViewModel, agentId: string): void {
+    busy.add(agentId);
+    (async () => {
+        const agent = globalStore.get(model.baseRosterAtom).find((a) => a.id === agentId);
+        await pollAndMerge(agentId, agent, tauriBrainstormIO);
+    })()
+        .catch((e) => console.warn("brainstorm poll failed", agentId, e))
+        .finally(() => {
+            busy.delete(agentId);
+            if (again.delete(agentId)) {
+                pollAgent(model, agentId);
+            }
+        });
+}
+
+// the agent's hook reveals the brainstorm after each write of its file, so reading it then, instead of on the
+// next tick, shows the write as it lands; the interval stays for writes no hook reports
+export function pollBrainstormNow(model: AgentsViewModel, agentId: string): void {
+    if (busy.has(agentId)) {
+        again.add(agentId);
+        return;
+    }
+    pollAgent(model, agentId);
+}
+
 export function BrainstormPoller({ model }: { model: AgentsViewModel }): null {
     useEffect(() => {
-        // a poll can outlast the interval (a slow wavesrv), so one agent's reads never stack
-        const busy = new Set<string>();
         const tick = () => {
             const roster = [...globalStore.get(model.agentsAtom), ...globalStore.get(model.terminalsAtom)];
             const { attach, detach } = reconcileBrainstorms(globalStore.get(brainstormsAtom), roster);
@@ -179,15 +207,10 @@ export function BrainstormPoller({ model }: { model: AgentsViewModel }): null {
             for (const a of attach) {
                 attachBrainstorm(a.agentId, a, Date.now());
             }
-            const base = new Map(globalStore.get(model.baseRosterAtom).map((a) => [a.id, a]));
             for (const id of Object.keys(globalStore.get(brainstormsAtom))) {
-                if (busy.has(id)) {
-                    continue;
+                if (!busy.has(id)) {
+                    pollAgent(model, id);
                 }
-                busy.add(id);
-                pollAndMerge(id, base.get(id), tauriBrainstormIO)
-                    .catch((e) => console.warn("brainstorm poll failed", id, e))
-                    .finally(() => busy.delete(id));
             }
         };
         tick();
