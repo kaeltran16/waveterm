@@ -21,6 +21,17 @@ import {
     setMarking,
     updateCanvas,
 } from "@/app/view/agents/canvasstore";
+import {
+    attachBrainstorm,
+    detachBrainstorm,
+    getBrainstorm,
+    openBrainstormDesign,
+    setBrainstormMode,
+    setReviewCursor,
+    updateBrainstorm,
+} from "@/app/view/agents/brainstormstore";
+import { sendBrainstorm } from "@/app/view/agents/brainstormsend";
+import type { BrainstormFile } from "@/app/view/agents/brainstormmodel";
 import { gotoChange } from "@/app/view/agents/diffnav";
 import { ignoreWsAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
@@ -82,6 +93,10 @@ vi.mock("@/app/view/jarvis/openref", async (orig) => ({
 vi.mock("@/app/cockpit/cockpit-actions", async (orig) => ({
     ...(await orig<typeof import("@/app/cockpit/cockpit-actions")>()),
     launchPiTab: vi.fn(async () => {}),
+}));
+vi.mock("@/app/view/agents/brainstormsend", async (orig) => ({
+    ...(await orig<typeof import("@/app/view/agents/brainstormsend")>()),
+    sendBrainstorm: vi.fn(async () => {}),
 }));
 vi.mock("@/app/view/agents/diffnav", async (orig) => ({
     ...(await orig<typeof import("@/app/view/agents/diffnav")>()),
@@ -1861,5 +1876,181 @@ describe("Code keys, posture and the tree", () => {
             .run(code);
         expect(globalStore.get(model.paletteSeedAtom)).toBe("@");
         expect(globalStore.get(model.paletteOpenAtom)).toBe(true);
+    });
+});
+
+describe("brainstorm check review keys", () => {
+    const nav: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+    const typing: KeyContext = { ...nav, editable: true };
+    const REVIEW_KEYS = [
+        "agent:brainstorm-review-next",
+        "agent:brainstorm-review-prev",
+        "agent:brainstorm-review-open",
+        "agent:brainstorm-review-keep",
+        "agent:brainstorm-review-restore",
+    ];
+    // one change waiting on keep or put back, one new guess, one decision left as it was
+    const checked: BrainstormFile = {
+        v: 1,
+        title: "Forecast",
+        spec: "docs/spec.md",
+        question: null,
+        working: null,
+        parts: [
+            {
+                id: "grain",
+                title: "Forecast grain",
+                state: "guess",
+                was: "Daily, for every field.",
+                body: "Daily event_count.",
+                why: "builder question 1",
+            },
+            { id: "torch", title: "The move to PyTorch", state: "guess", body: "A shared torch base." },
+            { id: "intent", title: "Intent and why", state: "yours", body: "Why it exists." },
+        ],
+        history: [],
+        done: true,
+        check: {
+            yours: [{ q: "What should the forecast act on?", a: "event_count", into: ["grain"] }],
+            calls: [],
+            answered: [],
+            touched: ["grain"],
+        },
+        run: null,
+    };
+    let model: any;
+    const all = () => [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildAgentBindings(model)];
+    const find = (id: string) => all().find((b) => b.id === id)!;
+    const active = (id: string, c: KeyContext = nav) => find(id).when!(c);
+    const claiming = (key: string, c: KeyContext = nav) =>
+        all()
+            .filter((b) => b.keys === key && b.when?.(c) !== false)
+            .map((b) => b.id);
+    const withFile = (file: BrainstormFile) => updateBrainstorm("a1", (s) => ({ ...s, file }));
+
+    beforeEach(() => {
+        vi.mocked(sendBrainstorm).mockClear();
+        vi.stubGlobal("document", { activeElement: null });
+        model = {
+            ...stubModel("a1"),
+            surfaceAtom: atom<SurfaceKey>("agent"),
+            agentsAtom: atom([{ id: "a1", name: "Agent", blockId: "b1" }]),
+        };
+        attachBrainstorm("a1", { topic: "forecast", cwd: "C:\\p" }, 0);
+        withFile(checked);
+        setBrainstormMode("a1", "brainstorm", 1);
+    });
+
+    afterEach(() => {
+        detachBrainstorm("a1");
+        vi.unstubAllGlobals();
+    });
+
+    it("in the review, j k Enter y u are the review's and the agent j/k stand down; the arrows still move agents", () => {
+        for (const id of REVIEW_KEYS) {
+            expect(active(id), id).toBe(true);
+        }
+        expect(active("agent:next-j")).toBe(false);
+        expect(active("agent:prev-k")).toBe(false);
+        expect(active("agent:next")).toBe(true);
+        expect(active("agent:prev")).toBe(true);
+        for (const key of ["j", "k", "Enter", "y", "u"]) {
+            expect(claiming(key), key).toHaveLength(1);
+        }
+    });
+
+    it("typing in the answer box or an edit box types: no review key is live", () => {
+        for (const id of REVIEW_KEYS) {
+            expect(active(id, typing), id).toBe(false);
+        }
+    });
+
+    it("the talk view and the terminal keep j/k on the agents, and nothing claims y or u", () => {
+        withFile({ ...checked, check: null });
+        for (const id of REVIEW_KEYS) {
+            expect(active(id), id).toBe(false);
+        }
+        expect(active("agent:next-j")).toBe(true);
+        expect(active("agent:prev-k")).toBe(true);
+        expect(claiming("y")).toEqual([]);
+        expect(claiming("u")).toEqual([]);
+        withFile(checked);
+        setBrainstormMode("a1", "terminal", 2);
+        expect(active("agent:brainstorm-review-next")).toBe(false);
+        expect(active("agent:next-j")).toBe(true);
+    });
+
+    it("a builder question in the main area is not the review; the review opened over it is", () => {
+        withFile({
+            ...checked,
+            check: { ...checked.check!, yours: [...checked.check!.yours, { q: "A day with no row?" }] },
+        });
+        expect(active("agent:brainstorm-review-next")).toBe(false);
+        expect(active("agent:next-j")).toBe(true);
+        openBrainstormDesign("a1", true);
+        expect(active("agent:brainstorm-review-next")).toBe(true);
+        expect(active("agent:next-j")).toBe(false);
+    });
+
+    it("another focused agent keeps its j/k", () => {
+        globalStore.set(model.focusIdAtom, "a2");
+        expect(active("agent:brainstorm-review-next")).toBe(false);
+        expect(active("agent:next-j")).toBe(true);
+    });
+
+    it("j and k move the cursor over the changed rows then the new ones, stopping at both ends", () => {
+        find("agent:brainstorm-review-next").run(nav);
+        expect(getBrainstorm("a1")!.review.cursor).toBe("grain");
+        find("agent:brainstorm-review-next").run(nav);
+        expect(getBrainstorm("a1")!.review.cursor).toBe("torch");
+        find("agent:brainstorm-review-next").run(nav);
+        expect(getBrainstorm("a1")!.review.cursor).toBe("torch");
+        find("agent:brainstorm-review-prev").run(nav);
+        expect(getBrainstorm("a1")!.review.cursor).toBe("grain");
+    });
+
+    it("y keeps a change and u puts mine back, each for the cursor row", () => {
+        setReviewCursor("a1", "grain");
+        find("agent:brainstorm-review-keep").run(nav);
+        find("agent:brainstorm-review-restore").run(nav);
+        expect(vi.mocked(sendBrainstorm).mock.calls.map((c) => c[1])).toEqual([
+            { kind: "keep", part: "grain" },
+            { kind: "restore", part: "grain" },
+        ]);
+        expect(vi.mocked(sendBrainstorm).mock.calls[0][0]).toMatchObject({ id: "a1", blockId: "b1" });
+    });
+
+    it("on a guess y confirms it and u passes the key on, sending nothing", () => {
+        setReviewCursor("a1", "torch");
+        find("agent:brainstorm-review-keep").run(nav);
+        expect(vi.mocked(sendBrainstorm).mock.calls.map((c) => c[1])).toEqual([{ kind: "confirm", part: "torch" }]);
+        expect(find("agent:brainstorm-review-restore").run(nav)).toBe(false);
+        expect(sendBrainstorm).toHaveBeenCalledTimes(1);
+    });
+
+    it("while the agent writes y and u pass the key on, as the row's buttons are locked", () => {
+        setReviewCursor("a1", "grain");
+        withFile({ ...checked, working: "Rewriting the forecast grain" });
+        expect(find("agent:brainstorm-review-keep").run(nav)).toBe(false);
+        expect(find("agent:brainstorm-review-restore").run(nav)).toBe(false);
+        expect(sendBrainstorm).not.toHaveBeenCalled();
+    });
+
+    it("with no cursor row y, u and Enter pass the key on", () => {
+        expect(find("agent:brainstorm-review-keep").run(nav)).toBe(false);
+        expect(find("agent:brainstorm-review-restore").run(nav)).toBe(false);
+        expect(find("agent:brainstorm-review-open").run(nav)).toBe(false);
+        expect(sendBrainstorm).not.toHaveBeenCalled();
+    });
+
+    it("Enter opens and closes the cursor row, and leaves a focused button its own press", () => {
+        setReviewCursor("a1", "grain");
+        find("agent:brainstorm-review-open").run(nav);
+        expect(getBrainstorm("a1")!.review.open).toEqual({ grain: true });
+        find("agent:brainstorm-review-open").run(nav);
+        expect(getBrainstorm("a1")!.review.open).toEqual({ grain: false });
+        vi.stubGlobal("document", { activeElement: { tagName: "BUTTON" } });
+        expect(find("agent:brainstorm-review-open").run(nav)).toBe(false);
+        expect(getBrainstorm("a1")!.review.open).toEqual({ grain: false });
     });
 });
