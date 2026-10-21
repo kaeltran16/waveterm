@@ -986,6 +986,24 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             when: (ctx) => inBrainstorm(ctx) && pickable() < 2,
             run: () => setBrainstormMode(focusId(), "terminal", Date.now()),
         },
+        {
+            // b and c only fire off the terminal, and Ctrl+G b / c are Code / Jarvis, so this is the one door
+            // that works while typing. A terminal sends it as plain ^B, so no TUI can bind it apart from Ctrl+B.
+            // Not gated on editable, like F11. An agent has a brainstorm or a canvas, never both.
+            id: "agent:view-chord",
+            keys: "Ctrl:Shift:b",
+            group: "Agent",
+            label: "Switch between the terminal and the agent's brainstorm or canvas (works inside the terminal)",
+            when: (ctx) => ctx.surface === "agent" && !ctx.modalOpen && (brainstorm() != null || canvas() != null),
+            run: () => {
+                const s = brainstorm();
+                if (s != null) {
+                    setBrainstormMode(focusId(), s.mode === "brainstorm" ? "terminal" : "brainstorm", Date.now());
+                    return;
+                }
+                setCanvasMode(focusId(), canvas()!.mode === "canvas" ? "terminal" : "canvas", Date.now());
+            },
+        },
         // a letter focuses its answer row, so Enter, the row's own key, sends it
         ...OPTION_KEYS.map(
             (key, i): Binding => ({

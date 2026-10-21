@@ -152,6 +152,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | Keys | Action |
 |---|---|
 | `c` | Show the agent's canvas; from the canvas, back to the terminal |
+| `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal |
 | `[` / `]` | Previous / next board |
 | `m` | Mark part of the board; in mark mode, stop marking |
 | `Enter` / `Esc` | In the note under a drawn box: send the mark to the agent / drop it |
@@ -163,6 +164,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | Keys | Action |
 |---|---|
 | `b` | Show the agent's brainstorm; from the brainstorm, back to the terminal (while the question offers a B, `b` picks it instead) |
+| `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal or while `b` picks an answer |
 | `a` / `b` / `c` / `d` | While the brainstorm asks a question with answers to pick from: focus that answer; `Enter` sends it |
 
 ### Jarvis

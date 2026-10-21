@@ -924,6 +924,18 @@ describe("agent canvas mode keys", () => {
         expect(getCanvas("a1")!.mode).toBe("canvas");
     });
 
+    it("Ctrl+Shift+B toggles the canvas from inside the terminal, and stands down with no canvas", () => {
+        expect(find("agent:view-chord").keys).toBe("Ctrl:Shift:b");
+        expect(active("agent:view-chord", inTerm)).toBe(true);
+        find("agent:view-chord").run(inTerm);
+        expect(getCanvas("a1")!.mode).toBe("canvas");
+        find("agent:view-chord").run(nav);
+        expect(getCanvas("a1")!.mode).toBe("terminal");
+        expect(active("agent:view-chord", { ...inTerm, modalOpen: true })).toBe(false);
+        detachCanvas("a1");
+        expect(active("agent:view-chord", inTerm)).toBe(false);
+    });
+
     it("in canvas mode: c, [ ], m and the agent switches are live; the surface, rail, fullscreen and back keys stand down", () => {
         setCanvasMode("a1", "canvas", 1);
         for (const id of [

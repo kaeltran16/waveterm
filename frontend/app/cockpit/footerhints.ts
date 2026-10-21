@@ -36,12 +36,15 @@ export const SURFACE_HINTS: Partial<Record<SurfaceKey, FooterHint[]>> = {
         { ids: ["agent:fullscreen"], glyph: "f", label: "full" },
         { ids: ["agent:fullscreen-chord"], keys: "F11", label: "full" }, // reachable in the terminal
         { ids: ["agent:canvas-open"], glyph: "c", label: "canvas" }, // terminal mode with a canvas
+        { ids: ["agent:brainstorm-open"], glyph: "b", label: "brainstorm" }, // terminal mode with a brainstorm
         { ids: ["agent:back"], glyph: "esc", label: "back" },
         { ids: ["cycle-agent-next", "cycle-agent-prev"], keys: "Ctrl:Tab", label: "cycle" },
         { ids: ["agent:return-nav"], keys: "Shift:Escape", label: "leave" }, // editable-only via its binding
+        { ids: ["agent:view-chord"], keys: "Ctrl:Shift:b", label: "view" }, // reachable in the terminal
         // canvas mode hides every chip above but leave; this order serves both canvas mode and marking
         { ids: ["agent:mark-stop"], glyph: "m", label: "stop marking" },
         { ids: ["agent:canvas-close"], glyph: "c", label: "terminal" },
+        { ids: ["agent:brainstorm-close"], glyph: "b", label: "terminal" },
         { ids: ["agent:canvas-prev", "agent:canvas-next"], glyph: "[ ]", label: "board" },
         { ids: ["agent:mark-start"], glyph: "m", label: "mark" },
     ],

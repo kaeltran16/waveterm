@@ -19307,6 +19307,7 @@ const BS_SCROLLBACK_LINES = 400;
 const BS_PROMPT = /[>$#%]$/;
 const BS_PROMPT_WAIT_MS = 20000;
 const BS_SHIFT = 8;
+const BS_CTRL_SHIFT = 2 | 8;
 const BS_B_KEY = { key: "b", code: "KeyB", keyCode: 66 };
 const BS_KEY_DEF = {
     Enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
@@ -19597,7 +19598,7 @@ const bsRead = (h, ctx) =>
             switch: sw
                 ? [...sw.querySelectorAll("button")].map((b) => ({ label: flat(b), pressed: b.getAttribute("aria-pressed") }))
                 : null,
-            hint: flat(sw?.nextElementSibling),
+            hint: flat(document.querySelector("[data-footer-chips]")),
             compacted: flat(document.querySelector("[data-brainstorm-compacted]")),
             terminal: term ? !term.classList.contains("hidden") : null,
             treeLine: flat(${BS_TREE_LINE}),
@@ -20378,12 +20379,12 @@ const brainstormMode = {
         })()`);
         const keyed = delivered ? "b" : "the Terminal segment (CDP keys did not reach the page)";
         rec(
-            `6. ${keyed} returns to the terminal, the same node, Terminal pressed and the B switch view hint`,
+            `6. ${keyed} returns to the terminal, the same node, Terminal pressed and the footer view chip`,
             s6.ok &&
                 same.sameNode &&
                 (tagged.xterm ? same.sameXterm === true : true) &&
                 s6.switch?.find((b) => b.label === "Terminal")?.pressed === "true" &&
-                s6.hint.includes("switch view"),
+                s6.hint.includes("view"),
             { ...bsBrief(s6), terminal: s6.terminal, ...same, switch: s6.switch, hint: s6.hint }
         );
         bsWrite(ctx, { ...BS_FILES.late, compacted: Date.now() });
@@ -20413,6 +20414,35 @@ const brainstormMode = {
         );
         if (!delivered) {
             steps.push(skipStep("6d. the b key itself", "CDP key events never reached the page; drove the switcher instead"));
+        }
+        // 6e. Ctrl+Shift+B switches while the xterm holds focus, where b and Ctrl+G b cannot
+        if (delivered) {
+            const pressChord = async () => {
+                const k = { key: "B", code: "KeyB", windowsVirtualKeyCode: 66, modifiers: BS_CTRL_SHIFT };
+                await h.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", ...k });
+                await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...k });
+                await polishNap(500);
+            };
+            const inXterm = `document.activeElement?.classList.contains("xterm-helper-textarea") === true`;
+            await h.ev(`${TERM}?.querySelector(".xterm-helper-textarea")?.focus()`);
+            const typing = await h.ev(inXterm);
+            await pressChord();
+            const s6e = await bsUntil(h, ctx, (s) => s.view != null, 3000);
+            await pressChord();
+            const s6f = await bsUntil(h, ctx, (s) => s.view == null && s.terminal === true, 3000);
+            const backInXterm = await h.ev(inXterm);
+            rec(
+                "6e. Ctrl+Shift+B from inside the terminal shows the brainstorm, and again returns to typing in the xterm",
+                typing && s6e.ok && s6f.ok && backInXterm,
+                { typing, shown: s6e.view, back: s6f.ok, backInXterm }
+            );
+            await h.ev(`(() => {
+                document.activeElement?.blur?.();
+                document.querySelector("[data-cockpit-surface-wrap]")?.focus();
+                return true;
+            })()`);
+        } else {
+            steps.push(skipStep("6e. Ctrl+Shift+B from inside the terminal", "CDP key events never reached the page"));
         }
 
         // 7. the tree line and the attention popup

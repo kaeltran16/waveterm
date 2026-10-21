@@ -52,6 +52,9 @@ const CTX_TEXT: Record<"ok" | "warn" | "hot", string> = {
     hot: "text-error",
 };
 
+// the brainstorm/canvas switch's keys: its letter off the terminal, agent:view-chord from anywhere
+const viewKeys = (letter: string) => `${formatChordString(letter)} or ${formatChordString("Ctrl:Shift:b")}`;
+
 // shared compact icon-button (matches the rail-toggle's resting style)
 export const ICON_BTN =
     "cursor-pointer rounded-[7px] border border-edge-mid bg-surface-raised px-[9px] py-[6px] text-secondary";
@@ -295,47 +298,37 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                     </button>
                 ) : null}
                 {brainstorm != null ? (
-                    <>
-                        <Segmented
-                            role="group"
-                            ariaLabel="Show terminal or brainstorm"
-                            value={brainstorm.mode}
-                            options={[
-                                { key: "terminal", label: "Terminal", title: `Terminal (${formatChordString("b")})` },
-                                {
-                                    key: "brainstorm",
-                                    label: (
-                                        <>
-                                            Brainstorm
-                                            {brainstormAsking ? (
-                                                <span
-                                                    aria-label="asking you"
-                                                    className="h-[6px] w-[6px] rounded-full bg-warning"
-                                                />
-                                            ) : null}
-                                        </>
-                                    ),
-                                    title: `Brainstorm (${formatChordString("b")})`,
-                                },
-                            ]}
-                            onChange={(m) => setBrainstormMode(agent.id, m, Date.now())}
-                        />
-                        {brainstorm.mode === "terminal" ? (
-                            <span className="flex items-center gap-[6px] text-[11.5px] text-muted">
-                                <span className="rounded-[5px] border border-b-2 border-edge-strong px-[6px] font-mono text-[11px] text-secondary">
-                                    B
-                                </span>
-                                switch view
-                            </span>
-                        ) : null}
-                    </>
+                    <Segmented
+                        role="group"
+                        ariaLabel="Show terminal or brainstorm"
+                        value={brainstorm.mode}
+                        options={[
+                            { key: "terminal", label: "Terminal", title: `Terminal (${viewKeys("b")})` },
+                            {
+                                key: "brainstorm",
+                                label: (
+                                    <>
+                                        Brainstorm
+                                        {brainstormAsking ? (
+                                            <span
+                                                aria-label="asking you"
+                                                className="h-[6px] w-[6px] rounded-full bg-warning"
+                                            />
+                                        ) : null}
+                                    </>
+                                ),
+                                title: `Brainstorm (${viewKeys("b")})`,
+                            },
+                        ]}
+                        onChange={(m) => setBrainstormMode(agent.id, m, Date.now())}
+                    />
                 ) : canvas != null ? (
                     <Segmented
                         role="group"
                         ariaLabel="Show terminal or canvas"
                         value={canvas.mode}
                         options={[
-                            { key: "terminal", label: "Terminal", title: `Terminal (${formatChordString("c")})` },
+                            { key: "terminal", label: "Terminal", title: `Terminal (${viewKeys("c")})` },
                             {
                                 key: "canvas",
                                 label: (
@@ -349,7 +342,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                                         ) : null}
                                     </>
                                 ),
-                                title: `Canvas (${formatChordString("c")})`,
+                                title: `Canvas (${viewKeys("c")})`,
                             },
                         ]}
                         onChange={(m) => setCanvasMode(agent.id, m, Date.now())}

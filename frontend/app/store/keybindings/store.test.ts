@@ -252,6 +252,13 @@ describe("keybinding conflict invariant", () => {
             ]);
             expect(live("agent:brainstorm-close")).toBe(false);
             expect(() => assertNoConflicts(all)).not.toThrow();
+            // while b picks B, the chord still leaves, and from the terminal it comes back
+            const chord = all.find((x) => x.id === "agent:view-chord")!;
+            chord.run(agentCtx);
+            expect(globalStore.get(brainstormAtom("a1"))!.mode).toBe("terminal");
+            expect(chord.when!({ ...agentCtx, editable: true })).toBe(true);
+            chord.run({ ...agentCtx, editable: true });
+            expect(globalStore.get(brainstormAtom("a1"))!.mode).toBe("brainstorm");
             // a typed answer keeps its letters: the dispatcher leaves an editable target alone
             expect(all.find((x) => x.id === "agent:brainstorm-option-a")!.when!({ ...agentCtx, editable: true })).toBe(
                 false
