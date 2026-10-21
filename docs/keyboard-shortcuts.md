@@ -24,7 +24,7 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 
 | Keys | Action |
 |---|---|
-| `Ctrl`+`1`…`8` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Code, Diff, Sessions, Radar, Usage |
+| `Ctrl`+`1`…`7` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Code, Diff, Sessions, Usage |
 | `Ctrl`+`P` | Search — opens on the Files scope on Code (see below) |
 | `Ctrl`+`N` | New agent |
 | `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent |
@@ -40,7 +40,6 @@ Setup and Settings have no `Ctrl`+number slot — the nine positions are bound t
 | `g` `h` | Cockpit (home) |
 | `g` `a` | Agent |
 | `g` `c` | Jarvis — channels, records, recall |
-| `g` `r` | Radar |
 | `g` `s` | Sessions |
 | `g` `f` | Files |
 | `g` `u` | Usage |
@@ -87,7 +86,7 @@ cancelled now, in All and in Commands, so it never starts a run named "cancel".
 | `j` / `k` (or `↓` / `↑`) | Move the cursor within the active region |
 | `Enter` | Open / activate the item under the cursor |
 | `Space` | Peek the item under the cursor in the avatar popup, without leaving the surface (see Peek below) |
-| `Esc` | On a deep surface (Jarvis, Radar, Sessions, Files, Usage, Code), go back to the surface you jumped from (opening a run, file, diff or agent from elsewhere), else return to the Cockpit. In a composer or text field, leave Type posture first. |
+| `Esc` | On a deep surface (Jarvis, Sessions, Files, Usage, Code), go back to the surface you jumped from (opening a run, file, diff or agent from elsewhere), else return to the Cockpit. In a composer or text field, leave Type posture first. |
 
 ## Resource Manager (the popover opened from the footer's readout or `g` `m`)
 
@@ -104,7 +103,7 @@ closes it.
 
 ## Peek (the avatar popup's item view)
 
-A peek shows a run, agent, record, initiative, radar finding or memory note in the avatar popup. It writes no
+A peek shows a run, agent, record, initiative or memory note in the avatar popup. It writes no
 selection on the surface underneath. `Space` on a row cursor peeks it;
 holding `Ctrl` underlines every link that can be peeked, and `Ctrl`+click on one peeks it instead of opening it.
 `Space` never peeks while focus is in a text field.

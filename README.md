@@ -66,7 +66,6 @@ _History → files → diff, without leaving the cockpit._
 | ------------ | ------------------------------------------------------------- |
 | **Code**     | Browse and edit project files.                                |
 | **Sessions** | Browse recorded agent sessions.                               |
-| **Radar**    | Inspect repository findings and turn them into work.          |
 | **Usage**    | Inspect token usage and estimated API-equivalent cost.        |
 | **Setup**    | Manage shared instructions and skills across agent harnesses. |
 

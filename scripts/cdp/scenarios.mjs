@@ -3,7 +3,6 @@
 // Asserts are RPC-based (backend state) or DOM-based (h.ev) — NOT jotai atom reads (globalStore is not
 // exposed on window). steps are { step, ok, detail }.
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -26,7 +25,7 @@ import builder from "./scenarios-brainstorm-builder.mjs";
 import review from "./scenarios-brainstorm-review.mjs";
 import run from "./scenarios-brainstorm-run.mjs";
 
-// A step this profile cannot run: no scan report to cite, no pi session focused. Neither a pass nor a
+// A step this profile cannot run: no record holding a decision, no pi session focused. Neither a pass nor a
 // failure — report.mjs tallies it apart and exitCode ignores it. The detail must name what to seed, so a
 // skip stays a standing invitation to make the step real rather than a permanent shrug.
 const skipStep = (step, detail) => ({ step, skip: true, detail });
@@ -44,7 +43,17 @@ async function channelRuns(h, channelId) {
 // arrange needed; a populated-roster visual still relies on the manual inject-live-agents path.
 // Channels/Graph/Tasks merged into Jarvis and have no nav button left, so listing one here would make
 // h.goto throw before any step is recorded.
-const SMOKE_SURFACES = ["cockpit", "jarvis", "radar", "usage", "files", "settings", "code", "setup"];
+const SMOKE_SURFACES = ["cockpit", "jarvis", "usage", "files", "settings", "code", "setup"];
+
+// the rail's order and the Ctrl+1..N chords come from SURFACE_ORDER, read from its source so the steps keep one list
+const AGENTS_SOURCE = fileURLToPath(new URL("../../frontend/app/view/agents/agents.tsx", import.meta.url));
+const surfaceOrder = () =>
+    [...readFileSync(AGENTS_SOURCE, "utf8").match(/export const SURFACE_ORDER[^=]*=\s*\[([^\]]*)\]/)[1].matchAll(/"(\w+)"/g)].map(
+        (m) => m[1]
+    );
+const keydown = (init) => `document.dispatchEvent(new KeyboardEvent('keydown', ${JSON.stringify({ ...init, bubbles: true })}))`;
+const WHICH_KEY_TEXT = `[...document.querySelectorAll('span')].find((s) => (s.textContent || '').trim() === 'g →')?.parentElement?.innerText ?? null`;
+const SMOKE_KEY_WAIT_MS = 400;
 
 const surfaceSmoke = {
     name: "surface-smoke",
@@ -68,6 +77,43 @@ const surfaceSmoke = {
             });
             await h.shot(`cdp-shots/surface-${surface}.png`);
         }
+        // Radar is retired: the rail has one button per surface and none of them is Radar
+        const railLabels = await h.ev(
+            `[...document.querySelectorAll('nav button')].map((b) => b.getAttribute('aria-label') || (b.textContent || '').trim())`
+        );
+        const wantLabels = Object.values(SURFACE_LABEL);
+        steps.push({
+            step: "nav rail lists no Radar",
+            ok:
+                !railLabels.some((l) => /radar/i.test(l)) &&
+                railLabels.length === wantLabels.length &&
+                JSON.stringify([...railLabels].sort()) === JSON.stringify([...wantLabels].sort()),
+            detail: `rail=${JSON.stringify(railLabels)} want=${JSON.stringify(wantLabels)}`,
+        });
+        const order = surfaceOrder();
+        const lastLabel = SURFACE_LABEL[order[order.length - 1]];
+        await h.goto("cockpit");
+        await h.ev(keydown({ key: "7", code: "Digit7", ctrlKey: true }));
+        await h.ev(`new Promise((r) => setTimeout(r, ${SMOKE_KEY_WAIT_MS}))`);
+        const chorded = await h.activeSurfaceLabel();
+        steps.push({
+            step: "Ctrl+7 lands on the last surface",
+            ok: chorded === lastLabel,
+            detail: `active=${chorded} want=${lastLabel} order=${JSON.stringify(order)}`,
+        });
+        await h.goto("cockpit");
+        await h.ev(keydown({ key: "g", code: "KeyG" }));
+        await h.ev(`new Promise((r) => setTimeout(r, ${SMOKE_KEY_WAIT_MS}))`);
+        const whichKey = await h.ev(WHICH_KEY_TEXT);
+        await h.ev(keydown({ key: "r", code: "KeyR" }));
+        await h.ev(`new Promise((r) => setTimeout(r, ${SMOKE_KEY_WAIT_MS}))`);
+        const afterGR = await h.activeSurfaceLabel();
+        await h.ev(keydown({ key: "Escape", code: "Escape" }));
+        steps.push({
+            step: "g r does nothing",
+            ok: afterGR === SURFACE_LABEL.cockpit && !/radar/i.test(whichKey ?? ""),
+            detail: `active=${afterGR} whichKey=${JSON.stringify(whichKey)}`,
+        });
         // B3: a notify (wsh notify / wave_notify) is spoken by the avatar, which is its only voice: the
         // bubble carries the title and leaves after 6s, and no corner toast repeats it underneath.
         await h.goto("cockpit");
@@ -1433,170 +1479,14 @@ const peekCtrlClick = {
 };
 
 // --- peek-item-views: the avatar popup's item view for each peekable kind ----------------------------------
-// The cockpit-peek mockup's PeekAgent, PeekEffort, PeekRadar, PeekNote, PeekRun and States boards. Each kind is
+// The cockpit-peek mockup's PeekAgent, PeekEffort, PeekNote, PeekRun and States boards. Each kind is
 // peeked through the one router (linkingdevhooks.ts's __peekAddress) on a fixture: the fixture roster's lead for
-// the agent, its deferred orchestrator run for the phase strip, an initiative made here, and a radar report written
-// straight into the dev store, since only a model-backed scan makes one. The note is arrangePeekItemsNote's.
-// __peekLoading holds the loading frame a real
+// the agent, its deferred orchestrator run for the phase strip, and an initiative made here. The note is
+// arrangePeekItemsNote's. __peekLoading holds the loading frame a real
 // load leaves too quickly to photograph, and the gone line is the initiative peeked again after it was deleted: the
 // peek's load trusts the cached entry, and the body's own refetch finds it missing.
 const PEEK_ITEMS_LEAD = "peek-items lead";
 const PEEK_ITEMS_EFFORT = "Peek item views initiative";
-const PEEK_ITEMS_RISK = "Peek fixture: the retry loop swallows a cancelled context";
-const PEEK_ITEMS_FINDING = "f-peek-items";
-const PEEK_ITEMS_HOTSPOT = "f-peek-items-hotspot";
-const PEEK_ITEMS_HOTSPOT_RISK = "Peek fixture: a retried lane reuses its half-made worktree";
-// a peek check reading `body`: each heading is a whole label. CSS uppercases the labels, so they read as textContent
-const peekRadarHeadings = (headings) =>
-    `(() => {
-        const labels = [...body.querySelectorAll('span')].map((s) => (s.textContent || '').trim());
-        return ${JSON.stringify(headings)}.every((h) => labels.includes(h));
-    })()`;
-
-const RADAR_FIXTURE_COMMIT = "c0ffee5a".padEnd(40, "0");
-const RADAR_FIXTURE_SUBJECT = "fix(orchestrate): the dispatch loop stops when its context is cancelled";
-const RADAR_FIXTURE_ROOT_CAUSE =
-    "A loop that sleeps between attempts checked its context only before the sleep, so a cancel during the backoff was not seen until the cap.";
-
-// A report as the fix-commit audit writes it: one audited commit, and one finding with its sites in one file.
-// finding is { id, risk, file, lines }.
-function radarFixtureReport(oid, projectname, projectpath, now, finding) {
-    const signal = {
-        id: "s-fixture-fix",
-        collector: "git",
-        sourceref: RADAR_FIXTURE_COMMIT,
-        observedts: now - 3_600_000,
-        summary: RADAR_FIXTURE_SUBJECT,
-        contenthash: "s-fixture-fix",
-    };
-    return {
-        otype: "radarreport",
-        oid,
-        version: 1,
-        projectname,
-        projectpath,
-        status: "completed",
-        startedts: now - 120_000,
-        clusterstartedts: now - 110_000,
-        completedts: now - 60_000,
-        signals: [signal],
-        audits: [
-            {
-                commit: RADAR_FIXTURE_COMMIT,
-                subject: RADAR_FIXTURE_SUBJECT,
-                committs: signal.observedts,
-                files: [finding.file],
-                status: "ok",
-                rootcause: RADAR_FIXTURE_ROOT_CAUSE,
-                hitcount: finding.lines.length,
-                keptcount: finding.lines.length,
-            },
-        ],
-        findings: [
-            {
-                id: finding.id,
-                fingerprint: `RAD-${finding.id}`,
-                group: "new",
-                riskkind: "sibling-bug",
-                subsystem: finding.file.slice(0, finding.file.lastIndexOf("/")),
-                risk: finding.risk,
-                severity: "high",
-                signalids: [signal.id],
-                files: [finding.file],
-                mission: "Check whether the loop honours a cancelled context.",
-                sourcecommit: RADAR_FIXTURE_COMMIT,
-                sourcesubject: RADAR_FIXTURE_SUBJECT,
-                rootcause: RADAR_FIXTURE_ROOT_CAUSE,
-                sites: finding.lines.map((line) => ({
-                    line,
-                    trigger: `A cancel while the loop at line ${line} is in its backoff.`,
-                    actual: "The loop keeps retrying until the backoff cap.",
-                    expected: "The loop returns as soon as the context is done.",
-                    whynotcovered: "The fix added the check to the dispatch loop only.",
-                })),
-            },
-        ],
-        meta: {},
-    };
-}
-
-// the peek report also holds a hotspot finding, so a peek shows a second kind's own words
-function peekItemsReport(oid, cwd, now) {
-    const report = radarFixtureReport(oid, "peek-fixture", cwd, now, {
-        id: PEEK_ITEMS_FINDING,
-        risk: PEEK_ITEMS_RISK,
-        file: "pkg/orchestrate/retry.go",
-        lines: [41, 67],
-    });
-    const file = "pkg/orchestrate/engine.go";
-    report.findings.push({
-        id: PEEK_ITEMS_HOTSPOT,
-        fingerprint: `RAD-${PEEK_ITEMS_HOTSPOT}`,
-        group: "new",
-        riskkind: "hotspot-bug",
-        subsystem: "pkg/orchestrate",
-        risk: PEEK_ITEMS_HOTSPOT_RISK,
-        severity: "medium",
-        signalids: [report.signals[0].id],
-        files: [file],
-        mission: "Check whether a retried lane can start from a half-made worktree.",
-        sourcecommit: RADAR_FIXTURE_COMMIT,
-        sourcesubject: RADAR_FIXTURE_SUBJECT,
-        rootcause: "Each fix made one step of a lane's tree lifecycle safe; none covers a retry from a half-made tree.",
-        fixsubjects: [
-            "fix(orchestrate): resume a dag run's lead at boot",
-            "fix(orchestrate): serialize the engine's worktree registry and branch changes",
-            "fix(orchestrate): check out run trees past MAX_PATH on Windows",
-        ],
-        sites: [412, 468].map((line) => ({
-            line,
-            trigger: `A lane retried after its setup failed at line ${line}.`,
-            actual: "The retry reuses the tree with no branch checked out.",
-            expected: "The retry starts from a clean tree.",
-            whynotcovered: "The fixes cover add, list and long paths, not a retry after a failed setup.",
-        })),
-    });
-    return report;
-}
-
-async function peekItemsDb(h) {
-    const { DatabaseSync } = await import("node:sqlite");
-    const info = await h.rpc("waveinfo", null);
-    const path = join(info.datadir, "db", "waveterm.db");
-    if (!existsSync(path)) throw new Error(`no dev store at ${path}`);
-    const db = new DatabaseSync(path);
-    // wavesrv holds the same WAL database open, so a write may have to wait for its lock
-    db.exec("PRAGMA busy_timeout = 5000");
-    return db;
-}
-
-// writes the report build(oid) returns straight into the dev store, and returns its oid
-async function seedRadarReport(h, build) {
-    const oid = randomUUID();
-    const db = await peekItemsDb(h);
-    try {
-        db.prepare("INSERT INTO db_radarreport (oid, version, data) VALUES (?, 1, ?)").run(
-            oid,
-            JSON.stringify(build(oid))
-        );
-    } finally {
-        db.close();
-    }
-    return oid;
-}
-
-async function seedPeekItemsRadar(h, ctx) {
-    ctx.radarReportId = await seedRadarReport(h, (oid) => peekItemsReport(oid, ctx.cwd, Date.now()));
-}
-
-async function dropPeekItemsRadar(h, oid) {
-    const db = await peekItemsDb(h);
-    try {
-        db.prepare("DELETE FROM db_radarreport WHERE oid = ?").run(oid);
-    } finally {
-        db.close();
-    }
-}
 
 const PEEK_ITEMS_NOTE = "peek-items-fixture";
 const PEEK_ITEMS_NOTE_TITLE = "Peek fixture note";
@@ -1648,7 +1538,6 @@ const peekItemViews = {
                     { op: "setChunkStatus", chunk: "Peek", status: "active" },
                 ],
             });
-            await seedPeekItemsRadar(h, ctx);
             await arrangePeekItemsNote(h, ctx);
             // the fixture roster is read once at boot
             await h.ev("location.reload()");
@@ -1736,29 +1625,6 @@ const peekItemViews = {
         );
         rec("3. an initiative peeks as its item view", effort.ready === true, JSON.stringify(effort));
 
-        const radar = await peek(
-            `radarreport:${ctx.radarReportId}`,
-            { sourceType: "radar", anchor: PEEK_ITEMS_FINDING },
-            "radar",
-            // a site row is its file:line and nothing else
-            `text.includes(${JSON.stringify(PEEK_ITEMS_RISK)}) &&
-                [...body.querySelectorAll('[data-peek-radar-sites] div')].filter(
-                    (d) => d.children.length === 0 && /:\\d+$/.test((d.textContent || '').trim())
-                ).length === 2 &&
-                ${peekRadarHeadings(["Root cause", "Sibling sites"])}`,
-            "cdp-shots/peek-item-radar.png"
-        );
-        rec("4. a radar finding peeks as its item view", radar.ready === true, JSON.stringify(radar));
-
-        const hotspot = await peek(
-            `radarreport:${ctx.radarReportId}`,
-            { sourceType: "radar", anchor: PEEK_ITEMS_HOTSPOT },
-            "radar",
-            `text.includes(${JSON.stringify(PEEK_ITEMS_HOTSPOT_RISK)}) && ${peekRadarHeadings(["Fragility", "Sites"])}`,
-            "cdp-shots/peek-item-radar-hotspot.png"
-        );
-        rec("5. a hotspot radar finding peeks with its own headings", hotspot.ready === true, JSON.stringify(hotspot));
-
         const note = await peek(
             `memnote:${ctx.note.id}`,
             { sourceType: "memory" },
@@ -1766,7 +1632,7 @@ const peekItemViews = {
             `text.includes(${JSON.stringify(ctx.note.label)})`,
             "cdp-shots/peek-item-note.png"
         );
-        rec("6. a memory note peeks as its item view", note.ready === true, JSON.stringify(note));
+        rec("4. a memory note peeks as its item view", note.ready === true, JSON.stringify(note));
 
         // an orchestrator run reads Plan, Review, Tasks and Final; a quick run has no strip
         const run = await peek(
@@ -1776,7 +1642,7 @@ const peekItemViews = {
             `body.querySelectorAll('[data-peek-run-phase]').length === 4`,
             "cdp-shots/peek-item-run.png"
         );
-        rec("7. an orchestrator run peeks with its four-phase strip", run.ready === true, JSON.stringify(run));
+        rec("5. an orchestrator run peeks with its four-phase strip", run.ready === true, JSON.stringify(run));
 
         await closePopup();
         await h.ev(`window.__peekLoading({ kind: "effort", effortId: ${JSON.stringify(ctx.effortId)} })`);
@@ -1791,7 +1657,7 @@ const peekItemViews = {
         );
         await settle(600);
         await h.shot("cdp-shots/peek-item-loading.png");
-        rec("8. a loading peek shows the skeleton under its kind", loading === true, String(loading));
+        rec("6. a loading peek shows the skeleton under its kind", loading === true, String(loading));
 
         await closePopup();
         await h.rpc("effortdelete", { effortoid: ctx.effortId });
@@ -1807,12 +1673,12 @@ const peekItemViews = {
         );
         await settle(600);
         await h.shot("cdp-shots/peek-item-gone.png");
-        rec("9. a deleted target's peek says it no longer exists", gone === true, String(gone));
+        rec("7. a deleted target's peek says it no longer exists", gone === true, String(gone));
         await closePopup();
         const short = Object.entries(floors).filter(([, s]) => !floorOk(s));
         rec(
-            `10. no visible text in any item peek is under ${MIN_FONT_PX}px`,
-            Object.keys(floors).length === 6 && short.length === 0,
+            `8. no visible text in any item peek is under ${MIN_FONT_PX}px`,
+            Object.keys(floors).length === 4 && short.length === 0,
             JSON.stringify(Object.fromEntries(Object.entries(floors).map(([k, s]) => [k, floorDetail(s)])))
         );
         return steps;
@@ -1831,7 +1697,6 @@ const peekItemViews = {
         if (ctx.effortId && !ctx.effortDeleted) {
             await step("delete the initiative", () => h.rpc("effortdelete", { effortoid: ctx.effortId }));
         }
-        if (ctx.radarReportId) await step("delete the radar report", () => dropPeekItemsRadar(h, ctx.radarReportId));
         if (ctx.noteFile) await step("remove the fixture note", () => rmSync(ctx.noteFile, { force: true }));
         await teardownFixtureRun(h, ctx, "peek-item-views");
         await h.goto("cockpit");
@@ -8106,7 +7971,7 @@ const routePickerRefused = {
 // The graph peek mounts with the Brief's own exits: a record closes into the peek, and a run offers no
 // control at all because B5 has not given runs a Stage sheet yet. It used to open by priming an attached
 // thread from a memory note's "Ask Jarvis"; that entry point went with the Vault surface, and the exits
-// below never depended on it. The surviving contextual entries are a radar finding and a run.
+// below never depended on it. The surviving contextual entry is a run.
 const briefContextualMap = {
     name: "brief-contextual-map",
     surface: "jarvis",
@@ -9226,7 +9091,7 @@ const jarvisMotion = {
 // carry these addresses went with the Ask thread). The addresses name real objects read from this profile,
 // because every landing proves its target exists first — invented ids would only ever exercise the failure
 // path. Nothing here writes. A profile missing a kind (no record holding a
-// decision, no scan report, no investigated finding) SKIPS that step and names what to seed: the landing was
+// decision) SKIPS that step and names what to seed: the landing was
 // never attempted, so neither a pass nor a failure would be a true reading of it.
 const resourceLinking = {
     name: "resource-linking",
@@ -9242,35 +9107,9 @@ const resourceLinking = {
                 break;
             }
         }
-        const reports = (await h.rpc("listradarreports", { projectpath: "" }))?.reports ?? [];
-        const newest = new Map();
-        for (const r of reports) {
-            const prior = newest.get(r.projectpath);
-            if (!prior || r.startedts > prior.startedts) newest.set(r.projectpath, r);
-        }
-        const scanned = reports.filter((r) => (r.findings ?? []).length > 0);
-        // an older report is the case the Radar landing exists for: initRadarScope selects the NEWEST, so only
-        // an older one tells a landing that held apart from one that was overwritten
-        const cited = scanned.find((r) => newest.get(r.projectpath)?.oid !== r.oid) ?? scanned[0] ?? null;
-        let investigated = null;
-        for (const r of reports) {
-            const f = (r.findings ?? []).find((x) => x.investigation && x.investigation.status !== "orphaned");
-            if (f) {
-                investigated = { reportId: r.oid, findingId: f.id };
-                break;
-            }
-        }
         return {
             dossier: dossiers[0] ? { id: dossiers[0].id, objective: dossiers[0].objective } : null,
             decided,
-            radar: cited
-                ? {
-                      reportId: cited.oid,
-                      findingId: cited.findings[0].id,
-                      newest: newest.get(cited.projectpath)?.oid === cited.oid,
-                  }
-                : null,
-            investigated,
         };
     },
     async assert(h, ctx) {
@@ -9284,7 +9123,6 @@ const resourceLinking = {
             }
             return false;
         };
-        const present = (selector) => `!!document.querySelector(${JSON.stringify(selector)})`;
         const toastText = () =>
             h.ev(`[...document.querySelectorAll('[data-notification-toast]')].map((t) => t.innerText).join(' | ')`);
         // the hook installs when the Brief mounts, and a reload undoes it, so every step re-arms it first
@@ -9300,8 +9138,8 @@ const resourceLinking = {
                 )})`,
                 5000
             );
-        // Escape closes the peek (and the run sheet in step 6); waiting on the peek band keeps the next step from
-        // reading the previous step's overlay
+        // Escape closes the peek; waiting on the peek band keeps the next step from reading the previous step's
+        // overlay
         const dismissOverlay = async () => {
             await h.ev(
                 `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
@@ -9366,65 +9204,6 @@ const resourceLinking = {
             );
         }
 
-        if (!ctx.radar) {
-            steps.push(
-                skipStep(
-                    "5. a finding address lands on that finding on a first Radar visit",
-                    "no scan report with findings in this profile - run a Radar scan before reading this as a pass"
-                )
-            );
-        } else {
-            // a reload is what makes this Radar's first visit: its scope lives in module state
-            await h.ev("location.reload()");
-            await settle(2800);
-            const result = await open(`radarreport:${ctx.radar.reportId}`, {
-                sourceType: "radar",
-                anchor: ctx.radar.findingId,
-            });
-            const selector = `[data-radar-finding-detail="${ctx.radar.findingId}"][data-radar-report="${ctx.radar.reportId}"]`;
-            const shown = await waitFor(present(selector), 8000);
-            const surface = await h.activeSurfaceLabel();
-            rec(
-                "5. a finding address lands on that finding on a first Radar visit",
-                result?.ok === true && shown && surface === SURFACE_LABEL.radar,
-                JSON.stringify({ result, shown, surface, olderThanNewest: !ctx.radar.newest, toasts: await toastText() })
-            );
-        }
-
-        if (!ctx.investigated) {
-            steps.push(
-                skipStep(
-                    "6. Radar's Open run lands on the run's sheet",
-                    "no investigated finding in this profile - start an investigation from Radar before reading this as a pass"
-                )
-            );
-        } else {
-            const { reportId, findingId } = ctx.investigated;
-            const result = await open(`radarreport:${reportId}`, { sourceType: "radar", anchor: findingId });
-            const detail = `[data-radar-finding-detail="${findingId}"]`;
-            const onFinding = await waitFor(present(detail), 8000);
-            const opened =
-                onFinding &&
-                (await h.ev(`(() => {
-                    const b = [...document.querySelectorAll(${JSON.stringify(`${detail} button`)})]
-                        .find((x) => (x.textContent || '').trim() === 'Open run');
-                    if (!b) return false;
-                    b.click();
-                    return true;
-                })()`));
-            const runBody = await waitFor(
-                present('[data-jarvis-brief-sheet="channel"] [data-jarvis-brief-sheet-face="settings"]'),
-                10000
-            );
-            const surface = await h.activeSurfaceLabel();
-            rec(
-                "6. Radar's Open run lands on the run's sheet",
-                result?.ok === true && opened && runBody && surface === SURFACE_LABEL.jarvis,
-                JSON.stringify({ result, onFinding, opened, runBody, surface, toasts: await toastText() })
-            );
-            await dismissOverlay();
-        }
-
         await h.goto("jarvis");
         await waitFor(`typeof window.__openAddress === 'function'`, 5000);
         const result = await h.ev(`window.__openAddress("bogus:resource-linking-probe")`);
@@ -9432,7 +9211,7 @@ const resourceLinking = {
         const toasts = await toastText();
         const surface = await h.activeSurfaceLabel();
         rec(
-            "7. an address nothing can open shows the toast and leaves the surface where it was",
+            "5. an address nothing can open shows the toast and leaves the surface where it was",
             result?.reason === "unsupported" &&
                 toasts.includes("This item can't be opened") &&
                 surface === SURFACE_LABEL.jarvis,
@@ -13790,7 +13569,7 @@ const FINAL_SHOTS_CMD = "node scripts/cdp/final-verify.mjs final-shots";
 const FINAL_SHOTS_SEED_KEY = "verify:finalshots-seed";
 const FINAL_SHOTS_UICTX = { windowid: "", activetabid: "" };
 const FINAL_SHOTS_MISSING = "jarvis-peek-narrow";
-// the fix round's row counts one shot more than round 1 had (States board: 17 shots)
+// the fix round's row counts one shot more than round 1 had (States board: 16 shots)
 const FINAL_SHOTS_EXTRA = { "surface-smoke": ["surface-agent"] };
 const FINAL_SHOTS_PLAIN = ["checkout-empty", "checkout-filled", "receipt"];
 // the fixture PNGs, by the surface each is captured on. Never through h.shot, which records evidence shots
@@ -13806,9 +13585,8 @@ const FINAL_SHOTS_CAPTURES = {
         "jarvis-peek-empty",
         "resource-linking",
     ],
-    radar: ["surface-radar", "receipt"],
     usage: ["surface-usage", "checkout-filled"],
-    files: ["surface-files"],
+    files: ["surface-files", "receipt"],
     settings: ["surface-settings", "checkout-empty"],
     code: ["surface-code"],
     setup: ["surface-setup"],
@@ -13829,11 +13607,10 @@ const FS_S = "skip";
 const FINAL_SHOTS_BOARD = [
     {
         name: "surface-smoke",
-        shots: ["surface-smoke", "surface-cockpit", "surface-jarvis", "surface-radar", "surface-usage", "surface-files", "surface-settings", "surface-code", "surface-setup"],
+        shots: ["surface-smoke", "surface-cockpit", "surface-jarvis", "surface-usage", "surface-files", "surface-settings", "surface-code", "surface-setup"],
         steps: [
             [FS_P, 'goto cockpit -> active nav "Cockpit", content non-empty', "active=Cockpit contentLen=1643"],
             [FS_P, 'goto jarvis -> active nav "Jarvis", content non-empty', "active=Jarvis contentLen=1378"],
-            [FS_P, 'goto radar -> active nav "Radar", content non-empty', "active=Radar contentLen=1775"],
             [FS_P, 'goto usage -> active nav "Usage", content non-empty', "active=Usage contentLen=1909"],
             [FS_P, 'goto files -> active nav "Diff", content non-empty', "active=Diff contentLen=1349"],
             [FS_P, 'goto settings -> active nav "Settings", content non-empty', "active=Settings contentLen=2036"],
@@ -13886,9 +13663,7 @@ const FINAL_SHOTS_BOARD = [
             [FS_P, "2. a record address opens the record's peek"],
             [FS_S, "3. a decision address opens its record's peek"],
             [FS_P, "4. a memory address opens nothing and leaves the surface where it was"],
-            [FS_S, "5. a finding address lands on that finding on a first Radar visit"],
-            [FS_S, "6. Radar's Open run lands on the run's sheet"],
-            [FS_P, "7. an address nothing can open shows the toast and leaves the surface where it was"],
+            [FS_P, "5. an address nothing can open shows the toast and leaves the surface where it was"],
         ],
     },
 ];
@@ -14148,13 +13923,13 @@ const finalShotsScenario = {
         );
         if (ctx.arrangeError != null) return steps;
 
-        let s = await finalShotsUntil(h, (x) => x.row?.text.includes("16 shots") && x.dock != null);
+        let s = await finalShotsUntil(h, (x) => x.row?.text.includes("15 shots") && x.dock != null);
         rec(
-            "1. the row is collapsed with unverified · 5 scenarios and 16 shots · 2 rounds; the dock reads Screenshots · 16",
+            "1. the row is collapsed with unverified · 5 scenarios and 15 shots · 2 rounds; the dock reads Screenshots · 15",
             s?.row?.expanded === "false" &&
                 s.row.text.includes("unverified · 5 scenarios") &&
-                s.row.text.includes("16 shots · 2 rounds") &&
-                s.dock?.text === "Screenshots · 16" &&
+                s.row.text.includes("15 shots · 2 rounds") &&
+                s.dock?.text === "Screenshots · 15" &&
                 !s.dock.disabled &&
                 !s.dock.accent,
             JSON.stringify({ row: s?.row, dock: s?.dock })
@@ -14187,7 +13962,7 @@ const finalShotsScenario = {
                 v.tabs[0].on &&
                 v.tabs[0].text.startsWith("surface-smoke") &&
                 v.img?.loaded === true &&
-                v.film.length === 9 &&
+                v.film.length === 8 &&
                 v.film[0].on &&
                 (v.path ?? "").endsWith("/2/cdp-shots/surface-smoke.png") &&
                 v.steps?.expanded === "false" &&
@@ -14261,12 +14036,12 @@ const finalShotsScenario = {
         await finalShotsUntil(h, (x) => x.viewer == null, 3000);
 
         await seedFinalShots(h, ctx, ctx.stages.fixing);
-        s = await finalShotsUntil(h, (x) => x.row?.text.includes("17 shots") === true);
+        s = await finalShotsUntil(h, (x) => x.row?.text.includes("16 shots") === true);
         rec(
-            "7. failed during the fix round: failed · jarvis-peek 2 steps, 17 shots · round 1, an accent dock",
+            "7. failed during the fix round: failed · jarvis-peek 2 steps, 16 shots · round 1, an accent dock",
             s?.row?.text.includes("failed · jarvis-peek 2 steps") &&
-                s.row.text.includes("17 shots · round 1") &&
-                s.dock?.text === "Screenshots · 17" &&
+                s.row.text.includes("16 shots · round 1") &&
+                s.dock?.text === "Screenshots · 16" &&
                 s.dock.accent &&
                 !s.dock.disabled,
             JSON.stringify({ row: s?.row, dock: s?.dock })
@@ -14276,10 +14051,10 @@ const finalShotsScenario = {
         await seedFinalShots(h, ctx, ctx.stages.passed);
         s = await finalShotsUntil(h, (x) => x.row?.text.includes("passed · 5 scenarios") === true);
         rec(
-            "8a. passed: passed · 5 scenarios, 16 shots, a plain dock",
+            "8a. passed: passed · 5 scenarios, 15 shots, a plain dock",
             s?.row?.text.includes("passed · 5 scenarios") &&
-                s.row.text.endsWith("16 shots") &&
-                s.dock?.text === "Screenshots · 16" &&
+                s.row.text.endsWith("15 shots") &&
+                s.dock?.text === "Screenshots · 15" &&
                 !s.dock.accent &&
                 !s.dock.disabled,
             JSON.stringify({ row: s?.row, dock: s?.dock })
@@ -18265,770 +18040,6 @@ const planReviewRounds = {
     },
 };
 
-// --- radar-start-investigation: the draft lands on the launcher, not on a past run -----------------
-// Start investigation hands the finding to its project's channel sheet. With a run selected in that channel
-// (one the user had looked at, or a live one) the sheet opened on that run's report and the launcher holding
-// the draft sat behind New run, so the button read as doing nothing. Selecting a past run first is that case.
-const radarStartInvestigation = {
-    name: "radar-start-investigation",
-    surface: "jarvis",
-    async arrange(h) {
-        const norm = (p) => (p || "").replace(/\\/g, "/").replace(/\/+$/, "");
-        const reports = (await h.rpc("listradarreports", { projectpath: "" }))?.reports ?? [];
-        const channels = (await h.rpc("getchannels", null))?.channels ?? [];
-        for (const r of reports) {
-            const finding = (r.findings ?? []).find((f) => f.investigation?.status !== "executing");
-            // the landing resolves the FIRST channel on the project, so the past run has to come from that one
-            const channel = channels.find((c) => norm(c.projectpath) === norm(r.projectpath));
-            if (!finding || !channel) continue;
-            const runs = (await h.rpc("getchannelruns", { channelid: channel.oid }))?.runs ?? [];
-            if (runs.length === 0) continue;
-            return { reportId: r.oid, findingId: finding.id, mission: finding.mission, runId: runs[0].id };
-        }
-        return { reportId: null };
-    },
-    async assert(h, ctx) {
-        const step = "1. Start investigation opens the launcher holding the draft, over a selected past run";
-        if (!ctx.reportId) {
-            return [skipStep(step, "no radar finding whose project channel has a run - scan a project with runs")];
-        }
-        const open = async (address, hint) => {
-            await h.goto("jarvis");
-            await polishWaitFor(h, `typeof window.__openAddress === 'function'`, 5000);
-            return h.ev(`window.__openAddress(${JSON.stringify(address)}, ${JSON.stringify(hint ?? null)})`);
-        };
-        const ranOpen = await open(`run:${ctx.runId}`);
-        await polishNap(1500);
-        const radarOpen = await open(`radarreport:${ctx.reportId}`, { sourceType: "radar", anchor: ctx.findingId });
-        const detail = `[data-radar-finding-detail="${ctx.findingId}"]`;
-        await polishWaitFor(h, `!!document.querySelector(${JSON.stringify(detail)})`, 8000);
-        const clicked = await h.ev(`(() => {
-            const b = [...document.querySelectorAll(${JSON.stringify(`${detail} button`)})]
-                .find((x) => /^(Start investigation|Investigate again)/.test((x.textContent || '').trim()));
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        const want = (ctx.mission || "").slice(0, 40);
-        const landed = await polishWaitFor(
-            h,
-            `[...document.querySelectorAll('[data-jarvis-brief-sheet="channel"] input, [data-jarvis-brief-sheet="channel"] textarea')]
-                .some((x) => x.value.startsWith(${JSON.stringify(want)}))`,
-            8000
-        );
-        const runFace = await h.ev(`!!document.querySelector('[data-jarvis-brief-sheet-face="settings"]')`);
-        const surface = await h.activeSurfaceLabel();
-        await h.shot("cdp-shots/radar-start-investigation.png");
-        return [
-            {
-                step,
-                ok: ranOpen?.ok === true && clicked && landed && !runFace && surface === SURFACE_LABEL.jarvis,
-                detail: JSON.stringify({ ranOpen, radarOpen, clicked, landed, runFace, surface }),
-            },
-        ];
-    },
-    // the draft and the channel's composing flag outlive the sheet by design; a reload drops both
-    async teardown(h) {
-        await polishReload(h);
-    },
-};
-
-// --- radar-report, radar-scan-states: the sibling-audit surface (.superpowers/design/radar-sibling-audit) ----
-// Every board is drawn from the dev fixtures of radardevmock.ts through window.__setRadarScenario, which only
-// replaces the report the surface reads. What a fixture cannot show is a disposition, since the RPC refuses a
-// report the store does not hold: Intentional, Reopen finding and the site link run on a report seeded into
-// the dev store for this checkout, so the link has a real file to open.
-// the surface has no hook of its own; its body does, once the load phase is ready
-const RADAR_ROOT = `document.querySelector('[data-radar-view]')?.parentElement`;
-const RADAR_SCOPE_KEY = "radar.scope.project";
-const RADAR_SEED_FINDING = "f-radar-report";
-const RADAR_SEED_FILE = "pkg/reporadar/scan.go";
-const RADAR_SEED_LINE = 122;
-const RADAR_DISMISS_REASONS = ["False positive", "Low priority", "Resolved elsewhere", "Intentional"];
-const RADAR_DISMISS_FOOTNOTE = "Closes this finding. It stays closed until you reopen it from Dismissed.";
-const RADAR_AUDIT_GROUPS = ["Fix commits", "Behavior changes", "Hot files"];
-// radardevmock.ts: the introduced and hotspot findings of the results fixture, and the hot file partial fails
-const RADAR_INTRODUCED_FINDING = "g";
-const RADAR_HOTSPOT_FINDING = "h";
-const RADAR_HOT_FAILED = "pkg/orchestrate/land.go";
-const RADAR_CLASSIFY_WARNING =
-    "Commit classification failed, so 14 unprefixed commits were not considered. Re-scan tries them again.";
-const RADAR_AUDIT_ONCE =
-    "A target is audited once. The next scan picks up commits and file changes made after these.";
-const RADAR_REMOVED_TEXT = [
-    "collectors",
-    "Suppress pattern",
-    "Suppressed",
-    "Recurring",
-    "No longer detected",
-    "Evidence",
-    "Affected files",
-    "Suggested investigation",
-];
-const RADAR_PARTIAL_FAILED = ["7927fb68", "9caee0d3"];
-const RADAR_AUDIT_ERROR = "Timed out after 10 minutes.";
-
-const radarOpen = async (h) => {
-    await h.goto("radar");
-    return polishWaitFor(h, `typeof window.__setRadarScenario === 'function'`, 8000);
-};
-
-// draws a fixture and waits for the body it should land on
-async function radarMock(h, name, view) {
-    await h.ev(
-        `window.__setRadarScenario(${JSON.stringify(name)}, ${JSON.stringify({ projectPath: process.cwd() })})`
-    );
-    const shown = await polishWaitFor(h, `!!document.querySelector('[data-radar-view="${view}"]')`, 8000);
-    // the body cross-fades between the report, a panel and the skeleton
-    await polishNap(600);
-    return shown;
-}
-
-const radarFacts = (h) =>
-    h.ev(`(() => {
-        const root = ${RADAR_ROOT};
-        if (!root) return null;
-        const text = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
-        const all = (sel, from) => [...from.querySelectorAll(sel)];
-        const body = root.querySelector('[data-radar-view]');
-        const strip = root.querySelector('[data-radar-health-strip]');
-        const retry = root.querySelector('[data-radar-retry-audits]');
-        const toggle = root.querySelector('[data-radar-audits-toggle]');
-        return {
-            view: body.getAttribute('data-radar-view'),
-            title: text(body.querySelector('h2')),
-            bodyText: text(body),
-            rootText: text(root),
-            buttons: all('button', body).map(text),
-            auditList: !!body.querySelector('[data-radar-audit-list]'),
-            audits: all('[data-radar-audit-row]', body).map((r) => ({
-                sha: r.getAttribute('data-radar-audit-row'),
-                state: r.getAttribute('data-audit-state'),
-                text: text(r),
-            })),
-            auditGroups: all('[data-radar-audit-group]', body).map((g) => ({
-                kind: g.getAttribute('data-radar-audit-group'),
-                label: text(g.querySelector('[data-radar-audit-group-label]')),
-                rows: all('[data-radar-audit-row]', g).map((r) => ({
-                    sha: r.getAttribute('data-radar-audit-row'),
-                    state: r.getAttribute('data-audit-state'),
-                })),
-            })),
-            classify: (() => {
-                const w = root.querySelector('[data-radar-classify-warning]');
-                return w ? { text: text(w), buttons: w.querySelectorAll('button').length } : null;
-            })(),
-            strip: strip ? text(strip) : null,
-            retry: retry ? !retry.disabled : null,
-            toggle: toggle ? text(toggle) : null,
-            project: root.querySelector('button[aria-label^="Scanned project:"]')?.getAttribute('aria-label') ?? null,
-            rescan: !!root.querySelector('[data-radar-rescan]'),
-            findingRows: all('[data-radar-finding-row]', root).length,
-            groups: Object.fromEntries(
-                all('[data-radar-group]', root).map((g) => [
-                    g.getAttribute('data-radar-group'),
-                    all('[data-radar-finding-row]', g).map((r) => ({
-                        id: r.getAttribute('data-radar-finding-row'),
-                        text: text(r),
-                        isNew: !!r.querySelector('[data-radar-new]'),
-                        current: r.getAttribute('aria-current') === 'true',
-                    })),
-                ])
-            ),
-        };
-    })()`);
-
-const radarDetail = (h) =>
-    h.ev(`(() => {
-        const d = ${RADAR_ROOT}?.querySelector('[data-radar-finding-detail]');
-        if (!d) return null;
-        const text = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
-        return {
-            id: d.getAttribute('data-radar-finding-detail'),
-            kind: d.querySelector('[data-radar-kind]')?.getAttribute('data-radar-kind') ?? null,
-            kindLabel: text(d.querySelector('[data-radar-kind]')),
-            siteLink: text(d.querySelector('[data-radar-site-link]')),
-            cards: [...d.querySelectorAll('[data-radar-site-card]')].map(text),
-            whyLabels: [...d.querySelectorAll('[data-radar-site-why-label]')].map(text),
-            headings: [...d.querySelectorAll('h3')].map(text),
-            sourceFix: text(d.querySelector('[data-radar-source-fix]')),
-            fixSubjects: [...d.querySelectorAll('[data-radar-fix-subjects] li')].map(text),
-            text: text(d),
-        };
-    })()`);
-
-const radarClick = (h, selector) =>
-    h.ev(`(() => {
-        const el = ${RADAR_ROOT}?.querySelector(${JSON.stringify(selector)});
-        if (!el) return false;
-        el.click();
-        return true;
-    })()`);
-
-// the detail's buttons carry no hook: the one whose whole text is the label
-const radarDetailButton = (h, label) =>
-    h.ev(`(() => {
-        const b = [...(${RADAR_ROOT}?.querySelectorAll('[data-radar-finding-detail] button') ?? [])]
-            .find((x) => (x.textContent || '').trim() === ${JSON.stringify(label)});
-        if (!b) return false;
-        b.click();
-        return true;
-    })()`);
-
-const radarHas = (selector) => `!!${RADAR_ROOT}?.querySelector(${JSON.stringify(selector)})`;
-const radarStates = (facts) => facts?.audits.map((a) => a.state) ?? [];
-// a commit kind's row reads "<kind label> · <sha>"; a hotspot's "Hotspot · <n> fixes" has no sha
-const fixSha = (rowText) => /· ([0-9a-f]{8})/.exec(rowText ?? "")?.[1] ?? null;
-const radarGroupLabels = (groups) => (groups ?? []).map((g) => g.label);
-const hasAll = (text, words) => words.every((w) => (text ?? "").includes(w));
-
-async function radarOpenDismissMenu(h) {
-    const clicked = await radarDetailButton(h, "Dismiss");
-    const open = clicked && (await polishWaitFor(h, radarHas("[data-radar-dismiss-menu]"), 3000));
-    // the popover's reveal finishes before a shot or a click on a reason
-    await polishNap(300);
-    return open;
-}
-
-const radarReport = {
-    name: "radar-report",
-    surface: "radar",
-    async arrange(h) {
-        const ctx = { cwd: process.cwd() };
-        // a throw past this point still returns ctx, so teardown removes whatever was already made
-        try {
-            // landing on the seeded report persists its project as Radar's scope
-            ctx.priorScope = await h.ev(`localStorage.getItem(${JSON.stringify(RADAR_SCOPE_KEY)})`);
-            ctx.reportId = await seedRadarReport(h, (oid) =>
-                radarFixtureReport(oid, "radar-report-fixture", ctx.cwd, Date.now(), {
-                    id: RADAR_SEED_FINDING,
-                    risk: "Radar fixture: the scan loop outlives a cancelled context",
-                    file: RADAR_SEED_FILE,
-                    lines: [RADAR_SEED_LINE, 140],
-                })
-            );
-        } catch (e) {
-            ctx.arrangeError = String(e?.message ?? e);
-        }
-        return ctx;
-    },
-    async assert(h, ctx) {
-        const steps = [];
-        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const hook = await radarOpen(h);
-
-        {
-            const shown = await radarMock(h, "results", "report");
-            const f = await radarFacts(h);
-            const open = f?.groups.open ?? [];
-            const dismissed = f?.groups.dismissed ?? [];
-            const sited = open.find((r) => /\.\w+:\d+/.test(r.text) && fixSha(r.text) != null);
-            await h.shot("cdp-shots/radar-report.png");
-            rec(
-                "1. a report lists Open and Dismissed with site, title, severity and source fix",
-                hook &&
-                    shown &&
-                    sited != null &&
-                    open.some((r) => r.isNew) &&
-                    dismissed.length === 2 &&
-                    f.project === "Scanned project: waveterm" &&
-                    f.rescan,
-                JSON.stringify({
-                    hook,
-                    view: f?.view ?? null,
-                    open: open.length,
-                    newChips: open.filter((r) => r.isNew).length,
-                    dismissed: dismissed.length,
-                    row: sited?.text ?? null,
-                    project: f?.project ?? null,
-                    rescan: f?.rescan ?? null,
-                })
-            );
-
-            const d = await radarDetail(h);
-            const row = [...open, ...dismissed].find((r) => r.id === d?.id);
-            const sha = fixSha(row?.text);
-            rec(
-                "2. the detail shows the kind, site link, site cards, root cause and source fix",
-                d != null &&
-                    d.kind === "sibling" &&
-                    d.kindLabel === "Sibling bug" &&
-                    /:\d+$/.test(d.siteLink) &&
-                    d.cards.length > 0 &&
-                    d.cards.every((c) => hasAll(c, ["Actual", "Expected", "Fix gap"])) &&
-                    d.headings.includes("Root cause") &&
-                    d.headings.includes("Found by auditing this fix") &&
-                    sha != null &&
-                    d.sourceFix.includes(sha),
-                JSON.stringify({
-                    finding: d?.id ?? null,
-                    kind: d?.kind ?? null,
-                    kindLabel: d?.kindLabel ?? null,
-                    siteLink: d?.siteLink ?? null,
-                    cards: d?.cards.length ?? 0,
-                    headings: d?.headings ?? null,
-                    rowSha: sha,
-                    sourceFix: d?.sourceFix.slice(0, 120) ?? null,
-                })
-            );
-
-            // the introduced and hotspot findings of the fixture, each opened from its row
-            const openFinding = async (id, shot) => {
-                const clicked = await radarClick(h, `[data-radar-finding-row="${id}"]`);
-                const shown = clicked && (await polishWaitFor(h, radarHas(`[data-radar-finding-detail="${id}"]`), 3000));
-                await polishNap(300);
-                await h.shot(shot);
-                const row = [...open, ...dismissed].find((r) => r.id === id);
-                return { shown, row: row?.text ?? null, d: await radarDetail(h) };
-            };
-
-            const intro = await openFinding(RADAR_INTRODUCED_FINDING, "cdp-shots/radar-introduced.png");
-            const introSha = fixSha(intro.row);
-            rec(
-                "3. an introduced finding names its kind, site label, intent heading and the change it reviewed",
-                intro.shown &&
-                    intro.d?.kind === "introduced" &&
-                    intro.d.kindLabel === "Introduced bug" &&
-                    intro.d.whyLabels.length > 0 &&
-                    intro.d.whyLabels.every((l) => l === "Introduced") &&
-                    intro.d.headings.includes("Intent of the change") &&
-                    intro.d.headings.includes("Found by reviewing this change") &&
-                    /Introduced bug · [0-9a-f]{8}/.test(intro.row ?? "") &&
-                    introSha != null &&
-                    intro.d.sourceFix.includes(introSha),
-                JSON.stringify({
-                    shown: intro.shown,
-                    row: intro.row,
-                    kind: intro.d?.kind ?? null,
-                    kindLabel: intro.d?.kindLabel ?? null,
-                    whyLabels: intro.d?.whyLabels ?? null,
-                    headings: intro.d?.headings ?? null,
-                    sourceFix: intro.d?.sourceFix.slice(0, 120) ?? null,
-                })
-            );
-
-            const hot = await openFinding(RADAR_HOTSPOT_FINDING, "cdp-shots/radar-hotspot.png");
-            const fixCount = hot.d?.fixSubjects.length ?? 0;
-            rec(
-                "4. a hotspot finding names its kind, site label, fragility heading and the fixes that sent Radar to the file",
-                hot.shown &&
-                    hot.d?.kind === "hotspot" &&
-                    hot.d.kindLabel === "Hotspot" &&
-                    hot.d.whyLabels.length > 0 &&
-                    hot.d.whyLabels.every((l) => l === "Missed by fixes") &&
-                    hot.d.headings.includes("Fragility") &&
-                    hot.d.headings.includes("Found by reviewing this file") &&
-                    fixCount >= 3 &&
-                    hot.d.fixSubjects.every((s) => s.length > 0) &&
-                    (hot.row ?? "").includes(`Hotspot · ${fixCount} fixes`) &&
-                    fixSha(hot.row) == null,
-                JSON.stringify({
-                    shown: hot.shown,
-                    row: hot.row,
-                    kind: hot.d?.kind ?? null,
-                    kindLabel: hot.d?.kindLabel ?? null,
-                    whyLabels: hot.d?.whyLabels ?? null,
-                    headings: hot.d?.headings ?? null,
-                    fixSubjects: hot.d?.fixSubjects ?? null,
-                })
-            );
-        }
-
-        {
-            const summary = (await radarFacts(h))?.toggle ?? null;
-            const clicked = await radarClick(h, "[data-radar-audits-toggle]");
-            const opened = clicked && (await polishWaitFor(h, radarHas("[data-radar-audits-popover]"), 3000));
-            await polishNap(300);
-            const popover = await h.ev(`(() => {
-                const p = ${RADAR_ROOT}?.querySelector('[data-radar-audits-popover]');
-                if (!p) return null;
-                const text = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
-                return {
-                    rows: [...p.querySelectorAll('[data-radar-audit-row]')].map((r) => r.getAttribute('data-audit-state')),
-                    groups: [...p.querySelectorAll('[data-radar-audit-group]')].map((g) => ({
-                        kind: g.getAttribute('data-radar-audit-group'),
-                        label: text(g.querySelector('[data-radar-audit-group-label]')),
-                        rows: [...g.querySelectorAll('[data-radar-audit-row]')].map((r) => r.getAttribute('data-radar-audit-row')),
-                    })),
-                };
-            })()`);
-            await h.shot("cdp-shots/radar-audits.png");
-            await radarClick(h, "[data-radar-audits-toggle]");
-            const closed = await polishWaitFor(h, `!(${radarHas("[data-radar-audits-popover]")})`, 3000);
-            const rows = popover?.rows ?? [];
-            const hotFiles = popover?.groups.find((g) => g.label === "Hot files")?.rows ?? [];
-            rec(
-                "5. the header's audit summary counts every kind and opens the audits grouped by kind",
-                summary === "12 audits, 8 clean" &&
-                    opened &&
-                    rows.length === 12 &&
-                    rows.filter((s) => s === "hits").length === 4 &&
-                    JSON.stringify(radarGroupLabels(popover?.groups)) === JSON.stringify(RADAR_AUDIT_GROUPS) &&
-                    // the two hot files share one revision: two rows, one sha
-                    hotFiles.length === 2 &&
-                    hotFiles[0] === hotFiles[1] &&
-                    closed,
-                JSON.stringify({ summary, clicked, opened, rows, groups: popover?.groups ?? null, closed })
-            );
-        }
-
-        {
-            const opened = await radarOpenDismissMenu(h);
-            const menu = await h.ev(`(() => {
-                const m = ${RADAR_ROOT}?.querySelector('[data-radar-dismiss-menu]');
-                if (!m) return null;
-                return {
-                    reasons: [...m.querySelectorAll('[data-radar-dismiss-reason]')]
-                        .map((b) => b.getAttribute('data-radar-dismiss-reason')),
-                    text: (m.textContent ?? '').replace(/\\s+/g, ' ').trim(),
-                };
-            })()`);
-            await h.shot("cdp-shots/radar-dismiss.png");
-            await radarDetailButton(h, "Dismiss");
-            const closed = await polishWaitFor(h, `!(${radarHas("[data-radar-dismiss-menu]")})`, 3000);
-            rec(
-                "6. the Dismiss menu offers four reasons and the reworded footnote",
-                opened &&
-                    JSON.stringify(menu?.reasons) === JSON.stringify(RADAR_DISMISS_REASONS) &&
-                    menu.text.includes(RADAR_DISMISS_FOOTNOTE) &&
-                    closed,
-                JSON.stringify({ opened, reasons: menu?.reasons ?? null, text: menu?.text ?? null, closed })
-            );
-        }
-
-        {
-            const shown = await radarMock(h, "partial", "report");
-            const f = await radarFacts(h);
-            await h.shot("cdp-shots/radar-partial.png");
-            // the fixture's oid is not in the store, so the RPC is refused and no audit starts
-            const dispatched = await h.ev(`(() => {
-                const b = ${RADAR_ROOT}?.querySelector('[data-radar-retry-audits]');
-                if (!b) return false;
-                let fired = false;
-                b.addEventListener('click', () => { fired = true; }, { once: true });
-                b.click();
-                return fired;
-            })()`);
-            await polishNap(1500);
-            const after = await radarFacts(h);
-            rec(
-                "7. a partial scan names the failed audits, a hot file by its path, and offers Retry failed audits",
-                shown &&
-                    hasAll(f?.strip, [...RADAR_PARTIAL_FAILED, RADAR_HOT_FAILED]) &&
-                    f.retry === true &&
-                    (f.toggle ?? "").endsWith("3 failed") &&
-                    dispatched &&
-                    after?.view === "report" &&
-                    hasAll(after.strip, [...RADAR_PARTIAL_FAILED, RADAR_HOT_FAILED]),
-                JSON.stringify({
-                    strip: f?.strip ?? null,
-                    retryEnabled: f?.retry ?? null,
-                    summary: f?.toggle ?? null,
-                    dispatched,
-                    after: { view: after?.view ?? null, strip: after?.strip ?? null },
-                })
-            );
-        }
-
-        const detail = `[data-radar-finding-detail="${RADAR_SEED_FINDING}"][data-radar-report="${ctx.reportId}"]`;
-        const seededRow = (group) =>
-            radarHas(`[data-radar-group="${group}"] [data-radar-finding-row="${RADAR_SEED_FINDING}"]`);
-        {
-            await h.ev(`window.__setRadarScenario('live')`);
-            // __openAddress exists only once the Brief has mounted
-            await h.goto("jarvis");
-            const opener = await polishWaitFor(h, `typeof window.__openAddress === 'function'`, 5000);
-            const opened =
-                ctx.arrangeError == null && opener
-                    ? await h.ev(
-                          `window.__openAddress(${JSON.stringify(`radarreport:${ctx.reportId}`)}, ${JSON.stringify({ sourceType: "radar", anchor: RADAR_SEED_FINDING })})`
-                      )
-                    : null;
-            const landed = opened?.ok === true && (await polishWaitFor(h, radarHas(detail), 8000));
-            const menu = landed && (await radarOpenDismissMenu(h));
-            const picked = menu && (await radarClick(h, '[data-radar-dismiss-reason="Intentional"]'));
-            const dismissed = picked && (await polishWaitFor(h, seededRow("dismissed"), 8000));
-            const label = (await radarDetail(h))?.text.includes("Dismissed: intentional") ?? false;
-            const reopened = dismissed && (await radarDetailButton(h, "Reopen finding"));
-            const backOpen = reopened && (await polishWaitFor(h, seededRow("open"), 8000));
-            const newChip = await h.ev(
-                radarHas(`[data-radar-finding-row="${RADAR_SEED_FINDING}"] [data-radar-new]`)
-            );
-            rec(
-                "8. Intentional closes a finding into Dismissed, and Reopen finding returns it",
-                dismissed === true && label && backOpen === true && newChip === false,
-                JSON.stringify({
-                    arrangeError: ctx.arrangeError ?? null,
-                    opener,
-                    opened,
-                    landed,
-                    menu,
-                    picked,
-                    dismissed,
-                    label,
-                    reopened,
-                    backOpen,
-                    newChip,
-                })
-            );
-        }
-
-        {
-            const clicked = await radarClick(h, `${detail} [data-radar-site-link]`);
-            const openFile = `(document.querySelector('[data-code-path]')?.getAttribute('data-code-path') ?? '').replace(/\\\\/g, '/')`;
-            const opened =
-                clicked && (await polishWaitFor(h, `${openFile}.endsWith(${JSON.stringify(RADAR_SEED_FILE)})`, 10000));
-            const surface = await h.activeSurfaceLabel();
-            // the viewer scrolls to the line once the text lands
-            await polishNap(800);
-            await h.shot("cdp-shots/radar-site-in-code.png");
-            rec(
-                "9. the site link opens Code at the line",
-                opened === true && surface === SURFACE_LABEL.code,
-                JSON.stringify({ clicked, surface, file: await h.ev(openFile), line: RADAR_SEED_LINE })
-            );
-        }
-
-        {
-            await radarOpen(h);
-            const shown = await radarMock(h, "results", "report");
-            const read = () =>
-                h.ev(`(() => {
-                    const root = ${RADAR_ROOT};
-                    if (!root) return null;
-                    return {
-                        text: (root.textContent ?? '').toLowerCase(),
-                        lens: !!root.querySelector('[aria-label="Lens"]'),
-                        evidenceTitles: [...root.querySelectorAll('[title]')]
-                            .map((el) => el.getAttribute('title'))
-                            .filter((t) => / evidence$/i.test(t)),
-                    };
-                })()`);
-            // an open finding's detail, then the one closed as Intentional, which used to read Suppressed
-            const views = [await read()];
-            const suppressed = await radarClick(h, '[data-radar-group="dismissed"] [data-radar-finding-row]:last-child');
-            await polishNap(300);
-            views.push(await read());
-            const found = RADAR_REMOVED_TEXT.filter((t) => views.some((v) => v?.text.includes(t.toLowerCase())));
-            const lens = views.some((v) => v?.lens);
-            const evidenceTitles = views.flatMap((v) => v?.evidenceTitles ?? []);
-            rec(
-                "10. nothing the Removed board marks is on the surface",
-                shown &&
-                    suppressed &&
-                    views.every((v) => v != null) &&
-                    found.length === 0 &&
-                    !lens &&
-                    evidenceTitles.length === 0,
-                JSON.stringify({ shown, suppressed, found, lens, evidenceTitles })
-            );
-        }
-
-        {
-            const shown = await radarMock(h, "carried", "report");
-            const f = await radarFacts(h);
-            rec(
-                "11. carried findings with nothing new to audit",
-                shown && f.rootText.includes("Nothing new to audit") && f.toggle == null && f.strip == null,
-                JSON.stringify({
-                    view: f?.view ?? null,
-                    metaLine: f?.rootText.includes("Nothing new to audit") ?? null,
-                    toggle: f?.toggle ?? null,
-                    strip: f?.strip ?? null,
-                    findings: f?.findingRows ?? null,
-                })
-            );
-        }
-
-        await radarMock(h, "results", "report");
-        await radarClick(h, '[data-radar-group="open"] [data-radar-finding-row]');
-        await polishWaitFor(h, radarHas("[data-radar-finding-detail]"), 3000);
-        steps.push(await floorStep(h, `12. no visible text on a report with a finding open is under ${MIN_FONT_PX}px`, RADAR_ROOT));
-        return steps;
-    },
-    async teardown(h, ctx) {
-        try {
-            await h.ev(`window.__setRadarScenario?.('live')`);
-            if ("priorScope" in ctx) {
-                await h.ev(
-                    ctx.priorScope == null
-                        ? `localStorage.removeItem(${JSON.stringify(RADAR_SCOPE_KEY)})`
-                        : `localStorage.setItem(${JSON.stringify(RADAR_SCOPE_KEY)}, ${JSON.stringify(ctx.priorScope)})`
-                );
-            }
-        } finally {
-            try {
-                if (ctx.reportId) await dropPeekItemsRadar(h, ctx.reportId);
-            } finally {
-                await polishReload(h);
-            }
-        }
-    },
-};
-
-const radarScanStates = {
-    name: "radar-scan-states",
-    surface: "radar",
-    async arrange() {
-        return {};
-    },
-    async assert(h) {
-        const steps = [];
-        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const hook = await radarOpen(h);
-        // draws the fixture, reads the surface and takes the step's shot
-        const draw = async (name, view, shot) => {
-            const shown = await radarMock(h, name, view);
-            const f = await radarFacts(h);
-            await h.shot(`cdp-shots/${shot}.png`);
-            return { shown: hook && shown && f != null, f };
-        };
-        const states = (f) => JSON.stringify(radarStates(f));
-        // the body copy, not a group heading, names the three kinds: the headings are capitalized
-        const NAMES_KINDS = ["fix commits", "behavior changes", "hot files"];
-        const groupsOk = (f) => JSON.stringify(radarGroupLabels(f?.auditGroups)) === JSON.stringify(RADAR_AUDIT_GROUPS);
-
-        {
-            const { shown, f } = await draw("scanning", "scanning", "radar-scanning");
-            const seen = radarStates(f);
-            const hot = f?.auditGroups.find((g) => g.kind === "hotspot")?.rows ?? [];
-            rec(
-                "1. a scan in progress lists each kind's targets as audited, auditing or queued, with hits",
-                shown &&
-                    seen.length === 12 &&
-                    ["queued", "running", "hits"].every((s) => seen.includes(s)) &&
-                    groupsOk(f) &&
-                    f.auditGroups.every((g) => g.rows.some((r) => r.state === "running")) &&
-                    // the two hot files share one revision: both rows, one sha
-                    hot.length === 2 &&
-                    hot[0].sha === hot[1].sha &&
-                    hasAll(f.bodyText, ["3 of 12 audited", "2 hits", ...NAMES_KINDS]) &&
-                    f.buttons.includes("Cancel scan"),
-                JSON.stringify({
-                    hook,
-                    view: f?.view ?? null,
-                    states: seen,
-                    groups: f?.auditGroups ?? null,
-                    buttons: f?.buttons ?? null,
-                    text: f?.bodyText.slice(0, 320) ?? null,
-                })
-            );
-        }
-        {
-            const { shown, f } = await draw("selecting", "scanning", "radar-selecting");
-            rec(
-                "2. selecting targets shows the scan panel with no rows",
-                shown && f.audits.length === 0 && f.bodyText.includes("selecting targets"),
-                `rows=${f?.audits.length ?? null} text="${f?.bodyText.slice(0, 200) ?? ""}"`
-            );
-        }
-        {
-            const { shown, f } = await draw("classifying", "scanning", "radar-classifying");
-            rec(
-                "3. classifying commits shows the scan panel with no rows",
-                shown && f.audits.length === 0 && f.bodyText.includes("classifying commits"),
-                `rows=${f?.audits.length ?? null} text="${f?.bodyText.slice(0, 200) ?? ""}"`
-            );
-        }
-        {
-            const { shown, f } = await draw("clean", "audits", "radar-clean");
-            rec(
-                "4. a clean scan says no bugs and lists the audits grouped by kind",
-                shown &&
-                    f.title === "No bugs found in 7 audits" &&
-                    f.audits.length === 7 &&
-                    f.audits.every((a) => a.state === "clean") &&
-                    groupsOk(f) &&
-                    f.bodyText.includes(RADAR_AUDIT_ONCE) &&
-                    f.strip == null &&
-                    f.project === "Scanned project: waveterm" &&
-                    f.rescan,
-                `title="${f?.title ?? ""}" states=${states(f)} groups=${JSON.stringify(radarGroupLabels(f?.auditGroups))} once=${f?.bodyText.includes(RADAR_AUDIT_ONCE) ?? null} strip=${f?.strip ?? null} project="${f?.project ?? ""}" rescan=${f?.rescan ?? null}`
-            );
-        }
-        {
-            const { shown, f } = await draw("failed", "audits", "radar-failed");
-            rec(
-                "5. a fully failed scan shows the strip and each audit's error",
-                shown &&
-                    f.strip != null &&
-                    f.retry === true &&
-                    f.audits.length > 0 &&
-                    f.audits.every((a) => a.state === "failed" && a.text.includes(RADAR_AUDIT_ERROR)),
-                `strip="${f?.strip ?? ""}" retryEnabled=${f?.retry ?? null} states=${states(f)} row="${f?.audits[0]?.text ?? ""}"`
-            );
-        }
-        {
-            const { shown, f } = await draw("no-commits", "audits", "radar-no-commits");
-            rec(
-                "6. nothing new to audit",
-                shown && f.title === "Nothing new to audit" && !f.auditList,
-                `title="${f?.title ?? ""}" auditList=${f?.auditList ?? null}`
-            );
-        }
-        {
-            const { shown, f } = await draw("fatal", "fatal", "radar-fatal");
-            rec(
-                "7. a fatal failure shows the error",
-                shown && f.bodyText.includes("not a readable git repository") && f.buttons.includes("Scan again"),
-                `title="${f?.title ?? ""}" text="${f?.bodyText.slice(0, 200) ?? ""}" buttons=${JSON.stringify(f?.buttons ?? null)}`
-            );
-        }
-        {
-            const { shown, f } = await draw("cancelled", "cancelled", "radar-cancelled");
-            rec("8. a cancelled scan", shown, `view=${f?.view ?? null} title="${f?.title ?? ""}"`);
-        }
-        {
-            const { shown, f } = await draw("old-format", "old-format", "radar-old-format");
-            rec(
-                "9. an old-format report asks for a re-scan",
-                shown &&
-                    f.title === "This report was written by an older Radar" &&
-                    f.buttons.includes("Re-scan") &&
-                    f.findingRows === 0,
-                `title="${f?.title ?? ""}" buttons=${JSON.stringify(f?.buttons ?? null)} findingRows=${f?.findingRows ?? null}`
-            );
-        }
-        {
-            const { shown, f } = await draw("never-scanned", "never-scanned", "radar-never-scanned");
-            rec(
-                "10. a project never scanned names the three kinds",
-                shown &&
-                    f.title.endsWith("hasn't been scanned") &&
-                    f.buttons.includes("Scan repository") &&
-                    hasAll(f.bodyText, NAMES_KINDS) &&
-                    !/collector/i.test(f.bodyText),
-                `title="${f?.title ?? ""}" buttons=${JSON.stringify(f?.buttons ?? null)} text="${f?.bodyText.slice(0, 240) ?? ""}"`
-            );
-        }
-        {
-            const { shown, f } = await draw("classify-failed", "report", "radar-classify-failed");
-            rec(
-                "11. a failed classification leaves a warning line with no Retry",
-                shown && f.classify?.text === RADAR_CLASSIFY_WARNING && f.classify.buttons === 0,
-                JSON.stringify({ view: f?.view ?? null, classify: f?.classify ?? null })
-            );
-        }
-        {
-            const { shown, f } = await draw("partial", "report", "radar-scan-partial");
-            rec(
-                "12. a partial scan's failed strip names the hot file by its path",
-                shown && hasAll(f.strip, [RADAR_HOT_FAILED, "Bugs they target may be missing."]) && f.classify == null,
-                JSON.stringify({ strip: f?.strip ?? null, classify: f?.classify ?? null })
-            );
-        }
-        return steps;
-    },
-    // the fixtures live in module state; a reload drops whatever one left drawn
-    async teardown(h) {
-        try {
-            await h.ev(`window.__setRadarScenario?.('live')`);
-        } finally {
-            await polishReload(h);
-        }
-    },
-};
-
 // --- canvas mode swaps with the terminal, which stays mounted ----------------------------------------
 // final-verify boots a fresh store with no agents, so the scenario opens its own plain terminal tab the way
 // launchAgent does (CreateTab, then the terminal meta) and reveals a temp canvas as that terminal's. CreateTab is
@@ -21673,32 +20684,14 @@ const codeTreeOnArrival = {
     },
 };
 
-// --- settings-radar-audit: the Radar audit route row in Settings > Headless AI ------------------------
-// The row's picker offers claude and pi only (an audit session needs tools) and writes radar:auditruntime
-// and radar:auditmodel; its classifier field writes radar:classifymodel. The picker panel is portalled to
-// the body, so its options are scoped to the panel and everything else to the section pane.
-const RADAR_AUDIT_KEYS = ["radar:auditruntime", "radar:auditmodel", "radar:classifymodel"];
-const RADAR_AUDIT_PANE = `document.querySelector('[data-settings-section="headless"]')`;
-const RADAR_AUDIT_ROW = `${RADAR_AUDIT_PANE}?.querySelector('[data-setting-row="headless.radaraudit"]')`;
-const RADAR_AUDIT_TRIGGER = `${RADAR_AUDIT_ROW}?.querySelector('[data-testid="route-picker"]')`;
-const RADAR_AUDIT_PANEL = `document.querySelector('[aria-label="Available routes"]')`;
-// a cold app is still enumerating the installed CLIs' models when the picker opens, so the panel has no chip
-// or row until ListHarnessesCommand answers; twice its client timeout (CATALOG_RPC_TIMEOUT_MS, harnessstore.ts)
-const RADAR_AUDIT_CATALOG_WAIT_MS = 60_000;
-const RADAR_AUDIT_CATALOG_UP = `${RADAR_AUDIT_PANEL}?.querySelector('[data-testid^="route-harness-"], [data-testid^="route-option-"]') != null`;
-const RADAR_CLASSIFY_INPUT = `${RADAR_AUDIT_ROW}?.querySelector('input[type="text"]')`;
-const radarAuditFace = (h) => h.ev(`(${RADAR_AUDIT_TRIGGER}?.textContent || "").trim()`);
-const radarClassifyField = (h) =>
-    h.ev(`(() => { const i = ${RADAR_CLASSIFY_INPUT}; return i ? { value: i.value, placeholder: i.placeholder } : null; })()`);
+// --- settings-headless: Settings > Headless AI has no Radar audit row and no Mid model row ------------------
+const HEADLESS_PANE = `document.querySelector('[data-settings-section="headless"]')`;
 
-const settingsRadarAudit = {
-    name: "settings-radar-audit",
+const settingsHeadless = {
+    name: "settings-headless",
     surface: "settings",
-    async arrange(h) {
-        const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
-        const prev = Object.fromEntries(RADAR_AUDIT_KEYS.map((k) => [k, settings[k] ?? null]));
-        await h.rpc("setconfig", Object.fromEntries(RADAR_AUDIT_KEYS.map((k) => [k, null])));
-        return { prev };
+    async arrange() {
+        return {};
     },
     async assert(h) {
         const steps = [];
@@ -21706,105 +20699,21 @@ const settingsRadarAudit = {
 
         await h.goto("settings");
         await h.ev(`document.querySelector('[data-section="headless"]')?.click()`);
-        const paneUp = await polishWaitFor(h, `${RADAR_AUDIT_PANE} != null`, 5000);
+        const paneUp = await polishWaitFor(h, `${HEADLESS_PANE} != null`, 5000);
         rec("1. Settings opens on the Headless AI section", paneUp, `pane=${paneUp}`);
 
-        await polishWaitFor(h, `(${RADAR_AUDIT_TRIGGER}?.textContent || "").includes("sonnet")`, 5000);
-        const title = await h.ev(`(${RADAR_AUDIT_ROW}?.textContent || "").includes("Radar audit")`);
-        const unsetFace = await radarAuditFace(h);
-        rec(
-            "2. the Radar audit row shows claude on sonnet when both keys are unset",
-            title === true && /claude/i.test(unsetFace) && unsetFace.includes("sonnet"),
-            `row=${title} face="${unsetFace}"`
-        );
-        const unsetClassify = await radarClassifyField(h);
-        rec(
-            "3. the classifier field reads haiku when radar:classifymodel is unset on claude",
-            unsetClassify?.value === "" && unsetClassify?.placeholder === "haiku",
-            JSON.stringify(unsetClassify)
-        );
-        await h.ev(`${RADAR_AUDIT_ROW}?.scrollIntoView({ block: "center" })`);
-        await polishNap(200);
-        await h.shot("cdp-shots/settings-radar-audit-closed.png");
-
-        await h.ev(`${RADAR_AUDIT_TRIGGER}?.click()`);
-        const catalogStart = Date.now();
-        const catalogUp = await polishWaitFor(h, RADAR_AUDIT_CATALOG_UP, RADAR_AUDIT_CATALOG_WAIT_MS);
-        const catalogMs = Date.now() - catalogStart;
-        // "Loading models…" or "No run routes available.": tells a catalog that never answered from a slow one
-        const emptyText = catalogUp
-            ? ""
-            : await h.ev(`(${RADAR_AUDIT_PANEL}?.querySelector('[data-testid="route-picker-scroll"]')?.textContent || "").trim()`);
-        // the harness chips name every runtime the picker offers; the rows only the scoped one
-        const offered = await h.ev(`(() => {
-            const panel = ${RADAR_AUDIT_PANEL};
-            if (!panel) return null;
-            return [...panel.querySelectorAll('[data-testid^="route-harness-"]')]
-                .map((c) => c.getAttribute("data-testid").slice("route-harness-".length))
-                .filter((r) => r !== "all")
-                .sort();
+        const radar = await h.ev(`(() => {
+            const pane = ${HEADLESS_PANE};
+            if (!pane) return null;
+            return {
+                row: pane.querySelector('[data-setting-row="headless.radaraudit"]') != null,
+                text: /radar/i.test(pane.textContent || ""),
+            };
         })()`);
-        rec(
-            "4. the picker offers claude and pi and no other runtime",
-            JSON.stringify(offered) === JSON.stringify(["claude", "pi"]),
-            catalogUp
-                ? `offered=${JSON.stringify(offered)} catalog=${catalogMs}ms`
-                : `offered=${JSON.stringify(offered)} no routes after ${catalogMs}ms, panel reads "${emptyText}"`
-        );
-        await h.shot("cdp-shots/settings-radar-audit-open.png");
-
-        await h.ev(`${RADAR_AUDIT_PANEL}?.querySelector('[data-testid="route-harness-pi"]')?.click()`);
-        await polishWaitFor(h, `${RADAR_AUDIT_PANEL}?.querySelector('[data-testid^="route-option-pi-"]') != null`, 3000);
-        const picked = await h.ev(`(() => {
-            const row = ${RADAR_AUDIT_PANEL}?.querySelector('[data-testid^="route-option-pi-"]');
-            if (!row) return null;
-            row.click();
-            return row.getAttribute("data-testid").slice("route-option-pi-".length);
-        })()`);
-        let stored = {};
-        for (let waited = 0; waited < 5000 && stored["radar:auditruntime"] !== "pi"; waited += 250) {
-            await polishNap(250);
-            stored = (await h.rpc("getfullconfig", null))?.settings ?? {};
-        }
-        await polishWaitFor(h, `(${RADAR_AUDIT_TRIGGER}?.textContent || "").includes(${JSON.stringify(picked ?? "\u0000")})`, 5000);
-        const piFace = await radarAuditFace(h);
-        rec(
-            "5. picking a pi route stores radar:auditruntime as pi and the row shows it",
-            picked != null &&
-                stored["radar:auditruntime"] === "pi" &&
-                stored["radar:auditmodel"] === picked &&
-                /^pi\b/i.test(piFace) &&
-                piFace.includes(picked),
-            `picked=${picked} runtime=${stored["radar:auditruntime"]} model=${stored["radar:auditmodel"]} face="${piFace}"`
-        );
-
-        await polishWaitFor(h, `${RADAR_CLASSIFY_INPUT}?.placeholder === "pi default"`, 3000);
-        const piClassify = await radarClassifyField(h);
-        const typed = "opencode/deepseek-v4-flash";
-        await h.ev(`(() => {
-            const i = ${RADAR_CLASSIFY_INPUT};
-            if (!i) return;
-            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(i, ${JSON.stringify(typed)});
-            i.dispatchEvent(new Event("input", { bubbles: true }));
-        })()`);
-        // Enter, not blur: the WebView rarely has OS focus under CDP, so focus()/blur() fire no events
-        await h.ev(`${RADAR_CLASSIFY_INPUT}?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
-        let classifyStored;
-        for (let waited = 0; waited < 5000 && classifyStored !== typed; waited += 250) {
-            await polishNap(250);
-            classifyStored = ((await h.rpc("getfullconfig", null))?.settings ?? {})["radar:classifymodel"];
-        }
-        await h.ev(`${RADAR_AUDIT_ROW}?.scrollIntoView({ block: "center" })`);
-        await polishNap(200);
-        await h.shot("cdp-shots/settings-radar-audit-classifier.png");
-        rec(
-            "6. on pi the classifier field reads pi default, and a typed model is stored as radar:classifymodel",
-            piClassify?.placeholder === "pi default" && classifyStored === typed,
-            `field=${JSON.stringify(piClassify)} stored=${classifyStored}`
-        );
+        rec("2. the section has no Radar audit row and no mention of Radar", radar != null && radar.row === false && radar.text === false, JSON.stringify(radar));
 
         const mid = await h.ev(`(() => {
-            const pane = ${RADAR_AUDIT_PANE};
+            const pane = ${HEADLESS_PANE};
             if (!pane) return null;
             return {
                 row: pane.querySelector('[data-setting-row="headless.mid"]') != null,
@@ -21813,14 +20722,14 @@ const settingsRadarAudit = {
             };
         })()`);
         rec(
-            "7. the section has no Mid model row",
+            "3. the section has no Mid model row and still lists headless.cheap",
             mid != null && mid.row === false && mid.text === false && mid.rows.includes("headless.cheap"),
             JSON.stringify(mid)
         );
+        await h.shot("cdp-shots/settings-headless.png");
         return steps;
     },
-    async teardown(h, ctx) {
-        await h.rpc("setconfig", ctx.prev);
+    async teardown(h) {
         await h.goto("cockpit");
     },
 };
@@ -23290,10 +22199,10 @@ const resmonStates = {
 // --- surface headers: one shared toolbar on every surface but Agent ------------------------------
 // Each surface's SurfaceToolbar measured against the prototype canvas (Main.dc.html) at its main board
 // size. Final runs this on a fresh, empty store, so arrange makes everything a step reads: a git repo at
-// a long path registered as one project (Diff, Code's path fact, Radar), a fixture roster (Cockpit, the
-// Sessions live fact, the Jarvis chip), a radar report, and a saved Claude rate-limit snapshot (Usage).
+// a long path registered as one project (Diff, Code's path fact), a fixture roster (Cockpit, the
+// Sessions live fact, the Jarvis chip), and a saved Claude rate-limit snapshot (Usage).
 const SURFACE_HEADERS_PROJECT = "verify-surface-headers";
-const SURFACE_HEADERS_ORDER = ["cockpit", "jarvis", "code", "files", "sessions", "radar", "usage", "settings", "setup"];
+const SURFACE_HEADERS_ORDER = ["cockpit", "jarvis", "code", "files", "sessions", "usage", "settings", "setup"];
 const SURFACE_HEADERS_WIDE = { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false };
 const SURFACE_HEADERS_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
 const SURFACE_HEADERS_MIN_PATH = 120;
@@ -23420,19 +22329,6 @@ async function surfaceHeadersArrange(h) {
             )
         );
         ctx.wroteFixture = true;
-
-        // landing on the seeded report needs Radar scoped to its project. A scan stores its path slashed
-        // (reporadar.canonPath) and the list matches it exactly, so the seed does the same
-        ctx.priorScope = await h.ev(`localStorage.getItem(${JSON.stringify(RADAR_SCOPE_KEY)})`);
-        await h.ev(`localStorage.setItem(${JSON.stringify(RADAR_SCOPE_KEY)}, ${JSON.stringify(JSON.stringify(ctx.name))})`);
-        ctx.reportId = await seedRadarReport(h, (oid) =>
-            radarFixtureReport(oid, ctx.name, dir.replaceAll("\\", "/"), Date.now(), {
-                id: "f-surface-headers",
-                risk: "Surface-headers fixture: the budget loop outlives a cancelled context",
-                file: "pkg/retry/policy.go",
-                lines: [3, 4],
-            })
-        );
 
         // the canvas's UsageBody: one reporting Claude provider with a live 5-hour window
         ctx.prevRate = await h.ev(`localStorage.getItem(${JSON.stringify(RATE_LIMITS_KEY)})`);
@@ -23645,20 +22541,6 @@ async function surfaceHeadersAssert(h, ctx) {
         };
     });
 
-    await run("radar audits popover not clipped", async () => {
-        await h.goto("radar");
-        await waitOrThrow(`document.querySelector('[data-radar-audits-toggle]')`, 10000, "the seeded report's audits toggle");
-        await click("[data-radar-audits-toggle]");
-        const popover = `document.querySelector('[data-radar-audits-popover]')`;
-        await waitOrThrow(popover, 3000, "the audits popover");
-        await polishNap(400);
-        const r = await h.ev(notClipped(popover));
-        await h.shot("cdp-shots/surface-headers-radar-audits.png");
-        await click("[data-radar-audits-toggle]");
-        const closed = await polishWaitFor(h, `!(${popover})`, 3000);
-        return { ok: r != null && r.hits.every(Boolean) && closed, detail: JSON.stringify({ ...r, closed }) };
-    });
-
     await run("files compare at 1000px", async () => {
         await h.cdp("Emulation.setDeviceMetricsOverride", SURFACE_HEADERS_NARROW);
         await polishNap(600);
@@ -23713,17 +22595,6 @@ async function surfaceHeadersAssert(h, ctx) {
 async function surfaceHeadersTeardown(h, ctx) {
     const undo = [
         ["clear the viewport override", () => h.cdp("Emulation.clearDeviceMetricsOverride")],
-        ["delete the radar report", () => ctx.reportId && dropPeekItemsRadar(h, ctx.reportId)],
-        [
-            "restore the radar scope",
-            () =>
-                "priorScope" in ctx &&
-                h.ev(
-                    ctx.priorScope == null
-                        ? `localStorage.removeItem(${JSON.stringify(RADAR_SCOPE_KEY)})`
-                        : `localStorage.setItem(${JSON.stringify(RADAR_SCOPE_KEY)}, ${JSON.stringify(ctx.priorScope)})`
-                ),
-        ],
         [
             "restore the saved rate limits",
             () =>
@@ -25127,99 +23998,6 @@ const taskDetail = {
     },
 };
 
-// AmbientTags and RelevantDecisions on a Radar finding: radardevmock's investigated finding "c" inherits the
-// attribution of its run, which a stub of the app's own ResolveAmbientCommand supplies at each confidence step
-const LOOK_AMBIENT_FINDING = "c";
-const LOOK_AMBIENT_RUN = "run:7c1e02aa";
-// over the 30s budget ambientstore gives a real read
-const LOOK_AMBIENT_WAIT_MS = 40_000;
-const LOOK_AMBIENT = {
-    tasks: [
-        { id: "look-modal-escape", label: "modal-escape" },
-        { id: "look-keyboard-ops", label: "keyboard-ops" },
-        { id: "look-radar-polish", label: "radar-polish" },
-    ],
-    edges: [
-        { oref: LOOK_AMBIENT_RUN, dossierid: "look-modal-escape", provenance: "engine", bucket: "strong", state: "confirmed" },
-        { oref: LOOK_AMBIENT_RUN, dossierid: "look-keyboard-ops", provenance: "engine", bucket: "medium", state: "informing" },
-        { oref: LOOK_AMBIENT_RUN, dossierid: "look-radar-polish", provenance: "engine", bucket: "weak", state: "informing" },
-    ],
-    decisions: [
-        { dossierid: "look-modal-escape", id: "look-d1", title: "Back-home stays off under any open ModalShell", ageMs: 3 * 24 * 3600_000 },
-        { dossierid: "look-keyboard-ops", id: "look-d2", title: "Escape closes the innermost popover first", ageMs: 5 * 3600_000 },
-    ],
-};
-
-const ambientTags = {
-    name: "ambient-tags",
-    surface: "radar",
-    async arrange() {
-        return {};
-    },
-    async assert(h) {
-        const step = "a finding whose run is attributed shows its task tags by confidence and the relevant past decisions";
-        await lookOpen(h, "radar");
-        if (!(await radarOpen(h))) return [{ step, ok: false, detail: "no radar dev fixtures hook" }];
-        const shown = await radarMock(h, "results", "report");
-        await lookEval(h, `
-            const { RpcApi } = await mod("app/store/wshclientapi.ts");
-            const data = ${JSON.stringify(LOOK_AMBIENT)};
-            const now = Date.now();
-            RpcApi.ResolveAmbientCommand = async () => ({ ...data, decisions: data.decisions.map(({ ageMs, ...d }) => ({ ...d, created: now - ageMs })) });
-            document.querySelector('[data-radar-finding-row="${LOOK_AMBIENT_FINDING}"]')?.click();
-        `);
-        // a reload asks for the real read, and a re-read asked for while one is in flight is dropped, so it is asked
-        // again until the stub's answer is the one drawn
-        const detail = `document.querySelector('[data-radar-finding-detail="${LOOK_AMBIENT_FINDING}"]')`;
-        let ok = false;
-        for (const t0 = Date.now(); !ok && Date.now() - t0 < LOOK_AMBIENT_WAIT_MS; ) {
-            ok = await lookEval(h, `
-                (await mod("app/view/agents/ambientstore.ts")).reloadAmbient();
-                return until(() => /Relevant past decisions/.test(flat(${detail})), 1000);
-            `);
-        }
-        await polishNap(400);
-        const patched = await lookEval(h, `
-            const text = flat(${detail}).toLowerCase();
-            return { ok: ${ok}, tags: ${JSON.stringify(LOOK_AMBIENT.tasks.map((t) => t.label))}.filter((l) => text.includes(l)) };
-        `);
-        await h.shot(lookShot("ambient-tags"));
-        // a tag is a button into its record: the fixture's dossiers are not in the vault, so the router either
-        // lands or says why in a toast naming the record, and never does nothing
-        const opened = await lookEval(h, `
-            const chips = [...(${detail}?.querySelectorAll("button") ?? [])].filter((b) => /open the record/.test(b.title));
-            const sizes = [...new Set(chips.map((b) => getComputedStyle(b).fontSize))];
-            const eyebrow = [...(${detail}?.querySelectorAll("div") ?? [])].find((d) => flat(d) === "Relevant past decisions");
-            const surface = () =>
-                [...document.querySelectorAll("nav button")].find((x) => (x.className || "").includes("text-accent-soft"))?.getAttribute("aria-label") ?? null;
-            const before = surface();
-            chips[0]?.click();
-            const reacted = await until(
-                () => surface() !== before || [...document.querySelectorAll("[data-notification-toast]")].some((t) => /record/i.test(t.textContent)),
-                3000
-            );
-            return { chips: chips.length, sizes, eyebrow: eyebrow ? getComputedStyle(eyebrow).fontSize : null, reacted };
-        `);
-        return [
-            { step, ok: shown && patched.ok && patched.tags.length === LOOK_AMBIENT.tasks.length, detail: JSON.stringify({ shown, ...patched }) },
-            {
-                step: "tag chips and the eyebrow sit at the 10.5px floor, and a tag opens its record",
-                ok: opened.chips > 0 && opened.sizes.length === 1 && opened.sizes[0] === "10.5px" && opened.eyebrow === "10.5px" && opened.reacted === true,
-                detail: JSON.stringify(opened),
-            },
-        ];
-    },
-    async teardown(h) {
-        await lookEval(h, `
-            const { RpcApi } = await mod("app/store/wshclientapi.ts");
-            delete RpcApi.ResolveAmbientCommand;
-            (await mod("app/view/agents/ambientstore.ts")).reloadAmbient();
-            window.__setRadarScenario?.("live");
-        `);
-        await h.goto("cockpit");
-    },
-};
-
 // AgentComposer on the mixed fixture roster: the parked idle list's row composer (janitor), and a working card's
 // composer expanded from its slim row (waveterm)
 const LOOK_COMPOSER_IDLE = "janitor";
@@ -25706,7 +24484,7 @@ const codeStaleBarLook = {
 
 // --- ui-drift: what the drift pass changed that no other scenario reaches -------------------------------------------
 // the UI drift polish (c98ebe7c). A view no app path shows on a fresh store is rendered through
-// the app's own module (LOOK_LIB's mount) with made-up props; the Radar menus open on radardevmock's fixtures, and the
+// the app's own module (LOOK_LIB's mount) with made-up props; the
 // brief toast shows on the Brief through its own atom.
 const DRIFT_PLAN = ["# Drift plan", "", "Raise every label to the floor.", "", "### Task 1: Raise the floor", "", "- swap the glyphs", "- grow the pills", ""].join("\n");
 const DRIFT_ASK = {
@@ -25844,7 +24622,7 @@ const uiDrift = {
         const dir = mkdtempSync(join(tmpdir(), "verify-ui-drift-"));
         const planPath = join(dir, "drift-plan.md");
         writeFileSync(planPath, DRIFT_PLAN);
-        return { dir, planPath, priorScope: await h.ev(`localStorage.getItem(${JSON.stringify(RADAR_SCOPE_KEY)})`) };
+        return { dir, planPath };
     },
     async assert(h, ctx) {
         const steps = [];
@@ -26015,7 +24793,7 @@ const uiDrift = {
                 const { attentionAtom } = await mod("app/view/agents/attentionstore.ts");
                 const store = J.createStore();
                 const items = (n, extra) => Array.from({ length: n }, (_, i) => ({ id: "drift-" + JSON.stringify(extra) + i, kind: "ask", ...extra }));
-                store.set(attentionAtom, [...items(${DRIFT_BADGE}, {}), ...items(${DRIFT_BADGE}, { channelid: "drift" }), ...items(3, { kind: "radar-triage" })]);
+                store.set(attentionAtom, [...items(${DRIFT_BADGE}, {}), ...items(${DRIFT_BADGE}, { channelid: "drift" })]);
                 const host = await mount("app/view/agents/navrail.tsx", "NavRail", { model: { surfaceAtom: J.atom("cockpit") } }, { store, style: "left:300px;top:40px;height:860px;padding:0;display:flex" });
                 const nav = host.querySelector("nav");
                 const labels = [...nav.querySelectorAll("button")].map((b) => [...b.children].find((c) => c.tagName === "SPAN" && !c.classList.contains("absolute") && c.querySelector("svg") == null)).filter(Boolean);
@@ -26036,7 +24814,7 @@ const uiDrift = {
                 step: "the 78px nav rail keeps every label on one line, fits a two-digit count in its pill and passes the floor",
                 ok:
                     s.width === "78px" &&
-                    s.lines.length === 10 &&
+                    s.lines.length === 9 &&
                     s.lines.every((l) => l.height <= l.line + 0.5) &&
                     twoDigit.length === 2 &&
                     s.badges.every((b) => b.scroll <= b.client) &&
@@ -26143,27 +24921,6 @@ const uiDrift = {
         });
 
         // Escape closes each hand-rolled menu onto its trigger, and only the menu
-        const shown = (await radarOpen(h)) && (await radarMock(h, "results", "report"));
-        if (!shown) {
-            steps.push({ step: "the radar's results fixture draws its report", ok: false, detail: "no report view" });
-        } else {
-            await run("scope", () =>
-                driftEscape(h, "Escape closes Radar's project scope menu and focuses its trigger", `${RADAR_ROOT}?.querySelector('button[aria-label^="Scanned project"], button[aria-label="Select a project to scan"]')`)
-            );
-            await run("audits", () =>
-                driftEscape(h, "Escape closes Radar's audited-commits popover and focuses its toggle", `${RADAR_ROOT}?.querySelector("[data-radar-audits-toggle]")`)
-            );
-            await radarClick(h, '[data-radar-group="open"] [data-radar-finding-row]');
-            await polishWaitFor(h, radarHas("[data-radar-finding-detail]"), 3000);
-            await run("dismiss", () =>
-                driftEscape(
-                    h,
-                    "Escape closes a finding's Dismiss menu and focuses its button",
-                    `[...(${RADAR_ROOT}?.querySelectorAll("[data-radar-finding-detail] button") ?? [])].find((b) => (b.textContent || "").trim() === "Dismiss")`
-                )
-            );
-            await run("switcher radar", () => driftEscape(h, "Escape closes the project switcher on Radar and focuses it, staying on Radar", DRIFT_SWITCHER));
-        }
         await h.goto("agent");
         await run("switcher agent", () => driftEscape(h, "Escape closes the project switcher on Agent and focuses it, staying on Agent", DRIFT_SWITCHER));
         return steps;
@@ -26172,12 +24929,6 @@ const uiDrift = {
         try {
             await lookHover(h, 1, 1);
             await lookEval(h, `unmountAll();`);
-            await h.ev(`window.__setRadarScenario?.('live')`);
-            await h.ev(
-                ctx.priorScope == null
-                    ? `localStorage.removeItem(${JSON.stringify(RADAR_SCOPE_KEY)})`
-                    : `localStorage.setItem(${JSON.stringify(RADAR_SCOPE_KEY)}, ${JSON.stringify(ctx.priorScope)})`
-            );
         } finally {
             rmSync(ctx.dir, { recursive: true, force: true });
             await h.goto("cockpit");
@@ -26303,7 +25054,7 @@ export const SCENARIOS = [
     dagLifecycle,
     routePickerFlat,
     routePickerRefused,
-    settingsRadarAudit,
+    settingsHeadless,
     settingsVaultSync,
     settingsClaudeAccount,
     settingsStorage,
@@ -26312,9 +25063,6 @@ export const SCENARIOS = [
     briefDesignParity,
     briefInlineTracker,
     resourceLinking,
-    radarStartInvestigation,
-    radarReport,
-    radarScanStates,
     uiApi,
     motionGaps,
     narrationFeed,
@@ -26376,7 +25124,6 @@ export const SCENARIOS = [
     termLinkTooltip,
     titleTooltip,
     taskDetail,
-    ambientTags,
     runSheetDoneLook,
     runSheetLegacyLook,
     runSheetCardsLook,
