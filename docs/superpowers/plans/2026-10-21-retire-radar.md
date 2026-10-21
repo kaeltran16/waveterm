@@ -4,7 +4,7 @@ Date: 2026-10-21. Decision: retire the Radar surface and everything behind it.
 
 **Verify:** `node scripts/verify.mjs ./pkg/jarvis ./pkg/jarvisbackfill ./pkg/jarvisdossier ./pkg/waveobj ./pkg/wstore ./pkg/wconfig ./pkg/wshrpc/... ./cmd/...`
 **Check:** `go build ./... && go vet ./pkg/jarvis ./pkg/jarvisbackfill ./pkg/waveobj ./pkg/wstore ./pkg/wshrpc/... ./cmd/... && task check:ts`
-**Final:** `node scripts/cdp/final-verify.mjs surface-smoke surface-headers peek-item-views resource-linking ui-drift dag-peek`
+**Final:** `node scripts/cdp/final-verify.mjs surface-smoke surface-headers peek-item-views resource-linking ui-drift dag-peek settings-headless route-picker-flat brief-surface`
 
 ## Why
 
@@ -30,8 +30,11 @@ Measured 2026-10-21 against the packaged store (`%LOCALAPPDATA%\dev.arc.app\data
 
 ## Ordering
 
-Task 1 (frontend) must land before Task 2 regenerates the TS types, or `task check:ts` breaks on the removed
-Radar types. Task 3 (CDP scenarios and docs) touches neither and runs beside Task 1.
+Task 1 (frontend), Task 2 (Go) and Task 3 (CDP scenarios and docs) touch no shared file and run side by side.
+Task 4 regenerates the bindings once Tasks 1 and 2 have landed: regenerating earlier drops TS types the frontend
+still reads, and `task check:ts` breaks. Until Task 4, the generated TS files keep their Radar types, which is
+harmless (a superset). The running-app checks of every task are judged by Final after the merge, since the
+scenario edits (Task 3) and the UI changes (Task 1) land on separate branches.
 
 ### Task 1: Remove Radar from the frontend
 **Depends on:** none
@@ -42,7 +45,7 @@ radarmodel, radarnav, radarscanstatepanel, radarstore, radarstoreload, radarstyl
 `frontend/app/view/jarvis/peek/peekradar.tsx`, `peekradarmodel.ts`.
 
 Then cut every caller. Grep `radar` (case-insensitive) under `frontend/` after each step; when this task is done
-the only hits left are `frontend/types/gotypes.d.ts`, `frontend/app/store/wshclientapi.ts` (Task 2 regenerates
+the only hits left are `frontend/types/gotypes.d.ts`, `frontend/app/store/wshclientapi.ts` (Task 4 regenerates
 them) and `storagefixtures.ts` fixture text.
 
 - **Surface:** drop `"radar"` from `SurfaceKey` and `SURFACE_ORDER` (`agents.tsx`), the nav entry, `Radar` icon
@@ -71,11 +74,21 @@ them) and `storagefixtures.ts` fixture text.
   `codestore.ts`, `graphpeek.tsx`.
 
 Verify: `npx vitest run` and `task check:ts` (2+ minute timeout) both clean; `npx eslint` and
-`npx prettier --check` on the touched files only. UI: the nav rail no longer shows Radar, which `surface-smoke`
-shows; the Brief and attention badges are covered by `ui-drift` (Task 3 edits both).
+`npx prettier --check` on the touched files only. Do not try the CDP scenarios in this task: they still name
+Radar until Task 3 merges. Final judges the UI after the merge, at these steps (Task 3 adds them):
+
+- nav rail without Radar, and its labels matching `SURFACE_ORDER`: `surface-smoke` "nav rail lists no Radar";
+- `Ctrl+7` lands on the last surface and `g r` does nothing: `surface-smoke` "Ctrl+7" and "g r" steps;
+- Settings > Headless AI without the Radar audit row or blurb clause: `settings-headless` steps 1-3;
+- the route picker without the `runtimes` prop: `route-picker-flat` (unchanged scenario, now in Final);
+- the Brief draws its non-radar attention rows: `brief-surface` and `ui-drift` (radar-triage items removed).
+  A radar-triage row can no longer be produced once Task 2 lands, so its absence is covered by the
+  `briefingmodel` unit tests, not a scenario.
 
 ### Task 2: Remove Radar from the backend
-**Depends on:** Task 1
+**Depends on:** none
+
+Go only: touch no file under `frontend/` and do not run `task generate` (Task 4 does).
 
 - Delete `pkg/reporadar/`, `pkg/wshrpc/wshrpctypes_radar.go`, `pkg/wshrpc/wshserver/wshserver_radar.go`,
   `pkg/wstore/wstore_radarreport.go` and `_test.go`, `pkg/jarvis/attention_radar_test.go`.
@@ -106,22 +119,38 @@ shows; the Brief and attention badges are covered by `ui-drift` (Task 3 edits bo
   "sub-object to land on (a record's section)".
 - Comments only: `pkg/agentobserve/entrypoint.go`, `pkg/wavebase/wavebase.go`, `pkg/memhygiene/model.go`,
   `pkg/wstore/wstore_channel.go`, `pkg/wstore/wstore_maintest_test.go`.
-- `task generate`, then confirm `git grep -i radar -- frontend/types frontend/app/store pkg/wshrpc/wshclient
-  pkg/wconfig/metaconsts.go` is empty. Never hand-edit the generated files.
+- Generated `pkg/wshrpc/wshclient/wshclient.go` still calls the deleted `Radar*` commands, so nothing compiles
+  until they go, and `task generate` cannot run to remove them (its generators import `wshclient`). The one
+  sanctioned exception to "never hand-edit generated files": delete the Radar functions from `wshclient.go` by
+  hand. Task 4 regenerates it. Leave the other generated files (`metaconsts.go`'s unused `ConfigKey_Radar*`
+  strings, the TS files) to Task 4.
 
-Verify: `go build ./...`, `node scripts/verify.mjs` on the packages above, `task check:ts` clean, and
-`git grep -i -l radar -- pkg cmd` lists only `pkg/jarvisdossier/decision_test.go` and the
-`cmd/wsh/cmd/claude-mod` copy (Task 3 resyncs it).
+Verify: `go build ./...`, `go vet` on the packages above, `node scripts/verify.mjs` on them, and
+`git grep -i -l radar -- pkg cmd ':!cmd/wsh/cmd/claude-mod' ':!pkg/wconfig/metaconsts.go'` lists only
+`pkg/jarvisdossier/decision_test.go`.
 
 ### Task 3: CDP scenarios and docs
 **Depends on:** none
 
 `scripts/cdp/scenarios.mjs` (grep `radar` case-insensitive; every hit must go or be reworded):
 
-- Delete the scenarios `radar-start-investigation`, `radar-report`, `radar-scan-states`,
-  `settings-radar-audit` and `ambient-tags` (its only subject is a Radar finding; AmbientTags on runs is
-  covered elsewhere), and their entries in the exported list.
-- `SMOKE_SURFACES`: drop `"radar"`.
+- Delete the scenarios `radar-start-investigation`, `radar-report`, `radar-scan-states` and `ambient-tags` (its
+  only subject is a Radar finding; AmbientTags on runs is covered elsewhere), and their entries in the exported
+  list.
+- Turn `settings-radar-audit` into `settings-headless` (rename it in the exported list too): no arrange or
+  teardown of the `radar:*` keys. Steps: 1. Settings opens on the Headless AI section (keep the current step 1);
+  2. the section has no `[data-setting-row="headless.radaraudit"]` and its text has no "Radar"; 3. the section
+  has no Mid model row and still lists `headless.cheap` (the current step 7); then a shot
+  `cdp-shots/settings-headless.png`. Drop the other steps; rename the `RADAR_AUDIT_PANE` constant it keeps and
+  delete the rest of the `RADAR_AUDIT_*` helpers.
+- `SMOKE_SURFACES`: drop `"radar"`. Add three `surface-smoke` steps after the per-surface loop:
+  - "nav rail lists no Radar": the nav buttons' labels include no "Radar" and their count equals the number
+    of surfaces in `SURFACE_ORDER` that have a nav button (read the rail, compare with `SURFACE_LABEL`);
+  - "Ctrl+7 lands on the last surface": from `cockpit`, dispatch Ctrl+7 the way the scenarios already send
+    Ctrl+P (`document.dispatchEvent(new KeyboardEvent('keydown', { key: '7', code: 'Digit7', ctrlKey: true,
+    bubbles: true }))`) and assert the active nav label is the last `SURFACE_ORDER` entry's label;
+  - "g r does nothing": from `cockpit`, dispatch `g` then `r` the same way and assert the surface is still
+    `cockpit` and the which-key overlay, if it opened on `g`, lists no Radar. Close it with Escape.
 - `peek-item-views`: drop the radar seed (`seedPeekItemsRadar`), steps 4 and 5 and the teardown step; renumber.
 - `resource-linking`: drop steps 5 and 6 (the `radarreport:` landings) and the report lookup in arrange.
 - `surface-headers` (arranged around line 23296): drop `"radar"` from `SURFACE_HEADERS_ORDER`, the report
@@ -146,5 +175,22 @@ Docs and skills:
   wanted again; prefer a post-`fix:` agent step over a surface), and recovery
   `git show b6fa1229:<path>` for `pkg/reporadar/`, the frontend `radar*` files, and the audit prompts in
   `pkg/reporadar/audit.go` / `kinds.go`. Keep the existing `78fe087a` collector recovery line inside it.
-- Delete `docs/superpowers/plans/2026-10-06-radar-fix-sibling-audit.md` (shipped plan) and, once this ships,
-  this plan.
+- Delete `docs/superpowers/plans/2026-10-06-radar-fix-sibling-audit.md` (shipped plan). Do not delete this
+  plan; it is removed after the run lands.
+
+Verify: `node --check scripts/cdp/scenarios.mjs` and `node --check scripts/cdp/attach.mjs`. The scenarios
+cannot pass on this branch alone (the Radar UI is still there until Task 1 merges); Final runs them.
+
+### Task 4: Regenerate bindings
+**Depends on:** Task 1, Task 2
+
+Task 2 removed the Go types and Task 1 the frontend reads of them; this regenerates the bindings both depend on.
+
+- `task generate`. It rewrites `frontend/types/gotypes.d.ts`, `frontend/app/store/wshclientapi.ts`,
+  `pkg/wshrpc/wshclient/wshclient.go` and `pkg/wconfig/metaconsts.go`; never hand-edit them.
+- `git grep -i radar -- frontend/types frontend/app/store pkg/wshrpc/wshclient pkg/wconfig/metaconsts.go`
+  must be empty.
+
+Verify: `go build ./...`, `task check:ts` (2+ minute timeout) and `npx vitest run` clean;
+`git grep -i -l radar -- pkg cmd frontend ':!cmd/wsh/cmd/claude-mod'` lists only
+`pkg/jarvisdossier/decision_test.go` and `frontend/app/view/agents/storagefixtures.ts`.
