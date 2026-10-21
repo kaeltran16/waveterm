@@ -596,9 +596,12 @@ func TestFinalFailedWakeAutonomous(t *testing.T) {
 	if !strings.Contains(w, "--round") || strings.Contains(strings.ToLower(w), "put it to the human") || !strings.HasSuffix(w, detail) {
 		t.Fatalf("an autonomous earlier round writes a fix plan and decides product calls itself, got %q", w)
 	}
+	if !strings.Contains(w, "one already on the base") {
+		t.Fatalf("an autonomous earlier round must fix a failure already on the base too, got %q", w)
+	}
 
 	// off, the texts are what they were before the setting existed
-	if got, want := finalFailedWake(1, "run-1", detail, false, false), "wake: the final stage failed on the merged result in round 1. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`, or put it to the human if the fix is a product call:\n"+detail; got != want {
+	if got, want := finalFailedWake(1, "run-1", detail, false, false), "wake: the final stage failed on the merged result in round 1. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. "+fixEveryFailure+" Put it to the human if the fix is a product call:\n"+detail; got != want {
 		t.Fatalf("off, round 1:\n got %q\nwant %q", got, want)
 	}
 	if got, want := finalFailedWake(2, "run-1", detail, true, false), "wake: the final stage failed on the merged result in round 2, the last. Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land run-1 --force`, the human's call once the run is done, lands it:\n"+detail; got != want {

@@ -7751,6 +7751,9 @@ const dagLifecycle = {
     },
 };
 
+// ROUTE_PICKER_MAX_HEIGHT in frontend/app/view/agents/routepicker.tsx
+const ROUTE_PICKER_MAX_HEIGHT = 480;
+
 const routePickerFlat = {
     name: "route-picker-flat",
     surface: "cockpit",
@@ -7807,7 +7810,7 @@ const routePickerFlat = {
             layout != null &&
                 layout.top >= 8 &&
                 layout.bottom <= layout.viewportHeight - 8 &&
-                layout.height <= 360 &&
+                layout.height <= ROUTE_PICKER_MAX_HEIGHT &&
                 layout.overflowY === "auto" &&
                 layout.scrollHeight > layout.clientHeight,
             JSON.stringify(layout)
@@ -22226,15 +22229,18 @@ const TOOLBAR_PROBE = `(() => {
     const t = shown[0];
     if (!t) return { count: 0 };
     const h1 = t.querySelector(':scope > h1');
-    const next = h1?.nextElementSibling;
+    const kids = [...t.children];
+    const spacer = kids.findIndex((el) => el.tagName === 'SPAN' && el.classList.contains('flex-1') && el.childNodes.length === 0);
+    const between = spacer > kids.indexOf(h1) ? kids.slice(kids.indexOf(h1) + 1, spacer) : null;
     return {
         count: shown.length,
         height: t.getBoundingClientRect().height,
         title: h1?.textContent.trim() ?? null,
         padLeft: getComputedStyle(t).paddingLeft,
         text: t.innerText.replace(/\\s+/g, ' ').trim(),
-        // the spacer is the empty flex-1 span; a title followed straight by it leaves no gap for a missing fact
-        titleThenSpacer: next != null && next.tagName === 'SPAN' && next.classList.contains('flex-1') && next.childNodes.length === 0,
+        // the spacer is the empty flex-1 span; with nothing empty between the title and it (Usage keeps its
+        // filters there), a missing fact leaves no gap
+        noGapBeforeSpacer: between != null && between.every((el) => el.childNodes.length > 0 && el.getBoundingClientRect().width > 0),
     };
 })()`;
 
@@ -22585,7 +22591,7 @@ async function surfaceHeadersAssert(h, ctx) {
             await h.shot(`cdp-shots/surface-headers-${surface}-zero.png`);
         }
         return {
-            ok: Object.entries(facts).every(([s, t]) => toolbarOk(t, s) && !t.factShown && t.titleThenSpacer),
+            ok: Object.entries(facts).every(([s, t]) => toolbarOk(t, s) && !t.factShown && t.noGapBeforeSpacer),
             detail: JSON.stringify(facts),
         };
     });
@@ -24586,6 +24592,9 @@ async function driftEscape(h, step, trigger) {
 
 // hovers the element an expression finds and reads its background at rest and under the pointer
 async function driftHover(h, expr) {
+    // a pointer an earlier scenario left over the element would read its hover as rest
+    await lookHover(h, 1, 1);
+    await polishNap(250);
     const rest = await paintEval(h, `const el = ${expr}; return el ? getComputedStyle(el).backgroundColor : null;`);
     const at = await lookCenter(h, expr);
     if (at) await lookHover(h, at.x, at.y);
@@ -24781,7 +24790,11 @@ const uiDrift = {
                 }, { style: "width:560px;height:360px;display:flex;flex-direction:column" });
                 return host.querySelector('button[title="Open terminal (T)"]') != null;
             `);
-            const r = await driftHover(h, `${DRIFT_HOST("AgentRow")}?.querySelector('button[title="Open terminal (T)"]')`);
+            // the title tooltip host parks a hovered element's title in data-arc-title
+            const r = await driftHover(
+                h,
+                `${DRIFT_HOST("AgentRow")}?.querySelector('button[title="Open terminal (T)"], button[data-arc-title="Open terminal (T)"]')`
+            );
             return { step: "an agent card's header control changes background under the pointer and is no raw white or black overlay", ok: made && hoverOk(r), detail: JSON.stringify({ made, ...r }) };
         });
 

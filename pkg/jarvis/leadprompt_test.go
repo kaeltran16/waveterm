@@ -206,6 +206,8 @@ func TestOrchestrationRulesCompleteOnTheirOwn(t *testing.T) {
 		// run 94a265f6's lead could only offer two ways to complete, and the human had to come back to land it
 		"the question is what to do with the land",
 		"`wsh jarvis complete --report <file> --force-land`, only on that answer",
+		// run 72262859's lead read the run-finished exemptions into a failed final, fixed nothing, and the land held
+		"fix every failing step, one already on the base or outside the goal included",
 	} {
 		if !strings.Contains(strings.ToLower(r), strings.ToLower(want)) {
 			t.Fatalf("rules missing %q:\n%s", want, r)
