@@ -20,7 +20,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/jarvisvolunteer"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
-	"github.com/wavetermdev/waveterm/pkg/reporadar"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/util/keyedmutex"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -169,12 +168,6 @@ func sealDoneRunEvidence(channelId, runId string) {
 	if run.EffortRef != nil {
 		// same seal-ctx expiry concern as the event append below: the note is a quick write.
 		noteFinishedRunOnChunk(context.WithoutCancel(ctx), run, "AdvanceRun")
-	}
-	if run.RadarOrigin != nil {
-		inv := reporadar.InvestigationFromRun(run, channelId, "done", run.CompletedTs)
-		if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
-			log.Printf("AdvanceRun: recording radar investigation (done) failed: %v", rerr)
-		}
 	}
 	// run: carries the sealed evidence to the focused view (RunCompletion needs status==done && evidence).
 	publishRunUpdate(channelId, runId)
@@ -475,7 +468,6 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		// the branch the run merges back into; a detached head has none, so its run is never merged back
 		run.BaseBranch, _ = gitinfo.CurrentBranch(ctx, ch.ProjectPath)
 	}
-	run.RadarOrigin = data.RadarOrigin // nil for normal runs; set only from a Radar handoff
 	run.EffortRef = effortRef
 	if err := wstore.AppendRun(ctx, data.ChannelId, run); err != nil {
 		return nil, fmt.Errorf("appending run: %w", err)
@@ -506,12 +498,6 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 				log.Printf("CreateRun: attaching effort workref failed (non-fatal): %v", aerr)
 			}
 		}()
-	}
-	if run.RadarOrigin != nil {
-		inv := reporadar.InvestigationFromRun(&run, data.ChannelId, "executing", run.CreatedTs)
-		if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
-			log.Printf("CreateRun: recording radar investigation (executing) failed: %v", rerr)
-		}
 	}
 	if err := jarviscapture.CaptureRunDispatch(ctx, &run); err != nil {
 		log.Printf("CreateRun: capturing dossier failed (non-fatal): %v", err)
@@ -955,12 +941,6 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 			ctx := context.WithoutCancel(ctx)
 			cerr := orchestrate.Cancel(ctx, linkedRun.DagORef)
 			appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindRunCancelled, nil, map[string]any{})
-			if linkedRun.RadarOrigin != nil {
-				inv := reporadar.InvestigationFromRun(linkedRun, data.ChannelId, "cancelled", time.Now().UnixMilli())
-				if rerr := reporadar.RecordInvestigation(ctx, linkedRun.ProjectPath, linkedRun.RadarOrigin.Fingerprint, inv); rerr != nil {
-					log.Printf("CancelRun: recording radar investigation (cancelled) failed: %v", rerr)
-				}
-			}
 			publishRunUpdate(data.ChannelId, data.RunId)
 			if cerr == nil {
 				if dag, err := wstore.GetDag(ctx, linkedRun.DagORef); err == nil {
@@ -991,12 +971,6 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 		if grp, gerr := orchestrate.GroupForRun(ctx, run.ChannelOID, run.ID); gerr == nil {
 			if serr := orchestrate.Schedule(ctx, grp.OID); serr != nil {
 				log.Printf("dag schedule error: %v", serr)
-			}
-		}
-		if run.RadarOrigin != nil {
-			inv := reporadar.InvestigationFromRun(run, data.ChannelId, "cancelled", time.Now().UnixMilli())
-			if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
-				log.Printf("CancelRun: recording radar investigation (cancelled) failed: %v", rerr)
 			}
 		}
 	} else {
@@ -1172,12 +1146,6 @@ func (ws *WshServer) SealRunEvidenceCommand(ctx context.Context, data wshrpc.Com
 			log.Printf("SealRunEvidence: detaching effort workref failed (non-fatal): %v", derr)
 		}
 		noteFinishedRunOnChunk(ctx, run, "SealRunEvidence")
-	}
-	if run.RadarOrigin != nil {
-		inv := reporadar.InvestigationFromRun(run, data.ChannelId, "done", run.CompletedTs)
-		if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
-			log.Printf("SealRunEvidence: recording radar investigation (done) failed: %v", rerr)
-		}
 	}
 	publishRunUpdate(data.ChannelId, data.RunId)
 	return nil

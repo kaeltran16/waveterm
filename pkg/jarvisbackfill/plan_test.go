@@ -59,7 +59,7 @@ func TestBuildPlanGroupsRunsSharingAnArtifact(t *testing.T) {
 		run("r2", `check docs\superpowers\specs\briefs.md, start group 2`, "done", base+day, base+2*day),
 		run("r3", "unrelated one-off fix", "done", base, base+day),
 	}
-	p := BuildPlan(runs, nil, base+10*day)
+	p := BuildPlan(runs, base+10*day)
 	if len(p.Dossiers) != 2 {
 		t.Fatalf("want 2 dossiers, got %d", len(p.Dossiers))
 	}
@@ -89,7 +89,7 @@ func TestBuildPlanBackdatesDossierToRunWindow(t *testing.T) {
 		run("r1", `check docs\a\briefs.md group 1`, "done", base+2*day, base+3*day),
 		run("r2", `check docs\a\briefs.md group 2`, "done", base+day, base+2*day),
 	}
-	p := BuildPlan(runs, nil, base+10*day)
+	p := BuildPlan(runs, base+10*day)
 	d := p.Dossiers[0]
 	if d.Facts.Created != base+day {
 		t.Errorf("Created = %d, want %d (earliest run)", d.Facts.Created, base+day)
@@ -109,7 +109,7 @@ func TestBuildPlanMapsRunStatusToDossierStatus(t *testing.T) {
 		"awaiting-review": "active",
 	}
 	for runStatus, want := range cases {
-		p := BuildPlan([]*waveobj.Run{run("r1", "some goal", runStatus, base, 0)}, nil, base+day)
+		p := BuildPlan([]*waveobj.Run{run("r1", "some goal", runStatus, base, 0)}, base+day)
 		if got := p.Dossiers[0].Status; got != want {
 			t.Errorf("run status %q -> %q, want %q", runStatus, got, want)
 		}
@@ -123,7 +123,7 @@ func TestBuildPlanGroupStatusPrefersUnfinished(t *testing.T) {
 		run("r1", `check docs\a\b.md one`, "done", base, base+day),
 		run("r2", `check docs\a\b.md two`, "executing", base+day, 0),
 	}
-	p := BuildPlan(runs, nil, base+5*day)
+	p := BuildPlan(runs, base+5*day)
 	if p.Dossiers[0].Status != "active" {
 		t.Errorf("status = %q, want active (one run still running)", p.Dossiers[0].Status)
 	}
@@ -149,97 +149,6 @@ func TestNormalizeObjectiveCollapsesWhitespaceAndBounds(t *testing.T) {
 	}
 }
 
-func report(findings ...waveobj.RadarFinding) *waveobj.RadarReport {
-	return &waveobj.RadarReport{OID: "rep1", Findings: findings}
-}
-
-func finding(id, risk string, inv *waveobj.RadarInvestigation) waveobj.RadarFinding {
-	return waveobj.RadarFinding{ID: id, Risk: risk, Investigation: inv}
-}
-
-func TestBuildPlanDerivesDecisionsFromCompletedInvestigations(t *testing.T) {
-	base := int64(1_000_000)
-	runs := []*waveobj.Run{run("r1", "fix the thing", "done", base, base+day)}
-	reps := []*waveobj.RadarReport{report(
-		finding("f1", "leaky handle", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: "closed by narrowing the scope"}),
-	)}
-	p := BuildPlan(runs, reps, base+5*day)
-	if len(p.Decisions) != 1 {
-		t.Fatalf("want 1 decision, got %d", len(p.Decisions))
-	}
-	d := p.Decisions[0]
-	if d.Facts.Rationale != "closed by narrowing the scope" {
-		t.Errorf("rationale = %q, want the recorded summary verbatim", d.Facts.Rationale)
-	}
-	if d.Facts.Provenance != provRadarInvestigation {
-		t.Errorf("provenance = %q", d.Facts.Provenance)
-	}
-	if d.OwnerRunOID != "r1" {
-		t.Errorf("OwnerRunOID = %q, want r1", d.OwnerRunOID)
-	}
-}
-
-// Same rule as the dossier window: a backfilled decision carries the time it was actually reached.
-// Stamped at import time instead, every imported decision claims to be today's, which both misdates
-// the record and files it under the wrong day.
-func TestBuildPlanBackdatesDecisionToInvestigation(t *testing.T) {
-	base := int64(1_000_000)
-	runs := []*waveobj.Run{run("r1", "fix the thing", "done", base, base+day)}
-	reps := []*waveobj.RadarReport{report(
-		finding("f1", "completed", &waveobj.RadarInvestigation{
-			RunID: "r1", Status: "done", Summary: "s", StartedTs: base, CompletedTs: base + day,
-		}),
-		// no completion recorded: fall back to the start, never to now
-		finding("f2", "no completion stamp", &waveobj.RadarInvestigation{
-			RunID: "r1", Status: "done", Summary: "s", StartedTs: base + 2*day,
-		}),
-	)}
-	p := BuildPlan(runs, reps, base+99*day)
-
-	byRisk := map[string]int64{}
-	for _, d := range p.Decisions {
-		byRisk[d.Facts.Summary] = d.Facts.Created
-	}
-	if got := byRisk["completed"]; got != base+day {
-		t.Errorf("Created = %d, want the recorded completion %d", got, base+day)
-	}
-	if got := byRisk["no completion stamp"]; got != base+2*day {
-		t.Errorf("Created = %d, want a fallback to StartedTs %d", got, base+2*day)
-	}
-}
-
-// Strict fidelity: an investigation with no recorded summary is not a decision, it is a gap.
-func TestBuildPlanSkipsInvestigationsWithoutRecordedOutcome(t *testing.T) {
-	base := int64(1_000_000)
-	runs := []*waveobj.Run{run("r1", "fix the thing", "done", base, base+day)}
-	reps := []*waveobj.RadarReport{report(
-		finding("f1", "no summary", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: ""}),
-		finding("f2", "still running", &waveobj.RadarInvestigation{RunID: "r1", Status: "executing", Summary: "partial"}),
-		finding("f3", "no investigation", nil),
-	)}
-	p := BuildPlan(runs, reps, base+5*day)
-	if len(p.Decisions) != 0 {
-		t.Fatalf("want 0 decisions, got %d", len(p.Decisions))
-	}
-	if len(p.Skipped) == 0 {
-		t.Error("skips should be reported, not silent")
-	}
-}
-
-func TestBuildPlanSkipsDecisionForUnknownRun(t *testing.T) {
-	base := int64(1_000_000)
-	reps := []*waveobj.RadarReport{report(
-		finding("f1", "orphan", &waveobj.RadarInvestigation{RunID: "ghost", Status: "done", Summary: "did a thing"}),
-	)}
-	p := BuildPlan(nil, reps, base)
-	if len(p.Decisions) != 0 {
-		t.Fatalf("want 0 decisions for an unknown run, got %d", len(p.Decisions))
-	}
-	if len(p.Skipped) != 1 {
-		t.Fatalf("want the orphan reported as skipped, got %d skips", len(p.Skipped))
-	}
-}
-
 func TestBuildPlanIsDeterministic(t *testing.T) {
 	base := int64(1_000_000)
 	runs := []*waveobj.Run{
@@ -247,9 +156,9 @@ func TestBuildPlanIsDeterministic(t *testing.T) {
 		run("r2", "standalone", "done", base+day, base+2*day),
 		run("r3", `check docs\a\b.md two`, "done", base+2*day, base+3*day),
 	}
-	first := BuildPlan(runs, nil, base+9*day)
+	first := BuildPlan(runs, base+9*day)
 	for i := 0; i < 5; i++ {
-		got := BuildPlan(runs, nil, base+9*day)
+		got := BuildPlan(runs, base+9*day)
 		if len(got.Dossiers) != len(first.Dossiers) {
 			t.Fatalf("dossier count varies across runs")
 		}
@@ -270,7 +179,7 @@ func TestBuildPlanDisambiguatesCollidingDossierIDs(t *testing.T) {
 		run("r1", `execute this plan docs/superpowers/plans/2026-07-22-agent-diff-base-selection.md`, "done", base, base+day),
 		run("r2", `execute this plan docs/superpowers/plans/2026-07-22-cockpit-background-agents.md`, "done", base+day, base+2*day),
 	}
-	p := BuildPlan(runs, nil, base+5*day)
+	p := BuildPlan(runs, base+5*day)
 	if len(p.Dossiers) != 2 {
 		t.Fatalf("want 2 dossiers, got %d", len(p.Dossiers))
 	}
@@ -281,54 +190,10 @@ func TestBuildPlanDisambiguatesCollidingDossierIDs(t *testing.T) {
 	}
 }
 
-func TestBuildPlanDisambiguatesCollidingDecisionSlugs(t *testing.T) {
-	base := int64(1_000_000)
-	runs := []*waveobj.Run{run("r1", "some work", "done", base, base+day)}
-	long := "the input validation security boundary was modified in a way that may permit unchecked values"
-	reps := []*waveobj.RadarReport{report(
-		finding("f1", long+" in the parser", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: "one"}),
-		finding("f2", long+" in the writer", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: "two"}),
-	)}
-	p := BuildPlan(runs, reps, base+5*day)
-	if len(p.Decisions) != 2 {
-		t.Fatalf("want 2 decisions, got %d", len(p.Decisions))
-	}
-	a := jarvisdossier.DecisionSlug(p.Decisions[0].Facts.Summary)
-	b := jarvisdossier.DecisionSlug(p.Decisions[1].Facts.Summary)
-	if a == b {
-		t.Fatalf("colliding decision slugs not disambiguated: both %q", a)
-	}
-}
-
-// Three colliding summaries on the same run: the discriminator alone is not enough, since it is the
-// same run oid every time.
-func TestBuildPlanDisambiguatesThreeWayDecisionCollision(t *testing.T) {
-	base := int64(1_000_000)
-	runs := []*waveobj.Run{run("r1", "some work", "done", base, base+day)}
-	long := "the input validation security boundary was modified in a way that may permit unchecked values"
-	reps := []*waveobj.RadarReport{report(
-		finding("f1", long+" alpha", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: "one"}),
-		finding("f2", long+" bravo", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: "two"}),
-		finding("f3", long+" delta", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: "three"}),
-	)}
-	p := BuildPlan(runs, reps, base+5*day)
-	slugs := map[string]bool{}
-	for _, d := range p.Decisions {
-		s := jarvisdossier.DecisionSlug(d.Facts.Summary)
-		if slugs[s] {
-			t.Fatalf("duplicate decision slug %q", s)
-		}
-		slugs[s] = true
-	}
-	if len(slugs) != 3 {
-		t.Fatalf("want 3 distinct slugs, got %d", len(slugs))
-	}
-}
-
 // Runs with no goal text at all carry no objective, so they are not a dossier.
 func TestBuildPlanSkipsRunsWithBlankGoal(t *testing.T) {
 	base := int64(1_000_000)
-	p := BuildPlan([]*waveobj.Run{run("r1", "   ", "done", base, base+day)}, nil, base+2*day)
+	p := BuildPlan([]*waveobj.Run{run("r1", "   ", "done", base, base+day)}, base+2*day)
 	if len(p.Dossiers) != 0 {
 		t.Fatalf("want 0 dossiers, got %d", len(p.Dossiers))
 	}
@@ -346,33 +211,12 @@ func TestBuildPlanOrdersDossiersByCreatedThenOwner(t *testing.T) {
 		run("a1", "first same-day fix", "done", base+day, base+2*day),
 		run("z0", "earliest fix", "done", base, base+day),
 	}
-	p := BuildPlan(runs, nil, base+5*day)
+	p := BuildPlan(runs, base+5*day)
 	var owners []string
 	for _, d := range p.Dossiers {
 		owners = append(owners, d.OwnerRun)
 	}
 	if want := []string{"z0", "a1", "a2"}; !reflect.DeepEqual(owners, want) {
 		t.Fatalf("dossier owners = %v, want %v", owners, want)
-	}
-}
-
-// decisions order by summary, and among equal summaries the first recorded keeps the plain one while
-// the later gets the run discriminator
-func TestBuildPlanOrdersDecisionsBySummary(t *testing.T) {
-	base := int64(1_000_000)
-	runs := []*waveobj.Run{run("r1", "some work", "done", base, base+day)}
-	reps := []*waveobj.RadarReport{report(
-		finding("f1", "bravo", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: "b"}),
-		finding("f2", "alpha", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: "a1"}),
-		finding("f3", "alpha", &waveobj.RadarInvestigation{RunID: "r1", Status: "done", Summary: "a2"}),
-	)}
-	p := BuildPlan(runs, reps, base+5*day)
-	var got [][2]string
-	for _, d := range p.Decisions {
-		got = append(got, [2]string{d.Facts.Summary, d.Facts.Rationale})
-	}
-	want := [][2]string{{"alpha", "a1"}, {"r1 — alpha", "a2"}, {"bravo", "b"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("decisions (summary, rationale) = %v, want %v", got, want)
 	}
 }

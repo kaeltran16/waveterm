@@ -41,7 +41,6 @@ type WshRpcInterface interface {
 	ChannelCommands
 	RunCommands
 	DagCommands
-	RadarCommands
 	JarvisCommands
 	EffortCommands
 	NoteCommands

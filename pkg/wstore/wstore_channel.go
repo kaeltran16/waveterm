@@ -40,7 +40,7 @@ func stampRunIdentity(channelId string, run *waveobj.Run) {
 }
 
 // normProjectPath is the comparison key for a project path. A channel stores what the user registered
-// (backslashes on Windows) while a radar report stores it canonPath'd, so two spellings of one project
+// (backslashes on Windows) while a caller may pass it canonPath'd, so two spellings of one project
 // must land on one key. Mirrors the frontend's normProjectPath in channelderive.ts.
 func normProjectPath(p string) string {
 	return strings.TrimRight(strings.ReplaceAll(p, "\\", "/"), "/")
