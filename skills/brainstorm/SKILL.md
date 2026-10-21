@@ -121,11 +121,13 @@ terminal.
 
 ## The lines Arc sends
 
-An answer arrives as the user's own text, on one line; a picked option arrives as its `label`. Every other action is a `brainstorm:` line:
+An answer arrives as the user's own text, on one line; a picked option arrives as its `label`. So does
+anything else the user types in the answer box: a pushback, a question back, a request for more.
+Every other action is a `brainstorm:` line:
 
 | Line | What you do |
 |---|---|
-| the answer, as typed | Answer sequence below. |
+| the answer, as typed | Answer sequence below, unless the line pushes back or asks instead (below). |
 | `brainstorm: guess` | The user wants you to decide. Write your best guess for the current question's part as `guess` (say in `from` that it was your call), then ask the next question as after an answer. |
 | `brainstorm: skip questions` | Stop asking. Write every `asked` and `open` part as a `guess`, set `question: null` and `done: true`. |
 | `brainstorm: confirm <part id>` | Make that part `yours`; drop its `was` and `why`. |
@@ -166,6 +168,30 @@ and `into`; when the question offered `options`, copy them into the entry and se
 of the one the user's answer is, or leave `picked` out when they answered in their own words), write the part (`guess`, or `yours` when the user's own words are the part), and set the
 next `question` (its part created as `asked` if new). End the turn with the question in the
 terminal too.
+
+**When the line is not an answer.** The answer box is also where the user pushes back ("why not
+reuse the alerting we have?"), asks what something means, or asks for more before choosing. Such a
+line answers nothing: record no answer, write no part from it, and keep the question open under the
+same `n`. In that one write:
+
+- Reply in the question's `why`: lead with the answer to their point in one or two sentences, then
+  what you still cannot tell without them. Arc shows `why` right under the question, so that is
+  where they read your reply; the terminal still gets one short line.
+- A pushback against an option or an approach reruns **Check an approach before you offer it**
+  against what they raised. Their alternative becomes an option if it holds up, and the pick if it
+  beats yours; rewrite `options` and `read` to match. If it does not hold up, say why in `why`,
+  naming the fact.
+- When the pushback shows the question itself was wrong (it rests on a false fact, or asks what is
+  already settled), ask the right question under the next `n` instead, and rewrite every part the
+  false fact reached.
+- Append a `recon` entry to `history`: `q` is "You asked: " (or "You pushed back: ") and their line,
+  `a` your reply in one sentence, `into` the parts it changed (`[]` when none). Arc lists it with the
+  recon; a `question` entry would count as an answered question.
+
+A line that both answers and asks ("B, but why not C?") is pushback: reply, and say in `why` that you
+read them as leaning to B, so one more line settles it. When you cannot tell whether a line is an
+answer, treat it as pushback and say in `why` which answer you read it as: asking again costs one
+turn, recording the wrong answer costs a wrong part.
 
 **Asking.** One question per turn, as superpowers does. Every question about the design names its
 `part`. Every question carries `why`: one or two sentences on what you already know and what you
@@ -267,7 +293,9 @@ On `brainstorm: builder answer: <text>`: the answer is for the first `check.your
 and into the spec, and write the file. A part the answer rewrites that was `yours` gets `was` (the
 body they had confirmed) and `why` naming "builder question N", and stays a `guess` until they
 `keep` or `restore` it, one by one: there is no keep-all. A part the answer only fills in, or that
-was already a `guess`, becomes `yours` (the user just decided it).
+was already a `guess`, becomes `yours` (the user just decided it). When the text pushes back or asks
+instead of answering, it is not an answer: leave `a` unset, put your reply at the head of that
+entry's `why`, and rework its `options` as **When the line is not an answer** says.
 
 On `brainstorm: builder decide`: the user leaves the first `check.yours` entry with no `a` to you.
 Move it out of `yours` into `calls` as `{ "text": <your decision>, "part": <its part> }`, fold it into
