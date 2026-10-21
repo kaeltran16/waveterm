@@ -223,11 +223,11 @@ export function StaleBanner({ s }: { s: BrainstormState }) {
     );
 }
 
-// one segment per question answered, the one asked now, and one per part a question is still to fill
-function Track({ f }: { f: BrainstormFile }) {
+// one segment per question answered, the one asked now, and one per question still to come
+export function Track({ segments }: { segments: TrackSegment[] }) {
     return (
         <div data-brainstorm-track aria-hidden="true" className="flex flex-none gap-[4px] px-[36px] pt-[14px]">
-            {questionTrack(f).map((t, i) => (
+            {segments.map((t, i) => (
                 <span key={i} data-state={t} className={cn("h-[4px] flex-1 rounded-[2px]", TRACK_STATE[t])} />
             ))}
         </div>
@@ -243,7 +243,7 @@ export function MainBody({ children }: { children: ReactNode }) {
     );
 }
 
-function DesignButton({ f, onClick }: { f: BrainstormFile; onClick: () => void }) {
+export function DesignButton({ f, onClick }: { f: BrainstormFile; onClick: () => void }) {
     return (
         <button type="button" data-brainstorm-design-btn onClick={onClick} className={CHIP}>
             {designLabel(f)}
@@ -487,7 +487,7 @@ export function QuestionMain({
     const ans = useAnswer(agent);
     return (
         <div data-brainstorm-question className="flex min-h-0 flex-1 flex-col">
-            <Track f={f} />
+            <Track segments={questionTrack(f)} />
             <MainBody>
                 <div className="flex flex-col gap-[14px]">
                     <span className="flex items-center gap-[10px] text-[13px] text-warning">
@@ -558,7 +558,7 @@ export function QuestionMain({
 export function WorkingMain({ f, openDesign }: { f: BrainstormFile; openDesign: () => void }) {
     return (
         <div data-brainstorm-working aria-live="polite" className="flex min-h-0 flex-1 flex-col">
-            <Track f={f} />
+            <Track segments={questionTrack(f)} />
             <MainBody>
                 <div className="flex flex-col gap-[14px]">
                     <span className="flex items-center gap-[8px] text-[13px] font-semibold text-success">

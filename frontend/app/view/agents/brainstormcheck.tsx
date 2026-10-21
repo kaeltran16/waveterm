@@ -5,43 +5,57 @@
 // check changed; the rail beside it says what the builder asked, and Approve sits under the main area.
 
 import { cn } from "@/util/util";
-import { useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 import {
     approveBlocker,
+    checkAsk,
     checkMain,
-    handoffView,
     partTitle,
     runLine,
+    type AskModel,
     type BrainstormFile,
-    type BuilderQuestion,
+    type BrainstormQuestion,
+    type TrackSegment,
 } from "./brainstormmodel";
 import { AnsweredRail, CheckReview, ReviewHints } from "./brainstormreview";
 import { approveAndOpenRun, openRunLauncher, sendBrainstorm } from "./brainstormsend";
 import { openBrainstormDesign, setReviewCursor, type BrainstormState } from "./brainstormstore";
 import {
-    CARD_LABEL,
+    AnswerBox,
     CHIP,
+    DesignButton,
+    DOT,
     ERROR_LINE,
-    FIELD,
     LINK,
     MainBody,
-    onEnter,
+    QuestionAnswers,
     QuestionMain,
     SECTION_HEAD,
     SMALL_DOT,
     StaleBanner,
     Toolbar,
+    Track,
     useAction,
+    useAnswer,
     WORKING_TITLE,
     WorkingMain,
 } from "./brainstormui";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN } from "./canvaspane";
 
-// a card that waits on your answer
-const ASK_CARD = "overflow-hidden rounded-[8px] border border-warning/45 bg-surface-raised";
-const ASK_HEAD = "flex items-center gap-[8px] border-b border-border bg-warning/12 px-[14px] py-[9px]";
+type QueueState = AskModel["queue"][number]["state"];
+
+const QUEUE_TRACK: Record<QueueState, TrackSegment> = { answered: "done", now: "now", waiting: "ahead" };
+const QUEUE_DOT: Record<QueueState, string> = {
+    now: "bg-warning",
+    waiting: "border-[1.5px] border-ink-faint",
+    answered: "bg-success",
+};
+const QUEUE_TEXT: Record<QueueState, string> = {
+    now: "text-primary",
+    waiting: "text-ink-mid",
+    answered: "text-muted",
+};
 
 export function Check({
     model,
@@ -55,8 +69,8 @@ export function Check({
     f: BrainstormFile;
 }) {
     const main = checkMain(f, s.designOpen);
-    // the review opened over a question: the way back to it
-    const back = s.designOpen && checkMain(f, false) !== "review";
+    // the review opened over a question or the working note: the way back to it
+    const under = s.designOpen ? checkMain(f, false) : "review";
     const openDesign = () => openBrainstormDesign(agent.id, true);
     const goTo = (id: string) => {
         setReviewCursor(agent.id, id);
@@ -68,23 +82,27 @@ export function Check({
             <StaleBanner s={s} />
             <div className="flex min-h-0 flex-1">
                 <div className="flex min-w-0 flex-1 flex-col bg-background">
-                    {back ? (
+                    {under !== "review" ? (
                         <div className="flex flex-none items-center border-b border-border px-[22px] py-[8px]">
                             <button
                                 type="button"
                                 data-brainstorm-back
                                 onClick={() => openBrainstormDesign(agent.id, false)}
-                                className={cn(CHIP, "flex items-center gap-[8px] border-warning/45 bg-warning/12")}
+                                className={cn(
+                                    CHIP,
+                                    "flex items-center gap-[8px]",
+                                    under !== "working" && "border-warning/45 bg-warning/12"
+                                )}
                             >
-                                <span className={cn(SMALL_DOT, "bg-warning")} />
-                                Back to the question
+                                <span className={cn(SMALL_DOT, under === "working" ? "bg-success" : "bg-warning")} />
+                                {under === "working" ? "Back to what the agent is writing" : "Back to the question"}
                             </button>
                         </div>
                     ) : null}
                     {main === "question" ? (
                         <QuestionMain agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
                     ) : main === "builder" ? (
-                        <BuilderAsk agent={agent} f={f} />
+                        <BuilderAsk agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
                     ) : main === "working" ? (
                         <WorkingMain f={f} openDesign={openDesign} />
                     ) : (
@@ -92,165 +110,165 @@ export function Check({
                     )}
                     <ApproveBar model={model} agent={agent} s={s} f={f} />
                 </div>
-                {main === "review" ? <AnsweredRail f={f} /> : <AskRail f={f} goTo={goTo} />}
+                {main === "review" ? <AnsweredRail f={f} agent={agent} /> : <AskRail f={f} goTo={goTo} />}
             </div>
             {main === "review" ? <ReviewHints /> : null}
         </>
     );
 }
 
-function EnterSends() {
-    return (
-        <span className="flex items-center gap-[6px] text-[11.5px] text-muted">
-            <span className="rounded-[5px] border border-b-2 border-edge-strong px-[5px] font-mono text-[10.5px] text-secondary">
-                Enter
-            </span>
-            sends
-        </span>
-    );
-}
-
-function BuilderAsk({ agent, f }: { agent: AgentVM; f: BrainstormFile }) {
-    const hv = handoffView(f);
-    return (
-        <MainBody>
-            <BuilderQuestionCard
-                agent={agent}
-                q={hv.open!}
-                unanswered={hv.forYou - hv.answered.length}
-                working={f.working != null}
-            />
-        </MainBody>
-    );
-}
-
-function BuilderQuestionCard({
+// the builder's open question, asked as the talk question is: its answers, a box for your own, or the agent decides
+function BuilderAsk({
     agent,
-    q,
-    unanswered,
-    working,
+    f,
+    goTo,
+    openDesign,
 }: {
     agent: AgentVM;
-    q: BuilderQuestion;
-    unanswered: number;
-    working: boolean;
+    f: BrainstormFile;
+    goTo: (id: string) => void;
+    openDesign: () => void;
 }) {
-    const [draft, setDraft] = useState("");
-    const act = useAction();
+    const ask = checkAsk(f);
+    const ans = useAnswer(agent, "builder-answer");
+    const open = ask.open!;
+    // drawn with the talk question's answers, which read a question's options
+    const asked: BrainstormQuestion = { n: ask.index, text: open.q, part: open.part ?? "", options: open.options };
     return (
-        <div data-brainstorm-builder-question className={ASK_CARD}>
-            <div className={ASK_HEAD}>
-                <span className={cn(SMALL_DOT, "bg-warning")} />
-                <span className={cn(CARD_LABEL, "text-warning")}>Only you can answer · {unanswered}</span>
-            </div>
-            <div className="flex flex-col gap-[10px] p-[14px]">
-                <div className="text-[15px] font-semibold leading-[1.5] text-primary">{q.q}</div>
-                {q.why ? <div className="text-[12.5px] leading-[1.5] text-ink-mid">{q.why}</div> : null}
-                <textarea
-                    aria-label="Your answer"
-                    rows={2}
-                    value={draft}
-                    disabled={working}
-                    title={working ? WORKING_TITLE : undefined}
-                    placeholder="Answer in your own words…"
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) =>
-                        onEnter(e, () => {
-                            if (draft.trim() === "" || act.busy || working) {
-                                return;
-                            }
-                            void act
-                                .run(() => sendBrainstorm(agent, { kind: "builder-answer", text: draft }))
-                                .then((ok) => ok && setDraft(""));
-                        })
-                    }
-                    className={cn(FIELD, "disabled:opacity-50")}
-                />
-                <div className="flex justify-end">
-                    <EnterSends />
+        <div data-brainstorm-builder-question className="flex min-h-0 flex-1 flex-col">
+            <Track segments={ask.queue.map((y) => QUEUE_TRACK[y.state])} />
+            <MainBody>
+                <div className="flex flex-col gap-[14px]">
+                    <span
+                        data-brainstorm-builder-head
+                        className="flex items-center gap-[10px] text-[13px] text-warning"
+                    >
+                        <span className="font-mono font-semibold">
+                            Builder {ask.index} of {ask.total}
+                        </span>
+                        {open.part ? (
+                            <>
+                                <span className="text-muted">·</span>
+                                <span>
+                                    for{" "}
+                                    <button
+                                        type="button"
+                                        onClick={() => goTo(open.part!)}
+                                        className="cursor-pointer border-0 bg-transparent p-0 text-warning hover:underline"
+                                    >
+                                        {partTitle(f, open.part)}
+                                    </button>
+                                </span>
+                            </>
+                        ) : null}
+                    </span>
+                    <h1 className="m-0 whitespace-pre-line text-[30px] font-bold leading-[1.3] text-primary">
+                        {open.q}
+                    </h1>
+                    {open.why ? (
+                        <p data-brainstorm-why className="m-0 text-[16px] leading-[1.6] text-ink-mid">
+                            {open.why}
+                        </p>
+                    ) : null}
                 </div>
-                {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
-            </div>
+                <QuestionAnswers key={ask.index} q={asked} ans={ans} compact={false} />
+                <AnswerBox ans={ans} options={open.options != null} />
+                <div className="flex flex-col gap-[10px]">
+                    <div className="flex items-center gap-[10px]">
+                        <button
+                            type="button"
+                            data-brainstorm-builder-decide
+                            disabled={ans.act.busy}
+                            onClick={() => void ans.send({ kind: "builder-decide" })}
+                            className={CHIP}
+                        >
+                            Let the agent decide
+                        </button>
+                        <div className="flex-1" />
+                        <DesignButton f={f} onClick={openDesign} />
+                    </div>
+                    {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
+                </div>
+            </MainBody>
         </div>
     );
 }
 
-// what the builder asked: the counts, the calls the agent made, and what was already in the design
+// what the builder asked: the questions only you can answer, the calls the agent made by part, and what was
+// already in the design
 function AskRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void }) {
-    const railRef = useRef<HTMLDivElement>(null);
-    const hv = handoffView(f);
-    const check = f.check!;
-    const goToSection = (key: string) =>
-        railRef.current
-            ?.querySelector(`[data-brainstorm-section="${key}"]`)
-            ?.scrollIntoView({ block: "start", behavior: "smooth" });
+    const ask = checkAsk(f);
     return (
         <aside
-            ref={railRef}
-            aria-label="What the builder asked"
-            className="flex w-[460px] flex-none flex-col gap-[18px] overflow-y-auto border-l border-border bg-surface p-[20px] *:flex-none"
+            data-brainstorm-check-rail
+            aria-label="The builder check"
+            className="flex w-[460px] flex-none flex-col gap-[20px] overflow-y-auto border-l border-border bg-surface px-[24px] py-[22px] *:flex-none"
         >
             <div className="flex flex-col gap-[8px]">
                 <h2 className="m-0 text-[15px] font-semibold text-primary">A builder read the design</h2>
                 <p className="m-0 text-[13px] leading-[1.5] text-ink-mid">
                     A fresh agent checked whether it could plan from this without coming back to you. It had{" "}
-                    {hv.questions} questions:
+                    {ask.questions} questions.
                 </p>
-                <div className="grid grid-cols-3 gap-[6px]">
-                    <Tile
-                        tile="for-you"
-                        n={hv.forYou}
-                        label="for you"
-                        tone={hv.open != null ? "text-warning" : "text-ink-mid"}
-                        waiting={hv.open != null}
-                        onClick={goToSection}
-                    />
-                    <Tile
-                        tile="calls"
-                        n={hv.calls.length}
-                        label="the agent decided"
-                        tone="text-accent-soft"
-                        onClick={goToSection}
-                    />
-                    <Tile
-                        tile="already"
-                        n={hv.already}
-                        label="already in the design"
-                        tone="text-ink-mid"
-                        onClick={goToSection}
-                    />
-                </div>
             </div>
-            {hv.calls.length > 0 ? (
-                <section data-brainstorm-section="calls" className="flex scroll-mt-[20px] flex-col">
-                    <div className="flex items-baseline gap-[8px] pb-[4px]">
-                        <h2 className={SECTION_HEAD}>The agent decided · {hv.calls.length}</h2>
-                        <span className="text-[12px] text-muted">shown in the design; check them as you read</span>
-                    </div>
-                    {hv.calls.map((c, i) => (
+            {ask.total > 0 ? (
+                <section aria-label="For you" className="flex flex-col">
+                    <RailHead title={`For you · ${ask.total}`} caption="only you can answer" />
+                    {ask.queue.map((y, i) => (
                         <div
                             key={i}
-                            className="flex flex-col gap-[3px] border-t border-edge-faint py-[9px] text-[13px] leading-[1.5] text-secondary"
+                            data-brainstorm-queue={y.state}
+                            className={cn(
+                                "flex items-start gap-[10px] rounded-[7px] px-[10px] py-[8px]",
+                                y.state === "now" && "bg-warning/12"
+                            )}
                         >
-                            {c.text}
-                            {c.part != null ? (
-                                <span className="text-[11.5px] text-muted">
-                                    in{" "}
-                                    <button type="button" onClick={() => goTo(c.part!)} className={LINK}>
-                                        {partTitle(f, c.part)}
-                                    </button>
-                                </span>
-                            ) : null}
+                            <span className={cn(DOT, "mt-[6px] box-border", QUEUE_DOT[y.state])} />
+                            <span className={cn("text-[13px] leading-[1.45]", QUEUE_TEXT[y.state])}>{y.label}</span>
                         </div>
                     ))}
                 </section>
             ) : null}
-            {hv.already > 0 ? (
-                <section data-brainstorm-section="already" className="flex scroll-mt-[20px] flex-col">
-                    <h2 className="m-0 pb-[4px] text-[13px] font-semibold text-ink-mid">
-                        Already in the design · {hv.already}
-                    </h2>
-                    {check.answered.map((a, i) => (
+            {ask.calls > 0 ? (
+                <section aria-label="The agent decided" className="flex flex-col">
+                    <RailHead title={`The agent decided · ${ask.calls}`} caption="you review them with the changes" />
+                    {ask.callGroups.map((g) => (
+                        <div
+                            key={g.part ?? ""}
+                            data-brainstorm-call-group={g.part ?? ""}
+                            className="flex flex-col gap-[5px] border-t border-edge-faint py-[9px]"
+                        >
+                            {g.part != null ? (
+                                <button
+                                    type="button"
+                                    onClick={() => goTo(g.part!)}
+                                    className={cn(
+                                        LINK,
+                                        "self-start border-0 bg-transparent p-0 text-left text-[12px] font-semibold"
+                                    )}
+                                >
+                                    {g.title}
+                                </button>
+                            ) : (
+                                <span className="text-[12px] font-semibold text-ink-mid">{g.title}</span>
+                            )}
+                            {g.calls.map((c, i) => (
+                                <span key={i} className="text-[12.5px] leading-[1.5] text-ink-mid">
+                                    {c}
+                                </span>
+                            ))}
+                        </div>
+                    ))}
+                </section>
+            ) : null}
+            {ask.already.length === 0 ? (
+                <span data-brainstorm-already className="text-[12px] text-muted">
+                    Nothing the builder asked was already in the design.
+                </span>
+            ) : (
+                <section data-brainstorm-already aria-label="Already in the design" className="flex flex-col">
+                    <RailHead title={`Already in the design · ${ask.already.length}`} />
+                    {ask.already.map((a, i) => (
                         <div
                             key={i}
                             className="border-t border-edge-faint py-[8px] text-[12.5px] leading-[1.5] text-ink-mid"
@@ -259,41 +277,17 @@ function AskRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void })
                         </div>
                     ))}
                 </section>
-            ) : null}
+            )}
         </aside>
     );
 }
 
-// one of the check's three counts, which scrolls the rail to its section
-function Tile({
-    tile,
-    n,
-    label,
-    tone,
-    waiting = false,
-    onClick,
-}: {
-    tile: string;
-    n: number;
-    label: string;
-    tone: string;
-    waiting?: boolean;
-    onClick: (tile: string) => void;
-}) {
+function RailHead({ title, caption }: { title: string; caption?: string }) {
     return (
-        <button
-            type="button"
-            data-brainstorm-tile={tile}
-            disabled={n === 0}
-            onClick={() => onClick(tile)}
-            className={cn(
-                "flex cursor-pointer flex-col gap-[2px] rounded-[8px] border bg-transparent px-[10px] py-[8px] text-left hover:bg-surface-hover disabled:cursor-default disabled:hover:bg-transparent",
-                waiting ? "border-warning/45" : "border-edge-mid"
-            )}
-        >
-            <span className="text-[16px] font-bold text-primary">{n}</span>
-            <span className={cn("text-[11.5px]", tone)}>{label}</span>
-        </button>
+        <div className="flex items-baseline gap-[8px] pb-[6px]">
+            <h3 className={SECTION_HEAD}>{title}</h3>
+            {caption ? <span className="text-[12px] text-muted">{caption}</span> : null}
+        </div>
     );
 }
 
@@ -316,8 +310,10 @@ function ApproveBar({
             data-brainstorm-approve-bar
             className="flex flex-none items-center gap-[14px] border-t border-border bg-surface px-[22px] py-[12px]"
         >
-            <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                <span className="text-[13px] font-semibold text-primary">Approve and start an orchestrator run</span>
+            <div className="flex min-w-[240px] flex-1 flex-col gap-[3px]">
+                <span className="whitespace-nowrap text-[13px] font-semibold text-primary">
+                    Approve and start an orchestrator run
+                </span>
                 <span className="truncate font-mono text-[11px] text-muted">
                     {runLine(projectOf(agent))} ·{" "}
                     <button type="button" onClick={() => openRunLauncher(model, agent, s)} className={LINK}>
@@ -327,7 +323,10 @@ function ApproveBar({
                 {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
             </div>
             {blocker != null ? (
-                <span data-brainstorm-approve-reason className="flex-none text-[12px] text-warning">
+                <span
+                    data-brainstorm-approve-reason
+                    className="min-w-0 text-right text-[12px] leading-[1.45] text-warning"
+                >
                     {blocker}
                 </span>
             ) : null}

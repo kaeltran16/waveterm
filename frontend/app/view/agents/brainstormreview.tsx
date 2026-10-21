@@ -83,7 +83,7 @@ export function CheckReview({
 }
 
 // the builder's questions the user answered, each with what its answer went into
-export function AnsweredRail({ f }: { f: BrainstormFile }) {
+export function AnsweredRail({ f }: { f: BrainstormFile; agent?: AgentVM }) {
     const hv = handoffView(f);
     return (
         <aside
