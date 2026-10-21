@@ -180,6 +180,23 @@ shows the options as lettered rows the user picks from, each with its pros and c
 choice is a trade-off; a question whose answers need no weighing leaves them and `read` out. An open question (a story, a moment, a number only the user knows) has no
 `options`.
 
+**Check an approach before you offer it.** A question that picks an approach (how to build
+something, which design, which mechanism) is never asked from what such designs usually look like.
+Before you write its options:
+
+- Look up the facts the choice turns on: the code it touches, what already exists that an option
+  would reuse, the constraints that rule an option out. Finding facts is your job; ask the user only
+  for what you cannot look up. Add what you found to `history` as a `recon` entry, and as a note part
+  when the design stands on it.
+- Ground every pro and con in something you found or the user said, and name it (`pkg/foo already
+  retries`).
+- Argue for each option you did not pick, and ask what approach would beat all of them. If one does,
+  it is an option; if it beats your pick, it is the pick.
+- Say in `read` the fact your pick rests on.
+
+The test: if the user answered "double check", would you come back with another approach or another
+pick? Then the check is not done. Do it now, before you ask.
+
 **Every question you wait on is in the file.** Whenever your turn ends waiting on the user, whatever
 the phase (a choice you need before you can go on, a permission, a clarification), that question is
 in `question` with the next `n`, and `part` left out when it is for no part. Arc shows only what the
