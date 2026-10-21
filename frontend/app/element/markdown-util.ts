@@ -164,8 +164,7 @@ export const resolveRemoteFile = async (filepath: string, resolveOpts: MarkdownR
         const fileInfo = await RpcApi.FileJoinCommand(TabRpcClient, [baseDirUri, filepath]);
         const remoteUri = formatRemoteUri(fileInfo.path, resolveOpts.connName);
         // console.log("markdown resolve", resolveOpts, filepath, "=>", baseDirUri, remoteUri);
-        // a local file is served straight off disk: stream-file's rpc stream stalls under parallel
-        // requests (docs/open-issues.md), and a page's images all load at once
+        // a local file is served straight off disk, skipping the rpc stream a remote file needs
         const local = (resolveOpts.connName ?? "local") === "local";
         const usp = new URLSearchParams();
         usp.set("path", local ? fileInfo.path : remoteUri);
