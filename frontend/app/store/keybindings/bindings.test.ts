@@ -147,7 +147,7 @@ describe("closeTargetForDoubleCtrlC", () => {
 });
 
 describe("surface switch [ / ]", () => {
-    it("cycles SURFACE_ORDER forward/back with wrap and reaches radar", () => {
+    it("cycles SURFACE_ORDER forward/back with wrap", () => {
         const model = { surfaceAtom: atom<SurfaceKey>("cockpit") } as any;
         const bindings = buildGlobalBindings(model);
         const next = bindings.find((b) => b.id === "surface:next")!;
@@ -159,8 +159,8 @@ describe("surface switch [ / ]", () => {
         expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
 
         globalStore.set(model.surfaceAtom, "sessions");
-        next.run(ctx()); // sessions -> radar (radar is in SURFACE_ORDER)
-        expect(globalStore.get(model.surfaceAtom)).toBe("radar");
+        next.run(ctx()); // sessions -> usage
+        expect(globalStore.get(model.surfaceAtom)).toBe("usage");
 
         globalStore.set(model.surfaceAtom, SURFACE_ORDER[SURFACE_ORDER.length - 1]);
         next.run(ctx()); // wrap forward to first
@@ -185,12 +185,9 @@ describe("surface switch [ / ]", () => {
         expect(next.when!(ctx())).toBe(true);
     });
 
-    it("exposes a g r leader teleport to radar", () => {
+    it("binds nothing to g r", () => {
         const model = { surfaceAtom: atom<SurfaceKey>("cockpit") } as any;
-        const b = buildGlobalBindings(model).find((x) => x.id === "go:radar")!;
-        expect(b.keys).toBe("g r");
-        b.run(ctx());
-        expect(globalStore.get(model.surfaceAtom)).toBe("radar");
+        expect(buildGlobalBindings(model).find((x) => x.keys === "g r")).toBeUndefined();
     });
 });
 
@@ -236,15 +233,15 @@ describe("Escape back to the Cockpit", () => {
         expect(b.when!(ctx("usage"))).toBe(true);
     });
 
-    // the radar and project-switcher dropdowns close on Escape through useEscapeClose, a window bubble listener the
+    // the project-switcher dropdowns close on Escape through useEscapeClose, a window bubble listener the
     // capture-phase dispatcher would starve if this binding ran first
     it("yields to an open useEscapeClose menu on every deep surface", () => {
         const b = backHome();
         globalStore.set(escapeMenusOpenAtom, 1);
-        expect(b.when!(ctx("radar"))).toBe(false);
+        expect(b.when!(ctx("files"))).toBe(false);
         expect(b.when!(ctx("code"))).toBe(false);
         globalStore.set(escapeMenusOpenAtom, 0);
-        expect(b.when!(ctx("radar"))).toBe(true);
+        expect(b.when!(ctx("files"))).toBe(true);
     });
 
     // The Brief mounts two overlays that take Escape themselves and were missing from this list, so one

@@ -31,8 +31,8 @@ describe("resolveTargetChannel", () => {
         expect(resolveTargetChannel([ch("c1", "/repo/a")], "/repo/a/")?.oid).toBe("c1");
     });
     it("matches across path-separator styles (Windows channel path vs canonPath report path)", () => {
-        // Channels store the registry path verbatim (backslashes on Windows); radar report paths are
-        // canonPath'd to forward slashes. The compare must normalize separators or the handoff never lands.
+        // Channels store the registry path verbatim (backslashes on Windows); Go-side paths are canonPath'd
+        // to forward slashes. The compare must normalize separators or the lookup never matches.
         expect(resolveTargetChannel([ch("c1", "C:\\Users\\me\\repo")], "C:/Users/me/repo")?.oid).toBe("c1");
         expect(resolveTargetChannel([ch("c1", "C:/Users/me/repo")], "C:\\Users\\me\\repo")?.oid).toBe("c1");
     });

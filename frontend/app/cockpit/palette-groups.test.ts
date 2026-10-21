@@ -22,7 +22,7 @@ const scattered = (q: string) => [...q].map((c) => c + "zz").join("");
 describe("meetsNameFloor", () => {
     it("accepts a surface name typed against its row", () => {
         expect(meetsNameFloor("usage", "Go to Usage")).toBe(true);
-        expect(meetsNameFloor("rad", "Radar")).toBe(true);
+        expect(meetsNameFloor("jar", "Jarvis")).toBe(true);
     });
     it("rejects a scattered hit that is still a subsequence", () => {
         expect(fuzzyScore("rad", "rank runs beside")).not.toBeNull(); // it really does match...
@@ -38,7 +38,7 @@ describe("meetsNameFloor", () => {
 });
 
 describe("assembleAllGroups", () => {
-    const radar = item("surface:radar", "surface", "Radar");
+    const jarvis = item("surface:jarvis", "surface", "Jarvis");
     const cockpit = item("surface:cockpit", "surface", "Cockpit (home)");
     const juno = item("agent:juno", "agent", "juno Palette: rank runs beside sessions");
     const launch = [item("launch:quick", "launch", ""), item("launch:orchestrate", "launch", "")];
@@ -58,13 +58,15 @@ describe("assembleAllGroups", () => {
     });
 
     it("shows Recent then Go to on an empty query, without repeating a recent surface", () => {
-        const groups = assembleAllGroups(input({ recent: [radar], goto: [cockpit, radar] }));
+        const groups = assembleAllGroups(input({ recent: [jarvis], goto: [cockpit, jarvis] }));
         expect(groups.map((g) => g.label)).toEqual(["Recent", "Go to"]);
         expect(groups[1].items.map((i) => i.key)).toEqual(["surface:cockpit"]);
     });
 
     it("treats a whitespace-only query as empty", () => {
-        const groups = assembleAllGroups(input({ query: "   ", recent: [radar], goto: [cockpit], launch, asGoalItem }));
+        const groups = assembleAllGroups(
+            input({ query: "   ", recent: [jarvis], goto: [cockpit], launch, asGoalItem })
+        );
         expect(groups.map((g) => g.label)).toEqual(["Recent", "Go to"]);
     });
 
@@ -73,20 +75,20 @@ describe("assembleAllGroups", () => {
     });
 
     it("groups a note row under Notes", () => {
-        const note = item("note:2026-10-08-radar", "note", "Radar ideas");
-        const groups = assembleAllGroups(input({ query: "radar", ranked: [note] }));
+        const note = item("note:2026-10-08-jarvis", "note", "Jarvis ideas");
+        const groups = assembleAllGroups(input({ query: "jarvis", ranked: [note] }));
         expect(groups.map((g) => g.label)).toEqual(["Notes"]);
     });
 
     it("drops scattered matches from All, so they take no slot", () => {
-        const groups = assembleAllGroups(input({ query: "rad", ranked: [radar, juno], launch, asGoalItem }));
-        expect(groups.flatMap((g) => g.items.map((i) => i.key))).toEqual(["surface:radar", "as-goal"]);
+        const groups = assembleAllGroups(input({ query: "jar", ranked: [jarvis, juno], launch, asGoalItem }));
+        expect(groups.flatMap((g) => g.items.map((i) => i.key))).toEqual(["surface:jarvis", "as-goal"]);
     });
 
     it("leads with names and trails one quiet 'as a goal' row when the text names something", () => {
-        const groups = assembleAllGroups(input({ query: "rad", ranked: [radar], launch, asGoalItem }));
+        const groups = assembleAllGroups(input({ query: "jar", ranked: [jarvis], launch, asGoalItem }));
         expect(groups.map((g) => g.key)).toEqual(["surface", "as-goal"]);
-        expect(groups[0].items[0].key).toBe("surface:radar"); // Enter navigates
+        expect(groups[0].items[0].key).toBe("surface:jarvis"); // Enter navigates
         expect(groups[1].label).toBe("Or as a goal");
     });
 
@@ -99,19 +101,19 @@ describe("assembleAllGroups", () => {
     });
 
     it("expands the 'as a goal' row into the launch block, names following", () => {
-        const groups = assembleAllGroups(input({ query: "rad", ranked: [radar], launch, asGoalItem, asGoal: true }));
+        const groups = assembleAllGroups(input({ query: "jar", ranked: [jarvis], launch, asGoalItem, asGoal: true }));
         expect(groups.map((g) => g.key)).toEqual(["launch", "surface"]);
     });
 
     it("offers no goal row when there is no project to start in", () => {
-        const groups = assembleAllGroups(input({ query: "rad", ranked: [radar] }));
+        const groups = assembleAllGroups(input({ query: "jar", ranked: [jarvis] }));
         expect(groups.map((g) => g.key)).toEqual(["surface"]);
     });
 
     it("leads an empty query with at most three Needs you rows, then Start, Recent, Go to", () => {
         const needs = ["a", "b", "c", "d"].map((k) => item(`needs:${k}`, "needs", ""));
         const newRun = item("start:new-run", "start", "New run…");
-        const groups = assembleAllGroups(input({ needs, start: [newRun], recent: [radar], goto: [cockpit] }));
+        const groups = assembleAllGroups(input({ needs, start: [newRun], recent: [jarvis], goto: [cockpit] }));
         expect(groups.map((g) => g.key)).toEqual(["needs", "start", "recent", "goto"]);
         expect(groups[0].items.map((i) => i.key)).toEqual(["needs:a", "needs:b", "needs:c"]);
         expect(groups[0]).toMatchObject({ label: "Needs you · 4", hidden: 1, asking: true });

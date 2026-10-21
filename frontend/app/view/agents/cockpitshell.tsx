@@ -19,7 +19,6 @@ import { FilesSurface } from "./filessurface";
 import { initHarnessPreference, loadHarnesses } from "./harnessstore";
 import { setupRosterSeededLatch } from "./liveagents";
 import { NavRail } from "./navrail";
-import { RadarSurface } from "./radarsurface";
 import { SessionsSurface } from "./sessionssurface";
 import { SettingsSurface } from "./settingssurface";
 import { SetupSurface } from "./setupsurface";
@@ -132,8 +131,6 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <CockpitSurface model={model} />
                         ) : surface === "jarvis" ? (
                             <JarvisSurface model={model} />
-                        ) : surface === "radar" ? (
-                            <RadarSurface model={model} />
                         ) : surface === "files" ? (
                             <FilesSurface model={model} />
                         ) : surface === "sessions" ? (

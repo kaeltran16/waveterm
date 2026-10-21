@@ -20,7 +20,6 @@ import { useAtomValue } from "jotai";
 import { Check, ChevronDown, Plus, RotateCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import {
-    allowPickerSections,
     buildPickerSections,
     filterPickerSections,
     modelFace,
@@ -58,7 +57,6 @@ export function RoutePicker({
     size = "default",
     disabled = false,
     extraOption,
-    runtimes,
 }: {
     value: RoutePin | null;
     onChange: (route: RoutePin | null) => void;
@@ -70,8 +68,6 @@ export function RoutePicker({
     disabled?: boolean;
     // an answer that is not a route (Reviewer picks), so it has no RoutePin for value to hold
     extraOption?: { label: string; selected: boolean; onSelect: () => void };
-    // the only runtimes offered; unset offers every runtime with a model
-    runtimes?: readonly string[];
 }): JSX.Element {
     const harnesses = useAtomValue(harnessesAtom);
     const loading = useAtomValue(harnessesLoadingAtom);
@@ -95,10 +91,7 @@ export function RoutePicker({
         : value == null
           ? inheritedLabel
           : `${harness?.label ?? value.runtime} · ${modelFace(value)}`;
-    const catalog = useMemo(
-        () => allowPickerSections(buildPickerSections(harnesses, refusedRoutes), runtimes),
-        [harnesses, refusedRoutes, runtimes]
-    );
+    const catalog = useMemo(() => buildPickerSections(harnesses, refusedRoutes), [harnesses, refusedRoutes]);
     const matched = useMemo(() => filterPickerSections(catalog, query), [catalog, query]);
     const sections = useMemo(() => scopePickerSections(matched, scope), [matched, scope]);
     const rowKeys = useMemo(

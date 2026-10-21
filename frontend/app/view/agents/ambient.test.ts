@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ambientRefForFinding, makeAmbientProvider } from "./ambient";
+import { makeAmbientProvider } from "./ambient";
 
 const NOW = 10_000_000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -131,17 +131,5 @@ describe("makeAmbientProvider", () => {
         const empty = makeAmbientProvider(null);
         expect(empty.tagsFor({ oref: "run:r1" })).toEqual([]);
         expect(empty.decisionsFor({ links: ["task-auth"] })).toEqual([]);
-    });
-});
-
-describe("ambientRefForFinding", () => {
-    it("inherits the attribution of the run that investigated the finding", () => {
-        expect(ambientRefForFinding({ investigation: { runid: "r1" } as RadarInvestigation })).toEqual({
-            oref: "run:r1",
-        });
-    });
-    it("yields no handle for a finding that was never investigated", () => {
-        expect(ambientRefForFinding({})).toEqual({});
-        expect(provider.tagsFor(ambientRefForFinding({}))).toEqual([]);
     });
 });

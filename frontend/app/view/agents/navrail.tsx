@@ -11,7 +11,6 @@ import {
     Gauge,
     GitCompare,
     LayoutDashboard,
-    Radar,
     Settings,
     SquareStack,
 } from "lucide-react";
@@ -27,7 +26,6 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
     cockpit: <LayoutDashboard {...iconProps} />,
     jarvis: <Brain {...iconProps} />,
     agent: <Bot {...iconProps} />,
-    radar: <Radar {...iconProps} />,
     sessions: <SquareStack {...iconProps} />,
     files: <GitCompare {...iconProps} />,
     usage: <Gauge {...iconProps} />,
@@ -43,22 +41,19 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "code", label: "Code" },
     { key: "files", label: "Diff" },
     { key: "sessions", label: "Sessions" },
-    { key: "radar", label: "Radar" },
     { key: "usage", label: "Usage" },
 ];
 
 export function NavRail({ model }: { model: AgentsViewModel }) {
     const [active, setActive] = useAtom(model.surfaceAtom);
-    // Three disjoint "needs you" badges from one server-computed list: Jarvis counts everything a channel
+    // Two disjoint "needs you" badges from one server-computed list: Jarvis counts everything a channel
     // owns (review gates, Gatekeeper escalations, dispatched workers), Cockpit counts standalone agents
-    // no channel dispatched, Radar counts projects with untriaged findings. Each sits on the surface that
-    // clears it.
+    // no channel dispatched. Each sits on the surface that clears it.
     const attention = useAtomValue(attentionAtom);
     const split = splitAttention(attention);
     const badges: Partial<Record<SurfaceKey, number>> = {
         cockpit: split.standalone.length,
         jarvis: split.channel.length,
-        radar: split.radar.length,
     };
     const [narrow, setNarrow] = useState(() => navRailCollapsed(window.innerWidth));
     useEffect(() => {

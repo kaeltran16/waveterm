@@ -56,12 +56,6 @@ import {
     groupSections,
     isModOptionOn,
     OPENROUTER_SECRET_NAME,
-    RADAR_AUDIT_MODEL_KEY,
-    RADAR_AUDIT_RUNTIME_KEY,
-    RADAR_AUDIT_RUNTIMES,
-    RADAR_CLASSIFY_MODEL_KEY,
-    radarAuditRoute,
-    radarClassifyDefault,
     resolveSelection,
     rowKeys,
     settingsSections,
@@ -1431,9 +1425,6 @@ function MemorySection() {
 function HeadlessAISection() {
     const runtime = (useAtomValue(getSettingsKeyAtom("headless:runtime")) as string) ?? "";
     const cheapModel = (useAtomValue(getSettingsKeyAtom("headless:openroutercheapmodel")) as string) ?? "";
-    const auditRuntime = (useAtomValue(getSettingsKeyAtom(RADAR_AUDIT_RUNTIME_KEY)) as string) ?? "";
-    const auditModel = (useAtomValue(getSettingsKeyAtom(RADAR_AUDIT_MODEL_KEY)) as string) ?? "";
-    const classifyModel = (useAtomValue(getSettingsKeyAtom(RADAR_CLASSIFY_MODEL_KEY)) as string) ?? "";
 
     const [hasKey, setHasKey] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -1623,27 +1614,6 @@ function HeadlessAISection() {
                 ) : null}
             </SettingRow>
             {modelRow("headless.cheap", cheapModel, "deepseek/deepseek-v4-flash", "headless:openroutercheapmodel")}
-            <SettingRow id="headless.radaraudit">
-                <RoutePicker
-                    value={radarAuditRoute(auditRuntime, auditModel)}
-                    title="Radar audit route"
-                    runtimes={RADAR_AUDIT_RUNTIMES}
-                    onChange={(route) =>
-                        route &&
-                        writeConfig({
-                            [RADAR_AUDIT_RUNTIME_KEY]: route.runtime,
-                            [RADAR_AUDIT_MODEL_KEY]: route.model ?? null,
-                        })
-                    }
-                />
-                <span className="font-mono text-[10.5px] tracking-[0.02em] text-muted">classifier</span>
-                <CommitText
-                    value={classifyModel}
-                    placeholder={radarClassifyDefault(auditRuntime)}
-                    width="w-[160px]"
-                    onCommit={(v) => writeConfig({ [RADAR_CLASSIFY_MODEL_KEY]: v })}
-                />
-            </SettingRow>
             {isOpenRouter && !hasKey ? (
                 <Note>OpenRouter key not set — background AI features stay off until a key is stored.</Note>
             ) : null}

@@ -132,8 +132,8 @@ describe("commandGroups", () => {
         expect(groups.map((g) => g.label)).toEqual(["Diff · this surface", "Global", "Navigation", "Help"]);
     });
     it("keeps a group outside the fixed order rather than dropping it", () => {
-        const groups = commandGroups([row("Global"), row("Radar")], "usage");
-        expect(groups.map((g) => g.label)).toEqual(["Global", "Radar"]);
+        const groups = commandGroups([row("Global"), row("Brief")], "usage");
+        expect(groups.map((g) => g.label)).toEqual(["Global", "Brief"]);
     });
     it("lists groups outside the fixed order alphabetically", () => {
         const groups = commandGroups([row("Zeta"), row("Global"), row("Alpha"), row("Mid")], "usage");
