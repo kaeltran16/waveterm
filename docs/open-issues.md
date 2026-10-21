@@ -46,16 +46,7 @@ Tracked in their own initiatives, not here:
 
 ## 2 · Blocked
 
-### Remote/WSL worker host operations
-
-Git surfaces break for SSH/WSL workers because they run on the local host. Not routable today: agent
-launch has no connection parameter, `Run`/worktree/`AgentVM` carry no connection field, and the remote
-impl doesn't register `GitChangesCommand`/`GitDiffCommand`. Prerequisite chain: (1) remote agent launch
-threading connection through launch → run → worktree → `AgentVM`; (2) register host-bound commands on
-`wshremote` (or expose `wshserver` handlers over the connection route); (3) then route keyed off the
-agent's connection, local default. Effort realistically L counting step 1. Full reference design in git
-history (pre-consolidation issue 5). The E8 connserver readiness handshake (patch saved, needs a live
-SSH/WSL verify) rides on step 1.
+Nothing blocked.
 
 ---
 
@@ -129,6 +120,9 @@ Jarvis:
   recall, are gone), Pi Part B `wave_create_widget` (the vdom commands it wrapped no longer exist).
 - File drop (onto a terminal, onto the New run goal) and Steer attachments — declined 2026-10-21: files
   reach an agent by paste, which the terminal and the goal already handle (`docs/deferred.md`).
+- Remote/WSL worker host operations (git surfaces for SSH/WSL agents, and the E8 connserver readiness
+  handshake that rode on it) — declined 2026-10-21: agents here run on the local host. The design was
+  pre-consolidation issue 5: `git show c99f2041:docs/open-issues.md`.
 - Cockpit light/Paper theme — declined; code removed 2026-08-24.
 - Gatekeeper v1.1 (make-a-rule + countdown) — revive only on recurring-ask or misfire evidence. Measured
   2026-10-12 over 879 structured asks since 08-11: 737 distinct headers, and the ones that recur (spec
