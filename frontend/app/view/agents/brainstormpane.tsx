@@ -18,34 +18,39 @@ import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 import {
     approveBlocker,
-    confirmableGuesses,
+    decisionParts,
     designLabel,
     exitedSummary,
     handoffView,
+    hasProsCons,
     historyRows,
+    isNote,
     leftPanel,
     mainView,
+    noteParts,
     optionLetter,
     orderedParts,
     paneView,
+    partGist,
     partTitle,
     partView,
     phaseSteps,
     progressView,
     questionTrack,
     resumePrompt,
+    reviewHead,
     runLine,
     sentenceDiff,
-    whatsLeft,
     type AnswerOption,
     type BrainstormAction,
     type BrainstormFile,
     type BrainstormPart,
+    type BrainstormQuestion,
     type BuilderQuestion as BuilderQuestionT,
     type HandoffView,
     type HistoryRow,
-    type LeftKind,
     type PartState,
+    type PartView,
     type TrackSegment,
 } from "./brainstormmodel";
 import { approveAndOpenRun, openRunLauncher, sendBrainstorm } from "./brainstormsend";
@@ -108,13 +113,15 @@ const STATE_NAME: Record<PartState, string> = {
     asked: "asked now",
     open: "open",
 };
-const LEFT_DOT: Record<LeftKind, string> = {
-    answer: DOT_ASKED,
-    confirm: DOT_GUESS,
-    review: DOT_GUESS,
-    last: DOT_OPEN,
-    talk: DOT_OPEN,
+const PART_DOT: Record<PartView, string> = {
+    yours: DOT_YOURS,
+    guess: DOT_GUESS,
+    changed: DOT_GUESS,
+    asked: DOT_ASKED,
+    writing: DOT_YOURS,
+    open: DOT_OPEN,
 };
+const NOTE_DOT = "box-border h-[7px] w-[7px] flex-none rounded-[2px] border-[1.5px] border-ink-faint";
 
 function errText(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
@@ -315,8 +322,11 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
     const partsRef = useRef<HTMLDivElement>(null);
     // a part to scroll to once the design is drawn: a link in the rail or over the question opens it first
     const [target, setTarget] = useState<string | null>(null);
+    // the design's rows the user opened or closed; kept here so they survive the question taking the main area
+    const [opened, setOpened] = useState<Record<string, boolean>>({});
     const view = mainView(f, s.designOpen);
     const goTo = (id: string) => {
+        setOpened((o) => ({ ...o, [id]: true }));
         setTarget(id);
         openBrainstormDesign(agent.id, true);
     };
@@ -339,7 +349,14 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
                     ) : view === "working" ? (
                         <WorkingMain f={f} openDesign={openDesign} />
                     ) : (
-                        <DesignMain agent={agent} s={s} f={f} partsRef={partsRef} />
+                        <DesignMain
+                            agent={agent}
+                            s={s}
+                            f={f}
+                            partsRef={partsRef}
+                            opened={opened}
+                            setOpen={(id, open) => setOpened((o) => ({ ...o, [id]: open }))}
+                        />
                     )}
                 </div>
                 <DecidedRail f={f} goTo={goTo} />
@@ -395,57 +412,173 @@ function useAnswer(agent: AgentVM) {
 
 type Answer = ReturnType<typeof useAnswer>;
 
+// the agent's read over the answers, with the one toggle for every answer's pros and cons, shown until hidden
+function QuestionAnswers({ q, ans, compact }: { q: BrainstormQuestion; ans: Answer; compact: boolean }) {
+    const [shown, setShown] = useState(true);
+    if (q.options == null) {
+        return null;
+    }
+    const reasons = hasProsCons(q);
+    const options = <Options options={q.options} ans={ans} compact={compact} reasons={reasons && shown} />;
+    if (!q.read && !reasons) {
+        return options;
+    }
+    return (
+        <div className={cn("flex flex-col", compact ? "gap-[8px]" : "gap-[12px]")}>
+            <div className="flex items-baseline gap-[12px]">
+                <span
+                    data-brainstorm-read
+                    className={cn(
+                        "min-w-0 flex-1 text-secondary",
+                        compact ? "text-[12.5px] leading-[1.5]" : "text-[15px] leading-[1.55]"
+                    )}
+                >
+                    {q.read ? (
+                        <>
+                            <span className="font-semibold text-accent-soft">Agent’s read: </span>
+                            {q.read}
+                        </>
+                    ) : null}
+                </span>
+                {reasons ? (
+                    <button
+                        type="button"
+                        data-brainstorm-proscons-toggle
+                        aria-expanded={shown}
+                        onClick={() => setShown(!shown)}
+                        className={cn(CHIP, "flex-none")}
+                    >
+                        {shown ? "Hide pros and cons" : "Show pros and cons"}
+                    </button>
+                ) : null}
+            </div>
+            {options}
+        </div>
+    );
+}
+
 // a letter key focuses its row (bindings.ts), so Enter, the row's own key, sends it
-function Options({ options, ans, compact }: { options: AnswerOption[]; ans: Answer; compact: boolean }) {
+function Options({
+    options,
+    ans,
+    compact,
+    reasons,
+}: {
+    options: AnswerOption[];
+    ans: Answer;
+    compact: boolean;
+    reasons: boolean;
+}) {
     return (
         <div role="group" aria-label="Answers" className={cn("flex flex-col", compact ? "gap-[6px]" : "gap-[10px]")}>
             {options.map((o, i) => (
-                <button
+                <div
                     key={i}
-                    type="button"
-                    data-brainstorm-option={i}
-                    data-pick={o.pick ? "" : undefined}
-                    disabled={ans.act.busy}
-                    onClick={() => void ans.send({ kind: "answer", text: o.label })}
                     className={cn(
-                        "flex w-full cursor-pointer items-center rounded-[10px] border text-left outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-50",
-                        compact ? "gap-[12px] px-[12px] py-[9px]" : "gap-[18px] px-[20px] py-[16px]",
+                        "overflow-hidden rounded-[10px] border has-[>button:disabled]:opacity-50 has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-accent",
                         o.pick
-                            ? "border-accent/55 bg-accent/8 hover:bg-accentbg"
-                            : "border-edge-mid bg-surface hover:border-edge-strong"
+                            ? "border-accent/55 bg-accent/8 has-[>button:enabled:hover]:bg-accentbg"
+                            : "border-edge-mid bg-surface has-[>button:enabled:hover]:border-edge-strong"
                     )}
                 >
-                    <span
+                    <button
+                        type="button"
+                        data-brainstorm-option={i}
+                        data-pick={o.pick ? "" : undefined}
+                        disabled={ans.act.busy}
+                        onClick={() => void ans.send({ kind: "answer", text: o.label })}
                         className={cn(
-                            "flex flex-none items-center justify-center rounded-[6px] border border-edge-strong font-mono font-semibold text-secondary",
-                            compact ? "h-[24px] w-[24px] text-[11.5px]" : "h-[30px] w-[30px] text-[13px]"
+                            "flex w-full cursor-pointer items-center border-0 bg-transparent text-left outline-none disabled:cursor-default",
+                            compact ? "gap-[12px] px-[12px] py-[9px]" : "gap-[18px] px-[20px] py-[16px]"
                         )}
                     >
-                        {optionLetter(i)}
-                    </span>
-                    <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                         <span
                             className={cn(
-                                "font-semibold text-primary",
-                                compact ? "text-[13.5px] leading-[1.4]" : "text-[17px] leading-[1.35]"
+                                "flex flex-none items-center justify-center rounded-[6px] border border-edge-strong font-mono font-semibold text-secondary",
+                                compact ? "h-[24px] w-[24px] text-[11.5px]" : "h-[30px] w-[30px] text-[13px]"
                             )}
                         >
-                            {o.label}
+                            {optionLetter(i)}
                         </span>
-                        {o.detail ? (
+                        <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                             <span
-                                className={cn("text-ink-mid", compact ? "text-[12.5px] leading-[1.45]" : "text-[14px]")}
+                                className={cn(
+                                    "font-semibold text-primary",
+                                    compact ? "text-[13.5px] leading-[1.4]" : "text-[17px] leading-[1.35]"
+                                )}
                             >
-                                {o.detail}
+                                {o.label}
                             </span>
+                            {o.detail ? (
+                                <span
+                                    className={cn(
+                                        "text-ink-mid",
+                                        compact ? "text-[12.5px] leading-[1.45]" : "text-[14px]"
+                                    )}
+                                >
+                                    {o.detail}
+                                </span>
+                            ) : null}
+                        </span>
+                        {o.pick ? (
+                            <span className="flex-none text-[12px] font-semibold text-accent-soft">Agent’s pick</span>
                         ) : null}
-                    </span>
-                    {o.pick ? (
-                        <span className="flex-none text-[12px] font-semibold text-accent-soft">Agent’s pick</span>
-                    ) : null}
-                </button>
+                    </button>
+                    {reasons && (o.pros != null || o.cons != null) ? <ProsCons o={o} compact={compact} /> : null}
+                </div>
             ))}
         </div>
+    );
+}
+
+// indented to the label, under the letter; the check's narrow column stacks the two lists
+function ProsCons({ o, compact }: { o: AnswerOption; compact: boolean }) {
+    return (
+        <div
+            data-brainstorm-proscons
+            className={cn(
+                "grid",
+                compact
+                    ? "grid-cols-1 gap-[6px] pb-[10px] pl-[48px] pr-[12px]"
+                    : "grid-cols-2 gap-[24px] pb-[16px] pl-[68px] pr-[20px] pt-[2px]"
+            )}
+        >
+            <ReasonList label={`${o.label}: for`} mark="+" tone="text-success" items={o.pros} compact={compact} />
+            <ReasonList label={`${o.label}: against`} mark="−" tone="text-error" items={o.cons} compact={compact} />
+        </div>
+    );
+}
+
+function ReasonList({
+    label,
+    mark,
+    tone,
+    items,
+    compact,
+}: {
+    label: string;
+    mark: string;
+    tone: string;
+    items: string[] | undefined;
+    compact: boolean;
+}) {
+    return (
+        <ul aria-label={label} className="m-0 flex list-none flex-col gap-[7px] p-0">
+            {(items ?? []).map((t, i) => (
+                <li
+                    key={i}
+                    className={cn(
+                        "flex gap-[8px] leading-[1.5] text-secondary",
+                        compact ? "text-[12.5px]" : "text-[13.5px]"
+                    )}
+                >
+                    <span aria-hidden="true" className={cn("w-[10px] flex-none font-mono", tone)}>
+                        {mark}
+                    </span>
+                    <span>{t}</span>
+                </li>
+            ))}
+        </ul>
     );
 }
 
@@ -522,7 +655,7 @@ function QuestionMain({
                         </p>
                     ) : null}
                 </div>
-                {q.options != null ? <Options options={q.options} ans={ans} compact={false} /> : null}
+                <QuestionAnswers key={q.n} q={q} ans={ans} compact={false} />
                 <AnswerBox ans={ans} options={q.options != null} />
                 <div className="flex flex-col gap-[10px]">
                     <div className="flex items-center gap-[10px]">
@@ -588,16 +721,33 @@ function DesignMain({
     s,
     f,
     partsRef,
+    opened,
+    setOpen,
 }: {
     agent: AgentVM;
     s: BrainstormState;
     f: BrainstormFile;
     partsRef: RefObject<HTMLDivElement>;
+    opened: Record<string, boolean>;
+    setOpen: (id: string, open: boolean) => void;
 }) {
     const working = f.working != null;
     const fresh = f.history.length === 0;
-    const panel = leftPanel(f);
-    const goTo = (id: string) => scrollToPart(partsRef, id);
+    const decisions = decisionParts(f);
+    const notes = noteParts(f);
+    // a changed part opens on its own: what changed is what it asks you to read
+    const isOpen = (p: BrainstormPart) => opened[p.id] ?? partView(f, p) === "changed";
+    const row = (p: BrainstormPart) => (
+        <PartRow
+            key={p.id}
+            agent={agent}
+            s={s}
+            f={f}
+            part={p}
+            open={isOpen(p)}
+            setOpen={(open) => setOpen(p.id, open)}
+        />
+    );
     // the design opened over the question or the working note: the way back to it
     const back = s.designOpen ? mainView(f, false) : "design";
     return (
@@ -622,7 +772,7 @@ function DesignMain({
                 </div>
             ) : null}
             <div ref={partsRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-                <div className="flex flex-col gap-[10px] px-[22px] pb-[40px] pt-[20px]">
+                <div className="flex flex-col gap-[14px] px-[22px] pb-[40px] pt-[20px]">
                     <DesignHead f={f} />
                     {working ? (
                         <div
@@ -632,27 +782,297 @@ function DesignMain({
                             <span className={cn(SMALL_DOT, "bg-success")} />
                             The agent is writing. Confirm, edit and keep open again when it asks its next question.
                         </div>
-                    ) : (
-                        <div className="flex items-baseline gap-[8px] px-[14px] pb-[2px]">
-                            <h2 className={SECTION_HEAD}>The design</h2>
+                    ) : null}
+                    {leftPanel(f) !== "none" ? <ReviewHead agent={agent} f={f} /> : null}
+                    <section data-brainstorm-decisions aria-label="Decisions" className="flex flex-col">
+                        <div className="flex items-baseline gap-[8px] px-[14px] pb-[6px]">
+                            <h2 className={SECTION_HEAD}>Decisions · {decisions.length}</h2>
                             <span className="text-[12px] text-muted">
-                                written as you talk; a part is yours once you confirm it
+                                what the run builds; each one has to be yours
                             </span>
                         </div>
-                    )}
-                    {panel === "ready" ? <ReadyCard agent={agent} /> : null}
-                    {panel === "left" ? <WhatsLeft agent={agent} f={f} goTo={goTo} /> : null}
-                    {orderedParts(f).map((p) => (
-                        <PartCard key={p.id} agent={agent} s={s} f={f} part={p} />
-                    ))}
+                        {decisions.map(row)}
+                    </section>
+                    {notes.length > 0 ? (
+                        <section data-brainstorm-notes aria-label="What the agent found" className="flex flex-col">
+                            <div className="flex items-baseline gap-[8px] px-[14px] py-[6px]">
+                                <h2 className={SECTION_HEAD}>What the agent found · {notes.length}</h2>
+                                <span className="text-[12px] text-muted">
+                                    background the decisions stand on; it goes into the spec as context, nothing to
+                                    confirm
+                                </span>
+                            </div>
+                            {notes.map(row)}
+                        </section>
+                    ) : null}
                     {fresh ? (
-                        <p className="m-0 px-[14px] pt-[10px] text-[12.5px] leading-[1.5] text-muted">
+                        <p className="m-0 px-[14px] text-[12.5px] leading-[1.5] text-muted">
                             More parts appear as the conversation finds them.
                         </p>
                     ) : null}
                 </div>
             </div>
         </>
+    );
+}
+
+// what stands before the builder check, in one line, and the one press that moves it on
+function ReviewHead({ agent, f }: { agent: AgentVM; f: BrainstormFile }) {
+    const head = reviewHead(f);
+    const act = useAction();
+    const send = (action: BrainstormAction) => void act.run(() => sendBrainstorm(agent, action));
+    return (
+        <section data-brainstorm-review className="flex flex-col gap-[6px] px-[14px] py-[4px]">
+            <div className="flex items-center gap-[14px]">
+                <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                    <h2 className="m-0 text-[15px] font-semibold text-primary">Confirm the design</h2>
+                    <span data-brainstorm-review-line className="text-[13px] leading-[1.5] text-ink-mid">
+                        {head.line}
+                    </span>
+                </div>
+                {head.action === "confirm-all" ? (
+                    <button
+                        type="button"
+                        data-brainstorm-confirm-all
+                        disabled={act.busy}
+                        onClick={() => send({ kind: "confirm-all" })}
+                        className={cn(CANVAS_PRIMARY_BTN, "flex-none")}
+                    >
+                        Confirm all {head.guesses} guesses
+                    </button>
+                ) : null}
+                {head.action === "check" ? (
+                    <button
+                        type="button"
+                        data-brainstorm-check-btn
+                        disabled={act.busy}
+                        onClick={() => send({ kind: "check" })}
+                        className={cn(CANVAS_PRIMARY_BTN, "flex-none")}
+                    >
+                        Check with a builder
+                    </button>
+                ) : null}
+            </div>
+            {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
+        </section>
+    );
+}
+
+function Chevron({ open, onClick }: { open: boolean; onClick: () => void }) {
+    return (
+        <span
+            aria-hidden="true"
+            onClick={onClick}
+            className={cn(
+                "flex h-[20px] w-[12px] flex-none cursor-pointer items-center text-muted",
+                open && "rotate-180"
+            )}
+        >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M3 4.5l3 3 3-3" />
+            </svg>
+        </span>
+    );
+}
+
+// a decision or a note in one line: dot, title, gist, where it came from, what to do; opened, the whole of it
+function PartRow({
+    agent,
+    s,
+    f,
+    part,
+    open,
+    setOpen,
+}: {
+    agent: AgentVM;
+    s: BrainstormState;
+    f: BrainstormFile;
+    part: BrainstormPart;
+    open: boolean;
+    setOpen: (open: boolean) => void;
+}) {
+    const note = isNote(part);
+    const view = partView(f, part);
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState("");
+    const act = useAction();
+    const working = f.working != null;
+    const locked = working || act.busy;
+    const lockTitle = working ? WORKING_TITLE : undefined;
+    const send = (action: BrainstormAction) => act.run(() => sendBrainstorm(agent, action));
+    const startEdit = () => {
+        setDraft(part.body);
+        setEditing(true);
+        setOpen(true);
+    };
+    const btn = (label: string, onClick: () => void, quiet = false) => (
+        <button
+            type="button"
+            disabled={locked}
+            title={lockTitle}
+            onClick={onClick}
+            className={cn(PART_BTN, quiet && "text-secondary")}
+        >
+            {label}
+        </button>
+    );
+    const quietEdit = editing ? null : (
+        <button
+            type="button"
+            disabled={locked}
+            title={lockTitle}
+            onClick={startEdit}
+            className="cursor-pointer border-0 bg-transparent p-0 text-[12px] text-muted hover:text-secondary disabled:cursor-default disabled:opacity-50"
+        >
+            Edit
+        </button>
+    );
+    const askedHere = f.question?.part === part.id;
+    let right: ReactNode = null;
+    if (note) {
+        right = quietEdit;
+    } else if (view === "guess") {
+        right = editing ? null : (
+            <>
+                {btn("That’s right", () => void send({ kind: "confirm", part: part.id }))}
+                {btn("Edit", startEdit, true)}
+            </>
+        );
+    } else if (view === "changed") {
+        right = (
+            <>
+                {btn("Keep the change", () => void send({ kind: "keep", part: part.id }))}
+                {btn("Put mine back", () => void send({ kind: "restore", part: part.id }), true)}
+            </>
+        );
+    } else if (view === "yours") {
+        right = (
+            <>
+                <span className="text-[11.5px] text-success">Yours</span>
+                {quietEdit}
+            </>
+        );
+    } else if (view === "asked") {
+        right = (
+            <span className="text-[11.5px] text-warning">
+                Asked now{askedHere ? ` · question ${f.question!.n}` : ""}
+            </span>
+        );
+    } else if (view === "writing") {
+        right = <span className="text-[11.5px] text-success">Being written</span>;
+    } else {
+        right = <span className="text-[11.5px] text-muted">Open</span>;
+    }
+    const dim = view === "open" && !note;
+    const thumbs = part.boards != null && f.canvas != null && s.base != null && view !== "writing";
+
+    return (
+        <div
+            data-brainstorm-part={part.id}
+            data-state={note ? "note" : view}
+            className="flex scroll-mt-[20px] flex-col border-t border-edge-faint"
+        >
+            <div className={cn("flex items-start gap-[12px] px-[14px]", note ? "py-[8px]" : "py-[9px]")}>
+                <span className={cn(note ? NOTE_DOT : PART_DOT[view], "mt-[6px]")} />
+                <button
+                    type="button"
+                    data-brainstorm-row-toggle
+                    aria-expanded={open}
+                    onClick={() => setOpen(!open)}
+                    className="flex min-w-0 flex-1 cursor-pointer items-baseline gap-[14px] border-0 bg-transparent p-0 text-left"
+                >
+                    <span
+                        className={cn(
+                            "w-[200px] flex-none font-semibold",
+                            note ? "text-[13px] text-secondary" : "text-[13.5px]",
+                            !note && (dim ? "text-ink-mid" : "text-primary")
+                        )}
+                    >
+                        {part.title}
+                    </span>
+                    <span
+                        data-brainstorm-gist
+                        className={cn(
+                            "min-w-0 flex-1 leading-[1.45]",
+                            note ? "text-[13px] text-ink-mid" : "text-[13.5px]",
+                            !note && (dim ? "text-muted" : "text-secondary")
+                        )}
+                    >
+                        {partGist(f, part)}
+                    </span>
+                    <span title={part.from} className="w-[120px] flex-none truncate font-mono text-[10.5px] text-muted">
+                        {part.from}
+                    </span>
+                </button>
+                <span className="flex h-[20px] min-w-[150px] flex-none items-center justify-end gap-[8px]">
+                    {right}
+                </span>
+                <Chevron open={open} onClick={() => setOpen(!open)} />
+            </div>
+            {open ? (
+                <div data-brainstorm-row-body className="mb-[12px] ml-[233px] mr-[14px] flex flex-col gap-[8px]">
+                    {editing ? (
+                        <>
+                            <textarea
+                                data-brainstorm-edit
+                                aria-label={`Edit ${part.title}`}
+                                autoFocus
+                                rows={3}
+                                value={draft}
+                                onChange={(e) => setDraft(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Escape") {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setEditing(false);
+                                        return;
+                                    }
+                                    onEnter(e, () => {
+                                        if (draft.trim() === "" || locked) {
+                                            return;
+                                        }
+                                        void send({ kind: "edit", part: part.id, text: draft }).then((ok) => {
+                                            if (ok) {
+                                                setEditing(false);
+                                            }
+                                        });
+                                    });
+                                }}
+                                className={FIELD}
+                            />
+                            <span className="text-[11.5px] text-muted">Enter sends · Esc cancels</span>
+                        </>
+                    ) : view === "writing" ? (
+                        <>
+                            <div aria-hidden="true" className="h-[10px] w-[92%] rounded-[4px] bg-surface-hover" />
+                            <div aria-hidden="true" className="h-[10px] w-[78%] rounded-[4px] bg-surface-hover" />
+                            <div aria-hidden="true" className="h-[10px] w-[54%] rounded-[4px] bg-surface-hover" />
+                        </>
+                    ) : (
+                        <>
+                            {view === "changed" && !note ? (
+                                <span className="text-[11.5px] text-accent-soft">Changed since you confirmed it</span>
+                            ) : null}
+                            {part.body ? (
+                                <div
+                                    className={cn(
+                                        "whitespace-pre-line rounded-[8px] bg-surface px-[14px] py-[10px] leading-[1.6]",
+                                        note ? "text-[13px] text-ink-mid" : "text-[13.5px] text-secondary"
+                                    )}
+                                >
+                                    {part.body}
+                                </div>
+                            ) : null}
+                            {view === "changed" && !note ? <ChangeDiff part={part} /> : null}
+                        </>
+                    )}
+                    {thumbs ? (
+                        <Thumbnails agentId={agent.id} s={s} canvas={f.canvas!} base={s.base!} boards={part.boards!} />
+                    ) : null}
+                </div>
+            ) : null}
+            {act.error != null ? <span className={cn(ERROR_LINE, "px-[14px] pb-[8px]")}>{act.error}</span> : null}
+        </div>
     );
 }
 
@@ -742,59 +1162,91 @@ function DecidedRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => voi
                             <IntoLinks into={h.into} goTo={goTo} />
                         </div>
                     ) : (
-                        <div
-                            key={`${h.label}:${i}`}
-                            className="flex flex-col gap-[8px] border-t border-border py-[12px]"
-                        >
-                            <div className="flex items-baseline gap-[8px]">
-                                <span className="flex-none font-mono text-[10.5px] text-muted">
-                                    {h.label}
-                                    {i === 0 && working ? " · just now" : ""}
-                                </span>
-                                <span className="text-[12.5px] leading-[1.45] text-ink-mid">{h.q}</span>
-                            </div>
-                            <ul
-                                aria-label={`${h.label} answers`}
-                                className="m-0 flex list-none flex-col gap-[5px] p-0 pl-[2px]"
-                            >
-                                {h.options.map((o, j) => (
-                                    <li
-                                        key={j}
-                                        data-picked={o.picked ? "" : undefined}
-                                        className="flex items-start gap-[8px]"
-                                    >
-                                        {o.picked ? <CheckMark /> : <EmptyMark />}
-                                        <span
-                                            className={
-                                                o.picked
-                                                    ? "text-[14px] font-semibold leading-[1.45] text-primary"
-                                                    : "text-[13px] leading-[1.45] text-muted"
-                                            }
-                                        >
-                                            {o.label}
-                                        </span>
-                                    </li>
-                                ))}
-                                {h.answer != null ? (
-                                    <li data-picked="" className="flex items-start gap-[8px]">
-                                        <CheckMark />
-                                        <span className="flex flex-col gap-[1px]">
-                                            {h.ownWords ? (
-                                                <span className="text-[11px] text-success">In your words</span>
-                                            ) : null}
-                                            <span className="text-[14px] font-semibold leading-[1.45] text-primary">
-                                                {h.answer}
-                                            </span>
-                                        </span>
-                                    </li>
-                                ) : null}
-                            </ul>
-                            <IntoLinks into={h.into} goTo={goTo} className="pl-[23px]" />
-                        </div>
+                        <RailQuestion key={h.label} h={h} justNow={i === 0 && working} goTo={goTo} />
                     )
                 )}
             </div>
         </aside>
+    );
+}
+
+// the picked answer keeps what it is; the toggle opens why it was asked and what the others were, when there is any
+function RailQuestion({ h, justNow, goTo }: { h: HistoryRow; justNow: boolean; goTo: (id: string) => void }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <div data-brainstorm-rail-entry className="flex flex-col gap-[8px] border-t border-border py-[12px]">
+            <div className="flex items-baseline gap-[8px]">
+                <span className="flex-none font-mono text-[10.5px] text-muted">
+                    {h.label}
+                    {justNow ? " · just now" : ""}
+                </span>
+                <span className="text-[12.5px] leading-[1.45] text-ink-mid">{h.q}</span>
+            </div>
+            {open && h.why != null ? (
+                <div data-brainstorm-rail-why className="pl-[23px] text-[12px] leading-[1.5] text-muted">
+                    Why: {h.why}
+                </div>
+            ) : null}
+            <ul aria-label={`${h.label} answers`} className="m-0 flex list-none flex-col gap-[6px] p-0 pl-[2px]">
+                {h.options.map((o, j) => (
+                    <li key={j} data-picked={o.picked ? "" : undefined} className="flex items-start gap-[8px]">
+                        {o.picked ? <CheckMark /> : <EmptyMark />}
+                        <span className="flex min-w-0 flex-col gap-[2px]">
+                            <span className="flex flex-wrap items-baseline gap-x-[8px]">
+                                <span
+                                    className={
+                                        o.picked
+                                            ? "text-[14px] font-semibold leading-[1.45] text-primary"
+                                            : "text-[13px] leading-[1.45] text-muted"
+                                    }
+                                >
+                                    {o.label}
+                                </span>
+                                {o.agentPick ? (
+                                    <span className="text-[11px] font-semibold text-accent-soft">Agent’s pick</span>
+                                ) : null}
+                            </span>
+                            {o.detail && (o.picked || open) ? (
+                                <span
+                                    className={
+                                        o.picked
+                                            ? "text-[12.5px] leading-[1.5] text-ink-mid"
+                                            : "text-[12px] leading-[1.5] text-muted"
+                                    }
+                                >
+                                    {o.detail}
+                                </span>
+                            ) : null}
+                        </span>
+                    </li>
+                ))}
+                {h.answer != null ? (
+                    <li data-picked="" className="flex items-start gap-[8px]">
+                        <CheckMark />
+                        <span className="flex flex-col gap-[1px]">
+                            {h.ownWords ? <span className="text-[11px] text-success">In your words</span> : null}
+                            <span className="text-[14px] font-semibold leading-[1.45] text-primary">{h.answer}</span>
+                        </span>
+                    </li>
+                ) : null}
+            </ul>
+            {h.reasons || h.into.length > 0 ? (
+                <div className="flex items-baseline gap-[14px] pl-[23px]">
+                    {h.reasons ? (
+                        <button
+                            type="button"
+                            data-brainstorm-reasoning
+                            aria-expanded={open}
+                            onClick={() => setOpen(!open)}
+                            className="flex-none cursor-pointer border-0 bg-transparent p-0 text-[11.5px] font-semibold text-accent-soft hover:underline"
+                        >
+                            {open ? "Hide the reasoning" : "Show the reasoning"}
+                        </button>
+                    ) : null}
+                    <IntoLinks into={h.into} goTo={goTo} />
+                </div>
+            ) : null}
+        </div>
     );
 }
 
@@ -809,92 +1261,6 @@ function DesignHead({ f }: { f: BrainstormFile }) {
                 </span>
             ) : null}
         </div>
-    );
-}
-
-function WhatsLeft({ agent, f, goTo }: { agent: AgentVM; f: BrainstormFile; goTo: (id: string) => void }) {
-    const rows = whatsLeft(f);
-    const guesses = confirmableGuesses(f);
-    const act = useAction();
-    return (
-        <section
-            data-brainstorm-left
-            className="flex flex-col gap-[6px] rounded-[8px] border border-edge-mid px-[14px] py-[12px]"
-        >
-            <div className="flex items-baseline gap-[8px]">
-                <h2 className={SECTION_HEAD}>Before the builder check</h2>
-                <span className="text-[11.5px] text-muted">every part has to be yours</span>
-            </div>
-            {guesses > 1 ? (
-                <button
-                    type="button"
-                    data-brainstorm-confirm-all
-                    disabled={act.busy}
-                    onClick={() => void act.run(() => sendBrainstorm(agent, { kind: "confirm-all" }))}
-                    className={cn(PART_BTN, "self-start")}
-                >
-                    Confirm all {guesses} guesses
-                </button>
-            ) : null}
-            {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
-            {rows.length === 0 ? (
-                <span className="py-[5px] text-[12.5px] text-ink-mid">
-                    Every part is yours; the agent may still have questions.
-                </span>
-            ) : (
-                <ul className="m-0 flex list-none flex-col p-0">
-                    {rows.map((r) => (
-                        <li key={r.id}>
-                            <button
-                                type="button"
-                                data-brainstorm-left-row={r.id}
-                                onClick={() => goTo(r.id)}
-                                className={cn(
-                                    "flex w-full cursor-pointer items-center gap-[10px] border-0 bg-transparent px-0 py-[5px] text-left text-[12.5px] hover:text-primary",
-                                    r.kind === "last" || r.kind === "talk" ? "text-ink-mid" : "text-secondary"
-                                )}
-                            >
-                                <span className={LEFT_DOT[r.kind]} />
-                                <span className="flex-1">{r.text}</span>
-                                <span className="min-w-0 max-w-[50%] truncate text-muted">{r.title}</span>
-                            </button>
-                        </li>
-                    ))}
-                </ul>
-            )}
-        </section>
-    );
-}
-
-function ReadyCard({ agent }: { agent: AgentVM }) {
-    const check = useAction();
-    return (
-        <section
-            data-brainstorm-ready
-            className="flex flex-col gap-[12px] rounded-[8px] border border-edge-mid bg-surface-raised p-[16px]"
-        >
-            <div className="flex items-center gap-[8px]">
-                <span className={cn(SMALL_DOT, "bg-success")} />
-                <h2 className="m-0 text-[14.5px] font-semibold text-primary">Nothing left to ask</h2>
-            </div>
-            <p className="m-0 text-[13px] leading-[1.5] text-secondary">
-                Every part is yours. Next, a fresh agent reads the design as a builder would and lists what it would
-                still have to ask you before planning.
-            </p>
-            <div className="flex items-center gap-[10px]">
-                <button
-                    type="button"
-                    data-brainstorm-check-btn
-                    disabled={check.busy}
-                    onClick={() => void check.run(() => sendBrainstorm(agent, { kind: "check" }))}
-                    className={CANVAS_PRIMARY_BTN}
-                >
-                    Check with a builder
-                </button>
-                <span className="text-[12px] text-muted">or answer in the terminal to keep talking</span>
-            </div>
-            {check.error != null ? <span className={ERROR_LINE}>{check.error}</span> : null}
-        </section>
     );
 }
 
@@ -920,7 +1286,7 @@ function CheckQuestion({ agent, f, goTo }: { agent: AgentVM; f: BrainstormFile; 
             <div className="flex flex-col gap-[12px] p-[14px]">
                 <div className="whitespace-pre-line text-[15px] font-semibold leading-[1.5] text-primary">{q.text}</div>
                 {q.why ? <div className="text-[12.5px] leading-[1.5] text-ink-mid">{q.why}</div> : null}
-                {q.options != null ? <Options options={q.options} ans={ans} compact /> : null}
+                <QuestionAnswers key={q.n} q={q} ans={ans} compact />
                 <AnswerBox ans={ans} options={q.options != null} />
                 {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
             </div>
@@ -939,211 +1305,6 @@ function EnterSends() {
     );
 }
 
-// every part card is one anatomy: dot, title, state label and source on one line; the body; its actions under it
-function PartCard({
-    agent,
-    s,
-    f,
-    part,
-}: {
-    agent: AgentVM;
-    s: BrainstormState;
-    f: BrainstormFile;
-    part: BrainstormPart;
-}) {
-    const view = partView(f, part);
-    const [editing, setEditing] = useState(false);
-    const [draft, setDraft] = useState("");
-    const act = useAction();
-    const working = f.working != null;
-    const locked = working || act.busy;
-    const lockTitle = working ? WORKING_TITLE : undefined;
-    const askedHere = f.question?.part === part.id;
-    const send = (action: BrainstormAction) => act.run(() => sendBrainstorm(agent, action));
-    const startEdit = () => {
-        setDraft(part.body);
-        setEditing(true);
-    };
-    const btn = (label: string, onClick: () => void, quiet = false) => (
-        <button
-            type="button"
-            disabled={locked}
-            title={lockTitle}
-            onClick={onClick}
-            className={cn(PART_BTN, quiet && "text-secondary")}
-        >
-            {label}
-        </button>
-    );
-
-    let dot: string;
-    let label: ReactNode;
-    let actions: ReactNode = null;
-    switch (view) {
-        case "yours":
-            dot = DOT_YOURS;
-            label = <span className="text-[11.5px] text-success">Yours</span>;
-            break;
-        case "guess":
-            dot = DOT_GUESS;
-            label = <span className="text-[11.5px] text-ink-mid">Agent’s guess</span>;
-            actions = (
-                <>
-                    {btn("That’s right", () => void send({ kind: "confirm", part: part.id }))}
-                    {btn("Edit", startEdit, true)}
-                </>
-            );
-            break;
-        case "changed":
-            dot = DOT_GUESS;
-            label = <span className="text-[11.5px] text-accent-soft">Changed since you confirmed it</span>;
-            actions = (
-                <>
-                    {btn("Keep the change", () => void send({ kind: "keep", part: part.id }))}
-                    {btn("Put mine back", () => void send({ kind: "restore", part: part.id }), true)}
-                </>
-            );
-            break;
-        case "asked":
-            dot = DOT_ASKED;
-            label = (
-                <span className="text-[11.5px] text-warning">
-                    Asked now{askedHere ? ` · question ${f.question!.n}` : ""}
-                </span>
-            );
-            break;
-        case "writing":
-            dot = DOT_YOURS;
-            label = <span className="text-[11.5px] text-success">Being written</span>;
-            break;
-        default:
-            dot = DOT_OPEN;
-            label = <span className="text-[11.5px] text-muted">Open</span>;
-    }
-
-    return (
-        <div
-            data-brainstorm-part={part.id}
-            data-state={view}
-            className={cn(
-                "flex scroll-mt-[20px] flex-col rounded-[8px] border px-[14px] py-[12px]",
-                view === "guess" || view === "changed" ? "gap-[8px]" : "gap-[6px]",
-                (view === "yours" || view === "open") && "border-transparent",
-                (view === "guess" || view === "writing") && "border-dashed border-edge-strong bg-surface",
-                view === "changed" && "border-accent bg-surface",
-                view === "asked" && "border-warning/45"
-            )}
-        >
-            <div className="flex min-w-0 items-center gap-[8px]">
-                <span className={dot} />
-                <span
-                    className={cn(
-                        "min-w-0 truncate text-[14px] font-semibold",
-                        view === "open" ? "text-ink-mid" : "text-primary"
-                    )}
-                >
-                    {part.title}
-                </span>
-                <span className="flex-none">{label}</span>
-                {part.from ? (
-                    <span className="min-w-0 truncate font-mono text-[10.5px] text-muted">· {part.from}</span>
-                ) : null}
-                <div className="flex-1" />
-                {view === "yours" && !editing ? (
-                    <button
-                        type="button"
-                        disabled={locked}
-                        title={lockTitle}
-                        onClick={startEdit}
-                        className="flex-none cursor-pointer border-0 bg-transparent px-[4px] py-[2px] text-[12px] text-muted hover:text-secondary disabled:cursor-default disabled:opacity-50"
-                    >
-                        Edit
-                    </button>
-                ) : null}
-            </div>
-            {editing ? (
-                <div className="flex flex-col gap-[6px] pl-[15px]">
-                    <textarea
-                        data-brainstorm-edit
-                        aria-label={`Edit ${part.title}`}
-                        autoFocus
-                        rows={3}
-                        value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === "Escape") {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setEditing(false);
-                                return;
-                            }
-                            onEnter(e, () => {
-                                if (draft.trim() === "" || locked) {
-                                    return;
-                                }
-                                void send({ kind: "edit", part: part.id, text: draft }).then((ok) => {
-                                    if (ok) {
-                                        setEditing(false);
-                                    }
-                                });
-                            });
-                        }}
-                        className={FIELD}
-                    />
-                    <span className="text-[11.5px] text-muted">Enter sends · Esc cancels</span>
-                </div>
-            ) : view === "writing" ? (
-                <>
-                    <div aria-hidden="true" className="ml-[15px] h-[10px] w-[92%] rounded-[4px] bg-surface-hover" />
-                    <div aria-hidden="true" className="ml-[15px] h-[10px] w-[78%] rounded-[4px] bg-surface-hover" />
-                    <div aria-hidden="true" className="ml-[15px] h-[10px] w-[54%] rounded-[4px] bg-surface-hover" />
-                </>
-            ) : (
-                <>
-                    {part.body ? (
-                        <div
-                            className={cn(
-                                "whitespace-pre-line pl-[15px] leading-[1.55]",
-                                view === "open" ? "text-[13px] text-muted" : "text-[13.5px] text-secondary"
-                            )}
-                        >
-                            {part.body}
-                        </div>
-                    ) : null}
-                    {view === "asked" ? (
-                        <div
-                            data-brainstorm-asked-pointer
-                            className="flex items-center gap-[6px] pl-[15px] text-[13px] leading-[1.55] text-muted"
-                        >
-                            <svg
-                                aria-hidden="true"
-                                width="12"
-                                height="12"
-                                viewBox="0 0 12 12"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.5"
-                                className="flex-none"
-                            >
-                                <path d="M10 6H2M5 3L2 6l3 3" />
-                            </svg>
-                            {askedHere
-                                ? `Written from your answer to question ${f.question!.n}.`
-                                : "Waiting on the agent’s question."}
-                        </div>
-                    ) : null}
-                </>
-            )}
-            {view === "changed" ? <ChangeDiff part={part} /> : null}
-            {part.boards != null && f.canvas != null && s.base != null && view !== "writing" ? (
-                <Thumbnails agentId={agent.id} s={s} canvas={f.canvas} base={s.base} boards={part.boards} />
-            ) : null}
-            {actions != null && !editing ? <div className="flex gap-[8px] pl-[15px] pt-[2px]">{actions}</div> : null}
-            {act.error != null ? <span className={cn(ERROR_LINE, "pl-[15px]")}>{act.error}</span> : null}
-        </div>
-    );
-}
-
 function ChangeDiff({ part }: { part: BrainstormPart }) {
     const diff = sentenceDiff(part.was ?? "", part.body).filter((d) => d.kind !== "same");
     return (
@@ -1152,7 +1313,7 @@ function ChangeDiff({ part }: { part: BrainstormPart }) {
                 <div
                     key={i}
                     className={cn(
-                        "ml-[15px] rounded-[6px] px-[10px] py-[6px] text-[13px] leading-[1.5] text-secondary",
+                        "rounded-[6px] px-[10px] py-[6px] text-[13px] leading-[1.5] text-secondary",
                         d.kind === "added" ? "bg-success/10" : "bg-error/10"
                     )}
                 >
@@ -1162,7 +1323,7 @@ function ChangeDiff({ part }: { part: BrainstormPart }) {
                     {d.text}
                 </div>
             ))}
-            {part.why ? <div className="pl-[15px] text-[12px] text-muted">Why: {part.why}</div> : null}
+            {part.why ? <div className="text-[12px] text-muted">Why: {part.why}</div> : null}
         </>
     );
 }
@@ -1185,7 +1346,7 @@ function Thumbnails({
         openBrainstormBoard(agentId, board);
     };
     return (
-        <div className="ml-[15px] mt-[4px] flex flex-col gap-[10px]">
+        <div className="flex flex-col gap-[10px]">
             {boards.map((name, i) => {
                 const b: CanvasBoard | undefined = s.boards.find((x) => x.name === name);
                 const w = b?.w ?? DEFAULT_BOARD_W;
@@ -1305,15 +1466,40 @@ function Check({
                             {hv.answered.map((y, i) => (
                                 <div
                                     key={i}
-                                    className="flex flex-col gap-[6px] rounded-[8px] border border-edge-mid bg-surface-raised px-[16px] py-[12px]"
+                                    data-brainstorm-answered
+                                    className="flex flex-col gap-[8px] rounded-[8px] border border-edge-mid bg-surface-raised px-[16px] py-[12px]"
                                 >
                                     <div className="flex items-center gap-[8px] text-[12px] font-semibold text-success">
                                         <span className={cn(SMALL_DOT, "bg-success")} />
                                         You answered
                                     </div>
-                                    <div className="text-[13.5px] leading-[1.5] text-ink-hi">
-                                        {y.a}
-                                        {y.into ? ` Added to ${partTitle(f, y.into)}.` : ""}
+                                    {y.q ? (
+                                        <div className="text-[13.5px] font-semibold leading-[1.5] text-primary">
+                                            {y.q}
+                                        </div>
+                                    ) : null}
+                                    {y.why ? (
+                                        <div className="text-[12px] leading-[1.5] text-muted">Why: {y.why}</div>
+                                    ) : null}
+                                    <div className="flex items-start gap-[8px] pt-[2px]">
+                                        <CheckMark />
+                                        <span className="text-[13.5px] leading-[1.5] text-ink-hi">
+                                            {y.a}
+                                            {y.into ? (
+                                                <>
+                                                    {" "}
+                                                    Added to{" "}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => scrollToPart(designRef, y.into!)}
+                                                        className={LINK}
+                                                    >
+                                                        {partTitle(f, y.into)}
+                                                    </button>
+                                                    .
+                                                </>
+                                            ) : null}
+                                        </span>
                                     </div>
                                 </div>
                             ))}

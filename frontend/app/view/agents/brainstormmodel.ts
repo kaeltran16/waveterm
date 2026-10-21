@@ -16,24 +16,38 @@ const RUN_ID_CHARS = 8;
 const PART_STATES = ["yours", "guess", "asked", "open"] as const;
 
 export type PartState = (typeof PART_STATES)[number];
+// a note is background the decisions stand on (recon, research, a trade-off write-up): nothing to confirm, so every
+// count, gate and confirm leaves it out, whatever state it carries
 export type BrainstormPart = {
     id: string;
     title: string;
     state: PartState;
+    kind?: "note";
     from?: string;
+    gist?: string;
     body: string;
     boards?: string[];
     was?: string;
     why?: string;
 };
-// an answer the agent offers; pick marks the one it recommends
-export type AnswerOption = { label: string; detail: string; pick?: boolean };
-export type BrainstormQuestion = { n: number; text: string; part: string; why?: string; options?: AnswerOption[] };
+// an answer the agent offers; pick marks the one it recommends, pros and cons are its reasons for and against
+export type AnswerOption = { label: string; detail: string; pick?: boolean; pros?: string[]; cons?: string[] };
+// read is the agent's one-line comparison of the options
+export type BrainstormQuestion = {
+    n: number;
+    text: string;
+    part: string;
+    why?: string;
+    read?: string;
+    options?: AnswerOption[];
+};
 // picked is the option's index, absent when the answer was typed in the user's own words
 export type HistoryEntry = {
     kind: "question" | "recon";
     n?: number;
     q: string;
+    // why the question was asked, kept so the rail can show it again
+    why?: string;
     a: string;
     into: string[];
     options?: AnswerOption[];
@@ -72,6 +86,10 @@ function strings(v: unknown): string[] {
     return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
 }
 
+function lines(v: unknown): string[] {
+    return strings(v).filter((s) => s.trim() !== "");
+}
+
 class FieldError extends Error {}
 
 function parsePart(raw: unknown, i: number): BrainstormPart {
@@ -79,16 +97,20 @@ function parsePart(raw: unknown, i: number): BrainstormPart {
         throw new FieldError(`parts[${i}] has no id`);
     }
     const id = raw.id;
-    if (!PART_STATES.includes(raw.state as PartState)) {
+    const note = raw.kind === "note";
+    const known = PART_STATES.includes(raw.state as PartState);
+    if (!note && !known) {
         throw new FieldError(`part "${id}" has an unknown state "${String(raw.state)}"`);
     }
     const boards = strings(raw.boards);
     return {
         id,
         title: str(raw.title) ?? id,
-        state: raw.state as PartState,
+        state: known ? (raw.state as PartState) : "yours",
+        ...(note ? { kind: "note" as const } : {}),
         body: str(raw.body) ?? "",
         ...(str(raw.from) != null ? { from: str(raw.from) } : {}),
+        ...(str(raw.gist) ? { gist: str(raw.gist) } : {}),
         ...(boards.length > 0 ? { boards } : {}),
         ...(str(raw.was) != null ? { was: str(raw.was) } : {}),
         ...(str(raw.why) != null ? { why: str(raw.why) } : {}),
@@ -99,11 +121,17 @@ function parsePart(raw: unknown, i: number): BrainstormPart {
 function parseOptions(raw: unknown): AnswerOption[] {
     return (Array.isArray(raw) ? raw : [])
         .filter((o): o is Rec => isRecord(o) && typeof o.label === "string" && o.label.trim() !== "")
-        .map((o) => ({
-            label: o.label as string,
-            detail: str(o.detail) ?? "",
-            ...(o.pick === true ? { pick: true } : {}),
-        }));
+        .map((o) => {
+            const pros = lines(o.pros);
+            const cons = lines(o.cons);
+            return {
+                label: o.label as string,
+                detail: str(o.detail) ?? "",
+                ...(o.pick === true ? { pick: true } : {}),
+                ...(pros.length > 0 ? { pros } : {}),
+                ...(cons.length > 0 ? { cons } : {}),
+            };
+        });
 }
 
 function parseQuestion(raw: unknown): BrainstormQuestion | null {
@@ -119,6 +147,7 @@ function parseQuestion(raw: unknown): BrainstormQuestion | null {
         text: raw.text,
         part: str(raw.part) ?? "",
         ...(str(raw.why) ? { why: str(raw.why) } : {}),
+        ...(str(raw.read) ? { read: str(raw.read) } : {}),
         ...(options.length > 0 ? { options } : {}),
     };
 }
@@ -135,6 +164,7 @@ function parseHistory(raw: unknown): HistoryEntry[] {
             kind: h.kind === "recon" ? "recon" : "question",
             ...(typeof h.n === "number" ? { n: h.n } : {}),
             q: str(h.q) ?? "",
+            ...(str(h.why) ? { why: str(h.why) } : {}),
             a: str(h.a) ?? "",
             into: strings(h.into),
             ...(options.length > 0 ? { options } : {}),
@@ -241,14 +271,19 @@ export function parseBrainstormPath(path: string): { cwd: string; topic: string 
     return m ? { cwd: m[1], topic: m[2] } : null;
 }
 
+export function isNote(p: BrainstormPart): boolean {
+    return p.kind === "note";
+}
+
 export function brainstormCounts(f: BrainstormFile): { yours: number; guesses: number; open: number } {
-    const n = (...states: PartState[]) => f.parts.filter((p) => states.includes(p.state)).length;
+    const n = (...states: PartState[]) => decisionParts(f).filter((p) => states.includes(p.state)).length;
     return { yours: n("yours"), guesses: n("guess"), open: n("asked", "open") };
 }
 
 // a question still open (one about no part can come after done) waits for its answer first
 export function canCheck(f: BrainstormFile): boolean {
-    return f.done && f.question == null && f.parts.length > 0 && f.parts.every((p) => p.state === "yours");
+    const parts = decisionParts(f);
+    return f.done && f.question == null && parts.length > 0 && parts.every((p) => p.state === "yours");
 }
 
 // a line Arc sent, which the agent has not answered yet: modifiedMs is the file's when it was sent
@@ -398,8 +433,11 @@ export type HistoryRow = {
     kind: "question" | "recon";
     label: string;
     q: string;
-    // every option the question offered, the picked one marked
-    options: { label: string; picked: boolean }[];
+    // every option the question offered, the picked one and the agent's recommendation marked
+    options: { label: string; detail: string; picked: boolean; agentPick: boolean }[];
+    why: string | null;
+    // the reasoning toggle has something to show: why it was asked, or an option not picked that says what it is
+    reasons: boolean;
     // the answer as said, drawn after the options; null when it was one of them
     answer: string | null;
     // the question offered options and the user answered in their own words instead
@@ -408,14 +446,22 @@ export type HistoryRow = {
 };
 
 function historyRow(f: BrainstormFile, h: HistoryEntry, i: number): HistoryRow {
-    const options = (h.options ?? []).map((o, j) => ({ label: o.label, picked: j === h.picked }));
+    const options = (h.options ?? []).map((o, j) => ({
+        label: o.label,
+        detail: o.detail,
+        picked: j === h.picked,
+        agentPick: o.pick === true,
+    }));
     const recon = h.kind === "recon";
     const answer = h.picked != null ? null : (recon ? h.a || h.q : h.a) || null;
+    const why = recon ? null : (h.why ?? null);
     return {
         kind: h.kind,
         label: recon ? "Recon" : `Q${h.n ?? i + 1}`,
         q: h.q,
         options,
+        why,
+        reasons: why != null || options.some((o) => !o.picked && o.detail !== ""),
         answer,
         ownWords: answer != null && options.length > 0,
         into: h.into.map((id) => ({ id, title: partTitle(f, id) })),
@@ -429,6 +475,11 @@ export function historyRows(f: BrainstormFile): HistoryRow[] {
 }
 
 export const OPTION_KEYS = ["a", "b", "c", "d"] as const;
+
+// the question carries the agent's reasons, which the pane draws under each answer behind one toggle
+export function hasProsCons(q: BrainstormQuestion): boolean {
+    return (q.options ?? []).some((o) => o.pros != null || o.cons != null);
+}
 
 export function optionLetter(i: number): string {
     return String.fromCharCode("A".charCodeAt(0) + i);
@@ -469,7 +520,7 @@ export type TrackSegment = "done" | "now" | "ahead";
 
 export function questionTrack(f: BrainstormFile): TrackSegment[] {
     const done = f.history.filter((h) => h.kind === "question").length;
-    const ahead = f.parts.filter((p) => p.state === "open" && p.id !== BUILDER_PART).length;
+    const ahead = decisionParts(f).filter((p) => p.state === "open" && p.id !== BUILDER_PART).length;
     return [
         ...Array<TrackSegment>(done).fill("done"),
         ...(f.question != null ? (["now"] as TrackSegment[]) : []),
@@ -478,14 +529,24 @@ export function questionTrack(f: BrainstormFile): TrackSegment[] {
 }
 
 export function designLabel(f: BrainstormFile): string {
-    if (f.parts.length === 0) {
+    const n = decisionParts(f).length;
+    if (n === 0) {
         return "The design";
     }
-    return `The design · ${brainstormCounts(f).yours} of ${f.parts.length} yours`;
+    return `The design · ${brainstormCounts(f).yours} of ${n} yours`;
 }
 
 export function orderedParts(f: BrainstormFile): BrainstormPart[] {
     return [...f.parts.filter((p) => p.id !== BUILDER_PART), ...f.parts.filter((p) => p.id === BUILDER_PART)];
+}
+
+// what the run builds, each of which has to be yours
+export function decisionParts(f: BrainstormFile): BrainstormPart[] {
+    return orderedParts(f).filter((p) => !isNote(p));
+}
+
+export function noteParts(f: BrainstormFile): BrainstormPart[] {
+    return orderedParts(f).filter(isNote);
 }
 
 // how a part draws: a guess that was yours reads as changed, an asked part the agent is writing up as writing
@@ -530,7 +591,7 @@ export type ProgressView = {
 
 // one segment per part, in the order the design draws them; the label reads per phase
 export function progressView(f: BrainstormFile): ProgressView {
-    const parts = orderedParts(f);
+    const parts = decisionParts(f);
     const { yours, open } = brainstormCounts(f);
     const segments = parts.map((p) => ({ id: p.id, title: p.title, state: p.state }));
     if (brainstormPhase(f) === "talk") {
@@ -539,39 +600,64 @@ export function progressView(f: BrainstormFile): ProgressView {
     return { segments, lead: `${yours} yours`, rest: open === 0 ? "· nothing open" : `· ${open} open` };
 }
 
-export type LeftKind = "answer" | "confirm" | "review" | "last" | "talk";
-export type LeftRow = { id: string; title: string; kind: LeftKind; text: string };
-
-function leftRow(f: BrainstormFile, p: BrainstormPart): LeftRow | null {
-    const row = (kind: LeftKind, text: string): LeftRow => ({ id: p.id, title: p.title, kind, text });
-    switch (partView(f, p)) {
-        case "yours":
-            return null;
-        case "asked":
-        case "writing":
-            return row("answer", f.question?.part === p.id ? `Answer question ${f.question.n}` : "Answer its question");
-        case "guess":
-            return row("confirm", "Confirm the agent’s guess");
-        case "changed":
-            return row("review", "Review what changed");
-        case "open":
-            return p.id === BUILDER_PART
-                ? row("last", "The agent writes this last")
-                : row("talk", "Not talked through yet");
+// the one line a part reads as in the design: the agent's gist, else the body's first sentence, else what the part
+// waits on
+export function partGist(f: BrainstormFile, p: BrainstormPart): string {
+    if (p.gist) {
+        return p.gist;
     }
-}
-
-// what stands between the design and the builder check: every part not yet yours, the asked one first
-export function whatsLeft(f: BrainstormFile): LeftRow[] {
-    const rows = orderedParts(f)
-        .map((p) => leftRow(f, p))
-        .filter((r): r is LeftRow => r != null);
-    return [...rows.filter((r) => r.kind === "answer"), ...rows.filter((r) => r.kind !== "answer")];
+    const first = sentences(p.body.trim())[0];
+    if (first) {
+        return first;
+    }
+    switch (partView(f, p)) {
+        case "asked":
+            return f.question?.part === p.id
+                ? `Written from your answer to question ${f.question.n}.`
+                : "Waiting on the agent’s question.";
+        case "writing":
+            return "The agent is writing this from your answer.";
+        case "open":
+            return p.id === BUILDER_PART ? "The agent writes this last." : "Not talked through yet.";
+        default:
+            return "";
+    }
 }
 
 // the guesses one press confirms: a changed part is left out, since it asks keep or restore
 export function confirmableGuesses(f: BrainstormFile): number {
-    return f.parts.filter((p) => partView(f, p) === "guess").length;
+    return decisionParts(f).filter((p) => partView(f, p) === "guess").length;
+}
+
+// the head of the design once there is something to review: what stands before the builder check, and the one
+// press that moves it on. Confirm all needs two guesses, since one has its own That's right
+export type ReviewHead = { line: string; action: "confirm-all" | "check" | null; guesses: number };
+
+export function reviewHead(f: BrainstormFile): ReviewHead {
+    if (canCheck(f)) {
+        return {
+            line: "Every decision is yours. Next, a fresh agent reads the design as a builder would.",
+            action: "check",
+            guesses: 0,
+        };
+    }
+    const guesses = confirmableGuesses(f);
+    const changed = decisionParts(f).filter((p) => partView(f, p) === "changed").length;
+    const said: string[] = [];
+    if (guesses > 0) {
+        said.push(`${plural(guesses, "decision is", "decisions are")} still the agent’s guess.`);
+    }
+    if (changed > 0) {
+        said.push(
+            `${plural(changed, "decision", "decisions")} changed since you confirmed ${changed === 1 ? "it" : "them"}.`
+        );
+    }
+    if (said.length > 0) {
+        said.push("Each reads in one line; open one to read it whole.");
+    } else {
+        said.push("Nothing to confirm; the agent still has questions.");
+    }
+    return { line: said.join(" "), action: guesses > 1 ? "confirm-all" : null, guesses };
 }
 
 // what the left column holds under the question: the builder check once it is ready, else what stands before it.
