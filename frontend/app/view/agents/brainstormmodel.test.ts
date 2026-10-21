@@ -7,6 +7,7 @@ import {
     BUILDER_PART,
     approveBlocker,
     asksUser,
+    boardBackLabel,
     brainstormAttention,
     brainstormCounts,
     brainstormFilePath,
@@ -32,12 +33,14 @@ import {
     paneView,
     parseBrainstorm,
     parseBrainstormPath,
+    partBoards,
     partGist,
     partTitle,
     partView,
     phaseSteps,
     pickableOptions,
     progressView,
+    questionBoards,
     questionTrack,
     resumePrompt,
     reviewHead,
@@ -686,6 +689,18 @@ describe("mainView", () => {
     it("the design opened over either shows the design", () => {
         expect(mainView(file({ question: q }), true)).toBe("design");
         expect(mainView(file({ working: "w" }), true)).toBe("design");
+    });
+});
+
+describe("boardBackLabel", () => {
+    const q = { n: 1, text: "Q", part: "a" };
+
+    it("goes back to the question it was opened from, else to the design", () => {
+        expect(boardBackLabel(file({ question: q }), false)).toBe("Back to the question");
+        expect(boardBackLabel(file({ question: q }), true)).toBe("Back to the design");
+        expect(boardBackLabel(file({ question: q, working: "w" }), false)).toBe("Back to the design");
+        expect(boardBackLabel(file(), false)).toBe("Back to the design");
+        expect(boardBackLabel(null, false)).toBe("Back to the design");
     });
 });
 
@@ -1441,5 +1456,38 @@ describe("paneView", () => {
         expect(paneView({ ...s, file: file({ run: "r1" }) })).toBe("run");
         expect(paneView({ ...s, file: withCheck, board: "B.dc.html" })).toBe("board");
         expect(paneView({ ...s, file: withCheck })).toBe("check");
+    });
+});
+
+describe("partBoards and questionBoards", () => {
+    const BASE = "http://127.0.0.1:1234";
+    const boards = ["A.dc.html", "B.dc.html"];
+    const parts = [part("layout", "asked", { boards }), part("copy", "open")];
+    const q = (p: string) => ({ n: 3, text: "Which layout?", part: p });
+
+    it("a part's boards show once the canvas is named and served", () => {
+        const f = file({ canvas: "topic", parts });
+        expect(partBoards(f, parts[0], BASE)).toEqual(boards);
+        expect(partBoards(f, parts[0], null)).toBeNull();
+        expect(partBoards(file({ parts }), parts[0], BASE)).toBeNull();
+        expect(partBoards(f, parts[1], BASE)).toBeNull();
+        expect(partBoards(f, undefined, BASE)).toBeNull();
+    });
+
+    it("the question shows its part's boards", () => {
+        expect(questionBoards(file({ canvas: "topic", parts, question: q("layout") }), BASE)).toEqual(boards);
+    });
+
+    it("none for a part with no boards, an unknown part, no part, or no question", () => {
+        const f = (question: BrainstormFile["question"]) => file({ canvas: "topic", parts, question });
+        expect(questionBoards(f(q("copy")), BASE)).toBeNull();
+        expect(questionBoards(f(q("ghost")), BASE)).toBeNull();
+        expect(questionBoards(f(q("")), BASE)).toBeNull();
+        expect(questionBoards(f(null), BASE)).toBeNull();
+    });
+
+    it("none until the canvas is named and served", () => {
+        expect(questionBoards(file({ parts, question: q("layout") }), BASE)).toBeNull();
+        expect(questionBoards(file({ canvas: "topic", parts, question: q("layout") }), null)).toBeNull();
     });
 });
