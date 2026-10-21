@@ -13,6 +13,7 @@ import {
     brainstormLine,
     brainstormPhase,
     canCheck,
+    checkMain,
     compactedSummary,
     confirmableGuesses,
     designLabel,
@@ -157,9 +158,54 @@ describe("parseBrainstorm", () => {
         }
         expect(r.file.compacted).toBe(1234);
         expect(r.file.check?.calls).toEqual([{ text: "bare" }, { text: "with part", part: "a" }]);
-        expect(r.file.check?.yours[0]).toEqual({ q: "Q?", why: "w", a: "ans", into: "a" });
+        expect(r.file.check?.yours[0]).toEqual({ q: "Q?", why: "w", a: "ans", into: ["a"] });
         expect(r.file.check?.touched).toEqual(["a"]);
         expect(r.file.check?.answered).toEqual(["done one"]);
+    });
+
+    it("reads a builder question's into as a string or a list, and its label, part and options", () => {
+        const options = [
+            { label: "Resolve itself", detail: "once caught up", pick: true, pros: ["no rota"], cons: ["flaps"] },
+            { label: "Someone closes it", cons: ["toil"] },
+            { detail: "no label, dropped" },
+        ];
+        const r = parseBrainstorm(
+            raw({
+                check: {
+                    yours: [
+                        { q: "Old?", into: "anti" },
+                        { q: "New?", label: "Short", part: "a", into: ["a", "", "b"], options },
+                        { q: "None?", into: "" },
+                    ],
+                    calls: [],
+                    answered: [],
+                },
+            })
+        );
+        expect(r.ok).toBe(true);
+        if (!r.ok) {
+            return;
+        }
+        expect(r.file.check?.yours).toEqual([
+            { q: "Old?", into: ["anti"] },
+            {
+                q: "New?",
+                label: "Short",
+                part: "a",
+                into: ["a", "b"],
+                options: [
+                    {
+                        label: "Resolve itself",
+                        detail: "once caught up",
+                        pick: true,
+                        pros: ["no rota"],
+                        cons: ["flaps"],
+                    },
+                    { label: "Someone closes it", detail: "", cons: ["toil"] },
+                ],
+            },
+            { q: "None?" },
+        ]);
     });
 
     it("accepts a question.part that names no part", () => {
@@ -354,10 +400,21 @@ describe("shownFile", () => {
 });
 
 describe("treeLine", () => {
-    it("says done with the first 8 chars of the run", () => {
-        expect(treeLine(file({ run: "abcdef0123456789" }), false)).toEqual({
+    const f = file({ run: "abcdef0123456789" });
+
+    it("names the run by its first 8 chars, not done, while Arc knows nothing of it", () => {
+        expect(treeLine(f, false)).toEqual({ lead: "Brainstorm", text: "run abcdef01", runId: "abcdef0123456789" });
+    });
+
+    it("says what Arc knows of the run, and done only once it merged", () => {
+        expect(treeLine(f, false, { text: "run abcdef01 · building 3/10", merged: false })).toEqual({
+            lead: "Brainstorm",
+            text: "run abcdef01 · building 3/10",
+            runId: "abcdef0123456789",
+        });
+        expect(treeLine(f, true, { text: "run abcdef01 · merged", merged: true })).toEqual({
             lead: "Brainstorm done",
-            text: "run abcdef01",
+            text: "run abcdef01 · merged",
             runId: "abcdef0123456789",
         });
     });
@@ -383,6 +440,7 @@ describe("brainstormLine", () => {
         expect(brainstormLine({ kind: "restore", part: "p" })).toBe("brainstorm: restore p");
         expect(brainstormLine({ kind: "check" })).toBe("brainstorm: check");
         expect(brainstormLine({ kind: "builder-answer", text: "x" })).toBe("brainstorm: builder answer: x");
+        expect(brainstormLine({ kind: "builder-decide" })).toBe("brainstorm: builder decide");
         expect(brainstormLine({ kind: "approved" })).toBe("brainstorm: approved");
         expect(brainstormLine({ kind: "keep-talking" })).toBe("brainstorm: keep talking");
         expect(brainstormLine({ kind: "run", runId: "r-1" })).toBe("brainstorm: run r-1");
@@ -652,8 +710,50 @@ describe("pickableOptions", () => {
         expect(pickableOptions(file({ question: q }), { ...s, removed: true })).toBe(0);
     });
 
-    it("the check view asks in its own column, design toggle or not", () => {
-        expect(pickableOptions(file({ question: q, check }), { ...s, designOpen: true })).toBe(3);
+    it("in the check, is the talk question's options while it is the main area", () => {
+        const builder = { q: "B?", options: options.slice(0, 2) };
+        const f = file({ question: q, check: { ...check, yours: [builder] } });
+        expect(pickableOptions(f, s)).toBe(3);
+        expect(pickableOptions({ ...f, working: "w" }, s)).toBe(0);
+    });
+
+    it("in the check, is the open builder question's options once no talk question is asked", () => {
+        const yours = [
+            { q: "done", a: "yes", options },
+            { q: "B?", options: options.slice(0, 2) },
+        ];
+        expect(pickableOptions(file({ check: { ...check, yours } }), s)).toBe(2);
+        expect(pickableOptions(file({ check: { ...check, yours: [{ q: "B?" }] } }), s)).toBe(0);
+    });
+
+    it("in the check, is none on the review, whether opened over a question or with nothing left to ask", () => {
+        const yours = [{ q: "B?", options }];
+        expect(pickableOptions(file({ question: q, check: { ...check, yours } }), { ...s, designOpen: true })).toBe(0);
+        expect(pickableOptions(file({ check: { ...check, yours: [{ q: "B?", a: "yes", options }] } }), s)).toBe(0);
+    });
+});
+
+describe("checkMain", () => {
+    const check = { yours: [], calls: [], answered: [] };
+    const q = { n: 6, text: "Q", part: "" };
+    const open = { q: "B?" };
+
+    it("asks the talk question first, then the first unanswered builder question, else the review", () => {
+        expect(checkMain(file({ question: q, check: { ...check, yours: [open] } }), false)).toBe("question");
+        expect(checkMain(file({ check: { ...check, yours: [{ q: "A?", a: "yes" }, open] } }), false)).toBe("builder");
+        expect(checkMain(file({ check: { ...check, yours: [{ q: "A?", a: "yes" }] } }), false)).toBe("review");
+        expect(checkMain(file({ check }), false)).toBe("review");
+    });
+
+    it("shows the agent writing over any question", () => {
+        expect(checkMain(file({ question: q, working: "w", check: { ...check, yours: [open] } }), false)).toBe(
+            "working"
+        );
+    });
+
+    it("is the review when the design is opened over a question or the agent writing", () => {
+        expect(checkMain(file({ question: q, check: { ...check, yours: [open] } }), true)).toBe("review");
+        expect(checkMain(file({ working: "w", check }), true)).toBe("review");
     });
 });
 
@@ -785,6 +885,11 @@ describe("phase", () => {
     it("is on the run once one started, check or not", () => {
         expect(brainstormPhase(file({ check, run: "r1" }))).toBe("run");
         expect(steps(file({ run: "r1" }))).toEqual(["Talking it through:done", "Builder check:done", "Run:current"]);
+    });
+
+    it("reads every phase done once the run merged", () => {
+        const merged = phaseSteps(file({ check, run: "r1" }), true).map((s) => `${s.label}:${s.status}`);
+        expect(merged).toEqual(["Talking it through:done", "Builder check:done", "Run:done"]);
     });
 });
 
@@ -1075,11 +1180,15 @@ describe("paneView", () => {
     it("exited holds unless showDesign or a run started", () => {
         expect(paneView({ ...s, exited: true })).toBe("exited");
         expect(paneView({ ...s, exited: true, showDesign: true })).toBe("design");
-        expect(paneView({ ...s, exited: true, file: file({ run: "r1" }) })).toBe("design");
+        expect(paneView({ ...s, exited: true, file: file({ run: "r1" }) })).toBe("run");
     });
 
-    it("board beats check beats design", () => {
+    it("board beats run beats check beats design", () => {
         const withCheck = file({ check: { yours: [], calls: [], answered: [] } });
+        const withRun = { ...withCheck, run: "r1" };
+        expect(paneView({ ...s, file: withRun, board: "B.dc.html" })).toBe("board");
+        expect(paneView({ ...s, file: withRun })).toBe("run");
+        expect(paneView({ ...s, file: file({ run: "r1" }) })).toBe("run");
         expect(paneView({ ...s, file: withCheck, board: "B.dc.html" })).toBe("board");
         expect(paneView({ ...s, file: withCheck })).toBe("check");
     });

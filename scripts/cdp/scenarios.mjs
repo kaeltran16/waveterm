@@ -22,6 +22,9 @@ import {
 } from "./memory-fixtures.mjs";
 import { notesWsh, vaultRemote, vaultRoot } from "./notes-wsh.mjs";
 import { SCENARIOS as COCKPIT_FIXTURES } from "../cockpit-fixtures/scenarios.mjs";
+import builder from "./scenarios-brainstorm-builder.mjs";
+import review from "./scenarios-brainstorm-review.mjs";
+import run from "./scenarios-brainstorm-run.mjs";
 
 // A step this profile cannot run: no scan report to cite, no pi session focused. Neither a pass nor a
 // failure — report.mjs tallies it apart and exitCode ignores it. The detail must name what to seed, so a
@@ -20503,134 +20506,6 @@ const brainstormMode = {
             ...checkTyped.detail,
         });
 
-        // 8. builder check, before your answer
-        bsWrite(ctx, BS_HANDOFF);
-        await bsShowPane(h);
-        const s8 = await bsUntil(h, ctx, (s) => s.view === "check");
-        const untouchedBtn = await h.ev(`(${BS_PANE}?.querySelector("[data-brainstorm-untouched]")?.textContent ?? "").trim()`);
-        await h.shot("cdp-shots/brainstorm-mode-8.png");
-        const calls = Object.fromEntries(s8.parts.map((p) => [p.id, p.calls]));
-        rec(
-            "8. builder check (Check): Builder check current, three count tiles, Only you can answer · 1, the agent's calls under their parts, approve disabled saying why",
-            s8.ok &&
-                s8.builder.includes("Only you can answer · 1") &&
-                s8.builder.includes(BS_BUILDER_Q) &&
-                s8.text.includes("It had 6 questions") &&
-                s8.phase === "Builder check" &&
-                s8.progress === "8 yours · nothing open" &&
-                JSON.stringify(s8.tiles) ===
-                    JSON.stringify(["1 for you", "3 the agent decided", "2 already in the design"]) &&
-                s8.approveReason === "Answer the builder’s question first" &&
-                JSON.stringify(s8.parts.map((p) => p.id)) === JSON.stringify(BS_TOUCHED_ORDER) &&
-                calls.thresholds === 2 &&
-                calls.anti === 1 &&
-                untouchedBtn === "Show the 4 parts the builder did not touch" &&
-                s8.approve?.disabled === true &&
-                s8.approve.title === "Answer the builder’s question first",
-            { ...bsBrief(s8), builder: s8.builder, phase: s8.phase, progress: s8.progress, tiles: s8.tiles, approveReason: s8.approveReason, parts: s8.parts.map((p) => p.id), calls, untouchedBtn, approve: s8.approve }
-        );
-        await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-untouched]")?.click()`);
-        const s8b = await bsUntil(h, ctx, (s) => s.parts.length === 8, 2000);
-        rec("8b. Show the 4 parts draws all eight", s8b.ok, { parts: s8b.parts.map((p) => p.id) });
-
-        // 8e. a question about no part, after the check: the check view asks it, with no Guess or Skip
-        bsWrite(ctx, { ...BS_HANDOFF, question: BS_SIDE_Q });
-        const s8e = await bsUntil(h, ctx, (s) => s.question.includes(BS_SIDE_Q.text));
-        await h.shot("cdp-shots/brainstorm-mode-8-side-question.png");
-        const sideChips = await h.ev(`[...(${BS_QUESTION_CARD}?.querySelectorAll("button") ?? [])].map((b) => b.textContent.trim())`);
-        rec(
-            "8e. a question about no part asked in the builder check shows in the check view, Question 6 for no part, no Guess or Skip",
-            s8e.ok &&
-                s8e.view === "check" &&
-                s8e.question.startsWith("Question 6") &&
-                !s8e.question.includes(" for ") &&
-                s8e.answerBox &&
-                JSON.stringify(sideChips) === JSON.stringify(["OK"]),
-            { ...bsBrief(s8e), question: s8e.question, answerBox: s8e.answerBox, sideChips }
-        );
-        mark = await bsMark(h, ctx, BS_SIDE_A);
-        const sideVia = await bsFill(h, BS_ANSWER, BS_SIDE_A);
-        await bsKey(h, BS_ANSWER, "Enter", sideVia);
-        const sideTyped = await bsTyped(h, ctx, mark, BS_SIDE_A);
-        rec("8f. its answer is sent as typed", sideTyped.ok, { ...sideTyped.detail, keys: sideVia });
-        bsWrite(ctx, BS_HANDOFF);
-        await polishWaitFor(h, BS_NOT_WRITING, BS_POLL_WAIT_MS);
-        mark = await bsMark(h, ctx, "brainstorm: keep talking");
-        const talked = await bsClick(h, BS_APPROVE_BAR, "Keep talking");
-        const talkTyped = await bsTyped(h, ctx, mark, "brainstorm: keep talking");
-        rec("8c. Keep talking sends brainstorm: keep talking", talked === "clicked" && talkTyped.ok, {
-            talked,
-            ...talkTyped.detail,
-        });
-        await bsAgentTook(h, ctx);
-        const builderLine = `brainstorm: builder answer: ${BS_BUILDER_A}`;
-        mark = await bsMark(h, ctx, builderLine);
-        const builderVia = await bsFill(h, BS_BUILDER_ANSWER, BS_BUILDER_A);
-        await bsKey(h, BS_BUILDER_ANSWER, "Enter", builderVia);
-        const builderTyped = await bsTyped(h, ctx, mark, builderLine);
-        rec("8d. answering the builder's question sends it as a builder answer", builderTyped.ok, {
-            ...builderTyped.detail,
-            keys: builderVia,
-        });
-
-        // 9. builder check, after your answer
-        bsWrite(ctx, BS_HANDOFF_ANSWERED);
-        const s9 = await bsUntil(h, ctx, (s) => s.text.includes("You answered"));
-        await h.shot("cdp-shots/brainstorm-mode-9.png");
-        rec(
-            "9. You answered keeps the builder's question and why above the answer, ending Added to Anti-goals; approve enabled",
-            s9.ok &&
-                s9.text.includes(`You answered ${BS_BUILDER_Q} Why: ${BS_CHECK.yours[0].why} ${BS_BUILDER_A} Added to Anti-goals.`) &&
-                s9.builder === "" &&
-                s9.approve?.disabled === false &&
-                s9.approveReason === "",
-            { ...bsBrief(s9), approve: s9.approve, approveReason: s9.approveReason }
-        );
-        mark = await bsMark(h, ctx, null);
-        const changeClicked = await bsClick(h, BS_APPROVE_BAR, "Change");
-        const changeOpen = await polishWaitFor(h, `!!${NEW_RUN}`, 3000);
-        const changeQuiet = await bsNothingTyped(h, mark);
-        await h.ev(PEEKS_ESC);
-        const changeClosed = await polishWaitFor(h, `!${NEW_RUN}`, 3000);
-        rec("9b. Change opens the New run window and sends nothing", changeClicked === "clicked" && changeOpen && changeQuiet.ok && changeClosed, {
-            changeClicked,
-            changeOpen,
-            typed: changeQuiet.sent,
-            changeClosed,
-        });
-        mark = await bsMark(h, ctx, "brainstorm: approved");
-        const approved = await bsClick(h, BS_APPROVE_BAR, "Approve and start run");
-        const approveTyped = await bsTyped(h, ctx, mark, "brainstorm: approved");
-        const runOpen = await polishWaitFor(h, `!!${NEW_RUN}`, 3000);
-        const goal = `Build Consumer lag alerts as specified in ${join(ctx.cwd, ...BS_SPEC.split("/"))}.`;
-        const prototype = join(ctx.cwd, ".superpowers", "design", BS_TOPIC, "project", BS_BOARDS[0]);
-        await polishWaitFor(h, `${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value === ${JSON.stringify(goal)}`, 3000);
-        const launcher = await h.ev(`({
-            goal: ${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value ?? null,
-            text: ${flatText(NEW_RUN)},
-        })`);
-        await h.shot("cdp-shots/brainstorm-mode-9-run.png");
-        await h.ev(PEEKS_ESC);
-        const runClosed = await polishWaitFor(h, `!${NEW_RUN}`, 3000);
-        rec(
-            "9c. Approve sends brainstorm: approved and opens New run with the spec's absolute path and the prototype",
-            approved === "clicked" &&
-                approveTyped.ok &&
-                runOpen &&
-                launcher.goal === goal &&
-                launcher.text.includes(`Prototype · ${prototype}`) &&
-                runClosed,
-            { approved, ...approveTyped.detail, runOpen, goal: launcher.goal, wantGoal: goal, prototype, text: launcher.text.slice(0, 400), runClosed }
-        );
-        bsWrite(ctx, { ...BS_HANDOFF_ANSWERED, run: BS_RUN });
-        const s9d = await bsUntil(h, ctx, (s) => s.approveBar.startsWith("Run "));
-        await h.shot("cdp-shots/brainstorm-mode-9-started.png");
-        rec(
-            "9d. with run set the bar reads Run 7f3a21c0 started with Open run, and the tree line Brainstorm done · run 7f3a21c0",
-            s9d.ok && s9d.approveBar === "Run 7f3a21c0 started Open run" && s9d.treeLine === "Brainstorm done · run 7f3a21c0",
-            { approveBar: s9d.approveBar, treeLine: s9d.treeLine }
-        );
-
         // 10. agent exited
         bsWrite(ctx, BS_FILES.late);
         await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes(BS_Q5.text));
@@ -21222,56 +21097,6 @@ const brainstormRailReasons = bsBoardScenario("brainstorm-rail-reasons", BS_TOPI
             opened[1].why === "" &&
             JSON.stringify(opened[1].unpicked) === JSON.stringify([q2.options[0].label, q2.options[2].label]),
         { q3: o3, q2: opened[1] }
-    );
-});
-
-// the builder check's column, an answered question kept with its question and why; the copy is Check-Answered's
-const BSR_ANSWERED_Q = {
-    q: "Should a paused consumer group page?",
-    why: "the spec says every group pages, and a paused group’s lag grows until it resumes.",
-    a: "No. A paused group is skipped until it resumes.",
-    into: "alert",
-};
-const BSR_OPEN_Q = {
-    q: "Does a lag alert resolve itself once the group catches up, or does someone close it?",
-    why: "The spec says when an alert fires but never when it ends; the pager rota counts open alerts.",
-};
-const BSR_CHECK_FILE = bsFile({
-    done: true,
-    parts: [
-        { id: "alert", title: "What raises an alert", state: "yours", body: "Lag that keeps growing for 10 minutes pages the owning team." },
-        { id: "threshold", title: "The threshold", state: "yours", body: "Per group, with a default to start from." },
-    ],
-    history: BSR_RAIL_HISTORY.slice(0, 2),
-    check: {
-        yours: [BSR_ANSWERED_Q, BSR_OPEN_Q],
-        calls: [
-            { text: "Lag is measured per partition and alerted per group.", part: "threshold" },
-            { text: "The default threshold is 10 minutes of growth.", part: "threshold" },
-            { text: "#data-alerts posts go out once per group per hour.", part: "alert" },
-        ],
-        answered: ["Which exporter? kafka-exporter, from the recon."],
-        touched: ["alert", "threshold"],
-    },
-});
-
-const brainstormCheckAnswered = bsBoardScenario("brainstorm-check-answered", BS_TOPIC, BSR_CHECK_FILE, async (h, ctx, rec) => {
-    const drawn = await bsUntil(h, ctx, (s) => s.view === "check" && s.builder !== "");
-    const card = await h.ev(`(() => {
-        const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
-        const c = ${BS_PANE}?.querySelector("[data-brainstorm-answered]");
-        return { text: flat(c), link: [...(c?.querySelectorAll("button") ?? [])].map(flat) };
-    })()`);
-    await h.shot("cdp-shots/brainstorm-check-answered.png");
-    rec(
-        "1. the builder check (Check-Answered): the open question for you, then You answered with its question and Why: above the answer, which links the part it went into",
-        drawn.ok &&
-            drawn.builder.includes("Only you can answer · 1") &&
-            drawn.builder.includes(BSR_OPEN_Q.q) &&
-            card.text === `You answered ${BSR_ANSWERED_Q.q} Why: ${BSR_ANSWERED_Q.why} ${BSR_ANSWERED_Q.a} Added to What raises an alert.` &&
-            JSON.stringify(card.link) === JSON.stringify(["What raises an alert"]) &&
-            JSON.stringify(drawn.tiles) === JSON.stringify(["2 for you", "3 the agent decided", "1 already in the design"]),
-        { ...bsBrief(drawn), builder: drawn.builder, card, tiles: drawn.tiles }
     );
 });
 
@@ -26293,6 +26118,81 @@ const uiDrift = {
     },
 };
 
+// the brainstorm helpers the scenario modules build on: passed in, since a module importing this file back would
+// be a cycle
+const BS_KIT = {
+    bsBoardScenario,
+    bsArrangeAgent,
+    bsShowFile,
+    bsShowPane,
+    bsTeardownAgent,
+    bsWrite,
+    bsRead,
+    bsUntil,
+    bsBrief,
+    bsClick,
+    bsMouseClick,
+    bsFill,
+    bsKey,
+    bsKeysArrive,
+    bsMark,
+    bsTyped,
+    bsNothingTyped,
+    bsAgentTook,
+    bsPublishProc,
+    bsOpenDesign,
+    bsCloseDesign,
+    bsTermText,
+    bsReveal,
+    bsTabMeta,
+    bsFile,
+    bsParts,
+    bsPartSel,
+    bsOpenRow,
+    bsToggleRow,
+    polishWaitFor,
+    polishNap,
+    skipStep,
+    waveService,
+    arrangeSheetDagRun,
+    teardownFixtureRun,
+    seedDag,
+    seedFinalShots,
+    fstShow,
+    fstWriteRun,
+    RUN_SHEET_POLISH_TASKS,
+    UI_ROUTE,
+    BS_PANE,
+    BS_SWITCH,
+    BS_TREE_LINE,
+    BS_ANSWER,
+    BS_BUILDER_ANSWER,
+    BS_APPROVE_BAR,
+    BS_QUESTION_CARD,
+    BS_NOT_WRITING,
+    BS_POLL_WAIT_MS,
+    BS_TOPIC,
+    BS_SPEC,
+    BS_BOARDS,
+    BS_RUN,
+    BS_PART,
+    BS_FILES,
+    BS_HISTORY_Q4,
+    BS_HANDOFF_PARTS,
+    BS_CHECK,
+    BS_HANDOFF,
+    BS_HANDOFF_ANSWERED,
+    BS_READY,
+    BS_TOUCHED_ORDER,
+    BS_BUILDER_Q,
+    BS_BUILDER_A,
+    BS_SIDE_Q,
+    BS_SIDE_A,
+    NEW_RUN,
+    PEEKS_ESC,
+    flatText,
+};
+
 export const SCENARIOS = [
     cockpitKeysOnArrival,
     agentTerminalOnArrival,
@@ -26387,7 +26287,9 @@ export const SCENARIOS = [
     brainstormQuestionReasons,
     brainstormReviewSkim,
     brainstormRailReasons,
-    brainstormCheckAnswered,
+    ...builder(BS_KIT),
+    ...review(BS_KIT),
+    ...run(BS_KIT),
     canvasMark,
     canvasTabsScenario,
     agentTerminalNames,

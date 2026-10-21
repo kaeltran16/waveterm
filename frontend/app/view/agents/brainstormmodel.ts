@@ -53,7 +53,17 @@ export type HistoryEntry = {
     options?: AnswerOption[];
     picked?: number;
 };
-export type BuilderQuestion = { q: string; why?: string; a?: string; into?: string };
+// a question the builder check left for the user. into is every decision its answer changed; label is the rail's
+// short line for it, the full q when absent
+export type BuilderQuestion = {
+    q: string;
+    label?: string;
+    why?: string;
+    a?: string;
+    into?: string[];
+    part?: string;
+    options?: AnswerOption[];
+};
 export type BuilderCall = { text: string; part?: string };
 export type BuilderCheck = { yours: BuilderQuestion[]; calls: BuilderCall[]; answered: string[]; touched?: string[] };
 export type BrainstormFile = {
@@ -180,14 +190,20 @@ function parseCheck(raw: unknown): BuilderCheck | null {
     if (!isRecord(raw)) {
         throw new FieldError("check must be an object");
     }
-    const yours = (Array.isArray(raw.yours) ? raw.yours : []).filter(isRecord).map(
-        (y): BuilderQuestion => ({
+    const yours = (Array.isArray(raw.yours) ? raw.yours : []).filter(isRecord).map((y): BuilderQuestion => {
+        // a file written before into became a list names its one part as a string
+        const into = lines(typeof y.into === "string" ? [y.into] : y.into);
+        const options = parseOptions(y.options);
+        return {
             q: str(y.q) ?? "",
+            ...(str(y.label) ? { label: str(y.label) } : {}),
             ...(str(y.why) != null ? { why: str(y.why) } : {}),
             ...(str(y.a) != null ? { a: str(y.a) } : {}),
-            ...(str(y.into) != null ? { into: str(y.into) } : {}),
-        })
-    );
+            ...(into.length > 0 ? { into } : {}),
+            ...(str(y.part) ? { part: str(y.part) } : {}),
+            ...(options.length > 0 ? { options } : {}),
+        };
+    });
     const calls: BuilderCall[] = [];
     for (const c of Array.isArray(raw.calls) ? raw.calls : []) {
         if (typeof c === "string") {
@@ -353,9 +369,14 @@ export function withBrainstorm(agent: AgentVM, f: BrainstormFile | null, now: nu
 
 export type TreeLine = { lead: "Brainstorm" | "Brainstorm done"; text: string; runId?: string };
 
-export function treeLine(f: BrainstormFile, asking: boolean): TreeLine {
+// run is what Arc knows of the brainstorm's run: done only once it merged, since a started run can still fail
+export function treeLine(f: BrainstormFile, asking: boolean, run?: { text: string; merged: boolean }): TreeLine {
     if (f.run != null) {
-        return { lead: "Brainstorm done", text: `run ${f.run.slice(0, RUN_ID_CHARS)}`, runId: f.run };
+        return {
+            lead: run?.merged ? "Brainstorm done" : "Brainstorm",
+            text: run?.text ?? `run ${f.run.slice(0, RUN_ID_CHARS)}`,
+            runId: f.run,
+        };
     }
     if (asking) {
         return { lead: "Brainstorm", text: `asking question ${f.question?.n ?? ""}`.trim() };
@@ -380,6 +401,7 @@ export type BrainstormAction =
     | { kind: "restore"; part: string }
     | { kind: "check" }
     | { kind: "builder-answer"; text: string }
+    | { kind: "builder-decide" }
     | { kind: "approved" }
     | { kind: "keep-talking" }
     | { kind: "run"; runId: string };
@@ -413,6 +435,8 @@ export function brainstormLine(a: BrainstormAction): string | null {
             return `brainstorm: keep ${a.part}`;
         case "restore":
             return `brainstorm: restore ${a.part}`;
+        case "builder-decide":
+            return "brainstorm: builder decide";
         case "check":
             return "brainstorm: check";
         case "approved":
@@ -499,19 +523,43 @@ export function mainView(f: BrainstormFile, designOpen: boolean): MainView {
     return f.question != null ? "question" : "design";
 }
 
-// how many of the asked question's options a letter key picks: as many as the pane draws, up to the keys there are.
-// The check view asks over its own column, so the design toggle never hides its question
+// what the builder check's main area holds. The talk question comes first: the agent waits on it in the terminal, and
+// its answer may settle the builder's questions. The design opened over a question is the review
+export type CheckMain = "working" | "question" | "builder" | "review";
+
+export function checkMain(f: BrainstormFile, designOpen: boolean): CheckMain {
+    if (designOpen) {
+        return "review";
+    }
+    if (f.working != null) {
+        return "working";
+    }
+    if (f.question != null) {
+        return "question";
+    }
+    return openBuilderQuestion(f) != null ? "builder" : "review";
+}
+
+function openBuilderQuestion(f: BrainstormFile): BuilderQuestion | null {
+    return f.check?.yours.find((y) => y.a == null) ?? null;
+}
+
+// how many of the asked question's options a letter key picks: as many as the pane draws, up to the keys there are
 export function pickableOptions(
     f: BrainstormFile | null,
     s: { designOpen: boolean; board: string | null; removed: boolean }
 ): number {
-    if (f == null || s.board != null || s.removed || !isAsking(f)) {
+    if (f == null || s.board != null || s.removed) {
         return 0;
     }
-    if (f.check == null && mainView(f, s.designOpen) !== "question") {
-        return 0;
+    let options: AnswerOption[] | undefined;
+    if (f.check != null) {
+        const main = checkMain(f, s.designOpen);
+        options = main === "question" ? f.question!.options : main === "builder" ? openBuilderQuestion(f)!.options : [];
+    } else if (isAsking(f) && mainView(f, s.designOpen) === "question") {
+        options = f.question!.options;
     }
-    return Math.min(f.question!.options?.length ?? 0, OPTION_KEYS.length);
+    return Math.min(options?.length ?? 0, OPTION_KEYS.length);
 }
 
 // the bar over the question: one segment per question answered, the one asked now, and one per part still open,
@@ -578,8 +626,9 @@ export function brainstormPhase(f: BrainstormFile): Phase {
     return f.check != null ? "check" : "talk";
 }
 
-export function phaseSteps(f: BrainstormFile): PhaseStep[] {
-    const at = PHASES.findIndex((p) => p.phase === brainstormPhase(f));
+// once the run merged nothing is current: every phase is done
+export function phaseSteps(f: BrainstormFile, merged = false): PhaseStep[] {
+    const at = merged ? PHASES.length : PHASES.findIndex((p) => p.phase === brainstormPhase(f));
     return PHASES.map((p, i) => ({ ...p, status: i < at ? "done" : i === at ? "current" : "todo" }));
 }
 
@@ -729,7 +778,7 @@ export function handoffView(f: BrainstormFile): HandoffView {
     const parts = orderedParts(f);
     const touchedIds = check.touched != null ? new Set(check.touched) : null;
     const isTouched = (p: BrainstormPart) => touchedIds == null || touchedIds.has(p.id);
-    const open = check.yours.find((y) => y.a == null) ?? null;
+    const open = openBuilderQuestion(f);
     return {
         questions: check.yours.length + check.calls.length + check.answered.length,
         open,
@@ -756,6 +805,50 @@ export function approveBlocker(f: BrainstormFile): string | null {
         return "The agent is writing; this opens when it is done";
     }
     return handoffView(f).open != null ? "Answer the builder’s question first" : null;
+}
+
+// the builder check while it asks: the open builder question, the rail's queue, and the agent's calls by part
+export type AskModel = {
+    index: number;
+    total: number;
+    open: BuilderQuestion | null;
+    queue: { label: string; state: "now" | "waiting" | "answered" }[];
+    callGroups: { part: string | null; title: string; calls: string[] }[];
+    calls: number;
+    already: string[];
+    questions: number;
+};
+
+export function checkAsk(f: BrainstormFile): AskModel {
+    return { index: 0, total: 0, open: null, queue: [], callGroups: [], calls: 0, already: [], questions: 0 };
+}
+
+// one decision in the check's review: what caused its change, and the one action it asks for
+export type ReviewRow = {
+    id: string;
+    title: string;
+    gist: string;
+    cause: string;
+    was?: string;
+    body: string;
+    view: PartView;
+    action: "keep-restore" | "confirm" | "answer" | null;
+    question?: number;
+    calls: string[];
+};
+
+export type ReviewModel = {
+    changed: ReviewRow[];
+    fresh: ReviewRow[];
+    unchanged: BrainstormPart[];
+    notes: BrainstormPart[];
+    cursorIds: string[];
+    summary: string;
+    answered: { q: string; a: string; changed: { id: string; title: string }[] }[];
+};
+
+export function checkReview(f: BrainstormFile): ReviewModel {
+    return { changed: [], fresh: [], unchanged: [], notes: [], cursorIds: [], summary: "", answered: [] };
 }
 
 export function compactedSummary(f: BrainstormFile): string {
@@ -822,7 +915,7 @@ export function brainstormAttention(
     };
 }
 
-export type PaneView = "error" | "removed" | "exited" | "check" | "board" | "design";
+export type PaneView = "error" | "removed" | "exited" | "run" | "check" | "board" | "design";
 
 export function paneView(s: {
     file: BrainstormFile | null;
@@ -843,6 +936,9 @@ export function paneView(s: {
     }
     if (s.board != null) {
         return "board";
+    }
+    if (s.file?.run != null) {
+        return "run";
     }
     return s.file?.check != null ? "check" : "design";
 }
