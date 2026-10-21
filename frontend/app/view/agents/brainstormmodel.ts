@@ -453,6 +453,18 @@ export function partTitle(f: BrainstormFile, id: string): string {
     return f.parts.find((p) => p.id === id)?.title ?? id;
 }
 
+// a part's mockups draw once the brainstorm names its canvas and the canvas is served (base)
+export function partBoards(f: BrainstormFile, p: BrainstormPart | undefined, base: string | null): string[] | null {
+    return p?.boards != null && p.boards.length > 0 && f.canvas != null && base != null ? p.boards : null;
+}
+
+// the asked part's mockups, beside the answers, so a question between layouts shows them
+export function questionBoards(f: BrainstormFile, base: string | null): string[] | null {
+    const id = f.question?.part;
+    const p = id ? f.parts.find((x) => x.id === id) : undefined;
+    return partBoards(f, p, base);
+}
+
 export type HistoryRow = {
     kind: "question" | "recon";
     label: string;
@@ -521,6 +533,11 @@ export function mainView(f: BrainstormFile, designOpen: boolean): MainView {
         return "working";
     }
     return f.question != null ? "question" : "design";
+}
+
+// a board opened from the question goes back to it; one opened from the design, to the design
+export function boardBackLabel(f: BrainstormFile | null, designOpen: boolean): string {
+    return f != null && mainView(f, designOpen) === "question" ? "Back to the question" : "Back to the design";
 }
 
 // what the builder check's main area holds. The talk question comes first: the agent waits on it in the terminal, and

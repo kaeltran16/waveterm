@@ -19388,6 +19388,16 @@ const BS_Q2_OPTIONS = [
     { label: "Tell the channel only, page no one", detail: "" },
 ];
 const BS_Q5 = { n: 5, text: "If on-call could read only one number in the page, which would it be?", part: "page" };
+// the same part asked between its two mockups: the question shows them beside the answers
+const BS_Q5_LAYOUT = {
+    n: 5,
+    text: "Which layout should the page use?",
+    part: "page",
+    options: [
+        { label: "Lag first", detail: "The lag number leads; the trend and the stuck partitions sit under it.", pick: true },
+        { label: "Trend first", detail: "The trend chart leads; the number sits in its corner." },
+    ],
+};
 // oldest first, as the agent appends them; the pane draws them newest first
 const BS_HISTORY = [
     {
@@ -19484,6 +19494,11 @@ const BS_FILES = {
         history: BS_HISTORY_Q4,
     }),
     late: bsFile({ question: BS_Q5, parts: bsParts(BS_LATE_STATES), history: BS_HISTORY_Q4 }),
+    layout: bsFile({
+        question: BS_Q5_LAYOUT,
+        parts: bsParts({ ...BS_MID_STATES, thresholds: "guess" }),
+        history: BS_HISTORY_Q4,
+    }),
     lateWorking: bsFile({
         working: "Writing “What on-call sees” from your answer.",
         parts: bsParts(BS_LATE_STATES),
@@ -19584,6 +19599,17 @@ const bsRead = (h, ctx) =>
             rail: flat(pane?.querySelector("[data-brainstorm-rail] h2")),
             railText: flat(pane?.querySelector("[data-brainstorm-rail]")),
             why: flat(pane?.querySelector("[data-brainstorm-why]")),
+            // the asked part's mockups in the question view: each thumbnail, its label, and whether it sits right of the answers
+            qBoards: [...(pane?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-thumb]") ?? [])].map((t) => {
+                const answers = pane.querySelector("[data-brainstorm-question-boards] [data-brainstorm-option]")?.parentElement;
+                return {
+                    name: t.getAttribute("data-brainstorm-thumb"),
+                    frame: !!t.querySelector("iframe"),
+                    label: flat(t.nextElementSibling?.firstElementChild),
+                    open: flat(t.nextElementSibling?.querySelector("[data-brainstorm-open-board]")),
+                    besideAnswers: answers ? answers.getBoundingClientRect().right <= t.getBoundingClientRect().left : null,
+                };
+            }),
             options: [...(pane?.querySelectorAll("[data-brainstorm-option]") ?? [])].map((o) => ({
                 text: flat(o),
                 pick: o.hasAttribute("data-pick"),
@@ -20256,6 +20282,47 @@ const brainstormMode = {
                 q4row.text.includes("Went into When it pages"),
             { ...bsBrief(s2b), question: s2b.question, rail: s2b.rail, history: q4row }
         );
+
+        // the asked part's mockups in the question: question 4's part (When it pages) lists none, question 5's two
+        const QB = `${BS_PANE}?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-thumb] iframe").length === 2`;
+        await polishWaitFor(h, QB, BS_POLL_WAIT_MS);
+        const s2q = await bsRead(h, ctx);
+        await h.shot("cdp-shots/brainstorm-mode-2-question-boards.png");
+        const boardLabels = BS_BOARDS.map((b, i) => `${b} · option ${"AB"[i]} of ${BS_BOARDS.length}`);
+        rec(
+            "2l2. a question whose part lists boards shows them: question 5 for What on-call sees draws both thumbnails, option A and B of 2, each with Open full size; question 4, whose part lists none, drew none",
+            s2.qBoards.length === 0 &&
+                JSON.stringify(s2q.qBoards.map((b) => b.name)) === JSON.stringify(BS_BOARDS) &&
+                s2q.qBoards.every((b) => b.frame && b.open === "Open full size") &&
+                JSON.stringify(s2q.qBoards.map((b) => b.label)) === JSON.stringify(boardLabels),
+            { q4: s2.qBoards, q5: s2q.qBoards }
+        );
+        bsWrite(ctx, BS_FILES.layout);
+        const s2o = await bsUntil(
+            h,
+            ctx,
+            (s) => s.question.includes(BS_Q5_LAYOUT.text) && s.options.length === 2 && s.qBoards.filter((b) => b.frame).length === 2
+        );
+        await h.shot("cdp-shots/brainstorm-mode-2-layout-question.png");
+        rec(
+            "2l3. a question between the part's layouts: the two answers, and beside them, to their right, the two boards to compare",
+            s2o.ok &&
+                JSON.stringify(s2o.options.map((o) => o.text)) === JSON.stringify(BS_Q5_LAYOUT.options.map(optionText)) &&
+                JSON.stringify(s2o.qBoards.map((b) => b.label)) === JSON.stringify(boardLabels) &&
+                s2o.qBoards.every((b) => b.besideAnswers === true),
+            { ...bsBrief(s2o), options: s2o.options, boards: s2o.qBoards }
+        );
+        await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-open-board]")?.click()`);
+        const s2f = await bsUntil(h, ctx, (s) => s.view === "board", 3000);
+        const fullBack = await bsClick(h, BS_PANE, "Back to the question");
+        const s2r = await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes(BS_Q5_LAYOUT.text), 3000);
+        rec(
+            "2l4. Open full size from the question shows the board, and its Back to the question returns to the question",
+            s2f.ok && fullBack === "clicked" && s2r.ok && s2r.qBoards.length === 2,
+            { board: s2f.view, fullBack, back: bsBrief(s2r) }
+        );
+        bsWrite(ctx, BS_FILES.answered);
+        await bsUntil(h, ctx, (s) => s.question.includes(BS_Q5.text));
 
         // 3. open full size, from the design
         await bsOpenDesign(h);

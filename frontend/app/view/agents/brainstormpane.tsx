@@ -17,6 +17,7 @@ import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 import { Check } from "./brainstormcheck";
 import {
+    boardBackLabel,
     decisionParts,
     exitedSummary,
     historyRows,
@@ -25,6 +26,7 @@ import {
     mainView,
     noteParts,
     paneView,
+    partBoards,
     partGist,
     partView,
     resumePrompt,
@@ -65,18 +67,15 @@ import {
     SECTION_HEAD,
     SMALL_DOT,
     StaleBanner,
+    Thumbnails,
     Toolbar,
     useAction,
     WORKING_TITLE,
     WorkingMain,
 } from "./brainstormui";
-import { boardUrl, canvasDir, DEFAULT_BOARD_H, DEFAULT_BOARD_W, type CanvasBoard } from "./canvasmodel";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN, CanvasPane, EdgeState, EXPLAINER } from "./canvaspane";
-import { attachCanvas } from "./canvasstore";
 import { runtimeStartupCommand, type Runtime } from "./launch";
 
-const THUMB_W = 300;
-const THUMB_MAX_H = 200;
 // how far back the exited card looks for the agent's last words
 const LAST_OUTPUT_LINES = 200;
 
@@ -124,7 +123,12 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
             ) : view === "exited" ? (
                 <Exited model={model} agent={agent} s={s} exit={exit!} />
             ) : view === "board" ? (
-                <CanvasPane model={model} agent={agent} onBack={() => openBrainstormBoard(agent.id, null)} />
+                <CanvasPane
+                    model={model}
+                    agent={agent}
+                    onBack={() => openBrainstormBoard(agent.id, null)}
+                    backLabel={boardBackLabel(f, s.designOpen)}
+                />
             ) : view === "run" ? (
                 <RunStep model={model} agent={agent} s={s} f={f!} />
             ) : view === "check" ? (
@@ -170,7 +174,7 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
             <div className="flex min-h-0 flex-1">
                 <div className="flex min-w-0 flex-1 flex-col bg-background">
                     {view === "question" ? (
-                        <QuestionMain agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
+                        <QuestionMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} />
                     ) : view === "working" ? (
                         <WorkingMain f={f} openDesign={openDesign} />
                     ) : (
@@ -438,7 +442,7 @@ function PartRow({
         right = <span className="text-[11.5px] text-muted">Open</span>;
     }
     const dim = view === "open" && !note;
-    const thumbs = part.boards != null && f.canvas != null && s.base != null && view !== "writing";
+    const boards = view === "writing" ? null : partBoards(f, part, s.base);
 
     return (
         <div
@@ -540,8 +544,8 @@ function PartRow({
                             {view === "changed" && !note ? <ChangeDiff part={part} /> : null}
                         </>
                     )}
-                    {thumbs ? (
-                        <Thumbnails agentId={agent.id} s={s} canvas={f.canvas!} base={s.base!} boards={part.boards!} />
+                    {boards != null ? (
+                        <Thumbnails agentId={agent.id} s={s} canvas={f.canvas!} base={s.base!} boards={boards} />
                     ) : null}
                 </div>
             ) : null}
@@ -705,68 +709,6 @@ function RailQuestion({ h, justNow, goTo }: { h: HistoryRow; justNow: boolean; g
                     <IntoLinks into={h.into} goTo={goTo} />
                 </div>
             ) : null}
-        </div>
-    );
-}
-
-function Thumbnails({
-    agentId,
-    s,
-    canvas,
-    base,
-    boards,
-}: {
-    agentId: string;
-    s: BrainstormState;
-    canvas: string;
-    base: string;
-    boards: string[];
-}) {
-    const open = (board: string) => {
-        attachCanvas(agentId, { topic: canvas, dir: canvasDir(s.cwd, canvas), projectDir: s.cwd, board }, Date.now());
-        openBrainstormBoard(agentId, board);
-    };
-    return (
-        <div className="flex flex-col gap-[10px]">
-            {boards.map((name, i) => {
-                const b: CanvasBoard | undefined = s.boards.find((x) => x.name === name);
-                const w = b?.w ?? DEFAULT_BOARD_W;
-                const h = b?.h ?? DEFAULT_BOARD_H;
-                const scale = THUMB_W / w;
-                return (
-                    <div key={name} className="flex items-start gap-[12px]">
-                        <div
-                            data-brainstorm-thumb={name}
-                            className="pointer-events-none relative flex-none overflow-hidden rounded-[8px] border border-edge-mid bg-background"
-                            style={{ width: THUMB_W, height: Math.min(THUMB_MAX_H, Math.round(h * scale)) }}
-                        >
-                            <iframe
-                                src={boardUrl(base, canvas, name)}
-                                title={name}
-                                tabIndex={-1}
-                                sandbox="allow-scripts allow-same-origin"
-                                className="absolute left-0 top-0 border-0"
-                                style={{ width: w, height: h, transform: `scale(${scale})`, transformOrigin: "0 0" }}
-                            />
-                        </div>
-                        <div className="flex flex-col gap-[6px] pt-[2px]">
-                            <span className="font-mono text-[10.5px] text-muted">
-                                {boards.length > 1
-                                    ? `${name} · option ${String.fromCharCode(65 + i)} of ${boards.length}`
-                                    : name}
-                            </span>
-                            <button
-                                type="button"
-                                data-brainstorm-open-board
-                                onClick={() => open(name)}
-                                className={cn(LINK, "text-left text-[12px] font-semibold")}
-                            >
-                                Open full size
-                            </button>
-                        </div>
-                    </div>
-                );
-            })}
         </div>
     );
 }
