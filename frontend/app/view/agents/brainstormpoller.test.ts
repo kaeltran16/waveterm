@@ -30,6 +30,7 @@ function state(over: Partial<BrainstormState> = {}): BrainstormState {
         boards: [],
         base: null,
         sent: null,
+        review: { cursor: null, open: {} },
         ...over,
     };
 }

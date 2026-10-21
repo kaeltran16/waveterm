@@ -30,6 +30,7 @@ import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
 import { isAsking, treeLine, type BrainstormFile } from "./brainstormmodel";
+import { runStepView, runTreeText } from "./brainstormrunmodel";
 import { brainstormAtom, shownBrainstormFile } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
@@ -64,6 +65,7 @@ import {
     toggleTaskExtrasOpen,
     treeFoldsAtom,
     useRunDigests,
+    useRunInfo,
 } from "./runlineagestore";
 import { dagProgressLabel, finishedRunLabel, runComplete, runStatusView } from "./runmodel";
 import { FINAL_FILL, finalSlot, SEG_FILL, taskStrip, treeStripLabel } from "./runstrip";
@@ -242,12 +244,14 @@ function CanvasTag({ model, id }: { model: AgentsViewModel; id: string }) {
 
 // replaces a row's branch text while the agent brainstorms; a finished one links to the run it started
 function BrainstormTreeLine({ model, f, asking }: { model: AgentsViewModel; f: BrainstormFile; asking: boolean }) {
-    const line = treeLine(f, asking);
+    const info = useRunInfo(f.run);
+    const view = f.run != null ? runStepView(f.run, info.run, info.loaded) : null;
+    const line = treeLine(f, asking, view ? { text: runTreeText(f.run!, view), merged: view.merged } : undefined);
     const done = line.runId != null;
     return (
-        <span data-brainstorm-tree-line className="truncate text-[11.5px]">
-            <span className={done ? "text-ink-mid" : "text-warning"}>{line.lead}</span>
-            <span className="text-muted"> · </span>
+        <span data-brainstorm-tree-line className="flex min-w-0 items-baseline text-[11.5px]">
+            <span className={cn("flex-none whitespace-pre", done ? "text-ink-mid" : "text-warning")}>{line.lead}</span>
+            <span className="flex-none whitespace-pre text-muted"> · </span>
             {done ? (
                 <button
                     type="button"
@@ -256,12 +260,12 @@ function BrainstormTreeLine({ model, f, asking }: { model: AgentsViewModel; f: B
                         fireAndForget(() => openTarget(model, { kind: "run", runId: line.runId! }));
                     }}
                     title="Open the run"
-                    className="cursor-pointer text-ink-mid hover:underline"
+                    className="min-w-0 cursor-pointer truncate text-left text-ink-mid hover:underline"
                 >
                     {line.text}
                 </button>
             ) : (
-                <span className="text-ink-mid">{line.text}</span>
+                <span className="min-w-0 truncate text-ink-mid">{line.text}</span>
             )}
         </span>
     );

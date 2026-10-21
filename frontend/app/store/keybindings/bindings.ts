@@ -17,8 +17,24 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { OPTION_KEYS, optionLetter, pickableOptions } from "@/app/view/agents/brainstormmodel";
-import { focusedBrainstorm, setBrainstormMode, shownBrainstormFile } from "@/app/view/agents/brainstormstore";
+import {
+    checkMain,
+    checkReview,
+    OPTION_KEYS,
+    optionLetter,
+    paneView,
+    pickableOptions,
+    type BrainstormAction,
+    type ReviewRow,
+} from "@/app/view/agents/brainstormmodel";
+import { sendBrainstorm } from "@/app/view/agents/brainstormsend";
+import {
+    focusedBrainstorm,
+    moveReviewCursor,
+    setBrainstormMode,
+    shownBrainstormFile,
+    toggleReviewRow,
+} from "@/app/view/agents/brainstormstore";
 import { paneState } from "@/app/view/agents/canvasmodel";
 import {
     focusedCanvas,
@@ -803,6 +819,43 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     };
     const brainstorm = () => focusedBrainstorm(model);
     const inBrainstorm = (ctx: KeyContext) => agentNav(ctx) && brainstorm()?.mode === "brainstorm";
+    // the check's review fills the main area: j and k move its cursor instead of the agents, and y, u and Enter act
+    // on the cursor row. The exit atom is left out, as when() reads only the focused brainstorm (whenstate.ts)
+    const inReview = (ctx: KeyContext) => {
+        if (!inBrainstorm(ctx)) {
+            return false;
+        }
+        const s = brainstorm()!;
+        const f = shownBrainstormFile(s);
+        return f != null && paneView({ ...s, exited: false }) === "check" && checkMain(f, s.designOpen) === "review";
+    };
+    const reviewRow = () => {
+        const s = brainstorm();
+        const f = shownBrainstormFile(s);
+        if (s == null || f == null || s.review.cursor == null) {
+            return null;
+        }
+        const r = checkReview(f);
+        return [...r.changed, ...r.fresh].find((x) => x.id === s.review.cursor) ?? null;
+    };
+    const reviewIds = () => {
+        const f = shownBrainstormFile(brainstorm());
+        return f == null ? [] : checkReview(f).cursorIds;
+    };
+    // the row's line goes to the focused agent; with no row or no line for it, or while the agent writes (the row's
+    // buttons are locked then too), the key passes on
+    const sendReview = (action: (row: ReviewRow) => BrainstormAction | null) => {
+        if (shownBrainstormFile(brainstorm())?.working != null) {
+            return false;
+        }
+        const row = reviewRow();
+        const a = row == null ? null : action(row);
+        const agent = globalStore.get(model.agentsAtom).find((x) => x.id === focusId());
+        if (a == null || agent == null) {
+            return false;
+        }
+        sendBrainstorm(agent, a).catch((e) => console.warn("brainstorm review: sending failed", agent.id, a, e));
+    };
     // the asked question's options the pane draws, each picked by its letter
     const pickable = () => {
         const s = brainstorm();
@@ -888,8 +941,77 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             when: agentNav,
             run: () => step(1),
         },
-        { id: "agent:prev-k", keys: "k", group: "Agent", label: "Previous agent", when: agentNav, run: () => step(-1) },
-        { id: "agent:next-j", keys: "j", group: "Agent", label: "Next agent", when: agentNav, run: () => step(1) },
+        // in the check's review j and k move between its decisions; the arrows and Ctrl+Tab still move agents
+        {
+            id: "agent:prev-k",
+            keys: "k",
+            group: "Agent",
+            label: "Previous agent",
+            when: (ctx) => agentNav(ctx) && !inReview(ctx),
+            run: () => step(-1),
+        },
+        {
+            id: "agent:next-j",
+            keys: "j",
+            group: "Agent",
+            label: "Next agent",
+            when: (ctx) => agentNav(ctx) && !inReview(ctx),
+            run: () => step(1),
+        },
+        {
+            id: "agent:brainstorm-review-next",
+            keys: "j",
+            group: "Agent",
+            label: "Next decision in the check's review",
+            when: inReview,
+            run: () => moveReviewCursor(focusId(), reviewIds(), 1),
+        },
+        {
+            id: "agent:brainstorm-review-prev",
+            keys: "k",
+            group: "Agent",
+            label: "Previous decision in the check's review",
+            when: inReview,
+            run: () => moveReviewCursor(focusId(), reviewIds(), -1),
+        },
+        {
+            id: "agent:brainstorm-review-open",
+            keys: "Enter",
+            group: "Agent",
+            label: "Show what the review's decision was",
+            when: inReview,
+            // a focused button's Enter is its own press
+            run: () => {
+                const row = reviewRow();
+                if (row == null || document.activeElement?.tagName === "BUTTON") {
+                    return false;
+                }
+                toggleReviewRow(focusId(), row.id);
+            },
+        },
+        {
+            id: "agent:brainstorm-review-keep",
+            keys: "y",
+            group: "Agent",
+            label: "Keep the review's change (confirm a guess)",
+            when: inReview,
+            run: () =>
+                sendReview((row) =>
+                    row.action === "keep-restore"
+                        ? { kind: "keep", part: row.id }
+                        : row.action === "confirm"
+                          ? { kind: "confirm", part: row.id }
+                          : null
+                ),
+        },
+        {
+            id: "agent:brainstorm-review-restore",
+            keys: "u",
+            group: "Agent",
+            label: "Put mine back in the review",
+            when: inReview,
+            run: () => sendReview((row) => (row.action === "keep-restore" ? { kind: "restore", part: row.id } : null)),
+        },
         {
             id: "agent:toggle-rail",
             keys: "d",
