@@ -371,15 +371,17 @@ export default function (kit) {
                 const s5 = await bsUntil(h, ctx, (s) => s.question.includes(Q16.text));
                 await h.shot("cdp-shots/brainstorm-builder-ask-5.png");
                 rec(
-                    "5. question 16, written during the check, takes the main area with its options, ahead of the builder's questions",
+                    "5. question 16, written during the check, takes the main area with its options, ahead of the builder's questions, with no Skip the questions and no skip note",
                     s5.ok &&
                         s5.view === "check" &&
                         s5.builder === "" &&
                         s5.question.startsWith(`16 → ${GRAPH.title}`) &&
                         s5.options.length === 3 &&
                         s5.options[0].pick &&
-                        s5.answerBox,
-                    { ...bsBrief(s5), question: s5.question.slice(0, 160), options: s5.options }
+                        s5.answerBox &&
+                        !s5.question.includes("Skip the questions") &&
+                        s5.skipNote === "",
+                    { ...bsBrief(s5), question: s5.question.slice(0, 160), options: s5.options, skipNote: s5.skipNote }
                 );
 
                 // 6. everything settled: Approve is on; Change and Approve open New run, only Approve sends a line

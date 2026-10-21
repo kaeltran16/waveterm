@@ -245,6 +245,7 @@ export default function (kit) {
             if (!ctx.dagId) throw new Error("the run has no dag");
             ctx.childRunId = await waitForDispatch(h, ctx, "t-1");
             await seedSettled(h, ctx, status, final);
+            ctx.runDone = status === "done";
             // unlinked by the seed, so its end derives nothing; cancelled, so its worker frees the temp dir
             await h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.childRunId });
             // a run on its own branch, which says nothing has merged until it lands; the path is never made
@@ -279,7 +280,8 @@ export default function (kit) {
                 console.error(`${name} teardown: cancel the child run failed: ${e?.message ?? e}`);
             });
         }
-        await teardownFixtureRun(h, ctx, name);
+        // a run seeded done refuses a cancel, so the shared teardown skips it
+        await teardownFixtureRun(h, ctx.runDone ? { ...ctx, runId: null } : ctx, name);
     }
 
     // shows the brainstorm's pane; null once drawn, else why it could not be

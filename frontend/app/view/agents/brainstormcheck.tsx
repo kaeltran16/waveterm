@@ -100,7 +100,7 @@ export function Check({
                         </div>
                     ) : null}
                     {main === "question" ? (
-                        <QuestionMain agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
+                        <QuestionMain agent={agent} f={f} goTo={goTo} openDesign={openDesign} skip={false} />
                     ) : main === "builder" ? (
                         <BuilderAsk agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
                     ) : main === "working" ? (

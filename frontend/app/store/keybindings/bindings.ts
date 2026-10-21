@@ -15,6 +15,7 @@ import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { anyModalOpen } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
+import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import {
@@ -819,15 +820,20 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     };
     const brainstorm = () => focusedBrainstorm(model);
     const inBrainstorm = (ctx: KeyContext) => agentNav(ctx) && brainstorm()?.mode === "brainstorm";
+    // the exit the pane reads, so an exited agent's card holds the keys as the pane holds the review
+    const exited = () => {
+        const agent = globalStore.get(model.agentsAtom).find((a) => a.id === focusId());
+        return agent != null && globalStore.get(getProcExitAtom(agent.blockId ?? "")) != null;
+    };
     // the check's review fills the main area: j and k move its cursor instead of the agents, and y, u and Enter act
-    // on the cursor row. The exit atom is left out, as when() reads only the focused brainstorm (whenstate.ts)
+    // on the cursor row
     const inReview = (ctx: KeyContext) => {
         if (!inBrainstorm(ctx)) {
             return false;
         }
         const s = brainstorm()!;
         const f = shownBrainstormFile(s);
-        return f != null && paneView({ ...s, exited: false }) === "check" && checkMain(f, s.designOpen) === "review";
+        return f != null && paneView({ ...s, exited: exited() }) === "check" && checkMain(f, s.designOpen) === "review";
     };
     const reviewRow = () => {
         const s = brainstorm();

@@ -474,11 +474,14 @@ export function QuestionMain({
     f,
     goTo,
     openDesign,
+    skip = true,
 }: {
     agent: AgentVM;
     f: BrainstormFile;
     goTo: (id: string) => void;
     openDesign: () => void;
+    // false in the builder check, where every part is already written
+    skip?: boolean;
 }) {
     const q = f.question!;
     const fresh = f.history.length === 0;
@@ -529,7 +532,7 @@ export function QuestionMain({
                                 Guess for me
                             </button>
                         ) : null}
-                        {chips ? (
+                        {chips && skip ? (
                             <button
                                 type="button"
                                 disabled={ans.act.busy}
@@ -543,7 +546,7 @@ export function QuestionMain({
                         <DesignButton f={f} onClick={openDesign} />
                     </div>
                     {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
-                    {fresh && chips ? (
+                    {fresh && chips && skip ? (
                         <p data-brainstorm-skip-note className="m-0 text-[12.5px] leading-[1.5] text-ink-mid">
                             Skipping has the agent write every part as its guess. You confirm or edit each one after,
                             before the builder check.

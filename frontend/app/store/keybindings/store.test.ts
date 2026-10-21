@@ -3,6 +3,7 @@
 
 import { registerModal } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
+import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import {
     attachBrainstorm,
@@ -47,7 +48,10 @@ import { PREDICATE_ATOMS } from "./whenstate";
 
 // the canvas guards read the focused agent id from the model
 function stubModel(focusId?: string): any {
-    return { focusIdAtom: atom<string | undefined>(focusId) as PrimitiveAtom<string | undefined> };
+    return {
+        focusIdAtom: atom<string | undefined>(focusId) as PrimitiveAtom<string | undefined>,
+        agentsAtom: atom([]),
+    };
 }
 
 // a1 focused with a ready two-board canvas, in terminal mode; callers move it into canvas/marking
@@ -508,13 +512,15 @@ describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
             detachCanvas("a1");
         }
 
-        // the focus id and the focused agent's canvas and brainstorm atoms are watched by watchFocusedCanvas,
-        // not listed
+        // the focus id, the roster, and the focused agent's canvas, brainstorm and exit atoms are watched by
+        // watchFocusedCanvas, not listed; a1 is not in the stub roster, so its block id is ""
         const registered = new Set<unknown>([
             ...PREDICATE_ATOMS,
             model.focusIdAtom,
+            model.agentsAtom,
             canvasStateAtom("a1"),
             brainstormAtom("a1"),
+            getProcExitAtom(""),
         ]);
         const missing = [...seen].filter((a) => !registered.has(a));
         const unused = PREDICATE_ATOMS.filter((a) => !seen.has(a));
