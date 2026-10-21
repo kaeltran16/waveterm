@@ -145,8 +145,12 @@ Nothing was built for these, so there is nothing to recover from git.
   `openOrPeek` in `frontend/app/view/jarvis/openref.ts`, the way the Brief's `openLine` does, and mark it `data-peek`.
   Nothing was built for this, so there is nothing to recover from git.
 
-## Terminal file drop pastes the file's path (deferred 2026-09-30)
+## Terminal file drop pastes the file's path (deferred 2026-09-30, declined 2026-10-21)
 
+- **Declined 2026-10-21**, with drag-drop onto the New run goal: the user never drops files, they paste. The
+  terminal's `pasteHandler` already saves a pasted image to a temp file and types its path, and the goal takes
+  pasted files. The cost was lower than noted below: no surface uses HTML5 drag-and-drop (the pet drags by
+  pointer events), so flipping `dragDropEnabled` would mainly need a live check of text drags in inputs.
 - **Deferred:** dropping a file onto a terminal to paste its quoted path. The Electron build read the path with
   `webUtils.getPathForFile`; the Tauri port stubbed that to return `""`, so the drop handler never pasted anything.
   The stub and the handler are gone; `termwrap.ts` now only swallows the drop so the webview doesn't navigate to the file.
@@ -202,7 +206,7 @@ of starting a second one. What it does **not** do is capture where a session was
 ## Composer attachments on a steer (2026-09-18, goal half shipped 2026-10-12)
 
 `composerattachments.ts` and `attachmenttray.tsx` are mounted by `newruncontrol.tsx` for the New run goal.
-Still deferred: drag-drop onto the goal and WSL path translation. The Steer half (attachments in
+Still deferred: WSL path translation (drag-drop onto the goal was declined 2026-10-21, see the terminal file drop entry). The Steer half (attachments in
 `RunComposer`, `frontend/app/view/jarvis/briefcomposer.tsx`) was declined 2026-10-21: the user does not
 attach files to a steer. Nothing was built for it, so there is nothing to recover.
 

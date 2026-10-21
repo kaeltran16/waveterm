@@ -78,9 +78,6 @@ Cockpit and surfaces:
   page is wanted.
 - **Sessions "All activity" feed peek** (2026-10-01) — revive when the feed rows carry a run, agent or
   effort target.
-- **Terminal file drop pastes the path** (2026-09-30) — revive when file drops onto a terminal are wanted.
-- **Composer attachments: drag-drop onto the New run goal** (2026-09-18) — the goal has paste and the
-  picker since 2026-10-12; revive with the terminal file drop, which needs the same native drag-drop flag.
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /
   React-DevTools pass against a populated cockpit first).
 
@@ -130,6 +127,8 @@ Jarvis:
 - Dropped 2026-10-16 as superseded or unpluggable: Jarvis Briefing cross-project progress (efforts carry
   done/total), Jarvis D attribution tuning and E's cheap tier (their consumers, proactive resurfacing and
   recall, are gone), Pi Part B `wave_create_widget` (the vdom commands it wrapped no longer exist).
+- File drop (onto a terminal, onto the New run goal) and Steer attachments — declined 2026-10-21: files
+  reach an agent by paste, which the terminal and the goal already handle (`docs/deferred.md`).
 - Cockpit light/Paper theme — declined; code removed 2026-08-24.
 - Gatekeeper v1.1 (make-a-rule + countdown) — revive only on recurring-ask or misfire evidence. Measured
   2026-10-12 over 879 structured asks since 08-11: 737 distinct headers, and the ones that recur (spec
