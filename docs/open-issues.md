@@ -79,8 +79,8 @@ Cockpit and surfaces:
 - **Sessions "All activity" feed peek** (2026-10-01) — revive when the feed rows carry a run, agent or
   effort target.
 - **Terminal file drop pastes the path** (2026-09-30) — revive when file drops onto a terminal are wanted.
-- **Composer attachments** (2026-09-18) — the New run goal has them since 2026-10-12; revive the Steer half
-  and drag-drop when attaching a file to a steer is wanted.
+- **Composer attachments: drag-drop onto the New run goal** (2026-09-18) — the goal has paste and the
+  picker since 2026-10-12; revive with the terminal file drop, which needs the same native drag-drop flag.
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /
   React-DevTools pass against a populated cockpit first).
 
@@ -95,7 +95,9 @@ Orchestrator:
 - **A cheap-model route for judging sessions** — revive when the judging roles are a material share of
   a run's tokens (same spec).
 - **An idle-lead watchdog after the dag is done** — revive on a run whose lead sat idle at `run
-  finished` without completing (same spec).
+  finished` without completing (same spec). Measured 2026-10-21 on the packaged store: of 82 `dag-done`
+  runs, 80 completed within 30 min; the one 13 h gap (`3425249d`) was a lead adding a task after `run
+  finished`, not idling.
 
 Radar:
 

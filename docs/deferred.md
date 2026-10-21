@@ -202,8 +202,9 @@ of starting a second one. What it does **not** do is capture where a session was
 ## Composer attachments on a steer (2026-09-18, goal half shipped 2026-10-12)
 
 `composerattachments.ts` and `attachmenttray.tsx` are mounted by `newruncontrol.tsx` for the New run goal.
-Still deferred: the Steer composer, drag-drop onto the goal, and WSL path translation. Revive the Steer half
-when attaching a file to a steer is wanted; the hook and tray are reusable as they stand.
+Still deferred: drag-drop onto the goal and WSL path translation. The Steer half (attachments in
+`RunComposer`, `frontend/app/view/jarvis/briefcomposer.tsx`) was declined 2026-10-21: the user does not
+attach files to a steer. Nothing was built for it, so there is nothing to recover.
 
 ## Session target in `openTarget` (2026-09-17)
 
