@@ -18,15 +18,18 @@ import {
     designLabel,
     exitedSummary,
     handoffView,
+    hasProsCons,
     historyRows,
     isAsking,
     leftPanel,
     mainView,
+    noteParts,
     optionLetter,
     orderedParts,
     paneView,
     parseBrainstorm,
     parseBrainstormPath,
+    partGist,
     partTitle,
     partView,
     phaseSteps,
@@ -34,6 +37,7 @@ import {
     progressView,
     questionTrack,
     resumePrompt,
+    reviewHead,
     runLine,
     runPrefill,
     sentenceDiff,
@@ -41,10 +45,10 @@ import {
     shownFile,
     terminalAnswer,
     treeLine,
-    whatsLeft,
     withBrainstorm,
     type BrainstormFile,
     type BrainstormPart,
+    type HistoryEntry,
     type ParseResult,
     type PartState,
 } from "./brainstormmodel";
@@ -448,12 +452,41 @@ describe("historyRows", () => {
         });
         const [r] = historyRows(f);
         expect(r.options).toEqual([
-            { label: "Owner first", picked: false },
-            { label: "Platform first", picked: true },
-            { label: "Both", picked: false },
+            { label: "Owner first", detail: "d1", picked: false, agentPick: true },
+            { label: "Platform first", detail: "d2", picked: true, agentPick: false },
+            { label: "Both", detail: "d3", picked: false, agentPick: false },
         ]);
         expect(r.answer).toBeNull();
         expect(r.ownWords).toBe(false);
+    });
+
+    it("keeps why it asked, and has reasons to show while an option not picked says what it is", () => {
+        const entry = (over: Partial<HistoryEntry>): HistoryEntry => ({
+            kind: "question",
+            n: 1,
+            q: "q",
+            a: "Both",
+            into: [],
+            options: opts,
+            picked: 2,
+            ...over,
+        });
+        const [r] = historyRows(file({ history: [entry({ why: "w" })] }));
+        expect([r.why, r.reasons]).toEqual(["w", true]);
+        const bare = opts.map((o) => ({ ...o, detail: "" }));
+        const [quiet] = historyRows(file({ history: [entry({ options: bare })] }));
+        expect([quiet.why, quiet.reasons]).toEqual([null, false]);
+        const onlyPicked = [
+            { label: "A", detail: "" },
+            { label: "Both", detail: "what it is" },
+        ];
+        const [p] = historyRows(file({ history: [entry({ options: onlyPicked, picked: 1 })] }));
+        expect(p.reasons).toBe(false);
+    });
+
+    it("recon has no reasons toggle, why or not", () => {
+        const [r] = historyRows(file({ history: [{ kind: "recon", q: "rq", why: "w", a: "ra", into: [] }] }));
+        expect([r.why, r.reasons]).toEqual([null, false]);
     });
 
     it("an answer typed instead of an option is drawn after them, in your words", () => {
@@ -510,6 +543,36 @@ describe("question options", () => {
             why: "Every group names a team.",
             options: opts,
         });
+    });
+
+    it("parse pros, cons and the agent's read, dropping blank and non-string lines", () => {
+        const r = parseBrainstorm(
+            raw({
+                question: {
+                    n: 2,
+                    text: "Which?",
+                    read: "Graph adds the most.",
+                    options: [
+                        { label: "Graph", detail: "d", pros: ["new signal", "", 3], cons: ["pairs"] },
+                        { label: "Forecast", detail: "e", pros: "cheap", cons: [] },
+                    ],
+                },
+            })
+        );
+        const q = r.ok ? r.file.question : null;
+        expect(q?.read).toBe("Graph adds the most.");
+        expect(q?.options).toEqual([
+            { label: "Graph", detail: "d", pros: ["new signal"], cons: ["pairs"] },
+            { label: "Forecast", detail: "e" },
+        ]);
+        expect(q != null && hasProsCons(q)).toBe(true);
+        expect(hasProsCons({ n: 1, text: "Q", part: "", options: [{ label: "A", detail: "" }] })).toBe(false);
+        expect(hasProsCons({ n: 1, text: "Q", part: "" })).toBe(false);
+    });
+
+    it("keep a history entry's why", () => {
+        const r = parseBrainstorm(raw({ history: [{ kind: "question", n: 1, q: "q", why: "w", a: "a", into: [] }] }));
+        expect(r.ok && r.file.history[0].why).toBe("w");
     });
 
     it("a file without them reads as before", () => {
@@ -751,33 +814,100 @@ describe("progressView", () => {
     });
 });
 
-describe("whatsLeft", () => {
-    it("lists every part not yours, the asked one first, each naming what you do", () => {
-        const f = file({
-            question: { n: 4, text: "?", part: "c" },
-            parts: [
-                part("a", "yours"),
-                part("b", "guess"),
-                part("k", "guess", { was: "old" }),
-                part("c", "asked"),
-                part(BUILDER_PART, "open"),
-            ],
+describe("partGist", () => {
+    it("is the agent's gist, else the body's first sentence", () => {
+        const f = file();
+        expect(partGist(f, part("a", "guess", { gist: "One line.", body: "Long. Body." }))).toBe("One line.");
+        expect(partGist(f, part("a", "guess", { body: "First one. Second one." }))).toBe("First one.");
+    });
+
+    it("with no body, says what the part waits on", () => {
+        const f = file({ question: { n: 4, text: "?", part: "c" } });
+        expect(partGist(f, part("c", "asked"))).toBe("Written from your answer to question 4.");
+        expect(partGist(f, part("x", "asked"))).toBe("Waiting on the agent’s question.");
+        expect(partGist(file({ working: "w" }), part("c", "asked"))).toBe(
+            "The agent is writing this from your answer."
+        );
+        expect(partGist(f, part(BUILDER_PART, "open"))).toBe("The agent writes this last.");
+        expect(partGist(f, part("o", "open"))).toBe("Not talked through yet.");
+    });
+});
+
+describe("reviewHead", () => {
+    it("offers the builder check once every decision is yours and the agent is done", () => {
+        const f = file({ done: true, parts: [part("a", "yours"), part("n", "guess", { kind: "note" })] });
+        expect(reviewHead(f)).toEqual({
+            line: "Every decision is yours. Next, a fresh agent reads the design as a builder would.",
+            action: "check",
+            guesses: 0,
         });
-        expect(whatsLeft(f).map((r) => [r.id, r.kind, r.text, r.title])).toEqual([
-            ["c", "answer", "Answer question 4", "Title c"],
-            ["b", "confirm", "Confirm the agent’s guess", "Title b"],
-            ["k", "review", "Review what changed", "Title k"],
-            [BUILDER_PART, "last", "The agent writes this last", `Title ${BUILDER_PART}`],
+    });
+
+    it("counts the guesses and offers confirm all for two or more", () => {
+        const two = reviewHead(file({ parts: [part("a", "guess"), part("b", "guess"), part("c", "yours")] }));
+        expect(two).toEqual({
+            line: "2 decisions are still the agent’s guess. Each reads in one line; open one to read it whole.",
+            action: "confirm-all",
+            guesses: 2,
+        });
+        const one = reviewHead(file({ parts: [part("a", "guess"), part("k", "guess", { was: "old" })] }));
+        expect(one.line).toBe(
+            "1 decision is still the agent’s guess. 1 decision changed since you confirmed it. Each reads in one line; open one to read it whole."
+        );
+        expect(one.action).toBeNull();
+    });
+
+    it("with nothing to confirm, says the agent still asks", () => {
+        const f = file({ question: { n: 2, text: "?", part: "c" }, parts: [part("a", "yours"), part("c", "asked")] });
+        expect(reviewHead(f)).toEqual({
+            line: "Nothing to confirm; the agent still has questions.",
+            action: null,
+            guesses: 0,
+        });
+    });
+});
+
+describe("notes", () => {
+    const parts = [
+        part("a", "yours"),
+        part("n1", "guess", { kind: "note" }),
+        part("b", "guess"),
+        part("n2", "open", { kind: "note" }),
+        part(BUILDER_PART, "open"),
+    ];
+
+    it("parse with kind note and a gist; a note needs no state", () => {
+        const r = parseBrainstorm(
+            raw({
+                parts: [
+                    { id: "a", title: "A", state: "guess", body: "x", gist: "g" },
+                    { id: "n", title: "N", kind: "note", body: "found" },
+                    { id: "m", title: "M", kind: "other", state: "yours", body: "" },
+                ],
+            })
+        );
+        expect(r.ok && r.file.parts).toEqual([
+            { id: "a", title: "A", state: "guess", body: "x", gist: "g" },
+            { id: "n", title: "N", state: "yours", kind: "note", body: "found" },
+            { id: "m", title: "M", state: "yours", body: "" },
         ]);
+        expect(errorOf(parseBrainstorm(raw({ parts: [{ id: "x", kind: "other", body: "" }] })))).toBe(
+            'part "x" has an unknown state "undefined"'
+        );
     });
 
-    it("tells an open part from the builder's, and an asked part the question is not for", () => {
-        const f = file({ question: { n: 2, text: "?", part: "x" }, parts: [part("o", "open"), part("c", "asked")] });
-        expect(whatsLeft(f).map((r) => r.text)).toEqual(["Answer its question", "Not talked through yet"]);
-    });
-
-    it("is empty when every part is yours", () => {
-        expect(whatsLeft(file({ parts: [part("a", "yours")] }))).toEqual([]);
+    it("are left out of every count, gate and label", () => {
+        const f = file({ parts });
+        expect(brainstormCounts(f)).toEqual({ yours: 1, guesses: 1, open: 1 });
+        expect(confirmableGuesses(f)).toBe(1);
+        expect(designLabel(f)).toBe("The design · 1 of 3 yours");
+        expect(progressView(f).segments.map((x) => x.id)).toEqual(["a", "b", BUILDER_PART]);
+        expect(questionTrack(file({ parts: [part("n", "open", { kind: "note" }), part("o", "open")] }))).toEqual([
+            "ahead",
+        ]);
+        const ready = file({ done: true, parts: [part("a", "yours"), part("n", "guess", { kind: "note" })] });
+        expect(canCheck(ready)).toBe(true);
+        expect(noteParts(f).map((p) => p.id)).toEqual(["n1", "n2"]);
     });
 });
 

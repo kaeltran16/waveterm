@@ -19550,9 +19550,8 @@ const bsRead = (h, ctx) =>
                 x.getAttribute("data-state")
             ),
             title: flat(pane?.querySelector("h1")),
-            leftShown: !!pane?.querySelector("[data-brainstorm-left]"),
-            left: [...(pane?.querySelectorAll("[data-brainstorm-left-row]") ?? [])].map(flat),
-            ready: flat(pane?.querySelector("[data-brainstorm-ready]")),
+            reviewShown: !!pane?.querySelector("[data-brainstorm-review]"),
+            review: flat(pane?.querySelector("[data-brainstorm-review-line]")),
             skipNote: flat(pane?.querySelector("[data-brainstorm-skip-note]")),
             workingNote: flat(pane?.querySelector("[data-brainstorm-working-note]")),
             tiles: [...(pane?.querySelectorAll("[data-brainstorm-tile]") ?? [])].map(flat),
@@ -19945,7 +19944,7 @@ const brainstormMode = {
         const s1 = await bsUntil(h, ctx, (s) => s.question.includes(BS_Q1.text));
         await h.shot("cdp-shots/brainstorm-mode-1.png");
         rec(
-            "1. just started (Fresh): question 1 fills the pane for Intent and why, the free-text box alone, the skip note, no what's-left list, no Guess for me, nothing decided yet",
+            "1. just started (Fresh): question 1 fills the pane for Intent and why, the free-text box alone, the skip note, no review head, no Guess for me, nothing decided yet",
             s1.ok &&
                 s1.view === "design" &&
                 s1.phase === "Talking it through" &&
@@ -19956,14 +19955,14 @@ const brainstormMode = {
                 s1.placeholder === "Answer in your own words…" &&
                 s1.skipNote ===
                     "Skipping has the agent write every part as its guess. You confirm or edit each one after, before the builder check." &&
-                !s1.leftShown &&
+                !s1.reviewShown &&
                 s1.guessFor === 0 &&
                 s1.parts.length === 0 &&
                 s1.designBtn === "The design · 0 of 1 yours" &&
                 s1.rail === "Decided so far · 0" &&
                 s1.history.length === 0 &&
                 JSON.stringify(s1.track) === JSON.stringify(["now"]),
-            { ...bsBrief(s1), phase: s1.phase, progress: s1.progress, question: s1.question, skipNote: s1.skipNote, leftShown: s1.leftShown, guessFor: s1.guessFor, designBtn: s1.designBtn, rail: s1.rail, track: s1.track }
+            { ...bsBrief(s1), phase: s1.phase, progress: s1.progress, question: s1.question, skipNote: s1.skipNote, reviewShown: s1.reviewShown, guessFor: s1.guessFor, designBtn: s1.designBtn, rail: s1.rail, track: s1.track }
         );
         const opened1 = await bsOpenDesign(h);
         const s1d = await bsRead(h, ctx);
@@ -20019,10 +20018,10 @@ const brainstormMode = {
         );
         const [h3, h2, h1, hr] = s2.history;
         rec(
-            "2b. Decided so far · 3, newest first with recon at the bottom: Q2 lists all three options it offered, the picked one checked; each says where it went",
+            "2b. Decided so far · 3, newest first with recon at the bottom: Q2 lists all three options it offered, the picked one checked and marked Agent’s pick; each says where it went",
             s2.rail === "Decided so far · 3" &&
                 JSON.stringify(s2.history.map((r) => r.label)) === JSON.stringify(["Q3", "Q2", "Q1", "Recon"]) &&
-                JSON.stringify(h2?.picked) === JSON.stringify([BS_Q2_OPTIONS[1].label]) &&
+                JSON.stringify(h2?.picked) === JSON.stringify([`${BS_Q2_OPTIONS[1].label} Agent’s pick`]) &&
                 JSON.stringify(h2?.unpicked) === JSON.stringify([BS_Q2_OPTIONS[0].label, BS_Q2_OPTIONS[2].label]) &&
                 h2.text.includes("Went into Goals, Constraints") &&
                 JSON.stringify(h1?.picked) === JSON.stringify([BS_HISTORY[0].a]) &&
@@ -20033,8 +20032,9 @@ const brainstormMode = {
             s2.history
         );
 
-        // the design behind its button: the parts, what's left before the check, the mockups
+        // the design behind its button: the decisions one line each, what stands before the check, the mockups
         const opened2 = await bsOpenDesign(h);
+        const pageOpened = await bsOpenRow(h, "page");
         await polishWaitFor(h, `${bsPartSel("page")}?.querySelectorAll("[data-brainstorm-thumb] iframe").length === 2`, BS_POLL_WAIT_MS);
         const thumbs = await h.ev(`(() => {
             const p = ${bsPartSel("page")};
@@ -20057,62 +20057,48 @@ const brainstormMode = {
             { opened2, back: s2d.back, title: s2d.title, toolbar: s2d.toolbar }
         );
         rec(
-            "2n. Before the builder check lists every part not yours, the asked one first",
-            JSON.stringify(s2d.left) ===
-                JSON.stringify([
-                    "Answer question 4 When it pages",
-                    "Confirm the agent’s guess Current state",
-                    "Confirm the agent’s guess Constraints",
-                    "Confirm the agent’s guess What on-call sees",
-                    "The agent writes this last Left to the builder",
-                ]),
-            { left: s2d.left }
+            "2n. Confirm the design heads the decisions: 3 still the agent’s guess, with Confirm all 3 guesses",
+            s2d.review === "3 decisions are still the agent’s guess. Each reads in one line; open one to read it whole." &&
+                s2d.text.includes("Confirm all 3 guesses") &&
+                s2d.text.includes("Decisions · 8"),
+            { review: s2d.review }
         );
-        // the design column back at its top, where the last part sits below the fold
-        const builderInView = `(() => {
-            const p = ${bsPartSel("builder")};
-            const col = p?.closest(".overflow-y-auto");
-            if (!p || !col) return false;
-            const r = p.getBoundingClientRect();
-            const c = col.getBoundingClientRect();
-            return r.top >= c.top && r.bottom <= c.bottom;
-        })()`;
-        await h.ev(`(() => {
-            const col = ${bsPartSel("builder")}?.closest(".overflow-y-auto");
-            if (col) col.scrollTop = 0;
-            return true;
-        })()`);
-        const builderBefore = await h.ev(builderInView);
-        await h.ev(`${BS_PANE}?.querySelector('[data-brainstorm-left-row="builder"]')?.click()`);
-        const leftJump = await polishWaitFor(h, builderInView, 3000);
-        const scrolled = await h.ev(`(() => {
-            const p = ${bsPartSel("builder")};
-            const col = p?.closest(".overflow-y-auto");
-            const r = p?.getBoundingClientRect();
-            const c = col?.getBoundingClientRect();
-            return { top: col?.scrollTop, max: col ? col.scrollHeight - col.clientHeight : null, part: r && [r.top, r.bottom], col: c && [c.top, c.bottom] };
-        })()`);
-        rec("2o. a what's-left row scrolls the design to its part, from below the fold into view", builderBefore === false && leftJump, {
-            builderBefore,
-            leftJump,
-            scrolled,
-        });
+        // a decision reads in one line until opened; the title line opens and closes it
+        const rowBody = `(${bsPartSel("constraints")}?.querySelector("[data-brainstorm-row-body]")?.innerText ?? "").replace(/\\s+/g, " ").trim()`;
+        const gist = await h.ev(`(${bsPartSel("constraints")}?.querySelector("[data-brainstorm-gist]")?.innerText ?? "").trim()`);
+        const closedBefore = await h.ev(rowBody);
+        const openedRow = await bsToggleRow(h, "constraints");
+        const openBody = await h.ev(rowBody);
+        const closedRow = await bsToggleRow(h, "constraints");
+        rec(
+            "2o. a decision is one line, its body's first sentence; its title line opens it to the whole body and closes it again",
+            gist === BS_PART.constraints.body.split(". ")[0] + "." &&
+                closedBefore === "" &&
+                openedRow === "true" &&
+                openBody === BS_PART.constraints.body &&
+                closedRow === "false",
+            { gist, closedBefore, openedRow, openBody, closedRow }
+        );
         rec(
             "2c. part states: yours ×3, guess ×3, asked, open",
             JSON.stringify(bsStates(s2d)) === JSON.stringify(BS_MID_STATES),
             { states: bsStates(s2d), want: BS_MID_STATES }
         );
         rec(
-            "2d. the page part shows both mockups, the first labelled option A of 2",
-            thumbs.frames === 2 && thumbs.labels[0] === "Page.dc.html · option A of 2",
-            thumbs
+            "2d. the page part, opened, shows both mockups, the first labelled option A of 2",
+            pageOpened && thumbs.frames === 2 && thumbs.labels[0] === "Page.dc.html · option A of 2",
+            { pageOpened, ...thumbs }
         );
 
         let mark = await bsMark(h, ctx, "brainstorm: confirm every guess");
         const allLabel = await h.ev(`(${BS_CONFIRM_ALL}?.textContent ?? "").trim()`);
         const confirmedAll = await bsClick(h, BS_PANE, "Confirm all 3 guesses");
         const allTyped = await bsTyped(h, ctx, mark, "brainstorm: confirm every guess");
-        const allLocked = await polishWaitFor(h, `${bsPartSel("current")}?.querySelector("button")?.disabled === true`, 2000);
+        const allLocked = await polishWaitFor(
+            h,
+            `[...(${bsPartSel("current")}?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "That’s right")?.disabled === true`,
+            2000
+        );
         const allTook = await bsAgentTook(h, ctx);
         rec(
             "2e0. Confirm all 3 guesses sends brainstorm: confirm every guess; the parts lock until the agent takes it",
@@ -20257,12 +20243,12 @@ const brainstormMode = {
         await h.shot("cdp-shots/brainstorm-mode-2-answered.png");
         const q4row = s2b.history[0];
         rec(
-            "2l. the next file: question 5 for What on-call sees, and Q4 leads the rail: the answers it offered unpicked, then the typed one In your words, into When it pages",
+            "2l. the next file: question 5 for What on-call sees, and Q4 leads the rail: the answers it offered unpicked with the agent’s pick marked, then the typed one In your words, into When it pages",
             s2b.ok &&
                 s2b.question.startsWith("5 → What on-call sees") &&
                 s2b.rail === "Decided so far · 4" &&
                 q4row?.label === "Q4" &&
-                JSON.stringify(q4row.unpicked) === JSON.stringify(BS_Q4_OPTIONS.map((o) => o.label)) &&
+                JSON.stringify(q4row.unpicked) === JSON.stringify(BS_Q4_OPTIONS.map((o) => (o.pick ? o.label + " Agent’s pick" : o.label))) &&
                 JSON.stringify(q4row.picked) === JSON.stringify([`In your words ${answerLine}`]) &&
                 q4row.text.includes("Went into When it pages"),
             { ...bsBrief(s2b), question: s2b.question, rail: s2b.rail, history: q4row }
@@ -20270,6 +20256,7 @@ const brainstormMode = {
 
         // 3. open full size, from the design
         await bsOpenDesign(h);
+        await bsOpenRow(h, "page");
         await polishWaitFor(h, `!!${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")`, 3000);
         await h.ev(`${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")?.click()`);
         const s3 = await bsUntil(h, ctx, (s) => s.view === "board", 3000);
@@ -20307,16 +20294,16 @@ const brainstormMode = {
         await h.shot("cdp-shots/brainstorm-mode-4-design.png");
         const writing = bsPart(s4d, "thresholds");
         rec(
-            "4b. the design while the agent writes: the note atop it says actions open again when it asks, When it pages Being written, confirms disabled, no what's-left list",
+            "4b. the design while the agent writes: the note atop it says actions open again when it asks, When it pages Being written, confirms disabled, no review head",
             s4d.workingNote ===
                 "The agent is writing. Confirm, edit and keep open again when it asks its next question." &&
                 writing?.state === "writing" &&
                 writing.text.includes("Being written") &&
                 s4d.confirm.length > 0 &&
                 s4d.confirm.every((b) => b.disabled) &&
-                !s4d.leftShown &&
+                !s4d.reviewShown &&
                 s4d.phase === "Talking it through",
-            { workingNote: s4d.workingNote, writing, confirm: s4d.confirm, leftShown: s4d.leftShown, phase: s4d.phase }
+            { workingNote: s4d.workingNote, writing, confirm: s4d.confirm, reviewShown: s4d.reviewShown, phase: s4d.phase }
         );
         await bsCloseDesign(h);
 
@@ -20333,14 +20320,15 @@ const brainstormMode = {
         await h.shot("cdp-shots/brainstorm-mode-5.png");
         const changed = bsPart(s5, "constraints");
         rec(
-            "5. a confirmed part changed: Changed since you confirmed it, the added sentence as a + line, Why",
+            "5. a confirmed part changed: its row opens by itself on Changed since you confirmed it, the added sentence as a + line, Why; the head counts it",
             s5.ok &&
                 changed.text.includes("Changed since you confirmed it") &&
                 diff.length === 1 &&
                 diff[0] === `+ ${BS_ADDED}` &&
                 changed.text.includes(`Why: ${BS_WHY}`) &&
-                s5.left.includes("Review what changed Constraints"),
-            { ...bsBrief(s5), part: changed?.text, diff, left: s5.left }
+                s5.review ===
+                    "2 decisions are still the agent’s guess. 1 decision changed since you confirmed it. Each reads in one line; open one to read it whole.",
+            { ...bsBrief(s5), part: changed?.text, diff, review: s5.review }
         );
         mark = await bsMark(h, ctx, "brainstorm: keep constraints");
         const kept = await bsClick(h, bsPartSel("constraints"), "Keep the change");
@@ -20492,23 +20480,23 @@ const brainstormMode = {
         // 7c. ready: every part yours, nothing left to ask
         bsWrite(ctx, BS_READY);
         await bsShowPane(h);
-        const s7c = await bsUntil(h, ctx, (s) => s.ready !== "");
+        const s7c = await bsUntil(h, ctx, (s) => s.check != null);
         await h.shot("cdp-shots/brainstorm-mode-ready.png");
         rec(
-            "7c. ready (Ready): 8 of 8 parts yours, Nothing left to ask holding Check with a builder, no what's-left list",
+            "7c. ready: 8 of 8 parts yours, Confirm the design says every decision is yours and holds Check with a builder",
             s7c.ok &&
                 s7c.view === "design" &&
                 s7c.phase === "Talking it through" &&
                 s7c.progress === "8 of 8 parts yours" &&
                 s7c.segments.length === 8 &&
                 s7c.segments.every((x) => x === "yours") &&
-                s7c.ready.startsWith("Nothing left to ask Every part is yours.") &&
+                s7c.review === "Every decision is yours. Next, a fresh agent reads the design as a builder would." &&
                 s7c.check?.disabled === false &&
-                !s7c.leftShown,
-            { ...bsBrief(s7c), phase: s7c.phase, progress: s7c.progress, ready: s7c.ready, check: s7c.check, leftShown: s7c.leftShown }
+                !s7c.text.includes("Confirm all"),
+            { ...bsBrief(s7c), phase: s7c.phase, progress: s7c.progress, review: s7c.review, check: s7c.check }
         );
         mark = await bsMark(h, ctx, "brainstorm: check");
-        const checked = await bsClick(h, `${BS_PANE}?.querySelector("[data-brainstorm-ready]")`, "Check with a builder");
+        const checked = await bsClick(h, `${BS_PANE}?.querySelector("[data-brainstorm-review]")`, "Check with a builder");
         const checkTyped = await bsTyped(h, ctx, mark, "brainstorm: check");
         rec("7d. Check with a builder sends brainstorm: check", checked === "clicked" && checkTyped.ok, {
             checked,
@@ -20590,9 +20578,9 @@ const brainstormMode = {
         const s9 = await bsUntil(h, ctx, (s) => s.text.includes("You answered"));
         await h.shot("cdp-shots/brainstorm-mode-9.png");
         rec(
-            "9. You answered, ending Added to Anti-goals; approve enabled",
+            "9. You answered keeps the builder's question and why above the answer, ending Added to Anti-goals; approve enabled",
             s9.ok &&
-                s9.text.includes(`You answered ${BS_BUILDER_A} Added to Anti-goals.`) &&
+                s9.text.includes(`You answered ${BS_BUILDER_Q} Why: ${BS_CHECK.yours[0].why} ${BS_BUILDER_A} Added to Anti-goals.`) &&
                 s9.builder === "" &&
                 s9.approve?.disabled === false &&
                 s9.approveReason === "",
@@ -20751,6 +20739,541 @@ const brainstormMode = {
         await step("go home", () => h.goto("cockpit"));
     },
 };
+
+// --- brainstorm reasons: the boards of .superpowers/design/brainstorm-question-center, one scenario each. Each opens
+// a terminal as brainstorm-mode does, reveals one brainstorm.json and judges the state its board draws. Nothing is
+// sent to the agent: brainstorm-mode covers the lines -----------------------------------------------------------------
+
+// a terminal made a roster agent, with the file written; teardown removes whatever was made
+async function bsArrangeAgent(h, topic, file) {
+    const cwd = mkdtempSync(join(tmpdir(), "verify-bs-reasons-"));
+    const ctx = { cwd, topic, file: join(cwd, ".superpowers", "brainstorm", topic, "brainstorm.json") };
+    try {
+        mkdirSync(dirname(ctx.file), { recursive: true });
+        bsWrite(ctx, file);
+        await openCanvasTerminal(h, ctx, topic);
+        await bsPublishStatus(h, ctx);
+    } catch (e) {
+        ctx.launchError = String(e?.message ?? e);
+        return ctx;
+    }
+    await h.goto("agent");
+    ctx.inRoster = await polishWaitFor(
+        h,
+        `!!document.querySelector('[data-agent-terminal="${ctx.tabId}"]') && !document.querySelector('[data-tree-terminal="${ctx.tabId}"]')`,
+        BS_ROSTER_WAIT_MS
+    );
+    return ctx;
+}
+
+// reveals the file from the agent's terminal and shows its pane; null once drawn, else why it could not be
+async function bsShowFile(h, ctx) {
+    if (ctx.launchError != null) return `the terminal launch failed: ${ctx.launchError}`;
+    if (!ctx.inRoster) return "the terminal never became a roster agent";
+    try {
+        await bsReveal(h, ctx, ctx.topic);
+    } catch (e) {
+        return `the reveal failed: ${e?.message ?? e}`;
+    }
+    if (!(await polishWaitFor(h, `!!${BS_SWITCH}`, 3000))) return "the reveal drew no brainstorm switcher";
+    if (!(await bsShowPane(h))) return "the Brainstorm segment drew no pane";
+    return null;
+}
+
+async function bsTeardownAgent(h, ctx, name) {
+    const step = async (what, fn) => {
+        try {
+            await fn();
+        } catch (e) {
+            console.error(`${name} teardown: ${what} failed: ${e?.message ?? e}`);
+        }
+    };
+    if (ctx.tabId) {
+        await step("close the terminal tab", () => waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]));
+    }
+    await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
+    await step("go home", () => h.goto("cockpit"));
+}
+
+// a brainstorm-reasons scenario: arrange the agent with `file`, show it, then `check` the drawn pane
+const bsBoardScenario = (name, topic, file, check) => ({
+    name,
+    surface: "agent",
+    arrange: (h) => bsArrangeAgent(h, topic, file),
+    async assert(h, ctx) {
+        const missing = await bsShowFile(h, ctx);
+        if (missing != null) return [skipStep(name, `could not verify: ${missing}`)];
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+        await check(h, ctx, rec);
+        return steps;
+    },
+    teardown: (h, ctx) => bsTeardownAgent(h, ctx, name),
+});
+
+// clicks a design row's title line, opening or closing it; what aria-expanded reads after
+async function bsToggleRow(h, id) {
+    await h.ev(`${bsPartSel(id)}?.querySelector("[data-brainstorm-row-toggle]")?.click()`);
+    await polishNap(200);
+    return h.ev(`${bsPartSel(id)}?.querySelector("[data-brainstorm-row-toggle]")?.getAttribute("aria-expanded") ?? null`);
+}
+
+// opens a design row unless it is open already
+async function bsOpenRow(h, id) {
+    const expanded = await h.ev(`${bsPartSel(id)}?.querySelector("[data-brainstorm-row-toggle]")?.getAttribute("aria-expanded") ?? null`);
+    return expanded === "true" ? true : (await bsToggleRow(h, id)) === "true";
+}
+
+// the open question with each answer's reasons; the copy is the Question-Reasons board's
+const BSR_Q = {
+    n: 2,
+    text: "Which blind spot should the first new model close: relationships between entities, each entity’s rhythm over time, the order of its actions, or a wider set of detectors on the same daily features?",
+    part: "direction",
+    why: "The research says a fancier model over the same daily feature vector gains little. The gains come from showing a model something the engine can’t see today. Each of these blind spots needs different data and catches a different kind of attack, so this choice decides most of the design.",
+    read: "graph adds the most new detection, forecast is the safest measurable win, sequence is a separate project, and more detectors on the same features is a cleanup rather than an upgrade.",
+    options: [
+        {
+            label: "Relationships (graph model)",
+            pick: true,
+            detail: "Learns who normally reaches what and flags unlikely new connections.",
+            pros: [
+                "A signal the engine has none of today. Every current model looks at one entity alone.",
+                "Targets lateral movement and new access paths, which per-entity volume models are weakest at. A quiet attacker using one new path barely moves a z-score.",
+                "The data partly exists: the hourly aggregates keep seen_srcips, seen_services and seen_countries per entity, so an edge list can be built without raw ES.",
+                "Light first version: a co-occurrence or matrix-factorisation link score in numpy or scipy. No torch needed.",
+            ],
+            cons: [
+                "Edges carry no counts or order, only “seen in this hour”.",
+                "Each detection is about a pair, not an entity, so evidence and explanation need a new shape.",
+                "New infrastructure (DHCP churn, a new server) looks like a new edge, a classic false-positive source.",
+                "Published numbers are inflated: the 85% TPR result was filtered to NTLM logons only.",
+            ],
+        },
+        {
+            label: "Rhythm over time (forecast model)",
+            detail: "Predicts each entity’s expected volume for the day and flags what falls outside it.",
+            pros: [
+                "Directly fixes a known weakness: the z-score compares against a flat 6-month mean, so routine Monday peaks and nightly batch jobs read as spikes.",
+                "Builds on stored aggregates; a classical seasonal model needs only numpy or scipy.",
+                "Easy to explain to an analyst: “expected 40–60 at this hour, saw 900”.",
+                "Has a cheap honest test: replay history and count how many current z-score detections it would have suppressed.",
+            ],
+            cons: [
+                "Mostly a noise cutter, so it catches few new kinds of threat.",
+                "Hourly rows are purged after 7 days, so only a daily-grain model has months of history today.",
+                "Only works for entities with enough history (the HIGH tier). LOW and DORMANT gain nothing.",
+            ],
+        },
+        {
+            label: "Order of actions (sequence model)",
+            detail: "Learns the typical order of events per user or host.",
+            pros: [
+                "The strongest published results for insider threat and account takeover.",
+                "Catches multi-step behaviour (recon, then access, then exfiltration) that any per-day count hides.",
+            ],
+            cons: [
+                "Needs per-event sequences; the engine stores only aggregates, so this needs a new ES-to-PG pipeline at 71.5M logs a day.",
+                "Needs torch or equivalent, plus GPU or long CPU training per tenant.",
+                "The evidence is almost all on synthetic CERT data, and it is the hardest to explain.",
+            ],
+        },
+        {
+            label: "More detectors on the same features",
+            detail: "ECOD, COPOD and kNN beside IsolationForest.",
+            pros: [
+                "Cheapest option: about a day of work, on the same 50-feature vector and trainer base class.",
+                "ECOD and COPOD are parameter-free and give per-feature contributions, which explain better than IsolationForest.",
+            ],
+            cons: [
+                "Benchmarks show no reliable winner and only small gains: the same blind spots through a different lens.",
+                "More correlated detectors push the same evidence up the scorer, which risks double-counting.",
+            ],
+        },
+    ],
+};
+const BSR_TITLE = "Improving the detection engine: which models to add";
+const BSR_SPEC = "docs/superpowers/specs/2026-10-21-detector-engine-models-design.md";
+const bsrFile = (over) => ({ v: 1, title: BSR_TITLE, spec: BSR_SPEC, question: null, working: null, parts: [], history: [], done: false, check: null, run: null, ...over });
+const BSR_QUESTION_FILE = bsrFile({
+    question: BSR_Q,
+    parts: [
+        { id: "intent", title: "Intent and why", state: "guess", from: "answer 1", gist: "Catch new kinds of attack, not rescore the ones the engine already finds.", body: "Raise the engine beyond its current basic models so it catches more real attacks." },
+        { id: "direction", title: "Which blind spot first", state: "asked", body: "" },
+        { id: "today", title: "What the engine runs today", kind: "note", from: "recon", gist: "Every model scores one entity per day over a flat feature vector.", body: "Each entity is scored on its own, one day at a time." },
+    ],
+    history: [
+        { kind: "question", n: 1, q: "Walk me through the last time the engine let you down?", a: "No I just want to improve the engine in general, it uses some models but they are all basic models", into: ["intent"] },
+        { kind: "recon", q: "I offered to read the engine's models and storage.", a: "Every model scores one entity per day over a flat feature vector. There is nothing on relationships, sequences or seasonal shape, and the literature says the gains are there rather than in a fancier tabular model.", into: ["today"] },
+    ],
+});
+
+// every answer of the asked question: its button's text, and its for and against lists as drawn
+const BSR_READ_OPTIONS = `(() => {
+    const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+    const pane = ${BS_PANE};
+    const toggle = pane?.querySelector("[data-brainstorm-proscons-toggle]");
+    return {
+        read: flat(pane?.querySelector("[data-brainstorm-read]")),
+        toggle: toggle ? { text: flat(toggle), expanded: toggle.getAttribute("aria-expanded") } : null,
+        options: [...(pane?.querySelectorAll("[data-brainstorm-option]") ?? [])].map((b) => {
+            const card = b.parentElement;
+            const list = (label) => [...(card.querySelector('ul[aria-label$="' + label + '"]')?.querySelectorAll("li") ?? [])].map(flat);
+            return { text: flat(b), pick: b.hasAttribute("data-pick"), pros: list(": for"), cons: list(": against") };
+        }),
+    };
+})()`;
+
+const brainstormQuestionReasons = bsBoardScenario("brainstorm-question-reasons", "detector-engine-models", BSR_QUESTION_FILE, async (h, ctx, rec) => {
+    const drawn = await bsUntil(h, ctx, (s) => s.question.includes(BSR_Q.text) && s.options.length === 4);
+    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-read]")?.scrollIntoView({ block: "start" })`);
+    const shown = await h.ev(BSR_READ_OPTIONS);
+    await h.shot("cdp-shots/brainstorm-question-reasons.png");
+    const letters = "ABCD";
+    const optionText = (o, i) => `${letters[i]} ${o.label} ${o.detail}${o.pick ? " Agent’s pick" : ""}`;
+    const sign = (mark, items) => items.map((t) => `${mark} ${t}`);
+    rec(
+        "1. the open question (Question-Reasons): Agent’s read above the answers with Hide pros and cons, each answer keeps letter, label, detail and the agent's pick, then its pros (+) and cons (−) in two lists",
+        drawn.ok &&
+            shown.read === `Agent’s read: ${BSR_Q.read}` &&
+            shown.toggle?.text === "Hide pros and cons" &&
+            shown.toggle.expanded === "true" &&
+            JSON.stringify(shown.options.map((o) => o.text)) === JSON.stringify(BSR_Q.options.map(optionText)) &&
+            JSON.stringify(shown.options.map((o) => o.pick)) === JSON.stringify([true, false, false, false]) &&
+            JSON.stringify(shown.options.map((o) => o.pros)) === JSON.stringify(BSR_Q.options.map((o) => sign("+", o.pros))) &&
+            JSON.stringify(shown.options.map((o) => o.cons)) === JSON.stringify(BSR_Q.options.map((o) => sign("−", o.cons))) &&
+            drawn.why === BSR_Q.why,
+        { ...bsBrief(drawn), shown, why: drawn.why }
+    );
+    const grid = await h.ev(`(() => {
+        const ul = ${BS_PANE}?.querySelector('[data-brainstorm-option="0"]')?.parentElement?.querySelectorAll("ul");
+        if (!ul || ul.length !== 2) return null;
+        const a = ul[0].getBoundingClientRect();
+        const b = ul[1].getBoundingClientRect();
+        return { sideBySide: b.left > a.right - 1 && Math.abs(a.top - b.top) < 2 };
+    })()`);
+    rec("1b. the pros and cons sit side by side, pros on the left", grid?.sideBySide === true, grid);
+    await bsClick(h, BS_PANE, "Hide pros and cons");
+    const hidden = await h.ev(BSR_READ_OPTIONS);
+    await h.shot("cdp-shots/brainstorm-question-reasons-hidden.png");
+    await bsClick(h, BS_PANE, "Show pros and cons");
+    const again = await h.ev(BSR_READ_OPTIONS);
+    rec(
+        "2. Hide pros and cons hides every answer's lists and keeps the read and the answers; Show pros and cons brings them back",
+        hidden.toggle?.text === "Show pros and cons" &&
+            hidden.toggle.expanded === "false" &&
+            hidden.read === shown.read &&
+            hidden.options.length === 4 &&
+            hidden.options.every((o) => o.pros.length === 0 && o.cons.length === 0) &&
+            again.toggle?.text === "Hide pros and cons" &&
+            again.options.every((o) => o.pros.length > 0),
+        { hidden, again: again.toggle }
+    );
+});
+
+// a question with no pros, cons or read draws as today's (Main board): nothing added around the answers
+const brainstormMainBoard = bsBoardScenario("brainstorm-main", BS_TOPIC, BS_FILES.mid, async (h, ctx, rec) => {
+    const s = await bsUntil(h, ctx, (x) => x.question.includes(BS_Q4.text) && x.history.length === 4);
+    const extra = await h.ev(BSR_READ_OPTIONS);
+    const proscons = await h.ev(`${BS_PANE}?.querySelectorAll("[data-brainstorm-proscons]").length ?? -1`);
+    await h.shot("cdp-shots/brainstorm-main.png");
+    const optionText = (o, i) => `${"ABC"[i]} ${o.label} ${o.detail}${o.pick ? " Agent’s pick" : ""}`;
+    rec(
+        "1. a question with no pros, cons or read (Main): why under it, answers A B C with the agent's pick, the answer box, Guess, Skip and The design, and no read line, toggle or reason lists",
+        s.ok &&
+            s.question.startsWith("4 → When it pages") &&
+            s.why === BS_Q4.why &&
+            JSON.stringify(s.options.map((o) => o.text)) === JSON.stringify(BS_Q4_OPTIONS.map(optionText)) &&
+            s.placeholder === "Or type your own answer…" &&
+            s.guessFor === 1 &&
+            s.question.includes("Skip the questions") &&
+            s.designBtn === "The design · 3 of 8 yours" &&
+            extra.read === "" &&
+            extra.toggle === null &&
+            proscons === 0,
+        { ...bsBrief(s), why: s.why, options: s.options, extra, proscons }
+    );
+});
+
+// the design before the builder check; the copy is the Review-Skim board's
+const BSR_DECISIONS = [
+    { id: "intent", title: "Intent and why", from: "answer 1", state: "guess", gist: "Catch new kinds of attack, not rescore the ones the engine already finds.", body: "Raise the engine beyond its current basic models so it catches more real attacks. There is no specific missed incident or noise complaint behind this; the aim is a general upgrade of what the models can detect." },
+    { id: "direction", title: "Which blind spot first", from: "answer 2", state: "yours", gist: "Both a graph model and a forecast model, as separate detectors.", body: "Both: a relationship (graph) model and a rhythm-over-time (forecast) model. Each is a separate detector that reads different data and catches a different kind of thing, so they can be built and shipped independently." },
+    { id: "order", title: "Order and packaging", from: "answer 3", state: "yours", gist: "Forecast first, shipped on its own; the graph model gets its own brainstorm after.", body: "Forecast model first, designed and shipped on its own. The graph model is a second brainstorm and spec afterwards, reusing the forecast’s replay-and-compare evaluation harness." },
+    { id: "grain", title: "Forecast grain", from: "answer 4, my call", state: "guess", gist: "Daily: one forecast per entity-day and numeric field, with a weekday cycle.", body: "Daily grain: forecast each entity-day’s value for each numeric field from the daily aggregates, with a weekday cycle." },
+    { id: "role", title: "Where the forecast sits", from: "answer 6", state: "yours", gist: "One more detector behind _run_detector_safely, with no weight of its own.", body: "No change to detection or scoring logic. The forecast runs behind _run_detector_safely and reshapes the existing z-score evidence; it has no weight of its own in the tier weight table." },
+    { id: "purpose", title: "What the forecast adds", from: "answer 9, my call", state: "guess", gist: "No weight of its own: it damps or raises the existing z-score evidence only.", body: "The forecast has no detector weight of its own. It only reshapes the existing z_score Evidence record for a numeric field on a HIGH-tier entity.\n- Value inside the forecast interval: damp the strength, never below a floor (a setting).\n- Value outside the interval and the seasonal residual larger than the flat z: raise the strength.\n- Otherwise, or with no forecast: the record is unchanged." },
+    { id: "evaluation", title: "How we know it is better", from: "answer 10", state: "yours", gist: "Live from day one behind a setting; the stored undamped strength is the safety net.", body: "Live from day one. A setting turns the forecast adjustment on or off; it ships on. Turning it off is a restart. The safety net is the stored undamped strength: a query over anomaly_detections lists every detection the forecast damped." },
+    { id: "model", title: "The forecast model", from: "answer 11, my call", state: "guess", gist: "Robust weekday profile: median and MAD of the last N weeks, no trend.", body: "Robust weekday profile, with no trend.\n- For each numeric monitored field and each weekday, take that weekday’s daily values from the last N weeks of the baseline window: the median as the expected value, and the MAD (scaled by 1.4826) as the spread. Interval = median +/- k x spread.\n- Computed at baseline time and stored in the baseline JSONB beside the existing calibration tails.\n- N, k, M and the damping floor are settings." },
+    { id: "builder", title: "Left to the builder", from: "my call", state: "guess", gist: "The strength formula, where the reshaping runs, and the values of N, k and M.", body: "- How the adjustment maps to strength: the builder picks the exact formula, keeping it monotonic and bounded.\n- Where the reshaping runs.\n- Starting values for N, k, M and the damping floor." },
+];
+const BSR_NOTES = [
+    { id: "today", title: "What the engine runs today", from: "recon", gist: "Every model scores one entity per day over a flat feature vector.", body: "Each entity is scored on its own, one day at a time.\n- Statistics: z-score against a 6-month mean and standard deviation (HIGH tier), percentage-change multipliers (MEDIUM), first-seen values plus peer-group median and percentiles (LOW and DORMANT).\n- ML: one sklearn IsolationForest per tenant and entity type, over a 50-feature daily vector." },
+    { id: "research", title: "What the research says", from: "recon", gist: "The gains are in new signals (relationships, rhythm, order), not a fancier tabular model.", body: "- Tabular detectors: ADBench (NeurIPS 2022, 30 algorithms on 57 datasets) found that no unsupervised method is reliably best." },
+    { id: "constraints", title: "Constraints", from: "recon", gist: "Unsupervised, tenant-scoped, one more detector behind _run_detector_safely.", body: "- Must stay unsupervised or weakly supervised, because analyst labels are scarce.\n- A new model enters as one more detector behind _run_detector_safely.\n- Tenant-scoped models and data only." },
+    { id: "tradeoffs", title: "Pros and cons of each direction", from: "recon", gist: "Graph adds the most new detection; forecast is the safest measurable win.", body: "Graph adds the most new detection, forecast is the safest measurable win, sequence is a separate project, and more detectors on the same features is a cleanup rather than an upgrade." },
+    { id: "damping", title: "Damping: gains and losses", from: "recon, answer 7", gist: "Worth doing at the evidence level, never at the modifier stage.", body: "Worth doing, but at the evidence level, not the modifier stage." },
+    { id: "walkthrough", title: "Evidence-level damping, step by step", from: "recon, answer 8", gist: "A VPN gateway’s routine Monday peak drops from about 35 points to about 9.", body: "Monday, 900 logins: the flat z-score is 4.2, worth about 35 points. 900 falls inside the forecast range, so that one piece of evidence is damped to the floor, about 9 points." },
+];
+const BSR_HISTORY = [
+    { kind: "question", n: 9, q: "Should the forecast get its own detector weight, or only reshape the existing z-score evidence?", a: "(guess) reshape the z-score evidence only", into: ["purpose"] },
+    { kind: "question", n: 10, q: "Should the forecast go live as soon as it ships, or run a shadow period first and switch on only if the replay looks right?", a: "Live from day one, behind a setting", into: ["evaluation"] },
+    { kind: "question", n: 11, q: "Which forecaster should produce the expected value and range for each weekday?", a: "(guess) robust weekday profile", into: ["model"] },
+];
+const bsrReviewFile = (allYours) =>
+    bsrFile({
+        done: allYours,
+        parts: [
+            ...BSR_DECISIONS.map((d) => ({ ...d, state: allYours ? "yours" : d.state })),
+            ...BSR_NOTES.map((n) => ({ ...n, kind: "note" })),
+        ],
+        history: BSR_HISTORY,
+    });
+
+const BSR_READ_REVIEW = `(() => {
+    const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+    const pane = ${BS_PANE};
+    const rows = (sel) => [...(pane?.querySelectorAll(sel + " [data-brainstorm-part]") ?? [])].map((p) => ({
+        id: p.getAttribute("data-brainstorm-part"),
+        state: p.getAttribute("data-state"),
+        gist: flat(p.querySelector("[data-brainstorm-gist]")),
+        buttons: [...p.querySelectorAll("button:not([data-brainstorm-row-toggle])")].map(flat),
+        open: p.querySelector("[data-brainstorm-row-toggle]")?.getAttribute("aria-expanded"),
+        body: flat(p.querySelector("[data-brainstorm-row-body]")),
+    }));
+    return {
+        review: flat(pane?.querySelector("[data-brainstorm-review]")),
+        line: flat(pane?.querySelector("[data-brainstorm-review-line]")),
+        confirmAll: flat(pane?.querySelector("[data-brainstorm-confirm-all]")),
+        checkBtn: flat(pane?.querySelector("[data-brainstorm-check-btn]")),
+        decisionsHead: flat(pane?.querySelector("[data-brainstorm-decisions] h2")),
+        notesHead: flat(pane?.querySelector("[data-brainstorm-notes] h2")),
+        decisions: rows("[data-brainstorm-decisions]"),
+        notes: rows("[data-brainstorm-notes]"),
+        progress: flat(pane?.querySelector("[data-brainstorm-progress]")),
+    };
+})()`;
+
+const brainstormReviewSkim = bsBoardScenario("brainstorm-review-skim", "detector-engine-models", bsrReviewFile(false), async (h, ctx, rec) => {
+    const drawn = await bsUntil(h, ctx, (s) => s.parts.length === BSR_DECISIONS.length + BSR_NOTES.length);
+    const opened = await bsOpenRow(h, "model");
+    const r = await h.ev(BSR_READ_REVIEW);
+    await h.shot("cdp-shots/brainstorm-review-skim.png");
+    const guesses = BSR_DECISIONS.filter((d) => d.state === "guess");
+    const wantRight = (d) => (d.state === "guess" ? ["That’s right", "Edit"] : ["Edit"]);
+    rec(
+        "1. the design before the builder check (Review-Skim): Confirm the design with Confirm all 5 guesses, each decision one row of title, gist and source with That’s right and Edit, or Yours and Edit",
+        drawn.ok &&
+            r.line === "5 decisions are still the agent’s guess. Each reads in one line; open one to read it whole." &&
+            r.confirmAll === `Confirm all ${guesses.length} guesses` &&
+            r.checkBtn === "" &&
+            r.decisionsHead === `Decisions · ${BSR_DECISIONS.length}` &&
+            JSON.stringify(r.decisions.map((d) => [d.id, d.state, d.gist])) ===
+                JSON.stringify(BSR_DECISIONS.map((d) => [d.id, d.state, d.gist])) &&
+            r.decisions.every((d, i) => JSON.stringify(d.buttons) === JSON.stringify(wantRight(BSR_DECISIONS[i]))) &&
+            r.progress === "4 of 9 parts yours",
+        { ...bsBrief(drawn), line: r.line, confirmAll: r.confirmAll, head: r.decisionsHead, decisions: r.decisions.map((d) => [d.id, d.state, d.gist, d.buttons]), progress: r.progress }
+    );
+    const model = r.decisions.find((d) => d.id === "model");
+    const closedBody = r.decisions.filter((d) => d.id !== "model").every((d) => d.open === "false" && d.body === "");
+    rec(
+        "2. a row opens to its whole body; the rest stay one line",
+        opened && model?.open === "true" && model.body === BSR_DECISIONS.find((d) => d.id === "model").body.replace(/\s+/g, " ") && closedBody,
+        { opened, model, closedBody }
+    );
+    rec(
+        "3. What the agent found · 6 sits apart, each note one line with an Edit and nothing to confirm",
+        r.notesHead === `What the agent found · ${BSR_NOTES.length}` &&
+            JSON.stringify(r.notes.map((n) => [n.id, n.state, n.gist])) === JSON.stringify(BSR_NOTES.map((n) => [n.id, "note", n.gist])) &&
+            r.notes.every((n) => JSON.stringify(n.buttons) === JSON.stringify(["Edit"])),
+        { head: r.notesHead, notes: r.notes.map((n) => [n.id, n.state, n.gist, n.buttons]) }
+    );
+    bsWrite(ctx, bsrReviewFile(true));
+    const ready = await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-check-btn]")`, BS_POLL_WAIT_MS);
+    const r2 = await h.ev(BSR_READ_REVIEW);
+    await h.shot("cdp-shots/brainstorm-review-skim-ready.png");
+    rec(
+        "4. once every decision is yours, Confirm all becomes Check with a builder; the notes still need nothing",
+        ready &&
+            r2.checkBtn === "Check with a builder" &&
+            r2.confirmAll === "" &&
+            r2.line === "Every decision is yours. Next, a fresh agent reads the design as a builder would." &&
+            r2.decisions.every((d) => d.state === "yours") &&
+            r2.progress === "9 of 9 parts yours",
+        { ready, line: r2.line, checkBtn: r2.checkBtn, confirmAll: r2.confirmAll, progress: r2.progress }
+    );
+});
+
+// the rail keeps the agent's reasons; the copy is the Rail-Reasons board's
+const BSR_RAIL_HISTORY = [
+    {
+        kind: "question",
+        n: 1,
+        q: "What should count as a lag problem?",
+        why: "Lag alone is a number; whether it is a problem depends on whether it grows or holds. Only you know which one has hurt before.",
+        a: "Lag that stays high, not a spike.",
+        into: ["alert"],
+        options: [
+            { label: "Any lag above the threshold", detail: "The simplest rule; it also fires on every short spike." },
+            { label: "Lag that keeps growing for 10 minutes", detail: "Catches a stalled consumer early and ignores a spike that is already draining.", pick: true },
+        ],
+    },
+    {
+        kind: "question",
+        n: 2,
+        q: "One threshold for every group, or one per group?",
+        why: "Groups in services/*/kafka.yaml range from a few hundred messages a day to millions an hour, so one number may fit none of them.",
+        a: "Per group, with a default to start from",
+        into: ["threshold"],
+        picked: 1,
+        options: [
+            { label: "One threshold for every group", detail: "One number to tune. Small groups never cross it and large ones always do." },
+            { label: "Per group, with a default to start from", detail: "Every group alerts from day one; teams tighten the default for the groups they know.", pick: true },
+            { label: "Per group, every team must set one", detail: "Most precise, but no group alerts until its team writes a number." },
+        ],
+    },
+    {
+        kind: "question",
+        n: 3,
+        q: "What happens to a spike that recovers inside the window?",
+        why: "A spike that clears within 10 minutes is usually a rebalance or a deploy. I can’t tell from the repo whether anyone wants to hear about those.",
+        a: "Post it to #data-alerts, page no one",
+        into: ["alert"],
+        picked: 1,
+        options: [
+            { label: "Page anyway: a spike is still lag", detail: "Nothing slips past, but every deploy that triggers a rebalance wakes someone." },
+            { label: "Post it to #data-alerts, page no one", detail: "The owning team sees it next morning; nobody is woken for lag that cleared by itself.", pick: true },
+            { label: "Drop it: nobody hears about it", detail: "Quietest, but a group that spikes every night is never noticed." },
+        ],
+    },
+    {
+        kind: "recon",
+        q: "I offered to read the consumer configs and the alerting config.",
+        a: "Read services/*/kafka.yaml and the alerting config: every consumer group names an owning team; nothing pages on lag today.",
+        into: [],
+    },
+];
+const BSR_RAIL_FILE = bsFile({
+    title: "Consumer lag alerts",
+    question: {
+        n: 4,
+        text: "When a consumer group stays past its lag threshold, who gets paged first: the team that owns the consumer, or platform on-call?",
+        part: "who",
+        why: "Every consumer group names an owning team, so paging by owner needs no new config. I can’t tell whether every team keeps a rota.",
+        options: [
+            { label: "Owning team first, platform after 15 minutes", detail: "Pages go to who can fix it.", pick: true },
+            { label: "Platform on-call first", detail: "One rota to keep." },
+        ],
+    },
+    parts: [
+        { id: "alert", title: "What raises an alert", state: "yours", body: "Lag that keeps growing for 10 minutes. A spike that recovers inside the window posts to #data-alerts and pages no one." },
+        { id: "threshold", title: "The threshold", state: "yours", body: "Per group, with a default to start from." },
+        { id: "who", title: "Who gets paged", state: "asked", body: "" },
+    ],
+    history: BSR_RAIL_HISTORY,
+});
+
+const BSR_READ_RAIL = `(() => {
+    const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+    return [...(${BS_PANE}?.querySelectorAll("[data-brainstorm-history] > div") ?? [])].map((r) => {
+        const toggle = r.querySelector("[data-brainstorm-reasoning]");
+        return {
+            label: flat(r.querySelector("span")),
+            why: flat(r.querySelector("[data-brainstorm-rail-why]")),
+            picked: [...r.querySelectorAll("li[data-picked]")].map(flat),
+            unpicked: [...r.querySelectorAll("li:not([data-picked])")].map(flat),
+            toggle: toggle ? { text: flat(toggle), expanded: toggle.getAttribute("aria-expanded") } : null,
+        };
+    });
+})()`;
+
+const brainstormRailReasons = bsBoardScenario("brainstorm-rail-reasons", BS_TOPIC, BSR_RAIL_FILE, async (h, ctx, rec) => {
+    const drawn = await bsUntil(h, ctx, (s) => s.history.length === BSR_RAIL_HISTORY.length);
+    const closed = await h.ev(BSR_READ_RAIL);
+    const [q1, q2, q3, recon] = BSR_RAIL_HISTORY;
+    const pickText = (o) => `${o.label}${o.pick ? " Agent’s pick" : ""}`;
+    const [c3, c2, c1, cr] = closed;
+    rec(
+        "1. Decided so far keeps reasons: the picked answer shows what it is, Agent’s pick marks the agent's recommendation, the others show only their label, each entry with Show the reasoning, the recon with none",
+        drawn.ok &&
+            JSON.stringify(closed.map((r) => r.label)) === JSON.stringify(["Q3", "Q2", "Q1", "Recon"]) &&
+            JSON.stringify(c3.picked) === JSON.stringify([`${pickText(q3.options[1])} ${q3.options[1].detail}`]) &&
+            JSON.stringify(c3.unpicked) === JSON.stringify([q3.options[0].label, q3.options[2].label]) &&
+            c3.why === "" &&
+            c3.toggle?.text === "Show the reasoning" &&
+            c2.toggle?.text === "Show the reasoning" &&
+            JSON.stringify(c1.unpicked) === JSON.stringify(q1.options.map(pickText)) &&
+            JSON.stringify(c1.picked) === JSON.stringify([`In your words ${q1.a}`]) &&
+            cr.toggle === null &&
+            !JSON.stringify(cr).includes(recon.q),
+        { ...bsBrief(drawn), closed }
+    );
+    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-history] > div [data-brainstorm-reasoning]")?.click()`);
+    await polishNap(200);
+    const opened = await h.ev(BSR_READ_RAIL);
+    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-rail]")?.scrollTo(0, 0)`);
+    await h.shot("cdp-shots/brainstorm-rail-reasons.png");
+    const o3 = opened[0];
+    rec(
+        "2. Show the reasoning on Q3 opens Why: and the other answers' details, and reads Hide the reasoning; Q2 stays closed",
+        o3.why === `Why: ${q3.why}` &&
+            JSON.stringify(o3.unpicked) === JSON.stringify([`${q3.options[0].label} ${q3.options[0].detail}`, `${q3.options[2].label} ${q3.options[2].detail}`]) &&
+            o3.toggle?.text === "Hide the reasoning" &&
+            o3.toggle.expanded === "true" &&
+            opened[1].why === "" &&
+            JSON.stringify(opened[1].unpicked) === JSON.stringify([q2.options[0].label, q2.options[2].label]),
+        { q3: o3, q2: opened[1] }
+    );
+});
+
+// the builder check's column, an answered question kept with its question and why; the copy is Check-Answered's
+const BSR_ANSWERED_Q = {
+    q: "Should a paused consumer group page?",
+    why: "the spec says every group pages, and a paused group’s lag grows until it resumes.",
+    a: "No. A paused group is skipped until it resumes.",
+    into: "alert",
+};
+const BSR_OPEN_Q = {
+    q: "Does a lag alert resolve itself once the group catches up, or does someone close it?",
+    why: "The spec says when an alert fires but never when it ends; the pager rota counts open alerts.",
+};
+const BSR_CHECK_FILE = bsFile({
+    done: true,
+    parts: [
+        { id: "alert", title: "What raises an alert", state: "yours", body: "Lag that keeps growing for 10 minutes pages the owning team." },
+        { id: "threshold", title: "The threshold", state: "yours", body: "Per group, with a default to start from." },
+    ],
+    history: BSR_RAIL_HISTORY.slice(0, 2),
+    check: {
+        yours: [BSR_ANSWERED_Q, BSR_OPEN_Q],
+        calls: [
+            { text: "Lag is measured per partition and alerted per group.", part: "threshold" },
+            { text: "The default threshold is 10 minutes of growth.", part: "threshold" },
+            { text: "#data-alerts posts go out once per group per hour.", part: "alert" },
+        ],
+        answered: ["Which exporter? kafka-exporter, from the recon."],
+        touched: ["alert", "threshold"],
+    },
+});
+
+const brainstormCheckAnswered = bsBoardScenario("brainstorm-check-answered", BS_TOPIC, BSR_CHECK_FILE, async (h, ctx, rec) => {
+    const drawn = await bsUntil(h, ctx, (s) => s.view === "check" && s.builder !== "");
+    const card = await h.ev(`(() => {
+        const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+        const c = ${BS_PANE}?.querySelector("[data-brainstorm-answered]");
+        return { text: flat(c), link: [...(c?.querySelectorAll("button") ?? [])].map(flat) };
+    })()`);
+    await h.shot("cdp-shots/brainstorm-check-answered.png");
+    rec(
+        "1. the builder check (Check-Answered): the open question for you, then You answered with its question and Why: above the answer, which links the part it went into",
+        drawn.ok &&
+            drawn.builder.includes("Only you can answer · 1") &&
+            drawn.builder.includes(BSR_OPEN_Q.q) &&
+            card.text === `You answered ${BSR_ANSWERED_Q.q} Why: ${BSR_ANSWERED_Q.why} ${BSR_ANSWERED_Q.a} Added to What raises an alert.` &&
+            JSON.stringify(card.link) === JSON.stringify(["What raises an alert"]) &&
+            JSON.stringify(drawn.tiles) === JSON.stringify(["2 for you", "3 the agent decided", "1 already in the design"]),
+        { ...bsBrief(drawn), builder: drawn.builder, card, tiles: drawn.tiles }
+    );
+});
 
 // --- canvas mark: a box drawn on the board opens the review's note card under it, Esc drops the mark, and Enter
 // sends it at once: a feedback picture without the card, one line handed to the agent, and back to the terminal --
@@ -25860,6 +26383,11 @@ export const SCENARIOS = [
     planReviewRounds,
     canvasSwap,
     brainstormMode,
+    brainstormMainBoard,
+    brainstormQuestionReasons,
+    brainstormReviewSkim,
+    brainstormRailReasons,
+    brainstormCheckAnswered,
     canvasMark,
     canvasTabsScenario,
     agentTerminalNames,
