@@ -135,6 +135,7 @@ An answer arrives as the user's own text, on one line; a picked option arrives a
 | `brainstorm: restore <part id>` | Put their version back: `body` = `was`, make it `yours`, drop `was` and `why`. |
 | `brainstorm: check` | Builder check, below. |
 | `brainstorm: builder answer: <text>` | Builder check, below. |
+| `brainstorm: builder decide` | Move the first `check.yours` entry with no `a` into `check.calls` as `{ "text": <your decision>, "part": <its part> }`, fold it into that part and the spec (marked "Agent's call"), write the file. |
 | `brainstorm: keep talking` | Set `done: false` and `check: null`, and ask your next question. |
 | `brainstorm: approved` | Stop. Arc opens the run launcher with the spec attached. Do not start a run yourself. |
 | `brainstorm: run <id>` | A run started from this brainstorm: set `run` to the id. |
@@ -214,25 +215,58 @@ spec at `spec` from the parts, run the builder check against it, then fill `chec
 
 ```json
 "check": {
-  "yours": [{ "q": "Should a paused consumer page?", "why": "the spec says every group pages" }],
+  "yours": [{
+    "q": "Should a paused consumer page?", "label": "Page on a paused consumer?", "why": "the spec says every group pages", "part": "thresholds",
+    "options": [
+      { "label": "Yes, like any lag", "detail": "A paused consumer pages once its lag crosses the threshold.", "pick": true,
+        "pros": ["One rule for every group."], "cons": ["Planned pauses page too."] },
+      { "label": "No, only running consumers", "detail": "A paused consumer never pages.",
+        "pros": ["No pages for planned pauses."], "cons": ["A stuck pause goes unnoticed."] }
+    ],
+    "a": "Yes, like any lag", "into": ["thresholds"]
+  }],
   "calls": [{ "text": "Lag is measured per partition, alerted per group.", "part": "thresholds" }],
   "answered": ["Which Prometheus? The spec names 2.45."],
   "touched": ["thresholds", "constraints"]
 }
 ```
 
-- `yours`: the questions only the user can answer, each with `why` it matters.
+- `yours`: the questions only the user can answer, each `{ "q", "label", "why", "part", "options", "a", "into" }`.
+  `why` is why it matters; `part` is the part the question is for; `label` is a short line for the
+  queue, under 80 characters; `options` are written exactly as a talk question's (`label`, `detail`,
+  `pros`, `cons`, one `pick`), and left out when the answer is open. `a` and `into` stay out until the
+  question is settled (below); `into` is the list of every part the answer changed.
 - `calls`: the decisions you made for them, each `{ "text", "part" }` naming the part it belongs
   to. Mark each one inline in the spec as "Agent's call".
 - `answered`: what the builder asked that the spec already answers.
-- `touched`: the ids of the parts the check changed or annotated.
+- `touched`: the ids of the parts the check changed or annotated. Refresh it whenever the check's
+  parts change (rewritten, added or annotated), on every write that does that.
 
 Your terminal reply after the check is one line naming the spec's path: the pane shows the builder's
 questions, your calls and what the design already answered, so do not list them there.
 
 On `brainstorm: builder answer: <text>`: the answer is for the first `check.yours` entry with no
-`a`. Set its `a` to the text and `into` to the part it went into, fold the answer into that part
-and into the spec, make that part `yours` (the user just decided it), and write the file.
+`a`. Set its `a` to the text and `into` to every part it changed, fold the answer into those parts
+and into the spec, and write the file. A part the answer rewrites that was `yours` gets `was` (the
+body they had confirmed) and `why` naming "builder question N", and stays a `guess` until they
+`keep` or `restore` it, one by one: there is no keep-all. A part the answer only fills in, or that
+was already a `guess`, becomes `yours` (the user just decided it).
+
+On `brainstorm: builder decide`: the user leaves the first `check.yours` entry with no `a` to you.
+Move it out of `yours` into `calls` as `{ "text": <your decision>, "part": <its part> }`, fold it into
+that part and into the spec marked "Agent's call", and write the file. Arc keeps no state for it: the
+entry is gone from `yours`.
+
+**An answer settles builder questions too.** When any answer, a talk question's or a builder
+question's, settles a `check.yours` entry, set that entry's `a` (what was decided, in a few words) and
+`into` in the same write. Otherwise the pane keeps asking it.
+
+**Name the cause.** Every `why` on a changed part names its cause in a few words, for example
+`answer 12: your boss wants PyTorch` or `builder question 1`: the review shows it under the
+decision.
+
+**Approving.** Arc enables approve only once no question is open, every builder question is
+answered or decided by you, and every decision is `yours`.
 
 **The run.** On `brainstorm: approved`, stop; Arc opens the launcher, and sends `brainstorm: run <id>`
 once the run starts.
