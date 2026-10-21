@@ -423,7 +423,7 @@ function MarkNote(p: {
                 onSubmit={() => void send()}
                 onCancel={() => setMark(agent.id, null)}
                 label="What should change in the marked part"
-                action={`Send to ${agent.name}`}
+                action="Send"
                 busy={sending}
             />
             {error != null ? <span className="text-[12px] text-error">{error}</span> : null}

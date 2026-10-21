@@ -20846,7 +20846,7 @@ const canvasMark = {
         rec(
             "3. a drawn box opens the note card under it, its input focused, with Cancel Esc and Send Enter",
             card != null && card.below && card.nearLeft && card.focused &&
-                card.buttons.some((t) => t.startsWith("Cancel")) && card.buttons.some((t) => t.startsWith("Send to")),
+                card.buttons.some((t) => t.startsWith("Cancel")) && card.buttons.some((t) => t.startsWith("Send")),
             JSON.stringify(card)
         );
         await h.shot("cdp-shots/canvas-mark-note.png");
