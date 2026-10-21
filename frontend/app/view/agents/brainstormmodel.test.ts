@@ -409,14 +409,14 @@ describe("treeLine", () => {
     });
 
     it("says what Arc knows of the run, and done only once it merged", () => {
-        expect(treeLine(f, false, { text: "run abcdef01 · building 3/10", merged: false })).toEqual({
+        expect(treeLine(f, false, { text: "building 3/10 · run abcdef01", merged: false })).toEqual({
             lead: "Brainstorm",
-            text: "run abcdef01 · building 3/10",
+            text: "building 3/10 · run abcdef01",
             runId: "abcdef0123456789",
         });
-        expect(treeLine(f, true, { text: "run abcdef01 · merged", merged: true })).toEqual({
+        expect(treeLine(f, true, { text: "merged · run abcdef01", merged: true })).toEqual({
             lead: "Brainstorm done",
-            text: "run abcdef01 · merged",
+            text: "merged · run abcdef01",
             runId: "abcdef0123456789",
         });
     });

@@ -148,6 +148,35 @@ export default function (kit) {
     const readRun = (h) => h.ev(RUN_READ(BS_PANE));
     const treeText = (h) => h.ev(flatText(BS_TREE_LINE));
 
+    // the DOM can hold the state while the line's truncation hides it: measure the state's drawn right edge
+    // against the right edge of the truncating element that clips it
+    const treeStateFit = (h, state) =>
+        h.ev(`(() => {
+            const line = ${BS_TREE_LINE};
+            if (!line) return { ok: false, why: "no tree line" };
+            const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+                const at = node.data.indexOf(${JSON.stringify(state)});
+                if (at < 0) continue;
+                const range = document.createRange();
+                range.setStart(node, at);
+                range.setEnd(node, at + ${state.length});
+                const clip = node.parentElement.closest(".truncate");
+                if (!clip || !line.contains(clip)) return { ok: false, why: "no truncating element around the state" };
+                const right = range.getBoundingClientRect().right;
+                const clipRight = clip.getBoundingClientRect().right;
+                return { ok: right <= clipRight + 0.5, right, clipRight, lineWidth: line.getBoundingClientRect().width };
+            }
+            return { ok: false, why: "state not in the line" };
+        })()`);
+
+    // the tree line reads want, and its state is drawn inside the line's visible box
+    async function treeStep(h, want, state) {
+        const tree = await treeUntil(h, want);
+        const fit = await treeStateFit(h, state).catch((e) => ({ ok: false, why: String(e?.message ?? e) }));
+        return { ok: tree.ok && fit.ok, detail: { text: tree.text, [state]: fit } };
+    }
+
     // polls the Run step until want(read) holds; the last read and whether it did
     async function runUntil(h, want, ms = RUN_WAIT_MS) {
         const start = Date.now();
@@ -298,8 +327,8 @@ export default function (kit) {
             );
             await h.shot("cdp-shots/brainstorm-run-blocked-1.png");
 
-            const tree = await treeUntil(h, `Brainstorm · run ${short} · final failed`);
-            rec("2. the tree line reads Brainstorm · run <id8> · final failed", tree.ok, tree.text);
+            const tree = await treeStep(h, `Brainstorm · final failed · run ${short}`, "final failed");
+            rec("2. the tree line reads Brainstorm · final failed · run <id8>, the state drawn inside it", tree.ok, tree.detail);
 
             const from = await h.activeSurfaceLabel();
             const clicked = await bsClick(h, BS_PANE, `Open run ${short}`);
@@ -385,8 +414,8 @@ export default function (kit) {
             );
             await h.shot("cdp-shots/brainstorm-run-landed-2-passed.png");
 
-            const tree = await treeUntil(h, `Brainstorm done · run ${short} · merged`);
-            rec("3. the tree line reads Brainstorm done · run <id8> · merged", tree.ok, tree.text);
+            const tree = await treeStep(h, `Brainstorm done · merged · run ${short}`, "merged");
+            rec("3. the tree line reads Brainstorm done · merged · run <id8>, the state drawn inside it", tree.ok, tree.detail);
 
             const bs = ctx.bs;
             bsWrite(bs, { ...ctx.bsFile, canvas: "../escape" });
@@ -458,8 +487,8 @@ export default function (kit) {
                 s
             );
             await h.shot("cdp-shots/brainstorm-run-missing.png");
-            const tree = await treeUntil(h, `Brainstorm · run ${short} · not found`);
-            rec("2. the tree line reads Brainstorm · run <id8> · not found", tree.ok, tree.text);
+            const tree = await treeStep(h, `Brainstorm · not found · run ${short}`, "not found");
+            rec("2. the tree line reads Brainstorm · not found · run <id8>, the state drawn inside it", tree.ok, tree.detail);
             return steps;
         },
         teardown: (h, ctx) => bsTeardownAgent(h, ctx, "brainstorm-run-missing"),

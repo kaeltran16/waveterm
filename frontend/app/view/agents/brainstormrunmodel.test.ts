@@ -149,8 +149,8 @@ describe("runStepView", () => {
 });
 
 describe("runTreeText", () => {
-    it("joins the short run id and the run's state", () => {
-        expect(runTreeText(BLOCKED_ID, { tree: "final failed" })).toBe("run 9c6eb723 · final failed");
+    it("puts the run's state ahead of the short run id", () => {
+        expect(runTreeText(BLOCKED_ID, { tree: "final failed" })).toBe("final failed · run 9c6eb723");
     });
 
     it("reads the run id alone while the run loads", () => {

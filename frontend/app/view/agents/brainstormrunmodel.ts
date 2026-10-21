@@ -188,10 +188,10 @@ export function runStepView(runId: string, run: RunInfo | undefined, loaded: boo
     };
 }
 
-// runTreeText is the run's half of the brainstorm's tree line.
+// runTreeText is the run's half of the brainstorm's tree line: the state leads, since the id only names the link target.
 export function runTreeText(runId: string, view: Pick<RunStepView, "tree">): string {
     const id = `run ${shortRunId(runId)}`;
-    return view.tree ? `${id} · ${view.tree}` : id;
+    return view.tree ? `${view.tree} · ${id}` : id;
 }
 
 // one plain folder name: the topic and canvas come from an agent-written file, and Close deletes what they name
