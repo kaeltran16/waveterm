@@ -30,6 +30,7 @@ import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
 import { isAsking, treeLine, type BrainstormFile } from "./brainstormmodel";
+import { runStepView, runTreeText } from "./brainstormrunmodel";
 import { brainstormAtom, shownBrainstormFile } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
@@ -64,6 +65,7 @@ import {
     toggleTaskExtrasOpen,
     treeFoldsAtom,
     useRunDigests,
+    useRunInfo,
 } from "./runlineagestore";
 import { dagProgressLabel, finishedRunLabel, runComplete, runStatusView } from "./runmodel";
 import { FINAL_FILL, finalSlot, SEG_FILL, taskStrip, treeStripLabel } from "./runstrip";
@@ -242,7 +244,9 @@ function CanvasTag({ model, id }: { model: AgentsViewModel; id: string }) {
 
 // replaces a row's branch text while the agent brainstorms; a finished one links to the run it started
 function BrainstormTreeLine({ model, f, asking }: { model: AgentsViewModel; f: BrainstormFile; asking: boolean }) {
-    const line = treeLine(f, asking);
+    const info = useRunInfo(f.run);
+    const view = f.run != null ? runStepView(f.run, info.run, info.loaded) : null;
+    const line = treeLine(f, asking, view ? { text: runTreeText(f.run!, view), merged: view.merged } : undefined);
     const done = line.runId != null;
     return (
         <span data-brainstorm-tree-line className="truncate text-[11.5px]">
