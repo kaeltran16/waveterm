@@ -108,9 +108,8 @@ type AttentionItem struct {
 	// right action (a circuit break), not a merge the human resolves by hand.
 	TaskId string `json:"taskid,omitempty"`
 	Retry  bool   `json:"retry,omitempty"`
-	// ORef addresses the object an item is about when it is not reachable through a channel. Today only
-	// radar triage sets it; channel-backed items leave it empty because ChannelId+RunId already address
-	// them, and the frontend's rule is that an item naming no destination renders static.
+	// ORef addresses the object an item is about when it is not reachable through a channel. The server
+	// sets none; only the frontend's own brainstorm item carries one, and the popup target reads it.
 	ORef string `json:"oref,omitempty"`
 
 	// EffortOID/ChunkLabel are the initiative this waiting thing belongs to, read off the owning run's

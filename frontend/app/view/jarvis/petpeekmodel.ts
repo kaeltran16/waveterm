@@ -64,37 +64,28 @@ function answerInAgent(item: AttentionItem, agents: ReadonlyArray<AgentVM>): Pet
     };
 }
 
-// Radar triage is the one attention kind the creature has no business holding. It names no channel and no
-// run, so it arrives with no act behind it (petacts.actsForAttention) and renders as a project name, an age
-// and nothing to press; the avatar's own signals never counted it either (petview.usePetSignals reads
-// gates, escalations and asks). It is addressed through its ORef by the Radar rail's badge and the Brief's
-// queue, which is the same routing splitAttention already does to keep it off Cockpit.
-const PEEK_EXCLUDED_KIND = "radar-triage";
-
 export function queueRows(items: AttentionItem[], agents: ReadonlyArray<AgentVM> = []): PeekRow[] {
-    return (items ?? [])
-        .filter((item) => item.kind !== PEEK_EXCLUDED_KIND)
-        .map((item) => {
-            // actsForAttention returns [] with no runid, [ack, escort] for an unverified run, [land, dismiss,
-            // escort] for a held land, [escort] otherwise
-            const [first, ...links] = actsForAttention(item);
-            return {
-                key: item.key,
-                kind: item.kind,
-                source: item.source,
-                detail: DETAIL_KINDS.has(item.kind) ? item.text : null,
-                waitingsince: item.waitingsince,
-                // "Review" / "Decide" / "Answer" is the same navigation as "Open", named by what it is for. An
-                // act that is not a navigation keeps its own name.
-                primary:
-                    first == null
-                        ? answerInAgent(item, agents)
-                        : first.verb === "open"
-                          ? { ...first, label: item.action }
-                          : first,
-                links,
-            };
-        });
+    return (items ?? []).map((item) => {
+        // actsForAttention returns [] with no runid, [ack, escort] for an unverified run, [land, dismiss,
+        // escort] for a held land, [escort] otherwise
+        const [first, ...links] = actsForAttention(item);
+        return {
+            key: item.key,
+            kind: item.kind,
+            source: item.source,
+            detail: DETAIL_KINDS.has(item.kind) ? item.text : null,
+            waitingsince: item.waitingsince,
+            // "Review" / "Decide" / "Answer" is the same navigation as "Open", named by what it is for. An
+            // act that is not a navigation keeps its own name.
+            primary:
+                first == null
+                    ? answerInAgent(item, agents)
+                    : first.verb === "open"
+                      ? { ...first, label: item.action }
+                      : first,
+            links,
+        };
+    });
 }
 
 // An ask waiting on the user is both an AttentionItem keyed "ask:<block oref>" and a PetEvent carrying that

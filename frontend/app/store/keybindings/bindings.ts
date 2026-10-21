@@ -137,7 +137,6 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "h", surface: "cockpit", label: "Cockpit (home)" },
     { letter: "a", surface: "agent", label: "Agent" },
     { letter: "c", surface: "jarvis", label: "Jarvis (projects, records, recall)" },
-    { letter: "r", surface: "radar", label: "Radar" },
     { letter: "s", surface: "sessions", label: "Sessions" },
     { letter: "f", surface: "files", label: "Diff" },
     { letter: "u", surface: "usage", label: "Usage" },
@@ -165,7 +164,7 @@ const noEscapeMenuOpen = () => globalStore.get(escapeMenusOpenAtom) === 0;
 
 // Deep (non-home) surfaces whose Escape returns to the Cockpit. Excludes cockpit (already home), agent
 // (owns Escape via buildAgentBindings: exit fullscreen / back), and settings.
-const ESC_HOME_SURFACES = new Set<SurfaceKey>(["jarvis", "radar", "sessions", "files", "usage", "code"]);
+const ESC_HOME_SURFACES = new Set<SurfaceKey>(["jarvis", "sessions", "files", "usage", "code"]);
 
 // A key that clicks a control the surface already draws, rather than duplicating what the control knows.
 // No control on screen lets the key pass.

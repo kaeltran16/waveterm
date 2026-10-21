@@ -78,15 +78,6 @@ Orchestrator:
   runs, 80 completed within 30 min; the one 13 h gap (`3425249d`) was a lead adding a task after `run
   finished`, not idling.
 
-Radar:
-
-- **Metadata collectors and the clustering pipeline** (retired 2026-10-06) — revive only if the fix-sibling
-  audit is itself retired; its measurement decided keep on 2026-10-06.
-- **Security review audits** (held 2026-10-13) — revive with a classifier flag for trust-boundary commits
-  and a fresh probe; `docs/deferred.md` keeps the probe's prompt.
-- **Missing test coverage audits** (held 2026-10-13) — revive if Radar is to report test gaps as their own
-  finding type; `docs/deferred.md` keeps the probe's prompt.
-
 Memory hygiene:
 
 - **Pi and Codex memory, merges across batches, a retention score / LRU ordering** (2026-10-14) — each

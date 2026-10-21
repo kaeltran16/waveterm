@@ -134,7 +134,7 @@ export function GraphPeek({
     const node = selectedId != null ? merged.nodes.find((n) => n.id === selectedId) : undefined;
     const edges = selectedId != null ? merged.links.filter((l) => l.from === selectedId || l.to === selectedId) : [];
 
-    // the way in when the subject resolves to no node — an unattributed run, a radar or memory thread, or
+    // the way in when the subject resolves to no node — an unattributed run, a memory thread, or
     // no subject at all. Selecting a match is enough: the canvas recenters on an off-screen selection.
     const q = query.trim().toLowerCase();
     const matches = q === "" ? [] : merged.nodes.filter((n) => n.label.toLowerCase().includes(q));

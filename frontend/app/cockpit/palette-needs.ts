@@ -20,9 +20,6 @@ const KIND_GROUP: Record<string, NeedsGroup> = {
     "dag-gate": "reviews",
 };
 
-// radar findings keep their own badge
-const DROPPED_KIND = "radar-triage";
-
 // pkg/jarvis/attention.go keys an ask as "ask:" + its block oref, standalone or in a channel
 const ASK_BLOCK_PREFIX = "ask:block:";
 
@@ -52,14 +49,12 @@ function inlineOptions(agent: AgentVM | undefined): string[] {
 }
 
 export function needsRows(items: AttentionItem[], agents: AgentVM[]): NeedsRow[] {
-    return items
-        .filter((item) => item.kind !== DROPPED_KIND)
-        .map((item) => {
-            const agent = askAgent(item, agents);
-            const review = agent != null && parseDocReview(agent.ask) != null;
-            const group = review ? "reviews" : (KIND_GROUP[item.kind] ?? "blocked");
-            return { item, group, agent, review, options: review ? [] : inlineOptions(agent) };
-        });
+    return items.map((item) => {
+        const agent = askAgent(item, agents);
+        const review = agent != null && parseDocReview(agent.ask) != null;
+        const group = review ? "reviews" : (KIND_GROUP[item.kind] ?? "blocked");
+        return { item, group, agent, review, options: review ? [] : inlineOptions(agent) };
+    });
 }
 
 export function needsGroups(rows: NeedsRow[]): { group: NeedsGroup; rows: NeedsRow[] }[] {

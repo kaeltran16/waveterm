@@ -38,7 +38,6 @@ describe("popupBubble", () => {
         ["dag-gate", "Review"],
         ["escalation", "Decide"],
         ["run-unverified", "Acknowledge"],
-        ["radar-triage", "Triage"],
     ])("labels %s with its action %s", (kind, action) => {
         expect(popupBubble([], [item({ kind, action })], false).label).toBe(action);
     });

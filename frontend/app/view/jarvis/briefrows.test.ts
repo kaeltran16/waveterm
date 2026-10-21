@@ -508,7 +508,7 @@ describe("filterLines", () => {
     });
 
     it("matches any column the line shows, ignoring case", () => {
-        const lines = [line("a", { title: "SIEM", meta: "cad" }), line("b", { title: "Radar", note: "trust fixes" })];
+        const lines = [line("a", { title: "SIEM", meta: "cad" }), line("b", { title: "Ambient", note: "trust fixes" })];
         expect(filterLines(lines, "TRUST").map((l) => l.id)).toEqual(["b"]);
         expect(filterLines(lines, "cad").map((l) => l.id)).toEqual(["a"]);
         expect(filterLines(lines, "  ").map((l) => l.id)).toEqual(["a", "b"]);

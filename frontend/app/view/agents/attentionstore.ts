@@ -22,24 +22,13 @@ export const attentionAtom = atom<AttentionItem[]>([]) as PrimitiveAtom<Attentio
 let latestAttentionLoad = 0;
 
 // splitAttention keeps the nav-rail badges disjoint by construction rather than by derivations agreeing.
-// Radar triage is routed by kind before the channel test: it names no channel either, and falling through
-// would count it on Cockpit, a surface with nothing that can clear it.
-export function splitAttention(items: AttentionItem[]): {
-    channel: AttentionItem[];
-    standalone: AttentionItem[];
-    radar: AttentionItem[];
-} {
+export function splitAttention(items: AttentionItem[]): { channel: AttentionItem[]; standalone: AttentionItem[] } {
     const channel: AttentionItem[] = [];
     const standalone: AttentionItem[] = [];
-    const radar: AttentionItem[] = [];
     for (const i of items ?? []) {
-        if (i.kind === "radar-triage") {
-            radar.push(i);
-        } else {
-            (i.channelid ? channel : standalone).push(i);
-        }
+        (i.channelid ? channel : standalone).push(i);
     }
-    return { channel, standalone, radar };
+    return { channel, standalone };
 }
 
 // taskbarSignal decides what a new attention list does to the taskbar button. Only an item that was not

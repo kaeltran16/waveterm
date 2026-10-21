@@ -26,8 +26,6 @@ export type SettingRowDef = {
     // value against the shipped default, and revert by deleting the user's override; every other row's
     // value lives somewhere only the surface knows how to reach.
     config?: boolean;
-    // Further wconfig keys a config row writes beside `key` (a route is a runtime key and a model key).
-    morekeys?: string[];
 };
 
 export type SettingSectionDef = {
@@ -49,27 +47,6 @@ export const GROUP_ORDER = ["Cockpit", "Agents", "Data", "Build"] as const;
 // stays because renaming it would orphan every key already stored. Never read back into the UI.
 // Underscore, not colon: SetSecret validates against the shell env-var charset and rejects colons.
 export const OPENROUTER_SECRET_NAME = "jarvis_embedapikey";
-
-// The Radar audit route. Its sessions read and grep the repository, so only a runtime with tools can run
-// them; the empty-key defaults mirror pkg/reporadar's.
-export const RADAR_AUDIT_RUNTIME_KEY = "radar:auditruntime";
-export const RADAR_AUDIT_MODEL_KEY = "radar:auditmodel";
-export const RADAR_CLASSIFY_MODEL_KEY = "radar:classifymodel";
-export const RADAR_AUDIT_RUNTIMES: readonly string[] = ["claude", "pi"];
-const RADAR_AUDIT_DEFAULT_RUNTIME = "claude";
-const RADAR_AUDIT_DEFAULT_CLAUDE_MODEL = "sonnet";
-
-// The route the two settings select. An unset model on pi stays unset: pi runs its own default.
-export function radarAuditRoute(runtime: string, model: string): RoutePin {
-    const rt = runtime || RADAR_AUDIT_DEFAULT_RUNTIME;
-    const m = model || (rt === RADAR_AUDIT_DEFAULT_RUNTIME ? RADAR_AUDIT_DEFAULT_CLAUDE_MODEL : "");
-    return { runtime: rt, ...(m ? { model: m } : {}) };
-}
-
-// What an unset radar:classifymodel runs on the audit runtime; pi takes no bare model id, so it keeps its own.
-export function radarClassifyDefault(runtime: string): string {
-    return (runtime || RADAR_AUDIT_DEFAULT_RUNTIME) === RADAR_AUDIT_DEFAULT_RUNTIME ? "haiku" : "pi default";
-}
 
 // The skim mod (claude/arc-skim-mod) and the userConfig fields its plugin.json declares; pkg/claudemod writes only these
 export const SKIM_PLUGIN = "arc-skim";
@@ -342,7 +319,7 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
         {
             id: "headless",
             name: "Headless AI",
-            blurb: "The runtime behind session classify, continuity, the volunteer judge and pi titles. Radar audits keep their own route.",
+            blurb: "The runtime behind session classify, continuity, the volunteer judge and pi titles.",
             group: "Data",
             rows: [
                 {
@@ -365,15 +342,6 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
                     title: "Cheap model",
                     desc: "The OpenRouter model for session classify, continuity, the volunteer judge and pi titles. Used only when the runtime is OpenRouter.",
                     key: "headless:openroutercheapmodel",
-                    scope: "synced",
-                    config: true,
-                },
-                {
-                    id: "headless.radaraudit",
-                    title: "Radar audit",
-                    desc: "Each scan runs up to 8 sibling, 3 introduced and 2 hotspot read-only sessions on this route, plus one classifier call when commits lack a conventional prefix. The classifier runs on the same runtime; empty means haiku on claude, pi's default on pi. OpenRouter cannot be used: it has no tools.",
-                    key: RADAR_AUDIT_RUNTIME_KEY,
-                    morekeys: [RADAR_AUDIT_MODEL_KEY, RADAR_CLASSIFY_MODEL_KEY],
                     scope: "synced",
                     config: true,
                 },
@@ -419,7 +387,7 @@ export function flagRowId(runtime: Runtime, flagId: string): string {
 
 // Every settings key a row stores under, primary first. Empty for a row that stores no setting.
 export function rowKeys(row: SettingRowDef): string[] {
-    return row.key == null ? [] : [row.key, ...(row.morekeys ?? [])];
+    return row.key == null ? [] : [row.key];
 }
 
 export function rowMatches(row: SettingRowDef, query: string): boolean {

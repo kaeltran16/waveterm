@@ -5,7 +5,6 @@
 // shared since-launch axis. Go derives the intervals once (digest.timing); this only lays them out and words
 // them. Pure.
 
-import { joinAnd } from "../agents/radarmodel";
 import { isTerminal } from "../agents/runmodel";
 import { formatElapsed } from "../orchestrate/dagdigest";
 
@@ -59,6 +58,11 @@ type Span = { key: TimingKey; start: number; end: number; open: boolean };
 
 function capitalize(s: string): string {
     return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// "4", "4 and 5", "1, 2 and 3"
+function joinAnd(items: string[]): string {
+    return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
 function nounList(keys: TimingKey[]): string {

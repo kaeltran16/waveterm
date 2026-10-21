@@ -1,8 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Command jarvisbackfill imports recorded wstore history into the Wave Vault as a real dossier and
-// decision corpus, so the second brain's tuning constants (J5) can be calibrated against something
+// Command jarvisbackfill imports recorded wstore history into the Wave Vault as a real dossier
+// corpus, so the second brain's tuning constants (J5) can be calibrated against something
 // other than fabricated data.
 //
 // One-shot and idempotent. It never writes to the database it reads. Run --dry-run first, and point
@@ -43,12 +43,12 @@ func main() {
 }
 
 func run(dbPath, vaultPath string, dryRun bool) error {
-	runs, reports, err := jarvisbackfill.ReadHistory(dbPath)
+	runs, err := jarvisbackfill.ReadHistory(dbPath)
 	if err != nil {
 		return err
 	}
-	plan := jarvisbackfill.BuildPlan(runs, reports, nowMillis())
-	printPlan(runs, reports, plan)
+	plan := jarvisbackfill.BuildPlan(runs, nowMillis())
+	printPlan(runs, plan)
 
 	if dryRun {
 		fmt.Println("\ndry run — nothing written")
@@ -76,17 +76,16 @@ func run(dbPath, vaultPath string, dryRun bool) error {
 	}
 
 	res, err := jarvisbackfill.Apply(ctx, v, plan)
-	fmt.Printf("dossiers created: %d (existing: %d)  decisions created: %d (existing: %d)\n",
-		res.DossiersCreated, res.DossiersExisting, res.DecisionsCreated, res.DecisionsExisting)
+	fmt.Printf("dossiers created: %d (existing: %d)\n", res.DossiersCreated, res.DossiersExisting)
 	for _, e := range res.Errors {
 		fmt.Println("  error:", e)
 	}
 	return err
 }
 
-func printPlan(runs []*waveobj.Run, reports []*waveobj.RadarReport, p jarvisbackfill.Plan) {
-	fmt.Printf("read %d runs, %d radar reports\n", len(runs), len(reports))
-	fmt.Printf("plan: %d dossiers, %d decisions, %d skipped\n\n", len(p.Dossiers), len(p.Decisions), len(p.Skipped))
+func printPlan(runs []*waveobj.Run, p jarvisbackfill.Plan) {
+	fmt.Printf("read %d runs\n", len(runs))
+	fmt.Printf("plan: %d dossiers, %d skipped\n\n", len(p.Dossiers), len(p.Skipped))
 
 	multi := 0
 	for _, d := range p.Dossiers {

@@ -134,10 +134,6 @@ export type QueueTone = "asking" | "error";
 export type QueueNav =
     | { kind: "channel"; channelId: string; runId: string | null }
     | { kind: "effort"; oref: string }
-    // radar triage names no channel — a scan belongs to a project — so it is the one row addressed by
-    // the oref the server sent. The full oref is carried, matching the effort variant: the consumer
-    // strips the otype, so the model never has to know which surface answers for it.
-    | { kind: "radar"; oref: string }
     | { kind: "record"; oref: string };
 export interface QueueRow {
     key: string;
@@ -172,8 +168,8 @@ export interface QueueRow {
 // none: the decision a row waits on (a plan gate, an escalation, a released task) is resolved by the run
 // body, so a row that cannot open its run cannot be acted on at all. A run is addressed through its channel
 // because that is what a subject is — the run id rides along so the sheet lands on THAT run rather than on
-// whatever the channel last showed. A triage row and a blocked chunk name no channel, and both already have
-// a surface of their own, so they route by oref through the same router everything else uses.
+// whatever the channel last showed. A blocked chunk names no channel and already has a surface of its own, so
+// it routes by oref through the same router everything else uses.
 export type QueueOpenTarget =
     | { kind: "channel"; channelId: string; runId: string | null }
     | { kind: "oref"; oref: string };
@@ -195,7 +191,6 @@ const QUEUE_KIND_LABEL: Record<string, string> = {
     "dag-blocked": "dag blocked",
     "run-land-held": "land held",
     "run-unverified": "unverified",
-    "radar-triage": "triage",
 };
 
 export function buildAttentionQueue(input: {
@@ -210,10 +205,6 @@ export function buildAttentionQueue(input: {
     // kind — pkg/jarvis/attention.go), so this preserves it rather than re-sorting on age.
     const rows: QueueRow[] = (input.attention ?? []).map((a) => {
         const channelId = a.channelid ?? "";
-        // a triage row's only destination is its report. If the kind arrived without one it falls
-        // through to the channel rule below and ends up static — inventing a target would be worse than
-        // saying nothing, which is the same rule the no-channel case has always followed.
-        const radarORef = a.kind === "radar-triage" && a.oref != null && a.oref !== "" ? a.oref : null;
         return {
             key: a.key,
             kind: QUEUE_KIND_LABEL[a.kind] ?? a.kind,
@@ -225,13 +216,11 @@ export function buildAttentionQueue(input: {
             ts: a.waitingsince > 0 ? a.waitingsince : null,
             // a standalone item names no channel, so there is no run body to land on; it renders as
             // static info rather than a button that would navigate nowhere (NeedsRow's rule, kept).
-            action: channelId !== "" || radarORef != null ? a.action : null,
+            action: channelId !== "" ? a.action : null,
             nav:
-                radarORef != null
-                    ? { kind: "radar", oref: radarORef }
-                    : channelId !== ""
-                      ? { kind: "channel", channelId, runId: a.runid != null && a.runid !== "" ? a.runid : null }
-                      : null,
+                channelId !== ""
+                    ? { kind: "channel", channelId, runId: a.runid != null && a.runid !== "" ? a.runid : null }
+                    : null,
             tone: a.kind === "dag-blocked" ? "error" : "asking",
             attrib:
                 a.effortoid != null && a.effortoid !== ""
@@ -306,7 +295,7 @@ export interface QueueSummary {
 }
 
 // the design's four kind words (design L1010-1013); every wire kind reads as one of them
-export function queueKindLabel(row: QueueRow): "gate" | "ask" | "failed" | "blocked" | "triage" {
+export function queueKindLabel(row: QueueRow): "gate" | "ask" | "failed" | "blocked" {
     switch (row.wireKind) {
         case "dag-gate":
             return "gate";
@@ -315,8 +304,6 @@ export function queueKindLabel(row: QueueRow): "gate" | "ask" | "failed" | "bloc
             return "ask";
         case "dag-blocked":
             return row.retry ? "failed" : "blocked";
-        case "radar-triage":
-            return "triage";
         default:
             return "blocked";
     }

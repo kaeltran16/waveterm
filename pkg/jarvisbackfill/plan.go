@@ -5,9 +5,8 @@
 // brain's tuning constants can be calibrated against something other than fabricated data.
 //
 // It is strict about fidelity: every field it writes was actually recorded. Runs supply the dossier
-// (goal, status, window); Radar investigations that reached a terminal state with a worker-written
-// summary supply the decisions. Nothing is inferred, summarized or invented — a gap in the history
-// stays a gap, and lands in Plan.Skipped rather than being papered over.
+// (goal, status, window). Nothing is inferred, summarized or invented — a gap in the history stays a
+// gap, and lands in Plan.Skipped rather than being papered over.
 //
 // This file is the pure planner: history in, a Plan out, no vault, no database, no wall clock.
 // apply.go is the only part that writes.
@@ -26,8 +25,6 @@ import (
 // maxObjectiveChars bounds the objective copied out of a run goal. Goals are free text a human typed
 // into the dispatch box and occasionally run to paragraphs; the dossier objective is a one-liner.
 const maxObjectiveChars = 200
-
-const provRadarInvestigation = "radar-investigation"
 
 // artifactRe matches a referenced markdown artifact in a run goal. Runs that name the same spec or
 // plan file are the same piece of work split across dispatches, which is the only grouping signal
@@ -53,13 +50,6 @@ type PlannedDossier struct {
 	RunOIDs  []string // owner first, then siblings by CreatedTs
 }
 
-// PlannedDecision is one decision record derived from a completed Radar investigation. TaskID is left
-// empty here and resolved at apply time, once the owning dossier has a real id.
-type PlannedDecision struct {
-	OwnerRunOID string
-	Facts       jarvisdossier.DecisionFacts
-}
-
 // Skip records something the history could not support. Reported rather than dropped silently, so a
 // thin corpus reads as thin instead of reading as complete.
 type Skip struct {
@@ -68,9 +58,8 @@ type Skip struct {
 }
 
 type Plan struct {
-	Dossiers  []PlannedDossier
-	Decisions []PlannedDecision
-	Skipped   []Skip
+	Dossiers []PlannedDossier
+	Skipped  []Skip
 }
 
 // groupKey returns the normalized markdown artifact a goal references, or "" when it references none
@@ -126,22 +115,12 @@ func runEnd(r *waveobj.Run) int64 {
 	return r.CreatedTs
 }
 
-// investigationEnd is when the decision was actually reached: the investigation's completion, or its
-// start if it recorded none. Same rule as runEnd — never the import time, so a backfilled decision
-// files under the day it was decided instead of claiming to be today's.
-func investigationEnd(inv *waveobj.RadarInvestigation) int64 {
-	if inv.CompletedTs != 0 {
-		return inv.CompletedTs
-	}
-	return inv.StartedTs
-}
-
 // BuildPlan maps recorded history onto a vault corpus. now is accepted for symmetry with the rest of
 // the attribution code and to keep the function total; nothing in the plan is stamped with it,
 // because a backfilled dossier must carry its run's window rather than the import time. Getting that
 // wrong silently disables D's layer-3 inference: windowsOverlap requires the run to end at or after
 // the dossier was created, which a dossier stamped "now" can never satisfy for historical work.
-func BuildPlan(runs []*waveobj.Run, reports []*waveobj.RadarReport, now int64) Plan {
+func BuildPlan(runs []*waveobj.Run, now int64) Plan {
 	var p Plan
 
 	groups := map[string][]*waveobj.Run{}
@@ -162,7 +141,6 @@ func BuildPlan(runs []*waveobj.Run, reports []*waveobj.RadarReport, now int64) P
 		groups[k] = append(groups[k], r)
 	}
 
-	runToDossier := map[string]int{}
 	for _, k := range order {
 		g := groups[k]
 		sort.SliceStable(g, func(i, j int) bool {
@@ -204,45 +182,6 @@ func BuildPlan(runs []*waveobj.Run, reports []*waveobj.RadarReport, now int64) P
 		return p.Dossiers[i].OwnerRun < p.Dossiers[j].OwnerRun
 	})
 	dedupeDossierIDs(p.Dossiers)
-	for i, d := range p.Dossiers {
-		for _, oid := range d.RunOIDs {
-			runToDossier[oid] = i
-		}
-	}
-
-	for _, rep := range reports {
-		for _, f := range rep.Findings {
-			inv := f.Investigation
-			if inv == nil {
-				continue
-			}
-			label := "finding:" + f.ID
-			if inv.Status != "done" || strings.TrimSpace(inv.Summary) == "" {
-				p.Skipped = append(p.Skipped, Skip{What: label, Why: "investigation has no recorded outcome"})
-				continue
-			}
-			if _, ok := runToDossier[inv.RunID]; !ok {
-				p.Skipped = append(p.Skipped, Skip{What: label, Why: "investigated run " + inv.RunID + " has no dossier"})
-				continue
-			}
-			p.Decisions = append(p.Decisions, PlannedDecision{
-				OwnerRunOID: inv.RunID,
-				Facts: jarvisdossier.DecisionFacts{
-					Actor:      "radar",
-					Provenance: provRadarInvestigation,
-					Rationale:  strings.TrimSpace(inv.Summary),
-					Summary:    normalizeObjective(f.Risk),
-					Links:      []string{"run-" + inv.RunID},
-					Created:    investigationEnd(inv),
-				},
-			})
-		}
-	}
-
-	sort.SliceStable(p.Decisions, func(i, j int) bool {
-		return p.Decisions[i].Facts.Summary < p.Decisions[j].Facts.Summary
-	})
-	dedupeDecisionSlugs(p.Decisions)
 	return p
 }
 
@@ -303,24 +242,4 @@ func dedupeDossierIDs(ds []PlannedDossier) {
 				return jarvisdossier.DossierID(jarvisdossier.DossierFacts{Ticket: ds[i].Facts.Ticket, Objective: s})
 			})
 	}
-}
-
-func dedupeDecisionSlugs(decs []PlannedDecision) {
-	seen := map[string]bool{}
-	for i := range decs {
-		decs[i].Facts.Summary = uniquify(
-			decs[i].Facts.Summary, "", decs[i].OwnerRunOID, seen, jarvisdossier.DecisionSlug)
-	}
-}
-
-// DossierForRun returns the index of the dossier owning a run, for apply-time TaskID resolution.
-func (p Plan) DossierForRun(oid string) (int, bool) {
-	for i, d := range p.Dossiers {
-		for _, o := range d.RunOIDs {
-			if o == oid {
-				return i, true
-			}
-		}
-	}
-	return 0, false
 }
