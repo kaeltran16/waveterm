@@ -21,6 +21,10 @@ const (
 	FailureKindSpawn      = "spawn-failed"
 	FailureKindWorkerExit = "worker-exit-unreported"
 	FailureKindUnrecorded = "dispatch-unrecorded"
+	// FailureKindStopped is a worker whose run was cancelled while its dag went on: a skip, retry or escalate,
+	// or the engine's own retry of a stalled task, that cancelled the run and then could not finish, or a human
+	// cancelling the one run. The worker was stopped, not judged.
+	FailureKindStopped = "stopped"
 )
 
 // MaxFailureDetailLen bounds the failure message carried on a lifecycle event.

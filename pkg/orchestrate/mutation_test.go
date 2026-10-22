@@ -146,6 +146,32 @@ func TestRetryKeepsFailedOwnershipWhenWorkerStopFails(t *testing.T) {
 	}
 }
 
+// The retry cancelled the worker's run before its stop failed: the next tick must fail the task for the lead, not
+// read the cancelled run as the dag cancelled while its siblings keep running.
+func TestFailedRetryFailsTheTaskNotTheDag(t *testing.T) {
+	ctx, dag, _, _ := seedRunningDag(t)
+	oldStop := stopRunWorkers
+	stopRunWorkers = func(context.Context, *waveobj.Run) error { return errors.New("stop failed") }
+	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
+
+	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", waveobj.RoutePin{}); err == nil {
+		t.Fatal("retry with a failing stop succeeded")
+	}
+	if err := Schedule(ctx, dag.OID); err != nil {
+		t.Fatal(err)
+	}
+	got := mustLoadDag(t, ctx, dag.OID)
+	if got.Status == DagStatus_Cancelled {
+		t.Fatal("a failed retry cancelled the dag")
+	}
+	if task := got.Tasks[0]; task.State != TaskState_Failed || task.LastFailureKind != FailureKindStopped {
+		t.Fatalf("task = %s (%s), want failed (%s)", task.State, task.LastFailureKind, FailureKindStopped)
+	}
+	if got.Failures != 0 {
+		t.Fatalf("failures = %d: a stopped worker is no failed attempt", got.Failures)
+	}
+}
+
 func TestSkipRejectsRunningTaskWithoutClearingOwnership(t *testing.T) {
 	ctx, dag, _, child := seedRunningDag(t)
 	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", waveobj.RoutePin{}); err == nil {
