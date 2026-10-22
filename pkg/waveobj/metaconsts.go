@@ -75,6 +75,12 @@ const (
 	MetaKey_SessionBrainstorm                = "session:brainstorm"
 	MetaKey_SessionCollapsedGroups           = "session:collapsedgroups"
 
+	MetaKey_BrainstormCheckState             = "brainstorm:checkstate"
+	MetaKey_BrainstormCheckTs                = "brainstorm:checkts"
+	MetaKey_BrainstormCheckRun               = "brainstorm:checkrun"
+	MetaKey_BrainstormCheckChannel           = "brainstorm:checkchannel"
+	MetaKey_BrainstormCheckReason            = "brainstorm:checkreason"
+
 	MetaKey_AppLoom                          = "app:loom"
 
 	MetaKey_AgentTranscriptPath              = "agent:transcriptpath"

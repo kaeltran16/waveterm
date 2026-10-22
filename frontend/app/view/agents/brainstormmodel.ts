@@ -325,7 +325,8 @@ export function canCheck(f: BrainstormFile): boolean {
 }
 
 // a line Arc sent, which the agent has not answered yet: modifiedMs is the file's when it was sent. An answer closes
-// the question, a check waits on the builder, any other line is a change
+// the question, a check hands the design to a builder (its send time outlives the line, sentCheckAt), any other line
+// is a change
 export type SentKind = "answer" | "check" | "line";
 export type SentLine = { at: number; modifiedMs: number | null; kind: SentKind };
 
@@ -337,30 +338,76 @@ const PENDING_ANSWER = "Writing up your answer.";
 const PENDING_CHECK = "A builder is reading the design.";
 const PENDING_LINE = "Taking in your change.";
 
-// the builder can read in the background after the turn that took the check ends, so a check is taken only once the
-// file shows it, says the agent is still working, or no longer offers the check at all
-function checkTaken(f: BrainstormFile): boolean {
-    return f.check != null || f.working != null || !canCheck(f);
+// the agent has taken a line delivered at `at` once its turn ends after it, or its file changed while it is not at
+// work. A write mid-turn settles nothing: a line sent before that turn ends would join it, not start the next
+function lineTaken(at: number, written: boolean, agent: Pick<AgentVM, "state" | "idleSince"> | undefined): boolean {
+    const turnEnded = agent?.state === "idle" && agent.idleSince != null && agent.idleSince > at;
+    return turnEnded || (written && agent?.state !== "working");
 }
 
-// the agent has taken a sent line once its turn ends after the send, or its file changed while it is not at work.
-// A write mid-turn settles nothing: a line sent before that turn ends would join it, not start the next. A check
-// settles on the file alone
 export function settleSent(
     sent: SentLine | null,
     modifiedMs: number | null,
-    agent: Pick<AgentVM, "state" | "idleSince"> | undefined,
-    f: BrainstormFile | null
+    agent: Pick<AgentVM, "state" | "idleSince"> | undefined
 ): SentLine | null {
     if (sent == null) {
         return null;
     }
-    if (sent.kind === "check") {
-        return f != null && checkTaken(f) ? null : sent;
+    return lineTaken(sent.at, modifiedMs !== sent.modifiedMs, agent) ? null : sent;
+}
+
+// Arc's record of the builder check, from the agent's tab meta (brainstorm:check*); only the server writes it
+export type BuilderCheckRecord = {
+    state: "reading" | "answered" | "failed";
+    ts: number;
+    runId?: string;
+    reason?: string;
+};
+
+export type BuilderCheckView =
+    | { kind: "none" }
+    | { kind: "pending"; text: string }
+    | { kind: "failed"; reason: string };
+
+const CHECK_TAKING_IN = "Taking in the builder's questions.";
+const CHECK_NOT_STARTED = "The agent ended its turn without starting the builder check.";
+
+// the send time of the last `brainstorm: check`, kept once the agent has taken it (settled), until a record newer
+// than it says the check started
+export function nextSentCheckAt(
+    prev: number | null,
+    sent: SentLine | null,
+    settled: SentLine | null,
+    record: BuilderCheckRecord | undefined
+): number | null {
+    const at = sent?.kind === "check" && settled == null ? sent.at : prev;
+    return at != null && record != null && record.ts >= at ? null : at;
+}
+
+// the builder check as the pane shows it. Once the agent takes the delivered questions the record is inert and the
+// file's check drives the view; a failure shows only while the file has no check
+export function builderCheckView(
+    record: BuilderCheckRecord | undefined,
+    sentCheckAt: number | null,
+    f: BrainstormFile | null,
+    modifiedMs: number | null,
+    agent: Pick<AgentVM, "state" | "idleSince"> | undefined
+): BuilderCheckView {
+    const unchecked = f?.check == null;
+    if (sentCheckAt != null && (record == null || record.ts < sentCheckAt)) {
+        return unchecked ? { kind: "failed", reason: CHECK_NOT_STARTED } : { kind: "none" };
     }
-    const turnEnded = agent?.state === "idle" && agent.idleSince != null && agent.idleSince > sent.at;
-    const written = modifiedMs !== sent.modifiedMs;
-    return turnEnded || (written && agent?.state !== "working") ? null : sent;
+    if (record?.state === "reading") {
+        return { kind: "pending", text: PENDING_CHECK };
+    }
+    if (record?.state === "answered") {
+        const taken = lineTaken(record.ts, modifiedMs != null && modifiedMs > record.ts, agent);
+        return taken ? { kind: "none" } : { kind: "pending", text: CHECK_TAKING_IN };
+    }
+    if (record?.state === "failed" && unchecked) {
+        return { kind: "failed", reason: record.reason ?? "" };
+    }
+    return { kind: "none" };
 }
 
 // an answer typed in the terminal never passes through Arc: a turn that started after the file last asked is one,
@@ -606,14 +653,18 @@ export function optionLetter(i: number): string {
 // over it; with neither, the design itself
 export type MainView = "question" | "working" | "design";
 
-export function mainView(f: BrainstormFile, designOpen: boolean): MainView {
+// a pending builder check (checkPending) holds the main area as the agent writing does, behind any question
+export function mainView(f: BrainstormFile, designOpen: boolean, checkPending = false): MainView {
     if (designOpen) {
         return "design";
     }
     if (f.working != null) {
         return "working";
     }
-    return f.question != null ? "question" : "design";
+    if (f.question != null) {
+        return "question";
+    }
+    return checkPending ? "working" : "design";
 }
 
 // a board opened from the question goes back to it; one opened from the design, to the design
@@ -854,14 +905,18 @@ export function confirmableGuesses(f: BrainstormFile): number {
 }
 
 // the head of the design once there is something to review: what stands before the builder check, and the one
-// press that moves it on. Confirm all needs two guesses, since one has its own That's right
+// press that moves it on. Confirm all needs two guesses, since one has its own That's right. Check is not offered
+// while a check is pending, nor beside a failed one, whose Try again sends the same line
 export type ReviewHead = { line: string; action: "confirm-all" | "check" | null; guesses: number };
 
-export function reviewHead(f: BrainstormFile): ReviewHead {
+export function reviewHead(f: BrainstormFile, check: BuilderCheckView = { kind: "none" }): ReviewHead {
     if (canCheck(f)) {
+        if (check.kind === "pending") {
+            return { line: check.text, action: null, guesses: 0 };
+        }
         return {
             line: "Every decision is yours. Next, a fresh agent reads the design as a builder would.",
-            action: "check",
+            action: check.kind === "none" ? "check" : null,
             guesses: 0,
         };
     }

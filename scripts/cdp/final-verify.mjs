@@ -393,6 +393,8 @@ async function main() {
             WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
             WEBVIEW2_USER_DATA_FOLDER: profile,
             CARGO_TARGET_DIR: slotPath("target", slot),
+            // read by frontend/tauri/vite.config.ts
+            ARC_VITE_CACHE_DIR: slotPath("vite", slot),
             // read by a debug build of the dev host (src-tauri/src/paths.rs) and by sync:piartifacts
             ARC_DEV_DATA_DIR: store,
             ARC_DEV_NO_GLOBAL_INSTALL: "1",

@@ -24971,6 +24971,7 @@ const BS_KIT = {
     bsTyped,
     bsNothingTyped,
     bsAgentTook,
+    bsPublishStatus,
     bsPublishProc,
     bsOpenDesign,
     bsCloseDesign,

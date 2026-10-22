@@ -104,6 +104,8 @@ describe("sendBrainstorm", () => {
         expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 1000, modifiedMs: 500, kind: "answer" });
         await sendBrainstorm(AGENT, { kind: "confirm", part: "x" }, fakeIO(), 2000);
         expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 2000, modifiedMs: 500, kind: "line" });
+        await sendBrainstorm(AGENT, { kind: "check" }, fakeIO(), 3000);
+        expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 3000, modifiedMs: 500, kind: "check" });
     });
 
     it("refuses a second check while the first is underway, sending nothing", async () => {

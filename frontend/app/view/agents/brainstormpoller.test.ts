@@ -6,7 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: {} }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { pollBrainstormOnce, reconcileBrainstorms, type BrainstormIO } from "./brainstormpoller";
+import type { AgentVM } from "./agentsviewmodel";
+import { pollBrainstormOnce, reconcileBrainstorms, settleBrainstorm, type BrainstormIO } from "./brainstormpoller";
 import type { BrainstormState } from "./brainstormstore";
 
 const PATH = "/p/.superpowers/brainstorm/t/brainstorm.json";
@@ -30,6 +31,7 @@ function state(over: Partial<BrainstormState> = {}): BrainstormState {
         boards: [],
         base: null,
         sent: null,
+        sentCheckAt: null,
         review: { cursor: null, open: {} },
         ...over,
     };
@@ -191,5 +193,39 @@ describe("reconcileBrainstorms", () => {
 
     it("detaches nothing while the roster is empty (boot)", () => {
         expect(reconcileBrainstorms({ a1: { path: PATH } }, [])).toEqual({ attach: [], detach: [] });
+    });
+});
+
+describe("settleBrainstorm", () => {
+    const check = { at: 1000, modifiedMs: 500, kind: "check" as const };
+    const agent = (over: Partial<AgentVM> = {}): AgentVM => ({
+        id: "a1",
+        name: "loom",
+        task: "",
+        state: "idle",
+        idleSince: 1500,
+        ...over,
+    });
+
+    it("keeps a check's send time once the agent's turn settles it", () => {
+        const r = settleBrainstorm(state({ sent: check, modifiedMs: 500 }), {}, agent(), undefined);
+        expect(r).toEqual({ sent: null, sentCheckAt: 1000 });
+    });
+
+    it("keeps nothing while the check line is still pending, nor for a line that was not a check", () => {
+        const working = agent({ state: "working", idleSince: undefined });
+        expect(settleBrainstorm(state({ sent: check, modifiedMs: 500 }), {}, working, undefined)).toEqual({
+            sent: check,
+            sentCheckAt: null,
+        });
+        const line = { ...check, kind: "line" as const };
+        expect(settleBrainstorm(state({ sent: line, modifiedMs: 500 }), {}, agent(), undefined).sentCheckAt).toBeNull();
+    });
+
+    it("clears it once Arc's record is newer than the send, and keeps it past an older one", () => {
+        const newer = agent({ builderCheck: { state: "reading", ts: 1200 } });
+        expect(settleBrainstorm(state({ sentCheckAt: 1000 }), {}, newer, undefined).sentCheckAt).toBeNull();
+        const older = agent({ builderCheck: { state: "failed", ts: 800, reason: "x" } });
+        expect(settleBrainstorm(state({ sentCheckAt: 1000 }), {}, older, undefined).sentCheckAt).toBe(1000);
     });
 });

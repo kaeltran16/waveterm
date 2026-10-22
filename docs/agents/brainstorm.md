@@ -53,7 +53,9 @@ the skill tells them not to use it: a lead routes every question through AskUser
 | Edit, Enter | `brainstorm: edit <part>: <text>` | replaces the part's body, makes it yours |
 | Keep the change / Put mine back | `brainstorm: keep <part>` / `brainstorm: restore <part>` | settles a part it changed after you confirmed it |
 | Keep all N changes | `brainstorm: keep every change` | keeps every part it changed after you confirmed it |
-| Check with a builder | `brainstorm: check` | writes the spec, runs the builder check (one fresh subagent), fills `check` |
+| Check with a builder | `brainstorm: check` | writes the spec, runs `wsh brainstorm check <brainstorm.json>`, ends its turn; Arc launches the reviewer |
+| (the reviewer is done) | `brainstorm: builder questions <path>`, sent by the server | reads the questions file, sorts it into `check`, folds it into the parts and the spec |
+| Try again (check failed) | `brainstorm: check` | the same as Check with a builder |
 | Answer a builder question | `brainstorm: builder answer: <text>` | folds it into the part and the spec |
 | Keep talking | `brainstorm: keep talking` | clears `done` and `check`, asks again |
 | Approve and start run | `brainstorm: approved`, then the launcher opens | stops; does not start a run itself |
@@ -119,7 +121,8 @@ every part is yours.
 
 The check view shows what a fresh builder asked: the questions only you can answer, the calls the
 agent made (marked "Agent's call" in the spec and under their parts), and what the design already
-answered. Approve stays off until every builder question has an answer.
+answered. Approve stays off until every builder question has an answer. While the reviewer works the
+pane shows "A builder is reading the design." and Check with a builder is unavailable.
 
 The check's review keeps every part's mockups reachable while the user confirms the design: a review
 row whose part has a board or a spike opens to them (even a row new since the check, which has
@@ -138,6 +141,47 @@ part lists. When the run starts, the launcher sends `brainstorm: run <id>`; the 
 the same launcher without sending anything.
 
 ![The run started from the brainstorm](../images/brainstorm/05-run-started.png)
+
+## How Arc runs the builder check
+
+Design: `docs/superpowers/specs/2026-10-22-brainstorm-builder-check-reviewer-design.md`. The agent does
+not review its own spec and dispatches no subagent; Arc runs a separate session, so claude and pi
+agents behave the same.
+
+- **The handoff.** On `brainstorm: check` the agent writes the spec and runs `wsh brainstorm check
+  <abs brainstorm.json>`. That calls `BrainstormCheckCommand`, which validates the file and its spec,
+  writes the check record and returns at once; a watcher goroutine does the rest. A second check on a
+  tab whose record is `reading` is refused.
+- **The reviewer session.** A one-shot judging session (`orchestrate.LaunchJudgingSession`, the launcher
+  the plan reviewer and final verifier use) in the project's checkout, with Arc's prompt
+  (`pkg/brainstormcheck/builder-check-prompt.md`). It reads the spec, changes no file, writes its ranked
+  questions to a report and runs `wsh jarvis complete --report`, which ends it. Its run has
+  `StageRole: builder-check`.
+- **The route.** The run settings' reviewer route (with a per-project override), else the brainstorming
+  agent's runtime with its default model, else the default runtime.
+- **The tab record.** The server alone writes `brainstorm:checkstate` (`reading`, `answered`, `failed`)
+  with `checkts`, `checkrun`, `checkchannel` and `checkreason` on the agent's tab. The pane reads them
+  through `builderCheckView` and never infers the state from the file.
+- **The watcher.** Every 5 s it asks `brainstormcheck.Decide` about the run: a done run with a report is
+  delivered, a done run with none fails, and the engine's liveness rules (`JudgingSessionLost`: the route
+  refused it, the 20-minute `ReviewTimeout`, the worker exited, idle past its grace) fail it with their
+  reason. Arc does not respawn a lost reviewer.
+- **Delivery.** `Run.Report` is written to `<topic dir>/builder-check.md`, and the agent gets
+  `brainstorm: builder questions <abs path>` through the same delivery `AgentPromptCommand` uses. The
+  record becomes `answered`, and the pane reads "Taking in the builder's questions." until the agent
+  takes the line (its turn ends after `checkts`, or the file changes while it is not at work). Then the
+  file's `check` drives the view.
+- **Failure and Try again.** `failed` shows its reason with **Try again**, which sends `brainstorm:
+  check` again so the agent rewrites the spec and relaunches. The pane shows the same card, "The agent
+  ended its turn without starting the builder check.", when a `brainstorm: check` send settled and no
+  newer record appeared.
+- **The startup sweep.** `ResumeBuilderChecks` runs when wavesrv starts: a `reading` tab with a
+  `checkrun` gets its watcher back (a reviewer that finished while Arc was down is delivered); one
+  without is set to `failed`, "Arc restarted before the builder started."
+- **Runs it hides.** A `builder-check` run is not a run to the user: it is left out of
+  `GetChannelRunsCommand` / `GetChannelRunChangesCommand`, `wsh runs list`, attention items and the
+  session tree's run rows, and its done step makes no seal. The reviewer's tab stays a solo session
+  in the roster.
 
 ## Outside the pane
 
@@ -167,6 +211,10 @@ the same launcher without sending anything.
 | The pane | `frontend/app/view/agents/brainstormpane.tsx` |
 | Reveal on write, skill context, run-agent exclusion | `cmd/wsh/cmd/wshcmd-agenthook.go` |
 | `ARC_RUN_AGENT` on run agents | `pkg/jarvis/runexec.go` |
+| Builder check's pure parts: prompt, `Decide`, report path, delivery line | `pkg/brainstormcheck` |
+| Builder check's handler, watcher, route, startup sweep | `pkg/wshrpc/wshserver/wshserver_brainstorm.go` |
+| `wsh brainstorm check` | `cmd/wsh/cmd/wshcmd-brainstorm.go` |
+| The reviewer's launcher and liveness | `pkg/orchestrate/stagesession.go` (`LaunchJudgingSession`, `JudgingSessionLost`) |
 | The agent's protocol | `skills/brainstorm/SKILL.md` (edit here; the mod copy is generated) |
 
 ## Testing it
@@ -174,6 +222,12 @@ the same launcher without sending anything.
 - **Unit:** `npx vitest run frontend/app/view/agents/brainstorm` covers the parsing, the derived
   views, every line, the sent-line rules and the sender. The hook's context and exclusion are in
   `go test ./cmd/wsh/cmd -run BrainstormContext`.
+- **Builder check, unit:** `go test ./pkg/brainstormcheck`; `go test ./pkg/wshrpc/wshserver -run
+  'BrainstormCheck|BuilderCheck'` (the handler, route chain, watcher, delivery, sweep, with the launch
+  stubbed); `go test ./pkg/orchestrate -run 'StageSession|JudgingSession'`; `go test ./cmd/wsh/cmd -run
+  'BrainstormCheckCmd'`; `npx vitest run frontend/app/view/agents/brainstormmodel.test.ts`.
+- **Builder check, pane:** `task verify:ui -- brainstorm-builder-check` plays the server's side by setting
+  the tab meta: the pending card with Check unavailable, the result, the failed card and Try again.
 - **Pane, scripted:** `task verify:ui -- brainstorm-mode` (dev app running). It plays the agent's
   side by writing each state's `brainstorm.json` into a temp project and checks every state the
   mockup draws, every line the pane sends, the tree line and the popup. Between sends it plays the
@@ -191,7 +245,10 @@ the same launcher without sending anything.
 
 ## Known gaps
 
-- **Pi is untested** end to end; it has no reveal hook, so it depends on the skill's reveal step.
+- **Pi is untested** end to end; it has no reveal hook, so it depends on the skill's reveal step. The
+  builder check no longer differs by harness: the reviewer is Arc's session, not the agent's subagent.
+- **The builder check has never run end to end with a real reviewer.** The Go tests stub the launch and
+  the scenario plays the server; see the "Builder check end to end" entry in `docs/deferred.md`.
 - **The arc mod can deliver a mid-turn line twice.** A prompt that joins a running turn is queued as
   unread and only cleared on a tool result; a turn that ends on text submits it again. The pane avoids
   this by not sending while a line is pending; the mod itself (`claude/arc-mod/hooks`) is not fixed.

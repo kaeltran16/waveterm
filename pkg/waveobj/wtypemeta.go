@@ -79,6 +79,13 @@ type MetaTSType struct {
 	SessionBrainstorm      string   `json:"session:brainstorm,omitempty"`      // tab (absolute path of the brainstorm.json the session's agent writes)
 	SessionCollapsedGroups []string `json:"session:collapsedgroups,omitempty"` // workspace
 
+	// the builder check on a brainstorm (Arc launches the reviewer and owns its state on the agent's tab)
+	BrainstormCheckState   string `json:"brainstorm:checkstate,omitempty"`   // tab ("reading" | "answered" | "failed")
+	BrainstormCheckTs      int64  `json:"brainstorm:checkts,omitempty"`      // tab (UnixMilli of the last state change)
+	BrainstormCheckRun     string `json:"brainstorm:checkrun,omitempty"`     // tab (id of the reviewer's run)
+	BrainstormCheckChannel string `json:"brainstorm:checkchannel,omitempty"` // tab (id of the reviewer's channel)
+	BrainstormCheckReason  string `json:"brainstorm:checkreason,omitempty"`  // tab (why the check failed)
+
 	// for loom git client (Wave Agent Sessions fork)
 	AppLoom bool `json:"app:loom,omitempty"` // block (marks the live loom block for toggle)
 

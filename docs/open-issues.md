@@ -58,6 +58,8 @@ Cockpit and surfaces:
   loop exists, because nothing exposes the xterm buffer to CDP.
 - **Session target in `openTarget`** (2026-09-17) — revive when opening a session from a Usage session
   page is wanted.
+- **Builder check end to end, with a real reviewer** (2026-10-22) — revive when the reviewer's prompt
+  or route chain changes, or a check hangs or returns nothing on a real project.
 - **Sessions "All activity" feed peek** (2026-10-01) — revive when the feed rows carry a run, agent or
   effort target.
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /

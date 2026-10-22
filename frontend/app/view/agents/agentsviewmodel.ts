@@ -1,6 +1,7 @@
 // Pure view-model logic for the Agents view. No React, no Wave runtime imports.
 
 import { modelLabel } from "@/app/view/agents/session-models/sessionviewmodel";
+import type { BuilderCheckRecord } from "./brainstormmodel";
 import { sessionIdFromTranscript } from "./launch";
 import { projectNameFromTranscriptPath } from "./projectname";
 
@@ -108,6 +109,7 @@ export interface AgentVM {
     runId?: string; // the run this agent works for, when a run spawned it: a lead's own run, a worker's child run
     effortId?: string; // the initiative this agent works on: launched from it, or last read or wrote through `wsh effort`
     brainstormFile?: string; // session:brainstorm on the tab: the attached brainstorm.json's absolute path
+    builderCheck?: BuilderCheckRecord; // brainstorm:check* on the tab: Arc's record of the brainstorm's builder check
     atPrompt?: boolean; // the raw status was waiting or idle, whatever state it folds to: a lead between wakes
     runDone?: boolean; // its own quick run is done, so at its prompt it is finished rather than idle
 }
@@ -495,6 +497,7 @@ export interface LiveAgentInput {
     runORef?: string; // jarvis:runoref on the tab: "run:<id>"
     effortORef?: string; // session:effort on the tab: "effort:<oid>"
     brainstormFile?: string; // session:brainstorm on the tab
+    builderCheck?: BuilderCheckRecord; // brainstorm:check* on the tab
 }
 
 /** Pure: one live row -> an AgentVM. `asking` (a pending AskUserQuestion) maps straight to asking so
@@ -530,6 +533,9 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
     }
     if (input.brainstormFile) {
         vm.brainstormFile = input.brainstormFile;
+    }
+    if (input.builderCheck) {
+        vm.builderCheck = input.builderCheck;
     }
     if (input.status === "waiting" || input.status === "idle") {
         vm.atPrompt = true;
@@ -572,6 +578,7 @@ export interface TerminalRowInput {
     isAgentsTab?: boolean;
     agent?: string; // session:agent runtime, set at launch for agent tabs (never for terminals)
     brainstormFile?: string; // session:brainstorm on the tab
+    builderCheck?: BuilderCheckRecord; // brainstorm:check* on the tab
 }
 
 /** Pure: the plain-terminal sessions — rows that own a term block but never emitted an agent status
@@ -603,6 +610,7 @@ export function deriveTerminalVMs(
             agent: "terminal", // selects the "Terminal" pill in the header (runtimeMeta)
             blockId: row.termBlockOref.split(":")[1],
             ...(row.brainstormFile ? { brainstormFile: row.brainstormFile } : {}),
+            ...(row.builderCheck ? { builderCheck: row.builderCheck } : {}),
         });
     }
     return out;

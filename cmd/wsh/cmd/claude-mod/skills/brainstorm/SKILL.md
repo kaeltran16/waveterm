@@ -138,7 +138,8 @@ Every other action is a `brainstorm:` line:
 | `brainstorm: keep <part id>` | The user accepts your change to a part they had confirmed: make it `yours`, drop `was` and `why`. |
 | `brainstorm: restore <part id>` | Put their version back: `body` = `was`, make it `yours`, drop `was` and `why`. |
 | `brainstorm: keep every change` | `keep` every part that has `was`, in one write. |
-| `brainstorm: check` | Builder check, below. |
+| `brainstorm: check` | Write the spec, run `wsh brainstorm check <path>`, end the turn. Builder check, below. |
+| `brainstorm: builder questions <path>` | Sort the reviewer's questions into `check`. Builder check, below. |
 | `brainstorm: builder answer: <text>` | Builder check, below. |
 | `brainstorm: builder decide` | Move the first `check.yours` entry with no `a` into `check.calls` as `{ "text": <your decision>, "part": <its part> }`, fold it into that part and the spec (marked "Agent's call"), write the file. |
 | `brainstorm: keep talking` | Set `done: false` and `check: null`, and ask your next question. |
@@ -298,11 +299,19 @@ last part. Write it as a `guess` once nothing is left to ask.
 **After a compaction**, before anything else: re-read the file, set `compacted` to the current Unix
 time in milliseconds, write it back. Carry on from the file, not from memory.
 
-**The builder check** (`brainstorm: check`): the user pressed **Check with a builder**, which is their
-go-ahead for superpowers' builder check, the one fresh subagent included: do not ask again. Write the
-spec at `spec` from the parts, run the builder check against it, then fill `check` and write the file.
-When the builder subagent runs in the background, end that turn with `working` set to "A builder is
-reading the design." (and `check` still `null`), and set `working: null` in the write that fills `check`:
+**The builder check.** Arc runs it: a fresh reviewer session reads the spec and sends its questions back
+to you. You write the spec, start the reviewer, and later sort what it asked.
+
+On `brainstorm: check`: the user pressed **Check with a builder**, which is their go-ahead: do not ask
+again. Write the spec at `spec` from the parts, then run `wsh brainstorm check <absolute path of
+brainstorm.json>`. Write nothing else to the file: Arc tracks the check and shows the user that a builder
+is reading. End the turn with one line naming the spec's path. If the command fails, put its error in
+`question` with the next `n` (no `part`), so the pane shows it, and write the file.
+
+On `brainstorm: builder questions <path>`: the reviewer is done. Read the file at `<path>`: its ranked
+questions about the spec. Sort every one into `check.yours` / `calls` / `answered` below, fold what you
+decide into the parts and the spec, refresh `touched`, and write the file once. When it says nothing
+important is left, write `check` with `"yours": []`. Then fill `check`:
 
 ```json
 "check": {
@@ -333,7 +342,7 @@ reading the design." (and `check` still `null`), and set `working: null` in the 
 - `touched`: the ids of the parts the check changed or annotated. Refresh it whenever the check's
   parts change (rewritten, added or annotated), on every write that does that.
 
-Your terminal reply after the check is one line naming the spec's path: the pane shows the builder's
+Your terminal reply after sorting is one line naming the spec's path: the pane shows the builder's
 questions, your calls and what the design already answered, so do not list them there.
 
 On `brainstorm: builder answer: <text>`: the answer is for the first `check.yours` entry with no

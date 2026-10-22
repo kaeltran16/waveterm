@@ -26,7 +26,15 @@ const (
 	UsageRole_PlanReviewer = "plan-reviewer"
 	// UsageRole_Verifier is a run's StageRole as well: the engine's final verifier on the merged result.
 	UsageRole_Verifier = "verifier"
+	// UsageRole_BuilderCheck is a run's StageRole as well: the one-shot reviewer of a brainstorm's builder check.
+	UsageRole_BuilderCheck = "builder-check"
 )
+
+// IsBuilderCheck reports a builder-check session's run. It is bookkeeping for the check's usage and transcript, so
+// the lists and attention a person reads leave it out.
+func IsBuilderCheck(r *waveobj.Run) bool {
+	return r.StageRole == UsageRole_BuilderCheck
+}
 
 // UsageRole is the part a run played in its dag: a dag-level judging session (its StageRole), the child that
 // reviews a task, the child that works one, or the lead that owns the dag.

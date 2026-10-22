@@ -24,6 +24,7 @@ type AgentCommands interface {
 	AgentsSendCommand(ctx context.Context, data CommandAgentsSendData) (*CommandAgentsSendRtnData, error)                                 // hand a prompt from one agent to another's live session
 	AgentsReadCommand(ctx context.Context, data CommandAgentsReadData) (*CommandAgentsReadRtnData, error)                                 // a live agent's state and last answer
 	AgentPromptCommand(ctx context.Context, data CommandAgentPromptData) error                                                            // the cockpit's own prompt to a block's agent session: its mod runs it, or it is typed
+	BrainstormCheckCommand(ctx context.Context, data CommandBrainstormCheckData) error                                                    // run the builder check on a brainstorm.json as a one-shot judging session
 }
 
 // what a live agent session is doing, as AgentInfo.State and CommandAgentsReadRtnData.State carry it.
@@ -52,6 +53,13 @@ type CommandAgentsSendData struct {
 	Tab      string `json:"tab"` // a tab id or a unique prefix of one
 	Text     string `json:"text"`
 	FromORef string `json:"fromoref"` // the sender's block oref
+}
+
+// CommandBrainstormCheckData starts the builder check: File is the absolute path of the brainstorm.json, BlockId the
+// brainstorming agent's block.
+type CommandBrainstormCheckData struct {
+	BlockId string `json:"blockid"`
+	File    string `json:"file"`
 }
 
 type CommandAgentPromptData struct {
