@@ -19,6 +19,7 @@ import { Check } from "./brainstormcheck";
 import {
     boardBackLabel,
     decisionParts,
+    droppedQuestion,
     exitedSummary,
     historyRows,
     isNote,
@@ -26,6 +27,7 @@ import {
     mainView,
     noteParts,
     paneView,
+    partAnswer,
     partBoards,
     partGist,
     partView,
@@ -64,6 +66,7 @@ import {
     onEnter,
     PART_BTN,
     QuestionMain,
+    SaidLine,
     SECTION_HEAD,
     SMALL_DOT,
     StaleBanner,
@@ -439,9 +442,15 @@ function PartRow({
     } else if (view === "writing") {
         right = <span className="text-[11.5px] text-success">Being written</span>;
     } else {
-        right = <span className="text-[11.5px] text-muted">Open</span>;
+        const dropped = droppedQuestion(f, part);
+        right = (
+            <span className="text-[11.5px] text-muted">
+                Open{dropped != null ? ` · question ${dropped} dropped` : ""}
+            </span>
+        );
     }
     const dim = view === "open" && !note;
+    const said = partAnswer(f, part);
     const boards = view === "writing" ? null : partBoards(f, part, s.base);
 
     return (
@@ -468,18 +477,22 @@ function PartRow({
                     >
                         {part.title}
                     </span>
-                    <span
-                        data-brainstorm-gist
-                        className={cn(
-                            "min-w-0 flex-1 leading-[1.45]",
-                            note ? "text-[13px] text-ink-mid" : "text-[13.5px]",
-                            !note && (dim ? "text-muted" : "text-secondary")
-                        )}
-                    >
-                        {partGist(f, part)}
+                    <span className="flex min-w-0 flex-1 flex-col gap-[2px]">
+                        <span
+                            data-brainstorm-gist
+                            className={cn(
+                                "leading-[1.45]",
+                                note ? "text-[13px] text-ink-mid" : "text-[13.5px]",
+                                !note && (dim ? "text-muted" : "text-secondary")
+                            )}
+                        >
+                            {partGist(f, part)}
+                        </span>
+                        {said != null ? <SaidLine said={said} open={open} /> : null}
                     </span>
+                    {/* the answer line under the gist names the answer, so the column would only repeat it */}
                     <span title={part.from} className="w-[120px] flex-none truncate font-mono text-[10.5px] text-muted">
-                        {part.from}
+                        {said != null ? null : part.from}
                     </span>
                 </button>
                 <span className="flex h-[20px] min-w-[150px] flex-none items-center justify-end gap-[8px]">
@@ -599,7 +612,7 @@ function IntoLinks({
 // every question answered with all it offered, newest first, and the recon it all stood on at the bottom
 function DecidedRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void }) {
     const rows = historyRows(f);
-    const decided = rows.filter((r) => r.kind === "question").length;
+    const decided = rows.filter((r) => r.kind === "question" && !r.dropped).length;
     const working = f.working != null;
     return (
         <aside
@@ -625,7 +638,7 @@ function DecidedRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => voi
                             <IntoLinks into={h.into} goTo={goTo} />
                         </div>
                     ) : (
-                        <RailQuestion key={h.label} h={h} justNow={i === 0 && working} goTo={goTo} />
+                        <RailQuestion key={`${h.label}:${i}`} h={h} justNow={i === 0 && working} goTo={goTo} />
                     )
                 )}
             </div>
@@ -637,14 +650,25 @@ function DecidedRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => voi
 function RailQuestion({ h, justNow, goTo }: { h: HistoryRow; justNow: boolean; goTo: (id: string) => void }) {
     const [open, setOpen] = useState(false);
     return (
-        <div data-brainstorm-rail-entry className="flex flex-col gap-[8px] border-t border-border py-[12px]">
+        <div
+            data-brainstorm-rail-entry
+            data-dropped={h.dropped ? "" : undefined}
+            className="flex flex-col gap-[8px] border-t border-border py-[12px]"
+        >
             <div className="flex items-baseline gap-[8px]">
                 <span className="flex-none font-mono text-[10.5px] text-muted">
                     {h.label}
-                    {justNow ? " · just now" : ""}
+                    {h.dropped ? " · dropped" : justNow ? " · just now" : ""}
                 </span>
-                <span className="text-[12.5px] leading-[1.45] text-ink-mid">{h.q}</span>
+                <span className={cn("text-[12.5px] leading-[1.45]", h.dropped ? "text-muted" : "text-ink-mid")}>
+                    {h.q}
+                </span>
             </div>
+            {h.dropped ? (
+                <div className="pl-[23px] text-[12px] leading-[1.5] text-muted">
+                    Dropped after your pushback, unanswered: nothing was decided from it.
+                </div>
+            ) : null}
             {open && h.why != null ? (
                 <div data-brainstorm-rail-why className="pl-[23px] text-[12px] leading-[1.5] text-muted">
                     Why: {h.why}
