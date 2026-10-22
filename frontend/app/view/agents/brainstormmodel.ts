@@ -27,6 +27,8 @@ export type BrainstormPart = {
     gist?: string;
     body: string;
     boards?: string[];
+    // throwaway live pages, as paths under the canvas folder
+    spikes?: string[];
     was?: string;
     why?: string;
 };
@@ -103,6 +105,18 @@ function lines(v: unknown): string[] {
     return strings(v).filter((s) => s.trim() !== "");
 }
 
+// a path under the canvas folder, with / between its segments; anything that could leave the folder is dropped
+function spikePaths(v: unknown): string[] {
+    return strings(v)
+        .map((s) =>
+            s
+                .trim()
+                .replace(/\\/g, "/")
+                .replace(/^(\.\/)+/, "")
+        )
+        .filter((s) => s !== "" && !s.startsWith("/") && !/^[a-z]:/i.test(s) && !s.split("/").includes(".."));
+}
+
 class FieldError extends Error {}
 
 function parsePart(raw: unknown, i: number): BrainstormPart {
@@ -116,6 +130,7 @@ function parsePart(raw: unknown, i: number): BrainstormPart {
         throw new FieldError(`part "${id}" has an unknown state "${String(raw.state)}"`);
     }
     const boards = strings(raw.boards);
+    const spikes = spikePaths(raw.spikes);
     return {
         id,
         title: str(raw.title) ?? id,
@@ -125,6 +140,7 @@ function parsePart(raw: unknown, i: number): BrainstormPart {
         ...(str(raw.from) != null ? { from: str(raw.from) } : {}),
         ...(str(raw.gist) ? { gist: str(raw.gist) } : {}),
         ...(boards.length > 0 ? { boards } : {}),
+        ...(spikes.length > 0 ? { spikes } : {}),
         ...(str(raw.was) != null ? { was: str(raw.was) } : {}),
         ...(str(raw.why) != null ? { why: str(raw.why) } : {}),
     };
@@ -494,6 +510,21 @@ export function partTitle(f: BrainstormFile, id: string): string {
 // a part's mockups draw once the brainstorm names its canvas and the canvas is served (base)
 export function partBoards(f: BrainstormFile, p: BrainstormPart | undefined, base: string | null): string[] | null {
     return p?.boards != null && p.boards.length > 0 && f.canvas != null && base != null ? p.boards : null;
+}
+
+// a part's spikes, like its boards, open once the canvas is named and served
+export function partSpikes(f: BrainstormFile, p: BrainstormPart | undefined, base: string | null): string[] | null {
+    return p?.spikes != null && p.spikes.length > 0 && f.canvas != null && base != null ? p.spikes : null;
+}
+
+// whether a part has anything to open: a review row with nothing else under it still opens for this
+export function hasMockups(f: BrainstormFile, p: BrainstormPart | undefined, base: string | null): boolean {
+    return partBoards(f, p, base) != null || partSpikes(f, p, base) != null;
+}
+
+// a spike is served from the canvas folder itself, where boards are served from its project/ (boardUrl)
+export function spikeUrl(base: string, canvas: string, path: string): string {
+    return `${base}/${encodeURIComponent(canvas)}/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 // the asked part's mockups, beside the answers, so a question between layouts shows them

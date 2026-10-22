@@ -11,6 +11,7 @@ import type { AgentVM } from "./agentsviewmodel";
 import {
     checkReview,
     handoffView,
+    hasMockups,
     partAnswer,
     partGist,
     type BrainstormAction,
@@ -34,6 +35,7 @@ import {
     LINK,
     onEnter,
     PART_BTN,
+    PartMockups,
     SaidLine,
     SECTION_HEAD,
     useAction,
@@ -88,6 +90,7 @@ export function CheckReview({
         <ReviewRowView
             key={x.id}
             agent={agent}
+            s={s}
             f={f}
             row={x}
             cursor={x.id === cursor}
@@ -123,8 +126,8 @@ export function CheckReview({
                         {r.fresh.map(row)}
                     </section>
                 ) : null}
-                <PartLinks kind="unchanged" label="Yours, unchanged" f={f} parts={r.unchanged} />
-                <PartLinks kind="notes" label="What the agent found" f={f} parts={r.notes} />
+                <PartLinks kind="unchanged" label="Yours, unchanged" agent={agent} s={s} f={f} parts={r.unchanged} />
+                <PartLinks kind="notes" label="What the agent found" agent={agent} s={s} f={f} parts={r.notes} />
             </div>
         </div>
     );
@@ -155,12 +158,14 @@ function KeepAll({ agent, f, pending }: { agent: AgentVM; f: BrainstormFile; pen
 // arrow that opens what it was
 function ReviewRowView({
     agent,
+    s,
     f,
     row,
     cursor,
     open,
 }: {
     agent: AgentVM;
+    s: BrainstormState;
     f: BrainstormFile;
     row: ReviewRow;
     cursor: boolean;
@@ -172,15 +177,15 @@ function ReviewRowView({
     const working = f.working != null;
     const locked = working || act.busy;
     const lockTitle = working ? WORKING_TITLE : undefined;
-    // only a decision that was yours has something it was: what is new since the check has not
-    const expandable = row.action === "keep-restore" || row.view === "yours";
+    const part = f.parts.find((p) => p.id === row.id);
+    // only a decision that was yours has something it was: what is new since the check opens only for its mockups
+    const expandable = row.action === "keep-restore" || row.view === "yours" || hasMockups(f, part, s.base);
     const send = (action: BrainstormAction) => act.run(() => sendBrainstorm(agent, action));
     const toggle = () => toggleReviewRow(agent.id, row.id);
     const startEdit = () => {
         setDraft(row.body);
         setEditing(true);
     };
-    const part = f.parts.find((p) => p.id === row.id);
     let right = null;
     if (row.action === "keep-restore") {
         right = (
@@ -309,6 +314,7 @@ function ReviewRowView({
                             {row.body}
                         </div>
                     )}
+                    {part != null ? <PartMockups agentId={agent.id} s={s} f={f} part={part} /> : null}
                 </div>
             ) : null}
             {editing ? (
@@ -362,11 +368,15 @@ function ReviewRowView({
 function PartLinks({
     kind,
     label,
+    agent,
+    s,
     f,
     parts,
 }: {
     kind: string;
     label: string;
+    agent: AgentVM;
+    s: BrainstormState;
     f: BrainstormFile;
     parts: BrainstormPart[];
 }) {
@@ -411,6 +421,7 @@ function PartLinks({
                 </div>
             ) : null}
             {said != null ? <SaidLine said={said} open /> : null}
+            {part != null ? <PartMockups agentId={agent.id} s={s} f={f} part={part} /> : null}
         </section>
     );
 }

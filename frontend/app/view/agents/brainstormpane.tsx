@@ -28,7 +28,6 @@ import {
     noteParts,
     paneView,
     partAnswer,
-    partBoards,
     partGist,
     partView,
     resumePrompt,
@@ -69,12 +68,12 @@ import {
     LINK,
     onEnter,
     PART_BTN,
+    PartMockups,
     QuestionMain,
     SaidLine,
     SECTION_HEAD,
     SMALL_DOT,
     StaleBanner,
-    Thumbnails,
     Toolbar,
     useAction,
     WORKING_TITLE,
@@ -483,7 +482,6 @@ function PartRow({
     }
     const dim = view === "open" && !note;
     const said = partAnswer(f, part);
-    const boards = view === "writing" ? null : partBoards(f, part, s.base);
 
     return (
         <div
@@ -591,9 +589,7 @@ function PartRow({
                             {view === "changed" && !note ? <ChangeDiff part={part} /> : null}
                         </>
                     )}
-                    {boards != null ? (
-                        <Thumbnails agentId={agent.id} s={s} canvas={f.canvas!} base={s.base!} boards={boards} />
-                    ) : null}
+                    {view === "writing" ? null : <PartMockups agentId={agent.id} s={s} f={f} part={part} />}
                 </div>
             ) : null}
             {act.error != null ? <span className={cn(ERROR_LINE, "px-[14px] pb-[8px]")}>{act.error}</span> : null}
