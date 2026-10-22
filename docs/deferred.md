@@ -14,6 +14,37 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > with no trigger moved to "Declined 2026-10-16" below, and history paragraphs were cut to their recovery
 > lines. The full pre-prune text of every entry: `git show db067efe:docs/deferred.md`.
 
+## Builder check end to end, with a real reviewer (deferred 2026-10-22)
+
+The brainstorm builder check (`docs/superpowers/specs/2026-10-22-brainstorm-builder-check-reviewer-design.md`,
+`docs/agents/brainstorm.md` "How Arc runs the builder check") launches a one-shot reviewer session. No test
+or scenario runs it with a real claude or pi reviewer.
+
+- **Why:** a real reviewer costs a whole session and several minutes, and the model's questions differ on
+  every run, so no CDP scenario can assert on them. The reviewer path is proved in pieces instead.
+- **What stands in for it:**
+  - `go test ./pkg/brainstormcheck` (`Decide`, the prompt fill, the report path, the delivery line).
+  - `go test ./pkg/wshrpc/wshserver -run 'BrainstormCheck|BuilderCheck'`: the handler's refusals, the route
+    chain, the watcher delivering, failing and re-arming at startup, with the launch stubbed.
+  - `go test ./pkg/orchestrate -run 'StageSession|JudgingSession'`: the launcher the check shares with the
+    plan reviewer and final verifier.
+  - `task verify:ui -- brainstorm-builder-check`: the pane's pending, result, failed and Try again states,
+    with the scenario playing the server by setting the tab meta.
+- **Steps for a person, once per harness (claude, then pi):**
+  1. In the dev app, start an agent on a scratch project and brainstorm something small to `done`, every
+     part confirmed.
+  2. Press Check with a builder. Expect the pane to read "A builder is reading the design.", Check
+     unavailable, and the reviewer's tab in the roster as a solo session with no run row.
+  3. When the reviewer ends, expect `builder-check.md` in the topic folder, the line `brainstorm: builder
+     questions <path>` in the agent, then `check` filled in the file and the questions in the pane.
+  4. Repeat with the route set to a pi reviewer in the run settings, and once with a bad route to see the
+     failed card and Try again.
+  5. Check usage counts the run under `builder-check`, and that `wsh runs list` shows no run for it.
+- **Revive when:** the reviewer's prompt or the route chain changes, or a check is seen to hang or return
+  nothing on a real project.
+
+Nothing was built for this beyond the tests above, so there is nothing to recover from git.
+
 ## Declined 2026-10-16 — held for weeks with no trigger
 
 Each was held on a revive condition that never fired. Nothing here is to be resurfaced without new evidence;
