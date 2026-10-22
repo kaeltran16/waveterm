@@ -13,6 +13,10 @@ export default defineConfig({
     // serve the workspace-root public/ (Font Awesome + other static assets Electron used to serve).
     // without this, publicDir defaults to frontend/tauri/public and /fontawesome/* 404s to the SPA fallback.
     publicDir: resolve(fe, "../public"),
+    // a worktree's node_modules is a junction to the main checkout's, so its default node_modules/.vite is shared by
+    // every dev app on the machine: one re-optimizing mid-boot swaps the deps under another and loads two reacts.
+    // scripts/cdp/final-verify.mjs gives its dev app a cache of its own; unset keeps vite's default
+    cacheDir: process.env.ARC_VITE_CACHE_DIR || undefined,
     plugins: [react(), tailwindcss()],
     resolve: {
         alias: {

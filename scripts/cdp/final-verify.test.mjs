@@ -256,6 +256,20 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         expect(a.devUrl).not.toBe(b.devUrl);
     }, 30_000);
 
+    // node_modules is a junction to the main checkout's, so its .vite cache is shared with every dev app on the
+    // machine: one re-optimizing mid-boot swaps react's chunks under another and loads two copies of react
+    it("gives each slot its own vite cache, outside node_modules", async () => {
+        const base = makeBase();
+        await runTwo(join(dir, "dev.log"));
+
+        const [a, b] = ["out-a", "out-b"].map((name) => JSON.parse(readFileSync(join(dir, name, "env.json"), "utf8")));
+        expect(a.ARC_VITE_CACHE_DIR).not.toBe(b.ARC_VITE_CACHE_DIR);
+        for (const env of [a, b]) {
+            expect(dirname(env.ARC_VITE_CACHE_DIR)).toBe(base);
+            expect(env.ARC_VITE_CACHE_DIR).not.toContain("node_modules");
+        }
+    }, 30_000);
+
     it("runs two final stages one after the other when one slot is free", async () => {
         const base = makeBase();
         const first = await acquireBuildSlot(base, 0);
