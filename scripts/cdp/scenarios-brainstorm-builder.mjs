@@ -9,6 +9,8 @@ import { join } from "node:path";
 const TOPIC = "detector-engine-models";
 const SPEC = "docs/superpowers/specs/2026-10-21-detector-engine-models-design.md";
 const BOARD = "Main.dc.html";
+// a live spike, under the canvas folder rather than its project/
+const SPIKE = "spike/motion.html";
 // the shell's prompt ends its last row: pwsh and cmd end in >, bash and zsh in $, # or %
 const PROMPT = /[>$#%]$/;
 const PROMPT_WAIT_MS = 20000;
@@ -25,6 +27,7 @@ const PART = {
         body: "The forecaster grades HIGH-tier entities’ fields against a predicted weekday range instead of a flat z-score.",
         // the prototype New run attaches is the first board a part names
         boards: [BOARD],
+        spikes: [SPIKE],
     },
     model: {
         title: "The forecast model",
@@ -239,6 +242,9 @@ export default function (kit) {
                     mkdirSync(project, { recursive: true });
                     writeFileSync(join(project, "canvas.json"), JSON.stringify({ boards: { [BOARD]: { w: 1600 } }, order: [BOARD] }));
                     writeFileSync(join(project, BOARD), `<!doctype html><title>${BOARD}</title><h1>${BOARD}</h1>`);
+                    const spike = join(ctx.cwd, ".superpowers", "design", TOPIC, ...SPIKE.split("/"));
+                    mkdirSync(join(spike, ".."), { recursive: true });
+                    writeFileSync(spike, `<!doctype html><title>${SPIKE}</title><h1>${SPIKE}</h1>`);
                     await h.rpc("createproject", { name: TOPIC, path: ctx.cwd });
                     ctx.project = TOPIC;
                     for (let waited = 0; ; waited += 250) {
@@ -341,6 +347,45 @@ export default function (kit) {
                     opened && s3.ok && s3.back === "Back to the question",
                     { opened, ...bsBrief(s3), back: s3.back, builder: s3.builder.slice(0, 80) }
                 );
+                // 3a. the check's review keeps a part's mockups: the guess row opens to its board and spike
+                const ROLE_ROW = `${BS_PANE}?.querySelector('[data-brainstorm-review-row="role"]')`;
+                const toggled = await h.ev(`(() => {
+                    const t = ${ROLE_ROW}?.querySelector("[data-brainstorm-review-toggle]");
+                    if (!t) return "missing";
+                    t.click();
+                    return "clicked";
+                })()`);
+                const thumbShown = await polishWaitFor(
+                    h,
+                    `!!${ROLE_ROW}?.querySelector('[data-brainstorm-thumb="${BOARD}"] iframe') && !!${ROLE_ROW}?.querySelector("[data-brainstorm-spike]")`,
+                    5000
+                );
+                // the link's title is parked by the tooltip while hovered, and the canvas server sends no CORS headers,
+                // so the spike is fetched from here, from the folder the board is served from
+                const mockups = await h.ev(`(() => {
+                    const row = ${ROLE_ROW};
+                    return {
+                        src: row?.querySelector('[data-brainstorm-thumb="${BOARD}"] iframe')?.getAttribute("src") ?? "",
+                        open: !!row?.querySelector("[data-brainstorm-open-board]"),
+                        spikePath: row?.querySelector("[data-brainstorm-spike]")?.getAttribute("data-brainstorm-spike") ?? "",
+                    };
+                })()`);
+                mockups.served = mockups.src.slice(0, mockups.src.lastIndexOf("/project/")) + `/${SPIKE}`;
+                const spikePage = mockups.src === "" ? "" : await fetch(mockups.served).then((r) => (r.ok ? r.text() : "")).catch(() => "");
+                mockups.spikeServed = spikePage.includes(`<h1>${SPIKE}</h1>`);
+                await h.shot("cdp-shots/brainstorm-builder-ask-3a-mockups.png");
+                rec(
+                    "3a. in the check's review, the row of a part with a board opens to its thumbnail, Open full size, and its spike link under the canvas folder",
+                    toggled === "clicked" &&
+                        thumbShown &&
+                        mockups.src.endsWith(`/${TOPIC}/project/${BOARD}`) &&
+                        mockups.open &&
+                        mockups.spikePath === SPIKE &&
+                        mockups.spikeServed,
+                    { toggled, thumbShown, ...mockups }
+                );
+                await h.ev(`${ROLE_ROW}?.querySelector("[data-brainstorm-review-toggle]")?.click()`);
+
                 const closed = await bsCloseDesign(h);
                 const s3b = await bsUntil(h, ctx, (s) => s.builder !== "" && s.back === "", 3000);
                 await h.shot("cdp-shots/brainstorm-builder-ask-3-back.png");

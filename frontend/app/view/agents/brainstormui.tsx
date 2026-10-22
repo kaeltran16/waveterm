@@ -4,6 +4,7 @@
 // The pieces every brainstorm view shares: the class constants, the toolbar, the question and its answers, the
 // working view and the was/now diff.
 
+import { getApi } from "@/app/store/global";
 import { cn } from "@/util/util";
 import { Fragment, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { AgentVM } from "./agentsviewmodel";
@@ -12,12 +13,15 @@ import {
     designLabel,
     hasProsCons,
     optionLetter,
+    partBoards,
+    partSpikes,
     partTitle,
     phaseSteps,
     progressView,
     questionBoards,
     questionTrack,
     sentenceDiff,
+    spikeUrl,
     type AnswerOption,
     type BrainstormAction,
     type BrainstormFile,
@@ -596,6 +600,51 @@ export function QuestionMain({
                     ) : null}
                 </div>
             </MainBody>
+        </div>
+    );
+}
+
+// what a part shows to look at, wherever its body opens: the talk's part rows and the check's review
+export function PartMockups({
+    agentId,
+    s,
+    f,
+    part,
+}: {
+    agentId: string;
+    s: BrainstormState;
+    f: BrainstormFile;
+    part: BrainstormPart;
+}) {
+    const boards = partBoards(f, part, s.base);
+    const spikes = partSpikes(f, part, s.base);
+    return (
+        <>
+            {boards != null ? (
+                <Thumbnails agentId={agentId} s={s} canvas={f.canvas!} base={s.base!} boards={boards} />
+            ) : null}
+            {spikes != null ? <Spikes base={s.base!} canvas={f.canvas!} spikes={spikes} /> : null}
+        </>
+    );
+}
+
+// a spike is a live page to feel, not a board to look at, so it opens in the browser rather than the canvas
+function Spikes({ base, canvas, spikes }: { base: string; canvas: string; spikes: string[] }) {
+    return (
+        <div data-brainstorm-spikes className="flex flex-wrap items-baseline gap-x-[14px] gap-y-[4px]">
+            <span className="text-[11.5px] text-muted">{spikes.length > 1 ? "Live spikes" : "Live spike"}</span>
+            {spikes.map((path) => (
+                <button
+                    key={path}
+                    type="button"
+                    data-brainstorm-spike={path}
+                    title={spikeUrl(base, canvas, path)}
+                    onClick={() => getApi().openExternal(spikeUrl(base, canvas, path))}
+                    className={cn(LINK, "border-0 bg-transparent p-0 font-mono text-[11.5px]")}
+                >
+                    {path}
+                </button>
+            ))}
         </div>
     );
 }

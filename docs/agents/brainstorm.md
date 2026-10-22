@@ -107,6 +107,11 @@ which opens the design with those notes open. Coming back from the design clears
 whose state alone changed (a confirm) is not new. The skill puts a summary of any report in the
 question's `why` too, since the link says only how many notes there are.
 
+A part's mockups draw under its body when its row opens: each board a scaled live thumbnail with
+Open full size (the canvas), each of its `spikes` (a throwaway live page under the canvas folder, for
+motion a board cannot show) a link that opens it in the browser from the same served folder.
+`PartMockups` in `brainstormui.tsx` draws both, from `partBoards` and `partSpikes`.
+
 **Builder check.** Check with a builder appears once the agent sets `done`, no question is open and
 every part is yours.
 
@@ -115,6 +120,10 @@ every part is yours.
 The check view shows what a fresh builder asked: the questions only you can answer, the calls the
 agent made (marked "Agent's call" in the spec and under their parts), and what the design already
 answered. Approve stays off until every builder question has an answer.
+
+The check's review keeps every part's mockups reachable while the user confirms the design: a review
+row whose part has a board or a spike opens to them (even a row new since the check, which has
+nothing it was), and so does a part opened from the "Yours, unchanged" and notes links under it.
 
 Any question the agent waits on is in the file's `question`, in every phase. A question about no
 part (a choice the agent needs before it can go on) shows as a plain "Question N" card, without

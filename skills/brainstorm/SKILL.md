@@ -21,7 +21,7 @@ What changes from plain brainstorming:
 - The user reads the pane, not the terminal. Your terminal reply is one short line on what you
   changed, then the question you are waiting on. Never repeat a part's text there.
 - Mockups are `arc:design` boards, listed on the part they illustrate. Never start the visual
-  companion's server inside Arc.
+  companion's server inside Arc. A live spike is listed on its part too, never only in the terminal.
 - Still end every turn on the question in the terminal: the file is what Arc shows, the terminal is
   what you wait on.
 
@@ -87,10 +87,10 @@ Everything else is optional and read leniently, but write every field as describ
 | Field | What it holds |
 |---|---|
 | `spec` | The spec path, relative to the project (or absolute). You write the spec there on `brainstorm: check`. |
-| `canvas` | The `arc:design` topic whose boards the parts list: boards live in `.superpowers/design/<canvas>/project/`. Omit it when there are no mockups. |
+| `canvas` | The `arc:design` topic whose boards and spikes the parts list: boards live in `.superpowers/design/<canvas>/project/`, spikes anywhere under `.superpowers/design/<canvas>/`. Omit it when there are no mockups. |
 | `question` | `{ "n", "text", "part", "why", "read", "options" }`: the question you are waiting on, its number (1, 2, 3, ...), the id of the part it is for, why you ask it, your one-line read of the options, and the answers you offer (below). Leave `part` out for a question about no part (below). `null` while you are not asking. |
 | `working` | One short line on what is still underway, set only when a turn ends with work running in the background (below). Arc shows it in place of the question and locks the pane's controls while it is set. `null` otherwise. |
-| `parts[]` | The design, in display order. `title`; `state`; `kind` (`"note"` for background, below; leave it out for a decision); `gist` (the part in one line, below); `body` (the part's text); `from` (where it came from: `answer 2`, `mockup`, `recon`); `boards` (board file names under the canvas's `project/`); `was` / `why` (below). |
+| `parts[]` | The design, in display order. `title`; `state`; `kind` (`"note"` for background, below; leave it out for a decision); `gist` (the part in one line, below); `body` (the part's text); `from` (where it came from: `answer 2`, `mockup`, `recon`); `boards` (board file names under the canvas's `project/`); `spikes` (live spike pages, as paths under the canvas folder, below); `was` / `why` (below). |
 | `history[]` | Every finished exchange, oldest first: `kind` (`question` or `recon`), `n` (the question's number), `q`, `why` (the question's `why`), `a`, `into` (the part ids it went into), and for a question that offered answers, `options` and `picked` (below). A question dropped after pushback has `superseded: true`, `part` (the part it was asked for) and no `a` (below). |
 | `done` | `true` only when nothing is left to ask. |
 | `check` | The builder check's result (below), else `null`. |
@@ -279,7 +279,15 @@ make it a `guess`. It stays a guess until they keep or restore it.
 
 **Mockups.** Draw them as `arc:design` boards under `.superpowers/design/<canvas>/project/`, set
 `canvas`, and list each board's file name in `boards` on the part it illustrates. Arc draws it as a
-thumbnail in the part, under its body when the user opens it. The run's prototype is the first board any part lists.
+thumbnail in the part, under its body when the user opens it, in the talk and in the builder check's
+review alike. The run's prototype is the first board any part lists.
+
+A spike is a throwaway live page for what a board cannot show, such as motion or a drag: a plain
+HTML file under the canvas folder, e.g. `.superpowers/design/<canvas>/spike/motion.html`. List its
+path relative to the canvas folder in `spikes` on the part it illustrates (`"spikes":
+["spike/motion.html"]`), and set `canvas`. Arc serves the folder and shows each spike as a link in
+the part that opens it in the browser. A spike is listed on the part it illustrates, never only in
+the terminal: a URL in the terminal is gone once the user reads the pane.
 
 **Left to the builder.** The part with id `builder` and title `Left to the builder` is always the
 last part. Write it as a `guess` once nothing is left to ask.

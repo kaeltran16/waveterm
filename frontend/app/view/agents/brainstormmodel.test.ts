@@ -25,6 +25,7 @@ import {
     droppedQuestion,
     exitedSummary,
     handoffView,
+    hasMockups,
     hasProsCons,
     historyRows,
     isAsking,
@@ -39,6 +40,7 @@ import {
     partAnswer,
     partBoards,
     partGist,
+    partSpikes,
     partTitle,
     partView,
     phaseSteps,
@@ -56,6 +58,7 @@ import {
     sentenceDiff,
     settleSent,
     shownFile,
+    spikeUrl,
     terminalAnswer,
     treeLine,
     unseenSince,
@@ -1547,6 +1550,67 @@ describe("partBoards and questionBoards", () => {
     it("none until the canvas is named and served", () => {
         expect(questionBoards(file({ parts, question: q("layout") }), BASE)).toBeNull();
         expect(questionBoards(file({ canvas: "topic", parts, question: q("layout") }), null)).toBeNull();
+    });
+});
+
+describe("spikes", () => {
+    const BASE = "http://127.0.0.1:1234";
+    const spikesOf = (spikes: unknown) => {
+        const r = parseBrainstorm(raw({ parts: [{ id: "a", title: "A", state: "yours", body: "x", spikes }] }));
+        return r.ok ? r.file.parts[0].spikes : "error";
+    };
+
+    it("a part lists its spikes as paths under the canvas folder", () => {
+        expect(spikesOf(["spike/motion.html", "spike/drag.html"])).toEqual(["spike/motion.html", "spike/drag.html"]);
+    });
+
+    it("reads backslashes and a leading ./ as the same path", () => {
+        expect(spikesOf(["spike\\motion.html", "./spike/drag.html"])).toEqual(["spike/motion.html", "spike/drag.html"]);
+    });
+
+    it("drops what is not a path under the canvas folder, keeping the rest", () => {
+        expect(
+            spikesOf([
+                "",
+                "  ",
+                5,
+                "/abs/x.html",
+                "C:/x.html",
+                "../other/x.html",
+                "spike/../../x.html",
+                "spike/ok.html",
+            ])
+        ).toEqual(["spike/ok.html"]);
+    });
+
+    it("leaves spikes out when there are none or they are not a list", () => {
+        expect(spikesOf(undefined)).toBeUndefined();
+        expect(spikesOf("spike/motion.html")).toBeUndefined();
+        expect(spikesOf(["../x.html"])).toBeUndefined();
+    });
+
+    it("a part's spikes show once the canvas is named and served", () => {
+        const p = part("motion", "yours", { spikes: ["spike/motion.html"] });
+        const f = file({ canvas: "topic", parts: [p] });
+        expect(partSpikes(f, p, BASE)).toEqual(["spike/motion.html"]);
+        expect(partSpikes(f, p, null)).toBeNull();
+        expect(partSpikes(file({ parts: [p] }), p, BASE)).toBeNull();
+        expect(partSpikes(f, part("copy", "open"), BASE)).toBeNull();
+        expect(partSpikes(f, undefined, BASE)).toBeNull();
+    });
+
+    it("a part has mockups when it has boards or spikes to open", () => {
+        const spiked = part("motion", "guess", { spikes: ["spike/motion.html"] });
+        const boarded = part("page", "guess", { boards: ["Page.dc.html"] });
+        const f = file({ canvas: "topic", parts: [spiked, boarded] });
+        expect(hasMockups(f, spiked, BASE)).toBe(true);
+        expect(hasMockups(f, boarded, BASE)).toBe(true);
+        expect(hasMockups(f, part("copy", "guess"), BASE)).toBe(false);
+        expect(hasMockups(f, spiked, null)).toBe(false);
+    });
+
+    it("a spike is served from the canvas folder, each segment encoded", () => {
+        expect(spikeUrl(BASE, "my topic", "spike/motion one.html")).toBe(`${BASE}/my%20topic/spike/motion%20one.html`);
     });
 });
 
