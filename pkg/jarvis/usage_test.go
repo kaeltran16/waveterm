@@ -141,6 +141,7 @@ func TestUsageRoleOfAStageSession(t *testing.T) {
 	}{
 		{waveobj.Run{StageRole: UsageRole_PlanReviewer}, UsageRole_PlanReviewer},
 		{waveobj.Run{StageRole: UsageRole_Verifier}, UsageRole_Verifier},
+		{waveobj.Run{StageRole: UsageRole_BuilderCheck}, "builder-check"},
 		{waveobj.Run{TaskId: "t-1", Review: true}, UsageRole_Reviewer},
 		{waveobj.Run{TaskId: "t-1"}, UsageRole_Worker},
 		{waveobj.Run{}, UsageRole_Lead},

@@ -150,6 +150,12 @@ export class RpcApiType {
         return client.wshRpcCall("blockslist", data, opts);
     }
 
+    // command "brainstormcheck" [call]
+    BrainstormCheckCommand(client: WshClient, data: CommandBrainstormCheckData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "brainstormcheck", data, opts);
+        return client.wshRpcCall("brainstormcheck", data, opts);
+    }
+
     // command "cancelrun" [call]
     CancelRunCommand(client: WshClient, data: CommandCancelRunData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "cancelrun", data, opts);

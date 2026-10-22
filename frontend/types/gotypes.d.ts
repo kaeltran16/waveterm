@@ -518,6 +518,12 @@ declare global {
         termsize?: TermSize;
     };
 
+    // wshrpc.CommandBrainstormCheckData
+    type CommandBrainstormCheckData = {
+        blockid: string;
+        file: string;
+    };
+
     // wshrpc.CommandCancelRunData
     type CommandCancelRunData = {
         channelid: string;
@@ -2308,6 +2314,11 @@ declare global {
         "session:effort"?: string;
         "session:brainstorm"?: string;
         "session:collapsedgroups"?: string[];
+        "brainstorm:checkstate"?: string;
+        "brainstorm:checkts"?: number;
+        "brainstorm:checkrun"?: string;
+        "brainstorm:checkchannel"?: string;
+        "brainstorm:checkreason"?: string;
         "app:loom"?: boolean;
         "agent:transcriptpath"?: string;
         "agent:lastcommitts"?: number;
