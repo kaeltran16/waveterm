@@ -197,6 +197,9 @@ func prepareActionLocked(ctx context.Context, dagID, taskID, action string, targ
 		if reviewState(task.State) {
 			return nil, nil
 		}
+		if !retryable(task.State) {
+			return nil, fmt.Errorf("task %q cannot be retried from state %q", taskID, task.State)
+		}
 	case "escalate":
 		owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
 		if err != nil {
@@ -321,6 +324,8 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 		if err := RetryTask(g, taskID); err != nil {
 			return err
 		}
+		// the human's retry is the answer to the failures so far, as an escalation is: the engine's own retries start over
+		taskByID(g, taskID).Attempts = 0
 	case "escalate":
 		task := taskByID(g, taskID)
 		if task == nil {

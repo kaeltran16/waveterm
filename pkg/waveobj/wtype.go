@@ -331,6 +331,9 @@ type RunLand struct {
 	// Dirty is a hold made only by uncommitted changes in the checkout, another session's or the human's: the
 	// engine lands the run by itself once they are gone.
 	Dirty bool `json:"dirty,omitempty"`
+	// Busy is a hold made only by another landing holding the checkout (a merge, its Verify, another run's land):
+	// the engine lands the run by itself once it lets go.
+	Busy bool `json:"busy,omitempty"`
 	// Force is a held land that was asked to go past a failed final stage, so the engine's retry of it does too.
 	Force bool `json:"force,omitempty"`
 }
@@ -404,7 +407,8 @@ type TaskNode struct {
 	// ToldTs is the transcript time of the newest message the human typed into the child's own session that
 	// the owning run already records as task-told, so each message is recorded once; 0 = none yet.
 	ToldTs int64 `json:"toldts,omitempty"`
-	// Attempts is the consecutive count for LastFailureKind.
+	// Attempts counts the failures in a row, of any kind, since the task last succeeded or a human retried or
+	// escalated it.
 	Attempts int `json:"attempts,omitempty"`
 	// LastFailureKind is the classifier output for the latest failed attempt.
 	LastFailureKind string `json:"lastfailurekind,omitempty"`
@@ -608,6 +612,7 @@ type FinalStage struct {
 	Commit        string   `json:"commit,omitempty"`        // the tree HEAD it verified
 	OutDir        string   `json:"outdir,omitempty"`        // ARC_FINAL_OUT
 	Detail        string   `json:"detail,omitempty"`        // the failure's output tail or defects, whole
+	Killed        bool     `json:"killed,omitempty"`        // the failed step was killed from outside: it judged nothing, so a rerun, not a fix round, is next
 	Unverified    []string `json:"unverified,omitempty"`    // what could not be verified, and why
 	VerifierRunID string   `json:"verifierrunid,omitempty"` // the verifier session's child run
 	Respawns      int      `json:"respawns,omitempty"`

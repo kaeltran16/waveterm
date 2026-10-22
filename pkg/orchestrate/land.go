@@ -98,10 +98,11 @@ func landRunLocked(ctx context.Context, channelID, runID string, force bool) (*w
 }
 
 // retryHeldLands lands again each run held only by uncommitted changes in its checkout (RunLand.Dirty), once the
-// land's own checkout check passes, and each run held by its failed final stage once a rerun of the stage passed
-// (finalHoldLifted). The changes are another session's or the human's, so the engine waits for them to be
-// committed, stashed or moved aside instead of asking anyone to retry. The watchdog calls it every tick. A
-// dismissed hold is the human's to retry, and a run whose land is already under way is skipped.
+// land's own checkout check passes, each run held only by another landing's claim on the checkout (RunLand.Busy),
+// once the claim is free, and each run held by its failed final stage once a rerun of the stage passed
+// (finalHoldLifted). The changes and the claim are another session's, the human's or another landing's, so the
+// engine waits for them to go instead of asking anyone to retry. The watchdog calls it every tick. A dismissed hold
+// is the human's to retry, and a run whose land is already under way is skipped.
 func retryHeldLands(ctx context.Context) {
 	runs, err := wstore.GetRunsByLandState(ctx, LandState_Held)
 	if err != nil {
@@ -109,7 +110,10 @@ func retryHeldLands(ctx context.Context) {
 		return
 	}
 	for _, run := range runs {
-		if run.Land.Dismissed || !(run.Land.Dirty || finalHoldLifted(ctx, run)) || !landLocks.TryLock(run.ID) {
+		// a land that re-checks the run before it claims the checkout would run Check and Verify again on every tick
+		// the claim is still held
+		claimFreed := run.Land.Busy && !projectClaimed(run.ProjectPath)
+		if run.Land.Dismissed || !(run.Land.Dirty || claimFreed || finalHoldLifted(ctx, run)) || !landLocks.TryLock(run.ID) {
 			continue
 		}
 		goStage("land retry "+run.ID, func() {
@@ -169,6 +173,9 @@ func landPrecheck(ctx context.Context, run *waveobj.Run) *waveobj.RunLand {
 // Check and Verify, so a held reason the human can fix at once is not minutes away, and again under the checkout
 // claim, since the checkout can change while they run.
 func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force bool) *waveobj.RunLand {
+	if reason := landingTreeHold(ctx, run); reason != "" {
+		return heldLand(reason)
+	}
 	if commit := mergedCommit(ctx, run); commit != "" {
 		removeLandedTree(ctx, run.ProjectPath, run.ID)
 		return &waveobj.RunLand{State: LandState_Landed, Commit: commit}
@@ -186,7 +193,7 @@ func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force 
 	}
 	claim, err := claimProject(project, runDagID(run, g), "land-back")
 	if err != nil {
-		return heldLand(err.Error())
+		return &waveobj.RunLand{State: LandState_Held, Reason: err.Error(), Busy: errors.Is(err, errProjectBusy)}
 	}
 	defer releaseProject(project, claim)
 	if hold := landPrecheck(ctx, run); hold != nil {
@@ -215,6 +222,27 @@ func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force 
 	}
 	removeLandedTree(ctx, project, run.ID)
 	return land
+}
+
+// landingTreeHold is why the land may not remove the run's landing tree, which every land ends by doing: changes
+// nothing committed there would go with it. "" when there are none.
+func landingTreeHold(ctx context.Context, run *waveobj.Run) string {
+	changed, err := landingTreeChanges(ctx, run, false)
+	if err != nil {
+		return err.Error()
+	}
+	if len(changed) == 0 {
+		return ""
+	}
+	// the changes of a merge someone left open are that merge's, not the run's
+	if _, err := git(ctx, run.LandPath, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
+		return midMergeHold(run)
+	}
+	return fmt.Sprintf("the landing tree %s has uncommitted changes to %s, which removing the tree would delete: commit them on wave/%s or drop them, then `wsh runs land %s`", run.LandPath, strings.Join(changed, ", "), run.ID, run.ID)
+}
+
+func midMergeHold(run *waveobj.Run) string {
+	return "the landing tree " + run.LandPath + " is stopped mid-merge; finish or abort that merge there, then land again"
 }
 
 // removeLandedTree drops a landed run's tree and branch; the evidence keeps the branch's tip, so neither is needed.
@@ -411,7 +439,7 @@ func reverifyHold(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup) (
 	}
 	// a merge someone left open would be checked as if it were the run's
 	if _, err := git(ctx, run.LandPath, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
-		return "the landing tree " + run.LandPath + " is stopped mid-merge; finish or abort that merge there, then land again", "", ""
+		return midMergeHold(run), "", ""
 	}
 	if baseMoved {
 		if _, err := git(ctx, run.LandPath, "merge", "--no-commit", "--no-ff", base); err != nil {

@@ -89,6 +89,13 @@ func landBlockerLines(ctx context.Context, run *waveobj.Run) string {
 			lines = append(lines, fmt.Sprintf("The land will hold: %s. That is the human's to clear, not yours: leave the checkout as it is and say it in your report.", hold.Reason))
 		}
 	}
+	changed, err := landingTreeChanges(ctx, run, false)
+	if err != nil {
+		log.Printf("run %s: %v", run.ID, err)
+	}
+	if len(changed) > 0 {
+		lines = append(lines, fmt.Sprintf("The land will hold: this tree has uncommitted changes to %s, and the land removes the tree. They are this run's: commit them, or drop them, before you complete.", strings.Join(changed, ", ")))
+	}
 	files, err := LandConflicts(ctx, run)
 	if err != nil {
 		log.Printf("run %s: %v", run.ID, err)
@@ -120,6 +127,15 @@ func finalFailedWake(round int, runID, detail string, last, autonomous bool) str
 		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d, the last. Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land %s --force`, the human's call once the run is done, lands it:\n%s", round, runID, detail)
 	}
 	return fmt.Sprintf("wake: the final stage failed on the merged result in round %d. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. %s Put it to the human if the fix is a product call:\n%s", round, fixEveryFailure, detail)
+}
+
+// finalKilledWake hands the lead a final stage whose step something outside killed: it judged nothing, so a fix plan
+// would chase a defect nobody found. A rerun spends no round, and whoever killed it decides when to run it again.
+func finalKilledWake(round int, runID, detail string, autonomous bool) string {
+	if autonomous {
+		return fmt.Sprintf("wake: a step of the final stage was killed from outside in round %d, before it judged anything. Write no fix plan. The run is autonomous and nobody is at the cockpit: complete with the plain `wsh jarvis complete --report <file>`; the land stays held until the human reruns the stage with `wsh runs rerun-final %s`, so say that in your report:\n%s", round, runID, detail)
+	}
+	return fmt.Sprintf("wake: a step of the final stage was killed from outside in round %d, before it judged anything. Write no fix plan: put it to the human, who reruns the stage with `wsh runs rerun-final %s` once whatever killed it is gone; a rerun spends no round, and the land holds until a run of the stage passes:\n%s", round, runID, detail)
 }
 
 // taskFailedWake names the failure kind so the lead can pick retry, escalate, skip or forward before

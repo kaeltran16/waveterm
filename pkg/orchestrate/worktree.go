@@ -371,6 +371,30 @@ func checkLandingTree(ctx context.Context, owner *waveobj.Run) error {
 	return fmt.Errorf("landing tree %s is not a checkout of wave/%s: restore it with `git worktree prune && git worktree add %s wave/%s` from the project", owner.LandPath, owner.ID, owner.LandPath, owner.ID)
 }
 
+// landingTreeChanges lists the tracked files with uncommitted changes in a run's own landing tree, or with unstaged
+// only those changed and not added. Nothing merges them, and the land removes the tree with them. Empty for a run
+// landing in the checkout, whose uncommitted changes are the human's and other sessions', and for a tree that is gone.
+func landingTreeChanges(ctx context.Context, run *waveobj.Run, unstaged bool) ([]string, error) {
+	if run.LandPath == "" || !worktreeOnBranch(ctx, run.LandPath, run.ID) {
+		return nil, nil
+	}
+	args := []string{"diff", "--name-only", "HEAD"}
+	if unstaged {
+		args = args[:2]
+	}
+	out, err := git(ctx, run.LandPath, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing uncommitted changes in the landing tree %s: %w", run.LandPath, err)
+	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
 // landingHead is the commit a run's next lane is cut from. A run landing on its own branch reads the branch,
 // which outlives its tree; one landing in the checkout reads the checkout's head.
 func landingHead(ctx context.Context, owner *waveobj.Run) (string, error) {

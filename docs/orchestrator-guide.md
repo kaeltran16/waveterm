@@ -682,7 +682,7 @@ you.
 | Event | The lead | What reaches you |
 |---|---|---|
 | **Plan review failed** | revises the plan and runs `dag submit` again; after round 2, asks you, and on your word carries each accepted finding into the pending tasks it affects with `dag amend` (every task still waits), then runs `dag planreview accept "<your reason>"` | spec changes, and a second failed review |
-| **Merge conflict** at a lane merge | fixes it where lanes land (the run's branch tree, or the checkout), commits, `wsh jarvis dag merge <task> --continue` | nothing, unless the lead forwards it or is dead |
+| **Merge conflict** at a lane merge | resolves it where lanes land (the run's branch tree, or the checkout) and `git add`s it without committing, then `wsh jarvis dag merge <task> --continue`, which commits the squash | nothing, unless the lead forwards it or is dead |
 | **Verify failed** after a merge | fixes it, commits, `dag merge <task> --continue` (re-runs Verify at HEAD) | same |
 | **Review failed** twice, or the reviewer couldn't do its job | reads the findings in `dag status`; `dag sendback <task> "<guidance>"`, `dag approve <task>`, retry, escalate, skip or forward | forwarded review failures |
 | **A passed task with a note for later tasks** that the engine could not deliver (nothing unfinished follows the task, or a named task already finished or without a live terminal) | amends the pending tasks the note affects (`dag amend`), or tells a running one (`dag tell`) | nothing |
