@@ -14,11 +14,12 @@ export function useCommitDone(blockId: string | undefined, done: boolean): boole
     return hasCommittedWork(block?.meta, done);
 }
 
-/** The tick that stands in for a done agent's status dot. */
-export function CommitTick() {
+/** The tick that stands in for a done agent's status dot: its latest work committed, or its quick run done. */
+export function CommitTick({ runDone }: { runDone?: boolean }) {
+    const title = runDone ? "Done, its run finished" : "Done, latest work committed";
     return (
-        <span title="Done, latest work committed" className="flex shrink-0 items-center">
-            <Check size={12} strokeWidth={2.4} aria-label="Done, latest work committed" className="text-success" />
+        <span title={title} className="flex shrink-0 items-center">
+            <Check size={12} strokeWidth={2.4} aria-label={title} className="text-success" />
         </span>
     );
 }

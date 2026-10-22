@@ -22,6 +22,7 @@ import {
 import { notesWsh, vaultRemote, vaultRoot } from "./notes-wsh.mjs";
 import { SCENARIOS as COCKPIT_FIXTURES } from "../cockpit-fixtures/scenarios.mjs";
 import builder from "./scenarios-brainstorm-builder.mjs";
+import findings from "./scenarios-brainstorm-findings.mjs";
 import review from "./scenarios-brainstorm-review.mjs";
 import run from "./scenarios-brainstorm-run.mjs";
 
@@ -18412,7 +18413,7 @@ const BS_Q5_LAYOUT = {
         { label: "Trend first", detail: "The trend chart leads; the number sits in its corner." },
     ],
 };
-// oldest first, as the agent appends them; the pane draws them newest first
+// oldest first, as the agent appends them and the pane draws them
 const BS_HISTORY = [
     {
         kind: "question",
@@ -19059,11 +19060,11 @@ const brainstormMode = {
                 s2.skipNote === "",
             { why: s2.why, options: s2.options, placeholder: s2.placeholder, okBtn: s2.okBtn, guessFor: s2.guessFor, designBtn: s2.designBtn, track: s2.track, skipNote: s2.skipNote }
         );
-        const [h3, h2, h1, hr] = s2.history;
+        const [hr, h1, h2, h3] = s2.history;
         rec(
-            "2b. Decided so far · 3, newest first with recon at the bottom: Q2 lists all three options it offered, the picked one checked and marked Agent’s pick; each says where it went",
+            "2b. Decided so far · 3, recon at the top then oldest first, marked new since the design was last seen: Q2 lists all three options it offered, the picked one checked and marked Agent’s pick; each says where it went",
             s2.rail === "Decided so far · 3" &&
-                JSON.stringify(s2.history.map((r) => r.label)) === JSON.stringify(["Q3", "Q2", "Q1", "Recon"]) &&
+                JSON.stringify(s2.history.map((r) => r.label)) === JSON.stringify(["Recon · new", "Q1", "Q2", "Q3"]) &&
                 JSON.stringify(h2?.picked) === JSON.stringify([`${BS_Q2_OPTIONS[1].label} Agent’s pick`]) &&
                 JSON.stringify(h2?.unpicked) === JSON.stringify([BS_Q2_OPTIONS[0].label, BS_Q2_OPTIONS[2].label]) &&
                 h2.text.includes("Went into Goals, Constraints") &&
@@ -19071,7 +19072,7 @@ const brainstormMode = {
                 h1.unpicked.length === 0 &&
                 !h1.text.includes("In your words") &&
                 h3?.text.includes("Went into Anti-goals") &&
-                hr?.text === `Recon ${BS_HISTORY[3].a} Went into Current state`,
+                hr?.text === `Recon · new ${BS_HISTORY[3].a} Went into Current state`,
             s2.history
         );
 
@@ -19284,9 +19285,9 @@ const brainstormMode = {
         bsWrite(ctx, BS_FILES.answered);
         const s2b = await bsUntil(h, ctx, (s) => s.question.includes(BS_Q5.text));
         await h.shot("cdp-shots/brainstorm-mode-2-answered.png");
-        const q4row = s2b.history[0];
+        const q4row = s2b.history.at(-1);
         rec(
-            "2l. the next file: question 5 for What on-call sees, and Q4 leads the rail: the answers it offered unpicked with the agent’s pick marked, then the typed one In your words, into When it pages",
+            "2l. the next file: question 5 for What on-call sees, and Q4 ends the rail: the answers it offered unpicked with the agent’s pick marked, then the typed one In your words, into When it pages",
             s2b.ok &&
                 s2b.question.startsWith("5 → What on-call sees") &&
                 s2b.rail === "Decided so far · 4" &&
@@ -19370,8 +19371,8 @@ const brainstormMode = {
                 !s4.answerBox &&
                 s4.question === "" &&
                 s4.designBtn === "The design · 3 of 8 yours" &&
-                s4.history[0]?.label === "Q4 · just now",
-            { ...bsBrief(s4), working: s4.working, answerBox: s4.answerBox, designBtn: s4.designBtn, newest: s4.history[0] }
+                s4.history.at(-1)?.label === "Q4 · just now",
+            { ...bsBrief(s4), working: s4.working, answerBox: s4.answerBox, designBtn: s4.designBtn, newest: s4.history.at(-1) }
         );
         await bsOpenDesign(h);
         const s4d = await bsRead(h, ctx);
@@ -20147,11 +20148,11 @@ const brainstormRailReasons = bsBoardScenario("brainstorm-rail-reasons", BS_TOPI
     const closed = await h.ev(BSR_READ_RAIL);
     const [q1, q2, q3, recon] = BSR_RAIL_HISTORY;
     const pickText = (o) => `${o.label}${o.pick ? " Agent’s pick" : ""}`;
-    const [c3, c2, c1, cr] = closed;
+    const [cr, c1, c2, c3] = closed;
     rec(
         "1. Decided so far keeps reasons: the picked answer shows what it is, Agent’s pick marks the agent's recommendation, the others show only their label, each entry with Show the reasoning, the recon with none",
         drawn.ok &&
-            JSON.stringify(closed.map((r) => r.label)) === JSON.stringify(["Q3", "Q2", "Q1", "Recon"]) &&
+            JSON.stringify(closed.map((r) => r.label)) === JSON.stringify(["Recon", "Q1", "Q2", "Q3"]) &&
             JSON.stringify(c3.picked) === JSON.stringify([`${pickText(q3.options[1])} ${q3.options[1].detail}`]) &&
             JSON.stringify(c3.unpicked) === JSON.stringify([q3.options[0].label, q3.options[2].label]) &&
             c3.why === "" &&
@@ -20163,21 +20164,21 @@ const brainstormRailReasons = bsBoardScenario("brainstorm-rail-reasons", BS_TOPI
             !JSON.stringify(cr).includes(recon.q),
         { ...bsBrief(drawn), closed }
     );
-    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-history] > div [data-brainstorm-reasoning]")?.click()`);
+    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-history] > div:last-child [data-brainstorm-reasoning]")?.click()`);
     await polishNap(200);
     const opened = await h.ev(BSR_READ_RAIL);
-    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-rail]")?.scrollTo(0, 0)`);
+    await h.ev(`(() => { const r = ${BS_PANE}?.querySelector("[data-brainstorm-rail]"); r?.scrollTo(0, r.scrollHeight); })()`);
     await h.shot("cdp-shots/brainstorm-rail-reasons.png");
-    const o3 = opened[0];
+    const [, , o2, o3] = opened;
     rec(
         "2. Show the reasoning on Q3 opens Why: and the other answers' details, and reads Hide the reasoning; Q2 stays closed",
         o3.why === `Why: ${q3.why}` &&
             JSON.stringify(o3.unpicked) === JSON.stringify([`${q3.options[0].label} ${q3.options[0].detail}`, `${q3.options[2].label} ${q3.options[2].detail}`]) &&
             o3.toggle?.text === "Hide the reasoning" &&
             o3.toggle.expanded === "true" &&
-            opened[1].why === "" &&
-            JSON.stringify(opened[1].unpicked) === JSON.stringify([q2.options[0].label, q2.options[2].label]),
-        { q3: o3, q2: opened[1] }
+            o2.why === "" &&
+            JSON.stringify(o2.unpicked) === JSON.stringify([q2.options[0].label, q2.options[2].label]),
+        { q3: o3, q2: o2 }
     );
 });
 
@@ -25025,6 +25026,143 @@ const BS_KIT = {
     flatText,
 };
 
+// a finished quick run's worker beside a plain idle agent: the worker's tree row, card and header read as done
+// (the done tick), while the idle agent keeps its grey dot
+const QUICK_DONE_ID = "fx-quick-done";
+const QUICK_DONE_NAME = "quick finisher";
+const QUICK_IDLE_ID = "fx-quick-idle";
+const QUICK_IDLE_NAME = "idle bystander";
+const QUICK_DONE_TICK = "Done, its run finished";
+
+const quickRunDone = {
+    name: "quick-run-done",
+    surface: "agent",
+    async arrange(h) {
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-quick-run-done-")) };
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-quick-run-done", projectpath: ctx.cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: "verify quick-run-done: do nothing",
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            ctx.landPath = created.run.landpath;
+            // the worker has completed the run: what `wsh jarvis complete` leaves on it
+            const stored = await fstWriteRun(h, ctx.runId, (run) => ({ ...run, status: "done", completedts: Date.now() }));
+            ctx.runStatus = stored?.status;
+            const now = Date.now();
+            const idle = (id, name, extra) => ({
+                id,
+                name,
+                project: "waveterm",
+                task: name,
+                state: "idle",
+                agent: "claude",
+                model: "opus",
+                idleSince: now - 60_000,
+                blockId: `${id}-blk`,
+                ...extra,
+            });
+            mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
+            writeFileSync(
+                TREE_RAIL_FIXTURE,
+                JSON.stringify(
+                    [idle(QUICK_DONE_ID, QUICK_DONE_NAME, { runId: ctx.runId }), idle(QUICK_IDLE_ID, QUICK_IDLE_NAME)],
+                    null,
+                    2
+                )
+            );
+            ctx.wroteFixture = true;
+            // the fixture roster is read once at boot
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+            await h.goto("agent");
+            // the worker's row turns its dot into the tick once its run loads; focus it for the header
+            ctx.focused = await h.ev(`(async () => {
+                for (let i = 0; i < 40; i++) {
+                    const tick = document.querySelector('[data-agent-tree] [aria-label=${JSON.stringify(QUICK_DONE_TICK)}]');
+                    if (tick) {
+                        tick.closest(".cursor-pointer").click();
+                        return true;
+                    }
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                return false;
+            })()`);
+            await new Promise((r) => setTimeout(r, 800));
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec(
+            "0. a quick run stored as done, its worker in the roster and focused",
+            ctx.arrangeError == null && ctx.runStatus === "done" && ctx.focused === true,
+            ctx.arrangeError ?? JSON.stringify({ runId: ctx.runId, runStatus: ctx.runStatus, focused: ctx.focused })
+        );
+        const rows = await h.ev(`(() => {
+            const tree = document.querySelector("[data-agent-tree]");
+            const row = (name) => {
+                const label = tree && [...tree.querySelectorAll("div")].find(
+                    (d) => d.textContent.trim() === name && d.children.length === 0
+                );
+                const r = label && label.closest(".cursor-pointer");
+                const mark = r && r.firstElementChild && r.firstElementChild.firstElementChild;
+                if (!mark) return null;
+                const svg = mark.querySelector("svg");
+                return {
+                    tick: svg ? svg.getAttribute("aria-label") : null,
+                    dot: mark.tagName.toLowerCase() === "span" && !svg ? getComputedStyle(mark).backgroundColor : null,
+                };
+            };
+            return { done: row(${JSON.stringify(QUICK_DONE_NAME)}), idle: row(${JSON.stringify(QUICK_IDLE_NAME)}) };
+        })()`);
+        rec(
+            "1. the finished quick run's tree row shows the done tick",
+            rows?.done?.tick === QUICK_DONE_TICK,
+            JSON.stringify(rows)
+        );
+        rec(
+            "2. the idle agent's tree row keeps its dot, no tick",
+            rows?.idle != null && rows.idle.tick == null && rows.idle.dot != null,
+            JSON.stringify(rows)
+        );
+        const header = await h.ev(`(() => {
+            const hd = document.querySelector("[data-agent-header]");
+            if (!hd) return null;
+            return {
+                tick: !!hd.querySelector('[aria-label=${JSON.stringify(QUICK_DONE_TICK)}]'),
+                done: [...hd.querySelectorAll("span")].some((s) => s.children.length === 0 && s.textContent.trim() === "done"),
+                idle: [...hd.querySelectorAll("span")].some((s) => s.children.length === 0 && s.textContent.trim() === "idle"),
+            };
+        })()`);
+        rec(
+            "3. the focused worker's header chip reads done with the tick, not idle",
+            header != null && header.tick && header.done && !header.idle,
+            JSON.stringify(header)
+        );
+        await h.shot("cdp-shots/quick-run-done.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        // a done run cannot be cancelled, so teardown skips the cancel and only deletes the channel
+        await teardownFixtureRun(h, { ...ctx, runId: undefined }, "quick-run-done");
+    },
+};
+
 export const SCENARIOS = [
     cockpitKeysOnArrival,
     agentTerminalOnArrival,
@@ -25082,6 +25220,7 @@ export const SCENARIOS = [
     narrationFeed,
     notesWsh,
     agentTreeRail,
+    quickRunDone,
     agentTreeQuickReturn,
     docReview,
     docReviewNotes,
@@ -25117,6 +25256,7 @@ export const SCENARIOS = [
     brainstormReviewSkim,
     brainstormRailReasons,
     ...builder(BS_KIT),
+    ...findings(BS_KIT),
     ...review(BS_KIT),
     ...run(BS_KIT),
     canvasMark,

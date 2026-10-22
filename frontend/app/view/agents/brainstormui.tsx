@@ -8,6 +8,7 @@ import { cn } from "@/util/util";
 import { Fragment, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { AgentVM } from "./agentsviewmodel";
 import {
+    answerLine,
     designLabel,
     hasProsCons,
     optionLetter,
@@ -22,6 +23,7 @@ import {
     type BrainstormFile,
     type BrainstormPart,
     type BrainstormQuestion,
+    type PartAnswer,
     type PartState,
     type TrackSegment,
 } from "./brainstormmodel";
@@ -484,6 +486,7 @@ export function QuestionMain({
     goTo,
     openDesign,
     skip = true,
+    findings,
 }: {
     agent: AgentVM;
     s: BrainstormState;
@@ -492,6 +495,8 @@ export function QuestionMain({
     openDesign: () => void;
     // false in the builder check, where every part is already written
     skip?: boolean;
+    // notes the agent wrote since the user last saw the design, and the way to them: they sit behind the question
+    findings?: { count: number; open: () => void };
 }) {
     const q = f.question!;
     const fresh = f.history.length === 0;
@@ -528,6 +533,17 @@ export function QuestionMain({
                         <p data-brainstorm-why className="m-0 text-[16px] leading-[1.6] text-ink-mid">
                             {q.why}
                         </p>
+                    ) : null}
+                    {findings != null ? (
+                        <button
+                            type="button"
+                            data-brainstorm-new-findings
+                            onClick={findings.open}
+                            className={cn(CHIP, "flex items-center gap-[8px] self-start border-accent/45 bg-accent/12")}
+                        >
+                            <span className={cn(SMALL_DOT, "bg-accent")} />
+                            New findings · {findings.count}
+                        </button>
                     ) : null}
                 </div>
                 {boards != null ? (
@@ -711,6 +727,21 @@ export function CheckMark() {
         >
             <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="1.8" />
         </svg>
+    );
+}
+
+// the user's own answer beside a part it made theirs, so a part that says more than they did shows it: one line until
+// the row opens
+export function SaidLine({ said, open }: { said: PartAnswer; open: boolean }) {
+    const line = answerLine(said);
+    return (
+        <span
+            data-brainstorm-said
+            title={line}
+            className={cn("text-[11.5px] leading-[1.45] text-muted", open ? "whitespace-pre-line" : "truncate")}
+        >
+            {line}
+        </span>
     );
 }
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+    agentRunDone,
+    agentStateLabel,
     agentVMFromInput,
     aggregateEditBurst,
     answerHint,
@@ -48,6 +50,7 @@ import {
     toggleSelection,
     usageLevel,
     withAsk,
+    withRunDone,
     type AgentActionEntry,
     type AgentAskQuestion,
     type AgentEntry,
@@ -1306,5 +1309,46 @@ describe("formatAgo", () => {
     it("says how long ago past a minute", () => {
         expect(formatAgo(5 * 60_000)).toBe("5m ago");
         expect(formatAgo(3 * 3_600_000)).toBe("3h ago");
+    });
+});
+
+describe("withRunDone / agentRunDone", () => {
+    const run = (mode: string, status: string) => ({ mode, status });
+
+    it("reads an idle worker whose quick run is done as done, distinct from a plain idle agent", () => {
+        const worker = withRunDone(mk("w", "idle", { runId: "r1" }), run("quick", "done"));
+        const idle = withRunDone(mk("i", "idle"), undefined);
+        expect(agentRunDone(worker)).toBe(true);
+        expect(agentStateLabel(worker)).toBe("done");
+        expect(agentRunDone(idle)).toBe(false);
+        expect(agentStateLabel(idle)).toBe("idle");
+    });
+
+    it("leaves an agent whose quick run is still going, cancelled or not loaded as it is", () => {
+        const a = mk("w", "idle", { runId: "r1" });
+        expect(withRunDone(a, run("quick", "executing"))).toBe(a);
+        expect(withRunDone(a, run("quick", "cancelled"))).toBe(a);
+        expect(withRunDone(a, undefined)).toBe(a);
+    });
+
+    it("leaves an orchestrator lead alone: its run mark says what the run came to", () => {
+        const lead = mk("l", "idle", { runId: "r1" });
+        expect(withRunDone(lead, run("orchestrator", "done"))).toBe(lead);
+    });
+
+    it("reads a done run's worker by its live state once it works or asks again", () => {
+        expect(agentRunDone(withRunDone(mk("w", "working"), run("quick", "done")))).toBe(false);
+        expect(agentRunDone(withRunDone(mk("w", "asking"), run("quick", "done")))).toBe(false);
+        expect(agentStateLabel(withRunDone(mk("w", "working"), run("quick", "done")))).toBe("working");
+    });
+
+    it("lets a running shell task say standing by rather than done", () => {
+        const worker = withRunDone(mk("w", "idle"), run("quick", "done"));
+        expect(agentRunDone(worker, true)).toBe(false);
+    });
+
+    it("keeps the roster's sections and order: a done worker still sorts with the idle", () => {
+        const worker = withRunDone(mk("w", "idle"), run("quick", "done"));
+        expect(groupAgents([worker, mk("x", "working")]).idle).toEqual([worker]);
     });
 });

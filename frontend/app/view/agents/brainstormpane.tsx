@@ -20,6 +20,7 @@ import {
     boardBackLabel,
     builderCheckView,
     decisionParts,
+    droppedQuestion,
     exitedSummary,
     historyRows,
     isNote,
@@ -27,23 +28,28 @@ import {
     mainView,
     noteParts,
     paneView,
+    partAnswer,
     partBoards,
     partGist,
     partView,
     resumePrompt,
     reviewHead,
+    unseenSince,
     type BrainstormAction,
     type BrainstormFile,
     type BrainstormPart,
     type BuilderCheckView,
     type HistoryRow,
     type PartView,
+    type Unseen,
 } from "./brainstormmodel";
 import { RunStep } from "./brainstormrun";
 import { sendBrainstorm } from "./brainstormsend";
 import {
     brainstormAtom,
+    brainstormSeenAtom,
     dismissBrainstorm,
+    markBrainstormSeen,
     openBrainstormBoard,
     openBrainstormDesign,
     shownBrainstormFile,
@@ -66,6 +72,7 @@ import {
     onEnter,
     PART_BTN,
     QuestionMain,
+    SaidLine,
     SECTION_HEAD,
     SMALL_DOT,
     StaleBanner,
@@ -158,11 +165,15 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
     const check = builderCheckView(agent.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent);
     const checkPending = check.kind === "pending" ? check.text : undefined;
     const view = mainView(f, s.designOpen, checkPending != null);
-    const goTo = (id: string) => {
-        setOpened((o) => ({ ...o, [id]: true }));
-        setTarget(id);
+    const seen = useAtomValue(brainstormSeenAtom)[s.path] ?? null;
+    const unseen = unseenSince(f, seen);
+    // opens the parts' rows in the design and scrolls to the first
+    const openParts = (ids: string[]) => {
+        setOpened((o) => ({ ...o, ...Object.fromEntries(ids.map((id) => [id, true])) }));
+        setTarget(ids[0]);
         openBrainstormDesign(agent.id, true);
     };
+    const goTo = (id: string) => openParts([id]);
     const openDesign = () => openBrainstormDesign(agent.id, true);
     useEffect(() => {
         if (view === "design" && target != null) {
@@ -178,7 +189,18 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
             <div className="flex min-h-0 flex-1">
                 <div className="flex min-w-0 flex-1 flex-col bg-background">
                     {view === "question" ? (
-                        <QuestionMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} />
+                        <QuestionMain
+                            agent={agent}
+                            s={s}
+                            f={f}
+                            goTo={goTo}
+                            openDesign={openDesign}
+                            findings={
+                                unseen.notes.length > 0
+                                    ? { count: unseen.notes.length, open: () => openParts(unseen.notes) }
+                                    : undefined
+                            }
+                        />
                     ) : view === "working" ? (
                         <WorkingMain
                             f={f}
@@ -192,12 +214,13 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
                             f={f}
                             check={check}
                             partsRef={partsRef}
+                            unseen={unseen}
                             opened={opened}
                             setOpen={(id, open) => setOpened((o) => ({ ...o, [id]: open }))}
                         />
                     )}
                 </div>
-                <DecidedRail f={f} goTo={goTo} />
+                <DecidedRail f={f} unseen={unseen} goTo={goTo} />
             </div>
         </>
     );
@@ -209,6 +232,7 @@ function DesignMain({
     f,
     check,
     partsRef,
+    unseen,
     opened,
     setOpen,
 }: {
@@ -217,9 +241,17 @@ function DesignMain({
     f: BrainstormFile;
     check: BuilderCheckView;
     partsRef: RefObject<HTMLDivElement>;
+    unseen: Unseen;
     opened: Record<string, boolean>;
     setOpen: (id: string, open: boolean) => void;
 }) {
+    // what the design drew last is what the user has seen once they leave it (the question back in the main area, a
+    // board, another agent): what came while it was open showed marked new
+    const drawn = useRef(f);
+    useEffect(() => {
+        drawn.current = f;
+    });
+    useEffect(() => () => markBrainstormSeen(s.path, drawn.current), [s.path]);
     const working = f.working != null;
     const fresh = f.history.length === 0;
     const decisions = decisionParts(f);
@@ -233,6 +265,7 @@ function DesignMain({
             s={s}
             f={f}
             part={p}
+            unseen={unseen.parts.includes(p.id)}
             open={isOpen(p)}
             setOpen={(open) => setOpen(p.id, open)}
         />
@@ -395,6 +428,7 @@ function PartRow({
     s,
     f,
     part,
+    unseen,
     open,
     setOpen,
 }: {
@@ -402,6 +436,7 @@ function PartRow({
     s: BrainstormState;
     f: BrainstormFile;
     part: BrainstormPart;
+    unseen: boolean;
     open: boolean;
     setOpen: (open: boolean) => void;
 }) {
@@ -475,15 +510,22 @@ function PartRow({
     } else if (view === "writing") {
         right = <span className="text-[11.5px] text-success">Being written</span>;
     } else {
-        right = <span className="text-[11.5px] text-muted">Open</span>;
+        const dropped = droppedQuestion(f, part);
+        right = (
+            <span className="text-[11.5px] text-muted">
+                Open{dropped != null ? ` · question ${dropped} dropped` : ""}
+            </span>
+        );
     }
     const dim = view === "open" && !note;
+    const said = partAnswer(f, part);
     const boards = view === "writing" ? null : partBoards(f, part, s.base);
 
     return (
         <div
             data-brainstorm-part={part.id}
             data-state={note ? "note" : view}
+            data-unseen={unseen ? "" : undefined}
             className="flex scroll-mt-[20px] flex-col border-t border-edge-faint"
         >
             <div className={cn("flex items-start gap-[12px] px-[14px]", note ? "py-[8px]" : "py-[9px]")}>
@@ -504,21 +546,26 @@ function PartRow({
                     >
                         {part.title}
                     </span>
-                    <span
-                        data-brainstorm-gist
-                        className={cn(
-                            "min-w-0 flex-1 leading-[1.45]",
-                            note ? "text-[13px] text-ink-mid" : "text-[13.5px]",
-                            !note && (dim ? "text-muted" : "text-secondary")
-                        )}
-                    >
-                        {partGist(f, part)}
+                    <span className="flex min-w-0 flex-1 flex-col gap-[2px]">
+                        <span
+                            data-brainstorm-gist
+                            className={cn(
+                                "leading-[1.45]",
+                                note ? "text-[13px] text-ink-mid" : "text-[13.5px]",
+                                !note && (dim ? "text-muted" : "text-secondary")
+                            )}
+                        >
+                            {partGist(f, part)}
+                        </span>
+                        {said != null ? <SaidLine said={said} open={open} /> : null}
                     </span>
+                    {/* the answer line under the gist names the answer, so the column would only repeat it */}
                     <span title={part.from} className="w-[120px] flex-none truncate font-mono text-[10.5px] text-muted">
-                        {part.from}
+                        {said != null ? null : part.from}
                     </span>
                 </button>
                 <span className="flex h-[20px] min-w-[150px] flex-none items-center justify-end gap-[8px]">
+                    {unseen ? <span className="text-[11px] font-semibold text-accent-soft">New</span> : null}
                     {right}
                 </span>
                 <Chevron open={open} onClick={() => setOpen(!open)} />
@@ -632,20 +679,31 @@ function IntoLinks({
     );
 }
 
-// every question answered with all it offered, newest first, and the recon it all stood on at the bottom
-function DecidedRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void }) {
-    const rows = historyRows(f);
-    const decided = rows.filter((r) => r.kind === "question").length;
+// the recon it all stood on at the top, then every question answered with all it offered, newest at the bottom
+function DecidedRail({ f, unseen, goTo }: { f: BrainstormFile; unseen: Unseen; goTo: (id: string) => void }) {
+    const rows = historyRows(f, unseen);
+    const decided = rows.filter((r) => r.kind === "question" && !r.dropped).length;
     const working = f.working != null;
+    const railRef = useRef<HTMLElement>(null);
+    const shown = useRef(0);
+    // a new entry lands at the bottom, so follow it; the first draw jumps there without animating
+    useEffect(() => {
+        const el = railRef.current;
+        if (el != null && rows.length > shown.current) {
+            el.scrollTo({ top: el.scrollHeight, behavior: shown.current === 0 ? "auto" : "smooth" });
+        }
+        shown.current = rows.length;
+    }, [rows.length]);
     return (
         <aside
+            ref={railRef}
             data-brainstorm-rail
             aria-label="Decided so far"
             className="flex w-[32%] min-w-[280px] max-w-[500px] flex-none flex-col overflow-y-auto border-l border-border bg-surface px-[24px] py-[22px]"
         >
             <div className="flex items-baseline gap-[8px] pb-[8px]">
                 <h2 className="m-0 text-[13px] font-semibold text-secondary">Decided so far · {decided}</h2>
-                <span className="text-[12px] text-muted">newest first</span>
+                <span className="text-[12px] text-muted">newest last</span>
             </div>
             {rows.length === 0 ? (
                 <p className="m-0 border-t border-border pt-[12px] text-[12.5px] leading-[1.5] text-muted">
@@ -655,13 +713,20 @@ function DecidedRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => voi
             <div data-brainstorm-history className="flex flex-col">
                 {rows.map((h, i) =>
                     h.kind === "recon" ? (
-                        <div key={`recon:${i}`} className="flex flex-col gap-[5px] border-t border-border py-[12px]">
-                            <span className="font-mono text-[10.5px] text-muted">{h.label}</span>
+                        <div
+                            key={`recon:${i}`}
+                            data-unseen={h.unseen ? "" : undefined}
+                            className="flex flex-col gap-[5px] border-t border-border py-[12px]"
+                        >
+                            <span className="font-mono text-[10.5px] text-muted">
+                                {h.label}
+                                {h.unseen ? <span className="text-accent-soft"> · new</span> : null}
+                            </span>
                             <span className="text-[12.5px] leading-[1.5] text-ink-mid">{h.answer}</span>
                             <IntoLinks into={h.into} goTo={goTo} />
                         </div>
                     ) : (
-                        <RailQuestion key={h.label} h={h} justNow={i === 0 && working} goTo={goTo} />
+                        <RailQuestion key={`${h.label}:${i}`} h={h} justNow={i === rows.length - 1 && working} goTo={goTo} />
                     )
                 )}
             </div>
@@ -673,14 +738,25 @@ function DecidedRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => voi
 function RailQuestion({ h, justNow, goTo }: { h: HistoryRow; justNow: boolean; goTo: (id: string) => void }) {
     const [open, setOpen] = useState(false);
     return (
-        <div data-brainstorm-rail-entry className="flex flex-col gap-[8px] border-t border-border py-[12px]">
+        <div
+            data-brainstorm-rail-entry
+            data-dropped={h.dropped ? "" : undefined}
+            className="flex flex-col gap-[8px] border-t border-border py-[12px]"
+        >
             <div className="flex items-baseline gap-[8px]">
                 <span className="flex-none font-mono text-[10.5px] text-muted">
                     {h.label}
-                    {justNow ? " · just now" : ""}
+                    {h.dropped ? " · dropped" : justNow ? " · just now" : ""}
                 </span>
-                <span className="text-[12.5px] leading-[1.45] text-ink-mid">{h.q}</span>
+                <span className={cn("text-[12.5px] leading-[1.45]", h.dropped ? "text-muted" : "text-ink-mid")}>
+                    {h.q}
+                </span>
             </div>
+            {h.dropped ? (
+                <div className="pl-[23px] text-[12px] leading-[1.5] text-muted">
+                    Dropped after your pushback, unanswered: nothing was decided from it.
+                </div>
+            ) : null}
             {open && h.why != null ? (
                 <div data-brainstorm-rail-why className="pl-[23px] text-[12px] leading-[1.5] text-muted">
                     Why: {h.why}

@@ -41,7 +41,8 @@ export type BrainstormQuestion = {
     read?: string;
     options?: AnswerOption[];
 };
-// picked is the option's index, absent when the answer was typed in the user's own words
+// picked is the option's index, absent when the answer was typed in the user's own words. A superseded question was
+// dropped after pushback, unanswered: part is the part it was asked for, which stays open
 export type HistoryEntry = {
     kind: "question" | "recon";
     n?: number;
@@ -52,6 +53,8 @@ export type HistoryEntry = {
     into: string[];
     options?: AnswerOption[];
     picked?: number;
+    part?: string;
+    superseded?: true;
 };
 // a question the builder check left for the user. into is every decision its answer changed; label is the rail's
 // short line for it, the full q when absent
@@ -170,8 +173,9 @@ function parseHistory(raw: unknown): HistoryEntry[] {
         const options = parseOptions(h.options);
         // an index past the options it names reads as an answer in the user's own words
         const picked = Number.isInteger(h.picked) && (h.picked as number) >= 0 && (h.picked as number) < options.length;
+        const recon = h.kind === "recon";
         return {
-            kind: h.kind === "recon" ? "recon" : "question",
+            kind: recon ? "recon" : "question",
             ...(typeof h.n === "number" ? { n: h.n } : {}),
             q: str(h.q) ?? "",
             ...(str(h.why) ? { why: str(h.why) } : {}),
@@ -179,6 +183,8 @@ function parseHistory(raw: unknown): HistoryEntry[] {
             into: strings(h.into),
             ...(options.length > 0 ? { options } : {}),
             ...(picked ? { picked: h.picked as number } : {}),
+            ...(str(h.part) ? { part: str(h.part) } : {}),
+            ...(!recon && h.superseded === true ? { superseded: true as const } : {}),
         };
     });
 }
@@ -302,11 +308,18 @@ export function canCheck(f: BrainstormFile): boolean {
     return f.done && f.question == null && parts.length > 0 && parts.every((p) => p.state === "yours");
 }
 
-// a line Arc sent, which the agent has not answered yet: modifiedMs is the file's when it was sent; check marks a
-// `brainstorm: check`, whose send time outlives the line (sentCheckAt)
-export type SentLine = { at: number; modifiedMs: number | null; answer: boolean; check?: boolean };
+// a line Arc sent, which the agent has not answered yet: modifiedMs is the file's when it was sent. An answer closes
+// the question, a check hands the design to a builder (its send time outlives the line, sentCheckAt), any other line
+// is a change
+export type SentKind = "answer" | "check" | "line";
+export type SentLine = { at: number; modifiedMs: number | null; kind: SentKind };
+
+export function sentKind(a: BrainstormAction): SentKind {
+    return a.kind === "answer" || a.kind === "check" ? a.kind : "line";
+}
 
 const PENDING_ANSWER = "Writing up your answer.";
+const PENDING_CHECK = "A builder is reading the design.";
 const PENDING_LINE = "Taking in your change.";
 
 // the agent has taken a line delivered at `at` once its turn ends after it, or its file changed while it is not at
@@ -340,7 +353,6 @@ export type BuilderCheckView =
     | { kind: "pending"; text: string }
     | { kind: "failed"; reason: string };
 
-const CHECK_READING = "A builder is reading the design.";
 const CHECK_TAKING_IN = "Taking in the builder's questions.";
 const CHECK_NOT_STARTED = "The agent ended its turn without starting the builder check.";
 
@@ -352,7 +364,7 @@ export function nextSentCheckAt(
     settled: SentLine | null,
     record: BuilderCheckRecord | undefined
 ): number | null {
-    const at = sent?.check && settled == null ? sent.at : prev;
+    const at = sent?.kind === "check" && settled == null ? sent.at : prev;
     return at != null && record != null && record.ts >= at ? null : at;
 }
 
@@ -370,7 +382,7 @@ export function builderCheckView(
         return unchecked ? { kind: "failed", reason: CHECK_NOT_STARTED } : { kind: "none" };
     }
     if (record?.state === "reading") {
-        return { kind: "pending", text: CHECK_READING };
+        return { kind: "pending", text: PENDING_CHECK };
     }
     if (record?.state === "answered") {
         const taken = lineTaken(record.ts, modifiedMs != null && modifiedMs > record.ts, agent);
@@ -393,7 +405,7 @@ export function terminalAnswer(
     if (f.question == null || agent?.state !== "working" || modifiedMs == null || turnStartMs == null) {
         return null;
     }
-    return turnStartMs > modifiedMs ? { at: turnStartMs, modifiedMs, answer: true } : null;
+    return turnStartMs > modifiedMs ? { at: turnStartMs, modifiedMs, kind: "answer" } : null;
 }
 
 // the file as Arc shows it: the agent writes once per turn, so while a sent line is pending Arc says the agent is
@@ -402,7 +414,18 @@ export function shownFile(f: BrainstormFile, sent: SentLine | null): BrainstormF
     if (sent == null || f.working != null) {
         return f;
     }
-    return sent.answer ? { ...f, working: PENDING_ANSWER, question: null } : { ...f, working: PENDING_LINE };
+    if (sent.kind === "answer") {
+        return { ...f, working: PENDING_ANSWER, question: null };
+    }
+    return { ...f, working: sent.kind === "check" ? PENDING_CHECK : PENDING_LINE };
+}
+
+// why a line is not sent, for the file as Arc shows it: a check while the agent is at work, one already underway
+// included, would start a second builder
+export function sendBlocker(a: BrainstormAction, shown: BrainstormFile | null): string | null {
+    return a.kind === "check" && shown?.working != null
+        ? "The agent is still working; check with a builder once it is done"
+        : null;
 }
 
 export function isAsking(f: BrainstormFile): boolean {
@@ -529,6 +552,8 @@ export function questionBoards(f: BrainstormFile, base: string | null): string[]
 
 export type HistoryRow = {
     kind: "question" | "recon";
+    // a question dropped after pushback: nothing was decided by it
+    dropped: boolean;
     label: string;
     q: string;
     // every option the question offered, the picked one and the agent's recommendation marked
@@ -541,9 +566,11 @@ export type HistoryRow = {
     // the question offered options and the user answered in their own words instead
     ownWords: boolean;
     into: { id: string; title: string }[];
+    // a recon entry added or changed since the user last saw the design
+    unseen: boolean;
 };
 
-function historyRow(f: BrainstormFile, h: HistoryEntry, i: number): HistoryRow {
+function historyRow(f: BrainstormFile, h: HistoryEntry, i: number, unseen: Unseen): HistoryRow {
     const options = (h.options ?? []).map((o, j) => ({
         label: o.label,
         detail: o.detail,
@@ -555,6 +582,7 @@ function historyRow(f: BrainstormFile, h: HistoryEntry, i: number): HistoryRow {
     const why = recon ? null : (h.why ?? null);
     return {
         kind: h.kind,
+        dropped: h.superseded === true,
         label: recon ? "Recon" : `Q${h.n ?? i + 1}`,
         q: h.q,
         options,
@@ -563,13 +591,20 @@ function historyRow(f: BrainstormFile, h: HistoryEntry, i: number): HistoryRow {
         answer,
         ownWords: answer != null && options.length > 0,
         into: h.into.map((id) => ({ id, title: partTitle(f, id) })),
+        unseen: unseen.recon.includes(i),
     };
 }
 
-// what was decided, newest first; recon is the ground every question stood on, so it stays at the bottom
-export function historyRows(f: BrainstormFile): HistoryRow[] {
-    const rows = f.history.map((h, i) => historyRow(f, h, i)).reverse();
-    return [...rows.filter((r) => r.kind === "question"), ...rows.filter((r) => r.kind === "recon")];
+// the questions the user answered: one dropped after pushback was never answered
+export function answeredQuestions(f: BrainstormFile): HistoryEntry[] {
+    return f.history.filter((h) => h.kind === "question" && h.superseded !== true);
+}
+
+// what was decided, oldest first so the newest lands at the bottom; recon is the ground every question stood on, so it
+// stays at the top
+export function historyRows(f: BrainstormFile, unseen: Unseen = NOTHING_UNSEEN): HistoryRow[] {
+    const rows = f.history.map((h, i) => historyRow(f, h, i, unseen));
+    return [...rows.filter((r) => r.kind === "recon"), ...rows.filter((r) => r.kind === "question")];
 }
 
 export const OPTION_KEYS = ["a", "b", "c", "d"] as const;
@@ -650,7 +685,7 @@ export function pickableOptions(
 export type TrackSegment = "done" | "now" | "ahead";
 
 export function questionTrack(f: BrainstormFile): TrackSegment[] {
-    const done = f.history.filter((h) => h.kind === "question").length;
+    const done = answeredQuestions(f).length;
     const ahead = decisionParts(f).filter((p) => p.state === "open" && p.id !== BUILDER_PART).length;
     return [
         ...Array<TrackSegment>(done).fill("done"),
@@ -678,6 +713,44 @@ export function decisionParts(f: BrainstormFile): BrainstormPart[] {
 
 export function noteParts(f: BrainstormFile): BrainstormPart[] {
     return orderedParts(f).filter(isNote);
+}
+
+// what the user has seen of a brainstorm: each part's text and each recon entry, as the design last drew them. A
+// state change is left out, since the user's own confirm makes it
+export type SeenMark = { parts: Record<string, string>; recon: string[] };
+
+function partText(p: BrainstormPart): string {
+    return [p.title, p.gist ?? "", p.body].join("\n");
+}
+
+function reconText(h: HistoryEntry): string {
+    return `${h.q}\n${h.a}`;
+}
+
+export function seenMark(f: BrainstormFile): SeenMark {
+    return {
+        parts: Object.fromEntries(f.parts.map((p) => [p.id, partText(p)])),
+        recon: f.history.filter((h) => h.kind === "recon").map(reconText),
+    };
+}
+
+// what the file holds that the user has not seen: parts added or changed since (notes among them, in the design's
+// order) and recon entries, by their index in history. Before the first read there is nothing to compare against
+export type Unseen = { parts: string[]; notes: string[]; recon: number[] };
+
+const NOTHING_UNSEEN: Unseen = { parts: [], notes: [], recon: [] };
+
+export function unseenSince(f: BrainstormFile, seen: SeenMark | null): Unseen {
+    if (seen == null) {
+        return NOTHING_UNSEEN;
+    }
+    const parts = orderedParts(f).filter((p) => seen.parts[p.id] !== partText(p));
+    const known = new Set(seen.recon);
+    return {
+        parts: parts.map((p) => p.id),
+        notes: parts.filter(isNote).map((p) => p.id),
+        recon: f.history.flatMap((h, i) => (h.kind === "recon" && !known.has(reconText(h)) ? [i] : [])),
+    };
 }
 
 // how a part draws: a guess that was yours reads as changed, an asked part the agent is writing up as writing
@@ -732,6 +805,40 @@ export function progressView(f: BrainstormFile): ProgressView {
     return { segments, lead: `${yours} yours`, rest: open === 0 ? "· nothing open" : `· ${open} open` };
 }
 
+// the answer a part came from, as the user said it, so a part that says more than the answer shows it
+export type PartAnswer = { n: number; text: string };
+
+const ANSWER_FROM = /^(?:your )?answer (\d+)/i;
+
+// the answer the part's from names: the answered question with that n whose into lists the part. A from that names
+// no answer, or an answer the history does not tie to the part, has none
+export function partAnswer(f: BrainstormFile, p: BrainstormPart): PartAnswer | null {
+    const m = ANSWER_FROM.exec(p.from ?? "");
+    if (m == null) {
+        return null;
+    }
+    const n = Number(m[1]);
+    const h = answeredQuestions(f)
+        .filter((e) => e.n === n && e.into.includes(p.id))
+        .pop();
+    const text = h == null ? "" : h.a || (h.picked != null ? h.options![h.picked].label : "");
+    return text ? { n, text } : null;
+}
+
+export function answerLine(a: PartAnswer): string {
+    return `answer ${a.n}: “${a.text}”`;
+}
+
+// a decision still open because pushback dropped the question asked for it: that question's n. A later question for
+// the part makes it asked, so the drop no longer stands
+export function droppedQuestion(f: BrainstormFile, p: BrainstormPart): number | null {
+    if (isNote(p) || p.state !== "open") {
+        return null;
+    }
+    const h = f.history.filter((e) => e.superseded === true && (e.part === p.id || e.into.includes(p.id))).pop();
+    return h?.n ?? null;
+}
+
 // the one line a part reads as in the design: the agent's gist, else the body's first sentence, else what the part
 // waits on
 export function partGist(f: BrainstormFile, p: BrainstormPart): string {
@@ -749,8 +856,13 @@ export function partGist(f: BrainstormFile, p: BrainstormPart): string {
                 : "Waiting on the agent’s question.";
         case "writing":
             return "The agent is writing this from your answer.";
-        case "open":
+        case "open": {
+            const dropped = droppedQuestion(f, p);
+            if (dropped != null) {
+                return `Question ${dropped} was dropped after your pushback; nothing is decided yet.`;
+            }
             return p.id === BUILDER_PART ? "The agent writes this last." : "Not talked through yet.";
+        }
         default:
             return "";
     }
@@ -977,6 +1089,8 @@ export type ReviewRow = {
     title: string;
     gist: string;
     cause: string;
+    // the answer the part came from, as said; the cause leaves out the from it replaces
+    said?: PartAnswer;
     was?: string;
     body: string;
     view: PartView;
@@ -1001,12 +1115,14 @@ function reviewRow(f: BrainstormFile, p: BrainstormPart, calls: string[]): Revie
     const view = partView(f, p);
     const asks = p.state === "asked" && f.question?.part === p.id;
     const action = view === "changed" ? "keep-restore" : view === "guess" ? "confirm" : asks ? "answer" : null;
+    const said = partAnswer(f, p);
     return {
         id: p.id,
         title: p.title,
         gist: partGist(f, p),
         // the skill names the answer that caused the change in why
-        cause: p.why ?? p.from ?? "",
+        cause: p.why ?? (said != null ? "" : (p.from ?? "")),
+        ...(said != null ? { said } : {}),
         ...(p.was != null ? { was: p.was } : {}),
         body: p.body,
         view,

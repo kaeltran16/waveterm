@@ -197,7 +197,7 @@ describe("reconcileBrainstorms", () => {
 });
 
 describe("settleBrainstorm", () => {
-    const check = { at: 1000, modifiedMs: 500, answer: false, check: true };
+    const check = { at: 1000, modifiedMs: 500, kind: "check" as const };
     const agent = (over: Partial<AgentVM> = {}): AgentVM => ({
         id: "a1",
         name: "loom",
@@ -218,7 +218,7 @@ describe("settleBrainstorm", () => {
             sent: check,
             sentCheckAt: null,
         });
-        const line = { ...check, check: undefined };
+        const line = { ...check, kind: "line" as const };
         expect(settleBrainstorm(state({ sent: line, modifiedMs: 500 }), {}, agent(), undefined).sentCheckAt).toBeNull();
     });
 

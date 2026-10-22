@@ -10,7 +10,14 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomFamily } from "jotai/utils";
 import type { AgentsViewModel } from "./agents";
-import { brainstormFilePath, shownFile, type BrainstormFile, type SentLine } from "./brainstormmodel";
+import {
+    brainstormFilePath,
+    seenMark,
+    shownFile,
+    type BrainstormFile,
+    type SeenMark,
+    type SentLine,
+} from "./brainstormmodel";
 import type { CanvasBoard } from "./canvasmodel";
 
 export type BrainstormState = {
@@ -70,6 +77,21 @@ export function updateBrainstorm(agentId: string, fn: (s: BrainstormState) => Br
     const s = all[agentId];
     if (s != null) {
         globalStore.set(brainstormsAtom, { ...all, [agentId]: fn(s) });
+    }
+}
+
+// what the user has seen of each brainstorm, keyed by its file's path: apart from the per-agent state, so a resume in a
+// new agent, or the pane's remount on a surface switch, keeps it
+export const brainstormSeenAtom = atom<Record<string, SeenMark>>({}) as PrimitiveAtom<Record<string, SeenMark>>;
+
+export function markBrainstormSeen(path: string, f: BrainstormFile): void {
+    globalStore.set(brainstormSeenAtom, { ...globalStore.get(brainstormSeenAtom), [path]: seenMark(f) });
+}
+
+// the first read is what the user is taken to have seen: what is new is measured from there
+export function baselineBrainstormSeen(path: string, f: BrainstormFile): void {
+    if (!(path in globalStore.get(brainstormSeenAtom))) {
+        markBrainstormSeen(path, f);
     }
 }
 

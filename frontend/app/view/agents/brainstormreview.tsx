@@ -11,6 +11,7 @@ import type { AgentVM } from "./agentsviewmodel";
 import {
     checkReview,
     handoffView,
+    partAnswer,
     partGist,
     type BrainstormAction,
     type BrainstormFile,
@@ -33,6 +34,7 @@ import {
     LINK,
     onEnter,
     PART_BTN,
+    SaidLine,
     SECTION_HEAD,
     useAction,
     WORKING_TITLE,
@@ -275,6 +277,7 @@ function ReviewRowView({
                         {row.cause}
                     </span>
                 ) : null}
+                {row.said != null ? <SaidLine said={row.said} open={open && expandable} /> : null}
             </span>
             {right}
             {expandable ? (
@@ -372,6 +375,7 @@ function PartLinks({
         return null;
     }
     const part = parts.find((p) => p.id === shown);
+    const said = part != null ? partAnswer(f, part) : null;
     return (
         <section
             aria-label={label}
@@ -406,6 +410,7 @@ function PartLinks({
                     {part.body || partGist(f, part)}
                 </div>
             ) : null}
+            {said != null ? <SaidLine said={said} open /> : null}
         </section>
     );
 }

@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     BUILDER_PART,
+    answerLine,
+    answeredQuestions,
     approveBlocker,
     asksUser,
     boardBackLabel,
@@ -21,6 +23,7 @@ import {
     compactedSummary,
     confirmableGuesses,
     designLabel,
+    droppedQuestion,
     exitedSummary,
     handoffView,
     hasProsCons,
@@ -35,6 +38,7 @@ import {
     paneView,
     parseBrainstorm,
     parseBrainstormPath,
+    partAnswer,
     partBoards,
     partGist,
     partTitle,
@@ -48,11 +52,15 @@ import {
     reviewHead,
     runLine,
     runPrefill,
+    seenMark,
+    sendBlocker,
+    sentKind,
     sentenceDiff,
     settleSent,
     shownFile,
     terminalAnswer,
     treeLine,
+    unseenSince,
     withBrainstorm,
     type BrainstormFile,
     type BrainstormPart,
@@ -60,6 +68,7 @@ import {
     type HistoryEntry,
     type ParseResult,
     type PartState,
+    type SentLine,
 } from "./brainstormmodel";
 
 const part = (id: string, state: PartState, over: Partial<BrainstormPart> = {}): BrainstormPart => ({
@@ -320,7 +329,7 @@ describe("withBrainstorm", () => {
 });
 
 describe("settleSent", () => {
-    const sent = { at: 1000, modifiedMs: 500, answer: true };
+    const sent: SentLine = { at: 1000, modifiedMs: 500, kind: "answer" };
 
     it("holds while the file is unchanged and the agent has not ended a turn since", () => {
         expect(settleSent(sent, 500, { state: "working" })).toBe(sent);
@@ -348,13 +357,51 @@ describe("settleSent", () => {
     });
 });
 
+describe("a sent check", () => {
+    const ready = file({ done: true, parts: [part("a", "yours")] });
+    const check: SentLine = { at: 1000, modifiedMs: 500, kind: "check" };
+    const ended = { state: "idle" as const, idleSince: 1500 };
+
+    it("is what the check action sends; an answer is an answer and anything else a line", () => {
+        expect(sentKind({ kind: "check" })).toBe("check");
+        expect(sentKind({ kind: "answer", text: "x" })).toBe("answer");
+        expect(sentKind({ kind: "builder-answer", text: "x" })).toBe("line");
+        expect(sentKind({ kind: "confirm-all" })).toBe("line");
+    });
+
+    // Arc's record, not the file, says whether the builder is reading (builderCheckView), so a check settles like any
+    // line and leaves its send time behind (nextSentCheckAt)
+    it("settles like any line once the turn that took it ends", () => {
+        expect(settleSent(check, 500, ended)).toBeNull();
+        expect(settleSent(check, 500, { state: "working" })).toBe(check);
+    });
+
+    it("shows the builder reading, with no review head and no second check to press", () => {
+        const s = shownFile(ready, check);
+        expect(s.working).toBe("A builder is reading the design.");
+        expect(mainView(s, false)).toBe("working");
+        expect(leftPanel(s)).toBe("none");
+        expect(sendBlocker({ kind: "check" }, s)).toBe(
+            "The agent is still working; check with a builder once it is done"
+        );
+    });
+
+    it("is sendable only while the agent is not working", () => {
+        expect(reviewHead(ready).action).toBe("check");
+        expect(sendBlocker({ kind: "check" }, ready)).toBeNull();
+        expect(sendBlocker({ kind: "check" }, null)).toBeNull();
+        expect(sendBlocker({ kind: "check" }, { ...ready, working: "Writing it" })).not.toBeNull();
+        expect(sendBlocker({ kind: "confirm-all" }, { ...ready, working: "Writing it" })).toBeNull();
+    });
+});
+
 describe("terminalAnswer", () => {
     const asking = file({ question: { n: 2, text: "?", part: "a" }, parts: [part("a", "asked")] });
     const working = { state: "working" as const };
 
     it("reads a turn started after the file asked as an answer typed in the terminal", () => {
         const sent = terminalAnswer(asking, 500, working, 1000);
-        expect(sent).toEqual({ at: 1000, modifiedMs: 500, answer: true });
+        expect(sent).toEqual({ at: 1000, modifiedMs: 500, kind: "answer" });
         expect(shownFile(asking, sent).question).toBeNull();
     });
 
@@ -433,12 +480,12 @@ describe("builderCheckView", () => {
 });
 
 describe("nextSentCheckAt", () => {
-    const check = { at: 1000, modifiedMs: 500, answer: false, check: true };
+    const check: SentLine = { at: 1000, modifiedMs: 500, kind: "check" };
 
     it("keeps a check's send time once the agent has taken it", () => {
         expect(nextSentCheckAt(null, check, check, undefined)).toBeNull();
         expect(nextSentCheckAt(null, check, null, undefined)).toBe(1000);
-        expect(nextSentCheckAt(null, { ...check, check: undefined }, null, undefined)).toBeNull();
+        expect(nextSentCheckAt(null, { ...check, kind: "line" as const }, null, undefined)).toBeNull();
         expect(nextSentCheckAt(1000, null, null, undefined)).toBe(1000);
     });
 
@@ -458,7 +505,7 @@ describe("shownFile", () => {
     });
 
     it("reads a pending answer as the agent writing it up, the question closed", () => {
-        const s = shownFile(f, { at: 1, modifiedMs: 1, answer: true });
+        const s = shownFile(f, { at: 1, modifiedMs: 1, kind: "answer" });
         expect(s.working).toBe("Writing up your answer.");
         expect(s.question).toBeNull();
         expect(isAsking(s)).toBe(false);
@@ -467,7 +514,7 @@ describe("shownFile", () => {
     });
 
     it("reads another pending line as working, the question kept", () => {
-        const s = shownFile(f, { at: 1, modifiedMs: 1, answer: false });
+        const s = shownFile(f, { at: 1, modifiedMs: 1, kind: "line" });
         expect(s.working).toBe("Taking in your change.");
         expect(s.question).toBe(q);
         expect(isAsking(s)).toBe(false);
@@ -476,7 +523,7 @@ describe("shownFile", () => {
 
     it("leaves a working line the file sets itself alone", () => {
         const w = file({ working: "Writing it" });
-        expect(shownFile(w, { at: 1, modifiedMs: 1, answer: true })).toBe(w);
+        expect(shownFile(w, { at: 1, modifiedMs: 1, kind: "answer" })).toBe(w);
     });
 });
 
@@ -575,7 +622,7 @@ describe("historyRows", () => {
         { label: "Both", detail: "d3" },
     ];
 
-    it("is newest first, labelled Q<n>, with recon at the bottom", () => {
+    it("is oldest first, labelled Q<n>, with recon at the top", () => {
         const f = file({
             history: [
                 { kind: "question", n: 1, q: "q1", a: "a1", into: [] },
@@ -583,7 +630,7 @@ describe("historyRows", () => {
                 { kind: "question", n: 2, q: "q2", a: "a2", into: [] },
             ],
         });
-        expect(historyRows(f).map((r) => r.label)).toEqual(["Q2", "Q1", "Recon"]);
+        expect(historyRows(f).map((r) => r.label)).toEqual(["Recon", "Q1", "Q2"]);
     });
 
     it("lists every option offered, the picked one marked, and no separate answer", () => {
@@ -651,7 +698,7 @@ describe("historyRows", () => {
                 { kind: "recon", q: "rq2", a: "", into: [] },
             ],
         });
-        expect(historyRows(f).map((r) => r.answer)).toEqual(["rq2", "found"]);
+        expect(historyRows(f).map((r) => r.answer)).toEqual(["found", "rq2"]);
     });
 });
 
@@ -1582,5 +1629,206 @@ describe("partBoards and questionBoards", () => {
     it("none until the canvas is named and served", () => {
         expect(questionBoards(file({ parts, question: q("layout") }), BASE)).toBeNull();
         expect(questionBoards(file({ canvas: "topic", parts, question: q("layout") }), null)).toBeNull();
+    });
+});
+
+// question 8 asked A, B or C for the layout and was dropped after pushback; question 11 asked only dark or light
+const overreach = (look: Partial<BrainstormPart> = {}): BrainstormFile =>
+    file({
+        parts: [
+            part("layout", "open"),
+            part("look", "yours", { from: "answer 11", body: "Mockup B, dark, like the spike.", ...look }),
+        ],
+        history: [
+            {
+                kind: "question",
+                n: 8,
+                q: "A, B or C?",
+                a: "",
+                into: [],
+                part: "layout",
+                superseded: true,
+                options: [
+                    { label: "A", detail: "" },
+                    { label: "B", detail: "" },
+                    { label: "C", detail: "" },
+                ],
+            },
+            { kind: "recon", q: "You pushed back: none of these fit.", a: "Asked a narrower question.", into: [] },
+            { kind: "question", n: 11, q: "Dark or light?", a: "Dark, like the spike", into: ["look"] },
+        ],
+    });
+
+describe("a superseded question", () => {
+    it("parses superseded and part, leniently", () => {
+        const r = parseBrainstorm(
+            raw({
+                history: [
+                    { kind: "question", n: 8, q: "A, B or C?", part: "layout", superseded: true, into: [] },
+                    { kind: "question", n: 9, q: "q", a: "x", into: [], superseded: "yes" },
+                    { kind: "recon", q: "r", a: "x", into: [], superseded: true },
+                    { kind: "question", n: 10, q: "q", a: "y", into: [] },
+                ],
+            })
+        );
+        expect(r.ok && r.file.history.map((h) => [h.n ?? null, h.superseded ?? null, h.part ?? null])).toEqual([
+            [8, true, "layout"],
+            [9, null, null],
+            [null, null, null],
+            [10, null, null],
+        ]);
+    });
+
+    it("is no answered question: the track and the answered list leave it out", () => {
+        const f = overreach();
+        expect(answeredQuestions(f).map((h) => h.n)).toEqual([11]);
+        expect(questionTrack(f)).toEqual(["done", "ahead"]);
+    });
+
+    it("draws in the rail as dropped, with nothing picked and no answer", () => {
+        const rows = historyRows(overreach());
+        expect(rows.map((r) => [r.label, r.dropped])).toEqual([
+            ["Recon", false],
+            ["Q8", true],
+            ["Q11", false],
+        ]);
+        const q8 = rows[1];
+        expect([q8.answer, q8.ownWords, q8.options.some((o) => o.picked)]).toEqual([null, false, false]);
+    });
+
+    it("says in an open part's row that its question was dropped", () => {
+        const f = overreach();
+        const layout = f.parts[0];
+        expect(droppedQuestion(f, layout)).toBe(8);
+        expect(partGist(f, layout)).toBe("Question 8 was dropped after your pushback; nothing is decided yet.");
+    });
+
+    it("stops standing once the part is asked again or filled in", () => {
+        const f = overreach();
+        for (const state of ["asked", "guess", "yours"] as const) {
+            expect(droppedQuestion(f, { ...f.parts[0], state })).toBeNull();
+        }
+        expect(droppedQuestion(f, part("other", "open"))).toBeNull();
+    });
+
+    it("reads a drop that names its part in into", () => {
+        const f = file({
+            parts: [part("layout", "open")],
+            history: [{ kind: "question", n: 8, q: "q", a: "", into: ["layout"], superseded: true }],
+        });
+        expect(droppedQuestion(f, f.parts[0])).toBe(8);
+    });
+});
+
+describe("partAnswer", () => {
+    it("is the user's answer the part's from names, from the entry that went into it", () => {
+        const f = overreach();
+        const said = partAnswer(f, f.parts[1]);
+        expect(said).toEqual({ n: 11, text: "Dark, like the spike" });
+        expect(answerLine(said!)).toBe("answer 11: “Dark, like the spike”");
+    });
+
+    it("reads a picked option as its label when a is empty", () => {
+        const f = file({
+            parts: [part("p", "yours", { from: "answer 2" })],
+            history: [
+                {
+                    kind: "question",
+                    n: 2,
+                    q: "q",
+                    a: "",
+                    into: ["p"],
+                    options: [
+                        { label: "One", detail: "" },
+                        { label: "Two", detail: "" },
+                    ],
+                    picked: 1,
+                },
+            ],
+        });
+        expect(partAnswer(f, f.parts[0])).toEqual({ n: 2, text: "Two" });
+    });
+
+    it("is none for a from that names no answer, or an answer that did not go into the part", () => {
+        const f = overreach();
+        for (const from of ["mockup", "recon", "your call", undefined]) {
+            expect(partAnswer(f, { ...f.parts[1], from })).toBeNull();
+        }
+        expect(partAnswer(f, { ...f.parts[1], from: "answer 12" })).toBeNull();
+        expect(partAnswer(f, { ...f.parts[1], id: "other" })).toBeNull();
+        // a dropped question has no answer to quote
+        expect(partAnswer(f, { ...f.parts[0], from: "answer 8" })).toBeNull();
+    });
+
+    it("reads a from with more after the number", () => {
+        const f = overreach();
+        expect(partAnswer(f, { ...f.parts[1], from: "your answer 11, with the board" })?.n).toBe(11);
+    });
+
+    it("puts the answer on a review row in place of the from it names, and keeps a why", () => {
+        const f = overreach();
+        const look = (over: Partial<BrainstormPart>) => {
+            const g = { ...f, parts: [{ ...f.parts[1], state: "guess" as const, ...over }] };
+            return checkReview(g).fresh[0];
+        };
+        expect([look({}).cause, look({}).said]).toEqual(["", { n: 11, text: "Dark, like the spike" }]);
+        expect(look({ why: "builder question 1" }).cause).toBe("builder question 1");
+        expect(look({ from: "mockup" })).toMatchObject({ cause: "mockup" });
+        expect(look({ from: "mockup" }).said).toBeUndefined();
+    });
+});
+
+describe("unseenSince", () => {
+    const recon = (q: string, a: string): HistoryEntry => ({ kind: "recon", q, a, into: [] });
+    const asked: HistoryEntry = { kind: "question", n: 1, q: "q1", a: "a1", into: ["a"] };
+    const before = file({
+        question: { n: 2, text: "q2", part: "a" },
+        parts: [part("a", "guess", { body: "A." }), part("n1", "yours", { kind: "note", gist: "Old.", body: "Old." })],
+        history: [asked, recon("You asked: why?", "Because.")],
+    });
+
+    it("finds nothing before the pane's first read, and nothing in the file it saw", () => {
+        expect(unseenSince(before, null)).toEqual({ parts: [], notes: [], recon: [] });
+        expect(unseenSince(before, seenMark(before))).toEqual({ parts: [], notes: [], recon: [] });
+    });
+
+    it("marks the notes and recon the agent added while the question stayed open", () => {
+        const after: BrainstormFile = {
+            ...before,
+            parts: [
+                ...before.parts,
+                part("n2", "yours", { kind: "note", gist: "Trend: X.", body: "X." }),
+                part("n3", "yours", { kind: "note", gist: "Trend: Y.", body: "Y." }),
+            ],
+            history: [...before.history, recon("You asked: research current trends", "Two trends.")],
+        };
+        expect(unseenSince(after, seenMark(before))).toEqual({ parts: ["n2", "n3"], notes: ["n2", "n3"], recon: [2] });
+    });
+
+    it("marks a part whose text changed, not one whose state alone did", () => {
+        const after: BrainstormFile = {
+            ...before,
+            parts: [
+                part("a", "yours", { body: "A." }),
+                part("n1", "yours", { kind: "note", gist: "New.", body: "Old." }),
+            ],
+        };
+        expect(unseenSince(after, seenMark(before))).toEqual({ parts: ["n1"], notes: ["n1"], recon: [] });
+    });
+
+    it("lists a changed decision among the parts but not the notes", () => {
+        const after: BrainstormFile = { ...before, parts: [part("a", "guess", { body: "B." }), before.parts[1]] };
+        expect(unseenSince(after, seenMark(before))).toEqual({ parts: ["a"], notes: [], recon: [] });
+    });
+
+    it("historyRows marks only the unseen recon rows", () => {
+        const after: BrainstormFile = { ...before, history: [...before.history, recon("You asked: more", "More.")] };
+        const rows = historyRows(after, unseenSince(after, seenMark(before)));
+        expect(rows.map((r) => [r.label, r.unseen])).toEqual([
+            ["Recon", false],
+            ["Recon", true],
+            ["Q1", false],
+        ]);
+        expect(historyRows(after).every((r) => !r.unseen)).toBe(true);
     });
 });

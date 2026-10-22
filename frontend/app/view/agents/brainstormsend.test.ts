@@ -101,11 +101,21 @@ describe("sendBrainstorm", () => {
 
     it("records the sent line against the file as it was, an answer as an answer", async () => {
         await sendBrainstorm(AGENT, { kind: "answer", text: "yes" }, fakeIO(), 1000);
-        expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 1000, modifiedMs: 500, answer: true });
+        expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 1000, modifiedMs: 500, kind: "answer" });
         await sendBrainstorm(AGENT, { kind: "confirm", part: "x" }, fakeIO(), 2000);
-        expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 2000, modifiedMs: 500, answer: false });
+        expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 2000, modifiedMs: 500, kind: "line" });
         await sendBrainstorm(AGENT, { kind: "check" }, fakeIO(), 3000);
-        expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 3000, modifiedMs: 500, answer: false, check: true });
+        expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 3000, modifiedMs: 500, kind: "check" });
+    });
+
+    it("refuses a second check while the first is underway, sending nothing", async () => {
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, file: FILE }));
+        await sendBrainstorm(AGENT, { kind: "check" }, fakeIO(), 1000);
+        expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 1000, modifiedMs: 500, kind: "check" });
+        const io = fakeIO();
+        await expect(sendBrainstorm(AGENT, { kind: "check" }, io, 2000)).rejects.toThrow("still working");
+        expect(io.sent).toEqual([]);
+        expect(getBrainstorm(AGENT.id)?.sent?.at).toBe(1000);
     });
 
     it.each([

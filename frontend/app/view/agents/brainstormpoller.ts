@@ -25,6 +25,7 @@ import {
 } from "./brainstormmodel";
 import {
     attachBrainstorm,
+    baselineBrainstormSeen,
     brainstormsAtom,
     detachBrainstorm,
     getBrainstorm,
@@ -176,6 +177,9 @@ async function pollAndMerge(agentId: string, agent: AgentVM | undefined, io: Bra
     const settled = settleBrainstorm(cur, patch, agent, turnStartOf(agent));
     if (Object.keys(patch).length > 0 || settled.sent !== cur.sent || settled.sentCheckAt !== cur.sentCheckAt) {
         updateBrainstorm(agentId, (c) => (c.path === s.path ? { ...c, ...patch, ...settled } : c));
+    }
+    if (patch.file != null) {
+        baselineBrainstormSeen(s.path, patch.file);
     }
 }
 

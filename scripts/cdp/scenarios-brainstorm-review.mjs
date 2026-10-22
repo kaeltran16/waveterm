@@ -77,13 +77,14 @@ const CR_GUESS = {
     id: "torch",
     title: "The move to PyTorch",
     state: "guess",
+    from: "answer 12",
     gist: "A shared torch base, built with the forecaster; the autoencoder port next; the graph model later.",
     body: "A shared torch base, built with the forecaster; the autoencoder port next; the graph model later.",
 };
 const CR_GRAPH = { id: "graph", title: "Graph model", state: "asked", gist: "Not written yet: question 16 asks what it is for.", body: "" };
 const CR_UNCHANGED = [
     { id: "intent", title: "Intent and why", body: "The engine misses entities whose volume follows a weekly rhythm." },
-    { id: "order", title: "Order and packaging", body: "One PR per model, the forecaster first." },
+    { id: "order", title: "Order and packaging", from: "answer 9", body: "One PR per model, the forecaster first." },
     { id: "builder", title: "Left to the builder", body: "File layout, test fixtures, the setting names." },
 ];
 const CR_NOTES = [
@@ -120,6 +121,12 @@ const CR_Q16 = {
         { label: "New access paths", detail: "User to service." },
     ],
 };
+// the answers the guess and the unchanged decision name in from, which each shows as said
+const CR_HISTORY = [
+    { kind: "question", n: 9, q: "One PR for everything, or one per model?", a: "One per model, forecaster first", into: ["order"] },
+    { kind: "question", n: 12, q: "Which ML framework?", a: "My boss wants PyTorch", into: ["constraints", "torch"] },
+    { kind: "question", n: 15, q: "Decide both models now, or only the first?", a: "Both, at a high level.", into: ["direction"] },
+];
 const CR_BLOCKER = "Review 8 changes, confirm 1 guess, answer question 16";
 const CR_CHANGED_LINKS = [
     "Changed Forecast grain, Where the forecast sits, Damping, What the forecast adds, How we know it is better",
@@ -142,7 +149,7 @@ function crFile(kept = []) {
         question: CR_Q16,
         working: null,
         parts: [...changed, CR_GUESS, CR_GRAPH, ...CR_UNCHANGED.map((p) => ({ ...p, state: "yours" })), ...CR_NOTES],
-        history: [{ kind: "question", n: 15, q: "Decide both models now, or only the first?", a: "Both, at a high level.", into: ["direction"] }],
+        history: CR_HISTORY,
         done: false,
         check: { yours: CR_ANSWERED, calls: CR_CALLS, answered: [], touched: CR_CHANGED.map((c) => c.id) },
         run: null,
@@ -199,6 +206,7 @@ export default function (kit) {
                     cursor: r.hasAttribute("data-cursor"),
                     gist: flat(r.querySelector("[data-brainstorm-gist]")),
                     cause: flat(r.querySelector("[data-brainstorm-review-cause]")),
+                    said: flat(r.querySelector("[data-brainstorm-said]")),
                     buttons: [...r.querySelectorAll("button")].map(flat).filter((t) => t !== ""),
                     calls: r.querySelectorAll("[data-brainstorm-review-call]").length,
                     toggle: r.querySelector("[data-brainstorm-review-toggle]")?.getAttribute("aria-label") ?? null,
@@ -318,6 +326,16 @@ export default function (kit) {
                 { ...bsBrief(drawn), opened, shown, read: r }
             );
 
+            const torch = r.fresh.find((x) => x.id === "torch");
+            rec(
+                "1b. a decision an answer made shows that answer as said in place of its from; one with a why or no answer shows none",
+                torch?.said === "answer 12: “My boss wants PyTorch”" &&
+                    torch?.cause === "" &&
+                    r.changed.every((x) => x.said === "") &&
+                    r.fresh.find((x) => x.id === "graph")?.said === "",
+                { torch, changedSaid: r.changed.map((x) => x.said) }
+            );
+
             await h.ev(`${ROW("constraints")}?.querySelector("[data-brainstorm-review-toggle]")?.click()`);
             await polishNap(300);
             const d = await readDiff(h, "constraints");
@@ -382,10 +400,14 @@ export default function (kit) {
             const unchangedBody = await openLink("unchanged", "Order and packaging", "order");
             const noteBody = await openLink("notes", CR_NOTES[3].title, CR_NOTES[3].id);
             const bodies = await h.ev(`[...(${REVIEW}?.querySelectorAll("[data-brainstorm-review-body]") ?? [])].map((b) => b.innerText.trim())`);
+            const said = await h.ev(`${REVIEW}?.querySelector('[data-brainstorm-review-links="unchanged"] [data-brainstorm-said]')?.innerText.trim() ?? ""`);
             rec(
-                "5. a Yours, unchanged link and a What the agent found link each open that part's body under the line",
-                unchangedBody && noteBody && JSON.stringify(bodies) === JSON.stringify([CR_UNCHANGED[1].body, CR_NOTES[3].body]),
-                { unchangedBody, noteBody, bodies }
+                "5. a Yours, unchanged link and a What the agent found link each open that part's body under the line, the unchanged one with the answer it came from",
+                unchangedBody &&
+                    noteBody &&
+                    JSON.stringify(bodies) === JSON.stringify([CR_UNCHANGED[1].body, CR_NOTES[3].body]) &&
+                    said === "answer 9: “One per model, forecaster first”",
+                { unchangedBody, noteBody, bodies, said }
             );
 
             bsWrite(ctx, crFile(["constraints"]));
