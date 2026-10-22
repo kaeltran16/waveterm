@@ -25,7 +25,6 @@ const empty: SelectionSnapshot = {
     subject: null,
     activeRunIds: {},
     peekRecordId: null,
-    radarReportId: undefined,
 };
 
 const item = (key: string, over: Partial<CommandItem> = {}): CommandItem => ({
@@ -66,12 +65,8 @@ describe("selectionFor", () => {
         expect(selectionFor("jarvis", same)).toEqual(["task:d1"]);
     });
 
-    it("reports the radar report", () => {
-        expect(selectionFor("radar", { ...empty, radarReportId: "rr1" })).toEqual(["radarreport:rr1"]);
-    });
-
     it("reports nothing on surfaces without an addressed selection, whatever else is set", () => {
-        const s = { ...empty, focusId: "t1", radarReportId: "rr1" };
+        const s = { ...empty, focusId: "t1", peekRecordId: "d1" };
         expect(selectionFor("usage", s)).toEqual([]);
         expect(selectionFor("cockpit", s)).toEqual([]);
     });

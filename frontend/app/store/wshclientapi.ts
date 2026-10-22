@@ -150,12 +150,6 @@ export class RpcApiType {
         return client.wshRpcCall("blockslist", data, opts);
     }
 
-    // command "cancelradarscan" [call]
-    CancelRadarScanCommand(client: WshClient, data: CommandCancelRadarScanData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "cancelradarscan", data, opts);
-        return client.wshRpcCall("cancelradarscan", data, opts);
-    }
-
     // command "cancelrun" [call]
     CancelRunCommand(client: WshClient, data: CommandCancelRunData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "cancelrun", data, opts);
@@ -190,6 +184,18 @@ export class RpcApiType {
     ClaudeAccountSwitchCommand(client: WshClient, data: CommandClaudeAccountData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "claudeaccountswitch", data, opts);
         return client.wshRpcCall("claudeaccountswitch", data, opts);
+    }
+
+    // command "claudemodoptions" [call]
+    ClaudeModOptionsCommand(client: WshClient, data: CommandClaudeModOptionsData, opts?: RpcOpts): Promise<{[key: string]: any}> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "claudemodoptions", data, opts);
+        return client.wshRpcCall("claudemodoptions", data, opts);
+    }
+
+    // command "claudemodsetoption" [call]
+    ClaudeModSetOptionCommand(client: WshClient, data: CommandClaudeModSetOptionData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "claudemodsetoption", data, opts);
+        return client.wshRpcCall("claudemodsetoption", data, opts);
     }
 
     // command "consult" [responsestream]
@@ -714,12 +720,6 @@ export class RpcApiType {
         return client.wshRpcCall("listmemoryhygiene", null, opts);
     }
 
-    // command "listradarreports" [call]
-    ListRadarReportsCommand(client: WshClient, data: CommandListRadarReportsData, opts?: RpcOpts): Promise<CommandListRadarReportsRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listradarreports", data, opts);
-        return client.wshRpcCall("listradarreports", data, opts);
-    }
-
     // command "listrefusedroutes" [call]
     ListRefusedRoutesCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListRefusedRoutesRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listrefusedroutes", null, opts);
@@ -906,12 +906,6 @@ export class RpcApiType {
         return client.wshRpcCall("resolveids", data, opts);
     }
 
-    // command "retryradarclustering" [call]
-    RetryRadarClusteringCommand(client: WshClient, data: CommandRetryRadarClusteringData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "retryradarclustering", data, opts);
-        return client.wshRpcCall("retryradarclustering", data, opts);
-    }
-
     // command "routeannounce" [call]
     RouteAnnounceCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "routeannounce", null, opts);
@@ -1002,12 +996,6 @@ export class RpcApiType {
         return client.wshRpcCall("setpeerinfo", data, opts);
     }
 
-    // command "setradarfindingdisposition" [call]
-    SetRadarFindingDispositionCommand(client: WshClient, data: CommandSetRadarFindingDispositionData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setradarfindingdisposition", data, opts);
-        return client.wshRpcCall("setradarfindingdisposition", data, opts);
-    }
-
     // command "setrtinfo" [call]
     SetRTInfoCommand(client: WshClient, data: CommandSetRTInfoData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setrtinfo", data, opts);
@@ -1024,12 +1012,6 @@ export class RpcApiType {
     SetSecretsCommand(client: WshClient, data: {[key: string]: string}, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setsecrets", data, opts);
         return client.wshRpcCall("setsecrets", data, opts);
-    }
-
-    // command "startradarscan" [call]
-    StartRadarScanCommand(client: WshClient, data: CommandStartRadarScanData, opts?: RpcOpts): Promise<CommandStartRadarScanRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "startradarscan", data, opts);
-        return client.wshRpcCall("startradarscan", data, opts);
     }
 
     // command "stoprunworker" [call]

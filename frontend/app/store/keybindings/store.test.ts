@@ -3,12 +3,15 @@
 
 import { registerModal } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
+import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import {
     attachBrainstorm,
     brainstormAtom,
     detachBrainstorm,
+    openBrainstormDesign,
     setBrainstormMode,
+    updateBrainstorm,
 } from "@/app/view/agents/brainstormstore";
 import {
     attachCanvas,
@@ -45,7 +48,10 @@ import { PREDICATE_ATOMS } from "./whenstate";
 
 // the canvas guards read the focused agent id from the model
 function stubModel(focusId?: string): any {
-    return { focusIdAtom: atom<string | undefined>(focusId) as PrimitiveAtom<string | undefined> };
+    return {
+        focusIdAtom: atom<string | undefined>(focusId) as PrimitiveAtom<string | undefined>,
+        agentsAtom: atom([]),
+    };
 }
 
 // a1 focused with a ready two-board canvas, in terminal mode; callers move it into canvas/marking
@@ -67,17 +73,7 @@ function b(id: string, keys = "j"): Binding {
 }
 
 // A representative sample of contexts the dispatcher can be in.
-const SURFACES: SurfaceKey[] = [
-    "cockpit",
-    "agent",
-    "jarvis",
-    "radar",
-    "sessions",
-    "files",
-    "usage",
-    "code",
-    "settings",
-];
+const SURFACES: SurfaceKey[] = ["cockpit", "agent", "jarvis", "sessions", "files", "usage", "code", "settings"];
 function contexts(): KeyContext[] {
     const out: KeyContext[] = [];
     for (const surface of SURFACES) {
@@ -177,7 +173,7 @@ describe("keybinding conflict invariant", () => {
             ...buildCockpitBindings(),
             ...buildAgentBindings(model),
             ...buildFilesBindings(),
-            ...buildCodeBindings(),
+            ...buildCodeBindings(stubModel()),
         ];
         const open = all.find((x) => x.id === "agent:brainstorm-open")!;
         const close = all.find((x) => x.id === "agent:brainstorm-close")!;
@@ -209,6 +205,70 @@ describe("keybinding conflict invariant", () => {
             expect(() => assertNoConflicts(all)).not.toThrow();
             detachBrainstorm("a1");
             expect(open.when!(agentCtx) || close.when!(agentCtx)).toBe(false);
+        } finally {
+            detachBrainstorm("a1");
+            detachCanvas("a1");
+        }
+    });
+
+    // a question's options take a-d while the pane draws them, b among them, so b back to the terminal stands down
+    it("the option letters pick while the question shows them, and b picks B instead of leaving", () => {
+        const model = withCanvas();
+        attachBrainstorm("a1", { topic: "bs", cwd: "/p" }, 0);
+        globalStore.set(listNavAtom, null);
+        const all = [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildAgentBindings(model)];
+        const live = (id: string) => all.find((x) => x.id === id)!.when!(agentCtx);
+        const agentCtx: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+        const ask = (labels: string[]) =>
+            updateBrainstorm("a1", (s) => ({
+                ...s,
+                file: {
+                    v: 1,
+                    title: "T",
+                    spec: "",
+                    question: { n: 1, text: "Q", part: "p", options: labels.map((label) => ({ label, detail: "" })) },
+                    working: null,
+                    parts: [],
+                    history: [],
+                    done: false,
+                    check: null,
+                    run: null,
+                },
+            }));
+        try {
+            setBrainstormMode("a1", "brainstorm", 1);
+            ask(["A", "B", "C"]);
+            expect(["a", "b", "c", "d"].map((k) => live(`agent:brainstorm-option-${k}`))).toEqual([
+                true,
+                true,
+                true,
+                false,
+            ]);
+            expect(live("agent:brainstorm-close")).toBe(false);
+            expect(() => assertNoConflicts(all)).not.toThrow();
+            // while b picks B, the chord still leaves, and from the terminal it comes back
+            const chord = all.find((x) => x.id === "agent:view-chord")!;
+            chord.run(agentCtx);
+            expect(globalStore.get(brainstormAtom("a1"))!.mode).toBe("terminal");
+            expect(chord.when!({ ...agentCtx, editable: true })).toBe(true);
+            chord.run({ ...agentCtx, editable: true });
+            expect(globalStore.get(brainstormAtom("a1"))!.mode).toBe("brainstorm");
+            // a typed answer keeps its letters: the dispatcher leaves an editable target alone
+            expect(all.find((x) => x.id === "agent:brainstorm-option-a")!.when!({ ...agentCtx, editable: true })).toBe(
+                false
+            );
+            ask(["A"]);
+            expect(live("agent:brainstorm-option-a")).toBe(true);
+            expect(live("agent:brainstorm-close")).toBe(true);
+            expect(() => assertNoConflicts(all)).not.toThrow();
+            openBrainstormDesign("a1", true);
+            ask(["A", "B"]);
+            expect(live("agent:brainstorm-option-a")).toBe(false);
+            expect(live("agent:brainstorm-close")).toBe(true);
+            setBrainstormMode("a1", "terminal", 2);
+            openBrainstormDesign("a1", false);
+            expect(live("agent:brainstorm-option-a")).toBe(false);
+            expect(live("agent:brainstorm-open")).toBe(true);
         } finally {
             detachBrainstorm("a1");
             detachCanvas("a1");
@@ -250,7 +310,9 @@ describe("keybinding conflict invariant", () => {
     it("global + code-surface bindings do not conflict, editable or not", () => {
         const model = stubModel();
         globalStore.set(listNavAtom, null);
-        expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildCodeBindings()])).not.toThrow();
+        expect(() =>
+            assertNoConflicts([...buildGlobalBindings(model), ...buildCodeBindings(stubModel())])
+        ).not.toThrow();
     });
 
     // The tree keys are bare letters and arrows, live only while the tree pane holds focus. With
@@ -266,7 +328,7 @@ describe("keybinding conflict invariant", () => {
                 assertNoConflicts([
                     ...buildGlobalBindings(model),
                     ...buildListNavBindings(model),
-                    ...buildCodeBindings(),
+                    ...buildCodeBindings(stubModel()),
                 ])
             ).not.toThrow();
         } finally {
@@ -274,7 +336,6 @@ describe("keybinding conflict invariant", () => {
             globalStore.set(listNavAtom, null);
         }
     });
-
 
     it("global + cockpit-grid documentation bindings do not conflict", () => {
         const model = stubModel();
@@ -410,7 +471,7 @@ describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
             ...buildCockpitBindings(),
             ...buildAgentBindings(model),
             ...buildFilesBindings(),
-            ...buildCodeBindings(),
+            ...buildCodeBindings(stubModel()),
         ];
 
         // Neutral so no `&&` chain (e.g. surface:back-home's, subagent:back's) short-circuits before
@@ -441,13 +502,15 @@ describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
             detachCanvas("a1");
         }
 
-        // the focus id and the focused agent's canvas and brainstorm atoms are watched by watchFocusedCanvas,
-        // not listed
+        // the focus id, the roster, and the focused agent's canvas, brainstorm and exit atoms are watched by
+        // watchFocusedCanvas, not listed; a1 is not in the stub roster, so its block id is ""
         const registered = new Set<unknown>([
             ...PREDICATE_ATOMS,
             model.focusIdAtom,
+            model.agentsAtom,
             canvasStateAtom("a1"),
             brainstormAtom("a1"),
+            getProcExitAtom(""),
         ]);
         const missing = [...seen].filter((a) => !registered.has(a));
         const unused = PREDICATE_ATOMS.filter((a) => !seen.has(a));

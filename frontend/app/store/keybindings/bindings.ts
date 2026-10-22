@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { launchPiTab } from "@/app/cockpit/cockpit-actions";
-import { orderGroups } from "@/app/cockpit/resmon";
+import { buildViews } from "@/app/cockpit/resmon";
 import {
     confirmResMon,
     dispatchResMon,
@@ -15,9 +15,27 @@ import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { anyModalOpen } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
+import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { focusedBrainstorm, setBrainstormMode } from "@/app/view/agents/brainstormstore";
+import {
+    checkMain,
+    checkReview,
+    OPTION_KEYS,
+    optionLetter,
+    paneView,
+    pickableOptions,
+    type BrainstormAction,
+    type ReviewRow,
+} from "@/app/view/agents/brainstormmodel";
+import { sendBrainstorm } from "@/app/view/agents/brainstormsend";
+import {
+    focusedBrainstorm,
+    moveReviewCursor,
+    setBrainstormMode,
+    shownBrainstormFile,
+    toggleReviewRow,
+} from "@/app/view/agents/brainstormstore";
 import { paneState } from "@/app/view/agents/canvasmodel";
 import {
     focusedCanvas,
@@ -50,13 +68,16 @@ import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
+    caretWord,
     codeCursorAtom,
     codeRowsAtom,
     codeTreeFocusedAtom,
     codeViewModeAtom,
     confirmDelete,
+    findReferences,
     goBack,
     goForward,
+    goToDefinition,
     openPath,
     refreshIndex,
     saveCurrent,
@@ -116,7 +137,6 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "h", surface: "cockpit", label: "Cockpit (home)" },
     { letter: "a", surface: "agent", label: "Agent" },
     { letter: "c", surface: "jarvis", label: "Jarvis (projects, records, recall)" },
-    { letter: "r", surface: "radar", label: "Radar" },
     { letter: "s", surface: "sessions", label: "Sessions" },
     { letter: "f", surface: "files", label: "Diff" },
     { letter: "u", surface: "usage", label: "Usage" },
@@ -144,7 +164,7 @@ const noEscapeMenuOpen = () => globalStore.get(escapeMenusOpenAtom) === 0;
 
 // Deep (non-home) surfaces whose Escape returns to the Cockpit. Excludes cockpit (already home), agent
 // (owns Escape via buildAgentBindings: exit fullscreen / back), and settings.
-const ESC_HOME_SURFACES = new Set<SurfaceKey>(["jarvis", "radar", "sessions", "files", "usage", "code"]);
+const ESC_HOME_SURFACES = new Set<SurfaceKey>(["jarvis", "sessions", "files", "usage", "code"]);
 
 // A key that clicks a control the surface already draws, rather than duplicating what the control knows.
 // No control on screen lets the key pass.
@@ -484,10 +504,10 @@ export function buildListNavBindings(model: AgentsViewModel): Binding[] {
     ];
 }
 
-// Run-body ask keys: the ask card renders numbered (1-9) answer badges (channelsprimitives AskRow), but
-// the digit handler used to be cockpit-only. These bindings make the badges functional wherever the run
-// body lives — now the merged Jarvis Stage — targeting the selected run's asking worker (published live
-// via askAgentRef). Reuses answerDigitTarget + model.toggleAnswer/submitAnswer — no duplicated logic.
+// Run sheet ask keys: the ask card renders numbered (1-9) answer badges (channelsprimitives AskRow), but
+// the digit handler used to be cockpit-only. These bindings make the badges functional on the Brief's run
+// sheet, targeting the shown run's asking lead (published live via askAgentRef). Reuses answerDigitTarget +
+// model.toggleAnswer/submitAnswer — no duplicated logic.
 export function buildChannelsAskBindings(
     model: AgentsViewModel,
     askAgentRef: MutableRefObject<AgentVM | undefined>
@@ -799,6 +819,53 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     };
     const brainstorm = () => focusedBrainstorm(model);
     const inBrainstorm = (ctx: KeyContext) => agentNav(ctx) && brainstorm()?.mode === "brainstorm";
+    // the exit the pane reads, so an exited agent's card holds the keys as the pane holds the review
+    const exited = () => {
+        const agent = globalStore.get(model.agentsAtom).find((a) => a.id === focusId());
+        return agent != null && globalStore.get(getProcExitAtom(agent.blockId ?? "")) != null;
+    };
+    // the check's review fills the main area: j and k move its cursor instead of the agents, and y, u and Enter act
+    // on the cursor row
+    const inReview = (ctx: KeyContext) => {
+        if (!inBrainstorm(ctx)) {
+            return false;
+        }
+        const s = brainstorm()!;
+        const f = shownBrainstormFile(s);
+        return f != null && paneView({ ...s, exited: exited() }) === "check" && checkMain(f, s.designOpen) === "review";
+    };
+    const reviewRow = () => {
+        const s = brainstorm();
+        const f = shownBrainstormFile(s);
+        if (s == null || f == null || s.review.cursor == null) {
+            return null;
+        }
+        const r = checkReview(f);
+        return [...r.changed, ...r.fresh].find((x) => x.id === s.review.cursor) ?? null;
+    };
+    const reviewIds = () => {
+        const f = shownBrainstormFile(brainstorm());
+        return f == null ? [] : checkReview(f).cursorIds;
+    };
+    // the row's line goes to the focused agent; with no row or no line for it, or while the agent writes (the row's
+    // buttons are locked then too), the key passes on
+    const sendReview = (action: (row: ReviewRow) => BrainstormAction | null) => {
+        if (shownBrainstormFile(brainstorm())?.working != null) {
+            return false;
+        }
+        const row = reviewRow();
+        const a = row == null ? null : action(row);
+        const agent = globalStore.get(model.agentsAtom).find((x) => x.id === focusId());
+        if (a == null || agent == null) {
+            return false;
+        }
+        sendBrainstorm(agent, a).catch((e) => console.warn("brainstorm review: sending failed", agent.id, a, e));
+    };
+    // the asked question's options the pane draws, each picked by its letter
+    const pickable = () => {
+        const s = brainstorm();
+        return s == null ? 0 : pickableOptions(shownBrainstormFile(s), s);
+    };
     // an agent with a brainstorm never shows its canvas, so the canvas keys stand down for it
     const canvas = () => (brainstorm() == null ? focusedCanvas(model) : null);
     // canvas and brainstorm modes hide the rail and the terminal, so their keys stand down there
@@ -879,8 +946,77 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             when: agentNav,
             run: () => step(1),
         },
-        { id: "agent:prev-k", keys: "k", group: "Agent", label: "Previous agent", when: agentNav, run: () => step(-1) },
-        { id: "agent:next-j", keys: "j", group: "Agent", label: "Next agent", when: agentNav, run: () => step(1) },
+        // in the check's review j and k move between its decisions; the arrows and Ctrl+Tab still move agents
+        {
+            id: "agent:prev-k",
+            keys: "k",
+            group: "Agent",
+            label: "Previous agent",
+            when: (ctx) => agentNav(ctx) && !inReview(ctx),
+            run: () => step(-1),
+        },
+        {
+            id: "agent:next-j",
+            keys: "j",
+            group: "Agent",
+            label: "Next agent",
+            when: (ctx) => agentNav(ctx) && !inReview(ctx),
+            run: () => step(1),
+        },
+        {
+            id: "agent:brainstorm-review-next",
+            keys: "j",
+            group: "Agent",
+            label: "Next decision in the check's review",
+            when: inReview,
+            run: () => moveReviewCursor(focusId(), reviewIds(), 1),
+        },
+        {
+            id: "agent:brainstorm-review-prev",
+            keys: "k",
+            group: "Agent",
+            label: "Previous decision in the check's review",
+            when: inReview,
+            run: () => moveReviewCursor(focusId(), reviewIds(), -1),
+        },
+        {
+            id: "agent:brainstorm-review-open",
+            keys: "Enter",
+            group: "Agent",
+            label: "Show what the review's decision was",
+            when: inReview,
+            // a focused button's Enter is its own press
+            run: () => {
+                const row = reviewRow();
+                if (row == null || document.activeElement?.tagName === "BUTTON") {
+                    return false;
+                }
+                toggleReviewRow(focusId(), row.id);
+            },
+        },
+        {
+            id: "agent:brainstorm-review-keep",
+            keys: "y",
+            group: "Agent",
+            label: "Keep the review's change (confirm a guess)",
+            when: inReview,
+            run: () =>
+                sendReview((row) =>
+                    row.action === "keep-restore"
+                        ? { kind: "keep", part: row.id }
+                        : row.action === "confirm"
+                          ? { kind: "confirm", part: row.id }
+                          : null
+                ),
+        },
+        {
+            id: "agent:brainstorm-review-restore",
+            keys: "u",
+            group: "Agent",
+            label: "Put mine back in the review",
+            when: inReview,
+            run: () => sendReview((row) => (row.action === "keep-restore" ? { kind: "restore", part: row.id } : null)),
+        },
         {
             id: "agent:toggle-rail",
             keys: "d",
@@ -973,9 +1109,48 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "b",
             group: "Agent",
             label: "Back to the terminal from the brainstorm",
-            when: inBrainstorm,
+            // while the question offers a B, b picks it
+            when: (ctx) => inBrainstorm(ctx) && pickable() < 2,
             run: () => setBrainstormMode(focusId(), "terminal", Date.now()),
         },
+        {
+            // b and c only fire off the terminal, and Ctrl+G b / c are Code / Jarvis, so this is the one door
+            // that works while typing. A terminal sends it as plain ^B, so no TUI can bind it apart from Ctrl+B.
+            // Not gated on editable, like F11. An agent has a brainstorm or a canvas, never both.
+            id: "agent:view-chord",
+            keys: "Ctrl:Shift:b",
+            group: "Agent",
+            label: "Switch between the terminal and the agent's brainstorm or canvas (works inside the terminal)",
+            when: (ctx) => ctx.surface === "agent" && !ctx.modalOpen && (brainstorm() != null || canvas() != null),
+            run: () => {
+                const s = brainstorm();
+                if (s != null) {
+                    setBrainstormMode(focusId(), s.mode === "brainstorm" ? "terminal" : "brainstorm", Date.now());
+                    return;
+                }
+                setCanvasMode(focusId(), canvas()!.mode === "canvas" ? "terminal" : "canvas", Date.now());
+            },
+        },
+        // a letter focuses its answer row, so Enter, the row's own key, sends it
+        ...OPTION_KEYS.map(
+            (key, i): Binding => ({
+                id: `agent:brainstorm-option-${key}`,
+                keys: key,
+                group: "Agent",
+                label: `Pick answer ${optionLetter(i)} of the brainstorm's question`,
+                paletteHidden: true,
+                when: (ctx) => inBrainstorm(ctx) && pickable() > i,
+                run: () => {
+                    const row = document.querySelector<HTMLElement>(
+                        `[data-brainstorm-pane] [data-brainstorm-option="${i}"]`
+                    );
+                    if (row == null) {
+                        return false;
+                    }
+                    row.focus();
+                },
+            })
+        ),
         {
             id: "agent:canvas-prev",
             keys: "[",
@@ -1220,7 +1395,7 @@ export function buildFilesBindings(): Binding[] {
     ];
 }
 
-export function buildCodeBindings(): Binding[] {
+export function buildCodeBindings(model: AgentsViewModel): Binding[] {
     const on = (ctx: KeyContext) => ctx.surface === "code" && !ctx.editable && !ctx.modalOpen;
     // Live whenever the tree pane holds focus. Focus is read from an atom, not the DOM:
     // store.test.ts evaluates every `when` in vitest's node environment, where document is
@@ -1422,6 +1597,53 @@ export function buildCodeBindings(): Binding[] {
                 window.requestAnimationFrame(focusCodeSearchInput);
             },
         },
+        // F12, Shift+F12 and Ctrl+Shift+O are Monaco's own chords for the same three things; this
+        // dispatcher runs on window capture, so these win while the caret is in the editor, which is
+        // where they are pressed — hence the surface gate rather than !editable.
+        {
+            id: "code:definition",
+            keys: "F12",
+            group: "Code",
+            label: "Go to the definition of the word at the caret",
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
+            run: () => {
+                const at = caretWord();
+                if (at == null) {
+                    return false; // no editor, or no word under the caret — let the key pass
+                }
+                void goToDefinition(model, at.word, at.lang).then((listed) => {
+                    if (listed) {
+                        focusCodeSidebarOpener(); // a collapsed sidebar would hide the candidates
+                    }
+                });
+            },
+        },
+        {
+            id: "code:references",
+            keys: "Shift:F12",
+            group: "Code",
+            label: "Find references to the word at the caret",
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
+            run: () => {
+                const at = caretWord();
+                if (at == null) {
+                    return false;
+                }
+                focusCodeSidebarOpener();
+                void findReferences(at.word);
+            },
+        },
+        {
+            id: "code:symbols",
+            keys: "Ctrl:Shift:o",
+            group: "Code",
+            label: "Go to a symbol in the open file",
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
+            run: () => {
+                globalStore.set(model.paletteSeedAtom, "@");
+                globalStore.set(model.paletteOpenAtom, true);
+            },
+        },
         {
             id: "code:focus-tree",
             keys: "Alt:t",
@@ -1499,7 +1721,7 @@ export function buildFinalShotsBindings(handlers: {
 export function buildResMonBindings(model: AgentsViewModel): Binding[] {
     const active = (ctx: KeyContext) =>
         globalStore.get(resmonOpenAtom) && !ctx.editable && !anyModalOpen() && !globalStore.get(model.paletteOpenAtom);
-    const groups = () => orderGroups(globalStore.get(resmonSnapshotAtom)?.groups ?? []);
+    const views = () => buildViews(globalStore.get(resmonSnapshotAtom)?.groups ?? []);
     const bind = (id: string, keys: string, label: string, run: () => void): Binding => ({
         id: `resmon:${id}`,
         keys,
@@ -1510,20 +1732,20 @@ export function buildResMonBindings(model: AgentsViewModel): Binding[] {
         run,
     });
     return [
-        bind("prev", "ArrowUp", "Move up", () => dispatchResMon({ type: "move", delta: -1, groups: groups() })),
-        bind("next", "ArrowDown", "Move down", () => dispatchResMon({ type: "move", delta: 1, groups: groups() })),
+        bind("prev", "ArrowUp", "Move up", () => dispatchResMon({ type: "move", delta: -1, views: views() })),
+        bind("next", "ArrowDown", "Move down", () => dispatchResMon({ type: "move", delta: 1, views: views() })),
         bind("enter", "Enter", "Confirm, else expand or collapse the group", () => {
             if (globalStore.get(resmonUiAtom).confirm != null) {
                 void confirmResMon();
             } else {
-                dispatchResMon({ type: "toggle" });
+                dispatchResMon({ type: "toggle", views: views() });
             }
         }),
         bind("kill", "x", "Kill the process and its children", () =>
-            dispatchResMon({ type: "askKill", groups: groups() })
+            dispatchResMon({ type: "askKill", views: views() })
         ),
         bind("kill-children", "Shift:X", "Kill the group's children", () =>
-            dispatchResMon({ type: "askChildren", groups: groups() })
+            dispatchResMon({ type: "askChildren", views: views() })
         ),
         bind("close", "Escape", "Cancel, else close", () => {
             if (globalStore.get(resmonUiAtom).confirm != null) {

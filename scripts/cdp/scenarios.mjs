@@ -3,7 +3,6 @@
 // Asserts are RPC-based (backend state) or DOM-based (h.ev) — NOT jotai atom reads (globalStore is not
 // exposed on window). steps are { step, ok, detail }.
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -22,8 +21,11 @@ import {
 } from "./memory-fixtures.mjs";
 import { notesWsh, vaultRemote, vaultRoot } from "./notes-wsh.mjs";
 import { SCENARIOS as COCKPIT_FIXTURES } from "../cockpit-fixtures/scenarios.mjs";
+import builder from "./scenarios-brainstorm-builder.mjs";
+import review from "./scenarios-brainstorm-review.mjs";
+import run from "./scenarios-brainstorm-run.mjs";
 
-// A step this profile cannot run: no scan report to cite, no pi session focused. Neither a pass nor a
+// A step this profile cannot run: no record holding a decision, no pi session focused. Neither a pass nor a
 // failure — report.mjs tallies it apart and exitCode ignores it. The detail must name what to seed, so a
 // skip stays a standing invitation to make the step real rather than a permanent shrug.
 const skipStep = (step, detail) => ({ step, skip: true, detail });
@@ -41,7 +43,17 @@ async function channelRuns(h, channelId) {
 // arrange needed; a populated-roster visual still relies on the manual inject-live-agents path.
 // Channels/Graph/Tasks merged into Jarvis and have no nav button left, so listing one here would make
 // h.goto throw before any step is recorded.
-const SMOKE_SURFACES = ["cockpit", "jarvis", "radar", "usage", "files", "settings", "code", "setup"];
+const SMOKE_SURFACES = ["cockpit", "jarvis", "usage", "files", "settings", "code", "setup"];
+
+// the rail's order and the Ctrl+1..N chords come from SURFACE_ORDER, read from its source so the steps keep one list
+const AGENTS_SOURCE = fileURLToPath(new URL("../../frontend/app/view/agents/agents.tsx", import.meta.url));
+const surfaceOrder = () =>
+    [...readFileSync(AGENTS_SOURCE, "utf8").match(/export const SURFACE_ORDER[^=]*=\s*\[([^\]]*)\]/)[1].matchAll(/"(\w+)"/g)].map(
+        (m) => m[1]
+    );
+const keydown = (init) => `document.dispatchEvent(new KeyboardEvent('keydown', ${JSON.stringify({ ...init, bubbles: true })}))`;
+const WHICH_KEY_TEXT = `[...document.querySelectorAll('span')].find((s) => (s.textContent || '').trim() === 'g →')?.parentElement?.innerText ?? null`;
+const SMOKE_KEY_WAIT_MS = 400;
 
 const surfaceSmoke = {
     name: "surface-smoke",
@@ -65,6 +77,43 @@ const surfaceSmoke = {
             });
             await h.shot(`cdp-shots/surface-${surface}.png`);
         }
+        // Radar is retired: the rail has one button per surface and none of them is Radar
+        const railLabels = await h.ev(
+            `[...document.querySelectorAll('nav button')].map((b) => b.getAttribute('aria-label') || (b.textContent || '').trim())`
+        );
+        const wantLabels = Object.values(SURFACE_LABEL);
+        steps.push({
+            step: "nav rail lists no Radar",
+            ok:
+                !railLabels.some((l) => /radar/i.test(l)) &&
+                railLabels.length === wantLabels.length &&
+                JSON.stringify([...railLabels].sort()) === JSON.stringify([...wantLabels].sort()),
+            detail: `rail=${JSON.stringify(railLabels)} want=${JSON.stringify(wantLabels)}`,
+        });
+        const order = surfaceOrder();
+        const lastLabel = SURFACE_LABEL[order[order.length - 1]];
+        await h.goto("cockpit");
+        await h.ev(keydown({ key: "7", code: "Digit7", ctrlKey: true }));
+        await h.ev(`new Promise((r) => setTimeout(r, ${SMOKE_KEY_WAIT_MS}))`);
+        const chorded = await h.activeSurfaceLabel();
+        steps.push({
+            step: "Ctrl+7 lands on the last surface",
+            ok: chorded === lastLabel,
+            detail: `active=${chorded} want=${lastLabel} order=${JSON.stringify(order)}`,
+        });
+        await h.goto("cockpit");
+        await h.ev(keydown({ key: "g", code: "KeyG" }));
+        await h.ev(`new Promise((r) => setTimeout(r, ${SMOKE_KEY_WAIT_MS}))`);
+        const whichKey = await h.ev(WHICH_KEY_TEXT);
+        await h.ev(keydown({ key: "r", code: "KeyR" }));
+        await h.ev(`new Promise((r) => setTimeout(r, ${SMOKE_KEY_WAIT_MS}))`);
+        const afterGR = await h.activeSurfaceLabel();
+        await h.ev(keydown({ key: "Escape", code: "Escape" }));
+        steps.push({
+            step: "g r does nothing",
+            ok: afterGR === SURFACE_LABEL.cockpit && !/radar/i.test(whichKey ?? ""),
+            detail: `active=${afterGR} whichKey=${JSON.stringify(whichKey)}`,
+        });
         // B3: a notify (wsh notify / wave_notify) is spoken by the avatar, which is its only voice: the
         // bubble carries the title and leaves after 6s, and no corner toast repeats it underneath.
         await h.goto("cockpit");
@@ -334,10 +383,16 @@ async function cacheMissNoticeSteps(h, ctx) {
 const briefSurface = {
     name: "brief-surface",
     surface: "jarvis",
-    async arrange() {
-        return {};
+    async arrange(h) {
+        const ctx = {};
+        try {
+            ctx.effortId = (await h.rpc("effortcreate", { title: "verify brief-surface: a blocked chunk", chunks: [{ label: "Gate" }] })).effortoid;
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
     },
-    async assert(h) {
+    async assert(h, arranged) {
         const steps = [];
         await h.goto("jarvis");
 
@@ -467,7 +522,7 @@ const briefSurface = {
         });
 
         // An initiative row is one line, and a click expands its plan in place (cd1a9ce4): it has no sheet to
-        // open any more. A row nesting no control of its own is the point: the row is the one affordance.
+        // open any more. The row is the one affordance for opening; its only nested control is Work on (6089a445).
         // The expansion and the sheet are module state, so whatever a previous run left open is closed first.
         await h.ev(`[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`);
         await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')?.click()`);
@@ -479,7 +534,10 @@ const briefSurface = {
             return {
                 rows: rows.length,
                 buttons: rows.filter((r) => r.getAttribute('role') === 'button').length,
-                nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
+                nested: rows.reduce(
+                    (n, r) => n + r.querySelectorAll('button:not([data-jarvis-work-on]), a, input, select, textarea').length,
+                    0
+                ),
                 expanded: rows[0]?.getAttribute('aria-expanded') ?? null,
                 sheet: !!document.querySelector('[data-jarvis-brief-sheet]'),
             };
@@ -497,11 +555,29 @@ const briefSurface = {
         await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
 
-        // The sideways arm into the effort sheet is still the one a blocked chunk takes, and it is still
-        // the only arm the fixture can drive end to end: the sheet's own chrome names the record it is
-        // showing whether or not the detail behind it resolves.
-        await h.ev(`document.querySelector('[data-jarvis-brief-row="queue"]')?.click()`);
-        await h.ev("new Promise((r) => setTimeout(r, 500))");
+        // The sideways arm into the effort sheet is still the one a blocked chunk takes. The router loads an
+        // initiative before it opens the sheet, and the fixture's own is not in any store, so the blocked chunk's
+        // initiative is pointed at the one the arrange made, on a copy of the normal fixture.
+        await lookEval(h, `
+            const { BRIEFING_FIXTURES } = await mod("app/view/jarvis/briefingfixtures.ts");
+            const { briefingFixtureAtom } = await mod("app/view/jarvis/briefingstore.ts");
+            const normal = BRIEFING_FIXTURES.normal;
+            const state = {
+                ...normal.load.snapshot.state,
+                efforts: normal.load.snapshot.state.efforts.map((e) =>
+                    e.oref === "effort:scenario-gate" ? { ...e, oref: ${JSON.stringify(`effort:${arranged.effortId}`)} } : e
+                ),
+            };
+            BRIEFING_FIXTURES.briefSurfaceBlocked = { ...normal, load: { ...normal.load, snapshot: { ...normal.load.snapshot, state } } };
+            (await mod("app/store/jotaiStore.ts")).globalStore.set(briefingFixtureAtom, "briefSurfaceBlocked");
+        `);
+        await h.ev("new Promise((r) => setTimeout(r, 600))");
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
+        await h.ev(
+            `[...document.querySelectorAll('[data-jarvis-brief-row="queue"]')].find((r) => /Scenario gate clearance/.test(r.innerText || ""))?.click()`
+        );
+        await h.ev("new Promise((r) => setTimeout(r, 800))");
         const sheet = await h.ev(`(() => {
             const el = document.querySelector('[data-jarvis-brief-sheet]');
             return {
@@ -511,10 +587,17 @@ const briefSurface = {
         })()`);
         steps.push({
             step: "8. a blocked chunk still opens the initiative's own sheet",
-            ok: sheet.face === "effort" && sheet.label === "initiative",
-            detail: JSON.stringify(sheet),
+            ok: arranged.arrangeError == null && sheet.face === "effort" && sheet.label === "initiative",
+            detail: arranged.arrangeError ?? JSON.stringify(sheet),
         });
         await h.ev(`[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
+        await lookEval(h, `
+            const { BRIEFING_FIXTURES } = await mod("app/view/jarvis/briefingfixtures.ts");
+            const { briefingFixtureAtom } = await mod("app/view/jarvis/briefingstore.ts");
+            (await mod("app/store/jotaiStore.ts")).globalStore.set(briefingFixtureAtom, "normal");
+            delete BRIEFING_FIXTURES.briefSurfaceBlocked;
+        `);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
 
         // F8: the row states what it is waiting on and what it belongs to, on its one line. The "attention"
@@ -574,7 +657,12 @@ const briefSurface = {
         });
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
+        if (ctx?.effortId) {
+            await h.rpc("effortdelete", { effortoid: ctx.effortId }).catch((e) => {
+                console.error(`brief-surface teardown: delete the initiative failed: ${e?.message ?? e}`);
+            });
+        }
         await h.goto("cockpit");
     },
 };
@@ -1391,170 +1479,14 @@ const peekCtrlClick = {
 };
 
 // --- peek-item-views: the avatar popup's item view for each peekable kind ----------------------------------
-// The cockpit-peek mockup's PeekAgent, PeekEffort, PeekRadar, PeekNote, PeekRun and States boards. Each kind is
+// The cockpit-peek mockup's PeekAgent, PeekEffort, PeekNote, PeekRun and States boards. Each kind is
 // peeked through the one router (linkingdevhooks.ts's __peekAddress) on a fixture: the fixture roster's lead for
-// the agent, its deferred orchestrator run for the phase strip, an initiative made here, and a radar report written
-// straight into the dev store, since only a model-backed scan makes one. The note is arrangePeekItemsNote's.
-// __peekLoading holds the loading frame a real
+// the agent, its deferred orchestrator run for the phase strip, and an initiative made here. The note is
+// arrangePeekItemsNote's. __peekLoading holds the loading frame a real
 // load leaves too quickly to photograph, and the gone line is the initiative peeked again after it was deleted: the
 // peek's load trusts the cached entry, and the body's own refetch finds it missing.
 const PEEK_ITEMS_LEAD = "peek-items lead";
 const PEEK_ITEMS_EFFORT = "Peek item views initiative";
-const PEEK_ITEMS_RISK = "Peek fixture: the retry loop swallows a cancelled context";
-const PEEK_ITEMS_FINDING = "f-peek-items";
-const PEEK_ITEMS_HOTSPOT = "f-peek-items-hotspot";
-const PEEK_ITEMS_HOTSPOT_RISK = "Peek fixture: a retried lane reuses its half-made worktree";
-// a peek check reading `body`: each heading is a whole label. CSS uppercases the labels, so they read as textContent
-const peekRadarHeadings = (headings) =>
-    `(() => {
-        const labels = [...body.querySelectorAll('span')].map((s) => (s.textContent || '').trim());
-        return ${JSON.stringify(headings)}.every((h) => labels.includes(h));
-    })()`;
-
-const RADAR_FIXTURE_COMMIT = "c0ffee5a".padEnd(40, "0");
-const RADAR_FIXTURE_SUBJECT = "fix(orchestrate): the dispatch loop stops when its context is cancelled";
-const RADAR_FIXTURE_ROOT_CAUSE =
-    "A loop that sleeps between attempts checked its context only before the sleep, so a cancel during the backoff was not seen until the cap.";
-
-// A report as the fix-commit audit writes it: one audited commit, and one finding with its sites in one file.
-// finding is { id, risk, file, lines }.
-function radarFixtureReport(oid, projectname, projectpath, now, finding) {
-    const signal = {
-        id: "s-fixture-fix",
-        collector: "git",
-        sourceref: RADAR_FIXTURE_COMMIT,
-        observedts: now - 3_600_000,
-        summary: RADAR_FIXTURE_SUBJECT,
-        contenthash: "s-fixture-fix",
-    };
-    return {
-        otype: "radarreport",
-        oid,
-        version: 1,
-        projectname,
-        projectpath,
-        status: "completed",
-        startedts: now - 120_000,
-        clusterstartedts: now - 110_000,
-        completedts: now - 60_000,
-        signals: [signal],
-        audits: [
-            {
-                commit: RADAR_FIXTURE_COMMIT,
-                subject: RADAR_FIXTURE_SUBJECT,
-                committs: signal.observedts,
-                files: [finding.file],
-                status: "ok",
-                rootcause: RADAR_FIXTURE_ROOT_CAUSE,
-                hitcount: finding.lines.length,
-                keptcount: finding.lines.length,
-            },
-        ],
-        findings: [
-            {
-                id: finding.id,
-                fingerprint: `RAD-${finding.id}`,
-                group: "new",
-                riskkind: "sibling-bug",
-                subsystem: finding.file.slice(0, finding.file.lastIndexOf("/")),
-                risk: finding.risk,
-                severity: "high",
-                signalids: [signal.id],
-                files: [finding.file],
-                mission: "Check whether the loop honours a cancelled context.",
-                sourcecommit: RADAR_FIXTURE_COMMIT,
-                sourcesubject: RADAR_FIXTURE_SUBJECT,
-                rootcause: RADAR_FIXTURE_ROOT_CAUSE,
-                sites: finding.lines.map((line) => ({
-                    line,
-                    trigger: `A cancel while the loop at line ${line} is in its backoff.`,
-                    actual: "The loop keeps retrying until the backoff cap.",
-                    expected: "The loop returns as soon as the context is done.",
-                    whynotcovered: "The fix added the check to the dispatch loop only.",
-                })),
-            },
-        ],
-        meta: {},
-    };
-}
-
-// the peek report also holds a hotspot finding, so a peek shows a second kind's own words
-function peekItemsReport(oid, cwd, now) {
-    const report = radarFixtureReport(oid, "peek-fixture", cwd, now, {
-        id: PEEK_ITEMS_FINDING,
-        risk: PEEK_ITEMS_RISK,
-        file: "pkg/orchestrate/retry.go",
-        lines: [41, 67],
-    });
-    const file = "pkg/orchestrate/engine.go";
-    report.findings.push({
-        id: PEEK_ITEMS_HOTSPOT,
-        fingerprint: `RAD-${PEEK_ITEMS_HOTSPOT}`,
-        group: "new",
-        riskkind: "hotspot-bug",
-        subsystem: "pkg/orchestrate",
-        risk: PEEK_ITEMS_HOTSPOT_RISK,
-        severity: "medium",
-        signalids: [report.signals[0].id],
-        files: [file],
-        mission: "Check whether a retried lane can start from a half-made worktree.",
-        sourcecommit: RADAR_FIXTURE_COMMIT,
-        sourcesubject: RADAR_FIXTURE_SUBJECT,
-        rootcause: "Each fix made one step of a lane's tree lifecycle safe; none covers a retry from a half-made tree.",
-        fixsubjects: [
-            "fix(orchestrate): resume a dag run's lead at boot",
-            "fix(orchestrate): serialize the engine's worktree registry and branch changes",
-            "fix(orchestrate): check out run trees past MAX_PATH on Windows",
-        ],
-        sites: [412, 468].map((line) => ({
-            line,
-            trigger: `A lane retried after its setup failed at line ${line}.`,
-            actual: "The retry reuses the tree with no branch checked out.",
-            expected: "The retry starts from a clean tree.",
-            whynotcovered: "The fixes cover add, list and long paths, not a retry after a failed setup.",
-        })),
-    });
-    return report;
-}
-
-async function peekItemsDb(h) {
-    const { DatabaseSync } = await import("node:sqlite");
-    const info = await h.rpc("waveinfo", null);
-    const path = join(info.datadir, "db", "waveterm.db");
-    if (!existsSync(path)) throw new Error(`no dev store at ${path}`);
-    const db = new DatabaseSync(path);
-    // wavesrv holds the same WAL database open, so a write may have to wait for its lock
-    db.exec("PRAGMA busy_timeout = 5000");
-    return db;
-}
-
-// writes the report build(oid) returns straight into the dev store, and returns its oid
-async function seedRadarReport(h, build) {
-    const oid = randomUUID();
-    const db = await peekItemsDb(h);
-    try {
-        db.prepare("INSERT INTO db_radarreport (oid, version, data) VALUES (?, 1, ?)").run(
-            oid,
-            JSON.stringify(build(oid))
-        );
-    } finally {
-        db.close();
-    }
-    return oid;
-}
-
-async function seedPeekItemsRadar(h, ctx) {
-    ctx.radarReportId = await seedRadarReport(h, (oid) => peekItemsReport(oid, ctx.cwd, Date.now()));
-}
-
-async function dropPeekItemsRadar(h, oid) {
-    const db = await peekItemsDb(h);
-    try {
-        db.prepare("DELETE FROM db_radarreport WHERE oid = ?").run(oid);
-    } finally {
-        db.close();
-    }
-}
 
 const PEEK_ITEMS_NOTE = "peek-items-fixture";
 const PEEK_ITEMS_NOTE_TITLE = "Peek fixture note";
@@ -1606,7 +1538,6 @@ const peekItemViews = {
                     { op: "setChunkStatus", chunk: "Peek", status: "active" },
                 ],
             });
-            await seedPeekItemsRadar(h, ctx);
             await arrangePeekItemsNote(h, ctx);
             // the fixture roster is read once at boot
             await h.ev("location.reload()");
@@ -1694,29 +1625,6 @@ const peekItemViews = {
         );
         rec("3. an initiative peeks as its item view", effort.ready === true, JSON.stringify(effort));
 
-        const radar = await peek(
-            `radarreport:${ctx.radarReportId}`,
-            { sourceType: "radar", anchor: PEEK_ITEMS_FINDING },
-            "radar",
-            // a site row is its file:line and nothing else
-            `text.includes(${JSON.stringify(PEEK_ITEMS_RISK)}) &&
-                [...body.querySelectorAll('[data-peek-radar-sites] div')].filter(
-                    (d) => d.children.length === 0 && /:\\d+$/.test((d.textContent || '').trim())
-                ).length === 2 &&
-                ${peekRadarHeadings(["Root cause", "Sibling sites"])}`,
-            "cdp-shots/peek-item-radar.png"
-        );
-        rec("4. a radar finding peeks as its item view", radar.ready === true, JSON.stringify(radar));
-
-        const hotspot = await peek(
-            `radarreport:${ctx.radarReportId}`,
-            { sourceType: "radar", anchor: PEEK_ITEMS_HOTSPOT },
-            "radar",
-            `text.includes(${JSON.stringify(PEEK_ITEMS_HOTSPOT_RISK)}) && ${peekRadarHeadings(["Fragility", "Sites"])}`,
-            "cdp-shots/peek-item-radar-hotspot.png"
-        );
-        rec("5. a hotspot radar finding peeks with its own headings", hotspot.ready === true, JSON.stringify(hotspot));
-
         const note = await peek(
             `memnote:${ctx.note.id}`,
             { sourceType: "memory" },
@@ -1724,7 +1632,7 @@ const peekItemViews = {
             `text.includes(${JSON.stringify(ctx.note.label)})`,
             "cdp-shots/peek-item-note.png"
         );
-        rec("6. a memory note peeks as its item view", note.ready === true, JSON.stringify(note));
+        rec("4. a memory note peeks as its item view", note.ready === true, JSON.stringify(note));
 
         // an orchestrator run reads Plan, Review, Tasks and Final; a quick run has no strip
         const run = await peek(
@@ -1734,7 +1642,7 @@ const peekItemViews = {
             `body.querySelectorAll('[data-peek-run-phase]').length === 4`,
             "cdp-shots/peek-item-run.png"
         );
-        rec("7. an orchestrator run peeks with its four-phase strip", run.ready === true, JSON.stringify(run));
+        rec("5. an orchestrator run peeks with its four-phase strip", run.ready === true, JSON.stringify(run));
 
         await closePopup();
         await h.ev(`window.__peekLoading({ kind: "effort", effortId: ${JSON.stringify(ctx.effortId)} })`);
@@ -1749,7 +1657,7 @@ const peekItemViews = {
         );
         await settle(600);
         await h.shot("cdp-shots/peek-item-loading.png");
-        rec("8. a loading peek shows the skeleton under its kind", loading === true, String(loading));
+        rec("6. a loading peek shows the skeleton under its kind", loading === true, String(loading));
 
         await closePopup();
         await h.rpc("effortdelete", { effortoid: ctx.effortId });
@@ -1765,12 +1673,12 @@ const peekItemViews = {
         );
         await settle(600);
         await h.shot("cdp-shots/peek-item-gone.png");
-        rec("9. a deleted target's peek says it no longer exists", gone === true, String(gone));
+        rec("7. a deleted target's peek says it no longer exists", gone === true, String(gone));
         await closePopup();
         const short = Object.entries(floors).filter(([, s]) => !floorOk(s));
         rec(
-            `10. no visible text in any item peek is under ${MIN_FONT_PX}px`,
-            Object.keys(floors).length === 6 && short.length === 0,
+            `8. no visible text in any item peek is under ${MIN_FONT_PX}px`,
+            Object.keys(floors).length === 4 && short.length === 0,
             JSON.stringify(Object.fromEntries(Object.entries(floors).map(([k, s]) => [k, floorDetail(s)])))
         );
         return steps;
@@ -1789,7 +1697,6 @@ const peekItemViews = {
         if (ctx.effortId && !ctx.effortDeleted) {
             await step("delete the initiative", () => h.rpc("effortdelete", { effortoid: ctx.effortId }));
         }
-        if (ctx.radarReportId) await step("delete the radar report", () => dropPeekItemsRadar(h, ctx.radarReportId));
         if (ctx.noteFile) await step("remove the fixture note", () => rmSync(ctx.noteFile, { force: true }));
         await teardownFixtureRun(h, ctx, "peek-item-views");
         await h.goto("cockpit");
@@ -2097,17 +2004,17 @@ const usageCharts = {
             JSON.stringify(palette)
         );
 
-        // Live limits render one Meter bar per window (the redesign traded the ArcMeter rings for bars),
-        // and the seeded claude snapshot is 62%/41% so both bars must have a non-zero width.
+        // the Claude scope card draws one Meter bar per quota window, and the seeded claude snapshot is
+        // 62%/41% so both bars must have a non-zero width
         const limits = await h.ev(`(() => {
-            const cards = [...document.querySelectorAll("[data-usage-limit]")];
+            const cards = [...document.querySelectorAll('[data-usage-scopes] [data-usage-harness="claude"] [data-usage-limit]')];
             return cards.map((c) => {
                 const fill = c.querySelector("div[style*='width']");
                 return { kind: c.getAttribute("data-usage-limit"), width: fill ? fill.style.width : "" };
             });
         })()`);
         rec(
-            "3. Live limits render a 5-hour and a weekly bar with a real width",
+            "3. the Claude scope card renders a 5-hour and a weekly bar with a real width",
             limits.length === 2 &&
                 limits.some((l) => l.kind === "fivehour") &&
                 limits.some((l) => l.kind === "week") &&
@@ -2234,7 +2141,7 @@ const usageCharts = {
             JSON.stringify(split)
         );
 
-        // the Claude card: its own Live limits bars and its one model read out on the Daily header
+        // the Claude card: its own quota bars and its one model read out on the Daily header
         const claude = await usageEv(
             h,
             `const clicked = press(document.querySelector('[data-usage-scopes] [data-usage-harness="claude"]'));
@@ -2243,13 +2150,13 @@ const usageCharts = {
                 clicked,
                 pressed: document.querySelector('[data-usage-scopes] [data-usage-harness="claude"]')?.getAttribute("aria-pressed") ?? null,
                 scope: detail()?.getAttribute("data-usage-detail") ?? null,
-                bars: [...document.querySelectorAll("[data-usage-limit]")].map((c) => c.querySelector("div[style*='width']")?.style.width ?? ""),
+                bars: [...document.querySelectorAll('[data-usage-scopes] [data-usage-harness="claude"] [data-usage-limit]')].map((c) => c.querySelector("div[style*='width']")?.style.width ?? ""),
                 only: text(document.querySelector("[data-usage-daily-only]")) || null,
                 legendRows: legendRows().length,
             };`
         );
         rec(
-            "5d. the Claude card is pressed, with its Live limits bars and its one model on the Daily header",
+            "5d. the Claude card is pressed, with its quota bars and its one model on the Daily header",
             claude.clicked &&
                 claude.pressed === "true" &&
                 claude.scope === "claude" &&
@@ -2368,36 +2275,37 @@ const usageCharts = {
             `coverage=${coverage}%`
         );
 
-        // Master-detail INVERTS the old rule: limits are now scoped to the selection, so OpenCode (which
-        // publishes no quota) must show the no-reading note rather than borrowing Claude's bars, and the
-        // aggregate must bring the bars back. A scope switch changing the limits is the feature.
-        const limitsOpenCode = await h.ev(`(() => {
+        // quota sits on each provider's own card, so it does not move with the selection: OpenCode (which
+        // publishes no quota) shows "history only" and no bars while selected, Claude's card keeps its
+        // two bars, and the detail draws no quota of its own on either scope
+        const quotaOf = `(() => {
             const d = document.querySelector("[data-usage-detail]");
+            const card = (k) => document.querySelector('[data-usage-scopes] [data-usage-harness="' + k + '"]');
             return {
                 scope: d ? d.getAttribute("data-usage-detail") : null,
-                bars: document.querySelectorAll("[data-usage-limit]").length,
-                note: (d ? d.textContent || "" : "").includes("No quota reading"),
+                detailBars: d ? d.querySelectorAll("[data-usage-limit]").length : -1,
+                claudeBars: card("claude")?.querySelectorAll("[data-usage-limit]").length ?? 0,
+                openCodeBars: card("opencode")?.querySelectorAll("[data-usage-limit]").length ?? -1,
+                openCodeFact: (card("opencode")?.textContent || "").includes("history only"),
             };
-        })()`);
+        })()`;
+        const limitsOpenCode = await h.ev(quotaOf);
         await h.ev(`(() => {
             const b = document.querySelector('[data-usage-scopes] [data-usage-harness="all"]');
             if (b) b.click();
         })()`);
         await settle(400);
-        const limitsAll = await h.ev(`(() => {
-            const d = document.querySelector("[data-usage-detail]");
-            return {
-                scope: d ? d.getAttribute("data-usage-detail") : null,
-                bars: document.querySelectorAll("[data-usage-limit]").length,
-            };
-        })()`);
+        const limitsAll = await h.ev(quotaOf);
         rec(
-            "12. live limits follow the selected scope",
+            "12. quota stays on the provider cards whichever scope is selected",
             limitsOpenCode.scope === "opencode" &&
-                limitsOpenCode.bars === 0 &&
-                limitsOpenCode.note &&
+                limitsOpenCode.openCodeBars === 0 &&
+                limitsOpenCode.openCodeFact &&
+                limitsOpenCode.claudeBars === 2 &&
+                limitsOpenCode.detailBars === 0 &&
                 limitsAll.scope === "all" &&
-                limitsAll.bars === 2,
+                limitsAll.claudeBars === 2 &&
+                limitsAll.detailBars === 0,
             JSON.stringify({ limitsOpenCode, limitsAll })
         );
 
@@ -2741,9 +2649,8 @@ const usageWork = {
         );
         const splitSet = [...all.split].sort();
         rec(
-            "1b. All usage has no Live limits, a Spent on list of eight rows, and a split by project sorted by spend",
+            "1b. All usage has a Spent on list of eight rows, and a split by project sorted by spend",
             all.scope === "all" &&
-                !all.sections.includes("Live limits") &&
                 all.list?.title === "Spent on" &&
                 all.list.rows.length === USAGE_WORK_COLLAPSED_ROWS &&
                 JSON.stringify(splitSet) === JSON.stringify([USAGE_WORK_ARC, USAGE_WORK_SIEM, "other"].sort()) &&
@@ -2895,10 +2802,10 @@ const usageWork = {
 
         const provider = await view(
             `press(groupButton("Lens", "By provider"))`,
-            `s.lens === "provider" && s.sections.includes("Live limits")`
+            `s.lens === "provider" && s.harnesses.includes("claude")`
         );
         rec(
-            "9. By provider restores the harness rail and the Live limits section",
+            "9. By provider restores the harness rail",
             week.settled &&
                 provider.clicked &&
                 provider.settled &&
@@ -2996,7 +2903,7 @@ const usageStates = {
             };`
         );
         rec(
-            "1. while the load is held back the skeleton shows beside the live limits, with no split yet",
+            "1. while the load is held back the skeleton shows under the Claude card's quota bars, with no split yet",
             loading.skeletons > 0 && loading.limits === 2 && !loading.split,
             JSON.stringify(loading)
         );
@@ -3006,7 +2913,8 @@ const usageStates = {
             h,
             `const loaded = await until(() => document.querySelector("[data-usage-stats]") != null, ${USAGE_STATES_DELAY_MS + 6000});
             const clicked = press(document.querySelector('[data-usage-scopes] [data-usage-harness="pi"]'));
-            await until(() => detail()?.getAttribute("data-usage-detail") === "pi" && document.querySelector("[data-usage-noquota]") != null, 3000);
+            await until(() => detail()?.getAttribute("data-usage-detail") === "pi", 3000);
+            const pi = document.querySelector('[data-usage-scopes] [data-usage-harness="pi"]');
             // Pi's bars grow in from scaleY 0, so the shot waits for every bar's entrance to finish
             const bars = () => [...document.querySelectorAll("[data-usage-daily] [data-usage-plot] path[fill]")];
             const grown = (p) => ["none", "matrix(1, 0, 0, 1, 0, 0)"].includes(getComputedStyle(p).transform);
@@ -3014,7 +2922,8 @@ const usageStates = {
             return {
                 loaded,
                 clicked,
-                note: text(document.querySelector("[data-usage-noquota]")) || null,
+                note: text(pi) || null,
+                piBars: pi?.querySelectorAll("[data-usage-limit]").length ?? -1,
                 stats: document.querySelector("[data-usage-stats]") != null,
                 bars: bars().length,
                 barsGrown,
@@ -3024,7 +2933,8 @@ const usageStates = {
             "2. the Pi card has no quota reading, and its history still shows with its bars grown",
             noQuota.loaded &&
                 noQuota.clicked &&
-                (noQuota.note ?? "").startsWith("No quota reading for Pi") &&
+                (noQuota.note ?? "").includes("history only") &&
+                noQuota.piBars === 0 &&
                 noQuota.stats &&
                 noQuota.barsGrown,
             JSON.stringify(noQuota)
@@ -5336,8 +5246,9 @@ const jarvisPeek = {
     async arrange(h) {
         // petSaidAtom is session-scoped. Reloading gives this scenario a deterministic empty feed while
         // the persisted watermark still prevents old backend facts from speaking again.
-        await h.ev("location.reload()");
-        await h.ev("new Promise((r) => setTimeout(r, 2500))");
+        // a fixed sleep raced a slow boot in Final: the reset then ran before the store existed
+        await h.reload();
+        await polishWaitFor(h, "typeof globalThis.__wavePetStore?.resetPeek === 'function'", 10000);
         const reset = await h.ev(`(() => {
             const store = globalThis.__wavePetStore;
             if (typeof store?.resetPeek !== 'function') return false;
@@ -5717,11 +5628,34 @@ const jarvisPeek = {
 // run (up to 90s) behind a 45-minute quiet window, which is the same live-model limit that keeps the
 // cancel path and the thread-archive path unit-only (git show a4b5bd4f:docs/jarvis-tab.md). The hook is dev-only, exposed
 // by petstore.ts under import.meta.env.DEV.
+//
+// Open lands only on a record the router can load, and a fresh store has none, so the arrange creates a run held by
+// deferstart: CreateRun captures a record named by the goal's slug, which the utterance cites.
+const JARVIS_VOLUNTEER_GOAL = "verify jarvis-volunteer: open a record, do nothing";
+const JARVIS_VOLUNTEER_RECORD = "verify-jarvis-volunteer-open-a-record-do-nothing";
+
 const jarvisVolunteer = {
     name: "jarvis-volunteer",
     surface: "cockpit", // the creature lives in window chrome, so any surface will do; start neutral
-    async arrange() {
-        return { id: `loose-end:cdp-probe:${Date.now()}` };
+    async arrange(h) {
+        const ctx = { id: `loose-end:cdp-probe:${Date.now()}`, cwd: mkdtempSync(join(tmpdir(), "verify-jarvis-volunteer-")) };
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-jarvis-volunteer", projectpath: ctx.cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: JARVIS_VOLUNTEER_GOAL,
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
     },
     async assert(h, ctx) {
         const steps = [];
@@ -5744,13 +5678,13 @@ const jarvisVolunteer = {
                 at: Date.now(),
                 kind: "loose-end",
                 text: "CDP probe - untouched for 21 days",
-                sources: [{ ref: "task:cdp-probe", title: "CDP probe", sourceType: "dossier" }],
+                sources: [{ ref: ${JSON.stringify(`task:${JARVIS_VOLUNTEER_RECORD}`)}, title: "CDP probe", sourceType: "dossier" }],
             });
             return true;
         })()`);
         // the speak effect runs on the events atom, then the bubble mounts
         await h.ev("new Promise((r) => setTimeout(r, 400))");
-        steps.push({ step: "knowledge utterance pushed to the creature", ok: pushed === true, detail: String(pushed) });
+        steps.push({ step: "knowledge utterance pushed to the creature", ok: pushed === true && ctx.arrangeError == null, detail: ctx.arrangeError ?? String(pushed) });
         await h.shot("cdp-shots/jarvis-volunteer-bubble.png");
         const bubbleFloor = await paintEval(h, `return floorWalk([document.querySelector("[data-pet-bubble]")]);`);
 
@@ -5826,7 +5760,7 @@ const jarvisVolunteer = {
 
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.ev(`(() => {
             // close the peek if a failed run left it open, and drop the watermark the injected utterance
             // advanced -- that key is persisted, so leaving it moved is a side effect on the user's own
@@ -5837,6 +5771,16 @@ const jarvisVolunteer = {
             } catch {}
             return true;
         })()`);
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`jarvis-volunteer teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        if (ctx?.runId) await step("cancel the run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId }));
+        if (ctx?.channelId) await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
+        if (ctx?.cwd) await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
         await h.goto("cockpit");
     },
 };
@@ -5981,6 +5925,189 @@ const codeSearch = {
     },
 };
 
+const CODE_SYMBOLS_PROJECT = "verify-code-symbols";
+// line numbers the steps assert against: alpha 5, beta 9, epsilon 13, Gamma 17, Gamma.Delta 19
+const CODE_SYMBOLS_MAIN = [
+    "package main",
+    "",
+    'import "fmt"',
+    "",
+    "func alpha() {",
+    "\tfmt.Println(beta(), epsilon())",
+    "}",
+    "",
+    "func beta() string {",
+    '\treturn "b"',
+    "}",
+    "",
+    "func epsilon() int {",
+    "\treturn 1",
+    "}",
+    "",
+    "type Gamma struct{}",
+    "",
+    "func (g Gamma) Delta() {}",
+    "",
+].join("\n");
+
+// The outline, the @ finder, and the two shaped searches, against a repo the scenario writes: epsilon is
+// defined twice so F12 on it lists instead of jumping. The caret is read from Monaco's active line number,
+// and placed on a word by a real click, since Monaco takes no text a CDP session types.
+const codeSymbols = {
+    name: "code-symbols",
+    surface: "code",
+    async arrange(h) {
+        const ctx = { name: CODE_SYMBOLS_PROJECT };
+        try {
+            ctx.dir = mkdtempSync(join(tmpdir(), "verify-code-symbols-"));
+            git(ctx.dir, "init", "-q", "--initial-branch=main");
+            writeFileSync(join(ctx.dir, "main.go"), CODE_SYMBOLS_MAIN);
+            mkdirSync(join(ctx.dir, "sub"));
+            writeFileSync(join(ctx.dir, "sub", "x.go"), "package sub\n\nfunc epsilon() int { return 2 }\n");
+            git(ctx.dir, "add", ".");
+            git(ctx.dir, "commit", "-q", "-m", "seed the symbols fixture");
+            await h.rpc("createproject", { name: ctx.name, path: ctx.dir });
+            ctx.madeProject = true;
+            await waitForProjectInConfig(h, ctx.name);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok: ok === true, detail });
+        const poll = async (expr, ms = 6000) => {
+            for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(200)) {
+                const v = await h.ev(expr);
+                if (v) return v;
+            }
+            return h.ev(expr);
+        };
+        const caretLine = `(() => { const el = document.querySelector(".monaco-editor .active-line-number"); return el ? Number(el.textContent.trim()) : null; })()`;
+        const waitCaret = async (line) => {
+            await poll(`${caretLine} === ${line}`);
+            return h.ev(caretLine);
+        };
+        const key = (init) =>
+            h.ev(`(() => {
+                const t = document.activeElement ?? document.body;
+                t.dispatchEvent(new KeyboardEvent("keydown", { ...${JSON.stringify(init)}, bubbles: true, cancelable: true }));
+                return true;
+            })()`);
+        // a real click on a word of a rendered line puts Monaco's caret there
+        const clickWord = async (lineText, word) => {
+            const pt = await h.ev(`(() => {
+                const line = [...document.querySelectorAll(".monaco-editor .view-line")].find((l) => l.textContent.replace(/\\u00a0/g, " ").includes(${JSON.stringify(lineText)}));
+                if (!line) return null;
+                const walk = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+                for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+                    const i = n.textContent.indexOf(${JSON.stringify(word)});
+                    if (i < 0) continue;
+                    const r = document.createRange();
+                    r.setStart(n, i + 1);
+                    r.setEnd(n, i + 2);
+                    const b = r.getBoundingClientRect();
+                    return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+                }
+                return null;
+            })()`);
+            if (pt == null) return false;
+            for (const type of ["mousePressed", "mouseReleased"]) {
+                await h.cdp("Input.dispatchMouseEvent", { type, x: pt.x, y: pt.y, button: "left", clickCount: 1 });
+            }
+            await sleep(250);
+            return true;
+        };
+        const searchTitle = `document.querySelector("[data-code-search-title]")?.textContent?.trim() ?? ""`;
+        const searchSummary = `(() => { const t = document.querySelector("[data-code-search-title]"); const s = t?.nextElementSibling; return s ? (s.textContent || "").trim() : ""; })()`;
+
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        await h.goto("code");
+        rec("Code surface is active", (await h.activeSurfaceLabel()) === SURFACE_LABEL.code, `active=${await h.activeSurfaceLabel()}`);
+
+        const row = `document.querySelector('[data-code-picker-row=${JSON.stringify(ctx.name)}]')`;
+        if (ctx.arrangeError == null && !(await h.ev(`!!${row}`))) {
+            await h.ev(`document.querySelector('[data-code-project-picker]')?.click()`);
+        }
+        const shown = ctx.arrangeError == null && (await polishWaitFor(h, `!!${row}`, 5000));
+        const picked = shown && (await h.ev(`(() => { const r = ${row}; if (!r) return false; r.click(); return true; })()`));
+        rec("select the fixture project", picked, ctx.arrangeError ?? `picked=${picked}`);
+
+        await h.ev(`document.querySelector('[data-code-column-tab="files"]')?.click()`);
+        const opened = await poll(`(() => {
+            const r = [...document.querySelectorAll('[data-code-tree] [role="treeitem"]')].find((x) => x.textContent.trim() === "main.go");
+            if (!r) return false;
+            r.click();
+            return true;
+        })()`);
+        const editor = opened && (await poll(`!!document.querySelector(".monaco-editor .view-line")`));
+        rec("open main.go in the editor", editor === true, `opened=${opened} editor=${editor}`);
+
+        await h.ev(`document.querySelector('[data-code-column-tab="symbols"]')?.click()`);
+        const names = await poll(`(() => {
+            const rows = [...document.querySelectorAll("[data-code-symbol-row]")].map((r) => r.getAttribute("data-code-symbol-row") + "@" + r.getAttribute("data-line"));
+            return rows.length ? rows : null;
+        })()`);
+        const want = ["alpha@5", "beta@9", "epsilon@13", "Gamma@17", "Gamma.Delta@19"];
+        rec("the Symbols tab lists the file's declarations with their lines", JSON.stringify(names) === JSON.stringify(want), `rows=${JSON.stringify(names)}`);
+
+        await h.ev(`document.querySelector('[data-code-symbol-row="Gamma.Delta"]')?.click()`);
+        const afterRow = await waitCaret(19);
+        await h.shot("cdp-shots/code-symbols.png");
+        rec("clicking a symbol row moves the caret to its line", afterRow === 19, `caret=${afterRow}`);
+
+        await h.ev(`document.querySelector('[data-code-symbols-filter]')?.focus()`);
+        await key({ key: "O", code: "KeyO", ctrlKey: true, shiftKey: true });
+        const seeded = await poll(`document.querySelector("input[data-palette-input]")?.value ?? null`);
+        // textContent: the group label is uppercased by CSS, which innerText reports
+        const group = await poll(`document.body.textContent.includes("Symbols in main.go")`);
+        await h.shot("cdp-shots/code-symbols-finder.png");
+        rec("Ctrl+Shift+O opens the search seeded with @, listing the file's symbols", seeded === "@" && group === true, `value=${JSON.stringify(seeded)} group=${group}`);
+
+        const typed = await setFinderQuery(h, "@alpha");
+        const afterPick = await waitCaret(5);
+        rec("@alpha then Enter moves the caret to alpha's line", typed === true && afterPick === 5, `typed=${typed} caret=${afterPick}`);
+        // a click while the closing overlay still covers the editor lands on the overlay
+        await poll(`document.querySelector("input[data-palette-input]") == null`);
+        await sleep(400);
+
+        const onBeta = await clickWord("fmt.Println(beta(), epsilon())", "beta");
+        const onLine = await waitCaret(6);
+        await key({ key: "F12", code: "F12" });
+        const afterDef = await waitCaret(9);
+        rec("F12 on a name with one definition jumps to it", onBeta && onLine === 6 && afterDef === 9, `clicked=${onBeta} caret before=${onLine} after=${afterDef}`);
+
+        const onEps = await clickWord("fmt.Println(beta(), epsilon())", "epsilon");
+        await key({ key: "F12", code: "F12" });
+        const defTitle = await poll(`(${searchTitle}) === "Definitions of epsilon" ? ${searchTitle} : ""`);
+        const defSummary = await poll(`/2 matches in 2 files/.test(${searchSummary}) ? ${searchSummary} : ""`);
+        await h.shot("cdp-shots/code-symbols-definitions.png");
+        rec("F12 on a name defined twice lists both under Definitions of", onEps && defTitle !== "" && defSummary !== "", `clicked=${onEps} title=${JSON.stringify(defTitle)} summary=${JSON.stringify(defSummary)}`);
+
+        const onBeta2 = await clickWord("fmt.Println(beta(), epsilon())", "beta");
+        await key({ key: "F12", code: "F12", shiftKey: true });
+        const refTitle = await poll(`(${searchTitle}) === "References to beta" ? ${searchTitle} : ""`);
+        const refSummary = await poll(`/2 matches in 1 file/.test(${searchSummary}) ? ${searchSummary} : ""`);
+        await h.shot("cdp-shots/code-symbols-references.png");
+        rec("Shift+F12 lists the name's whole-word references under References to", onBeta2 && refTitle !== "" && refSummary !== "", `clicked=${onBeta2} title=${JSON.stringify(refTitle)} summary=${JSON.stringify(refSummary)}`);
+        return steps;
+    },
+    async teardown(h, ctx) {
+        try {
+            await h.ev(`document.querySelector('[data-code-column-tab="files"]')?.click()`);
+            if (ctx.madeProject) await h.rpc("deleteproject", { name: ctx.name });
+        } finally {
+            if (ctx.dir) rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 3 });
+            await h.cdp("Emulation.clearDeviceMetricsOverride");
+            await h.goto("cockpit");
+        }
+    },
+};
+
+const CODE_SIDEBAR_PROJECT = "verify-code-sidebar";
+
 const codeSidebar = {
     name: "code-sidebar",
     surface: "code",
@@ -5993,15 +6120,26 @@ const codeSidebar = {
                 JSON.stringify({ widths: { files: 280, search: 380, changed: 380 }, open: true })
             )})`
         );
-        return { previous };
+        // Final's fresh store has no project, and the column tabs mount only once Code holds one
+        const ctx = { previous, name: CODE_SIDEBAR_PROJECT };
+        ctx.dir = mkdtempSync(join(tmpdir(), "verify-code-sidebar-"));
+        git(ctx.dir, "init", "-q", "--initial-branch=main");
+        writeFileSync(join(ctx.dir, "main.ts"), "export const answer = 42;\n");
+        git(ctx.dir, "add", ".");
+        git(ctx.dir, "commit", "-q", "-m", "seed the sidebar fixture");
+        await h.rpc("createproject", { name: ctx.name, path: ctx.dir });
+        ctx.madeProject = true;
+        await waitForProjectInConfig(h, ctx.name);
+        return ctx;
     },
     async assert(h, ctx) {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const steps = [];
         await h.goto("code");
         if ((await openProjectPicker(h)) === true) {
-            await sleep(300);
-            await chooseProjectRow(h);
+            const row = `document.querySelector('[data-code-picker-row=${JSON.stringify(ctx.name)}]')`;
+            await polishWaitFor(h, `!!${row}`, 5000);
+            await h.ev(`${row}?.click()`);
             await sleep(1200);
         }
         ctx.previousMode = await h.ev(
@@ -6202,7 +6340,12 @@ const codeSidebar = {
                 else localStorage.setItem('code.sidebar.prefs', previous);
             })()`
         );
-        await h.goto("cockpit");
+        try {
+            if (ctx.madeProject) await h.rpc("deleteproject", { name: ctx.name });
+        } finally {
+            if (ctx.dir) rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 3 });
+            await h.goto("cockpit");
+        }
     },
 };
 
@@ -7018,6 +7161,36 @@ const codeMarkdown = {
             detail: `toggled=${backToPreview} preview=${previewAgain}`,
         });
 
+        // reopening reads the file again; every painted frame must show a document, never the
+        // "Opening…" placeholder that used to sit on screen for the whole render of a large file
+        await h.ev(`(() => {
+            const seen = { frames: 0, placeholder: 0, blank: 0 };
+            const t0 = performance.now();
+            const frame = () => {
+                seen.frames++;
+                const md = document.querySelector('.markdown .heading');
+                const opening = [...document.querySelectorAll('body *')]
+                    .some((e) => e.children.length === 0 && (e.textContent || '').trim() === 'Opening…');
+                if (opening) seen.placeholder++;
+                else if (!md) seen.blank++;
+                if (performance.now() - t0 < 1500) requestAnimationFrame(frame);
+                else window.__codeMarkdownReopen = seen;
+            };
+            requestAnimationFrame(frame);
+        })()`);
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
+        );
+        await sleep(300);
+        const reopened = await setFinderQuery(h, "README.md");
+        await sleep(1500);
+        const reopen = await h.ev(`(() => { const s = window.__codeMarkdownReopen; delete window.__codeMarkdownReopen; return s; })()`);
+        steps.push({
+            step: "reopening the document never paints the Opening… placeholder or an empty pane",
+            ok: reopened === true && reopen != null && reopen.placeholder === 0 && reopen.blank === 0,
+            detail: JSON.stringify({ reopened, ...reopen }),
+        });
+
         return steps;
     },
     async teardown(h) {
@@ -7578,6 +7751,9 @@ const dagLifecycle = {
     },
 };
 
+// ROUTE_PICKER_MAX_HEIGHT in frontend/app/view/agents/routepicker.tsx
+const ROUTE_PICKER_MAX_HEIGHT = 480;
+
 const routePickerFlat = {
     name: "route-picker-flat",
     surface: "cockpit",
@@ -7634,7 +7810,7 @@ const routePickerFlat = {
             layout != null &&
                 layout.top >= 8 &&
                 layout.bottom <= layout.viewportHeight - 8 &&
-                layout.height <= 360 &&
+                layout.height <= ROUTE_PICKER_MAX_HEIGHT &&
                 layout.overflowY === "auto" &&
                 layout.scrollHeight > layout.clientHeight,
             JSON.stringify(layout)
@@ -7798,7 +7974,7 @@ const routePickerRefused = {
 // The graph peek mounts with the Brief's own exits: a record closes into the peek, and a run offers no
 // control at all because B5 has not given runs a Stage sheet yet. It used to open by priming an attached
 // thread from a memory note's "Ask Jarvis"; that entry point went with the Vault surface, and the exits
-// below never depended on it. The surviving contextual entries are a radar finding and a run.
+// below never depended on it. The surviving contextual entry is a run.
 const briefContextualMap = {
     name: "brief-contextual-map",
     surface: "jarvis",
@@ -8918,7 +9094,7 @@ const jarvisMotion = {
 // carry these addresses went with the Ask thread). The addresses name real objects read from this profile,
 // because every landing proves its target exists first — invented ids would only ever exercise the failure
 // path. Nothing here writes. A profile missing a kind (no record holding a
-// decision, no scan report, no investigated finding) SKIPS that step and names what to seed: the landing was
+// decision) SKIPS that step and names what to seed: the landing was
 // never attempted, so neither a pass nor a failure would be a true reading of it.
 const resourceLinking = {
     name: "resource-linking",
@@ -8934,35 +9110,9 @@ const resourceLinking = {
                 break;
             }
         }
-        const reports = (await h.rpc("listradarreports", { projectpath: "" }))?.reports ?? [];
-        const newest = new Map();
-        for (const r of reports) {
-            const prior = newest.get(r.projectpath);
-            if (!prior || r.startedts > prior.startedts) newest.set(r.projectpath, r);
-        }
-        const scanned = reports.filter((r) => (r.findings ?? []).length > 0);
-        // an older report is the case the Radar landing exists for: initRadarScope selects the NEWEST, so only
-        // an older one tells a landing that held apart from one that was overwritten
-        const cited = scanned.find((r) => newest.get(r.projectpath)?.oid !== r.oid) ?? scanned[0] ?? null;
-        let investigated = null;
-        for (const r of reports) {
-            const f = (r.findings ?? []).find((x) => x.investigation && x.investigation.status !== "orphaned");
-            if (f) {
-                investigated = { reportId: r.oid, findingId: f.id };
-                break;
-            }
-        }
         return {
             dossier: dossiers[0] ? { id: dossiers[0].id, objective: dossiers[0].objective } : null,
             decided,
-            radar: cited
-                ? {
-                      reportId: cited.oid,
-                      findingId: cited.findings[0].id,
-                      newest: newest.get(cited.projectpath)?.oid === cited.oid,
-                  }
-                : null,
-            investigated,
         };
     },
     async assert(h, ctx) {
@@ -8976,7 +9126,6 @@ const resourceLinking = {
             }
             return false;
         };
-        const present = (selector) => `!!document.querySelector(${JSON.stringify(selector)})`;
         const toastText = () =>
             h.ev(`[...document.querySelectorAll('[data-notification-toast]')].map((t) => t.innerText).join(' | ')`);
         // the hook installs when the Brief mounts, and a reload undoes it, so every step re-arms it first
@@ -8992,8 +9141,8 @@ const resourceLinking = {
                 )})`,
                 5000
             );
-        // Escape closes the peek (and the run sheet in step 6); waiting on the peek band keeps the next step from
-        // reading the previous step's overlay
+        // Escape closes the peek; waiting on the peek band keeps the next step from reading the previous step's
+        // overlay
         const dismissOverlay = async () => {
             await h.ev(
                 `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
@@ -9058,65 +9207,6 @@ const resourceLinking = {
             );
         }
 
-        if (!ctx.radar) {
-            steps.push(
-                skipStep(
-                    "5. a finding address lands on that finding on a first Radar visit",
-                    "no scan report with findings in this profile - run a Radar scan before reading this as a pass"
-                )
-            );
-        } else {
-            // a reload is what makes this Radar's first visit: its scope lives in module state
-            await h.ev("location.reload()");
-            await settle(2800);
-            const result = await open(`radarreport:${ctx.radar.reportId}`, {
-                sourceType: "radar",
-                anchor: ctx.radar.findingId,
-            });
-            const selector = `[data-radar-finding-detail="${ctx.radar.findingId}"][data-radar-report="${ctx.radar.reportId}"]`;
-            const shown = await waitFor(present(selector), 8000);
-            const surface = await h.activeSurfaceLabel();
-            rec(
-                "5. a finding address lands on that finding on a first Radar visit",
-                result?.ok === true && shown && surface === SURFACE_LABEL.radar,
-                JSON.stringify({ result, shown, surface, olderThanNewest: !ctx.radar.newest, toasts: await toastText() })
-            );
-        }
-
-        if (!ctx.investigated) {
-            steps.push(
-                skipStep(
-                    "6. Radar's Open run lands on the run's sheet",
-                    "no investigated finding in this profile - start an investigation from Radar before reading this as a pass"
-                )
-            );
-        } else {
-            const { reportId, findingId } = ctx.investigated;
-            const result = await open(`radarreport:${reportId}`, { sourceType: "radar", anchor: findingId });
-            const detail = `[data-radar-finding-detail="${findingId}"]`;
-            const onFinding = await waitFor(present(detail), 8000);
-            const opened =
-                onFinding &&
-                (await h.ev(`(() => {
-                    const b = [...document.querySelectorAll(${JSON.stringify(`${detail} button`)})]
-                        .find((x) => (x.textContent || '').trim() === 'Open run');
-                    if (!b) return false;
-                    b.click();
-                    return true;
-                })()`));
-            const runBody = await waitFor(
-                present('[data-jarvis-brief-sheet="channel"] [data-jarvis-brief-sheet-face="settings"]'),
-                10000
-            );
-            const surface = await h.activeSurfaceLabel();
-            rec(
-                "6. Radar's Open run lands on the run's sheet",
-                result?.ok === true && opened && runBody && surface === SURFACE_LABEL.jarvis,
-                JSON.stringify({ result, onFinding, opened, runBody, surface, toasts: await toastText() })
-            );
-            await dismissOverlay();
-        }
-
         await h.goto("jarvis");
         await waitFor(`typeof window.__openAddress === 'function'`, 5000);
         const result = await h.ev(`window.__openAddress("bogus:resource-linking-probe")`);
@@ -9124,7 +9214,7 @@ const resourceLinking = {
         const toasts = await toastText();
         const surface = await h.activeSurfaceLabel();
         rec(
-            "7. an address nothing can open shows the toast and leaves the surface where it was",
+            "5. an address nothing can open shows the toast and leaves the surface where it was",
             result?.reason === "unsupported" &&
                 toasts.includes("This item can't be opened") &&
                 surface === SURFACE_LABEL.jarvis,
@@ -12857,6 +12947,25 @@ const DAG_PEEK_CATALOG_MS = 30_000;
 // t-1's right edge within this of the pane's right edge leaves the card no room on its right
 const DAG_PEEK_FLIP_PX = 200;
 const DAG_PEEK_REFUSAL_KEY = "__dagPeekRefusal";
+// published as the engine's run:events (a run's events cannot be written through an RPC): [kind, detail, ms ago]
+const DAG_PEEK_T3_EVENTS = [
+    ["task-spawned", { taskid: "t-3", worktreems: 1200, setupms: 4000, spawnms: 300 }, 6 * 60_000],
+    ["task-done", { taskid: "t-3" }, 3 * 60_000],
+    ["task-verify-started", { taskid: "t-3" }, 3 * 60_000 - 1000],
+    ["task-verify-failed", { taskid: "t-3", reason: "exit 1", detail: "FAIL\tfrontend/app/view/orchestrate\t0.4s" }, 2 * 60_000],
+    ["task-failed", { taskid: "t-3", attempts: 1, lastfailurekind: "test-failed" }, 2 * 60_000 - 1000],
+];
+const DAG_PEEK_T3_TITLES = ["Task failed", "Verify failed", "Verify started", "Task done", "Task spawned"];
+// the plan reviewer's session is a stage session too, but not the final stage's: its Lifecycle leaves it out
+const DAG_PEEK_FINAL_EVENTS = [
+    ["stage-session-started", { role: "plan-reviewer", lens: "spec" }, 90_000],
+    ["stage-session-started", { role: "verifier", runid: "dag-peek-verifier" }, 60_000],
+    ["land-held", { reason: "dag-peek: the base has uncommitted changes" }, 30_000],
+];
+const DAG_PEEK_FINAL_TITLES = ["Land held", "Final verifier started"];
+const DAG_PEEK_FINAL_EMPTY = "The final stage has not run yet";
+// Type.dc.html: times 11.5px mono, titles 13px, detail 12px
+const DAG_PEEK_ROW_SIZES = { time: "11.5px", title: "13px", detail: "12px" };
 
 const dagPeekPrint = (dag) => {
     const t = (id) => (dag?.tasks ?? []).find((x) => x.id === id);
@@ -12920,6 +13029,36 @@ const DAG_PEEK_EMPTY = `(() => {
     }
     return null;
 })()`;
+const DAG_PEEK_RAIL = `${DAG_PEEK_MODAL}?.querySelector("[data-timeline-rail]")`;
+// the rail's history has loaded: a run:event published before that is overwritten by the load
+const DAG_PEEK_RAIL_LIVE = `(${DAG_PEEK_RAIL}?.textContent ?? "").includes("● live")`;
+// the rail's pressed filter and the task of each row it shows
+const DAG_PEEK_RAIL_STATE = `(() => {
+    const rail = ${DAG_PEEK_RAIL};
+    return {
+        pressed: [...(rail?.querySelectorAll("button[aria-pressed='true']") ?? [])].map((b) => (b.innerText || "").replace(/\\s+/g, " ").trim()),
+        tasks: [...(rail?.querySelectorAll("[data-timeline-row]") ?? [])].map((r) => r.getAttribute("data-timeline-task") ?? ""),
+    };
+})()`;
+// a popup's Lifecycle section: its count, each row's title and attention, and the type sizes of the first row with a detail
+const dagPeekLifecycle = (sel) => `(() => {
+    const lc = ${dagPeekCard(sel)}?.querySelector("[data-dag-peek-lifecycle]");
+    const rows = [...(lc?.querySelectorAll("[data-dag-peek-lifecycle-row]") ?? [])];
+    const size = (el) => (el ? getComputedStyle(el).fontSize : null);
+    // a row without a detail line has nothing to measure it by
+    const first = rows.find((r) => r.children[2]?.children[1] != null)?.children;
+    return {
+        present: lc != null,
+        count: (lc?.querySelector("[data-dag-peek-lifecycle-count]")?.textContent ?? "").trim(),
+        empty: (lc?.querySelector("[data-dag-peek-lifecycle-empty]")?.textContent ?? "").trim(),
+        titles: rows.map((r) => (r.children[2]?.children[0]?.textContent ?? "").trim()),
+        attention: rows.map((r) => r.getAttribute("data-dag-peek-lifecycle-row") === "attention"),
+        sizes: first ? { time: size(first[0]), title: size(first[2]?.children[0]), detail: size(first[2]?.children[1]) } : null,
+    };
+})()`;
+const dagPeekLifecycleRows = (sel, n) =>
+    `(${dagPeekCard(sel)}?.querySelectorAll("[data-dag-peek-lifecycle-row]").length ?? 0) === ${n}`;
+
 const dagPeekBar = (sel) => `[...(${dagPeekCard(sel)}?.querySelectorAll("[data-dag-peek-action]") ?? [])].map((b) => ({
     action: b.getAttribute("data-dag-peek-action"),
     label: b.textContent.trim(),
@@ -12950,6 +13089,25 @@ async function dagPeekSettled(h) {
         await polishNap(300);
     }
     return last;
+}
+
+async function dagPeekPublish(h, ctx, events) {
+    const now = Date.now();
+    for (const [i, [kind, detail, ago]] of events.entries()) {
+        const event = {
+            id: `dag-peek-${kind}-${i}-${now}`,
+            runid: ctx.runId,
+            channelid: ctx.channelId,
+            ts: now - ago,
+            kind,
+            detail: JSON.stringify(detail),
+        };
+        await h.rpc("eventpublish", {
+            event: "run:event",
+            scopes: [`run:${ctx.runId}`],
+            data: { channelid: ctx.channelId, runid: ctx.runId, event },
+        });
+    }
 }
 
 async function dagPeekMouse(h, type, pt, buttons = 0) {
@@ -13265,6 +13423,24 @@ const dagPeekScenario = {
             { openedFinal, rows, geom: iGeom }
         );
 
+        // i2. the final card's Lifecycle: empty while the stage has not run, then the stage's own events only
+        const finalBefore = await h.ev(dagPeekLifecycle(DAG_PEEK_FINAL_SEL));
+        const railLive = await polishWaitFor(h, DAG_PEEK_RAIL_LIVE, 10000);
+        await dagPeekPublish(h, ctx, DAG_PEEK_FINAL_EVENTS);
+        await polishWaitFor(h, dagPeekLifecycleRows(DAG_PEEK_FINAL_SEL, DAG_PEEK_FINAL_TITLES.length), 3000);
+        const finalAfter = await h.ev(dagPeekLifecycle(DAG_PEEK_FINAL_SEL));
+        await h.shot("cdp-shots/dag-peek-final-lifecycle.png");
+        rec(
+            "i2. the final card's Lifecycle says the stage has not run, then lists the verifier's session and the held land newest first, without the plan reviewer's session",
+            () =>
+                finalBefore.present &&
+                finalBefore.empty === DAG_PEEK_FINAL_EMPTY &&
+                railLive &&
+                fstSame(finalAfter.titles, DAG_PEEK_FINAL_TITLES) &&
+                finalAfter.count === `${DAG_PEEK_FINAL_TITLES.length} events`,
+            { finalBefore, railLive, finalAfter }
+        );
+
         // j. Esc closes the card before it closes the modal
         await h.ev(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
         const escClosed = await polishWaitFor(h, `!${dagPeekCard(DAG_PEEK_FINAL_SEL)}`, 3000);
@@ -13322,6 +13498,60 @@ const dagPeekScenario = {
             () => chip.tag != null && chip.lines === 1 && chip.fits && floorOk(chip.floor) && chip.heights[0] != null && chip.heights[0] === chip.heights[1],
             { ...chip, floor: floorDetail(chip.floor) }
         );
+
+        // n. t-3's popup carries its own lifecycle, newest first, and the rail follows the selection to Task · t-3
+        await polishWaitFor(h, DAG_PEEK_RAIL_LIVE, 10000);
+        await dagPeekPublish(h, ctx, DAG_PEEK_T3_EVENTS);
+        const openedLc = await dagPeekOpen(h, t3, "t-3");
+        await polishWaitFor(h, dagPeekLifecycleRows(t3, DAG_PEEK_T3_TITLES.length), 4000);
+        await polishNap(400);
+        const lc = await h.ev(dagPeekLifecycle(t3));
+        const railTask = await h.ev(DAG_PEEK_RAIL_STATE);
+        // every text node in the popup and the rail: over the floor, and none in muted grey
+        const read = await paintEval(h, `
+            const probe = document.createElement("span");
+            probe.className = "text-muted";
+            document.body.append(probe);
+            const muted = getComputedStyle(probe).color;
+            probe.remove();
+            const roots = [${dagPeekCard(t3)}, ${DAG_PEEK_RAIL}];
+            const mutedText = [];
+            for (const root of roots) {
+                if (!root) continue;
+                const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+                    const text = n.data.trim();
+                    if (text && n.parentElement.getClientRects().length > 0 && getComputedStyle(n.parentElement).color === muted) {
+                        mutedText.push(text.slice(0, 40));
+                    }
+                }
+            }
+            return { floor: floorWalk(roots), mutedText };
+        `);
+        await h.shot("cdp-shots/dag-peek-lifecycle.png");
+        await h.ev(dagPeekClickNode("t-3"));
+        const closedLc = await polishWaitFor(h, `!${dagPeekCard(t3)}`, 3000);
+        await polishNap(300);
+        const railAll = await h.ev(DAG_PEEK_RAIL_STATE);
+        rec(
+            "n. t-3's card lists its five events newest first with the two failures amber, at 11.5/13/12px; the rail switches to Task · t-3 showing only t-3's rows, and back to All when the card closes; no text in either is muted or under the floor",
+            () =>
+                openedLc &&
+                fstSame(lc.titles, DAG_PEEK_T3_TITLES) &&
+                fstSame(lc.attention, [true, true, false, false, false]) &&
+                lc.count === `${DAG_PEEK_T3_TITLES.length} events` &&
+                fstSame(lc.sizes, DAG_PEEK_ROW_SIZES) &&
+                railTask.pressed.length === 1 &&
+                railTask.pressed[0].startsWith("Task · t-3") &&
+                railTask.tasks.length > 0 &&
+                railTask.tasks.every((t) => t === "t-3") &&
+                floorOk(read.floor) &&
+                read.mutedText.length === 0 &&
+                closedLc &&
+                railAll.pressed.length === 1 &&
+                railAll.pressed[0].startsWith("All"),
+            { openedLc, lc, railTask, floor: floorDetail(read.floor), mutedText: read.mutedText, closedLc, railAll }
+        );
         return steps;
     },
     async teardown(h, ctx) {
@@ -13342,7 +13572,7 @@ const FINAL_SHOTS_CMD = "node scripts/cdp/final-verify.mjs final-shots";
 const FINAL_SHOTS_SEED_KEY = "verify:finalshots-seed";
 const FINAL_SHOTS_UICTX = { windowid: "", activetabid: "" };
 const FINAL_SHOTS_MISSING = "jarvis-peek-narrow";
-// the fix round's row counts one shot more than round 1 had (States board: 17 shots)
+// the fix round's row counts one shot more than round 1 had (States board: 16 shots)
 const FINAL_SHOTS_EXTRA = { "surface-smoke": ["surface-agent"] };
 const FINAL_SHOTS_PLAIN = ["checkout-empty", "checkout-filled", "receipt"];
 // the fixture PNGs, by the surface each is captured on. Never through h.shot, which records evidence shots
@@ -13358,9 +13588,8 @@ const FINAL_SHOTS_CAPTURES = {
         "jarvis-peek-empty",
         "resource-linking",
     ],
-    radar: ["surface-radar", "receipt"],
     usage: ["surface-usage", "checkout-filled"],
-    files: ["surface-files"],
+    files: ["surface-files", "receipt"],
     settings: ["surface-settings", "checkout-empty"],
     code: ["surface-code"],
     setup: ["surface-setup"],
@@ -13381,11 +13610,10 @@ const FS_S = "skip";
 const FINAL_SHOTS_BOARD = [
     {
         name: "surface-smoke",
-        shots: ["surface-smoke", "surface-cockpit", "surface-jarvis", "surface-radar", "surface-usage", "surface-files", "surface-settings", "surface-code", "surface-setup"],
+        shots: ["surface-smoke", "surface-cockpit", "surface-jarvis", "surface-usage", "surface-files", "surface-settings", "surface-code", "surface-setup"],
         steps: [
             [FS_P, 'goto cockpit -> active nav "Cockpit", content non-empty', "active=Cockpit contentLen=1643"],
             [FS_P, 'goto jarvis -> active nav "Jarvis", content non-empty', "active=Jarvis contentLen=1378"],
-            [FS_P, 'goto radar -> active nav "Radar", content non-empty', "active=Radar contentLen=1775"],
             [FS_P, 'goto usage -> active nav "Usage", content non-empty', "active=Usage contentLen=1909"],
             [FS_P, 'goto files -> active nav "Diff", content non-empty', "active=Diff contentLen=1349"],
             [FS_P, 'goto settings -> active nav "Settings", content non-empty', "active=Settings contentLen=2036"],
@@ -13438,9 +13666,7 @@ const FINAL_SHOTS_BOARD = [
             [FS_P, "2. a record address opens the record's peek"],
             [FS_S, "3. a decision address opens its record's peek"],
             [FS_P, "4. a memory address opens nothing and leaves the surface where it was"],
-            [FS_S, "5. a finding address lands on that finding on a first Radar visit"],
-            [FS_S, "6. Radar's Open run lands on the run's sheet"],
-            [FS_P, "7. an address nothing can open shows the toast and leaves the surface where it was"],
+            [FS_P, "5. an address nothing can open shows the toast and leaves the surface where it was"],
         ],
     },
 ];
@@ -13700,13 +13926,13 @@ const finalShotsScenario = {
         );
         if (ctx.arrangeError != null) return steps;
 
-        let s = await finalShotsUntil(h, (x) => x.row?.text.includes("16 shots") && x.dock != null);
+        let s = await finalShotsUntil(h, (x) => x.row?.text.includes("15 shots") && x.dock != null);
         rec(
-            "1. the row is collapsed with unverified · 5 scenarios and 16 shots · 2 rounds; the dock reads Screenshots · 16",
+            "1. the row is collapsed with unverified · 5 scenarios and 15 shots · 2 rounds; the dock reads Screenshots · 15",
             s?.row?.expanded === "false" &&
                 s.row.text.includes("unverified · 5 scenarios") &&
-                s.row.text.includes("16 shots · 2 rounds") &&
-                s.dock?.text === "Screenshots · 16" &&
+                s.row.text.includes("15 shots · 2 rounds") &&
+                s.dock?.text === "Screenshots · 15" &&
                 !s.dock.disabled &&
                 !s.dock.accent,
             JSON.stringify({ row: s?.row, dock: s?.dock })
@@ -13739,7 +13965,7 @@ const finalShotsScenario = {
                 v.tabs[0].on &&
                 v.tabs[0].text.startsWith("surface-smoke") &&
                 v.img?.loaded === true &&
-                v.film.length === 9 &&
+                v.film.length === 8 &&
                 v.film[0].on &&
                 (v.path ?? "").endsWith("/2/cdp-shots/surface-smoke.png") &&
                 v.steps?.expanded === "false" &&
@@ -13813,12 +14039,12 @@ const finalShotsScenario = {
         await finalShotsUntil(h, (x) => x.viewer == null, 3000);
 
         await seedFinalShots(h, ctx, ctx.stages.fixing);
-        s = await finalShotsUntil(h, (x) => x.row?.text.includes("17 shots") === true);
+        s = await finalShotsUntil(h, (x) => x.row?.text.includes("16 shots") === true);
         rec(
-            "7. failed during the fix round: failed · jarvis-peek 2 steps, 17 shots · round 1, an accent dock",
+            "7. failed during the fix round: failed · jarvis-peek 2 steps, 16 shots · round 1, an accent dock",
             s?.row?.text.includes("failed · jarvis-peek 2 steps") &&
-                s.row.text.includes("17 shots · round 1") &&
-                s.dock?.text === "Screenshots · 17" &&
+                s.row.text.includes("16 shots · round 1") &&
+                s.dock?.text === "Screenshots · 16" &&
                 s.dock.accent &&
                 !s.dock.disabled,
             JSON.stringify({ row: s?.row, dock: s?.dock })
@@ -13828,10 +14054,10 @@ const finalShotsScenario = {
         await seedFinalShots(h, ctx, ctx.stages.passed);
         s = await finalShotsUntil(h, (x) => x.row?.text.includes("passed · 5 scenarios") === true);
         rec(
-            "8a. passed: passed · 5 scenarios, 16 shots, a plain dock",
+            "8a. passed: passed · 5 scenarios, 15 shots, a plain dock",
             s?.row?.text.includes("passed · 5 scenarios") &&
-                s.row.text.endsWith("16 shots") &&
-                s.dock?.text === "Screenshots · 16" &&
+                s.row.text.endsWith("15 shots") &&
+                s.dock?.text === "Screenshots · 15" &&
                 !s.dock.accent &&
                 !s.dock.disabled,
             JSON.stringify({ row: s?.row, dock: s?.dock })
@@ -13885,6 +14111,65 @@ const finalShotsScenario = {
     async teardown(h, ctx) {
         if (ctx.cwd) await teardownFixtureRun(h, ctx, "final-shots");
         rmSync(ctx.out, { recursive: true, force: true });
+    },
+};
+
+// --- final-rerun: a failed final stage runs again from the run sheet ------------------------------------------
+// The dag is seeded with a failed round 1 while t-1 is still at work, so the engine leaves the stage alone. The
+// rerun resets it to round 1 not started, which the same busy dag then keeps.
+
+const FR_BTN = `document.querySelector("[data-run-sheet] [data-final-rerun]")`;
+const finalRerunSeed = {
+    state: "failed",
+    round: 1,
+    detail: "Check `docker info` failed (exit 1):\ndocker is not running",
+};
+const finalRerunPrint = (dag) => JSON.stringify([dag?.final?.state ?? null, dag?.final?.round ?? null]);
+
+const finalRerunScenario = {
+    name: "final-rerun",
+    surface: "jarvis",
+    async arrange(h) {
+        const ctx = await arrangeSheetDagRun(h, "final-rerun", RUN_SHEET_POLISH_TASKS);
+        if (ctx.arrangeError != null) return ctx;
+        try {
+            ctx.dagId = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.oid;
+            if (!ctx.dagId) throw new Error("the run has no dag");
+            await seedDag(h, ctx, (dag) => ({ ...dag, final: finalRerunSeed }), finalRerunPrint);
+            ctx.shown = await polishWaitFor(h, `${FR_BTN} != null`, 15_000);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec(
+            "0. the run's sheet opened on a dag seeded with a failed final stage",
+            ctx.arrangeError == null && ctx.opened?.ok === true,
+            ctx.arrangeError ?? JSON.stringify({ runId: ctx.runId, dagId: ctx.dagId, opened: ctx.opened })
+        );
+        if (ctx.arrangeError != null) return steps;
+        const label = await h.ev(`${FR_BTN}?.textContent.trim() ?? null`);
+        rec("1. the dock offers Rerun final stage", ctx.shown === true && label === "Rerun final stage", JSON.stringify({ label }));
+        await h.shot("cdp-shots/final-rerun-1-offered.png");
+
+        await h.ev(`${FR_BTN}?.click()`);
+        const gone = await polishWaitFor(h, `${FR_BTN} == null`, 15_000);
+        const dag = await waveService(h, "object", "GetObject", [`dag:${ctx.dagId}`]);
+        rec(
+            "2. the click reruns the stage: round 1 not started, and the button is gone",
+            gone && dag?.final?.state === "" && dag?.final?.round === 1 && (dag?.final?.detail ?? "") === "",
+            JSON.stringify({ gone, final: dag?.final })
+        );
+        const error = await h.ev(`document.querySelector("[data-run-sheet] .text-error")?.textContent ?? null`);
+        rec("3. the engine refused nothing", error == null, JSON.stringify({ error }));
+        await h.shot("cdp-shots/final-rerun-2-rerun.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        if (ctx.cwd) await teardownFixtureRun(h, ctx, "final-rerun");
     },
 };
 
@@ -17758,770 +18043,6 @@ const planReviewRounds = {
     },
 };
 
-// --- radar-start-investigation: the draft lands on the launcher, not on a past run -----------------
-// Start investigation hands the finding to its project's channel sheet. With a run selected in that channel
-// (one the user had looked at, or a live one) the sheet opened on that run's report and the launcher holding
-// the draft sat behind New run, so the button read as doing nothing. Selecting a past run first is that case.
-const radarStartInvestigation = {
-    name: "radar-start-investigation",
-    surface: "jarvis",
-    async arrange(h) {
-        const norm = (p) => (p || "").replace(/\\/g, "/").replace(/\/+$/, "");
-        const reports = (await h.rpc("listradarreports", { projectpath: "" }))?.reports ?? [];
-        const channels = (await h.rpc("getchannels", null))?.channels ?? [];
-        for (const r of reports) {
-            const finding = (r.findings ?? []).find((f) => f.investigation?.status !== "executing");
-            // the landing resolves the FIRST channel on the project, so the past run has to come from that one
-            const channel = channels.find((c) => norm(c.projectpath) === norm(r.projectpath));
-            if (!finding || !channel) continue;
-            const runs = (await h.rpc("getchannelruns", { channelid: channel.oid }))?.runs ?? [];
-            if (runs.length === 0) continue;
-            return { reportId: r.oid, findingId: finding.id, mission: finding.mission, runId: runs[0].id };
-        }
-        return { reportId: null };
-    },
-    async assert(h, ctx) {
-        const step = "1. Start investigation opens the launcher holding the draft, over a selected past run";
-        if (!ctx.reportId) {
-            return [skipStep(step, "no radar finding whose project channel has a run - scan a project with runs")];
-        }
-        const open = async (address, hint) => {
-            await h.goto("jarvis");
-            await polishWaitFor(h, `typeof window.__openAddress === 'function'`, 5000);
-            return h.ev(`window.__openAddress(${JSON.stringify(address)}, ${JSON.stringify(hint ?? null)})`);
-        };
-        const ranOpen = await open(`run:${ctx.runId}`);
-        await polishNap(1500);
-        const radarOpen = await open(`radarreport:${ctx.reportId}`, { sourceType: "radar", anchor: ctx.findingId });
-        const detail = `[data-radar-finding-detail="${ctx.findingId}"]`;
-        await polishWaitFor(h, `!!document.querySelector(${JSON.stringify(detail)})`, 8000);
-        const clicked = await h.ev(`(() => {
-            const b = [...document.querySelectorAll(${JSON.stringify(`${detail} button`)})]
-                .find((x) => /^(Start investigation|Investigate again)/.test((x.textContent || '').trim()));
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        const want = (ctx.mission || "").slice(0, 40);
-        const landed = await polishWaitFor(
-            h,
-            `[...document.querySelectorAll('[data-jarvis-brief-sheet="channel"] input, [data-jarvis-brief-sheet="channel"] textarea')]
-                .some((x) => x.value.startsWith(${JSON.stringify(want)}))`,
-            8000
-        );
-        const runFace = await h.ev(`!!document.querySelector('[data-jarvis-brief-sheet-face="settings"]')`);
-        const surface = await h.activeSurfaceLabel();
-        await h.shot("cdp-shots/radar-start-investigation.png");
-        return [
-            {
-                step,
-                ok: ranOpen?.ok === true && clicked && landed && !runFace && surface === SURFACE_LABEL.jarvis,
-                detail: JSON.stringify({ ranOpen, radarOpen, clicked, landed, runFace, surface }),
-            },
-        ];
-    },
-    // the draft and the channel's composing flag outlive the sheet by design; a reload drops both
-    async teardown(h) {
-        await polishReload(h);
-    },
-};
-
-// --- radar-report, radar-scan-states: the sibling-audit surface (.superpowers/design/radar-sibling-audit) ----
-// Every board is drawn from the dev fixtures of radardevmock.ts through window.__setRadarScenario, which only
-// replaces the report the surface reads. What a fixture cannot show is a disposition, since the RPC refuses a
-// report the store does not hold: Intentional, Reopen finding and the site link run on a report seeded into
-// the dev store for this checkout, so the link has a real file to open.
-// the surface has no hook of its own; its body does, once the load phase is ready
-const RADAR_ROOT = `document.querySelector('[data-radar-view]')?.parentElement`;
-const RADAR_SCOPE_KEY = "radar.scope.project";
-const RADAR_SEED_FINDING = "f-radar-report";
-const RADAR_SEED_FILE = "pkg/reporadar/scan.go";
-const RADAR_SEED_LINE = 122;
-const RADAR_DISMISS_REASONS = ["False positive", "Low priority", "Resolved elsewhere", "Intentional"];
-const RADAR_DISMISS_FOOTNOTE = "Closes this finding. It stays closed until you reopen it from Dismissed.";
-const RADAR_AUDIT_GROUPS = ["Fix commits", "Behavior changes", "Hot files"];
-// radardevmock.ts: the introduced and hotspot findings of the results fixture, and the hot file partial fails
-const RADAR_INTRODUCED_FINDING = "g";
-const RADAR_HOTSPOT_FINDING = "h";
-const RADAR_HOT_FAILED = "pkg/orchestrate/land.go";
-const RADAR_CLASSIFY_WARNING =
-    "Commit classification failed, so 14 unprefixed commits were not considered. Re-scan tries them again.";
-const RADAR_AUDIT_ONCE =
-    "A target is audited once. The next scan picks up commits and file changes made after these.";
-const RADAR_REMOVED_TEXT = [
-    "collectors",
-    "Suppress pattern",
-    "Suppressed",
-    "Recurring",
-    "No longer detected",
-    "Evidence",
-    "Affected files",
-    "Suggested investigation",
-];
-const RADAR_PARTIAL_FAILED = ["7927fb68", "9caee0d3"];
-const RADAR_AUDIT_ERROR = "Timed out after 10 minutes.";
-
-const radarOpen = async (h) => {
-    await h.goto("radar");
-    return polishWaitFor(h, `typeof window.__setRadarScenario === 'function'`, 8000);
-};
-
-// draws a fixture and waits for the body it should land on
-async function radarMock(h, name, view) {
-    await h.ev(
-        `window.__setRadarScenario(${JSON.stringify(name)}, ${JSON.stringify({ projectPath: process.cwd() })})`
-    );
-    const shown = await polishWaitFor(h, `!!document.querySelector('[data-radar-view="${view}"]')`, 8000);
-    // the body cross-fades between the report, a panel and the skeleton
-    await polishNap(600);
-    return shown;
-}
-
-const radarFacts = (h) =>
-    h.ev(`(() => {
-        const root = ${RADAR_ROOT};
-        if (!root) return null;
-        const text = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
-        const all = (sel, from) => [...from.querySelectorAll(sel)];
-        const body = root.querySelector('[data-radar-view]');
-        const strip = root.querySelector('[data-radar-health-strip]');
-        const retry = root.querySelector('[data-radar-retry-audits]');
-        const toggle = root.querySelector('[data-radar-audits-toggle]');
-        return {
-            view: body.getAttribute('data-radar-view'),
-            title: text(body.querySelector('h2')),
-            bodyText: text(body),
-            rootText: text(root),
-            buttons: all('button', body).map(text),
-            auditList: !!body.querySelector('[data-radar-audit-list]'),
-            audits: all('[data-radar-audit-row]', body).map((r) => ({
-                sha: r.getAttribute('data-radar-audit-row'),
-                state: r.getAttribute('data-audit-state'),
-                text: text(r),
-            })),
-            auditGroups: all('[data-radar-audit-group]', body).map((g) => ({
-                kind: g.getAttribute('data-radar-audit-group'),
-                label: text(g.querySelector('[data-radar-audit-group-label]')),
-                rows: all('[data-radar-audit-row]', g).map((r) => ({
-                    sha: r.getAttribute('data-radar-audit-row'),
-                    state: r.getAttribute('data-audit-state'),
-                })),
-            })),
-            classify: (() => {
-                const w = root.querySelector('[data-radar-classify-warning]');
-                return w ? { text: text(w), buttons: w.querySelectorAll('button').length } : null;
-            })(),
-            strip: strip ? text(strip) : null,
-            retry: retry ? !retry.disabled : null,
-            toggle: toggle ? text(toggle) : null,
-            project: root.querySelector('button[aria-label^="Scanned project:"]')?.getAttribute('aria-label') ?? null,
-            rescan: !!root.querySelector('[data-radar-rescan]'),
-            findingRows: all('[data-radar-finding-row]', root).length,
-            groups: Object.fromEntries(
-                all('[data-radar-group]', root).map((g) => [
-                    g.getAttribute('data-radar-group'),
-                    all('[data-radar-finding-row]', g).map((r) => ({
-                        id: r.getAttribute('data-radar-finding-row'),
-                        text: text(r),
-                        isNew: !!r.querySelector('[data-radar-new]'),
-                        current: r.getAttribute('aria-current') === 'true',
-                    })),
-                ])
-            ),
-        };
-    })()`);
-
-const radarDetail = (h) =>
-    h.ev(`(() => {
-        const d = ${RADAR_ROOT}?.querySelector('[data-radar-finding-detail]');
-        if (!d) return null;
-        const text = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
-        return {
-            id: d.getAttribute('data-radar-finding-detail'),
-            kind: d.querySelector('[data-radar-kind]')?.getAttribute('data-radar-kind') ?? null,
-            kindLabel: text(d.querySelector('[data-radar-kind]')),
-            siteLink: text(d.querySelector('[data-radar-site-link]')),
-            cards: [...d.querySelectorAll('[data-radar-site-card]')].map(text),
-            whyLabels: [...d.querySelectorAll('[data-radar-site-why-label]')].map(text),
-            headings: [...d.querySelectorAll('h3')].map(text),
-            sourceFix: text(d.querySelector('[data-radar-source-fix]')),
-            fixSubjects: [...d.querySelectorAll('[data-radar-fix-subjects] li')].map(text),
-            text: text(d),
-        };
-    })()`);
-
-const radarClick = (h, selector) =>
-    h.ev(`(() => {
-        const el = ${RADAR_ROOT}?.querySelector(${JSON.stringify(selector)});
-        if (!el) return false;
-        el.click();
-        return true;
-    })()`);
-
-// the detail's buttons carry no hook: the one whose whole text is the label
-const radarDetailButton = (h, label) =>
-    h.ev(`(() => {
-        const b = [...(${RADAR_ROOT}?.querySelectorAll('[data-radar-finding-detail] button') ?? [])]
-            .find((x) => (x.textContent || '').trim() === ${JSON.stringify(label)});
-        if (!b) return false;
-        b.click();
-        return true;
-    })()`);
-
-const radarHas = (selector) => `!!${RADAR_ROOT}?.querySelector(${JSON.stringify(selector)})`;
-const radarStates = (facts) => facts?.audits.map((a) => a.state) ?? [];
-// a commit kind's row reads "<kind label> · <sha>"; a hotspot's "Hotspot · <n> fixes" has no sha
-const fixSha = (rowText) => /· ([0-9a-f]{8})/.exec(rowText ?? "")?.[1] ?? null;
-const radarGroupLabels = (groups) => (groups ?? []).map((g) => g.label);
-const hasAll = (text, words) => words.every((w) => (text ?? "").includes(w));
-
-async function radarOpenDismissMenu(h) {
-    const clicked = await radarDetailButton(h, "Dismiss");
-    const open = clicked && (await polishWaitFor(h, radarHas("[data-radar-dismiss-menu]"), 3000));
-    // the popover's reveal finishes before a shot or a click on a reason
-    await polishNap(300);
-    return open;
-}
-
-const radarReport = {
-    name: "radar-report",
-    surface: "radar",
-    async arrange(h) {
-        const ctx = { cwd: process.cwd() };
-        // a throw past this point still returns ctx, so teardown removes whatever was already made
-        try {
-            // landing on the seeded report persists its project as Radar's scope
-            ctx.priorScope = await h.ev(`localStorage.getItem(${JSON.stringify(RADAR_SCOPE_KEY)})`);
-            ctx.reportId = await seedRadarReport(h, (oid) =>
-                radarFixtureReport(oid, "radar-report-fixture", ctx.cwd, Date.now(), {
-                    id: RADAR_SEED_FINDING,
-                    risk: "Radar fixture: the scan loop outlives a cancelled context",
-                    file: RADAR_SEED_FILE,
-                    lines: [RADAR_SEED_LINE, 140],
-                })
-            );
-        } catch (e) {
-            ctx.arrangeError = String(e?.message ?? e);
-        }
-        return ctx;
-    },
-    async assert(h, ctx) {
-        const steps = [];
-        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const hook = await radarOpen(h);
-
-        {
-            const shown = await radarMock(h, "results", "report");
-            const f = await radarFacts(h);
-            const open = f?.groups.open ?? [];
-            const dismissed = f?.groups.dismissed ?? [];
-            const sited = open.find((r) => /\.\w+:\d+/.test(r.text) && fixSha(r.text) != null);
-            await h.shot("cdp-shots/radar-report.png");
-            rec(
-                "1. a report lists Open and Dismissed with site, title, severity and source fix",
-                hook &&
-                    shown &&
-                    sited != null &&
-                    open.some((r) => r.isNew) &&
-                    dismissed.length === 2 &&
-                    f.project === "Scanned project: waveterm" &&
-                    f.rescan,
-                JSON.stringify({
-                    hook,
-                    view: f?.view ?? null,
-                    open: open.length,
-                    newChips: open.filter((r) => r.isNew).length,
-                    dismissed: dismissed.length,
-                    row: sited?.text ?? null,
-                    project: f?.project ?? null,
-                    rescan: f?.rescan ?? null,
-                })
-            );
-
-            const d = await radarDetail(h);
-            const row = [...open, ...dismissed].find((r) => r.id === d?.id);
-            const sha = fixSha(row?.text);
-            rec(
-                "2. the detail shows the kind, site link, site cards, root cause and source fix",
-                d != null &&
-                    d.kind === "sibling" &&
-                    d.kindLabel === "Sibling bug" &&
-                    /:\d+$/.test(d.siteLink) &&
-                    d.cards.length > 0 &&
-                    d.cards.every((c) => hasAll(c, ["Actual", "Expected", "Fix gap"])) &&
-                    d.headings.includes("Root cause") &&
-                    d.headings.includes("Found by auditing this fix") &&
-                    sha != null &&
-                    d.sourceFix.includes(sha),
-                JSON.stringify({
-                    finding: d?.id ?? null,
-                    kind: d?.kind ?? null,
-                    kindLabel: d?.kindLabel ?? null,
-                    siteLink: d?.siteLink ?? null,
-                    cards: d?.cards.length ?? 0,
-                    headings: d?.headings ?? null,
-                    rowSha: sha,
-                    sourceFix: d?.sourceFix.slice(0, 120) ?? null,
-                })
-            );
-
-            // the introduced and hotspot findings of the fixture, each opened from its row
-            const openFinding = async (id, shot) => {
-                const clicked = await radarClick(h, `[data-radar-finding-row="${id}"]`);
-                const shown = clicked && (await polishWaitFor(h, radarHas(`[data-radar-finding-detail="${id}"]`), 3000));
-                await polishNap(300);
-                await h.shot(shot);
-                const row = [...open, ...dismissed].find((r) => r.id === id);
-                return { shown, row: row?.text ?? null, d: await radarDetail(h) };
-            };
-
-            const intro = await openFinding(RADAR_INTRODUCED_FINDING, "cdp-shots/radar-introduced.png");
-            const introSha = fixSha(intro.row);
-            rec(
-                "3. an introduced finding names its kind, site label, intent heading and the change it reviewed",
-                intro.shown &&
-                    intro.d?.kind === "introduced" &&
-                    intro.d.kindLabel === "Introduced bug" &&
-                    intro.d.whyLabels.length > 0 &&
-                    intro.d.whyLabels.every((l) => l === "Introduced") &&
-                    intro.d.headings.includes("Intent of the change") &&
-                    intro.d.headings.includes("Found by reviewing this change") &&
-                    /Introduced bug · [0-9a-f]{8}/.test(intro.row ?? "") &&
-                    introSha != null &&
-                    intro.d.sourceFix.includes(introSha),
-                JSON.stringify({
-                    shown: intro.shown,
-                    row: intro.row,
-                    kind: intro.d?.kind ?? null,
-                    kindLabel: intro.d?.kindLabel ?? null,
-                    whyLabels: intro.d?.whyLabels ?? null,
-                    headings: intro.d?.headings ?? null,
-                    sourceFix: intro.d?.sourceFix.slice(0, 120) ?? null,
-                })
-            );
-
-            const hot = await openFinding(RADAR_HOTSPOT_FINDING, "cdp-shots/radar-hotspot.png");
-            const fixCount = hot.d?.fixSubjects.length ?? 0;
-            rec(
-                "4. a hotspot finding names its kind, site label, fragility heading and the fixes that sent Radar to the file",
-                hot.shown &&
-                    hot.d?.kind === "hotspot" &&
-                    hot.d.kindLabel === "Hotspot" &&
-                    hot.d.whyLabels.length > 0 &&
-                    hot.d.whyLabels.every((l) => l === "Missed by fixes") &&
-                    hot.d.headings.includes("Fragility") &&
-                    hot.d.headings.includes("Found by reviewing this file") &&
-                    fixCount >= 3 &&
-                    hot.d.fixSubjects.every((s) => s.length > 0) &&
-                    (hot.row ?? "").includes(`Hotspot · ${fixCount} fixes`) &&
-                    fixSha(hot.row) == null,
-                JSON.stringify({
-                    shown: hot.shown,
-                    row: hot.row,
-                    kind: hot.d?.kind ?? null,
-                    kindLabel: hot.d?.kindLabel ?? null,
-                    whyLabels: hot.d?.whyLabels ?? null,
-                    headings: hot.d?.headings ?? null,
-                    fixSubjects: hot.d?.fixSubjects ?? null,
-                })
-            );
-        }
-
-        {
-            const summary = (await radarFacts(h))?.toggle ?? null;
-            const clicked = await radarClick(h, "[data-radar-audits-toggle]");
-            const opened = clicked && (await polishWaitFor(h, radarHas("[data-radar-audits-popover]"), 3000));
-            await polishNap(300);
-            const popover = await h.ev(`(() => {
-                const p = ${RADAR_ROOT}?.querySelector('[data-radar-audits-popover]');
-                if (!p) return null;
-                const text = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
-                return {
-                    rows: [...p.querySelectorAll('[data-radar-audit-row]')].map((r) => r.getAttribute('data-audit-state')),
-                    groups: [...p.querySelectorAll('[data-radar-audit-group]')].map((g) => ({
-                        kind: g.getAttribute('data-radar-audit-group'),
-                        label: text(g.querySelector('[data-radar-audit-group-label]')),
-                        rows: [...g.querySelectorAll('[data-radar-audit-row]')].map((r) => r.getAttribute('data-radar-audit-row')),
-                    })),
-                };
-            })()`);
-            await h.shot("cdp-shots/radar-audits.png");
-            await radarClick(h, "[data-radar-audits-toggle]");
-            const closed = await polishWaitFor(h, `!(${radarHas("[data-radar-audits-popover]")})`, 3000);
-            const rows = popover?.rows ?? [];
-            const hotFiles = popover?.groups.find((g) => g.label === "Hot files")?.rows ?? [];
-            rec(
-                "5. the header's audit summary counts every kind and opens the audits grouped by kind",
-                summary === "12 audits, 8 clean" &&
-                    opened &&
-                    rows.length === 12 &&
-                    rows.filter((s) => s === "hits").length === 4 &&
-                    JSON.stringify(radarGroupLabels(popover?.groups)) === JSON.stringify(RADAR_AUDIT_GROUPS) &&
-                    // the two hot files share one revision: two rows, one sha
-                    hotFiles.length === 2 &&
-                    hotFiles[0] === hotFiles[1] &&
-                    closed,
-                JSON.stringify({ summary, clicked, opened, rows, groups: popover?.groups ?? null, closed })
-            );
-        }
-
-        {
-            const opened = await radarOpenDismissMenu(h);
-            const menu = await h.ev(`(() => {
-                const m = ${RADAR_ROOT}?.querySelector('[data-radar-dismiss-menu]');
-                if (!m) return null;
-                return {
-                    reasons: [...m.querySelectorAll('[data-radar-dismiss-reason]')]
-                        .map((b) => b.getAttribute('data-radar-dismiss-reason')),
-                    text: (m.textContent ?? '').replace(/\\s+/g, ' ').trim(),
-                };
-            })()`);
-            await h.shot("cdp-shots/radar-dismiss.png");
-            await radarDetailButton(h, "Dismiss");
-            const closed = await polishWaitFor(h, `!(${radarHas("[data-radar-dismiss-menu]")})`, 3000);
-            rec(
-                "6. the Dismiss menu offers four reasons and the reworded footnote",
-                opened &&
-                    JSON.stringify(menu?.reasons) === JSON.stringify(RADAR_DISMISS_REASONS) &&
-                    menu.text.includes(RADAR_DISMISS_FOOTNOTE) &&
-                    closed,
-                JSON.stringify({ opened, reasons: menu?.reasons ?? null, text: menu?.text ?? null, closed })
-            );
-        }
-
-        {
-            const shown = await radarMock(h, "partial", "report");
-            const f = await radarFacts(h);
-            await h.shot("cdp-shots/radar-partial.png");
-            // the fixture's oid is not in the store, so the RPC is refused and no audit starts
-            const dispatched = await h.ev(`(() => {
-                const b = ${RADAR_ROOT}?.querySelector('[data-radar-retry-audits]');
-                if (!b) return false;
-                let fired = false;
-                b.addEventListener('click', () => { fired = true; }, { once: true });
-                b.click();
-                return fired;
-            })()`);
-            await polishNap(1500);
-            const after = await radarFacts(h);
-            rec(
-                "7. a partial scan names the failed audits, a hot file by its path, and offers Retry failed audits",
-                shown &&
-                    hasAll(f?.strip, [...RADAR_PARTIAL_FAILED, RADAR_HOT_FAILED]) &&
-                    f.retry === true &&
-                    (f.toggle ?? "").endsWith("3 failed") &&
-                    dispatched &&
-                    after?.view === "report" &&
-                    hasAll(after.strip, [...RADAR_PARTIAL_FAILED, RADAR_HOT_FAILED]),
-                JSON.stringify({
-                    strip: f?.strip ?? null,
-                    retryEnabled: f?.retry ?? null,
-                    summary: f?.toggle ?? null,
-                    dispatched,
-                    after: { view: after?.view ?? null, strip: after?.strip ?? null },
-                })
-            );
-        }
-
-        const detail = `[data-radar-finding-detail="${RADAR_SEED_FINDING}"][data-radar-report="${ctx.reportId}"]`;
-        const seededRow = (group) =>
-            radarHas(`[data-radar-group="${group}"] [data-radar-finding-row="${RADAR_SEED_FINDING}"]`);
-        {
-            await h.ev(`window.__setRadarScenario('live')`);
-            // __openAddress exists only once the Brief has mounted
-            await h.goto("jarvis");
-            const opener = await polishWaitFor(h, `typeof window.__openAddress === 'function'`, 5000);
-            const opened =
-                ctx.arrangeError == null && opener
-                    ? await h.ev(
-                          `window.__openAddress(${JSON.stringify(`radarreport:${ctx.reportId}`)}, ${JSON.stringify({ sourceType: "radar", anchor: RADAR_SEED_FINDING })})`
-                      )
-                    : null;
-            const landed = opened?.ok === true && (await polishWaitFor(h, radarHas(detail), 8000));
-            const menu = landed && (await radarOpenDismissMenu(h));
-            const picked = menu && (await radarClick(h, '[data-radar-dismiss-reason="Intentional"]'));
-            const dismissed = picked && (await polishWaitFor(h, seededRow("dismissed"), 8000));
-            const label = (await radarDetail(h))?.text.includes("Dismissed: intentional") ?? false;
-            const reopened = dismissed && (await radarDetailButton(h, "Reopen finding"));
-            const backOpen = reopened && (await polishWaitFor(h, seededRow("open"), 8000));
-            const newChip = await h.ev(
-                radarHas(`[data-radar-finding-row="${RADAR_SEED_FINDING}"] [data-radar-new]`)
-            );
-            rec(
-                "8. Intentional closes a finding into Dismissed, and Reopen finding returns it",
-                dismissed === true && label && backOpen === true && newChip === false,
-                JSON.stringify({
-                    arrangeError: ctx.arrangeError ?? null,
-                    opener,
-                    opened,
-                    landed,
-                    menu,
-                    picked,
-                    dismissed,
-                    label,
-                    reopened,
-                    backOpen,
-                    newChip,
-                })
-            );
-        }
-
-        {
-            const clicked = await radarClick(h, `${detail} [data-radar-site-link]`);
-            const openFile = `(document.querySelector('[data-code-path]')?.getAttribute('data-code-path') ?? '').replace(/\\\\/g, '/')`;
-            const opened =
-                clicked && (await polishWaitFor(h, `${openFile}.endsWith(${JSON.stringify(RADAR_SEED_FILE)})`, 10000));
-            const surface = await h.activeSurfaceLabel();
-            // the viewer scrolls to the line once the text lands
-            await polishNap(800);
-            await h.shot("cdp-shots/radar-site-in-code.png");
-            rec(
-                "9. the site link opens Code at the line",
-                opened === true && surface === SURFACE_LABEL.code,
-                JSON.stringify({ clicked, surface, file: await h.ev(openFile), line: RADAR_SEED_LINE })
-            );
-        }
-
-        {
-            await radarOpen(h);
-            const shown = await radarMock(h, "results", "report");
-            const read = () =>
-                h.ev(`(() => {
-                    const root = ${RADAR_ROOT};
-                    if (!root) return null;
-                    return {
-                        text: (root.textContent ?? '').toLowerCase(),
-                        lens: !!root.querySelector('[aria-label="Lens"]'),
-                        evidenceTitles: [...root.querySelectorAll('[title]')]
-                            .map((el) => el.getAttribute('title'))
-                            .filter((t) => / evidence$/i.test(t)),
-                    };
-                })()`);
-            // an open finding's detail, then the one closed as Intentional, which used to read Suppressed
-            const views = [await read()];
-            const suppressed = await radarClick(h, '[data-radar-group="dismissed"] [data-radar-finding-row]:last-child');
-            await polishNap(300);
-            views.push(await read());
-            const found = RADAR_REMOVED_TEXT.filter((t) => views.some((v) => v?.text.includes(t.toLowerCase())));
-            const lens = views.some((v) => v?.lens);
-            const evidenceTitles = views.flatMap((v) => v?.evidenceTitles ?? []);
-            rec(
-                "10. nothing the Removed board marks is on the surface",
-                shown &&
-                    suppressed &&
-                    views.every((v) => v != null) &&
-                    found.length === 0 &&
-                    !lens &&
-                    evidenceTitles.length === 0,
-                JSON.stringify({ shown, suppressed, found, lens, evidenceTitles })
-            );
-        }
-
-        {
-            const shown = await radarMock(h, "carried", "report");
-            const f = await radarFacts(h);
-            rec(
-                "11. carried findings with nothing new to audit",
-                shown && f.rootText.includes("Nothing new to audit") && f.toggle == null && f.strip == null,
-                JSON.stringify({
-                    view: f?.view ?? null,
-                    metaLine: f?.rootText.includes("Nothing new to audit") ?? null,
-                    toggle: f?.toggle ?? null,
-                    strip: f?.strip ?? null,
-                    findings: f?.findingRows ?? null,
-                })
-            );
-        }
-
-        await radarMock(h, "results", "report");
-        await radarClick(h, '[data-radar-group="open"] [data-radar-finding-row]');
-        await polishWaitFor(h, radarHas("[data-radar-finding-detail]"), 3000);
-        steps.push(await floorStep(h, `12. no visible text on a report with a finding open is under ${MIN_FONT_PX}px`, RADAR_ROOT));
-        return steps;
-    },
-    async teardown(h, ctx) {
-        try {
-            await h.ev(`window.__setRadarScenario?.('live')`);
-            if ("priorScope" in ctx) {
-                await h.ev(
-                    ctx.priorScope == null
-                        ? `localStorage.removeItem(${JSON.stringify(RADAR_SCOPE_KEY)})`
-                        : `localStorage.setItem(${JSON.stringify(RADAR_SCOPE_KEY)}, ${JSON.stringify(ctx.priorScope)})`
-                );
-            }
-        } finally {
-            try {
-                if (ctx.reportId) await dropPeekItemsRadar(h, ctx.reportId);
-            } finally {
-                await polishReload(h);
-            }
-        }
-    },
-};
-
-const radarScanStates = {
-    name: "radar-scan-states",
-    surface: "radar",
-    async arrange() {
-        return {};
-    },
-    async assert(h) {
-        const steps = [];
-        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const hook = await radarOpen(h);
-        // draws the fixture, reads the surface and takes the step's shot
-        const draw = async (name, view, shot) => {
-            const shown = await radarMock(h, name, view);
-            const f = await radarFacts(h);
-            await h.shot(`cdp-shots/${shot}.png`);
-            return { shown: hook && shown && f != null, f };
-        };
-        const states = (f) => JSON.stringify(radarStates(f));
-        // the body copy, not a group heading, names the three kinds: the headings are capitalized
-        const NAMES_KINDS = ["fix commits", "behavior changes", "hot files"];
-        const groupsOk = (f) => JSON.stringify(radarGroupLabels(f?.auditGroups)) === JSON.stringify(RADAR_AUDIT_GROUPS);
-
-        {
-            const { shown, f } = await draw("scanning", "scanning", "radar-scanning");
-            const seen = radarStates(f);
-            const hot = f?.auditGroups.find((g) => g.kind === "hotspot")?.rows ?? [];
-            rec(
-                "1. a scan in progress lists each kind's targets as audited, auditing or queued, with hits",
-                shown &&
-                    seen.length === 12 &&
-                    ["queued", "running", "hits"].every((s) => seen.includes(s)) &&
-                    groupsOk(f) &&
-                    f.auditGroups.every((g) => g.rows.some((r) => r.state === "running")) &&
-                    // the two hot files share one revision: both rows, one sha
-                    hot.length === 2 &&
-                    hot[0].sha === hot[1].sha &&
-                    hasAll(f.bodyText, ["3 of 12 audited", "2 hits", ...NAMES_KINDS]) &&
-                    f.buttons.includes("Cancel scan"),
-                JSON.stringify({
-                    hook,
-                    view: f?.view ?? null,
-                    states: seen,
-                    groups: f?.auditGroups ?? null,
-                    buttons: f?.buttons ?? null,
-                    text: f?.bodyText.slice(0, 320) ?? null,
-                })
-            );
-        }
-        {
-            const { shown, f } = await draw("selecting", "scanning", "radar-selecting");
-            rec(
-                "2. selecting targets shows the scan panel with no rows",
-                shown && f.audits.length === 0 && f.bodyText.includes("selecting targets"),
-                `rows=${f?.audits.length ?? null} text="${f?.bodyText.slice(0, 200) ?? ""}"`
-            );
-        }
-        {
-            const { shown, f } = await draw("classifying", "scanning", "radar-classifying");
-            rec(
-                "3. classifying commits shows the scan panel with no rows",
-                shown && f.audits.length === 0 && f.bodyText.includes("classifying commits"),
-                `rows=${f?.audits.length ?? null} text="${f?.bodyText.slice(0, 200) ?? ""}"`
-            );
-        }
-        {
-            const { shown, f } = await draw("clean", "audits", "radar-clean");
-            rec(
-                "4. a clean scan says no bugs and lists the audits grouped by kind",
-                shown &&
-                    f.title === "No bugs found in 7 audits" &&
-                    f.audits.length === 7 &&
-                    f.audits.every((a) => a.state === "clean") &&
-                    groupsOk(f) &&
-                    f.bodyText.includes(RADAR_AUDIT_ONCE) &&
-                    f.strip == null &&
-                    f.project === "Scanned project: waveterm" &&
-                    f.rescan,
-                `title="${f?.title ?? ""}" states=${states(f)} groups=${JSON.stringify(radarGroupLabels(f?.auditGroups))} once=${f?.bodyText.includes(RADAR_AUDIT_ONCE) ?? null} strip=${f?.strip ?? null} project="${f?.project ?? ""}" rescan=${f?.rescan ?? null}`
-            );
-        }
-        {
-            const { shown, f } = await draw("failed", "audits", "radar-failed");
-            rec(
-                "5. a fully failed scan shows the strip and each audit's error",
-                shown &&
-                    f.strip != null &&
-                    f.retry === true &&
-                    f.audits.length > 0 &&
-                    f.audits.every((a) => a.state === "failed" && a.text.includes(RADAR_AUDIT_ERROR)),
-                `strip="${f?.strip ?? ""}" retryEnabled=${f?.retry ?? null} states=${states(f)} row="${f?.audits[0]?.text ?? ""}"`
-            );
-        }
-        {
-            const { shown, f } = await draw("no-commits", "audits", "radar-no-commits");
-            rec(
-                "6. nothing new to audit",
-                shown && f.title === "Nothing new to audit" && !f.auditList,
-                `title="${f?.title ?? ""}" auditList=${f?.auditList ?? null}`
-            );
-        }
-        {
-            const { shown, f } = await draw("fatal", "fatal", "radar-fatal");
-            rec(
-                "7. a fatal failure shows the error",
-                shown && f.bodyText.includes("not a readable git repository") && f.buttons.includes("Scan again"),
-                `title="${f?.title ?? ""}" text="${f?.bodyText.slice(0, 200) ?? ""}" buttons=${JSON.stringify(f?.buttons ?? null)}`
-            );
-        }
-        {
-            const { shown, f } = await draw("cancelled", "cancelled", "radar-cancelled");
-            rec("8. a cancelled scan", shown, `view=${f?.view ?? null} title="${f?.title ?? ""}"`);
-        }
-        {
-            const { shown, f } = await draw("old-format", "old-format", "radar-old-format");
-            rec(
-                "9. an old-format report asks for a re-scan",
-                shown &&
-                    f.title === "This report was written by an older Radar" &&
-                    f.buttons.includes("Re-scan") &&
-                    f.findingRows === 0,
-                `title="${f?.title ?? ""}" buttons=${JSON.stringify(f?.buttons ?? null)} findingRows=${f?.findingRows ?? null}`
-            );
-        }
-        {
-            const { shown, f } = await draw("never-scanned", "never-scanned", "radar-never-scanned");
-            rec(
-                "10. a project never scanned names the three kinds",
-                shown &&
-                    f.title.endsWith("hasn't been scanned") &&
-                    f.buttons.includes("Scan repository") &&
-                    hasAll(f.bodyText, NAMES_KINDS) &&
-                    !/collector/i.test(f.bodyText),
-                `title="${f?.title ?? ""}" buttons=${JSON.stringify(f?.buttons ?? null)} text="${f?.bodyText.slice(0, 240) ?? ""}"`
-            );
-        }
-        {
-            const { shown, f } = await draw("classify-failed", "report", "radar-classify-failed");
-            rec(
-                "11. a failed classification leaves a warning line with no Retry",
-                shown && f.classify?.text === RADAR_CLASSIFY_WARNING && f.classify.buttons === 0,
-                JSON.stringify({ view: f?.view ?? null, classify: f?.classify ?? null })
-            );
-        }
-        {
-            const { shown, f } = await draw("partial", "report", "radar-scan-partial");
-            rec(
-                "12. a partial scan's failed strip names the hot file by its path",
-                shown && hasAll(f.strip, [RADAR_HOT_FAILED, "Bugs they target may be missing."]) && f.classify == null,
-                JSON.stringify({ strip: f?.strip ?? null, classify: f?.classify ?? null })
-            );
-        }
-        return steps;
-    },
-    // the fixtures live in module state; a reload drops whatever one left drawn
-    async teardown(h) {
-        try {
-            await h.ev(`window.__setRadarScenario?.('live')`);
-        } finally {
-            await polishReload(h);
-        }
-    },
-};
-
 // --- canvas mode swaps with the terminal, which stays mounted ----------------------------------------
 // final-verify boots a fresh store with no agents, so the scenario opens its own plain terminal tab the way
 // launchAgent does (CreateTab, then the terminal meta) and reveals a temp canvas as that terminal's. CreateTab is
@@ -18766,12 +18287,14 @@ const canvasSwap = {
     },
 };
 
-// --- brainstorm mode: an agent's brainstorm.json drawn beside its terminal, every action one typed line ---------
+// --- brainstorm mode: an agent's brainstorm.json drawn beside its terminal, every action one line sent to it -----
 // (docs/superpowers/specs/2026-10-18-brainstorm-mode-design.md). The terminal is opened as canvas-swap opens its own
 // and made a roster agent by publishing the agent:status `wsh agentstatus` would. Each step writes that step's
-// brainstorm.json, the agent's side of the protocol, and waits for the poller to draw it. A typed line is read
-// twice: from the page's own controllerinput calls, which say exactly what was sent, and from the terminal's
-// scrollback, which says it reached the shell (which runs each one as a failing command).
+// brainstorm.json, the agent's side of the protocol, and waits for the poller to draw it. A sent line is read
+// twice: from the page's own agentprompt calls, which say exactly what was sent, and from the terminal's
+// scrollback, which says it reached the shell (a session with no mod has it typed, and the shell runs each one as
+// a failing command). A sent line reads as the agent writing until the agent takes it, so between two sends
+// bsAgentTook plays the agent ending its turn.
 const BS_TOPIC = "consumer-lag-alerts";
 // a second topic revealed from the same terminal, whose file never parses
 const BS_UNREADABLE_TOPIC = "lag-alerts-unreadable";
@@ -18786,6 +18309,7 @@ const BS_ANSWER = `document.querySelector("[data-brainstorm-pane] [data-brainsto
 const BS_BUILDER_ANSWER = `document.querySelector("[data-brainstorm-builder-question] textarea")`;
 const BS_APPROVE_BAR = `document.querySelector("[data-brainstorm-approve-bar]")`;
 const BS_QUESTION_CARD = `document.querySelector("[data-brainstorm-question]")`;
+const BS_CONFIRM_ALL = `document.querySelector("[data-brainstorm-pane] [data-brainstorm-confirm-all]")`;
 const BS_POPUP_CARD = `document.querySelector("button[data-attention-popup]")`;
 const bsPartSel = (id) => `document.querySelector('[data-brainstorm-pane] [data-brainstorm-part="${id}"]')`;
 // BRAINSTORM_POLL_MS is 3s, so a write shows inside two ticks
@@ -18800,6 +18324,7 @@ const BS_SCROLLBACK_LINES = 400;
 const BS_PROMPT = /[>$#%]$/;
 const BS_PROMPT_WAIT_MS = 20000;
 const BS_SHIFT = 8;
+const BS_CTRL_SHIFT = 2 | 8;
 const BS_B_KEY = { key: "b", code: "KeyB", keyCode: 66 };
 const BS_KEY_DEF = {
     Enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
@@ -18853,12 +18378,40 @@ const BS_PART = {
 const BS_ADDED = "The recording rules need Prometheus 2.45 or later for the new lag functions; staging runs 2.41.";
 const BS_WHY = "your answer 4 named the lag growth rate, which needs those functions.";
 const BS_Q1 = { n: 1, text: "What is the moment you found yourself wishing this existed?", part: "intent" };
+// the copy of the asking state is the canvas's (.superpowers/design/brainstorm-question-center): a question with
+// why, lettered answers with the agent's pick, and in the rail every option a past question offered
+const BS_Q4_OPTIONS = [
+    {
+        label: "After 15 minutes of growth",
+        detail: "Pages only for lag that keeps building. A slow leak can sit under it for a while.",
+        pick: true,
+    },
+    { label: "Past a fixed lag of 100k messages", detail: "Simple to reason about, but a quiet group never gets there." },
+    { label: "Whenever any partition is behind", detail: "Nothing slips by, and every rebalance pages someone." },
+];
 const BS_Q4 = {
     n: 4,
-    text: "Walk me through the last time lag bit you. What did you see first, and how long before someone noticed?",
+    text: "When lag keeps growing on an enrichment partition, when should on-call get paged?",
     part: "thresholds",
+    why: "kafka-exporter already reports lag per partition, so each of these is one alert rule. What I can’t tell from the repo is how long enrichment can fall behind before analysts notice.",
+    options: BS_Q4_OPTIONS,
 };
+const BS_Q2_OPTIONS = [
+    { label: "Page on-call for every lag alert", detail: "" },
+    { label: "On-call only if it keeps growing; the channel hears at 10 minutes", detail: "", pick: true },
+    { label: "Tell the channel only, page no one", detail: "" },
+];
 const BS_Q5 = { n: 5, text: "If on-call could read only one number in the page, which would it be?", part: "page" };
+// the same part asked between its two mockups: the question shows them beside the answers
+const BS_Q5_LAYOUT = {
+    n: 5,
+    text: "Which layout should the page use?",
+    part: "page",
+    options: [
+        { label: "Lag first", detail: "The lag number leads; the trend and the stuck partitions sit under it.", pick: true },
+        { label: "Trend first", detail: "The trend chart leads; the number sits in its corner." },
+    ],
+};
 // oldest first, as the agent appends them; the pane draws them newest first
 const BS_HISTORY = [
     {
@@ -18872,8 +18425,10 @@ const BS_HISTORY = [
         kind: "question",
         n: 2,
         q: "Who gets woken up, and who just needs to know?",
-        a: "On-call only if it keeps growing. The channel can hear about it at 10 minutes.",
+        a: BS_Q2_OPTIONS[1].label,
         into: ["goals", "constraints"],
+        options: BS_Q2_OPTIONS,
+        picked: 1,
     },
     {
         kind: "question",
@@ -18889,14 +18444,18 @@ const BS_HISTORY = [
         into: ["current"],
     },
 ];
-const BS_ANSWER_LINES = ["Enrichment lag went from zero to two hours over lunch.", "Nobody noticed until an analyst asked."];
+const BS_ANSWER_LINES = ["Once it has grown for 5 straight minutes and is past 15 minutes.", "A rebalance that recovers inside 2 minutes never pages."];
+// answered in the user's own words, not one of the options: the rail draws it after them as In your words
 const BS_HISTORY_Q4 = [
     ...BS_HISTORY,
-    { kind: "question", n: 4, q: BS_Q4.text, a: BS_ANSWER_LINES.join(" "), into: ["thresholds"] },
+    { kind: "question", n: 4, q: BS_Q4.text, a: BS_ANSWER_LINES.join(" "), into: ["thresholds"], options: BS_Q4_OPTIONS },
 ];
 const BS_EDITED = "Alerts go through the existing Alertmanager only. No new service.";
 const BS_BUILDER_Q = "When a lag page fires, should it also hold the enrichment autoscaler at its current size, or only report?";
 const BS_BUILDER_A = "Only report. Scaling stays a human call.";
+// a question about no part, asked after the builder check: the agent needs a choice before it can go on
+const BS_SIDE_Q = { n: 6, text: "The spec names two Prometheus versions. Should I settle on 2.45 before you approve?" };
+const BS_SIDE_A = "Yes, 2.45.";
 
 const bsParts = (states, over = {}) =>
     Object.entries(states).map(([id, state]) => ({ id, state, ...BS_PART[id], ...(over[id] ?? {}) }));
@@ -18949,6 +18508,11 @@ const BS_FILES = {
         history: BS_HISTORY_Q4,
     }),
     late: bsFile({ question: BS_Q5, parts: bsParts(BS_LATE_STATES), history: BS_HISTORY_Q4 }),
+    layout: bsFile({
+        question: BS_Q5_LAYOUT,
+        parts: bsParts({ ...BS_MID_STATES, thresholds: "guess" }),
+        history: BS_HISTORY_Q4,
+    }),
     lateWorking: bsFile({
         working: "Writing “What on-call sees” from your answer.",
         parts: bsParts(BS_LATE_STATES),
@@ -18987,6 +18551,8 @@ const BS_CHECK = {
 // the touched parts in the file's order, which is the order the check draws them in
 const BS_TOUCHED_ORDER = ["intent", "anti", "thresholds", "builder"];
 const BS_HANDOFF = bsFile({ done: true, parts: BS_HANDOFF_PARTS, history: BS_HISTORY_Q4, check: BS_CHECK });
+// every part yours and the agent done, before the builder check: the Ready board
+const BS_READY = bsFile({ done: true, parts: BS_HANDOFF_PARTS, history: BS_HISTORY_Q4 });
 const BS_HANDOFF_ANSWERED = {
     ...BS_HANDOFF,
     check: { ...BS_CHECK, yours: [{ ...BS_CHECK.yours[0], a: BS_BUILDER_A, into: "anti" }] },
@@ -19009,7 +18575,19 @@ const bsRead = (h, ctx) =>
         return {
             view: pane?.getAttribute("data-brainstorm-view") ?? null,
             text: flat(pane),
-            counts: flat(pane?.querySelector("[data-brainstorm-counts]")),
+            toolbar: flat(pane?.firstElementChild),
+            phase: flat(pane?.querySelector('[data-brainstorm-phase] [aria-current="step"]')),
+            progress: flat(pane?.querySelector("[data-brainstorm-progress]")),
+            segments: [...(pane?.querySelectorAll("[data-brainstorm-progress] [data-state]") ?? [])].map((x) =>
+                x.getAttribute("data-state")
+            ),
+            title: flat(pane?.querySelector("h1")),
+            reviewShown: !!pane?.querySelector("[data-brainstorm-review]"),
+            review: flat(pane?.querySelector("[data-brainstorm-review-line]")),
+            skipNote: flat(pane?.querySelector("[data-brainstorm-skip-note]")),
+            workingNote: flat(pane?.querySelector("[data-brainstorm-working-note]")),
+            tiles: [...(pane?.querySelectorAll("[data-brainstorm-tile]") ?? [])].map(flat),
+            approveReason: flat(pane?.querySelector("[data-brainstorm-approve-reason]")),
             question: flat(pane?.querySelector("[data-brainstorm-question]")),
             answerBox: !!pane?.querySelector("[data-brainstorm-answer]"),
             working: flat(pane?.querySelector("[data-brainstorm-working]")),
@@ -19029,13 +18607,40 @@ const bsRead = (h, ctx) =>
             history: [...(pane?.querySelectorAll("[data-brainstorm-history] > div") ?? [])].map((r) => ({
                 label: flat(r.querySelector("span")),
                 text: flat(r),
+                picked: [...r.querySelectorAll("li[data-picked]")].map(flat),
+                unpicked: [...r.querySelectorAll("li:not([data-picked])")].map(flat),
             })),
+            rail: flat(pane?.querySelector("[data-brainstorm-rail] h2")),
+            railText: flat(pane?.querySelector("[data-brainstorm-rail]")),
+            why: flat(pane?.querySelector("[data-brainstorm-why]")),
+            // the asked part's mockups in the question view: each thumbnail, its label, and whether it sits right of the answers
+            qBoards: [...(pane?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-thumb]") ?? [])].map((t) => {
+                const answers = pane.querySelector("[data-brainstorm-question-boards] [data-brainstorm-option]")?.parentElement;
+                return {
+                    name: t.getAttribute("data-brainstorm-thumb"),
+                    frame: !!t.querySelector("iframe"),
+                    label: flat(t.nextElementSibling?.firstElementChild),
+                    open: flat(t.nextElementSibling?.querySelector("[data-brainstorm-open-board]")),
+                    besideAnswers: answers ? answers.getBoundingClientRect().right <= t.getBoundingClientRect().left : null,
+                };
+            }),
+            options: [...(pane?.querySelectorAll("[data-brainstorm-option]") ?? [])].map((o) => ({
+                text: flat(o),
+                pick: o.hasAttribute("data-pick"),
+            })),
+            track: [...(pane?.querySelectorAll("[data-brainstorm-track] [data-state]") ?? [])].map((x) =>
+                x.getAttribute("data-state")
+            ),
+            designBtn: flat(pane?.querySelector("[data-brainstorm-design-btn]")),
+            back: flat(pane?.querySelector("[data-brainstorm-back]")),
+            placeholder: pane?.querySelector("[data-brainstorm-answer]")?.getAttribute("placeholder") ?? null,
+            okBtn: btn(pane?.querySelector("[data-brainstorm-ok]")),
             confirm: btns("That’s right"),
             guessFor: btns("Guess for me").length,
             switch: sw
                 ? [...sw.querySelectorAll("button")].map((b) => ({ label: flat(b), pressed: b.getAttribute("aria-pressed") }))
                 : null,
-            hint: flat(sw?.nextElementSibling),
+            hint: flat(document.querySelector("[data-footer-chips]")),
             compacted: flat(document.querySelector("[data-brainstorm-compacted]")),
             terminal: term ? !term.classList.contains("hidden") : null,
             treeLine: flat(${BS_TREE_LINE}),
@@ -19135,8 +18740,8 @@ async function bsKey(h, elExpr, name, via, shift = false) {
     await polishNap(300);
 }
 
-// records every line the page types into a terminal, decoded. The xterm's own focus in/out reports (ESC [I, ESC [O,
-// sent while the shell has focus reporting on) travel the same call and are left out
+// records every line the page sends an agent. Typing into the terminal (controllerinput) is not a send: the xterm
+// reports its own focus in and out (ESC [I, ESC [O) through it
 const BS_TYPED_INSTALL = `(() => {
     const c = window.TabRpcClient;
     if (!c) return false;
@@ -19145,11 +18750,7 @@ const BS_TYPED_INSTALL = `(() => {
     const call = c.wshRpcCall.bind(c);
     window.__bsTyped = [];
     c.wshRpcCall = (command, data, opts) => {
-        if (command === "controllerinput" && data?.inputdata64) {
-            const bytes = Uint8Array.from(atob(data.inputdata64), (ch) => ch.charCodeAt(0));
-            const text = new TextDecoder().decode(bytes);
-            if (!/^\\x1b\\[[IO]$/.test(text)) window.__bsTyped.push({ block: data.blockid, text });
-        }
+        if (command === "agentprompt") window.__bsTyped.push({ block: data?.blockid, text: data?.text });
         return call(command, data, opts);
     };
     return true;
@@ -19184,7 +18785,7 @@ async function bsMark(h, ctx, line) {
 
 const bsSentSince = (h, mark) => h.ev(`(window.__bsTyped ?? []).slice(${mark.typed})`);
 
-// what an action typed since `mark`: exactly line + CR into the agent's block, once, and the terminal shows it
+// what an action sent since `mark`: exactly the line, to the agent's block, once, and the terminal shows it
 async function bsTyped(h, ctx, mark, line) {
     let sent = [];
     for (let waited = 0; waited < BS_TYPED_WAIT_MS && sent.length === 0; waited += 250) {
@@ -19202,7 +18803,7 @@ async function bsTyped(h, ctx, mark, line) {
         if (shown <= mark.shown) await polishNap(250);
     }
     sent = await bsSentSince(h, mark);
-    const ok = sent.length === 1 && sent[0].block === ctx.blockId && sent[0].text === `${line}\r` && shown > mark.shown;
+    const ok = sent.length === 1 && sent[0].block === ctx.blockId && sent[0].text === line && shown > mark.shown;
     return { ok, detail: { want: line, sent, inTerminal: shown > mark.shown, termError } };
 }
 
@@ -19228,11 +18829,35 @@ const bsPublishProc = (h, ctx, status, code) =>
         data: { blockid: ctx.blockId, shellprocstatus: status, shellprocexitcode: code },
     });
 
+// nothing reads as the agent writing: no working card, no working note, approve not held for it
+const BS_NOT_WRITING = `(() => {
+    const pane = document.querySelector("[data-brainstorm-pane]");
+    return !!pane && !pane.querySelector("[data-brainstorm-working]") && !pane.querySelector("[data-brainstorm-working-note]") &&
+        !(pane.querySelector("[data-brainstorm-approve-reason]")?.textContent ?? "").includes("writing");
+})()`;
+
+// the agent took the last sent line and ended its turn without a write: idle since now, which settles the line
+async function bsAgentTook(h, ctx) {
+    await bsPublishStatus(h, ctx);
+    return polishWaitFor(h, BS_NOT_WRITING, BS_POLL_WAIT_MS);
+}
+
 const bsReveal = (h, ctx, topic) =>
     h.rpc("uireveal", { address: `brainstorm:${topic}`, callerblockid: ctx.blockId, callercwd: ctx.cwd }, UI_ROUTE);
 
 const bsTabMeta = async (h, ctx) =>
     (await waveService(h, "object", "GetObject", [`tab:${ctx.tabId}`]))?.meta?.["session:brainstorm"] ?? null;
+
+// the design sits behind its button while the pane asks or the agent writes; Back returns to the question
+async function bsOpenDesign(h) {
+    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-design-btn]")?.click()`);
+    return polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-back]")`, 3000);
+}
+
+async function bsCloseDesign(h) {
+    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-back]")?.click()`);
+    return polishWaitFor(h, `!${BS_PANE}?.querySelector("[data-brainstorm-back]")`, 3000);
+}
 
 async function bsShowPane(h) {
     if (await h.ev(`!!${BS_PANE}`)) return true;
@@ -19359,26 +18984,100 @@ const brainstormMode = {
 
         // 1. just started
         await bsClick(h, BS_SWITCH, "Brainstorm");
-        const s1 = await bsUntil(h, ctx, (s) => s.question.includes("Question 1"));
+        const s1 = await bsUntil(h, ctx, (s) => s.question.includes(BS_Q1.text));
         await h.shot("cdp-shots/brainstorm-mode-1.png");
-        const asked1 = bsPart(s1, "intent");
         rec(
-            "1. just started: Question 1, the skip and parts hints, no Guess for me, its one part Asked now",
+            "1. just started (Fresh): question 1 fills the pane for Intent and why, the free-text box alone, the skip note, no review head, no Guess for me, nothing decided yet",
             s1.ok &&
                 s1.view === "design" &&
-                s1.text.includes("Rather skip the questions and have me start? Say so.") &&
-                s1.text.includes("Parts appear here as the conversation finds them.") &&
+                s1.phase === "Talking it through" &&
+                s1.progress === "0 of 1 parts yours" &&
+                s1.question.startsWith("1 → Intent and why") &&
+                s1.title === BS_Q1.text &&
+                s1.options.length === 0 &&
+                s1.placeholder === "Answer in your own words…" &&
+                s1.skipNote ===
+                    "Skipping has the agent write every part as its guess. You confirm or edit each one after, before the builder check." &&
+                !s1.reviewShown &&
                 s1.guessFor === 0 &&
-                s1.parts.length === 1 &&
-                asked1?.state === "asked" &&
-                asked1.text.includes("Asked now"),
-            { ...bsBrief(s1), guessFor: s1.guessFor, parts: s1.parts }
+                s1.parts.length === 0 &&
+                s1.designBtn === "The design · 0 of 1 yours" &&
+                s1.rail === "Decided so far · 0" &&
+                s1.history.length === 0 &&
+                JSON.stringify(s1.track) === JSON.stringify(["now"]),
+            { ...bsBrief(s1), phase: s1.phase, progress: s1.progress, question: s1.question, skipNote: s1.skipNote, reviewShown: s1.reviewShown, guessFor: s1.guessFor, designBtn: s1.designBtn, rail: s1.rail, track: s1.track }
         );
+        const opened1 = await bsOpenDesign(h);
+        const s1d = await bsRead(h, ctx);
+        const asked1 = bsPart(s1d, "intent");
+        rec(
+            "1b. The design opens over the question: its one part Asked now · question 1, More parts appear, Back to question 1",
+            opened1 &&
+                s1d.back === "Back to question 1" &&
+                s1d.text.includes("More parts appear as the conversation finds them.") &&
+                s1d.parts.length === 1 &&
+                asked1?.state === "asked" &&
+                asked1.text.includes("Asked now · question 1") &&
+                asked1.text.includes("Written from your answer to question 1."),
+            { opened1, back: s1d.back, parts: s1d.parts }
+        );
+        const closed1 = await bsCloseDesign(h);
+        rec("1c. Back to question 1 shows the question again", closed1 && (await bsRead(h, ctx)).question.includes(BS_Q1.text), { closed1 });
         ctx.agentName = (await h.ev(BS_ROW_READ))?.name ?? "";
 
         // 2. mid-conversation
         bsWrite(ctx, BS_FILES.mid);
-        const s2 = await bsUntil(h, ctx, (s) => s.question.includes("Question 4"));
+        const s2 = await bsUntil(h, ctx, (s) => s.question.includes(BS_Q4.text) && s.history.length === 4);
+        await h.shot("cdp-shots/brainstorm-mode-2.png");
+        rec(
+            "2. mid-conversation (Main): Talking it through, 3 of 8 parts yours in eight segments, question 4 for When it pages fills the pane, no check button",
+            s2.ok &&
+                s2.view === "design" &&
+                s2.phase === "Talking it through" &&
+                s2.progress === "3 of 8 parts yours" &&
+                JSON.stringify(s2.segments) ===
+                    JSON.stringify(["yours", "yours", "yours", "guess", "guess", "asked", "guess", "open"]) &&
+                !s2.toolbar.includes("guesses") &&
+                s2.question.startsWith("4 → When it pages") &&
+                s2.title === BS_Q4.text &&
+                s2.parts.length === 0 &&
+                s2.check === null,
+            { ...bsBrief(s2), phase: s2.phase, progress: s2.progress, segments: s2.segments, toolbar: s2.toolbar, question: s2.question, title: s2.title, check: s2.check }
+        );
+        const optionText = (o, i) => `${"ABC"[i]} ${o.label} ${o.detail}${o.pick ? " Agent’s pick" : ""}`;
+        rec(
+            "2p. the asking state (Main board): why under the question, answers lettered A B C with the agent's pick on A, the free-text box with OK, Guess for me, Skip, The design · 3 of 8 yours, the bar 3 answered then this one",
+            s2.why === BS_Q4.why &&
+                JSON.stringify(s2.options.map((o) => o.text)) === JSON.stringify(BS_Q4_OPTIONS.map(optionText)) &&
+                JSON.stringify(s2.options.map((o) => o.pick)) === JSON.stringify([true, false, false]) &&
+                s2.placeholder === "Or type your own answer…" &&
+                s2.okBtn?.disabled === true &&
+                s2.guessFor === 1 &&
+                s2.question.includes("Skip the questions") &&
+                s2.designBtn === "The design · 3 of 8 yours" &&
+                JSON.stringify(s2.track) === JSON.stringify(["done", "done", "done", "now"]) &&
+                s2.skipNote === "",
+            { why: s2.why, options: s2.options, placeholder: s2.placeholder, okBtn: s2.okBtn, guessFor: s2.guessFor, designBtn: s2.designBtn, track: s2.track, skipNote: s2.skipNote }
+        );
+        const [h3, h2, h1, hr] = s2.history;
+        rec(
+            "2b. Decided so far · 3, newest first with recon at the bottom: Q2 lists all three options it offered, the picked one checked and marked Agent’s pick; each says where it went",
+            s2.rail === "Decided so far · 3" &&
+                JSON.stringify(s2.history.map((r) => r.label)) === JSON.stringify(["Q3", "Q2", "Q1", "Recon"]) &&
+                JSON.stringify(h2?.picked) === JSON.stringify([`${BS_Q2_OPTIONS[1].label} Agent’s pick`]) &&
+                JSON.stringify(h2?.unpicked) === JSON.stringify([BS_Q2_OPTIONS[0].label, BS_Q2_OPTIONS[2].label]) &&
+                h2.text.includes("Went into Goals, Constraints") &&
+                JSON.stringify(h1?.picked) === JSON.stringify([BS_HISTORY[0].a]) &&
+                h1.unpicked.length === 0 &&
+                !h1.text.includes("In your words") &&
+                h3?.text.includes("Went into Anti-goals") &&
+                hr?.text === `Recon ${BS_HISTORY[3].a} Went into Current state`,
+            s2.history
+        );
+
+        // the design behind its button: the decisions one line each, what stands before the check, the mockups
+        const opened2 = await bsOpenDesign(h);
+        const pageOpened = await bsOpenRow(h, "page");
         await polishWaitFor(h, `${bsPartSel("page")}?.querySelectorAll("[data-brainstorm-thumb] iframe").length === 2`, BS_POLL_WAIT_MS);
         const thumbs = await h.ev(`(() => {
             const p = ${bsPartSel("page")};
@@ -19388,42 +19087,76 @@ const brainstormMode = {
                     .map((b) => (b.previousElementSibling?.textContent ?? "").trim()),
             };
         })()`);
-        await h.shot("cdp-shots/brainstorm-mode-2.png");
+        const s2d = await bsRead(h, ctx);
+        await h.shot("cdp-shots/brainstorm-mode-2-design.png");
         rec(
-            "2. mid-conversation: counts 3 yours, 3 guesses, 2 open; Question 4 for When it pages; the check disabled",
-            s2.ok &&
-                s2.view === "design" &&
-                s2.counts === "3 yours 3 guesses 2 open" &&
-                s2.question.includes("for When it pages") &&
-                s2.question.includes(BS_Q4.text) &&
-                s2.check?.disabled === true,
-            { ...bsBrief(s2), counts: s2.counts, question: s2.question, check: s2.check }
+            "2m. The design opens over the question, with Back to question 4; the title and spec head it, not the toolbar",
+            opened2 &&
+                s2d.back === "Back to question 4" &&
+                s2d.title === "Consumer lag alerts" &&
+                !s2d.toolbar.includes(s2d.title) &&
+                !s2d.toolbar.includes(BS_SPEC) &&
+                s2d.text.includes(BS_SPEC),
+            { opened2, back: s2d.back, title: s2d.title, toolbar: s2d.toolbar }
         );
         rec(
-            "2b. four Earlier rows, newest first, each saying where it went",
-            JSON.stringify(s2.history.map((r) => r.label)) === JSON.stringify(["Recon", "Q3", "Q2", "Q1"]) &&
-                s2.history.every((r) => r.text.includes("Went into")) &&
-                s2.history[2]?.text.includes("Went into Goals, Constraints"),
-            s2.history
+            "2n. Confirm the design heads the decisions: 3 still the agent’s guess, with Confirm all 3 guesses",
+            s2d.review === "3 decisions are still the agent’s guess. Each reads in one line; open one to read it whole." &&
+                s2d.text.includes("Confirm all 3 guesses") &&
+                s2d.text.includes("Decisions · 8"),
+            { review: s2d.review }
+        );
+        // a decision reads in one line until opened; the title line opens and closes it
+        const rowBody = `(${bsPartSel("constraints")}?.querySelector("[data-brainstorm-row-body]")?.innerText ?? "").replace(/\\s+/g, " ").trim()`;
+        const gist = await h.ev(`(${bsPartSel("constraints")}?.querySelector("[data-brainstorm-gist]")?.innerText ?? "").trim()`);
+        const closedBefore = await h.ev(rowBody);
+        const openedRow = await bsToggleRow(h, "constraints");
+        const openBody = await h.ev(rowBody);
+        const closedRow = await bsToggleRow(h, "constraints");
+        rec(
+            "2o. a decision is one line, its body's first sentence; its title line opens it to the whole body and closes it again",
+            gist === BS_PART.constraints.body.split(". ")[0] + "." &&
+                closedBefore === "" &&
+                openedRow === "true" &&
+                openBody === BS_PART.constraints.body &&
+                closedRow === "false",
+            { gist, closedBefore, openedRow, openBody, closedRow }
         );
         rec(
             "2c. part states: yours ×3, guess ×3, asked, open",
-            JSON.stringify(bsStates(s2)) === JSON.stringify(BS_MID_STATES),
-            { states: bsStates(s2), want: BS_MID_STATES }
+            JSON.stringify(bsStates(s2d)) === JSON.stringify(BS_MID_STATES),
+            { states: bsStates(s2d), want: BS_MID_STATES }
         );
         rec(
-            "2d. the page part shows both mockups, the first labelled option A of 2",
-            thumbs.frames === 2 && thumbs.labels[0] === "Page.dc.html · option A of 2",
-            thumbs
+            "2d. the page part, opened, shows both mockups, the first labelled option A of 2",
+            pageOpened && thumbs.frames === 2 && thumbs.labels[0] === "Page.dc.html · option A of 2",
+            { pageOpened, ...thumbs }
         );
 
-        let mark = await bsMark(h, ctx, "brainstorm: confirm current");
+        let mark = await bsMark(h, ctx, "brainstorm: confirm every guess");
+        const allLabel = await h.ev(`(${BS_CONFIRM_ALL}?.textContent ?? "").trim()`);
+        const confirmedAll = await bsClick(h, BS_PANE, "Confirm all 3 guesses");
+        const allTyped = await bsTyped(h, ctx, mark, "brainstorm: confirm every guess");
+        const allLocked = await polishWaitFor(
+            h,
+            `[...(${bsPartSel("current")}?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "That’s right")?.disabled === true`,
+            2000
+        );
+        const allTook = await bsAgentTook(h, ctx);
+        rec(
+            "2e0. Confirm all 3 guesses sends brainstorm: confirm every guess; the parts lock until the agent takes it",
+            allLabel === "Confirm all 3 guesses" && confirmedAll === "clicked" && allTyped.ok && allLocked && allTook,
+            { allLabel, confirmedAll, ...allTyped.detail, allLocked, allTook }
+        );
+
+        mark = await bsMark(h, ctx, "brainstorm: confirm current");
         const confirmed = await bsClick(h, bsPartSel("current"), "That’s right");
         const confirmTyped = await bsTyped(h, ctx, mark, "brainstorm: confirm current");
-        rec("2e. That’s right on Current state types its confirm", confirmed === "clicked" && confirmTyped.ok, {
+        rec("2e. That’s right on Current state sends its confirm", confirmed === "clicked" && confirmTyped.ok, {
             confirmed,
             ...confirmTyped.detail,
         });
+        await bsAgentTook(h, ctx);
 
         const editLine = `brainstorm: edit constraints: ${BS_EDITED}`;
         mark = await bsMark(h, ctx, editLine);
@@ -19436,7 +19169,7 @@ const brainstormMode = {
         const escClosed = await h.ev(`!${BS_EDIT}`);
         const escQuiet = await bsNothingTyped(h, mark);
         rec(
-            "2f. Edit on Constraints opens prefilled with its body; Escape closes it and types nothing",
+            "2f. Edit on Constraints opens prefilled with its body; Escape closes it and sends nothing",
             editOpened === "clicked" && prefill === BS_PART.constraints.body && escClosed && escQuiet.ok,
             { editOpened, prefill, escClosed, typed: escQuiet.sent, keys: via }
         );
@@ -19446,26 +19179,62 @@ const brainstormMode = {
         await bsKey(h, BS_EDIT, "Enter", editVia);
         const editTyped = await bsTyped(h, ctx, mark, editLine);
         const editClosed = await polishWaitFor(h, `!${BS_EDIT}`, 2000);
-        rec("2g. Edit, new text, Enter types the edit as one line and closes the box", editTyped.ok && editClosed, {
+        rec("2g. Edit, new text, Enter sends the edit as one line and closes the box", editTyped.ok && editClosed, {
             ...editTyped.detail,
             editClosed,
             keys: editVia,
         });
+        await bsAgentTook(h, ctx);
+        const closed2 = await bsCloseDesign(h);
+        rec("2q. Back to question 4 returns to the question", closed2 && (await bsRead(h, ctx)).question.includes(BS_Q4.text), { closed2 });
+        await bsClick(h, `${BS_PANE}?.querySelector("[data-brainstorm-rail]")`, "Anti-goals");
+        const railJump = await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-back]") && !!${bsPartSel("anti")}`, 3000);
+        rec("2r. a Went into link in the rail opens the design at its part", railJump, { railJump });
+        await bsCloseDesign(h);
+
+        // a letter focuses its answer and Enter, the row's own key, sends the answer's label
+        const OPTION_C = `${BS_PANE}?.querySelector('[data-brainstorm-option="2"]')`;
+        const pickLine = BS_Q4_OPTIONS[2].label;
+        mark = await bsMark(h, ctx, pickLine);
+        await bsMouseClick(h, `${BS_PANE}?.querySelector("h1")`);
+        const pickKeys = await bsKeysArrive(h);
+        let focused = null;
+        if (pickKeys) {
+            await pressCanvasKey(h, { key: "c", code: "KeyC", keyCode: 67 });
+            focused = await h.ev(`document.activeElement?.getAttribute("data-brainstorm-option") ?? null`);
+            await bsKey(h, OPTION_C, "Enter", "keys");
+        } else {
+            await h.ev(`${OPTION_C}?.click()`);
+        }
+        const pickTyped = await bsTyped(h, ctx, mark, pickLine);
+        rec(
+            pickKeys
+                ? "2s. c focuses answer C and Enter sends its label as the answer"
+                : "2s. clicking answer C sends its label as the answer",
+            (!pickKeys || focused === "2") && pickTyped.ok,
+            { focused, ...pickTyped.detail }
+        );
+        if (!pickKeys) {
+            steps.push(skipStep("2s2. the letter key itself", "CDP key events never reached the page; clicked the answer instead"));
+        }
+        await bsAgentTook(h, ctx);
 
         mark = await bsMark(h, ctx, "brainstorm: guess");
         const guessed = await bsClick(h, BS_QUESTION_CARD, "Guess for me");
         const guessTyped = await bsTyped(h, ctx, mark, "brainstorm: guess");
-        rec("2h. Guess for me types brainstorm: guess", guessed === "clicked" && guessTyped.ok, {
+        rec("2h. Guess for me sends brainstorm: guess", guessed === "clicked" && guessTyped.ok, {
             guessed,
             ...guessTyped.detail,
         });
+        await bsAgentTook(h, ctx);
         mark = await bsMark(h, ctx, "brainstorm: skip questions");
         const skipped = await bsClick(h, BS_QUESTION_CARD, "Skip the questions");
         const skipTyped = await bsTyped(h, ctx, mark, "brainstorm: skip questions");
-        rec("2i. Skip the questions types brainstorm: skip questions", skipped === "clicked" && skipTyped.ok, {
+        rec("2i. Skip the questions sends brainstorm: skip questions", skipped === "clicked" && skipTyped.ok, {
             skipped,
             ...skipTyped.detail,
         });
+        await bsAgentTook(h, ctx);
 
         const answerLine = BS_ANSWER_LINES.join(" ");
         mark = await bsMark(h, ctx, answerLine);
@@ -19479,32 +19248,100 @@ const brainstormMode = {
         const twoLines = await h.ev(`${BS_ANSWER}?.value ?? null`);
         const shiftQuiet = await bsNothingTyped(h, mark);
         rec(
-            "2j. Shift+Enter puts a newline in the answer and types nothing",
+            "2j. Shift+Enter puts a newline in the answer and sends nothing",
             twoLines === BS_ANSWER_LINES.join("\n") && shiftQuiet.ok,
             { value: twoLines, typed: shiftQuiet.sent, keys: answerVia }
         );
         await bsKey(h, BS_ANSWER, "Enter", answerVia);
         const answerTyped = await bsTyped(h, ctx, mark, answerLine);
-        const cleared = await polishWaitFor(h, `${BS_ANSWER}?.value === ""`, 2000);
-        rec("2k. Enter types the two lines as one line and clears the box", answerTyped.ok && cleared, {
+        // the box empties, or closes with the question while the agent writes the answer up
+        const cleared = await polishWaitFor(h, `(${BS_ANSWER}?.value ?? "") === ""`, 2000);
+        rec("2k. Enter sends the two lines as one line and clears the box", answerTyped.ok && cleared, {
             ...answerTyped.detail,
             cleared,
         });
+        const s2w = await bsUntil(h, ctx, (s) => s.working !== "", 3000);
+        await h.shot("cdp-shots/brainstorm-mode-2-sent.png");
+        rec(
+            "2k2. a sent answer reads as the agent writing it up, before the file changes: Working in the question's place, no answer box",
+            s2w.ok &&
+                s2w.working.includes("Writing up your answer.") &&
+                !s2w.answerBox &&
+                s2w.question === "" &&
+                s2w.treeLine === "Brainstorm · writing up your answer",
+            { ...bsBrief(s2w), working: s2w.working, answerBox: s2w.answerBox, treeLine: s2w.treeLine }
+        );
+        const opened2w = await bsOpenDesign(h);
+        const s2wd = await bsRead(h, ctx);
+        const sentPart = bsPart(s2wd, "thresholds");
+        rec(
+            "2k3. The design behind it: When it pages Being written, and the way back to what the agent is writing",
+            opened2w && sentPart?.state === "writing" && s2wd.back === "Back to what the agent is writing",
+            { opened2w, part: sentPart, back: s2wd.back }
+        );
+        await bsCloseDesign(h);
 
         bsWrite(ctx, BS_FILES.answered);
-        const s2b = await bsUntil(h, ctx, (s) => s.question.includes("Question 5"));
+        const s2b = await bsUntil(h, ctx, (s) => s.question.includes(BS_Q5.text));
         await h.shot("cdp-shots/brainstorm-mode-2-answered.png");
+        const q4row = s2b.history[0];
         rec(
-            "2l. the next file: Question 5 for What on-call sees, and Q4 leads Earlier, into When it pages",
+            "2l. the next file: question 5 for What on-call sees, and Q4 leads the rail: the answers it offered unpicked with the agent’s pick marked, then the typed one In your words, into When it pages",
             s2b.ok &&
-                s2b.question.includes("for What on-call sees") &&
-                s2b.history[0]?.label === "Q4" &&
-                s2b.history[0]?.text.includes("Went into When it pages") &&
-                bsPart(s2b, "thresholds")?.state === "guess",
-            { ...bsBrief(s2b), question: s2b.question, history: s2b.history[0], states: bsStates(s2b) }
+                s2b.question.startsWith("5 → What on-call sees") &&
+                s2b.rail === "Decided so far · 4" &&
+                q4row?.label === "Q4" &&
+                JSON.stringify(q4row.unpicked) === JSON.stringify(BS_Q4_OPTIONS.map((o) => (o.pick ? o.label + " Agent’s pick" : o.label))) &&
+                JSON.stringify(q4row.picked) === JSON.stringify([`In your words ${answerLine}`]) &&
+                q4row.text.includes("Went into When it pages"),
+            { ...bsBrief(s2b), question: s2b.question, rail: s2b.rail, history: q4row }
         );
 
-        // 3. open full size
+        // the asked part's mockups in the question: question 4's part (When it pages) lists none, question 5's two
+        const QB = `${BS_PANE}?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-thumb] iframe").length === 2`;
+        await polishWaitFor(h, QB, BS_POLL_WAIT_MS);
+        const s2q = await bsRead(h, ctx);
+        await h.shot("cdp-shots/brainstorm-mode-2-question-boards.png");
+        const boardLabels = BS_BOARDS.map((b, i) => `${b} · option ${"AB"[i]} of ${BS_BOARDS.length}`);
+        rec(
+            "2l2. a question whose part lists boards shows them: question 5 for What on-call sees draws both thumbnails, option A and B of 2, each with Open full size; question 4, whose part lists none, drew none",
+            s2.qBoards.length === 0 &&
+                JSON.stringify(s2q.qBoards.map((b) => b.name)) === JSON.stringify(BS_BOARDS) &&
+                s2q.qBoards.every((b) => b.frame && b.open === "Open full size") &&
+                JSON.stringify(s2q.qBoards.map((b) => b.label)) === JSON.stringify(boardLabels),
+            { q4: s2.qBoards, q5: s2q.qBoards }
+        );
+        bsWrite(ctx, BS_FILES.layout);
+        const s2o = await bsUntil(
+            h,
+            ctx,
+            (s) => s.question.includes(BS_Q5_LAYOUT.text) && s.options.length === 2 && s.qBoards.filter((b) => b.frame).length === 2
+        );
+        await h.shot("cdp-shots/brainstorm-mode-2-layout-question.png");
+        rec(
+            "2l3. a question between the part's layouts: the two answers, and beside them, to their right, the two boards to compare",
+            s2o.ok &&
+                JSON.stringify(s2o.options.map((o) => o.text)) === JSON.stringify(BS_Q5_LAYOUT.options.map(optionText)) &&
+                JSON.stringify(s2o.qBoards.map((b) => b.label)) === JSON.stringify(boardLabels) &&
+                s2o.qBoards.every((b) => b.besideAnswers === true),
+            { ...bsBrief(s2o), options: s2o.options, boards: s2o.qBoards }
+        );
+        await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-open-board]")?.click()`);
+        const s2f = await bsUntil(h, ctx, (s) => s.view === "board", 3000);
+        const fullBack = await bsClick(h, BS_PANE, "Back to the question");
+        const s2r = await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes(BS_Q5_LAYOUT.text), 3000);
+        rec(
+            "2l4. Open full size from the question shows the board, and its Back to the question returns to the question",
+            s2f.ok && fullBack === "clicked" && s2r.ok && s2r.qBoards.length === 2,
+            { board: s2f.view, fullBack, back: bsBrief(s2r) }
+        );
+        bsWrite(ctx, BS_FILES.answered);
+        await bsUntil(h, ctx, (s) => s.question.includes(BS_Q5.text));
+
+        // 3. open full size, from the design
+        await bsOpenDesign(h);
+        await bsOpenRow(h, "page");
+        await polishWaitFor(h, `!!${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")`, 3000);
         await h.ev(`${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")?.click()`);
         const s3 = await bsUntil(h, ctx, (s) => s.view === "board", 3000);
         const board = await h.ev(`(() => {
@@ -19514,34 +19351,50 @@ const brainstormMode = {
         })()`);
         await h.shot("cdp-shots/brainstorm-mode-3.png");
         await bsClick(h, BS_PANE, "Back to the design");
-        const s3back = await bsUntil(h, ctx, (s) => s.view === "design", 3000);
+        const s3back = await bsUntil(h, ctx, (s) => s.view === "design" && s.parts.length > 0, 3000);
         rec(
-            "3. Open full size shows the board with Mark and Back to the design; back returns to the design",
-            s3.ok && board.mark && board.back && board.canvas && s3back.ok,
-            { board: s3.view, ...board, back: s3back.view }
+            "3. Open full size shows the board with Mark and Back to the design; back returns to the design, not the question",
+            s3.ok && board.mark && board.back && board.canvas && s3back.ok && s3back.back === "Back to question 5",
+            { board: s3.view, ...board, back: s3back.view, parts: s3back.parts.length, backBtn: s3back.back }
         );
+        await bsCloseDesign(h);
 
         // 4. between questions
         bsWrite(ctx, BS_FILES.working);
         const s4 = await bsUntil(h, ctx, (s) => s.working !== "");
         await h.shot("cdp-shots/brainstorm-mode-4.png");
-        const writing = bsPart(s4, "thresholds");
         rec(
-            "4. between questions: the working card, no answer box, When it pages Being written, confirms disabled, Q4 · just now",
+            "4. between questions: Working in the question's place, no answer box, The design button, Q4 · just now in the rail",
             s4.ok &&
                 s4.working.includes("Writing “When it pages” from your answer. The next question comes after.") &&
                 !s4.answerBox &&
                 s4.question === "" &&
+                s4.designBtn === "The design · 3 of 8 yours" &&
+                s4.history[0]?.label === "Q4 · just now",
+            { ...bsBrief(s4), working: s4.working, answerBox: s4.answerBox, designBtn: s4.designBtn, newest: s4.history[0] }
+        );
+        await bsOpenDesign(h);
+        const s4d = await bsRead(h, ctx);
+        await h.shot("cdp-shots/brainstorm-mode-4-design.png");
+        const writing = bsPart(s4d, "thresholds");
+        rec(
+            "4b. the design while the agent writes: the note atop it says actions open again when it asks, When it pages Being written, confirms disabled, no review head",
+            s4d.workingNote ===
+                "The agent is writing. Confirm, edit and keep open again when it asks its next question." &&
                 writing?.state === "writing" &&
                 writing.text.includes("Being written") &&
-                s4.confirm.length > 0 &&
-                s4.confirm.every((b) => b.disabled) &&
-                s4.history[0]?.label === "Q4 · just now",
-            { ...bsBrief(s4), working: s4.working, answerBox: s4.answerBox, writing, confirm: s4.confirm, newest: s4.history[0] }
+                s4d.confirm.length > 0 &&
+                s4d.confirm.every((b) => b.disabled) &&
+                !s4d.reviewShown &&
+                s4d.phase === "Talking it through",
+            { workingNote: s4d.workingNote, writing, confirm: s4d.confirm, reviewShown: s4d.reviewShown, phase: s4d.phase }
         );
+        await bsCloseDesign(h);
 
         // 5. a confirmed part changed
         bsWrite(ctx, BS_FILES.changed);
+        await bsUntil(h, ctx, (s) => s.question.includes(BS_Q5.text));
+        await bsOpenDesign(h);
         const s5 = await bsUntil(h, ctx, (s) => bsPart(s, "constraints")?.state === "changed");
         const diff = await h.ev(`(() => {
             const p = ${bsPartSel("constraints")};
@@ -19551,28 +19404,33 @@ const brainstormMode = {
         await h.shot("cdp-shots/brainstorm-mode-5.png");
         const changed = bsPart(s5, "constraints");
         rec(
-            "5. a confirmed part changed: Changed since you confirmed it, the added sentence as a + line, Why",
+            "5. a confirmed part changed: its row opens by itself on Changed since you confirmed it, the added sentence as a + line, Why; the head counts it",
             s5.ok &&
                 changed.text.includes("Changed since you confirmed it") &&
                 diff.length === 1 &&
                 diff[0] === `+ ${BS_ADDED}` &&
-                changed.text.includes(`Why: ${BS_WHY}`),
-            { ...bsBrief(s5), part: changed?.text, diff }
+                changed.text.includes(`Why: ${BS_WHY}`) &&
+                s5.review ===
+                    "2 decisions are still the agent’s guess. 1 decision changed since you confirmed it. Each reads in one line; open one to read it whole.",
+            { ...bsBrief(s5), part: changed?.text, diff, review: s5.review }
         );
         mark = await bsMark(h, ctx, "brainstorm: keep constraints");
         const kept = await bsClick(h, bsPartSel("constraints"), "Keep the change");
         const keepTyped = await bsTyped(h, ctx, mark, "brainstorm: keep constraints");
-        rec("5b. Keep the change types brainstorm: keep constraints", kept === "clicked" && keepTyped.ok, {
+        rec("5b. Keep the change sends brainstorm: keep constraints", kept === "clicked" && keepTyped.ok, {
             kept,
             ...keepTyped.detail,
         });
+        await bsAgentTook(h, ctx);
         mark = await bsMark(h, ctx, "brainstorm: restore constraints");
         const restored = await bsClick(h, bsPartSel("constraints"), "Put mine back");
         const restoreTyped = await bsTyped(h, ctx, mark, "brainstorm: restore constraints");
-        rec("5c. Put mine back types brainstorm: restore constraints", restored === "clicked" && restoreTyped.ok, {
+        rec("5c. Put mine back sends brainstorm: restore constraints", restored === "clicked" && restoreTyped.ok, {
             restored,
             ...restoreTyped.detail,
         });
+        await bsAgentTook(h, ctx);
+        await bsCloseDesign(h);
 
         // 6. after a compaction: b goes back to the terminal, which was hidden, not remounted
         await bsMouseClick(h, `${BS_PANE}?.querySelector("span.font-mono")`);
@@ -19593,12 +19451,12 @@ const brainstormMode = {
         })()`);
         const keyed = delivered ? "b" : "the Terminal segment (CDP keys did not reach the page)";
         rec(
-            `6. ${keyed} returns to the terminal, the same node, Terminal pressed and the B switch view hint`,
+            `6. ${keyed} returns to the terminal, the same node, Terminal pressed and the footer view chip`,
             s6.ok &&
                 same.sameNode &&
                 (tagged.xterm ? same.sameXterm === true : true) &&
                 s6.switch?.find((b) => b.label === "Terminal")?.pressed === "true" &&
-                s6.hint.includes("switch view"),
+                s6.hint.includes("view"),
             { ...bsBrief(s6), terminal: s6.terminal, ...same, switch: s6.switch, hint: s6.hint }
         );
         bsWrite(ctx, { ...BS_FILES.late, compacted: Date.now() });
@@ -19628,6 +19486,35 @@ const brainstormMode = {
         );
         if (!delivered) {
             steps.push(skipStep("6d. the b key itself", "CDP key events never reached the page; drove the switcher instead"));
+        }
+        // 6e. Ctrl+Shift+B switches while the xterm holds focus, where b and Ctrl+G b cannot
+        if (delivered) {
+            const pressChord = async () => {
+                const k = { key: "B", code: "KeyB", windowsVirtualKeyCode: 66, modifiers: BS_CTRL_SHIFT };
+                await h.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", ...k });
+                await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...k });
+                await polishNap(500);
+            };
+            const inXterm = `document.activeElement?.classList.contains("xterm-helper-textarea") === true`;
+            await h.ev(`${TERM}?.querySelector(".xterm-helper-textarea")?.focus()`);
+            const typing = await h.ev(inXterm);
+            await pressChord();
+            const s6e = await bsUntil(h, ctx, (s) => s.view != null, 3000);
+            await pressChord();
+            const s6f = await bsUntil(h, ctx, (s) => s.view == null && s.terminal === true, 3000);
+            const backInXterm = await h.ev(inXterm);
+            rec(
+                "6e. Ctrl+Shift+B from inside the terminal shows the brainstorm, and again returns to typing in the xterm",
+                typing && s6e.ok && s6f.ok && backInXterm,
+                { typing, shown: s6e.view, back: s6f.ok, backInXterm }
+            );
+            await h.ev(`(() => {
+                document.activeElement?.blur?.();
+                document.querySelector("[data-cockpit-surface-wrap]")?.focus();
+                return true;
+            })()`);
+        } else {
+            steps.push(skipStep("6e. Ctrl+Shift+B from inside the terminal", "CDP key events never reached the page"));
         }
 
         // 7. the tree line and the attention popup
@@ -19674,108 +19561,35 @@ const brainstormMode = {
             );
         }
 
-        // 8. builder check, before your answer
-        bsWrite(ctx, BS_HANDOFF);
+        // 7c. ready: every part yours, nothing left to ask
+        bsWrite(ctx, BS_READY);
         await bsShowPane(h);
-        const s8 = await bsUntil(h, ctx, (s) => s.view === "check");
-        const untouchedBtn = await h.ev(`(${BS_PANE}?.querySelector("[data-brainstorm-untouched]")?.textContent ?? "").trim()`);
-        await h.shot("cdp-shots/brainstorm-mode-8.png");
-        const calls = Object.fromEntries(s8.parts.map((p) => [p.id, p.calls]));
+        const s7c = await bsUntil(h, ctx, (s) => s.check != null);
+        await h.shot("cdp-shots/brainstorm-mode-ready.png");
         rec(
-            "8. builder check: Only you can answer · 1, It had 6 questions, the agent's calls under their parts, approve disabled",
-            s8.ok &&
-                s8.builder.includes("Only you can answer · 1") &&
-                s8.builder.includes(BS_BUILDER_Q) &&
-                s8.text.includes("It had 6 questions") &&
-                s8.text.includes("8 yours · nothing open · the agent has no more questions") &&
-                JSON.stringify(s8.parts.map((p) => p.id)) === JSON.stringify(BS_TOUCHED_ORDER) &&
-                calls.thresholds === 2 &&
-                calls.anti === 1 &&
-                untouchedBtn === "Show the 4 parts the builder did not touch" &&
-                s8.approve?.disabled === true &&
-                s8.approve.title === "Answer the builder’s question first",
-            { ...bsBrief(s8), builder: s8.builder, parts: s8.parts.map((p) => p.id), calls, untouchedBtn, approve: s8.approve }
+            "7c. ready: 8 of 8 parts yours, Confirm the design says every decision is yours and holds Check with a builder",
+            s7c.ok &&
+                s7c.view === "design" &&
+                s7c.phase === "Talking it through" &&
+                s7c.progress === "8 of 8 parts yours" &&
+                s7c.segments.length === 8 &&
+                s7c.segments.every((x) => x === "yours") &&
+                s7c.review === "Every decision is yours. Next, a fresh agent reads the design as a builder would." &&
+                s7c.check?.disabled === false &&
+                !s7c.text.includes("Confirm all"),
+            { ...bsBrief(s7c), phase: s7c.phase, progress: s7c.progress, review: s7c.review, check: s7c.check }
         );
-        await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-untouched]")?.click()`);
-        const s8b = await bsUntil(h, ctx, (s) => s.parts.length === 8, 2000);
-        rec("8b. Show the 4 parts draws all eight", s8b.ok, { parts: s8b.parts.map((p) => p.id) });
-        mark = await bsMark(h, ctx, "brainstorm: keep talking");
-        const talked = await bsClick(h, BS_APPROVE_BAR, "Keep talking");
-        const talkTyped = await bsTyped(h, ctx, mark, "brainstorm: keep talking");
-        rec("8c. Keep talking types brainstorm: keep talking", talked === "clicked" && talkTyped.ok, {
-            talked,
-            ...talkTyped.detail,
+        mark = await bsMark(h, ctx, "brainstorm: check");
+        const checked = await bsClick(h, `${BS_PANE}?.querySelector("[data-brainstorm-review]")`, "Check with a builder");
+        const checkTyped = await bsTyped(h, ctx, mark, "brainstorm: check");
+        rec("7d. Check with a builder sends brainstorm: check", checked === "clicked" && checkTyped.ok, {
+            checked,
+            ...checkTyped.detail,
         });
-        const builderLine = `brainstorm: builder answer: ${BS_BUILDER_A}`;
-        mark = await bsMark(h, ctx, builderLine);
-        const builderVia = await bsFill(h, BS_BUILDER_ANSWER, BS_BUILDER_A);
-        await bsKey(h, BS_BUILDER_ANSWER, "Enter", builderVia);
-        const builderTyped = await bsTyped(h, ctx, mark, builderLine);
-        rec("8d. answering the builder's question types it as a builder answer", builderTyped.ok, {
-            ...builderTyped.detail,
-            keys: builderVia,
-        });
-
-        // 9. builder check, after your answer
-        bsWrite(ctx, BS_HANDOFF_ANSWERED);
-        const s9 = await bsUntil(h, ctx, (s) => s.text.includes("You answered"));
-        await h.shot("cdp-shots/brainstorm-mode-9.png");
-        rec(
-            "9. You answered, ending Added to Anti-goals; approve enabled",
-            s9.ok &&
-                s9.text.includes(`You answered ${BS_BUILDER_A} Added to Anti-goals.`) &&
-                s9.builder === "" &&
-                s9.approve?.disabled === false,
-            { ...bsBrief(s9), approve: s9.approve }
-        );
-        mark = await bsMark(h, ctx, null);
-        const changeClicked = await bsClick(h, BS_APPROVE_BAR, "Change");
-        const changeOpen = await polishWaitFor(h, `!!${NEW_RUN}`, 3000);
-        const changeQuiet = await bsNothingTyped(h, mark);
-        await h.ev(PEEKS_ESC);
-        const changeClosed = await polishWaitFor(h, `!${NEW_RUN}`, 3000);
-        rec("9b. Change opens the New run window and types nothing", changeClicked === "clicked" && changeOpen && changeQuiet.ok && changeClosed, {
-            changeClicked,
-            changeOpen,
-            typed: changeQuiet.sent,
-            changeClosed,
-        });
-        mark = await bsMark(h, ctx, "brainstorm: approved");
-        const approved = await bsClick(h, BS_APPROVE_BAR, "Approve and start run");
-        const approveTyped = await bsTyped(h, ctx, mark, "brainstorm: approved");
-        const runOpen = await polishWaitFor(h, `!!${NEW_RUN}`, 3000);
-        const goal = `Build Consumer lag alerts as specified in ${join(ctx.cwd, ...BS_SPEC.split("/"))}.`;
-        const prototype = join(ctx.cwd, ".superpowers", "design", BS_TOPIC, "project", BS_BOARDS[0]);
-        await polishWaitFor(h, `${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value === ${JSON.stringify(goal)}`, 3000);
-        const launcher = await h.ev(`({
-            goal: ${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value ?? null,
-            text: ${flatText(NEW_RUN)},
-        })`);
-        await h.shot("cdp-shots/brainstorm-mode-9-run.png");
-        await h.ev(PEEKS_ESC);
-        const runClosed = await polishWaitFor(h, `!${NEW_RUN}`, 3000);
-        rec(
-            "9c. Approve types brainstorm: approved and opens New run with the spec's absolute path and the prototype",
-            approved === "clicked" &&
-                approveTyped.ok &&
-                runOpen &&
-                launcher.goal === goal &&
-                launcher.text.includes(`Prototype · ${prototype}`) &&
-                runClosed,
-            { approved, ...approveTyped.detail, runOpen, goal: launcher.goal, wantGoal: goal, prototype, text: launcher.text.slice(0, 400), runClosed }
-        );
-        bsWrite(ctx, { ...BS_HANDOFF_ANSWERED, run: BS_RUN });
-        const s9d = await bsUntil(h, ctx, (s) => s.approveBar.startsWith("Run "));
-        await h.shot("cdp-shots/brainstorm-mode-9-started.png");
-        rec(
-            "9d. with run set the bar reads Run 7f3a21c0 started with Open run, and the tree line Brainstorm done · run 7f3a21c0",
-            s9d.ok && s9d.approveBar === "Run 7f3a21c0 started Open run" && s9d.treeLine === "Brainstorm done · run 7f3a21c0",
-            { approveBar: s9d.approveBar, treeLine: s9d.treeLine }
-        );
 
         // 10. agent exited
         bsWrite(ctx, BS_FILES.late);
-        await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes("Question 5"));
+        await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes(BS_Q5.text));
         await bsPublishProc(h, ctx, "done", 1);
         const s10 = await bsUntil(h, ctx, (s) => s.view === "exited", 3000);
         await h.shot("cdp-shots/brainstorm-mode-10.png");
@@ -19788,8 +19602,8 @@ const brainstormMode = {
             { exited: s10.exited, agent: ctx.agentName, resume: s10.resume }
         );
         await bsClick(h, BS_PANE, "Open the design");
-        const s10b = await bsUntil(h, ctx, (s) => s.view === "design", 2000);
-        rec("10b. Open the design shows the design", s10b.ok, { view: s10b.view });
+        const s10b = await bsUntil(h, ctx, (s) => s.view === "design" && s.parts.length > 0, 2000);
+        rec("10b. Open the design shows the design itself, not the question", s10b.ok && s10b.title === "Consumer lag alerts", { view: s10b.view, parts: s10b.parts.length, title: s10b.title });
         await bsPublishProc(h, ctx, "running", 0);
 
         // 11. an unreadable file. Over a file read before, the last good contents stay with a banner
@@ -19835,7 +19649,7 @@ const brainstormMode = {
             reveal3 = String(e?.message ?? e);
         }
         await bsShowPane(h);
-        const s12a = await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes("Question 5"));
+        const s12a = await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes(BS_Q5.text));
         rmSync(ctx.file, { force: true });
         const s12 = await bsUntil(h, ctx, (s) => s.view === "removed");
         await h.shot("cdp-shots/brainstorm-mode-12.png");
@@ -19869,7 +19683,7 @@ const brainstormMode = {
         await step("hide the popup", () => h.ev(`window.dispatchEvent(new Event("focus"))`));
         await step("close the popup's session", () => ctx.popup?.close());
         await step("close the New run window", () => h.ev(`${NEW_RUN} ? (${PEEKS_ESC}, true) : false`));
-        await step("stop recording typed lines", () => h.ev(BS_TYPED_REMOVE));
+        await step("stop recording sent lines", () => h.ev(BS_TYPED_REMOVE));
         if (ctx.blockId) await step("clear the exit", () => bsPublishProc(h, ctx, "running", 0));
         if (ctx.tabId) {
             await step("close the terminal tab", () =>
@@ -19881,6 +19695,491 @@ const brainstormMode = {
         await step("go home", () => h.goto("cockpit"));
     },
 };
+
+// --- brainstorm reasons: the boards of .superpowers/design/brainstorm-question-center, one scenario each. Each opens
+// a terminal as brainstorm-mode does, reveals one brainstorm.json and judges the state its board draws. Nothing is
+// sent to the agent: brainstorm-mode covers the lines -----------------------------------------------------------------
+
+// a terminal made a roster agent, with the file written; teardown removes whatever was made
+async function bsArrangeAgent(h, topic, file) {
+    const cwd = mkdtempSync(join(tmpdir(), "verify-bs-reasons-"));
+    const ctx = { cwd, topic, file: join(cwd, ".superpowers", "brainstorm", topic, "brainstorm.json") };
+    try {
+        mkdirSync(dirname(ctx.file), { recursive: true });
+        bsWrite(ctx, file);
+        await openCanvasTerminal(h, ctx, topic);
+        await bsPublishStatus(h, ctx);
+    } catch (e) {
+        ctx.launchError = String(e?.message ?? e);
+        return ctx;
+    }
+    await h.goto("agent");
+    ctx.inRoster = await polishWaitFor(
+        h,
+        `!!document.querySelector('[data-agent-terminal="${ctx.tabId}"]') && !document.querySelector('[data-tree-terminal="${ctx.tabId}"]')`,
+        BS_ROSTER_WAIT_MS
+    );
+    return ctx;
+}
+
+// reveals the file from the agent's terminal and shows its pane; null once drawn, else why it could not be
+async function bsShowFile(h, ctx) {
+    if (ctx.launchError != null) return `the terminal launch failed: ${ctx.launchError}`;
+    if (!ctx.inRoster) return "the terminal never became a roster agent";
+    try {
+        await bsReveal(h, ctx, ctx.topic);
+    } catch (e) {
+        return `the reveal failed: ${e?.message ?? e}`;
+    }
+    if (!(await polishWaitFor(h, `!!${BS_SWITCH}`, 3000))) return "the reveal drew no brainstorm switcher";
+    if (!(await bsShowPane(h))) return "the Brainstorm segment drew no pane";
+    return null;
+}
+
+async function bsTeardownAgent(h, ctx, name) {
+    const step = async (what, fn) => {
+        try {
+            await fn();
+        } catch (e) {
+            console.error(`${name} teardown: ${what} failed: ${e?.message ?? e}`);
+        }
+    };
+    if (ctx.tabId) {
+        await step("close the terminal tab", () => waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]));
+    }
+    await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
+    await step("go home", () => h.goto("cockpit"));
+}
+
+// a brainstorm-reasons scenario: arrange the agent with `file`, show it, then `check` the drawn pane
+const bsBoardScenario = (name, topic, file, check) => ({
+    name,
+    surface: "agent",
+    arrange: (h) => bsArrangeAgent(h, topic, file),
+    async assert(h, ctx) {
+        const missing = await bsShowFile(h, ctx);
+        if (missing != null) return [skipStep(name, `could not verify: ${missing}`)];
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+        await check(h, ctx, rec);
+        return steps;
+    },
+    teardown: (h, ctx) => bsTeardownAgent(h, ctx, name),
+});
+
+// clicks a design row's title line, opening or closing it; what aria-expanded reads after
+async function bsToggleRow(h, id) {
+    await h.ev(`${bsPartSel(id)}?.querySelector("[data-brainstorm-row-toggle]")?.click()`);
+    await polishNap(200);
+    return h.ev(`${bsPartSel(id)}?.querySelector("[data-brainstorm-row-toggle]")?.getAttribute("aria-expanded") ?? null`);
+}
+
+// opens a design row unless it is open already
+async function bsOpenRow(h, id) {
+    const expanded = await h.ev(`${bsPartSel(id)}?.querySelector("[data-brainstorm-row-toggle]")?.getAttribute("aria-expanded") ?? null`);
+    return expanded === "true" ? true : (await bsToggleRow(h, id)) === "true";
+}
+
+// the open question with each answer's reasons; the copy is the Question-Reasons board's
+const BSR_Q = {
+    n: 2,
+    text: "Which blind spot should the first new model close: relationships between entities, each entity’s rhythm over time, the order of its actions, or a wider set of detectors on the same daily features?",
+    part: "direction",
+    why: "The research says a fancier model over the same daily feature vector gains little. The gains come from showing a model something the engine can’t see today. Each of these blind spots needs different data and catches a different kind of attack, so this choice decides most of the design.",
+    read: "graph adds the most new detection, forecast is the safest measurable win, sequence is a separate project, and more detectors on the same features is a cleanup rather than an upgrade.",
+    options: [
+        {
+            label: "Relationships (graph model)",
+            pick: true,
+            detail: "Learns who normally reaches what and flags unlikely new connections.",
+            pros: [
+                "A signal the engine has none of today. Every current model looks at one entity alone.",
+                "Targets lateral movement and new access paths, which per-entity volume models are weakest at. A quiet attacker using one new path barely moves a z-score.",
+                "The data partly exists: the hourly aggregates keep seen_srcips, seen_services and seen_countries per entity, so an edge list can be built without raw ES.",
+                "Light first version: a co-occurrence or matrix-factorisation link score in numpy or scipy. No torch needed.",
+            ],
+            cons: [
+                "Edges carry no counts or order, only “seen in this hour”.",
+                "Each detection is about a pair, not an entity, so evidence and explanation need a new shape.",
+                "New infrastructure (DHCP churn, a new server) looks like a new edge, a classic false-positive source.",
+                "Published numbers are inflated: the 85% TPR result was filtered to NTLM logons only.",
+            ],
+        },
+        {
+            label: "Rhythm over time (forecast model)",
+            detail: "Predicts each entity’s expected volume for the day and flags what falls outside it.",
+            pros: [
+                "Directly fixes a known weakness: the z-score compares against a flat 6-month mean, so routine Monday peaks and nightly batch jobs read as spikes.",
+                "Builds on stored aggregates; a classical seasonal model needs only numpy or scipy.",
+                "Easy to explain to an analyst: “expected 40–60 at this hour, saw 900”.",
+                "Has a cheap honest test: replay history and count how many current z-score detections it would have suppressed.",
+            ],
+            cons: [
+                "Mostly a noise cutter, so it catches few new kinds of threat.",
+                "Hourly rows are purged after 7 days, so only a daily-grain model has months of history today.",
+                "Only works for entities with enough history (the HIGH tier). LOW and DORMANT gain nothing.",
+            ],
+        },
+        {
+            label: "Order of actions (sequence model)",
+            detail: "Learns the typical order of events per user or host.",
+            pros: [
+                "The strongest published results for insider threat and account takeover.",
+                "Catches multi-step behaviour (recon, then access, then exfiltration) that any per-day count hides.",
+            ],
+            cons: [
+                "Needs per-event sequences; the engine stores only aggregates, so this needs a new ES-to-PG pipeline at 71.5M logs a day.",
+                "Needs torch or equivalent, plus GPU or long CPU training per tenant.",
+                "The evidence is almost all on synthetic CERT data, and it is the hardest to explain.",
+            ],
+        },
+        {
+            label: "More detectors on the same features",
+            detail: "ECOD, COPOD and kNN beside IsolationForest.",
+            pros: [
+                "Cheapest option: about a day of work, on the same 50-feature vector and trainer base class.",
+                "ECOD and COPOD are parameter-free and give per-feature contributions, which explain better than IsolationForest.",
+            ],
+            cons: [
+                "Benchmarks show no reliable winner and only small gains: the same blind spots through a different lens.",
+                "More correlated detectors push the same evidence up the scorer, which risks double-counting.",
+            ],
+        },
+    ],
+};
+const BSR_TITLE = "Improving the detection engine: which models to add";
+const BSR_SPEC = "docs/superpowers/specs/2026-10-21-detector-engine-models-design.md";
+const bsrFile = (over) => ({ v: 1, title: BSR_TITLE, spec: BSR_SPEC, question: null, working: null, parts: [], history: [], done: false, check: null, run: null, ...over });
+const BSR_QUESTION_FILE = bsrFile({
+    question: BSR_Q,
+    parts: [
+        { id: "intent", title: "Intent and why", state: "guess", from: "answer 1", gist: "Catch new kinds of attack, not rescore the ones the engine already finds.", body: "Raise the engine beyond its current basic models so it catches more real attacks." },
+        { id: "direction", title: "Which blind spot first", state: "asked", body: "" },
+        { id: "today", title: "What the engine runs today", kind: "note", from: "recon", gist: "Every model scores one entity per day over a flat feature vector.", body: "Each entity is scored on its own, one day at a time." },
+    ],
+    history: [
+        { kind: "question", n: 1, q: "Walk me through the last time the engine let you down?", a: "No I just want to improve the engine in general, it uses some models but they are all basic models", into: ["intent"] },
+        { kind: "recon", q: "I offered to read the engine's models and storage.", a: "Every model scores one entity per day over a flat feature vector. There is nothing on relationships, sequences or seasonal shape, and the literature says the gains are there rather than in a fancier tabular model.", into: ["today"] },
+    ],
+});
+
+// every answer of the asked question: its button's text, and its for and against lists as drawn
+const BSR_READ_OPTIONS = `(() => {
+    const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+    const pane = ${BS_PANE};
+    const toggle = pane?.querySelector("[data-brainstorm-proscons-toggle]");
+    return {
+        read: flat(pane?.querySelector("[data-brainstorm-read]")),
+        toggle: toggle ? { text: flat(toggle), expanded: toggle.getAttribute("aria-expanded") } : null,
+        options: [...(pane?.querySelectorAll("[data-brainstorm-option]") ?? [])].map((b) => {
+            const card = b.parentElement;
+            const list = (label) => [...(card.querySelector('ul[aria-label$="' + label + '"]')?.querySelectorAll("li") ?? [])].map(flat);
+            return { text: flat(b), pick: b.hasAttribute("data-pick"), pros: list(": for"), cons: list(": against") };
+        }),
+    };
+})()`;
+
+const brainstormQuestionReasons = bsBoardScenario("brainstorm-question-reasons", "detector-engine-models", BSR_QUESTION_FILE, async (h, ctx, rec) => {
+    const drawn = await bsUntil(h, ctx, (s) => s.question.includes(BSR_Q.text) && s.options.length === 4);
+    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-read]")?.scrollIntoView({ block: "start" })`);
+    const shown = await h.ev(BSR_READ_OPTIONS);
+    await h.shot("cdp-shots/brainstorm-question-reasons.png");
+    const letters = "ABCD";
+    const optionText = (o, i) => `${letters[i]} ${o.label} ${o.detail}${o.pick ? " Agent’s pick" : ""}`;
+    const sign = (mark, items) => items.map((t) => `${mark} ${t}`);
+    rec(
+        "1. the open question (Question-Reasons): Agent’s read above the answers with Hide pros and cons, each answer keeps letter, label, detail and the agent's pick, then its pros (+) and cons (−) in two lists",
+        drawn.ok &&
+            shown.read === `Agent’s read: ${BSR_Q.read}` &&
+            shown.toggle?.text === "Hide pros and cons" &&
+            shown.toggle.expanded === "true" &&
+            JSON.stringify(shown.options.map((o) => o.text)) === JSON.stringify(BSR_Q.options.map(optionText)) &&
+            JSON.stringify(shown.options.map((o) => o.pick)) === JSON.stringify([true, false, false, false]) &&
+            JSON.stringify(shown.options.map((o) => o.pros)) === JSON.stringify(BSR_Q.options.map((o) => sign("+", o.pros))) &&
+            JSON.stringify(shown.options.map((o) => o.cons)) === JSON.stringify(BSR_Q.options.map((o) => sign("−", o.cons))) &&
+            drawn.why === BSR_Q.why,
+        { ...bsBrief(drawn), shown, why: drawn.why }
+    );
+    const grid = await h.ev(`(() => {
+        const ul = ${BS_PANE}?.querySelector('[data-brainstorm-option="0"]')?.parentElement?.querySelectorAll("ul");
+        if (!ul || ul.length !== 2) return null;
+        const a = ul[0].getBoundingClientRect();
+        const b = ul[1].getBoundingClientRect();
+        return { sideBySide: b.left > a.right - 1 && Math.abs(a.top - b.top) < 2 };
+    })()`);
+    rec("1b. the pros and cons sit side by side, pros on the left", grid?.sideBySide === true, grid);
+    await bsClick(h, BS_PANE, "Hide pros and cons");
+    const hidden = await h.ev(BSR_READ_OPTIONS);
+    await h.shot("cdp-shots/brainstorm-question-reasons-hidden.png");
+    await bsClick(h, BS_PANE, "Show pros and cons");
+    const again = await h.ev(BSR_READ_OPTIONS);
+    rec(
+        "2. Hide pros and cons hides every answer's lists and keeps the read and the answers; Show pros and cons brings them back",
+        hidden.toggle?.text === "Show pros and cons" &&
+            hidden.toggle.expanded === "false" &&
+            hidden.read === shown.read &&
+            hidden.options.length === 4 &&
+            hidden.options.every((o) => o.pros.length === 0 && o.cons.length === 0) &&
+            again.toggle?.text === "Hide pros and cons" &&
+            again.options.every((o) => o.pros.length > 0),
+        { hidden, again: again.toggle }
+    );
+});
+
+// a question with no pros, cons or read draws as today's (Main board): nothing added around the answers
+const brainstormMainBoard = bsBoardScenario("brainstorm-main", BS_TOPIC, BS_FILES.mid, async (h, ctx, rec) => {
+    const s = await bsUntil(h, ctx, (x) => x.question.includes(BS_Q4.text) && x.history.length === 4);
+    const extra = await h.ev(BSR_READ_OPTIONS);
+    const proscons = await h.ev(`${BS_PANE}?.querySelectorAll("[data-brainstorm-proscons]").length ?? -1`);
+    await h.shot("cdp-shots/brainstorm-main.png");
+    const optionText = (o, i) => `${"ABC"[i]} ${o.label} ${o.detail}${o.pick ? " Agent’s pick" : ""}`;
+    rec(
+        "1. a question with no pros, cons or read (Main): why under it, answers A B C with the agent's pick, the answer box, Guess, Skip and The design, and no read line, toggle or reason lists",
+        s.ok &&
+            s.question.startsWith("4 → When it pages") &&
+            s.why === BS_Q4.why &&
+            JSON.stringify(s.options.map((o) => o.text)) === JSON.stringify(BS_Q4_OPTIONS.map(optionText)) &&
+            s.placeholder === "Or type your own answer…" &&
+            s.guessFor === 1 &&
+            s.question.includes("Skip the questions") &&
+            s.designBtn === "The design · 3 of 8 yours" &&
+            extra.read === "" &&
+            extra.toggle === null &&
+            proscons === 0,
+        { ...bsBrief(s), why: s.why, options: s.options, extra, proscons }
+    );
+});
+
+// the design before the builder check; the copy is the Review-Skim board's
+const BSR_DECISIONS = [
+    { id: "intent", title: "Intent and why", from: "answer 1", state: "guess", gist: "Catch new kinds of attack, not rescore the ones the engine already finds.", body: "Raise the engine beyond its current basic models so it catches more real attacks. There is no specific missed incident or noise complaint behind this; the aim is a general upgrade of what the models can detect." },
+    { id: "direction", title: "Which blind spot first", from: "answer 2", state: "yours", gist: "Both a graph model and a forecast model, as separate detectors.", body: "Both: a relationship (graph) model and a rhythm-over-time (forecast) model. Each is a separate detector that reads different data and catches a different kind of thing, so they can be built and shipped independently." },
+    { id: "order", title: "Order and packaging", from: "answer 3", state: "yours", gist: "Forecast first, shipped on its own; the graph model gets its own brainstorm after.", body: "Forecast model first, designed and shipped on its own. The graph model is a second brainstorm and spec afterwards, reusing the forecast’s replay-and-compare evaluation harness." },
+    { id: "grain", title: "Forecast grain", from: "answer 4, my call", state: "guess", gist: "Daily: one forecast per entity-day and numeric field, with a weekday cycle.", body: "Daily grain: forecast each entity-day’s value for each numeric field from the daily aggregates, with a weekday cycle." },
+    { id: "role", title: "Where the forecast sits", from: "answer 6", state: "yours", gist: "One more detector behind _run_detector_safely, with no weight of its own.", body: "No change to detection or scoring logic. The forecast runs behind _run_detector_safely and reshapes the existing z-score evidence; it has no weight of its own in the tier weight table." },
+    { id: "purpose", title: "What the forecast adds", from: "answer 9, my call", state: "guess", gist: "No weight of its own: it damps or raises the existing z-score evidence only.", body: "The forecast has no detector weight of its own. It only reshapes the existing z_score Evidence record for a numeric field on a HIGH-tier entity.\n- Value inside the forecast interval: damp the strength, never below a floor (a setting).\n- Value outside the interval and the seasonal residual larger than the flat z: raise the strength.\n- Otherwise, or with no forecast: the record is unchanged." },
+    { id: "evaluation", title: "How we know it is better", from: "answer 10", state: "yours", gist: "Live from day one behind a setting; the stored undamped strength is the safety net.", body: "Live from day one. A setting turns the forecast adjustment on or off; it ships on. Turning it off is a restart. The safety net is the stored undamped strength: a query over anomaly_detections lists every detection the forecast damped." },
+    { id: "model", title: "The forecast model", from: "answer 11, my call", state: "guess", gist: "Robust weekday profile: median and MAD of the last N weeks, no trend.", body: "Robust weekday profile, with no trend.\n- For each numeric monitored field and each weekday, take that weekday’s daily values from the last N weeks of the baseline window: the median as the expected value, and the MAD (scaled by 1.4826) as the spread. Interval = median +/- k x spread.\n- Computed at baseline time and stored in the baseline JSONB beside the existing calibration tails.\n- N, k, M and the damping floor are settings." },
+    { id: "builder", title: "Left to the builder", from: "my call", state: "guess", gist: "The strength formula, where the reshaping runs, and the values of N, k and M.", body: "- How the adjustment maps to strength: the builder picks the exact formula, keeping it monotonic and bounded.\n- Where the reshaping runs.\n- Starting values for N, k, M and the damping floor." },
+];
+const BSR_NOTES = [
+    { id: "today", title: "What the engine runs today", from: "recon", gist: "Every model scores one entity per day over a flat feature vector.", body: "Each entity is scored on its own, one day at a time.\n- Statistics: z-score against a 6-month mean and standard deviation (HIGH tier), percentage-change multipliers (MEDIUM), first-seen values plus peer-group median and percentiles (LOW and DORMANT).\n- ML: one sklearn IsolationForest per tenant and entity type, over a 50-feature daily vector." },
+    { id: "research", title: "What the research says", from: "recon", gist: "The gains are in new signals (relationships, rhythm, order), not a fancier tabular model.", body: "- Tabular detectors: ADBench (NeurIPS 2022, 30 algorithms on 57 datasets) found that no unsupervised method is reliably best." },
+    { id: "constraints", title: "Constraints", from: "recon", gist: "Unsupervised, tenant-scoped, one more detector behind _run_detector_safely.", body: "- Must stay unsupervised or weakly supervised, because analyst labels are scarce.\n- A new model enters as one more detector behind _run_detector_safely.\n- Tenant-scoped models and data only." },
+    { id: "tradeoffs", title: "Pros and cons of each direction", from: "recon", gist: "Graph adds the most new detection; forecast is the safest measurable win.", body: "Graph adds the most new detection, forecast is the safest measurable win, sequence is a separate project, and more detectors on the same features is a cleanup rather than an upgrade." },
+    { id: "damping", title: "Damping: gains and losses", from: "recon, answer 7", gist: "Worth doing at the evidence level, never at the modifier stage.", body: "Worth doing, but at the evidence level, not the modifier stage." },
+    { id: "walkthrough", title: "Evidence-level damping, step by step", from: "recon, answer 8", gist: "A VPN gateway’s routine Monday peak drops from about 35 points to about 9.", body: "Monday, 900 logins: the flat z-score is 4.2, worth about 35 points. 900 falls inside the forecast range, so that one piece of evidence is damped to the floor, about 9 points." },
+];
+const BSR_HISTORY = [
+    { kind: "question", n: 9, q: "Should the forecast get its own detector weight, or only reshape the existing z-score evidence?", a: "(guess) reshape the z-score evidence only", into: ["purpose"] },
+    { kind: "question", n: 10, q: "Should the forecast go live as soon as it ships, or run a shadow period first and switch on only if the replay looks right?", a: "Live from day one, behind a setting", into: ["evaluation"] },
+    { kind: "question", n: 11, q: "Which forecaster should produce the expected value and range for each weekday?", a: "(guess) robust weekday profile", into: ["model"] },
+];
+const bsrReviewFile = (allYours) =>
+    bsrFile({
+        done: allYours,
+        parts: [
+            ...BSR_DECISIONS.map((d) => ({ ...d, state: allYours ? "yours" : d.state })),
+            ...BSR_NOTES.map((n) => ({ ...n, kind: "note" })),
+        ],
+        history: BSR_HISTORY,
+    });
+
+const BSR_READ_REVIEW = `(() => {
+    const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+    const pane = ${BS_PANE};
+    const rows = (sel) => [...(pane?.querySelectorAll(sel + " [data-brainstorm-part]") ?? [])].map((p) => ({
+        id: p.getAttribute("data-brainstorm-part"),
+        state: p.getAttribute("data-state"),
+        gist: flat(p.querySelector("[data-brainstorm-gist]")),
+        buttons: [...p.querySelectorAll("button:not([data-brainstorm-row-toggle])")].map(flat),
+        open: p.querySelector("[data-brainstorm-row-toggle]")?.getAttribute("aria-expanded"),
+        body: flat(p.querySelector("[data-brainstorm-row-body]")),
+    }));
+    return {
+        review: flat(pane?.querySelector("[data-brainstorm-review]")),
+        line: flat(pane?.querySelector("[data-brainstorm-review-line]")),
+        confirmAll: flat(pane?.querySelector("[data-brainstorm-confirm-all]")),
+        checkBtn: flat(pane?.querySelector("[data-brainstorm-check-btn]")),
+        decisionsHead: flat(pane?.querySelector("[data-brainstorm-decisions] h2")),
+        notesHead: flat(pane?.querySelector("[data-brainstorm-notes] h2")),
+        decisions: rows("[data-brainstorm-decisions]"),
+        notes: rows("[data-brainstorm-notes]"),
+        progress: flat(pane?.querySelector("[data-brainstorm-progress]")),
+    };
+})()`;
+
+const brainstormReviewSkim = bsBoardScenario("brainstorm-review-skim", "detector-engine-models", bsrReviewFile(false), async (h, ctx, rec) => {
+    const drawn = await bsUntil(h, ctx, (s) => s.parts.length === BSR_DECISIONS.length + BSR_NOTES.length);
+    const opened = await bsOpenRow(h, "model");
+    const r = await h.ev(BSR_READ_REVIEW);
+    await h.shot("cdp-shots/brainstorm-review-skim.png");
+    const guesses = BSR_DECISIONS.filter((d) => d.state === "guess");
+    const wantRight = (d) => (d.state === "guess" ? ["That’s right", "Edit"] : ["Edit"]);
+    rec(
+        "1. the design before the builder check (Review-Skim): Confirm the design with Confirm all 5 guesses, each decision one row of title, gist and source with That’s right and Edit, or Yours and Edit",
+        drawn.ok &&
+            r.line === "5 decisions are still the agent’s guess. Each reads in one line; open one to read it whole." &&
+            r.confirmAll === `Confirm all ${guesses.length} guesses` &&
+            r.checkBtn === "" &&
+            r.decisionsHead === `Decisions · ${BSR_DECISIONS.length}` &&
+            JSON.stringify(r.decisions.map((d) => [d.id, d.state, d.gist])) ===
+                JSON.stringify(BSR_DECISIONS.map((d) => [d.id, d.state, d.gist])) &&
+            r.decisions.every((d, i) => JSON.stringify(d.buttons) === JSON.stringify(wantRight(BSR_DECISIONS[i]))) &&
+            r.progress === "4 of 9 parts yours",
+        { ...bsBrief(drawn), line: r.line, confirmAll: r.confirmAll, head: r.decisionsHead, decisions: r.decisions.map((d) => [d.id, d.state, d.gist, d.buttons]), progress: r.progress }
+    );
+    const model = r.decisions.find((d) => d.id === "model");
+    const closedBody = r.decisions.filter((d) => d.id !== "model").every((d) => d.open === "false" && d.body === "");
+    rec(
+        "2. a row opens to its whole body; the rest stay one line",
+        opened && model?.open === "true" && model.body === BSR_DECISIONS.find((d) => d.id === "model").body.replace(/\s+/g, " ") && closedBody,
+        { opened, model, closedBody }
+    );
+    rec(
+        "3. What the agent found · 6 sits apart, each note one line with an Edit and nothing to confirm",
+        r.notesHead === `What the agent found · ${BSR_NOTES.length}` &&
+            JSON.stringify(r.notes.map((n) => [n.id, n.state, n.gist])) === JSON.stringify(BSR_NOTES.map((n) => [n.id, "note", n.gist])) &&
+            r.notes.every((n) => JSON.stringify(n.buttons) === JSON.stringify(["Edit"])),
+        { head: r.notesHead, notes: r.notes.map((n) => [n.id, n.state, n.gist, n.buttons]) }
+    );
+    bsWrite(ctx, bsrReviewFile(true));
+    const ready = await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-check-btn]")`, BS_POLL_WAIT_MS);
+    const r2 = await h.ev(BSR_READ_REVIEW);
+    await h.shot("cdp-shots/brainstorm-review-skim-ready.png");
+    rec(
+        "4. once every decision is yours, Confirm all becomes Check with a builder; the notes still need nothing",
+        ready &&
+            r2.checkBtn === "Check with a builder" &&
+            r2.confirmAll === "" &&
+            r2.line === "Every decision is yours. Next, a fresh agent reads the design as a builder would." &&
+            r2.decisions.every((d) => d.state === "yours") &&
+            r2.progress === "9 of 9 parts yours",
+        { ready, line: r2.line, checkBtn: r2.checkBtn, confirmAll: r2.confirmAll, progress: r2.progress }
+    );
+});
+
+// the rail keeps the agent's reasons; the copy is the Rail-Reasons board's
+const BSR_RAIL_HISTORY = [
+    {
+        kind: "question",
+        n: 1,
+        q: "What should count as a lag problem?",
+        why: "Lag alone is a number; whether it is a problem depends on whether it grows or holds. Only you know which one has hurt before.",
+        a: "Lag that stays high, not a spike.",
+        into: ["alert"],
+        options: [
+            { label: "Any lag above the threshold", detail: "The simplest rule; it also fires on every short spike." },
+            { label: "Lag that keeps growing for 10 minutes", detail: "Catches a stalled consumer early and ignores a spike that is already draining.", pick: true },
+        ],
+    },
+    {
+        kind: "question",
+        n: 2,
+        q: "One threshold for every group, or one per group?",
+        why: "Groups in services/*/kafka.yaml range from a few hundred messages a day to millions an hour, so one number may fit none of them.",
+        a: "Per group, with a default to start from",
+        into: ["threshold"],
+        picked: 1,
+        options: [
+            { label: "One threshold for every group", detail: "One number to tune. Small groups never cross it and large ones always do." },
+            { label: "Per group, with a default to start from", detail: "Every group alerts from day one; teams tighten the default for the groups they know.", pick: true },
+            { label: "Per group, every team must set one", detail: "Most precise, but no group alerts until its team writes a number." },
+        ],
+    },
+    {
+        kind: "question",
+        n: 3,
+        q: "What happens to a spike that recovers inside the window?",
+        why: "A spike that clears within 10 minutes is usually a rebalance or a deploy. I can’t tell from the repo whether anyone wants to hear about those.",
+        a: "Post it to #data-alerts, page no one",
+        into: ["alert"],
+        picked: 1,
+        options: [
+            { label: "Page anyway: a spike is still lag", detail: "Nothing slips past, but every deploy that triggers a rebalance wakes someone." },
+            { label: "Post it to #data-alerts, page no one", detail: "The owning team sees it next morning; nobody is woken for lag that cleared by itself.", pick: true },
+            { label: "Drop it: nobody hears about it", detail: "Quietest, but a group that spikes every night is never noticed." },
+        ],
+    },
+    {
+        kind: "recon",
+        q: "I offered to read the consumer configs and the alerting config.",
+        a: "Read services/*/kafka.yaml and the alerting config: every consumer group names an owning team; nothing pages on lag today.",
+        into: [],
+    },
+];
+const BSR_RAIL_FILE = bsFile({
+    title: "Consumer lag alerts",
+    question: {
+        n: 4,
+        text: "When a consumer group stays past its lag threshold, who gets paged first: the team that owns the consumer, or platform on-call?",
+        part: "who",
+        why: "Every consumer group names an owning team, so paging by owner needs no new config. I can’t tell whether every team keeps a rota.",
+        options: [
+            { label: "Owning team first, platform after 15 minutes", detail: "Pages go to who can fix it.", pick: true },
+            { label: "Platform on-call first", detail: "One rota to keep." },
+        ],
+    },
+    parts: [
+        { id: "alert", title: "What raises an alert", state: "yours", body: "Lag that keeps growing for 10 minutes. A spike that recovers inside the window posts to #data-alerts and pages no one." },
+        { id: "threshold", title: "The threshold", state: "yours", body: "Per group, with a default to start from." },
+        { id: "who", title: "Who gets paged", state: "asked", body: "" },
+    ],
+    history: BSR_RAIL_HISTORY,
+});
+
+const BSR_READ_RAIL = `(() => {
+    const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+    return [...(${BS_PANE}?.querySelectorAll("[data-brainstorm-history] > div") ?? [])].map((r) => {
+        const toggle = r.querySelector("[data-brainstorm-reasoning]");
+        return {
+            label: flat(r.querySelector("span")),
+            why: flat(r.querySelector("[data-brainstorm-rail-why]")),
+            picked: [...r.querySelectorAll("li[data-picked]")].map(flat),
+            unpicked: [...r.querySelectorAll("li:not([data-picked])")].map(flat),
+            toggle: toggle ? { text: flat(toggle), expanded: toggle.getAttribute("aria-expanded") } : null,
+        };
+    });
+})()`;
+
+const brainstormRailReasons = bsBoardScenario("brainstorm-rail-reasons", BS_TOPIC, BSR_RAIL_FILE, async (h, ctx, rec) => {
+    const drawn = await bsUntil(h, ctx, (s) => s.history.length === BSR_RAIL_HISTORY.length);
+    const closed = await h.ev(BSR_READ_RAIL);
+    const [q1, q2, q3, recon] = BSR_RAIL_HISTORY;
+    const pickText = (o) => `${o.label}${o.pick ? " Agent’s pick" : ""}`;
+    const [c3, c2, c1, cr] = closed;
+    rec(
+        "1. Decided so far keeps reasons: the picked answer shows what it is, Agent’s pick marks the agent's recommendation, the others show only their label, each entry with Show the reasoning, the recon with none",
+        drawn.ok &&
+            JSON.stringify(closed.map((r) => r.label)) === JSON.stringify(["Q3", "Q2", "Q1", "Recon"]) &&
+            JSON.stringify(c3.picked) === JSON.stringify([`${pickText(q3.options[1])} ${q3.options[1].detail}`]) &&
+            JSON.stringify(c3.unpicked) === JSON.stringify([q3.options[0].label, q3.options[2].label]) &&
+            c3.why === "" &&
+            c3.toggle?.text === "Show the reasoning" &&
+            c2.toggle?.text === "Show the reasoning" &&
+            JSON.stringify(c1.unpicked) === JSON.stringify(q1.options.map(pickText)) &&
+            JSON.stringify(c1.picked) === JSON.stringify([`In your words ${q1.a}`]) &&
+            cr.toggle === null &&
+            !JSON.stringify(cr).includes(recon.q),
+        { ...bsBrief(drawn), closed }
+    );
+    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-history] > div [data-brainstorm-reasoning]")?.click()`);
+    await polishNap(200);
+    const opened = await h.ev(BSR_READ_RAIL);
+    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-rail]")?.scrollTo(0, 0)`);
+    await h.shot("cdp-shots/brainstorm-rail-reasons.png");
+    const o3 = opened[0];
+    rec(
+        "2. Show the reasoning on Q3 opens Why: and the other answers' details, and reads Hide the reasoning; Q2 stays closed",
+        o3.why === `Why: ${q3.why}` &&
+            JSON.stringify(o3.unpicked) === JSON.stringify([`${q3.options[0].label} ${q3.options[0].detail}`, `${q3.options[2].label} ${q3.options[2].detail}`]) &&
+            o3.toggle?.text === "Hide the reasoning" &&
+            o3.toggle.expanded === "true" &&
+            opened[1].why === "" &&
+            JSON.stringify(opened[1].unpicked) === JSON.stringify([q2.options[0].label, q2.options[2].label]),
+        { q3: o3, q2: opened[1] }
+    );
+});
 
 // --- canvas mark: a box drawn on the board opens the review's note card under it, Esc drops the mark, and Enter
 // sends it at once: a feedback picture without the card, one line handed to the agent, and back to the terminal --
@@ -19976,7 +20275,7 @@ const canvasMark = {
         rec(
             "3. a drawn box opens the note card under it, its input focused, with Cancel Esc and Send Enter",
             card != null && card.below && card.nearLeft && card.focused &&
-                card.buttons.some((t) => t.startsWith("Cancel")) && card.buttons.some((t) => t.startsWith("Send to")),
+                card.buttons.some((t) => t.startsWith("Cancel")) && card.buttons.some((t) => t.startsWith("Send")),
             JSON.stringify(card)
         );
         await h.shot("cdp-shots/canvas-mark-note.png");
@@ -20388,32 +20687,14 @@ const codeTreeOnArrival = {
     },
 };
 
-// --- settings-radar-audit: the Radar audit route row in Settings > Headless AI ------------------------
-// The row's picker offers claude and pi only (an audit session needs tools) and writes radar:auditruntime
-// and radar:auditmodel; its classifier field writes radar:classifymodel. The picker panel is portalled to
-// the body, so its options are scoped to the panel and everything else to the section pane.
-const RADAR_AUDIT_KEYS = ["radar:auditruntime", "radar:auditmodel", "radar:classifymodel"];
-const RADAR_AUDIT_PANE = `document.querySelector('[data-settings-section="headless"]')`;
-const RADAR_AUDIT_ROW = `${RADAR_AUDIT_PANE}?.querySelector('[data-setting-row="headless.radaraudit"]')`;
-const RADAR_AUDIT_TRIGGER = `${RADAR_AUDIT_ROW}?.querySelector('[data-testid="route-picker"]')`;
-const RADAR_AUDIT_PANEL = `document.querySelector('[aria-label="Available routes"]')`;
-// a cold app is still enumerating the installed CLIs' models when the picker opens, so the panel has no chip
-// or row until ListHarnessesCommand answers; twice its client timeout (CATALOG_RPC_TIMEOUT_MS, harnessstore.ts)
-const RADAR_AUDIT_CATALOG_WAIT_MS = 60_000;
-const RADAR_AUDIT_CATALOG_UP = `${RADAR_AUDIT_PANEL}?.querySelector('[data-testid^="route-harness-"], [data-testid^="route-option-"]') != null`;
-const RADAR_CLASSIFY_INPUT = `${RADAR_AUDIT_ROW}?.querySelector('input[type="text"]')`;
-const radarAuditFace = (h) => h.ev(`(${RADAR_AUDIT_TRIGGER}?.textContent || "").trim()`);
-const radarClassifyField = (h) =>
-    h.ev(`(() => { const i = ${RADAR_CLASSIFY_INPUT}; return i ? { value: i.value, placeholder: i.placeholder } : null; })()`);
+// --- settings-headless: Settings > Headless AI has no Radar audit row and no Mid model row ------------------
+const HEADLESS_PANE = `document.querySelector('[data-settings-section="headless"]')`;
 
-const settingsRadarAudit = {
-    name: "settings-radar-audit",
+const settingsHeadless = {
+    name: "settings-headless",
     surface: "settings",
-    async arrange(h) {
-        const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
-        const prev = Object.fromEntries(RADAR_AUDIT_KEYS.map((k) => [k, settings[k] ?? null]));
-        await h.rpc("setconfig", Object.fromEntries(RADAR_AUDIT_KEYS.map((k) => [k, null])));
-        return { prev };
+    async arrange() {
+        return {};
     },
     async assert(h) {
         const steps = [];
@@ -20421,105 +20702,21 @@ const settingsRadarAudit = {
 
         await h.goto("settings");
         await h.ev(`document.querySelector('[data-section="headless"]')?.click()`);
-        const paneUp = await polishWaitFor(h, `${RADAR_AUDIT_PANE} != null`, 5000);
+        const paneUp = await polishWaitFor(h, `${HEADLESS_PANE} != null`, 5000);
         rec("1. Settings opens on the Headless AI section", paneUp, `pane=${paneUp}`);
 
-        await polishWaitFor(h, `(${RADAR_AUDIT_TRIGGER}?.textContent || "").includes("sonnet")`, 5000);
-        const title = await h.ev(`(${RADAR_AUDIT_ROW}?.textContent || "").includes("Radar audit")`);
-        const unsetFace = await radarAuditFace(h);
-        rec(
-            "2. the Radar audit row shows claude on sonnet when both keys are unset",
-            title === true && /claude/i.test(unsetFace) && unsetFace.includes("sonnet"),
-            `row=${title} face="${unsetFace}"`
-        );
-        const unsetClassify = await radarClassifyField(h);
-        rec(
-            "3. the classifier field reads haiku when radar:classifymodel is unset on claude",
-            unsetClassify?.value === "" && unsetClassify?.placeholder === "haiku",
-            JSON.stringify(unsetClassify)
-        );
-        await h.ev(`${RADAR_AUDIT_ROW}?.scrollIntoView({ block: "center" })`);
-        await polishNap(200);
-        await h.shot("cdp-shots/settings-radar-audit-closed.png");
-
-        await h.ev(`${RADAR_AUDIT_TRIGGER}?.click()`);
-        const catalogStart = Date.now();
-        const catalogUp = await polishWaitFor(h, RADAR_AUDIT_CATALOG_UP, RADAR_AUDIT_CATALOG_WAIT_MS);
-        const catalogMs = Date.now() - catalogStart;
-        // "Loading models…" or "No run routes available.": tells a catalog that never answered from a slow one
-        const emptyText = catalogUp
-            ? ""
-            : await h.ev(`(${RADAR_AUDIT_PANEL}?.querySelector('[data-testid="route-picker-scroll"]')?.textContent || "").trim()`);
-        // the harness chips name every runtime the picker offers; the rows only the scoped one
-        const offered = await h.ev(`(() => {
-            const panel = ${RADAR_AUDIT_PANEL};
-            if (!panel) return null;
-            return [...panel.querySelectorAll('[data-testid^="route-harness-"]')]
-                .map((c) => c.getAttribute("data-testid").slice("route-harness-".length))
-                .filter((r) => r !== "all")
-                .sort();
+        const radar = await h.ev(`(() => {
+            const pane = ${HEADLESS_PANE};
+            if (!pane) return null;
+            return {
+                row: pane.querySelector('[data-setting-row="headless.radaraudit"]') != null,
+                text: /radar/i.test(pane.textContent || ""),
+            };
         })()`);
-        rec(
-            "4. the picker offers claude and pi and no other runtime",
-            JSON.stringify(offered) === JSON.stringify(["claude", "pi"]),
-            catalogUp
-                ? `offered=${JSON.stringify(offered)} catalog=${catalogMs}ms`
-                : `offered=${JSON.stringify(offered)} no routes after ${catalogMs}ms, panel reads "${emptyText}"`
-        );
-        await h.shot("cdp-shots/settings-radar-audit-open.png");
-
-        await h.ev(`${RADAR_AUDIT_PANEL}?.querySelector('[data-testid="route-harness-pi"]')?.click()`);
-        await polishWaitFor(h, `${RADAR_AUDIT_PANEL}?.querySelector('[data-testid^="route-option-pi-"]') != null`, 3000);
-        const picked = await h.ev(`(() => {
-            const row = ${RADAR_AUDIT_PANEL}?.querySelector('[data-testid^="route-option-pi-"]');
-            if (!row) return null;
-            row.click();
-            return row.getAttribute("data-testid").slice("route-option-pi-".length);
-        })()`);
-        let stored = {};
-        for (let waited = 0; waited < 5000 && stored["radar:auditruntime"] !== "pi"; waited += 250) {
-            await polishNap(250);
-            stored = (await h.rpc("getfullconfig", null))?.settings ?? {};
-        }
-        await polishWaitFor(h, `(${RADAR_AUDIT_TRIGGER}?.textContent || "").includes(${JSON.stringify(picked ?? "\u0000")})`, 5000);
-        const piFace = await radarAuditFace(h);
-        rec(
-            "5. picking a pi route stores radar:auditruntime as pi and the row shows it",
-            picked != null &&
-                stored["radar:auditruntime"] === "pi" &&
-                stored["radar:auditmodel"] === picked &&
-                /^pi\b/i.test(piFace) &&
-                piFace.includes(picked),
-            `picked=${picked} runtime=${stored["radar:auditruntime"]} model=${stored["radar:auditmodel"]} face="${piFace}"`
-        );
-
-        await polishWaitFor(h, `${RADAR_CLASSIFY_INPUT}?.placeholder === "pi default"`, 3000);
-        const piClassify = await radarClassifyField(h);
-        const typed = "opencode/deepseek-v4-flash";
-        await h.ev(`(() => {
-            const i = ${RADAR_CLASSIFY_INPUT};
-            if (!i) return;
-            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(i, ${JSON.stringify(typed)});
-            i.dispatchEvent(new Event("input", { bubbles: true }));
-        })()`);
-        // Enter, not blur: the WebView rarely has OS focus under CDP, so focus()/blur() fire no events
-        await h.ev(`${RADAR_CLASSIFY_INPUT}?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
-        let classifyStored;
-        for (let waited = 0; waited < 5000 && classifyStored !== typed; waited += 250) {
-            await polishNap(250);
-            classifyStored = ((await h.rpc("getfullconfig", null))?.settings ?? {})["radar:classifymodel"];
-        }
-        await h.ev(`${RADAR_AUDIT_ROW}?.scrollIntoView({ block: "center" })`);
-        await polishNap(200);
-        await h.shot("cdp-shots/settings-radar-audit-classifier.png");
-        rec(
-            "6. on pi the classifier field reads pi default, and a typed model is stored as radar:classifymodel",
-            piClassify?.placeholder === "pi default" && classifyStored === typed,
-            `field=${JSON.stringify(piClassify)} stored=${classifyStored}`
-        );
+        rec("2. the section has no Radar audit row and no mention of Radar", radar != null && radar.row === false && radar.text === false, JSON.stringify(radar));
 
         const mid = await h.ev(`(() => {
-            const pane = ${RADAR_AUDIT_PANE};
+            const pane = ${HEADLESS_PANE};
             if (!pane) return null;
             return {
                 row: pane.querySelector('[data-setting-row="headless.mid"]') != null,
@@ -20528,14 +20725,14 @@ const settingsRadarAudit = {
             };
         })()`);
         rec(
-            "7. the section has no Mid model row",
+            "3. the section has no Mid model row and still lists headless.cheap",
             mid != null && mid.row === false && mid.text === false && mid.rows.includes("headless.cheap"),
             JSON.stringify(mid)
         );
+        await h.shot("cdp-shots/settings-headless.png");
         return steps;
     },
-    async teardown(h, ctx) {
-        await h.rpc("setconfig", ctx.prev);
+    async teardown(h) {
         await h.goto("cockpit");
     },
 };
@@ -21259,7 +21456,8 @@ const RESMON_TOTAL_MEM = 7945689498;
 const RESMON_FOOTER = `document.querySelector('[data-hints-footer]')`;
 const RESMON_COCKPIT_HINTS = `document.querySelector('[data-cockpit-hints]')`;
 const RESMON_POPOVER = `document.querySelector('[data-resmon-popover]')`;
-const RESMON_GROUP_ORDER = ["arc", "job:14820", "job:13060", "job:22410", "job:7716"];
+// a run's workers and plan commands share one view, keyed by its run id
+const RESMON_GROUP_ORDER = ["arc", "job:14820", "run:run-a", "run:run-b", "job:7716"];
 // the popover grows in with a scale reveal; measure after it settles
 const RESMON_REVEAL_MS = 500;
 const RESMON_CURSOR_MAX_PRESSES = 40;
@@ -21281,12 +21479,13 @@ function resmonRows(now, rows) {
     }));
 }
 
-function resmonGroup(key, ownerkind, label, runtime, killable, rows) {
+function resmonGroup(key, ownerkind, label, runtime, killable, rows, run) {
     return {
         key,
         ownerkind,
         ownerid: key,
         label,
+        ...(run ? { runid: run.id, role: run.role } : {}),
         ...(runtime ? { runtime } : {}),
         killable,
         cpu: Math.round(rows.reduce((n, r) => n + r.cpu, 0) * 10) / 10,
@@ -21331,19 +21530,26 @@ function resmonFixture(now = Date.now()) {
                 [9932, 1, "cmd.exe", "/c npm run dev", 0.0, 4, { ageMin: 38 }],
                 [9958, 2, "node.exe", "vite --port 5174", 1.1, 846, { ageMin: 38 }],
             ])),
-            resmonGroup("job:13060", "runworker", "cache-miss notice · Task 2", "pi", true, resmonRows(now, [
+            resmonGroup("job:13060", "runworker", "cache-miss notice", "pi", true, resmonRows(now, [
                 [13060, 0, "cmd.exe", "/c pi.cmd", 0.0, 4, { tag: "launcher", ageMin: 16 }],
                 [13072, 1, "conhost.exe", "", 0.0, 8, { tag: "console", ageMin: 16 }],
                 [13104, 1, "node.exe", "pi", 0.9, 274, { tag: "agent", ageMin: 16 }],
                 [21876, 2, "bash.exe", "-c npx vitest run frontend/app/view/agents", 0.0, 6, { ageMin: 1 }],
                 [21890, 3, "node.exe", "vitest run frontend/app/view/agents", 13.7, 802, { ageMin: 1 }],
-            ])),
-            resmonGroup("job:22410", "runcmd", "cleanup round · Verify", "", false, resmonRows(now, [
-                [22410, 0, "bash.exe", "-c node scripts/verify.mjs ./pkg/orchestrate ./pkg/jarvis", 0.0, 6, { ageMin: 4 }],
+            ]), { id: "run-a", role: "Task 2" }),
+            // the run's lead, started first: its core is the launcher, claude, and the arc mod's wsh agentctl
+            resmonGroup("job:17544", "runworker", "cache-miss notice", "claude", true, resmonRows(now, [
+                [17544, 0, "pwsh.exe", '-c "claude --dangerously-skip-permissions"', 0.0, 93, { tag: "launcher", ageMin: 41 }],
+                [1908, 1, "claude.exe", "--dangerously-skip-permissions", 0.1, 378, { tag: "agent", ageMin: 41 }],
+                [25284, 2, "wsh.exe", "agentctl", 0.0, 15, { tag: "control", ageMin: 41 }],
+                [29268, 3, "conhost.exe", "0x4", 0.0, 7, { tag: "console", ageMin: 41 }],
+            ]), { id: "run-a", role: "Lead" }),
+            resmonGroup("job:22410", "runcmd", "cleanup round", "", false, resmonRows(now, [
+                [22410, 0, "bash.exe", "-c node scripts/verify.mjs ./pkg/orchestrate ./pkg/jarvis", 0.0, 6, { tag: "shell", ageMin: 4 }],
                 [22418, 1, "node.exe", "scripts/verify.mjs", 0.3, 58, { ageMin: 4 }],
                 [22502, 2, "go.exe", "test ./pkg/jarvis", 0.4, 140, { ageMin: 3 }],
                 [22590, 3, "jarvis.test.exe", "-test.count=1", 6.7, 1200, { ageMin: 3 }],
-            ])),
+            ]), { id: "run-b", role: "Verify" }),
             resmonGroup("job:7716", "agenttab", "obsidian-notes", "claude", true, resmonRows(now, [
                 [7716, 0, "claude.exe", "", 0.1, 303, { tag: "agent", ageMin: 192 }],
                 [7724, 1, "conhost.exe", "", 0.0, 9, { tag: "console", ageMin: 192 }],
@@ -21416,7 +21622,10 @@ const RESMON_POPOVER_STATE = `(() => {
     const p = ${RESMON_POPOVER};
     if (!p) return null;
     const r = p.getBoundingClientRect();
-    const where = (el) => el.getAttribute('data-resmon-row') ?? el.closest('[data-resmon-group]')?.getAttribute('data-resmon-group');
+    const where = (el) =>
+        el.getAttribute('data-resmon-row') ??
+        (el.hasAttribute('data-resmon-member') ? 'm:' + el.getAttribute('data-resmon-member') : null) ??
+        el.closest('[data-resmon-group]')?.getAttribute('data-resmon-group');
     const cursor = p.querySelector('[data-resmon-cursor]');
     const confirm = p.querySelector('[data-resmon-confirm]');
     return {
@@ -21425,12 +21634,20 @@ const RESMON_POPOVER_STATE = `(() => {
         bottom: r.bottom,
         groups: [...p.querySelectorAll('[data-resmon-group]')].map((g) => ({
             key: g.getAttribute('data-resmon-group'),
+            header: g.querySelector('button[aria-expanded]')?.textContent.trim() ?? '',
             rows: g.querySelectorAll('[data-resmon-row]').length,
-            tags: [...g.querySelectorAll('[data-resmon-row]')].filter((row) => !row.querySelector('button')).length,
             kills: g.querySelectorAll('[data-resmon-row] button[aria-label^="Kill"]').length,
             buttons: g.querySelectorAll('button').length,
+            members: [...g.querySelectorAll('[data-resmon-member]')].map((m) => ({
+                role: m.querySelector('span.font-semibold')?.textContent.trim() ?? '',
+                folded: m.querySelector('[data-resmon-folded]')?.textContent.trim() ?? '',
+                foldedTitle: m.querySelector('[data-resmon-folded]')?.getAttribute('title') ?? '',
+                killChildren: [...m.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Kill children'),
+                readOnly: m.textContent.includes('read-only'),
+                icon: m.querySelector('img')?.getAttribute('alt') ?? (m.querySelector('svg') ? 'svg' : ''),
+            })),
         })),
-        order: [...p.querySelectorAll('[data-resmon-group] > div:first-child, [data-resmon-row]')].map(where),
+        order: [...p.querySelectorAll('[data-resmon-group] > div:first-child, [data-resmon-member], [data-resmon-row]')].map(where),
         cursor: cursor ? where(cursor) : null,
         confirm: confirm ? (confirm.querySelector('span')?.textContent ?? '') : null,
         status: [...p.querySelectorAll('[role="status"]')].map((n) => n.textContent.trim()),
@@ -21721,16 +21938,14 @@ const resmonLive = {
         })()`);
         await polishWaitFor(h, `!!document.querySelector('[data-resmon-row="${found.pid}"]')`, 10000);
         await shot("1-listed");
-        // the shell row's core tag chip, on the edge ramp rather than a white overlay
+        // the shell's member line and its Kill children button, on the surface ramp rather than a white overlay
         const chips = await paintEval(h, `
-            const group = document.querySelector('[data-resmon-popover] [data-resmon-group="${found.group}"]');
-            const tags = [...(group?.querySelectorAll("[data-resmon-row] span") ?? [])].filter(
-                (s) => s.children.length === 0 && /^(shell|agent|launcher|console)$/.test((s.textContent || "").trim())
-            );
+            const line = document.querySelector('[data-resmon-popover] [data-resmon-member="${found.group}"]');
+            const tags = [...(line?.querySelectorAll("button, [data-resmon-folded]") ?? [])];
             return tags.map((t) => ({ tag: t.textContent.trim(), bg: getComputedStyle(t).backgroundColor, raw: rawOverlay(getComputedStyle(t).backgroundColor) }));
         `);
         const floor = await floorStep(h, `2c. no visible text in the resource popover is under ${MIN_FONT_PX}px`, `document.querySelector("[data-resmon-popover]")`);
-        rec("2b. the group's tag chip has no raw white or black overlay background", chips.length > 0 && chips.every((c) => !c.raw), JSON.stringify(chips));
+        rec("2b. the shell's member line has no raw white or black overlay background", chips.length > 0 && chips.every((c) => !c.raw), JSON.stringify(chips));
         steps.push(floor);
         const clicked = await h.ev(
             resmonClick(`document.querySelector('[data-resmon-row="${found.pid}"] button[aria-label^="Kill"]')`)
@@ -21783,20 +21998,42 @@ const resmonMain = {
         const s1 = await resmonPopover(h);
         const readoutTop = await h.ev(`${resmonReadout(RESMON_FOOTER)}?.getBoundingClientRect().top`);
         await shot("1-open");
-        const by = (k) => s1?.groups.find((g) => g.key === k) ?? {};
         const ok1 =
             s1 != null &&
             s1.width === 700 &&
             Math.abs(s1.right - 12) <= 1 &&
             s1.bottom <= readoutTop - 5 &&
             JSON.stringify(s1.groups.map((g) => g.key)) === JSON.stringify(RESMON_GROUP_ORDER) &&
-            by("arc").rows === 0 &&
-            by("job:14820").tags === 2 && by("job:14820").kills === 5 &&
-            by("job:13060").tags === 3 && by("job:13060").kills === 2 &&
-            by("job:22410").rows === 4 && by("job:22410").buttons === 1 &&
-            by("job:7716").tags === 2 && by("job:7716").kills === 0;
-        rec("1. click the readout: 700px, bottom-right; Arc first and collapsed; by CPU; tags on core rows, × on the rest; Verify has no action",
+            s1.groups.every((g) => g.rows === 0 && g.members.length === 0) &&
+            s1.text.includes("2 runs · 2 agent tabs · 31 processes") &&
+            /cache-miss notice\s*Run · 2 agents · 9 processes/.test(s1.groups[2].header) &&
+            /cleanup round\s*Run · 1 command · 4 processes/.test(s1.groups[3].header);
+        rec("1. click the readout: 700px, bottom-right; Arc first, then by CPU, every view collapsed; one view per run, not per worker",
             ok1, JSON.stringify({ width: s1?.width, right: s1?.right, bottom: s1?.bottom, readoutTop, groups: s1?.groups }));
+
+        for (const k of RESMON_GROUP_ORDER.slice(1)) {
+            await h.ev(resmonClick(resmonChevron(k)));
+        }
+        await resmonNap(200);
+        const s1b = await resmonPopover(h);
+        await shot("1b-runs-open");
+        const by = (k) => s1b?.groups.find((g) => g.key === k) ?? { members: [] };
+        const [lead, task2] = by("run:run-a").members;
+        const [verifyCmd] = by("run:run-b").members;
+        const [tab] = by("job:14820").members;
+        const ok1b =
+            by("run:run-a").members.map((m) => m.role).join(",") === "Lead,Task 2" &&
+            lead.folded === "+3" && /wsh\.exe \(control\)/.test(lead.foldedTitle) && !lead.killChildren &&
+            lead.icon === "Claude Code logo" &&
+            task2.folded === "+2" && task2.killChildren && task2.icon === "Pi logo" &&
+            by("run:run-a").rows === 2 && by("run:run-a").kills === 2 &&
+            verifyCmd.role === "Verify" && verifyCmd.readOnly && !verifyCmd.killChildren && verifyCmd.icon === "svg" &&
+            by("run:run-b").rows === 3 && by("run:run-b").kills === 0 &&
+            tab.role === "Agent" && tab.folded === "+1" && tab.killChildren &&
+            by("job:14820").rows === 5 && by("job:14820").kills === 5 &&
+            by("job:7716").rows === 0 && !by("job:7716").members[0]?.killChildren;
+        rec("1b. opened: a run lists its lead and workers by role, each one line with its core folded (+N) and the processes it started under it; Verify is read-only",
+            ok1b, JSON.stringify(s1b?.groups.slice(1)));
 
         await h.ev(resmonClick(resmonChevron("arc")));
         await resmonNap(200);
@@ -21921,6 +22158,9 @@ const resmonStates = {
             c4 === want3 && clicked4 && s4?.status.includes("Killed 5 processes."),
             JSON.stringify({ confirm: c4, clicked: clicked4, status: s4?.status }));
 
+        // Task 2's rows sit in the run's view, which starts collapsed
+        await h.ev(resmonClick(resmonChevron("run:run-a")));
+        await resmonNap(200);
         await resmonArm(h, { outcome: "gone", killed: 0 });
         await h.ev(resmonClick(resmonRowKill(21890)));
         await resmonNap(200);
@@ -21962,10 +22202,10 @@ const resmonStates = {
 // --- surface headers: one shared toolbar on every surface but Agent ------------------------------
 // Each surface's SurfaceToolbar measured against the prototype canvas (Main.dc.html) at its main board
 // size. Final runs this on a fresh, empty store, so arrange makes everything a step reads: a git repo at
-// a long path registered as one project (Diff, Code's path fact, Radar), a fixture roster (Cockpit, the
-// Sessions live fact, the Jarvis chip), a radar report, and a saved Claude rate-limit snapshot (Usage).
+// a long path registered as one project (Diff, Code's path fact), a fixture roster (Cockpit, the
+// Sessions live fact, the Jarvis chip), and a saved Claude rate-limit snapshot (Usage).
 const SURFACE_HEADERS_PROJECT = "verify-surface-headers";
-const SURFACE_HEADERS_ORDER = ["cockpit", "jarvis", "code", "files", "sessions", "radar", "usage", "settings", "setup"];
+const SURFACE_HEADERS_ORDER = ["cockpit", "jarvis", "code", "files", "sessions", "usage", "settings", "setup"];
 const SURFACE_HEADERS_WIDE = { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false };
 const SURFACE_HEADERS_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
 const SURFACE_HEADERS_MIN_PATH = 120;
@@ -21989,15 +22229,18 @@ const TOOLBAR_PROBE = `(() => {
     const t = shown[0];
     if (!t) return { count: 0 };
     const h1 = t.querySelector(':scope > h1');
-    const next = h1?.nextElementSibling;
+    const kids = [...t.children];
+    const spacer = kids.findIndex((el) => el.tagName === 'SPAN' && el.classList.contains('flex-1') && el.childNodes.length === 0);
+    const between = spacer > kids.indexOf(h1) ? kids.slice(kids.indexOf(h1) + 1, spacer) : null;
     return {
         count: shown.length,
         height: t.getBoundingClientRect().height,
         title: h1?.textContent.trim() ?? null,
         padLeft: getComputedStyle(t).paddingLeft,
         text: t.innerText.replace(/\\s+/g, ' ').trim(),
-        // the spacer is the empty flex-1 span; a title followed straight by it leaves no gap for a missing fact
-        titleThenSpacer: next != null && next.tagName === 'SPAN' && next.classList.contains('flex-1') && next.childNodes.length === 0,
+        // the spacer is the empty flex-1 span; with nothing empty between the title and it (Usage keeps its
+        // filters there), a missing fact leaves no gap
+        noGapBeforeSpacer: between != null && between.every((el) => el.childNodes.length > 0 && el.getBoundingClientRect().width > 0),
     };
 })()`;
 
@@ -22092,19 +22335,6 @@ async function surfaceHeadersArrange(h) {
             )
         );
         ctx.wroteFixture = true;
-
-        // landing on the seeded report needs Radar scoped to its project. A scan stores its path slashed
-        // (reporadar.canonPath) and the list matches it exactly, so the seed does the same
-        ctx.priorScope = await h.ev(`localStorage.getItem(${JSON.stringify(RADAR_SCOPE_KEY)})`);
-        await h.ev(`localStorage.setItem(${JSON.stringify(RADAR_SCOPE_KEY)}, ${JSON.stringify(JSON.stringify(ctx.name))})`);
-        ctx.reportId = await seedRadarReport(h, (oid) =>
-            radarFixtureReport(oid, ctx.name, dir.replaceAll("\\", "/"), Date.now(), {
-                id: "f-surface-headers",
-                risk: "Surface-headers fixture: the budget loop outlives a cancelled context",
-                file: "pkg/retry/policy.go",
-                lines: [3, 4],
-            })
-        );
 
         // the canvas's UsageBody: one reporting Claude provider with a live 5-hour window
         ctx.prevRate = await h.ev(`localStorage.getItem(${JSON.stringify(RATE_LIMITS_KEY)})`);
@@ -22317,20 +22547,6 @@ async function surfaceHeadersAssert(h, ctx) {
         };
     });
 
-    await run("radar audits popover not clipped", async () => {
-        await h.goto("radar");
-        await waitOrThrow(`document.querySelector('[data-radar-audits-toggle]')`, 10000, "the seeded report's audits toggle");
-        await click("[data-radar-audits-toggle]");
-        const popover = `document.querySelector('[data-radar-audits-popover]')`;
-        await waitOrThrow(popover, 3000, "the audits popover");
-        await polishNap(400);
-        const r = await h.ev(notClipped(popover));
-        await h.shot("cdp-shots/surface-headers-radar-audits.png");
-        await click("[data-radar-audits-toggle]");
-        const closed = await polishWaitFor(h, `!(${popover})`, 3000);
-        return { ok: r != null && r.hits.every(Boolean) && closed, detail: JSON.stringify({ ...r, closed }) };
-    });
-
     await run("files compare at 1000px", async () => {
         await h.cdp("Emulation.setDeviceMetricsOverride", SURFACE_HEADERS_NARROW);
         await polishNap(600);
@@ -22375,7 +22591,7 @@ async function surfaceHeadersAssert(h, ctx) {
             await h.shot(`cdp-shots/surface-headers-${surface}-zero.png`);
         }
         return {
-            ok: Object.entries(facts).every(([s, t]) => toolbarOk(t, s) && !t.factShown && t.titleThenSpacer),
+            ok: Object.entries(facts).every(([s, t]) => toolbarOk(t, s) && !t.factShown && t.noGapBeforeSpacer),
             detail: JSON.stringify(facts),
         };
     });
@@ -22385,17 +22601,6 @@ async function surfaceHeadersAssert(h, ctx) {
 async function surfaceHeadersTeardown(h, ctx) {
     const undo = [
         ["clear the viewport override", () => h.cdp("Emulation.clearDeviceMetricsOverride")],
-        ["delete the radar report", () => ctx.reportId && dropPeekItemsRadar(h, ctx.reportId)],
-        [
-            "restore the radar scope",
-            () =>
-                "priorScope" in ctx &&
-                h.ev(
-                    ctx.priorScope == null
-                        ? `localStorage.removeItem(${JSON.stringify(RADAR_SCOPE_KEY)})`
-                        : `localStorage.setItem(${JSON.stringify(RADAR_SCOPE_KEY)}, ${JSON.stringify(ctx.priorScope)})`
-                ),
-        ],
         [
             "restore the saved rate limits",
             () =>
@@ -23799,99 +24004,6 @@ const taskDetail = {
     },
 };
 
-// AmbientTags and RelevantDecisions on a Radar finding: radardevmock's investigated finding "c" inherits the
-// attribution of its run, which a stub of the app's own ResolveAmbientCommand supplies at each confidence step
-const LOOK_AMBIENT_FINDING = "c";
-const LOOK_AMBIENT_RUN = "run:7c1e02aa";
-// over the 30s budget ambientstore gives a real read
-const LOOK_AMBIENT_WAIT_MS = 40_000;
-const LOOK_AMBIENT = {
-    tasks: [
-        { id: "look-modal-escape", label: "modal-escape" },
-        { id: "look-keyboard-ops", label: "keyboard-ops" },
-        { id: "look-radar-polish", label: "radar-polish" },
-    ],
-    edges: [
-        { oref: LOOK_AMBIENT_RUN, dossierid: "look-modal-escape", provenance: "engine", bucket: "strong", state: "confirmed" },
-        { oref: LOOK_AMBIENT_RUN, dossierid: "look-keyboard-ops", provenance: "engine", bucket: "medium", state: "informing" },
-        { oref: LOOK_AMBIENT_RUN, dossierid: "look-radar-polish", provenance: "engine", bucket: "weak", state: "informing" },
-    ],
-    decisions: [
-        { dossierid: "look-modal-escape", id: "look-d1", title: "Back-home stays off under any open ModalShell", ageMs: 3 * 24 * 3600_000 },
-        { dossierid: "look-keyboard-ops", id: "look-d2", title: "Escape closes the innermost popover first", ageMs: 5 * 3600_000 },
-    ],
-};
-
-const ambientTags = {
-    name: "ambient-tags",
-    surface: "radar",
-    async arrange() {
-        return {};
-    },
-    async assert(h) {
-        const step = "a finding whose run is attributed shows its task tags by confidence and the relevant past decisions";
-        await lookOpen(h, "radar");
-        if (!(await radarOpen(h))) return [{ step, ok: false, detail: "no radar dev fixtures hook" }];
-        const shown = await radarMock(h, "results", "report");
-        await lookEval(h, `
-            const { RpcApi } = await mod("app/store/wshclientapi.ts");
-            const data = ${JSON.stringify(LOOK_AMBIENT)};
-            const now = Date.now();
-            RpcApi.ResolveAmbientCommand = async () => ({ ...data, decisions: data.decisions.map(({ ageMs, ...d }) => ({ ...d, created: now - ageMs })) });
-            document.querySelector('[data-radar-finding-row="${LOOK_AMBIENT_FINDING}"]')?.click();
-        `);
-        // a reload asks for the real read, and a re-read asked for while one is in flight is dropped, so it is asked
-        // again until the stub's answer is the one drawn
-        const detail = `document.querySelector('[data-radar-finding-detail="${LOOK_AMBIENT_FINDING}"]')`;
-        let ok = false;
-        for (const t0 = Date.now(); !ok && Date.now() - t0 < LOOK_AMBIENT_WAIT_MS; ) {
-            ok = await lookEval(h, `
-                (await mod("app/view/agents/ambientstore.ts")).reloadAmbient();
-                return until(() => /Relevant past decisions/.test(flat(${detail})), 1000);
-            `);
-        }
-        await polishNap(400);
-        const patched = await lookEval(h, `
-            const text = flat(${detail}).toLowerCase();
-            return { ok: ${ok}, tags: ${JSON.stringify(LOOK_AMBIENT.tasks.map((t) => t.label))}.filter((l) => text.includes(l)) };
-        `);
-        await h.shot(lookShot("ambient-tags"));
-        // a tag is a button into its record: the fixture's dossiers are not in the vault, so the router either
-        // lands or says why in a toast naming the record, and never does nothing
-        const opened = await lookEval(h, `
-            const chips = [...(${detail}?.querySelectorAll("button") ?? [])].filter((b) => /open the record/.test(b.title));
-            const sizes = [...new Set(chips.map((b) => getComputedStyle(b).fontSize))];
-            const eyebrow = [...(${detail}?.querySelectorAll("div") ?? [])].find((d) => flat(d) === "Relevant past decisions");
-            const surface = () =>
-                [...document.querySelectorAll("nav button")].find((x) => (x.className || "").includes("text-accent-soft"))?.getAttribute("aria-label") ?? null;
-            const before = surface();
-            chips[0]?.click();
-            const reacted = await until(
-                () => surface() !== before || [...document.querySelectorAll("[data-notification-toast]")].some((t) => /record/i.test(t.textContent)),
-                3000
-            );
-            return { chips: chips.length, sizes, eyebrow: eyebrow ? getComputedStyle(eyebrow).fontSize : null, reacted };
-        `);
-        return [
-            { step, ok: shown && patched.ok && patched.tags.length === LOOK_AMBIENT.tasks.length, detail: JSON.stringify({ shown, ...patched }) },
-            {
-                step: "tag chips and the eyebrow sit at the 10.5px floor, and a tag opens its record",
-                ok: opened.chips > 0 && opened.sizes.length === 1 && opened.sizes[0] === "10.5px" && opened.eyebrow === "10.5px" && opened.reacted === true,
-                detail: JSON.stringify(opened),
-            },
-        ];
-    },
-    async teardown(h) {
-        await lookEval(h, `
-            const { RpcApi } = await mod("app/store/wshclientapi.ts");
-            delete RpcApi.ResolveAmbientCommand;
-            (await mod("app/view/agents/ambientstore.ts")).reloadAmbient();
-            window.__setRadarScenario?.("live");
-        `);
-        await h.goto("cockpit");
-    },
-};
-
 // AgentComposer on the mixed fixture roster: the parked idle list's row composer (janitor), and a working card's
 // composer expanded from its slim row (waveterm)
 const LOOK_COMPOSER_IDLE = "janitor";
@@ -24377,8 +24489,8 @@ const codeStaleBarLook = {
 };
 
 // --- ui-drift: what the drift pass changed that no other scenario reaches -------------------------------------------
-// docs/superpowers/plans/2026-10-17-ui-drift-polish.md. A view no app path shows on a fresh store is rendered through
-// the app's own module (LOOK_LIB's mount) with made-up props; the Radar menus open on radardevmock's fixtures, and the
+// the UI drift polish (c98ebe7c). A view no app path shows on a fresh store is rendered through
+// the app's own module (LOOK_LIB's mount) with made-up props; the
 // brief toast shows on the Brief through its own atom.
 const DRIFT_PLAN = ["# Drift plan", "", "Raise every label to the floor.", "", "### Task 1: Raise the floor", "", "- swap the glyphs", "- grow the pills", ""].join("\n");
 const DRIFT_ASK = {
@@ -24480,6 +24592,9 @@ async function driftEscape(h, step, trigger) {
 
 // hovers the element an expression finds and reads its background at rest and under the pointer
 async function driftHover(h, expr) {
+    // a pointer an earlier scenario left over the element would read its hover as rest
+    await lookHover(h, 1, 1);
+    await polishNap(250);
     const rest = await paintEval(h, `const el = ${expr}; return el ? getComputedStyle(el).backgroundColor : null;`);
     const at = await lookCenter(h, expr);
     if (at) await lookHover(h, at.x, at.y);
@@ -24516,7 +24631,7 @@ const uiDrift = {
         const dir = mkdtempSync(join(tmpdir(), "verify-ui-drift-"));
         const planPath = join(dir, "drift-plan.md");
         writeFileSync(planPath, DRIFT_PLAN);
-        return { dir, planPath, priorScope: await h.ev(`localStorage.getItem(${JSON.stringify(RADAR_SCOPE_KEY)})`) };
+        return { dir, planPath };
     },
     async assert(h, ctx) {
         const steps = [];
@@ -24675,7 +24790,11 @@ const uiDrift = {
                 }, { style: "width:560px;height:360px;display:flex;flex-direction:column" });
                 return host.querySelector('button[title="Open terminal (T)"]') != null;
             `);
-            const r = await driftHover(h, `${DRIFT_HOST("AgentRow")}?.querySelector('button[title="Open terminal (T)"]')`);
+            // the title tooltip host parks a hovered element's title in data-arc-title
+            const r = await driftHover(
+                h,
+                `${DRIFT_HOST("AgentRow")}?.querySelector('button[title="Open terminal (T)"], button[data-arc-title="Open terminal (T)"]')`
+            );
             return { step: "an agent card's header control changes background under the pointer and is no raw white or black overlay", ok: made && hoverOk(r), detail: JSON.stringify({ made, ...r }) };
         });
 
@@ -24687,7 +24806,7 @@ const uiDrift = {
                 const { attentionAtom } = await mod("app/view/agents/attentionstore.ts");
                 const store = J.createStore();
                 const items = (n, extra) => Array.from({ length: n }, (_, i) => ({ id: "drift-" + JSON.stringify(extra) + i, kind: "ask", ...extra }));
-                store.set(attentionAtom, [...items(${DRIFT_BADGE}, {}), ...items(${DRIFT_BADGE}, { channelid: "drift" }), ...items(3, { kind: "radar-triage" })]);
+                store.set(attentionAtom, [...items(${DRIFT_BADGE}, {}), ...items(${DRIFT_BADGE}, { channelid: "drift" })]);
                 const host = await mount("app/view/agents/navrail.tsx", "NavRail", { model: { surfaceAtom: J.atom("cockpit") } }, { store, style: "left:300px;top:40px;height:860px;padding:0;display:flex" });
                 const nav = host.querySelector("nav");
                 const labels = [...nav.querySelectorAll("button")].map((b) => [...b.children].find((c) => c.tagName === "SPAN" && !c.classList.contains("absolute") && c.querySelector("svg") == null)).filter(Boolean);
@@ -24708,7 +24827,7 @@ const uiDrift = {
                 step: "the 78px nav rail keeps every label on one line, fits a two-digit count in its pill and passes the floor",
                 ok:
                     s.width === "78px" &&
-                    s.lines.length === 10 &&
+                    s.lines.length === 9 &&
                     s.lines.every((l) => l.height <= l.line + 0.5) &&
                     twoDigit.length === 2 &&
                     s.badges.every((b) => b.scroll <= b.client) &&
@@ -24815,27 +24934,6 @@ const uiDrift = {
         });
 
         // Escape closes each hand-rolled menu onto its trigger, and only the menu
-        const shown = (await radarOpen(h)) && (await radarMock(h, "results", "report"));
-        if (!shown) {
-            steps.push({ step: "the radar's results fixture draws its report", ok: false, detail: "no report view" });
-        } else {
-            await run("scope", () =>
-                driftEscape(h, "Escape closes Radar's project scope menu and focuses its trigger", `${RADAR_ROOT}?.querySelector('button[aria-label^="Scanned project"], button[aria-label="Select a project to scan"]')`)
-            );
-            await run("audits", () =>
-                driftEscape(h, "Escape closes Radar's audited-commits popover and focuses its toggle", `${RADAR_ROOT}?.querySelector("[data-radar-audits-toggle]")`)
-            );
-            await radarClick(h, '[data-radar-group="open"] [data-radar-finding-row]');
-            await polishWaitFor(h, radarHas("[data-radar-finding-detail]"), 3000);
-            await run("dismiss", () =>
-                driftEscape(
-                    h,
-                    "Escape closes a finding's Dismiss menu and focuses its button",
-                    `[...(${RADAR_ROOT}?.querySelectorAll("[data-radar-finding-detail] button") ?? [])].find((b) => (b.textContent || "").trim() === "Dismiss")`
-                )
-            );
-            await run("switcher radar", () => driftEscape(h, "Escape closes the project switcher on Radar and focuses it, staying on Radar", DRIFT_SWITCHER));
-        }
         await h.goto("agent");
         await run("switcher agent", () => driftEscape(h, "Escape closes the project switcher on Agent and focuses it, staying on Agent", DRIFT_SWITCHER));
         return steps;
@@ -24844,17 +24942,86 @@ const uiDrift = {
         try {
             await lookHover(h, 1, 1);
             await lookEval(h, `unmountAll();`);
-            await h.ev(`window.__setRadarScenario?.('live')`);
-            await h.ev(
-                ctx.priorScope == null
-                    ? `localStorage.removeItem(${JSON.stringify(RADAR_SCOPE_KEY)})`
-                    : `localStorage.setItem(${JSON.stringify(RADAR_SCOPE_KEY)}, ${JSON.stringify(ctx.priorScope)})`
-            );
         } finally {
             rmSync(ctx.dir, { recursive: true, force: true });
             await h.goto("cockpit");
         }
     },
+};
+
+// the brainstorm helpers the scenario modules build on: passed in, since a module importing this file back would
+// be a cycle
+const BS_KIT = {
+    bsBoardScenario,
+    bsArrangeAgent,
+    bsShowFile,
+    bsShowPane,
+    bsTeardownAgent,
+    bsWrite,
+    bsRead,
+    bsUntil,
+    bsBrief,
+    bsClick,
+    bsMouseClick,
+    bsFill,
+    bsKey,
+    bsKeysArrive,
+    bsMark,
+    bsTyped,
+    bsNothingTyped,
+    bsAgentTook,
+    bsPublishProc,
+    bsOpenDesign,
+    bsCloseDesign,
+    bsTermText,
+    bsReveal,
+    bsTabMeta,
+    bsFile,
+    bsParts,
+    bsPartSel,
+    bsOpenRow,
+    bsToggleRow,
+    polishWaitFor,
+    polishNap,
+    skipStep,
+    waveService,
+    arrangeSheetDagRun,
+    teardownFixtureRun,
+    seedDag,
+    seedFinalShots,
+    fstShow,
+    fstWriteRun,
+    RUN_SHEET_POLISH_TASKS,
+    UI_ROUTE,
+    BS_PANE,
+    BS_SWITCH,
+    BS_TREE_LINE,
+    BS_ANSWER,
+    BS_BUILDER_ANSWER,
+    BS_APPROVE_BAR,
+    BS_QUESTION_CARD,
+    BS_NOT_WRITING,
+    BS_POLL_WAIT_MS,
+    BS_TOPIC,
+    BS_SPEC,
+    BS_BOARDS,
+    BS_RUN,
+    BS_PART,
+    BS_FILES,
+    BS_HISTORY_Q4,
+    BS_HANDOFF_PARTS,
+    BS_CHECK,
+    BS_HANDOFF,
+    BS_HANDOFF_ANSWERED,
+    BS_READY,
+    BS_TOUCHED_ORDER,
+    BS_BUILDER_Q,
+    BS_BUILDER_A,
+    BS_SIDE_Q,
+    BS_SIDE_A,
+    NEW_RUN,
+    PEEKS_ESC,
+    flatText,
 };
 
 export const SCENARIOS = [
@@ -24874,6 +25041,7 @@ export const SCENARIOS = [
     surfaceSmoke,
     surfaceHeaders,
     codeSearch,
+    codeSymbols,
     codeSidebar,
     codeGitStatus,
     codePlainDir,
@@ -24899,7 +25067,7 @@ export const SCENARIOS = [
     dagLifecycle,
     routePickerFlat,
     routePickerRefused,
-    settingsRadarAudit,
+    settingsHeadless,
     settingsVaultSync,
     settingsClaudeAccount,
     settingsStorage,
@@ -24908,9 +25076,6 @@ export const SCENARIOS = [
     briefDesignParity,
     briefInlineTracker,
     resourceLinking,
-    radarStartInvestigation,
-    radarReport,
-    radarScanStates,
     uiApi,
     motionGaps,
     narrationFeed,
@@ -24932,6 +25097,7 @@ export const SCENARIOS = [
     agentRailFileLink,
     shellTasksScenario,
     finalShotsScenario,
+    finalRerunScenario,
     finalStageScenario,
     briefInitiativesPolish,
     briefPeeksPolish,
@@ -24945,6 +25111,13 @@ export const SCENARIOS = [
     planReviewRounds,
     canvasSwap,
     brainstormMode,
+    brainstormMainBoard,
+    brainstormQuestionReasons,
+    brainstormReviewSkim,
+    brainstormRailReasons,
+    ...builder(BS_KIT),
+    ...review(BS_KIT),
+    ...run(BS_KIT),
     canvasMark,
     canvasTabsScenario,
     agentTerminalNames,
@@ -24964,7 +25137,6 @@ export const SCENARIOS = [
     termLinkTooltip,
     titleTooltip,
     taskDetail,
-    ambientTags,
     runSheetDoneLook,
     runSheetLegacyLook,
     runSheetCardsLook,

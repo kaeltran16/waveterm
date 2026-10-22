@@ -184,7 +184,7 @@ func TestBrainstormContextFor(t *testing.T) {
 		}
 	}
 
-	out := skillContextOutput(skill("superpowers:brainstorming"))
+	out := skillContextOutput(skill("superpowers:brainstorming"), false)
 	var parsed struct {
 		HookSpecificOutput struct {
 			HookEventName     string `json:"hookEventName"`
@@ -197,8 +197,11 @@ func TestBrainstormContextFor(t *testing.T) {
 	if parsed.HookSpecificOutput.HookEventName != "PostToolUse" || !strings.Contains(parsed.HookSpecificOutput.AdditionalContext, "arc:brainstorm") {
 		t.Errorf("output = %q", out)
 	}
-	if skillContextOutput(skill("superpowers:writing-plans")) != "" {
+	if skillContextOutput(skill("superpowers:writing-plans"), false) != "" {
 		t.Error("another skill produced output")
+	}
+	if skillContextOutput(skill("superpowers:brainstorming"), true) != "" {
+		t.Error("a run's agent was sent to arc:brainstorm")
 	}
 }
 

@@ -2,15 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Usage surface (usage-redesign Page.dc.html). A horizontal scope bar pinned under the header, over a
-// full-width detail holding the scope's two trust zones side by side — LIVE LIMITS (ephemeral
-// 5h/weekly quota, merged live-over-saved via ratelimitstore so it survives idle) and HISTORICAL
-// (durable stat cards) — then the daily series by model and where the usage goes, folded from the
-// backend usage scan. Scope selection IS usageHarnessFilterAtom, so the scope picker and the
-// historical filter are one piece of state rather than two that can disagree; that atom re-aggregates
-// model.usageStatsAtom, so the detail is simply the surface scoped to one harness.
+// full-width detail: the historical stat cards, then the daily series by model and where the usage
+// goes, folded from the backend usage scan. Each provider's 5h/weekly quota (merged live-over-saved
+// via ratelimitstore so it survives idle) sits on that provider's scope card, not in the detail: quota
+// is per account and moves with neither the range nor the scope, so beside the history it read as a
+// peer of numbers it has nothing to do with. Scope selection IS usageHarnessFilterAtom, so the scope
+// picker and the historical filter are one piece of state rather than two that can disagree; that atom
+// re-aggregates model.usageStatsAtom, so the detail is simply the surface scoped to one harness.
 // Loads on mount + a 60s refresh for the current window; a 1s tick keeps reset countdowns current.
 // A second lens, By work, re-scopes the same detail page to what the usage paid for: all usage, a
-// project, a run or a session (usageattribution.ts). It has no Live limits: quota is per provider.
+// project, a run or a session (usageattribution.ts).
 
 import { Meter } from "@/app/element/meter";
 import { useDidBecomeTrue } from "@/app/element/motionhooks";
@@ -30,7 +31,7 @@ import { formatReset, liveWindowAgents, providerPlanUsage, usageLevel } from "./
 import { providerDot, providerLabel } from "./cockpitrailmodel";
 import { DailyChart } from "./dailychart";
 import { harnessesAtom } from "./harnessstore";
-import { mergeRateLimitWindows, savedRateLimitsAtom, type DonutWindow } from "./ratelimitstore";
+import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
 import { SurfaceError, SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 import {
     ALL_SCOPE,
@@ -51,14 +52,7 @@ import {
     type WorkScope,
 } from "./usageattribution";
 import { modelLegend } from "./usagedaily";
-import {
-    buildUsageRail,
-    countReporting,
-    railRows,
-    worstWindow,
-    type AggregateWindow,
-    type UsageRailRow,
-} from "./usagerail";
+import { buildUsageRail, countReporting, railRows, type UsageRailRow } from "./usagerail";
 import { SplitTable } from "./usagesplittable";
 import type { UsageStats } from "./usagestats";
 import { aggregateBuckets, fmt, pctStr, usd } from "./usagestats";
@@ -146,55 +140,49 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
     );
 }
 
-// One quota window as a bar. The redesign trades the arc donuts for bars because the detail pane
-// gives two windows the full width, and a bar reads a percentage against its track far better than a
-// 40px ring did. `used` carries the source harness on the aggregate row, where "62%" alone would not
-// say whose account it describes.
-function LimitCard({
-    kind,
-    title,
-    w,
-    now,
-    used,
-    projectedExhaustion,
-}: {
-    kind: string;
-    title: string;
-    w: DonutWindow;
-    now: number;
-    used?: string;
-    projectedExhaustion?: number | null;
-}) {
-    const level = usageLevel(w.pct ?? 0);
-    const has = w.pct != null;
+const QUOTA_WINDOWS = [
+    ["fivehour", "5h"],
+    ["week", "wk"],
+] as const;
+
+// A provider's quota windows, one bar each, drawn inside its scope card. The fixed label, percent and
+// reset columns line the two bars up with each other.
+function QuotaRows({ row, now, projection }: { row: UsageRailRow; now: number; projection: number | null }) {
     return (
-        <div
-            data-usage-limit={kind}
-            className="rounded-[11px] border border-border bg-surface-raised px-[15px] py-[13px]"
-        >
-            <div className="mb-2 flex items-baseline justify-between">
-                <span className="font-mono text-[10.5px] font-semibold text-ink-mid">{title}</span>
-                <span className={cn("font-mono text-[13px] font-bold", has ? LEVEL_TEXT[level] : "text-muted")}>
-                    {has ? Math.round(w.pct!) + "%" : "—"}
-                </span>
-            </div>
-            <Meter pct={w.pct ?? 0} fill={has ? LEVEL_FILL[level] : "bg-edge-strong"} height={7} radius={4} />
-            <div className="mt-1.5 flex justify-between gap-2 font-mono text-[10.5px] text-muted">
-                <span className="truncate">{used ?? (has ? "in window" : "no reading")}</span>
-                <span className="flex-none whitespace-nowrap">
-                    {w.reset ? "resets " + formatReset(w.reset, now) : "—"}
-                </span>
-            </div>
-            {projectedExhaustion != null ? (
-                <div className="mt-1 font-mono text-[10.5px] text-warning">
-                    ~100% by {formatProjectedDate(projectedExhaustion)}
-                </div>
+        <span className="flex w-full flex-col gap-[5px] font-mono text-[10.5px] text-muted">
+            {QUOTA_WINDOWS.map(([kind, label]) => {
+                const w = row[kind];
+                const has = w.pct != null;
+                const level = usageLevel(w.pct ?? 0);
+                return (
+                    <span key={kind} data-usage-limit={kind} className="flex items-center gap-2">
+                        <span className="w-[18px] flex-none font-semibold text-ink-mid">{label}</span>
+                        <Meter
+                            pct={w.pct ?? 0}
+                            fill={has ? LEVEL_FILL[level] : "bg-edge-strong"}
+                            height={5}
+                            radius={3}
+                            track="bg-edge-strong"
+                            className="min-w-0 flex-1"
+                        />
+                        <span className={cn("w-[30px] flex-none text-right font-bold", has ? LEVEL_TEXT[level] : "")}>
+                            {has ? Math.round(w.pct!) + "%" : "—"}
+                        </span>
+                        <span className="w-[92px] flex-none whitespace-nowrap text-right">
+                            {w.reset ? "resets " + formatReset(w.reset, now) : "—"}
+                        </span>
+                    </span>
+                );
+            })}
+            {projection != null ? (
+                <span className="pl-[26px] text-warning">weekly ~100% by {formatProjectedDate(projection)}</span>
             ) : null}
-        </div>
+        </span>
     );
 }
 
 // One card of the scope bar: dot, name and pill over the scope's tokens and spend, and a right-hand fact.
+// A provider with a quota reading adds its bars below (`quota`).
 // `harness` or `project` keys the card for the scenarios; All usage carries harness "all" in both lenses.
 function ScopeCard({
     harness,
@@ -209,6 +197,7 @@ function ScopeCard({
     tokens,
     spendUsd,
     fact,
+    quota,
 }: {
     harness?: string;
     project?: string;
@@ -221,7 +210,8 @@ function ScopeCard({
     pillColor: string; // a var() reference; it also tints the pill behind the text
     tokens: number;
     spendUsd: number;
-    fact: string;
+    fact?: string;
+    quota?: ReactNode;
 }) {
     return (
         <motion.button
@@ -252,18 +242,22 @@ function ScopeCard({
                 <span>·</span>
                 <span>≈ {usd(spendUsd)}</span>
                 <span className="flex-1" />
-                <span>{fact}</span>
+                {fact != null ? <span>{fact}</span> : null}
             </span>
+            {quota}
         </motion.button>
     );
 }
 
-function quotaFact(row: UsageRailRow): string {
+const NO_QUOTA_TITLE =
+    "No quota reading. Windows are known only while an agent that publishes them runs; the last snapshot is kept per provider, and rolls to empty once its window passes.";
+
+// a live reading needs no fact: its pill says so and its bars sit right below
+function quotaFact(row: UsageRailRow, now: number): string | undefined {
     if (row.state === "none") {
         return "history only";
     }
-    const pct = (w: { pct?: number }) => (w.pct != null ? Math.round(w.pct) + "%" : "—");
-    return `5h ${pct(row.fivehour)} · wk ${pct(row.week)}`;
+    return row.state === "saved" ? stateMeta(row, now).long : undefined;
 }
 
 const LENS_OPTIONS: { key: UsageLens; label: string }[] = [
@@ -641,7 +635,6 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
         [allStats.availableHarnesses, allStats.daily, donuts, catalogOrder]
     );
     const rows = useMemo(() => railRows(groups), [groups]);
-    const selRow = rows.find((r) => r.harness === sel);
 
     const attr = useMemo(() => buildAttribution(buckets, sessions), [buckets, sessions]);
     const scope = useMemo(() => resolveScope(attr, workScope, workItem?.key ?? null), [attr, workScope, workItem]);
@@ -737,18 +730,6 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const reportingLabel = `${reporting} of ${rows.length} reporting`;
     // `all` is the unscoped page of whichever lens is on screen
     const all = work ? scope.kind === "all" : sel === ALL;
-    // the aggregate can't average independent per-account quotas — it reports whichever is closest to
-    // its cap (worstWindow) and says whose it is.
-    const fiveHour: AggregateWindow = all ? worstWindow(rows, "fivehour") : (selRow?.fivehour ?? {});
-    const week: AggregateWindow = all ? worstWindow(rows, "week") : (selRow?.week ?? {});
-    const hasLimits = all ? fiveHour.pct != null || week.pct != null : selRow != null && selRow.state !== "none";
-    const projectionForWeek = all
-        ? week.harness === "claude"
-            ? weeklyProjectionMs
-            : null
-        : sel === "claude"
-          ? weeklyProjectionMs
-          : null;
 
     const hasHistory = stats.models.length > 0 || stats.totals.tokensWindow > 0;
     const revealHistory = useDidBecomeTrue(hasHistory);
@@ -802,27 +783,21 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     return (
         <MotionConfig reducedMotion="user">
             <div className="flex h-full min-h-0 flex-col bg-background">
-                <SurfaceToolbar
-                    title="Usage"
-                    actions={
-                        <>
-                            <Segmented<UsageLens>
-                                value={lens}
-                                onChange={pickLens}
-                                role="group"
-                                ariaLabel="Lens"
-                                options={LENS_OPTIONS}
-                            />
-                            <Segmented<"7d" | "all">
-                                value={usageWindow}
-                                onChange={pickWindow}
-                                role="group"
-                                ariaLabel="Range"
-                                options={RANGE_OPTIONS}
-                            />
-                        </>
-                    }
-                >
+                <SurfaceToolbar title="Usage">
+                    <Segmented<UsageLens>
+                        value={lens}
+                        onChange={pickLens}
+                        role="group"
+                        ariaLabel="Lens"
+                        options={LENS_OPTIONS}
+                    />
+                    <Segmented<"7d" | "all">
+                        value={usageWindow}
+                        onChange={pickWindow}
+                        role="group"
+                        ariaLabel="Range"
+                        options={RANGE_OPTIONS}
+                    />
                     {reporting > 0 ? (
                         <ToolbarFact className="text-accent-soft">
                             <span className="h-1.5 w-1.5 rounded-full bg-accent" />
@@ -837,7 +812,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                     data-usage-scopes
                     role="group"
                     aria-label="Scope"
-                    className="flex flex-none items-center gap-2.5 overflow-x-auto border-b border-edge-faint px-5 py-3"
+                    className="flex flex-none items-stretch gap-2.5 overflow-x-auto border-b border-edge-faint px-5 py-3"
                 >
                     <ScopeCard
                         harness={ALL}
@@ -891,9 +866,19 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                     name={providerLabel(r.harness)}
                                     pill={st.label}
                                     pillColor={st.color}
+                                    title={r.state === "none" ? NO_QUOTA_TITLE : undefined}
                                     tokens={r.tokens}
                                     spendUsd={r.spendUsd}
-                                    fact={quotaFact(r)}
+                                    fact={quotaFact(r, now)}
+                                    quota={
+                                        r.state === "none" ? null : (
+                                            <QuotaRows
+                                                row={r}
+                                                now={now}
+                                                projection={r.harness === "claude" ? weeklyProjectionMs : null}
+                                            />
+                                        )
+                                    }
                                 />
                             );
                         })
@@ -920,77 +905,27 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
 
                         <DetailHeader head={head} />
 
-                        <div className="flex flex-col gap-3 xl:flex-row">
-                            {work ? null : (
-                                <section className="flex min-w-0 flex-col xl:flex-[2]">
-                                    <SectionRule
-                                        label="Live limits"
-                                        meta={
-                                            all
-                                                ? "highest reading · ephemeral"
-                                                : selRow
-                                                  ? stateMeta(selRow, now).long
-                                                  : "—"
-                                        }
-                                    />
-                                    {hasLimits ? (
-                                        <div className="grid flex-1 grid-cols-2 gap-3">
-                                            <LimitCard
-                                                kind="fivehour"
-                                                title="5-hour"
-                                                w={fiveHour}
-                                                now={now}
-                                                used={
-                                                    all && fiveHour.harness
-                                                        ? providerLabel(fiveHour.harness)
-                                                        : undefined
-                                                }
-                                            />
-                                            <LimitCard
-                                                kind="week"
-                                                title="Weekly"
-                                                w={week}
-                                                now={now}
-                                                used={all && week.harness ? providerLabel(week.harness) : undefined}
-                                                projectedExhaustion={projectionForWeek}
-                                            />
-                                        </div>
-                                    ) : (
-                                        <p
-                                            data-usage-noquota
-                                            className="flex-1 rounded-[11px] border border-border bg-surface px-4 py-3 font-mono text-[11px] leading-[1.55] text-muted"
-                                        >
-                                            No quota reading{all ? "" : ` for ${providerLabel(sel)}`}. Windows are known
-                                            only while an agent that publishes them runs; the last snapshot is kept per
-                                            provider, and rolls to empty once its window passes. History below is
-                                            unaffected.
-                                        </p>
-                                    )}
-                                </section>
+                        <section className="flex min-w-0 flex-col">
+                            <SectionRule label="Historical" meta={`durable · ${windowLabel}`} />
+                            {!usageLoaded ? (
+                                <StatsSkeleton />
+                            ) : !hasHistory ? (
+                                <div
+                                    data-usage-empty
+                                    className="flex min-h-[92px] flex-1 items-center justify-center text-[13px] text-muted"
+                                >
+                                    No usage in this window{all ? " — start an agent." : `${emptyFor}.`}
+                                </div>
+                            ) : (
+                                <HistoryCards
+                                    stats={stats}
+                                    window={usageWindow}
+                                    all={all}
+                                    of={work && !all ? allStats : undefined}
+                                    reveal={revealHistory}
+                                />
                             )}
-
-                            <section className="flex min-w-0 flex-col xl:flex-[4]">
-                                <SectionRule label="Historical" meta={`durable · ${windowLabel}`} />
-                                {!usageLoaded ? (
-                                    <StatsSkeleton />
-                                ) : !hasHistory ? (
-                                    <div
-                                        data-usage-empty
-                                        className="flex min-h-[92px] flex-1 items-center justify-center text-[13px] text-muted"
-                                    >
-                                        No usage in this window{all ? " — start an agent." : `${emptyFor}.`}
-                                    </div>
-                                ) : (
-                                    <HistoryCards
-                                        stats={stats}
-                                        window={usageWindow}
-                                        all={all}
-                                        of={work && !all ? allStats : undefined}
-                                        reveal={revealHistory}
-                                    />
-                                )}
-                            </section>
-                        </div>
+                        </section>
 
                         {!usageLoaded ? (
                             <ChartSkeleton />

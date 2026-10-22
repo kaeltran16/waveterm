@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mergeRateLimitWindows } from "./ratelimitstore";
-import { buildUsageRail, countReporting, harnessTotals, railRows, worstWindow } from "./usagerail";
+import { buildUsageRail, countReporting, harnessTotals, railRows } from "./usagerail";
 import type { DailyUsage } from "./usagestats";
 
 const now = 1_800_000_000_000;
@@ -88,36 +88,5 @@ describe("buildUsageRail", () => {
         expect(buildUsageRail(["claude"], [], donuts, catalog).map((g) => g.key)).toEqual(["reporting"]);
         expect(buildUsageRail(["opencode"], [], [], catalog).map((g) => g.key)).toEqual(["quiet"]);
         expect(buildUsageRail([], [], [], catalog)).toEqual([]);
-    });
-});
-
-describe("worstWindow", () => {
-    const rows = railRows(
-        buildUsageRail(
-            [],
-            [],
-            mergeRateLimitWindows(
-                [
-                    { provider: "claude", usage: { fivehourpct: 40, fivehourreset: 111, weekpct: 90 } },
-                    { provider: "codex", usage: { fivehourpct: 72, fivehourreset: 222, weekpct: 30 } },
-                ],
-                {},
-                now
-            ),
-            ["claude", "codex"]
-        )
-    );
-
-    // an average would read "fine" while one account sits at 98%, so the aggregate reports the window
-    // closest to its cap and names which harness it came from.
-    it("returns the highest reading per window with its source harness and reset", () => {
-        expect(worstWindow(rows, "fivehour")).toEqual({ pct: 72, reset: 222, harness: "codex" });
-        expect(worstWindow(rows, "week")).toEqual({ pct: 90, reset: undefined, harness: "claude" });
-    });
-
-    it("is empty when nothing reports that window", () => {
-        expect(worstWindow([], "fivehour")).toEqual({});
-        const noQuota = railRows(buildUsageRail(["opencode"], [], [], ["opencode"]));
-        expect(worstWindow(noQuota, "week")).toEqual({});
     });
 });

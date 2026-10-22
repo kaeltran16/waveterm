@@ -42,11 +42,24 @@ import {
     withLine,
     type History,
 } from "./codehistory";
+import { langGlobs, langOf, type Lang } from "./codelang";
 import { deleteWarning, renamedPath, targetDir } from "./codemutate";
+import { outlineOf } from "./codeoutline";
 import { cleanPathInput, pathErrorMessage, statPathError, validatePathInput } from "./codepathinput";
 import { pruneRecent, pushRecent } from "./coderecents";
-import { resetSearch } from "./codesearchstore";
+import { DEFAULT_SEARCH_OPTS, type SearchOpts } from "./codesearchopts";
+import {
+    codeSearchModeAtom,
+    codeSearchOptsAtom,
+    codeSearchQueryAtom,
+    grepProject,
+    resetSearch,
+    runSearch,
+    showSearch,
+    type SearchState,
+} from "./codesearchstore";
 import { changedDirs, statusByPath, type CodeStatus } from "./codestatus";
+import { definitionPattern, rankDefinitions } from "./codesymbolquery";
 import { ancestorsOf, buildTree, visibleRows } from "./codetree";
 
 export interface CodeProject {
@@ -163,6 +176,18 @@ let readCaretLine: () => number | null = () => null;
 export function setCaretLineReader(read: () => number | null): void {
     readCaretLine = read;
 }
+// The same seam for the identifier under the caret, with the open file's language, for F12.
+export interface CaretWord {
+    word: string;
+    lang: Lang;
+}
+let readCaretWord: () => CaretWord | null = () => null;
+export function setCaretWordReader(read: () => CaretWord | null): void {
+    readCaretWord = read;
+}
+export function caretWord(): CaretWord | null {
+    return readCaretWord();
+}
 // Whether the tree pane holds focus. An atom rather than a document.activeElement query because the
 // keybinding `when` predicates are evaluated by store.test.ts in vitest's node environment, where
 // there is no document — and because this codebase keeps DOM reads in `run`, never in `when`.
@@ -214,6 +239,18 @@ export const codeStatusDirsAtom = atom((get) => changedDirs(get(codeStatusAtom)?
 export const codeRowsAtom = atom((get) =>
     visibleRows(buildTree(get(codeIndexAtom)?.paths ?? []), get(codeExpandedAtom))
 );
+
+// The open file's declarations, derived from the buffer with the draft overlaid, so the outline
+// follows typing with nothing to invalidate. A file that is not text has no symbols.
+export const codeOutlineAtom = atom((get) => {
+    const file = get(codeFileAtom);
+    const project = get(codeProjectAtom);
+    if (file.kind !== "text" || project == null) {
+        return [];
+    }
+    const text = get(codeDraftsAtom).get(draftKey(project, file.path))?.text ?? file.text;
+    return outlineOf(text, langOf(file.path));
+});
 
 // the absolute path is the draft key; every draft-facing helper goes through this
 export function draftKey(project: CodeProject, rel: string): string {
@@ -689,6 +726,8 @@ export function revealPath(path: string): void {
     globalStore.set(codeExpandedAtom, next);
 }
 
+const OPENING_PLACEHOLDER_DELAY_MS = 150;
+
 export async function openPath(rel: string, opts?: { pushHistory?: boolean; line?: number | null }): Promise<void> {
     const project = globalStore.get(codeProjectAtom);
     if (project == null) {
@@ -718,7 +757,14 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
         return;
     }
 
-    globalStore.set(codeFileAtom, { kind: "loading", path: rel });
+    // the previous file stays up until this one is ready: swapping to the placeholder first left it on
+    // screen for the whole synchronous render of a large markdown document, a visible flash. The
+    // placeholder only appears for a read slow enough to need one.
+    const placeholder = setTimeout(() => {
+        if (current.fileToken === token) {
+            globalStore.set(codeFileAtom, { kind: "loading", path: rel });
+        }
+    }, OPENING_PLACEHOLDER_DELAY_MS);
     try {
         const info = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: abs } });
         if (current.fileToken !== token) {
@@ -758,6 +804,8 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
             path: rel,
             message: e instanceof Error ? e.message : String(e),
         });
+    } finally {
+        clearTimeout(placeholder);
     }
 }
 
@@ -847,6 +895,17 @@ export async function reloadFromDisk(): Promise<void> {
     await openPath(file.path, { pushHistory: false });
 }
 
+// A jump to a line of the file already open: no read, but a history move, so Back returns to where
+// the caret was. A symbol row and an @ pick both land here.
+export function goToLine(line: number): void {
+    const file = globalStore.get(codeFileAtom);
+    if (file.kind !== "text") {
+        return;
+    }
+    globalStore.set(codeHistoryAtom, (h) => push(withLine(h, readCaretLine()), file.path, line));
+    globalStore.set(codePendingLineAtom, line);
+}
+
 // back/forward re-read from disk rather than replaying cached text: simpler, and it shows the file
 // as it is now rather than as it was when you first opened it. The entry's line rides the same
 // pending-line reveal a jump uses.
@@ -874,8 +933,8 @@ async function walkTo(h: History): Promise<void> {
     await openPath(entry.path, { pushHistory: false });
 }
 
-// The one way into this surface from anywhere else: a content-search hit, a diff row, a Radar
-// finding, a finder query with a line. Takes the view model because surfaceAtom lives on the
+// The one way into this surface from anywhere else: a content-search hit, a diff row, a finder query
+// with a line. Takes the view model because surfaceAtom lives on the
 // AgentsViewModel instance rather than in a module — the same type-only seam bindings.ts uses.
 // reach a directory by path, under its registered name when it has one
 export async function selectPath(path: string): Promise<void> {
@@ -919,14 +978,15 @@ export async function openInCode(
     const cur = globalStore.get(codeProjectAtom);
     // switching resets expand state, history and the file; a jump within the repository you are
     // already reading must not throw that away
-    if (cur == null || !sameRepoPath(cur.path, project.path)) {
-        await selectProject(project);
-    }
+    // selectProject sets the project before it awaits the index, so the surface switches at once rather than
+    // after a git ls-files, and Code mounts on the new project instead of restoring the last one
+    const selecting = cur == null || !sameRepoPath(cur.path, project.path) ? selectProject(project) : null;
+    landOn(model.surfaceAtom, "code");
+    await selecting;
     revealPath(target.rel);
     globalStore.set(codeCursorAtom, target.rel);
     // set before the read: the viewer honors this the moment the text lands
     globalStore.set(codePendingLineAtom, target.line ?? null);
-    landOn(model.surfaceAtom, "code");
     await openPath(target.rel, { line: target.line ?? null });
 }
 
@@ -941,4 +1001,70 @@ function resolveJumpProject(projectPath: string): CodeProject {
     // not know. git ls-files needs only a path, so browse it under its directory name rather than
     // refusing the jump — the header shows the full path, so nothing is hidden.
     return { name: repoBasename(projectPath), path: projectPath };
+}
+
+// Go to definition is a grep for the name's declaration forms in files of the caller's language. One
+// hit jumps there; none or several fill the search pane under "Definitions of <name>", with the
+// pattern left in the input to loosen by hand. Resolves true when it listed rather than jumped, so
+// the caller can bring the sidebar into view.
+export async function goToDefinition(model: AgentsViewModel, name: string, lang: Lang): Promise<boolean> {
+    const project = globalStore.get(codeProjectAtom);
+    if (project == null) {
+        return false;
+    }
+    const pattern = definitionPattern(name, lang);
+    if (pattern == null) {
+        // no declaration forms for this language: the honest answer is where the name appears
+        await findReferences(name);
+        return true;
+    }
+    const file = globalStore.get(codeFileAtom);
+    const from = file.kind === "none" ? "" : file.path;
+    const opts: SearchOpts = {
+        ...DEFAULT_SEARCH_OPTS,
+        regex: true,
+        caseSensitive: true,
+        include: langGlobs(lang).join(", "),
+    };
+    const show = (state: SearchState) => showSearch({ query: pattern, opts, title: `Definitions of ${name}`, state });
+    try {
+        const res = await grepProject(project.path, pattern, opts);
+        if (globalStore.get(codeProjectAtom)?.path !== project.path) {
+            return false; // the project changed under the lookup; its answer is for a repository not shown
+        }
+        if (res.invalidpattern) {
+            // the pattern is built here, so this is a bug in codesymbolquery, never the user's typo
+            show({ kind: "error", query: pattern, message: "the definition pattern was rejected as invalid" });
+            return true;
+        }
+        const ranked = rankDefinitions(res.matches ?? [], name, lang, from);
+        if (ranked.length === 1 && !res.truncated) {
+            await openInCode(model, { projectPath: project.path, rel: ranked[0].path, line: ranked[0].line });
+            return false;
+        }
+        show({
+            kind: "done",
+            query: pattern,
+            matches: ranked.map(({ path, line, text }) => ({ path, line, text })),
+            truncated: res.truncated ?? false,
+        });
+        return true;
+    } catch (e) {
+        show({ kind: "error", query: pattern, message: errorText(e) });
+        return true;
+    }
+}
+
+// Without a type system, find references is what it honestly is: the name as a whole, case-sensitive
+// word across the repository, through the ordinary search with its query filled in.
+export async function findReferences(name: string): Promise<void> {
+    const project = globalStore.get(codeProjectAtom);
+    if (project == null) {
+        return;
+    }
+    const opts: SearchOpts = { ...DEFAULT_SEARCH_OPTS, wholeWord: true, caseSensitive: true };
+    globalStore.set(codeSearchQueryAtom, name);
+    globalStore.set(codeSearchOptsAtom, opts);
+    globalStore.set(codeSearchModeAtom, "search");
+    await runSearch(project, name, opts, `References to ${name}`);
 }

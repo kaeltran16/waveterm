@@ -33,19 +33,6 @@ export function resolveChannelTarget(
     return { kind: "create", name: projectName, path: projectPath };
 }
 
-// Where a Radar "Start investigation" draft lands on the Brief. Its project may have no channel yet (channels
-// are minted on demand since one-per-project), and a find-only landing silently dropped those drafts.
-// "wait": the channel list has not arrived, and the landing is one-shot, so it must not spend its attempt.
-export function radarDraftLanding(
-    channels: Channel[] | null,
-    draft: { projectName?: string; projectPath?: string }
-): ChannelTarget | "wait" | "none" {
-    if (!draft.projectName || !draft.projectPath) {
-        return "none";
-    }
-    return resolveChannelTarget(channels, draft.projectName, draft.projectPath) ?? "wait";
-}
-
 export interface RunConfig {
     shape: RunShape;
     parallelism: number;
@@ -130,7 +117,14 @@ export function initialPick(names: string[], remembered: string | null): string 
     return names.length === 1 ? names[0] : null;
 }
 
-export type NewRunPrefill = { projectName: string; goal: string; shape: RunShape; prototype?: string };
+// onStarted hears the id of a run this launch starts, so what filled the window can follow it
+export type NewRunPrefill = {
+    projectName: string;
+    goal: string;
+    shape: RunShape;
+    prototype?: string;
+    onStarted?: (runId: string) => void;
+};
 
 // What the window opens on when something filled it (a canvas's Build this…, the palette's Quick and Orchestrate):
 // a goal start in the prefill's shape, except that a prototype only rides an orchestrator run, so one that

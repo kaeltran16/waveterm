@@ -19,7 +19,7 @@ import {
 } from "./agentsviewmodel";
 import { answerAgentAsk } from "./askanswer";
 import { withBrainstorm } from "./brainstormmodel";
-import { brainstormsAtom } from "./brainstormstore";
+import { brainstormsAtom, shownBrainstormFile } from "./brainstormstore";
 import { CockpitSurface } from "./cockpitsurface";
 import { devRosterAtom, loadDevMockRoster } from "./devmock";
 import { diffScopeAtom } from "./diffscopeatom";
@@ -42,7 +42,6 @@ export type SurfaceKey =
     | "cockpit"
     | "jarvis"
     | "agent"
-    | "radar"
     | "sessions"
     | "files"
     | "usage"
@@ -50,18 +49,9 @@ export type SurfaceKey =
     | "setup"
     | "settings";
 
-// Ordered to match the NavRail (navrail.tsx ITEMS) so Ctrl+1..8 line up with what the user sees. All 8
+// Ordered to match the NavRail (navrail.tsx ITEMS) so Ctrl+1..7 line up with what the user sees. All 7
 // entries are chorded — there is no unchorded remainder.
-export const SURFACE_ORDER: SurfaceKey[] = [
-    "cockpit",
-    "jarvis",
-    "agent",
-    "code",
-    "files",
-    "sessions",
-    "radar",
-    "usage",
-];
+export const SURFACE_ORDER: SurfaceKey[] = ["cockpit", "jarvis", "agent", "code", "files", "sessions", "usage"];
 
 export type ChipFilter = "all" | "asking" | "working" | "idle";
 
@@ -150,6 +140,8 @@ export class AgentsViewModel implements ViewModel {
     newRunOpenAtom = atom(false);
     newInitiativeOpenAtom = atom(false);
     paletteOpenAtom = atom(false);
+    // the query the next open starts with, consumed by that open (Code's Ctrl+Shift+O seeds "@")
+    paletteSeedAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
     // handoff-parity filters + per-card layout (spec §State). Project scope is a single source bound to
     // both the app-bar switcher and the header button.
@@ -179,7 +171,7 @@ export class AgentsViewModel implements ViewModel {
             const now = Date.now();
             const brainstorms = get(brainstormsAtom);
             return mergePendingLaunches(get(base), get(pendingAtom), now).map((agent) =>
-                withBrainstorm(agent, brainstorms[agent.id]?.file ?? null, now)
+                withBrainstorm(agent, shownBrainstormFile(brainstorms[agent.id]), now)
             );
         });
         this.lineageAtom = lineageAtomFor(this.agentsAtom);

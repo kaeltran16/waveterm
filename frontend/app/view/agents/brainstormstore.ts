@@ -10,7 +10,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomFamily } from "jotai/utils";
 import type { AgentsViewModel } from "./agents";
-import { brainstormFilePath, type BrainstormFile } from "./brainstormmodel";
+import { brainstormFilePath, shownFile, type BrainstormFile, type SentLine } from "./brainstormmodel";
 import type { CanvasBoard } from "./canvasmodel";
 
 export type BrainstormState = {
@@ -30,10 +30,22 @@ export type BrainstormState = {
     board: string | null;
     // "Open the design" pressed on the exited card
     showDesign: boolean;
+    // the design opened over the question or the working note; kept here so a board's Back returns to it
+    designOpen: boolean;
     boards: CanvasBoard[];
     // where wavesrv serves the project's design folder; null until the poller has asked it to
     base: string | null;
+    // the last line Arc sent, until the agent has taken it (the poller settles it)
+    sent: SentLine | null;
+    // the check review's cursor row and the rows opened to their was/now; here because the keybindings and the
+    // asking rail's links act on them from outside the review
+    review: { cursor: string | null; open: Record<string, boolean> };
 };
+
+// what every view draws: the file, with a pending sent line read as the agent writing
+export function shownBrainstormFile(s: BrainstormState | null | undefined): BrainstormFile | null {
+    return s?.file != null ? shownFile(s.file, s.sent) : null;
+}
 
 // the tab meta key holding the attached brainstorm.json's absolute path
 export const SESSION_BRAINSTORM = "session:brainstorm";
@@ -78,8 +90,11 @@ export function attachBrainstorm(agentId: string, a: { topic: string; cwd: strin
         lastViewedMs: now,
         board: null,
         showDesign: false,
+        designOpen: false,
         boards: [],
         base: null,
+        sent: null,
+        review: { cursor: null, open: {} },
     };
     globalStore.set(brainstormsAtom, { ...globalStore.get(brainstormsAtom), [agentId]: next });
 }
@@ -113,6 +128,33 @@ export function setBrainstormMode(agentId: string, mode: "terminal" | "brainstor
 
 export function openBrainstormBoard(agentId: string, board: string | null): void {
     updateBrainstorm(agentId, (s) => ({ ...s, board }));
+}
+
+export function openBrainstormDesign(agentId: string, open: boolean): void {
+    updateBrainstorm(agentId, (s) => ({ ...s, designOpen: open }));
+}
+
+// ids is the review's rows in cursor order; a cursor not among them (none yet, or its row gone) starts at the first
+export function moveReviewCursor(agentId: string, ids: string[], delta: 1 | -1): void {
+    if (ids.length === 0) {
+        return;
+    }
+    updateBrainstorm(agentId, (s) => {
+        const at = s.review.cursor != null ? ids.indexOf(s.review.cursor) : -1;
+        const next = at < 0 ? 0 : Math.min(ids.length - 1, Math.max(0, at + delta));
+        return { ...s, review: { ...s.review, cursor: ids[next] } };
+    });
+}
+
+export function setReviewCursor(agentId: string, id: string): void {
+    updateBrainstorm(agentId, (s) => ({ ...s, review: { ...s.review, cursor: id } }));
+}
+
+export function toggleReviewRow(agentId: string, id: string): void {
+    updateBrainstorm(agentId, (s) => ({
+        ...s,
+        review: { ...s.review, open: { ...s.review.open, [id]: !s.review.open[id] } },
+    }));
 }
 
 // read through the per-agent atom, the one watchFocusedCanvas (whenstate.ts) subscribes for the key predicates

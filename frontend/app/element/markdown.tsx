@@ -5,6 +5,7 @@ import { CopyButton } from "@/app/element/copybutton";
 import { createContentBlockPlugin } from "@/app/element/markdown-contentblock-plugin";
 import {
     MarkdownContentBlockType,
+    releaseResolved,
     resolveRemoteFile,
     resolveSrcSet,
     transformBlocks,
@@ -197,13 +198,23 @@ const MarkdownSource = ({
     const [resolving, setResolving] = useState<boolean>(true);
 
     useEffect(() => {
+        let cancelled = false;
+        let resolved: string = null;
         const resolvePath = async () => {
-            const resolved = await resolveSrcSet(props.srcSet, resolveOpts);
+            resolved = await resolveSrcSet(props.srcSet, resolveOpts);
+            if (cancelled) {
+                releaseResolved(null, resolved);
+                return;
+            }
             setResolvedSrcSet(resolved);
             setResolving(false);
         };
 
         resolvePath();
+        return () => {
+            cancelled = true;
+            releaseResolved(null, resolved);
+        };
     }, [props.srcSet]);
 
     if (resolving) {
@@ -267,18 +278,27 @@ const MarkdownImg = ({
             return;
         }
 
+        let cancelled = false;
+        let resolved: [string, string] = [null, null];
         const resolveFn = async () => {
-            const [resolvedSrc, resolvedSrcSet] = await Promise.all([
+            resolved = await Promise.all([
                 resolveRemoteFile(props.src, resolveOpts),
                 resolveSrcSet(props.srcSet, resolveOpts),
             ]);
-
-            setResolvedSrc(resolvedSrc);
-            setResolvedSrcSet(resolvedSrcSet);
+            if (cancelled) {
+                releaseResolved(...resolved);
+                return;
+            }
+            setResolvedSrc(resolved[0]);
+            setResolvedSrcSet(resolved[1]);
             setResolvedStr(null);
             setResolving(false);
         };
         resolveFn();
+        return () => {
+            cancelled = true;
+            releaseResolved(...resolved);
+        };
     }, [props.src, props.srcSet]);
 
     if (resolving) {

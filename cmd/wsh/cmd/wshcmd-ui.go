@@ -43,7 +43,7 @@ var uiActionsCmd = &cobra.Command{
 
 var uiRevealCmd = &cobra.Command{
 	Use:     "reveal <address>",
-	Short:   "take the user to run:<id> channel:<id> agent:<tabid> task:<id> effort:<id> radarreport:<id> surface:<key> canvas:<topic>[/<board>] brainstorm:<topic>, or show memnote:<id> in the avatar popup",
+	Short:   "take the user to run:<id> channel:<id> agent:<tabid> task:<id> effort:<id> surface:<key> canvas:<topic>[/<board>] brainstorm:<topic>, or show memnote:<id> in the avatar popup",
 	Args:    cobra.ExactArgs(1),
 	PreRunE: preRunSetupRpcClient,
 	RunE:    uiRevealRun,
@@ -58,7 +58,7 @@ var uiDoCmd = &cobra.Command{
 }
 
 func init() {
-	uiRevealCmd.Flags().StringVar(&uiRevealAnchor, "anchor", "", "sub-object to land on (a radar finding id)")
+	uiRevealCmd.Flags().StringVar(&uiRevealAnchor, "anchor", "", "sub-object to land on (a record's section)")
 	uiCmd.AddCommand(uiStateCmd, uiActionsCmd, uiRevealCmd, uiDoCmd)
 	rootCmd.AddCommand(uiCmd)
 }

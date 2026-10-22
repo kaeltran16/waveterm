@@ -194,7 +194,7 @@ describe("eventFromNotify", () => {
 });
 
 describe("a notice's bubble and its agent", () => {
-    const agents = [{ id: "tab1", name: "radar-triage", project: "waveterm", blockId: "abc" } as unknown as AgentVM];
+    const agents = [{ id: "tab1", name: "nightly-audit", project: "waveterm", blockId: "abc" } as unknown as AgentVM];
     const notice = (over: Partial<PetEvent> = {}): PetEvent => ({
         id: "notify:1:1",
         at: 1,
@@ -259,7 +259,7 @@ describe("eventFromAsk", () => {
 
 describe("askAgent", () => {
     it("finds the roster agent whose block matches the ask oref", () => {
-        const agents = [{ id: "tab1", name: "radar-triage", blockId: "abc" } as unknown as AgentVM];
+        const agents = [{ id: "tab1", name: "nightly-audit", blockId: "abc" } as unknown as AgentVM];
         expect(askAgent(agents, "block:abc")?.id).toBe("tab1");
     });
 
@@ -325,7 +325,7 @@ function bg(over: Partial<BackgroundAgentData> = {}): BackgroundAgentData {
         sessionid: "s1",
         cwd: "/x",
         kind: "background",
-        name: "radar-triage",
+        name: "nightly-audit",
         state: "working",
         startedts: 1,
         ...over,
@@ -364,7 +364,7 @@ describe("eventFromRunLanded", () => {
 describe("agentFinishedFromDiff", () => {
     it("reports a background agent that disappeared between polls", () => {
         expect(agentFinishedFromDiff([bg()], [], new Set(), 3000)).toEqual([
-            { id: "bgdone:s1:3000", at: 3000, kind: "bg-agent-done", text: "radar-triage finished" },
+            { id: "bgdone:s1:3000", at: 3000, kind: "bg-agent-done", text: "nightly-audit finished" },
         ]);
     });
 

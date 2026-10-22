@@ -82,19 +82,35 @@ describe("agent canvas mode chips", () => {
             "c canvas",
             "esc back",
             "Ctrl:Tab cycle",
+            "Ctrl:Shift:b view",
             ...globals(),
         ]);
     });
 
     it("canvas mode shows the agent switches, then terminal, board and mark before the globals", () => {
         setCanvasMode("a1", "canvas", 1);
-        expect(chips()).toEqual(["↑↓ move", "Ctrl:Tab cycle", "c terminal", "[ ] board", "m mark", ...globals()]);
+        expect(chips()).toEqual([
+            "↑↓ move",
+            "Ctrl:Tab cycle",
+            "Ctrl:Shift:b view",
+            "c terminal",
+            "[ ] board",
+            "m mark",
+            ...globals(),
+        ]);
     });
 
     it("marking shows stop marking, then terminal", () => {
         setCanvasMode("a1", "canvas", 1);
         setMarking("a1", true);
-        expect(chips()).toEqual(["↑↓ move", "Ctrl:Tab cycle", "m stop marking", "c terminal", ...globals()]);
+        expect(chips()).toEqual([
+            "↑↓ move",
+            "Ctrl:Tab cycle",
+            "Ctrl:Shift:b view",
+            "m stop marking",
+            "c terminal",
+            ...globals(),
+        ]);
     });
 });
 

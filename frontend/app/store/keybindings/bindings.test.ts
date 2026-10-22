@@ -21,6 +21,18 @@ import {
     setMarking,
     updateCanvas,
 } from "@/app/view/agents/canvasstore";
+import {
+    attachBrainstorm,
+    detachBrainstorm,
+    getBrainstorm,
+    openBrainstormDesign,
+    setBrainstormMode,
+    setReviewCursor,
+    updateBrainstorm,
+} from "@/app/view/agents/brainstormstore";
+import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
+import { sendBrainstorm } from "@/app/view/agents/brainstormsend";
+import type { BrainstormFile } from "@/app/view/agents/brainstormmodel";
 import { gotoChange } from "@/app/view/agents/diffnav";
 import { ignoreWsAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
@@ -47,8 +59,11 @@ import { peekKeyCommand } from "@/app/view/jarvis/petpeekmodel";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import {
     codeCursorAtom,
+    caretWord,
     codeIndexAtom,
     codeTreeFocusedAtom,
+    findReferences,
+    goToDefinition,
     startCreate,
 } from "@/app/view/code/codestore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
@@ -80,6 +95,10 @@ vi.mock("@/app/cockpit/cockpit-actions", async (orig) => ({
     ...(await orig<typeof import("@/app/cockpit/cockpit-actions")>()),
     launchPiTab: vi.fn(async () => {}),
 }));
+vi.mock("@/app/view/agents/brainstormsend", async (orig) => ({
+    ...(await orig<typeof import("@/app/view/agents/brainstormsend")>()),
+    sendBrainstorm: vi.fn(async () => {}),
+}));
 vi.mock("@/app/view/agents/diffnav", async (orig) => ({
     ...(await orig<typeof import("@/app/view/agents/diffnav")>()),
     gotoChange: vi.fn(() => true),
@@ -87,6 +106,9 @@ vi.mock("@/app/view/agents/diffnav", async (orig) => ({
 vi.mock("@/app/view/code/codestore", async (orig) => ({
     ...(await orig<typeof import("@/app/view/code/codestore")>()),
     startCreate: vi.fn(),
+    caretWord: vi.fn(() => null),
+    goToDefinition: vi.fn(async () => false),
+    findReferences: vi.fn(async () => {}),
 }));
 
 // the canvas guards read the focused agent id from the model
@@ -125,7 +147,7 @@ describe("closeTargetForDoubleCtrlC", () => {
 });
 
 describe("surface switch [ / ]", () => {
-    it("cycles SURFACE_ORDER forward/back with wrap and reaches radar", () => {
+    it("cycles SURFACE_ORDER forward/back with wrap", () => {
         const model = { surfaceAtom: atom<SurfaceKey>("cockpit") } as any;
         const bindings = buildGlobalBindings(model);
         const next = bindings.find((b) => b.id === "surface:next")!;
@@ -137,8 +159,8 @@ describe("surface switch [ / ]", () => {
         expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
 
         globalStore.set(model.surfaceAtom, "sessions");
-        next.run(ctx()); // sessions -> radar (radar is in SURFACE_ORDER)
-        expect(globalStore.get(model.surfaceAtom)).toBe("radar");
+        next.run(ctx()); // sessions -> usage
+        expect(globalStore.get(model.surfaceAtom)).toBe("usage");
 
         globalStore.set(model.surfaceAtom, SURFACE_ORDER[SURFACE_ORDER.length - 1]);
         next.run(ctx()); // wrap forward to first
@@ -163,12 +185,9 @@ describe("surface switch [ / ]", () => {
         expect(next.when!(ctx())).toBe(true);
     });
 
-    it("exposes a g r leader teleport to radar", () => {
+    it("binds nothing to g r", () => {
         const model = { surfaceAtom: atom<SurfaceKey>("cockpit") } as any;
-        const b = buildGlobalBindings(model).find((x) => x.id === "go:radar")!;
-        expect(b.keys).toBe("g r");
-        b.run(ctx());
-        expect(globalStore.get(model.surfaceAtom)).toBe("radar");
+        expect(buildGlobalBindings(model).find((x) => x.keys === "g r")).toBeUndefined();
     });
 });
 
@@ -214,15 +233,15 @@ describe("Escape back to the Cockpit", () => {
         expect(b.when!(ctx("usage"))).toBe(true);
     });
 
-    // the radar and project-switcher dropdowns close on Escape through useEscapeClose, a window bubble listener the
+    // the project-switcher dropdowns close on Escape through useEscapeClose, a window bubble listener the
     // capture-phase dispatcher would starve if this binding ran first
     it("yields to an open useEscapeClose menu on every deep surface", () => {
         const b = backHome();
         globalStore.set(escapeMenusOpenAtom, 1);
-        expect(b.when!(ctx("radar"))).toBe(false);
+        expect(b.when!(ctx("files"))).toBe(false);
         expect(b.when!(ctx("code"))).toBe(false);
         globalStore.set(escapeMenusOpenAtom, 0);
-        expect(b.when!(ctx("radar"))).toBe(true);
+        expect(b.when!(ctx("files"))).toBe(true);
     });
 
     // The Brief mounts two overlays that take Escape themselves and were missing from this list, so one
@@ -706,7 +725,7 @@ describe("command palette chord", () => {
 
 describe("code surface bindings", () => {
     const find = (id: string) => {
-        const b = buildCodeBindings().find((x) => x.id === id);
+        const b = buildCodeBindings(stubModel()).find((x) => x.id === id);
         if (b == null) {
             throw new Error(`no binding ${id}`);
         }
@@ -723,7 +742,7 @@ describe("code surface bindings", () => {
     // Files scope here (see "command palette chord" above), so a chord here would be a second,
     // conflicting claim on the same key.
     it("owns no Ctrl+P of its own — the global search binding covers files", () => {
-        expect(buildCodeBindings().find((b) => b.keys === "Ctrl:p")).toBeUndefined();
+        expect(buildCodeBindings(stubModel()).find((b) => b.keys === "Ctrl:p")).toBeUndefined();
     });
 
     it("keeps bare-letter refresh out of the editor, while save survives it", () => {
@@ -873,11 +892,11 @@ describe("agent:review", () => {
 // remote callers (wsh ui do) must get the user's confirmation for these; the keyboard still runs them directly
 describe("destructive bindings", () => {
     it("flags the irreversible actions that do not confirm on their own", () => {
-        expect(buildCodeBindings().find((b) => b.id === "code:save")?.destructive).toBe(true);
+        expect(buildCodeBindings(stubModel()).find((b) => b.id === "code:save")?.destructive).toBe(true);
     });
 
     it("leaves actions that confirm themselves, or can be undone, unflagged", () => {
-        expect(buildCodeBindings().find((b) => b.id === "code:delete")?.destructive).toBeUndefined();
+        expect(buildCodeBindings(stubModel()).find((b) => b.id === "code:delete")?.destructive).toBeUndefined();
     });
 });
 
@@ -916,6 +935,18 @@ describe("agent canvas mode keys", () => {
     it("running c switches the focused agent to canvas mode", () => {
         find("agent:canvas-open").run(nav);
         expect(getCanvas("a1")!.mode).toBe("canvas");
+    });
+
+    it("Ctrl+Shift+B toggles the canvas from inside the terminal, and stands down with no canvas", () => {
+        expect(find("agent:view-chord").keys).toBe("Ctrl:Shift:b");
+        expect(active("agent:view-chord", inTerm)).toBe(true);
+        find("agent:view-chord").run(inTerm);
+        expect(getCanvas("a1")!.mode).toBe("canvas");
+        find("agent:view-chord").run(nav);
+        expect(getCanvas("a1")!.mode).toBe("terminal");
+        expect(active("agent:view-chord", { ...inTerm, modalOpen: true })).toBe(false);
+        detachCanvas("a1");
+        expect(active("agent:view-chord", inTerm)).toBe(false);
     });
 
     it("in canvas mode: c, [ ], m and the agent switches are live; the surface, rail, fullscreen and back keys stand down", () => {
@@ -1059,7 +1090,7 @@ describe("the open avatar popup keeps its keys on every surface", () => {
             ...buildCockpitBindings(),
             ...buildAgentBindings(model),
             ...buildFilesBindings(),
-            ...buildCodeBindings(),
+            ...buildCodeBindings(stubModel()),
             ...buildJarvisBindings(),
             ...buildJarvisGraphBindings(),
             ...buildChannelsAskBindings(model, { current: { id: "agent-tab" } as any }),
@@ -1167,13 +1198,13 @@ describe("Resource Manager popover bindings", () => {
     it("moves, asks, cancels and closes", () => {
         globalStore.set(resmonSnapshotAtom, snapshot);
         globalStore.set(resmonOpenAtom, true);
-        // every group starts collapsed: Arc, then waveterm's header, expanded to reach its rows
+        // every view starts collapsed: Arc, then waveterm's header, expanded to reach its member and rows
         run("resmon:next");
         run("resmon:next");
         run("resmon:enter");
         run("resmon:next");
-        expect(globalStore.get(resmonUiAtom).cursor).toBe("job:10/10");
-        run("resmon:kill"); // the agent itself: no confirm
+        expect(globalStore.get(resmonUiAtom).cursor).toBe("m:job:10");
+        run("resmon:kill"); // the member's own line, the agent: no confirm
         expect(globalStore.get(resmonUiAtom).confirm).toBeNull();
         run("resmon:next");
         run("resmon:kill");
@@ -1735,7 +1766,7 @@ describe("Diff keys, DOM and toggles", () => {
 
 describe("Code keys, posture and the tree", () => {
     const code: KeyContext = { surface: "code", editable: false, modalOpen: false, leader: null };
-    const find = (id: string) => buildCodeBindings().find((b) => b.id === id)!;
+    const find = (id: string) => buildCodeBindings(stubModel()).find((b) => b.id === id)!;
 
     afterEach(() => {
         vi.unstubAllGlobals();
@@ -1762,7 +1793,7 @@ describe("Code keys, posture and the tree", () => {
         expect(b.when!({ ...ctx("cockpit"), editable: true })).toBe(false);
     });
 
-    it.each(["code:search", "code:focus-tree", "code:focus-editor"])(
+    it.each(["code:search", "code:focus-tree", "code:focus-editor", "code:definition", "code:references", "code:symbols"])(
         "%s is live on the Code surface, from the editor too, but not under a modal",
         (id) => {
             const b = find(id);
@@ -1809,5 +1840,227 @@ describe("Code keys, posture and the tree", () => {
         expect(frames).toHaveLength(1);
         frames[0]();
         expect(treeFocus).toHaveBeenCalledOnce();
+    });
+
+    it("F12 and Shift+F12 let the key pass with no word at the caret", () => {
+        vi.mocked(caretWord).mockReturnValue(null);
+        expect(find("code:definition").run(code)).toBe(false);
+        expect(find("code:references").run(code)).toBe(false);
+        expect(goToDefinition).not.toHaveBeenCalled();
+        expect(findReferences).not.toHaveBeenCalled();
+    });
+
+    it("F12 looks up the caret word's definition, and Shift+F12 its references", () => {
+        vi.mocked(caretWord).mockReturnValue({ word: "openPath", lang: "ts" });
+        // the sidebar opener is looked up in the DOM; there is none here
+        vi.stubGlobal("document", { querySelector: () => null });
+        const model = stubModel();
+        const def = buildCodeBindings(model).find((b) => b.id === "code:definition")!;
+        expect(def.run(code)).toBeUndefined();
+        expect(goToDefinition).toHaveBeenLastCalledWith(model, "openPath", "ts");
+        expect(find("code:references").run(code)).toBeUndefined();
+        expect(findReferences).toHaveBeenLastCalledWith("openPath");
+        vi.mocked(caretWord).mockReturnValue(null);
+    });
+
+    it("Ctrl+Shift+O opens the search seeded with @", () => {
+        const model = {
+            ...stubModel(),
+            paletteOpenAtom: atom(false),
+            paletteSeedAtom: atom<string | null>(null) as PrimitiveAtom<string | null>,
+        };
+        buildCodeBindings(model as any)
+            .find((b) => b.id === "code:symbols")!
+            .run(code);
+        expect(globalStore.get(model.paletteSeedAtom)).toBe("@");
+        expect(globalStore.get(model.paletteOpenAtom)).toBe(true);
+    });
+});
+
+describe("brainstorm check review keys", () => {
+    const nav: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+    const typing: KeyContext = { ...nav, editable: true };
+    const REVIEW_KEYS = [
+        "agent:brainstorm-review-next",
+        "agent:brainstorm-review-prev",
+        "agent:brainstorm-review-open",
+        "agent:brainstorm-review-keep",
+        "agent:brainstorm-review-restore",
+    ];
+    // one change waiting on keep or put back, one new guess, one decision left as it was
+    const checked: BrainstormFile = {
+        v: 1,
+        title: "Forecast",
+        spec: "docs/spec.md",
+        question: null,
+        working: null,
+        parts: [
+            {
+                id: "grain",
+                title: "Forecast grain",
+                state: "guess",
+                was: "Daily, for every field.",
+                body: "Daily event_count.",
+                why: "builder question 1",
+            },
+            { id: "torch", title: "The move to PyTorch", state: "guess", body: "A shared torch base." },
+            { id: "intent", title: "Intent and why", state: "yours", body: "Why it exists." },
+        ],
+        history: [],
+        done: true,
+        check: {
+            yours: [{ q: "What should the forecast act on?", a: "event_count", into: ["grain"] }],
+            calls: [],
+            answered: [],
+            touched: ["grain"],
+        },
+        run: null,
+    };
+    let model: any;
+    const all = () => [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildAgentBindings(model)];
+    const find = (id: string) => all().find((b) => b.id === id)!;
+    const active = (id: string, c: KeyContext = nav) => find(id).when!(c);
+    const claiming = (key: string, c: KeyContext = nav) =>
+        all()
+            .filter((b) => b.keys === key && b.when?.(c) !== false)
+            .map((b) => b.id);
+    const withFile = (file: BrainstormFile) => updateBrainstorm("a1", (s) => ({ ...s, file }));
+
+    beforeEach(() => {
+        vi.mocked(sendBrainstorm).mockClear();
+        vi.stubGlobal("document", { activeElement: null });
+        model = {
+            ...stubModel("a1"),
+            surfaceAtom: atom<SurfaceKey>("agent"),
+            agentsAtom: atom([{ id: "a1", name: "Agent", blockId: "b1" }]),
+        };
+        attachBrainstorm("a1", { topic: "forecast", cwd: "C:\\p" }, 0);
+        withFile(checked);
+        setBrainstormMode("a1", "brainstorm", 1);
+    });
+
+    afterEach(() => {
+        detachBrainstorm("a1");
+        globalStore.set(getProcExitAtom("b1"), undefined);
+        vi.unstubAllGlobals();
+    });
+
+    it("an exited agent's card is not the review: j/k stay on the agents and nothing claims y or u", () => {
+        globalStore.set(getProcExitAtom("b1"), { code: 0, at: 1 });
+        for (const id of REVIEW_KEYS) {
+            expect(active(id), id).toBe(false);
+        }
+        expect(active("agent:next-j")).toBe(true);
+        expect(claiming("y")).toEqual([]);
+        updateBrainstorm("a1", (s) => ({ ...s, showDesign: true, designOpen: true }));
+        expect(active("agent:brainstorm-review-next")).toBe(true);
+    });
+
+    it("in the review, j k Enter y u are the review's and the agent j/k stand down; the arrows still move agents", () => {
+        for (const id of REVIEW_KEYS) {
+            expect(active(id), id).toBe(true);
+        }
+        expect(active("agent:next-j")).toBe(false);
+        expect(active("agent:prev-k")).toBe(false);
+        expect(active("agent:next")).toBe(true);
+        expect(active("agent:prev")).toBe(true);
+        for (const key of ["j", "k", "Enter", "y", "u"]) {
+            expect(claiming(key), key).toHaveLength(1);
+        }
+    });
+
+    it("typing in the answer box or an edit box types: no review key is live", () => {
+        for (const id of REVIEW_KEYS) {
+            expect(active(id, typing), id).toBe(false);
+        }
+    });
+
+    it("the talk view and the terminal keep j/k on the agents, and nothing claims y or u", () => {
+        withFile({ ...checked, check: null });
+        for (const id of REVIEW_KEYS) {
+            expect(active(id), id).toBe(false);
+        }
+        expect(active("agent:next-j")).toBe(true);
+        expect(active("agent:prev-k")).toBe(true);
+        expect(claiming("y")).toEqual([]);
+        expect(claiming("u")).toEqual([]);
+        withFile(checked);
+        setBrainstormMode("a1", "terminal", 2);
+        expect(active("agent:brainstorm-review-next")).toBe(false);
+        expect(active("agent:next-j")).toBe(true);
+    });
+
+    it("a builder question in the main area is not the review; the review opened over it is", () => {
+        withFile({
+            ...checked,
+            check: { ...checked.check!, yours: [...checked.check!.yours, { q: "A day with no row?" }] },
+        });
+        expect(active("agent:brainstorm-review-next")).toBe(false);
+        expect(active("agent:next-j")).toBe(true);
+        openBrainstormDesign("a1", true);
+        expect(active("agent:brainstorm-review-next")).toBe(true);
+        expect(active("agent:next-j")).toBe(false);
+    });
+
+    it("another focused agent keeps its j/k", () => {
+        globalStore.set(model.focusIdAtom, "a2");
+        expect(active("agent:brainstorm-review-next")).toBe(false);
+        expect(active("agent:next-j")).toBe(true);
+    });
+
+    it("j and k move the cursor over the changed rows then the new ones, stopping at both ends", () => {
+        find("agent:brainstorm-review-next").run(nav);
+        expect(getBrainstorm("a1")!.review.cursor).toBe("grain");
+        find("agent:brainstorm-review-next").run(nav);
+        expect(getBrainstorm("a1")!.review.cursor).toBe("torch");
+        find("agent:brainstorm-review-next").run(nav);
+        expect(getBrainstorm("a1")!.review.cursor).toBe("torch");
+        find("agent:brainstorm-review-prev").run(nav);
+        expect(getBrainstorm("a1")!.review.cursor).toBe("grain");
+    });
+
+    it("y keeps a change and u puts mine back, each for the cursor row", () => {
+        setReviewCursor("a1", "grain");
+        find("agent:brainstorm-review-keep").run(nav);
+        find("agent:brainstorm-review-restore").run(nav);
+        expect(vi.mocked(sendBrainstorm).mock.calls.map((c) => c[1])).toEqual([
+            { kind: "keep", part: "grain" },
+            { kind: "restore", part: "grain" },
+        ]);
+        expect(vi.mocked(sendBrainstorm).mock.calls[0][0]).toMatchObject({ id: "a1", blockId: "b1" });
+    });
+
+    it("on a guess y confirms it and u passes the key on, sending nothing", () => {
+        setReviewCursor("a1", "torch");
+        find("agent:brainstorm-review-keep").run(nav);
+        expect(vi.mocked(sendBrainstorm).mock.calls.map((c) => c[1])).toEqual([{ kind: "confirm", part: "torch" }]);
+        expect(find("agent:brainstorm-review-restore").run(nav)).toBe(false);
+        expect(sendBrainstorm).toHaveBeenCalledTimes(1);
+    });
+
+    it("while the agent writes y and u pass the key on, as the row's buttons are locked", () => {
+        setReviewCursor("a1", "grain");
+        withFile({ ...checked, working: "Rewriting the forecast grain" });
+        expect(find("agent:brainstorm-review-keep").run(nav)).toBe(false);
+        expect(find("agent:brainstorm-review-restore").run(nav)).toBe(false);
+        expect(sendBrainstorm).not.toHaveBeenCalled();
+    });
+
+    it("with no cursor row y, u and Enter pass the key on", () => {
+        expect(find("agent:brainstorm-review-keep").run(nav)).toBe(false);
+        expect(find("agent:brainstorm-review-restore").run(nav)).toBe(false);
+        expect(find("agent:brainstorm-review-open").run(nav)).toBe(false);
+        expect(sendBrainstorm).not.toHaveBeenCalled();
+    });
+
+    it("Enter opens and closes the cursor row, and leaves a focused button its own press", () => {
+        setReviewCursor("a1", "grain");
+        find("agent:brainstorm-review-open").run(nav);
+        expect(getBrainstorm("a1")!.review.open).toEqual({ grain: true });
+        find("agent:brainstorm-review-open").run(nav);
+        expect(getBrainstorm("a1")!.review.open).toEqual({ grain: false });
+        vi.stubGlobal("document", { activeElement: { tagName: "BUTTON" } });
+        expect(find("agent:brainstorm-review-open").run(nav)).toBe(false);
+        expect(getBrainstorm("a1")!.review.open).toEqual({ grain: false });
     });
 });

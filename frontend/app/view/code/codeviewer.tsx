@@ -15,14 +15,15 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
 import { CodeEditor } from "@/app/view/codeeditor/codeeditor";
-import { joinRepoPath } from "@/util/paths";
+import { joinRepoPath, splitRepoPath } from "@/util/paths";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import type * as MonacoTypes from "monaco-editor";
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { isMarkdownPath } from "./codeclassify";
 import { CodeDiffView } from "./codediffview";
 import { remember } from "./codeeditorcache";
+import { langOf, type Lang } from "./codelang";
 import { resolveDocLink } from "./codelink";
 import {
     codeDraftsAtom,
@@ -35,7 +36,10 @@ import {
     openInCode,
     refreshIndex,
     setCaretLineReader,
+    setCaretWordReader,
+    type CodeProject,
 } from "./codestore";
+import { wordAt } from "./codesymbolquery";
 
 // The markdown element defaults to 14px with no padding — sized for the old full-width chat block,
 // which reads oversized in a cockpit pane beside the 12px mono source view.
@@ -52,6 +56,7 @@ function sizeLabel(bytes: number): string {
 let editor: MonacoTypes.editor.IStandaloneCodeEditor | null = null;
 
 setCaretLineReader(() => editor?.getPosition()?.lineNumber ?? null);
+setCaretWordReader(codeEditorWordAtCursor);
 
 // The editor unmounts on every file, mode and surface switch. Its model is kept alive and its view
 // state saved here, keyed like drafts by absolute path, so coming back restores the caret, scroll,
@@ -71,6 +76,21 @@ export function codeEditorSelection(): { startLine: number; endLine: number } | 
         return null;
     }
     return { startLine: sel.startLineNumber, endLine: sel.endLineNumber };
+}
+
+// The identifier at the caret and the open file's language. The word is cut by wordAt rather than
+// Monaco's getWordAtPosition, whose per-language word rules (CSS's leading ".") would hand the
+// definition query a name it was not built for; the language comes from codelang for the same reason.
+export function codeEditorWordAtCursor(): { word: string; lang: Lang } | null {
+    const pos = editor?.getPosition();
+    const model = editor?.getModel();
+    const file = globalStore.get(codeFileAtom);
+    if (pos == null || model == null || file.kind !== "text") {
+        return null;
+    }
+    const lang = langOf(file.path);
+    const word = wordAt(model.getLineContent(pos.lineNumber), pos.column, lang);
+    return word == null ? null : { word, lang };
 }
 
 function applyPendingLine(ed: MonacoTypes.editor.IStandaloneCodeEditor): void {
@@ -105,6 +125,57 @@ function keepEditor(ed: MonacoTypes.editor.IStandaloneCodeEditor, key: string): 
     for (const old of remember(kept, key, { model, view: ed.saveViewState() }, KEPT_EDITORS)) {
         old.model.dispose();
     }
+}
+
+// Markdown is memoized, but only a stable link handler lets the memo hold: an inline one re-parsed the
+// whole document on every unrelated re-render, which froze the pane for as long as a large file renders.
+function MarkdownPreview({
+    model,
+    project,
+    path,
+    text,
+}: {
+    model: AgentsViewModel;
+    project: CodeProject | null;
+    path: string;
+    text: string;
+}) {
+    const onClickLink = useCallback(
+        (href: string) => {
+            const target = project != null ? resolveDocLink(path, href) : null;
+            if (target == null) {
+                return false;
+            }
+            fireAndForget(() =>
+                openInCode(model, {
+                    projectPath: project.path,
+                    rel: target.rel,
+                    line: target.line ?? undefined,
+                })
+            );
+            return true;
+        },
+        [model, project, path]
+    );
+    // a doc's image paths are relative to the doc, not the repo root
+    const resolveOpts = useMemo(
+        () =>
+            project != null
+                ? { connName: "local", baseDir: joinRepoPath(project.path, splitRepoPath(path).dir) }
+                : null,
+        [project, path]
+    );
+    return (
+        <Markdown
+            text={text}
+            resolveOpts={resolveOpts}
+            scrollable
+            className="h-full"
+            contentClassName="px-5 py-4"
+            fontSizeOverride={DOC_FONT_SIZE}
+            onClickLink={onClickLink}
+        />
+    );
 }
 
 export function CodeViewer({ model }: { model: AgentsViewModel }) {
@@ -185,27 +256,12 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
             // toggle away, and the draft feeds the preview so unsaved edits show what you would save
             if (isMarkdownPath(file.path) && mode === "preview") {
                 return (
-                    <Markdown
+                    <MarkdownPreview
                         key={file.path}
+                        model={model}
+                        project={project}
+                        path={file.path}
                         text={draft?.text ?? file.text}
-                        scrollable
-                        className="h-full"
-                        contentClassName="px-5 py-4"
-                        fontSizeOverride={DOC_FONT_SIZE}
-                        onClickLink={(href) => {
-                            const target = project != null ? resolveDocLink(file.path, href) : null;
-                            if (target == null) {
-                                return false;
-                            }
-                            fireAndForget(() =>
-                                openInCode(model, {
-                                    projectPath: project.path,
-                                    rel: target.rel,
-                                    line: target.line ?? undefined,
-                                })
-                            );
-                            return true;
-                        }}
                     />
                 );
             }

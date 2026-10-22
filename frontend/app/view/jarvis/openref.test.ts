@@ -6,13 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const rpc = vi.hoisted(() => ({
     GetDossierCommand: vi.fn(),
     ListTaskDossiersCommand: vi.fn(),
-    ListRadarReportsCommand: vi.fn(),
     GetChannelRunsCommand: vi.fn(),
     GetChannelRunChangesCommand: vi.fn(),
     GetChannelMessagesCommand: vi.fn(),
     SetChannelReadCommand: vi.fn(),
     EffortGetCommand: vi.fn(),
     FileInfoCommand: vi.fn(),
+    FileReadCommand: vi.fn(),
     SetMetaCommand: vi.fn(),
     ReadVaultNoteCommand: vi.fn(),
     ListMemoryHygieneCommand: vi.fn(),
@@ -40,13 +40,6 @@ import { attachBrainstorm, detachBrainstorm, getBrainstorm } from "../agents/bra
 import { attachCanvas, detachCanvas, getCanvas, setCanvasMode, setMark } from "../agents/canvasstore";
 import { activeChannelIdAtom } from "../agents/channelsstore";
 import { memorySelectedChangeAtom, memorySelectedProjectAtom } from "../agents/memorystore";
-import {
-    currentReportIdAtom,
-    loadReports,
-    radarReportsAtom,
-    radarScopeAtom,
-    radarSelectedIdAtom,
-} from "../agents/radarstore";
 import { setupTabAtom } from "../agents/setupstore";
 import type { OpenTarget } from "./address";
 import { effortDetailAtom } from "./effortstore";
@@ -66,6 +59,7 @@ function makeModel(roster: string[] = [], terminals: string[] = []): AgentsViewM
         focusIdAtom: atom<string | undefined>(undefined),
         agentsAtom: atom(roster.map(vm)),
         terminalsAtom: atom<AgentVM[]>(terminals.map(vm)),
+        baseRosterAtom: atom(roster.map(vm)),
     } as unknown as AgentsViewModel;
 }
 
@@ -73,24 +67,6 @@ function deferred<T>() {
     let resolve!: (value: T) => void;
     const promise = new Promise<T>((r) => (resolve = r));
     return { promise, resolve };
-}
-
-function report(oid: string, path: string, startedts: number, findingIds: string[] = []): RadarReport {
-    return {
-        oid,
-        projectname: path.slice(1),
-        projectpath: path,
-        startedts,
-        findings: findingIds.map((id) => ({ id })),
-    } as unknown as RadarReport;
-}
-
-const REPORTS_B = [report("rb-new", "/b", 2, ["f-1"]), report("rb-old", "/b", 1, ["f-1"])];
-
-function seedReports(): void {
-    for (const r of REPORTS_B) {
-        objects.set(`radarreport:${r.oid}`, r);
-    }
 }
 
 beforeEach(() => {
@@ -104,10 +80,6 @@ beforeEach(() => {
     rpc.EffortGetCommand.mockResolvedValue({ effort: null });
     globalStore.set(taskListAtom, null);
     globalStore.set(tasksErrorAtom, null);
-    globalStore.set(radarScopeAtom, null);
-    globalStore.set(radarReportsAtom, null);
-    globalStore.set(currentReportIdAtom, undefined);
-    globalStore.set(radarSelectedIdAtom, undefined);
     globalStore.set(briefPeekRecordAtom, null);
     globalStore.set(briefSheetOpenAtom, false);
     globalStore.set(pendingDecisionAnchorAtom, null);
@@ -291,64 +263,6 @@ describe("memory note landing", () => {
         expect(globalStore.get(peekItemAtom)).toBeNull();
         expect(globalStore.get(petPeekOpenAtom)).toBe(false);
         expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
-    });
-});
-
-describe("radar landing", () => {
-    it("owns the report's project before selecting the report, so the project's newest does not win", async () => {
-        const model = makeModel();
-        seedReports();
-        rpc.ListRadarReportsCommand.mockResolvedValue({ reports: REPORTS_B });
-        expect(await openAddress(model, "radarreport:rb-old", { anchor: "f-1" })).toEqual({ ok: true });
-        expect(rpc.ListRadarReportsCommand).toHaveBeenCalledWith(expect.anything(), { projectpath: "/b" });
-        expect(globalStore.get(radarScopeAtom)).toEqual({ name: "b", path: "/b" });
-        expect(globalStore.get(currentReportIdAtom)).toBe("rb-old");
-        expect(globalStore.get(radarSelectedIdAtom)).toBe("f-1");
-        expect(globalStore.get(model.surfaceAtom)).toBe("radar");
-    });
-
-    it("lands on the report and says so when the finding is no longer in it", async () => {
-        const model = makeModel();
-        seedReports();
-        rpc.ListRadarReportsCommand.mockResolvedValue({ reports: REPORTS_B });
-        expect(await openAddress(model, "radarreport:rb-old", { anchor: "f-gone" })).toEqual({
-            ok: true,
-            notice: "That finding is no longer in this report",
-        });
-        expect(globalStore.get(currentReportIdAtom)).toBe("rb-old");
-        expect(globalStore.get(radarSelectedIdAtom)).toBeUndefined();
-        expect(pushToast).toHaveBeenCalledWith({
-            title: "That finding is no longer in this report",
-            message: "",
-            level: "info",
-        });
-    });
-
-    it("reports a deleted report", async () => {
-        const model = makeModel();
-        expect(await openAddress(model, "radarreport:rr-gone")).toEqual({
-            ok: false,
-            reason: "unavailable",
-            message: "That scan report no longer exists",
-        });
-    });
-
-    it("is not overwritten by another project's report load still in flight", async () => {
-        const model = makeModel();
-        seedReports();
-        globalStore.set(radarScopeAtom, { name: "a", path: "/a" });
-        const slowA = deferred<{ reports: RadarReport[] }>();
-        rpc.ListRadarReportsCommand.mockImplementation((_client: unknown, data: { projectpath: string }) =>
-            data.projectpath === "/a" ? slowA.promise : Promise.resolve({ reports: REPORTS_B })
-        );
-        const loadingA = loadReports("/a");
-
-        expect(await openAddress(model, "radarreport:rb-old", { anchor: "f-1" })).toEqual({ ok: true });
-
-        slowA.resolve({ reports: [report("ra-new", "/a", 9)] });
-        await loadingA;
-        expect(globalStore.get(currentReportIdAtom)).toBe("rb-old");
-        expect(globalStore.get(radarReportsAtom)?.map((r) => r.oid)).toEqual(["rb-new", "rb-old"]);
     });
 });
 
@@ -702,6 +616,30 @@ describe("brainstorm landing", () => {
         });
     });
 
+    it("reads the brainstorm file on each reveal instead of waiting for the next poll", async () => {
+        const model = makeModel(["a1"]);
+        const text = (title: string) =>
+            JSON.stringify({
+                v: 1,
+                title,
+                spec: "",
+                question: null,
+                working: null,
+                parts: [],
+                history: [],
+                done: false,
+            });
+        rpc.SetMetaCommand.mockResolvedValue(undefined);
+        rpc.FileInfoCommand.mockResolvedValue({ path: PATH, modtime: 1 });
+        rpc.FileReadCommand.mockResolvedValue({ data64: btoa(text("first")) });
+        await openAddress(model, "brainstorm:lag", { caller }, noReport);
+        await vi.waitFor(() => expect(getBrainstorm("a1")?.file?.title).toBe("first"));
+        rpc.FileInfoCommand.mockResolvedValue({ path: PATH, modtime: 2 });
+        rpc.FileReadCommand.mockResolvedValue({ data64: btoa(text("second")) });
+        await openAddress(model, "brainstorm:lag", { caller }, noReport);
+        await vi.waitFor(() => expect(getBrainstorm("a1")?.file?.title).toBe("second"));
+    });
+
     it("still attaches when the tab meta write fails", async () => {
         const model = makeModel(["a1"]);
         rpc.FileInfoCommand.mockResolvedValue({ path: PATH });
@@ -788,9 +726,6 @@ function selections(model: AgentsViewModel) {
         channel: globalStore.get(activeChannelIdAtom),
         record: globalStore.get(briefPeekRecordAtom),
         anchor: globalStore.get(pendingDecisionAnchorAtom),
-        radarScope: globalStore.get(radarScopeAtom),
-        report: globalStore.get(currentReportIdAtom),
-        finding: globalStore.get(radarSelectedIdAtom),
         focus: globalStore.get(model.focusIdAtom),
         surface: globalStore.get(model.surfaceAtom),
     };
@@ -804,9 +739,6 @@ function seedSelections(model: AgentsViewModel): void {
     globalStore.set(activeChannelIdAtom, "c-prior");
     globalStore.set(briefPeekRecordAtom, "task-prior");
     globalStore.set(pendingDecisionAnchorAtom, "dec-prior");
-    globalStore.set(radarScopeAtom, { name: "a", path: "/a" });
-    globalStore.set(currentReportIdAtom, "ra-prior");
-    globalStore.set(radarSelectedIdAtom, "f-prior");
     globalStore.set(model.focusIdAtom, "t0");
     globalStore.set(model.surfaceAtom, "code");
 }
@@ -857,12 +789,6 @@ const LOADABLE: PeekCase[] = [
         shown: { kind: "effort", effortId: "e-1" },
     },
     {
-        kind: "radar",
-        arrange: seedReports,
-        target: { kind: "radar", reportId: "rb-old", findingId: "f-1" },
-        shown: { kind: "radar", reportId: "rb-old", findingId: "f-1" },
-    },
-    {
         kind: "note",
         arrange: () => rpc.ReadVaultNoteCommand.mockResolvedValue({ id: "n1", title: "n1", body: "", updated: 1 }),
         target: { kind: "note", noteId: "n1" },
@@ -895,12 +821,6 @@ const UNLOADABLE: { kind: string; arrange: () => void; target: OpenTarget; messa
         arrange: () => rpc.EffortGetCommand.mockRejectedValue(new Error("not found")),
         target: { kind: "effort", effortId: "e-gone" },
         message: "That initiative no longer exists",
-    },
-    {
-        kind: "radar",
-        arrange: () => {},
-        target: { kind: "radar", reportId: "rr-gone" },
-        message: "That scan report no longer exists",
     },
     {
         kind: "note",

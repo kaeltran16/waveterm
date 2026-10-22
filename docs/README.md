@@ -19,7 +19,7 @@ reference for build commands, architecture, and gotchas — start there.
 | Path | What's in it |
 | --- | --- |
 | `reference/` | `architecture.md` (the full three-layer map extracted from `AGENTS.md`), `motion-system.md` (motion principles and tokens), and protocol references cited from source comments. |
-| `agents/` | Integration notes for the agent reporters: tab auto-naming and usage reporting. |
+| `agents/` | Integration notes for the agent reporters: tab auto-naming, usage reporting, and brainstorm mode. |
 | `superpowers/specs/` | Design docs — the **why** behind each feature. Written before implementation, kept after. |
 | `superpowers/plans/` | Implementation plans while their work is in flight. Deleted once shipped; git history keeps them. |
 | `superpowers/briefs/` | Findings reports, roadmaps and decision briefs, kept only while something live cites them. |

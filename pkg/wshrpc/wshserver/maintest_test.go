@@ -76,6 +76,9 @@ func TestMain(m *testing.M) {
 	// must not read as a worker that exited
 	jarvis.StartRunWorker = func(context.Context, string) error { return nil }
 	orchestrate.SetWorkerGoneForTest(func(context.Context, *waveobj.Run) bool { return false })
+	// the cap counted the workers earlier tests left live in the shared store, so a full package run stalled
+	// later dags' dispatch while each test passed alone
+	orchestrate.UncapWorkersForTest()
 	// a backstop for a test that makes trees without a repo fixture: none may land in the real user cache dir
 	defer orchestrate.UseWorktreeRootForTest(filepath.Join(dir, "arc-wt"))()
 	code := m.Run()

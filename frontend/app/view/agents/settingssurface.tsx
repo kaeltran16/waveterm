@@ -54,16 +54,13 @@ import {
     filterSections,
     flagRowId,
     groupSections,
+    isModOptionOn,
     OPENROUTER_SECRET_NAME,
-    RADAR_AUDIT_MODEL_KEY,
-    RADAR_AUDIT_RUNTIME_KEY,
-    RADAR_AUDIT_RUNTIMES,
-    RADAR_CLASSIFY_MODEL_KEY,
-    radarAuditRoute,
-    radarClassifyDefault,
     resolveSelection,
     rowKeys,
     settingsSections,
+    SKIM_FIELDS,
+    SKIM_PLUGIN,
     vaultStatusLine,
     vaultSyncButton,
     vaultSyncFailureNote,
@@ -742,6 +739,8 @@ function SectionBody({
             return <NewAgentSection runtime={runtime} onRuntime={onRuntime} />;
         case "claudeaccount":
             return <ClaudeAccountSection />;
+        case "skim":
+            return <SkimSection />;
         case "run":
             return <RunRouteSection />;
         case "terminal":
@@ -963,6 +962,53 @@ function NewAgentSection({ runtime, onRuntime }: { runtime: Runtime; onRuntime: 
                     );
                 })
             )}
+        </div>
+    );
+}
+
+// Read on open, since /config and /skim in any claude session write the same entry. Claude Code reloads the mod in
+// every running session when the entry changes.
+function SkimSection() {
+    const [options, setOptions] = useState<Record<string, unknown> | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const load = async () => {
+        try {
+            setOptions(await RpcApi.ClaudeModOptionsCommand(TabRpcClient, { plugin: SKIM_PLUGIN }));
+        } catch (e) {
+            setError(String(e));
+        }
+    };
+    useEffect(() => {
+        fireAndForget(load);
+    }, []);
+    const flip = (field: string) =>
+        fireAndForget(async () => {
+            setError(null);
+            try {
+                await RpcApi.ClaudeModSetOptionCommand(TabRpcClient, {
+                    plugin: SKIM_PLUGIN,
+                    field,
+                    value: !isModOptionOn(options, field),
+                });
+            } catch (e) {
+                setError(String(e));
+            }
+            await load();
+        });
+    return (
+        <div>
+            {SKIM_FIELDS.map((f) => (
+                <SettingRow key={f.field} id={`skim.${f.field}`}>
+                    <Toggle on={isModOptionOn(options, f.field)} onToggle={() => flip(f.field)} label={f.title} />
+                </SettingRow>
+            ))}
+            {error ? (
+                <div role="alert">
+                    <Note tone="error" testId="skim-error">
+                        {error}
+                    </Note>
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -1379,9 +1425,6 @@ function MemorySection() {
 function HeadlessAISection() {
     const runtime = (useAtomValue(getSettingsKeyAtom("headless:runtime")) as string) ?? "";
     const cheapModel = (useAtomValue(getSettingsKeyAtom("headless:openroutercheapmodel")) as string) ?? "";
-    const auditRuntime = (useAtomValue(getSettingsKeyAtom(RADAR_AUDIT_RUNTIME_KEY)) as string) ?? "";
-    const auditModel = (useAtomValue(getSettingsKeyAtom(RADAR_AUDIT_MODEL_KEY)) as string) ?? "";
-    const classifyModel = (useAtomValue(getSettingsKeyAtom(RADAR_CLASSIFY_MODEL_KEY)) as string) ?? "";
 
     const [hasKey, setHasKey] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -1571,27 +1614,6 @@ function HeadlessAISection() {
                 ) : null}
             </SettingRow>
             {modelRow("headless.cheap", cheapModel, "deepseek/deepseek-v4-flash", "headless:openroutercheapmodel")}
-            <SettingRow id="headless.radaraudit">
-                <RoutePicker
-                    value={radarAuditRoute(auditRuntime, auditModel)}
-                    title="Radar audit route"
-                    runtimes={RADAR_AUDIT_RUNTIMES}
-                    onChange={(route) =>
-                        route &&
-                        writeConfig({
-                            [RADAR_AUDIT_RUNTIME_KEY]: route.runtime,
-                            [RADAR_AUDIT_MODEL_KEY]: route.model ?? null,
-                        })
-                    }
-                />
-                <span className="font-mono text-[10.5px] tracking-[0.02em] text-muted">classifier</span>
-                <CommitText
-                    value={classifyModel}
-                    placeholder={radarClassifyDefault(auditRuntime)}
-                    width="w-[160px]"
-                    onCommit={(v) => writeConfig({ [RADAR_CLASSIFY_MODEL_KEY]: v })}
-                />
-            </SettingRow>
             {isOpenRouter && !hasKey ? (
                 <Note>OpenRouter key not set — background AI features stay off until a key is stored.</Note>
             ) : null}

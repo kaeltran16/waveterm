@@ -5,31 +5,56 @@ import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     BUILDER_PART,
+    approveBlocker,
     asksUser,
+    boardBackLabel,
     brainstormAttention,
     brainstormCounts,
     brainstormFilePath,
     brainstormLine,
+    brainstormPhase,
     canCheck,
+    checkAsk,
+    checkMain,
+    checkReview,
     compactedSummary,
+    confirmableGuesses,
+    designLabel,
     exitedSummary,
-    handoffSummary,
     handoffView,
+    hasProsCons,
     historyRows,
     isAsking,
+    leftPanel,
+    mainView,
+    noteParts,
+    optionLetter,
     orderedParts,
     paneView,
     parseBrainstorm,
     parseBrainstormPath,
+    partBoards,
+    partGist,
     partTitle,
+    partView,
+    phaseSteps,
+    pickableOptions,
+    progressView,
+    questionBoards,
+    questionTrack,
     resumePrompt,
+    reviewHead,
     runLine,
     runPrefill,
     sentenceDiff,
+    settleSent,
+    shownFile,
+    terminalAnswer,
     treeLine,
     withBrainstorm,
     type BrainstormFile,
     type BrainstormPart,
+    type HistoryEntry,
     type ParseResult,
     type PartState,
 } from "./brainstormmodel";
@@ -138,9 +163,54 @@ describe("parseBrainstorm", () => {
         }
         expect(r.file.compacted).toBe(1234);
         expect(r.file.check?.calls).toEqual([{ text: "bare" }, { text: "with part", part: "a" }]);
-        expect(r.file.check?.yours[0]).toEqual({ q: "Q?", why: "w", a: "ans", into: "a" });
+        expect(r.file.check?.yours[0]).toEqual({ q: "Q?", why: "w", a: "ans", into: ["a"] });
         expect(r.file.check?.touched).toEqual(["a"]);
         expect(r.file.check?.answered).toEqual(["done one"]);
+    });
+
+    it("reads a builder question's into as a string or a list, and its label, part and options", () => {
+        const options = [
+            { label: "Resolve itself", detail: "once caught up", pick: true, pros: ["no rota"], cons: ["flaps"] },
+            { label: "Someone closes it", cons: ["toil"] },
+            { detail: "no label, dropped" },
+        ];
+        const r = parseBrainstorm(
+            raw({
+                check: {
+                    yours: [
+                        { q: "Old?", into: "anti" },
+                        { q: "New?", label: "Short", part: "a", into: ["a", "", "b"], options },
+                        { q: "None?", into: "" },
+                    ],
+                    calls: [],
+                    answered: [],
+                },
+            })
+        );
+        expect(r.ok).toBe(true);
+        if (!r.ok) {
+            return;
+        }
+        expect(r.file.check?.yours).toEqual([
+            { q: "Old?", into: ["anti"] },
+            {
+                q: "New?",
+                label: "Short",
+                part: "a",
+                into: ["a", "b"],
+                options: [
+                    {
+                        label: "Resolve itself",
+                        detail: "once caught up",
+                        pick: true,
+                        pros: ["no rota"],
+                        cons: ["flaps"],
+                    },
+                    { label: "Someone closes it", detail: "", cons: ["toil"] },
+                ],
+            },
+            { q: "None?" },
+        ]);
     });
 
     it("accepts a question.part that names no part", () => {
@@ -199,6 +269,18 @@ describe("counts and gates", () => {
         expect(canCheck(file({ done: true, parts: [part("a", "yours"), part("b", "guess")] }))).toBe(false);
     });
 
+    it("canCheck waits for a question still open, one about no part included", () => {
+        const q = { n: 6, text: "Run the reviewer?", part: "" };
+        expect(canCheck(file({ done: true, question: q, parts: [part("a", "yours")] }))).toBe(false);
+    });
+
+    it("confirmableGuesses counts plain guesses, not changed parts", () => {
+        const g = file({
+            parts: [part("a", "guess"), part("b", "guess", { was: "old" }), part("c", "guess"), part("d", "yours")],
+        });
+        expect(confirmableGuesses(g)).toBe(2);
+    });
+
     it("isAsking is a question with no working line", () => {
         const q = { n: 1, text: "?", part: "a" };
         expect(isAsking(file({ question: q }))).toBe(true);
@@ -234,11 +316,110 @@ describe("withBrainstorm", () => {
     });
 });
 
+describe("settleSent", () => {
+    const sent = { at: 1000, modifiedMs: 500, answer: true };
+
+    it("holds while the file is unchanged and the agent has not ended a turn since", () => {
+        expect(settleSent(sent, 500, { state: "working" })).toBe(sent);
+        expect(settleSent(sent, 500, { state: "idle", idleSince: 900 })).toBe(sent);
+        expect(settleSent(sent, 500, undefined)).toBe(sent);
+    });
+
+    it("settles once the file changes and the agent is not at work", () => {
+        expect(settleSent(sent, 600, { state: "idle", idleSince: 900 })).toBeNull();
+        expect(settleSent(sent, 600, undefined)).toBeNull();
+        expect(settleSent({ ...sent, modifiedMs: null }, 600, { state: "asking" })).toBeNull();
+    });
+
+    it("holds through a write mid-turn, until that turn ends", () => {
+        expect(settleSent(sent, 600, { state: "working" })).toBe(sent);
+        expect(settleSent(sent, 600, { state: "idle", idleSince: 1500 })).toBeNull();
+    });
+
+    it("settles once the agent's turn ends after the send without a write", () => {
+        expect(settleSent(sent, 500, { state: "idle", idleSince: 1500 })).toBeNull();
+    });
+
+    it("nothing sent stays nothing", () => {
+        expect(settleSent(null, 500, { state: "idle", idleSince: 1500 })).toBeNull();
+    });
+});
+
+describe("terminalAnswer", () => {
+    const asking = file({ question: { n: 2, text: "?", part: "a" }, parts: [part("a", "asked")] });
+    const working = { state: "working" as const };
+
+    it("reads a turn started after the file asked as an answer typed in the terminal", () => {
+        const sent = terminalAnswer(asking, 500, working, 1000);
+        expect(sent).toEqual({ at: 1000, modifiedMs: 500, answer: true });
+        expect(shownFile(asking, sent).question).toBeNull();
+    });
+
+    it("settles like a sent answer once that turn ends", () => {
+        const sent = terminalAnswer(asking, 500, working, 1000);
+        expect(settleSent(sent, 500, { state: "idle", idleSince: 1500 })).toBeNull();
+    });
+
+    it("leaves a question the agent wrote during its current turn showing", () => {
+        expect(terminalAnswer(asking, 1200, working, 1000)).toBeNull();
+    });
+
+    it("needs an open question, a working agent and both stamps", () => {
+        expect(terminalAnswer(file(), 500, working, 1000)).toBeNull();
+        expect(terminalAnswer(asking, 500, { state: "idle" }, 1000)).toBeNull();
+        expect(terminalAnswer(asking, 500, undefined, 1000)).toBeNull();
+        expect(terminalAnswer(asking, 500, working, undefined)).toBeNull();
+        expect(terminalAnswer(asking, null, working, 1000)).toBeNull();
+    });
+});
+
+describe("shownFile", () => {
+    const q = { n: 3, text: "?", part: "a" };
+    const f = file({ question: q, parts: [part("a", "asked")] });
+
+    it("is the file itself with nothing pending", () => {
+        expect(shownFile(f, null)).toBe(f);
+    });
+
+    it("reads a pending answer as the agent writing it up, the question closed", () => {
+        const s = shownFile(f, { at: 1, modifiedMs: 1, answer: true });
+        expect(s.working).toBe("Writing up your answer.");
+        expect(s.question).toBeNull();
+        expect(isAsking(s)).toBe(false);
+        expect(partView(s, s.parts[0])).toBe("writing");
+        expect(treeLine(s, false).text).toBe("writing up your answer");
+    });
+
+    it("reads another pending line as working, the question kept", () => {
+        const s = shownFile(f, { at: 1, modifiedMs: 1, answer: false });
+        expect(s.working).toBe("Taking in your change.");
+        expect(s.question).toBe(q);
+        expect(isAsking(s)).toBe(false);
+        expect(approveBlocker(s)).toBe("The agent is writing; this opens when it is done");
+    });
+
+    it("leaves a working line the file sets itself alone", () => {
+        const w = file({ working: "Writing it" });
+        expect(shownFile(w, { at: 1, modifiedMs: 1, answer: true })).toBe(w);
+    });
+});
+
 describe("treeLine", () => {
-    it("says done with the first 8 chars of the run", () => {
-        expect(treeLine(file({ run: "abcdef0123456789" }), false)).toEqual({
+    const f = file({ run: "abcdef0123456789" });
+
+    it("names the run by its first 8 chars, not done, while Arc knows nothing of it", () => {
+        expect(treeLine(f, false)).toEqual({ lead: "Brainstorm", text: "run abcdef01", runId: "abcdef0123456789" });
+    });
+
+    it("says what Arc knows of the run, and done only once it merged", () => {
+        expect(treeLine(f, false, { text: "building 3/10 · run abcdef01", merged: false })).toEqual({
+            lead: "Brainstorm",
+            text: "building 3/10 · run abcdef01",
+            runId: "abcdef0123456789",
+        });
+        expect(treeLine(f, true, { text: "merged · run abcdef01", merged: true })).toEqual({
             lead: "Brainstorm done",
-            text: "run abcdef01",
+            text: "merged · run abcdef01",
             runId: "abcdef0123456789",
         });
     });
@@ -258,13 +439,17 @@ describe("brainstormLine", () => {
         expect(brainstormLine({ kind: "guess" })).toBe("brainstorm: guess");
         expect(brainstormLine({ kind: "skip" })).toBe("brainstorm: skip questions");
         expect(brainstormLine({ kind: "confirm", part: "p" })).toBe("brainstorm: confirm p");
+        expect(brainstormLine({ kind: "confirm-all" })).toBe("brainstorm: confirm every guess");
         expect(brainstormLine({ kind: "edit", part: "p", text: "new" })).toBe("brainstorm: edit p: new");
         expect(brainstormLine({ kind: "keep", part: "p" })).toBe("brainstorm: keep p");
         expect(brainstormLine({ kind: "restore", part: "p" })).toBe("brainstorm: restore p");
+        expect(brainstormLine({ kind: "keep-all" })).toBe("brainstorm: keep every change");
         expect(brainstormLine({ kind: "check" })).toBe("brainstorm: check");
         expect(brainstormLine({ kind: "builder-answer", text: "x" })).toBe("brainstorm: builder answer: x");
+        expect(brainstormLine({ kind: "builder-decide" })).toBe("brainstorm: builder decide");
         expect(brainstormLine({ kind: "approved" })).toBe("brainstorm: approved");
         expect(brainstormLine({ kind: "keep-talking" })).toBe("brainstorm: keep talking");
+        expect(brainstormLine({ kind: "run", runId: "r-1" })).toBe("brainstorm: run r-1");
     });
 
     it("joins a multi-line, tab-filled text into one line", () => {
@@ -308,7 +493,13 @@ describe("unknown part ids render raw", () => {
 });
 
 describe("historyRows", () => {
-    it("is newest first, labelled Q<n> or Recon", () => {
+    const opts = [
+        { label: "Owner first", detail: "d1", pick: true },
+        { label: "Platform first", detail: "d2" },
+        { label: "Both", detail: "d3" },
+    ];
+
+    it("is newest first, labelled Q<n>, with recon at the bottom", () => {
         const f = file({
             history: [
                 { kind: "question", n: 1, q: "q1", a: "a1", into: [] },
@@ -316,7 +507,307 @@ describe("historyRows", () => {
                 { kind: "question", n: 2, q: "q2", a: "a2", into: [] },
             ],
         });
-        expect(historyRows(f).map((r) => r.label)).toEqual(["Q2", "Recon", "Q1"]);
+        expect(historyRows(f).map((r) => r.label)).toEqual(["Q2", "Q1", "Recon"]);
+    });
+
+    it("lists every option offered, the picked one marked, and no separate answer", () => {
+        const f = file({
+            history: [{ kind: "question", n: 1, q: "q", a: "Platform first", into: [], options: opts, picked: 1 }],
+        });
+        const [r] = historyRows(f);
+        expect(r.options).toEqual([
+            { label: "Owner first", detail: "d1", picked: false, agentPick: true },
+            { label: "Platform first", detail: "d2", picked: true, agentPick: false },
+            { label: "Both", detail: "d3", picked: false, agentPick: false },
+        ]);
+        expect(r.answer).toBeNull();
+        expect(r.ownWords).toBe(false);
+    });
+
+    it("keeps why it asked, and has reasons to show while an option not picked says what it is", () => {
+        const entry = (over: Partial<HistoryEntry>): HistoryEntry => ({
+            kind: "question",
+            n: 1,
+            q: "q",
+            a: "Both",
+            into: [],
+            options: opts,
+            picked: 2,
+            ...over,
+        });
+        const [r] = historyRows(file({ history: [entry({ why: "w" })] }));
+        expect([r.why, r.reasons]).toEqual(["w", true]);
+        const bare = opts.map((o) => ({ ...o, detail: "" }));
+        const [quiet] = historyRows(file({ history: [entry({ options: bare })] }));
+        expect([quiet.why, quiet.reasons]).toEqual([null, false]);
+        const onlyPicked = [
+            { label: "A", detail: "" },
+            { label: "Both", detail: "what it is" },
+        ];
+        const [p] = historyRows(file({ history: [entry({ options: onlyPicked, picked: 1 })] }));
+        expect(p.reasons).toBe(false);
+    });
+
+    it("recon has no reasons toggle, why or not", () => {
+        const [r] = historyRows(file({ history: [{ kind: "recon", q: "rq", why: "w", a: "ra", into: [] }] }));
+        expect([r.why, r.reasons]).toEqual([null, false]);
+    });
+
+    it("an answer typed instead of an option is drawn after them, in your words", () => {
+        const f = file({ history: [{ kind: "question", n: 1, q: "q", a: "Only at night.", into: [], options: opts }] });
+        const [r] = historyRows(f);
+        expect(r.options.every((o) => !o.picked)).toBe(true);
+        expect(r.answer).toBe("Only at night.");
+        expect(r.ownWords).toBe(true);
+    });
+
+    it("a question with no options shows its answer alone, not as your words", () => {
+        const [r] = historyRows(file({ history: [{ kind: "question", n: 1, q: "q", a: "a1", into: [] }] }));
+        expect(r.options).toEqual([]);
+        expect(r.answer).toBe("a1");
+        expect(r.ownWords).toBe(false);
+    });
+
+    it("recon shows what it found, falling back to what was asked", () => {
+        const f = file({
+            history: [
+                { kind: "recon", q: "rq1", a: "found", into: [] },
+                { kind: "recon", q: "rq2", a: "", into: [] },
+            ],
+        });
+        expect(historyRows(f).map((r) => r.answer)).toEqual(["rq2", "found"]);
+    });
+});
+
+describe("question options", () => {
+    const opts = [
+        { label: "Owner first", detail: "Pages the owner", pick: true },
+        { label: "Platform first", detail: "One rota" },
+    ];
+
+    it("parse with why and options, the pick kept only when true", () => {
+        const r = parseBrainstorm(
+            raw({
+                question: {
+                    n: 4,
+                    text: "Who?",
+                    part: "a",
+                    why: "Every group names a team.",
+                    options: [
+                        { label: "Owner first", detail: "Pages the owner", pick: true },
+                        { label: "Platform first", detail: "One rota", pick: "yes" },
+                    ],
+                },
+            })
+        );
+        expect(r.ok && r.file.question).toEqual({
+            n: 4,
+            text: "Who?",
+            part: "a",
+            why: "Every group names a team.",
+            options: opts,
+        });
+    });
+
+    it("parse pros, cons and the agent's read, dropping blank and non-string lines", () => {
+        const r = parseBrainstorm(
+            raw({
+                question: {
+                    n: 2,
+                    text: "Which?",
+                    read: "Graph adds the most.",
+                    options: [
+                        { label: "Graph", detail: "d", pros: ["new signal", "", 3], cons: ["pairs"] },
+                        { label: "Forecast", detail: "e", pros: "cheap", cons: [] },
+                    ],
+                },
+            })
+        );
+        const q = r.ok ? r.file.question : null;
+        expect(q?.read).toBe("Graph adds the most.");
+        expect(q?.options).toEqual([
+            { label: "Graph", detail: "d", pros: ["new signal"], cons: ["pairs"] },
+            { label: "Forecast", detail: "e" },
+        ]);
+        expect(q != null && hasProsCons(q)).toBe(true);
+        expect(hasProsCons({ n: 1, text: "Q", part: "", options: [{ label: "A", detail: "" }] })).toBe(false);
+        expect(hasProsCons({ n: 1, text: "Q", part: "" })).toBe(false);
+    });
+
+    it("keep a history entry's why", () => {
+        const r = parseBrainstorm(raw({ history: [{ kind: "question", n: 1, q: "q", why: "w", a: "a", into: [] }] }));
+        expect(r.ok && r.file.history[0].why).toBe("w");
+    });
+
+    it("a file without them reads as before", () => {
+        const r = parseBrainstorm(
+            raw({ question: { n: 1, text: "Q" }, history: [{ kind: "question", n: 1, q: "q", a: "a", into: [] }] })
+        );
+        expect(r.ok && r.file.question).toEqual({ n: 1, text: "Q", part: "" });
+        expect(r.ok && r.file.history[0]).toEqual({ kind: "question", n: 1, q: "q", a: "a", into: [] });
+    });
+
+    it("drop an option with no label and a malformed options field, without failing the file", () => {
+        const r = parseBrainstorm(
+            raw({ question: { n: 1, text: "Q", options: [{ detail: "x" }, { label: " " }, "B", { label: "C" }] } })
+        );
+        expect(r.ok && r.file.question?.options).toEqual([{ label: "C", detail: "" }]);
+        const bad = parseBrainstorm(raw({ question: { n: 1, text: "Q", options: "A or B" } }));
+        expect(bad.ok && bad.file.question).toEqual({ n: 1, text: "Q", part: "" });
+    });
+
+    it("keep a history entry's picked index only when it names one of its options", () => {
+        const entry = (picked: unknown) =>
+            parseBrainstorm(
+                raw({ history: [{ kind: "question", n: 1, q: "q", a: "a", into: [], options: opts, picked }] })
+            );
+        const picked = (r: ParseResult) => (r.ok ? r.file.history[0].picked : "error");
+        expect(picked(entry(1))).toBe(1);
+        expect(picked(entry(0))).toBe(0);
+        expect(picked(entry(2))).toBeUndefined();
+        expect(picked(entry(-1))).toBeUndefined();
+        expect(picked(entry(0.5))).toBeUndefined();
+        expect(picked(entry("1"))).toBeUndefined();
+        const r = entry(1);
+        expect(r.ok && r.file.history[0].options).toEqual(opts);
+    });
+
+    it("letter the options A, B, C", () => {
+        expect([0, 1, 2, 3].map(optionLetter)).toEqual(["A", "B", "C", "D"]);
+    });
+});
+
+describe("mainView", () => {
+    const q = { n: 1, text: "Q", part: "a" };
+
+    it("is the question while it asks, the working note while the agent writes, else the design", () => {
+        expect(mainView(file({ question: q }), false)).toBe("question");
+        expect(mainView(file({ working: "w" }), false)).toBe("working");
+        expect(mainView(file({ question: q, working: "w" }), false)).toBe("working");
+        expect(mainView(file(), false)).toBe("design");
+    });
+
+    it("the design opened over either shows the design", () => {
+        expect(mainView(file({ question: q }), true)).toBe("design");
+        expect(mainView(file({ working: "w" }), true)).toBe("design");
+    });
+});
+
+describe("boardBackLabel", () => {
+    const q = { n: 1, text: "Q", part: "a" };
+
+    it("goes back to the question it was opened from, else to the design", () => {
+        expect(boardBackLabel(file({ question: q }), false)).toBe("Back to the question");
+        expect(boardBackLabel(file({ question: q }), true)).toBe("Back to the design");
+        expect(boardBackLabel(file({ question: q, working: "w" }), false)).toBe("Back to the design");
+        expect(boardBackLabel(file(), false)).toBe("Back to the design");
+        expect(boardBackLabel(null, false)).toBe("Back to the design");
+    });
+});
+
+describe("pickableOptions", () => {
+    const options = ["A", "B", "C", "D", "E"].map((label) => ({ label, detail: "" }));
+    const q = { n: 1, text: "Q", part: "a", options: options.slice(0, 3) };
+    const s = { designOpen: false, board: null, removed: false };
+    const check = { yours: [], calls: [], answered: [] };
+
+    it("is the options the question view draws", () => {
+        expect(pickableOptions(file({ question: q }), s)).toBe(3);
+        expect(pickableOptions(file({ question: { ...q, options: undefined } }), s)).toBe(0);
+    });
+
+    it("stops at the number of letter keys", () => {
+        expect(pickableOptions(file({ question: { ...q, options } }), s)).toBe(4);
+    });
+
+    it("is none when nothing draws them: no file, the agent writing, the design or a board open, the file gone", () => {
+        expect(pickableOptions(null, s)).toBe(0);
+        expect(pickableOptions(file({ question: q, working: "w" }), s)).toBe(0);
+        expect(pickableOptions(file({ question: q }), { ...s, designOpen: true })).toBe(0);
+        expect(pickableOptions(file({ question: q }), { ...s, board: "B.dc.html" })).toBe(0);
+        expect(pickableOptions(file({ question: q }), { ...s, removed: true })).toBe(0);
+    });
+
+    it("in the check, is the talk question's options while it is the main area", () => {
+        const builder = { q: "B?", options: options.slice(0, 2) };
+        const f = file({ question: q, check: { ...check, yours: [builder] } });
+        expect(pickableOptions(f, s)).toBe(3);
+        expect(pickableOptions({ ...f, working: "w" }, s)).toBe(0);
+    });
+
+    it("in the check, is the open builder question's options once no talk question is asked", () => {
+        const yours = [
+            { q: "done", a: "yes", options },
+            { q: "B?", options: options.slice(0, 2) },
+        ];
+        expect(pickableOptions(file({ check: { ...check, yours } }), s)).toBe(2);
+        expect(pickableOptions(file({ check: { ...check, yours: [{ q: "B?" }] } }), s)).toBe(0);
+    });
+
+    it("in the check, is none on the review, whether opened over a question or with nothing left to ask", () => {
+        const yours = [{ q: "B?", options }];
+        expect(pickableOptions(file({ question: q, check: { ...check, yours } }), { ...s, designOpen: true })).toBe(0);
+        expect(pickableOptions(file({ check: { ...check, yours: [{ q: "B?", a: "yes", options }] } }), s)).toBe(0);
+    });
+});
+
+describe("checkMain", () => {
+    const check = { yours: [], calls: [], answered: [] };
+    const q = { n: 6, text: "Q", part: "" };
+    const open = { q: "B?" };
+
+    it("asks the talk question first, then the first unanswered builder question, else the review", () => {
+        expect(checkMain(file({ question: q, check: { ...check, yours: [open] } }), false)).toBe("question");
+        expect(checkMain(file({ check: { ...check, yours: [{ q: "A?", a: "yes" }, open] } }), false)).toBe("builder");
+        expect(checkMain(file({ check: { ...check, yours: [{ q: "A?", a: "yes" }] } }), false)).toBe("review");
+        expect(checkMain(file({ check }), false)).toBe("review");
+    });
+
+    it("shows the agent writing over any question", () => {
+        expect(checkMain(file({ question: q, working: "w", check: { ...check, yours: [open] } }), false)).toBe(
+            "working"
+        );
+    });
+
+    it("is the review when the design is opened over a question or the agent writing", () => {
+        expect(checkMain(file({ question: q, check: { ...check, yours: [open] } }), true)).toBe("review");
+        expect(checkMain(file({ working: "w", check }), true)).toBe("review");
+    });
+});
+
+describe("questionTrack", () => {
+    it("answered questions, the one asked, then one per open part but the builder's", () => {
+        const f = file({
+            question: { n: 3, text: "Q", part: "c" },
+            history: [
+                { kind: "question", n: 1, q: "q1", a: "a1", into: [] },
+                { kind: "recon", q: "r", a: "r", into: [] },
+                { kind: "question", n: 2, q: "q2", a: "a2", into: [] },
+            ],
+            parts: [
+                part("a", "yours"),
+                part("b", "guess"),
+                part("c", "asked"),
+                part("d", "open"),
+                part(BUILDER_PART, "open"),
+            ],
+        });
+        expect(questionTrack(f)).toEqual(["done", "done", "now", "ahead"]);
+    });
+
+    it("has no now segment while no question is asked", () => {
+        expect(questionTrack(file({ parts: [part("a", "open")] }))).toEqual(["ahead"]);
+    });
+});
+
+describe("designLabel", () => {
+    it("names how many parts are yours", () => {
+        const f = file({ parts: [part("a", "yours"), part("b", "guess"), part("c", "asked")] });
+        expect(designLabel(f)).toBe("The design · 1 of 3 yours");
+    });
+
+    it("is plain with no parts yet", () => {
+        expect(designLabel(file())).toBe("The design");
     });
 });
 
@@ -351,18 +842,16 @@ describe("handoffView", () => {
     };
     const parts = [part("p1", "yours"), part("p2", "yours"), part("p3", "yours")];
 
-    it("counts questions, finds the open one and gates approval", () => {
+    it("counts questions and finds the open one", () => {
         const v = handoffView(file({ parts, check }));
         expect(v.questions).toBe(2 + 1 + 1);
         expect(v.open).toEqual({ q: "q2" });
         expect(v.answered).toEqual([{ q: "q1", a: "ans" }]);
-        expect(v.canApprove).toBe(false);
     });
 
-    it("can approve once every question is answered and no run started", () => {
-        const answered = { ...check, yours: [{ q: "q1", a: "ans" }] };
-        expect(handoffView(file({ parts, check: answered })).canApprove).toBe(true);
-        expect(handoffView(file({ parts, check: answered, run: "r1" })).canApprove).toBe(false);
+    it("counts the three tiles: for you, the agent decided, already in the design", () => {
+        const v = handoffView(file({ parts, check }));
+        expect([v.forYou, v.calls.length, v.already]).toEqual([2, 1, 1]);
     });
 
     it("treats every part as touched when touched is absent", () => {
@@ -378,6 +867,463 @@ describe("handoffView", () => {
     });
 });
 
+describe("partView", () => {
+    const asking = { n: 2, text: "?", part: "a" };
+
+    it("reads a guess that was yours as changed", () => {
+        expect(partView(file(), part("a", "guess"))).toBe("guess");
+        expect(partView(file(), part("a", "guess", { was: "before" }))).toBe("changed");
+    });
+
+    it("reads an asked part as writing only while the agent writes and asks nothing", () => {
+        expect(partView(file({ working: "w" }), part("a", "asked"))).toBe("writing");
+        expect(partView(file({ question: asking }), part("a", "asked"))).toBe("asked");
+        expect(partView(file({ working: "w", question: asking }), part("a", "asked"))).toBe("asked");
+    });
+
+    it("passes yours and open through", () => {
+        expect(partView(file(), part("a", "yours"))).toBe("yours");
+        expect(partView(file(), part("a", "open"))).toBe("open");
+    });
+});
+
+describe("phase", () => {
+    const steps = (f: BrainstormFile) => phaseSteps(f).map((s) => `${s.label}:${s.status}`);
+    const check = { yours: [], calls: [], answered: [] };
+
+    it("talks until a builder check exists", () => {
+        expect(brainstormPhase(file({ done: true }))).toBe("talk");
+        expect(steps(file())).toEqual(["Talking it through:current", "Builder check:todo", "Run:todo"]);
+    });
+
+    it("is on the builder check once the check is written", () => {
+        expect(steps(file({ check }))).toEqual(["Talking it through:done", "Builder check:current", "Run:todo"]);
+    });
+
+    it("is on the run once one started, check or not", () => {
+        expect(brainstormPhase(file({ check, run: "r1" }))).toBe("run");
+        expect(steps(file({ run: "r1" }))).toEqual(["Talking it through:done", "Builder check:done", "Run:current"]);
+    });
+
+    it("reads every phase done once the run merged", () => {
+        const merged = phaseSteps(file({ check, run: "r1" }), true).map((s) => `${s.label}:${s.status}`);
+        expect(merged).toEqual(["Talking it through:done", "Builder check:done", "Run:done"]);
+    });
+});
+
+describe("progressView", () => {
+    const parts = [part(BUILDER_PART, "open"), part("a", "yours"), part("b", "guess"), part("c", "asked")];
+
+    it("has one segment per part, the builder last, each with its state", () => {
+        expect(progressView(file({ parts })).segments).toEqual([
+            { id: "a", title: "Title a", state: "yours" },
+            { id: "b", title: "Title b", state: "guess" },
+            { id: "c", title: "Title c", state: "asked" },
+            { id: BUILDER_PART, title: `Title ${BUILDER_PART}`, state: "open" },
+        ]);
+    });
+
+    it("reads N of M parts yours while talking", () => {
+        const v = progressView(file({ parts }));
+        expect([v.lead, v.rest]).toEqual(["1 of 4", "parts yours"]);
+        expect(progressView(file()).lead).toBe("0 of 0");
+    });
+
+    it("reads yours and what is open at the builder check", () => {
+        const check = { yours: [], calls: [], answered: [] };
+        const all = file({ check, parts: [part("a", "yours"), part("b", "yours")] });
+        expect([progressView(all).lead, progressView(all).rest]).toEqual(["2 yours", "· nothing open"]);
+        expect(progressView(file({ check, parts })).rest).toBe("· 2 open");
+    });
+});
+
+describe("partGist", () => {
+    it("is the agent's gist, else the body's first sentence", () => {
+        const f = file();
+        expect(partGist(f, part("a", "guess", { gist: "One line.", body: "Long. Body." }))).toBe("One line.");
+        expect(partGist(f, part("a", "guess", { body: "First one. Second one." }))).toBe("First one.");
+    });
+
+    it("with no body, says what the part waits on", () => {
+        const f = file({ question: { n: 4, text: "?", part: "c" } });
+        expect(partGist(f, part("c", "asked"))).toBe("Written from your answer to question 4.");
+        expect(partGist(f, part("x", "asked"))).toBe("Waiting on the agent’s question.");
+        expect(partGist(file({ working: "w" }), part("c", "asked"))).toBe(
+            "The agent is writing this from your answer."
+        );
+        expect(partGist(f, part(BUILDER_PART, "open"))).toBe("The agent writes this last.");
+        expect(partGist(f, part("o", "open"))).toBe("Not talked through yet.");
+    });
+});
+
+describe("reviewHead", () => {
+    it("offers the builder check once every decision is yours and the agent is done", () => {
+        const f = file({ done: true, parts: [part("a", "yours"), part("n", "guess", { kind: "note" })] });
+        expect(reviewHead(f)).toEqual({
+            line: "Every decision is yours. Next, a fresh agent reads the design as a builder would.",
+            action: "check",
+            guesses: 0,
+        });
+    });
+
+    it("counts the guesses and offers confirm all for two or more", () => {
+        const two = reviewHead(file({ parts: [part("a", "guess"), part("b", "guess"), part("c", "yours")] }));
+        expect(two).toEqual({
+            line: "2 decisions are still the agent’s guess. Each reads in one line; open one to read it whole.",
+            action: "confirm-all",
+            guesses: 2,
+        });
+        const one = reviewHead(file({ parts: [part("a", "guess"), part("k", "guess", { was: "old" })] }));
+        expect(one.line).toBe(
+            "1 decision is still the agent’s guess. 1 decision changed since you confirmed it. Each reads in one line; open one to read it whole."
+        );
+        expect(one.action).toBeNull();
+    });
+
+    it("with nothing to confirm, says the agent still asks", () => {
+        const f = file({ question: { n: 2, text: "?", part: "c" }, parts: [part("a", "yours"), part("c", "asked")] });
+        expect(reviewHead(f)).toEqual({
+            line: "Nothing to confirm; the agent still has questions.",
+            action: null,
+            guesses: 0,
+        });
+    });
+});
+
+describe("notes", () => {
+    const parts = [
+        part("a", "yours"),
+        part("n1", "guess", { kind: "note" }),
+        part("b", "guess"),
+        part("n2", "open", { kind: "note" }),
+        part(BUILDER_PART, "open"),
+    ];
+
+    it("parse with kind note and a gist; a note needs no state", () => {
+        const r = parseBrainstorm(
+            raw({
+                parts: [
+                    { id: "a", title: "A", state: "guess", body: "x", gist: "g" },
+                    { id: "n", title: "N", kind: "note", body: "found" },
+                    { id: "m", title: "M", kind: "other", state: "yours", body: "" },
+                ],
+            })
+        );
+        expect(r.ok && r.file.parts).toEqual([
+            { id: "a", title: "A", state: "guess", body: "x", gist: "g" },
+            { id: "n", title: "N", state: "yours", kind: "note", body: "found" },
+            { id: "m", title: "M", state: "yours", body: "" },
+        ]);
+        expect(errorOf(parseBrainstorm(raw({ parts: [{ id: "x", kind: "other", body: "" }] })))).toBe(
+            'part "x" has an unknown state "undefined"'
+        );
+    });
+
+    it("are left out of every count, gate and label", () => {
+        const f = file({ parts });
+        expect(brainstormCounts(f)).toEqual({ yours: 1, guesses: 1, open: 1 });
+        expect(confirmableGuesses(f)).toBe(1);
+        expect(designLabel(f)).toBe("The design · 1 of 3 yours");
+        expect(progressView(f).segments.map((x) => x.id)).toEqual(["a", "b", BUILDER_PART]);
+        expect(questionTrack(file({ parts: [part("n", "open", { kind: "note" }), part("o", "open")] }))).toEqual([
+            "ahead",
+        ]);
+        const ready = file({ done: true, parts: [part("a", "yours"), part("n", "guess", { kind: "note" })] });
+        expect(canCheck(ready)).toBe(true);
+        expect(noteParts(f).map((p) => p.id)).toEqual(["n1", "n2"]);
+    });
+});
+
+describe("leftPanel", () => {
+    const q1 = { n: 1, text: "?", part: "a" };
+    const said = [{ kind: "question" as const, n: 1, q: "?", a: "x", into: [] }];
+    const yours = [part("a", "yours")];
+
+    it("holds the builder check once every part is yours and the agent is done", () => {
+        expect(leftPanel(file({ done: true, parts: yours, history: said }))).toBe("ready");
+        expect(leftPanel(file({ done: true, parts: yours }))).toBe("ready");
+    });
+
+    it("holds nothing while the agent writes, even when ready", () => {
+        expect(leftPanel(file({ done: true, parts: yours, working: "w" }))).toBe("none");
+    });
+
+    it("holds nothing beside the first question, and the list otherwise", () => {
+        expect(leftPanel(file({ question: q1, parts: [part("a", "asked")] }))).toBe("none");
+        expect(leftPanel(file({ question: q1, parts: [part("a", "asked")], history: said }))).toBe("left");
+        expect(leftPanel(file({ parts: [part("a", "guess")] }))).toBe("left");
+        expect(leftPanel(file({ parts: yours }))).toBe("left");
+    });
+});
+
+// the Check-Review board: 8 decisions the check changed, 2 new since it (a guess, and one question 16 asks), 3 left
+// as confirmed, 6 notes, and the builder's 3 questions answered
+const reviewBoard = (): BrainstormFile => {
+    const changed = (id: string, cause: Partial<BrainstormPart>) =>
+        part(id, "guess", { title: `Title ${id}`, gist: `now ${id}`, body: `Now ${id}.`, was: `Was ${id}.`, ...cause });
+    const notes = ["engine", "research", "proscons", "steps", "options", "hardware"].map((id) =>
+        part(id, "yours", { kind: "note" })
+    );
+    return file({
+        done: true,
+        question: { n: 16, text: "What is the graph model for?", part: "graph" },
+        parts: [
+            part("intent", "yours"),
+            changed("constraints", { why: "answer 12: your boss wants PyTorch" }),
+            changed("direction", { why: "answer 15: decide both models at a high level now" }),
+            part("torch", "guess", { gist: "A shared torch base." }),
+            changed("grain", { why: "builder question 1 and 3" }),
+            changed("role", { from: "builder question 1" }),
+            changed("damping", { why: "builder question 1" }),
+            changed("purpose", { why: "builder questions 1 and 2" }),
+            changed("evaluation", { why: "builder question 1" }),
+            changed("model", { why: "you asked for an ML model, not a statistical profile" }),
+            part("graph", "asked"),
+            part("order", "yours"),
+            ...notes,
+            part(BUILDER_PART, "yours"),
+        ],
+        check: {
+            yours: [
+                {
+                    q: "What should the forecast act on?",
+                    a: "Add a per-entity event_count field",
+                    into: ["grain", "role", "damping", "purpose", "evaluation"],
+                },
+                { q: "Re-grade severity?", a: "Neither", into: ["purpose"] },
+                { q: "A day with no row?", a: "Zero", into: ["grain"] },
+            ],
+            calls: [
+                { text: "p1", part: "purpose" },
+                { text: "m1", part: "model" },
+                { text: "e1", part: "evaluation" },
+                { text: "m2", part: "model" },
+                { text: "p2", part: "purpose" },
+                { text: "m3", part: "model" },
+                { text: "e2", part: "evaluation" },
+                { text: "m4", part: "model" },
+            ],
+            answered: [],
+            touched: ["constraints", "direction", "grain", "role", "damping", "purpose", "evaluation", "model"],
+        },
+    });
+};
+
+describe("approveBlocker", () => {
+    const yoursAll = [part("a", "yours"), part("b", "yours"), part("n", "guess", { kind: "note" })];
+    const check = { yours: [{ q: "q1" }], calls: [], answered: [] };
+    const answered = { ...check, yours: [{ q: "q1", a: "yes" }] };
+
+    it("asks for the builder's unanswered questions first, then the talk question", () => {
+        const three = { ...check, yours: [{ q: "q1" }, { q: "q2" }, { q: "q3" }, { q: "q4", a: "yes" }] };
+        expect(approveBlocker(file({ parts: yoursAll, check: three }))).toBe(
+            "Answer the builder’s 3 questions, then review what they change"
+        );
+        expect(approveBlocker(file({ parts: yoursAll, check }))).toBe(
+            "Answer the builder’s 1 question, then review what it changes"
+        );
+        const q = { n: 16, text: "Q", part: "a" };
+        expect(approveBlocker(file({ parts: yoursAll, check, question: q }))).toBe(
+            "Answer the builder’s 1 question, then review what it changes, and answer question 16"
+        );
+    });
+
+    it("names what is left in the design once the builder is answered", () => {
+        expect(approveBlocker(reviewBoard())).toBe("Review 8 changes, confirm 1 guess, answer question 16");
+        const parts = [part("a", "guess", { was: "w" }), part("b", "open"), part("c", "asked"), part("d", "yours")];
+        expect(approveBlocker(file({ parts, check: answered }))).toBe("Review 1 change, 2 decisions still open");
+        expect(approveBlocker(file({ parts: [part("a", "open")], check: answered }))).toBe("1 decision still open");
+    });
+
+    it("blocks a design that is still the agent's guesses", () => {
+        const parts = Array.from({ length: 10 }, (_, i) => part(`g${i}`, "guess"));
+        expect(approveBlocker(file({ parts: [...parts, part("y", "yours")], check: answered }))).toBe(
+            "Confirm 10 guesses"
+        );
+    });
+
+    it("never counts notes", () => {
+        const notes = [part("n1", "guess", { kind: "note" }), part("n2", "open", { kind: "note" })];
+        expect(approveBlocker(file({ parts: [part("a", "yours"), ...notes], check: answered }))).toBeNull();
+    });
+
+    it("names the agent writing before anything else", () => {
+        expect(approveBlocker(file({ check, working: "w" }))).toBe("The agent is writing; this opens when it is done");
+    });
+
+    it("is null once everything is yours and answered, or once a run started", () => {
+        expect(approveBlocker(file({ parts: yoursAll, check: answered }))).toBeNull();
+        expect(approveBlocker(file({ check, run: "r1", working: "w" }))).toBeNull();
+    });
+});
+
+describe("checkAsk", () => {
+    // the Main board: the builder's 3 questions, none answered, and the agent's 8 calls over 3 parts
+    const parts = [
+        part("intent", "yours"),
+        part("role", "yours", { title: "Where the forecast sits" }),
+        part("purpose", "yours"),
+        part("evaluation", "yours"),
+        part("model", "yours"),
+    ];
+    const yours = [
+        { q: "What should the forecast act on?", label: "What the forecast acts on", part: "role" },
+        { q: "Re-grade severity?" },
+        { q: "A day with no row?", label: "A day with no aggregate row" },
+    ];
+    const calls = [
+        { text: "m1", part: "model" },
+        { text: "p1", part: "purpose" },
+        { text: "m2", part: "model" },
+        { text: "e1", part: "evaluation" },
+        { text: "p2", part: "purpose" },
+        { text: "m3", part: "model" },
+        { text: "e2", part: "evaluation" },
+        { text: "m4", part: "model" },
+    ];
+    const f = file({ parts, check: { yours, calls, answered: [] } });
+
+    it("asks the first unanswered question and counts the check's questions", () => {
+        const m = checkAsk(f);
+        expect(m.index).toBe(1);
+        expect(m.total).toBe(3);
+        expect(m.open).toBe(yours[0]);
+        expect(m.calls).toBe(8);
+        expect(m.already).toEqual([]);
+        expect(m.questions).toBe(11);
+    });
+
+    it("queues each question by its label, else its text", () => {
+        expect(checkAsk(f).queue).toEqual([
+            { label: "What the forecast acts on", state: "now" },
+            { label: "Re-grade severity?", state: "waiting" },
+            { label: "A day with no aggregate row", state: "waiting" },
+        ]);
+        const later = checkAsk(
+            file({ parts, check: { yours: [{ ...yours[0], a: "x" }, ...yours.slice(1)], calls, answered: ["a1"] } })
+        );
+        expect(later.index).toBe(2);
+        expect(later.open).toBe(yours[1]);
+        expect(later.queue.map((q) => q.state)).toEqual(["answered", "now", "waiting"]);
+        expect(later.already).toEqual(["a1"]);
+        expect(later.questions).toBe(12);
+    });
+
+    it("groups the calls in the design's order, those with no known part last", () => {
+        expect(checkAsk(f).callGroups).toEqual([
+            { part: "purpose", title: "Title purpose", calls: ["p1", "p2"] },
+            { part: "evaluation", title: "Title evaluation", calls: ["e1", "e2"] },
+            { part: "model", title: "Title model", calls: ["m1", "m2", "m3", "m4"] },
+        ]);
+        const loose = checkAsk(
+            file({
+                parts,
+                check: { yours, calls: [{ text: "x" }, { text: "y", part: "ghost" }, calls[1]], answered: [] },
+            })
+        );
+        expect(loose.callGroups).toEqual([
+            { part: "purpose", title: "Title purpose", calls: ["p1"] },
+            { part: null, title: "Other decisions", calls: ["x", "y"] },
+        ]);
+    });
+
+    it("has no open question once all are answered", () => {
+        const m = checkAsk(file({ parts, check: { yours: [{ q: "a", a: "x" }], calls: [], answered: [] } }));
+        expect(m.open).toBeNull();
+        expect(m.index).toBe(0);
+        expect(m.queue).toEqual([{ label: "a", state: "answered" }]);
+    });
+});
+
+describe("checkReview", () => {
+    it("reads the Check-Review board", () => {
+        const m = checkReview(reviewBoard());
+        expect(m.changed.map((r) => r.id)).toEqual([
+            "constraints",
+            "direction",
+            "grain",
+            "role",
+            "damping",
+            "purpose",
+            "evaluation",
+            "model",
+        ]);
+        expect(m.changed.every((r) => r.action === "keep-restore" && r.view === "changed")).toBe(true);
+        expect(m.changed[0]).toEqual({
+            id: "constraints",
+            title: "Title constraints",
+            gist: "now constraints",
+            cause: "answer 12: your boss wants PyTorch",
+            was: "Was constraints.",
+            body: "Now constraints.",
+            view: "changed",
+            action: "keep-restore",
+            calls: [],
+        });
+        expect(m.changed.find((r) => r.id === "role")?.cause).toBe("builder question 1");
+        expect(m.changed.find((r) => r.id === "model")?.calls).toEqual(["m1", "m2", "m3", "m4"]);
+        expect(m.fresh.map((r) => [r.id, r.view, r.action, r.question])).toEqual([
+            ["torch", "guess", "confirm", undefined],
+            ["graph", "asked", "answer", 16],
+        ]);
+        expect(m.unchanged.map((p) => p.id)).toEqual(["intent", "order", BUILDER_PART]);
+        expect(m.notes).toHaveLength(6);
+        expect(m.cursorIds).toEqual([...m.changed.map((r) => r.id), "torch", "graph"]);
+        expect(m.pending).toBe(8);
+        expect(m.summary).toBe(
+            "Your answers to the builder changed 8 decisions you had confirmed, and 2 are new. Keep each change or put yours back; the agent’s 8 calls sit under the decision they belong to."
+        );
+        expect(m.answered).toEqual([
+            {
+                q: "What should the forecast act on?",
+                a: "Add a per-entity event_count field",
+                changed: ["grain", "role", "damping", "purpose", "evaluation"].map((id) => ({
+                    id,
+                    title: `Title ${id}`,
+                })),
+            },
+            { q: "Re-grade severity?", a: "Neither", changed: [{ id: "purpose", title: "Title purpose" }] },
+            { q: "A day with no row?", a: "Zero", changed: [{ id: "grain", title: "Title grain" }] },
+        ]);
+    });
+
+    it("draws a kept part as changed and settled, with no action", () => {
+        const f = reviewBoard();
+        const kept = {
+            ...f,
+            parts: f.parts.map((p) => (p.id === "role" ? { ...p, state: "yours" as const, was: undefined } : p)),
+        };
+        const row = checkReview(kept).changed.find((r) => r.id === "role");
+        expect(row).toMatchObject({ view: "yours", action: null });
+        expect(row?.was).toBeUndefined();
+        expect(checkReview(kept).summary).toContain("changed 8 decisions");
+        expect(checkReview(kept).pending).toBe(7);
+    });
+
+    it("counts a yours part an agent's call is under as changed, even untouched", () => {
+        const f = file({
+            parts: [part("a", "yours"), part("b", "yours")],
+            check: { yours: [], calls: [{ text: "c", part: "b" }, { text: "loose" }], answered: [], touched: [] },
+        });
+        const m = checkReview(f);
+        expect(m.changed.map((r) => [r.id, r.view, r.action, r.calls])).toEqual([["b", "yours", null, ["c"]]]);
+        expect(m.unchanged.map((p) => p.id)).toEqual(["a"]);
+        expect(m.summary).toBe(
+            "Your answers to the builder changed 1 decision you had confirmed. The agent’s 1 call sits under the decision it belongs to."
+        );
+    });
+
+    it("drops the clauses whose count is 0", () => {
+        const fresh = file({
+            parts: [part("a", "yours"), part("b", "guess")],
+            check: { yours: [], calls: [], answered: [] },
+        });
+        expect(checkReview(fresh).summary).toBe("1 decision is new since the check.");
+        const none = file({ parts: [part("a", "yours")], check: { yours: [], calls: [], answered: [] } });
+        expect(checkReview(none).summary).toBe("The check changed nothing you had confirmed.");
+    });
+});
+
 describe("summaries", () => {
     const parts = [
         ...["a", "b", "c", "d", "e"].map((id) => part(id, "yours")),
@@ -385,13 +1331,6 @@ describe("summaries", () => {
         part("g", "guess"),
         part("h", "open"),
     ];
-
-    it("handoffSummary", () => {
-        const yours8 = file({ done: true, parts: Array.from({ length: 8 }, (_, i) => part(`p${i}`, "yours")) });
-        expect(handoffSummary(yours8)).toBe("8 yours · nothing open · the agent has no more questions");
-        expect(handoffSummary(file({ parts }))).toBe("5 yours · 1 open");
-        expect(handoffSummary(file({ parts, done: true }))).toBe("5 yours · 1 open");
-    });
 
     it("compactedSummary", () => {
         expect(compactedSummary(file({ parts }))).toBe(
@@ -482,6 +1421,11 @@ describe("brainstormAttention", () => {
             "For “ghost” · question 1"
         );
     });
+
+    it("a question about no part names only its number", () => {
+        const f = file({ question: { n: 6, text: "Run the reviewer?", part: "" } });
+        expect(brainstormAttention({ agentId: "t", agentName: "n", topic: "x" }, f).reason).toBe("Question 6");
+    });
 });
 
 describe("paneView", () => {
@@ -504,12 +1448,49 @@ describe("paneView", () => {
     it("exited holds unless showDesign or a run started", () => {
         expect(paneView({ ...s, exited: true })).toBe("exited");
         expect(paneView({ ...s, exited: true, showDesign: true })).toBe("design");
-        expect(paneView({ ...s, exited: true, file: file({ run: "r1" }) })).toBe("design");
+        expect(paneView({ ...s, exited: true, file: file({ run: "r1" }) })).toBe("run");
     });
 
-    it("board beats check beats design", () => {
+    it("board beats run beats check beats design", () => {
         const withCheck = file({ check: { yours: [], calls: [], answered: [] } });
+        const withRun = { ...withCheck, run: "r1" };
+        expect(paneView({ ...s, file: withRun, board: "B.dc.html" })).toBe("board");
+        expect(paneView({ ...s, file: withRun })).toBe("run");
+        expect(paneView({ ...s, file: file({ run: "r1" }) })).toBe("run");
         expect(paneView({ ...s, file: withCheck, board: "B.dc.html" })).toBe("board");
         expect(paneView({ ...s, file: withCheck })).toBe("check");
+    });
+});
+
+describe("partBoards and questionBoards", () => {
+    const BASE = "http://127.0.0.1:1234";
+    const boards = ["A.dc.html", "B.dc.html"];
+    const parts = [part("layout", "asked", { boards }), part("copy", "open")];
+    const q = (p: string) => ({ n: 3, text: "Which layout?", part: p });
+
+    it("a part's boards show once the canvas is named and served", () => {
+        const f = file({ canvas: "topic", parts });
+        expect(partBoards(f, parts[0], BASE)).toEqual(boards);
+        expect(partBoards(f, parts[0], null)).toBeNull();
+        expect(partBoards(file({ parts }), parts[0], BASE)).toBeNull();
+        expect(partBoards(f, parts[1], BASE)).toBeNull();
+        expect(partBoards(f, undefined, BASE)).toBeNull();
+    });
+
+    it("the question shows its part's boards", () => {
+        expect(questionBoards(file({ canvas: "topic", parts, question: q("layout") }), BASE)).toEqual(boards);
+    });
+
+    it("none for a part with no boards, an unknown part, no part, or no question", () => {
+        const f = (question: BrainstormFile["question"]) => file({ canvas: "topic", parts, question });
+        expect(questionBoards(f(q("copy")), BASE)).toBeNull();
+        expect(questionBoards(f(q("ghost")), BASE)).toBeNull();
+        expect(questionBoards(f(q("")), BASE)).toBeNull();
+        expect(questionBoards(f(null), BASE)).toBeNull();
+    });
+
+    it("none until the canvas is named and served", () => {
+        expect(questionBoards(file({ parts, question: q("layout") }), BASE)).toBeNull();
+        expect(questionBoards(file({ canvas: "topic", parts, question: q("layout") }), null)).toBeNull();
     });
 });

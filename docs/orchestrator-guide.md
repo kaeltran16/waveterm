@@ -346,6 +346,16 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 - Headings are `### Task N` or `## Task N`, numbered 1, 2, 3… in order.
 - `**Depends on:**` must be the first line after the heading. Left out, the task depends on the task before it,
   so a plan with no Depends lines is **serial**. `none` means independent. References must point backwards.
+  **An edge between tasks that share no file must say why.** When the task and one it lists both have Files
+  lines and the two lines share no path, the reference needs a reason in parentheses saying what the task uses
+  from it: `**Depends on:** Task 1 (uses the topOf rows it adds), Task 2`. Submit refuses the bare reference,
+  naming both tasks: give the reason, or drop the edge so the two run at the same time. Nothing else orders two
+  tasks with no file in common, so a needless edge only makes one wait for the other's review (run dfba1693:
+  a fixtures task and an Evidence task were linked because one scenario's screenshot showed both). A shared
+  screenshot or scenario run is not a reason; each task names that scenario step in its acceptance instead.
+  Exempt: an edge between tasks that share a file (the overlap check already demands it), the implicit edge of
+  a task with no Depends line, and an edge to or from a task with no Files line. The plan reviewer checks that
+  each reason holds.
   A dependency on a long task for its interface alone (a type, a wire field, a table, a signature) is the
   common way a plan grows a long chain: land the interface first as its own small task, and the implementation
   and its users depend on that and run side by side. Measured over 69 finished runs (2026-10-15), worker time
@@ -439,6 +449,12 @@ Depends lines in the plan. Raising parallelism won't help. When slots are short,
 the ready task with the longest chain of tasks waiting behind it, then by task id, so a chain does not queue behind
 tasks nothing depends on.
 
+Parallelism is one run's width. Across every run on the machine the engine also starts at most 8 workers, and
+a new one only while at least 3.5 GB of memory is available: a worker's claude and its typecheck peak at about
+that. While another run waits, a run refills only to its share of the 8. A task held back stays pending and starts
+on a later tick, within 30 seconds of a worker finishing or memory freeing up; `dag status` still lists it as
+ready to dispatch. With no worker live anywhere, one always starts.
+
 ![The backlog plan in the launcher](images/orchestrator-guide/24-plan-dialog-backlog.png)
 
 The New run window lists the parsed plan's tasks with a model column that follows the Workers picker. On
@@ -478,6 +494,7 @@ design canvas), the plan and the files they name. The full checklist is that:
 
 - every requirement in the spec has a task;
 - no two tasks edit the same file without a Depends between them;
+- each reason a Depends line gives holds: the dependent task really uses what it names;
 - types, functions and flags have the same names in every task that mentions them;
 - no task waits for another's long implementation when it needs only its interface: the interface lands first
   as its own small task;
@@ -497,7 +514,7 @@ reviewers route, each checking only its own part of the checklist:
 | Lens | Checks |
 |---|---|
 | **Spec coverage** | every requirement has a task; spec gaps and spec/plan contradictions |
-| **Task order and files** | Files/Depends overlaps; names consistent across tasks |
+| **Task order and files** | Files/Depends overlaps; Depends reasons hold; names consistent across tasks |
 | **Tests and commands** | acceptance criteria and named tests; the named commands exist |
 | **Final coverage** | each UI change has a Final scenario step; with a Prototype, each board has one |
 
@@ -931,13 +948,26 @@ the verifier, and records the reason on the stage as `ended by the human: …`. 
 unverified. Failed is a verifier's fail: the lead plans a fix round from the reason, so cancel the run instead
 when you want no fix round.
 
+**Could not verify.** In the final stage Check and Verify, like the Final command, may exit 3 when they cannot
+reach something they need, a service that is down or a tool that is not installed. The stage reads that as
+unverified, `Check `<cmd>` could not verify: <last output line>`, and goes on to the next step, instead of failing
+and handing the lead a fix round no code change could pass. A Verify that exits 3 closes none of the merges it
+stood for. At a merge point an exit 3 is still a failure.
+
+**Rerunning a failed stage.** When a stage failed on something outside the code and you fixed it, run it again
+from **Rerun final stage** (the run sheet, the Final verification pane, or the palette) or with
+`wsh runs rerun-final <run-id>`. It runs in the same round, so it spends no fix round. A lead that is still
+running is told to drop its fix plan, and the stage's outcome wakes it as before. A fix round already submitted
+refuses the rerun, since the stage is then no longer failed. A run whose land the failure held lands by itself
+once the rerun passes or ends unverified, unless you dismissed that hold. A done run's lead gets no wakes.
+
 **The outcome:**
 
 | Outcome | When | Then |
 |---|---|---|
 | **passed** | nothing failed and nothing is unverified | the dag is done; the lead gets `run finished` with the outcome |
-| **unverified** | nothing failed, but there is a reason: a test a merge's or the final stage's Verify reported flaky, a Final exit 3, the verifier's `--unverified`, a reviewer's `--unverified` note, a plan with no Verify, or you ended the stage unverified | the dag is done; the `run finished` wake lists every reason in full |
-| **failed** | Check, Final or the verifier failed, or you ended the stage failed | the lead wakes with the failure in full |
+| **unverified** | nothing failed, but there is a reason: a test a merge's or the final stage's Verify reported flaky, an exit 3 from Check, Verify or Final, the verifier's `--unverified`, a reviewer's `--unverified` note, a plan with no Verify, or you ended the stage unverified | the dag is done; the `run finished` wake lists every reason in full |
+| **failed** | Check, Verify, Final or the verifier failed (an exit 3 from a command is unverified instead), or you ended the stage failed | the lead wakes with the failure in full; you can rerun the stage once you fixed a cause outside the code |
 
 `wsh jarvis dag status` prints the stage as `final <state> round=N commit=… out=<ARC_FINAL_OUT>`, then each
 `final unverified:` reason and a `final failed:` detail, whole.
@@ -1066,8 +1096,9 @@ and `complete` prints that hold.
 
 A hold made only by uncommitted changes in the checkout (staged changes, unstaged edits to files the run changes, a
 differing untracked file) clears itself: the watchdog re-runs the land's checkout check every 30 seconds and lands
-the run once those changes are committed, stashed or moved aside, with the force the land was given. Every other
-hold waits for you. A dismissed hold is not retried.
+the run once those changes are committed, stashed or moved aside, with the force the land was given. A hold on a
+failed final stage lands by itself once a rerun of the stage passes or ends unverified. Every other hold waits
+for you. A dismissed hold is not retried.
 
 A held land raises a **land held** item under Waiting on you: "The run's branch was not merged back: <reason>". For
 a hold on uncommitted changes its line says the run lands by itself once they are gone. Otherwise clear the reason,
@@ -1215,6 +1246,7 @@ Run-level commands, from any terminal in the project:
 | `wsh runs start … --reviewer-runtime <rt> [--reviewer-model <id>]` | the reviewer route; `--reviewer-model` needs `--reviewer-runtime` |
 | `wsh runs show <run-id>` | status, commits, `usage`, the task digest, `outcome` with its reasons, `land`, the report; its `route` line adds `workers=…` and `reviewers=…` when the run has them |
 | `wsh runs answer <run-id> <answers-json>` | answer the run's own question (the lead's), which `runs show` prints |
+| `wsh runs rerun-final <run-id>` | run a failed final stage again in the same round, once a cause outside the code is fixed |
 | `wsh runs land <run-id> [--force]` | retry a held land-back; `--force` lands a failed final stage (the human's call only) |
 | `wsh runs ack <run-id>` | acknowledge an unverified outcome, clearing its attention item |
 

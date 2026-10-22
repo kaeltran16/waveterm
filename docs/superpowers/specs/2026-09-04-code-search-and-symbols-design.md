@@ -1,7 +1,7 @@
 # Code surface: real search, and symbols without an index
 
 **Date:** 2026-09-04
-**Status:** design approved, no plan written yet
+**Status:** shipped — phase 1 with the search options, phases 2–4 on 2026-10-20 (see "Implementation notes" at the end)
 **Design source:** none — no mockup. Follows the surface's column-mode idiom and the existing finder
 palette.
 **Predecessors:** `2026-08-06-code-surface-navigation-and-handoff-design.md` (which added content
@@ -386,3 +386,46 @@ call hierarchy, type hierarchy or rename-symbol; cross-language definition looku
 is scoped to the caller's language family); search history; saved searches; multi-line search patterns
 (git grep is line-oriented); and searching a ref other than the working tree. Everything out of scope
 in the 08-03, 08-06 and 08-15 specs stands.
+
+## Implementation notes (2026-10-20, phases 2–4)
+
+Where the code that shipped differs from the text above, and why. The surface had moved on since this was
+written, so several "what already exists" claims no longer held.
+
+- **The finder is the universal search's Files scope now.** `codefinderpalette.tsx` is gone; Code's
+  `Ctrl+P` opens the one search overlay on Files (`frontend/app/cockpit/command-palette.tsx`,
+  `palette-files.ts`). `parseFinderQuery` gains `symbol: true` for a leading `@`, and the Files scope
+  branches to a symbol list ranked by `rankSymbols` (in `codeoutline.ts`, shared with the pane's filter).
+  `@` only means symbols in Files: in All it is still the Agents sigil. Off Code the scope says to open a
+  file on Code, since the outline is Code's open file.
+- **`Ctrl+Shift+O` seeds the overlay through `paletteSeedAtom`** on the view model, consumed by the next
+  open. That needs the model in the binding, so `buildCodeBindings(model)` takes it, as `openInCode` for
+  F12 does too.
+- **A symbol jump records history.** `goToLine(line)` in `codestore.ts` pushes a same-file history entry
+  and sets the pending line, so `Alt+←` returns from a symbol row or an `@` pick; setting
+  `codePendingLineAtom` alone would not have.
+- **The caret word reaches the bindings through a lent reader** (`setCaretWordReader` / `caretWord()` in
+  `codestore.ts`), the same seam as the caret line, so `bindings.ts` never imports the Monaco module.
+  `codeEditorWordAtCursor()` cuts the word with the pure `wordAt` rather than `getWordAtPosition`, whose
+  per-language rules (CSS's leading `.`) would hand the query a name it was not built for. `wordAt` takes
+  the language: CSS and shell names keep their dashes (`--color-accent`).
+- **`definitionPattern` returns `null`** for markdown and unknown files, which have no declaration forms;
+  F12 there runs find-references instead, under its "References to" heading. Patterns use `[[:space:]]`,
+  never `\s` or ``; a vitest runs one through the real `git grep -E`, and Go's RE2 (the plain-directory
+  scan) compiles each language's pattern too. Forms are strong (keyword declarations) or weak (a method
+  header, a block member, a module-level assignment); both are grepped and the ranking puts strong first.
+- **One hit jumps only when the result was not truncated.** A truncated single hit could hide the real
+  definition, so it lists.
+- **`codeSearchTitleAtom` is new** (phase 1 shipped without it). `runSearch` takes an optional title and
+  clears it otherwise, so any search typed or re-run by hand drops the heading. Definitions do not go
+  through `runSearch`: `grepProject` returns the raw result, a single hit jumps without touching the
+  search pane, and only a list is placed there with `showSearch`.
+- **Outline names.** A Go method is `Recv.Method`, so a file's several `String` methods stay apart; a
+  Go `const (` / `var (` / `type (` block gets a `const (…)` header row so its depth-1 members sit under
+  something; a Rust `impl` row is `impl Trait for Type`. Class and impl members are found by brace depth,
+  but top-level forms are matched at column 0, so a brace miscounted in a regex literal cannot hide the
+  rest of the file. Markdown skips a leading frontmatter block as well as fences.
+- **Measured:** the outline takes under 1 ms on a typical file and about 24 ms on the repository's largest
+  (`scripts/cdp/scenarios.mjs`, 25k lines), and is derived only while the Symbols tab is mounted.
+- **CDP:** `code-symbols` covers the tab, a row click, `Ctrl+Shift+O`, an `@` pick, F12 with one and two
+  definitions, and Shift+F12. `code-search-filters` was not added in phase 1 and is still not here.

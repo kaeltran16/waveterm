@@ -3,26 +3,31 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    buildViews,
     busyWords,
-    cursorRows,
     fmtAge,
     fmtCpu,
     fmtMem,
     fmtSize,
-    groupHeader,
+    foldedTitle,
     isExpanded,
     killChildrenConfirmText,
     killChildrenTargets,
     killConfirmText,
-    orderGroups,
+    memberCommand,
+    memberOf,
     outcomeNote,
     ownerKindWords,
     ownerNoun,
     readout,
     RESMON_UI_INITIAL,
+    resmonLines,
     resmonReduce,
     rowLabel,
     subtreeSize,
+    viewHeader,
+    viewsSummary,
+    type ResMonMember,
     type ResMonUi,
 } from "./resmon";
 
@@ -61,28 +66,46 @@ const arc = group("arc", "arc", "Arc", [
     proc(27152, 1, "wavesrv.x64.exe", { role: "Backend" }),
 ]);
 
-const waveterm = group("job:14820:1", "agenttab", "waveterm", [
-    proc(14820, 0, "claude.exe", { tag: "agent", command: '"C:\\bin\\claude.exe" --resume' }),
-    proc(14832, 1, "conhost.exe", { tag: "console" }),
-    proc(18240, 1, "bash.exe"),
-    proc(18244, 2, "go.exe", { command: "C:\\Go\\bin\\go.exe test ./pkg/orchestrate/..." }),
-    proc(18311, 3, "orchestrate.test.exe"),
-    proc(9932, 1, "cmd.exe"),
-    proc(9958, 2, "node.exe"),
-]);
+const waveterm = group(
+    "job:14820:1",
+    "agenttab",
+    "waveterm",
+    [
+        proc(14820, 0, "claude.exe", { tag: "agent", command: '"C:\\bin\\claude.exe" --resume' }),
+        proc(14832, 1, "conhost.exe", { tag: "console" }),
+        proc(18240, 1, "bash.exe"),
+        proc(18244, 2, "go.exe", { command: "C:\\Go\\bin\\go.exe test ./pkg/orchestrate/..." }),
+        proc(18311, 3, "orchestrate.test.exe"),
+        proc(9932, 1, "cmd.exe"),
+        proc(9958, 2, "node.exe"),
+    ],
+    { runtime: "claude" }
+);
 
-const piWorker = group("job:13060:1", "runworker", "Arc · Task 2", [
-    proc(13060, 0, "cmd.exe", { tag: "launcher" }),
-    proc(13072, 1, "conhost.exe", { tag: "console" }),
-    proc(13104, 1, "node.exe", { tag: "agent" }),
-    proc(21876, 2, "bash.exe"),
-    proc(21890, 3, "node.exe"),
-]);
+const piWorker = group(
+    "job:13060:1",
+    "runworker",
+    "cache-miss notice",
+    [
+        proc(13060, 0, "cmd.exe", { tag: "launcher" }),
+        proc(13072, 1, "conhost.exe", { tag: "console" }),
+        proc(13104, 1, "node.exe", { tag: "agent" }),
+        proc(21876, 2, "bash.exe"),
+        proc(21890, 3, "node.exe"),
+    ],
+    { runid: "r1", role: "Task 2", runtime: "pi", cpu: 2, mem: 20 * MB }
+);
 
-const verify = group("job:22410:1", "runcmd", "Arc · Verify", [
-    proc(22410, 0, "bash.exe", { tag: "shell" }),
-    proc(22418, 1, "node.exe"),
-]);
+const verify = group(
+    "job:22410:1",
+    "runcmd",
+    "cache-miss notice",
+    [
+        proc(22410, 0, "bash.exe", { tag: "shell", command: "bash.exe -c node scripts/verify.mjs" }),
+        proc(22418, 1, "node.exe"),
+    ],
+    { runid: "r1", role: "Verify", cpu: 1, mem: 10 * MB }
+);
 
 const snap = (extra: Partial<ResMonSnapshotData> = {}): ResMonSnapshotData => ({
     supported: true,
@@ -164,11 +187,105 @@ describe("busy and readout", () => {
     });
 });
 
-describe("orderGroups", () => {
+describe("buildViews", () => {
+    const views = buildViews([verify, waveterm, arc, piWorker]);
+    const run = views.find((v) => v.kind === "run")!;
+    const tab = views.find((v) => v.kind === "tab")!;
+
     it("pins Arc first however low its CPU, then sorts by CPU, ties by label", () => {
         const g = (key: string, label: string, cpu: number) => group(key, "agenttab", label, [], { cpu });
-        const out = orderGroups([g("b", "beta", 5), g("arc", "Arc", 0.1), g("c", "alpha", 5), g("d", "zed", 40)]);
+        const out = buildViews([g("b", "beta", 5), g("arc", "Arc", 0.1), g("c", "alpha", 5), g("d", "zed", 40)]);
         expect(out.map((x) => x.key)).toEqual(["arc", "d", "c", "b"]);
+        expect(views.map((v) => v.key)).toEqual(["arc", "run:r1", waveterm.key]);
+    });
+    it("groups a run's workers and commands into one view by run id, summing CPU, memory and processes", () => {
+        expect(run).toMatchObject({ label: "cache-miss notice", cpu: 3, mem: 30 * MB, procs: 7 });
+        expect(run.members.map((m) => m.role)).toEqual(["Task 2", "Verify"]);
+    });
+    it("orders a run's members by when they started", () => {
+        const late = group(
+            "job:9:1",
+            "runworker",
+            "cache-miss notice",
+            [proc(9, 0, "claude.exe", { tag: "agent", createts: 50 })],
+            { runid: "r1", role: "Lead" }
+        );
+        const early = group(
+            "job:8:1",
+            "runworker",
+            "cache-miss notice",
+            [proc(8, 0, "claude.exe", { tag: "agent", createts: 10 })],
+            { runid: "r1", role: "Task 1" }
+        );
+        expect(buildViews([late, early])[0].members.map((m) => m.role)).toEqual(["Task 1", "Lead"]);
+    });
+    it("keeps each tab its own view, with one member, Arc's rows unfolded", () => {
+        expect(tab.members.map((m) => m.role)).toEqual(["Agent"]);
+        expect(views[0].arcRows.map((r) => r.pid)).toEqual([2476, 27152]);
+        expect(views[0].members).toEqual([]);
+    });
+    it("folds a member's core into its line, headed by the agent", () => {
+        const [worker, cmd] = run.members;
+        expect(worker.head?.pid).toBe(13104);
+        expect(worker.folded.map((r) => r.pid)).toEqual([13060, 13072]);
+        expect(cmd.head?.pid).toBe(22410);
+        expect(cmd.folded).toEqual([]);
+        expect(tab.members[0].folded.map((r) => r.pid)).toEqual([14832]);
+    });
+    it("lists what a member started, re-rooted under its core", () => {
+        const depths = (m: ResMonMember) => m.kids.map((r) => `${r.pid}@${r.depth}`).join(" ");
+        expect(depths(run.members[0])).toBe("21876@0 21890@1");
+        expect(depths(tab.members[0])).toBe("18240@0 18244@1 18311@2 9932@0 9958@1");
+    });
+    it("names a tab's member Shell when no agent runs in it, and a member with no core has no head", () => {
+        const shell = memberOf(group("job:1:1", "agenttab", "scratch", [proc(1, 0, "pwsh.exe", { tag: "shell" })]));
+        expect(shell.role).toBe("Shell");
+        expect(shell.head?.pid).toBe(1);
+        const orphan = memberOf(group("job:2:1", "agenttab", "scratch", [proc(5, 0, "node.exe")]));
+        expect(orphan.head).toBeNull();
+        expect(orphan.kids.map((r) => r.pid)).toEqual([5]);
+    });
+});
+
+describe("headers and member lines", () => {
+    const views = buildViews([arc, waveterm, piWorker, verify]);
+    const [arcView, run, tab] = views;
+
+    it("titles a tab by its Agent tree name, with its project and process count as the detail", () => {
+        expect(viewHeader(tab, "Fix resmon labels")).toEqual({
+            title: "Fix resmon labels",
+            detail: "waveterm · 7 processes",
+        });
+    });
+    it("drops the project when the tree name already carries it, and keeps the tab name without one", () => {
+        expect(viewHeader(tab, "waveterm")).toEqual({ title: "waveterm", detail: "7 processes" });
+        expect(viewHeader(tab, "Fix resmon labels · waveterm")).toEqual({
+            title: "Fix resmon labels · waveterm",
+            detail: "7 processes",
+        });
+        expect(viewHeader(tab, undefined)).toEqual({ title: "waveterm", detail: "7 processes" });
+        expect(viewHeader(tab, "  ")).toEqual({ title: "waveterm", detail: "7 processes" });
+    });
+    it("titles a run by its run title and counts its agents and commands", () => {
+        expect(viewHeader(run, "ignored")).toEqual({
+            title: "cache-miss notice",
+            detail: "Run · 1 agent · 1 command · 7 processes",
+        });
+        const solo = buildViews([piWorker])[0];
+        expect(viewHeader(solo, undefined).detail).toBe("Run · 1 agent · 5 processes");
+        expect(viewHeader(arcView, undefined)).toEqual({ title: "Arc", detail: "App, read-only · 2 processes" });
+    });
+    it("sums up runs, tabs and processes, leaving out a kind with none", () => {
+        expect(viewsSummary(views)).toBe("1 run · 1 agent tab · 16 processes");
+        expect(viewsSummary([arcView])).toBe("2 processes");
+    });
+    it("shows an agent by its runtime and a command by its command line", () => {
+        expect(memberCommand(run.members[0])).toBe("pi");
+        expect(memberCommand(run.members[1])).toBe("bash.exe -c node scripts/verify.mjs");
+        expect(memberCommand(memberOf(group("job:2:1", "agenttab", "x", [proc(5, 0, "node.exe")])))).toBe("");
+    });
+    it("lists the folded core in the chip's title", () => {
+        expect(foldedTitle(run.members[0])).toBe("Also in this line: cmd.exe (launcher), conhost.exe (console)");
     });
 });
 
@@ -186,37 +303,6 @@ describe("owner words", () => {
             "run worker",
             "run command",
         ]);
-    });
-});
-
-describe("groupHeader", () => {
-    it("titles an agent tab by its Agent tree name, with its project and process count as the detail", () => {
-        expect(groupHeader(waveterm, "Fix resmon labels")).toEqual({
-            title: "Fix resmon labels",
-            detail: "waveterm · 7 processes",
-        });
-    });
-
-    it("drops the project when the tree name already carries it", () => {
-        expect(groupHeader(waveterm, "waveterm")).toEqual({ title: "waveterm", detail: "7 processes" });
-        expect(groupHeader(waveterm, "Fix resmon labels · waveterm")).toEqual({
-            title: "Fix resmon labels · waveterm",
-            detail: "7 processes",
-        });
-    });
-
-    it("keeps the tab name without a tree name", () => {
-        expect(groupHeader(waveterm, undefined)).toEqual({ title: "waveterm", detail: "7 processes" });
-        expect(groupHeader(waveterm, "  ")).toEqual({ title: "waveterm", detail: "7 processes" });
-    });
-
-    it("keeps the backend label and the kind words for every other owner kind", () => {
-        const worker = group("job:1:1", "runworker", "Run X · Task 2", [proc(1, 0, "pi.exe")]);
-        expect(groupHeader(worker, "Something else")).toEqual({
-            title: "Run X · Task 2",
-            detail: "Run worker · 1 process",
-        });
-        expect(groupHeader(arc, undefined)).toEqual({ title: "Arc", detail: "App, read-only · 2 processes" });
     });
 });
 
@@ -270,8 +356,8 @@ describe("kill texts", () => {
         );
     });
     it("names node.exe, not the cmd.exe launcher, as the survivor of a pi launcher chain", () => {
-        expect(killChildrenConfirmText(piWorker)).toBe(
-            "Kill 2 processes under Arc · Task 2? node.exe and its console keep running."
+        expect(killChildrenConfirmText(piWorker, "Task 2")).toBe(
+            "Kill 2 processes under Task 2? node.exe and its console keep running."
         );
     });
     it("names a lone shell with no console, and one process in the singular", () => {
@@ -340,87 +426,109 @@ describe("outcomeNote", () => {
 });
 
 describe("resmonReduce", () => {
-    const groups = [arc, waveterm, verify];
+    const views = buildViews([arc, waveterm, piWorker, verify]);
+    const tabKey = waveterm.key;
     const at = (ui: ResMonUi, cursor: string): ResMonUi => ({ ...ui, cursor });
+    const open = (...keys: string[]): ResMonUi => ({
+        ...RESMON_UI_INITIAL,
+        expanded: Object.fromEntries(keys.map((k) => [k, true])),
+    });
 
-    it("starts with every group collapsed", () => {
-        for (const g of groups) {
-            expect(isExpanded(RESMON_UI_INITIAL, g.key)).toBe(false);
+    it("starts with every view collapsed", () => {
+        for (const v of views) {
+            expect(isExpanded(RESMON_UI_INITIAL, v.key)).toBe(false);
         }
-        expect(cursorRows(groups, RESMON_UI_INITIAL)).toEqual(["arc", waveterm.key, verify.key]);
+        expect(resmonLines(views, RESMON_UI_INITIAL).map((l) => l.id)).toEqual(["arc", "run:r1", tabKey]);
     });
-    it("moves across collapsed groups header to header, and clamps at the ends", () => {
-        let ui = resmonReduce(RESMON_UI_INITIAL, { type: "move", delta: 1, groups });
+    it("lists an open run's members, each followed by what it started", () => {
+        expect(resmonLines(views, open("run:r1")).map((l) => l.id)).toEqual([
+            "arc",
+            "run:r1",
+            `m:${piWorker.key}`,
+            `${piWorker.key}/21876`,
+            `${piWorker.key}/21890`,
+            `m:${verify.key}`,
+            `${verify.key}/22418`,
+            tabKey,
+        ]);
+    });
+    it("moves across collapsed views header to header, and clamps at the ends", () => {
+        let ui = resmonReduce(RESMON_UI_INITIAL, { type: "move", delta: 1, views });
         expect(ui.cursor).toBe("arc");
-        ui = resmonReduce(ui, { type: "move", delta: 1, groups });
-        expect(ui.cursor).toBe(waveterm.key);
-        ui = resmonReduce(ui, { type: "move", delta: -1, groups });
-        ui = resmonReduce(ui, { type: "move", delta: -1, groups });
+        ui = resmonReduce(ui, { type: "move", delta: 1, views });
+        expect(ui.cursor).toBe("run:r1");
+        ui = resmonReduce(ui, { type: "move", delta: -1, views });
+        ui = resmonReduce(ui, { type: "move", delta: -1, views });
         expect(ui.cursor).toBe("arc");
-        expect(resmonReduce(RESMON_UI_INITIAL, { type: "move", delta: -1, groups }).cursor).toBe(verify.key);
+        expect(resmonReduce(RESMON_UI_INITIAL, { type: "move", delta: -1, views }).cursor).toBe(tabKey);
     });
-    it("toggles the cursor's group, and a collapse pulls a row cursor up to its header", () => {
-        let ui = resmonReduce(at(RESMON_UI_INITIAL, "arc"), { type: "toggle" });
+    it("toggles the cursor's view, and a collapse pulls a member or row cursor up to its header", () => {
+        let ui = resmonReduce(at(RESMON_UI_INITIAL, "arc"), { type: "toggle", views });
         expect(isExpanded(ui, "arc")).toBe(true);
-        expect(resmonReduce(ui, { type: "move", delta: 1, groups }).cursor).toBe("arc/2476");
-        ui = resmonReduce(at(RESMON_UI_INITIAL, waveterm.key), { type: "toggle" });
-        ui = resmonReduce(at(ui, `${waveterm.key}/18311`), { type: "toggle" });
-        expect(isExpanded(ui, waveterm.key)).toBe(false);
-        expect(ui.cursor).toBe(waveterm.key);
-        ui = resmonReduce(ui, { type: "toggle", key: "arc" });
+        expect(resmonReduce(ui, { type: "move", delta: 1, views }).cursor).toBe("arc/2476");
+        for (const cursor of [`m:${piWorker.key}`, `${piWorker.key}/21890`]) {
+            const closed = resmonReduce(at(open("run:r1"), cursor), { type: "toggle", views });
+            expect(isExpanded(closed, "run:r1")).toBe(false);
+            expect(closed.cursor).toBe("run:r1");
+        }
+        ui = resmonReduce(at(RESMON_UI_INITIAL, tabKey), { type: "toggle", views, key: "arc" });
         expect(isExpanded(ui, "arc")).toBe(true);
-        expect(ui.cursor).toBe(waveterm.key);
-        expect(resmonReduce(RESMON_UI_INITIAL, { type: "toggle" })).toBe(RESMON_UI_INITIAL);
+        expect(ui.cursor).toBe(tabKey);
+        expect(resmonReduce(RESMON_UI_INITIAL, { type: "toggle", views })).toBe(RESMON_UI_INITIAL);
     });
-    it("asks to kill an untagged row in a killable group", () => {
-        const ui = resmonReduce(at(RESMON_UI_INITIAL, `${waveterm.key}/18244`), { type: "askKill", groups });
-        expect(ui.confirm).toEqual({ kind: "row", key: waveterm.key, pid: 18244 });
+    it("asks to kill a row a member started", () => {
+        const ui = resmonReduce(at(RESMON_UI_INITIAL, `${tabKey}/18244`), { type: "askKill", views });
+        expect(ui.confirm).toEqual({ kind: "row", key: tabKey, pid: 18244 });
     });
     it("asks to kill the row a click names, moving the cursor there", () => {
-        const ui = resmonReduce(RESMON_UI_INITIAL, { type: "askKill", groups, at: `${waveterm.key}/18311` });
-        expect(ui.cursor).toBe(`${waveterm.key}/18311`);
-        expect(ui.confirm).toEqual({ kind: "row", key: waveterm.key, pid: 18311 });
+        const ui = resmonReduce(RESMON_UI_INITIAL, { type: "askKill", views, at: `${piWorker.key}/21890` });
+        expect(ui.cursor).toBe(`${piWorker.key}/21890`);
+        expect(ui.confirm).toEqual({ kind: "row", key: piWorker.key, pid: 21890 });
     });
-    it("ignores x on a tagged row, in a read-only group, or on a header", () => {
-        for (const cursor of [
-            `${waveterm.key}/14820`,
-            `${waveterm.key}/14832`,
-            `${verify.key}/22418`,
-            "arc/2476",
-            waveterm.key,
-        ]) {
+    it("ignores x on a member line, a header, an Arc row, or a read-only command's row", () => {
+        for (const cursor of [`m:${tabKey}`, tabKey, "run:r1", "arc/2476", `${verify.key}/22418`]) {
             const ui = at(RESMON_UI_INITIAL, cursor);
-            expect(resmonReduce(ui, { type: "askKill", groups })).toBe(ui);
+            expect(resmonReduce(ui, { type: "askKill", views })).toBe(ui);
         }
     });
-    it("asks to kill children of the cursor's killable group, from its header or a row", () => {
-        for (const cursor of [waveterm.key, `${waveterm.key}/14820`]) {
-            expect(resmonReduce(at(RESMON_UI_INITIAL, cursor), { type: "askChildren", groups }).confirm).toEqual({
+    it("asks to kill a member's children from its line, one of its rows, or a tab's header", () => {
+        for (const [cursor, key] of [
+            [`m:${piWorker.key}`, piWorker.key],
+            [`${piWorker.key}/21876`, piWorker.key],
+            [tabKey, tabKey],
+            [`m:${tabKey}`, tabKey],
+        ]) {
+            expect(resmonReduce(at(RESMON_UI_INITIAL, cursor), { type: "askChildren", views }).confirm).toEqual({
                 kind: "group",
-                key: waveterm.key,
+                key,
             });
         }
     });
-    it("ignores ⇧X on a read-only group or a group with no targets", () => {
+    it("opens a collapsed tab when ⇧X on its header asks, so the confirm shows", () => {
+        const ui = resmonReduce(at(RESMON_UI_INITIAL, tabKey), { type: "askChildren", views });
+        expect(isExpanded(ui, tabKey)).toBe(true);
+    });
+    it("ignores ⇧X on a run's header, Arc, a read-only command, or a member that started nothing", () => {
         const bare = group("job:7716:1", "agenttab", "obsidian", [proc(7716, 0, "claude.exe", { tag: "agent" })]);
-        for (const cursor of [verify.key, "arc", `${verify.key}/22418`, bare.key]) {
+        const all = buildViews([arc, waveterm, piWorker, verify, bare]);
+        for (const cursor of ["run:r1", "arc", `m:${verify.key}`, `${verify.key}/22418`, bare.key, `m:${bare.key}`]) {
             const ui = at(RESMON_UI_INITIAL, cursor);
-            expect(resmonReduce(ui, { type: "askChildren", groups: [...groups, bare] })).toBe(ui);
+            expect(resmonReduce(ui, { type: "askChildren", views: all })).toBe(ui);
         }
     });
-    it("cancels a confirm, and a new confirm clears that group's note", () => {
+    it("cancels a confirm, and a new confirm clears that member's note", () => {
         let ui = resmonReduce(RESMON_UI_INITIAL, {
             type: "note",
-            key: waveterm.key,
+            key: tabKey,
             note: { text: "Killed 1 process.", tone: "note" },
         });
-        ui = resmonReduce(ui, { type: "askChildren", groups, at: waveterm.key });
+        ui = resmonReduce(ui, { type: "askChildren", views, at: tabKey });
         expect(ui.notes).toEqual({});
         expect(resmonReduce(ui, { type: "cancel" }).confirm).toBeNull();
     });
     it("close clears the cursor, confirm and notes but keeps the expansion", () => {
-        let ui = resmonReduce(at(RESMON_UI_INITIAL, "arc"), { type: "toggle" });
-        ui = resmonReduce(ui, { type: "askKill", groups, at: `${waveterm.key}/18311` });
+        let ui = resmonReduce(at(RESMON_UI_INITIAL, "arc"), { type: "toggle", views });
+        ui = resmonReduce(ui, { type: "askKill", views, at: `${tabKey}/18311` });
         ui = resmonReduce(ui, { type: "note", key: verify.key, note: { text: "x", tone: "alert" } });
         ui = resmonReduce(ui, { type: "close" });
         expect(ui).toEqual({ cursor: null, confirm: null, notes: {}, expanded: { arc: true } });

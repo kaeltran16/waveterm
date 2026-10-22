@@ -6,6 +6,7 @@ import { useRunUsage } from "../agents/runtokenstore";
 import { modelsText, summarizeUsage, usageText } from "../agents/runusage";
 import { chipGroups, pickNext, type ChipGroup } from "./dagcanvas";
 import { selectedTaskIdAtom } from "./dagstore";
+import { DAG_META } from "./dagtext";
 import { dagStatusPill, reviewersChip, workersChip, type DagStatusPill } from "./taskroute";
 
 // a chip's dot: filled for the groups that are doing or done something, an open ring for those that are not
@@ -31,7 +32,7 @@ function SummaryChips({ tasks }: { tasks: TaskNode[] }) {
                         const next = pickNext(tasks, g.kinds, selected);
                         if (next != null) globalStore.set(selectedTaskIdAtom, next);
                     }}
-                    className="flex cursor-pointer items-center gap-1.5 rounded-[6px] border border-edge-mid bg-surface-raised px-2 py-[3px] text-[11.5px] text-secondary hover:border-edge-strong"
+                    className="flex cursor-pointer items-center gap-1.5 rounded-[6px] border border-edge-mid bg-surface-raised px-2 py-[3px] text-[12px] text-secondary hover:border-edge-strong"
                 >
                     <span className={`h-[7px] w-[7px] rounded-full border-[1.5px] ${CHIP_DOT.get(g.key)}`} />
                     {`${g.count} ${g.label}`}
@@ -41,13 +42,12 @@ function SummaryChips({ tasks }: { tasks: TaskNode[] }) {
     );
 }
 
-const ROUTE_CHIP =
-    "flex-none rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-ink-mid";
+const ROUTE_CHIP = `flex-none rounded-[5px] border border-edge-mid px-[7px] py-0.5 ${DAG_META}`;
 
 const PILL_TONE: Record<DagStatusPill["tone"], string> = {
     done: "border-success/50 bg-success/10 text-success",
     waiting: "border-warning/60 bg-warning/10 text-warning",
-    muted: "border-edge-mid bg-surface-raised text-muted",
+    muted: "border-edge-mid bg-surface-raised text-ink-mid",
     active: "border-accent/50 bg-accent/10 text-accent-soft",
 };
 
@@ -65,22 +65,20 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-background px-4 py-2.5">
             <div className="min-w-48 flex-1">
-                <div className="truncate text-[15px] font-bold tracking-[-0.01em] text-primary">
+                <div className="truncate text-[14px] font-bold tracking-[-0.01em] text-primary">
                     {group.title || "orchestration dag"}
                 </div>
-                <div className="font-mono text-[10.5px] text-ink-mid">
+                <div className={DAG_META}>
                     parallelism {group.parallelism} · {done}/{group.tasks.length} done
                     {spent ? ` · ${usageText(spent, usage.sealed)}` : ""}
                 </div>
-                {spent ? (
-                    <div className="truncate font-mono text-[10.5px] text-ink-mid">{modelsText(spent)}</div>
-                ) : null}
+                {spent ? <div className={`truncate ${DAG_META}`}>{modelsText(spent)}</div> : null}
             </div>
             <SummaryChips tasks={group.tasks} />
             <span className={ROUTE_CHIP}>{workersChip(group, owner)}</span>
             <span className={ROUTE_CHIP}>{reviewersChip(group, owner)}</span>
             <span
-                className={`rounded-[5px] border px-2 py-0.5 font-mono text-[10.5px] uppercase tracking-wide ${tone}`}
+                className={`rounded-[5px] border px-2 py-0.5 font-mono text-[11.5px] uppercase tracking-wide ${tone}`}
             >
                 {label}
             </span>
@@ -101,7 +99,7 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
                             action: "cancel",
                         })
                     }
-                    className="rounded border border-edge-mid px-2.5 py-1 text-[11.5px] font-semibold text-secondary hover:border-warning/60 hover:text-warning"
+                    className="rounded border border-edge-mid px-2.5 py-1 text-[12px] font-semibold text-secondary hover:border-warning/60 hover:text-warning"
                 >
                     Cancel
                 </button>

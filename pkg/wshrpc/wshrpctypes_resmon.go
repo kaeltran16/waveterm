@@ -33,7 +33,9 @@ type ResMonGroup struct {
 	Key       string        `json:"key"`               // "arc", or "job:<rootpid>:<root createts>"; stable for the job's life
 	OwnerKind string        `json:"ownerkind"`         // ResMonOwner_*
 	OwnerId   string        `json:"ownerid,omitempty"` // block id (agenttab, runworker), run id (runcmd), "" for arc
-	Label     string        `json:"label"`
+	Label     string        `json:"label"`             // the tab name; the run's title for a run worker or command
+	RunId     string        `json:"runid,omitempty"`   // the orchestrator run of a run worker or command: the popover groups by it
+	Role      string        `json:"role,omitempty"`    // a run member's place in its run: "Lead", "Task 2", "Task 2 Verify"
 	Runtime   string        `json:"runtime,omitempty"` // claude | pi: the tab's session:agent, for the swatch
 	Killable  bool          `json:"killable"`
 	Cpu       float64       `json:"cpu"`

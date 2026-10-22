@@ -20,8 +20,11 @@ const (
 	tagLauncher = "launcher"
 	tagConsole  = "console"
 	tagShell    = "shell"
+	tagControl  = "control"
 
 	imageConhost = "conhost.exe"
+	imageWsh     = "wsh.exe"
+	argAgentCtl  = "agentctl"
 	imageWebView = "msedgewebview2.exe"
 
 	busyCpuPct     = 80.0
@@ -210,9 +213,15 @@ func isConhost(name string) bool {
 	return strings.EqualFold(name, imageConhost)
 }
 
+// isAgentCtl is the arc mod's `wsh agentctl`, the engine's prompt channel into the agent: killing it would
+// silently put the engine back to typing into the terminal.
+func isAgentCtl(p proc) bool {
+	return strings.EqualFold(p.Name, imageWsh) && slices.Contains(strings.Fields(p.Command), argAgentCtl)
+}
+
 // coreTags names the agent's core processes in one job, which are never killed. In an agent block it is the
-// root, extended down while a core process is a launcher with exactly one non-console child, plus the consoles
-// of core processes. Otherwise only the root, as the shell.
+// root, extended down while a core process is a launcher with exactly one non-console child, the agent's
+// `wsh agentctl`, plus the consoles of core processes. Otherwise only the root, as the shell.
 func coreTags(procs map[int]proc, members []int, rootPid int, agent bool) map[int]string {
 	tags := map[int]string{}
 	if !slices.Contains(members, rootPid) {
@@ -243,9 +252,18 @@ func coreTags(procs map[int]proc, members []int, rootPid int, agent bool) map[in
 		cur = next[0]
 		chain = append(chain, cur)
 	}
-	for i, pid := range chain {
-		tags[pid] = tagLauncher
-		if i == len(chain)-1 {
+	agentPid := chain[len(chain)-1]
+	for _, c := range kids[agentPid] {
+		if isAgentCtl(procs[c]) {
+			chain = append(chain, c)
+			tags[c] = tagControl
+		}
+	}
+	for _, pid := range chain {
+		if tags[pid] == "" {
+			tags[pid] = tagLauncher
+		}
+		if pid == agentPid {
 			tags[pid] = tagAgent
 		}
 		for _, c := range kids[pid] {
@@ -334,6 +352,8 @@ func buildGroups(procs map[int]proc, arcRows []treeRow, jobs []jobView, hostPid,
 			OwnerKind: jv.Info.Kind,
 			OwnerId:   jv.Job.Owner.Id,
 			Label:     jv.Info.Label,
+			RunId:     jv.Info.RunId,
+			Role:      jv.Info.Role,
 			Runtime:   jv.Info.Runtime,
 			Killable:  isKillable(jv.Info.Kind),
 		}

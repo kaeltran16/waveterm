@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/resmon"
 	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -18,7 +19,12 @@ import (
 const (
 	resMonClosedTab   = "Closed tab"
 	resMonRunFallback = "Orchestrator run" // runTitle's fallback in frontend/app/view/agents/runlineage.ts
-	resMonLabelSep    = " · "
+
+	resMonRoleLead         = "Lead"
+	resMonRoleWorker       = "Worker"
+	resMonRoleReviewer     = "Reviewer"
+	resMonRolePlanReviewer = "Plan reviewer"
+	resMonRoleVerifier     = "Verifier"
 )
 
 func (ws *WshServer) ResMonSnapshotCommand(ctx context.Context, data wshrpc.CommandResMonSnapshotData) (*wshrpc.ResMonSnapshotData, error) {
@@ -48,13 +54,16 @@ func resolveResMonOwner(ctx context.Context, o jobobject.Owner) resmon.OwnerInfo
 		if err != nil {
 			log.Printf("resmon: loading run %s: %v", o.Id, err)
 		}
-		label := resMonRunTitle(ctx, run)
-		if o.Task != "" {
-			label += resMonLabelSep + "Task " + o.Task + " " + o.Cmd
-		} else {
-			label += resMonLabelSep + o.Cmd
+		dag := resMonDag(ctx, run)
+		runId := o.Id
+		if dag != nil && dag.RunID != "" {
+			runId = dag.RunID
 		}
-		return resmon.OwnerInfo{Kind: wshrpc.ResMonOwner_RunCmd, Label: label}
+		role := o.Cmd
+		if o.Task != "" {
+			role = resMonTask(o.Task) + " " + o.Cmd
+		}
+		return resmon.OwnerInfo{Kind: wshrpc.ResMonOwner_RunCmd, Label: resMonDagTitle(dag, run), RunId: runId, Role: role}
 	}
 	closed := resmon.OwnerInfo{Kind: wshrpc.ResMonOwner_AgentTab, Label: resMonClosedTab}
 	block, err := wstore.DBGet[*waveobj.Block](ctx, o.Id)
@@ -72,24 +81,34 @@ func resolveResMonOwner(ctx context.Context, o jobobject.Owner) resmon.OwnerInfo
 	runtime := tab.Meta.GetString(waveobj.MetaKey_SessionAgent, "")
 	info := resmon.OwnerInfo{Kind: wshrpc.ResMonOwner_AgentTab, Label: tab.Name, Runtime: runtime, Agent: runtime != ""}
 	if run, _, ok := ownerRunForBlock(ctx, "block:"+o.Id); ok {
-		info.Kind, info.Label = wshrpc.ResMonOwner_RunWorker, resMonWorkerLabel(ctx, run)
+		info.Kind = wshrpc.ResMonOwner_RunWorker
+		info.Label, info.RunId, info.Role = resMonWorkerPlace(ctx, run)
 	}
 	return info
 }
 
-// resMonWorkerLabel is the owning run's title, then the worker's place in it.
-func resMonWorkerLabel(ctx context.Context, run *waveobj.Run) string {
-	var dag *waveobj.TaskGroup
-	if run.DagORef != "" {
-		var err error
-		if dag, err = wstore.GetDag(ctx, run.DagORef); err != nil {
-			log.Printf("resmon: loading dag %s of run %s: %v", run.DagORef, run.OID, err)
-			dag = nil
-		}
+func resMonTask(id string) string {
+	return "Task " + id
+}
+
+func resMonDag(ctx context.Context, run *waveobj.Run) *waveobj.TaskGroup {
+	if run == nil || run.DagORef == "" {
+		return nil
 	}
+	dag, err := wstore.GetDag(ctx, run.DagORef)
+	if err != nil {
+		log.Printf("resmon: loading dag %s of run %s: %v", run.DagORef, run.OID, err)
+		return nil
+	}
+	return dag
+}
+
+// resMonWorkerPlace is the owning run's title and id, and the worker's role in it.
+func resMonWorkerPlace(ctx context.Context, run *waveobj.Run) (title, runId, role string) {
+	dag := resMonDag(ctx, run)
 	link, placed := runLinkOf(run, dag)
 	if !placed {
-		return resMonRunTitle(ctx, run)
+		return resMonDagTitle(dag, run), run.OID, resMonRoleWorker
 	}
 	owner := run
 	if link.RunId != run.OID {
@@ -98,30 +117,29 @@ func resMonWorkerLabel(ctx context.Context, run *waveobj.Run) string {
 			log.Printf("resmon: loading run %s: %v", link.RunId, err)
 		}
 	}
-	title := resMonDagTitle(dag, owner)
-	switch {
-	case link.Role == sessionRole_Lead:
-		return title + resMonLabelSep + "lead"
-	case link.Role == sessionRole_Review:
-		return title + resMonLabelSep + "reviewer"
-	case link.Role != sessionRole_Worker:
-		return title + resMonLabelSep + link.Role // a stage session: plan-reviewer or verifier
-	case link.TaskId != "":
-		return title + resMonLabelSep + "Task " + link.TaskId
-	}
-	return title
+	return resMonDagTitle(dag, owner), link.RunId, resMonRole(link)
 }
 
-// resMonRunTitle is the run's dag title, else the first line of its goal.
-func resMonRunTitle(ctx context.Context, run *waveobj.Run) string {
-	var dag *waveobj.TaskGroup
-	if run != nil && run.DagORef != "" {
-		var err error
-		if dag, err = wstore.GetDag(ctx, run.DagORef); err != nil {
-			dag = nil
+func resMonRole(link sessionRunLink) string {
+	switch link.Role {
+	case sessionRole_Lead:
+		return resMonRoleLead
+	case sessionRole_Review:
+		if link.TaskId != "" {
+			return resMonTask(link.TaskId) + " review"
 		}
+		return resMonRoleReviewer
+	case jarvis.UsageRole_PlanReviewer:
+		return resMonRolePlanReviewer
+	case jarvis.UsageRole_Verifier:
+		return resMonRoleVerifier
+	case sessionRole_Worker:
+		if link.TaskId != "" {
+			return resMonTask(link.TaskId)
+		}
+		return resMonRoleWorker
 	}
-	return resMonDagTitle(dag, run)
+	return link.Role
 }
 
 func resMonDagTitle(dag *waveobj.TaskGroup, run *waveobj.Run) string {

@@ -32,7 +32,7 @@ import {
 import { popupTarget } from "./attentionpopuptarget";
 import { attentionAtom, loadAttention, taskbarSignal } from "./attentionstore";
 import { asksUser, brainstormAttention } from "./brainstormmodel";
-import { brainstormsAtom } from "./brainstormstore";
+import { brainstormsAtom, shownBrainstormFile } from "./brainstormstore";
 import { savedRateLimitsAtom } from "./ratelimitstore";
 
 // the face the main window's avatar wears with this list, derived here rather than read back from PetView:
@@ -55,8 +55,9 @@ function brainstormItemsAtom(model: AgentsViewModel): Atom<AttentionItem[]> {
         const items: AttentionItem[] = [];
         for (const agent of get(model.baseRosterAtom)) {
             const b = brainstorms[agent.id];
-            if (b?.file != null && asksUser(b.file, agent)) {
-                items.push(brainstormAttention({ agentId: agent.id, agentName: agent.name, topic: b.topic }, b.file));
+            const f = shownBrainstormFile(b);
+            if (f != null && asksUser(f, agent)) {
+                items.push(brainstormAttention({ agentId: agent.id, agentName: agent.name, topic: b.topic }, f));
             }
         }
         return items;

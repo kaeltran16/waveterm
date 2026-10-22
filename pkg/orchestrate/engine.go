@@ -677,7 +677,11 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 		}
 	}
 	var spawned []spawnedWorkerInfo
-	for _, taskID := range NextToSpawn(g) {
+	// what the cap holds back stays pending, and a later tick dispatches it once a worker or memory frees up
+	next := NextToSpawn(g)
+	next = next[:claimWorkers(ctx, g, len(next))]
+	defer releaseWorkerClaim(g.OID)
+	for _, taskID := range next {
 		task := taskByID(g, taskID)
 		pin := effectiveTaskRoute(task, owner, g)
 		capability, routeErr := runroute.Resolve(pin)
@@ -704,9 +708,17 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 			wtStart := time.Now()
 			wt, head, _, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, key, spawnBase)
 			worktreeMs = time.Since(wtStart).Milliseconds()
+			// what holds a stale tree is reaped by the cleanup path, outside the dag lock this tick holds: each
+			// worker a reap stops exits into that lock. Debt on the task is what sends the tree there, and what
+			// retry-cleanup acts on.
 			if werr != nil {
+				task.CleanupError, task.CleanupAttempts = boundedCleanupError(werr), 0
 				failDispatch(ctx, g, taskID, FailureKindWorktree, werr, &afterCommit)
 				continue
+			}
+			if left := laneLeftovers(spawnCtx, owner.ProjectPath, key); len(left) > 0 {
+				task.CleanupError = boundedCleanupError(fmt.Errorf("left behind %s, held by a process; the task runs in %s", strings.Join(left, ", "), wt))
+				task.CleanupAttempts = 0
 			}
 			// not "created by this call": a failed add or a server that died during Setup leaves a clean tree the retry reuses.
 			// With no Setup the default link step runs on a reused tree too: it is idempotent and takes milliseconds

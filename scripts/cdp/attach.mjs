@@ -13,7 +13,6 @@ export const SURFACE_LABEL = {
     cockpit: "Cockpit",
     jarvis: "Jarvis",
     agent: "Agent",
-    radar: "Radar",
     sessions: "Sessions",
     files: "Diff",
     usage: "Usage",

@@ -17,11 +17,9 @@ import (
 // single unwritable dossier should not cost the rest of the import, and a partial corpus is still a
 // corpus as long as the gaps are visible.
 type Result struct {
-	DossiersCreated   int
-	DossiersExisting  int
-	DecisionsCreated  int
-	DecisionsExisting int
-	Errors            []string
+	DossiersCreated  int
+	DossiersExisting int
+	Errors           []string
 }
 
 // Apply writes a Plan into a vault and commits once.
@@ -32,14 +30,12 @@ type Result struct {
 func Apply(ctx context.Context, v *wavevault.Vault, p Plan) (Result, error) {
 	var res Result
 
-	ids := make([]string, len(p.Dossiers))
-	for i, d := range p.Dossiers {
-		id, created, err := applyDossier(v, d)
+	for _, d := range p.Dossiers {
+		created, err := applyDossier(v, d)
 		if err != nil {
 			res.Errors = append(res.Errors, fmt.Sprintf("dossier %q: %v", d.Facts.Objective, err))
 			continue
 		}
-		ids[i] = id
 		if created {
 			res.DossiersCreated++
 		} else {
@@ -47,26 +43,7 @@ func Apply(ctx context.Context, v *wavevault.Vault, p Plan) (Result, error) {
 		}
 	}
 
-	for _, dec := range p.Decisions {
-		idx, ok := p.DossierForRun(dec.OwnerRunOID)
-		if !ok || ids[idx] == "" {
-			res.Errors = append(res.Errors, fmt.Sprintf("decision for run %s: owning dossier was not written", dec.OwnerRunOID))
-			continue
-		}
-		dec.Facts.TaskID = ids[idx]
-		if _, err := jarvisdossier.AppendDecision(v, dec.Facts); err != nil {
-			// a re-import finds its own decision files already present; that is a skip, not a failure
-			if isExists(err) {
-				res.DecisionsExisting++
-				continue
-			}
-			res.Errors = append(res.Errors, fmt.Sprintf("decision %q: %v", dec.Facts.Summary, err))
-			continue
-		}
-		res.DecisionsCreated++
-	}
-
-	if res.DossiersCreated == 0 && res.DecisionsCreated == 0 {
+	if res.DossiersCreated == 0 {
 		return res, nil
 	}
 	if err := v.Commit(ctx, "jarvis backfill"); err != nil {
@@ -76,15 +53,14 @@ func Apply(ctx context.Context, v *wavevault.Vault, p Plan) (Result, error) {
 }
 
 // applyDossier creates one dossier and writes the owner's canonical run ref. It reports whether it
-// created the dossier; on the idempotent-skip path it still returns the id, so decisions belonging
-// to an already-imported dossier resolve their TaskID instead of looking orphaned.
-func applyDossier(v *wavevault.Vault, d PlannedDossier) (string, bool, error) {
+// created the dossier.
+func applyDossier(v *wavevault.Vault, d PlannedDossier) (bool, error) {
 	id, hash, err := jarvisdossier.CreateDossier(v, d.Facts)
 	if err != nil {
 		if isExists(err) {
-			return jarvisdossier.DossierID(d.Facts), false, nil
+			return false, nil
 		}
-		return "", false, err
+		return false, err
 	}
 
 	// Only the owner's ref is written. Siblings are deliberately left out so D infers them
@@ -92,14 +68,14 @@ func applyDossier(v *wavevault.Vault, d PlannedDossier) (string, bool, error) {
 	refs := []string{"run-" + d.OwnerRun}
 	wr, err := jarvisdossier.SetRefs(v, id, refs, hash)
 	if err != nil {
-		return id, true, fmt.Errorf("set refs: %w", err)
+		return true, fmt.Errorf("set refs: %w", err)
 	}
 	hash = wr.Hash
 
 	if d.Status != "active" {
 		wr, err := jarvisdossier.SetStatus(v, id, d.Status, hash)
 		if err != nil {
-			return id, true, fmt.Errorf("set status: %w", err)
+			return true, fmt.Errorf("set status: %w", err)
 		}
 		hash = wr.Hash
 	}
@@ -110,9 +86,9 @@ func applyDossier(v *wavevault.Vault, d PlannedDossier) (string, bool, error) {
 	if _, err := v.Write(id, jarvisdossier.DossierSpec(), []wavevault.RegionEdit{
 		{Kind: wavevault.FrontmatterKey, Name: "updated", Value: strconv.FormatInt(d.Updated, 10)},
 	}, hash); err != nil {
-		return id, true, fmt.Errorf("restore updated: %w", err)
+		return true, fmt.Errorf("restore updated: %w", err)
 	}
-	return id, true, nil
+	return true, nil
 }
 
 // isExists detects wavevault's create-collision error. Matched on message because wavevault exposes

@@ -13,13 +13,8 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
-import type { PendingRunDraft } from "./radarmodel";
 import { normalizeProfileOverrideRoute, normalizeRoute, resolveEffectiveRoute } from "./route";
 import { harnessesAtom, harnessPreferenceAtom } from "./harnessstore";
-
-// The pending Run draft handed from Radar's "Start investigation" to the Channels Run composer. Ephemeral
-// (lost on reload, which is fine for a review step); cleared on explicit Start or Discard.
-export const pendingRunDraftAtom = atom<PendingRunDraft | null>(null) as PrimitiveAtom<PendingRunDraft | null>;
 
 // Run ids whose Cancel RPC is in flight. CancelRunCommand is synchronous — it returns only after each
 // worker's graceful stop completes — so this real interval drives the transient "Cancelling…" button
@@ -57,7 +52,6 @@ const CREATE_RUN_TIMEOUT_MS = 180_000;
 export interface CreateRunOpts {
     mode?: string;
     deferStart?: boolean;
-    radarOrigin?: { reportid: string; findingid: string; fingerprint: string };
     workerRoute?: RoutePin | null;
     orchestration?: string;
     parallelism?: number;
@@ -96,7 +90,6 @@ export function createRunPayload(
         ...(orchestrator && opts.autonomous != null ? { autonomous: opts.autonomous } : {}),
         mode: opts?.mode,
         deferstart: opts?.deferStart,
-        ...(opts?.radarOrigin ? { radarorigin: opts.radarOrigin } : {}),
     };
 }
 
@@ -157,6 +150,17 @@ export function endFinalStage(
         { channelid: channelId, runid: runId, taskid: "", action: `final-end-${outcome}`, notes: reason },
         { timeout: END_FINAL_TIMEOUT_MS }
     );
+}
+
+// rerunFinalStage runs a run's failed final stage again in the same round, for a failure outside the code that the
+// human fixed; the engine tells the lead to drop its fix plan.
+export function rerunFinalStage(channelId: string, runId: string): Promise<void> {
+    return RpcApi.DagActionCommand(TabRpcClient, {
+        channelid: channelId,
+        runid: runId,
+        taskid: "",
+        action: "final-rerun",
+    });
 }
 
 // Cancel a run, confirming first when it has live workers (goal: never silently stop running agents).

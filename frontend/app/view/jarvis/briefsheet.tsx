@@ -26,18 +26,11 @@ import * as WOS from "@/app/store/wos";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientstore";
-import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import { activeChannelAtom, activeChannelRunsAtom, channelsAtom, runAtom } from "@/app/view/agents/channelsstore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
-import {
-    channelOverrideAtom,
-    createRun,
-    loadResolvedProfile,
-    pendingRunDraftAtom,
-    resolvedProfileAtom,
-} from "@/app/view/agents/runactions";
+import { channelOverrideAtom, createRun, loadResolvedProfile, resolvedProfileAtom } from "@/app/view/agents/runactions";
 import { launchBlocker } from "@/app/view/agents/runconfig";
 import {
     autonomousAtom,
@@ -59,7 +52,7 @@ import {
 import { RunLauncher } from "@/app/view/agents/runlauncher";
 import { isTerminal, leadAsker } from "@/app/view/agents/runmodel";
 import { cn, fireAndForget } from "@/util/util";
-import { atom, useAtomValue, useSetAtom } from "jotai";
+import { atom, useAtomValue } from "jotai";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SHEET_BTN, SheetShell } from "./briefrunsheet";
@@ -113,19 +106,11 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
     const pref = useAtomValue(harnessPreferenceAtom);
     const overrides = useAtomValue(channelOverrideAtom);
     const profiles = useAtomValue(resolvedProfileAtom);
-    const pendingDraft = useAtomValue(pendingRunDraftAtom);
-    const setPendingDraft = useSetAtom(pendingRunDraftAtom);
-    const channels = useAtomValue(channelsAtom);
     const projects = useAtomValue(projectsAtom);
     const [goal, setGoal] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [launching, setLaunching] = useState(false);
 
-    // A Radar "Start investigation" owns the field while it is pending: it is a reviewed draft, not a fresh
-    // goal, and its origin has to ride on the run for the finding's outcome to be written back at the end.
-    const target = pendingDraft != null ? resolveTargetChannel(channels ?? [], pendingDraft.projectPath) : undefined;
-    const radarDraft = pendingDraft != null && target?.oid === channel.oid ? pendingDraft : null;
-    const value = radarDraft != null ? radarDraft.goal : goal;
     const config = {
         shape,
         parallelism,
@@ -138,7 +123,7 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
         autonomous,
     };
     const planStart = shape === "orchestrator" && startFrom === "plan";
-    const blocker = launchBlocker({ shape, start: startFrom, goal: value, planPath, preview });
+    const blocker = launchBlocker({ shape, start: startFrom, goal, planPath, preview });
 
     const channelId = channel.oid;
     useEffect(() => {
@@ -169,14 +154,15 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
             try {
                 // one translation from launcher state to CreateRun arguments, shared with the + Run
                 // modal and unit-tested there; this had its own inline copy and they drifted.
-                const created = await createRun(channelId, launchGoal(config, value), runRoute, {
-                    ...launchOptsFromConfig(config),
-                    ...(radarDraft != null ? { radarOrigin: radarDraft.radarOrigin } : {}),
-                });
+                const created = await createRun(
+                    channelId,
+                    launchGoal(config, goal),
+                    runRoute,
+                    launchOptsFromConfig(config)
+                );
                 // the launch consumed this draft, so the next one starts from the channel's saved defaults
                 endRunConfigDraft(profiles[channelId]);
                 setGoal("");
-                setPendingDraft(null);
                 setActiveRunId(channelId, created.id);
                 setComposingRun(channelId, false);
             } catch (e) {
@@ -195,16 +181,10 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
             <div className="flex items-center gap-2">
                 <input
                     data-jarvis-launch-goal
-                    value={planStart ? "" : value}
+                    value={planStart ? "" : goal}
                     disabled={launching || planStart}
                     placeholder={planStart ? "Starts from the plan above" : "What should it do?"}
-                    onChange={(e) => {
-                        if (radarDraft != null) {
-                            setPendingDraft({ ...radarDraft, goal: e.target.value });
-                            return;
-                        }
-                        setGoal(e.target.value);
-                    }}
+                    onChange={(e) => setGoal(e.target.value)}
                     onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
@@ -227,11 +207,9 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
             <span className="text-[11px] text-muted">
                 {runRoute == null
                     ? "Pick a lead route in the launcher above — nothing dispatches without one."
-                    : radarDraft != null
-                      ? "A Radar investigation, awaiting your review. Its finding's outcome is written back when this run ends."
-                      : planStart && blocker != null
-                        ? blocker
-                        : "The shape and start above are what this dispatches with."}
+                    : planStart && blocker != null
+                      ? blocker
+                      : "The shape and start above are what this dispatches with."}
             </span>
             {error != null ? (
                 <p data-jarvis-brief-sheet-state="error" className="text-[11.5px] text-error">

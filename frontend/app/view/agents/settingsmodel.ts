@@ -26,8 +26,6 @@ export type SettingRowDef = {
     // value against the shipped default, and revert by deleting the user's override; every other row's
     // value lives somewhere only the surface knows how to reach.
     config?: boolean;
-    // Further wconfig keys a config row writes beside `key` (a route is a runtime key and a model key).
-    morekeys?: string[];
 };
 
 export type SettingSectionDef = {
@@ -50,25 +48,24 @@ export const GROUP_ORDER = ["Cockpit", "Agents", "Data", "Build"] as const;
 // Underscore, not colon: SetSecret validates against the shell env-var charset and rejects colons.
 export const OPENROUTER_SECRET_NAME = "jarvis_embedapikey";
 
-// The Radar audit route. Its sessions read and grep the repository, so only a runtime with tools can run
-// them; the empty-key defaults mirror pkg/reporadar's.
-export const RADAR_AUDIT_RUNTIME_KEY = "radar:auditruntime";
-export const RADAR_AUDIT_MODEL_KEY = "radar:auditmodel";
-export const RADAR_CLASSIFY_MODEL_KEY = "radar:classifymodel";
-export const RADAR_AUDIT_RUNTIMES: readonly string[] = ["claude", "pi"];
-const RADAR_AUDIT_DEFAULT_RUNTIME = "claude";
-const RADAR_AUDIT_DEFAULT_CLAUDE_MODEL = "sonnet";
+// The skim mod (claude/arc-skim-mod) and the userConfig fields its plugin.json declares; pkg/claudemod writes only these
+export const SKIM_PLUGIN = "arc-skim";
+export const SKIM_FIELDS = [
+    {
+        field: "highlight",
+        title: "Highlight must-read sentences",
+        desc: "Claude marks the sentences of a long reply worth reading, and they draw bold. Off, Claude is not asked, so it costs no tokens.",
+    },
+    {
+        field: "dim",
+        title: "Dim the rest",
+        desc: "Grey a long explanation around its marked sentences. /skim in a claude session flips it too.",
+    },
+] as const;
 
-// The route the two settings select. An unset model on pi stays unset: pi runs its own default.
-export function radarAuditRoute(runtime: string, model: string): RoutePin {
-    const rt = runtime || RADAR_AUDIT_DEFAULT_RUNTIME;
-    const m = model || (rt === RADAR_AUDIT_DEFAULT_RUNTIME ? RADAR_AUDIT_DEFAULT_CLAUDE_MODEL : "");
-    return { runtime: rt, ...(m ? { model: m } : {}) };
-}
-
-// What an unset radar:classifymodel runs on the audit runtime; pi takes no bare model id, so it keeps its own.
-export function radarClassifyDefault(runtime: string): string {
-    return (runtime || RADAR_AUDIT_DEFAULT_RUNTIME) === RADAR_AUDIT_DEFAULT_RUNTIME ? "haiku" : "pi default";
+// An option is on unless stored false, as the mod reads it (settingsOf in claude/arc-skim-mod/hooks/highlight-core.ts)
+export function isModOptionOn(options: Record<string, unknown> | null, field: string): boolean {
+    return options?.[field] !== false;
 }
 
 const THEME_OVERRIDE_KEY = "cockpit.theme.overrides";
@@ -223,6 +220,19 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
             ],
         },
         {
+            id: "skim",
+            name: "Skim",
+            blurb: "The Claude Code mod that draws the few sentences of a long reply worth reading in bold. Claude Code's /config shows the same two settings.",
+            group: "Agents",
+            rows: SKIM_FIELDS.map((f) => ({
+                id: `skim.${f.field}`,
+                title: f.title,
+                desc: f.desc,
+                key: `~/.claude/settings.json · pluginConfigs.${SKIM_PLUGIN}.${f.field}`,
+                scope: "local" as const,
+            })),
+        },
+        {
             id: "run",
             name: "Run defaults",
             blurb: "Backend-authoritative harness and model for new runs.",
@@ -309,7 +319,7 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
         {
             id: "headless",
             name: "Headless AI",
-            blurb: "The runtime behind session classify, continuity, the volunteer judge and pi titles. Radar audits keep their own route.",
+            blurb: "The runtime behind session classify, continuity, the volunteer judge and pi titles.",
             group: "Data",
             rows: [
                 {
@@ -332,15 +342,6 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
                     title: "Cheap model",
                     desc: "The OpenRouter model for session classify, continuity, the volunteer judge and pi titles. Used only when the runtime is OpenRouter.",
                     key: "headless:openroutercheapmodel",
-                    scope: "synced",
-                    config: true,
-                },
-                {
-                    id: "headless.radaraudit",
-                    title: "Radar audit",
-                    desc: "Each scan runs up to 8 sibling, 3 introduced and 2 hotspot read-only sessions on this route, plus one classifier call when commits lack a conventional prefix. The classifier runs on the same runtime; empty means haiku on claude, pi's default on pi. OpenRouter cannot be used: it has no tools.",
-                    key: RADAR_AUDIT_RUNTIME_KEY,
-                    morekeys: [RADAR_AUDIT_MODEL_KEY, RADAR_CLASSIFY_MODEL_KEY],
                     scope: "synced",
                     config: true,
                 },
@@ -386,7 +387,7 @@ export function flagRowId(runtime: Runtime, flagId: string): string {
 
 // Every settings key a row stores under, primary first. Empty for a row that stores no setting.
 export function rowKeys(row: SettingRowDef): string[] {
-    return row.key == null ? [] : [row.key, ...(row.morekeys ?? [])];
+    return row.key == null ? [] : [row.key];
 }
 
 export function rowMatches(row: SettingRowDef, query: string): boolean {

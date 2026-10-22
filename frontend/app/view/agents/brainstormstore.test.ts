@@ -17,8 +17,11 @@ import {
     detachBrainstorm,
     dismissBrainstorm,
     getBrainstorm,
+    moveReviewCursor,
     openBrainstormBoard,
     setBrainstormMode,
+    setReviewCursor,
+    toggleReviewRow,
     updateBrainstorm,
 } from "./brainstormstore";
 
@@ -46,8 +49,11 @@ describe("attachBrainstorm", () => {
             lastViewedMs: 100,
             board: null,
             showDesign: false,
+            designOpen: false,
             boards: [],
             base: null,
+            sent: null,
+            review: { cursor: null, open: {} },
         });
         expect(globalStore.get(brainstormAtom("a1"))?.topic).toBe("lag");
     });
@@ -111,6 +117,54 @@ describe("brainstorm state", () => {
     it("ignores an update for an agent with nothing attached", () => {
         updateBrainstorm("a2", (s) => ({ ...s, mode: "brainstorm" }));
         expect(getBrainstorm("a2")).toBeNull();
+    });
+});
+
+describe("review cursor", () => {
+    const ids = ["x", "y", "z"];
+    const cursor = () => getBrainstorm("a1")?.review.cursor;
+
+    it("starts at the first row from no cursor, whichever way it moves", () => {
+        attachBrainstorm("a1", LAG, 100);
+        moveReviewCursor("a1", ids, -1);
+        expect(cursor()).toBe("x");
+        updateBrainstorm("a1", (s) => ({ ...s, review: { ...s.review, cursor: null } }));
+        moveReviewCursor("a1", ids, 1);
+        expect(cursor()).toBe("x");
+    });
+
+    it("moves by one and stops at both ends", () => {
+        attachBrainstorm("a1", LAG, 100);
+        setReviewCursor("a1", "y");
+        moveReviewCursor("a1", ids, 1);
+        expect(cursor()).toBe("z");
+        moveReviewCursor("a1", ids, 1);
+        expect(cursor()).toBe("z");
+        setReviewCursor("a1", "x");
+        moveReviewCursor("a1", ids, -1);
+        expect(cursor()).toBe("x");
+    });
+
+    it("restarts at the first row when the cursor's row is gone", () => {
+        attachBrainstorm("a1", LAG, 100);
+        setReviewCursor("a1", "gone");
+        moveReviewCursor("a1", ids, 1);
+        expect(cursor()).toBe("x");
+    });
+
+    it("leaves the cursor alone with no rows", () => {
+        attachBrainstorm("a1", LAG, 100);
+        setReviewCursor("a1", "y");
+        moveReviewCursor("a1", [], 1);
+        expect(cursor()).toBe("y");
+    });
+
+    it("toggles one row open and closed, the others untouched", () => {
+        attachBrainstorm("a1", LAG, 100);
+        toggleReviewRow("a1", "x");
+        toggleReviewRow("a1", "y");
+        toggleReviewRow("a1", "x");
+        expect(getBrainstorm("a1")?.review.open).toEqual({ x: false, y: true });
     });
 });
 

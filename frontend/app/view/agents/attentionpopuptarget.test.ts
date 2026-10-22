@@ -18,11 +18,11 @@ describe("popupTarget", () => {
             popupTarget(item({ kind: "brainstorm", key: "brainstorm:tab1:5", oref: "brainstorm:lag" }), agents)
         ).toEqual({ kind: "brainstorm", topic: "lag" });
     });
-    it("opens the radar report of a triage item", () => {
-        expect(popupTarget(item({ kind: "radar-triage", oref: "radarreport:r1" }), agents)).toEqual({
-            kind: "radar",
-            reportId: "r1",
-            findingId: undefined,
+    it("opens the item's oref when it is an address", () => {
+        expect(popupTarget(item({ kind: "dag-blocked", oref: "task:d1" }), agents)).toEqual({
+            kind: "record",
+            dossierId: "d1",
+            anchor: undefined,
         });
     });
     it("falls through an unsupported oref", () => {

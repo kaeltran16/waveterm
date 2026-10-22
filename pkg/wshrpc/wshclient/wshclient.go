@@ -145,12 +145,6 @@ func BlocksListCommand(w *wshutil.WshRpc, data wshrpc.BlocksListRequest, opts *w
 	return resp, err
 }
 
-// command "cancelradarscan", wshserver.CancelRadarScanCommand
-func CancelRadarScanCommand(w *wshutil.WshRpc, data wshrpc.CommandCancelRadarScanData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "cancelradarscan", data, opts)
-	return err
-}
-
 // command "cancelrun", wshserver.CancelRunCommand
 func CancelRunCommand(w *wshutil.WshRpc, data wshrpc.CommandCancelRunData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "cancelrun", data, opts)
@@ -184,6 +178,18 @@ func ClaudeAccountsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Cla
 // command "claudeaccountswitch", wshserver.ClaudeAccountSwitchCommand
 func ClaudeAccountSwitchCommand(w *wshutil.WshRpc, data wshrpc.CommandClaudeAccountData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "claudeaccountswitch", data, opts)
+	return err
+}
+
+// command "claudemodoptions", wshserver.ClaudeModOptionsCommand
+func ClaudeModOptionsCommand(w *wshutil.WshRpc, data wshrpc.CommandClaudeModOptionsData, opts *wshrpc.RpcOpts) (map[string]interface {}, error) {
+	resp, err := sendRpcRequestCallHelper[map[string]interface {}](w, "claudemodoptions", data, opts)
+	return resp, err
+}
+
+// command "claudemodsetoption", wshserver.ClaudeModSetOptionCommand
+func ClaudeModSetOptionCommand(w *wshutil.WshRpc, data wshrpc.CommandClaudeModSetOptionData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "claudemodsetoption", data, opts)
 	return err
 }
 
@@ -708,12 +714,6 @@ func ListMemoryHygieneCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.
 	return resp, err
 }
 
-// command "listradarreports", wshserver.ListRadarReportsCommand
-func ListRadarReportsCommand(w *wshutil.WshRpc, data wshrpc.CommandListRadarReportsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandListRadarReportsRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListRadarReportsRtnData](w, "listradarreports", data, opts)
-	return resp, err
-}
-
 // command "listrefusedroutes", wshserver.ListRefusedRoutesCommand
 func ListRefusedRoutesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListRefusedRoutesRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListRefusedRoutesRtnData](w, "listrefusedroutes", nil, opts)
@@ -899,12 +899,6 @@ func ResolveIdsCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveIdsData, opt
 	return resp, err
 }
 
-// command "retryradarclustering", wshserver.RetryRadarClusteringCommand
-func RetryRadarClusteringCommand(w *wshutil.WshRpc, data wshrpc.CommandRetryRadarClusteringData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "retryradarclustering", data, opts)
-	return err
-}
-
 // command "routeannounce", wshserver.RouteAnnounceCommand
 func RouteAnnounceCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "routeannounce", nil, opts)
@@ -995,12 +989,6 @@ func SetPeerInfoCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) er
 	return err
 }
 
-// command "setradarfindingdisposition", wshserver.SetRadarFindingDispositionCommand
-func SetRadarFindingDispositionCommand(w *wshutil.WshRpc, data wshrpc.CommandSetRadarFindingDispositionData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "setradarfindingdisposition", data, opts)
-	return err
-}
-
 // command "setrtinfo", wshserver.SetRTInfoCommand
 func SetRTInfoCommand(w *wshutil.WshRpc, data wshrpc.CommandSetRTInfoData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setrtinfo", data, opts)
@@ -1017,12 +1005,6 @@ func SetRunSettingsCommand(w *wshutil.WshRpc, data wshrpc.CommandSetRunSettingsD
 func SetSecretsCommand(w *wshutil.WshRpc, data map[string]*string, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setsecrets", data, opts)
 	return err
-}
-
-// command "startradarscan", wshserver.StartRadarScanCommand
-func StartRadarScanCommand(w *wshutil.WshRpc, data wshrpc.CommandStartRadarScanData, opts *wshrpc.RpcOpts) (*wshrpc.CommandStartRadarScanRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandStartRadarScanRtnData](w, "startradarscan", data, opts)
-	return resp, err
 }
 
 // command "stoprunworker", wshserver.StopRunWorkerCommand

@@ -41,7 +41,6 @@ type WshRpcInterface interface {
 	ChannelCommands
 	RunCommands
 	DagCommands
-	RadarCommands
 	JarvisCommands
 	EffortCommands
 	NoteCommands
@@ -50,6 +49,7 @@ type WshRpcInterface interface {
 	NotifyCommands
 	VaultCommands
 	ClaudeAccountCommands
+	ClaudeModCommands
 	UiCommands
 	StreamCommands
 	ResMonCommands

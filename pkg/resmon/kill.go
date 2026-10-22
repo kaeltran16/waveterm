@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log"
 	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
@@ -44,6 +45,10 @@ func readLayout(table map[int]proc, j jobobject.LiveJob, agent bool) jobLayout {
 	for _, m := range j.Members {
 		if p, ok := table[m]; ok {
 			p.CreateTs = readStat(m).createTs
+			// the table has no command lines; coreTags needs one only to know a wsh agentctl
+			if strings.EqualFold(p.Name, imageWsh) {
+				p.Command = readCmdline(m)
+			}
 			procs[m] = p
 			members = append(members, m)
 		}

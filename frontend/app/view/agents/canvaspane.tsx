@@ -76,8 +76,18 @@ function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasState): v
     globalStore.set(model.newRunOpenAtom, true);
 }
 
-// onBack: shown inside a brainstorm, which owns the way back and the run launch
-export function CanvasPane({ model, agent, onBack }: { model: AgentsViewModel; agent: AgentVM; onBack?: () => void }) {
+// onBack: shown inside a brainstorm, which owns the way back (backLabel says where to) and the run launch
+export function CanvasPane({
+    model,
+    agent,
+    onBack,
+    backLabel,
+}: {
+    model: AgentsViewModel;
+    agent: AgentVM;
+    onBack?: () => void;
+    backLabel?: string;
+}) {
     const s = useAtomValue(canvasStateAtom(agent.id));
     const now = useAtomValue(model.nowAtom);
     const [measureRef, scrollRef, rect] = useDimensionsWithCallbackRef<HTMLDivElement>();
@@ -111,7 +121,7 @@ export function CanvasPane({ model, agent, onBack }: { model: AgentsViewModel; a
             <div className="flex flex-none items-center gap-[10px] border-b border-edge-faint bg-surface px-[22px] py-[8px]">
                 {onBack != null ? (
                     <button type="button" onClick={onBack} className={CANVAS_BTN}>
-                        Back to the design
+                        {backLabel}
                     </button>
                 ) : null}
                 <span className="font-mono text-[12px] font-semibold text-secondary">{s.topic}</span>
@@ -423,7 +433,7 @@ function MarkNote(p: {
                 onSubmit={() => void send()}
                 onCancel={() => setMark(agent.id, null)}
                 label="What should change in the marked part"
-                action={`Send to ${agent.name}`}
+                action="Send"
                 busy={sending}
             />
             {error != null ? <span className="text-[12px] text-error">{error}</span> : null}

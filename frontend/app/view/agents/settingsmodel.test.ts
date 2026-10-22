@@ -9,14 +9,14 @@ import {
     filterSections,
     flagRowId,
     groupSections,
+    isModOptionOn,
     OPENROUTER_SECRET_NAME,
-    RADAR_AUDIT_RUNTIMES,
-    radarAuditRoute,
-    radarClassifyDefault,
     resolveSelection,
     rowKeys,
     rowMatches,
     settingsSections,
+    SKIM_FIELDS,
+    SKIM_PLUGIN,
     vaultStatusLine,
     vaultSyncButton,
     vaultSyncFailureNote,
@@ -190,65 +190,16 @@ describe("settingsSections", () => {
             "memory:vaultpath",
             "headless:runtime",
             "headless:openroutercheapmodel",
-            "radar:auditruntime",
-            "radar:auditmodel",
-            "radar:classifymodel",
         ]);
     });
 
-    it("lists the Radar audit route in Headless AI, and no mid model", () => {
+    it("lists Headless AI without an audit route or a mid model", () => {
         const headless = sections().find((s) => s.id === "headless")!;
-        expect(headless.rows.map((r) => r.id)).toEqual([
-            "headless.runtime",
-            "headless.apikey",
-            "headless.cheap",
-            "headless.radaraudit",
-        ]);
-        expect(headless.rows.find((r) => r.id === "headless.radaraudit")!.title).toBe("Radar audit");
+        expect(headless.rows.map((r) => r.id)).toEqual(["headless.runtime", "headless.apikey", "headless.cheap"]);
         const prose = [headless.blurb, ...headless.rows.flatMap((r) => [r.title, r.desc])].join(" ").toLowerCase();
         for (const gone of ["mid model", "gatekeeper", "decompose"]) {
             expect(prose).not.toContain(gone);
         }
-    });
-
-    it("finds the Radar audit row by any of its keys", () => {
-        for (const key of ["radar:auditmodel", "radar:classifymodel"]) {
-            expect(filterSections(sections(), key)[0].rows.map((r) => r.id)).toEqual(["headless.radaraudit"]);
-        }
-    });
-
-    it("keeps Radar out of what the headless runtime powers", () => {
-        const headless = sections().find((s) => s.id === "headless")!;
-        expect(headless.blurb).not.toContain("route Radar audits run on");
-    });
-});
-
-describe("radarAuditRoute", () => {
-    it("shows claude on sonnet when both keys are unset", () => {
-        expect(radarAuditRoute("", "")).toEqual({ runtime: "claude", model: "sonnet" });
-        expect(radarAuditRoute("claude", "")).toEqual({ runtime: "claude", model: "sonnet" });
-    });
-
-    it("leaves pi on its own default when no model is set", () => {
-        expect(radarAuditRoute("pi", "")).toEqual({ runtime: "pi" });
-    });
-
-    it("shows the configured route", () => {
-        expect(radarAuditRoute("pi", "opencode/deepseek-v4-pro")).toEqual({
-            runtime: "pi",
-            model: "opencode/deepseek-v4-pro",
-        });
-        expect(radarAuditRoute("", "opus")).toEqual({ runtime: "claude", model: "opus" });
-    });
-
-    it("defaults the classifier to haiku on claude and pi's own on pi", () => {
-        expect(radarClassifyDefault("")).toBe("haiku");
-        expect(radarClassifyDefault("claude")).toBe("haiku");
-        expect(radarClassifyDefault("pi")).toBe("pi default");
-    });
-
-    it("offers only runtimes that have tools", () => {
-        expect(RADAR_AUDIT_RUNTIMES).toEqual(["claude", "pi"]);
     });
 });
 
@@ -396,5 +347,23 @@ describe("countLabel", () => {
     it("singularizes one", () => {
         expect(countLabel(1)).toBe("1 setting");
         expect(countLabel(4)).toBe("4 settings");
+    });
+});
+
+describe("skim rows", () => {
+    it("lists one row per option the mod declares, kept on this machine", () => {
+        const skim = sections().find((s) => s.id === "skim");
+        expect(skim?.group).toBe("Agents");
+        expect(skim?.rows.map((r) => r.id)).toEqual(SKIM_FIELDS.map((f) => `skim.${f.field}`));
+        expect(skim?.rows.every((r) => r.scope === "local" && !r.config)).toBe(true);
+        expect(skim?.rows[0]?.key).toContain(`pluginConfigs.${SKIM_PLUGIN}.highlight`);
+    });
+
+    it("reads an option as on unless it is stored false", () => {
+        expect(isModOptionOn(null, "dim")).toBe(true);
+        expect(isModOptionOn({}, "dim")).toBe(true);
+        expect(isModOptionOn({ dim: true }, "dim")).toBe(true);
+        expect(isModOptionOn({ dim: false }, "dim")).toBe(false);
+        expect(isModOptionOn({ dim: false }, "highlight")).toBe(true);
     });
 });

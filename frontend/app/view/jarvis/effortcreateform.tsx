@@ -136,12 +136,7 @@ export function EffortCreateForm({
     };
 
     return (
-        <ModalShell
-            open
-            onClose={onClose}
-            onSubmit={() => void submit()}
-            className="flex w-[min(580px,93vw)] flex-col"
-        >
+        <ModalShell open onClose={onClose} onSubmit={() => void submit()} className="flex w-[min(580px,93vw)] flex-col">
             <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
                 <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-accentbg font-mono text-[10.5px] font-bold text-accent-soft">
                     ✦
@@ -252,7 +247,11 @@ export function EffortCreateForm({
                                                     )}
                                                 >
                                                     {l.checked ? (
-                                                        <Check className="h-[11px] w-[11px]" strokeWidth={3} aria-hidden />
+                                                        <Check
+                                                            className="h-[11px] w-[11px]"
+                                                            strokeWidth={3}
+                                                            aria-hidden
+                                                        />
                                                     ) : null}
                                                 </span>
                                                 <span

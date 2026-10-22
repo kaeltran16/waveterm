@@ -10,7 +10,7 @@ import { cn } from "@/util/util";
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
 
-// no overflow-hidden: Radar's audits popover and Code's project picker open out of this header.
+// no overflow-hidden: Code's project picker opens out of this header.
 // when the controls do not fit one row it wraps rather than clipping them; py-1.5 lands a single
 // row of controls up to 39px at exactly 52px. actions takes min-w-0 so a truncating fact placed there
 // (Diff's range summary) can shrink instead of wrapping.
@@ -59,9 +59,8 @@ export function ToolbarFact({ children, className }: { children: ReactNode; clas
 // className exists for one reason: the Jarvis Stage stacks this directly above and below bands that all
 // share one gutter (jarvis/stagemeasure.ts), and px-[30px] put it 6px right of every one of them. A
 // surface that owns its own horizontal measure passes it in; everyone else keeps the default.
-// children sit between the body and the buttons, for a state that has to show what it is working on
-// (Radar's collector list). secondaryAction sits beside the primary, or alone when a state has no
-// accent action to offer.
+// children sit between the body and the buttons, for a state that has to show what it is working on.
+// secondaryAction sits beside the primary, or alone when a state has no accent action to offer.
 export function SurfaceEmptyState({
     glyph,
     title,
@@ -105,7 +104,7 @@ export function SurfaceEmptyState({
                                 type="button"
                                 onClick={action.onClick}
                                 disabled={action.disabled}
-                                className="flex cursor-pointer items-center gap-[11px] rounded-lg bg-accent px-[26px] py-3.5 text-[15px] font-bold text-background shadow-cta hover:bg-accenthover disabled:cursor-default disabled:opacity-50"
+                                className="flex cursor-pointer items-center gap-[11px] rounded-lg bg-accent px-[26px] py-3.5 text-[15px] font-bold text-background shadow-cta hover:bg-accenthover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-50"
                             >
                                 {action.label}
                             </button>
@@ -114,7 +113,7 @@ export function SurfaceEmptyState({
                             <button
                                 type="button"
                                 onClick={secondaryAction.onClick}
-                                className="cursor-pointer rounded-lg border border-edge-mid bg-surface-raised px-4 py-2.5 text-[13px] font-semibold text-secondary hover:border-edge-strong"
+                                className="cursor-pointer rounded-lg border border-edge-mid bg-surface-raised px-4 py-2.5 text-[13px] font-semibold text-secondary hover:border-edge-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                             >
                                 {secondaryAction.label}
                             </button>
@@ -148,7 +147,7 @@ export function SurfaceError({
                 <button
                     type="button"
                     onClick={onRetry}
-                    className="flex-none cursor-pointer rounded border border-error/40 px-2 py-0.5 font-semibold hover:bg-error/15"
+                    className="flex-none cursor-pointer rounded border border-error/40 px-2 py-0.5 font-semibold hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                     {actionLabel}
                 </button>

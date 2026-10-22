@@ -115,6 +115,17 @@ recorded on the run's final stage.`, orchestrate.ReviewTimeout, orchestrate.Fina
 	RunE:    runsEndFinalRun,
 }
 
+var runsRerunFinalCmd = &cobra.Command{
+	Use:   "rerun-final <run-id>",
+	Short: "run a failed final stage again, in the same round, once what failed outside the code is fixed",
+	Long: `Run an orchestrator run's failed final stage again, in the same round, so it spends no fix round: for a
+failure outside the code, such as a service that was down or a tool that was not installed, once it is fixed. The
+lead is told to drop its fix plan. A run whose land the failure held lands by itself once the rerun passes.`,
+	Args:    cobra.ExactArgs(1),
+	PreRunE: preRunSetupRpcClient,
+	RunE:    runsRerunFinalRun,
+}
+
 var runsLandCmd = &cobra.Command{
 	Use:   "land <run-id>",
 	Short: "merge a finished run's branch back into the branch it started from, or say why it is held",
@@ -161,7 +172,7 @@ func init() {
 	f.String("effort", "", "initiative to attach the run to (id from 'wsh effort list')")
 	f.String("chunk", "", "the initiative's chunk: its label or 1-based number")
 	f.Bool("json", false, "JSON output")
-	for _, c := range []*cobra.Command{runsStartCmd, runsListCmd, runsShowCmd, runsAnswerCmd, runsCancelCmd, runsEndFinalCmd, runsLandCmd, runsAckCmd} {
+	for _, c := range []*cobra.Command{runsStartCmd, runsListCmd, runsShowCmd, runsAnswerCmd, runsCancelCmd, runsEndFinalCmd, runsRerunFinalCmd, runsLandCmd, runsAckCmd} {
 		c.Flags().String("project", "", "project directory (default: the current directory)")
 		c.Flags().String("channel", "", "channel id, instead of resolving the project")
 	}
@@ -173,7 +184,7 @@ func init() {
 	runsCancelCmd.Flags().Bool("yes", false, "cancel even though workers are live")
 	runsLandCmd.Flags().Bool("force", false, "land even though the final stage failed")
 	runsAttentionCmd.Flags().Bool("json", false, "JSON output")
-	runsCmd.AddCommand(runsStartCmd, runsListCmd, runsShowCmd, runsAnswerCmd, runsCancelCmd, runsEndFinalCmd, runsLandCmd, runsAckCmd, runsAttentionCmd)
+	runsCmd.AddCommand(runsStartCmd, runsListCmd, runsShowCmd, runsAnswerCmd, runsCancelCmd, runsEndFinalCmd, runsRerunFinalCmd, runsLandCmd, runsAckCmd, runsAttentionCmd)
 	rootCmd.AddCommand(runsCmd)
 }
 
@@ -930,6 +941,18 @@ func runsEndFinalRun(cmd *cobra.Command, args []string) error {
 // runsEndFinal waits as long as a cancel does: stopping the verifier stops its worker
 func runsEndFinal(channelId, runId, action, reason string) error {
 	return wshclient.DagActionCommand(RpcClient, wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: action, Notes: reason}, &wshrpc.RpcOpts{Timeout: runsCancelTimeoutMs})
+}
+
+func runsRerunFinalRun(cmd *cobra.Command, args []string) error {
+	ch, run, err := runsFind(cmd, args[0])
+	if err != nil {
+		return err
+	}
+	if err := wshclient.DagActionCommand(RpcClient, wshrpc.CommandDagActionData{ChannelId: ch.OID, RunId: run.ID, Action: "final-rerun"}, &wshrpc.RpcOpts{Timeout: dagRpcTimeoutMs}); err != nil {
+		return err
+	}
+	fmt.Printf("rerunning run %s's final stage\n", run.ID)
+	return nil
 }
 
 // runsLandLines are where a run's branch stands on its way back into its base

@@ -336,6 +336,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const [error, setError] = useState<string | null>(null);
     const goalRef = useRef<HTMLTextAreaElement>(null);
     const planRef = useRef<HTMLInputElement>(null);
+    const onStartedRef = useRef<((runId: string) => void) | null>(null);
     const { attachments, addPaths, remove, retry, onPaste } = useComposerAttachments();
     const config = {
         shape,
@@ -390,6 +391,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
             return;
         }
         globalStore.set(newRunPrefillAtom, null);
+        onStartedRef.current = prefill.onStarted ?? null;
         const p = prefillToLaunch(prefill, names);
         if (p.picked != null) {
             setPicked(p.picked);
@@ -467,6 +469,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                 return;
             }
             noteRecentProject(picked);
+            onStartedRef.current?.(run.id);
             // the launch consumed this draft, so the next one starts from the project's saved defaults
             endRunConfigDraft(globalStore.get(resolvedProfileAtom)[oid]);
             // The run exists, so the launch has succeeded and the modal's work is done. Landing on it is a

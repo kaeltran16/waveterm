@@ -4,6 +4,7 @@
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { getWebServerEndpoint } from "@/util/endpoints";
+import { fetch } from "@/util/fetchutil";
 import { formatRemoteUri } from "@/util/waveutil";
 import parseSrcSet from "parse-srcset";
 
@@ -163,14 +164,33 @@ export const resolveRemoteFile = async (filepath: string, resolveOpts: MarkdownR
         const fileInfo = await RpcApi.FileJoinCommand(TabRpcClient, [baseDirUri, filepath]);
         const remoteUri = formatRemoteUri(fileInfo.path, resolveOpts.connName);
         // console.log("markdown resolve", resolveOpts, filepath, "=>", baseDirUri, remoteUri);
+        // a local file is served straight off disk, skipping the rpc stream a remote file needs
+        const local = (resolveOpts.connName ?? "local") === "local";
         const usp = new URLSearchParams();
-        usp.set("path", remoteUri);
-        return getWebServerEndpoint() + "/wave/stream-file?" + usp.toString();
+        usp.set("path", local ? fileInfo.path : remoteUri);
+        const route = local ? "/wave/stream-local-file?" : "/wave/stream-file?";
+        // an <img src> cannot carry the auth header wavesrv needs under tauri (fetchutil.ts), so the
+        // bytes are fetched and handed over as a blob url, which the csp's img-src already allows
+        const resp = await fetch(getWebServerEndpoint() + route + usp.toString());
+        if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status}`);
+        }
+        return URL.createObjectURL(await resp.blob());
     } catch (err) {
         console.warn("Failed to resolve remote file:", filepath, err);
         return null;
     }
 };
+
+// revokes the blob urls resolveRemoteFile made for an image's src and srcset
+export function releaseResolved(src: string, srcSet: string): void {
+    const urls = [src, ...(srcSet ? parseSrcSet(srcSet).map((c) => c.url) : [])];
+    for (const url of urls) {
+        if (url?.startsWith("blob:")) {
+            URL.revokeObjectURL(url);
+        }
+    }
+}
 
 export const resolveSrcSet = async (srcSet: string, resolveOpts: MarkdownResolveOpts): Promise<string> => {
     if (!srcSet) return null;

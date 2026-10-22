@@ -24,7 +24,7 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 
 | Keys | Action |
 |---|---|
-| `Ctrl`+`1`…`8` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Code, Diff, Sessions, Radar, Usage |
+| `Ctrl`+`1`…`7` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Code, Diff, Sessions, Usage |
 | `Ctrl`+`P` | Search — opens on the Files scope on Code (see below) |
 | `Ctrl`+`N` | New agent |
 | `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent |
@@ -40,7 +40,6 @@ Setup and Settings have no `Ctrl`+number slot — the nine positions are bound t
 | `g` `h` | Cockpit (home) |
 | `g` `a` | Agent |
 | `g` `c` | Jarvis — channels, records, recall |
-| `g` `r` | Radar |
 | `g` `s` | Sessions |
 | `g` `f` | Files |
 | `g` `u` | Usage |
@@ -70,6 +69,7 @@ One overlay with scopes: All, Needs you, Go to, Agents, Runs, Sessions, Records,
 | `Ctrl`+`Enter` | The selected row's alternate action, named in the footer. On the goal block, open an orchestrator run instead of a Quick one |
 | `Backspace` on an empty query | Leave a picker, then drop back to All |
 | `path:123` in Files | Open the file at that line; a bare `:123` on Code moves the open file |
+| `@` typed first in Files on Code | List the open file's symbols instead of files; `Enter` moves the file to the one selected |
 
 In All, text that names nothing is a goal: Quick and Orchestrate open the New run window with it
 filled in and the active (else last used) project preselected, so the project is confirmed there
@@ -86,7 +86,7 @@ cancelled now, in All and in Commands, so it never starts a run named "cancel".
 | `j` / `k` (or `↓` / `↑`) | Move the cursor within the active region |
 | `Enter` | Open / activate the item under the cursor |
 | `Space` | Peek the item under the cursor in the avatar popup, without leaving the surface (see Peek below) |
-| `Esc` | On a deep surface (Jarvis, Radar, Sessions, Files, Usage, Code), go back to the surface you jumped from (opening a run, file, diff or agent from elsewhere), else return to the Cockpit. In a composer or text field, leave Type posture first. |
+| `Esc` | On a deep surface (Jarvis, Sessions, Files, Usage, Code), go back to the surface you jumped from (opening a run, file, diff or agent from elsewhere), else return to the Cockpit. In a composer or text field, leave Type posture first. |
 
 ## Resource Manager (the popover opened from the footer's readout or `g` `m`)
 
@@ -103,7 +103,7 @@ closes it.
 
 ## Peek (the avatar popup's item view)
 
-A peek shows a run, agent, record, initiative, radar finding or memory note in the avatar popup. It writes no
+A peek shows a run, agent, record, initiative or memory note in the avatar popup. It writes no
 selection on the surface underneath. `Space` on a row cursor peeks it;
 holding `Ctrl` underlines every link that can be peeked, and `Ctrl`+click on one peeks it instead of opening it.
 `Space` never peeks while focus is in a text field.
@@ -151,17 +151,24 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | Keys | Action |
 |---|---|
 | `c` | Show the agent's canvas; from the canvas, back to the terminal |
+| `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal |
 | `[` / `]` | Previous / next board |
 | `m` | Mark part of the board; in mark mode, stop marking |
 | `Enter` / `Esc` | In the note under a drawn box: send the mark to the agent / drop it |
 
 ### Agent: brainstorm mode
 
-`b` works when the focused agent has a brainstorm; such an agent never shows canvas mode, so `c` does nothing for it. In brainstorm mode, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm.
+`b` works when the focused agent has a brainstorm; such an agent never shows canvas mode, so `c` does nothing for it. In brainstorm mode, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm, except that `j` / `k` move between decisions while the builder check's review fills the main area (the arrows and `Ctrl`+`Tab` still move between agents there).
 
 | Keys | Action |
 |---|---|
-| `b` | Show the agent's brainstorm; from the brainstorm, back to the terminal |
+| `b` | Show the agent's brainstorm; from the brainstorm, back to the terminal (while the question offers a B, `b` picks it instead) |
+| `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal or while `b` picks an answer |
+| `a` / `b` / `c` / `d` | While the brainstorm asks a question with answers to pick from: focus that answer; `Enter` sends it |
+| `j` / `k` | In the builder check's review: next / previous decision |
+| `Enter` | In the review: show or hide what the cursor decision was (a focused button keeps its own `Enter`) |
+| `y` | In the review: keep the cursor decision's change; on a guess, confirm it |
+| `u` | In the review: put mine back |
 
 ### Jarvis
 
@@ -178,7 +185,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Shift`+`G` | Graph peek (`Esc` closes) |
 | `Shift`+`J` / `Shift`+`K` | Next / previous run in this channel |
 | `j` / `k` | With a run sheet open: next / previous run in the list it counts (Runs, or Shipped for a finished run) |
-| `1`…`9` | Answer an ask option on a run body |
+| `1`…`9` | With a run sheet open: pick an option on the lead's question card |
 | `Enter` | Submit the answer |
 | `Esc` | Leave the composer |
 
@@ -211,6 +218,28 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `u` | Undo the last decision |
 | `j` / `k` (or `↓` / `↑`) | Next / previous file |
 | `Enter` | Apply the review |
+
+### Code
+
+The ones marked "from the editor" also work while the caret is in the editor; the rest need focus
+outside it. The tree keys work while the file tree holds focus.
+
+| Keys | Action |
+|---|---|
+| `Alt`+`←` / `Alt`+`→` | Back / forward through opened files and jumps |
+| `r` | Refresh the file index |
+| `d` | Toggle the diff against HEAD |
+| `Ctrl`+`S` | Save the open file (from the editor) |
+| `Ctrl`+`Shift`+`F` | Search file contents (from the editor) |
+| `Ctrl`+`Shift`+`O` | Go to a symbol in the open file: opens Search seeded with `@` (from the editor) |
+| `F12` | Go to the definition of the word at the caret: one match jumps there, several list in Search (from the editor) |
+| `Shift`+`F12` | Find references to the word at the caret, in Search (from the editor) |
+| `Alt`+`T` / `Alt`+`E` | Focus the file tree / the editor (from the editor) |
+| `j` / `k` (or `↓` / `↑`) in the tree | Next / previous file or folder |
+| `←` / `→` in the tree | Collapse / expand the folder |
+| `Enter` in the tree | Open the file, or toggle the folder |
+| `n` / `Shift`+`N` in the tree | New file / new folder in the cursor's directory |
+| `F2` / `Del` in the tree | Rename / delete the cursor row |
 
 ### Route DAG (the orchestrator run's graph)
 

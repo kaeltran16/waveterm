@@ -15,10 +15,13 @@ import { EndFinalForm } from "../agents/endfinalform";
 import { finalRowFocusId, isFinalStageId, type FinalStageView, type FinalTone } from "../agents/finalstage";
 import { FinalOutcome, FinalOutput, FinalShotsLink, FinalStepList } from "../agents/finalstageviews";
 import { fmtDuration } from "../agents/runcompletion";
+import { useRunEventsState } from "../agents/runeventstore";
 import { ActivityLine, StatusLine } from "../agents/statusline";
 import { dagModalAgentsContextAtom } from "./dagmodalstate";
 import { finalGlyph } from "./dagnodes";
-import { DagPeekCard, PEEK_BTN, PEEK_BTN_ACCENT_OPEN, type PeekPlace } from "./dagpeekcard";
+import { DagPeekCard, PEEK_BTN, PEEK_BTN_ACCENT_OPEN, PeekLifecycle, type PeekPlace } from "./dagpeekcard";
+import { DAG_META, PEEK_DD, PEEK_DD_SUB, PEEK_DL, PEEK_DT } from "./dagtext";
+import { finalLifecycle } from "./peeklifecycle";
 import { reviewerRouteOf } from "./taskroute";
 
 // the output tail the card shows under the steps
@@ -56,6 +59,7 @@ export function DagFinalPeek({
         setEnding(false);
     }
     const running = view.steps.find((s) => s.key === view.running);
+    const { events, status } = useRunEventsState(group.runid, group.channelid);
     return (
         <DagPeekCard
             place={place}
@@ -88,7 +92,7 @@ export function DagFinalPeek({
             panel={
                 ending ? (
                     <div className="flex flex-col gap-1.5 border-t border-edge-mid bg-surface px-3 py-2.5">
-                        <span className="text-[12px] font-semibold text-ink-hi">End the final stage</span>
+                        <span className="text-[13px] font-semibold text-ink-hi">End the final stage</span>
                         <EndFinalForm
                             channelId={group.channelid}
                             runId={group.runid}
@@ -114,7 +118,7 @@ export function DagFinalPeek({
                             End final stage
                         </button>
                         {endError != null ? (
-                            <span role="alert" className="min-w-0 truncate text-[11px] text-error" title={endError}>
+                            <span role="alert" className="min-w-0 truncate text-[12px] text-error" title={endError}>
                                 {endError}
                             </span>
                         ) : null}
@@ -126,18 +130,18 @@ export function DagFinalPeek({
             {verifier != null && agentsCtx != null ? (
                 <VerifierSession agent={verifier} model={agentsCtx.model} group={group} owner={owner} />
             ) : (
-                <div className="flex items-center gap-2 rounded-[8px] border border-dashed border-edge-mid px-[9px] py-[7px] font-mono text-[11px] text-ink-mid">
+                <div className="flex items-center gap-2 rounded-[8px] border border-dashed border-edge-mid px-[9px] py-[7px] text-[12.5px] text-ink-mid">
                     <span aria-hidden className="size-1.5 flex-none rounded-full bg-edge-strong" />
                     {verifierLine(group, view)}
                 </div>
             )}
-            <dl className="m-0 grid grid-cols-[54px_minmax(0,1fr)] gap-x-2.5">
-                <dt className="text-[11px] leading-4 text-ink-mid">Verifier</dt>
-                <dd className="m-0 min-w-0 font-mono text-[11px] leading-4">
+            <dl className={PEEK_DL}>
+                <dt className={PEEK_DT}>Verifier</dt>
+                <dd className={PEEK_DD}>
                     <div className="truncate text-secondary">
                         {route.runtime} / {route.model || "default"}
                     </div>
-                    <div className="text-muted">{custom ? "reviewers route" : "same as lead"}</div>
+                    <div className={PEEK_DD_SUB}>{custom ? "reviewers route" : "same as lead"}</div>
                 </dd>
             </dl>
             <div className="border-t border-edge-faint">
@@ -145,10 +149,11 @@ export function DagFinalPeek({
             </div>
             {view.output !== "" && running != null ? (
                 <div className="flex flex-col gap-1">
-                    <span className="font-mono text-[10.5px] text-ink-mid">{running.label} output · live</span>
+                    <span className={DAG_META}>{running.label} output · live</span>
                     <FinalOutput output={view.output} lines={OUTPUT_LINES} />
                 </div>
             ) : null}
+            <PeekLifecycle rows={finalLifecycle(events)} status={status} emptyText="The final stage has not run yet" />
             <FinalOutcome view={view} pastLabel={PAST_LABEL} className="flex-none" />
             <FinalShotsLink group={group} />
         </DagPeekCard>
@@ -174,7 +179,7 @@ function VerifierSession({
                 <button
                     type="button"
                     onClick={() => openFinalFromGraph(group, owner)}
-                    className="flex-none cursor-pointer rounded-[6px] border border-accent/50 px-2 py-[3px] font-mono text-[10.5px] font-bold text-accent-soft hover:border-accent"
+                    className="flex-none cursor-pointer rounded-[6px] border border-accent/50 px-2 py-[3px] text-[12px] font-semibold text-accent-soft hover:border-accent"
                 >
                     Open in Agent ↗
                 </button>

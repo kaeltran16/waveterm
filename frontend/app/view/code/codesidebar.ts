@@ -14,6 +14,7 @@ export const CODE_SIDEBAR_DEFAULT_WIDTHS = {
     files: 280,
     search: 380,
     changed: 380,
+    symbols: 280,
 } as const;
 
 export type CodeSidebarMode = keyof typeof CODE_SIDEBAR_DEFAULT_WIDTHS;
@@ -112,6 +113,7 @@ export function parseCodeSidebarPrefs(raw: string | null): CodeSidebarPrefs {
                 files: validWidth(storedWidths.files, defaults.widths.files),
                 search: validWidth(storedWidths.search, defaults.widths.search),
                 changed: validWidth(storedWidths.changed, defaults.widths.changed),
+                symbols: validWidth(storedWidths.symbols, defaults.widths.symbols),
             },
             open: typeof record.open === "boolean" ? record.open : defaults.open,
         };
@@ -126,6 +128,7 @@ export function codeSidebarPrefsJson(prefs: CodeSidebarPrefs): string {
             files: clampCodeSidebarWidth(prefs.widths.files),
             search: clampCodeSidebarWidth(prefs.widths.search),
             changed: clampCodeSidebarWidth(prefs.widths.changed),
+            symbols: clampCodeSidebarWidth(prefs.widths.symbols),
         },
         open: prefs.open,
     });

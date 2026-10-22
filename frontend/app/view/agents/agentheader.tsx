@@ -24,7 +24,7 @@ import { contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { isAsking } from "./brainstormmodel";
-import { brainstormAtom, setBrainstormMode } from "./brainstormstore";
+import { brainstormAtom, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
@@ -51,6 +51,9 @@ const CTX_TEXT: Record<"ok" | "warn" | "hot", string> = {
     warn: "text-warning",
     hot: "text-error",
 };
+
+// the brainstorm/canvas switch's keys: its letter off the terminal, agent:view-chord from anywhere
+const viewKeys = (letter: string) => `${formatChordString(letter)} or ${formatChordString("Ctrl:Shift:b")}`;
 
 // shared compact icon-button (matches the rail-toggle's resting style)
 export const ICON_BTN =
@@ -109,7 +112,8 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const canvas = useAtomValue(canvasStateAtom(agent.id));
     const brainstorm = useAtomValue(brainstormAtom(agent.id));
     // the roster overlay already turned a question the file asks into state "asking"
-    const brainstormAsking = brainstorm?.file != null && isAsking(brainstorm.file) && agent.state === "asking";
+    const brainstormFile = shownBrainstormFile(brainstorm);
+    const brainstormAsking = brainstormFile != null && isAsking(brainstormFile) && agent.state === "asking";
     const lineage = useRunLineage(model, agent);
     const project = agentProject(useAtomValue(model.lineageAtom), useAtomValue(model.agentsAtom), agent);
     const name =
@@ -294,47 +298,37 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                     </button>
                 ) : null}
                 {brainstorm != null ? (
-                    <>
-                        <Segmented
-                            role="group"
-                            ariaLabel="Show terminal or brainstorm"
-                            value={brainstorm.mode}
-                            options={[
-                                { key: "terminal", label: "Terminal", title: `Terminal (${formatChordString("b")})` },
-                                {
-                                    key: "brainstorm",
-                                    label: (
-                                        <>
-                                            Brainstorm
-                                            {brainstormAsking ? (
-                                                <span
-                                                    aria-label="asking you"
-                                                    className="h-[6px] w-[6px] rounded-full bg-warning"
-                                                />
-                                            ) : null}
-                                        </>
-                                    ),
-                                    title: `Brainstorm (${formatChordString("b")})`,
-                                },
-                            ]}
-                            onChange={(m) => setBrainstormMode(agent.id, m, Date.now())}
-                        />
-                        {brainstorm.mode === "terminal" ? (
-                            <span className="flex items-center gap-[6px] text-[11.5px] text-muted">
-                                <span className="rounded-[5px] border border-b-2 border-edge-strong px-[6px] font-mono text-[11px] text-secondary">
-                                    B
-                                </span>
-                                switch view
-                            </span>
-                        ) : null}
-                    </>
+                    <Segmented
+                        role="group"
+                        ariaLabel="Show terminal or brainstorm"
+                        value={brainstorm.mode}
+                        options={[
+                            { key: "terminal", label: "Terminal", title: `Terminal (${viewKeys("b")})` },
+                            {
+                                key: "brainstorm",
+                                label: (
+                                    <>
+                                        Brainstorm
+                                        {brainstormAsking ? (
+                                            <span
+                                                aria-label="asking you"
+                                                className="h-[6px] w-[6px] rounded-full bg-warning"
+                                            />
+                                        ) : null}
+                                    </>
+                                ),
+                                title: `Brainstorm (${viewKeys("b")})`,
+                            },
+                        ]}
+                        onChange={(m) => setBrainstormMode(agent.id, m, Date.now())}
+                    />
                 ) : canvas != null ? (
                     <Segmented
                         role="group"
                         ariaLabel="Show terminal or canvas"
                         value={canvas.mode}
                         options={[
-                            { key: "terminal", label: "Terminal", title: `Terminal (${formatChordString("c")})` },
+                            { key: "terminal", label: "Terminal", title: `Terminal (${viewKeys("c")})` },
                             {
                                 key: "canvas",
                                 label: (
@@ -348,7 +342,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                                         ) : null}
                                     </>
                                 ),
-                                title: `Canvas (${formatChordString("c")})`,
+                                title: `Canvas (${viewKeys("c")})`,
                             },
                         ]}
                         onChange={(m) => setCanvasMode(agent.id, m, Date.now())}

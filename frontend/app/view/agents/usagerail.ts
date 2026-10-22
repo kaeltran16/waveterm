@@ -31,12 +31,6 @@ export interface UsageRailGroup {
     rows: UsageRailRow[];
 }
 
-export interface AggregateWindow {
-    pct?: number;
-    reset?: number;
-    harness?: string; // which harness supplied the reading
-}
-
 // Fold the window's daily series into per-harness totals. `daily` already carries tokens AND spend
 // per harness for every day in the loaded window, so the rail needs no second pass over the raw
 // buckets — and it stays in lockstep with the chart, which reads the same series.
@@ -96,23 +90,6 @@ export function buildUsageRail(
         groups.push({ key: "quiet", label: "No reading", rows: quiet });
     }
     return groups;
-}
-
-// The aggregate row cannot average quotas — they are independent per-account windows, and a mean
-// would read "fine" while one account sits at 98%. The one that matters is whichever is closest to
-// its cap, so that is the reading "All providers" shows, named so it is never mistaken for a total.
-export function worstWindow(rows: UsageRailRow[], which: "fivehour" | "week"): AggregateWindow {
-    let top: AggregateWindow | undefined;
-    for (const r of rows) {
-        const pct = r[which].pct;
-        if (pct == null) {
-            continue;
-        }
-        if (top == null || pct > top.pct!) {
-            top = { pct, reset: r[which].reset, harness: r.harness };
-        }
-    }
-    return top ?? {};
 }
 
 export function railRows(groups: UsageRailGroup[]): UsageRailRow[] {

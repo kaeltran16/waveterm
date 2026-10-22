@@ -99,13 +99,108 @@ export function readout(s: ResMonSnapshotData | null): {
     return { visible, ready: true, cpu, mem, busy, aria };
 }
 
-export function orderGroups(groups: ResMonGroup[]): ResMonGroup[] {
-    return [...groups].sort((a, b) => {
-        if ((a.key === ARC_KEY) !== (b.key === ARC_KEY)) {
-            return a.key === ARC_KEY ? -1 : 1;
+// one member of a view: a backend group (one job owner) with its core processes folded into one line
+export interface ResMonMember {
+    g: ResMonGroup; // the kill owner; confirms and notes are keyed by g.key
+    role: string; // "Lead", "Task 2", "Task 2 Verify"; a tab's "Agent" or "Shell"
+    head: ProcessInfo | null; // the core row the member's line stands for: the agent, else the shell
+    folded: ProcessInfo[]; // the other core rows (launcher, console, agentctl), counted in the member's line
+    kids: ProcessInfo[]; // what the member started, depth from 0 under the core
+}
+
+// what the popover draws as one collapsible block: Arc, one orchestrator run, or one tab
+export interface ResMonView {
+    key: string;
+    kind: "arc" | "run" | "tab";
+    label: string;
+    runtime?: string;
+    cpu: number;
+    mem: number;
+    procs: number;
+    arcRows: ProcessInfo[];
+    members: ResMonMember[];
+}
+
+const RUN_KINDS = new Set(["runworker", "runcmd"]);
+const ROLE_AGENT = "Agent";
+const ROLE_SHELL = "Shell";
+
+// re-roots the untagged rows under the core: each one's depth counts from its nearest core ancestor
+function startedRows(rows: ProcessInfo[]): ProcessInfo[] {
+    const out: ProcessInfo[] = [];
+    const path: ProcessInfo[] = [];
+    for (const r of rows) {
+        while (path.length > 0 && path[path.length - 1].depth >= r.depth) {
+            path.pop();
+        }
+        path.push(r);
+        if (r.tag) {
+            continue;
+        }
+        const core = [...path].reverse().find((p) => p.tag);
+        out.push({ ...r, depth: core ? r.depth - core.depth - 1 : r.depth });
+    }
+    return out;
+}
+
+export function memberOf(g: ResMonGroup): ResMonMember {
+    const core = g.rows.filter((r) => r.tag);
+    const head = core.find((r) => r.tag === "agent") ?? core.find((r) => r.tag === "shell") ?? null;
+    return {
+        g,
+        role: g.role || (g.runtime ? ROLE_AGENT : ROLE_SHELL),
+        head,
+        folded: core.filter((r) => r !== head),
+        kids: startedRows(g.rows),
+    };
+}
+
+function startedAt(m: ResMonMember): number {
+    return m.g.rows[0]?.createts ?? 0;
+}
+
+// Arc first however low its CPU, then by CPU, ties by label; a run's members in the order they started
+export function buildViews(groups: ResMonGroup[]): ResMonView[] {
+    const views = new Map<string, ResMonView>();
+    for (const g of groups) {
+        const run = RUN_KINDS.has(g.ownerkind);
+        const key = run ? `run:${g.runid || g.key}` : g.key;
+        let v = views.get(key);
+        if (v == null) {
+            const kind = g.key === ARC_KEY ? "arc" : run ? "run" : "tab";
+            v = { key, kind, label: g.label, runtime: g.runtime, cpu: 0, mem: 0, procs: 0, arcRows: [], members: [] };
+            views.set(key, v);
+        }
+        v.cpu += g.cpu;
+        v.mem += g.mem;
+        v.procs += g.rows.length;
+        if (v.kind === "arc") {
+            v.arcRows = g.rows;
+        } else {
+            v.members.push(memberOf(g));
+        }
+    }
+    for (const v of views.values()) {
+        v.members.sort((a, b) => startedAt(a) - startedAt(b) || a.role.localeCompare(b.role));
+    }
+    return [...views.values()].sort((a, b) => {
+        if ((a.kind === "arc") !== (b.kind === "arc")) {
+            return a.kind === "arc" ? -1 : 1;
         }
         return b.cpu - a.cpu || a.label.localeCompare(b.label);
     });
+}
+
+function plural(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+// the popover's subtitle: what is running, not the backend's owner count
+export function viewsSummary(views: ResMonView[]): string {
+    const runs = views.filter((v) => v.kind === "run").length;
+    const tabs = views.filter((v) => v.kind === "tab").length;
+    const parts = [runs > 0 && plural(runs, "run"), tabs > 0 && plural(tabs, "agent tab")].filter(Boolean);
+    return [...parts, processes(views.reduce((n, v) => n + v.procs, 0))].join(" · ");
 }
 
 const KIND_WORDS: Record<string, string> = {
@@ -122,19 +217,25 @@ const KIND_NOUNS: Record<string, string> = {
     runcmd: "run command",
 };
 
-// an agent tab's group label is its tab name, which is the project for every tab launched in one, so the
-// Agent tree's name for it (custom name, else the agent's ai-title) leads and the project moves to the detail.
-// agent tabs are most groups, so their kind words are dropped; the read-only kinds keep theirs.
-export function groupHeader(g: ResMonGroup, treeName: string | undefined): { title: string; detail: string } {
-    const procs = processes(g.rows.length);
-    if (g.ownerkind !== "agenttab") {
-        return { title: g.label, detail: `${ownerKindWords(g.ownerkind)} · ${procs}` };
+// a tab's label is its tab name, which is the project for every tab launched in one, so the Agent tree's name
+// for it (custom name, else the agent's ai-title) leads and the project moves to the detail. A run is titled by
+// its run title and counts its agents and plan commands.
+export function viewHeader(v: ResMonView, treeName: string | undefined): { title: string; detail: string } {
+    const procs = processes(v.procs);
+    if (v.kind === "arc") {
+        return { title: v.label, detail: `${ownerKindWords("arc")} · ${procs}` };
+    }
+    if (v.kind === "run") {
+        const cmds = v.members.filter((m) => m.g.ownerkind === "runcmd").length;
+        const agents = v.members.length - cmds;
+        const parts = [agents > 0 && plural(agents, "agent"), cmds > 0 && plural(cmds, "command")].filter(Boolean);
+        return { title: v.label, detail: ["Run", ...parts, procs].join(" · ") };
     }
     const name = treeName?.trim();
     if (!name) {
-        return { title: g.label, detail: procs };
+        return { title: v.label, detail: procs };
     }
-    const project = g.label && !name.includes(g.label) ? `${g.label} · ` : "";
+    const project = v.label && !name.includes(v.label) ? `${v.label} · ` : "";
     return { title: name, detail: project + procs };
 }
 
@@ -171,6 +272,22 @@ export function rowLabel(row: ProcessInfo): { name: string; cmd: string } {
     return { name: image || `pid ${row.pid}`, cmd: args };
 }
 
+// a member line's command: an agent by its runtime, a shell or plan command by its command line
+export function memberCommand(m: ResMonMember): string {
+    if (m.head == null) {
+        return "";
+    }
+    if (m.g.runtime) {
+        return m.g.runtime;
+    }
+    const { name, cmd } = rowLabel(m.head);
+    return cmd ? `${name} ${cmd}` : name;
+}
+
+export function foldedTitle(m: ResMonMember): string {
+    return "Also in this line: " + m.folded.map((r) => `${rowLabel(r).name} (${r.tag})`).join(", ");
+}
+
 export function subtreeSize(rows: ProcessInfo[], index: number): number {
     let n = 0;
     for (let j = index + 1; j < rows.length && rows[j].depth > rows[index].depth; j++) {
@@ -199,8 +316,8 @@ export function killChildrenTargets(g: ResMonGroup): ProcessInfo[] {
     return g.rows.filter((r) => !r.tag);
 }
 
-export function killChildrenConfirmText(g: ResMonGroup): string {
-    const ask = `Kill ${processes(killChildrenTargets(g).length)} under ${g.label}?`;
+export function killChildrenConfirmText(g: ResMonGroup, owner: string = g.label): string {
+    const ask = `Kill ${processes(killChildrenTargets(g).length)} under ${owner}?`;
     const survivor = g.rows.find((r) => r.tag === "agent") ?? g.rows.find((r) => r.tag === "shell");
     if (survivor == null) {
         return ask;
@@ -255,69 +372,87 @@ export function outcomeNote(
 }
 
 export interface ResMonUi {
-    cursor: string | null; // "<groupKey>" or "<groupKey>/<pid>"
-    expanded: Record<string, boolean>; // only the groups toggled from their default; see isExpanded
-    confirm: { kind: "row"; key: string; pid: number } | { kind: "group"; key: string } | null;
-    notes: Record<string, { text: string; tone: "note" | "alert" }>;
+    cursor: string | null; // a ResMonLine id
+    expanded: Record<string, boolean>; // view keys toggled from their default; see isExpanded
+    confirm: { kind: "row"; key: string; pid: number } | { kind: "group"; key: string } | null; // key: a group key
+    notes: Record<string, { text: string; tone: "note" | "alert" }>; // by group key
 }
 
-// groups is the order the popover draws (orderGroups); at moves the cursor there first, for a click
+// views is the order the popover draws (buildViews); at moves the cursor there first, for a click
 export type ResMonAction =
-    | { type: "move"; delta: 1 | -1; groups: ResMonGroup[] }
-    | { type: "toggle"; key?: string } // undefined = the cursor's group
-    | { type: "askKill"; groups: ResMonGroup[]; at?: string } // x: a row cursor on a killable, untagged row
-    | { type: "askChildren"; groups: ResMonGroup[]; at?: string } // ⇧X: the cursor's group, when it is killable and has targets
+    | { type: "move"; delta: 1 | -1; views: ResMonView[] }
+    | { type: "toggle"; views: ResMonView[]; key?: string } // undefined = the cursor's view
+    | { type: "askKill"; views: ResMonView[]; at?: string } // x: a cursor on a row an agent started
+    | { type: "askChildren"; views: ResMonView[]; at?: string } // ⇧X: the cursor's member, when it is killable and started any
     | { type: "cancel" }
     | { type: "note"; key: string; note: { text: string; tone: "note" | "alert" } }
     | { type: "close" }; // clears confirm, notes and cursor; keeps expanded
 
 export const RESMON_UI_INITIAL: ResMonUi = { cursor: null, expanded: {}, confirm: null, notes: {} };
 
-// every group starts collapsed, so the popover opens as a one-line-per-group summary
+// every view starts collapsed, so the popover opens as a one-line-per-view summary
 export function isExpanded(ui: ResMonUi, key: string): boolean {
     return ui.expanded[key] ?? false;
 }
 
-function parseCursor(cursor: string | null): { key: string; pid: number | null } | null {
-    if (cursor == null) {
-        return null;
-    }
-    const slash = cursor.lastIndexOf("/");
-    if (slash < 0) {
-        return { key: cursor, pid: null };
-    }
-    return { key: cursor.slice(0, slash), pid: Number(cursor.slice(slash + 1)) };
-}
+// one line the cursor can sit on. A view's header; a member's line; a process row, with the member it belongs
+// to (none in Arc) and its index in the list its subtree is counted in
+export type ResMonLine =
+    | { id: string; kind: "view"; view: ResMonView }
+    | { id: string; kind: "member"; view: ResMonView; m: ResMonMember }
+    | { id: string; kind: "proc"; view: ResMonView; m: ResMonMember | null; row: ProcessInfo; index: number };
 
-export function cursorRows(groups: ResMonGroup[], ui: ResMonUi): string[] {
-    const out: string[] = [];
-    for (const g of groups) {
-        out.push(g.key);
-        if (isExpanded(ui, g.key)) {
-            out.push(...g.rows.map((r) => `${g.key}/${r.pid}`));
-        }
+export const memberLineId = (g: ResMonGroup): string => `m:${g.key}`;
+export const procLineId = (owner: string, pid: number): string => `${owner}/${pid}`;
+
+function viewLines(v: ResMonView, open: boolean): ResMonLine[] {
+    const out: ResMonLine[] = [{ id: v.key, kind: "view", view: v }];
+    if (!open) {
+        return out;
+    }
+    v.arcRows.forEach((row, index) =>
+        out.push({ id: procLineId(v.key, row.pid), kind: "proc", view: v, m: null, row, index })
+    );
+    for (const m of v.members) {
+        out.push({ id: memberLineId(m.g), kind: "member", view: v, m });
+        m.kids.forEach((row, index) =>
+            out.push({ id: procLineId(m.g.key, row.pid), kind: "proc", view: v, m, row, index })
+        );
     }
     return out;
 }
 
-function move(ui: ResMonUi, delta: 1 | -1, groups: ResMonGroup[]): ResMonUi {
-    const rows = cursorRows(groups, ui);
-    if (rows.length === 0) {
-        return ui;
-    }
-    const at = ui.cursor == null ? -1 : rows.indexOf(ui.cursor);
-    const next = at < 0 ? (delta === 1 ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, at + delta));
-    return { ...ui, cursor: rows[next] };
+export function resmonLines(views: ResMonView[], ui: ResMonUi): ResMonLine[] {
+    return views.flatMap((v) => viewLines(v, isExpanded(ui, v.key)));
 }
 
-function toggle(ui: ResMonUi, key: string | undefined): ResMonUi {
-    const k = key ?? parseCursor(ui.cursor)?.key;
+// a line whatever its view's expansion: a click can name a line the keyboard cursor could not reach
+function findLine(views: ResMonView[], id: string | null): ResMonLine | null {
+    if (id == null) {
+        return null;
+    }
+    return views.flatMap((v) => viewLines(v, true)).find((l) => l.id === id) ?? null;
+}
+
+function move(ui: ResMonUi, delta: 1 | -1, views: ResMonView[]): ResMonUi {
+    const ids = resmonLines(views, ui).map((l) => l.id);
+    if (ids.length === 0) {
+        return ui;
+    }
+    const at = ui.cursor == null ? -1 : ids.indexOf(ui.cursor);
+    const next = at < 0 ? (delta === 1 ? 0 : ids.length - 1) : Math.min(ids.length - 1, Math.max(0, at + delta));
+    return { ...ui, cursor: ids[next] };
+}
+
+function toggle(ui: ResMonUi, views: ResMonView[], key: string | undefined): ResMonUi {
+    const cursorView = findLine(views, ui.cursor)?.view.key;
+    const k = key ?? cursorView;
     if (k == null) {
         return ui;
     }
     const open = !isExpanded(ui, k);
-    // collapsing hides the cursor's row, so the cursor falls back to its group's header
-    const cursor = !open && parseCursor(ui.cursor)?.key === k ? k : ui.cursor;
+    // collapsing hides the cursor's line, so the cursor falls back to its view's header
+    const cursor = !open && cursorView === k ? k : ui.cursor;
     return { ...ui, cursor, expanded: { ...ui.expanded, [k]: open } };
 }
 
@@ -326,36 +461,55 @@ function withoutNote(notes: ResMonUi["notes"], key: string): ResMonUi["notes"] {
     return rest;
 }
 
-function askKill(ui: ResMonUi, groups: ResMonGroup[], at: string | undefined): ResMonUi {
+function askKill(ui: ResMonUi, views: ResMonView[], at: string | undefined): ResMonUi {
     const cursor = at ?? ui.cursor;
-    const c = parseCursor(cursor);
-    const g = groups.find((x) => x.key === c?.key);
-    const row = g?.rows.find((r) => r.pid === c?.pid);
-    if (g == null || row == null || !g.killable || row.tag) {
+    const l = findLine(views, cursor);
+    if (l?.kind !== "proc" || l.m == null || !l.m.g.killable || l.row.tag) {
         return ui;
     }
-    return { ...ui, cursor, confirm: { kind: "row", key: g.key, pid: row.pid }, notes: withoutNote(ui.notes, g.key) };
+    const key = l.m.g.key;
+    return { ...ui, cursor, confirm: { kind: "row", key, pid: l.row.pid }, notes: withoutNote(ui.notes, key) };
 }
 
-function askChildren(ui: ResMonUi, groups: ResMonGroup[], at: string | undefined): ResMonUi {
+// a member's line or one of its rows names the member; a tab's header names its only one. A run's header names
+// none: a kill across every worker of a run is too easy to send by mistake
+function lineMember(l: ResMonLine | null): ResMonMember | null {
+    if (l == null) {
+        return null;
+    }
+    if (l.kind === "view") {
+        return l.view.kind === "tab" && l.view.members.length === 1 ? l.view.members[0] : null;
+    }
+    return l.m;
+}
+
+function askChildren(ui: ResMonUi, views: ResMonView[], at: string | undefined): ResMonUi {
     const cursor = at ?? ui.cursor;
-    const g = groups.find((x) => x.key === parseCursor(cursor)?.key);
-    if (g == null || !g.killable || killChildrenTargets(g).length === 0) {
+    const l = findLine(views, cursor);
+    const m = lineMember(l);
+    if (l == null || m == null || !m.g.killable || m.kids.length === 0) {
         return ui;
     }
-    return { ...ui, cursor, confirm: { kind: "group", key: g.key }, notes: withoutNote(ui.notes, g.key) };
+    // asked from a collapsed tab's header, the confirm sits under the member's line, so the view opens to show it
+    return {
+        ...ui,
+        cursor,
+        expanded: { ...ui.expanded, [l.view.key]: true },
+        confirm: { kind: "group", key: m.g.key },
+        notes: withoutNote(ui.notes, m.g.key),
+    };
 }
 
 export function resmonReduce(ui: ResMonUi, a: ResMonAction): ResMonUi {
     switch (a.type) {
         case "move":
-            return move(ui, a.delta, a.groups);
+            return move(ui, a.delta, a.views);
         case "toggle":
-            return toggle(ui, a.key);
+            return toggle(ui, a.views, a.key);
         case "askKill":
-            return askKill(ui, a.groups, a.at);
+            return askKill(ui, a.views, a.at);
         case "askChildren":
-            return askChildren(ui, a.groups, a.at);
+            return askChildren(ui, a.views, a.at);
         case "cancel":
             return { ...ui, confirm: null };
         case "note":

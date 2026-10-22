@@ -115,6 +115,27 @@ func TestCorePiLauncherChain(t *testing.T) {
 	}
 }
 
+func TestCoreAgentCtl(t *testing.T) {
+	ctl := p(13, 11, "wsh.exe", 4)
+	ctl.Command = `"C:\Users\me\.arc\bin\wsh.exe" agentctl`
+	hook := p(15, 11, "wsh.exe", 6)
+	hook.Command = `wsh.exe agent-hook PreToolUse`
+	procs := table(
+		p(10, testSelf, "pwsh.exe", 1),
+		p(11, 10, "claude.exe", 2),
+		p(12, 10, "conhost.exe", 3),
+		ctl,
+		p(14, 13, "conhost.exe", 5),
+		hook,
+		p(16, 11, "bash.exe", 7),
+	)
+	g := jobGroup(t, procs, 10, true)
+	// the agent's wsh agentctl and its console are core; any other wsh it runs is not
+	if got, want := shape(g.Rows), "10@0:launcher 11@1:agent 13@2:control 14@3:console 15@2 16@2 12@1:console"; got != want {
+		t.Fatalf("rows = %q, want %q", got, want)
+	}
+}
+
 func TestCoreNonAgentBlockIsShellOnly(t *testing.T) {
 	procs := table(
 		p(10, testSelf, "pwsh.exe", 1),

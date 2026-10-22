@@ -20,7 +20,6 @@
 // the control recipe, a borderless one is a label. Dressing something inert as a control and camouflaging
 // a real control among labels are the same lie, so neither happens here.
 
-import { pushToast } from "@/app/cockpit/notificationstore";
 import { cardVariants, computeEntrances, initialEntranceState, MOTION, paneReveal } from "@/app/element/motiontokens";
 import { Skeleton } from "@/app/element/skeleton";
 import { contextMenuAtom, ContextMenuModel } from "@/app/store/contextmenu";
@@ -33,17 +32,30 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { jumpToAgent } from "@/app/view/agents/channelsprimitives";
-import { channelsAtom, createChannel, loadChannels, runAtom } from "@/app/view/agents/channelsstore";
+import { channelsAtom, loadChannels, runAtom } from "@/app/view/agents/channelsstore";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { RollingCount } from "@/app/view/agents/rollingcount";
-import { confirmCancelRun, pendingRunDraftAtom } from "@/app/view/agents/runactions";
+import { confirmCancelRun } from "@/app/view/agents/runactions";
 import { leadAsker, leadWorker, liveWorkers } from "@/app/view/agents/runmodel";
 import { SurfaceToolbar, ToolbarFact } from "@/app/view/agents/surfacescaffold";
 import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom, type Atom, type PrimitiveAtom } from "jotai";
-import { ArrowUpRight, ChevronDown, Copy, Search, SlidersHorizontal, X } from "lucide-react";
+import {
+    Archive,
+    ArchiveRestore,
+    ArrowUpRight,
+    ChevronDown,
+    Copy,
+    Pause,
+    Pencil,
+    Play,
+    Search,
+    SlidersHorizontal,
+    Trash2,
+    X,
+} from "lucide-react";
 import { AnimatePresence, motion, MotionConfig, type Variants } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AutonomyLadder } from "./autonomyladderview";
@@ -161,10 +173,9 @@ import {
     noteChunkAtom,
     readingNoteAtom,
 } from "./jarvisstore";
-import { clearSubject, persistedSubjectAtom, setComposingRun, stageRunAtom } from "./jarvissubjectstore";
+import { clearSubject, persistedSubjectAtom, stageRunAtom } from "./jarvissubjectstore";
 import { NewInitiativeControl } from "./newinitiativecontrol";
-import { radarDraftLanding } from "./newrun";
-import { openChannelSheet, openOrPeek, openOrPeekAddress } from "./openref";
+import { openOrPeek, openOrPeekAddress } from "./openref";
 import { forgetOrigin } from "./returnsurface";
 import { loadTaskList, taskListAtom } from "./tasksstore";
 import {
@@ -468,17 +479,48 @@ function NoMatch() {
 // `wsh effort` call, a message to someone. The row is a button, so neither could be dragged out of it:
 // a mousedown inside a button starts a click, not a text selection. The expanded detail's id line
 // (inlinetrackerview) copies the bare id for the same reason.
-// A left click expands the row, so the activity sheet is opened from here instead.
-function showInitiativeMenu(line: BriefLine, ev: React.MouseEvent, openActivity: (oref: string) => void): void {
+// A left click expands the row, so the activity sheet is opened from here instead. The rest are the
+// plan footer's actions, reachable without expanding the row first.
+type EffortOps = { togglePause: () => void; archive: () => void; unarchive: () => void; remove: () => void };
+type InitiativeMenuActs = {
+    openActivity: (oref: string) => void;
+    work?: () => void;
+    rename: () => void;
+    details: () => void;
+    // absent when the row's card is not in the snapshot, so its status is unknown
+    status?: { value: string; ops: EffortOps };
+};
+
+function showInitiativeMenu(line: BriefLine, ev: React.MouseEvent, acts: InitiativeMenuActs): void {
     const target = line.target;
     const oid = target != null && "oref" in target ? target.oref.replace(/^effort:/, "") : "";
     const items: ContextMenuItem[] = [];
     if (oid !== "") {
-        items.push({
-            label: "Open activity",
-            icon: <ArrowUpRight size={15} />,
-            click: () => openActivity("effort:" + oid),
-        });
+        if (acts.work != null) {
+            items.push({ label: "Work on", icon: <Play size={15} />, click: acts.work });
+        }
+        items.push(
+            {
+                label: "Open activity",
+                icon: <ArrowUpRight size={15} />,
+                click: () => acts.openActivity("effort:" + oid),
+            },
+            { type: "separator" },
+            { label: "Rename", icon: <Pencil size={15} />, click: acts.rename },
+            { label: "Details", icon: <SlidersHorizontal size={15} />, click: acts.details }
+        );
+        const st = acts.status;
+        if (st != null && st.value === "archived") {
+            items.push({ label: "Unarchive", icon: <ArchiveRestore size={15} />, click: st.ops.unarchive });
+        } else if (st != null) {
+            items.push(
+                st.value === "paused"
+                    ? { label: "Resume", icon: <Play size={15} />, click: st.ops.togglePause }
+                    : { label: "Pause", icon: <Pause size={15} />, click: st.ops.togglePause },
+                { label: "Archive", icon: <Archive size={15} />, click: st.ops.archive }
+            );
+        }
+        items.push({ type: "separator" });
     }
     items.push({
         label: "Copy name",
@@ -491,6 +533,13 @@ function showInitiativeMenu(line: BriefLine, ev: React.MouseEvent, openActivity:
             icon: <Copy size={15} />,
             click: () => void navigator.clipboard.writeText("wsh effort show " + oid),
         });
+        // no confirm here: the delete waits out the undo toast before it reaches the server
+        if (acts.status != null) {
+            items.push(
+                { type: "separator" },
+                { label: "Delete", icon: <Trash2 size={15} />, danger: true, click: acts.status.ops.remove }
+            );
+        }
     }
     ContextMenuModel.getInstance().showContextMenu(items, ev);
 }
@@ -616,48 +665,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // composition the Subjects column does not mount, and that column is what loads both of these today.
     useEffect(() => {
         loadTaskList();
-        // channels, because a Radar draft names a project and the landing has to resolve it to a channel
         loadChannels();
     }, []);
-
-    // A Radar draft moved off the Stage with the panes it drew. It is one-shot — `landed` bounds it to a single
-    // attempt, because a channel that never resolves must not re-fire on every change and yank the user back.
-    const pendingDraft = useAtomValue(pendingRunDraftAtom);
-    const setPendingDraft = useSetAtom(pendingRunDraftAtom);
-    const channels = useAtomValue(channelsAtom);
-
-    // Radar "Start investigation": put its project's channel on the subject, so the sheet opens on that
-    // channel's launcher holding the draft rather than dropping it on the queue. A project with no channel yet
-    // gets one minted, as + Run does.
-    useEffect(() => {
-        if (pendingDraft == null || pendingDraft.landed) {
-            return;
-        }
-        const landing = radarDraftLanding(channels, pendingDraft);
-        if (landing === "wait") {
-            return;
-        }
-        setPendingDraft({ ...pendingDraft, landed: true });
-        if (landing === "none") {
-            return;
-        }
-        fireAndForget(async () => {
-            try {
-                const oid = landing.kind === "existing" ? landing.oid : await createChannel(landing.name, landing.path);
-                // composing, as New run does: otherwise a channel with any past run opens on that run's
-                // report, and the launcher holding the draft is one click away and looks like nothing happened
-                setComposingRun(oid, true);
-                await openChannelSheet(oid, null);
-            } catch (e) {
-                pushToast({ title: "Couldn't open the investigation's project", message: String(e), level: "error" });
-            }
-        });
-    }, [pendingDraft, channels, setPendingDraft]);
 
     // Boot restore, Brief edition. A stored record lands on the record peek; a stored channel is forgotten
     // (briefrestore.ts). One-shot: this
     // surface unmounts on every nav switch, and a restore that re-ran would re-open a peek the user had closed.
     const storedSubject = useAtomValue(persistedSubjectAtom);
+    const channels = useAtomValue(channelsAtom);
     const dossiers = useAtomValue(taskListAtom);
     const [restoreConsumed, consumeRestore] = useAtom(briefRestoreConsumedAtom);
 
@@ -985,6 +1000,28 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const planChunks = useMemo(() => (openEffort != null ? effortChunkRows(openEffort) : []), [openEffort]);
     const [renamingTitle, setRenamingTitle] = useState<string | null>(null);
     const [detailsOpen, setDetailsOpen] = useState(false);
+    // the plan footer and the row's context menu act through these, so the two cannot drift apart
+    const effortOps = useCallback(
+        (oref: string, title: string, status: string): EffortOps => ({
+            togglePause: () => {
+                const next = status === "paused" ? "active" : "paused";
+                runMutation(() => setEffortStatus(oref, next));
+                briefUndo.notify(next === "paused" ? "Paused" : "Resumed", () =>
+                    runMutation(() => setEffortStatus(oref, status))
+                );
+            },
+            archive: () => {
+                runMutation(() => setEffortStatus(oref, "archived"));
+                briefUndo.notify(`Archived “${title}”`, () => runMutation(() => unarchiveEffort(oref)));
+            },
+            unarchive: () => runMutation(() => unarchiveEffort(oref)),
+            remove: () => {
+                setOpenInitiative((cur) => (cur === "initiatives:" + oref ? null : cur));
+                briefUndo.schedule([effortKey(oref)], `Deleted “${title}”`, () => deleteEffort(oref));
+            },
+        }),
+        [runMutation, setOpenInitiative]
+    );
     const edits = useMemo<TrackerEdits | null>(() => {
         const oref = openEffortORef;
         if (oref == null || openEffort == null) {
@@ -1006,6 +1043,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             );
         };
         const status = openEffort.status;
+        const ops = effortOps(oref, openEffort.title, status);
         return {
             oid: oref.replace(/^effort:/, ""),
             title: openEffort.title,
@@ -1062,24 +1100,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             onRename: (title) => setRenamingTitle(title),
             onDetails: () => setDetailsOpen(true),
             onActivity: (e) => fireAndForget(() => openOrPeekAddress(model, oref, e)),
-            onTogglePause: () => {
-                const next = status === "paused" ? "active" : "paused";
-                runMutation(() => setEffortStatus(oref, next));
-                briefUndo.notify(next === "paused" ? "Paused" : "Resumed", () =>
-                    runMutation(() => setEffortStatus(oref, status))
-                );
-            },
-            onArchive: () => {
-                runMutation(() => setEffortStatus(oref, "archived"));
-                briefUndo.notify(`Archived “${openEffort.title}”`, () => runMutation(() => unarchiveEffort(oref)));
-            },
-            onUnarchive: () => runMutation(() => unarchiveEffort(oref)),
-            onDelete: () => {
-                setOpenInitiative(null);
-                briefUndo.schedule([effortKey(oref)], `Deleted “${openEffort.title}”`, () => deleteEffort(oref));
-            },
+            onTogglePause: ops.togglePause,
+            onArchive: ops.archive,
+            onUnarchive: ops.unarchive,
+            onDelete: ops.remove,
         };
-    }, [model, openEffortORef, openEffort, planChunks, pendingDeletes, runMutation, setOpenInitiative]);
+    }, [model, openEffortORef, openEffort, planChunks, pendingDeletes, runMutation, effortOps]);
 
     // Alt+↑/↓: published only while the cursor sits on a chunk of the open plan
     const setChunkMove = useSetAtom(chunkMoveAtom);
@@ -1267,6 +1293,32 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const resumeOf = (l: BriefLine): InitiativeResume | undefined => {
         const c = cardOf(l);
         return c != null ? initiativeResume(c.oref.replace(/^effort:/, ""), c.lastnote, agents, Date.now()) : undefined;
+    };
+    const showMenuFor = (l: BriefLine, ev: React.MouseEvent) => {
+        const live = cardOf(l);
+        const card =
+            live ?? archivedCards.find((c) => l.target != null && "oref" in l.target && c.oref === l.target.oref);
+        // rename and details live on the expanded row, so the menu opens it first
+        const expand = () => {
+            setCursor(l.id);
+            if (openInitiative !== l.id) {
+                toggleInitiative(l.id);
+            }
+        };
+        showInitiativeMenu(l, ev, {
+            openActivity: (oref) => openLine({ oref }),
+            work: live != null ? () => void workOnInitiative(model, live) : undefined,
+            rename: () => {
+                expand();
+                setRenamingTitle(l.title);
+            },
+            details: () => {
+                expand();
+                setDetailsOpen(true);
+            },
+            status:
+                card != null ? { value: card.status, ops: effortOps(card.oref, card.title, card.status) } : undefined,
+        });
     };
     useEffect(() => {
         globalStore.set(
@@ -1713,11 +1765,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                         void workOnInitiative(model, c);
                                                                     }
                                                                 }}
-                                                                onContextMenu={(ev) =>
-                                                                    showInitiativeMenu(l, ev, (oref) =>
-                                                                        openLine({ oref })
-                                                                    )
-                                                                }
+                                                                onContextMenu={(ev) => showMenuFor(l, ev)}
                                                                 onOpen={() => {
                                                                     setCursor(l.id);
                                                                     toggleInitiative(l.id);

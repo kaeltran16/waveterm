@@ -518,11 +518,6 @@ declare global {
         termsize?: TermSize;
     };
 
-    // wshrpc.CommandCancelRadarScanData
-    type CommandCancelRadarScanData = {
-        reportid: string;
-    };
-
     // wshrpc.CommandCancelRunData
     type CommandCancelRunData = {
         channelid: string;
@@ -537,6 +532,18 @@ declare global {
     // wshrpc.CommandClaudeAccountData
     type CommandClaudeAccountData = {
         accountuuid: string;
+    };
+
+    // wshrpc.CommandClaudeModOptionsData
+    type CommandClaudeModOptionsData = {
+        plugin: string;
+    };
+
+    // wshrpc.CommandClaudeModSetOptionData
+    type CommandClaudeModSetOptionData = {
+        plugin: string;
+        field: string;
+        value: boolean;
     };
 
     // wshrpc.CommandConsultData
@@ -608,7 +615,6 @@ declare global {
         playbookid?: string;
         mode?: string;
         landing?: string;
-        radarorigin?: RunRadarOrigin;
         effortoid?: string;
         chunklabel?: string;
         deferstart?: boolean;
@@ -1260,16 +1266,6 @@ declare global {
         projects: MemHygieneProject[];
     };
 
-    // wshrpc.CommandListRadarReportsData
-    type CommandListRadarReportsData = {
-        projectpath?: string;
-    };
-
-    // wshrpc.CommandListRadarReportsRtnData
-    type CommandListRadarReportsRtnData = {
-        reports: RadarReport[];
-    };
-
     // wshrpc.CommandListRefusedRoutesRtnData
     type CommandListRefusedRoutesRtnData = {
         routes: RefusedRouteInfo[];
@@ -1427,11 +1423,6 @@ declare global {
         resolvedids: {[key: string]: ORef};
     };
 
-    // wshrpc.CommandRetryRadarClusteringData
-    type CommandRetryRadarClusteringData = {
-        reportid: string;
-    };
-
     // wshrpc.CommandRunAnswerData
     type CommandRunAnswerData = {
         channelid: string;
@@ -1511,15 +1502,6 @@ declare global {
         delete?: boolean;
     };
 
-    // wshrpc.CommandSetRadarFindingDispositionData
-    type CommandSetRadarFindingDispositionData = {
-        reportid: string;
-        findingid: string;
-        action: string;
-        reason?: string;
-        note?: string;
-    };
-
     // wshrpc.CommandSetRunSettingsData
     type CommandSetRunSettingsData = {
         channelid: string;
@@ -1530,16 +1512,6 @@ declare global {
         reviewerroute?: RoutePin;
         lightreviewerroute?: RoutePin;
         autonomous?: boolean;
-    };
-
-    // wshrpc.CommandStartRadarScanData
-    type CommandStartRadarScanData = {
-        projectpath: string;
-    };
-
-    // wshrpc.CommandStartRadarScanRtnData
-    type CommandStartRadarScanRtnData = {
-        report: RadarReport;
     };
 
     // wshrpc.CommandStopRunWorkerData
@@ -2505,135 +2477,6 @@ declare global {
         delta?: TimelineEvent[];
     };
 
-    // waveobj.RadarAudit
-    type RadarAudit = {
-        kind?: string;
-        commit: string;
-        subject: string;
-        committs: number;
-        files: string[];
-        status: string;
-        rootcause?: string;
-        hitcount?: number;
-        keptcount?: number;
-        error?: string;
-        resolvedmodel?: string;
-        totaltokens?: number;
-        cachereadtokens?: number;
-        durationms?: number;
-        rawresponse?: string;
-        fixsubjects?: string[];
-    };
-
-    // waveobj.RadarCommitClass
-    type RadarCommitClass = {
-        fix: boolean;
-        behavior: boolean;
-    };
-
-    // waveobj.RadarDisposition
-    type RadarDisposition = {
-        action: string;
-        reason?: string;
-        note?: string;
-        ts: number;
-        user?: string;
-        evidencerev?: string;
-    };
-
-    // waveobj.RadarFinding
-    type RadarFinding = {
-        id: string;
-        fingerprint: string;
-        group: string;
-        riskkind: string;
-        subsystem: string;
-        risk: string;
-        why: string;
-        severity: string;
-        signalids: string[];
-        files: string[];
-        mission: string;
-        disposition?: RadarDisposition;
-        investigation?: RadarInvestigation;
-        misscount?: number;
-        sourcecommit?: string;
-        sourcesubject?: string;
-        rootcause?: string;
-        sites?: RadarSite[];
-        fixsubjects?: string[];
-    };
-
-    // waveobj.RadarInvestigation
-    type RadarInvestigation = {
-        runid: string;
-        channelid: string;
-        status: string;
-        startedts: number;
-        completedts?: number;
-        summary?: string;
-        filestouched?: number;
-        addtotal?: number;
-        deltotal?: number;
-        verifspass?: number;
-        verifsfail?: number;
-    };
-
-    // waveobj.RadarReport
-    type RadarReport = WaveObj & {
-        projectname: string;
-        projectpath: string;
-        status: string;
-        phase?: string;
-        starthead?: string;
-        endhead?: string;
-        startdirty?: string;
-        enddirty?: string;
-        prevreportid?: string;
-        prevhead?: string;
-        windowstartts?: number;
-        windowendts?: number;
-        startedts: number;
-        completedts?: number;
-        fatalerror?: string;
-        clustererror?: string;
-        configuredmodel?: string;
-        resolvedmodel?: string;
-        totaltokens?: number;
-        candidates?: RadarSignal[];
-        signals?: RadarSignal[];
-        findings?: RadarFinding[];
-        clusterstartedts?: number;
-        audits?: RadarAudit[];
-        commitclasses?: {[key: string]: RadarCommitClass};
-        classifycount?: number;
-        classifyerror?: string;
-        classifytokens?: number;
-    };
-
-    // waveobj.RadarSignal
-    type RadarSignal = {
-        id: string;
-        collector: string;
-        sourceref: string;
-        observedts: number;
-        paths?: string[];
-        subsystem?: string;
-        summary: string;
-        facts?: {[key: string]: any};
-        snippet?: string;
-        contenthash: string;
-    };
-
-    // waveobj.RadarSite
-    type RadarSite = {
-        line: number;
-        trigger: string;
-        actual: string;
-        expected: string;
-        whynotcovered: string;
-    };
-
     // wshrpc.RefusedRouteInfo
     type RefusedRouteInfo = {
         runtime: string;
@@ -2648,6 +2491,8 @@ declare global {
         ownerkind: string;
         ownerid?: string;
         label: string;
+        runid?: string;
+        role?: string;
         runtime?: string;
         killable: boolean;
         cpu: number;
@@ -2751,7 +2596,6 @@ declare global {
         principles?: Principle[];
         status: string;
         phases: RunPhase[];
-        radarorigin?: RunRadarOrigin;
         createdts: number;
         completedts?: number;
         evidence?: RunEvidence;
@@ -2845,13 +2689,6 @@ declare global {
         artifacts?: string[];
         startedts?: number;
         donets?: number;
-    };
-
-    // waveobj.RunRadarOrigin
-    type RunRadarOrigin = {
-        reportid: string;
-        findingid: string;
-        fingerprint: string;
     };
 
     // waveobj.RunSpec
@@ -2966,9 +2803,6 @@ declare global {
         "debug:webglstatus"?: boolean;
         "harness:preferredruntime"?: string;
         "harness:preferredmodel"?: string;
-        "radar:auditruntime"?: string;
-        "radar:auditmodel"?: string;
-        "radar:classifymodel"?: string;
     };
 
     // wshrpc.ShippedItem
@@ -3169,6 +3003,7 @@ declare global {
         gate?: boolean;
         state: string;
         runid?: string;
+        spawnedts?: number;
         released?: boolean;
         merged?: boolean;
         runspec?: RunSpec;

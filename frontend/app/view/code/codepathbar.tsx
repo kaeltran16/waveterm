@@ -111,7 +111,7 @@ function ViewModeToggle({ markdown }: { markdown: boolean }) {
                     title={plain && m === "diff" ? NOT_TRACKED : undefined}
                     onClick={() => setMode(m)}
                     className={cn(
-                        "cursor-pointer rounded-[4px] px-2 py-[2px] text-[11px] capitalize disabled:cursor-default disabled:opacity-40",
+                        "cursor-pointer rounded-[4px] px-2 py-[2px] text-[11px] capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-40",
                         m === mode ? "bg-accent/10 text-accent-soft" : "text-muted hover:text-primary"
                     )}
                 >

@@ -27,12 +27,17 @@ import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
 import { openRunDag } from "@/app/view/agents/runrailsections";
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
+import { parseFinderQuery } from "@/app/view/code/codefinder";
 import { recentPaths } from "@/app/view/code/codehistory";
+import { rankSymbols } from "@/app/view/code/codeoutline";
 import {
+    codeFileAtom,
     codeHistoryAtom,
     codeIndexAtom,
+    codeOutlineAtom,
     codePendingLineAtom,
     codeProjectAtom,
+    goToLine,
     loadFileIndex,
     openInCode,
     type CodeIndex,
@@ -325,7 +330,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         if (!open) {
             return;
         }
-        setNav(initialNav(globalStore.get(model.surfaceAtom)));
+        const seed = globalStore.get(model.paletteSeedAtom);
+        globalStore.set(model.paletteSeedAtom, null);
+        setNav({ ...initialNav(globalStore.get(model.surfaceAtom)), query: seed ?? "" });
         setDraft(null);
         setArmed(null);
         setLoadedFiles((cur) => (cur?.error != null ? null : cur)); // a failed listing gets another try
@@ -1103,6 +1110,10 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
 
     function fileScopeGroups(): { groups: PaletteGroup<PaletteItem>[]; fileHighlight?: string } {
         const empty = (emptyText: string) => [{ key: "empty", label: "Files", items: [], emptyText }];
+        const fq = parseFinderQuery(nav.query);
+        if (fq.symbol) {
+            return symbolScopeGroups(fq.text);
+        }
         if (fileTarget == null) {
             return { groups: empty("No project to search. Pick one on Code or in the cockpit.") };
         }
@@ -1161,6 +1172,39 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             return { groups: narrowed([], ["file"], false, fg.text) };
         }
         return { groups: rows, fileHighlight: fg.text };
+    }
+
+    // "@" ranks the open file's outline. Read from the store rather than subscribed: the outline is
+    // derived from the buffer, and a subscription here would re-parse it on every editor keystroke
+    // while the palette sits closed.
+    function symbolScopeGroups(text: string): { groups: PaletteGroup<PaletteItem>[]; fileHighlight?: string } {
+        const empty = (emptyText: string) => [{ key: "empty", label: "Symbols", items: [], emptyText }];
+        const file = globalStore.get(codeFileAtom);
+        if (surface !== "code" || file.kind !== "text") {
+            return { groups: empty("Open a file on Code to list its symbols.") };
+        }
+        const outline = globalStore.get(codeOutlineAtom);
+        const base = file.path.slice(file.path.lastIndexOf("/") + 1);
+        const ranked = rankSymbols(text, outline).slice(0, MAX_IN_SCOPE);
+        if (ranked.length === 0) {
+            return {
+                groups: empty(outline.length === 0 ? `No symbols found in ${base}.` : `No symbol matches “${text}”.`),
+            };
+        }
+        const items: PaletteItem[] = ranked.map((sym) => ({
+            key: `symbol:${sym.line}:${sym.name}`,
+            kind: "symbol" as const,
+            search: "",
+            title: sym.name,
+            meta: `:${sym.line}`,
+            verb: "Go to",
+            echo: `Moves ${base} to ${sym.name}, line ${sym.line}`,
+            run: () => {
+                close();
+                goToLine(sym.line);
+            },
+        }));
+        return { groups: [{ key: "symbols", label: `Symbols in ${base}`, items }], fileHighlight: text };
     }
 
     // a thing's row says how many of its actions apply now; → opens them
@@ -1492,7 +1536,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
 
     const placeholder =
         atTop && nav.scope === "files" && fileTarget != null
-            ? `Open a file in #${fileTarget.name}, path:line jumps…`
+            ? `Open a file in #${fileTarget.name}, path:line jumps${surface === "code" ? ", @ lists symbols" : ""}…`
             : placeholderFor(nav);
     // a narrowed scope names itself in the box; in All, a lone letter that starts a prefix says where it leads
     const token = atTop && nav.scope !== "all" ? scopeDef(nav.scope).label : null;

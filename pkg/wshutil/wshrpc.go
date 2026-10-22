@@ -817,7 +817,15 @@ func (w *WshRpc) SendComplexRequest(command string, data any, opts *wshrpc.RpcOp
 	if err != nil {
 		return nil, err
 	}
-	handler.respCh = w.registerRpc(handler, command, opts.Route, handler.reqId)
+	if handler.reqId != "" {
+		handler.respCh = w.registerRpc(handler, command, opts.Route, handler.reqId)
+	} else {
+		// a no-response request must stay out of RpcMap: every one would share the "" key, so one finishing
+		// unregistered (and cancelled) another still waiting on a full OutputCh, which then dropped its message
+		closedCh := make(chan *RpcMessage)
+		close(closedCh)
+		handler.respCh = closedCh
+	}
 	select {
 	case w.OutputCh <- barr:
 		return handler, nil

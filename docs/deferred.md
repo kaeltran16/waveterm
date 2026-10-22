@@ -76,63 +76,30 @@ Claude Code's auto memory only. Three pieces of the spec's design were left out:
 
 Nothing was built for these, so there is nothing to recover from git.
 
-## Radar security review audits (deferred 2026-10-13)
+## Radar (retired 2026-10-21)
 
-- **Deferred:** an audit kind that reviews a window commit for security vulnerabilities it introduced. Radar ships
-  the sibling, introduced and hotspot kinds (`docs/superpowers/specs/2026-10-13-radar-audit-kinds-design.md`).
-- **Why:** the probe found 0 hits in 3 audits, and a keyword filter cannot pick security-relevant commits: it
-  matched "session" and "token" in usage code.
-- **Revive when** the commit classifier gains a flag for trust-boundary commits, then run a fresh probe on the
-  commits it picks. The probe's prompt (`CONTRACT.security` in `%TEMP%\radarprobe\audit.mjs`), quoted so it
-  survives the temp dir:
-
-  > You are reviewing commit <h> for security vulnerabilities it introduced that are still present in the
-  > current tree. 1. Work out what the change does and which inputs cross a trust boundary (rootcause: that
-  > summary). 2. Check: injection (SQL, command, template, path traversal), missing or wrong authentication or
-  > authorization, tenant or user isolation leaks, secrets in code or logs, unsafe deserialization, XSS, SSRF,
-  > open redirects, session handling. 3. Report only a vulnerability with a concrete attacker input or position
-  > that reaches it in the current code; not hardening advice. 4. trigger: the attacker input and where it
-  > enters. whynotcovered: why existing checks do not stop it.
-
-  Nothing-found sentence: "The change introduced no vulnerability".
-- Nothing was built for this, so there is nothing to recover from git.
-
-## Radar missing test coverage audits (deferred 2026-10-13)
-
-- **Deferred:** an audit kind that checks whether the behavior a window commit added or changed is exercised by
-  any test (`docs/superpowers/specs/2026-10-13-radar-audit-kinds-design.md` section 8).
-- **Why:** the probe was accurate (2 of 2), but it reports test gaps, not bugs, and Radar's findings are bugs.
-- **Revive when** Radar is to report test gaps as their own finding type. The probe's prompt
-  (`CONTRACT.coverage` in `%TEMP%\radarprobe\audit.mjs`):
-
-  > You are checking whether the behavior commit <h> added or changed is exercised by any test in the current
-  > tree. 1. List the behaviors the commit added or changed (rootcause: that list in one or two sentences).
-  > 2. For each, search the test suites for a test that reaches it (grep for the function, component, endpoint
-  > or string). 3. Report a hit only for behavior with a real chance of breaking (a branch, a calculation, a
-  > state transition, an error path), not trivial wiring or styling. 4. The hit's file and line are the
-  > untested code. trigger: the case a test should drive. actual: what no test checks today. expected: what
-  > that test should assert. whynotcovered: which nearby tests exist and why they miss it.
-
-  Nothing-found sentence: "Every changed behavior with real risk is tested".
-- Nothing was built for this, so there is nothing to recover from git.
-
-## Radar's metadata collectors and clustering pipeline (retired 2026-10-06)
-
-- **Retired:** the scan that collected metadata signals and clustered them in one model call that never read
-  code: the structure, transcript, runs, config and dependency collectors, the per-commit git signal collector,
-  the no-test signal and its admissibility gate, candidate preparation and the payload budget, the clustering
-  prompt and synthesis call, the per-mode lenses (correctness, security) and their risk taxonomies, the security
-  gate, evidence strength, and the finding cap. Radar now audits each recent fix commit for the same bug at
-  sibling sites (`docs/superpowers/specs/2026-10-06-radar-fix-sibling-audit-design.md`).
-- **Why:** its last two scans kept 0 findings and 9 finished investigations found no defect. A hand trial on
-  2026-10-06 that read the code around 5 fix commits found a real sibling bug in 2 and a conditional one in 1.
-- **Revive when** the sibling audit itself is retired and metadata signals are wanted back. Its keep-or-retire
-  measurement (chunk 8 of `effort:1557171a-e61d-4b29-83fd-fc7f818e6131`, archived) decided keep on 2026-10-06:
-  16 fix commits audited, 5 with a sibling bug, 0 false positives.
-- **Recover** with `git show 78fe087a:pkg/reporadar/<file>`, where `<file>` is one of `collect.go`,
+- **Retired:** the Radar surface and everything behind it: the fix-sibling audit scan (`pkg/reporadar`), its
+  findings and investigation runs, the audit kinds (sibling, introduced, hotspot), the Radar route settings, the
+  `g r` chord, the peek view for a finding and the `radarreport:` address. This
+  replaces the earlier Radar entries here: the held security-review and missing-test-coverage audit kinds
+  (2026-10-13, with their probe prompts) and the metadata collectors and clustering pipeline (2026-10-06).
+- **Why:** measured 2026-10-21 against the packaged store and git. 26 scans from 2026-07-13 to 2026-10-15,
+  every one started by hand, none from Jul 30 to Sep 14; the newest waveterm report's 7 open findings (6 low)
+  were never triaged. The fix-sibling pipeline (since 10-06) fed 7 investigation runs: 2 real fixes
+  (`9db5359f`, and `3759a483` from run `22fdbe4c`), 4 that found nothing left to fix, and 1 re-run of an
+  already fixed finding. The six October scans cost about 14.5M tokens, cache reads excluded. It was about 10.9k
+  lines (2.7k in `pkg/reporadar` without tests), and 123 commits mention Radar, 21 of them since 10-06. On
+  2026-10-08 the findings were already judged not good or stable enough to integrate elsewhere.
+- **Revive when** a fix-sibling check is wanted again. Prefer a post-`fix:` agent step that reads the code for
+  the same bug at sibling sites over a surface (design: `docs/superpowers/specs/2026-10-06-radar-fix-sibling-audit-design.md`).
+- **Recover** with `git show b6fa1229:<path>`, the last commit with Radar in it: `pkg/reporadar/` (with each
+  `_test.go`), the frontend `radar*` files under `frontend/app/view/agents/` and `frontend/app/view/jarvis/peek/`,
+  and the audit prompts in `pkg/reporadar/audit.go` and `pkg/reporadar/kinds.go`. The retired metadata collectors
+  are older still: `git show 78fe087a:pkg/reporadar/<file>`, where `<file>` is one of `collect.go`,
   `collect_config.go`, `collect_dependency.go`, `collect_git.go`, `collect_runs.go`, `collect_structure.go`,
   `collect_transcript.go`, `modes.go`, `prepare.go`, `security.go`, `synth.go`, `validate.go` (each with its
-  `_test.go`), or the old `scan.go`, `lifecycle.go` and `types.go` they plugged into.
+  `_test.go`), or the old `scan.go`, `lifecycle.go` and `types.go` they plugged into. The held security and
+  test-coverage probe prompts are in the text this entry replaced: `git show dd32f48d:docs/deferred.md`.
 
 ## Sessions "All activity" feed rows peeking a run, agent or initiative (deferred 2026-10-01)
 
@@ -145,8 +112,12 @@ Nothing was built for these, so there is nothing to recover from git.
   `openOrPeek` in `frontend/app/view/jarvis/openref.ts`, the way the Brief's `openLine` does, and mark it `data-peek`.
   Nothing was built for this, so there is nothing to recover from git.
 
-## Terminal file drop pastes the file's path (deferred 2026-09-30)
+## Terminal file drop pastes the file's path (deferred 2026-09-30, declined 2026-10-21)
 
+- **Declined 2026-10-21**, with drag-drop onto the New run goal: the user never drops files, they paste. The
+  terminal's `pasteHandler` already saves a pasted image to a temp file and types its path, and the goal takes
+  pasted files. The cost was lower than noted below: no surface uses HTML5 drag-and-drop (the pet drags by
+  pointer events), so flipping `dragDropEnabled` would mainly need a live check of text drags in inputs.
 - **Deferred:** dropping a file onto a terminal to paste its quoted path. The Electron build read the path with
   `webUtils.getPathForFile`; the Tauri port stubbed that to return `""`, so the drop handler never pasted anything.
   The stub and the handler are gone; `termwrap.ts` now only swallows the drop so the webview doesn't navigate to the file.
@@ -202,8 +173,9 @@ of starting a second one. What it does **not** do is capture where a session was
 ## Composer attachments on a steer (2026-09-18, goal half shipped 2026-10-12)
 
 `composerattachments.ts` and `attachmenttray.tsx` are mounted by `newruncontrol.tsx` for the New run goal.
-Still deferred: the Steer composer, drag-drop onto the goal, and WSL path translation. Revive the Steer half
-when attaching a file to a steer is wanted; the hook and tray are reusable as they stand.
+Still deferred: WSL path translation (drag-drop onto the goal was declined 2026-10-21, see the terminal file drop entry). The Steer half (attachments in
+`RunComposer`, `frontend/app/view/jarvis/briefcomposer.tsx`) was declined 2026-10-21: the user does not
+attach files to a steer. Nothing was built for it, so there is nothing to recover.
 
 ## Session target in `openTarget` (2026-09-17)
 

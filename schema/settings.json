@@ -137,15 +137,6 @@
         },
         "harness:preferredmodel": {
           "type": "string"
-        },
-        "radar:auditruntime": {
-          "type": "string"
-        },
-        "radar:auditmodel": {
-          "type": "string"
-        },
-        "radar:classifymodel": {
-          "type": "string"
         }
       },
       "additionalProperties": false,

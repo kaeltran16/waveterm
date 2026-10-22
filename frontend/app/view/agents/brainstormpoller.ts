@@ -6,16 +6,20 @@
 // BRAINSTORM_POLL_MS from the always-mounted cockpit root.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { base64ToString } from "@/util/util";
 import { useEffect } from "react";
 import type { AgentsViewModel } from "./agents";
+import type { AgentVM } from "./agentsviewmodel";
 import {
     BRAINSTORM_POLL_MS,
     brainstormFilePath,
     parseBrainstorm,
     parseBrainstormPath,
+    settleSent,
+    terminalAnswer,
     type BrainstormFile,
 } from "./brainstormmodel";
 import {
@@ -132,22 +136,70 @@ export const tauriBrainstormIO: BrainstormIO = {
     },
 };
 
-// A result that lands after the brainstorm was detached or replaced is dropped rather than written over it.
-async function pollAndMerge(agentId: string, io: BrainstormIO): Promise<void> {
+// `wsh agent-hook` stamps the agent's block on every prompt it submits, the terminal's included
+function turnStartOf(agent: AgentVM | undefined): number | undefined {
+    if (!agent?.blockId) {
+        return undefined;
+    }
+    return globalStore.get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", agent.blockId)))?.meta?.[
+        "agent:turnstartts"
+    ];
+}
+
+// A result that lands after the brainstorm was detached or replaced is dropped rather than written over it. The
+// sent line settles against the agent as the roster has it, before the overlay reads a question as asking.
+async function pollAndMerge(agentId: string, agent: AgentVM | undefined, io: BrainstormIO): Promise<void> {
     const s = getBrainstorm(agentId);
     if (s == null || s.removed) {
         return;
     }
     const patch = await pollBrainstormOnce(s, io);
-    if (Object.keys(patch).length > 0) {
-        updateBrainstorm(agentId, (cur) => (cur.path === s.path ? { ...cur, ...patch } : cur));
+    const cur = getBrainstorm(agentId);
+    if (cur == null || cur.path !== s.path) {
+        return;
     }
+    const modifiedMs = patch.modifiedMs !== undefined ? patch.modifiedMs : cur.modifiedMs;
+    const file = patch.file ?? cur.file;
+    const sent =
+        settleSent(cur.sent, modifiedMs, agent) ??
+        (file != null ? terminalAnswer(file, modifiedMs, agent, turnStartOf(agent)) : null);
+    if (Object.keys(patch).length > 0 || sent !== cur.sent) {
+        updateBrainstorm(agentId, (c) => (c.path === s.path ? { ...c, ...patch, sent } : c));
+    }
+}
+
+// a poll can outlast the interval (a slow wavesrv), so one agent's reads never stack
+const busy = new Set<string>();
+// a reveal that lands mid-poll reads once more after it: that poll may have read the file before the write
+const again = new Set<string>();
+
+function pollAgent(model: AgentsViewModel, agentId: string): void {
+    busy.add(agentId);
+    (async () => {
+        const agent = globalStore.get(model.baseRosterAtom).find((a) => a.id === agentId);
+        await pollAndMerge(agentId, agent, tauriBrainstormIO);
+    })()
+        .catch((e) => console.warn("brainstorm poll failed", agentId, e))
+        .finally(() => {
+            busy.delete(agentId);
+            if (again.delete(agentId)) {
+                pollAgent(model, agentId);
+            }
+        });
+}
+
+// the agent's hook reveals the brainstorm after each write of its file, so reading it then, instead of on the
+// next tick, shows the write as it lands; the interval stays for writes no hook reports
+export function pollBrainstormNow(model: AgentsViewModel, agentId: string): void {
+    if (busy.has(agentId)) {
+        again.add(agentId);
+        return;
+    }
+    pollAgent(model, agentId);
 }
 
 export function BrainstormPoller({ model }: { model: AgentsViewModel }): null {
     useEffect(() => {
-        // a poll can outlast the interval (a slow wavesrv), so one agent's reads never stack
-        const busy = new Set<string>();
         const tick = () => {
             const roster = [...globalStore.get(model.agentsAtom), ...globalStore.get(model.terminalsAtom)];
             const { attach, detach } = reconcileBrainstorms(globalStore.get(brainstormsAtom), roster);
@@ -156,13 +208,9 @@ export function BrainstormPoller({ model }: { model: AgentsViewModel }): null {
                 attachBrainstorm(a.agentId, a, Date.now());
             }
             for (const id of Object.keys(globalStore.get(brainstormsAtom))) {
-                if (busy.has(id)) {
-                    continue;
+                if (!busy.has(id)) {
+                    pollAgent(model, id);
                 }
-                busy.add(id);
-                pollAndMerge(id, tauriBrainstormIO)
-                    .catch((e) => console.warn("brainstorm poll failed", id, e))
-                    .finally(() => busy.delete(id));
             }
         };
         tick();

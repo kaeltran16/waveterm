@@ -80,10 +80,10 @@ describe("the first agent, so opening the surface is useful", () => {
 });
 
 describe("filterSources", () => {
-    const agents = [{ name: "verify-runs" }, { name: "Radar" }];
+    const agents = [{ name: "verify-runs" }, { name: "Rapid" }];
     const projects = [{ name: "waveterm" }, { name: "exp-native" }];
     it("matches either list, case-insensitively", () => {
-        expect(filterSources("RA", agents, projects)).toEqual({ agents: [{ name: "Radar" }], projects: [] });
+        expect(filterSources("RA", agents, projects)).toEqual({ agents: [{ name: "Rapid" }], projects: [] });
         expect(filterSources("nat", agents, projects)).toEqual({ agents: [], projects: [{ name: "exp-native" }] });
     });
     it("returns everything for a blank query", () => {

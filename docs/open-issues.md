@@ -37,16 +37,7 @@ Tracked in their own initiatives, not here:
 
 ## 2 · Blocked
 
-### Remote/WSL worker host operations
-
-Git surfaces break for SSH/WSL workers because they run on the local host. Not routable today: agent
-launch has no connection parameter, `Run`/worktree/`AgentVM` carry no connection field, and the remote
-impl doesn't register `GitChangesCommand`/`GitDiffCommand`. Prerequisite chain: (1) remote agent launch
-threading connection through launch → run → worktree → `AgentVM`; (2) register host-bound commands on
-`wshremote` (or expose `wshserver` handlers over the connection route); (3) then route keyed off the
-agent's connection, local default. Effort realistically L counting step 1. Full reference design in git
-history (pre-consolidation issue 5). The E8 connserver readiness handshake (patch saved, needs a live
-SSH/WSL verify) rides on step 1.
+Nothing blocked.
 
 ---
 
@@ -69,9 +60,6 @@ Cockpit and surfaces:
   page is wanted.
 - **Sessions "All activity" feed peek** (2026-10-01) — revive when the feed rows carry a run, agent or
   effort target.
-- **Terminal file drop pastes the path** (2026-09-30) — revive when file drops onto a terminal are wanted.
-- **Composer attachments** (2026-09-18) — the New run goal has them since 2026-10-12; revive the Steer half
-  and drag-drop when attaching a file to a steer is wanted.
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /
   React-DevTools pass against a populated cockpit first).
 
@@ -86,16 +74,9 @@ Orchestrator:
 - **A cheap-model route for judging sessions** — revive when the judging roles are a material share of
   a run's tokens (same spec).
 - **An idle-lead watchdog after the dag is done** — revive on a run whose lead sat idle at `run
-  finished` without completing (same spec).
-
-Radar:
-
-- **Metadata collectors and the clustering pipeline** (retired 2026-10-06) — revive only if the fix-sibling
-  audit is itself retired; its measurement decided keep on 2026-10-06.
-- **Security review audits** (held 2026-10-13) — revive with a classifier flag for trust-boundary commits
-  and a fresh probe; `docs/deferred.md` keeps the probe's prompt.
-- **Missing test coverage audits** (held 2026-10-13) — revive if Radar is to report test gaps as their own
-  finding type; `docs/deferred.md` keeps the probe's prompt.
+  finished` without completing (same spec). Measured 2026-10-21 on the packaged store: of 82 `dag-done`
+  runs, 80 completed within 30 min; the one 13 h gap (`3425249d`) was a lead adding a task after `run
+  finished`, not idling.
 
 Memory hygiene:
 
@@ -119,6 +100,11 @@ Jarvis:
 - Dropped 2026-10-16 as superseded or unpluggable: Jarvis Briefing cross-project progress (efforts carry
   done/total), Jarvis D attribution tuning and E's cheap tier (their consumers, proactive resurfacing and
   recall, are gone), Pi Part B `wave_create_widget` (the vdom commands it wrapped no longer exist).
+- File drop (onto a terminal, onto the New run goal) and Steer attachments — declined 2026-10-21: files
+  reach an agent by paste, which the terminal and the goal already handle (`docs/deferred.md`).
+- Remote/WSL worker host operations (git surfaces for SSH/WSL agents, and the E8 connserver readiness
+  handshake that rode on it) — declined 2026-10-21: agents here run on the local host. The design was
+  pre-consolidation issue 5: `git show c99f2041:docs/open-issues.md`.
 - Cockpit light/Paper theme — declined; code removed 2026-08-24.
 - Gatekeeper v1.1 (make-a-rule + countdown) — revive only on recurring-ask or misfire evidence. Measured
   2026-10-12 over 879 structured asks since 08-11: 737 distinct headers, and the ones that recur (spec
