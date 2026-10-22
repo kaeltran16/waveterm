@@ -11,3 +11,6 @@ export async function runPaletteAction(action: () => Promise<unknown>): Promise<
         return { ok: false, error: String(error) };
     }
 }
+
+// a failure's message without the "Error: " String(error) puts in front
+export const errorText = (error: string) => error.replace(/^Error:\s*/, "");
