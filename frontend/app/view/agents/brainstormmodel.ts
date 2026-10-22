@@ -553,10 +553,11 @@ export function answeredQuestions(f: BrainstormFile): HistoryEntry[] {
     return f.history.filter((h) => h.kind === "question" && h.superseded !== true);
 }
 
-// what was decided, newest first; recon is the ground every question stood on, so it stays at the bottom
+// what was decided, oldest first so the newest lands at the bottom; recon is the ground every question stood on, so it
+// stays at the top
 export function historyRows(f: BrainstormFile, unseen: Unseen = NOTHING_UNSEEN): HistoryRow[] {
-    const rows = f.history.map((h, i) => historyRow(f, h, i, unseen)).reverse();
-    return [...rows.filter((r) => r.kind === "question"), ...rows.filter((r) => r.kind === "recon")];
+    const rows = f.history.map((h, i) => historyRow(f, h, i, unseen));
+    return [...rows.filter((r) => r.kind === "recon"), ...rows.filter((r) => r.kind === "question")];
 }
 
 export const OPTION_KEYS = ["a", "b", "c", "d"] as const;

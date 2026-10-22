@@ -18413,7 +18413,7 @@ const BS_Q5_LAYOUT = {
         { label: "Trend first", detail: "The trend chart leads; the number sits in its corner." },
     ],
 };
-// oldest first, as the agent appends them; the pane draws them newest first
+// oldest first, as the agent appends them and the pane draws them
 const BS_HISTORY = [
     {
         kind: "question",
@@ -19060,11 +19060,11 @@ const brainstormMode = {
                 s2.skipNote === "",
             { why: s2.why, options: s2.options, placeholder: s2.placeholder, okBtn: s2.okBtn, guessFor: s2.guessFor, designBtn: s2.designBtn, track: s2.track, skipNote: s2.skipNote }
         );
-        const [h3, h2, h1, hr] = s2.history;
+        const [hr, h1, h2, h3] = s2.history;
         rec(
-            "2b. Decided so far · 3, newest first with recon at the bottom, marked new since the design was last seen: Q2 lists all three options it offered, the picked one checked and marked Agent’s pick; each says where it went",
+            "2b. Decided so far · 3, recon at the top then oldest first, marked new since the design was last seen: Q2 lists all three options it offered, the picked one checked and marked Agent’s pick; each says where it went",
             s2.rail === "Decided so far · 3" &&
-                JSON.stringify(s2.history.map((r) => r.label)) === JSON.stringify(["Q3", "Q2", "Q1", "Recon · new"]) &&
+                JSON.stringify(s2.history.map((r) => r.label)) === JSON.stringify(["Recon · new", "Q1", "Q2", "Q3"]) &&
                 JSON.stringify(h2?.picked) === JSON.stringify([`${BS_Q2_OPTIONS[1].label} Agent’s pick`]) &&
                 JSON.stringify(h2?.unpicked) === JSON.stringify([BS_Q2_OPTIONS[0].label, BS_Q2_OPTIONS[2].label]) &&
                 h2.text.includes("Went into Goals, Constraints") &&
@@ -19285,9 +19285,9 @@ const brainstormMode = {
         bsWrite(ctx, BS_FILES.answered);
         const s2b = await bsUntil(h, ctx, (s) => s.question.includes(BS_Q5.text));
         await h.shot("cdp-shots/brainstorm-mode-2-answered.png");
-        const q4row = s2b.history[0];
+        const q4row = s2b.history.at(-1);
         rec(
-            "2l. the next file: question 5 for What on-call sees, and Q4 leads the rail: the answers it offered unpicked with the agent’s pick marked, then the typed one In your words, into When it pages",
+            "2l. the next file: question 5 for What on-call sees, and Q4 ends the rail: the answers it offered unpicked with the agent’s pick marked, then the typed one In your words, into When it pages",
             s2b.ok &&
                 s2b.question.startsWith("5 → What on-call sees") &&
                 s2b.rail === "Decided so far · 4" &&
@@ -19371,8 +19371,8 @@ const brainstormMode = {
                 !s4.answerBox &&
                 s4.question === "" &&
                 s4.designBtn === "The design · 3 of 8 yours" &&
-                s4.history[0]?.label === "Q4 · just now",
-            { ...bsBrief(s4), working: s4.working, answerBox: s4.answerBox, designBtn: s4.designBtn, newest: s4.history[0] }
+                s4.history.at(-1)?.label === "Q4 · just now",
+            { ...bsBrief(s4), working: s4.working, answerBox: s4.answerBox, designBtn: s4.designBtn, newest: s4.history.at(-1) }
         );
         await bsOpenDesign(h);
         const s4d = await bsRead(h, ctx);
@@ -20148,11 +20148,11 @@ const brainstormRailReasons = bsBoardScenario("brainstorm-rail-reasons", BS_TOPI
     const closed = await h.ev(BSR_READ_RAIL);
     const [q1, q2, q3, recon] = BSR_RAIL_HISTORY;
     const pickText = (o) => `${o.label}${o.pick ? " Agent’s pick" : ""}`;
-    const [c3, c2, c1, cr] = closed;
+    const [cr, c1, c2, c3] = closed;
     rec(
         "1. Decided so far keeps reasons: the picked answer shows what it is, Agent’s pick marks the agent's recommendation, the others show only their label, each entry with Show the reasoning, the recon with none",
         drawn.ok &&
-            JSON.stringify(closed.map((r) => r.label)) === JSON.stringify(["Q3", "Q2", "Q1", "Recon"]) &&
+            JSON.stringify(closed.map((r) => r.label)) === JSON.stringify(["Recon", "Q1", "Q2", "Q3"]) &&
             JSON.stringify(c3.picked) === JSON.stringify([`${pickText(q3.options[1])} ${q3.options[1].detail}`]) &&
             JSON.stringify(c3.unpicked) === JSON.stringify([q3.options[0].label, q3.options[2].label]) &&
             c3.why === "" &&
@@ -20164,21 +20164,21 @@ const brainstormRailReasons = bsBoardScenario("brainstorm-rail-reasons", BS_TOPI
             !JSON.stringify(cr).includes(recon.q),
         { ...bsBrief(drawn), closed }
     );
-    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-history] > div [data-brainstorm-reasoning]")?.click()`);
+    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-history] > div:last-child [data-brainstorm-reasoning]")?.click()`);
     await polishNap(200);
     const opened = await h.ev(BSR_READ_RAIL);
-    await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-rail]")?.scrollTo(0, 0)`);
+    await h.ev(`(() => { const r = ${BS_PANE}?.querySelector("[data-brainstorm-rail]"); r?.scrollTo(0, r.scrollHeight); })()`);
     await h.shot("cdp-shots/brainstorm-rail-reasons.png");
-    const o3 = opened[0];
+    const [, , o2, o3] = opened;
     rec(
         "2. Show the reasoning on Q3 opens Why: and the other answers' details, and reads Hide the reasoning; Q2 stays closed",
         o3.why === `Why: ${q3.why}` &&
             JSON.stringify(o3.unpicked) === JSON.stringify([`${q3.options[0].label} ${q3.options[0].detail}`, `${q3.options[2].label} ${q3.options[2].detail}`]) &&
             o3.toggle?.text === "Hide the reasoning" &&
             o3.toggle.expanded === "true" &&
-            opened[1].why === "" &&
-            JSON.stringify(opened[1].unpicked) === JSON.stringify([q2.options[0].label, q2.options[2].label]),
-        { q3: o3, q2: opened[1] }
+            o2.why === "" &&
+            JSON.stringify(o2.unpicked) === JSON.stringify([q2.options[0].label, q2.options[2].label]),
+        { q3: o3, q2: o2 }
     );
 });
 

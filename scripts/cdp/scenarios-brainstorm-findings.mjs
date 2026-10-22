@@ -126,7 +126,7 @@ export default function (kit) {
                     s2.view === "design" &&
                     s2.question.includes(Q2.text) &&
                     m2.link === "New findings · 2" &&
-                    JSON.stringify(m2.recon) === JSON.stringify(["Recon · new", "Recon"]),
+                    JSON.stringify(m2.recon) === JSON.stringify(["Recon", "Recon · new"]),
                 { ...bsBrief(s2), why: s2.why, marks: m2 }
             );
 

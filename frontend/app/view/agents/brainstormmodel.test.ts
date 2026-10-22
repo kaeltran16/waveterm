@@ -554,7 +554,7 @@ describe("historyRows", () => {
         { label: "Both", detail: "d3" },
     ];
 
-    it("is newest first, labelled Q<n>, with recon at the bottom", () => {
+    it("is oldest first, labelled Q<n>, with recon at the top", () => {
         const f = file({
             history: [
                 { kind: "question", n: 1, q: "q1", a: "a1", into: [] },
@@ -562,7 +562,7 @@ describe("historyRows", () => {
                 { kind: "question", n: 2, q: "q2", a: "a2", into: [] },
             ],
         });
-        expect(historyRows(f).map((r) => r.label)).toEqual(["Q2", "Q1", "Recon"]);
+        expect(historyRows(f).map((r) => r.label)).toEqual(["Recon", "Q1", "Q2"]);
     });
 
     it("lists every option offered, the picked one marked, and no separate answer", () => {
@@ -630,7 +630,7 @@ describe("historyRows", () => {
                 { kind: "recon", q: "rq2", a: "", into: [] },
             ],
         });
-        expect(historyRows(f).map((r) => r.answer)).toEqual(["rq2", "found"]);
+        expect(historyRows(f).map((r) => r.answer)).toEqual(["found", "rq2"]);
     });
 });
 
@@ -1606,9 +1606,9 @@ describe("a superseded question", () => {
     it("draws in the rail as dropped, with nothing picked and no answer", () => {
         const rows = historyRows(overreach());
         expect(rows.map((r) => [r.label, r.dropped])).toEqual([
-            ["Q11", false],
-            ["Q8", true],
             ["Recon", false],
+            ["Q8", true],
+            ["Q11", false],
         ]);
         const q8 = rows[1];
         expect([q8.answer, q8.ownWords, q8.options.some((o) => o.picked)]).toEqual([null, false, false]);
@@ -1743,9 +1743,9 @@ describe("unseenSince", () => {
         const after: BrainstormFile = { ...before, history: [...before.history, recon("You asked: more", "More.")] };
         const rows = historyRows(after, unseenSince(after, seenMark(before)));
         expect(rows.map((r) => [r.label, r.unseen])).toEqual([
-            ["Q1", false],
-            ["Recon", true],
             ["Recon", false],
+            ["Recon", true],
+            ["Q1", false],
         ]);
         expect(historyRows(after).every((r) => !r.unseen)).toBe(true);
     });
