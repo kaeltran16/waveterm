@@ -89,6 +89,14 @@ read-modify-write script: a confirm done that way took 574 tokens and 8 s, again
 `guess` (dashed, with That's right and Edit), `asked` or `open`. "Before the builder check" lists
 every part that is not yours yet, with Confirm all once there are two or more plain guesses.
 
+A part an answer made yours shows that answer beside it, from the file's history (`partAnswer`):
+under the gist, `answer 11: “Dark, like the spike”`, on one line until the row opens. It is how a
+part that says more than the user did (a board, a named option the answer never picked) stands out
+before the builder check and approval; the skill keeps such a part a guess. A question dropped after
+pushback is a `superseded` history entry: the rail shows it as dropped, it counts as no answered
+question, and the part it was asked for reads "Open · question N dropped" until a question asks it
+again.
+
 **Builder check.** Check with a builder appears once the agent sets `done`, no question is open and
 every part is yours.
 

@@ -8,6 +8,7 @@ import { cn } from "@/util/util";
 import { Fragment, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { AgentVM } from "./agentsviewmodel";
 import {
+    answerLine,
     designLabel,
     hasProsCons,
     optionLetter,
@@ -22,6 +23,7 @@ import {
     type BrainstormFile,
     type BrainstormPart,
     type BrainstormQuestion,
+    type PartAnswer,
     type PartState,
     type TrackSegment,
 } from "./brainstormmodel";
@@ -697,6 +699,21 @@ export function CheckMark() {
         >
             <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="1.8" />
         </svg>
+    );
+}
+
+// the user's own answer beside a part it made theirs, so a part that says more than they did shows it: one line until
+// the row opens
+export function SaidLine({ said, open }: { said: PartAnswer; open: boolean }) {
+    const line = answerLine(said);
+    return (
+        <span
+            data-brainstorm-said
+            title={line}
+            className={cn("text-[11.5px] leading-[1.45] text-muted", open ? "whitespace-pre-line" : "truncate")}
+        >
+            {line}
+        </span>
     );
 }
 

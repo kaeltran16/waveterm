@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     BUILDER_PART,
+    answerLine,
+    answeredQuestions,
     approveBlocker,
     asksUser,
     boardBackLabel,
@@ -20,6 +22,7 @@ import {
     compactedSummary,
     confirmableGuesses,
     designLabel,
+    droppedQuestion,
     exitedSummary,
     handoffView,
     hasProsCons,
@@ -33,6 +36,7 @@ import {
     paneView,
     parseBrainstorm,
     parseBrainstormPath,
+    partAnswer,
     partBoards,
     partGist,
     partTitle,
@@ -1541,5 +1545,151 @@ describe("partBoards and questionBoards", () => {
     it("none until the canvas is named and served", () => {
         expect(questionBoards(file({ parts, question: q("layout") }), BASE)).toBeNull();
         expect(questionBoards(file({ canvas: "topic", parts, question: q("layout") }), null)).toBeNull();
+    });
+});
+
+// question 8 asked A, B or C for the layout and was dropped after pushback; question 11 asked only dark or light
+const overreach = (look: Partial<BrainstormPart> = {}): BrainstormFile =>
+    file({
+        parts: [
+            part("layout", "open"),
+            part("look", "yours", { from: "answer 11", body: "Mockup B, dark, like the spike.", ...look }),
+        ],
+        history: [
+            {
+                kind: "question",
+                n: 8,
+                q: "A, B or C?",
+                a: "",
+                into: [],
+                part: "layout",
+                superseded: true,
+                options: [
+                    { label: "A", detail: "" },
+                    { label: "B", detail: "" },
+                    { label: "C", detail: "" },
+                ],
+            },
+            { kind: "recon", q: "You pushed back: none of these fit.", a: "Asked a narrower question.", into: [] },
+            { kind: "question", n: 11, q: "Dark or light?", a: "Dark, like the spike", into: ["look"] },
+        ],
+    });
+
+describe("a superseded question", () => {
+    it("parses superseded and part, leniently", () => {
+        const r = parseBrainstorm(
+            raw({
+                history: [
+                    { kind: "question", n: 8, q: "A, B or C?", part: "layout", superseded: true, into: [] },
+                    { kind: "question", n: 9, q: "q", a: "x", into: [], superseded: "yes" },
+                    { kind: "recon", q: "r", a: "x", into: [], superseded: true },
+                    { kind: "question", n: 10, q: "q", a: "y", into: [] },
+                ],
+            })
+        );
+        expect(r.ok && r.file.history.map((h) => [h.n ?? null, h.superseded ?? null, h.part ?? null])).toEqual([
+            [8, true, "layout"],
+            [9, null, null],
+            [null, null, null],
+            [10, null, null],
+        ]);
+    });
+
+    it("is no answered question: the track and the answered list leave it out", () => {
+        const f = overreach();
+        expect(answeredQuestions(f).map((h) => h.n)).toEqual([11]);
+        expect(questionTrack(f)).toEqual(["done", "ahead"]);
+    });
+
+    it("draws in the rail as dropped, with nothing picked and no answer", () => {
+        const rows = historyRows(overreach());
+        expect(rows.map((r) => [r.label, r.dropped])).toEqual([
+            ["Q11", false],
+            ["Q8", true],
+            ["Recon", false],
+        ]);
+        const q8 = rows[1];
+        expect([q8.answer, q8.ownWords, q8.options.some((o) => o.picked)]).toEqual([null, false, false]);
+    });
+
+    it("says in an open part's row that its question was dropped", () => {
+        const f = overreach();
+        const layout = f.parts[0];
+        expect(droppedQuestion(f, layout)).toBe(8);
+        expect(partGist(f, layout)).toBe("Question 8 was dropped after your pushback; nothing is decided yet.");
+    });
+
+    it("stops standing once the part is asked again or filled in", () => {
+        const f = overreach();
+        for (const state of ["asked", "guess", "yours"] as const) {
+            expect(droppedQuestion(f, { ...f.parts[0], state })).toBeNull();
+        }
+        expect(droppedQuestion(f, part("other", "open"))).toBeNull();
+    });
+
+    it("reads a drop that names its part in into", () => {
+        const f = file({
+            parts: [part("layout", "open")],
+            history: [{ kind: "question", n: 8, q: "q", a: "", into: ["layout"], superseded: true }],
+        });
+        expect(droppedQuestion(f, f.parts[0])).toBe(8);
+    });
+});
+
+describe("partAnswer", () => {
+    it("is the user's answer the part's from names, from the entry that went into it", () => {
+        const f = overreach();
+        const said = partAnswer(f, f.parts[1]);
+        expect(said).toEqual({ n: 11, text: "Dark, like the spike" });
+        expect(answerLine(said!)).toBe("answer 11: “Dark, like the spike”");
+    });
+
+    it("reads a picked option as its label when a is empty", () => {
+        const f = file({
+            parts: [part("p", "yours", { from: "answer 2" })],
+            history: [
+                {
+                    kind: "question",
+                    n: 2,
+                    q: "q",
+                    a: "",
+                    into: ["p"],
+                    options: [
+                        { label: "One", detail: "" },
+                        { label: "Two", detail: "" },
+                    ],
+                    picked: 1,
+                },
+            ],
+        });
+        expect(partAnswer(f, f.parts[0])).toEqual({ n: 2, text: "Two" });
+    });
+
+    it("is none for a from that names no answer, or an answer that did not go into the part", () => {
+        const f = overreach();
+        for (const from of ["mockup", "recon", "your call", undefined]) {
+            expect(partAnswer(f, { ...f.parts[1], from })).toBeNull();
+        }
+        expect(partAnswer(f, { ...f.parts[1], from: "answer 12" })).toBeNull();
+        expect(partAnswer(f, { ...f.parts[1], id: "other" })).toBeNull();
+        // a dropped question has no answer to quote
+        expect(partAnswer(f, { ...f.parts[0], from: "answer 8" })).toBeNull();
+    });
+
+    it("reads a from with more after the number", () => {
+        const f = overreach();
+        expect(partAnswer(f, { ...f.parts[1], from: "your answer 11, with the board" })?.n).toBe(11);
+    });
+
+    it("puts the answer on a review row in place of the from it names, and keeps a why", () => {
+        const f = overreach();
+        const look = (over: Partial<BrainstormPart>) => {
+            const g = { ...f, parts: [{ ...f.parts[1], state: "guess" as const, ...over }] };
+            return checkReview(g).fresh[0];
+        };
+        expect([look({}).cause, look({}).said]).toEqual(["", { n: 11, text: "Dark, like the spike" }]);
+        expect(look({ why: "builder question 1" }).cause).toBe("builder question 1");
+        expect(look({ from: "mockup" })).toMatchObject({ cause: "mockup" });
+        expect(look({ from: "mockup" }).said).toBeUndefined();
     });
 });

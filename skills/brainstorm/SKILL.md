@@ -91,7 +91,7 @@ Everything else is optional and read leniently, but write every field as describ
 | `question` | `{ "n", "text", "part", "why", "read", "options" }`: the question you are waiting on, its number (1, 2, 3, ...), the id of the part it is for, why you ask it, your one-line read of the options, and the answers you offer (below). Leave `part` out for a question about no part (below). `null` while you are not asking. |
 | `working` | One short line on what is still underway, set only when a turn ends with work running in the background (below). Arc shows it in place of the question and locks the pane's controls while it is set. `null` otherwise. |
 | `parts[]` | The design, in display order. `title`; `state`; `kind` (`"note"` for background, below; leave it out for a decision); `gist` (the part in one line, below); `body` (the part's text); `from` (where it came from: `answer 2`, `mockup`, `recon`); `boards` (board file names under the canvas's `project/`); `was` / `why` (below). |
-| `history[]` | Every finished exchange, oldest first: `kind` (`question` or `recon`), `n` (the question's number), `q`, `why` (the question's `why`), `a`, `into` (the part ids it went into), and for a question that offered answers, `options` and `picked` (below). |
+| `history[]` | Every finished exchange, oldest first: `kind` (`question` or `recon`), `n` (the question's number), `q`, `why` (the question's `why`), `a`, `into` (the part ids it went into), and for a question that offered answers, `options` and `picked` (below). A question dropped after pushback has `superseded: true`, `part` (the part it was asked for) and no `a` (below). |
 | `done` | `true` only when nothing is left to ask. |
 | `check` | The builder check's result (below), else `null`. |
 | `run` | The run id once a run started from this brainstorm, else `null`. |
@@ -179,6 +179,12 @@ of the one the user's answer is, or leave `picked` out when they answered in the
 next `question` (its part created as `asked` if new). End the turn with the question in the
 terminal too.
 
+**Yours is only what they said.** A part becomes `yours` from an answer only for what the answer
+said. Anything you add to it (a board, a named option, a detail the answer did not give) keeps the
+part a `guess` until they confirm it. A part an answer made yours names that answer in `from`
+(`answer 11`), and the answer's history entry lists the part in `into`: Arc shows the answer's text
+beside the part, so a part that says more than the answer stands out.
+
 **When the line is not an answer.** The answer box is also where the user pushes back ("why not
 reuse the alerting we have?"), asks what something means, or asks for more before choosing. Such a
 line answers nothing: record no answer, write no part from it, and keep the question open under the
@@ -194,6 +200,13 @@ same `n`. In that one write:
 - When the pushback shows the question itself was wrong (it rests on a false fact, or asks what is
   already settled), ask the right question under the next `n` instead, and rewrite every part the
   false fact reached.
+- Whenever pushback replaces the question with a different one (the right question above, or a
+  narrower one that asks less), the old question is dropped, not answered. Append a `question` entry
+  for it: its `n`, `q`, `why` and `options`, `part` (the part it was asked for), `into: []`,
+  `"superseded": true` and no `a`. Arc shows it in the history as dropped, and counts it as no
+  answered question. Its part goes back to `open` (unless the new question is for that part), and
+  stays open until a question asks what the dropped one asked and the user answers it: an answer to
+  a narrower question ("dark or light?") never fills in the choice it did not ask (which layout).
 - Append a `recon` entry to `history`: `q` is "You asked: " (or "You pushed back: ") and their line,
   `a` your reply in one sentence, `into` the parts it changed (`[]` when none). Arc lists it with the
   recon; a `question` entry would count as an answered question.

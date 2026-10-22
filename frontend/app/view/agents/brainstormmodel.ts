@@ -41,7 +41,8 @@ export type BrainstormQuestion = {
     read?: string;
     options?: AnswerOption[];
 };
-// picked is the option's index, absent when the answer was typed in the user's own words
+// picked is the option's index, absent when the answer was typed in the user's own words. A superseded question was
+// dropped after pushback, unanswered: part is the part it was asked for, which stays open
 export type HistoryEntry = {
     kind: "question" | "recon";
     n?: number;
@@ -52,6 +53,8 @@ export type HistoryEntry = {
     into: string[];
     options?: AnswerOption[];
     picked?: number;
+    part?: string;
+    superseded?: true;
 };
 // a question the builder check left for the user. into is every decision its answer changed; label is the rail's
 // short line for it, the full q when absent
@@ -170,8 +173,9 @@ function parseHistory(raw: unknown): HistoryEntry[] {
         const options = parseOptions(h.options);
         // an index past the options it names reads as an answer in the user's own words
         const picked = Number.isInteger(h.picked) && (h.picked as number) >= 0 && (h.picked as number) < options.length;
+        const recon = h.kind === "recon";
         return {
-            kind: h.kind === "recon" ? "recon" : "question",
+            kind: recon ? "recon" : "question",
             ...(typeof h.n === "number" ? { n: h.n } : {}),
             q: str(h.q) ?? "",
             ...(str(h.why) ? { why: str(h.why) } : {}),
@@ -179,6 +183,8 @@ function parseHistory(raw: unknown): HistoryEntry[] {
             into: strings(h.into),
             ...(options.length > 0 ? { options } : {}),
             ...(picked ? { picked: h.picked as number } : {}),
+            ...(str(h.part) ? { part: str(h.part) } : {}),
+            ...(!recon && h.superseded === true ? { superseded: true as const } : {}),
         };
     });
 }
@@ -499,6 +505,8 @@ export function questionBoards(f: BrainstormFile, base: string | null): string[]
 
 export type HistoryRow = {
     kind: "question" | "recon";
+    // a question dropped after pushback: nothing was decided by it
+    dropped: boolean;
     label: string;
     q: string;
     // every option the question offered, the picked one and the agent's recommendation marked
@@ -525,6 +533,7 @@ function historyRow(f: BrainstormFile, h: HistoryEntry, i: number): HistoryRow {
     const why = recon ? null : (h.why ?? null);
     return {
         kind: h.kind,
+        dropped: h.superseded === true,
         label: recon ? "Recon" : `Q${h.n ?? i + 1}`,
         q: h.q,
         options,
@@ -534,6 +543,11 @@ function historyRow(f: BrainstormFile, h: HistoryEntry, i: number): HistoryRow {
         ownWords: answer != null && options.length > 0,
         into: h.into.map((id) => ({ id, title: partTitle(f, id) })),
     };
+}
+
+// the questions the user answered: one dropped after pushback was never answered
+export function answeredQuestions(f: BrainstormFile): HistoryEntry[] {
+    return f.history.filter((h) => h.kind === "question" && h.superseded !== true);
 }
 
 // what was decided, newest first; recon is the ground every question stood on, so it stays at the bottom
@@ -616,7 +630,7 @@ export function pickableOptions(
 export type TrackSegment = "done" | "now" | "ahead";
 
 export function questionTrack(f: BrainstormFile): TrackSegment[] {
-    const done = f.history.filter((h) => h.kind === "question").length;
+    const done = answeredQuestions(f).length;
     const ahead = decisionParts(f).filter((p) => p.state === "open" && p.id !== BUILDER_PART).length;
     return [
         ...Array<TrackSegment>(done).fill("done"),
@@ -698,6 +712,40 @@ export function progressView(f: BrainstormFile): ProgressView {
     return { segments, lead: `${yours} yours`, rest: open === 0 ? "· nothing open" : `· ${open} open` };
 }
 
+// the answer a part came from, as the user said it, so a part that says more than the answer shows it
+export type PartAnswer = { n: number; text: string };
+
+const ANSWER_FROM = /^(?:your )?answer (\d+)/i;
+
+// the answer the part's from names: the answered question with that n whose into lists the part. A from that names
+// no answer, or an answer the history does not tie to the part, has none
+export function partAnswer(f: BrainstormFile, p: BrainstormPart): PartAnswer | null {
+    const m = ANSWER_FROM.exec(p.from ?? "");
+    if (m == null) {
+        return null;
+    }
+    const n = Number(m[1]);
+    const h = answeredQuestions(f)
+        .filter((e) => e.n === n && e.into.includes(p.id))
+        .pop();
+    const text = h == null ? "" : h.a || (h.picked != null ? h.options![h.picked].label : "");
+    return text ? { n, text } : null;
+}
+
+export function answerLine(a: PartAnswer): string {
+    return `answer ${a.n}: “${a.text}”`;
+}
+
+// a decision still open because pushback dropped the question asked for it: that question's n. A later question for
+// the part makes it asked, so the drop no longer stands
+export function droppedQuestion(f: BrainstormFile, p: BrainstormPart): number | null {
+    if (isNote(p) || p.state !== "open") {
+        return null;
+    }
+    const h = f.history.filter((e) => e.superseded === true && (e.part === p.id || e.into.includes(p.id))).pop();
+    return h?.n ?? null;
+}
+
 // the one line a part reads as in the design: the agent's gist, else the body's first sentence, else what the part
 // waits on
 export function partGist(f: BrainstormFile, p: BrainstormPart): string {
@@ -715,8 +763,13 @@ export function partGist(f: BrainstormFile, p: BrainstormPart): string {
                 : "Waiting on the agent’s question.";
         case "writing":
             return "The agent is writing this from your answer.";
-        case "open":
+        case "open": {
+            const dropped = droppedQuestion(f, p);
+            if (dropped != null) {
+                return `Question ${dropped} was dropped after your pushback; nothing is decided yet.`;
+            }
             return p.id === BUILDER_PART ? "The agent writes this last." : "Not talked through yet.";
+        }
         default:
             return "";
     }
@@ -939,6 +992,8 @@ export type ReviewRow = {
     title: string;
     gist: string;
     cause: string;
+    // the answer the part came from, as said; the cause leaves out the from it replaces
+    said?: PartAnswer;
     was?: string;
     body: string;
     view: PartView;
@@ -963,12 +1018,14 @@ function reviewRow(f: BrainstormFile, p: BrainstormPart, calls: string[]): Revie
     const view = partView(f, p);
     const asks = p.state === "asked" && f.question?.part === p.id;
     const action = view === "changed" ? "keep-restore" : view === "guess" ? "confirm" : asks ? "answer" : null;
+    const said = partAnswer(f, p);
     return {
         id: p.id,
         title: p.title,
         gist: partGist(f, p),
         // the skill names the answer that caused the change in why
-        cause: p.why ?? p.from ?? "",
+        cause: p.why ?? (said != null ? "" : (p.from ?? "")),
+        ...(said != null ? { said } : {}),
         ...(p.was != null ? { was: p.was } : {}),
         body: p.body,
         view,
