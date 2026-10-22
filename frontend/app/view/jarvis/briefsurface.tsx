@@ -19,10 +19,13 @@
 // One presentation rule runs through the whole file and decides every border below: a bordered chip is
 // the control recipe, a borderless one is a label. Dressing something inert as a control and camouflaging
 // a real control among labels are the same lie, so neither happens here.
+//
+// This file is the wiring: the projection, the cursor and the composition. The regions draw themselves
+// (briefwaiting, briefinitiatives, briefruns, briefbehind) from briefprimitives, under brieftoolbar; the
+// writes and queue actions are briefmutations and briefqueueactions, and j/k is briefnav.
 
-import { cardVariants, computeEntrances, initialEntranceState, MOTION, paneReveal } from "@/app/element/motiontokens";
+import { computeEntrances, initialEntranceState, MOTION, paneReveal } from "@/app/element/motiontokens";
 import { Skeleton } from "@/app/element/skeleton";
-import { contextMenuAtom, ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildJarvisBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
@@ -31,34 +34,16 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
-import { jumpToAgent } from "@/app/view/agents/channelsprimitives";
-import { channelsAtom, loadChannels, runAtom } from "@/app/view/agents/channelsstore";
-import { projectsAtom } from "@/app/view/agents/projectsstore";
-import { RollingCount } from "@/app/view/agents/rollingcount";
-import { confirmCancelRun } from "@/app/view/agents/runactions";
-import { leadAsker, leadWorker, liveWorkers } from "@/app/view/agents/runmodel";
-import { SurfaceToolbar, ToolbarFact } from "@/app/view/agents/surfacescaffold";
+import { channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
 import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
-import { atom, useAtom, useAtomValue, useSetAtom, type Atom, type PrimitiveAtom } from "jotai";
-import {
-    Archive,
-    ArchiveRestore,
-    ArrowUpRight,
-    ChevronDown,
-    Copy,
-    Pause,
-    Pencil,
-    Play,
-    Search,
-    SlidersHorizontal,
-    Trash2,
-    X,
-} from "lucide-react";
-import { AnimatePresence, motion, MotionConfig, type Variants } from "motion/react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AutonomyLadder } from "./autonomyladderview";
+import { atom, useAtom, useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
+import { X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { BehindRegion } from "./briefbehind";
+import { useBehindDwell } from "./briefdwell";
 import { briefFleet } from "./brieffleet";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import {
@@ -69,44 +54,45 @@ import {
     EFFORT_CAP,
     groupDelta,
     projectBriefing,
-    queueAction,
     SEVEN_DAYS_MS,
     SHIPPED_CAP,
     summarizeAttentionQueue,
-    type QueueRow,
-    type QueueSummary,
 } from "./briefingmodel";
 import {
-    ackBriefingVisit,
     briefingCursorAtom,
     briefingFixtureAtom,
     briefingStateAtom,
     briefRestoreConsumedAtom,
     loadBriefing,
-    markBriefingSeen,
     refreshBriefing,
 } from "./briefingstore";
-import { resolveBriefCursor } from "./briefnav";
+import { BriefChunkPane, InitiativesRegion } from "./briefinitiatives";
+import {
+    effortOps,
+    mutationRunner,
+    openChunkInPlan,
+    stepTarget,
+    trackerEdits,
+    type EffortWrites,
+    type MutationDeps,
+} from "./briefmutations";
+import { briefListNav, cursorAction, resolveBriefCursor, runNavLines } from "./briefnav";
 import { BriefPeek } from "./briefpeekview";
+import { REGIONS, showInitiativeMenu, type RegionId } from "./briefprimitives";
 import { BriefProfileModal } from "./briefprofileview";
+import { ackAll, actOnQueue, type QueueActionDeps } from "./briefqueueactions";
 import { briefRestorePlan } from "./briefrestore";
 import {
     behindGroups,
-    filterAsMenu,
     filterLines,
     initiativeLine,
     initiativeProjects,
     keepsProject,
     keepsRunKind,
-    lineOpenTarget,
     projectCounts,
-    projectName,
     queueLine,
-    readsAsInView,
-    RUN_KIND_FILTERS,
     runKindCounts,
     runKindLegs,
-    runRowFace,
     sessionLine,
     sessionWindow,
     SHIPPED_LABEL,
@@ -115,21 +101,20 @@ import {
     type LineTarget,
     type RunKindFilter,
 } from "./briefrows";
-import { DeltaRowView, InitiativeRow, RunRowView, ShippedRowView, WaitingRow } from "./briefrowviews";
+import { RunsRegion } from "./briefruns";
 import { BriefSheet } from "./briefsheet";
-import { LINK_BTN, MONO_FAINT, REGION_LABEL, SMALL_BTN } from "./briefstyle";
+import { REGION_LABEL } from "./briefstyle";
 import { BriefToastView } from "./brieftoast";
+import { BriefToolbar } from "./brieftoolbar";
 import { briefUndo, chunkKey, effortKey, noteKey, pendingDeleteKeysAtom } from "./briefundo";
-import { ChunkSidebar } from "./chunksidebar";
+import { WaitingRegion } from "./briefwaiting";
 import { EffortCreateForm } from "./effortcreateform";
 import { effortFeed, feedNoteCounts } from "./effortfeed";
-import { buildEffortCard, groupChunksByStage, stageOptions } from "./effortmodel";
+import { buildEffortCard } from "./effortmodel";
 import {
     addChunkAt,
-    appendChunkNote,
     archivedEffortsAtom,
     deleteEffort,
-    editNote,
     effortChunkRows,
     effortDetailAtom,
     loadArchivedEfforts,
@@ -137,7 +122,6 @@ import {
     moveChunk,
     moveChunkToStage,
     removeChunks,
-    removeNote,
     renameChunk,
     renameEffort,
     setChunkStage,
@@ -150,16 +134,8 @@ import { type PeekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
 import { initiativeResume, type InitiativeResume } from "./initiativework";
 import { workOnInitiative } from "./initiativeworkaction";
-import {
-    chunkRowId,
-    expandableORef,
-    isFlatPlan,
-    stageRowId,
-    trackerNavIds,
-    trackerRows,
-    type DetailRow,
-} from "./inlinetracker";
-import { InitiativeDetail, type TrackerEdits } from "./inlinetrackerview";
+import { expandableORef, trackerNavIds, trackerRows, type DetailRow } from "./inlinetracker";
+import type { TrackerEdits } from "./inlinetrackerview";
 import {
     briefEffortIndexAtom,
     briefGraphRecordAtom,
@@ -174,375 +150,9 @@ import {
     readingNoteAtom,
 } from "./jarvisstore";
 import { clearSubject, persistedSubjectAtom, stageRunAtom } from "./jarvissubjectstore";
-import { NewInitiativeControl } from "./newinitiativecontrol";
 import { openOrPeek, openOrPeekAddress } from "./openref";
 import { forgetOrigin } from "./returnsurface";
 import { loadTaskList, taskListAtom } from "./tasksstore";
-import {
-    appendInStageAt,
-    canRemove,
-    chunkRef,
-    moveTarget,
-    stageMoveTarget,
-    stageRunLabels,
-    stepChunk,
-} from "./trackeredit";
-
-const REGIONS = {
-    waiting: {
-        label: "Waiting on you",
-        absent: "Nothing is waiting on you. The next gate or ask arrives here.",
-        ok: true,
-    },
-    initiatives: { label: "Initiatives", absent: "No initiative is active.", ok: false },
-    sessions: { label: "Runs", absent: "Nothing is running on its own.", ok: false },
-    behind: { label: "Behind you", absent: "Nothing has landed since you last looked.", ok: false },
-} as const;
-type RegionId = keyof typeof REGIONS;
-
-// A heading is also how one region is read alone: pressing it hides the other regions, pressing it again
-// brings them back. The count is a plain label inside it, because a bordered pill inside a button would
-// read as a second control.
-function RegionHead({
-    id,
-    label,
-    meta,
-    count,
-    alert,
-    only,
-    onOnly,
-}: {
-    id: RegionId;
-    label: string;
-    meta: string;
-    count?: number;
-    alert?: boolean;
-    only: boolean;
-    onOnly: () => void;
-}) {
-    return (
-        <button
-            type="button"
-            aria-pressed={only}
-            title={only ? "Show every region" : "Show only this region"}
-            onClick={onOnly}
-            className="flex w-full cursor-pointer items-center gap-[9px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-            {alert ? <span className="h-1.5 w-1.5 flex-none pulse-soft rounded-full bg-asking" /> : null}
-            <span
-                className={cn(
-                    REGION_LABEL,
-                    alert ? "text-asking" : id === "waiting" ? "text-feed-label" : "text-ink-mid"
-                )}
-            >
-                {label}
-            </span>
-            {count != null ? (
-                <span className="flex-none font-mono text-[10.5px] font-medium tabular-nums text-ink-mid">{count}</span>
-            ) : null}
-            <span className="h-px min-w-3 flex-1 bg-edge-faint" />
-            <span className={cn("flex-none", MONO_FAINT)}>{only ? "showing only this · press to show all" : meta}</span>
-        </button>
-    );
-}
-
-// A region's filter: which kind of run Runs or Shipped show, which project Initiatives does. The first
-// option is always all.
-type FilterSpec<T> = {
-    label: string;
-    // what the menu's face calls the choice: "project", "kind"
-    noun: string;
-    // the data attribute a CDP scenario finds the filter by
-    tag: string;
-    options: { value: T; label: string; count?: number }[];
-    value: T;
-    onChange: (v: T) => void;
-};
-
-// A few choices sit as a line of chips under the head, where they never squeeze it; past FILTER_LINE_MAX
-// they become one menu in the head, which a long project list cannot wrap.
-type FilterSlot = { menu: boolean; node: ReactNode };
-
-function filterSlot<T>(spec: FilterSpec<T>): FilterSlot {
-    const menu = filterAsMenu(spec.options.length);
-    return { menu, node: menu ? <FilterMenu {...spec} /> : <FilterLine {...spec} /> };
-}
-
-function FilterLine<T>({ label, tag, options, value, onChange }: FilterSpec<T>) {
-    return (
-        <div role="group" aria-label={label} {...{ [tag]: "" }} className="flex flex-wrap items-center gap-1">
-            {options.map((o) => (
-                <button
-                    key={o.label}
-                    type="button"
-                    aria-pressed={value === o.value}
-                    data-filter-option={o.label}
-                    onClick={() => onChange(o.value)}
-                    className={cn(
-                        "flex cursor-pointer items-baseline gap-1.5 rounded-[5px] border px-1.5 py-px font-mono text-[10.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                        value === o.value
-                            ? "border-edge-strong text-ink-hi"
-                            : "border-transparent text-muted hover:text-ink-hi"
-                    )}
-                >
-                    {o.label}
-                    {o.count != null ? (
-                        <span className={cn("tabular-nums", value === o.value ? "text-ink-mid" : "text-muted")}>
-                            {o.count}
-                        </span>
-                    ) : null}
-                </button>
-            ))}
-        </div>
-    );
-}
-
-function FilterMenu<T>({ label, noun, tag, options, value, onChange }: FilterSpec<T>) {
-    // the one context menu may be a row's, so open means it holds this filter's items
-    const shown = useRef<ContextMenuItem[] | null>(null);
-    const open = useAtomValue(contextMenuAtom)?.items === shown.current && shown.current != null;
-    const picked = options.find((o) => o.value === value) ?? options[0];
-    // opened at the face rather than the pointer, so Enter on the face drops it in the same place
-    const show = (e: React.MouseEvent<HTMLButtonElement>) => {
-        const r = e.currentTarget.getBoundingClientRect();
-        shown.current = [
-            { type: "header", label },
-            ...options.map(
-                (o): ContextMenuItem => ({
-                    type: "radio",
-                    label: o.label,
-                    checked: o.value === value,
-                    sublabel: o.count != null ? String(o.count) : undefined,
-                    click: () => onChange(o.value),
-                })
-            ),
-        ];
-        globalStore.set(contextMenuAtom, { x: r.left, y: r.bottom, items: shown.current });
-    };
-    return (
-        <button
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={open}
-            aria-label={label}
-            {...{ [tag]: "" }}
-            onClick={show}
-            className="flex flex-none cursor-pointer items-center gap-1.5 rounded-[5px] border border-edge-strong px-[7px] py-px font-mono text-[10.5px] text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-            <span className="text-muted">{noun}</span>
-            {picked.label}
-            <ChevronDown size={10} aria-hidden className="text-muted" />
-        </button>
-    );
-}
-
-function runKindFilter(
-    value: RunKindFilter,
-    onChange: (v: RunKindFilter) => void,
-    counts: Record<RunKindFilter, number>
-): FilterSlot {
-    return filterSlot({
-        label: "Show runs of kind",
-        noun: "kind",
-        tag: "data-jarvis-run-kind",
-        options: RUN_KIND_FILTERS.map((k) => ({ value: k, label: k, count: counts[k] })),
-        value,
-        onChange,
-    });
-}
-
-function Region({
-    id,
-    meta,
-    count,
-    alert,
-    empty,
-    absent,
-    gap,
-    only,
-    onOnly,
-    tools,
-    filter,
-    children,
-}: {
-    id: RegionId;
-    meta: string;
-    count?: number;
-    alert?: boolean;
-    empty: boolean;
-    absent?: string;
-    gap: string;
-    only: boolean;
-    onOnly: () => void;
-    tools?: ReactNode;
-    filter?: FilterSlot;
-    children: ReactNode;
-}) {
-    const region = REGIONS[id];
-    const head = (
-        <RegionHead id={id} label={region.label} meta={meta} count={count} alert={alert} only={only} onOnly={onOnly} />
-    );
-    return (
-        <section data-jarvis-brief-region={id} className={cn("flex flex-col", gap)}>
-            {tools != null || filter?.menu ? (
-                // a control cannot nest inside the head, which is itself a button
-                <div className="flex items-center gap-2.5">
-                    {head}
-                    {tools}
-                    {filter?.menu ? filter.node : null}
-                </div>
-            ) : (
-                head
-            )}
-            {filter != null && !filter.menu ? filter.node : null}
-            {empty ? (
-                <div className="flex items-center gap-[11px] rounded-[10px] border border-dashed border-edge-strong bg-surface px-4 py-3">
-                    {region.ok ? (
-                        <span aria-hidden className="flex-none font-mono text-[12px] font-bold text-success">
-                            ✓
-                        </span>
-                    ) : null}
-                    <span className="text-[13px] text-secondary">{absent ?? region.absent}</span>
-                </div>
-            ) : (
-                children
-            )}
-        </section>
-    );
-}
-
-// What the region's window hid, and the way past it. There is no all-initiatives or all-events surface
-// to send this anywhere — the three-pane composition's rail was the old destination and B5 deleted it —
-// so the overflow opens in place. Bordered because it is a control: invariant 4 forbids the borderless
-// link-coloured span this used to be, which named a number and did nothing.
-function MoreControl({ n, expanded, onToggle }: { n: number; expanded: boolean; onToggle: () => void }) {
-    if (n <= 0 && !expanded) {
-        return null;
-    }
-    return (
-        <button
-            type="button"
-            data-jarvis-brief-more={expanded ? "less" : "more"}
-            onClick={onToggle}
-            className={cn(LINK_BTN, "mt-0.5")}
-        >
-            {expanded ? "Show less" : `+${n} more`}
-        </button>
-    );
-}
-
-function QueueSummaryView({
-    summary,
-    count,
-    expanded,
-    error,
-    onToggle,
-}: {
-    summary: QueueSummary;
-    count: number;
-    expanded: boolean;
-    error: boolean;
-    onToggle: () => void;
-}) {
-    return (
-        <div className="grid w-full grid-cols-[3px_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] border border-border bg-surface py-[9px] pl-3 pr-[11px]">
-            <span className={cn("self-stretch rounded-[2px]", error ? "bg-error" : "bg-asking")} />
-            <span className="min-w-0">
-                <span className="block truncate text-[13px] font-semibold text-ink-hi">{summary.title}</span>
-                <span className="mt-0.5 block truncate font-mono text-[10.5px] text-ink-mid">{summary.detail}</span>
-            </span>
-            <button
-                type="button"
-                aria-expanded={expanded}
-                aria-controls="jarvis-attention-details"
-                onClick={onToggle}
-                data-jarvis-brief-attention-summary
-                className="flex-none cursor-pointer rounded-[7px] border border-edge-mid bg-surface-raised px-2.5 py-1 font-mono text-[10.5px] font-semibold text-ink-mid hover:border-edge-strong hover:bg-surface-hover hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-                {expanded ? "Hide" : `Review ${count}`}
-            </button>
-        </div>
-    );
-}
-
-// the key the fresh and entrance sets are built with: a line's id minus its region prefix
-const keyOf = (line: BriefLine) => line.id.slice(line.id.indexOf(":") + 1);
-
-// a filter that matched nothing in a region leaves a sentence, not a heading over an empty frame
-function NoMatch() {
-    return (
-        <span className="px-[11px] py-1 font-mono text-[10.5px] text-ink-faint">Nothing here matches the filter.</span>
-    );
-}
-
-// An initiative's name and its id are the two things you carry out of the Brief — into a prompt, a
-// `wsh effort` call, a message to someone. The row is a button, so neither could be dragged out of it:
-// a mousedown inside a button starts a click, not a text selection. The expanded detail's id line
-// (inlinetrackerview) copies the bare id for the same reason.
-// A left click expands the row, so the activity sheet is opened from here instead. The rest are the
-// plan footer's actions, reachable without expanding the row first.
-type EffortOps = { togglePause: () => void; archive: () => void; unarchive: () => void; remove: () => void };
-type InitiativeMenuActs = {
-    openActivity: (oref: string) => void;
-    work?: () => void;
-    rename: () => void;
-    details: () => void;
-    // absent when the row's card is not in the snapshot, so its status is unknown
-    status?: { value: string; ops: EffortOps };
-};
-
-function showInitiativeMenu(line: BriefLine, ev: React.MouseEvent, acts: InitiativeMenuActs): void {
-    const target = line.target;
-    const oid = target != null && "oref" in target ? target.oref.replace(/^effort:/, "") : "";
-    const items: ContextMenuItem[] = [];
-    if (oid !== "") {
-        if (acts.work != null) {
-            items.push({ label: "Work on", icon: <Play size={15} />, click: acts.work });
-        }
-        items.push(
-            {
-                label: "Open activity",
-                icon: <ArrowUpRight size={15} />,
-                click: () => acts.openActivity("effort:" + oid),
-            },
-            { type: "separator" },
-            { label: "Rename", icon: <Pencil size={15} />, click: acts.rename },
-            { label: "Details", icon: <SlidersHorizontal size={15} />, click: acts.details }
-        );
-        const st = acts.status;
-        if (st != null && st.value === "archived") {
-            items.push({ label: "Unarchive", icon: <ArchiveRestore size={15} />, click: st.ops.unarchive });
-        } else if (st != null) {
-            items.push(
-                st.value === "paused"
-                    ? { label: "Resume", icon: <Play size={15} />, click: st.ops.togglePause }
-                    : { label: "Pause", icon: <Pause size={15} />, click: st.ops.togglePause },
-                { label: "Archive", icon: <Archive size={15} />, click: st.ops.archive }
-            );
-        }
-        items.push({ type: "separator" });
-    }
-    items.push({
-        label: "Copy name",
-        icon: <Copy size={15} />,
-        click: () => void navigator.clipboard.writeText(line.title),
-    });
-    if (oid !== "") {
-        items.push({
-            label: "Copy handle",
-            icon: <Copy size={15} />,
-            click: () => void navigator.clipboard.writeText("wsh effort show " + oid),
-        });
-        // no confirm here: the delete waits out the undo toast before it reaches the server
-        if (acts.status != null) {
-            items.push(
-                { type: "separator" },
-                { label: "Delete", icon: <Trash2 size={15} />, danger: true, click: acts.status.ops.remove }
-            );
-        }
-    }
-    ContextMenuModel.getInstance().showContextMenu(items, ev);
-}
 
 // module scope, not useState: a j/k cursor that reset on every glance at another surface would be worse
 // than none.
@@ -566,9 +176,6 @@ const briefExpandedAtom = atom<Partial<Record<RegionId, boolean>>>({});
 // the same reason as the two above.
 const briefStaleOpenAtom = atom(false);
 const briefShippedOpenAtom = atom(false);
-// how long Behind you must stay on screen before its rows count as seen
-const BEHIND_DWELL_MS = 10_000;
-const IN_VIEW_STEPS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
 
 // which kind of run Runs and Shipped each show; module scope for the same reason
 const briefRunKindAtom = atom<RunKindFilter>("all") as PrimitiveAtom<RunKindFilter>;
@@ -576,71 +183,26 @@ const briefShippedKindAtom = atom<RunKindFilter>("all") as PrimitiveAtom<RunKind
 // which project Initiatives shows, null for every one; module scope for the same reason
 const briefInitiativeProjectAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
-// The plan reveal clips only while its height animates: left clipped, it cut off the chunk and stage menus
-// that drop below the card's edge.
-const planReveal: Variants = {
-    initial: { ...(paneReveal.initial as object), overflow: "hidden" },
-    animate: { ...(paneReveal.animate as object), transitionEnd: { overflow: "visible" } },
-    exit: { ...(paneReveal.exit as object), overflow: "hidden" },
-};
-
 // a stable empty list, so a region with no rows does not churn the memos that read it
 const NO_LINES: BriefLine[] = [];
 
-// A Runs row reads its live run and the roster, and hooks cannot run inside the region's map, so the row
-// is its own component.
-const NO_RUN = atom<Run | undefined>(undefined);
-function BriefRunRow({
-    model,
-    line,
-    focused,
-    selected,
-    onOpenSheet,
-    onOpenChunk,
-}: {
-    model: AgentsViewModel;
-    line: BriefLine;
-    focused: boolean;
-    selected: boolean;
-    onOpenSheet?: (e?: React.MouseEvent) => void; // the answer button opens the sheet with no gesture
-    onOpenChunk: (effortOref: string, chunk: string) => void;
-}) {
-    const run = useAtomValue((line.runOid ? runAtom(line.runOid) : NO_RUN) as Atom<Run | undefined>);
-    const agents = useAtomValue(model.agentsAtom);
-    const projects = useAtomValue(projectsAtom);
-    const index = useAtomValue(briefEffortIndexAtom);
-    const asking = run != null ? leadAsker(run, agents) != null : line.state === "asking";
-    const face = runRowFace({
-        line,
-        run,
-        asking,
-        project: projectName(run?.projectpath ?? "", projects),
-        effort: run?.effortref != null ? index.get(run.effortref.effortoid) : undefined,
-    });
-    return (
-        <RunRowView
-            line={line}
-            face={face}
-            focused={focused}
-            selected={selected}
-            onOpenSheet={onOpenSheet}
-            onOpenChunk={() => onOpenChunk(face.effortOref, face.chunk)}
-            onAnswer={() => onOpenSheet?.()}
-            onOpenAgent={() => {
-                const worker = run != null ? leadWorker(run, agents) : undefined;
-                const id = worker?.id ?? line.agentId;
-                if (id == null) {
-                    briefUndo.notify("No live session to open.");
-                    return;
-                }
-                jumpToAgent(model, id);
-            }}
-            onStop={() =>
-                run != null && confirmCancelRun(run.channeloid ?? "", run.id, liveWorkers(run, agents).length)
-            }
-        />
-    );
-}
+// the effortstore writes the mutation layer goes through, and the RPCs Waiting's in-place buttons send
+const EFFORT_WRITES: EffortWrites = {
+    setEffortStatus,
+    unarchiveEffort,
+    deleteEffort,
+    setChunkStatus,
+    renameChunk,
+    moveChunk,
+    moveChunkToStage,
+    removeChunks,
+    setChunkStage,
+    addChunkAt,
+};
+const QUEUE_RPC: QueueActionDeps["rpc"] = {
+    dagAction: (data) => RpcApi.DagActionCommand(TabRpcClient, data),
+    ackRun: (data) => RpcApi.AckRunCommand(TabRpcClient, data),
+};
 
 export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // the briefing pipeline, unchanged from briefingview: one load per entry, a dwell-gated visit ack,
@@ -695,35 +257,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         globalStore.set(persistedSubjectAtom, null);
     }, [storedSubject, dossiers, channels, restoreConsumed, consumeRestore]);
 
-    // dwell, not load: a glance-and-close must leave the delta unseen so it repeats on the next visit. The
-    // dwell counts only while Behind you is on screen: it sits below Runs, so a dwell on the Brief alone
-    // marked rows seen that were never scrolled to.
-    const snapshotComplete = snapshot?.complete === true;
-    const queryStartedAt = snapshot?.queryStartedAt;
-    const [behindEl, setBehindEl] = useState<HTMLElement | null>(null);
-    const [behindInView, setBehindInView] = useState(false);
-    useEffect(() => {
-        if (behindEl == null) {
-            setBehindInView(false);
-            return;
-        }
-        const io = new IntersectionObserver(
-            ([e]) =>
-                setBehindInView(
-                    readsAsInView(e.intersectionRect.height, e.boundingClientRect.height, window.innerHeight)
-                ),
-            { threshold: IN_VIEW_STEPS }
-        );
-        io.observe(behindEl);
-        return () => io.disconnect();
-    }, [behindEl]);
-    useEffect(() => {
-        if (!snapshotComplete || !behindInView) {
-            return;
-        }
-        const t = window.setTimeout(ackBriefingVisit, BEHIND_DWELL_MS);
-        return () => window.clearTimeout(t);
-    }, [snapshotComplete, queryStartedAt, behindInView]);
+    // the visit ack waits on Behind you being read, not loaded (briefdwell.ts)
+    const setBehindEl = useBehindDwell(snapshot?.complete === true, snapshot?.queryStartedAt);
 
     const agents = fixture != null ? BRIEFING_FIXTURES[fixture].agents : liveAgents;
     // the plan-gate modal reads the roster out of this atom, and the Stage was its only writer
@@ -863,7 +398,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         [model_, shippedKind]
     );
     const shippedCounts = useMemo(() => runKindCounts((model_?.shipped ?? []).map((s) => s.mode)), [model_]);
-    const shippedFilter = runKindFilter(shippedKind, setShippedKind, shippedCounts);
     const shipped = useMemo(
         () => capRegion(shippedAll, SHIPPED_CAP, shippedOpen || filtering),
         [shippedAll, shippedOpen, filtering]
@@ -987,38 +521,20 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         setReadingNote(new Set());
     }, [setNoteChunk, setReadingNote]);
 
-    // Every write goes through here so a failure is SHOWN rather than swallowed: the mutate helpers
-    // write through and refresh the briefing's summary leg, and a rejected op would otherwise leave the
-    // row looking unchanged with no explanation.
     const [mutateError, setMutateError] = useState<string | null>(null);
-    const runMutation = useCallback((fn: () => Promise<void>) => {
-        setMutateError(null);
-        fn().catch((e) => setMutateError(e instanceof Error ? e.message : String(e)));
-    }, []);
+    const runMutation = useMemo(() => mutationRunner(setMutateError), []);
 
     // index math runs on the server's list, pending deletes included: the server still has them
     const planChunks = useMemo(() => (openEffort != null ? effortChunkRows(openEffort) : []), [openEffort]);
     const [renamingTitle, setRenamingTitle] = useState<string | null>(null);
     const [detailsOpen, setDetailsOpen] = useState(false);
-    // the plan footer and the row's context menu act through these, so the two cannot drift apart
-    const effortOps = useCallback(
-        (oref: string, title: string, status: string): EffortOps => ({
-            togglePause: () => {
-                const next = status === "paused" ? "active" : "paused";
-                runMutation(() => setEffortStatus(oref, next));
-                briefUndo.notify(next === "paused" ? "Paused" : "Resumed", () =>
-                    runMutation(() => setEffortStatus(oref, status))
-                );
-            },
-            archive: () => {
-                runMutation(() => setEffortStatus(oref, "archived"));
-                briefUndo.notify(`Archived “${title}”`, () => runMutation(() => unarchiveEffort(oref)));
-            },
-            unarchive: () => runMutation(() => unarchiveEffort(oref)),
-            remove: () => {
-                setOpenInitiative((cur) => (cur === "initiatives:" + oref ? null : cur));
-                briefUndo.schedule([effortKey(oref)], `Deleted “${title}”`, () => deleteEffort(oref));
-            },
+    const mutationDeps = useMemo<MutationDeps>(
+        () => ({
+            store: EFFORT_WRITES,
+            undo: briefUndo,
+            run: runMutation,
+            setError: setMutateError,
+            closeInitiative: (lineId) => setOpenInitiative((cur) => (cur === lineId ? null : cur)),
         }),
         [runMutation, setOpenInitiative]
     );
@@ -1027,85 +543,18 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         if (oref == null || openEffort == null) {
             return null;
         }
-        const chunks = planChunks;
-        const indexOf = (label: string) => chunks.findIndex((c) => c.label === label);
-        const ref = (label: string) => chunkRef(chunks, label);
-        const scheduleRemove = (labels: string[], text: string) => {
-            const pending = chunks.filter((c) => pendingDeletes.has(chunkKey(oref, c.label))).map((c) => c.label);
-            if (!canRemove(chunks, [...pending, ...labels])) {
-                setMutateError("An initiative keeps at least one chunk.");
-                return;
-            }
-            briefUndo.schedule(
-                labels.map((l) => chunkKey(oref, l)),
-                text,
-                () => removeChunks(oref, chunks, labels)
-            );
-        };
-        const status = openEffort.status;
-        const ops = effortOps(oref, openEffort.title, status);
-        return {
-            oid: oref.replace(/^effort:/, ""),
-            title: openEffort.title,
-            effortStatus: status,
-            total: chunks.length,
-            stages: stageOptions(chunks),
-            onSetStatus: (label, next) => {
-                const prev = chunks.find((c) => c.label === label)?.status ?? "pending";
-                runMutation(() => setChunkStatus(oref, ref(label), next));
-                briefUndo.notify(`Marked “${label}” ${next}`, () =>
-                    runMutation(() => setChunkStatus(oref, ref(label), prev))
-                );
+        return trackerEdits(mutationDeps, {
+            oref,
+            effort: openEffort,
+            chunks: planChunks,
+            pendingDeletes,
+            ui: {
+                onRename: (title) => setRenamingTitle(title),
+                onDetails: () => setDetailsOpen(true),
+                onActivity: (e) => fireAndForget(() => openOrPeekAddress(model, oref, e)),
             },
-            onRenameChunk: (label, next) => runMutation(() => renameChunk(oref, chunks, label, next)),
-            canMove: (label, dir) => moveTarget(chunks, label, dir) != null,
-            onMoveChunk: (label, dir) => {
-                const at = moveTarget(chunks, label, dir);
-                if (at == null) {
-                    return;
-                }
-                const back = indexOf(label) + 1;
-                runMutation(() => moveChunk(oref, chunks, label, at));
-                briefUndo.notify(`Moved “${label}” ${dir}`, () =>
-                    runMutation(() => moveChunk(oref, chunks, label, back))
-                );
-            },
-            onMoveToStage: (label, stage) => {
-                const at = stageMoveTarget(chunks, label, stage);
-                const prev = chunks.find((c) => c.label === label);
-                if (at == null || prev == null) {
-                    return;
-                }
-                const back = indexOf(label) + 1;
-                runMutation(() => moveChunkToStage(oref, chunks, label, stage, at));
-                briefUndo.notify(`Moved to ${stage || "unstaged"}`, () =>
-                    runMutation(() => moveChunkToStage(oref, chunks, label, prev.stage, back))
-                );
-            },
-            onDeleteChunk: (label) => scheduleRemove([label], `Deleted “${label}”`),
-            onRenameStage: (at, next) =>
-                runMutation(() => setChunkStage(oref, stageRunLabels(chunks, at).map(ref), next)),
-            onDeleteStage: (at) => {
-                const labels = stageRunLabels(chunks, at);
-                const name = chunks.find((c) => c.label === labels[0])?.stage || "unstaged";
-                scheduleRemove(
-                    labels,
-                    `Deleted stage “${name}” · ${labels.length} chunk${labels.length === 1 ? "" : "s"}`
-                );
-            },
-            onAddChunk: (label, stage, runAt) =>
-                runMutation(() =>
-                    addChunkAt(oref, label, stage, runAt != null ? appendInStageAt(chunks, runAt) : undefined)
-                ),
-            onRename: (title) => setRenamingTitle(title),
-            onDetails: () => setDetailsOpen(true),
-            onActivity: (e) => fireAndForget(() => openOrPeekAddress(model, oref, e)),
-            onTogglePause: ops.togglePause,
-            onArchive: ops.archive,
-            onUnarchive: ops.unarchive,
-            onDelete: ops.remove,
-        };
-    }, [model, openEffortORef, openEffort, planChunks, pendingDeletes, runMutation, effortOps]);
+        });
+    }, [model, openEffortORef, openEffort, planChunks, pendingDeletes, mutationDeps]);
 
     // Alt+↑/↓: published only while the cursor sits on a chunk of the open plan
     const setChunkMove = useSetAtom(chunkMoveAtom);
@@ -1123,16 +572,20 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         if (selectedChunk == null || openInitiative == null) {
             return null;
         }
-        const visible = planChunks.filter((c) => !pendingDeletes.has(chunkKey(selectedChunk.oref, c.label)));
-        const to = stepChunk(visible, selectedChunk.row.label, dir);
+        const to = stepTarget({
+            chunks: planChunks,
+            pendingDeletes,
+            oref: selectedChunk.oref,
+            lineId: openInitiative,
+            label: selectedChunk.row.label,
+            dir,
+        });
         if (to == null) {
             return null;
         }
         return () => {
-            const stage = visible.find((c) => c.label === to.label)?.stage ?? "";
-            // stageRowId's run index is counted on this same filtered list, which is what trackerRows groups
-            setStageOverrides((cur) => ({ ...cur, [stageRowId(openInitiative, stage, to.runAt)]: true }));
-            setCursor(chunkRowId(openInitiative, to.label));
+            setStageOverrides((cur) => ({ ...cur, [to.stageId]: true }));
+            setCursor(to.cursorId);
         };
     };
     const sheetOpen = useAtomValue(briefSheetOpenAtom);
@@ -1161,9 +614,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     );
     const cursorRow = tracker.rows.find((r) => r.id === cursor) ?? null;
     const cursorTarget = cursorRow?.kind === "line" ? cursorRow.line.target : null;
-    // Enter's primary action, by what the cursor is on: an initiative expands in place (it no longer has
-    // a sheet to open), a chunk opens its sidebar (its newest short note already reads open), every other
-    // row opens its target.
     const toggleInitiative = useCallback(
         (lineId: string) => {
             setOpenInitiative((cur) => (cur === lineId ? null : lineId));
@@ -1172,71 +622,42 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         },
         [setOpenInitiative, setNoteChunk, setReadingNote]
     );
+    // Enter's primary action, by what the cursor is on (briefnav.ts)
     const activateCursor = useCallback(() => {
-        if (cursorRow == null) {
-            return;
-        }
-        if (cursorRow.kind === "chunk") {
-            setNoteChunk(cursorRow.id);
+        const act = cursorAction(cursorRow);
+        if (act?.kind === "select-chunk") {
+            setNoteChunk(act.id);
             setReadingNote(new Set());
-            return;
+        } else if (act?.kind === "toggle-initiative") {
+            toggleInitiative(act.id);
+        } else if (act?.kind === "open") {
+            openLine(act.target);
         }
-        if (cursorRow.kind === "line" && expandableORef(cursorRow.line) != null) {
-            toggleInitiative(cursorRow.id);
-            return;
-        }
-        if (cursorTarget != null) {
-            openLine(cursorTarget);
-        }
-    }, [cursorRow, cursorTarget, openLine, setNoteChunk, setReadingNote, toggleInitiative]);
+    }, [cursorRow, openLine, setNoteChunk, setReadingNote, toggleInitiative]);
     const shippedLines = lines.behind.find((g) => g.label === SHIPPED_LABEL)?.lines ?? NO_LINES;
     const stageRun = useAtomValue(stageRunAtom);
     const runList = useAtomValue(briefRunListAtom);
-    // With a run sheet open on a run of the published list, j/k step the sheet through that list (design
-    // L1830): the rows are the ones its n / N counts, and landing on one opens it. The cursor is still the
-    // Brief's one cursor, so closing the sheet leaves it on the run last shown.
-    const runNav = useMemo(() => {
-        if (!sheetOpen || stageRun == null || !runList.includes(stageRun.id)) {
-            return null;
-        }
-        const inList = new Set(runList);
-        const shippedList = stageRun.status === "done";
-        const oidOf = (l: BriefLine) =>
-            shippedList
-                ? l.target != null && "oref" in l.target
-                    ? l.target.oref.replace(/^run:/, "")
-                    : ""
-                : (l.runOid ?? "");
-        const navLines = (shippedList ? shippedLines : view.sessionLines).filter((l) => inList.has(oidOf(l)));
-        return { lines: navLines, cursorId: navLines.find((l) => oidOf(l) === stageRun.id)?.id };
-    }, [sheetOpen, stageRun, runList, shippedLines, view.sessionLines]);
-    // j/k across every region in render order, and Enter opens the row under the cursor. Enter is left alone
-    // while a sheet is open, because the sheet's own Enter (an ask's submit) is the one on screen, and on a
-    // row that opens nothing, so the key passes through. Typing never reaches here: list keys are off in a field.
+    // with a run sheet open on the published run list, j/k step the sheet through that list (briefnav.ts)
+    const runNav = useMemo(
+        () => runNavLines({ sheetOpen, stageRun, runList, shippedLines, sessionLines: view.sessionLines }),
+        [sheetOpen, stageRun, runList, shippedLines, view.sessionLines]
+    );
+    // memoized because the controller is registered per identity. Typing never reaches here: list keys
+    // are off in a field.
     useSurfaceListNav(
         useMemo<ListNavController>(
             () =>
-                runNav != null
-                    ? {
-                          surface: "jarvis",
-                          navigableIds: runNav.lines.map((l) => l.id),
-                          cursorId: runNav.cursorId,
-                          setCursor: (id: string) => {
-                              setCursor(id);
-                              const target = runNav.lines.find((l) => l.id === id)?.target;
-                              if (target != null) {
-                                  openLine(target);
-                              }
-                          },
-                      }
-                    : {
-                          surface: "jarvis",
-                          navigableIds: tracker.navIds,
-                          cursorId: cursor,
-                          setCursor,
-                          activate: sheetOpen || cursorRow == null ? undefined : activateCursor,
-                          peekTarget: sheetOpen ? undefined : () => lineOpenTarget(cursorTarget),
-                      },
+                briefListNav({
+                    runNav,
+                    navIds: tracker.navIds,
+                    cursor,
+                    setCursor,
+                    openLine,
+                    sheetOpen,
+                    cursorRow,
+                    activate: activateCursor,
+                    cursorTarget,
+                }),
             [runNav, tracker.navIds, cursor, setCursor, openLine, sheetOpen, cursorRow, activateCursor, cursorTarget]
         )
     );
@@ -1271,7 +692,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const paused = projectEfforts.filter((e) => e.status === "paused").length;
     const liveN = view.sessionLines.filter((l) => !l.stale).length;
     const visitCursor = useAtomValue(briefingCursorAtom);
-    const deltaRowsN = lines.behind.filter((g) => g.label !== SHIPPED_LABEL).reduce((n, g) => n + g.lines.length, 0);
 
     // the run sheet mounts outside the Brief's snapshot, so the Brief publishes what its ↳ chunk line and
     // its n / N position read
@@ -1317,7 +737,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 setDetailsOpen(true);
             },
             status:
-                card != null ? { value: card.status, ops: effortOps(card.oref, card.title, card.status) } : undefined,
+                card != null
+                    ? { value: card.status, ops: effortOps(mutationDeps, card.oref, card.title, card.status) }
+                    : undefined,
         });
     };
     useEffect(() => {
@@ -1329,85 +751,32 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         );
     }, [stageRun, shipped, view.sessionLines]);
 
-    // Waiting's in-place button: Approve and Retry act on the exact phase or task the server named, and
-    // anything else opens the row's run
-    const actOnQueue = (q: QueueRow, l: BriefLine) => {
-        const act = queueAction(q);
-        const run = (label: string, fn: () => Promise<void>) =>
-            fireAndForget(async () => {
-                try {
-                    await fn();
-                    briefUndo.notify(label);
-                } catch (e) {
-                    briefUndo.error(e instanceof Error ? e.message : String(e));
-                }
-            });
-        switch (act.kind) {
-            case "approve-dag":
-                return run(`Approved ${q.taskId} · ${q.source || q.title}`, () =>
-                    RpcApi.DagActionCommand(TabRpcClient, {
-                        channelid: q.channelId,
-                        runid: q.runId!,
-                        taskid: q.taskId,
-                        action: "approve",
-                    })
-                );
-            case "retry-dag":
-                return run(`Retrying ${q.taskId}`, () =>
-                    RpcApi.DagActionCommand(TabRpcClient, {
-                        channelid: q.channelId,
-                        runid: q.runId!,
-                        taskid: q.taskId,
-                        action: "retry",
-                    })
-                );
-            case "ack-run":
-                return run(`Acknowledged · ${q.source || q.title}`, () =>
-                    RpcApi.AckRunCommand(TabRpcClient, { channelid: q.channelId, runid: q.runId! })
-                );
-            default:
-                if (l.target != null) {
-                    openLine(l.target);
-                }
-        }
-    };
-    const queueOf = (l: BriefLine) => queue.find((q) => "waiting:" + q.key === l.id)!;
+    const queueDeps: QueueActionDeps = { rpc: QUEUE_RPC, undo: briefUndo, openLine };
     const ackable = ackableRuns(queue);
-    // every run is acked on its own, so one refused ack leaves the rest acked and names how many failed
-    const ackAll = () =>
-        fireAndForget(async () => {
-            const results = await Promise.allSettled(
-                ackable.map((r) => RpcApi.AckRunCommand(TabRpcClient, { channelid: r.channelId, runid: r.runId }))
-            );
-            const failed = results.filter((r) => r.status === "rejected").length;
-            if (failed > 0) {
-                briefUndo.error(`${failed} of ${results.length} acknowledgements failed`);
-            } else {
-                briefUndo.notify(`Acknowledged ${results.length} unverified runs`);
-            }
-        });
 
-    // a run row's ↳ opens its initiative inline on that chunk, with the chunk's stage unfolded
     const revealChunk = useCallback(
-        (effortOref: string, chunk: string) => {
-            const lineId = "initiatives:" + effortOref;
-            globalStore.set(briefSheetOpenAtom, false);
-            clearSubject();
-            forgetOrigin();
-            setOpenInitiative(lineId);
-            setCursor(chunkRowId(lineId, chunk));
-            fireAndForget(async () => {
-                // the stage override needs the plan, which a never-opened initiative has not loaded yet
-                await loadEffortDetail(effortOref);
-                const effort = globalStore.get(effortDetailAtom).get(effortOref);
-                const chunks = effort != null ? effortChunkRows(effort) : [];
-                const at = groupChunksByStage(chunks).findIndex((g) => g.rows.some((r) => r.label === chunk));
-                const stage = chunks.find((c) => c.label === chunk)?.stage ?? "";
-                if (at >= 0) {
-                    setStageOverrides((cur) => ({ ...cur, [stageRowId(lineId, stage, at)]: true }));
-                }
-            });
-        },
+        (effortOref: string, chunk: string) =>
+            fireAndForget(() =>
+                openChunkInPlan(
+                    {
+                        closeSheet: () => {
+                            globalStore.set(briefSheetOpenAtom, false);
+                            clearSubject();
+                            forgetOrigin();
+                        },
+                        openInitiative: setOpenInitiative,
+                        setCursor,
+                        loadPlan: async (oref) => {
+                            await loadEffortDetail(oref);
+                            const effort = globalStore.get(effortDetailAtom).get(oref);
+                            return effort != null ? effortChunkRows(effort) : [];
+                        },
+                        openStage: (id) => setStageOverrides((cur) => ({ ...cur, [id]: true })),
+                    },
+                    effortOref,
+                    chunk
+                )
+            ),
         [setOpenInitiative, setCursor, setStageOverrides]
     );
     // the run sheet's ↳ chunk line reveals through the same handler, published because the sheet mounts
@@ -1423,108 +792,17 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <div data-jarvis-region="brief" className="absolute inset-0 flex flex-col bg-background">
-            <SurfaceToolbar
-                title="Jarvis"
-                actions={
-                    <>
-                        <label
-                            className={cn(
-                                "flex h-[28px] w-[220px] flex-none items-center gap-2 rounded-[8px] border bg-surface-raised pl-2.5 focus-within:border-accent/60",
-                                filtering ? "border-accent/60 pr-1" : "border-edge-mid pr-1.5"
-                            )}
-                        >
-                            <Search
-                                aria-hidden
-                                size={13}
-                                strokeWidth={2}
-                                className={cn("flex-none", filtering ? "text-accent-soft" : "text-muted")}
-                            />
-                            <input
-                                data-jarvis-brief-filter
-                                aria-label="Filter the Brief"
-                                placeholder="Filter"
-                                value={query}
-                                onChange={(e) => setQuery(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Escape") {
-                                        setQuery("");
-                                        e.currentTarget.blur();
-                                    }
-                                }}
-                                className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-hi outline-none placeholder:text-muted"
-                            />
-                            {filtering ? (
-                                <>
-                                    <span className="flex-none whitespace-nowrap font-mono text-[10.5px] text-muted">
-                                        {view.visible.length} {view.visible.length === 1 ? "hit" : "hits"}
-                                    </span>
-                                    <button
-                                        type="button"
-                                        aria-label="Clear filter"
-                                        onClick={() => setQuery("")}
-                                        className="flex h-5 w-5 flex-none cursor-pointer items-center justify-center rounded-[5px] text-ink-mid hover:bg-surface-hover hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                                    >
-                                        <X aria-hidden size={11} strokeWidth={2.2} />
-                                    </button>
-                                </>
-                            ) : (
-                                <kbd className="flex-none rounded-[4px] border border-edge-strong px-[5px] font-mono text-[10.5px] leading-4 text-ink-mid">
-                                    /
-                                </kbd>
-                            )}
-                        </label>
-                        <AutonomyLadder />
-                        {/* A real control with the control recipe's border: invariant 4 forbids camouflaging it among
-                            the status chips beside the title, which are borderless labels. */}
-                        <button
-                            type="button"
-                            data-jarvis-brief-profile
-                            aria-haspopup="dialog"
-                            aria-expanded={profileTarget != null}
-                            aria-label="Profile — run defaults"
-                            title="Profile — run defaults"
-                            onClick={() => setProfileTarget("")}
-                            className="flex h-[28px] w-[28px] flex-none cursor-pointer items-center justify-center rounded-[8px] border border-edge-mid bg-surface-raised text-ink-mid hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                        >
-                            <SlidersHorizontal aria-hidden size={14} strokeWidth={1.8} />
-                        </button>
-                        <NewInitiativeControl model={model} />
-                    </>
-                }
-            >
-                {projectCount > 0 ? (
-                    <ToolbarFact>
-                        all work · {projectCount} {projectCount === 1 ? "project" : "projects"}
-                    </ToolbarFact>
-                ) : null}
-                {/* the chip needs a snapshot: "all clear" over a load that has not landed is a lie */}
-                {model_ != null ? (
-                    <span
-                        data-jarvis-brief-band="waiting"
-                        className={cn(
-                            "flex flex-none items-center gap-[7px] rounded-[6px] px-2 py-[3px] font-mono text-[11px] font-bold transition-colors duration-[140ms]",
-                            queue.length === 0 ? "bg-success/15 text-success" : "bg-asking/15 text-asking"
-                        )}
-                    >
-                        <span
-                            className={cn(
-                                "h-[5px] w-[5px] flex-none rounded-full transition-colors duration-[140ms]",
-                                queue.length === 0 ? "bg-success" : "pulse-dot-slow bg-asking"
-                            )}
-                        />
-                        {queue.length === 0 ? (
-                            "all clear"
-                        ) : (
-                            <span className="flex items-center gap-1">
-                                <RollingCount value={queue.length} /> waiting
-                            </span>
-                        )}
-                    </span>
-                ) : null}
-                <ToolbarFact>
-                    <span data-jarvis-brief-band="fleet">{fleet.line}</span>
-                </ToolbarFact>
-            </SurfaceToolbar>
+            <BriefToolbar
+                model={model}
+                query={query}
+                onQuery={setQuery}
+                hits={view.visible.length}
+                profileOpen={profileTarget != null}
+                onOpenProfile={() => setProfileTarget("")}
+                projectCount={projectCount}
+                waiting={model_ != null ? queue.length : null}
+                fleetLine={fleet.line}
+            />
             {/* both bands push the surface down, so height belongs in the animation rather than a cut */}
             <AnimatePresence initial={false}>
                 {staleSnapshot ? (
@@ -1610,527 +888,169 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                 className="flex flex-col gap-[26px]"
                             >
                                 {view.shows("waiting") ? (
-                                    <Region
-                                        id="waiting"
-                                        alert={queue.length > 0}
-                                        count={queue.length || undefined}
-                                        empty={queue.length === 0}
-                                        gap="gap-[9px]"
-                                        meta="gates before asks"
+                                    <WaitingRegion
+                                        queue={queue}
+                                        lines={lines.waiting}
+                                        summary={queueSummary}
+                                        open={waitingOpen}
+                                        shown={waitingShown}
                                         only={only === "waiting"}
                                         onOnly={() => toggleOnly("waiting")}
-                                        tools={
-                                            ackable.length > 1 ? (
-                                                <button
-                                                    type="button"
-                                                    data-jarvis-queue-ack-all
-                                                    onClick={ackAll}
-                                                    className={cn(SMALL_BTN, "flex-none font-mono")}
-                                                >
-                                                    Acknowledge {ackable.length} unverified
-                                                </button>
-                                            ) : undefined
-                                        }
-                                    >
-                                        {queueSummary != null ? (
-                                            <div className="flex flex-col gap-[9px]">
-                                                <QueueSummaryView
-                                                    summary={queueSummary}
-                                                    count={queue.length}
-                                                    expanded={waitingOpen}
-                                                    error={queue.some((q) => q.tone === "error")}
-                                                    onToggle={() => toggleRegion("waiting")}
-                                                />
-                                                <MotionConfig reducedMotion="user">
-                                                    <AnimatePresence initial={false}>
-                                                        {waitingShown ? (
-                                                            <motion.div
-                                                                id="jarvis-attention-details"
-                                                                key="attention-details"
-                                                                variants={paneReveal}
-                                                                initial="initial"
-                                                                animate="animate"
-                                                                exit="exit"
-                                                                className="flex flex-col overflow-hidden"
-                                                            >
-                                                                {lines.waiting.length === 0 ? <NoMatch /> : null}
-                                                                {lines.waiting.map((l) => (
-                                                                    <motion.div
-                                                                        key={l.id}
-                                                                        layout
-                                                                        variants={cardVariants}
-                                                                        initial={
-                                                                            entering.has(keyOf(l)) ? "initial" : false
-                                                                        }
-                                                                        animate="animate"
-                                                                        exit="exit"
-                                                                        transition={{
-                                                                            duration: MOTION.durMacro,
-                                                                            ease: MOTION.easeFluid,
-                                                                        }}
-                                                                    >
-                                                                        <WaitingRow
-                                                                            line={l}
-                                                                            focused={cursor === l.id}
-                                                                            act={queueAction(queueOf(l))}
-                                                                            onOpen={
-                                                                                l.target != null
-                                                                                    ? (e) => openLine(l.target, e)
-                                                                                    : undefined
-                                                                            }
-                                                                            onAct={() => actOnQueue(queueOf(l), l)}
-                                                                        />
-                                                                    </motion.div>
-                                                                ))}
-                                                            </motion.div>
-                                                        ) : null}
-                                                    </AnimatePresence>
-                                                </MotionConfig>
-                                            </div>
-                                        ) : null}
-                                    </Region>
+                                        onToggle={() => toggleRegion("waiting")}
+                                        ackable={ackable.length}
+                                        onAckAll={() => fireAndForget(() => ackAll(queueDeps, ackable))}
+                                        entering={entering}
+                                        cursor={cursor}
+                                        openLine={openLine}
+                                        onAct={(q, l) => fireAndForget(() => actOnQueue(queueDeps, q, l))}
+                                    />
                                 ) : null}
                                 {view.shows("initiatives") ? (
-                                    <Region
-                                        id="initiatives"
-                                        count={lines.initiatives.length}
+                                    <InitiativesRegion
+                                        lines={lines.initiatives}
                                         empty={efforts.length === 0 && archivedCards.length === 0}
-                                        gap="gap-[9px]"
-                                        meta={paused > 0 ? `${paused} paused` : "all moving"}
+                                        paused={paused}
                                         only={only === "initiatives"}
                                         onOnly={() => toggleOnly("initiatives")}
-                                        filter={
-                                            projectOptions.length > 1
-                                                ? filterSlot({
-                                                      label: "Show initiatives of project",
-                                                      noun: "project",
-                                                      tag: "data-jarvis-initiative-project",
-                                                      options: [
-                                                          { value: null, label: "all", count: projectCards.length },
-                                                          ...projectOptions.map((p) => ({
-                                                              value: p,
-                                                              label: p || "no project",
-                                                              count: perProject.get(p),
-                                                          })),
-                                                      ],
-                                                      value: project,
-                                                      onChange: setPickedProject,
-                                                  })
-                                                : undefined
+                                        projects={{
+                                            options: projectOptions,
+                                            total: projectCards.length,
+                                            counts: perProject,
+                                            picked: project,
+                                            onPick: setPickedProject,
+                                        }}
+                                        filtering={filtering}
+                                        entering={entering}
+                                        fresh={freshInitiatives}
+                                        cursor={cursor}
+                                        openInitiative={openInitiative}
+                                        rename={
+                                            renamingTitle != null
+                                                ? {
+                                                      title: renamingTitle,
+                                                      onChange: setRenamingTitle,
+                                                      onCommit: () => {
+                                                          const t = renamingTitle.trim();
+                                                          setRenamingTitle(null);
+                                                          if (
+                                                              t !== "" &&
+                                                              openEffortORef != null &&
+                                                              t !== openEffort?.title
+                                                          ) {
+                                                              runMutation(() => renameEffort(openEffortORef, t));
+                                                          }
+                                                      },
+                                                      onCancel: () => setRenamingTitle(null),
+                                                  }
+                                                : null
                                         }
-                                    >
-                                        <div className="flex flex-col">
-                                            {lines.initiatives.length === 0 ? (
-                                                filtering || project != null ? (
-                                                    <NoMatch />
-                                                ) : (
-                                                    <span className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">
-                                                        {REGIONS.initiatives.absent}
-                                                    </span>
-                                                )
-                                            ) : null}
-                                            <MotionConfig reducedMotion="user">
-                                                <AnimatePresence initial={false}>
-                                                    {lines.initiatives.map((l) => (
-                                                        <motion.div
-                                                            key={l.id}
-                                                            // position, not full layout: the pane below owns its own height
-                                                            // animation, and a size-animating parent would re-project that
-                                                            // growth as a scale — stretching the rows it just revealed.
-                                                            layout="position"
-                                                            variants={cardVariants}
-                                                            initial={entering.has(keyOf(l)) ? "initial" : false}
-                                                            animate="animate"
-                                                            exit="exit"
-                                                            transition={{
-                                                                duration: MOTION.durMacro,
-                                                                ease: MOTION.easeFluid,
-                                                            }}
-                                                            // each row's layout transform is its own stacking context, so a
-                                                            // plan menu hanging past the card would paint under the rows
-                                                            // after it; the open card is lifted above them
-                                                            className={
-                                                                l.id === openInitiative ? "relative z-10" : undefined
-                                                            }
-                                                        >
-                                                            <InitiativeRow
-                                                                line={l}
-                                                                focused={cursor === l.id}
-                                                                fresh={freshInitiatives.has(keyOf(l))}
-                                                                expanded={l.id === openInitiative}
-                                                                resume={resumeOf(l)}
-                                                                onWork={() => {
-                                                                    const c = cardOf(l);
-                                                                    if (c != null) {
-                                                                        void workOnInitiative(model, c);
-                                                                    }
-                                                                }}
-                                                                onContextMenu={(ev) => showMenuFor(l, ev)}
-                                                                onOpen={() => {
-                                                                    setCursor(l.id);
-                                                                    toggleInitiative(l.id);
-                                                                }}
-                                                                titleSlot={
-                                                                    l.id === openInitiative && renamingTitle != null ? (
-                                                                        <input
-                                                                            autoFocus
-                                                                            data-jarvis-rename-input
-                                                                            value={renamingTitle}
-                                                                            onChange={(e) =>
-                                                                                setRenamingTitle(e.target.value)
-                                                                            }
-                                                                            onBlur={() => {
-                                                                                const t = renamingTitle.trim();
-                                                                                setRenamingTitle(null);
-                                                                                if (
-                                                                                    t !== "" &&
-                                                                                    openEffortORef != null &&
-                                                                                    t !== openEffort?.title
-                                                                                ) {
-                                                                                    runMutation(() =>
-                                                                                        renameEffort(openEffortORef, t)
-                                                                                    );
-                                                                                }
-                                                                            }}
-                                                                            onKeyDown={(e) => {
-                                                                                if (e.key === "Enter") {
-                                                                                    e.currentTarget.blur();
-                                                                                } else if (e.key === "Escape") {
-                                                                                    e.stopPropagation();
-                                                                                    setRenamingTitle(null);
-                                                                                }
-                                                                            }}
-                                                                            onClick={(e) => e.stopPropagation()}
-                                                                            className="min-w-0 flex-1 rounded-[6px] border border-accent/60 bg-background px-[7px] py-0.5 text-[13px] text-ink-hi outline-none"
-                                                                        />
-                                                                    ) : undefined
-                                                                }
-                                                            />
-                                                            {/* the plan reveal: height+opacity on the macro duration, and NOT a
-                                                                layout node, so the reveal and the list's reflow don't fight. */}
-                                                            <AnimatePresence initial={false}>
-                                                                {l.id === openInitiative ? (
-                                                                    <motion.div
-                                                                        key="detail"
-                                                                        variants={planReveal}
-                                                                        initial="initial"
-                                                                        animate="animate"
-                                                                        exit="exit"
-                                                                    >
-                                                                        {edits != null ? (
-                                                                            <InitiativeDetail
-                                                                                rows={tracker.detail}
-                                                                                cursor={cursor}
-                                                                                edits={edits}
-                                                                                onSelectChunk={(id) => {
-                                                                                    setCursor(id);
-                                                                                    setNoteChunk(id);
-                                                                                    setReadingNote(new Set());
-                                                                                }}
-                                                                                onToggleStage={(id, open) =>
-                                                                                    setStageOverrides((cur) => ({
-                                                                                        ...cur,
-                                                                                        [id]: open,
-                                                                                    }))
-                                                                                }
-                                                                            />
-                                                                        ) : (
-                                                                            <p
-                                                                                data-jarvis-initiative-detail="loading"
-                                                                                className="px-3 py-2 text-[12px] text-muted"
-                                                                            >
-                                                                                {tracker.detail[0]?.kind === "pending"
-                                                                                    ? tracker.detail[0].message
-                                                                                    : ""}
-                                                                            </p>
-                                                                        )}
-                                                                        {mutateError != null &&
-                                                                        selectedChunk == null ? (
-                                                                            <p className="px-3 pb-2 text-[11px] text-error">
-                                                                                {mutateError}
-                                                                            </p>
-                                                                        ) : null}
-                                                                    </motion.div>
-                                                                ) : null}
-                                                            </AnimatePresence>
-                                                        </motion.div>
-                                                    ))}
-                                                </AnimatePresence>
-                                            </MotionConfig>
-                                            <MoreControl
-                                                n={effortWindow.more}
-                                                expanded={initiativesOpen}
-                                                onToggle={() => toggleRegion("initiatives")}
-                                            />
-                                            {archivedShown.length > 0 ? (
-                                                <button
-                                                    type="button"
-                                                    data-jarvis-brief-archived={showArchived ? "hide" : "show"}
-                                                    onClick={() => setShowArchived(!showArchived)}
-                                                    className={cn(LINK_BTN, "mt-1")}
-                                                >
-                                                    {showArchived
-                                                        ? "Hide archived"
-                                                        : `Show ${archivedShown.length} archived`}
-                                                </button>
-                                            ) : null}
-                                        </div>
-                                    </Region>
+                                        resumeOf={resumeOf}
+                                        onWork={(l) => {
+                                            const c = cardOf(l);
+                                            if (c != null) {
+                                                void workOnInitiative(model, c);
+                                            }
+                                        }}
+                                        onContextMenu={showMenuFor}
+                                        onOpen={(l) => {
+                                            setCursor(l.id);
+                                            toggleInitiative(l.id);
+                                        }}
+                                        edits={edits}
+                                        detail={tracker.detail}
+                                        onSelectChunk={(id) => {
+                                            setCursor(id);
+                                            setNoteChunk(id);
+                                            setReadingNote(new Set());
+                                        }}
+                                        onToggleStage={(id, open) =>
+                                            setStageOverrides((cur) => ({
+                                                ...cur,
+                                                [id]: open,
+                                            }))
+                                        }
+                                        mutateError={mutateError}
+                                        sidebarOpen={selectedChunk != null}
+                                        more={effortWindow.more}
+                                        expanded={initiativesOpen}
+                                        onToggleMore={() => toggleRegion("initiatives")}
+                                        archived={archivedShown.length}
+                                        showArchived={showArchived}
+                                        onToggleArchived={() => setShowArchived(!showArchived)}
+                                    />
                                 ) : null}
                                 {view.shows("sessions") ? (
-                                    <Region
-                                        id="sessions"
+                                    <RunsRegion
+                                        model={model}
+                                        lines={view.sessionLines}
                                         empty={sessions.rows.length === 0}
-                                        absent={runKind === "all" ? undefined : `No ${runKind} run is going.`}
-                                        gap="gap-[9px]"
-                                        meta={`${liveN} live`}
+                                        runKind={runKind}
+                                        onRunKind={setRunKind}
+                                        runCounts={runCounts}
+                                        liveN={liveN}
                                         only={only === "sessions"}
                                         onOnly={() => toggleOnly("sessions")}
-                                        filter={runKindFilter(runKind, setRunKind, runCounts)}
-                                    >
-                                        <div className="flex flex-col">
-                                            {filtering && view.sessionLines.length === 0 ? <NoMatch /> : null}
-                                            <MotionConfig reducedMotion="user">
-                                                <AnimatePresence initial={false}>
-                                                    {view.sessionLines.map((l) => (
-                                                        <motion.div
-                                                            key={l.id}
-                                                            layout
-                                                            variants={cardVariants}
-                                                            initial={entering.has(keyOf(l)) ? "initial" : false}
-                                                            animate="animate"
-                                                            exit="exit"
-                                                            transition={{
-                                                                duration: MOTION.durMacro,
-                                                                ease: MOTION.easeFluid,
-                                                            }}
-                                                        >
-                                                            <BriefRunRow
-                                                                model={model}
-                                                                line={l}
-                                                                focused={cursor === l.id}
-                                                                selected={sheetOpen && stageRun?.id === l.runOid}
-                                                                onOpenSheet={
-                                                                    l.target != null
-                                                                        ? (e) => openLine(l.target, e)
-                                                                        : undefined
-                                                                }
-                                                                onOpenChunk={revealChunk}
-                                                            />
-                                                        </motion.div>
-                                                    ))}
-                                                </AnimatePresence>
-                                            </MotionConfig>
-                                            {/* runs the lead marked executing and then never touched again: they are
-                                            real rows, but a week of silence reads as dead, so they fold */}
-                                            {staleCount > 0 && !filtering ? (
-                                                <button
-                                                    type="button"
-                                                    aria-expanded={staleOpen}
-                                                    data-jarvis-brief-stale
-                                                    onClick={() => setStaleOpen(!staleOpen)}
-                                                    className={cn(LINK_BTN, "mt-0.5")}
-                                                >
-                                                    {staleOpen ? `Hide ${staleCount}` : `+${staleCount}`}{" "}
-                                                    {staleCount === 1 ? "run" : "runs"} older than 7 days
-                                                </button>
-                                            ) : null}
-                                            <MoreControl
-                                                n={sessions.more}
-                                                expanded={sessionsOpen}
-                                                onToggle={() => toggleRegion("sessions")}
-                                            />
-                                        </div>
-                                    </Region>
+                                        filtering={filtering}
+                                        entering={entering}
+                                        cursor={cursor}
+                                        sheetOpen={sheetOpen}
+                                        stageRunId={stageRun?.id}
+                                        openLine={openLine}
+                                        onOpenChunk={revealChunk}
+                                        staleCount={staleCount}
+                                        staleOpen={staleOpen}
+                                        onToggleStale={() => setStaleOpen(!staleOpen)}
+                                        more={sessions.more}
+                                        expanded={sessionsOpen}
+                                        onToggleMore={() => toggleRegion("sessions")}
+                                    />
                                 ) : null}
                                 {view.shows("behind") ? (
-                                    <section
-                                        ref={setBehindEl}
-                                        data-jarvis-brief-region="behind"
-                                        className="flex flex-col gap-[9px]"
-                                    >
-                                        <div className="flex items-center gap-[9px]">
-                                            <span className={cn(REGION_LABEL, "text-ink-mid")}>Behind you</span>
-                                            <span className="h-px min-w-3 flex-1 bg-edge-faint" />
-                                            <span className={MONO_FAINT}>
-                                                {sinceLabel(
-                                                    cursorTs,
-                                                    snapshot?.queryStartedAt ?? Date.now(),
-                                                    visitCursor == null
-                                                )}
-                                            </span>
-                                            {deltaRowsN > 0 ? (
-                                                <button
-                                                    type="button"
-                                                    data-jarvis-brief-mark-seen
-                                                    onClick={() => {
-                                                        const undo = markBriefingSeen();
-                                                        briefUndo.notify("Marked seen", undo);
-                                                    }}
-                                                    className="cursor-pointer font-mono text-[10.5px] text-accent-soft hover:underline"
-                                                >
-                                                    mark seen
-                                                </button>
-                                            ) : null}
-                                        </div>
-                                        <div className="flex flex-col">
-                                            {deltaRowsN === 0 ? (
-                                                <div className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">
-                                                    Nothing new since you last looked.
-                                                </div>
-                                            ) : null}
-                                            {lines.behind
-                                                .filter((g) => g.label !== SHIPPED_LABEL)
-                                                .map((g) => (
-                                                    <div key={g.label} className="flex flex-col">
-                                                        <div className="px-[11px] pb-0.5 pt-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-muted">
-                                                            {g.label}
-                                                        </div>
-                                                        {g.lines.map((l) => (
-                                                            <DeltaRowView
-                                                                key={l.id}
-                                                                line={l}
-                                                                focused={cursor === l.id}
-                                                                onOpen={
-                                                                    l.target != null
-                                                                        ? (e) => openLine(l.target, e)
-                                                                        : undefined
-                                                                }
-                                                            />
-                                                        ))}
-                                                    </div>
-                                                ))}
-                                            <MoreControl
-                                                n={deltaWindow.more}
-                                                expanded={behindOpen}
-                                                onToggle={() => toggleRegion("behind")}
-                                            />
-                                            <div className="flex items-center gap-2 px-[11px] pb-0.5 pt-3 font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-muted">
-                                                <span>{SHIPPED_LABEL}</span>
-                                                <span className="font-normal tracking-[.04em]">
-                                                    {shippedAll.length}
-                                                </span>
-                                                {shippedFilter.menu ? (
-                                                    <span className="ml-auto font-normal normal-case tracking-normal">
-                                                        {shippedFilter.node}
-                                                    </span>
-                                                ) : null}
-                                            </div>
-                                            {shippedFilter.menu ? null : (
-                                                <div className="px-[11px] pb-1">{shippedFilter.node}</div>
-                                            )}
-                                            {shippedAll.length === 0 ? (
-                                                <div className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">
-                                                    {shippedKind === "all"
-                                                        ? "Nothing shipped in the last seven days."
-                                                        : `No ${shippedKind} run shipped in the last seven days.`}
-                                                </div>
-                                            ) : null}
-                                            {shippedLines.map((l) => (
-                                                <ShippedRowView
-                                                    key={l.id}
-                                                    line={l}
-                                                    focused={cursor === l.id}
-                                                    selected={
-                                                        sheetOpen &&
-                                                        stageRun != null &&
-                                                        l.target != null &&
-                                                        "oref" in l.target &&
-                                                        l.target.oref === "run:" + stageRun.id
-                                                    }
-                                                    onOpen={l.target != null ? (e) => openLine(l.target, e) : undefined}
-                                                />
-                                            ))}
-                                            {shippedAll.length > SHIPPED_CAP && !filtering ? (
-                                                <button
-                                                    type="button"
-                                                    data-jarvis-brief-shipped-more
-                                                    onClick={() => setShippedOpen(!shippedOpen)}
-                                                    className="cursor-pointer self-start px-[11px] py-[7px] font-mono text-[10.5px] text-accent-soft hover:underline"
-                                                >
-                                                    {shippedOpen
-                                                        ? "show less"
-                                                        : `+${shippedAll.length - SHIPPED_CAP} more`}
-                                                </button>
-                                            ) : null}
-                                        </div>
-                                    </section>
+                                    <BehindRegion
+                                        sectionRef={setBehindEl}
+                                        since={sinceLabel(
+                                            cursorTs,
+                                            snapshot?.queryStartedAt ?? Date.now(),
+                                            visitCursor == null
+                                        )}
+                                        groups={lines.behind.filter((g) => g.label !== SHIPPED_LABEL)}
+                                        cursor={cursor}
+                                        openLine={openLine}
+                                        more={deltaWindow.more}
+                                        expanded={behindOpen}
+                                        onToggleMore={() => toggleRegion("behind")}
+                                        shippedTotal={shippedAll.length}
+                                        shippedLines={shippedLines}
+                                        shippedKind={shippedKind}
+                                        onShippedKind={setShippedKind}
+                                        shippedCounts={shippedCounts}
+                                        shippedOpen={shippedOpen}
+                                        onToggleShipped={() => setShippedOpen(!shippedOpen)}
+                                        filtering={filtering}
+                                        sheetOpen={sheetOpen}
+                                        stageRunId={stageRun?.id}
+                                    />
                                 ) : null}
                             </motion.div>
                         ) : null}
                     </AnimatePresence>
                 </div>
-                <AnimatePresence initial={false}>
-                    {selectedChunk != null && openInitiative != null ? (
-                        <ChunkSidebar
-                            key="chunk-sidebar"
-                            model={model}
-                            initiative={openEffort?.title ?? ""}
-                            label={selectedChunk.row.label}
-                            stage={selectedChunk.row.stage}
-                            flat={isFlatPlan(planChunks)}
-                            status={selectedChunk.row.status}
-                            position={{
-                                n: planChunks.findIndex((c) => c.label === selectedChunk.row.label) + 1,
-                                total: planChunks.length,
-                            }}
-                            feed={tracker.feed}
-                            expanded={readingNote}
-                            now={Date.now()}
-                            handle={`wsh effort note ${selectedChunk.oref.replace(/^effort:/, "")} "${selectedChunk.row.label}"`}
-                            error={mutateError}
-                            onPrev={stepTo("prev")}
-                            onNext={stepTo("next")}
-                            onToggle={(key) =>
-                                setReadingNote((cur) => {
-                                    const next = new Set(cur);
-                                    if (!next.delete(key)) {
-                                        next.add(key);
-                                    }
-                                    return next;
-                                })
-                            }
-                            onClose={closeNotes}
-                            onActivity={(e) => openLine({ oref: selectedChunk.oref }, e)}
-                            onAddNote={(text) =>
-                                runMutation(() => appendChunkNote(selectedChunk.oref, selectedChunk.row.label, text))
-                            }
-                            onSetStatus={(status) => edits?.onSetStatus(selectedChunk.row.label, status)}
-                            onEditNote={(entry, text) =>
-                                entry.noteAt != null &&
-                                runMutation(() =>
-                                    editNote(
-                                        selectedChunk.oref,
-                                        chunkRef(planChunks, entry.chunk),
-                                        entry.noteAt!,
-                                        entry.ts,
-                                        text
-                                    )
-                                )
-                            }
-                            onDeleteNote={(entry) => {
-                                if (entry.noteAt == null) {
-                                    return;
-                                }
-                                const at = entry.noteAt;
-                                setReadingNote(new Set());
-                                briefUndo.schedule(
-                                    [noteKey(selectedChunk.oref, entry.chunk, entry.ts)],
-                                    "Note deleted",
-                                    () =>
-                                        removeNote(selectedChunk.oref, chunkRef(planChunks, entry.chunk), at, entry.ts)
-                                );
-                            }}
-                            onOpenSession={(c, e) =>
-                                fireAndForget(() =>
-                                    c.sessionTab !== ""
-                                        ? openOrPeek(model, { kind: "agent", tabId: c.sessionTab }, e)
-                                        : openOrPeekAddress(model, "run:" + c.runOid, e)
-                                )
-                            }
-                        />
-                    ) : null}
-                </AnimatePresence>
+                <BriefChunkPane
+                    model={model}
+                    initiative={openEffort?.title ?? ""}
+                    selectedChunk={openInitiative != null ? selectedChunk : null}
+                    planChunks={planChunks}
+                    feed={tracker.feed}
+                    readingNote={readingNote}
+                    setReadingNote={setReadingNote}
+                    error={mutateError}
+                    onPrev={stepTo("prev")}
+                    onNext={stepTo("next")}
+                    onClose={closeNotes}
+                    openLine={openLine}
+                    runMutation={runMutation}
+                    edits={edits}
+                />
                 <BriefToastView />
             </div>
             {/* the Brief's destination for a record address: openref.ts's record landing sets the atom this reads.
