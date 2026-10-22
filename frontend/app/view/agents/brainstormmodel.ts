@@ -302,21 +302,39 @@ export function canCheck(f: BrainstormFile): boolean {
     return f.done && f.question == null && parts.length > 0 && parts.every((p) => p.state === "yours");
 }
 
-// a line Arc sent, which the agent has not answered yet: modifiedMs is the file's when it was sent
-export type SentLine = { at: number; modifiedMs: number | null; answer: boolean };
+// a line Arc sent, which the agent has not answered yet: modifiedMs is the file's when it was sent. An answer closes
+// the question, a check waits on the builder, any other line is a change
+export type SentKind = "answer" | "check" | "line";
+export type SentLine = { at: number; modifiedMs: number | null; kind: SentKind };
+
+export function sentKind(a: BrainstormAction): SentKind {
+    return a.kind === "answer" || a.kind === "check" ? a.kind : "line";
+}
 
 const PENDING_ANSWER = "Writing up your answer.";
+const PENDING_CHECK = "A builder is reading the design.";
 const PENDING_LINE = "Taking in your change.";
 
+// the builder can read in the background after the turn that took the check ends, so a check is taken only once the
+// file shows it, says the agent is still working, or no longer offers the check at all
+function checkTaken(f: BrainstormFile): boolean {
+    return f.check != null || f.working != null || !canCheck(f);
+}
+
 // the agent has taken a sent line once its turn ends after the send, or its file changed while it is not at work.
-// A write mid-turn settles nothing: a line sent before that turn ends would join it, not start the next
+// A write mid-turn settles nothing: a line sent before that turn ends would join it, not start the next. A check
+// settles on the file alone
 export function settleSent(
     sent: SentLine | null,
     modifiedMs: number | null,
-    agent: Pick<AgentVM, "state" | "idleSince"> | undefined
+    agent: Pick<AgentVM, "state" | "idleSince"> | undefined,
+    f: BrainstormFile | null
 ): SentLine | null {
     if (sent == null) {
         return null;
+    }
+    if (sent.kind === "check") {
+        return f != null && checkTaken(f) ? null : sent;
     }
     const turnEnded = agent?.state === "idle" && agent.idleSince != null && agent.idleSince > sent.at;
     const written = modifiedMs !== sent.modifiedMs;
@@ -334,7 +352,7 @@ export function terminalAnswer(
     if (f.question == null || agent?.state !== "working" || modifiedMs == null || turnStartMs == null) {
         return null;
     }
-    return turnStartMs > modifiedMs ? { at: turnStartMs, modifiedMs, answer: true } : null;
+    return turnStartMs > modifiedMs ? { at: turnStartMs, modifiedMs, kind: "answer" } : null;
 }
 
 // the file as Arc shows it: the agent writes once per turn, so while a sent line is pending Arc says the agent is
@@ -343,7 +361,18 @@ export function shownFile(f: BrainstormFile, sent: SentLine | null): BrainstormF
     if (sent == null || f.working != null) {
         return f;
     }
-    return sent.answer ? { ...f, working: PENDING_ANSWER, question: null } : { ...f, working: PENDING_LINE };
+    if (sent.kind === "answer") {
+        return { ...f, working: PENDING_ANSWER, question: null };
+    }
+    return { ...f, working: sent.kind === "check" ? PENDING_CHECK : PENDING_LINE };
+}
+
+// why a line is not sent, for the file as Arc shows it: a check while the agent is at work, one already underway
+// included, would start a second builder
+export function sendBlocker(a: BrainstormAction, shown: BrainstormFile | null): string | null {
+    return a.kind === "check" && shown?.working != null
+        ? "The agent is still working; check with a builder once it is done"
+        : null;
 }
 
 export function isAsking(f: BrainstormFile): boolean {

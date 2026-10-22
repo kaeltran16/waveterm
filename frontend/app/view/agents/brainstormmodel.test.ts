@@ -46,6 +46,8 @@ import {
     reviewHead,
     runLine,
     runPrefill,
+    sendBlocker,
+    sentKind,
     sentenceDiff,
     settleSent,
     shownFile,
@@ -57,6 +59,7 @@ import {
     type HistoryEntry,
     type ParseResult,
     type PartState,
+    type SentLine,
 } from "./brainstormmodel";
 
 const part = (id: string, state: PartState, over: Partial<BrainstormPart> = {}): BrainstormPart => ({
@@ -317,31 +320,77 @@ describe("withBrainstorm", () => {
 });
 
 describe("settleSent", () => {
-    const sent = { at: 1000, modifiedMs: 500, answer: true };
+    const sent: SentLine = { at: 1000, modifiedMs: 500, kind: "answer" };
 
     it("holds while the file is unchanged and the agent has not ended a turn since", () => {
-        expect(settleSent(sent, 500, { state: "working" })).toBe(sent);
-        expect(settleSent(sent, 500, { state: "idle", idleSince: 900 })).toBe(sent);
-        expect(settleSent(sent, 500, undefined)).toBe(sent);
+        expect(settleSent(sent, 500, { state: "working" }, null)).toBe(sent);
+        expect(settleSent(sent, 500, { state: "idle", idleSince: 900 }, null)).toBe(sent);
+        expect(settleSent(sent, 500, undefined, null)).toBe(sent);
     });
 
     it("settles once the file changes and the agent is not at work", () => {
-        expect(settleSent(sent, 600, { state: "idle", idleSince: 900 })).toBeNull();
-        expect(settleSent(sent, 600, undefined)).toBeNull();
-        expect(settleSent({ ...sent, modifiedMs: null }, 600, { state: "asking" })).toBeNull();
+        expect(settleSent(sent, 600, { state: "idle", idleSince: 900 }, null)).toBeNull();
+        expect(settleSent(sent, 600, undefined, null)).toBeNull();
+        expect(settleSent({ ...sent, modifiedMs: null }, 600, { state: "asking" }, null)).toBeNull();
     });
 
     it("holds through a write mid-turn, until that turn ends", () => {
-        expect(settleSent(sent, 600, { state: "working" })).toBe(sent);
-        expect(settleSent(sent, 600, { state: "idle", idleSince: 1500 })).toBeNull();
+        expect(settleSent(sent, 600, { state: "working" }, null)).toBe(sent);
+        expect(settleSent(sent, 600, { state: "idle", idleSince: 1500 }, null)).toBeNull();
     });
 
     it("settles once the agent's turn ends after the send without a write", () => {
-        expect(settleSent(sent, 500, { state: "idle", idleSince: 1500 })).toBeNull();
+        expect(settleSent(sent, 500, { state: "idle", idleSince: 1500 }, null)).toBeNull();
     });
 
     it("nothing sent stays nothing", () => {
-        expect(settleSent(null, 500, { state: "idle", idleSince: 1500 })).toBeNull();
+        expect(settleSent(null, 500, { state: "idle", idleSince: 1500 }, null)).toBeNull();
+    });
+});
+
+describe("a sent check", () => {
+    const ready = file({ done: true, parts: [part("a", "yours")] });
+    const check: SentLine = { at: 1000, modifiedMs: 500, kind: "check" };
+    const ended = { state: "idle" as const, idleSince: 1500 };
+
+    it("is what the check action sends; an answer is an answer and anything else a line", () => {
+        expect(sentKind({ kind: "check" })).toBe("check");
+        expect(sentKind({ kind: "answer", text: "x" })).toBe("answer");
+        expect(sentKind({ kind: "builder-answer", text: "x" })).toBe("line");
+        expect(sentKind({ kind: "confirm-all" })).toBe("line");
+    });
+
+    it("outlasts the turn that took it while the builder reads in the background", () => {
+        expect(settleSent(check, 500, ended, ready)).toBe(check);
+        expect(settleSent(check, 600, ended, { ...ready, spec: "docs/spec.md" })).toBe(check);
+        expect(settleSent(check, 500, ended, null)).toBe(check);
+    });
+
+    it("settles once the file shows the check, says the agent is working, or no longer offers it", () => {
+        expect(
+            settleSent(check, 600, { state: "working" }, { ...ready, check: { yours: [], calls: [], answered: [] } })
+        ).toBeNull();
+        expect(settleSent(check, 600, ended, { ...ready, working: "A builder is reading the design." })).toBeNull();
+        expect(settleSent(check, 600, ended, { ...ready, question: { n: 4, text: "?", part: "a" } })).toBeNull();
+        expect(settleSent(check, 600, ended, { ...ready, done: false })).toBeNull();
+    });
+
+    it("shows the builder reading, with no review head and no second check to press", () => {
+        const s = shownFile(ready, check);
+        expect(s.working).toBe("A builder is reading the design.");
+        expect(mainView(s, false)).toBe("working");
+        expect(leftPanel(s)).toBe("none");
+        expect(sendBlocker({ kind: "check" }, s)).toBe(
+            "The agent is still working; check with a builder once it is done"
+        );
+    });
+
+    it("is sendable only while the agent is not working", () => {
+        expect(reviewHead(ready).action).toBe("check");
+        expect(sendBlocker({ kind: "check" }, ready)).toBeNull();
+        expect(sendBlocker({ kind: "check" }, null)).toBeNull();
+        expect(sendBlocker({ kind: "check" }, { ...ready, working: "Writing it" })).not.toBeNull();
+        expect(sendBlocker({ kind: "confirm-all" }, { ...ready, working: "Writing it" })).toBeNull();
     });
 });
 
@@ -351,13 +400,13 @@ describe("terminalAnswer", () => {
 
     it("reads a turn started after the file asked as an answer typed in the terminal", () => {
         const sent = terminalAnswer(asking, 500, working, 1000);
-        expect(sent).toEqual({ at: 1000, modifiedMs: 500, answer: true });
+        expect(sent).toEqual({ at: 1000, modifiedMs: 500, kind: "answer" });
         expect(shownFile(asking, sent).question).toBeNull();
     });
 
     it("settles like a sent answer once that turn ends", () => {
         const sent = terminalAnswer(asking, 500, working, 1000);
-        expect(settleSent(sent, 500, { state: "idle", idleSince: 1500 })).toBeNull();
+        expect(settleSent(sent, 500, { state: "idle", idleSince: 1500 }, null)).toBeNull();
     });
 
     it("leaves a question the agent wrote during its current turn showing", () => {
@@ -382,7 +431,7 @@ describe("shownFile", () => {
     });
 
     it("reads a pending answer as the agent writing it up, the question closed", () => {
-        const s = shownFile(f, { at: 1, modifiedMs: 1, answer: true });
+        const s = shownFile(f, { at: 1, modifiedMs: 1, kind: "answer" });
         expect(s.working).toBe("Writing up your answer.");
         expect(s.question).toBeNull();
         expect(isAsking(s)).toBe(false);
@@ -391,7 +440,7 @@ describe("shownFile", () => {
     });
 
     it("reads another pending line as working, the question kept", () => {
-        const s = shownFile(f, { at: 1, modifiedMs: 1, answer: false });
+        const s = shownFile(f, { at: 1, modifiedMs: 1, kind: "line" });
         expect(s.working).toBe("Taking in your change.");
         expect(s.question).toBe(q);
         expect(isAsking(s)).toBe(false);
@@ -400,7 +449,7 @@ describe("shownFile", () => {
 
     it("leaves a working line the file sets itself alone", () => {
         const w = file({ working: "Writing it" });
-        expect(shownFile(w, { at: 1, modifiedMs: 1, answer: true })).toBe(w);
+        expect(shownFile(w, { at: 1, modifiedMs: 1, kind: "answer" })).toBe(w);
     });
 });
 

@@ -161,7 +161,7 @@ async function pollAndMerge(agentId: string, agent: AgentVM | undefined, io: Bra
     const modifiedMs = patch.modifiedMs !== undefined ? patch.modifiedMs : cur.modifiedMs;
     const file = patch.file ?? cur.file;
     const sent =
-        settleSent(cur.sent, modifiedMs, agent) ??
+        settleSent(cur.sent, modifiedMs, agent, file) ??
         (file != null ? terminalAnswer(file, modifiedMs, agent, turnStartOf(agent)) : null);
     if (Object.keys(patch).length > 0 || sent !== cur.sent) {
         updateBrainstorm(agentId, (c) => (c.path === s.path ? { ...c, ...patch, sent } : c));
