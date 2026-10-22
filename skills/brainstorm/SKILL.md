@@ -51,6 +51,7 @@ gitignored.
         "pros": ["Nothing waits on a hand-off."], "cons": ["Every page wakes two people."] }
     ]
   },
+  "working": null,
   "parts": [
     { "id": "intent", "title": "Intent and why", "state": "yours", "from": "answer 1", "gist": "Page before a lagging consumer drops data.", "body": "Page on-call before a consumer falls far enough behind to drop data." },
     { "id": "page", "title": "What on-call sees", "state": "guess", "from": "mockup", "gist": "One page per group, with the lag trend.", "body": "One page per consumer group, with the lag trend.", "boards": ["Page.dc.html"] },
@@ -88,6 +89,7 @@ Everything else is optional and read leniently, but write every field as describ
 | `spec` | The spec path, relative to the project (or absolute). You write the spec there on `brainstorm: check`. |
 | `canvas` | The `arc:design` topic whose boards the parts list: boards live in `.superpowers/design/<canvas>/project/`. Omit it when there are no mockups. |
 | `question` | `{ "n", "text", "part", "why", "read", "options" }`: the question you are waiting on, its number (1, 2, 3, ...), the id of the part it is for, why you ask it, your one-line read of the options, and the answers you offer (below). Leave `part` out for a question about no part (below). `null` while you are not asking. |
+| `working` | One short line on what is still underway, set only when a turn ends with work running in the background (below). Arc shows it in place of the question and locks the pane's controls while it is set. `null` otherwise. |
 | `parts[]` | The design, in display order. `title`; `state`; `kind` (`"note"` for background, below; leave it out for a decision); `gist` (the part in one line, below); `body` (the part's text); `from` (where it came from: `answer 2`, `mockup`, `recon`); `boards` (board file names under the canvas's `project/`); `was` / `why` (below). |
 | `history[]` | Every finished exchange, oldest first: `kind` (`question` or `recon`), `n` (the question's number), `q`, `why` (the question's `why`), `a`, `into` (the part ids it went into), and for a question that offered answers, `options` and `picked` (below). |
 | `done` | `true` only when nothing is left to ask. |
@@ -158,6 +160,13 @@ complete. Each write leaves the whole file valid JSON:
   JSON, changes it and writes the whole file back in one write (`node -e` or `python -c`). It is far
   cheaper than retyping the file.
 - Never an in-place text edit of part of the file: one mismatched brace and Arc shows an error.
+
+**Work that outlasts the turn.** When a turn ends with work still running in the background (a
+subagent dispatched in the background, a long command), that turn's write sets `working` to one
+short line saying what is underway ("A builder is reading the design."). The write that delivers
+the result sets `working` back to `null`. Without it, Arc can take the end of the turn for the end
+of the work and offer the same action again. Never leave `working` set while you wait on the user:
+it locks the pane.
 
 **The first message.** Pick `<topic>`. Create the file with `title`, `spec` (the path superpowers
 would write the spec to), question 1 in `question` with `n: 1`, its part created as `asked`, and
@@ -255,7 +264,9 @@ time in milliseconds, write it back. Carry on from the file, not from memory.
 
 **The builder check** (`brainstorm: check`): the user pressed **Check with a builder**, which is their
 go-ahead for superpowers' builder check, the one fresh subagent included: do not ask again. Write the
-spec at `spec` from the parts, run the builder check against it, then fill `check` and write the file:
+spec at `spec` from the parts, run the builder check against it, then fill `check` and write the file.
+When the builder subagent runs in the background, end that turn with `working` set to "A builder is
+reading the design." (and `check` still `null`), and set `working: null` in the write that fills `check`:
 
 ```json
 "check": {

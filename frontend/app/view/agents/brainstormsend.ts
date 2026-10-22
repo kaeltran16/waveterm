@@ -9,8 +9,8 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
 import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
-import { brainstormLine, runPrefill, type BrainstormAction } from "./brainstormmodel";
-import { getBrainstorm, updateBrainstorm, type BrainstormState } from "./brainstormstore";
+import { brainstormLine, runPrefill, sendBlocker, sentKind, type BrainstormAction } from "./brainstormmodel";
+import { getBrainstorm, shownBrainstormFile, updateBrainstorm, type BrainstormState } from "./brainstormstore";
 
 type PromptIO = { prompt(blockId: string, text: string): Promise<void> };
 
@@ -35,6 +35,10 @@ export async function sendBrainstorm(
     if (!agent.blockId) {
         throw new Error("This agent has no terminal to send to");
     }
+    const blocked = sendBlocker(action, shownBrainstormFile(getBrainstorm(agent.id)));
+    if (blocked != null) {
+        throw new Error(blocked);
+    }
     try {
         await io.prompt(agent.blockId, line);
     } catch (e) {
@@ -42,7 +46,7 @@ export async function sendBrainstorm(
     }
     // the agent writes its file once, at the end of its turn: until then the pane says it is writing
     const modifiedMs = getBrainstorm(agent.id)?.modifiedMs ?? null;
-    updateBrainstorm(agent.id, (s) => ({ ...s, sent: { at: now, modifiedMs, answer: action.kind === "answer" } }));
+    updateBrainstorm(agent.id, (s) => ({ ...s, sent: { at: now, modifiedMs, kind: sentKind(action) } }));
 }
 
 // the run's id goes back to the agent, which records it in the file: the tree and the pane then show the run
