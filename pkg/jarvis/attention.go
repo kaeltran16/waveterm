@@ -264,6 +264,9 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 
 	for _, ch := range in.Channels {
 		for _, run := range ch.Runs {
+			if IsBuilderCheck(run) {
+				continue
+			}
 			if it, ok := landHeldItem(ch, run); ok {
 				gates = append(gates, it)
 			}

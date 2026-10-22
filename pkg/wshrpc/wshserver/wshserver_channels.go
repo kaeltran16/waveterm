@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -75,6 +76,7 @@ func (ws *WshServer) GetChannelRunsCommand(ctx context.Context, data wshrpc.Comm
 	if err != nil {
 		return nil, fmt.Errorf("getting channel runs: %w", err)
 	}
+	runs, _ = withoutBuilderChecks(runs)
 	return &wshrpc.CommandGetChannelRunsRtnData{Runs: runs}, nil
 }
 
@@ -83,7 +85,30 @@ func (ws *WshServer) GetChannelRunChangesCommand(ctx context.Context, data wshrp
 	if err != nil {
 		return nil, fmt.Errorf("getting channel run changes: %w", err)
 	}
+	// a builder-check run is never in the caller's known map, so it is always among the returned rows and its id
+	// is found here
+	runs, dropped := withoutBuilderChecks(runs)
+	if len(dropped) > 0 {
+		ids = slices.DeleteFunc(ids, func(id string) bool { return dropped[id] })
+	}
 	return &wshrpc.CommandGetChannelRunChangesRtnData{RunIds: ids, Runs: runs}, nil
+}
+
+// withoutBuilderChecks drops the builder-check runs, which no run list shows, and returns the ids it dropped.
+func withoutBuilderChecks(runs []*waveobj.Run) ([]*waveobj.Run, map[string]bool) {
+	var dropped map[string]bool
+	kept := make([]*waveobj.Run, 0, len(runs))
+	for _, r := range runs {
+		if !jarvis.IsBuilderCheck(r) {
+			kept = append(kept, r)
+			continue
+		}
+		if dropped == nil {
+			dropped = map[string]bool{}
+		}
+		dropped[r.OID] = true
+	}
+	return kept, dropped
 }
 
 func (ws *WshServer) GetChannelMessagesCommand(ctx context.Context, data wshrpc.CommandGetChannelMessagesData) (*wshrpc.CommandGetChannelMessagesRtnData, error) {

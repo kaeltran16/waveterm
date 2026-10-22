@@ -463,6 +463,17 @@ func TestUnverifiedRunNamesEachReasonUntilAcknowledged(t *testing.T) {
 	}
 }
 
+func TestBuildAttentionLeavesOutABuilderCheckRun(t *testing.T) {
+	unverified := &waveobj.RunEvidence{Verification: &waveobj.RunVerification{State: "unverified", Reasons: []string{"no check"}}}
+	check := finishedRun("r-check", unverified, &waveobj.RunLand{State: "held", Reason: "dirty"})
+	check.StageRole = UsageRole_BuilderCheck
+	quick := finishedRun("r-quick", unverified, nil)
+	items := BuildAttention(AttentionInput{Channels: []AttentionChannel{{OID: "c1", Name: "alpha", Runs: []*waveobj.Run{check, quick}}}})
+	if len(items) != 1 || items[0].RunId != "r-quick" {
+		t.Fatalf("items = %+v, want only the quick run's unverified item", items)
+	}
+}
+
 func TestHeldLandSaysWhy(t *testing.T) {
 	items := BuildAttention(AttentionInput{Channels: []AttentionChannel{{OID: "c1", Name: "alpha", Runs: []*waveobj.Run{
 		finishedRun("r1", nil, &waveobj.RunLand{State: "held", Reason: "the checkout is on x, not main"}),
