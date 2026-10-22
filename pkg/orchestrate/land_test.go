@@ -862,3 +862,17 @@ func TestADirtyHoldLandsOnceTheCheckoutIsClean(t *testing.T) {
 		f.assertHeld(t, f.owner(t).Land, head, "checkout is on x, not main")
 	})
 }
+
+// The land removes the landing tree with `worktree remove --force`, so changes the lead left uncommitted there
+// would be deleted with it, after a final stage that may have passed on them.
+func TestLandHoldsUncommittedChangesInTheLandingTree(t *testing.T) {
+	f, tree := landFixture(t)
+	writeFile(t, filepath.Join(tree, "feature.txt"), "the lead's uncommitted fix\n")
+	head := gitCmd(t, f.project, "rev-parse", "main")
+
+	land := f.landRun(t, false)
+	f.assertHeld(t, land, head, "uncommitted changes to feature.txt")
+	if got := readFile(t, filepath.Join(tree, "feature.txt")); got != "the lead's uncommitted fix\n" {
+		t.Fatalf("feature.txt = %q, want the change kept", got)
+	}
+}

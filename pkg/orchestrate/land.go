@@ -169,6 +169,9 @@ func landPrecheck(ctx context.Context, run *waveobj.Run) *waveobj.RunLand {
 // Check and Verify, so a held reason the human can fix at once is not minutes away, and again under the checkout
 // claim, since the checkout can change while they run.
 func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force bool) *waveobj.RunLand {
+	if reason := landingTreeHold(ctx, run); reason != "" {
+		return heldLand(reason)
+	}
 	if commit := mergedCommit(ctx, run); commit != "" {
 		removeLandedTree(ctx, run.ProjectPath, run.ID)
 		return &waveobj.RunLand{State: LandState_Landed, Commit: commit}
@@ -215,6 +218,27 @@ func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force 
 	}
 	removeLandedTree(ctx, project, run.ID)
 	return land
+}
+
+// landingTreeHold is why the land may not remove the run's landing tree, which every land ends by doing: changes
+// nothing committed there would go with it. "" when there are none.
+func landingTreeHold(ctx context.Context, run *waveobj.Run) string {
+	changed, err := landingTreeChanges(ctx, run, false)
+	if err != nil {
+		return err.Error()
+	}
+	if len(changed) == 0 {
+		return ""
+	}
+	// the changes of a merge someone left open are that merge's, not the run's
+	if _, err := git(ctx, run.LandPath, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
+		return midMergeHold(run)
+	}
+	return fmt.Sprintf("the landing tree %s has uncommitted changes to %s, which removing the tree would delete: commit them on wave/%s or drop them, then `wsh runs land %s`", run.LandPath, strings.Join(changed, ", "), run.ID, run.ID)
+}
+
+func midMergeHold(run *waveobj.Run) string {
+	return "the landing tree " + run.LandPath + " is stopped mid-merge; finish or abort that merge there, then land again"
 }
 
 // removeLandedTree drops a landed run's tree and branch; the evidence keeps the branch's tip, so neither is needed.
@@ -411,7 +435,7 @@ func reverifyHold(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup) (
 	}
 	// a merge someone left open would be checked as if it were the run's
 	if _, err := git(ctx, run.LandPath, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
-		return "the landing tree " + run.LandPath + " is stopped mid-merge; finish or abort that merge there, then land again", "", ""
+		return midMergeHold(run), "", ""
 	}
 	if baseMoved {
 		if _, err := git(ctx, run.LandPath, "merge", "--no-commit", "--no-ff", base); err != nil {

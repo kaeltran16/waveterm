@@ -89,6 +89,13 @@ func landBlockerLines(ctx context.Context, run *waveobj.Run) string {
 			lines = append(lines, fmt.Sprintf("The land will hold: %s. That is the human's to clear, not yours: leave the checkout as it is and say it in your report.", hold.Reason))
 		}
 	}
+	changed, err := landingTreeChanges(ctx, run, false)
+	if err != nil {
+		log.Printf("run %s: %v", run.ID, err)
+	}
+	if len(changed) > 0 {
+		lines = append(lines, fmt.Sprintf("The land will hold: this tree has uncommitted changes to %s, and the land removes the tree. They are this run's: commit them, or drop them, before you complete.", strings.Join(changed, ", ")))
+	}
 	files, err := LandConflicts(ctx, run)
 	if err != nil {
 		log.Printf("run %s: %v", run.ID, err)

@@ -95,6 +95,14 @@ func ContinueMerge(ctx context.Context, channelID, ownerRunID, taskID string) er
 	}
 	switch {
 	case task.State == TaskState_VerifyFailed:
+		// Verify runs on the tree, so it would pass on a fix that the land never merges and then deletes
+		changed, err := landingTreeChanges(ctx, owner, false)
+		if err != nil {
+			return err
+		}
+		if len(changed) > 0 {
+			return fmt.Errorf("the landing tree %s has uncommitted changes to %s: commit the fix first, then run --continue again", owner.LandPath, strings.Join(changed, ", "))
+		}
 		return rerunVerify(ctx, channelID, owner, taskID)
 	case task.Merged:
 		if !task.CleanupPending && task.CleanupError == "" {
@@ -134,6 +142,14 @@ func continueBlockedMerge(ctx context.Context, channelID string, owner *waveobj.
 	}
 	if err := checkLandingTree(ctx, owner); err != nil {
 		return err
+	}
+	// the squash commits the index, so a resolution left unstaged would stay behind in the tree the land removes
+	unstaged, err := landingTreeChanges(ctx, owner, true)
+	if err != nil {
+		return err
+	}
+	if len(unstaged) > 0 {
+		return fmt.Errorf("the landing tree %s has changes not added to the merge in %s: `git add` the resolution, then run --continue again", owner.LandPath, strings.Join(unstaged, ", "))
 	}
 	l, err := claimProject(jarvis.LandPath(owner), owner.DagORef, task.ID)
 	if err != nil {
