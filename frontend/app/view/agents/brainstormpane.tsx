@@ -33,17 +33,21 @@ import {
     partView,
     resumePrompt,
     reviewHead,
+    unseenSince,
     type BrainstormAction,
     type BrainstormFile,
     type BrainstormPart,
     type HistoryRow,
     type PartView,
+    type Unseen,
 } from "./brainstormmodel";
 import { RunStep } from "./brainstormrun";
 import { sendBrainstorm } from "./brainstormsend";
 import {
     brainstormAtom,
+    brainstormSeenAtom,
     dismissBrainstorm,
+    markBrainstormSeen,
     openBrainstormBoard,
     openBrainstormDesign,
     shownBrainstormFile,
@@ -157,11 +161,15 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
     // the design's rows the user opened or closed; kept here so they survive the question taking the main area
     const [opened, setOpened] = useState<Record<string, boolean>>({});
     const view = mainView(f, s.designOpen);
-    const goTo = (id: string) => {
-        setOpened((o) => ({ ...o, [id]: true }));
-        setTarget(id);
+    const seen = useAtomValue(brainstormSeenAtom)[s.path] ?? null;
+    const unseen = unseenSince(f, seen);
+    // opens the parts' rows in the design and scrolls to the first
+    const openParts = (ids: string[]) => {
+        setOpened((o) => ({ ...o, ...Object.fromEntries(ids.map((id) => [id, true])) }));
+        setTarget(ids[0]);
         openBrainstormDesign(agent.id, true);
     };
+    const goTo = (id: string) => openParts([id]);
     const openDesign = () => openBrainstormDesign(agent.id, true);
     useEffect(() => {
         if (view === "design" && target != null) {
@@ -177,7 +185,18 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
             <div className="flex min-h-0 flex-1">
                 <div className="flex min-w-0 flex-1 flex-col bg-background">
                     {view === "question" ? (
-                        <QuestionMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} />
+                        <QuestionMain
+                            agent={agent}
+                            s={s}
+                            f={f}
+                            goTo={goTo}
+                            openDesign={openDesign}
+                            findings={
+                                unseen.notes.length > 0
+                                    ? { count: unseen.notes.length, open: () => openParts(unseen.notes) }
+                                    : undefined
+                            }
+                        />
                     ) : view === "working" ? (
                         <WorkingMain f={f} openDesign={openDesign} />
                     ) : (
@@ -186,12 +205,13 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
                             s={s}
                             f={f}
                             partsRef={partsRef}
+                            unseen={unseen}
                             opened={opened}
                             setOpen={(id, open) => setOpened((o) => ({ ...o, [id]: open }))}
                         />
                     )}
                 </div>
-                <DecidedRail f={f} goTo={goTo} />
+                <DecidedRail f={f} unseen={unseen} goTo={goTo} />
             </div>
         </>
     );
@@ -202,6 +222,7 @@ function DesignMain({
     s,
     f,
     partsRef,
+    unseen,
     opened,
     setOpen,
 }: {
@@ -209,9 +230,17 @@ function DesignMain({
     s: BrainstormState;
     f: BrainstormFile;
     partsRef: RefObject<HTMLDivElement>;
+    unseen: Unseen;
     opened: Record<string, boolean>;
     setOpen: (id: string, open: boolean) => void;
 }) {
+    // what the design drew last is what the user has seen once they leave it (the question back in the main area, a
+    // board, another agent): what came while it was open showed marked new
+    const drawn = useRef(f);
+    useEffect(() => {
+        drawn.current = f;
+    });
+    useEffect(() => () => markBrainstormSeen(s.path, drawn.current), [s.path]);
     const working = f.working != null;
     const fresh = f.history.length === 0;
     const decisions = decisionParts(f);
@@ -225,6 +254,7 @@ function DesignMain({
             s={s}
             f={f}
             part={p}
+            unseen={unseen.parts.includes(p.id)}
             open={isOpen(p)}
             setOpen={(open) => setOpen(p.id, open)}
         />
@@ -362,6 +392,7 @@ function PartRow({
     s,
     f,
     part,
+    unseen,
     open,
     setOpen,
 }: {
@@ -369,6 +400,7 @@ function PartRow({
     s: BrainstormState;
     f: BrainstormFile;
     part: BrainstormPart;
+    unseen: boolean;
     open: boolean;
     setOpen: (open: boolean) => void;
 }) {
@@ -457,6 +489,7 @@ function PartRow({
         <div
             data-brainstorm-part={part.id}
             data-state={note ? "note" : view}
+            data-unseen={unseen ? "" : undefined}
             className="flex scroll-mt-[20px] flex-col border-t border-edge-faint"
         >
             <div className={cn("flex items-start gap-[12px] px-[14px]", note ? "py-[8px]" : "py-[9px]")}>
@@ -496,6 +529,7 @@ function PartRow({
                     </span>
                 </button>
                 <span className="flex h-[20px] min-w-[150px] flex-none items-center justify-end gap-[8px]">
+                    {unseen ? <span className="text-[11px] font-semibold text-accent-soft">New</span> : null}
                     {right}
                 </span>
                 <Chevron open={open} onClick={() => setOpen(!open)} />
@@ -610,8 +644,8 @@ function IntoLinks({
 }
 
 // every question answered with all it offered, newest first, and the recon it all stood on at the bottom
-function DecidedRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void }) {
-    const rows = historyRows(f);
+function DecidedRail({ f, unseen, goTo }: { f: BrainstormFile; unseen: Unseen; goTo: (id: string) => void }) {
+    const rows = historyRows(f, unseen);
     const decided = rows.filter((r) => r.kind === "question" && !r.dropped).length;
     const working = f.working != null;
     return (
@@ -632,8 +666,15 @@ function DecidedRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => voi
             <div data-brainstorm-history className="flex flex-col">
                 {rows.map((h, i) =>
                     h.kind === "recon" ? (
-                        <div key={`recon:${i}`} className="flex flex-col gap-[5px] border-t border-border py-[12px]">
-                            <span className="font-mono text-[10.5px] text-muted">{h.label}</span>
+                        <div
+                            key={`recon:${i}`}
+                            data-unseen={h.unseen ? "" : undefined}
+                            className="flex flex-col gap-[5px] border-t border-border py-[12px]"
+                        >
+                            <span className="font-mono text-[10.5px] text-muted">
+                                {h.label}
+                                {h.unseen ? <span className="text-accent-soft"> · new</span> : null}
+                            </span>
                             <span className="text-[12.5px] leading-[1.5] text-ink-mid">{h.answer}</span>
                             <IntoLinks into={h.into} goTo={goTo} />
                         </div>

@@ -97,6 +97,16 @@ pushback is a `superseded` history entry: the rail shows it as dropped, it count
 question, and the part it was asked for reads "Open · question N dropped" until a question asks it
 again.
 
+**What is new.** While a question is open it fills the pane, so notes and recon the agent adds then
+(a report the user asked for, say) are out of sight. Arc remembers, per brainstorm file, what the
+user has seen (`brainstormSeenAtom` in `brainstormstore.ts`): the file as first read, then the file as
+the design last drew it, taken when the design closes. Parts whose text changed since then and recon
+entries not seen before are new (`unseenSince` in `brainstormmodel.ts`): a part row reads "New", a
+recon row in the rail "Recon · new", and while new notes exist the question shows **New findings · N**,
+which opens the design with those notes open. Coming back from the design clears the marks. A part
+whose state alone changed (a confirm) is not new. The skill puts a summary of any report in the
+question's `why` too, since the link says only how many notes there are.
+
 **Builder check.** Check with a builder appears once the agent sets `done`, no question is open and
 every part is yours.
 
