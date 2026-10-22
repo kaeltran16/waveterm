@@ -25025,6 +25025,143 @@ const BS_KIT = {
     flatText,
 };
 
+// a finished quick run's worker beside a plain idle agent: the worker's tree row, card and header read as done
+// (the done tick), while the idle agent keeps its grey dot
+const QUICK_DONE_ID = "fx-quick-done";
+const QUICK_DONE_NAME = "quick finisher";
+const QUICK_IDLE_ID = "fx-quick-idle";
+const QUICK_IDLE_NAME = "idle bystander";
+const QUICK_DONE_TICK = "Done, its run finished";
+
+const quickRunDone = {
+    name: "quick-run-done",
+    surface: "agent",
+    async arrange(h) {
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-quick-run-done-")) };
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-quick-run-done", projectpath: ctx.cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: "verify quick-run-done: do nothing",
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            ctx.landPath = created.run.landpath;
+            // the worker has completed the run: what `wsh jarvis complete` leaves on it
+            const stored = await fstWriteRun(h, ctx.runId, (run) => ({ ...run, status: "done", completedts: Date.now() }));
+            ctx.runStatus = stored?.status;
+            const now = Date.now();
+            const idle = (id, name, extra) => ({
+                id,
+                name,
+                project: "waveterm",
+                task: name,
+                state: "idle",
+                agent: "claude",
+                model: "opus",
+                idleSince: now - 60_000,
+                blockId: `${id}-blk`,
+                ...extra,
+            });
+            mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
+            writeFileSync(
+                TREE_RAIL_FIXTURE,
+                JSON.stringify(
+                    [idle(QUICK_DONE_ID, QUICK_DONE_NAME, { runId: ctx.runId }), idle(QUICK_IDLE_ID, QUICK_IDLE_NAME)],
+                    null,
+                    2
+                )
+            );
+            ctx.wroteFixture = true;
+            // the fixture roster is read once at boot
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+            await h.goto("agent");
+            // the worker's row turns its dot into the tick once its run loads; focus it for the header
+            ctx.focused = await h.ev(`(async () => {
+                for (let i = 0; i < 40; i++) {
+                    const tick = document.querySelector('[data-agent-tree] [aria-label=${JSON.stringify(QUICK_DONE_TICK)}]');
+                    if (tick) {
+                        tick.closest(".cursor-pointer").click();
+                        return true;
+                    }
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                return false;
+            })()`);
+            await new Promise((r) => setTimeout(r, 800));
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        rec(
+            "0. a quick run stored as done, its worker in the roster and focused",
+            ctx.arrangeError == null && ctx.runStatus === "done" && ctx.focused === true,
+            ctx.arrangeError ?? JSON.stringify({ runId: ctx.runId, runStatus: ctx.runStatus, focused: ctx.focused })
+        );
+        const rows = await h.ev(`(() => {
+            const tree = document.querySelector("[data-agent-tree]");
+            const row = (name) => {
+                const label = tree && [...tree.querySelectorAll("div")].find(
+                    (d) => d.textContent.trim() === name && d.children.length === 0
+                );
+                const r = label && label.closest(".cursor-pointer");
+                const mark = r && r.firstElementChild && r.firstElementChild.firstElementChild;
+                if (!mark) return null;
+                const svg = mark.querySelector("svg");
+                return {
+                    tick: svg ? svg.getAttribute("aria-label") : null,
+                    dot: mark.tagName.toLowerCase() === "span" && !svg ? getComputedStyle(mark).backgroundColor : null,
+                };
+            };
+            return { done: row(${JSON.stringify(QUICK_DONE_NAME)}), idle: row(${JSON.stringify(QUICK_IDLE_NAME)}) };
+        })()`);
+        rec(
+            "1. the finished quick run's tree row shows the done tick",
+            rows?.done?.tick === QUICK_DONE_TICK,
+            JSON.stringify(rows)
+        );
+        rec(
+            "2. the idle agent's tree row keeps its dot, no tick",
+            rows?.idle != null && rows.idle.tick == null && rows.idle.dot != null,
+            JSON.stringify(rows)
+        );
+        const header = await h.ev(`(() => {
+            const hd = document.querySelector("[data-agent-header]");
+            if (!hd) return null;
+            return {
+                tick: !!hd.querySelector('[aria-label=${JSON.stringify(QUICK_DONE_TICK)}]'),
+                done: [...hd.querySelectorAll("span")].some((s) => s.children.length === 0 && s.textContent.trim() === "done"),
+                idle: [...hd.querySelectorAll("span")].some((s) => s.children.length === 0 && s.textContent.trim() === "idle"),
+            };
+        })()`);
+        rec(
+            "3. the focused worker's header chip reads done with the tick, not idle",
+            header != null && header.tick && header.done && !header.idle,
+            JSON.stringify(header)
+        );
+        await h.shot("cdp-shots/quick-run-done.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        // a done run cannot be cancelled, so teardown skips the cancel and only deletes the channel
+        await teardownFixtureRun(h, { ...ctx, runId: undefined }, "quick-run-done");
+    },
+};
+
 export const SCENARIOS = [
     cockpitKeysOnArrival,
     agentTerminalOnArrival,
@@ -25082,6 +25219,7 @@ export const SCENARIOS = [
     narrationFeed,
     notesWsh,
     agentTreeRail,
+    quickRunDone,
     agentTreeQuickReturn,
     docReview,
     docReviewNotes,

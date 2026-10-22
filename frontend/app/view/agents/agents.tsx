@@ -4,6 +4,7 @@
 import type { BlockNodeModel } from "@/app/block/blocktypes";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { TabModel } from "@/app/store/tab-model";
+import * as WOS from "@/app/store/wos";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { sentAskIdsAtom } from "./agentaskstore";
 import {
@@ -14,6 +15,7 @@ import {
     nextAskId,
     providerPlanUsage,
     toggleSelection,
+    withRunDone,
     type AgentVM,
     type PendingLaunch,
 } from "./agentsviewmodel";
@@ -165,13 +167,18 @@ export class AgentsViewModel implements ViewModel {
         }
         const base = this.baseRosterAtom;
         const pendingAtom = this.pendingLaunchesAtom;
-        // Booting launches overlay the roster until the reporter registers them (supersede by tabId), and an
-        // agent whose brainstorm file holds an open question reads as asking.
+        // Booting launches overlay the roster until the reporter registers them (supersede by tabId), an
+        // agent whose brainstorm file holds an open question reads as asking, and one whose quick run is done
+        // reads as finished.
         this.agentsAtom = atom((get) => {
             const now = Date.now();
             const brainstorms = get(brainstormsAtom);
+            const runOf = (id: string) => get(WOS.getWaveObjectAtom<Run>(WOS.makeORef("run", id)));
             return mergePendingLaunches(get(base), get(pendingAtom), now).map((agent) =>
-                withBrainstorm(agent, shownBrainstormFile(brainstorms[agent.id]), now)
+                withRunDone(
+                    withBrainstorm(agent, shownBrainstormFile(brainstorms[agent.id]), now),
+                    agent.runId ? runOf(agent.runId) : undefined
+                )
             );
         });
         this.lineageAtom = lineageAtomFor(this.agentsAtom);

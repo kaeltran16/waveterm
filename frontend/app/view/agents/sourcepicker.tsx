@@ -7,10 +7,10 @@ import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { Check, ChevronDown, Folder, Search } from "lucide-react";
 import { useState } from "react";
-import type { AgentVM } from "./agentsviewmodel";
+import { agentStateLabel, type AgentVM } from "./agentsviewmodel";
 import { filterSources, worktreeParent, type FilesSource } from "./diffsource";
 import type { FilesProject } from "./filesstore";
-import { StatusDot } from "./statusdot";
+import { AgentStateMark } from "./statusdot";
 
 const groupLabelClass = cn(REGION_LABEL, "px-[12px] pb-[3px] text-muted");
 
@@ -78,7 +78,7 @@ export function SourcePicker({
                 )}
             >
                 {currentAgent ? (
-                    <StatusDot state={currentAgent.state} className="!h-[7px] !w-[7px]" />
+                    <AgentStateMark agent={currentAgent} className="!h-[7px] !w-[7px]" />
                 ) : currentProject ? (
                     <Folder size={13} className="flex-none text-muted" />
                 ) : null}
@@ -122,9 +122,9 @@ export function SourcePicker({
                                 }}
                                 className={rowClass(current)}
                             >
-                                <StatusDot state={a.state} className="!h-[7px] !w-[7px]" />
+                                <AgentStateMark agent={a} className="!h-[7px] !w-[7px]" />
                                 <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{a.name}</span>
-                                <span className="flex-none text-[10.5px] text-muted">{a.state}</span>
+                                <span className="flex-none text-[10.5px] text-muted">{agentStateLabel(a)}</span>
                                 <CurrentMark current={current} />
                             </button>
                         );

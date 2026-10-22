@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn } from "@/util/util";
-import type { AgentState } from "./agentsviewmodel";
+import { agentRunDone, type AgentState, type AgentVM } from "./agentsviewmodel";
+import { CommitTick } from "./committick";
 
 // Single source of truth for the in-view dot. Colors mirror the sidebar STATUS_COLOR map (Wave @theme tokens).
 const COLOR: Record<AgentState, string> = {
@@ -37,4 +38,15 @@ export function StatusDot({
             style={hollow ? undefined : { backgroundColor: standing ? "var(--color-accent)" : COLOR[state] }}
         />
     );
+}
+
+// an agent's dot, or the done tick in its place once its quick run is done
+export function AgentStateMark({
+    agent,
+    className,
+}: {
+    agent: Pick<AgentVM, "state" | "runDone">;
+    className?: string;
+}) {
+    return agentRunDone(agent) ? <CommitTick runDone /> : <StatusDot state={agent.state} className={className} />;
 }
