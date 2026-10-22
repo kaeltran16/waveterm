@@ -18,6 +18,7 @@ import { projectOf, type AgentVM } from "./agentsviewmodel";
 import { Check } from "./brainstormcheck";
 import {
     boardBackLabel,
+    builderCheckView,
     decisionParts,
     exitedSummary,
     historyRows,
@@ -34,6 +35,7 @@ import {
     type BrainstormAction,
     type BrainstormFile,
     type BrainstormPart,
+    type BuilderCheckView,
     type HistoryRow,
     type PartView,
 } from "./brainstormmodel";
@@ -153,7 +155,9 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
     const [target, setTarget] = useState<string | null>(null);
     // the design's rows the user opened or closed; kept here so they survive the question taking the main area
     const [opened, setOpened] = useState<Record<string, boolean>>({});
-    const view = mainView(f, s.designOpen);
+    const check = builderCheckView(agent.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent);
+    const checkPending = check.kind === "pending" ? check.text : undefined;
+    const view = mainView(f, s.designOpen, checkPending != null);
     const goTo = (id: string) => {
         setOpened((o) => ({ ...o, [id]: true }));
         setTarget(id);
@@ -176,12 +180,17 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
                     {view === "question" ? (
                         <QuestionMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} />
                     ) : view === "working" ? (
-                        <WorkingMain f={f} openDesign={openDesign} />
+                        <WorkingMain
+                            f={f}
+                            openDesign={openDesign}
+                            checkText={f.working == null ? checkPending : undefined}
+                        />
                     ) : (
                         <DesignMain
                             agent={agent}
                             s={s}
                             f={f}
+                            check={check}
                             partsRef={partsRef}
                             opened={opened}
                             setOpen={(id, open) => setOpened((o) => ({ ...o, [id]: open }))}
@@ -198,6 +207,7 @@ function DesignMain({
     agent,
     s,
     f,
+    check,
     partsRef,
     opened,
     setOpen,
@@ -205,6 +215,7 @@ function DesignMain({
     agent: AgentVM;
     s: BrainstormState;
     f: BrainstormFile;
+    check: BuilderCheckView;
     partsRef: RefObject<HTMLDivElement>;
     opened: Record<string, boolean>;
     setOpen: (id: string, open: boolean) => void;
@@ -227,7 +238,7 @@ function DesignMain({
         />
     );
     // the design opened over the question or the working note: the way back to it
-    const back = s.designOpen ? mainView(f, false) : "design";
+    const back = s.designOpen ? mainView(f, false, check.kind === "pending") : "design";
     return (
         <>
             {back !== "design" ? (
@@ -245,7 +256,9 @@ function DesignMain({
                         <span className={cn(SMALL_DOT, back === "question" ? "bg-warning" : "bg-success")} />
                         {back === "question"
                             ? `Back to question ${f.question!.n}`
-                            : "Back to what the agent is writing"}
+                            : f.working == null
+                              ? "Back to the builder check"
+                              : "Back to what the agent is writing"}
                     </button>
                 </div>
             ) : null}
@@ -261,7 +274,7 @@ function DesignMain({
                             The agent is writing. Confirm, edit and keep open again when it asks its next question.
                         </div>
                     ) : null}
-                    {leftPanel(f) !== "none" ? <ReviewHead agent={agent} f={f} /> : null}
+                    {leftPanel(f) !== "none" ? <ReviewHead agent={agent} f={f} check={check} /> : null}
                     <section data-brainstorm-decisions aria-label="Decisions" className="flex flex-col">
                         <div className="flex items-baseline gap-[8px] px-[14px] pb-[6px]">
                             <h2 className={SECTION_HEAD}>Decisions · {decisions.length}</h2>
@@ -295,8 +308,8 @@ function DesignMain({
 }
 
 // what stands before the builder check, in one line, and the one press that moves it on
-function ReviewHead({ agent, f }: { agent: AgentVM; f: BrainstormFile }) {
-    const head = reviewHead(f);
+function ReviewHead({ agent, f, check }: { agent: AgentVM; f: BrainstormFile; check: BuilderCheckView }) {
+    const head = reviewHead(f, check);
     const act = useAction();
     const send = (action: BrainstormAction) => void act.run(() => sendBrainstorm(agent, action));
     return (
@@ -331,6 +344,29 @@ function ReviewHead({ agent, f }: { agent: AgentVM; f: BrainstormFile }) {
                     </button>
                 ) : null}
             </div>
+            {check.kind === "failed" ? (
+                <div
+                    data-brainstorm-check-failed
+                    className="flex items-center gap-[14px] rounded-[8px] border border-error/40 bg-error/10 px-[14px] py-[10px]"
+                >
+                    <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                        <span className="flex items-center gap-[8px] text-[13px] font-semibold text-primary">
+                            <span className={cn(SMALL_DOT, "bg-error")} />
+                            The builder check did not finish
+                        </span>
+                        <span className="text-[12.5px] leading-[1.5] text-ink-mid">{check.reason}</span>
+                    </div>
+                    <button
+                        type="button"
+                        data-brainstorm-check-retry
+                        disabled={act.busy}
+                        onClick={() => send({ kind: "check" })}
+                        className={cn(CANVAS_BTN, "flex-none")}
+                    >
+                        Try again
+                    </button>
+                </div>
+            ) : null}
             {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
         </section>
     );

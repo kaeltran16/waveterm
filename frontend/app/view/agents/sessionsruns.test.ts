@@ -74,6 +74,16 @@ describe("groupRunSessions", () => {
         expect(runs[0].live).toBe(true);
         expect(runs[0].lastactivets).toBe(9);
     });
+
+    it("leaves a builder-check session solo with no run row, while a plan reviewer groups under its run", () => {
+        const { runs, solos } = groupRunSessions([
+            mk({ id: "bc", runid: "rb", channelid: "ch", role: "builder-check" }),
+            mk({ id: "pr", runid: "r1", channelid: "ch", role: "plan-reviewer" }),
+        ]);
+        expect(solos.map((s) => s.id)).toEqual(["bc"]);
+        expect(runs.map((r) => r.runId)).toEqual(["r1"]);
+        expect(runs[0].stages["plan-reviewer"].map((s) => s.id)).toEqual(["pr"]);
+    });
 });
 
 describe("memberSession", () => {

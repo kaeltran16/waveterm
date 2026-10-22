@@ -650,9 +650,23 @@ export function Thumbnails({
     );
 }
 
-export function WorkingMain({ f, openDesign }: { f: BrainstormFile; openDesign: () => void }) {
+// checkText is a pending builder check's, shown in the agent's place while the agent itself writes nothing
+export function WorkingMain({
+    f,
+    openDesign,
+    checkText,
+}: {
+    f: BrainstormFile;
+    openDesign: () => void;
+    checkText?: string;
+}) {
     return (
-        <div data-brainstorm-working aria-live="polite" className="flex min-h-0 flex-1 flex-col">
+        <div
+            data-brainstorm-working
+            data-brainstorm-check-pending={checkText != null ? "" : undefined}
+            aria-live="polite"
+            className="flex min-h-0 flex-1 flex-col"
+        >
             <Track segments={questionTrack(f)} />
             <MainBody>
                 <div className="flex flex-col gap-[14px]">
@@ -660,7 +674,7 @@ export function WorkingMain({ f, openDesign }: { f: BrainstormFile; openDesign: 
                         <span className={cn(SMALL_DOT, "bg-success")} />
                         Working
                     </span>
-                    <p className="m-0 text-[22px] font-semibold leading-[1.4] text-primary">{f.working}</p>
+                    <p className="m-0 text-[22px] font-semibold leading-[1.4] text-primary">{checkText ?? f.working}</p>
                     <p className="m-0 text-[15px] leading-[1.6] text-ink-mid">The next question comes after.</p>
                 </div>
                 <div className="flex">

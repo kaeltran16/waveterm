@@ -37,6 +37,9 @@ export type BrainstormState = {
     base: string | null;
     // the last line Arc sent, until the agent has taken it (the poller settles it)
     sent: SentLine | null;
+    // the send time of the last `brainstorm: check` the agent took, until Arc's check record is newer than it: with
+    // none newer, the agent ended its turn without starting the check
+    sentCheckAt: number | null;
     // the check review's cursor row and the rows opened to their was/now; here because the keybindings and the
     // asking rail's links act on them from outside the review
     review: { cursor: string | null; open: Record<string, boolean> };
@@ -94,6 +97,7 @@ export function attachBrainstorm(agentId: string, a: { topic: string; cwd: strin
         boards: [],
         base: null,
         sent: null,
+        sentCheckAt: null,
         review: { cursor: null, open: {} },
     };
     globalStore.set(brainstormsAtom, { ...globalStore.get(brainstormsAtom), [agentId]: next });

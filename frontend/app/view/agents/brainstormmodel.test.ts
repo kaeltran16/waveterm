@@ -13,6 +13,7 @@ import {
     brainstormFilePath,
     brainstormLine,
     brainstormPhase,
+    builderCheckView,
     canCheck,
     checkAsk,
     checkMain,
@@ -27,6 +28,7 @@ import {
     isAsking,
     leftPanel,
     mainView,
+    nextSentCheckAt,
     noteParts,
     optionLetter,
     orderedParts,
@@ -54,6 +56,7 @@ import {
     withBrainstorm,
     type BrainstormFile,
     type BrainstormPart,
+    type BuilderCheckRecord,
     type HistoryEntry,
     type ParseResult,
     type PartState,
@@ -370,6 +373,79 @@ describe("terminalAnswer", () => {
         expect(terminalAnswer(asking, 500, undefined, 1000)).toBeNull();
         expect(terminalAnswer(asking, 500, working, undefined)).toBeNull();
         expect(terminalAnswer(asking, null, working, 1000)).toBeNull();
+    });
+});
+
+describe("builderCheckView", () => {
+    const ready = file({ done: true, parts: [part("a", "yours")] });
+    const checked = file({ ...ready, check: { yours: [], calls: [], answered: [] } });
+    const rec = (state: BuilderCheckRecord["state"], over: Partial<BuilderCheckRecord> = {}): BuilderCheckRecord => ({
+        state,
+        ts: 1000,
+        ...over,
+    });
+    const idleBefore = { state: "idle" as const, idleSince: 900 };
+    const working = { state: "working" as const };
+    const TAKING_IN = { kind: "pending", text: "Taking in the builder's questions." };
+    const NOT_STARTED = { kind: "failed", reason: "The agent ended its turn without starting the builder check." };
+
+    it("is none with no record and no check sent", () => {
+        expect(builderCheckView(undefined, null, ready, 500, idleBefore)).toEqual({ kind: "none" });
+    });
+
+    it("is pending while a builder reads, whatever the agent or the file does", () => {
+        const reading = { kind: "pending", text: "A builder is reading the design." };
+        expect(builderCheckView(rec("reading"), null, ready, 500, idleBefore)).toEqual(reading);
+        expect(builderCheckView(rec("reading"), null, ready, 2000, { state: "idle", idleSince: 1500 })).toEqual(
+            reading
+        );
+    });
+
+    it("answered is pending until the agent's turn ends after the delivery", () => {
+        expect(builderCheckView(rec("answered"), null, ready, 500, idleBefore)).toEqual(TAKING_IN);
+        expect(builderCheckView(rec("answered"), null, ready, 500, working)).toEqual(TAKING_IN);
+        expect(builderCheckView(rec("answered"), null, ready, 500, { state: "idle", idleSince: 1500 })).toEqual({
+            kind: "none",
+        });
+    });
+
+    it("answered is pending until the file is written after the delivery while the agent is not working", () => {
+        expect(builderCheckView(rec("answered"), null, ready, 1200, working)).toEqual(TAKING_IN);
+        expect(builderCheckView(rec("answered"), null, ready, 1000, idleBefore)).toEqual(TAKING_IN);
+        expect(builderCheckView(rec("answered"), null, checked, 1200, idleBefore)).toEqual({ kind: "none" });
+    });
+
+    it("failed shows its reason while the file has no check, and hides once it has one", () => {
+        const failed = rec("failed", { reason: "The builder ended without its questions." });
+        expect(builderCheckView(failed, null, ready, 500, idleBefore)).toEqual({
+            kind: "failed",
+            reason: "The builder ended without its questions.",
+        });
+        expect(builderCheckView(failed, null, checked, 500, idleBefore)).toEqual({ kind: "none" });
+    });
+
+    it("fails when the agent ended its turn with no record newer than the check it was sent", () => {
+        expect(builderCheckView(undefined, 2000, ready, 500, idleBefore)).toEqual(NOT_STARTED);
+        expect(builderCheckView(rec("answered"), 2000, ready, 500, idleBefore)).toEqual(NOT_STARTED);
+        expect(builderCheckView(rec("failed", { reason: "old" }), 2000, ready, 500, idleBefore)).toEqual(NOT_STARTED);
+        expect(builderCheckView(rec("reading", { ts: 2500 }), 2000, ready, 500, idleBefore).kind).toBe("pending");
+    });
+});
+
+describe("nextSentCheckAt", () => {
+    const check = { at: 1000, modifiedMs: 500, answer: false, check: true };
+
+    it("keeps a check's send time once the agent has taken it", () => {
+        expect(nextSentCheckAt(null, check, check, undefined)).toBeNull();
+        expect(nextSentCheckAt(null, check, null, undefined)).toBe(1000);
+        expect(nextSentCheckAt(null, { ...check, check: undefined }, null, undefined)).toBeNull();
+        expect(nextSentCheckAt(1000, null, null, undefined)).toBe(1000);
+    });
+
+    it("clears it once a record newer than it appears, and keeps it past an older one", () => {
+        expect(nextSentCheckAt(1000, null, null, { state: "reading", ts: 1200 })).toBeNull();
+        expect(nextSentCheckAt(null, check, null, { state: "reading", ts: 1200 })).toBeNull();
+        expect(nextSentCheckAt(1000, null, null, { state: "failed", ts: 800 })).toBe(1000);
     });
 });
 
@@ -691,6 +767,12 @@ describe("mainView", () => {
         expect(mainView(file({ question: q }), true)).toBe("design");
         expect(mainView(file({ working: "w" }), true)).toBe("design");
     });
+
+    it("a pending builder check holds the main area behind a question, and under an opened design", () => {
+        expect(mainView(file(), false, true)).toBe("working");
+        expect(mainView(file({ question: q }), false, true)).toBe("question");
+        expect(mainView(file(), true, true)).toBe("design");
+    });
 });
 
 describe("boardBackLabel", () => {
@@ -987,6 +1069,14 @@ describe("reviewHead", () => {
             action: null,
             guesses: 0,
         });
+    });
+
+    it("offers no check while one is pending, and leaves a failed one to its Try again", () => {
+        const f = file({ done: true, parts: [part("a", "yours")] });
+        const pending = reviewHead(f, { kind: "pending", text: "A builder is reading the design." });
+        expect(pending).toEqual({ line: "A builder is reading the design.", action: null, guesses: 0 });
+        expect(reviewHead(f, { kind: "failed", reason: "x" }).action).toBeNull();
+        expect(reviewHead(f, { kind: "none" }).action).toBe("check");
     });
 });
 

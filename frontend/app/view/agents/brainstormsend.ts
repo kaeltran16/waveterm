@@ -42,7 +42,13 @@ export async function sendBrainstorm(
     }
     // the agent writes its file once, at the end of its turn: until then the pane says it is writing
     const modifiedMs = getBrainstorm(agent.id)?.modifiedMs ?? null;
-    updateBrainstorm(agent.id, (s) => ({ ...s, sent: { at: now, modifiedMs, answer: action.kind === "answer" } }));
+    const sent = {
+        at: now,
+        modifiedMs,
+        answer: action.kind === "answer",
+        ...(action.kind === "check" ? { check: true } : {}),
+    };
+    updateBrainstorm(agent.id, (s) => ({ ...s, sent }));
 }
 
 // the run's id goes back to the agent, which records it in the file: the tree and the pane then show the run

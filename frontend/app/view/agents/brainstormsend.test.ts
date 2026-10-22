@@ -104,6 +104,8 @@ describe("sendBrainstorm", () => {
         expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 1000, modifiedMs: 500, answer: true });
         await sendBrainstorm(AGENT, { kind: "confirm", part: "x" }, fakeIO(), 2000);
         expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 2000, modifiedMs: 500, answer: false });
+        await sendBrainstorm(AGENT, { kind: "check" }, fakeIO(), 3000);
+        expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 3000, modifiedMs: 500, answer: false, check: true });
     });
 
     it.each([

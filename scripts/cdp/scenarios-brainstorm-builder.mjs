@@ -13,6 +13,14 @@ const BOARD = "Main.dc.html";
 const PROMPT = /[>$#%]$/;
 const PROMPT_WAIT_MS = 20000;
 const CONFIG_WAIT_MS = 10000;
+const CHECK_WAIT_MS = 7000;
+const CHECK_LINE = "brainstorm: check";
+// the pending card's copy, as brainstormmodel.ts words it
+const CHECK_READING = "A builder is reading the design.";
+const CHECK_TAKING_IN = "Taking in the builder's questions.";
+// ids the builder-check record names; nothing real stands behind them
+const CHECK_RUN = "5b0f6a1e-3c2d-4e7f-8a9b-0c1d2e3f4a5b";
+const CHECK_CHANNEL = "9e8d7c6b-5a49-4382-b1a0-f9e8d7c6b5a4";
 
 const PART = {
     intent: {
@@ -149,6 +157,7 @@ export default function (kit) {
         bsTyped,
         bsNothingTyped,
         bsAgentTook,
+        bsPublishStatus,
         bsOpenDesign,
         bsCloseDesign,
         bsTermText,
@@ -184,13 +193,59 @@ export default function (kit) {
     const ASKING = file({});
     const WITH_Q16 = file({ question: Q16, parts: parts(ASKING_STATES, [GRAPH]) });
     // every builder question answered, every decision yours, nothing asked: Approve is on
+    const ALL_YOURS = parts(Object.fromEntries(Object.keys(PART).map((id) => [id, "yours"])));
     const SETTLED = file({
-        parts: parts(Object.fromEntries(Object.keys(PART).map((id) => [id, "yours"]))),
+        parts: ALL_YOURS,
         check: {
             ...CHECK,
             yours: YOURS.map((y, i) => ({ ...y, a: i === 0 ? OPTIONS[1].label : "Settled.", into: [y.part] })),
         },
     });
+    // the builder check not run yet: Check with a builder is on offer; RESULT is what a builder's questions leave
+    const READY = file({ parts: ALL_YOURS, check: null });
+    const RESULT = file({
+        parts: ALL_YOURS,
+        check: { yours: [YOURS[0]], calls: [CALLS[0]], answered: ["The forecast’s weekday profile."], touched: [] },
+    });
+    const CHECK_REASON = "The builder session ended before it wrote its questions.";
+    // Arc's record of the check, as the server writes it to the agent's tab
+    const setCheckRecord = (h, ctx, meta) =>
+        h.rpc("setmeta", {
+            oref: `tab:${ctx.tabId}`,
+            meta: {
+                "brainstorm:checkstate": meta.state,
+                "brainstorm:checkts": Date.now(),
+                "brainstorm:checkrun": CHECK_RUN,
+                "brainstorm:checkchannel": CHECK_CHANNEL,
+                "brainstorm:checkreason": meta.reason ?? "",
+            },
+        });
+    // the check card, Check with a builder and Try again, as the pane draws them
+    const readCheck = (h) =>
+        h.ev(`(() => {
+            const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+            const pane = ${BS_PANE};
+            const btn = (sel) => {
+                const el = pane?.querySelector(sel);
+                return el ? { disabled: el.disabled } : null;
+            };
+            return {
+                pending: flat(pane?.querySelector("[data-brainstorm-check-pending]")),
+                failed: flat(pane?.querySelector("[data-brainstorm-check-failed]")),
+                checkBtn: btn("[data-brainstorm-check-btn]"),
+                retry: btn("[data-brainstorm-check-retry]"),
+            };
+        })()`);
+    // a line sent before the shell's prompt is drawn is lost to it
+    const waitForPrompt = async (h, ctx) => {
+        let prompt = "";
+        for (const start = Date.now(); Date.now() - start < PROMPT_WAIT_MS; await polishNap(250)) {
+            const rows = (await bsTermText(h, ctx, "\n").catch(() => "")).split("\n").filter((r) => r.trim() !== "");
+            prompt = rows.at(-1)?.trim() ?? "";
+            if (PROMPT.test(prompt)) break;
+        }
+        return prompt;
+    };
     const designLabel = (f) => {
         const decisions = f.parts.filter((p) => p.kind !== "note");
         return `The design · ${decisions.filter((p) => p.state === "yours").length} of ${decisions.length} yours`;
@@ -297,12 +352,7 @@ export default function (kit) {
                 );
 
                 // 2. each way of answering is one line to the agent
-                let prompt = "";
-                for (const start = Date.now(); Date.now() - start < PROMPT_WAIT_MS; await polishNap(250)) {
-                    const rows = (await bsTermText(h, ctx, "\n").catch(() => "")).split("\n").filter((r) => r.trim() !== "");
-                    prompt = rows.at(-1)?.trim() ?? "";
-                    if (PROMPT.test(prompt)) break;
-                }
+                const prompt = await waitForPrompt(h, ctx);
                 const installed = await h.ev(TYPED_INSTALL);
                 let mark = await bsMark(h, ctx, PICKED_LINE);
                 const picked = await h.ev(`(() => {
@@ -434,6 +484,99 @@ export default function (kit) {
                 await step("stop recording sent lines", () => h.ev(TYPED_REMOVE));
                 if (ctx.project) await step("delete the project", () => h.rpc("deleteproject", { name: ctx.project }));
                 await bsTeardownAgent(h, ctx, "brainstorm-builder-ask");
+            },
+        },
+        {
+            // plays the server (the tab's check record) and the agent (the file, its idle status); no builder launches
+            name: "brainstorm-builder-check",
+            surface: "agent",
+            arrange: (h) => bsArrangeAgent(h, TOPIC, READY),
+            async assert(h, ctx) {
+                const name = "brainstorm-builder-check";
+                const missing = await bsShowFile(h, ctx);
+                if (missing != null) return [skipStep(name, `could not verify: ${missing}`)];
+                const steps = [];
+                const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+                const noCheckBtn = (c) => c.checkBtn == null || c.checkBtn.disabled === true;
+
+                // 1. every part yours, no record: Check with a builder is offered
+                const s1 = await bsUntil(h, ctx, (s) => s.check != null);
+                const c1 = await readCheck(h);
+                await h.shot("cdp-shots/brainstorm-builder-check-1.png");
+                rec(
+                    "1. ready: with every decision yours and no record, Check with a builder is offered, with no check card",
+                    s1.ok && c1.checkBtn?.disabled === false && c1.pending === "" && c1.failed === "",
+                    { ...bsBrief(s1), ...c1 }
+                );
+
+                // 2. reading: the pending card, and no Check button
+                await setCheckRecord(h, ctx, { state: "reading" });
+                const s2 = await bsUntil(h, ctx, (s) => s.working.includes(CHECK_READING));
+                const c2 = await readCheck(h);
+                await h.shot("cdp-shots/brainstorm-builder-check-2.png");
+                rec(
+                    "2. pending: with the record reading, the card reads A builder is reading the design. and Check with a builder is gone",
+                    s2.ok && c2.pending.includes(CHECK_READING) && noCheckBtn(c2) && c2.failed === "",
+                    { ...bsBrief(s2), ...c2 }
+                );
+
+                // 3. answered, the file untouched and the agent idle from before: the questions are still being taken in
+                await setCheckRecord(h, ctx, { state: "answered" });
+                const s3 = await bsUntil(h, ctx, (s) => s.working.includes(CHECK_TAKING_IN));
+                const c3 = await readCheck(h);
+                await h.shot("cdp-shots/brainstorm-builder-check-3.png");
+                rec(
+                    "3. taking in: with the record answered and the file unchanged, the card reads Taking in the builder's questions.",
+                    s3.ok && c3.pending.includes(CHECK_TAKING_IN) && noCheckBtn(c3),
+                    { ...bsBrief(s3), ...c3 }
+                );
+
+                // 4. the agent writes the check after the record and ends its turn: the builder's question, no card
+                bsWrite(ctx, RESULT);
+                await bsPublishStatus(h, ctx);
+                const s4 = await bsUntil(h, ctx, (s) => s.view === "check" && s.builder !== "");
+                const c4 = await readCheck(h);
+                await h.shot("cdp-shots/brainstorm-builder-check-4.png");
+                rec(
+                    "4. result: with the check written and the agent idle, the main area holds the builder's question and the pending card is gone",
+                    s4.ok && s4.builder.includes(YOURS[0].q) && c4.pending === "" && c4.failed === "",
+                    { ...bsBrief(s4), builder: s4.builder.slice(0, 120), ...c4 }
+                );
+
+                // 5. the file's check cleared, the record failed: the reason and Try again
+                bsWrite(ctx, READY);
+                await setCheckRecord(h, ctx, { state: "failed", reason: CHECK_REASON });
+                const shown = await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-check-failed]")`, CHECK_WAIT_MS);
+                const c5 = await readCheck(h);
+                await h.shot("cdp-shots/brainstorm-builder-check-5.png");
+                rec(
+                    "5. failed: with the check cleared and the record failed, the card shows its reason and Try again, and Check with a builder is gone",
+                    shown && c5.failed.includes(CHECK_REASON) && c5.retry?.disabled === false && c5.checkBtn == null && c5.pending === "",
+                    c5
+                );
+
+                // 6. Try again sends the check line; the old record stays until a newer one arrives, so only the line is judged
+                await waitForPrompt(h, ctx);
+                const installed = await h.ev(TYPED_INSTALL);
+                const mark = await bsMark(h, ctx, CHECK_LINE);
+                const retried = await h.ev(`(() => {
+                    const b = ${BS_PANE}?.querySelector("[data-brainstorm-check-retry]");
+                    if (!b) return "missing";
+                    b.click();
+                    return "clicked";
+                })()`);
+                const sent = await bsTyped(h, ctx, mark, CHECK_LINE);
+                await h.shot("cdp-shots/brainstorm-builder-check-6.png");
+                rec("6. Try again sends brainstorm: check", installed === true && retried === "clicked" && sent.ok, { installed, retried, ...sent.detail });
+                return steps;
+            },
+            async teardown(h, ctx) {
+                try {
+                    await h.ev(TYPED_REMOVE);
+                } catch (e) {
+                    console.error(`brainstorm-builder-check teardown: stop recording sent lines failed: ${e?.message ?? e}`);
+                }
+                await bsTeardownAgent(h, ctx, "brainstorm-builder-check");
             },
         },
     ];

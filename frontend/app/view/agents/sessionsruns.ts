@@ -16,6 +16,9 @@ export const LEAD_MEMBER = "lead";
 
 // the sessions that judge the whole dag, in the order they run; each is its own member, keyed by its role
 const STAGE_ROLES = ["plan-reviewer", "verifier"];
+// a brainstorm's builder check runs as a run of its own, but the brainstorm pane is its only face: its session
+// stays a solo, so the user can still open it
+const BUILDER_CHECK_ROLE = "builder-check";
 
 export interface RunSessions {
     runId: string;
@@ -49,7 +52,7 @@ export function groupRunSessions(list: LiveSession[]): { runs: RunSessions[]; so
     const byRun = new Map<string, RunSessions>();
     const solos: LiveSession[] = [];
     for (const s of list) {
-        if (!s.runid) {
+        if (!s.runid || s.role === BUILDER_CHECK_ROLE) {
             solos.push(s);
             continue;
         }
