@@ -98,10 +98,11 @@ func landRunLocked(ctx context.Context, channelID, runID string, force bool) (*w
 }
 
 // retryHeldLands lands again each run held only by uncommitted changes in its checkout (RunLand.Dirty), once the
-// land's own checkout check passes, and each run held by its failed final stage once a rerun of the stage passed
-// (finalHoldLifted). The changes are another session's or the human's, so the engine waits for them to be
-// committed, stashed or moved aside instead of asking anyone to retry. The watchdog calls it every tick. A
-// dismissed hold is the human's to retry, and a run whose land is already under way is skipped.
+// land's own checkout check passes, each run held only by another landing's claim on the checkout (RunLand.Busy),
+// once the claim is free, and each run held by its failed final stage once a rerun of the stage passed
+// (finalHoldLifted). The changes and the claim are another session's, the human's or another landing's, so the
+// engine waits for them to go instead of asking anyone to retry. The watchdog calls it every tick. A dismissed hold
+// is the human's to retry, and a run whose land is already under way is skipped.
 func retryHeldLands(ctx context.Context) {
 	runs, err := wstore.GetRunsByLandState(ctx, LandState_Held)
 	if err != nil {
@@ -109,7 +110,10 @@ func retryHeldLands(ctx context.Context) {
 		return
 	}
 	for _, run := range runs {
-		if run.Land.Dismissed || !(run.Land.Dirty || finalHoldLifted(ctx, run)) || !landLocks.TryLock(run.ID) {
+		// a land that re-checks the run before it claims the checkout would run Check and Verify again on every tick
+		// the claim is still held
+		claimFreed := run.Land.Busy && !projectClaimed(run.ProjectPath)
+		if run.Land.Dismissed || !(run.Land.Dirty || claimFreed || finalHoldLifted(ctx, run)) || !landLocks.TryLock(run.ID) {
 			continue
 		}
 		goStage("land retry "+run.ID, func() {
@@ -189,7 +193,7 @@ func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force 
 	}
 	claim, err := claimProject(project, runDagID(run, g), "land-back")
 	if err != nil {
-		return heldLand(err.Error())
+		return &waveobj.RunLand{State: LandState_Held, Reason: err.Error(), Busy: errors.Is(err, errProjectBusy)}
 	}
 	defer releaseProject(project, claim)
 	if hold := landPrecheck(ctx, run); hold != nil {

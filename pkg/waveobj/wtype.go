@@ -331,6 +331,9 @@ type RunLand struct {
 	// Dirty is a hold made only by uncommitted changes in the checkout, another session's or the human's: the
 	// engine lands the run by itself once they are gone.
 	Dirty bool `json:"dirty,omitempty"`
+	// Busy is a hold made only by another landing holding the checkout (a merge, its Verify, another run's land):
+	// the engine lands the run by itself once it lets go.
+	Busy bool `json:"busy,omitempty"`
 	// Force is a held land that was asked to go past a failed final stage, so the engine's retry of it does too.
 	Force bool `json:"force,omitempty"`
 }

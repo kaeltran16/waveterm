@@ -59,6 +59,13 @@ func claimProject(projectPath, dagID, taskID string) (*landing, error) {
 	return l, nil
 }
 
+// projectClaimed reports whether a landing holds projectPath.
+func projectClaimed(projectPath string) bool {
+	landings.Lock()
+	defer landings.Unlock()
+	return landings.byProject[filepath.Clean(projectPath)] != nil
+}
+
 func releaseProject(projectPath string, l *landing) {
 	key := filepath.Clean(projectPath)
 	landings.Lock()

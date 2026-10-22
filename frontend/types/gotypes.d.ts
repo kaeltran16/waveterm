@@ -2674,6 +2674,7 @@ declare global {
         notes?: string[];
         dismissed?: boolean;
         dirty?: boolean;
+        busy?: boolean;
         force?: boolean;
     };
 
