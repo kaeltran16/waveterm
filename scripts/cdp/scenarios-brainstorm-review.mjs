@@ -216,6 +216,7 @@ export default function (kit) {
                 title: flat(review?.querySelector("h1")),
                 summary: flat(review?.querySelector("[data-brainstorm-review-summary]")),
                 changedHead: flat(section("changed")?.firstElementChild),
+                keepAll: flat(section("changed")?.querySelector("[data-brainstorm-keep-all]")),
                 freshHead: flat(section("fresh")?.firstElementChild),
                 changed: rows("changed"),
                 fresh: rows("fresh"),
@@ -287,13 +288,13 @@ export default function (kit) {
             await h.shot("cdp-shots/brainstorm-check-review.png");
             const model = r.changed.find((x) => x.id === "model");
             rec(
-                "1. the review draws as the board: 8 changed rows with causes, the calls under The forecast model, 2 new with Answer question 16, the two link lines, the rail's three answers with Changed, the hints bar and the blocker",
+                "1. the review draws as the board: 8 changed rows with causes and Keep all 8 changes, the calls under The forecast model, 2 new with Answer question 16, the two link lines, the rail's three answers with Changed, the hints bar and the blocker",
                 drawn.ok &&
                     opened &&
                     shown &&
                     r.title === "Review what the check changed" &&
                     r.summary !== "" &&
-                    r.changedHead === "Changed since you confirmed · 8 open one to see what it was" &&
+                    r.changedHead === "Changed since you confirmed · 8 open one to see what it was Keep all 8 changes" &&
                     JSON.stringify(r.changed.map((x) => [x.id, x.gist, x.cause])) ===
                         JSON.stringify(CR_CHANGED.map((c) => [c.id, c.now, c.why])) &&
                     r.changed.every((x) => x.buttons.includes("Keep the change") && x.buttons.includes("Put mine back")) &&
@@ -369,6 +370,11 @@ export default function (kit) {
             );
             await h.ev(`${ROW("torch")}?.querySelector("[data-brainstorm-edit]")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))`);
 
+            const keepAll = await sends(h, ctx, "brainstorm: keep every change", () =>
+                bsClick(h, `${REVIEW}?.querySelector('[data-brainstorm-review-section="changed"]')`, "Keep all 8 changes")
+            );
+            rec("4b. Keep all 8 changes sends brainstorm: keep every change", prompt && keepAll.ok, keepAll.detail);
+
             const openLink = async (kind, title, id) => {
                 await bsClick(h, `${REVIEW}?.querySelector('[data-brainstorm-review-links="${kind}"]')`, title);
                 return polishWaitFor(h, `!!${REVIEW}?.querySelector('[data-brainstorm-review-links="${kind}"] [data-brainstorm-review-body="${id}"]')`, 2000);
@@ -389,14 +395,15 @@ export default function (kit) {
             const successRgb = await h.ev(`(() => { const d = document.createElement("span"); d.style.color = ${JSON.stringify(k.success)}; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; })()`);
             await h.shot("cdp-shots/brainstorm-check-review-kept.png");
             rec(
-                "6. once the file records the keep, the row reads Yours with a success dot and no buttons",
+                "6. once the file records the keep, the row reads Yours with a success dot and no buttons, and Keep all counts 7",
                 keptDrawn &&
                     kept?.right === "Yours" &&
                     kept?.dot === successRgb &&
                     !kept?.buttons.includes("Keep the change") &&
                     k.changed.length === 8 &&
+                    k.keepAll === "Keep all 7 changes" &&
                     k.blocker === "Review 7 changes, confirm 1 guess, answer question 16",
-                { keptDrawn, kept, successRgb, blocker: k.blocker }
+                { keptDrawn, kept, successRgb, blocker: k.blocker, keepAll: k.keepAll }
             );
 
             const answerClicked = await bsClick(h, ROW("graph"), "Answer question 16");

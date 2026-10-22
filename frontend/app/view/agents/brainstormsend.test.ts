@@ -79,6 +79,7 @@ describe("sendBrainstorm", () => {
         { kind: "edit", part: "constraints", text: "No new\nservice." },
         { kind: "keep", part: "constraints" },
         { kind: "restore", part: "constraints" },
+        { kind: "keep-all" },
         { kind: "check" },
         { kind: "builder-answer", text: "Only report." },
         { kind: "approved" },

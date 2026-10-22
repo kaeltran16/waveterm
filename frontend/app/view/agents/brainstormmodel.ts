@@ -399,6 +399,7 @@ export type BrainstormAction =
     | { kind: "edit"; part: string; text: string }
     | { kind: "keep"; part: string }
     | { kind: "restore"; part: string }
+    | { kind: "keep-all" }
     | { kind: "check" }
     | { kind: "builder-answer"; text: string }
     | { kind: "builder-decide" }
@@ -435,6 +436,8 @@ export function brainstormLine(a: BrainstormAction): string | null {
             return `brainstorm: keep ${a.part}`;
         case "restore":
             return `brainstorm: restore ${a.part}`;
+        case "keep-all":
+            return "brainstorm: keep every change";
         case "builder-decide":
             return "brainstorm: builder decide";
         case "check":
@@ -921,6 +924,8 @@ export type ReviewModel = {
     unchanged: BrainstormPart[];
     notes: BrainstormPart[];
     cursorIds: string[];
+    // the changed decisions still waiting on keep or put back
+    pending: number;
     summary: string;
     answered: { q: string; a: string; changed: { id: string; title: string }[] }[];
 };
@@ -998,6 +1003,7 @@ export function checkReview(f: BrainstormFile): ReviewModel {
         unchanged,
         notes: noteParts(f),
         cursorIds: rows.map((r) => r.id),
+        pending,
         summary: reviewSummary(changed.length, fresh.length, pending, calls),
         answered: (f.check?.yours ?? [])
             .filter((y) => y.a != null)

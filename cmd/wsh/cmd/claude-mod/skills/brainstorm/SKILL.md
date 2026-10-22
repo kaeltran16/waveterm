@@ -135,6 +135,7 @@ Every other action is a `brainstorm:` line:
 | `brainstorm: edit <part id>: <text>` | Replace that part's `body` with the text (fix only obvious typos), make it `yours`, drop `was` and `why`. |
 | `brainstorm: keep <part id>` | The user accepts your change to a part they had confirmed: make it `yours`, drop `was` and `why`. |
 | `brainstorm: restore <part id>` | Put their version back: `body` = `was`, make it `yours`, drop `was` and `why`. |
+| `brainstorm: keep every change` | `keep` every part that has `was`, in one write. |
 | `brainstorm: check` | Builder check, below. |
 | `brainstorm: builder answer: <text>` | Builder check, below. |
 | `brainstorm: builder decide` | Move the first `check.yours` entry with no `a` into `check.calls` as `{ "text": <your decision>, "part": <its part> }`, fold it into that part and the spec (marked "Agent's call"), write the file. |
@@ -292,7 +293,7 @@ On `brainstorm: builder answer: <text>`: the answer is for the first `check.your
 `a`. Set its `a` to the text and `into` to every part it changed, fold the answer into those parts
 and into the spec, and write the file. A part the answer rewrites that was `yours` gets `was` (the
 body they had confirmed) and `why` naming "builder question N", and stays a `guess` until they
-`keep` or `restore` it, one by one: there is no keep-all. A part the answer only fills in, or that
+`keep` or `restore` it, one by one or all kept at once. A part the answer only fills in, or that
 was already a `guess`, becomes `yours` (the user just decided it). When the text pushes back or asks
 instead of answering, it is not an answer: leave `a` unset, put your reply at the head of that
 entry's `why`, and rework its `options` as **When the line is not an answer** says.

@@ -108,6 +108,7 @@ export function CheckReview({
                         <div className="flex items-baseline gap-[8px] px-[14px] pb-[6px]">
                             <h2 className={SECTION_HEAD}>Changed since you confirmed · {r.changed.length}</h2>
                             <span className="text-[12px] text-muted">open one to see what it was</span>
+                            {r.pending > 1 ? <KeepAll agent={agent} f={f} pending={r.pending} /> : null}
                         </div>
                         {r.changed.map(row)}
                     </section>
@@ -124,6 +125,27 @@ export function CheckReview({
                 <PartLinks kind="notes" label="What the agent found" f={f} parts={r.notes} />
             </div>
         </div>
+    );
+}
+
+// one press for every change still waiting, so a check that rewrote many decisions is not one agent turn each
+function KeepAll({ agent, f, pending }: { agent: AgentVM; f: BrainstormFile; pending: number }) {
+    const act = useAction();
+    const working = f.working != null;
+    return (
+        <span className="ml-auto flex flex-none flex-col items-end gap-[4px] self-center">
+            <button
+                type="button"
+                data-brainstorm-keep-all
+                disabled={working || act.busy}
+                title={working ? WORKING_TITLE : undefined}
+                onClick={() => void act.run(() => sendBrainstorm(agent, { kind: "keep-all" }))}
+                className={cn(PART_BTN, "whitespace-nowrap")}
+            >
+                Keep all {pending} changes
+            </button>
+            {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
+        </span>
     );
 }
 

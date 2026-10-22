@@ -443,6 +443,7 @@ describe("brainstormLine", () => {
         expect(brainstormLine({ kind: "edit", part: "p", text: "new" })).toBe("brainstorm: edit p: new");
         expect(brainstormLine({ kind: "keep", part: "p" })).toBe("brainstorm: keep p");
         expect(brainstormLine({ kind: "restore", part: "p" })).toBe("brainstorm: restore p");
+        expect(brainstormLine({ kind: "keep-all" })).toBe("brainstorm: keep every change");
         expect(brainstormLine({ kind: "check" })).toBe("brainstorm: check");
         expect(brainstormLine({ kind: "builder-answer", text: "x" })).toBe("brainstorm: builder answer: x");
         expect(brainstormLine({ kind: "builder-decide" })).toBe("brainstorm: builder decide");
@@ -1268,6 +1269,7 @@ describe("checkReview", () => {
         expect(m.unchanged.map((p) => p.id)).toEqual(["intent", "order", BUILDER_PART]);
         expect(m.notes).toHaveLength(6);
         expect(m.cursorIds).toEqual([...m.changed.map((r) => r.id), "torch", "graph"]);
+        expect(m.pending).toBe(8);
         expect(m.summary).toBe(
             "Your answers to the builder changed 8 decisions you had confirmed, and 2 are new. Keep each change or put yours back; the agent’s 8 calls sit under the decision they belong to."
         );
@@ -1295,6 +1297,7 @@ describe("checkReview", () => {
         expect(row).toMatchObject({ view: "yours", action: null });
         expect(row?.was).toBeUndefined();
         expect(checkReview(kept).summary).toContain("changed 8 decisions");
+        expect(checkReview(kept).pending).toBe(7);
     });
 
     it("counts a yours part an agent's call is under as changed, even untouched", () => {

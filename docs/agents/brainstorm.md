@@ -52,6 +52,7 @@ the skill tells them not to use it: a lead routes every question through AskUser
 | Confirm all N guesses | `brainstorm: confirm every guess` | makes every plain guess yours (a changed part still waits) |
 | Edit, Enter | `brainstorm: edit <part>: <text>` | replaces the part's body, makes it yours |
 | Keep the change / Put mine back | `brainstorm: keep <part>` / `brainstorm: restore <part>` | settles a part it changed after you confirmed it |
+| Keep all N changes | `brainstorm: keep every change` | keeps every part it changed after you confirmed it |
 | Check with a builder | `brainstorm: check` | writes the spec, runs the builder check (one fresh subagent), fills `check` |
 | Answer a builder question | `brainstorm: builder answer: <text>` | folds it into the part and the spec |
 | Keep talking | `brainstorm: keep talking` | clears `done` and `check`, asks again |
