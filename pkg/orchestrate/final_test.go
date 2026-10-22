@@ -749,3 +749,26 @@ func TestRunFinishedWakeSaysWhetherARoundIsLeft(t *testing.T) {
 		}
 	}
 }
+
+// A step killed from outside judged nothing: the stage holds the land, and the lead asks for a rerun instead of
+// writing a fix plan for a defect nobody found. Windows reports the kill as 0xC000013A, which read as an exit code
+// was a failing Final.
+func TestAKilledFinalStepAsksForARerunNotAFixRound(t *testing.T) {
+	lead := newFakeLead(t)
+	f := finalFixture(t, passVerify, "", "node scripts/cdp/final-verify.mjs")
+	stubPlanCommandOutput(t, func(_ context.Context, _, command string) (string, error) {
+		if command == "node scripts/cdp/final-verify.mjs" {
+			return "scenario 2 of 5", &planCommandError{exitCode: 0xC000013A, killed: "exit 0xc000013a"}
+		}
+		return "", nil
+	})
+
+	g := runFinal(t, f)
+
+	if g.Final.State != FinalState_Failed || !g.Final.Killed || !strings.Contains(g.Final.Detail, "killed from outside") {
+		t.Fatalf("a killed Final holds the stage as killed, got %s killed=%v %q", g.Final.State, g.Final.Killed, g.Final.Detail)
+	}
+	if len(lead.sends) != 1 || !strings.Contains(lead.sends[0], "wsh runs rerun-final "+f.ownerID) || strings.Contains(lead.sends[0], "--round") {
+		t.Fatalf("the lead is asked for a rerun, not a fix round, got %q", lead.sends)
+	}
+}

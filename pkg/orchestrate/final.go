@@ -274,6 +274,7 @@ type finalResult struct {
 	detail        string
 	unverified    []string
 	onStage       bool
+	killed        bool // the failed step was killed from outside
 	shots         []waveobj.FinalShot
 	shotsManifest bool
 }
@@ -328,8 +329,9 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 			switch {
 			case exitedUnverified(err):
 				res.unverified = append(res.unverified, couldNotVerifyItem("Check", g.Check, out))
-			case !baseCheckFailed(g):
+			case !baseCheckFailed(g) || planCommandKilled(err):
 				res.detail = fmt.Sprintf("Check `%s` failed (%s):\n%s", g.Check, commandReason(err), out)
+				res.killed = planCommandKilled(err)
 				return res
 			default:
 				// a fix round cannot fix someone else's commit, so it goes on as unverified
@@ -351,6 +353,7 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 			res.unverified = append(res.unverified, couldNotVerifyItem("Verify", g.Verify, out))
 		case !passed:
 			res.detail = fmt.Sprintf("Verify `%s` failed on the merged result (%s):\n%s", g.Verify, commandReason(err), out)
+			res.killed = planCommandKilled(err)
 			return res
 		default:
 			for _, test := range flaky {
@@ -374,7 +377,8 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 	res.shots, res.shotsManifest = readFinalShots(dagID, g.Final.OutDir)
 	switch {
 	case err != nil:
-		res.detail = fmt.Sprintf("Final `%s` failed (%s):\n%s", g.FinalCmd, err, tail)
+		res.detail = fmt.Sprintf("Final `%s` failed (%s):\n%s", g.FinalCmd, commandReason(err), tail)
+		res.killed = planCommandKilled(err)
 	case exit == FinalExitUnverified:
 		reason := lastOutputLine(tail)
 		if reason == "" {
@@ -582,7 +586,7 @@ func recordFinalLocked(ctx, spawnCtx context.Context, dagID string, owner *waveo
 	verdict, held := heldFinalVerdict(dagID, f, true)
 	switch {
 	case res.detail != "":
-		f.Detail = res.detail
+		f.Detail, f.Killed = res.detail, res.killed
 		if res.onStage && !held && f.VerifierRunID != "" {
 			stopReviewer(ctx, g, f.VerifierRunID, &afterCommit)
 		}
@@ -671,8 +675,12 @@ func finishFinal(ctx context.Context, g *waveobj.TaskGroup, judged bool, afterCo
 	}
 	round, detail, last, autonomous := f.Round, f.Detail, f.Round >= MaxFinalRounds, g.Autonomous
 	channelID, runID := g.ChannelId, g.RunID
+	wake := finalFailedWake(round, runID, detail, last, autonomous)
+	if f.Killed {
+		wake = finalKilledWake(round, runID, detail, autonomous)
+	}
 	*afterCommit = append(*afterCommit, func() {
-		PostWake(context.Background(), channelID, runID, finalFailedWake(round, runID, detail, last, autonomous))
+		PostWake(context.Background(), channelID, runID, wake)
 	})
 }
 
@@ -854,7 +862,7 @@ func finalTree(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run) (s
 
 // runFinalCommand runs the plan's Final command in tree with ARC_FINAL_OUT set to a fresh outDir, and returns
 // its exit code and output tail, handing progress the tail while it runs. err is set only when there is no exit
-// code to judge: the command timed out, or could not start.
+// code to judge: the command timed out, was killed from outside, or could not start.
 func runFinalCommand(ctx context.Context, tree, cmd, outDir string, timeout time.Duration, progress planProgress) (int, string, error) {
 	// a stage the server lost runs again into the same round's directory; the old screenshots would pass for new ones
 	if err := os.RemoveAll(outDir); err != nil {
@@ -863,7 +871,7 @@ func runFinalCommand(ctx context.Context, tree, cmd, outDir string, timeout time
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return -1, "", fmt.Errorf("creating %s %s: %w", finalOutEnv, outDir, err)
 	}
-	out, err := execPlanCommandEnv(ctx, tree, cmd, []string{finalOutEnv + "=" + outDir}, timeout, progress)
+	out, err := runPlanCommand(ctx, tree, cmd, []string{finalOutEnv + "=" + outDir}, timeout, progress)
 	if err == nil {
 		return 0, out, nil
 	}
@@ -871,8 +879,9 @@ func runFinalCommand(ctx context.Context, tree, cmd, outDir string, timeout time
 	if !errors.As(err, &pe) {
 		return -1, out, err
 	}
-	if pe.timeout == 0 && pe.exitCode >= 0 {
+	// a Windows kill exits with a status like any exit code, which would read as the command's verdict
+	if pe.timeout == 0 && pe.killed == "" && pe.exitCode >= 0 {
 		return pe.exitCode, out, nil
 	}
-	return -1, out, errors.New(pe.reason())
+	return -1, out, pe
 }
