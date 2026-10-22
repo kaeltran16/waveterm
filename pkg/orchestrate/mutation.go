@@ -324,6 +324,8 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 		if err := RetryTask(g, taskID); err != nil {
 			return err
 		}
+		// the human's retry is the answer to the failures so far, as an escalation is: the engine's own retries start over
+		taskByID(g, taskID).Attempts = 0
 	case "escalate":
 		task := taskByID(g, taskID)
 		if task == nil {
