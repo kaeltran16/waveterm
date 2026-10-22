@@ -172,6 +172,34 @@ func TestFailedRetryFailsTheTaskNotTheDag(t *testing.T) {
 	}
 }
 
+// A retry re-runs the task from pending, so from a state that already landed or holds a merge it would lose work:
+// a merged task's new commit never merges, a blocked merge leaves its conflicted squash in the checkout, and a
+// failed Verify lets later merges land on the failing commit.
+func TestRetryRefusesStatesItWouldLoseWorkFrom(t *testing.T) {
+	for _, state := range []string{TaskState_Done, TaskState_BlockedMerge, TaskState_Verifying, TaskState_VerifyFailed, TaskState_Skipped, TaskState_Pending} {
+		t.Run(state, func(t *testing.T) {
+			ctx, dag, child := seedFailedDag(t)
+			if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+				g.Tasks[0].State = state
+				g.Tasks[0].Merged = state != TaskState_BlockedMerge && state != TaskState_Pending && state != TaskState_Skipped
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", waveobj.RoutePin{})
+			if err == nil || !strings.Contains(err.Error(), "cannot be retried") {
+				t.Fatalf("retry from %s: err = %v, want a refusal", state, err)
+			}
+			if got := mustLoadDag(t, ctx, dag.OID).Tasks[0]; got.State != state || got.RunID != child.ID {
+				t.Fatalf("refused retry moved the task: state %s run %s", got.State, got.RunID)
+			}
+			if run, err := wstore.GetRun(ctx, dag.ChannelId, child.ID); err != nil || run.Status == jarvis.RunStatus_Cancelled {
+				t.Fatalf("refused retry cancelled the task's run: %v", err)
+			}
+		})
+	}
+}
+
 func TestSkipRejectsRunningTaskWithoutClearingOwnership(t *testing.T) {
 	ctx, dag, _, child := seedRunningDag(t)
 	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", waveobj.RoutePin{}); err == nil {
