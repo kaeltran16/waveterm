@@ -5,8 +5,15 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { resolveCwd } from "@/app/view/agents/agentcwdresolve";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { displayAgeMs, formatAgeShort, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { ensureSessionStart } from "@/app/view/agents/agentsessionstore";
+import {
+    agentRunDone,
+    agentStateLabel,
+    displayAgeMs,
+    formatAgeShort,
+    type AgentVM,
+} from "@/app/view/agents/agentsviewmodel";
+import { CommitTick } from "@/app/view/agents/committick";
 import { capFiles, parseGitChanges, statusColor, type GitChanges } from "@/app/view/agents/gitstatus";
 import { prettyModel } from "@/app/view/agents/modellabel";
 import { agentProject } from "@/app/view/agents/runlineage";
@@ -94,8 +101,12 @@ export function PeekAgentBody({ model, target }: { model: AgentsViewModel; targe
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-ink-hi">{agent.name}</span>
                 <span className="inline-flex flex-none items-center gap-1.5 rounded-[6px] border border-border bg-surface-raised px-2 py-[2px] font-mono text-[10.5px] font-semibold text-ink-mid">
-                    <span className={cn("h-1.5 w-1.5 rounded-full", STATE_DOT[agent.state])} />
-                    {agent.state}
+                    {agentRunDone(agent) ? (
+                        <CommitTick runDone />
+                    ) : (
+                        <span className={cn("h-1.5 w-1.5 rounded-full", STATE_DOT[agent.state])} />
+                    )}
+                    {agentStateLabel(agent)}
                     {age ? ` · ${age}` : ""}
                 </span>
             </div>

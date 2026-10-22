@@ -109,6 +109,7 @@ export interface AgentVM {
     effortId?: string; // the initiative this agent works on: launched from it, or last read or wrote through `wsh effort`
     brainstormFile?: string; // session:brainstorm on the tab: the attached brainstorm.json's absolute path
     atPrompt?: boolean; // the raw status was waiting or idle, whatever state it folds to: a lead between wakes
+    runDone?: boolean; // its own quick run is done, so at its prompt it is finished rather than idle
 }
 
 const STATE_RANK: Record<AgentState, number> = { asking: 0, working: 1, idle: 2 };
@@ -542,6 +543,25 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         vm.idleSince = input.ts;
     }
     return vm;
+}
+
+/** Pure: mark an agent whose own quick run is done. Its worker stays at its prompt once it completes the run, and
+ *  drawn as plain idle it reads like a session waiting for work. An orchestrator run is left out: its lead's run
+ *  mark already says what the run came to. */
+export function withRunDone(agent: AgentVM, run: Pick<Run, "mode" | "status"> | undefined): AgentVM {
+    const done = run != null && run.mode !== "orchestrator" && run.status === "done";
+    return done && !agent.runDone ? { ...agent, runDone: true } : agent;
+}
+
+/** Pure: the agent reads as finished: at its prompt, no shell task running, its quick run done. Prompting it again
+ *  makes it working, which reads as working whatever its run says. */
+export function agentRunDone(agent: Pick<AgentVM, "state" | "runDone">, standingBy = false): boolean {
+    return agent.state === "idle" && !standingBy && agent.runDone === true;
+}
+
+/** Pure: the state word an agent is listed under, "done" for one whose quick run is done. */
+export function agentStateLabel(agent: Pick<AgentVM, "state" | "runDone">): string {
+    return agentRunDone(agent) ? "done" : agent.state;
 }
 
 /** A session-sidebar row, narrowed to the fields terminal-derivation needs. */

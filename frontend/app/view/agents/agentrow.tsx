@@ -36,6 +36,7 @@ import {
     type AgentRowMenuItem,
 } from "./agentrowmodel";
 import {
+    agentRunDone,
     displayAgeMs,
     formatAge,
     formatAgo,
@@ -317,6 +318,7 @@ export const AgentRow = memo(function AgentRow({
     const shellTasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standingBy = isStandingBy(agent.state, shellTasks);
     const commitDone = useCommitDone(agent.blockId, idle && !standingBy);
+    const runDone = agentRunDone(agent, standingBy);
     const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
     const runningShellTasks = shellTasks.length;
     const tasks = useAtomValue(tasksAtomFor(agent.id));
@@ -396,7 +398,7 @@ export const AgentRow = memo(function AgentRow({
                 <StatusLine
                     agent={agent}
                     nowAtom={nowAtom}
-                    mark={commitDone ? <CommitTick /> : undefined}
+                    mark={runDone || commitDone ? <CommitTick runDone={runDone} /> : undefined}
                     standing={standingBy}
                     className="min-w-0 flex-1"
                 />

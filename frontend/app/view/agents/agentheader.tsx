@@ -22,12 +22,13 @@ import { Fragment, useEffect, useRef } from "react";
 import { confirmCloseSession, interruptAgent } from "./agentactions";
 import { contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
-import type { AgentVM } from "./agentsviewmodel";
+import { agentRunDone, type AgentVM } from "./agentsviewmodel";
 import { isAsking } from "./brainstormmodel";
 import { brainstormAtom, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
+import { CommitTick } from "./committick";
 import { DOC_REVIEW_HEADERS, docReviewAtom, parseDocReview } from "./docreview";
 import { isFinalStageId } from "./finalstage";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
@@ -128,9 +129,12 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const stage = isFinalStageId(agent.id);
     const landed = lineage?.kind === "worker" && lineage.task?.merged;
     const standingBy = isStandingBy(agent.state, useAtomValue(shellTasksByIdAtom)[agent.id] ?? []);
+    // a quick run's worker that completed its run reads as done, not as an idle session
+    const runDone = agentRunDone(agent, standingBy);
     // standing by reads like its dot: accent, not the idle grey
-    const stateText = ended ? (landed ? "landed" : "done") : standingBy ? "standing by" : STATE_LABEL[agent.state];
-    const stateColor = ended ? "var(--color-success)" : standingBy ? "var(--color-accent)" : STATE_COLOR[agent.state];
+    const done = ended || runDone;
+    const stateText = done ? (landed ? "landed" : "done") : standingBy ? "standing by" : STATE_LABEL[agent.state];
+    const stateColor = done ? "var(--color-success)" : standingBy ? "var(--color-accent)" : STATE_COLOR[agent.state];
     // m4: one-shot settle on the state pill when the focused agent reaches idle
     const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
     // held until a shell-task read since the Stop lands, so a just-launched task never settles first;
@@ -209,6 +213,8 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
         >
             {stage ? null : ended ? (
                 <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: stateColor }} />
+            ) : runDone ? (
+                <CommitTick runDone />
             ) : (
                 <StatusDot
                     state={agent.state}
