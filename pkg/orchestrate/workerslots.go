@@ -45,6 +45,15 @@ var liveDags = func(ctx context.Context) ([]*waveobj.TaskGroup, error) {
 	return out, nil
 }
 
+// UncapWorkersForTest lifts the live-worker cap for another package's tests: their store is shared too, and the
+// cap would count the dags earlier tests left live in it and the machine's free memory.
+func UncapWorkersForTest() (restore func()) {
+	oldLive, oldMem := liveDags, availableMemory
+	liveDags = func(context.Context) ([]*waveobj.TaskGroup, error) { return nil, nil }
+	availableMemory = func() (uint64, error) { return ^uint64(0), nil }
+	return func() { liveDags, availableMemory = oldLive, oldMem }
+}
+
 // workerClaims holds the workers each dag's dispatch has granted itself and not yet persisted: a tick spawns
 // its batch under its own dag lock, so until it commits no other dag's read of the store can see them.
 var workerClaims = struct {
