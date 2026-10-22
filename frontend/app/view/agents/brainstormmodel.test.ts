@@ -50,6 +50,7 @@ import {
     reviewHead,
     runLine,
     runPrefill,
+    seenMark,
     sendBlocker,
     sentKind,
     sentenceDiff,
@@ -57,6 +58,7 @@ import {
     shownFile,
     terminalAnswer,
     treeLine,
+    unseenSince,
     withBrainstorm,
     type BrainstormFile,
     type BrainstormPart,
@@ -1691,5 +1693,60 @@ describe("partAnswer", () => {
         expect(look({ why: "builder question 1" }).cause).toBe("builder question 1");
         expect(look({ from: "mockup" })).toMatchObject({ cause: "mockup" });
         expect(look({ from: "mockup" }).said).toBeUndefined();
+    });
+});
+
+describe("unseenSince", () => {
+    const recon = (q: string, a: string): HistoryEntry => ({ kind: "recon", q, a, into: [] });
+    const asked: HistoryEntry = { kind: "question", n: 1, q: "q1", a: "a1", into: ["a"] };
+    const before = file({
+        question: { n: 2, text: "q2", part: "a" },
+        parts: [part("a", "guess", { body: "A." }), part("n1", "yours", { kind: "note", gist: "Old.", body: "Old." })],
+        history: [asked, recon("You asked: why?", "Because.")],
+    });
+
+    it("finds nothing before the pane's first read, and nothing in the file it saw", () => {
+        expect(unseenSince(before, null)).toEqual({ parts: [], notes: [], recon: [] });
+        expect(unseenSince(before, seenMark(before))).toEqual({ parts: [], notes: [], recon: [] });
+    });
+
+    it("marks the notes and recon the agent added while the question stayed open", () => {
+        const after: BrainstormFile = {
+            ...before,
+            parts: [
+                ...before.parts,
+                part("n2", "yours", { kind: "note", gist: "Trend: X.", body: "X." }),
+                part("n3", "yours", { kind: "note", gist: "Trend: Y.", body: "Y." }),
+            ],
+            history: [...before.history, recon("You asked: research current trends", "Two trends.")],
+        };
+        expect(unseenSince(after, seenMark(before))).toEqual({ parts: ["n2", "n3"], notes: ["n2", "n3"], recon: [2] });
+    });
+
+    it("marks a part whose text changed, not one whose state alone did", () => {
+        const after: BrainstormFile = {
+            ...before,
+            parts: [
+                part("a", "yours", { body: "A." }),
+                part("n1", "yours", { kind: "note", gist: "New.", body: "Old." }),
+            ],
+        };
+        expect(unseenSince(after, seenMark(before))).toEqual({ parts: ["n1"], notes: ["n1"], recon: [] });
+    });
+
+    it("lists a changed decision among the parts but not the notes", () => {
+        const after: BrainstormFile = { ...before, parts: [part("a", "guess", { body: "B." }), before.parts[1]] };
+        expect(unseenSince(after, seenMark(before))).toEqual({ parts: ["a"], notes: [], recon: [] });
+    });
+
+    it("historyRows marks only the unseen recon rows", () => {
+        const after: BrainstormFile = { ...before, history: [...before.history, recon("You asked: more", "More.")] };
+        const rows = historyRows(after, unseenSince(after, seenMark(before)));
+        expect(rows.map((r) => [r.label, r.unseen])).toEqual([
+            ["Q1", false],
+            ["Recon", true],
+            ["Recon", false],
+        ]);
+        expect(historyRows(after).every((r) => !r.unseen)).toBe(true);
     });
 });

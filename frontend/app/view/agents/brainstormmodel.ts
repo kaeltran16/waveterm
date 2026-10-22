@@ -519,9 +519,11 @@ export type HistoryRow = {
     // the question offered options and the user answered in their own words instead
     ownWords: boolean;
     into: { id: string; title: string }[];
+    // a recon entry added or changed since the user last saw the design
+    unseen: boolean;
 };
 
-function historyRow(f: BrainstormFile, h: HistoryEntry, i: number): HistoryRow {
+function historyRow(f: BrainstormFile, h: HistoryEntry, i: number, unseen: Unseen): HistoryRow {
     const options = (h.options ?? []).map((o, j) => ({
         label: o.label,
         detail: o.detail,
@@ -542,6 +544,7 @@ function historyRow(f: BrainstormFile, h: HistoryEntry, i: number): HistoryRow {
         answer,
         ownWords: answer != null && options.length > 0,
         into: h.into.map((id) => ({ id, title: partTitle(f, id) })),
+        unseen: unseen.recon.includes(i),
     };
 }
 
@@ -551,8 +554,8 @@ export function answeredQuestions(f: BrainstormFile): HistoryEntry[] {
 }
 
 // what was decided, newest first; recon is the ground every question stood on, so it stays at the bottom
-export function historyRows(f: BrainstormFile): HistoryRow[] {
-    const rows = f.history.map((h, i) => historyRow(f, h, i)).reverse();
+export function historyRows(f: BrainstormFile, unseen: Unseen = NOTHING_UNSEEN): HistoryRow[] {
+    const rows = f.history.map((h, i) => historyRow(f, h, i, unseen)).reverse();
     return [...rows.filter((r) => r.kind === "question"), ...rows.filter((r) => r.kind === "recon")];
 }
 
@@ -658,6 +661,44 @@ export function decisionParts(f: BrainstormFile): BrainstormPart[] {
 
 export function noteParts(f: BrainstormFile): BrainstormPart[] {
     return orderedParts(f).filter(isNote);
+}
+
+// what the user has seen of a brainstorm: each part's text and each recon entry, as the design last drew them. A
+// state change is left out, since the user's own confirm makes it
+export type SeenMark = { parts: Record<string, string>; recon: string[] };
+
+function partText(p: BrainstormPart): string {
+    return [p.title, p.gist ?? "", p.body].join("\n");
+}
+
+function reconText(h: HistoryEntry): string {
+    return `${h.q}\n${h.a}`;
+}
+
+export function seenMark(f: BrainstormFile): SeenMark {
+    return {
+        parts: Object.fromEntries(f.parts.map((p) => [p.id, partText(p)])),
+        recon: f.history.filter((h) => h.kind === "recon").map(reconText),
+    };
+}
+
+// what the file holds that the user has not seen: parts added or changed since (notes among them, in the design's
+// order) and recon entries, by their index in history. Before the first read there is nothing to compare against
+export type Unseen = { parts: string[]; notes: string[]; recon: number[] };
+
+const NOTHING_UNSEEN: Unseen = { parts: [], notes: [], recon: [] };
+
+export function unseenSince(f: BrainstormFile, seen: SeenMark | null): Unseen {
+    if (seen == null) {
+        return NOTHING_UNSEEN;
+    }
+    const parts = orderedParts(f).filter((p) => seen.parts[p.id] !== partText(p));
+    const known = new Set(seen.recon);
+    return {
+        parts: parts.map((p) => p.id),
+        notes: parts.filter(isNote).map((p) => p.id),
+        recon: f.history.flatMap((h, i) => (h.kind === "recon" && !known.has(reconText(h)) ? [i] : [])),
+    };
 }
 
 // how a part draws: a guess that was yours reads as changed, an asked part the agent is writing up as writing

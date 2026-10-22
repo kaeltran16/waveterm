@@ -22,6 +22,7 @@ import {
 import { notesWsh, vaultRemote, vaultRoot } from "./notes-wsh.mjs";
 import { SCENARIOS as COCKPIT_FIXTURES } from "../cockpit-fixtures/scenarios.mjs";
 import builder from "./scenarios-brainstorm-builder.mjs";
+import findings from "./scenarios-brainstorm-findings.mjs";
 import review from "./scenarios-brainstorm-review.mjs";
 import run from "./scenarios-brainstorm-run.mjs";
 
@@ -19061,9 +19062,9 @@ const brainstormMode = {
         );
         const [h3, h2, h1, hr] = s2.history;
         rec(
-            "2b. Decided so far · 3, newest first with recon at the bottom: Q2 lists all three options it offered, the picked one checked and marked Agent’s pick; each says where it went",
+            "2b. Decided so far · 3, newest first with recon at the bottom, marked new since the design was last seen: Q2 lists all three options it offered, the picked one checked and marked Agent’s pick; each says where it went",
             s2.rail === "Decided so far · 3" &&
-                JSON.stringify(s2.history.map((r) => r.label)) === JSON.stringify(["Q3", "Q2", "Q1", "Recon"]) &&
+                JSON.stringify(s2.history.map((r) => r.label)) === JSON.stringify(["Q3", "Q2", "Q1", "Recon · new"]) &&
                 JSON.stringify(h2?.picked) === JSON.stringify([`${BS_Q2_OPTIONS[1].label} Agent’s pick`]) &&
                 JSON.stringify(h2?.unpicked) === JSON.stringify([BS_Q2_OPTIONS[0].label, BS_Q2_OPTIONS[2].label]) &&
                 h2.text.includes("Went into Goals, Constraints") &&
@@ -19071,7 +19072,7 @@ const brainstormMode = {
                 h1.unpicked.length === 0 &&
                 !h1.text.includes("In your words") &&
                 h3?.text.includes("Went into Anti-goals") &&
-                hr?.text === `Recon ${BS_HISTORY[3].a} Went into Current state`,
+                hr?.text === `Recon · new ${BS_HISTORY[3].a} Went into Current state`,
             s2.history
         );
 
@@ -25116,6 +25117,7 @@ export const SCENARIOS = [
     brainstormReviewSkim,
     brainstormRailReasons,
     ...builder(BS_KIT),
+    ...findings(BS_KIT),
     ...review(BS_KIT),
     ...run(BS_KIT),
     canvasMark,

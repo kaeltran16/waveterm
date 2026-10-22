@@ -193,6 +193,8 @@ same `n`. In that one write:
 - Reply in the question's `why`: lead with the answer to their point in one or two sentences, then
   what you still cannot tell without them. Arc shows `why` right under the question, so that is
   where they read your reply; the terminal still gets one short line.
+- A line that asks for a report (research, a comparison, a look at something) is done in that turn
+  and reported as **Findings reach the question** says: the summary is your `why` reply.
 - A pushback against an option or an approach reruns **Check an approach before you offer it**
   against what they raised. Their alternative becomes an option if it holds up, and the pick if it
   beats yours; rewrite `options` and `read` to match. If it does not hold up, say why in `why`,
@@ -245,6 +247,19 @@ Before you write its options:
 
 The test: if the user answered "double check", would you come back with another approach or another
 pick? Then the check is not done. Do it now, before you ask.
+
+**Findings reach the question.** When the user asks for a report (research, a comparison, a look at
+something), what you found goes two places in the same write:
+
+- A short summary leads the `why` of the next question, or of the current one when it stays open:
+  the findings themselves in two or three sentences, then what they mean for the choice.
+- The detail goes in notes, one note part per finding, `from` naming its source, each with a `gist`
+  that states the finding itself ("Most teams page on lag growth, not on a fixed lag"), never a topic
+  label ("Current trends").
+
+Never leave the findings only in a note. While a question is open the pane shows only the question;
+Arc marks the new notes and links to them, but the link says only how many there are, so a finding
+that is not in `why` goes unread.
 
 **Every question you wait on is in the file.** Whenever your turn ends waiting on the user, whatever
 the phase (a choice you need before you can go on, a permission, a clarification), that question is
