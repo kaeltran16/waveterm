@@ -151,3 +151,47 @@ func TestMarkInterruptedRunsLeavesARunBlockedWhenItsRestartFails(t *testing.T) {
 		t.Fatalf("run status=%q phase=%q, want blocked and failed", got.Status, got.Phases[0].State)
 	}
 }
+
+// A tick records each child run before it starts its worker, and commits the dag only at the end of the batch: a
+// quit in between leaves runs no task names, which read executing forever while the task is dispatched again.
+func TestMarkInterruptedRunsCancelsDagRunsNoTaskReferences(t *testing.T) {
+	ctx, dag, owner, child := seedRunningDag(t)
+	tagged := func(r waveobj.Run) waveobj.Run {
+		r.DagORef = dag.OID
+		return r
+	}
+	if err := wstore.UpdateRun(ctx, dag.ChannelId, child.ID, func(r *waveobj.Run) error { *r = tagged(*r); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.UpdateRun(ctx, dag.ChannelId, owner.ID, func(r *waveobj.Run) error { *r = tagged(*r); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	orphan := tagged(jarvis.NewRun("child", "ws-1", t.TempDir(), nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1))
+	orphan.TaskId = "t-0"
+	orphan.Phases[0].WorkerOrefs = []string{"tab:orphan"}
+	if err := wstore.AppendRun(ctx, dag.ChannelId, orphan); err != nil {
+		t.Fatal(err)
+	}
+	var stopped []string
+	oldStop := stopRunWorkers
+	stopRunWorkers = func(_ context.Context, r *waveobj.Run) error {
+		stopped = append(stopped, r.ID)
+		return nil
+	}
+	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
+
+	MarkInterruptedRuns(ctx)
+
+	for id, want := range map[string]string{orphan.ID: jarvis.RunStatus_Cancelled, child.ID: jarvis.RunStatus_Executing, owner.ID: jarvis.RunStatus_Executing} {
+		got, err := wstore.GetRun(ctx, dag.ChannelId, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != want {
+			t.Fatalf("run %s: status %s, want %s", id, got.Status, want)
+		}
+	}
+	if !slices.Equal(stopped, []string{orphan.ID}) {
+		t.Fatalf("stopped %v, want only the orphan %s, so a resync cannot start its worker again", stopped, orphan.ID)
+	}
+}
