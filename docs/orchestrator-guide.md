@@ -402,7 +402,11 @@ first lane whose merge fails. The lanes before that one land. That one is verify
 lead's fix and `dag merge <task> --continue` judges them together. A single lane is never bisected, and neither
 is a batch after a fix commit, since a prefix without the fix would blame that lane again: the oldest lane
 takes the failure. A bisect that cannot run (the tree or its Setup fails) blames the oldest lane not yet known
-good, so it never lands a lane no Verify passed.
+good, so it never lands a lane no Verify passed. A Verify cut off by its timeout or from outside judged no lane,
+so it is not bisected: the oldest lane takes it, the wake says "not bisected", and `--continue` reruns it; a bisect
+step that does not finish stops the bisect the same way. When every prefix passes, the whole batch runs once more
+in the bisect tree: a failure there blames the newest lane, and a pass lands every lane, the landing tree's failure
+going to the final stage as a flaky item ("the whole Verify").
 
 #### The last merge skips its Verify
 
