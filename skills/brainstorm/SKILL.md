@@ -124,7 +124,9 @@ terminal.
 ## The lines Arc sends
 
 An answer arrives as the user's own text, on one line; a picked option arrives as its `label`. So does
-anything else the user types in the answer box: a pushback, a question back, a request for more.
+anything else the user types in the answer box: a pushback, a question back, a request for more. Arc
+keeps the box when no question is open too, and a line typed there arrives the same way (**A line
+with no question open**, below).
 Every other action is a `brainstorm:` line:
 
 | Line | What you do |
@@ -218,6 +220,20 @@ A line that both answers and asks ("B, but why not C?") is pushback: reply, and 
 read them as leaning to B, so one more line settles it. When you cannot tell whether a line is an
 answer, treat it as pushback and say in `why` which answer you read it as: asking again costs one
 turn, recording the wrong answer costs a wrong part.
+
+**A line with no question open.** While `question` is `null` (the design after `done`, parts waiting
+on keep or restore, the builder check's review) the pane still has the answer box, and what the user
+types there arrives as their own text. Nothing was asked, so it answers nothing: it is pushback or a
+question back. In that one write:
+
+- Reply by opening a question under the next `n` whose `why` leads with the reply, in one or two
+  sentences, then what you still need from them. The pane shows `why` only under an open question,
+  so a reply left in the terminal goes unread. Name the `part` it is about, and give `options` when
+  the line leaves a choice.
+- Set `done: false`: the question is open until they answer it.
+- Work the line as **When the line is not an answer** says (rerun the check of an approach they push
+  back on, add the `recon` entry), and rewrite every part it changes as **A later answer changes
+  earlier parts** says: a `yours` part gets `was` and `why` and waits for keep or restore.
 
 **Asking.** One question per turn, as superpowers does. Every question about the design names its
 `part`. Every question carries `why`: one or two sentences on what you already know and what you

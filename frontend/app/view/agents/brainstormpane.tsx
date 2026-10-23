@@ -25,6 +25,7 @@ import {
     historyRows,
     isNote,
     leftPanel,
+    lineBox,
     mainView,
     noteParts,
     paneView,
@@ -67,6 +68,7 @@ import {
     DOT_YOURS,
     ERROR_LINE,
     FIELD,
+    LineBar,
     LINK,
     onEnter,
     PART_BTN,
@@ -218,6 +220,7 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
                             setOpen={(id, open) => setOpened((o) => ({ ...o, [id]: open }))}
                         />
                     )}
+                    {view === "design" ? <LineBar agent={agent} box={lineBox(f, checkPending != null)} /> : null}
                 </div>
                 <DecidedRail f={f} unseen={unseen} goTo={goTo} />
             </div>

@@ -46,6 +46,7 @@ the skill tells them not to use it: a lead routes every question through AskUser
 | In the pane | Line the agent gets | The agent then |
 |---|---|---|
 | Type an answer, Enter | the answer, joined onto one line | records the exchange, writes the part, asks the next question |
+| Type a line with no question open, Enter | the line, joined onto one line | reads it as pushback or a question back, replies under a new question, sets `done` false |
 | Guess for me | `brainstorm: guess` | writes its own guess for the asked part, asks the next question |
 | Skip the questions | `brainstorm: skip questions` | writes every open part as a guess, sets `done` |
 | That's right | `brainstorm: confirm <part>` | makes the part yours |
@@ -131,6 +132,13 @@ nothing it was), and so does a part opened from the "Yours, unchanged" and notes
 Any question the agent waits on is in the file's `question`, in every phase. A question about no
 part (a choice the agent needs before it can go on) shows as a plain "Question N" card, without
 Guess or Skip; in the check view it sits above the builder's summary.
+
+Whenever no question is open (the design after `done`, parts waiting on keep or restore, the builder
+check's review) a box under the main area takes a line of the user's own: a pushback or a question
+back. It sends the raw line as the answer box does, and is locked while the agent writes
+(`lineBox` in `brainstormmodel.ts`, `LineBar` in `brainstormui.tsx`). The skill has the agent reply
+by opening a question under the next `n` whose `why` leads with the reply, set `done` false, and
+rewrite the parts the line changes. A run that has started takes no line.
 
 ![A question about no part, asked during the builder check](../images/brainstorm/04-check.png)
 

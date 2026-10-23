@@ -31,6 +31,7 @@ import {
     historyRows,
     isAsking,
     leftPanel,
+    lineBox,
     mainView,
     nextSentCheckAt,
     noteParts,
@@ -904,6 +905,30 @@ describe("checkMain", () => {
     it("is the review when the design is opened over a question or the agent writing", () => {
         expect(checkMain(file({ question: q, check: { ...check, yours: [open] } }), true)).toBe("review");
         expect(checkMain(file({ working: "w", check }), true)).toBe("review");
+    });
+});
+
+describe("lineBox", () => {
+    const check = { yours: [], calls: [], answered: [] };
+    const q = { n: 6, text: "Q", part: "" };
+
+    it("is offered with no question open: the design after done, parts awaiting keep or restore, the check's review", () => {
+        expect(lineBox(file({ done: true, parts: [part("a", "yours")] }))).toBe("open");
+        expect(lineBox(file({ parts: [part("a", "guess", { was: "old" })] }))).toBe("open");
+        expect(lineBox(file({ done: true, check: { ...check, yours: [{ q: "A?", a: "yes" }] } }))).toBe("open");
+    });
+
+    it("is not offered while a talk or builder question is open, nor once a run started", () => {
+        expect(lineBox(file({ question: q }))).toBe("none");
+        expect(lineBox(file({ check: { ...check, yours: [{ q: "B?" }] } }))).toBe("none");
+        expect(lineBox(file({ done: true, run: "r1" }))).toBe("none");
+    });
+
+    it("is locked while the agent writes, a sent line pending included, or a builder check is pending", () => {
+        expect(lineBox(file({ working: "Writing" }))).toBe("locked");
+        const sent: SentLine = { at: 1, modifiedMs: 0, kind: "answer" };
+        expect(lineBox(shownFile(file({ done: true }), sent))).toBe("locked");
+        expect(lineBox(file({ done: true }), true)).toBe("locked");
     });
 });
 

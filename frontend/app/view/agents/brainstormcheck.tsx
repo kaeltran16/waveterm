@@ -11,6 +11,7 @@ import {
     approveBlocker,
     checkAsk,
     checkMain,
+    lineBox,
     partTitle,
     runLine,
     type AskModel,
@@ -27,6 +28,7 @@ import {
     DesignButton,
     DOT,
     ERROR_LINE,
+    LineBar,
     LINK,
     MainBody,
     QuestionAnswers,
@@ -108,6 +110,7 @@ export function Check({
                     ) : (
                         <CheckReview model={model} agent={agent} s={s} f={f} />
                     )}
+                    {main === "review" ? <LineBar agent={agent} box={lineBox(f)} /> : null}
                     <ApproveBar model={model} agent={agent} s={s} f={f} />
                 </div>
                 {main === "review" ? <AnsweredRail f={f} agent={agent} /> : <AskRail f={f} goTo={goTo} />}
