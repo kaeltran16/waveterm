@@ -1,5 +1,3 @@
-// Package brainstormcheck holds the pure parts of the Brainstorm builder check: the reviewer's prompt, where its
-// report lands, the line that hands it to the brainstorming agent, and what a watcher tick decides.
 package brainstormcheck
 
 import (
@@ -54,9 +52,14 @@ func Line(path string) string {
 // Decide judges the reviewer's run. lostReason is JudgingSessionLost's verdict, "" while the session still works.
 // A finished run is judged before a lost reason: a reviewer that reported and then exited is not lost.
 func Decide(run *waveobj.Run, lostReason string) Action {
+	return decide(run, lostReason, EmptyReportReason)
+}
+
+// decide is Decide for any session Arc launches; emptyReason is why a finished run with no report fails.
+func decide(run *waveobj.Run, lostReason, emptyReason string) Action {
 	if run != nil && run.Status == jarvis.RunStatus_Done {
 		if strings.TrimSpace(run.Report) == "" {
-			return Action{Kind: Fail, Reason: EmptyReportReason}
+			return Action{Kind: Fail, Reason: emptyReason}
 		}
 		return Action{Kind: Deliver}
 	}
