@@ -1276,11 +1276,6 @@ Seen live on 2026-09-17 and 18 or confirmed in code; none block a run.
   `dag merge t-1 --continue`. If your Verify is the full suite, lower parallelism or expect a timeout like this.
   The same load used to push a worker that was only waiting on its own test run past the stall threshold; a
   busy process tree now counts as activity.
-- **A timed-out Verify keeps running on Windows.** The timeout kills only the Git Bash launcher
-  (`exec.CommandContext` in `plancmd_windows.go`). The real `bash` under it and the `go test` it started are
-  never killed. On the backlog run the first Verify's `go test` was still running 30 minutes after it
-  started, competing with the re-run. Kill the orphan tree by hand; it is the `bash.exe -c "<Verify>"` whose
-  parent has exited.
 - **The sealed summary can be the lead's previous message.** The sandbox lead ran `wsh jarvis complete` in the
   same step as its final check, so the evidence captured its mid-run update, not a report. The backlog lead
   lost more. `wsh jarvis complete` is what makes a run terminal, and the engine used to close a lead's tab the
