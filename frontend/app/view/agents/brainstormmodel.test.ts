@@ -32,6 +32,7 @@ import {
     hasProsCons,
     historyRows,
     isAsking,
+    judgeWork,
     leftPanel,
     lineBox,
     mainView,
@@ -71,6 +72,7 @@ import {
     withBrainstorm,
     type BrainstormFile,
     type BrainstormPart,
+    type BrainstormQuestion,
     type BuilderCheckRecord,
     type HistoryEntry,
     type ParseResult,
@@ -1996,5 +1998,154 @@ describe("unseenSince", () => {
             ["Q1", false],
         ]);
         expect(historyRows(after).every((r) => !r.unseen)).toBe(true);
+    });
+});
+
+describe("a judged question", () => {
+    const listed = (n: number) =>
+        Array.from({ length: n }, (_, i) => ({
+            name: `Approach ${i + 1}`,
+            description: `d${i + 1}`,
+            facts: [`f${i + 1}`],
+        }));
+    const DROPPED = [
+        { name: "Refuse a send back to a sender whose request is still open", reason: "misses longer cycles." },
+        { name: "Human approval for chained sends", reason: "stalls automation on a human." },
+        { name: "Prompt wording plus docs only", reason: "enforces nothing." },
+    ];
+    const question = (over: Partial<BrainstormQuestion> = {}): BrainstormQuestion => ({
+        n: 4,
+        text: "How should loops be stopped?",
+        part: "guard",
+        approaches: listed(7),
+        judge: { kind: "weighed", added: [], dropped: DROPPED },
+        ...over,
+    });
+    const opts = [
+        { label: "One hop", detail: "d1", pick: true },
+        { label: "Inbox", detail: "d2" },
+    ];
+
+    it("parses the approaches and a weighed judge on the question and on a history entry", () => {
+        const r = parseBrainstorm(
+            raw({
+                question: {
+                    n: 4,
+                    text: "Q",
+                    approaches: [
+                        { name: "One", description: "d", facts: ["f1", "", 3] },
+                        { name: " ", description: "nameless, not counted" },
+                        { description: "no name" },
+                        { name: "Two" },
+                    ],
+                    judge: { added: ["Two", ""], dropped: [{ name: "Three", reason: "slow" }, { reason: "no name" }] },
+                },
+                history: [
+                    {
+                        kind: "question",
+                        n: 3,
+                        q: "q",
+                        a: "One hop",
+                        into: [],
+                        options: opts,
+                        picked: 0,
+                        judge: { added: [] },
+                    },
+                ],
+            })
+        );
+        expect(r.ok && r.file.question).toEqual({
+            n: 4,
+            text: "Q",
+            part: "",
+            approaches: [
+                { name: "One", description: "d", facts: ["f1"] },
+                { name: "Two", description: "", facts: [] },
+            ],
+            judge: { kind: "weighed", added: ["Two"], dropped: [{ name: "Three", reason: "slow" }] },
+        });
+        expect(r.ok && r.file.history[0].judge).toEqual({ kind: "weighed", added: [], dropped: [] });
+    });
+
+    it("parses a failed judge", () => {
+        const r = parseBrainstorm(
+            raw({ question: { n: 1, text: "Q", read: "r", options: opts, judge: { failed: "x" } } })
+        );
+        expect(r.ok && r.file.question?.judge).toEqual({ kind: "failed", reason: "x" });
+    });
+
+    it("reads a judge of the wrong shape as no record, and the rest of the question as it reads without one", () => {
+        const q = { n: 1, text: "Q", part: "a", read: "r", options: opts };
+        const h = { kind: "question", n: 1, q: "q", a: "One hop", into: [], options: opts, picked: 0 };
+        const plain = parseBrainstorm(raw({ question: q, history: [h] }));
+        expect(plain.ok && plain.file.question).toEqual(q);
+        expect(plain.ok && "judge" in plain.file.history[0]).toBe(false);
+        for (const judge of ["x", {}, { added: 3 }, { added: [], dropped: "none" }, { failed: "" }, null]) {
+            const r = parseBrainstorm(raw({ question: { ...q, judge }, history: [{ ...h, judge }] }));
+            expect(r.ok && r.file.question).toEqual(q);
+            expect(r.ok && r.file.history).toEqual(plain.ok && plain.file.history);
+        }
+    });
+
+    it("judgeWork says how many the agent listed, what the judge added, and how many it dropped", () => {
+        expect(judgeWork(question())).toEqual({
+            line: "weighed the 7 approaches the agent listed, added none, dropped 3.",
+            judged: true,
+            dropped: DROPPED,
+        });
+        const added = (names: string[]) =>
+            judgeWork(question({ judge: { kind: "weighed", added: names, dropped: DROPPED } }))?.line;
+        expect(added(["A"])).toBe("weighed the 7 approaches the agent listed, added A, dropped 3.");
+        expect(added(["A", "B"])).toBe("weighed the 7 approaches the agent listed, added A and B, dropped 3.");
+        expect(added(["A", "B", "C"])).toBe("weighed the 7 approaches the agent listed, added A, B and C, dropped 3.");
+    });
+
+    it("judgeWork with nothing dropped says dropped none, and with no list still reads as a sentence", () => {
+        const none = judgeWork(question({ judge: { kind: "weighed", added: ["A"], dropped: [] } }));
+        expect(none).toEqual({
+            line: "weighed the 7 approaches the agent listed, added A, dropped none.",
+            judged: true,
+            dropped: [],
+        });
+        expect(judgeWork(question({ approaches: undefined }))?.line).toBe(
+            "weighed the approaches the agent listed, added none, dropped 3."
+        );
+    });
+
+    it("judgeWork on a failed judge says the read and pick are the agent's, and why", () => {
+        expect(
+            judgeWork(question({ judge: { kind: "failed", reason: "Arc restarted before the judge started." } }))
+        ).toEqual({
+            line: "the judge failed, so the read and pick are the agent’s: Arc restarted before the judge started.",
+            judged: false,
+            dropped: [],
+        });
+    });
+
+    it("judgeWork is null without a judge record", () => {
+        expect(judgeWork(question({ judge: undefined }))).toBeNull();
+    });
+
+    it("marks a history row judged only when its entry's judge weighed it", () => {
+        const entry = (judge?: HistoryEntry["judge"]): HistoryEntry => ({
+            kind: "question",
+            n: 1,
+            q: "q",
+            a: "One hop",
+            into: [],
+            options: opts,
+            picked: 0,
+            ...(judge ? { judge } : {}),
+        });
+        const rows = historyRows(
+            file({
+                history: [
+                    entry({ kind: "weighed", added: [], dropped: DROPPED }),
+                    entry(),
+                    entry({ kind: "failed", reason: "x" }),
+                ],
+            })
+        );
+        expect(rows.map((r) => r.judged)).toEqual([true, false, false]);
     });
 });

@@ -778,7 +778,9 @@ function RailQuestion({ h, justNow, goTo }: { h: HistoryRow; justNow: boolean; g
                                     {o.label}
                                 </span>
                                 {o.agentPick ? (
-                                    <span className="text-[11px] font-semibold text-accent-soft">Agent’s pick</span>
+                                    <span className="text-[11px] font-semibold text-accent-soft">
+                                        {h.judged ? "Judge’s pick" : "Agent’s pick"}
+                                    </span>
                                 ) : null}
                             </span>
                             {o.detail && (o.picked || open) ? (

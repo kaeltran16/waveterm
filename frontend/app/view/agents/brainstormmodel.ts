@@ -34,7 +34,13 @@ export type BrainstormPart = {
 };
 // an answer the agent offers; pick marks the one it recommends, pros and cons are its reasons for and against
 export type AnswerOption = { label: string; detail: string; pick?: boolean; pros?: string[]; cons?: string[] };
-// read is the agent's one-line comparison of the options
+// what the agent lists for the judge on an approach question: facts only, no odds or pick
+export type Approach = { name: string; description: string; facts: string[] };
+// Arc's account of the judge's work: what it added and dropped, or why it failed and left the agent's options standing
+export type JudgeRecord =
+    | { kind: "weighed"; added: string[]; dropped: { name: string; reason: string }[] }
+    | { kind: "failed"; reason: string };
+// read is the one-line comparison of the options: the judge's on a weighed question, else the agent's
 export type BrainstormQuestion = {
     n: number;
     text: string;
@@ -42,6 +48,8 @@ export type BrainstormQuestion = {
     why?: string;
     read?: string;
     options?: AnswerOption[];
+    approaches?: Approach[];
+    judge?: JudgeRecord;
 };
 // picked is the option's index, absent when the answer was typed in the user's own words. A superseded question was
 // dropped after pushback, unanswered: part is the part it was asked for, which stays open
@@ -57,6 +65,7 @@ export type HistoryEntry = {
     picked?: number;
     part?: string;
     superseded?: true;
+    judge?: JudgeRecord;
 };
 // a question the builder check left for the user. into is every decision its answer changed; label is the rail's
 // short line for it, the full q when absent
@@ -163,6 +172,31 @@ function parseOptions(raw: unknown): AnswerOption[] {
         });
 }
 
+// an approach with no name is dropped, as the server leaves it out of the five it counts
+function parseApproaches(raw: unknown): Approach[] {
+    return (Array.isArray(raw) ? raw : [])
+        .filter((a): a is Rec => isRecord(a) && typeof a.name === "string" && a.name.trim() !== "")
+        .map((a) => ({ name: a.name as string, description: str(a.description) ?? "", facts: lines(a.facts) }));
+}
+
+// a judge of any other shape is no record, so the question draws as the agent wrote it. dropped may be absent: a
+// judge that dropped nothing can leave it out
+function parseJudge(raw: unknown): JudgeRecord | null {
+    if (!isRecord(raw)) {
+        return null;
+    }
+    if (typeof raw.failed === "string" && raw.failed.trim() !== "") {
+        return { kind: "failed", reason: raw.failed };
+    }
+    if (!Array.isArray(raw.added) || (raw.dropped != null && !Array.isArray(raw.dropped))) {
+        return null;
+    }
+    const dropped = (Array.isArray(raw.dropped) ? raw.dropped : [])
+        .filter((d): d is Rec => isRecord(d) && typeof d.name === "string" && d.name.trim() !== "")
+        .map((d) => ({ name: d.name as string, reason: str(d.reason) ?? "" }));
+    return { kind: "weighed", added: lines(raw.added), dropped };
+}
+
 function parseQuestion(raw: unknown): BrainstormQuestion | null {
     if (raw == null) {
         return null;
@@ -171,6 +205,8 @@ function parseQuestion(raw: unknown): BrainstormQuestion | null {
         throw new FieldError("question needs a numeric n and a text");
     }
     const options = parseOptions(raw.options);
+    const approaches = parseApproaches(raw.approaches);
+    const judge = parseJudge(raw.judge);
     return {
         n: raw.n,
         text: raw.text,
@@ -178,6 +214,8 @@ function parseQuestion(raw: unknown): BrainstormQuestion | null {
         ...(str(raw.why) ? { why: str(raw.why) } : {}),
         ...(str(raw.read) ? { read: str(raw.read) } : {}),
         ...(options.length > 0 ? { options } : {}),
+        ...(approaches.length > 0 ? { approaches } : {}),
+        ...(judge != null ? { judge } : {}),
     };
 }
 
@@ -190,6 +228,7 @@ function parseHistory(raw: unknown): HistoryEntry[] {
         // an index past the options it names reads as an answer in the user's own words
         const picked = Number.isInteger(h.picked) && (h.picked as number) >= 0 && (h.picked as number) < options.length;
         const recon = h.kind === "recon";
+        const judge = parseJudge(h.judge);
         return {
             kind: recon ? "recon" : "question",
             ...(typeof h.n === "number" ? { n: h.n } : {}),
@@ -201,6 +240,7 @@ function parseHistory(raw: unknown): HistoryEntry[] {
             ...(picked ? { picked: h.picked as number } : {}),
             ...(str(h.part) ? { part: str(h.part) } : {}),
             ...(!recon && h.superseded === true ? { superseded: true as const } : {}),
+            ...(judge != null ? { judge } : {}),
         };
     });
 }
@@ -589,6 +629,8 @@ export type HistoryRow = {
     q: string;
     // every option the question offered, the picked one and the agent's recommendation marked
     options: { label: string; detail: string; picked: boolean; agentPick: boolean }[];
+    // the judge weighed the question, so the marked recommendation is the judge's
+    judged: boolean;
     why: string | null;
     // the reasoning toggle has something to show: why it was asked, or an option not picked that says what it is
     reasons: boolean;
@@ -617,6 +659,7 @@ function historyRow(f: BrainstormFile, h: HistoryEntry, i: number, unseen: Unsee
         label: recon ? "Recon" : `Q${h.n ?? i + 1}`,
         q: h.q,
         options,
+        judged: h.judge?.kind === "weighed",
         why,
         reasons: why != null || options.some((o) => !o.picked && o.detail !== ""),
         answer,
@@ -647,6 +690,38 @@ export function hasProsCons(q: BrainstormQuestion): boolean {
 
 export function optionLetter(i: number): string {
     return String.fromCharCode("A".charCodeAt(0) + i);
+}
+
+export type JudgeWork = { line: string; judged: boolean; dropped: { name: string; reason: string }[] };
+
+// "A", "A and B", "A, B and C"
+function nameList(names: string[]): string {
+    return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+// the line under a judged question's options, after "Judge’s work: ": how the judge got to its options, or on a
+// failed judge why the read and pick are still the agent's. How many the agent listed is never stored, only counted
+export function judgeWork(q: BrainstormQuestion): JudgeWork | null {
+    const j = q.judge;
+    if (j == null) {
+        return null;
+    }
+    if (j.kind === "failed") {
+        return {
+            line: `the judge failed, so the read and pick are the agent’s: ${j.reason}`,
+            judged: false,
+            dropped: [],
+        };
+    }
+    const listed =
+        q.approaches != null ? `the ${plural(q.approaches.length, "approach", "approaches")}` : "the approaches";
+    const added = j.added.length > 0 ? nameList(j.added) : "none";
+    const dropped = j.dropped.length > 0 ? String(j.dropped.length) : "none";
+    return {
+        line: `weighed ${listed} the agent listed, added ${added}, dropped ${dropped}.`,
+        judged: true,
+        dropped: j.dropped,
+    };
 }
 
 // what the design view's main area holds: the question, or the agent writing, unless the user opened the design
