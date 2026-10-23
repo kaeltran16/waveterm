@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { globalStore } from "@/app/store/jotaiStore";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const getStats = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({

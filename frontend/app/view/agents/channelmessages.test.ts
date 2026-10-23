@@ -70,7 +70,11 @@ describe("planMessage", () => {
         expect(planMessage("ask @nobody anything", roster)).toEqual({ kind: "post", text: "ask @nobody anything" });
     });
     it("does not consult without the ask keyword (leading @runtime still dispatches)", () => {
-        expect(planMessage("@claude build it", roster)).toEqual({ kind: "dispatch", runtime: "claude", text: "build it" });
+        expect(planMessage("@claude build it", roster)).toEqual({
+            kind: "dispatch",
+            runtime: "claude",
+            text: "build it",
+        });
     });
     it("dispatches to opencode by leading mention", () => {
         expect(planMessage("@opencode fix the flaky test", [])).toEqual({

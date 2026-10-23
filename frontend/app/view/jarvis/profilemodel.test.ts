@@ -56,6 +56,55 @@ describe("reducePrinciplePatch", () => {
         const deleted = reducePrinciplePatch(edited, { type: "delete-addition", id: "p1" });
         expect(deleted).toBeUndefined();
     });
+    it("override keeps the replacements already in the patch", () => {
+        const start: PrinciplePatch = { replacements: { a: "A2" } };
+        const after = reducePrinciplePatch(start, { type: "override", id: "b", text: "B2" });
+        expect(after).toEqual({ replacements: { a: "A2", b: "B2" } });
+    });
+    it("reenable of an id that is not disabled changes nothing", () => {
+        const after = reducePrinciplePatch({ disabled: ["a", "b"] }, { type: "reenable", id: "zzz" });
+        expect(after).toEqual({ disabled: ["a", "b"] });
+    });
+    it("update-addition edits only the addition it names", () => {
+        const start: PrinciplePatch = {
+            additions: [
+                { id: "p1", text: "one" },
+                { id: "p2", text: "two" },
+            ],
+        };
+        const after = reducePrinciplePatch(start, { type: "update-addition", id: "p2", text: "TWO" });
+        expect(after).toEqual({
+            additions: [
+                { id: "p1", text: "one" },
+                { id: "p2", text: "TWO" },
+            ],
+        });
+    });
+    it("delete-addition removes the addition it names, not the first or last", () => {
+        const start: PrinciplePatch = {
+            additions: [
+                { id: "p1", text: "one" },
+                { id: "p2", text: "two" },
+                { id: "p3", text: "three" },
+            ],
+        };
+        const after = reducePrinciplePatch(start, { type: "delete-addition", id: "p2" });
+        expect(after).toEqual({
+            additions: [
+                { id: "p1", text: "one" },
+                { id: "p3", text: "three" },
+            ],
+        });
+    });
+    it("delete-addition of an unknown id changes nothing", () => {
+        const start: PrinciplePatch = {
+            additions: [
+                { id: "p1", text: "one" },
+                { id: "p2", text: "two" },
+            ],
+        };
+        expect(reducePrinciplePatch(start, { type: "delete-addition", id: "zzz" })).toEqual(start);
+    });
     it("preserves unrelated fields and order", () => {
         const start: PrinciplePatch = { additions: [{ id: "p1", text: "one" }], disabled: ["a"] };
         const after = reducePrinciplePatch(start, { type: "override", id: "b", text: "B2" });
@@ -107,6 +156,22 @@ describe("isDirty", () => {
     it("treats a route-only override as project-scoped and dirty", () => {
         expect(isDirty({}, { route: { runtime: "pi" } })).toBe(true);
         expect(isDirty({ route: undefined }, { route: undefined })).toBe(false);
+    });
+    it("compares a patch by what it holds, not by the empty lists it carries", () => {
+        expect(isDirty({ principles: { additions: [], disabled: ["a"] } }, { principles: { disabled: ["a"] } })).toBe(
+            false
+        );
+    });
+    it("ignores a route that names no runtime", () => {
+        expect(isDirty({ route: { runtime: "" } }, {})).toBe(false);
+        expect(isDirty({ route: { model: "m" } as RoutePin }, {})).toBe(false);
+    });
+    it("ignores an empty route model", () => {
+        expect(isDirty({ route: { runtime: "pi", model: "" } }, { route: { runtime: "pi" } })).toBe(false);
+    });
+    it("is dirty when the route's runtime or model changes", () => {
+        expect(isDirty({ route: { runtime: "pi" } }, { route: { runtime: "claude" } })).toBe(true);
+        expect(isDirty({ route: { runtime: "pi", model: "a" } }, { route: { runtime: "pi", model: "b" } })).toBe(true);
     });
     it("is true when the patch differs meaningfully", () => {
         expect(isDirty({}, { principles: { disabled: ["a"] } })).toBe(true);

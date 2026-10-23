@@ -174,7 +174,9 @@ describe("groupByRecency: ordering and membership", () => {
     it("holds only the groups that have sessions, and nothing for an empty list", () => {
         expect(groupByRecency([item("l", 5, true)], now).map((g) => [g.key, ids(g)])).toEqual([["live", ["l"]]]);
         expect(groupByRecency([item("e", 5)], now).map((g) => [g.key, ids(g)])).toEqual([["earlier", ["e"]]]);
-        expect(groupByRecency([item("t", startOfToday + 5)], now).map((g) => [g.key, ids(g)])).toEqual([["today", ["t"]]]);
+        expect(groupByRecency([item("t", startOfToday + 5)], now).map((g) => [g.key, ids(g)])).toEqual([
+            ["today", ["t"]],
+        ]);
         expect(groupByRecency([], now)).toEqual([]);
     });
 });
@@ -182,7 +184,10 @@ describe("groupByRecency: ordering and membership", () => {
 describe("mergedFeed + totalEvents", () => {
     it("interleaves events newest-first with session context", () => {
         const list = overlayLive(
-            [mk({ id: "a", task: "A task", events: [ev("started", 10, "a-start")] }, ), mk({ id: "b", task: "B task", transcriptpath: "/b.jsonl", events: [ev("committed", 20, "b-commit")] })],
+            [
+                mk({ id: "a", task: "A task", events: [ev("started", 10, "a-start")] }),
+                mk({ id: "b", task: "B task", transcriptpath: "/b.jsonl", events: [ev("committed", 20, "b-commit")] }),
+            ],
             [],
             1000
         );

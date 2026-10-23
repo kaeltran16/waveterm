@@ -6,7 +6,13 @@ import { partitionChannels, resolveTargetChannel } from "./channelderive";
 
 describe("partitionChannels", () => {
     const ch = (name: string, archived?: boolean): Channel =>
-        ({ oid: name, name, createdts: 0, messages: [], meta: archived ? { archived: true } : {} }) as unknown as Channel;
+        ({
+            oid: name,
+            name,
+            createdts: 0,
+            messages: [],
+            meta: archived ? { archived: true } : {},
+        }) as unknown as Channel;
     it("puts everything in active when nothing is archived", () => {
         const { active, archived } = partitionChannels([ch("a"), ch("b")]);
         expect(active.map((c) => c.name)).toEqual(["a", "b"]);
@@ -19,7 +25,7 @@ describe("partitionChannels", () => {
     });
 });
 
-const ch = (oid: string, projectpath: string): Channel => ({ oid, projectpath } as Channel);
+const ch = (oid: string, projectpath: string): Channel => ({ oid, projectpath }) as Channel;
 
 describe("resolveTargetChannel", () => {
     it("returns the first channel matching the project path", () => {

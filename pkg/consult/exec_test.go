@@ -10,6 +10,7 @@ package consult
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -202,5 +203,53 @@ func TestRunPipe_removesTheStderrCapture(t *testing.T) {
 	}
 	if left != nil {
 		t.Fatalf("temp dir holds %v after the run, want nothing", left)
+	}
+}
+
+// the run closes its stderr capture, not only removes it: Unix lets an open file be removed, so
+// the closed handle is what shows the release on every platform
+func TestRunPipe_closesTheStderrCapture(t *testing.T) {
+	os.Setenv(fakePiHelperEnv, "1")
+	t.Cleanup(func() { os.Unsetenv(fakePiHelperEnv) })
+	var capture *os.File
+	orig := createStderrCapture
+	createStderrCapture = func() (*os.File, error) {
+		f, err := orig()
+		capture = f
+		return f, err
+	}
+	t.Cleanup(func() { createStderrCapture = orig })
+	if _, err := Run(context.Background(), fakePiSpec("drain"), "", "prompt", func(string) {}); err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if capture == nil {
+		t.Fatal("the run made no stderr capture")
+	}
+	if err := capture.Close(); !errors.Is(err, os.ErrClosed) {
+		os.Remove(capture.Name())
+		t.Fatalf("closing the capture after the run = %v, want os.ErrClosed", err)
+	}
+}
+
+// a run whose binary is not installed fails before it makes a stderr capture, so it leaves no file behind
+func TestRunPipe_missingBinaryLeavesNoStderrCapture(t *testing.T) {
+	tmp := t.TempDir()
+	for _, k := range []string{"TMP", "TEMP", "TMPDIR"} {
+		t.Setenv(k, tmp)
+	}
+	spec := RuntimeSpec{Bin: "wave-consult-no-such-binary"}
+	if _, err := Run(context.Background(), spec, "", "prompt", func(string) {}); err == nil {
+		t.Fatal("Run of a missing binary returned no error")
+	}
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	for _, e := range entries {
+		left = append(left, e.Name())
+	}
+	if left != nil {
+		t.Fatalf("temp dir holds %v after the failed run, want nothing", left)
 	}
 }

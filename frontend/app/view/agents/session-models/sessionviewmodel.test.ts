@@ -159,7 +159,13 @@ describe("buildSessionViewModel", () => {
 
     it("keeps the service suffix on a renamed pinned row", () => {
         const vm = buildSessionViewModel([
-            input({ tabId: "t1", agent: "claude", customLabel: "auth refactor", cwd: "/src/CorrelationEngine", pinned: true }),
+            input({
+                tabId: "t1",
+                agent: "claude",
+                customLabel: "auth refactor",
+                cwd: "/src/CorrelationEngine",
+                pinned: true,
+            }),
         ]);
         expect(vm.pinned[0].label).toBe("auth refactor · CorrelationEngine");
     });
@@ -170,9 +176,7 @@ describe("buildSessionViewModel", () => {
     });
 
     it("marks waiting rows as blocked and carries active/pinned flags", () => {
-        const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/X", status: "waiting", active: true }),
-        ]);
+        const vm = buildSessionViewModel([input({ tabId: "t1", cwd: "/src/X", status: "waiting", active: true })]);
         const row = vm.groups[0].sessions[0];
         expect(row.blocked).toBe(true);
         expect(row.active).toBe(true);
@@ -214,7 +218,14 @@ describe("buildSessionViewModel — agents tab", () => {
 
     it("a normal pinned row still gets the service suffix", () => {
         const out = buildSessionViewModel([
-            { tabId: "t2", name: "loom", pinned: true, serviceLabel: "waveterm", status: "idle", active: false } as SessionInput,
+            {
+                tabId: "t2",
+                name: "loom",
+                pinned: true,
+                serviceLabel: "waveterm",
+                status: "idle",
+                active: false,
+            } as SessionInput,
         ]);
         expect(out.pinned[0].label).toBe("loom · waveterm");
     });
@@ -222,9 +233,7 @@ describe("buildSessionViewModel — agents tab", () => {
 
 describe("buildSessionViewModel — detail", () => {
     it("carries the detail string onto the row", () => {
-        const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/X", detail: "editing X.java" }),
-        ]);
+        const vm = buildSessionViewModel([input({ tabId: "t1", cwd: "/src/X", detail: "editing X.java" })]);
         expect(vm.groups[0].sessions[0].detail).toBe("editing X.java");
     });
     it("leaves detail undefined when not provided", () => {
@@ -235,12 +244,20 @@ describe("buildSessionViewModel — detail", () => {
 
 describe("buildSessionViewModel — title (task summary)", () => {
     it("uses the task summary as the label when no custom label is set", () => {
-        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", title: "Fix duplicate-session race", cwd: "/src/X" })]);
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", agent: "claude", title: "Fix duplicate-session race", cwd: "/src/X" }),
+        ]);
         expect(vm.groups[0].sessions[0].label).toBe("Fix duplicate-session race");
     });
     it("lets a custom label override the task summary", () => {
         const vm = buildSessionViewModel([
-            input({ tabId: "t1", agent: "claude", customLabel: "my name", title: "Fix duplicate-session race", cwd: "/src/X" }),
+            input({
+                tabId: "t1",
+                agent: "claude",
+                customLabel: "my name",
+                title: "Fix duplicate-session race",
+                cwd: "/src/X",
+            }),
         ]);
         expect(vm.groups[0].sessions[0].label).toBe("my name");
     });
@@ -253,12 +270,20 @@ describe("buildSessionViewModel — title (task summary)", () => {
         expect(vm.groups[0].sessions[0].label).toBe("claude");
     });
     it("trims surrounding whitespace from the task summary", () => {
-        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", title: "  Refactor auth  ", cwd: "/src/X" })]);
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", agent: "claude", title: "  Refactor auth  ", cwd: "/src/X" }),
+        ]);
         expect(vm.groups[0].sessions[0].label).toBe("Refactor auth");
     });
     it("keeps the service suffix on a pinned row labeled by its task summary", () => {
         const vm = buildSessionViewModel([
-            input({ tabId: "t1", agent: "claude", title: "Refactor auth", cwd: "/src/CorrelationEngine", pinned: true }),
+            input({
+                tabId: "t1",
+                agent: "claude",
+                title: "Refactor auth",
+                cwd: "/src/CorrelationEngine",
+                pinned: true,
+            }),
         ]);
         expect(vm.pinned[0].label).toBe("Refactor auth · CorrelationEngine");
     });
@@ -344,12 +369,20 @@ describe("labelChanged", () => {
 
 describe("buildSessionViewModel — project label (launch default)", () => {
     it("uses the project label over the agent name when there is no task summary", () => {
-        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", projectLabel: "waveterm", cwd: "/src/X" })]);
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", agent: "claude", projectLabel: "waveterm", cwd: "/src/X" }),
+        ]);
         expect(vm.groups[0].sessions[0].label).toBe("waveterm");
     });
     it("lets the task summary override the project label", () => {
         const vm = buildSessionViewModel([
-            input({ tabId: "t1", agent: "claude", projectLabel: "waveterm", title: "Fix duplicate-session race", cwd: "/src/X" }),
+            input({
+                tabId: "t1",
+                agent: "claude",
+                projectLabel: "waveterm",
+                title: "Fix duplicate-session race",
+                cwd: "/src/X",
+            }),
         ]);
         expect(vm.groups[0].sessions[0].label).toBe("Fix duplicate-session race");
     });
@@ -360,7 +393,9 @@ describe("buildSessionViewModel — project label (launch default)", () => {
         expect(vm.groups[0].sessions[0].label).toBe("my name");
     });
     it("trims a project label used as the row label", () => {
-        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", projectLabel: "  waveterm  ", cwd: "/src/X" })]);
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", agent: "claude", projectLabel: "  waveterm  ", cwd: "/src/X" }),
+        ]);
         expect(vm.groups[0].sessions[0].label).toBe("waveterm");
     });
     it("labels a session with no agent and no tab name as session", () => {
@@ -372,7 +407,9 @@ describe("buildSessionViewModel — project label (launch default)", () => {
         expect(vm.groups[0].sessions[0].label).toBe("claude");
     });
     it("carries the project label onto the row so the roster can group by it", () => {
-        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", projectLabel: "waveterm", cwd: "/src/X" })]);
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", agent: "claude", projectLabel: "waveterm", cwd: "/src/X" }),
+        ]);
         expect(vm.groups[0].sessions[0].projectLabel).toBe("waveterm");
     });
     it("carries the cwd onto the row so the roster can resolve its registered project", () => {
@@ -443,7 +480,12 @@ describe("visibleSubagents", () => {
 describe("buildSessionViewModel — subagents", () => {
     it("attaches subagents and rolls an idle parent up to working", () => {
         const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/X", status: "idle", subagents: [{ id: "a", type: "Explore", state: "working" }] }),
+            input({
+                tabId: "t1",
+                cwd: "/src/X",
+                status: "idle",
+                subagents: [{ id: "a", type: "Explore", state: "working" }],
+            }),
         ]);
         const row = vm.groups[0].sessions[0];
         expect(row.subagents).toHaveLength(1);
@@ -451,7 +493,12 @@ describe("buildSessionViewModel — subagents", () => {
     });
     it("keeps a waiting parent amber even with a working subagent", () => {
         const vm = buildSessionViewModel([
-            input({ tabId: "t1", cwd: "/src/X", status: "waiting", subagents: [{ id: "a", type: "E", state: "working" }] }),
+            input({
+                tabId: "t1",
+                cwd: "/src/X",
+                status: "waiting",
+                subagents: [{ id: "a", type: "E", state: "working" }],
+            }),
         ]);
         expect(vm.groups[0].sessions[0].status).toBe("waiting");
     });
@@ -505,7 +552,13 @@ describe("buildDuplicateBlockMeta", () => {
         expect(buildDuplicateBlockMeta(src)).toEqual({ ...src });
     });
     it("drops non-launch keys (labels, fontsize, view override)", () => {
-        const src = { view: "preview", controller: "shell", "cmd:cwd": "/x", "session:label": "L", "term:fontsize": 14 };
+        const src = {
+            view: "preview",
+            controller: "shell",
+            "cmd:cwd": "/x",
+            "session:label": "L",
+            "term:fontsize": 14,
+        };
         const out = buildDuplicateBlockMeta(src);
         expect(out.view).toBe("term");
         expect(out["session:label"]).toBeUndefined();
@@ -527,7 +580,11 @@ describe("reorderWithinGroup", () => {
     it("leaves other groups' interleaved tabs byte-for-byte untouched", () => {
         // group = a,b,c at slots 0,2,4; x,y at 1,3 belong to other groups
         expect(reorderWithinGroup(["a", "x", "b", "y", "c"], ["a", "b", "c"], "c", "a", true)).toEqual([
-            "c", "x", "a", "y", "b",
+            "c",
+            "x",
+            "a",
+            "y",
+            "b",
         ]);
     });
     it("works for the pinned group (members are the pinned ids)", () => {

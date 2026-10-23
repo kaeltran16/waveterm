@@ -1,12 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { answerAsk, askQuestions, buildEditDiff, formatDuration, parseGrep, sliceRead, toolResultText } from "./tooldetail";
+import {
+    answerAsk,
+    askQuestions,
+    buildEditDiff,
+    formatDuration,
+    parseGrep,
+    sliceRead,
+    toolResultText,
+} from "./tooldetail";
 
 describe("toolResultText", () => {
     it("returns a string result verbatim", () => {
         expect(toolResultText("hello")).toBe("hello");
     });
     it("joins text blocks of an array result", () => {
-        expect(toolResultText([{ type: "text", text: "a" }, { type: "text", text: "b" }])).toBe("a\nb");
+        expect(
+            toolResultText([
+                { type: "text", text: "a" },
+                { type: "text", text: "b" },
+            ])
+        ).toBe("a\nb");
     });
     it("keeps only the string text of text blocks, skipping other blocks and non-objects", () => {
         const content = [
@@ -129,7 +142,8 @@ describe("askQuestions", () => {
 });
 
 describe("answerAsk", () => {
-    const ask = (...questions: string[]) => askQuestions(questions.map((question) => ({ question, options: [{ label: "A" }] })));
+    const ask = (...questions: string[]) =>
+        askQuestions(questions.map((question) => ({ question, options: [{ label: "A" }] })));
 
     it("skips a question with a missing, empty or non-string answer and returns no summary", () => {
         const qs = ask("q1", "q2");

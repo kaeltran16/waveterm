@@ -43,15 +43,24 @@ describe("correlateSubagents", () => {
     });
 
     it("matches on normalized whitespace", () => {
-        const out = correlateSubagents([spawn({ prompt: "look   at\nX", done: true })], [file({ firstprompt: "look at X" })]);
+        const out = correlateSubagents(
+            [spawn({ prompt: "look   at\nX", done: true })],
+            [file({ firstprompt: "look at X" })]
+        );
         expect(out[0].type).toBe("Explore");
     });
 
     it("pairs parallel same-type spawns 1:1 in file order", () => {
-        const spawns = [spawn({ toolUseId: "a", prompt: "P1", done: true }), spawn({ toolUseId: "b", prompt: "P2", done: true, failed: true })];
+        const spawns = [
+            spawn({ toolUseId: "a", prompt: "P1", done: true }),
+            spawn({ toolUseId: "b", prompt: "P2", done: true, failed: true }),
+        ];
         const files = [file({ agentid: "f1", firstprompt: "P1" }), file({ agentid: "f2", firstprompt: "P2" })];
         const out = correlateSubagents(spawns, files);
-        expect(out.map((s) => [s.id, s.state])).toEqual([["f1", "success"], ["f2", "failure"]]);
+        expect(out.map((s) => [s.id, s.state])).toEqual([
+            ["f1", "success"],
+            ["f2", "failure"],
+        ]);
     });
 
     it("falls back to the prompt's first line when no spawn matches", () => {

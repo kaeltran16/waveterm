@@ -307,6 +307,23 @@ describe("draftSeedKey", () => {
         expect(draftSeedKey(engineRun({ workerroute: { runtime: "pi" } as RoutePin }), null)).not.toBe(base);
     });
 
+    it("spells out every route's runtime and model", () => {
+        const run = engineRun({ dagoref: "d1" });
+        const group = submittedGroup({
+            workerroute: { runtime: "pi", model: "m-work" } as RoutePin,
+            reviewerroute: { runtime: "claude", model: "m-rev" } as RoutePin,
+            lightreviewerroute: { runtime: "codex", model: "m-light" } as RoutePin,
+        });
+        expect(draftSeedKey(run, group)).toBe("2|pi|m-work|false|claude|m-rev|codex|m-light|false");
+    });
+
+    it("leaves a route's model blank when it names none, and every route blank when unset", () => {
+        const run = engineRun({ dagoref: "d1" });
+        const group = submittedGroup({ workerroute: { runtime: "pi" } as RoutePin });
+        expect(draftSeedKey(run, group)).toBe("2|pi||false|||||false");
+        expect(draftSeedKey(engineRun(), null)).toBe("0|||false|||||false");
+    });
+
     it("ignores an update that leaves the effective settings alone", () => {
         const run = engineRun({ dagoref: "d1" });
         expect(draftSeedKey(run, submittedGroup({ status: "executing" }))).toBe(

@@ -178,6 +178,41 @@ describe("taskPeek review rows", () => {
     });
 });
 
+describe("taskPeek states and tones", () => {
+    it("says a ready task waits for a slot just as a pending one does", () => {
+        expect(taskPeek(task({ state: "ready" }), digest({ waitreason: "parallelism" }), briefs, NOW).rows).toEqual([
+            { text: "waiting for a worker slot", tone: "muted" },
+        ]);
+    });
+
+    it("leaves out the attempt count on a first failure", () => {
+        expect(
+            taskPeek(task({ state: "failed", lastfailurekind: "exit", attempts: 1 }), undefined, briefs, NOW).rows
+        ).toEqual([{ text: "last failure: exit", tone: "warning" }]);
+    });
+
+    it("names the review round while a reviewer is checking", () => {
+        expect(taskPeek(task({ state: "reviewing" }), undefined, briefs, NOW).rows).toEqual([
+            { text: "reviewer checking the commit", tone: "muted" },
+        ]);
+        expect(taskPeek(task({ state: "reviewing", reviewround: 1 }), undefined, briefs, NOW).rows).toEqual([
+            { text: "reviewer checking the fix · round 2", tone: "muted" },
+        ]);
+    });
+
+    it("warns about a review that failed or whose verdict is fail, and mutes any other", () => {
+        const note = (over: Partial<TaskNode>) =>
+            taskPeek(task({ reviewnote: "misses empty input", ...over }), undefined, briefs, NOW).rows;
+        expect(note({ state: "review-failed" })).toEqual([{ text: "review: misses empty input", tone: "warning" }]);
+        expect(note({ state: "done", reviewverdict: "fail" })).toEqual([
+            { text: "review fail: misses empty input", tone: "warning" },
+        ]);
+        expect(note({ state: "done", reviewverdict: "pass" })).toEqual([
+            { text: "review pass: misses empty input", tone: "muted" },
+        ]);
+    });
+});
+
 describe("peekActions", () => {
     it("keeps the engine's order with escalate last, the first one primary", () => {
         expect(peekActions(["retry", "skip", "escalate"])).toEqual([

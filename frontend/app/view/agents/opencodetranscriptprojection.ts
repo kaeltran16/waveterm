@@ -35,6 +35,9 @@ function targetFor(name: string, input: string): string {
     } catch {
         return input;
     }
+    if (args == null || typeof args !== "object") {
+        return input;
+    }
     for (const key of ["filePath", "file_path"]) {
         if (typeof args[key] === "string" && args[key]) {
             return args[key].split(/[/\\]/).pop() || args[key];
@@ -56,6 +59,9 @@ export function projectOpencodeTranscript(lines: string[]): AgentEntry[] {
         try {
             rec = JSON.parse(line);
         } catch {
+            continue;
+        }
+        if (rec == null) {
             continue;
         }
         if (rec.type === "user" && typeof rec.text === "string" && rec.text.trim() !== "") {

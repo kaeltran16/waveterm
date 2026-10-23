@@ -57,6 +57,32 @@ describe("ctrl-shift compute", () => {
         chrome.applyKeyToCtrlShift({ type: "keyup", ctrl: true, shift: false, meta: false });
         expect(cb).toHaveBeenLastCalledWith(false);
     });
+    it("does not emit for ctrl or shift alone", () => {
+        const cb = vi.fn();
+        chrome.onControlShiftStateUpdate(cb);
+        chrome.applyKeyToCtrlShift({ type: "keydown", ctrl: true, shift: false, meta: false });
+        chrome.applyKeyToCtrlShift({ type: "keydown", ctrl: false, shift: true, meta: false });
+        expect(cb).not.toHaveBeenCalled();
+    });
+    it("ignores a keyup that leaves ctrl and shift both held", () => {
+        const cb = vi.fn();
+        chrome.onControlShiftStateUpdate(cb);
+        chrome.applyKeyToCtrlShift({ type: "keyup", ctrl: true, shift: true, meta: false });
+        expect(cb).not.toHaveBeenCalled();
+        chrome.applyKeyToCtrlShift({ type: "keydown", ctrl: true, shift: true, meta: false });
+        chrome.applyKeyToCtrlShift({ type: "keyup", ctrl: true, shift: true, meta: false });
+        expect(cb.mock.calls).toEqual([[true]]);
+    });
+    it("emits false when a keyup releases ctrl or shift", () => {
+        const cb = vi.fn();
+        chrome.onControlShiftStateUpdate(cb);
+        chrome.applyKeyToCtrlShift({ type: "keydown", ctrl: true, shift: true, meta: false });
+        chrome.applyKeyToCtrlShift({ type: "keyup", ctrl: false, shift: true, meta: false });
+        expect(cb.mock.calls).toEqual([[true], [false]]);
+        chrome.applyKeyToCtrlShift({ type: "keydown", ctrl: true, shift: true, meta: false });
+        chrome.applyKeyToCtrlShift({ type: "keyup", ctrl: true, shift: false, meta: false });
+        expect(cb.mock.calls).toEqual([[true], [false], [true], [false]]);
+    });
     it("does not emit when meta is held, and dedupes repeats", () => {
         const cb = vi.fn();
         chrome.onControlShiftStateUpdate(cb);

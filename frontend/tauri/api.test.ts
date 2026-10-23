@@ -11,6 +11,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 
 import { installTauriApi, type InitData } from "./api";
+import * as chromeModule from "./chrome";
 
 // the bridge attaches to window.api; provide a bare window in the node test env. jsdom is not
 // needed (and not installed) because the bridge touches no real DOM API beyond window.api.
@@ -66,6 +67,17 @@ describe("invoke-backed methods", () => {
         (window as any).api.openExternal(null as any);
         expect(invokeMock).not.toHaveBeenCalled();
     });
+    it.each([[42], [""], [{}]])("openExternal rejects %j and logs it", (url) => {
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            installTauriApi(INIT);
+            (window as any).api.openExternal(url as any);
+            expect(invokeMock).not.toHaveBeenCalled();
+            expect(errorSpy).toHaveBeenCalledExactlyOnceWith("Invalid URL passed to openExternal:", url);
+        } finally {
+            errorSpy.mockRestore();
+        }
+    });
     it("setWindowInitStatus invokes with the status", () => {
         installTauriApi(INIT);
         (window as any).api.setWindowInitStatus("ready");
@@ -92,6 +104,43 @@ describe("onWaveInit", () => {
         });
         expect(listenMock).toHaveBeenCalledWith("wave-init", expect.any(Function));
         expect(captured).toEqual({ tabId: "t1" });
+    });
+});
+
+describe("onWaveInit listen failure", () => {
+    it("logs the failure through fe_log", async () => {
+        listenMock.mockImplementationOnce(() => Promise.reject("boom"));
+        installTauriApi(INIT);
+        (window as any).api.onWaveInit(() => {});
+        await vi.waitFor(() =>
+            expect(invokeMock).toHaveBeenCalledWith("fe_log", { msg: "onWaveInit listen failed: boom" })
+        );
+    });
+});
+
+describe("chrome subscriptions", () => {
+    it("onZoomFactorChange registers with the chrome controller", () => {
+        installTauriApi(INIT);
+        const cb = vi.fn();
+        (window as any).api.onZoomFactorChange(cb);
+        chromeModule.zoomIn();
+        expect(cb).toHaveBeenCalledExactlyOnceWith(chromeModule.getZoomFactor());
+        chromeModule.zoomReset();
+    });
+    it("onFullScreenChange registers with the chrome controller", async () => {
+        installTauriApi(INIT);
+        const cb = vi.fn();
+        (window as any).api.onFullScreenChange(cb);
+        await chromeModule.toggleFullscreen();
+        expect(cb).toHaveBeenCalledExactlyOnceWith(true);
+    });
+    it("onControlShiftStateUpdate registers with the chrome controller", () => {
+        installTauriApi(INIT);
+        const cb = vi.fn();
+        (window as any).api.onControlShiftStateUpdate(cb);
+        chromeModule.applyKeyToCtrlShift({ type: "keydown", ctrl: true, shift: true, meta: false });
+        chromeModule.applyKeyToCtrlShift({ type: "keyup", ctrl: false, shift: false, meta: false });
+        expect(cb.mock.calls).toEqual([[true], [false]]);
     });
 });
 

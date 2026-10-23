@@ -1,9 +1,21 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from "vitest";
-import type { ThingAction, ThingEntry, ThingKindDef } from "./actions/types";
-import { actionListGroups, resolveActionRow, verbGroupLabel, verbLeads } from "./palette-actionrows";
+import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { CircleX, Square } from "lucide-react";
+import { describe, expect, it, vi } from "vitest";
+import { verbRows, type ThingAction, type ThingEntry, type ThingKindDef } from "./actions/types";
+import {
+    actionDrillGroups,
+    actionItem,
+    actionListGroups,
+    resolveActionRow,
+    runThingAction,
+    verbGroupLabel,
+    verbItems,
+    verbLeads,
+} from "./palette-actionrows";
+import { initialNav, type NavState } from "./palette-scope";
 
 interface Job {
     live: boolean;
@@ -152,5 +164,158 @@ describe("verbGroupLabel", () => {
 
     it("is plain Actions when the rows mix actions", () => {
         expect(verbGroupLabel([row("Cancel run"), row("Resume")])).toBe("Actions");
+    });
+});
+
+describe("action rows", () => {
+    const cancel = JOB_KIND.actions[0];
+    const t = { def: JOB_KIND, entry: entry(true) };
+    const deps = () => ({ model: {} as AgentsViewModel, close: vi.fn(), setPaletteError: vi.fn() });
+    const drilled = (over: Partial<NavState["actions"]> = {}, query = ""): NavState => ({
+        ...initialNav("agent"),
+        query,
+        actions: {
+            thing: { key: "run:1", title: "fix flaky verify", noun: "Run" },
+            back: { scope: "all", query: "", sel: 0, asGoal: false },
+            input: null,
+            ...over,
+        },
+    });
+
+    it("reads an action row as resolveActionRow says, and Enter starts it", () => {
+        const start = vi.fn();
+        const row = actionItem(t, cancel, start);
+        expect(row).toMatchObject({
+            key: "act:job:cancel",
+            kind: "action",
+            search: "Cancel run",
+            icon: Square,
+            title: "Cancel run",
+            verb: "Cancel",
+            echo: "Cancel run: “fix flaky verify”",
+        });
+        row.run();
+        expect(start).toHaveBeenCalledWith(t, cancel);
+        expect(actionItem(t, { ...cancel, destructive: true }, start)).toMatchObject({ icon: CircleX, danger: true });
+    });
+
+    it("closes after an action succeeds, and stays open on the error when it fails", async () => {
+        const ok = deps();
+        runThingAction(t, { ...cancel, run: async () => {} }, ok);
+        await vi.waitFor(() => expect(ok.close).toHaveBeenCalled());
+        const bad = deps();
+        runThingAction(t, { ...cancel, run: async () => Promise.reject(new Error("gone")) }, bad);
+        await vi.waitFor(() => expect(bad.setPaletteError).toHaveBeenLastCalledWith("Cancel run failed: gone"));
+        expect(bad.close).not.toHaveBeenCalled();
+    });
+
+    it("lists verb rows only when the query leads with the verb, borrowing the thing's meta", () => {
+        const all = verbRows(JOB_KIND, [entry(true)]).map((v) => ({ def: JOB_KIND, v }));
+        const meta = new Map([["run:1", "#waveterm"]]);
+        expect(verbItems(all, "flaky", meta, vi.fn()).items).toEqual([]);
+        expect(verbItems(all, "", meta, vi.fn()).items).toEqual([]);
+        const { items, byKey } = verbItems(all, "cancel", meta, vi.fn());
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({
+            key: "action:job:cancel:run:1",
+            search: "Cancel run fix flaky verify",
+            title: "Cancel run · fix flaky verify",
+            meta: "#waveterm",
+        });
+        expect(byKey.get(items[0].key)?.action).toBe(cancel);
+    });
+
+    it("drills into a thing's action list, its last group carrying the Not now line", () => {
+        const groups = actionDrillGroups(drilled(), new Map([["run:1", t]]), vi.fn(), deps());
+        expect(groups.map((g) => [g.key, g.label, g.items.map((it) => it.key)])).toEqual([
+            ["act:open", "Open", ["act:job:open", "act:job:dag"]],
+            ["act:stop", "Stop", ["act:job:cancel"]],
+        ]);
+        expect(groups[1].note).toBe("Not now: Resume, End final stage");
+    });
+
+    it("says when nothing matches, and when the thing is gone", () => {
+        const none = actionDrillGroups(drilled({}, "zzz"), new Map([["run:1", t]]), vi.fn(), deps());
+        expect(none).toEqual([
+            {
+                key: "empty",
+                label: "Actions",
+                items: [],
+                emptyText: "No actions match “zzz”.",
+                note: "Not now: Resume, End final stage",
+            },
+        ]);
+        expect(actionDrillGroups(drilled(), new Map(), vi.fn(), deps())).toEqual([
+            { key: "empty", label: "Run", items: [], emptyText: "It is no longer listed." },
+        ]);
+    });
+
+    it("lists a pick action's options, and picking one runs the action with its value", async () => {
+        const run = vi.fn();
+        const pick: ThingAction<Job> = {
+            ...cancel,
+            id: "job:stop-worker",
+            label: "Stop a worker…",
+            input: { kind: "pick", placeholder: "", options: () => [{ value: "w1", label: "worker one" }] },
+            run,
+        };
+        const def = { ...JOB_KIND, actions: [pick] };
+        const d = deps();
+        const nav = drilled({ input: { actionId: pick.id, label: "Stop a worker" } });
+        const [group] = actionDrillGroups(nav, new Map([["run:1", { def, entry: entry(true) }]]), vi.fn(), d);
+        expect(group).toMatchObject({ key: "pick", label: "Stop a worker" });
+        expect(group.items[0]).toMatchObject({
+            key: "opt:w1",
+            title: "worker one",
+            icon: undefined,
+            verb: "Pick",
+            echo: "Stop a worker: worker one",
+        });
+        group.items[0].run();
+        await vi.waitFor(() => expect(d.close).toHaveBeenCalled());
+        expect(run.mock.calls[0][2]).toBe("w1");
+        const empty = actionDrillGroups(
+            { ...nav, query: "zzz" },
+            new Map([["run:1", { def, entry: entry(true) }]]),
+            vi.fn(),
+            d
+        );
+        expect(empty[0]).toMatchObject({ items: [], emptyText: "Nothing matches “zzz”." });
+    });
+
+    it("takes a text action's value from the query, and an empty field sends nothing", async () => {
+        const run = vi.fn();
+        const text: ThingAction<Job> = {
+            ...cancel,
+            id: "job:msg",
+            label: "Message the lead",
+            input: { kind: "text", placeholder: "Say something…" },
+            run,
+        };
+        const def = { ...JOB_KIND, actions: [text] };
+        const targets = new Map([["run:1", { def, entry: entry(true) }]]);
+        const d = deps();
+        const at = (query: string) =>
+            actionDrillGroups(
+                drilled({ input: { actionId: text.id, label: "Message the lead" } }, query),
+                targets,
+                vi.fn(),
+                d
+            );
+        const [blank] = at("");
+        expect(blank.items[0]).toMatchObject({
+            key: "submit",
+            title: "Say something…",
+            verb: "Send",
+            echo: "Type it here, then Enter sends it",
+        });
+        blank.items[0].run();
+        expect(run).not.toHaveBeenCalled();
+        const [typed] = at("hello");
+        expect(typed).toMatchObject({ key: "text", label: "Message the lead" });
+        expect(typed.items[0]).toMatchObject({ title: "hello", hl: "", echo: "Message the lead: “hello”" });
+        typed.items[0].run();
+        await vi.waitFor(() => expect(d.close).toHaveBeenCalled());
+        expect(run.mock.calls[0][2]).toBe("hello");
     });
 });

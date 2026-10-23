@@ -155,6 +155,36 @@ describe("runTiming", () => {
         expect(view.notes[1]).toBe("Longest activity: execution, 8m. This is not summed worker time.");
     });
 
+    it("says a single overlapping activity has overlapped, not have", () => {
+        const timing: DagTimingDigest = {
+            startts: LAUNCH,
+            activities: [
+                act("planning", 0, 8),
+                act("execution", 8),
+                act("review", 18),
+                act("merge", 20, 25),
+                act("final", 26, 28),
+            ],
+        };
+        const view = runTiming({ run: run("running"), digest: digest(timing), tasks: [], nowMs: at(30) });
+        expect(view.notes[1]).toBe("Review has overlapped execution.");
+    });
+
+    it("adds no live note once nothing overlaps and every activity has started", () => {
+        const timing: DagTimingDigest = {
+            startts: LAUNCH,
+            activities: [
+                act("planning", 0, 8),
+                act("execution", 8, 20),
+                act("review", 18, 25),
+                act("merge", 20, 26),
+                act("final", 26),
+            ],
+        };
+        const view = runTiming({ run: run("running"), digest: digest(timing), tasks: [], nowMs: at(30) });
+        expect(view.notes).toEqual(["Elapsed since launch. Activities overlap; do not add these rows."]);
+    });
+
     it("shows a planning-only live run as one open row", () => {
         const timing: DagTimingDigest = { startts: LAUNCH, activities: [act("planning", 0)] };
         const view = runTiming({ run: run("running"), digest: digest(timing), tasks: [], nowMs: at(5) });

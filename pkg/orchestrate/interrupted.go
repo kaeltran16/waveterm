@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -21,8 +22,9 @@ const interruptedNote = "the app stopped while the worker was running"
 // MarkInterruptedRuns fails the running phase of every non-dag run that was executing when wavesrv last
 // stopped, then resumes it in its own session. Neither a quit nor a crash reaches HandleRunWorkerExit, and every
 // worker is a child of the previous wavesrv, so at boot none of them can be alive: without this the run reads
-// executing forever, and without the resume it sat blocked until someone noticed. Dag runs are the watchdog's.
-// Call before StartWatchdog; a run that fails to reconcile is logged and skipped.
+// executing forever, and without the resume it sat blocked until someone noticed. Dag runs are the watchdog's,
+// except the ones their dag never recorded (cancelOrphanedDagRun). Call before StartWatchdog; a run that fails to
+// reconcile is logged and skipped.
 func MarkInterruptedRuns(ctx context.Context) {
 	runs, err := wstore.GetRunsByStatus(ctx, jarvis.RunStatus_Executing, jarvis.RunStatus_Planning)
 	if err != nil {
@@ -31,6 +33,7 @@ func MarkInterruptedRuns(ctx context.Context) {
 	}
 	for _, run := range runs {
 		if run.DagORef != "" {
+			cancelOrphanedDagRun(ctx, run)
 			continue
 		}
 		phaseIdx, _, err := failRunningPhase(ctx, run.ChannelOID, run.ID, func(workers []string) bool {
@@ -51,6 +54,32 @@ func MarkInterruptedRuns(ctx context.Context) {
 			log.Printf("run %s stays blocked: %v", run.ID, err)
 		}
 	}
+}
+
+// cancelOrphanedDagRun cancels a dag's run that neither its owner nor any task, reviewer, plan reviewer or final
+// verifier names. A tick records each child run before it starts its worker but commits the dag at the end of the
+// batch, so a quit in between leaves runs the dag never took: the watchdog sees only the runs its tasks name, and
+// the tick dispatches those tasks again. Its tab is disarmed too, or a resync starts a second worker for the task.
+func cancelOrphanedDagRun(ctx context.Context, run *waveobj.Run) {
+	g, err := wstore.GetDag(ctx, run.DagORef)
+	if err != nil {
+		log.Printf("run %s: reading its dag %s at boot: %v", run.ID, run.DagORef, err)
+		return
+	}
+	if run.ID == g.RunID || slices.Contains(childRunIDs(g), run.ID) {
+		return
+	}
+	if err := wstore.UpdateRun(ctx, run.ChannelOID, run.ID, func(r *waveobj.Run) error {
+		*r = jarvis.CancelRun(*r)
+		return nil
+	}); err != nil {
+		log.Printf("cancelling run %s, which dag %s never recorded: %v", run.ID, g.OID, err)
+		return
+	}
+	if err := stopRunWorkers(ctx, run); err != nil {
+		log.Printf("stopping the worker of run %s, which dag %s never recorded: %v", run.ID, g.OID, err)
+	}
+	sendRunUpdates(run.ChannelOID, run.ID)
 }
 
 // leadResumeNudge is a lead's first turn after the app restarted under it. The worker nudge would send it

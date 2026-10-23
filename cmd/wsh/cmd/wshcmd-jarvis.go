@@ -168,6 +168,9 @@ func completeLandLines(rtn *wshrpc.CommandReportRunPhaseRtnData) []string {
 		if l.Dirty {
 			line += "; those changes are not yours to touch: the engine lands the run by itself once they are gone"
 		}
+		if l.Busy {
+			line += "; the engine lands the run by itself once that landing lets go of the checkout"
+		}
 		lines = append(lines, line)
 	default:
 		lines = append(lines, "land "+l.State)

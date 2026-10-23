@@ -25,6 +25,11 @@ describe("projectOpencodeTranscript", () => {
         const entries = projectOpencodeTranscript([...SHADOW, "not json"]);
         expect(entries.some((e) => (e as any).kind === "state")).toBe(false);
     });
+    it("skips a line that is JSON null and keeps projecting", () => {
+        expect(projectOpencodeTranscript(["null", `{"type":"user","text":"hi","ts":1}`])).toEqual([
+            { kind: "user", text: "hi" },
+        ]);
+    });
     it("maps edit/write/read tool targets to a file name", () => {
         const entries = projectOpencodeTranscript([
             `{"type":"tool","name":"edit","state":"completed","input":"{\\"filePath\\":\\"/a/b/auth.go\\"}","ts":1}`,
@@ -102,6 +107,12 @@ describe("projectOpencodeTranscript", () => {
             "not json",
             '{"other":1}',
         ]);
+    });
+    it("labels a file tool whose input is JSON but not an object by the raw input, and keeps projecting", () => {
+        const tool = (name: string, input: unknown) =>
+            JSON.stringify({ type: "tool", name, state: "completed", input });
+        const entries = projectOpencodeTranscript([tool("read", "null"), tool("read", "42"), tool("glob", "{}")]);
+        expect(entries.map((e) => (e as { target: string }).target)).toEqual(["null", "42", "{}"]);
     });
 });
 

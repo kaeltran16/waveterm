@@ -29,30 +29,78 @@ const EFFORT = {
 } as Effort;
 
 describe("effortPeekModel", () => {
-    const m = effortPeekModel(EFFORT);
+    const model = () => effortPeekModel(EFFORT);
 
     it("counts done chunks, skips shrinking the total", () => {
-        expect(m.progress).toBe("2 of 4 chunks done");
-        expect(m.doneLine).toBe("2 done · slice 1");
+        expect(model().progress).toBe("2 of 4 chunks done");
+        expect(model().doneLine).toBe("2 done · slice 1");
     });
 
     it("lists the remaining chunks in plan order with the active one marked", () => {
-        expect(m.remaining.map((c) => [c.n, c.label, c.active])).toEqual([
+        expect(model().remaining.map((c) => [c.n, c.label, c.active])).toEqual([
             [3, "three", true],
             [4, "four", false],
         ]);
     });
 
     it("draws one segment per chunk", () => {
-        expect(m.segments).toEqual(["done", "done", "active", "pending", "skipped"]);
+        expect(model().segments).toEqual(["done", "done", "active", "pending", "skipped"]);
     });
 
     it("reads the objective from the first note and omits what is unknown", () => {
-        expect(m.objective).toBe("Surfaces agree on a subject.");
+        expect(model().objective).toBe("Surfaces agree on a subject.");
         const bare = effortPeekModel({ ...EFFORT, notes: [], project: undefined, chunks: [] } as Effort);
         expect(bare.objective).toBeNull();
         expect(bare.project).toBeNull();
         expect(bare.doneLine).toBeNull();
+    });
+});
+
+describe("effortPeekModel, whole", () => {
+    it("builds every field from the effort", () => {
+        expect(effortPeekModel(EFFORT)).toStrictEqual({
+            title: "Cockpit Focus and Peek",
+            status: "active",
+            objective: "Surfaces agree on a subject.",
+            progress: "2 of 4 chunks done",
+            project: "waveterm",
+            segments: ["done", "done", "active", "pending", "skipped"],
+            doneLine: "2 done · slice 1",
+            remaining: [
+                { n: 3, label: "three", status: "active", tone: "active", active: true },
+                { n: 4, label: "four", status: "pending", tone: "pending", active: false },
+            ],
+        });
+    });
+
+    it("names each distinct done stage once, in plan order, leaving out a blank one", () => {
+        const effort = {
+            ...EFFORT,
+            chunks: [
+                chunk("one", "done", "beta"),
+                chunk("two", "done"),
+                chunk("three", "done", "alpha"),
+                chunk("four", "done", "beta"),
+                chunk("five", "active", "gamma"),
+            ],
+        } as Effort;
+        expect(effortPeekModel(effort).doneLine).toBe("4 done · beta · alpha");
+    });
+
+    it("takes the earliest note as the objective whatever order the notes arrive in", () => {
+        const effort = {
+            ...EFFORT,
+            notes: [
+                { ts: 30, text: "last" },
+                { ts: 10, text: "first" },
+                { ts: 20, text: "middle" },
+            ],
+        } as Effort;
+        expect(effortPeekModel(effort).objective).toBe("first");
+    });
+
+    it("has no objective for an effort that carries no notes at all", () => {
+        expect(effortPeekModel({ ...EFFORT, notes: undefined } as Effort).objective).toBeNull();
     });
 });
 

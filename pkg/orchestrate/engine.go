@@ -350,9 +350,6 @@ func failDispatch(ctx context.Context, g *waveobj.TaskGroup, taskID, kind string
 		return
 	}
 	task := &g.Tasks[idx]
-	if task.LastFailureKind != kind {
-		task.Attempts = 0
-	}
 	task.LastFailureKind = kind
 	retry := retryDecision(kind, task.Attempts)
 	task.Attempts++
@@ -663,7 +660,10 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 	}
 	for i := range g.Tasks {
 		if g.Tasks[i].State == TaskState_Failed && taskActive(prevStates[g.Tasks[i].ID]) {
-			g.Failures++
+			// a stopped worker was not judged, so it says nothing about the streak
+			if g.Tasks[i].LastFailureKind != FailureKindStopped {
+				g.Failures++
+			}
 			// task-failed: record the terminal failure boundary (task id, child run id, failure
 			// classifier, attempt count) — emitted only after the persist lands.
 			taskID := g.Tasks[i].ID

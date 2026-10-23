@@ -28,7 +28,9 @@ describe("buildProjectList", () => {
     });
     it("is empty before the config or channels load", () => {
         expect(buildProjectList(undefined, null)).toEqual([]);
-        expect(buildProjectList({ a: { path: "/a" } } as any, null)).toEqual([{ name: "a", path: "/a", channel: undefined }]);
+        expect(buildProjectList({ a: { path: "/a" } } as any, null)).toEqual([
+            { name: "a", path: "/a", channel: undefined },
+        ]);
     });
 });
 

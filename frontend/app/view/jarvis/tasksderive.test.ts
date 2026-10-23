@@ -73,6 +73,30 @@ describe("decisionHeading", () => {
             body: "because backpressure",
         });
     });
+    it("trims the summary and the rationale it is filed with", () => {
+        expect(decisionHeading({ summary: "  Chose b \n", rationale: "\n b needs no migration \n" })).toEqual({
+            title: "Chose b",
+            body: "b needs no migration",
+        });
+    });
+    it("treats a blank summary as none and falls back to the rationale", () => {
+        expect(decisionHeading({ summary: "   ", rationale: "# Heading\nbody" })).toEqual({
+            title: "Heading",
+            body: "body",
+        });
+    });
+    it("trims the fallback title and strips markers only from its front", () => {
+        expect(decisionHeading({ summary: undefined, rationale: "drop-oldest on overflow  \nbecause" })).toEqual({
+            title: "drop-oldest on overflow",
+            body: "because",
+        });
+    });
+    it("keeps every line after the title in the body", () => {
+        expect(decisionHeading({ summary: "", rationale: "> title\nsecond\nthird" })).toEqual({
+            title: "title",
+            body: "second\nthird",
+        });
+    });
     it("gives an empty heading for an empty decision", () => {
         expect(decisionHeading({ summary: "", rationale: "  " })).toEqual({ title: "", body: "" });
     });

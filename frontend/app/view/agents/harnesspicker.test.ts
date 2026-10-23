@@ -12,7 +12,10 @@ describe("harnessPickerItems", () => {
     it("marks unavailable and unsupported rows without selecting Claude", () => {
         const items = harnessPickerItems(harnesses, "opencode", "run-worker");
         expect(items.find((x) => x.runtime === "opencode")).toMatchObject({ selected: true, selectable: true });
-        expect(items.find((x) => x.runtime === "codex")).toMatchObject({ selectable: false, unavailableReason: "not-installed" });
+        expect(items.find((x) => x.runtime === "codex")).toMatchObject({
+            selectable: false,
+            unavailableReason: "not-installed",
+        });
         expect(harnessPickerFace("", harnesses, "run-worker")).toEqual({ label: "Choose harness", valid: false });
     });
 
@@ -42,6 +45,9 @@ describe("harnessPickerFace", () => {
     });
 
     it("renders an unknown runtime visibly rather than falling back to Claude", () => {
-        expect(harnessPickerFace("mystery", harnesses, "run-worker")).toEqual({ label: "Unknown: mystery", valid: false });
+        expect(harnessPickerFace("mystery", harnesses, "run-worker")).toEqual({
+            label: "Unknown: mystery",
+            valid: false,
+        });
     });
 });

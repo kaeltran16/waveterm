@@ -37,7 +37,7 @@ import { atom } from "jotai";
 import type { AgentsViewModel, SurfaceKey } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
 import { attachBrainstorm, detachBrainstorm, getBrainstorm } from "../agents/brainstormstore";
-import { attachCanvas, detachCanvas, getCanvas, setCanvasMode } from "../agents/canvasstore";
+import { attachCanvas, detachCanvas, getCanvas, setCanvasMode, setMark } from "../agents/canvasstore";
 import { activeChannelIdAtom } from "../agents/channelsstore";
 import { memorySelectedChangeAtom, memorySelectedProjectAtom } from "../agents/memorystore";
 import { setupTabAtom } from "../agents/setupstore";
@@ -516,9 +516,66 @@ describe("canvas landing", () => {
         const model = makeModel(["a1"]);
         rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
         const result = await openTarget(model, { kind: "canvas", topic: ".." }, noReport, caller);
-        expect(result.ok).toBe(false);
+        expect(result).toEqual({ ok: false, reason: "unsupported", message: "Not a canvas name: .." });
         expect(rpc.FileInfoCommand).not.toHaveBeenCalled();
         expect(getCanvas("a1")).toBeNull();
+    });
+
+    it("refuses a target built in code with a path in its board", async () => {
+        const model = makeModel(["a1"]);
+        rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
+        const result = await openTarget(model, { kind: "canvas", topic: "t", board: ".." }, noReport, caller);
+        expect(result).toEqual({ ok: false, reason: "unsupported", message: "Not a canvas name: t" });
+        expect(rpc.FileInfoCommand).not.toHaveBeenCalled();
+        expect(getCanvas("a1")).toBeNull();
+    });
+
+    it("does not match a caller with no block to an agent that has none", async () => {
+        const blockless = { ...makeModel(), agentsAtom: atom([{ id: "a1", name: "a1" } as AgentVM]) };
+        const result = await openAddress(
+            blockless as unknown as AgentsViewModel,
+            "canvas:t",
+            { caller: { blockId: undefined as unknown as string, cwd: CWD } },
+            noReport
+        );
+        expect("reason" in result ? result.message : "").toContain("wsh ui reveal canvas:t");
+        expect(rpc.FileInfoCommand).not.toHaveBeenCalled();
+        expect(getCanvas("a1")).toBeNull();
+    });
+
+    it("drops a reveal that a newer open superseded while it probed the folder", async () => {
+        const model = makeModel(["a1"]);
+        const slow = deferred<unknown>();
+        rpc.FileInfoCommand.mockReturnValue(slow.promise);
+        const first = openAddress(model, "canvas:t", { caller }, noReport);
+        expect(await openTarget(model, { kind: "agent", tabId: "a1" })).toEqual({ ok: true });
+
+        slow.resolve({ path: "x" });
+        expect(await first).toEqual({ ok: false, reason: "superseded", message: "" });
+        expect(getCanvas("a1")).toBeNull();
+    });
+
+    it("without a caller, switches the owner to the board the address names", async () => {
+        const model = makeModel(["a1", "a2"]);
+        attachCanvas("a2", { topic: "t", dir: DIR, projectDir: CWD }, 1);
+        expect(await openAddress(model, "canvas:t/States", undefined, noReport)).toEqual({ ok: true });
+        expect(getCanvas("a2")?.board).toBe("States.dc.html");
+    });
+
+    it("without a caller, keeps the owner's board when the address names none", async () => {
+        const model = makeModel(["a1", "a2"]);
+        attachCanvas("a2", { topic: "t", dir: DIR, projectDir: CWD, board: "States.dc.html" }, 1);
+        expect(await openAddress(model, "canvas:t", undefined, noReport)).toEqual({ ok: true });
+        expect(getCanvas("a2")?.board).toBe("States.dc.html");
+    });
+
+    it("without a caller, keeps a mark drawn on the board the address names", async () => {
+        const model = makeModel(["a1", "a2"]);
+        const mark = { x: 1, y: 2, w: 3, h: 4, note: "n" };
+        attachCanvas("a2", { topic: "t", dir: DIR, projectDir: CWD, board: "States.dc.html" }, 1);
+        setMark("a2", mark);
+        expect(await openAddress(model, "canvas:t/States", undefined, noReport)).toEqual({ ok: true });
+        expect(getCanvas("a2")?.mark).toEqual(mark);
     });
 });
 

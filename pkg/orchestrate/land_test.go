@@ -901,3 +901,44 @@ func TestADirtyHoldLandsOnceTheCheckoutIsClean(t *testing.T) {
 		f.assertHeld(t, f.owner(t).Land, head, "checkout is on x, not main")
 	})
 }
+
+// The land removes the landing tree with `worktree remove --force`, so changes the lead left uncommitted there
+// would be deleted with it, after a final stage that may have passed on them.
+func TestLandHoldsUncommittedChangesInTheLandingTree(t *testing.T) {
+	f, tree := landFixture(t)
+	writeFile(t, filepath.Join(tree, "feature.txt"), "the lead's uncommitted fix\n")
+	head := gitCmd(t, f.project, "rev-parse", "main")
+
+	land := f.landRun(t, false)
+	f.assertHeld(t, land, head, "uncommitted changes to feature.txt")
+	if got := readFile(t, filepath.Join(tree, "feature.txt")); got != "the lead's uncommitted fix\n" {
+		t.Fatalf("feature.txt = %q, want the change kept", got)
+	}
+}
+
+// Another run's merge Verify holds the checkout's claim for up to its timeout, and another land for as long as its
+// merge: both let go by themselves, so the land waits for them instead of for a human.
+func TestABusyCheckoutHoldLandsOnceTheClaimIsFree(t *testing.T) {
+	f, _ := landFixture(t)
+	other, err := claimProject(f.project, "other-dag", "t-9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := gitCmd(t, f.project, "rev-parse", "main")
+	land := f.landRun(t, false)
+	f.assertHeld(t, land, head, "busy")
+	if !land.Busy {
+		t.Fatalf("land = %+v, want a busy hold the engine retries", land)
+	}
+
+	retryHeldLands(f.ctx)
+	waitStages(t)
+	f.assertHeld(t, f.owner(t).Land, head, "busy")
+
+	releaseProject(f.project, other)
+	retryHeldLands(f.ctx)
+	waitStages(t)
+	if got := f.owner(t).Land; got == nil || got.State != LandState_Landed {
+		t.Fatalf("land = %+v, want landed once the claim was free", got)
+	}
+}

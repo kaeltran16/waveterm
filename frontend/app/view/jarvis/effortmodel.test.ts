@@ -36,7 +36,14 @@ describe("buildEffortCard", () => {
         expect(m.countLine).toBe("2 of 7 · 1 skipped · active: Phase 3");
         expect(m.activeChunk).toBe("Phase 3");
         expect(m.chips.map((c) => c.tone)).toEqual([
-            "done", "done", "active", "deferred", "blocked", "skipped", "pending", "pending",
+            "done",
+            "done",
+            "active",
+            "deferred",
+            "blocked",
+            "skipped",
+            "pending",
+            "pending",
         ]);
         expect(m.blockedChunks).toEqual(["Phase 5"]);
     });
@@ -50,8 +57,11 @@ describe("buildEffortCard", () => {
 
     it("reads as complete when all non-skipped chunks are done", () => {
         const m = buildEffortCard({
-            ...base, done: 7, total: 8, activechunk: undefined, chunks: base.chunks.map((c) =>
-                c.status === "skipped" ? c : { ...c, status: "done" }),
+            ...base,
+            done: 7,
+            total: 8,
+            activechunk: undefined,
+            chunks: base.chunks.map((c) => (c.status === "skipped" ? c : { ...c, status: "done" })),
         } as EffortSummary);
         expect(m.progressPct).toBe(100);
         expect(m.countLine).toBe("7 of 7 · 1 skipped");
@@ -59,8 +69,12 @@ describe("buildEffortCard", () => {
 
     it("handles all-skipped edge", () => {
         const m = buildEffortCard({
-            ...base, done: 0, total: 2, chunks: [
-                { label: "a", status: "skipped" }, { label: "b", status: "skipped" },
+            ...base,
+            done: 0,
+            total: 2,
+            chunks: [
+                { label: "a", status: "skipped" },
+                { label: "b", status: "skipped" },
             ],
         } as EffortSummary);
         expect(m.progressPct).toBe(100);
@@ -84,7 +98,10 @@ describe("buildEffortCard", () => {
     });
 
     it("maps each chunk's label to its stage, empty when it has none", () => {
-        const chunks = [{ label: "A", status: "done", stage: "S1" }, { label: "B", status: "active" }];
+        const chunks = [
+            { label: "A", status: "done", stage: "S1" },
+            { label: "B", status: "active" },
+        ];
         expect(buildEffortCard({ ...base, total: 2, chunks } as EffortSummary).chunkStages).toStrictEqual({
             A: "S1",
             B: "",
@@ -93,7 +110,9 @@ describe("buildEffortCard", () => {
 
     it("omits the skipped suffix when nothing is skipped", () => {
         const m = buildEffortCard({
-            ...base, chunks: base.chunks.filter((c) => c.status !== "skipped"), total: 7,
+            ...base,
+            chunks: base.chunks.filter((c) => c.status !== "skipped"),
+            total: 7,
         } as EffortSummary);
         expect(m.countLine).toBe("2 of 7 · active: Phase 3");
     });
@@ -213,7 +232,9 @@ describe("effortFacts", () => {
     });
 
     it("names no parent for an effort that links none, whatever the list holds", () => {
-        const all = [{ oref: "effort:", title: "Stray", status: "active", done: 0, total: 0, updatedts: 0 }] as EffortSummary[];
+        const all = [
+            { oref: "effort:", title: "Stray", status: "active", done: 0, total: 0, updatedts: 0 },
+        ] as EffortSummary[];
         expect(effortFacts(effort({ parentoid: "" }), all).meta).toEqual([["project", "none"]]);
     });
 

@@ -396,6 +396,155 @@ describe("sheetStatus", () => {
     });
 });
 
+describe("doneStatus", () => {
+    const sealing = { text: "sealing evidence", tone: "muted" as const };
+
+    it("says only that the run finished when it has no graph, no clock and no evidence", () => {
+        expect(sheetStatus(read({ run: run({ status: "done" }), dag: null }))).toEqual({
+            verb: "Done",
+            sub: "the run finished",
+            tone: "success",
+            pulse: false,
+            meter: null,
+            meta: [sealing],
+            next: null,
+            retry: false,
+        });
+    });
+
+    it("counts a graphless run's wall time from its evidence and seals it", () => {
+        const s = sheetStatus(
+            read({ run: run({ status: "done", evidence: { durationms: 39 * MIN } as RunEvidence }), dag: null })
+        );
+        expect(s.sub).toBe("39m");
+        expect(s.meta).toEqual([{ text: "evidence sealed", tone: "success" }]);
+    });
+
+    it("draws the strip and falls back to launch-to-finish time when there is no evidence", () => {
+        const s = sheetStatus(read({ run: run({ status: "done", completedts: NOW - 11 * MIN }) }));
+        expect(s).toEqual({
+            verb: "Done",
+            sub: "4 tasks, 0 commits landed, 7m",
+            tone: "success",
+            pulse: false,
+            meter: { kind: "strip" },
+            meta: [{ text: "finished 11m ago", tone: "muted" }, { text: "workers 31m", tone: "muted" }, sealing],
+            next: null,
+            retry: false,
+        });
+    });
+
+    it("leaves out the workers chip when the report holds no worker time", () => {
+        const dag = {
+            digest: fresh(digest({ report: { workerms: 0, answered: 0, forwarded: 0 } })),
+            group: group(["done"]),
+            groupRead: "ready" as const,
+        };
+        expect(sheetStatus(read({ run: run({ status: "done" }), dag })).meta).toEqual([sealing]);
+    });
+});
+
+describe("cancelledStatus", () => {
+    it("says it stopped before finishing, with no meta, when the run has no graph and no clock", () => {
+        expect(sheetStatus(read({ run: run({ status: "cancelled" }), dag: null }))).toEqual({
+            verb: "Cancelled",
+            sub: "stopped before it finished",
+            tone: "error",
+            pulse: false,
+            meter: null,
+            meta: [],
+            next: null,
+            retry: false,
+        });
+    });
+
+    it("names when a run with a graph was cancelled, and that the scheduler stopped", () => {
+        expect(sheetStatus(read({ run: run({ status: "cancelled", completedts: NOW - 30_000 }) }))).toEqual({
+            verb: "Cancelled",
+            sub: "stopped after 2 of 4 tasks",
+            tone: "error",
+            pulse: false,
+            meter: { kind: "strip" },
+            meta: [{ text: "cancelled 30s ago", tone: "error" }],
+            next: "nothing — the scheduler stopped dispatching",
+            retry: false,
+        });
+    });
+});
+
+describe("undaggedStatus", () => {
+    const muted = (text: string) => ({ text, tone: "muted" as const });
+    const quiet = { meter: null, retry: false };
+    const lead = (over: Partial<SheetRead> = {}) =>
+        sheetStatus(read({ run: run({ status: "planning", dagoref: "" }), dag: null, ...over }));
+    const quick = (over: Partial<SheetRead> = {}, status = "executing") =>
+        sheetStatus(
+            read({ run: run({ mode: "quick", dagoref: "", status, createdts: NOW - 6 * MIN }), dag: null, ...over })
+        );
+
+    it("pulses while an orchestrator's lead waits on the human", () => {
+        expect(lead({ workerAsking: true })).toEqual({
+            ...quiet,
+            verb: "Waiting on you",
+            sub: "the lead asked you a question",
+            tone: "warning",
+            pulse: true,
+            meta: [muted("18m elapsed"), muted("no plan yet")],
+            next: "the lead continues once you answer",
+        });
+    });
+
+    it("pulses while an orchestrator's lead writes the plan", () => {
+        expect(lead()).toEqual({
+            ...quiet,
+            verb: "Planning",
+            sub: "the lead is writing the plan",
+            tone: "muted",
+            pulse: true,
+            meta: [muted("18m elapsed"), muted("no plan yet")],
+            next: "the engine dispatches the plan once the lead submits it",
+        });
+    });
+
+    it("waits on the human for a quick run's worker, whatever stage the run is at", () => {
+        for (const status of ["executing", "planning"]) {
+            expect(quick({ workerAsking: true }, status)).toEqual({
+                ...quiet,
+                verb: "Waiting on you",
+                sub: "the worker asked you a question",
+                tone: "warning",
+                pulse: true,
+                meta: [muted("6m elapsed"), muted("1 worker")],
+                next: null,
+            });
+        }
+    });
+
+    it("says a quick run's worker is starting while the run is planning", () => {
+        expect(quick({}, "planning")).toEqual({
+            ...quiet,
+            verb: "Starting",
+            sub: "the worker is starting",
+            tone: "muted",
+            pulse: true,
+            meta: [muted("6m elapsed"), muted("1 worker")],
+            next: null,
+        });
+    });
+
+    it("pulses while a quick run's one worker executes", () => {
+        expect(quick()).toEqual({
+            ...quiet,
+            verb: "Executing",
+            sub: "one worker, no plan",
+            tone: "success",
+            pulse: true,
+            meta: [muted("6m elapsed"), muted("1 worker")],
+            next: null,
+        });
+    });
+});
+
 describe("daggedStatus", () => {
     const strip = { kind: "strip" } as const;
     const muted = (text: string) => ({ text, tone: "muted" as const });
@@ -896,6 +1045,47 @@ describe("taskRow", () => {
         };
         expect(taskRow(rowInput({}, { td, askOwner: null })).meta).toBe("asked the lead · idle 40s");
     });
+
+    it("names the row by the task's label, and by its id when it has none", () => {
+        expect(taskRow(rowInput({ state: "skipped" }))).toMatchObject({ taskId: "t-1", label: "fix the store layer" });
+        expect(taskRow(rowInput({ state: "skipped", label: "" }))).toMatchObject({ taskId: "t-1", label: "t-1" });
+    });
+
+    it("says a running task with no child run yet is starting", () => {
+        expect(taskRow(rowInput({ state: "running" }))).toEqual({
+            taskId: "t-1",
+            label: "fix the store layer",
+            meta: "starting",
+            metaTone: "muted",
+            state: "running",
+            stateTone: "success",
+            action: null,
+        });
+    });
+
+    it("prints a done task's own duration and only the parts it has", () => {
+        const r = taskRow(
+            rowInput(
+                { id: "t-9", state: "done", runid: "8a43ffff" },
+                {
+                    worker: { state: "unavailable", runId: "8a43ffff" },
+                    durations: [
+                        { taskid: "t-1", runms: 5 * MIN },
+                        { taskid: "t-9", runms: 14 * MIN },
+                    ],
+                }
+            )
+        );
+        expect(r.meta).toBe("14m · child run 8a43");
+        expect(taskRow(rowInput({ id: "t-2", state: "done" })).meta).toBe("lane 2");
+    });
+
+    it("shows a failed Verify's own first error line, not the merge's", () => {
+        const r = taskRow(
+            rowInput({ state: "verify-failed", verifyerror: "vet failed\nmore", mergeerror: "CONFLICT in store.ts" })
+        );
+        expect(r).toMatchObject({ meta: "vet failed", state: "verify-failed", action: "open-dag-task" });
+    });
 });
 
 describe("configLine", () => {
@@ -981,6 +1171,34 @@ describe("configNote", () => {
             reason: "this run is done",
         });
         expect(quickDone?.body).not.toMatch(/Save/);
+    });
+
+    describe("what a fixed run's note says beneath its title", () => {
+        const readonly = { kind: "readonly", reason: "fixed" } as const;
+        const body = (over: Partial<Run>) => configNote(run(over), readonly)?.body;
+        const SAVE = "Save its configuration as this project's defaults to launch the next run the same way.";
+        const LOWERING = "Lowering parallelism would not reach workers that are already running.";
+
+        it("offers to save a finished orchestrator's configuration as the defaults", () => {
+            expect(body({ status: "done" })).toBe(SAVE);
+        });
+
+        it("says lowering parallelism cannot reach a cancelled run's workers", () => {
+            expect(body({ status: "cancelled" })).toBe(LOWERING);
+            expect(body({ status: "cancelled", mode: "quick" })).toBe(LOWERING);
+        });
+
+        it("has nothing to add for an orchestrator that is neither done nor cancelled", () => {
+            expect(body({ status: "executing" })).toBe("");
+            expect(body({ status: "blocked" })).toBe("");
+        });
+
+        it("names a quick run's route, defaulting each half that was never set", () => {
+            const lead =
+                "Parallelism and a worker route only exist for an orchestrator. Its route was fixed at launch:";
+            expect(body({ mode: "quick", runtime: "pi", model: "m1" })).toBe(`${lead} pi · m1.`);
+            expect(body({ mode: "quick", runtime: "", model: "" })).toBe(`${lead} claude · default.`);
+        });
     });
 
     it("says a plan that cannot be read offers no controls", () => {

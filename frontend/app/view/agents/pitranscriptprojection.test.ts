@@ -25,7 +25,14 @@ const toolCall = (id: string, name: string, args: unknown, ts = "2026-08-11T03:0
         timestamp: ts,
         message: { role: "assistant", content: [{ type: "toolCall", id, name, arguments: args }] },
     });
-const toolResult = (id: string, name: string, text: string, isError = false, ts = "2026-08-11T03:00:01.000Z", parent = "call-" + id) =>
+const toolResult = (
+    id: string,
+    name: string,
+    text: string,
+    isError = false,
+    ts = "2026-08-11T03:00:01.000Z",
+    parent = "call-" + id
+) =>
     L({
         type: "message",
         id: "res-" + id,
@@ -138,7 +145,10 @@ describe("projectPiTranscript", () => {
 
     it("renders a bare skill-block user message (no trailing text) as just the skill chip", () => {
         const skillText = `<skill name="grilling" location="C:\\skills\\grilling\\SKILL.md">\nReferences are relative to C:\\skills\\grilling.\n\n# Grilling\n\nStress-test the plan.\n</skill>`;
-        const lines = [session, L({ type: "message", id: "u", parentId: null, message: { role: "user", content: skillText } })];
+        const lines = [
+            session,
+            L({ type: "message", id: "u", parentId: null, message: { role: "user", content: skillText } }),
+        ];
         expect(projectPiTranscript(lines)).toEqual([{ kind: "command", name: "grilling", isSkill: true }]);
     });
 
@@ -159,7 +169,13 @@ describe("projectPiTranscript", () => {
                 ],
             }),
             toolResult("e1", "edit", ""),
-            toolCall("w1", "write", { path: "src/b.ts", content: "export const b = 1;" }, "2026-08-11T03:00:02.000Z", "res-e1"),
+            toolCall(
+                "w1",
+                "write",
+                { path: "src/b.ts", content: "export const b = 1;" },
+                "2026-08-11T03:00:02.000Z",
+                "res-e1"
+            ),
             toolResult("w1", "write", ""),
         ];
         const entries = projectPiTranscript(lines);
@@ -225,11 +241,19 @@ describe("projectPiTranscript", () => {
             toolResult("t1", "TaskCreate", "Task #1 created successfully: Fix auth bug"),
             toolCall("t2", "TaskUpdate", { taskId: "1", status: "completed" }, "2026-08-11T03:00:02.000Z", "res-t1"),
             toolResult("t2", "TaskUpdate", "Task #1 updated"),
-            toolCall("s1", "subagent", { agent: "reviewer", task: "review the diff" }, "2026-08-11T03:00:03.000Z", "res-t2"),
+            toolCall(
+                "s1",
+                "subagent",
+                { agent: "reviewer", task: "review the diff" },
+                "2026-08-11T03:00:03.000Z",
+                "res-t2"
+            ),
             toolResult("s1", "subagent", "done"),
         ];
         const entries = projectPiTranscript(lines);
-        const verbs = entries.filter((e) => e.kind === "action").map((e) => ({ verb: (e as any).verb, target: (e as any).target }));
+        const verbs = entries
+            .filter((e) => e.kind === "action")
+            .map((e) => ({ verb: (e as any).verb, target: (e as any).target }));
         expect(verbs).toEqual([
             { verb: "created task", target: "Fix auth bug" },
             { verb: "updated task", target: "task #1" },
@@ -338,7 +362,11 @@ describe("extractPiTasks", () => {
     });
 
     it("returns undefined when the task tools were never used", () => {
-        const lines = [session, user("u", "hello"), L({ type: "message", id: "a", parentId: "u", message: { role: "assistant", content: "hi" } })];
+        const lines = [
+            session,
+            user("u", "hello"),
+            L({ type: "message", id: "a", parentId: "u", message: { role: "assistant", content: "hi" } }),
+        ];
         expect(extractPiTasks(lines)).toBeUndefined();
     });
 
@@ -373,7 +401,10 @@ describe("extractPiTitle", () => {
 
     it("skips the skill block when deriving a title from user text", () => {
         const skillText = `<skill name="grilling" location="C:\\skills\\grilling\\SKILL.md">\nReferences are relative to C:\\skills\\grilling.\n\n# Grilling\n\nBody\n</skill>\n\nstress-test my plan`;
-        const lines = [session, L({ type: "message", id: "u", parentId: null, message: { role: "user", content: skillText } })];
+        const lines = [
+            session,
+            L({ type: "message", id: "u", parentId: null, message: { role: "user", content: skillText } }),
+        ];
         expect(extractPiTitle(lines)).toBe("stress-test my plan");
     });
 });
@@ -383,7 +414,11 @@ describe("projectPiTranscript malformed and mistyped records", () => {
         L({ type: "message", id: "a", parentId: "u", message: { role: "assistant", content } });
 
     it("skips an assistant record with no content", () => {
-        const lines = [session, user("u", "hi"), L({ type: "message", id: "a", parentId: "u", message: { role: "assistant" } })];
+        const lines = [
+            session,
+            user("u", "hi"),
+            L({ type: "message", id: "a", parentId: "u", message: { role: "assistant" } }),
+        ];
         expect(projectPiTranscript(lines)).toEqual([{ kind: "user", text: "hi" }]);
     });
 
@@ -410,7 +445,12 @@ describe("projectPiTranscript malformed and mistyped records", () => {
             session,
             user("u", "go"),
             assistant([{ type: "tool_use", toolCallId: "c1", name: "bash", args: { command: "ls" } }]),
-            L({ type: "message", id: "r", parentId: "a", message: { role: "toolResult", toolCallId: "c1", toolName: "bash", content: "file.txt" } }),
+            L({
+                type: "message",
+                id: "r",
+                parentId: "a",
+                message: { role: "toolResult", toolCallId: "c1", toolName: "bash", content: "file.txt" },
+            }),
         ];
         expect(projectPiTranscript(lines)).toEqual([
             { kind: "user", text: "go" },
@@ -443,7 +483,12 @@ describe("projectPiTranscript malformed and mistyped records", () => {
     });
 
     it("drops a bash command that is not a string from the bash detail", () => {
-        const lines = [session, user("u", "go"), toolCall("b1", "bash", { command: 5 }), toolResult("b1", "bash", "out")];
+        const lines = [
+            session,
+            user("u", "go"),
+            toolCall("b1", "bash", { command: 5 }),
+            toolResult("b1", "bash", "out"),
+        ];
         const detail = (projectPiTranscript(lines)[1] as any).detail;
         expect(detail.command).toBeUndefined();
         expect(detail).toEqual({ kind: "bash", output: "out", exit: 0 });
@@ -455,7 +500,10 @@ describe("projectPiTranscript malformed and mistyped records", () => {
             id: "call-b1",
             parentId: "u",
             timestamp: 5,
-            message: { role: "assistant", content: [{ type: "toolCall", id: "b1", name: "bash", arguments: { command: "x" } }] },
+            message: {
+                role: "assistant",
+                content: [{ type: "toolCall", id: "b1", name: "bash", arguments: { command: "x" } }],
+            },
         });
         const lines = [session, user("u", "go"), call, toolResult("b1", "bash", "out")];
         expect((projectPiTranscript(lines)[1] as any).durationMs).toBeUndefined();
@@ -463,7 +511,8 @@ describe("projectPiTranscript malformed and mistyped records", () => {
 });
 
 describe("extractPiTasks edge cases", () => {
-    const created = (id: string, subject: string) => toolResult("c" + id, "TaskCreate", `Task #${id} created successfully: ${subject}`);
+    const created = (id: string, subject: string) =>
+        toolResult("c" + id, "TaskCreate", `Task #${id} created successfully: ${subject}`);
     const update = (args: unknown) => toolCall("t", "TaskUpdate", args);
     const msg = (message: unknown) => L({ type: "message", message });
 
@@ -472,7 +521,10 @@ describe("extractPiTasks edge cases", () => {
             session,
             "null",
             L({ type: "message" }),
-            L({ type: "compaction", message: { role: "toolResult", toolName: "TaskCreate", content: "Task #1 created successfully: Ghost" } }),
+            L({
+                type: "compaction",
+                message: { role: "toolResult", toolName: "TaskCreate", content: "Task #1 created successfully: Ghost" },
+            }),
         ];
         expect(extractPiTasks(lines)).toBeUndefined();
     });
@@ -499,7 +551,11 @@ describe("extractPiTasks edge cases", () => {
     });
 
     it("reopens a task on a status other than completed", () => {
-        const lines = [created("1", "Fix"), update({ taskId: "1", status: "completed" }), update({ taskId: "1", status: "pending" })];
+        const lines = [
+            created("1", "Fix"),
+            update({ taskId: "1", status: "completed" }),
+            update({ taskId: "1", status: "pending" }),
+        ];
         expect(extractPiTasks(lines)).toEqual([{ text: "Fix", done: false }]);
     });
 
@@ -509,7 +565,10 @@ describe("extractPiTasks edge cases", () => {
             update({ taskId: "1", status: "completed" }),
             update({ taskId: "9", status: "completed" }),
             update(undefined),
-            L({ type: "message", message: { role: "assistant", content: [{ type: "tool_use", name: "TaskUpdate", args: null }] } }),
+            L({
+                type: "message",
+                message: { role: "assistant", content: [{ type: "tool_use", name: "TaskUpdate", args: null }] },
+            }),
             update({ taskId: "1" }),
         ];
         expect(extractPiTasks(lines)).toEqual([{ text: "Fix", done: true }]);
@@ -518,9 +577,15 @@ describe("extractPiTasks edge cases", () => {
     it("only lets an assistant TaskUpdate tool call change a task", () => {
         const lines = [
             created("1", "Fix"),
-            msg({ role: "assistant", content: [{ type: "text", name: "TaskUpdate", arguments: { taskId: "1", status: "completed" } }] }),
+            msg({
+                role: "assistant",
+                content: [{ type: "text", name: "TaskUpdate", arguments: { taskId: "1", status: "completed" } }],
+            }),
             toolCall("t", "TaskGet", { taskId: "1", status: "completed" }),
-            msg({ role: "user", content: [{ type: "toolCall", name: "TaskUpdate", arguments: { taskId: "1", status: "completed" } }] }),
+            msg({
+                role: "user",
+                content: [{ type: "toolCall", name: "TaskUpdate", arguments: { taskId: "1", status: "completed" } }],
+            }),
             msg({ role: "assistant" }),
         ];
         expect(extractPiTasks(lines)).toEqual([{ text: "Fix", done: false }]);
@@ -529,7 +594,10 @@ describe("extractPiTasks edge cases", () => {
     it("reads a TaskUpdate in the older tool_use / args spelling", () => {
         const lines = [
             created("1", "Fix"),
-            msg({ role: "assistant", content: [{ type: "tool_use", name: "TaskUpdate", args: { taskId: "1", status: "completed" } }] }),
+            msg({
+                role: "assistant",
+                content: [{ type: "tool_use", name: "TaskUpdate", args: { taskId: "1", status: "completed" } }],
+            }),
         ];
         expect(extractPiTasks(lines)).toEqual([{ text: "Fix", done: true }]);
     });
@@ -551,7 +619,10 @@ describe("projectPiTranscript action targets", () => {
             type: "message",
             id: "call-x",
             parentId: "u",
-            message: { role: "assistant", content: [{ type: "toolCall", id: "x", name: "foo", arguments: null, args: null }] },
+            message: {
+                role: "assistant",
+                content: [{ type: "toolCall", id: "x", name: "foo", arguments: null, args: null }],
+            },
         });
         expect((projectPiTranscript([session, user("u", "go"), call])[1] as any).target).toBe("foo");
     });
@@ -601,9 +672,16 @@ describe("projectPiTranscript edit details", () => {
             type: "message",
             id: "call-x",
             parentId: "u",
-            message: { role: "assistant", content: [{ type: "toolCall", id: "x", name: "write", arguments: null, args: null }] },
+            message: {
+                role: "assistant",
+                content: [{ type: "toolCall", id: "x", name: "write", arguments: null, args: null }],
+            },
         });
-        expect(projectPiTranscript([session, user("u", "go"), call])[1]).toStrictEqual({ kind: "action", verb: "wrote", target: "write" });
+        expect(projectPiTranscript([session, user("u", "go"), call])[1]).toStrictEqual({
+            kind: "action",
+            verb: "wrote",
+            target: "write",
+        });
     });
 
     it("writes an empty path when the path is not a string", () => {
@@ -640,7 +718,11 @@ describe("projectPiTranscript edit details", () => {
     });
 
     it("gives no detail when no edit is usable", () => {
-        expect(detailOf("edit", { path: "a.ts", edits: [] })).toStrictEqual({ kind: "action", verb: "edited", target: "a.ts" });
+        expect(detailOf("edit", { path: "a.ts", edits: [] })).toStrictEqual({
+            kind: "action",
+            verb: "edited",
+            target: "a.ts",
+        });
         expect(detailOf("edit", { path: "a.ts", edits: [{ oldText: "a" }] })).toStrictEqual({
             kind: "action",
             verb: "edited",
@@ -661,7 +743,9 @@ describe("projectPiTranscript text blocks", () => {
     it("yields nothing for content that is neither a string nor an array", () => {
         expect(projectPiTranscript([session, userContent(5)])).toStrictEqual([]);
         expect(projectPiTranscript([session, userContent({ type: "text", text: "x" })])).toStrictEqual([]);
-        expect(projectPiTranscript([session, L({ type: "message", id: "u", parentId: null, message: { role: "user" } })])).toStrictEqual([]);
+        expect(
+            projectPiTranscript([session, L({ type: "message", id: "u", parentId: null, message: { role: "user" } })])
+        ).toStrictEqual([]);
     });
 
     it("keeps text blocks with their text untrimmed and skips every other block", () => {
@@ -702,7 +786,13 @@ describe("projectPiTranscript tool results", () => {
     it("joins a result to its call by a tool_result content block id when the message has none", () => {
         const action = actionOf([
             callAt("c1", "read", { path: "a.ts" }),
-            resultMsg("c1", { role: "toolResult", content: [{ type: "tool_result", toolCallId: "c1" }, { type: "text", text: "body" }] }),
+            resultMsg("c1", {
+                role: "toolResult",
+                content: [
+                    { type: "tool_result", toolCallId: "c1" },
+                    { type: "text", text: "body" },
+                ],
+            }),
         ]);
         expect(action.detail).toStrictEqual({ kind: "read", snippet: "body", truncated: false });
     });
@@ -713,7 +803,10 @@ describe("projectPiTranscript tool results", () => {
             resultMsg("c1", {
                 role: "toolResult",
                 toolCallId: "c1",
-                content: [{ type: "tool_result", toolCallId: "other" }, { type: "text", text: "body" }],
+                content: [
+                    { type: "tool_result", toolCallId: "other" },
+                    { type: "text", text: "body" },
+                ],
             }),
         ]);
         expect(action.detail).toStrictEqual({ kind: "read", snippet: "body", truncated: false });
@@ -798,7 +891,11 @@ describe("projectPiTranscript tool results", () => {
         const fail = (block: object) =>
             actionOf([
                 callAt("c1", "read", { path: "a.ts" }),
-                resultMsg("c1", { role: "toolResult", toolCallId: "c1", content: [{ type: "text", text: "x" }, block] }),
+                resultMsg("c1", {
+                    role: "toolResult",
+                    toolCallId: "c1",
+                    content: [{ type: "text", text: "x" }, block],
+                }),
             ]).outcome;
         expect(fail({ type: "tool_result", isError: true })).toBe("fail");
         expect(fail({ type: "tool_result", is_error: true })).toBe("fail");
@@ -829,7 +926,11 @@ describe("projectPiTranscript record filtering", () => {
 
     it("keeps a compaction summary only when it is a non-blank string, and tokensBefore only when a number", () => {
         const compaction = (extra: object) =>
-            projectPiTranscript([session, user("u", "go"), L({ type: "compaction", id: "c", parentId: "u", ...extra })])[1];
+            projectPiTranscript([
+                session,
+                user("u", "go"),
+                L({ type: "compaction", id: "c", parentId: "u", ...extra }),
+            ])[1];
         expect(compaction({})).toStrictEqual({ kind: "compaction" });
         expect(compaction({ summary: "   ", tokensBefore: "9" })).toStrictEqual({ kind: "compaction" });
         expect(compaction({ summary: 5 })).toStrictEqual({ kind: "compaction" });

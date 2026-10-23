@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const listHarnesses = vi.fn();
 const refreshRouteCatalog = vi.fn();
@@ -16,7 +16,15 @@ vi.mock("@/app/store/wshclientapi", () => ({
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { globalStore } from "@/app/store/global";
-import { harnessPreferenceAtom, harnessesAtom, harnessesLoadingAtom, initHarnessPreference, loadHarnesses, setPreferredHarness, setPreferredRoute } from "./harnessstore";
+import {
+    harnessPreferenceAtom,
+    harnessesAtom,
+    harnessesLoadingAtom,
+    initHarnessPreference,
+    loadHarnesses,
+    setPreferredHarness,
+    setPreferredRoute,
+} from "./harnessstore";
 
 describe("harnessstore model catalog freshness", () => {
     beforeEach(() => {
@@ -54,7 +62,10 @@ describe("harnessstore model catalog freshness", () => {
     it("clears the persisted model when the route is the runtime default", async () => {
         setPreferredRoute({ runtime: "claude" });
         await vi.waitFor(() => expect(setConfig).toHaveBeenCalled());
-        expect(setConfig.mock.calls[0][1]).toEqual({ "harness:preferredruntime": "claude", "harness:preferredmodel": "" });
+        expect(setConfig.mock.calls[0][1]).toEqual({
+            "harness:preferredruntime": "claude",
+            "harness:preferredmodel": "",
+        });
     });
 
     it("treats a model-only change as a change worth saving", async () => {
@@ -67,12 +78,19 @@ describe("harnessstore model catalog freshness", () => {
     it("keeps the pinned model when the harness picker re-picks the current runtime", () => {
         globalStore.set(harnessesAtom, [
             { runtime: "pi", label: "Pi", routecapabilities: [{ runtime: "pi", resolvedmodel: "operator default" }] },
-            { runtime: "claude", label: "Claude", routecapabilities: [{ runtime: "claude", resolvedmodel: "operator default" }] },
+            {
+                runtime: "claude",
+                label: "Claude",
+                routecapabilities: [{ runtime: "claude", resolvedmodel: "operator default" }],
+            },
         ] as HarnessInfo[]);
         initHarnessPreference("pi", "opencode/deepseek-v4-pro");
 
         setPreferredHarness("pi");
-        expect(globalStore.get(harnessPreferenceAtom).route).toEqual({ runtime: "pi", model: "opencode/deepseek-v4-pro" });
+        expect(globalStore.get(harnessPreferenceAtom).route).toEqual({
+            runtime: "pi",
+            model: "opencode/deepseek-v4-pro",
+        });
 
         // a different harness has a different id namespace, so the model cannot come along
         setPreferredHarness("claude");
@@ -85,7 +103,9 @@ describe("harnessstore model catalog freshness", () => {
             {
                 runtime: "pi",
                 label: "Pi",
-                routecapabilities: [{ runtime: "pi", model: "opencode/deepseek-v4-pro", resolvedmodel: "opencode/deepseek-v4-pro" }],
+                routecapabilities: [
+                    { runtime: "pi", model: "opencode/deepseek-v4-pro", resolvedmodel: "opencode/deepseek-v4-pro" },
+                ],
             },
         ] as HarnessInfo[]);
         setPreferredHarness("codex");

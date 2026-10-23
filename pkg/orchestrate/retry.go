@@ -21,6 +21,10 @@ const (
 	FailureKindSpawn      = "spawn-failed"
 	FailureKindWorkerExit = "worker-exit-unreported"
 	FailureKindUnrecorded = "dispatch-unrecorded"
+	// FailureKindStopped is a worker whose run was cancelled while its dag went on: a skip, retry or escalate,
+	// or the engine's own retry of a stalled task, that cancelled the run and then could not finish, or a human
+	// cancelling the one run. The worker was stopped, not judged.
+	FailureKindStopped = "stopped"
 )
 
 // MaxFailureDetailLen bounds the failure message carried on a lifecycle event.
@@ -54,8 +58,8 @@ func classifyFailure(summary string, exitCode int) string {
 // backoff. A fault that outlasts them is not transient: the task fails and the lead is woken.
 const MaxAutoDispatchRetries = 3
 
-// retryDecision reports whether the engine retries a failure of kind itself, given the consecutive failures of
-// that kind the task already has.
+// retryDecision reports whether the engine retries a failure of kind itself, given the failures in a row the task
+// already has, of any kind: counted per kind, a task alternating two kinds the engine retries was retried forever.
 func retryDecision(kind string, attempts int) bool {
 	switch kind {
 	case FailureKindToolError:
