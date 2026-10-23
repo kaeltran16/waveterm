@@ -32,20 +32,6 @@ func TestReadyTasksDepsAndOrder(t *testing.T) {
 	}
 }
 
-func TestReadyTasksGateHalt(t *testing.T) {
-	g := groupWith(TaskState_Done, TaskState_Done, TaskState_Done)
-	g.Tasks[2].Gate = true // done gate with open successor t-3
-	if got := ReadyTasks(g); len(got) != 0 {
-		t.Fatalf("gate must halt ready tasks, got %v", got)
-	}
-	if _, err := ApproveGate(g, "t-2"); err != nil {
-		t.Fatal(err)
-	}
-	if got := ReadyTasks(g); !reflect.DeepEqual(got, []string{"t-3"}) {
-		t.Fatalf("after approve want [t-3], got %v", got)
-	}
-}
-
 func TestNextToSpawnParallelismCap(t *testing.T) {
 	g := groupWith(TaskState_Done, TaskState_Running)
 	// one running (t-1), cap 2 -> only one more may spawn
@@ -97,61 +83,7 @@ func TestNextToSpawnStalledHoldsSlot(t *testing.T) {
 	}
 }
 
-func TestGateActionsTargetTaskAndError(t *testing.T) {
-	// one approval must release only its own gate, and a non-gate or unknown id must error
-	// rather than silently no-op — the lead has to know the dag did not move.
-	g := groupWith(TaskState_Done, TaskState_Done, TaskState_Done)
-	g.Tasks[1].Gate = true
-	g.Tasks[2].Gate = true
-	if _, err := ApproveGate(g, "t-0"); err == nil {
-		t.Fatal("approving a non-gate task must error")
-	}
-	if _, err := ApproveGate(g, "nope"); err == nil {
-		t.Fatal("unknown task id must error")
-	}
-	if _, err := ApproveGate(g, "t-1"); err != nil {
-		t.Fatal(err)
-	}
-	if !g.Tasks[1].Released || g.Tasks[2].Released {
-		t.Fatalf("approve must release only its target: t-1=%v t-2=%v", g.Tasks[1].Released, g.Tasks[2].Released)
-	}
-	if _, err := SendBackGate(g, "t-2"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := SendBackGate(g, "nope"); err == nil {
-		t.Fatal("unknown task id must error")
-	}
-	if g.Tasks[2].State != TaskState_Pending {
-		t.Fatalf("sendback must reopen only its target, got %q", g.Tasks[2].State)
-	}
-}
-
-func TestSendBackAndRetryReset(t *testing.T) {
-	g := groupWith(TaskState_Done, TaskState_Done, TaskState_Done)
-	g.Tasks[2].Gate = true
-	if _, err := ApproveGate(g, "t-2"); err != nil {
-		t.Fatal(err)
-	}
-	g.Tasks[3].State = TaskState_Running
-	g.Tasks[3].RunID = "r-3"
-	if _, err := SendBackGate(g, "t-2"); err != nil { // reopens the gate for re-spawn
-		t.Fatal(err)
-	}
-	// a sent-back gate must return to pending so the scheduler re-spawns it — "running"
-	// with no runid would count against the parallelism budget yet never spawn (deadlock).
-	if g.Tasks[2].State != TaskState_Pending || g.Tasks[2].RunID != "" {
-		t.Fatalf("sendback must return the gate to pending and clear runid: %+v", g.Tasks[2])
-	}
-	ready := ReadyTasks(g)
-	found := false
-	for _, id := range ready {
-		if id == "t-2" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("sent-back gate must be spawnable again, ReadyTasks=%v", ready)
-	}
+func TestRetryReset(t *testing.T) {
 	g2 := groupWith(TaskState_Done, TaskState_Failed)
 	g2.Failures = 2
 	if err := RetryTask(g2, "t-1"); err != nil {

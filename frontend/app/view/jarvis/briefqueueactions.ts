@@ -19,7 +19,7 @@ export type QueueActionDeps = {
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-// Approve and Retry act on the exact phase or task the server named, and anything else opens the row's run
+// Retry acts on the exact task the server named, and anything else opens the row's run
 export async function actOnQueue(deps: QueueActionDeps, q: QueueRow, line: BriefLine): Promise<void> {
     const act = queueAction(q);
     const run = async (label: string, fn: () => Promise<void>) => {
@@ -31,10 +31,6 @@ export async function actOnQueue(deps: QueueActionDeps, q: QueueRow, line: Brief
         }
     };
     switch (act.kind) {
-        case "approve-dag":
-            return run(`Approved ${q.taskId} · ${q.source || q.title}`, () =>
-                deps.rpc.dagAction({ channelid: q.channelId, runid: q.runId!, taskid: q.taskId, action: "approve" })
-            );
         case "retry-dag":
             return run(`Retrying ${q.taskId}`, () =>
                 deps.rpc.dagAction({ channelid: q.channelId, runid: q.runId!, taskid: q.taskId, action: "retry" })

@@ -183,7 +183,7 @@ func TestDispatchFailureWakesLeadAfterCommit(t *testing.T) {
 		fn()
 	}
 
-	want := "wake: task t-3 failed (spawn-failed), retry spent. wsh jarvis dag status"
+	want := "wake: task t-3 failed (spawn-failed): pty refused, retry spent. wsh jarvis dag status t-3"
 	if len(f.sends) != 1 || f.sends[0] != want {
 		t.Fatalf("want %q, got %q", want, f.sends)
 	}
@@ -196,7 +196,7 @@ func TestBlockedChildRunWakesLead(t *testing.T) {
 
 	h.scheduleTimes(t, 1)
 
-	want := "wake: task t-0 failed (unknown), retry spent. wsh jarvis dag status"
+	want := "wake: task t-0 failed (unknown), retry spent. wsh jarvis dag status t-0"
 	if len(f.sends) != 1 || f.sends[0] != want {
 		t.Fatalf("want %q, got %q", want, f.sends)
 	}
@@ -216,7 +216,7 @@ func TestChildFailureWakesLeadOnlyWhenRetryIsSpent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "wake: task t-0 failed (tool_call_error), retry spent. wsh jarvis dag status"
+	want := "wake: task t-0 failed (tool_call_error): tool call errored: connection refused, retry spent. wsh jarvis dag status t-0"
 	if len(f.sends) != 1 || f.sends[0] != want {
 		t.Fatalf("want %q, got %q", want, f.sends)
 	}
@@ -230,7 +230,7 @@ func TestMergeConflictWakesLead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "wake: merge conflict landing lane ending at task t-0. git status"
+	want := "wake: merge conflict landing lane ending at task t-0. git status, then wsh jarvis dag status t-0"
 	if len(f.sends) != 1 || f.sends[0] != want {
 		t.Fatalf("want %q, got %q", want, f.sends)
 	}
@@ -267,21 +267,6 @@ func TestRunFinishedTotalsUsageOnTheDag(t *testing.T) {
 	want := []waveobj.UsageRow{{Role: "worker", TaskId: "t-0", Missing: true}}
 	if got := h.loadDag(t).Usage; !reflect.DeepEqual(got, want) {
 		t.Errorf("usage = %+v, want %+v", got, want)
-	}
-}
-
-func TestDoneChildAndOpenGateDoNotWakeLead(t *testing.T) {
-	f := newFakeLead(t)
-	h := newNotifyHarness(t, 1, []waveobj.TaskNode{{ID: "t-0", Label: "a", Gate: true}})
-	h.finishTask(t, "t-0", jarvis.RunStatus_Done)
-
-	h.scheduleTimes(t, 2)
-
-	if got := h.loadDag(t).Status; got != DagStatus_AwaitingReview {
-		t.Fatalf("setup: dag status = %q, want %q", got, DagStatus_AwaitingReview)
-	}
-	if len(f.sends) != 0 {
-		t.Fatalf("a finished child and an open gate are not the lead's judgment, got %q", f.sends)
 	}
 }
 
@@ -504,4 +489,31 @@ func timedEventsReachTheFakeLead(t *testing.T) {
 		appendRunEvent(ctx, channelId, runId, kind, phaseIdx, detail)
 	}
 	restoreAfterStages(t, func() { appendRunEventAt = prev })
+}
+
+// A task wake carries the first fact the lead acts on, on one line, and names that task's status rather than the
+// whole dag's; with no fact it says only what happened.
+func TestTaskWakesCarryTheFactAndNameTheTasksStatus(t *testing.T) {
+	cases := []struct{ name, got, want string }{
+		{"review failed", reviewFailedWake("t-2", "1) misses the empty-input case.\n2) no test for the retry"),
+			"wake: review failed for task t-2: 1) misses the empty-input case. wsh jarvis dag status t-2"},
+		{"review failed, no note", reviewFailedWake("t-2", ""), "wake: review failed for task t-2. wsh jarvis dag status t-2"},
+		{"task failed", taskFailedWake("t-1", FailureKindTimeout, "\nrequest timed out after 300s\nretrying"),
+			"wake: task t-1 failed (timeout): request timed out after 300s, retry spent. wsh jarvis dag status t-1"},
+		{"verify failed", verifyFailedWake("t-0", "exit 1", "--- FAIL: TestLand (0.02s)\n    land_test.go:40: boom"),
+			"wake: Verify failed after merging task t-0 (exit 1): --- FAIL: TestLand (0.02s). wsh jarvis dag status t-0"},
+		{"verify timed out", verifyFailedWake("t-0", "timed out after 20m", ""),
+			"wake: Verify failed after merging task t-0 (timed out after 20m). wsh jarvis dag status t-0"},
+		{"merge conflict", mergeConflictWake("t-3", []string{"pkg/a.go", "pkg/b.go"}),
+			"wake: merge conflict landing lane ending at task t-3 in pkg/a.go, pkg/b.go. wsh jarvis dag status t-3"},
+	}
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, c.got, c.want)
+		}
+	}
+	long := taskFailedWake("t-1", FailureKindUnknown, strings.Repeat("x", 3*MaxFailureDetailLen))
+	if len(long) > 2*MaxFailureDetailLen {
+		t.Fatalf("a long detail must be cut, got %d chars", len(long))
+	}
 }

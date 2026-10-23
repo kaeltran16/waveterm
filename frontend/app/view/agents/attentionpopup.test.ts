@@ -35,7 +35,7 @@ describe("popupBubble", () => {
         });
     });
     it.each([
-        ["dag-gate", "Review"],
+        ["dag-blocked", "Review"],
         ["escalation", "Decide"],
         ["run-unverified", "Acknowledge"],
     ])("labels %s with its action %s", (kind, action) => {
@@ -100,7 +100,7 @@ describe("popupBubble for a brainstorm question", () => {
 });
 
 describe("popupFace", () => {
-    const gate: PopupFace = { expression: { kind: "tired", provider: "claude", pct: 92 }, posture: "review-gate" };
+    const gate: PopupFace = { expression: { kind: "tired", provider: "claude", pct: 92 }, posture: "escalation" };
 
     it("carries the face it was given", () => {
         const bubble = popupBubble([], [item({ key: "a" })], false, gate);

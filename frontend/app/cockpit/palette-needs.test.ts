@@ -18,34 +18,33 @@ describe("palette-needs", () => {
     });
 
     it("never resolves a non-ask item, even one whose key names a block", () => {
-        expect(askAgent(item("dag-gate", "ask:block:b1"), [agent({})])).toBeUndefined();
+        expect(askAgent(item("dag-blocked", "ask:block:b1"), [agent({})])).toBeUndefined();
     });
 
     it("groups by kind", () => {
         const g = needsGroups(
             needsRows(
-                [item("dag-gate"), item("ask", "ask:block:b1"), item("dag-blocked"), item("run-unverified")],
+                [item("escalation"), item("ask", "ask:block:b1"), item("dag-blocked"), item("run-unverified")],
                 [agent({ ask: oneQ })]
             )
         );
         expect(g.map((x) => [x.group, x.rows.length])).toEqual([
-            ["asks", 1],
-            ["reviews", 1],
+            ["asks", 2],
             ["blocked", 2],
         ]);
     });
 
-    it("escalations are asks, dag gates reviews, and unknown kinds blocked", () => {
-        const rows = needsRows([item("escalation"), item("dag-gate"), item("run-land-held"), item("mystery")], []);
-        expect(rows.map((r) => r.group)).toEqual(["asks", "reviews", "blocked", "blocked"]);
+    it("escalations are asks, and dag, run and unknown kinds blocked", () => {
+        const rows = needsRows([item("escalation"), item("dag-blocked"), item("run-land-held"), item("mystery")], []);
+        expect(rows.map((r) => r.group)).toEqual(["asks", "blocked", "blocked", "blocked"]);
     });
 
     it("keeps server order within a group and drops empty groups", () => {
         const g = needsGroups(
-            needsRows([item("dag-blocked", "a"), item("dag-gate", "g"), item("run-unverified", "b")], [])
+            needsRows([item("dag-blocked", "a"), item("escalation", "g"), item("run-unverified", "b")], [])
         );
         expect(g.map((x) => [x.group, x.rows.map((r) => r.item.key)])).toEqual([
-            ["reviews", ["g"]],
+            ["asks", ["g"]],
             ["blocked", ["a", "b"]],
         ]);
     });
@@ -98,9 +97,15 @@ describe("palette-needs", () => {
             });
         });
 
-        it("opens a dag item on its task graph, with the task when the key names one", () => {
-            const gate = at({ kind: "dag-gate", key: "dag-gate:g1:t4", taskid: "t4", channelid: "c1", runid: "r1" });
-            expect(target(gate)).toEqual({ kind: "dag", channelId: "c1", runId: "r1", dagId: "g1", taskId: "t4" });
+        it("opens a dag item on its task graph, with the task when the item names one", () => {
+            const failed = at({
+                kind: "dag-blocked",
+                key: "dag-blocked:g1",
+                taskid: "t4",
+                channelid: "c1",
+                runid: "r1",
+            });
+            expect(target(failed)).toEqual({ kind: "dag", channelId: "c1", runId: "r1", dagId: "g1", taskId: "t4" });
             const blocked = at({ kind: "dag-blocked", key: "dag-blocked:g2", channelid: "c1", runid: "r1" });
             expect(target(blocked)).toEqual({ kind: "dag", channelId: "c1", runId: "r1", dagId: "g2" });
         });

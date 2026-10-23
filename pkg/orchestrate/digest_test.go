@@ -43,16 +43,20 @@ func TestHealthNeedsYouAsk(t *testing.T) {
 	}
 }
 
-func TestHealthNeedsYouUnreleasedGate(t *testing.T) {
+// A finished task waits on nobody: there is no approval step between a done task and the rest of the dag.
+func TestADoneTaskAsksNoApproval(t *testing.T) {
 	tasks := []waveobj.TaskNode{
 		{ID: "t-0", Label: "a"},
-		{ID: "t-1", Label: "gate", Gate: true},
+		{ID: "t-1", Label: "b"},
 	}
 	g := digestGroup(t, false, tasks)
-	setTaskStates(g, map[string]string{"t-1": TaskState_Done}) // done gate, never released
+	setTaskStates(g, map[string]string{"t-1": TaskState_Done})
 	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
-	if d.Health != "needs-you" {
-		t.Fatalf("done unreleased gate must put the dag in needs-you, got %q", d.Health)
+	if d.Health == "needs-you" || d.Next.Kind == "human-action" {
+		t.Fatalf("a done task must not ask the human, got health %q next %+v", d.Health, d.Next)
+	}
+	if acts := d.Tasks[1].HumanActions; slices.Contains(acts, "approve") || slices.Contains(acts, "sendback") {
+		t.Fatalf("a done task offers no approve or sendback, got %v", acts)
 	}
 }
 
@@ -194,23 +198,6 @@ func TestAForwardedQuestionOutranksOneTheLeadHolds(t *testing.T) {
 	}
 	if d.Next.Kind != "human-action" || len(d.Next.TaskIds) != 1 || d.Next.TaskIds[0] != "t-1" {
 		t.Fatalf("next must be the human answering t-1, got %+v", d.Next)
-	}
-}
-
-func TestNextApproveSendback(t *testing.T) {
-	tasks := []waveobj.TaskNode{
-		{ID: "t-0", Label: "a"},
-		{ID: "t-1", Label: "gate", Gate: true},
-	}
-	g := digestGroup(t, false, tasks)
-	setTaskStates(g, map[string]string{"t-1": TaskState_Done})
-	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
-	if d.Next.Kind != "human-action" || len(d.Next.Actions) != 2 ||
-		d.Next.Actions[0] != "approve" || d.Next.Actions[1] != "sendback" {
-		t.Fatalf("next must be approve/sendback, got %+v", d.Next)
-	}
-	if len(d.Next.TaskIds) != 1 || d.Next.TaskIds[0] != "t-1" {
-		t.Fatalf("gate next must name the gate, got %+v", d.Next.TaskIds)
 	}
 }
 
@@ -1099,13 +1086,6 @@ func TestHealthFollowsAFinishedRunPastItsParkedDag(t *testing.T) {
 		setTaskStates(g, map[string]string{"t-0": TaskState_Done, "t-1": TaskState_Done, "t-2": TaskState_Done})
 		return g
 	}
-	openGate := func() *waveobj.TaskGroup {
-		tasks := plainTasks()
-		tasks[0].Gate = true
-		g := digestGroup(t, false, tasks)
-		setTaskStates(g, map[string]string{"t-0": TaskState_Done})
-		return g
-	}
 	cleanupDebt := failedFinal()
 	cleanupDebt.Tasks[0].CleanupError = "worktree locked"
 	cases := []struct {
@@ -1118,7 +1098,6 @@ func TestHealthFollowsAFinishedRunPastItsParkedDag(t *testing.T) {
 		{"failed final, run executing", failedFinal(), DagStatus_Blocked, "executing", "needs-you"},
 		{"failed final, run done", failedFinal(), DagStatus_Blocked, "done", "done"},
 		{"failed final, run cancelled", failedFinal(), DagStatus_Blocked, "cancelled", "cancelled"},
-		{"open gate, run done", openGate(), DagStatus_AwaitingReview, "done", "done"},
 		{"cleanup debt, run done", cleanupDebt, DagStatus_Blocked, "done", "needs-you"},
 	}
 	for _, c := range cases {

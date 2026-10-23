@@ -51,9 +51,8 @@ export interface DagViewNode {
     id: string;
     label: string;
     state: string;
-    gate: boolean;
     meta: string; // worktree / evidence line
-    actions: string[]; // approve | sendback | retry | skip | merge
+    actions: string[]; // approve | sendback | retry | skip | resolve | merge | escalate
     route: DagNodeRoute;
     tag: string | null; // the card's model tag, when the task runs off the workers model
     review: { state: string; route: string }; // how the review went, and who reviews on which model
@@ -70,7 +69,6 @@ const ACTION_BY_STATE: Record<string, string[]> = {
     stalled: ["retry", "skip"],
     "review-failed": ["approve", "sendback", "retry", "skip"],
 };
-const GATE_DONE_ACTIONS = ["approve", "sendback"];
 
 // mergeReadyIds is the set of tasks a merge can be started from now, read from the digest: a lane merges as
 // one, at its tip, and only the engine derives lanes. Empty while the digest is missing or stale, because the
@@ -93,7 +91,6 @@ export function buildViewData(
     const reviewerLabel = reviewer.custom ? "reviewer route" : "same as lead";
     const nodes: DagViewNode[] = group.tasks.map((t) => {
         let actions = ACTION_BY_STATE[t.state] ?? [];
-        if (t.gate && t.state === "done") actions = GATE_DONE_ACTIONS;
         if (mergeReady.has(t.id)) actions = ["merge"];
         if (canEscalate(t)) actions = [...new Set([...actions, "escalate"])];
         const { route: effective, source } = taskRoute(t, owner, group);
@@ -102,7 +99,6 @@ export function buildViewData(
             id: t.id,
             label: t.label ?? t.id,
             state: t.state,
-            gate: t.gate ?? false,
             meta: t.runid ? `wave/${t.runid}` : "",
             actions,
             route: {

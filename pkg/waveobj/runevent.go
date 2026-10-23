@@ -12,8 +12,6 @@ const (
 	RunEventKindPhaseStarted   = "phase-started"
 	RunEventKindPhaseComplete  = "phase-complete"
 	RunEventKindPhaseHeld      = "phase-held"
-	RunEventKindGateApproved   = "gate-approved"
-	RunEventKindGateSentBack   = "gate-sent-back"
 	RunEventKindChildCreated   = "child-created"
 	RunEventKindChildDone      = "child-done"
 	RunEventKindChildCancelled = "child-cancelled"
@@ -38,7 +36,7 @@ const (
 	// the authoritative state mutation persists. Each writer attempts once at that boundary; a
 	// successful append yields one row:
 	//   task-done / task-failed       child ran to its end (task + child run id + failure detail)
-	//   dag-cancelled / dag-gate-open orchestration boundaries the run status alone cannot explain
+	//   dag-cancelled                 an orchestration boundary the run status alone cannot explain
 	//   child-ask / -answered / -cleared  one ask id survives across every answer path
 	//   task-merge-*                  merge lifecycle at persisted content-integration boundaries.
 	//                                 -blocked is a conflict, which is the human's; -failed is git
@@ -51,7 +49,6 @@ const (
 	RunEventKindTaskDone             = "task-done"
 	RunEventKindTaskFailed           = "task-failed"
 	RunEventKindDagCancelled         = "dag-cancelled"
-	RunEventKindDagGateOpen          = "dag-gate-open"
 	RunEventKindChildAsk             = "child-ask"
 	RunEventKindChildAnswered        = "child-answered"
 	RunEventKindChildAskCleared      = "child-ask-cleared"

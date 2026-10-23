@@ -62,9 +62,7 @@ describe("expressionFor — nothing present is at-rest", () => {
     // source yet ship inert instead of firing on undefined.
     it("yields at-rest when a signal is present but says nothing is wrong", () => {
         expect(expressionFor({ rateLimit: { provider: "claude", pct: 12 } }).kind).toBe("at-rest");
-        expect(expressionFor({ attention: { reviewGates: 3, escalations: 1, blockedWorkers: 2 } }).kind).toBe(
-            "at-rest"
-        );
+        expect(expressionFor({ attention: { escalations: 1, blockedWorkers: 2 } }).kind).toBe("at-rest");
     });
 
     it("does not treat a zero reading as a constraint", () => {
@@ -75,7 +73,7 @@ describe("expressionFor — nothing present is at-rest", () => {
 describe("heldLandFrom", () => {
     it("takes the first held land, naming its run and its bare reason", () => {
         const items = [
-            attentionItem("dag-gate", "gate run"),
+            attentionItem("escalation", "escalated run"),
             attentionItem("run-land-held", "first held", "conflict"),
             attentionItem("run-land-held", "second held", "other"),
         ];
@@ -95,14 +93,13 @@ describe("heldLandFrom", () => {
 });
 
 describe("postureFor", () => {
-    it("prefers a gate, then an escalation, then a blocked worker", () => {
-        expect(postureFor({ attention: { reviewGates: 1, escalations: 1, blockedWorkers: 1 } })).toBe("review-gate");
-        expect(postureFor({ attention: { reviewGates: 0, escalations: 1, blockedWorkers: 1 } })).toBe("escalation");
-        expect(postureFor({ attention: { reviewGates: 0, escalations: 0, blockedWorkers: 1 } })).toBe("blocked-worker");
+    it("prefers an escalation, then a blocked worker", () => {
+        expect(postureFor({ attention: { escalations: 1, blockedWorkers: 1 } })).toBe("escalation");
+        expect(postureFor({ attention: { escalations: 0, blockedWorkers: 1 } })).toBe("blocked-worker");
     });
 
     it("is none with nothing waiting, and none with no attention signal at all", () => {
-        expect(postureFor({ attention: { reviewGates: 0, escalations: 0, blockedWorkers: 0 } })).toBe("none");
+        expect(postureFor({ attention: { escalations: 0, blockedWorkers: 0 } })).toBe("none");
         expect(postureFor({})).toBe("none");
     });
 
@@ -111,19 +108,19 @@ describe("postureFor", () => {
     it("is unaffected by the condition signals", () => {
         const signals: PetSignals = {
             rateLimit: HOT,
-            attention: { reviewGates: 0, escalations: 2, blockedWorkers: 0 },
+            attention: { escalations: 2, blockedWorkers: 0 },
         };
         expect(expressionFor(signals).kind).toBe("tired");
         expect(postureFor(signals)).toBe("escalation");
     });
 
-    it("composes a waiting gate with a held land", () => {
+    it("composes a waiting escalation with a held land", () => {
         const signals: PetSignals = {
             heldLand: heldLandFrom([attentionItem("run-land-held", "held run", "conflict")]),
-            attention: { reviewGates: 1, escalations: 0, blockedWorkers: 0 },
+            attention: { escalations: 1, blockedWorkers: 0 },
         };
         expect(expressionFor(signals).kind).toBe("run-held");
-        expect(postureFor(signals)).toBe("review-gate");
+        expect(postureFor(signals)).toBe("escalation");
     });
 });
 

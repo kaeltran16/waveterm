@@ -54,8 +54,6 @@ func newMergeFixture(t *testing.T, tasks []waveobj.TaskNode) *mergeFixture {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// the plan gate is what holds an unapproved dag; these fixtures start past it
-	g.PlanApprovedTs = 1
 	if err := wstore.AppendDag(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
@@ -290,33 +288,6 @@ func TestMergeThatLandedNothingLeavesNoCommitOnTheChild(t *testing.T) {
 	}
 	if run.EndCommit != "" {
 		t.Fatalf("want no commit on the child, got %q", run.EndCommit)
-	}
-}
-
-// a gate is the human's checkpoint; automatic merging must not step over it.
-func TestScheduleLeavesGatedTaskUnmergedUntilReleased(t *testing.T) {
-	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "gated", Gate: true}})
-	f.finish(t, "t-0")
-	calls := stubMerge(t, func(context.Context, string, string, string) (string, error) { return "sha-1", nil })
-
-	if err := Schedule(f.ctx, f.dagID); err != nil {
-		t.Fatal(err)
-	}
-	if *calls != 0 {
-		t.Fatalf("a held gate must block the merge, got %d attempts", *calls)
-	}
-	if f.dag(t).Tasks[0].Merged {
-		t.Fatal("gated task must stay unmerged")
-	}
-
-	if err := ApplyAction(f.ctx, f.dagID, "t-0", "approve", waveobj.RoutePin{}); err != nil {
-		t.Fatal(err)
-	}
-	if *calls != 1 {
-		t.Fatalf("want 1 merge after release, got %d", *calls)
-	}
-	if !f.dag(t).Tasks[0].Merged {
-		t.Fatal("released task must merge")
 	}
 }
 

@@ -85,13 +85,12 @@ func enterReview(t *waveobj.TaskNode, worker *waveobj.Run) {
 
 // Dag statuses (derived by RecomputeDagStatus; cancelled is a terminal override).
 const (
-	DagStatus_Running        = "running"
-	DagStatus_PlanReview     = "plan-review" // the engine's plan reviewer holds dispatch (TaskGroup.PlanReview)
-	DagStatus_Finalizing     = "finalizing"  // every task landed; the final stage judges the merged result (TaskGroup.Final)
-	DagStatus_AwaitingReview = "awaiting-review"
-	DagStatus_Blocked        = "blocked"
-	DagStatus_Done           = "done"
-	DagStatus_Cancelled      = "cancelled"
+	DagStatus_Running    = "running"
+	DagStatus_PlanReview = "plan-review" // the engine's plan reviewer holds dispatch (TaskGroup.PlanReview)
+	DagStatus_Finalizing = "finalizing"  // every task landed; the final stage judges the merged result (TaskGroup.Final)
+	DagStatus_Blocked    = "blocked"
+	DagStatus_Done       = "done"
+	DagStatus_Cancelled  = "cancelled"
 )
 
 // MaxConsecutiveFailures is the circuit-break: the DAG blocks with a "stop and ask" flag.
@@ -235,9 +234,6 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 		if t.RunID != "" {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q runid must be empty", t.ID)
 		}
-		if t.Released {
-			return waveobj.TaskGroup{}, fmt.Errorf("task %q released must be false", t.ID)
-		}
 		if t.Merged {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q merged must be false", t.ID)
 		}
@@ -324,7 +320,7 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 	for i := range a.Tasks {
 		ta := a.Tasks[i]
 		tb := b.Tasks[i]
-		if ta.ID != tb.ID || ta.Label != tb.Label || ta.Description != tb.Description || ta.Gate != tb.Gate || !slices.Equal(ta.Chunks, tb.Chunks) {
+		if ta.ID != tb.ID || ta.Label != tb.Label || ta.Description != tb.Description || !slices.Equal(ta.Chunks, tb.Chunks) {
 			return false
 		}
 		if len(ta.Deps) != len(tb.Deps) {
@@ -343,7 +339,7 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 }
 
 // RecomputeDagStatus derives g.Status from task states. Single source of truth.
-// Order matters: cancelled (terminal override, which only CancelGroup sets) -> plan-review -> finalizing/done -> blocked -> awaiting-review -> running.
+// Order matters: cancelled (terminal override, which only CancelGroup sets) -> plan-review -> finalizing/done -> blocked -> running.
 func RecomputeDagStatus(g *waveobj.TaskGroup) {
 	if g.Status == DagStatus_Cancelled {
 		return
@@ -354,18 +350,12 @@ func RecomputeDagStatus(g *waveobj.TaskGroup) {
 	}
 	allTerminal := true
 	blocked := false
-	gateDone := false
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
 		switch t.State {
 		case TaskState_Failed, TaskState_BlockedMerge, TaskState_VerifyFailed, TaskState_ReviewFailed:
 			blocked = true
 		case TaskState_Done:
-			if t.Gate && !t.Released {
-				gateDone = true
-				allTerminal = false
-				continue
-			}
 			// cleanup debt stops blocking once retries are spent: a tree another process holds must not wedge a landed dag
 			cleanupDebt := (t.CleanupPending || t.CleanupError != "") && !cleanupGivenUp(t)
 			if g.MergeRequired && (!t.Merged || cleanupDebt) {
@@ -382,8 +372,6 @@ func RecomputeDagStatus(g *waveobj.TaskGroup) {
 		g.Status = landedStatus(g)
 	case blocked || g.Failures >= MaxConsecutiveFailures:
 		g.Status = DagStatus_Blocked
-	case gateDone:
-		g.Status = DagStatus_AwaitingReview
 	default:
 		g.Status = DagStatus_Running
 	}
@@ -434,28 +422,13 @@ func BlockingKind(g *waveobj.TaskGroup) string {
 	return out
 }
 
-// gatedTaskID returns the id of the done, unreleased gate halting the DAG, or "".
-func gatedTaskID(g *waveobj.TaskGroup) string {
-	for i := range g.Tasks {
-		t := &g.Tasks[i]
-		if t.Gate && t.State == TaskState_Done && !t.Released {
-			return t.ID
-		}
-	}
-	return ""
-}
-
 // dagCondition is the lead-facing identity of what the dag is currently asking for: the status, plus
-// what is being asked about. Two different gates are two different questions for the human even
-// though the status does not move between them, and a second task failing a different way turns a
-// specific blocker into a mixed one — both must still be asked. What it deliberately excludes is the
+// what is being asked about. A second task failing a different way turns a specific blocker into a
+// mixed one even though the status does not move, and that must still be asked. What it deliberately excludes is the
 // failure count: a rising streak of the same kind is the same question, and re-announcing it is the
 // duplicate-notification bug itself.
 func dagCondition(g *waveobj.TaskGroup) string {
-	switch g.Status {
-	case DagStatus_AwaitingReview:
-		return g.Status + ":" + gatedTaskID(g)
-	case DagStatus_Blocked:
+	if g.Status == DagStatus_Blocked {
 		return g.Status + ":" + BlockingKind(g)
 	}
 	return g.Status

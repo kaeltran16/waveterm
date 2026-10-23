@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -334,5 +335,17 @@ func TestMergeRunWorktreeFoldsDocsIntoTheSquashCommit(t *testing.T) {
 	files := strings.Fields(gitCmd(t, dir, "show", "--name-only", "--format=", "HEAD"))
 	if want := []string{"feature.txt", "plan.md", "spec.md"}; !reflect.DeepEqual(files, want) {
 		t.Fatalf("squash commit files = %v, want %v", files, want)
+	}
+}
+
+// The conflict wake names the files a stopped squash left unmerged, read from the index.
+func TestConflictedFilesNamesWhatTheSquashLeftUnmerged(t *testing.T) {
+	dir := conflictedSquash(t)
+	files, err := conflictedFiles(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(files, []string{"base.txt"}) {
+		t.Fatalf("conflicted files = %q, want [base.txt]", files)
 	}
 }

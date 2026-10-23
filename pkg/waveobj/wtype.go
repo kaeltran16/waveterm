@@ -215,7 +215,7 @@ type RunPhase struct {
 	Kind        string       `json:"kind"`               // brainstorm | plan | execute | orchestrate | custom
 	Skill       string       `json:"skill,omitempty"`    // e.g. "superpowers:writing-plans"
 	State       string       `json:"state"`              // pending | running | blocked | done | failed | skipped
-	Gate        bool         `json:"gate,omitempty"`     // pipeline: halt after this phase; orchestrator: the lead was told to hold
+	Gate        bool         `json:"gate,omitempty"`     // orchestrator: the lead was told to hold
 	FreshCtx    bool         `json:"freshctx,omitempty"` // this phase runs in its own fresh worker (clear-context boundary)
 	Held        bool         `json:"held,omitempty"`     // orchestrator: the lead paused itself at the plan gate (runtime)
 	Triage      *PhaseTriage `json:"triage,omitempty"`   // orchestrator (adaptive): the lead's quick-vs-plan call (runtime)
@@ -234,7 +234,7 @@ type Run struct {
 	Runtime     string        `json:"runtime,omitempty"` // the harness running every phase and child; empty means legacy Claude-only
 	Model       string        `json:"model,omitempty"`   // exact model id override (flat route); empty means the runtime default
 	PlaybookId  string        `json:"playbookid,omitempty"`
-	Mode        string        `json:"mode,omitempty"`       // pipeline | orchestrator (empty = pipeline, legacy-safe)
+	Mode        string        `json:"mode,omitempty"`       // quick | orchestrator; a stored run may hold pipeline, or empty from before modes
 	WorkspaceId string        `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)
 	ProjectPath string        `json:"projectpath"`          // worker cwd (copied from the channel)
 	LandPath    string        `json:"landpath,omitempty"`   // tree the engine lands lanes in (a wave/<runId> worktree); empty = ProjectPath
@@ -305,14 +305,8 @@ type Run struct {
 	Parallelism int `json:"parallelism,omitempty"`
 	// Prototype is the design canvas the run was started with (Build this… on a canvas). It wins over the
 	// plan's **Prototype:** line at DagSubmit; empty = the plan's stands.
-	Prototype string `json:"prototype,omitempty"`
-	// historical: slice 5c removed the plan gate; kept so a stored run still decodes as it was written.
-	PlanGatePending *bool `json:"plangatepending,omitempty"`
-	// historical: what the human wrote when they sent this run's gated plan back. Slice 5c removed the
-	// plan gate, so nothing writes or reads this any more; kept so a stored run still decodes as it was
-	// written.
-	PlanFeedback string      `json:"planfeedback,omitempty"`
-	Meta         MetaMapType `json:"meta"`
+	Prototype string      `json:"prototype,omitempty"`
+	Meta      MetaMapType `json:"meta"`
 }
 
 func (*Run) GetOType() string {
@@ -354,11 +348,9 @@ type TaskNode struct {
 	Description string   `json:"description,omitempty"` // plan context for the child (pins decisions the child must not re-ask)
 	Deps        []string `json:"deps,omitempty"`
 	Chunks      []string `json:"chunks,omitempty"`    // labels of the dag's effort chunks this task closes when it lands
-	Gate        bool     `json:"gate,omitempty"`      // halt the DAG at completion for review
 	State       string   `json:"state"`               // pending|ready|running|stalled|done|failed|cancelled|skipped|blocked-merge|verifying|verify-failed
 	RunID       string   `json:"runid,omitempty"`     // child run once spawned
 	SpawnedTs   int64    `json:"spawnedts,omitempty"` // when RunID's worker was spawned (UnixMilli), restamped each attempt
-	Released    bool     `json:"released,omitempty"`  // gate released by human approval
 	Merged      bool     `json:"merged,omitempty"`    // successful squash-merge back into the project branch
 	RunSpec     RunSpec  `json:"runspec,omitempty"`
 	// ModelSource is who set RunSpec's model: plan | reviewer | owner | escalation (TaskModelSource_*). Empty is
@@ -471,7 +463,7 @@ type TaskNode struct {
 type RunSpec struct {
 	Runtime string `json:"runtime,omitempty"` // harness; empty = run default
 	Model   string `json:"model,omitempty"`   // exact model id; empty = runtime default
-	Mode    string `json:"mode,omitempty"`    // quick | pipeline | orchestrator
+	Mode    string `json:"mode,omitempty"`    // quick | orchestrator
 	Goal    string `json:"goal,omitempty"`    // per-task goal; empty = task label
 }
 
@@ -485,7 +477,7 @@ type TaskGroup struct {
 	Title         string     `json:"title,omitempty"`
 	Parallelism   int        `json:"parallelism"`
 	Tasks         []TaskNode `json:"tasks"`
-	Status        string     `json:"status"`                  // awaiting-plan|running|awaiting-review|blocked|done|cancelled (derived)
+	Status        string     `json:"status"`                  // running|plan-review|finalizing|blocked|done|cancelled (derived)
 	Failures      int        `json:"failures"`                // consecutive task failures; circuit-break at 3
 	WorkerRoute   *RoutePin  `json:"workerroute,omitempty"`   // default worker route (nil = inherit owner); task RunSpec wins
 	ReviewerPicks bool       `json:"reviewerpicks,omitempty"` // the plan reviewer picks task models (false = the WorkerRoute rule stands)
@@ -497,10 +489,6 @@ type TaskGroup struct {
 	CreatedTs          int64       `json:"createdts"`
 	UpdatedTs          int64       `json:"updatedts"`
 	Meta               MetaMapType `json:"meta"`
-
-	// historical: slice 5c removed the plan gate; kept so a stored dag still decodes as it was written.
-	PlanGate       bool  `json:"plangate,omitempty"`
-	PlanApprovedTs int64 `json:"planapprovedts,omitempty"`
 
 	// NotifiedCondition is the condition the lead was last woken about (the status, plus the gate task
 	// or blocking kind it is about). Engine bookkeeping: it is what keeps a re-entered Schedule from
@@ -804,7 +792,7 @@ type EffortEvent struct {
 // injected into worker/orchestrator/quick prompts and the Gatekeeper) plus the engine's launch defaults.
 type JarvisProfile struct {
 	Principles  PrincipleList `json:"principles,omitempty"`
-	DefaultMode string        `json:"defaultmode,omitempty"` // pipeline | orchestrator (empty = pipeline)
+	DefaultMode string        `json:"defaultmode,omitempty"` // quick | orchestrator (empty = quick)
 	// Parallelism is the engine width a new run defaults to. 0 = let the lead choose, which is what
 	// every profile written before this field has.
 	Parallelism int `json:"parallelism,omitempty"`

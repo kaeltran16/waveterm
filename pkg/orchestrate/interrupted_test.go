@@ -172,10 +172,14 @@ func TestMarkInterruptedRunsCancelsDagRunsNoTaskReferences(t *testing.T) {
 	if err := wstore.AppendRun(ctx, dag.ChannelId, orphan); err != nil {
 		t.Fatal(err)
 	}
+	// the sweep reads the whole store, which other tests in the package share, so only this test's runs count
+	mine := []string{orphan.ID, child.ID, owner.ID}
 	var stopped []string
 	oldStop := stopRunWorkers
 	stopRunWorkers = func(_ context.Context, r *waveobj.Run) error {
-		stopped = append(stopped, r.ID)
+		if slices.Contains(mine, r.ID) {
+			stopped = append(stopped, r.ID)
+		}
 		return nil
 	}
 	restoreAfterStages(t, func() { stopRunWorkers = oldStop })

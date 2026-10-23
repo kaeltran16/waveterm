@@ -76,12 +76,7 @@ export function WaitingRow({
                     e.stopPropagation();
                     onAct();
                 }}
-                className={cn(
-                    "w-[66px] flex-none cursor-pointer rounded-[6px] border py-[3px] font-mono text-[10.5px] font-semibold hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                    act.label === "Approve"
-                        ? "border-success/35 bg-success/12 text-success"
-                        : "border-edge-mid text-secondary"
-                )}
+                className="w-[66px] flex-none cursor-pointer rounded-[6px] border border-edge-mid py-[3px] font-mono text-[10.5px] font-semibold text-secondary hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
                 {act.label}
             </button>

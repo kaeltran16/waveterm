@@ -223,24 +223,13 @@ func TestAskAndEscalationCarryTheWorkerRunsInitiative(t *testing.T) {
 	}
 }
 
-func TestDagGateAndBlockedWhyCountSkippedTasksAsFinished(t *testing.T) {
+func TestDagBlockedWhyCountsSkippedTasksAsFinished(t *testing.T) {
 	tasks := []waveobj.TaskNode{
 		{ID: "t-1", State: "done"},
 		{ID: "t-2", State: "skipped"},
-		{ID: "t-3", Label: "merge", State: "done", Gate: true, LastActivity: 40},
+		{ID: "t-3", Label: "merge", State: "done", LastActivity: 40},
 		{ID: "t-4", State: "pending"},
 	}
-	gate := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{
-		{ID: "d1", RunID: "r1", ChannelId: "c1", Status: "awaiting-review", Tasks: tasks, UpdatedTs: 40},
-	}})
-	if len(gate) != 1 || gate[0].Kind != AttentionDagGate {
-		t.Fatalf("want one dag gate, got %+v", gate)
-	}
-	want := "3 of 4 tasks done. Everything downstream stays queued until this one is released."
-	if gate[0].Why != want {
-		t.Fatalf("dag-gate why-line:\n got %q\nwant %q", gate[0].Why, want)
-	}
-
 	blocked := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{
 		{ID: "d1", RunID: "r1", ChannelId: "c1", Status: "blocked", Failures: 3, Tasks: tasks, UpdatedTs: 40},
 	}})
@@ -352,13 +341,6 @@ func TestBlockedMergeNamesWhereToFixIt(t *testing.T) {
 }
 
 func TestDagItemsNameTheirTask(t *testing.T) {
-	gate := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{{
-		ID: "d1", RunID: "r1", ChannelId: "c1", Status: "awaiting-review", UpdatedTs: 5,
-		Tasks: []waveobj.TaskNode{{ID: "t-3", State: "done", Gate: true, LastActivity: 5}},
-	}}})
-	if len(gate) != 1 || gate[0].TaskId != "t-3" {
-		t.Fatalf("dag gate = %+v, want TaskId t-3", gate)
-	}
 	failed := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{{
 		ID: "d2", RunID: "r2", ChannelId: "c1", Status: "blocked", Failures: 2, UpdatedTs: 5,
 		Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done"}, {ID: "t-4", State: "failed"}},
@@ -396,8 +378,8 @@ func TestDagItemsLeaveWithTheirFinishedRun(t *testing.T) {
 	dags := []*waveobj.TaskGroup{
 		{ID: "d1", RunID: "r1", ChannelId: "c1", Status: "blocked", UpdatedTs: 5,
 			Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done"}}, Final: &waveobj.FinalStage{State: "failed", Round: 2}},
-		{ID: "d2", RunID: "r2", ChannelId: "c1", Status: "awaiting-review", UpdatedTs: 5,
-			Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done", Gate: true}}},
+		{ID: "d2", RunID: "r2", ChannelId: "c1", Status: "blocked", UpdatedTs: 5,
+			Tasks: []waveobj.TaskNode{{ID: "t-1", State: "failed"}}},
 		{ID: "d3", RunID: "r3", ChannelId: "c1", Status: "blocked", UpdatedTs: 5,
 			Tasks: []waveobj.TaskNode{{ID: "t-1", State: "failed"}}},
 	}

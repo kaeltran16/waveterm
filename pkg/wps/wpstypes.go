@@ -28,7 +28,6 @@ const (
 	Event_JarvisVolunteer  = "jarvis:volunteer" // type: baseds.VolunteerData
 	// orchestration engine events (pkg/orchestrate publishes these; the cockpit rail mirrors them)
 	DagEventChildDone   = "dag:child-done"   // type: string (task id)
-	DagEventGateOpen    = "dag:gate-open"    // type: string (gate task id)
 	DagEventBlocked     = "dag:dag-blocked"  // type: string (failure count)
 	DagEventComplete    = "dag:dag-complete" // type: string ("all tasks done")
 	DagEventTaskSpawned = "dag:task-spawned" // type: string (task id)
@@ -53,7 +52,6 @@ var AllEvents []string = []string{
 	Event_AgentAsk,
 	Event_JarvisVolunteer,
 	DagEventChildDone,
-	DagEventGateOpen,
 	DagEventBlocked,
 	DagEventComplete,
 	DagEventTaskSpawned,

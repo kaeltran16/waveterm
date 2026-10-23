@@ -14,8 +14,9 @@ function signals(attention: AttentionItem[]) {
 }
 
 describe("petSignalsFrom", () => {
-    it("a gate in attention gives the review-gate posture", () => {
-        expect(postureFor(signals([item("dag-gate", "run a")]))).toBe("review-gate");
+    it("an escalation in attention gives the escalation posture, and a blocked dag none", () => {
+        expect(postureFor(signals([item("escalation", "run a")]))).toBe("escalation");
+        expect(postureFor(signals([item("dag-blocked", "run a")]))).toBe("none");
     });
 
     it("a run-land-held item gives heldLand with the run and its reason", () => {

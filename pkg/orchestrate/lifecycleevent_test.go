@@ -136,57 +136,6 @@ func TestScheduleEmitsTaskFailed(t *testing.T) {
 	}
 }
 
-func TestScheduleEmitsDagGateOpen(t *testing.T) {
-	allowWorkerHarnessForTest(t)
-	ctx := context.Background()
-	ch, err := wstore.CreateChannel(ctx, "ev-gate-open", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
-	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
-		t.Fatal(err)
-	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{
-		{ID: "t-0", Label: "a", Gate: true},
-	}, 1, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := wstore.AppendDag(ctx, &g); err != nil {
-		t.Fatal(err)
-	}
-	old := spawnWorker
-	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
-		return waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil
-	}
-	defer func() { spawnWorker = old }()
-	if err := ScheduleOnce(ctx, &g); err != nil {
-		t.Fatal(err)
-	}
-	childRunID := g.Tasks[0].RunID
-	if err := wstore.UpdateRun(ctx, ch.OID, childRunID, func(r *waveobj.Run) error {
-		r.Status = jarvis.RunStatus_Done
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ScheduleOnce(ctx, &g); err != nil {
-		t.Fatal(err)
-	}
-	if g.Status != DagStatus_AwaitingReview {
-		t.Fatalf("gate task must halt in awaiting-review, got %s", g.Status)
-	}
-	events := lifecycleEvents(t, ch.OID, owner.ID)
-	detail := eventDetail(t, events, waveobj.RunEventKindDagGateOpen)
-	if detail == nil {
-		t.Fatalf("missing dag-gate-open event, events=%+v", events)
-	}
-	if detail["taskid"] != "t-0" {
-		t.Fatalf("dag-gate-open detail = %+v", detail)
-	}
-}
-
 func TestCancelEmitsDagCancelled(t *testing.T) {
 	allowWorkerHarnessForTest(t)
 	ctx := context.Background()

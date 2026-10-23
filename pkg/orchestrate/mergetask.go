@@ -319,7 +319,11 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 	if err != nil {
 		if errors.Is(err, ErrMergeConflict) {
 			appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeBlocked, nil, map[string]any{"taskid": task.ID})
-			if derr := markBlockedMergeLocked(ctx, owner.DagORef, childRunID); derr != nil {
+			files, ferr := conflictedFiles(ctx, jarvis.LandPath(owner))
+			if ferr != nil {
+				log.Printf("dag %s task %s: reading the conflicted files: %v", owner.DagORef, task.ID, ferr)
+			}
+			if derr := markBlockedMergeLocked(ctx, owner.DagORef, childRunID, files); derr != nil {
 				return "", derr
 			}
 			return "", err
@@ -361,7 +365,7 @@ func finalVerifyStandsIn(g *waveobj.TaskGroup) bool {
 	}
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
-		landed := t.State == TaskState_Done && (t.Merged || !g.MergeRequired) && (!t.Gate || t.Released)
+		landed := t.State == TaskState_Done && (t.Merged || !g.MergeRequired)
 		if !landed && t.State != TaskState_Skipped {
 			return false
 		}

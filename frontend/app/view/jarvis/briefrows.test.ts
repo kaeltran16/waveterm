@@ -33,7 +33,7 @@ const NOW = new Date(2026, 8, 15, 12, 0).getTime();
 describe("queueLine", () => {
     const q: QueueRow = {
         key: "gate:1",
-        kind: "dag gate",
+        kind: "dag blocked",
         title: "Approve the plan",
         source: "waveterm",
         detail: "waveterm · #arc",
@@ -44,7 +44,7 @@ describe("queueLine", () => {
         attrib: "Orchestrator · S4c",
         why: "2 of 4 done",
         cites: [],
-        wireKind: "dag-gate",
+        wireKind: "dag-blocked",
         channelId: "c1",
         runId: "r1",
         taskId: "",
@@ -54,7 +54,7 @@ describe("queueLine", () => {
     it("reads kind, title, why, attribution and wait as one line that opens its target", () => {
         expect(queueLine(q, NOW)).toMatchObject({
             id: "waiting:gate:1",
-            kind: "gate",
+            kind: "blocked",
             kindTone: "asking",
             title: "Approve the plan",
             note: "2 of 4 done",

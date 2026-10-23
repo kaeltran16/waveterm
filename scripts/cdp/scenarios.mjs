@@ -626,7 +626,7 @@ const briefSurface = {
                 // the effort title is joined on the frontend from the efforts already on the surface,
                 // so a raw oid here would mean the join silently failed
                 (ctx.first ?? "").includes("Scenario gate clearance \u00b7 Phase 3") &&
-                /2 of 4 tasks done/.test(ctx.first ?? ""),
+                /The work is on wave\/r-briefing-1/.test(ctx.first ?? ""),
             detail: JSON.stringify(ctx),
         });
         await h.shot("cdp-shots/brief-queue-context.png");
@@ -2983,42 +2983,38 @@ const usageStates = {
     },
 };
 
-// --- the review-gate blind spot ----------------------------------------------------------------
-// The whole defect in three steps: hold a run's DAG at a gate in one channel, make a DIFFERENT channel
-// the active subject, then walk away to Usage and read the Jarvis nav badge. Before the attention list
-// moved server-side this read zero — the badge counted only live `asking` workers, and a gate has none
-// (its task finished and it is waiting on a human), while the frontend's cross-channel list came from a
+// --- the cross-channel blind spot ---------------------------------------------------------------
+// The whole defect in three steps: block a run's DAG in one channel, make a DIFFERENT channel the active
+// subject, then walk away to Usage and read the Jarvis nav badge. Before the attention list moved
+// server-side this read zero — the badge counted only live `asking` workers, and a blocked DAG has none
+// (its task stopped and it is waiting on a human), while the frontend's cross-channel list came from a
 // channel snapshot refetched only on create/delete/rename/archive.
 //
-// The gate is seeded, not reached: a deferred orchestrator run (no lead) is given a two-task plan whose
-// first task is gated, and once that task's worker has dispatched the stored DAG is written to
-// awaiting-review with the task done and unreleased. The seeded task carries no child run id, so no later
-// tick can re-derive its state from the worker, and a DAG parked with no task in flight is one the
-// watchdog does not tick. A blocked DAG was the other choice; its failed task keeps a child run a tick
-// can read. Teardown cancels the run and deletes the worker's block.
+// The block is seeded, not reached: a deferred orchestrator run (no lead) is given a two-task plan, and once
+// the first task's worker has dispatched the stored DAG is written to blocked with that task failed. The
+// seeded task carries no child run id, so no later tick can re-derive its state from the worker, and a tick
+// of the blocked DAG derives blocked again. Teardown cancels the run and deletes the worker's block.
 //
 // The poll wait is a 500ms loop rather than a flat 10s sleep so the step is not flaky at the interval
 // boundary, and so a stalled poller fails HERE — distinguishable from the badge assertion failing, which
 // means detection broke. The two halves of this change fail differently and must stay tellable apart.
-const ATTN_GATE_TASK = "t-1";
+const ATTN_BLOCKED_TASK = "t-1";
 const ATTN_TASKS = [
-    { id: ATTN_GATE_TASK, label: "gated noop", description: "do nothing, stop immediately", deps: [], gate: true, state: "" },
-    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: [ATTN_GATE_TASK], gate: false, state: "" },
+    { id: ATTN_BLOCKED_TASK, label: "noop 1", description: "do nothing, stop immediately", deps: [], state: "" },
+    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: [ATTN_BLOCKED_TASK], state: "" },
 ];
-const ATTN_DAG_STATUS = "awaiting-review";
-const ATTN_KIND = "dag-gate";
+const ATTN_DAG_STATUS = "blocked";
+const ATTN_KIND = "dag-blocked";
 // long enough for a tick that read the dag before the seed to have written it back
 const ATTN_TICK_SETTLE_MS = 2000;
 
-const attnParkAtGate = (dag) => ({
+const attnParkBlocked = (dag) => ({
     ...dag,
     status: ATTN_DAG_STATUS,
-    tasks: (dag.tasks ?? []).map((t) =>
-        t.id === ATTN_GATE_TASK ? { ...t, state: "done", runid: "", released: false } : t
-    ),
+    tasks: (dag.tasks ?? []).map((t) => (t.id === ATTN_BLOCKED_TASK ? { ...t, state: "failed", runid: "" } : t)),
 });
-const attnGateFingerprint = (dag) =>
-    JSON.stringify([dag?.status, (dag?.tasks ?? []).map((t) => [t.id, t.state, t.runid ?? "", t.released === true])]);
+const attnFingerprint = (dag) =>
+    JSON.stringify([dag?.status, (dag?.tasks ?? []).map((t) => [t.id, t.state, t.runid ?? ""])]);
 
 const attentionCrossChannel = {
     name: "attention-cross-channel",
@@ -3032,14 +3028,14 @@ const attentionCrossChannel = {
             const other = await h.rpc("createchannel", { name: "attn-other", projectpath: ctx.otherCwd });
             ctx.otherId = other.oid;
             // the dispatching tick holds the dag for as long as the spawn takes and would land over a seed made under it
-            await waitForDispatch(h, ctx, ATTN_GATE_TASK);
-            if (!ctx.dispatched) throw new Error(`${ATTN_GATE_TASK} did not dispatch in ${ctx.dispatchMs}ms`);
+            await waitForDispatch(h, ctx, ATTN_BLOCKED_TASK);
+            if (!ctx.dispatched) throw new Error(`${ATTN_BLOCKED_TASK} did not dispatch in ${ctx.dispatchMs}ms`);
             ctx.dagId = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.oid;
             if (!ctx.dagId) throw new Error("the run has no dag");
-            await seedDag(h, ctx, attnParkAtGate, attnGateFingerprint);
+            await seedDag(h, ctx, attnParkBlocked, attnFingerprint);
             // a tick the worker's first events started can outlast the seed's own read-back, so it is seeded again
             await new Promise((r) => setTimeout(r, ATTN_TICK_SETTLE_MS));
-            await seedDag(h, ctx, attnParkAtGate, attnGateFingerprint);
+            await seedDag(h, ctx, attnParkBlocked, attnFingerprint);
         } catch (e) {
             ctx.arrangeError = String(e?.message ?? e);
         }
@@ -3050,32 +3046,32 @@ const attentionCrossChannel = {
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
 
-        // 1. the probe channel's run holds a dag at its gate, read back from the store
-        const parkedStep = "1. the probe channel's run holds a DAG parked at its gate";
+        // 1. the probe channel's run holds a blocked dag, read back from the store
+        const parkedStep = "1. the probe channel's run holds a blocked DAG";
         if (ctx.arrangeError != null) {
             rec(parkedStep, false, ctx.arrangeError);
             return steps;
         }
         const runId = ctx.runId;
         const group = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group;
-        const gate = group?.tasks?.find((t) => t.id === ATTN_GATE_TASK);
+        const blocked = group?.tasks?.find((t) => t.id === ATTN_BLOCKED_TASK);
         rec(
             parkedStep,
-            group?.status === ATTN_DAG_STATUS && gate?.gate === true && gate?.state === "done" && gate?.released !== true,
+            group?.status === ATTN_DAG_STATUS && blocked?.state === "failed",
             JSON.stringify({ status: group?.status, tasks: group?.tasks?.map((t) => [t.id, t.state, t.runid ?? ""]) })
         );
 
-        // 2. the server reports it as a gate item — the backend half, asserted before any DOM reading so a
+        // 2. the server reports it as a blocked-dag item — the backend half, asserted before any DOM reading so a
         // failure here is never mistaken for a delivery problem
         const attention = await h.rpc("getattention", null);
         const item = (attention.items || []).find((x) => x.runid === runId);
         rec(
-            "2. GetAttention reports the gate with its channel and wait time",
+            "2. GetAttention reports the blocked DAG with its channel and wait time",
             item != null && item.kind === ATTN_KIND && item.channelid === ctx.channelId && item.waitingsince > 0,
             JSON.stringify(item ?? { items: (attention.items || []).length })
         );
 
-        // 3. a DIFFERENT channel is the active one, so the gate is in a non-active channel. Nothing in the
+        // 3. a DIFFERENT channel is the active one, so the blocked DAG is in a non-active channel. Nothing in the
         // Brief selects a channel by hand: a load with no active channel takes the newest (loadChannels), and
         // attn-other was created after the probe.
         await h.ev("location.reload()");
@@ -3111,10 +3107,10 @@ const attentionCrossChannel = {
         );
 
         // 5. the assertion the defect failed: the badge is lit from a surface that is not Jarvis, for a
-        // gate in a channel that is not active
+        // blocked DAG in a channel that is not active
         const onUsage = await h.activeSurfaceLabel();
         rec(
-            "5. the Jarvis badge counts a review gate in a non-active channel, read from Usage",
+            "5. the Jarvis badge counts a blocked DAG in a non-active channel, read from Usage",
             onUsage === "Usage" && badge >= 1,
             `surface=${onUsage} badge=${badge}`
         );
@@ -3141,7 +3137,11 @@ const attentionCrossChannel = {
 // CDP port, reached with h.page. "The popup window is visible" is always the window plugin's is_visible read on
 // the popup's own target: the card can sit in the DOM of a hidden webview.
 //
-// The gates are seeded the way attention-cross-channel seeds its one. Arc is made to look unfocused by
+// The items are raised through the DEV attention seam (DEV_ATTENTION_ITEMS_KEY in attentionstore.ts), which
+// appends them to every poll: the server raises one item per dag or run, too few to step the popup through, and
+// attention-cross-channel covers the server's half. The fixture run is real, so a click lands on its sheet and its
+// worker's block can raise a real ask; once dispatched its dag is set cancelled and its task lets go of the run, so
+// the engine raises nothing for it and the worker's ask is the human's. Arc is made to look unfocused by
 // overriding document.hasFocus on the main page, which is what the poller reads (attentionpoller.tsx); the
 // override is installed for new documents before the reload, so the reloaded poller's first load sees it too.
 // Each item is raised just after one of the page's own polls has landed, so it is new in the poll after it and
@@ -3152,8 +3152,10 @@ const POPUP_CARD = `document.querySelector("button[data-attention-popup]")`;
 const POPUP_AVATAR = `document.querySelector("canvas[data-attention-popup-avatar]")`;
 // POPUP_AVATAR_PX in frontend/app/view/agents/attentionpopup.ts
 const POPUP_AVATAR_PX = 96;
-// a dag the engine's tick leaves alone and the attention list holds no gate for
+// a dag the engine's tick leaves alone and the attention list holds nothing for
 const POPUP_LIFTED_STATUS = "cancelled";
+// DEV_ATTENTION_ITEMS_KEY in frontend/app/view/agents/attentionstore.ts
+const POPUP_ITEMS_KEY = "wave:dev-attention-items";
 // BUBBLE_MS in frontend/app/view/jarvis/bubblecard.tsx: how long a bubble stays up
 const POPUP_BUBBLE_MS = 6000;
 const POPUP_LEAVE_SLACK_MS = 3000;
@@ -3167,25 +3169,35 @@ const POPUP_OPEN_WAIT_MS = 5000;
 const POPUP_HIDE_WAIT_MS = 3000;
 const POPUP_FOCUS_HIDE_MS = 2000;
 const POPUP_QUIET_MS = 12_000;
+// the items the scenario raises; only the first is a task of the fixture run's dag, whose one worker it needs
 const POPUP_TASK_IDS = ["t-1", "t-2", "t-3", "t-4"];
-const POPUP_TASKS = POPUP_TASK_IDS.map((id, i) => ({
-    id,
-    label: `gated noop ${i + 1}`,
-    description: "do nothing, stop immediately",
-    deps: [],
-    gate: true,
-    state: "",
-}));
+const POPUP_LABELS = POPUP_TASK_IDS.map((_, i) => `noop ${i + 1}`);
+const POPUP_TASKS = [{ id: POPUP_TASK_IDS[0], label: POPUP_LABELS[0], description: "do nothing, stop immediately", deps: [], state: "" }];
 const POPUP_QUESTION = "Which port should the popup probe use?";
 const POPUP_FLASH_REFUSED = /request_user_attention|not allowed|Permissions associated/i;
 
 const popupSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const popupPark = (ids) => (dag) => ({
-    ...dag,
-    status: ATTN_DAG_STATUS,
-    tasks: (dag.tasks ?? []).map((t) => (ids.includes(t.id) ? { ...t, state: "done", runid: "", released: false } : t)),
+// one blocked-dag item per id, on the fixture run, as the server words one (pkg/jarvis/attention.go)
+const popupItem = (ctx, id) => ({
+    key: `dag-blocked:popup-${id}`,
+    kind: "dag-blocked",
+    taskid: id,
+    channelid: ctx.channelId,
+    runid: ctx.runId,
+    source: "attention-popup fixture",
+    text: `The group is blocked: ${id} (${POPUP_LABELS[POPUP_TASK_IDS.indexOf(id)]})`,
+    action: "Review",
+    waitingsince: ctx.raisedAt,
+    phaseidx: 0,
 });
+
+// what every poll from now on appends: exactly these ids' items, in this order
+const popupRaise = (h, ctx, ids) => {
+    ctx.raisedAt ??= Date.now();
+    ctx.raised = ids.map((id) => popupItem(ctx, id));
+    return h.ev(`localStorage.setItem(${JSON.stringify(POPUP_ITEMS_KEY)}, ${JSON.stringify(JSON.stringify(ctx.raised))})`);
+};
 
 // runs in every new document of the main page: Arc reads as unfocused, and what the page logs as an error is
 // kept. fireAndForget (frontend/util/util.ts) reports a refused window call through console.log.
@@ -3343,9 +3355,8 @@ async function popupFaces(h, popup, posture) {
 }
 
 // postureFor (frontend/app/view/jarvis/petcondition.ts) over the whole attention list, as petsignals.ts counts it:
-// a gate or escalation another run left in the dev store outranks the fixture's own ask
+// an escalation another run left in the dev store outranks the fixture's own ask
 const POPUP_POSTURE_RANK = [
-    ["dag-gate", "review-gate"],
     ["escalation", "escalation"],
     ["ask", "blocked-worker"],
 ];
@@ -3375,8 +3386,8 @@ const popupLandedOk = (before, landed, ctx) =>
     landed.sheet === ctx.runId &&
     landed.focused === true;
 
-const popupRunItems = async (h, ctx) =>
-    ((await h.rpc("getattention", null)).items || []).filter((i) => i.runid === ctx.runId && i.kind === ATTN_KIND);
+// the whole list the page holds now: the server's items and the seam's
+const popupAttention = async (h, ctx) => [...((await h.rpc("getattention", null)).items || []), ...(ctx.raised ?? [])];
 
 // the block of the fixture run's one dispatched worker. Its tab is read as an object: no wshrpc command returns a tab.
 async function popupWorkerBlock(h, ctx) {
@@ -3412,6 +3423,13 @@ const attentionPopup = {
             if (!ctx.dispatched) throw new Error(`${POPUP_TASK_IDS[0]} did not dispatch in ${ctx.dispatchMs}ms`);
             ctx.dagId = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.oid;
             if (!ctx.dagId) throw new Error("the run has no dag");
+            // the task lets go of its run, so the worker's ask (steps 12 to 14) is the human's, not the lead's
+            await seedDag(
+                h,
+                ctx,
+                (dag) => ({ ...dag, status: POPUP_LIFTED_STATUS, tasks: (dag.tasks ?? []).map((t) => ({ ...t, runid: "" })) }),
+                (dag) => JSON.stringify([dag?.status, (dag?.tasks ?? []).map((t) => t.runid ?? "")])
+            );
             // the worker's tab can trail the task's run id
             for (let i = 0; i < 20 && !ctx.workerBlockId; i++) {
                 ctx.workerBlockId = await popupWorkerBlock(h, ctx);
@@ -3427,7 +3445,7 @@ const attentionPopup = {
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const [first, second, third, fourth] = POPUP_TASK_IDS;
 
-        const builtStep = "1. a run holds a DAG of four gated tasks with no dependencies, its first one dispatched";
+        const builtStep = "1. a run holds a one-task DAG whose task dispatched, set aside so the engine raises nothing for it";
         if (ctx.arrangeError != null) {
             rec(builtStep, false, ctx.arrangeError);
             return steps;
@@ -3435,14 +3453,12 @@ const attentionPopup = {
         const built = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group;
         rec(
             builtStep,
-            built?.tasks?.length === POPUP_TASKS.length &&
-                built.tasks.every((t) => t.gate === true && (t.deps ?? []).length === 0) &&
-                ctx.dispatched === true,
-            JSON.stringify({ dispatchMs: ctx.dispatchMs, tasks: built?.tasks?.map((t) => [t.id, t.gate, t.state]) })
+            built?.tasks?.length === POPUP_TASKS.length && built.status === POPUP_LIFTED_STATUS && ctx.dispatched === true,
+            JSON.stringify({ dispatchMs: ctx.dispatchMs, status: built?.status, tasks: built?.tasks?.map((t) => [t.id, t.state]) })
         );
 
-        // 2. unfocused from the reloaded page's first load on, then the first gate, parked after a poll has landed
-        const raisedStep = "2. with the main page reporting no focus, a poll raises the popup for the first gate";
+        // 2. unfocused from the reloaded page's first load on, then the first item, raised after a poll has landed
+        const raisedStep = "2. with the main page reporting no focus, a poll raises the popup for the first item";
         let popup;
         try {
             popup = ctx.popup = await h.page(POPUP_URL);
@@ -3472,24 +3488,23 @@ const attentionPopup = {
         })`);
         const before = { surface: await h.activeSurfaceLabel(), ...(await h.ev(POPUP_MAIN_STATE)) };
         const unfocused = await h.ev("document.hasFocus()");
-        await seedDag(h, ctx, popupPark([first]), attnGateFingerprint);
-        // a tick the worker's first events started can outlast the seed's own read-back, so it is seeded again
-        await popupSleep(ATTN_TICK_SETTLE_MS);
-        await seedDag(h, ctx, popupPark([first]), attnGateFingerprint);
+        await popupRaise(h, ctx, [first]);
         const raised = await popupUntil(popup, popupShown, POPUP_RAISE_WAIT_MS);
 
         // steps 3 to 7 read and click inside the bubble's lifetime, and are judged after
         let gate = null;
         let gateFaces = null;
+        let gatePosture = null;
         if (raised.ok) {
             await popup.shot("cdp-shots/attention-popup-gate.png");
             gate = await popup.ev(POPUP_DETAIL);
-            gateFaces = await popupFaces(h, popup, "review-gate");
+            gatePosture = popupPostureFor(await popupAttention(h, ctx));
+            gateFaces = await popupFaces(h, popup, gatePosture);
             await popup.shot("cdp-shots/attention-popup-avatar.png");
             await popup.ev(`${POPUP_CARD}?.click()`);
         }
         const clickedAt = Date.now();
-        const gateItem = (await popupRunItems(h, ctx)).find((i) => i.taskid === first);
+        const gateItem = ctx.raised.find((i) => i.taskid === first);
         rec(
             raisedStep,
             counting &&
@@ -3507,11 +3522,11 @@ const attentionPopup = {
 
         const edges = popupEdgeError(gate);
         rec(
-            "3. the popup reads Review, the run's source and the gate's text, themed, its row 16px inside the work area's corner",
+            "3. the popup reads Review, the item's source and its text, themed, its row 16px inside the work area's corner",
             gate.label === "Review" &&
                 gate.name === gateItem?.source &&
                 gate.text === gateItem?.text &&
-                gate.text.includes(POPUP_TASKS[0].label) &&
+                gate.text.includes(POPUP_LABELS[0]) &&
                 gate.more === null &&
                 !["rgba(0, 0, 0, 0)", "transparent", null].includes(gate.background) &&
                 !["rgb(0, 0, 0)", null].includes(gate.color) &&
@@ -3539,9 +3554,9 @@ const attentionPopup = {
             JSON.stringify({ visible: gate.visible, hasFocus: gate.hasFocus })
         );
         rec(
-            "5. the popup's avatar wears the main window's face, review-gate while the gate stands, drawn on the 2D canvas",
-            popupSameFace(gateFaces, "review-gate"),
-            JSON.stringify(gateFaces)
+            "5. the popup's avatar wears the main window's face while the item stands, drawn on the 2D canvas",
+            gateFaces != null && popupSameFace(gateFaces, gatePosture),
+            JSON.stringify({ expected: gatePosture, faces: gateFaces })
         );
         const card = gate.cardRect;
         const avatar = gate.avatarRect;
@@ -3566,10 +3581,10 @@ const attentionPopup = {
         const closed = await popupUntil(popup, popupGone, POPUP_HIDE_WAIT_MS);
         rec("8. after the click the popup holds no card and its window is hidden", closed.ok, JSON.stringify(closed));
 
-        // 9. the override is still on this document: no reload since step 2. Two gates new in one poll make one bubble.
+        // 9. the override is still on this document: no reload since step 2. Two items new in one poll make one bubble.
         const stillUnfocused = await h.ev("document.hasFocus()");
         await popupNextPoll(h);
-        await seedDag(h, ctx, popupPark([first, second, third]), attnGateFingerprint);
+        await popupRaise(h, ctx, [first, second, third]);
         const more = await popupUntil(popup, popupShown, POPUP_RAISE_WAIT_MS);
         const moreAt = Date.now();
         let moreCard = null;
@@ -3578,9 +3593,9 @@ const attentionPopup = {
             moreCard = await popup.ev(POPUP_DETAIL);
         }
         // the list is in rank order, so the first of the two is the one the bubble names
-        const fresh = (await popupRunItems(h, ctx)).filter((i) => [second, third].includes(i.taskid));
+        const fresh = ctx.raised.filter((i) => [second, third].includes(i.taskid));
         rec(
-            "9. two gates new in one poll raise one popup naming the first, with +1 more waiting",
+            "9. two items new in one poll raise one popup naming the first, with +1 more waiting",
             stillUnfocused === false &&
                 more.ok &&
                 fresh.length === 2 &&
@@ -3606,11 +3621,11 @@ const attentionPopup = {
             JSON.stringify({ ...left, sinceShownMs: Date.now() - moreAt, limitMs: leaveBy })
         );
 
-        // 11. a fresh popup, raised the way step 9's was, for the last gate; its avatar is clicked instead of its card
+        // 11. a fresh popup, raised the way step 9's was, for the last item; its avatar is clicked instead of its card
         await h.goto("usage");
         const avatarBefore = { surface: await h.activeSurfaceLabel(), ...(await h.ev(POPUP_MAIN_STATE)) };
         await popupNextPoll(h);
-        await seedDag(h, ctx, popupPark(POPUP_TASK_IDS), attnGateFingerprint);
+        await popupRaise(h, ctx, POPUP_TASK_IDS);
         const avatarRaised = await popupUntil(popup, popupShown, POPUP_RAISE_WAIT_MS);
         const avatarClickedAt = Date.now();
         let avatarClicked = false;
@@ -3637,7 +3652,7 @@ const attentionPopup = {
             })
         );
 
-        // 12 to 14. an ask on the fixture run's worker block, raised with the run's gates lifted so the ask is the only
+        // 12 to 14. an ask on the fixture run's worker block, raised with the seam's items lifted so the ask is the only
         // waiting kind; Arc gaining focus hides the bubble well inside BUBBLE_MS
         const askStep = "12. an ask raises a popup reading Asking you, the worker's name and the question";
         const askFaceStep =
@@ -3649,7 +3664,7 @@ const attentionPopup = {
             rec(focusStep, false, "no popup to hide");
         } else {
             const askORef = `block:${ctx.workerBlockId}`;
-            await seedDag(h, ctx, (dag) => ({ ...dag, status: POPUP_LIFTED_STATUS }), attnGateFingerprint);
+            await popupRaise(h, ctx, []);
             await popupNextPoll(h);
             await h.rpc("ask", {
                 oref: askORef,
@@ -3669,7 +3684,7 @@ const attentionPopup = {
                 const waiting = (await h.rpc("getattention", null)).items || [];
                 askPosture = popupPostureFor(waiting);
                 askOthers = waiting
-                    .filter((i) => i.runid !== ctx.runId && ["dag-gate", "escalation"].includes(i.kind))
+                    .filter((i) => i.runid !== ctx.runId && i.kind === "escalation")
                     .map((i) => [i.kind, i.runid]);
                 askFaces = await popupFaces(h, popup, askPosture);
                 await popup.shot("cdp-shots/attention-popup-avatar-ask.png");
@@ -3705,7 +3720,7 @@ const attentionPopup = {
             );
         }
 
-        // 15. focused again, a new item raises nothing: the gates, lifted for the ask, stand again
+        // 15. focused again, a new item raises nothing: the items, lifted for the ask, stand again
         await h.cdp("Page.removeScriptToEvaluateOnNewDocument", { identifier: ctx.unfocusScript });
         ctx.unfocusScript = null;
         await h.ev("delete document.hasFocus");
@@ -3717,12 +3732,9 @@ const attentionPopup = {
             focused = await h.ev("document.hasFocus()");
         }
         await popupNextPoll(h);
-        await seedDag(h, ctx, popupPark(POPUP_TASK_IDS), attnGateFingerprint);
-        let reported = false;
-        for (let i = 0; i < 20 && !reported; i++) {
-            reported = (await popupRunItems(h, ctx)).some((item) => item.taskid === fourth);
-            if (!reported) await popupSleep(500);
-        }
+        await popupRaise(h, ctx, POPUP_TASK_IDS);
+        // the poll after the raise is the one that carries the items
+        const reported = (await popupNextPoll(h)) != null && ctx.raised.some((item) => item.taskid === fourth);
         const quietFrom = Date.now();
         let noise = null;
         while (noise == null && Date.now() - quietFrom < POPUP_QUIET_MS) {
@@ -3731,7 +3743,7 @@ const attentionPopup = {
             else await popupSleep(500);
         }
         rec(
-            "15. with Arc focused, a new gate raises no popup within one poll",
+            "15. with Arc focused, a new item raises no popup within one poll",
             focused === true && reported && noise == null,
             JSON.stringify({ focused, emulated: ctx.focusEmulated === true, reported, noise, watchedMs: Date.now() - quietFrom })
         );
@@ -3780,6 +3792,7 @@ const attentionPopup = {
                 () => ctx.focusEmulated && h.cdp("Emulation.setFocusEmulationEnabled", { enabled: false }),
             ],
             ["clear the ask", () => ctx.askORef && h.rpc("agentaskclear", ctx.askORef)],
+            ["clear the seam's items", () => h.ev(`localStorage.removeItem(${JSON.stringify(POPUP_ITEMS_KEY)})`)],
             // the app's own hide: the main window gaining focus
             ["hide the popup", () => h.ev(`window.dispatchEvent(new Event("focus"))`)],
             ["close the popup's session", () => ctx.popup?.close()],
@@ -4896,15 +4909,15 @@ const JARVIS_FAULT_HELD = {
     runid: "cdp-held",
     phaseidx: 0,
 };
-const JARVIS_FAULT_GATE = {
-    key: "dag-gate:cdp-gate",
-    kind: "dag-gate",
-    source: "first gate",
-    text: "Approve the gate before the DAG proceeds.",
-    action: "Review",
+const JARVIS_FAULT_ESCALATION = {
+    key: "esc:cdp-escalation",
+    kind: "escalation",
+    source: "first escalation",
+    text: "Allow the migration to rewrite the schema?",
+    action: "Decide",
     waitingsince: 0,
     channelid: "",
-    runid: "cdp-gate",
+    runid: "cdp-escalation",
     phaseidx: 0,
 };
 
@@ -4991,8 +5004,8 @@ const jarvisAvatarFaults = {
             });
             await closePeek();
 
-            await setAttention([JARVIS_FAULT_HELD, JARVIS_FAULT_GATE]);
-            await state("5. a waiting gate composes with the held land as posture", "run-held", "review-gate", "run-held-gate");
+            await setAttention([JARVIS_FAULT_HELD, JARVIS_FAULT_ESCALATION]);
+            await state("5. a waiting escalation composes with the held land as posture", "run-held", "escalation", "run-held-escalation");
         } catch (e) {
             rec("scenario aborted", false, String(e?.message ?? e));
         }
@@ -5511,7 +5524,7 @@ const jarvisPeek = {
             const panel = document.querySelector('[data-pet-peek]');
             if (typeof store?.setAttention !== 'function' || !panel) return false;
             store.setAttention([
-                { key: 'dag-gate:cdp-1', kind: 'dag-gate', source: 'first gate', text: 'Approve the gate before the DAG proceeds.', action: 'Review', waitingsince: Date.now() - 120000, channelid: '', runid: 'cdp-1', phaseidx: 0 },
+                { key: 'dag-blocked:cdp-1', kind: 'dag-blocked', source: 'first blocked', text: 'The group is blocked.', action: 'Review', waitingsince: Date.now() - 120000, channelid: '', runid: 'cdp-1', phaseidx: 0 },
                 { key: 'ask:cdp-2', kind: 'ask', source: 'second ask', text: 'Waiting on your reply', action: 'Answer', waitingsince: Date.now() - 60000, channelid: '', runid: 'cdp-2', phaseidx: 0 },
             ]);
             return true;
@@ -5540,7 +5553,7 @@ const jarvisPeek = {
                 busyArranged === true &&
                 busyBefore?.shape === "busy" &&
                 busyBefore?.width === narrow?.width &&
-                busyBefore?.cursor === "dag-gate:cdp-1" &&
+                busyBefore?.cursor === "dag-blocked:cdp-1" &&
                 busyBefore?.focused === true &&
                 movedCursor === "ask:cdp-2" &&
                 composerFocused === true,
@@ -7429,13 +7442,12 @@ const dagLifecycle = {
         const dagTitle = "verify dag";
         const dagParallelism = 2;
         const dagTasks = [
-            { id: "t-0", label: "noop", description: "do nothing, stop immediately", deps: [], gate: false, state: "" },
+            { id: "t-0", label: "noop", description: "do nothing, stop immediately", deps: [], state: "" },
             {
                 id: "t-1",
                 label: "review",
                 description: "review only, make no changes",
                 deps: ["t-0"],
-                gate: true,
                 state: "",
             },
             {
@@ -7443,7 +7455,6 @@ const dagLifecycle = {
                 label: "noop 2",
                 description: "do nothing, stop immediately",
                 deps: ["t-1"],
-                gate: false,
                 state: "",
             },
         ];
@@ -9029,7 +9040,7 @@ const jarvisMotion = {
             // latest update alone. Cleared in teardown.
             if (typeof mod.setAttention !== "function") return "petstore setAttention hook not exposed";
             mod.setAttention([
-                { key: "dag-gate:cdp-motion", kind: "dag-gate", source: "CDP motion gate", text: "Approve the gate before the DAG proceeds.", action: "Review", waitingsince: Date.now() - 120000, channelid: "", runid: "cdp-motion", phaseidx: 0 },
+                { key: "dag-blocked:cdp-motion", kind: "dag-blocked", source: "CDP motion block", text: "The group is blocked.", action: "Review", waitingsince: Date.now() - 120000, channelid: "", runid: "cdp-motion", phaseidx: 0 },
             ]);
             return true;
         })()`);
@@ -10912,7 +10923,7 @@ const MERGE_GATE_LIVE_LABEL = "running lane";
 const MERGE_GATE_TASKS = [
     ["t-1", MERGE_GATE_LABEL],
     ["t-2", MERGE_GATE_LIVE_LABEL],
-].map(([id, label]) => ({ id, label, description: "do nothing, stop immediately", deps: [], gate: false, state: "" }));
+].map(([id, label]) => ({ id, label, description: "do nothing, stop immediately", deps: [], state: "" }));
 // the engine ticks a dag at most every 30 seconds, and the card then waits on the run's digest
 const MERGE_GATE_WAIT_MS = 90_000;
 const mergeGateRow = (label) =>
@@ -11089,9 +11100,9 @@ const leadCardMergeGate = {
 // lifecycle timeline. The run is a real orchestrator run held by deferstart, then given a chained three-task plan,
 // so only t-1 dispatches a worker; teardown cancels the run, which cancels its DAG and that worker.
 const RUN_SHEET_POLISH_TASKS = [
-    { id: "t-1", label: "noop", description: "do nothing, stop immediately", deps: [], gate: false, state: "" },
-    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: ["t-1"], gate: false, state: "" },
-    { id: "t-3", label: "noop 3", description: "do nothing, stop immediately", deps: ["t-2"], gate: false, state: "" },
+    { id: "t-1", label: "noop", description: "do nothing, stop immediately", deps: [], state: "" },
+    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: ["t-1"], state: "" },
+    { id: "t-3", label: "noop 3", description: "do nothing, stop immediately", deps: ["t-2"], state: "" },
 ];
 
 // A deferred orchestrator run in a temp dir, given a plan, with its sheet opened on the Brief. A throw lands in
@@ -12912,11 +12923,10 @@ const dagObservability = {
 };
 
 // --- dag-peek: the card a DAG node click opens beside the node (Main.dc.html, Final.dc.html) ------------------
-// Four tasks at parallelism 1: only t-1 dispatches. One seed makes t-2 a done gate and t-3 a failed task, and gives
+// Four tasks at parallelism 1: only t-1 dispatches. One seed makes t-2 a done task and t-3 a failed task, and gives
 // the dag its Check, Verify and Final commands with no final, so the final node is the waiting stage with five rows.
 // The dag is not finalizing, so the engine leaves the stage alone. A seeded DAG proves the UI, not the engine.
-// t-2 stays an unreleased done gate, which halts all dispatch (gateBlocked), so t-4 stays undispatched for step g
-// even if t-1 finishes and merges: never approve t-2 in this scenario.
+// t-1 holds the one slot while its worker runs, so t-4, which waits on it, stays undispatched for step g.
 const DAG_PEEK_VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 const DAG_PEEK_DONE_WHEN = "Done when: `git status --porcelain` prints nothing";
 const DAG_PEEK_BULLETS = ["make no file changes", "run no commands", "send no messages"];
@@ -12932,12 +12942,11 @@ const DAG_PEEK_TASKS = [
             DAG_PEEK_DONE_WHEN,
         ].join("\n"),
         deps: [],
-        gate: false,
         state: "",
     },
-    { id: "t-2", label: "noop gate", description: "do nothing, stop immediately", deps: [], gate: true, state: "" },
-    { id: "t-3", label: "noop 3", description: "do nothing, stop immediately", deps: [], gate: false, state: "" },
-    { id: "t-4", label: "noop 4", description: "do nothing, stop immediately", deps: ["t-1"], gate: false, state: "" },
+    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: [], state: "" },
+    { id: "t-3", label: "noop 3", description: "do nothing, stop immediately", deps: [], state: "" },
+    { id: "t-4", label: "noop 4", description: "do nothing, stop immediately", deps: ["t-1"], state: "" },
 ];
 const DAG_PEEK_CMDS = { check: "true", verify: "true", finalcmd: "true" };
 const DAG_PEEK_TAG_MODEL = "haiku";
@@ -13253,23 +13262,14 @@ const dagPeekScenario = {
         const closedT1 = await polishWaitFor(h, `!${dagPeekCard(t1)}`, 3000);
         rec("c. a second click on t-1 closes the card", () => closedT1, { closedT1 });
 
-        // d. the done gate's card
+        // d. a done task's card: nothing waits on the human for it
         const t2 = dagPeekTaskSel("t-2");
         const openedT2 = await dagPeekOpen(h, t2, "t-2");
-        const d = await h.ev(`({
-            gate: [...(${dagPeekCard(t2)}?.querySelectorAll("span") ?? [])].some((s) => s.textContent.trim() === "gate"),
-            bar: ${dagPeekBar(t2)},
-        })`);
-        await h.shot("cdp-shots/dag-peek-gate.png");
+        const d = await h.ev(`({ bar: ${dagPeekBar(t2)} })`);
+        await h.shot("cdp-shots/dag-peek-done.png");
         rec(
-            "d. clicking t-2 opens its card with a gate chip, and the bar Approve (primary) and Send back",
-            () =>
-                openedT2 &&
-                d.gate &&
-                fstSame(d.bar, [
-                    { action: "approve", label: "Approve", primary: true },
-                    { action: "sendback", label: "Send back", primary: false },
-                ]),
+            "d. clicking t-2 opens a done task's card, which offers no action",
+            () => openedT2 && Array.isArray(d.bar) && d.bar.length === 0,
             { openedT2, d }
         );
 
@@ -14186,9 +14186,9 @@ const FST_VERIFIER = "final-stage verifier";
 const FST_VERIFIER_ID = "fx-final-verifier";
 // t-1 fans out to two sinks, so the final node takes two edges; at parallelism 1 only t-1 dispatches
 const FST_TASKS = [
-    { id: "t-1", label: "noop", description: "do nothing, stop immediately", deps: [], gate: false, state: "" },
-    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: ["t-1"], gate: false, state: "" },
-    { id: "t-3", label: "noop 3", description: "do nothing, stop immediately", deps: ["t-1"], gate: false, state: "" },
+    { id: "t-1", label: "noop", description: "do nothing, stop immediately", deps: [], state: "" },
+    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: ["t-1"], state: "" },
+    { id: "t-3", label: "noop 3", description: "do nothing, stop immediately", deps: ["t-1"], state: "" },
 ];
 const FST_SINK_EDGES = ["t-2>final", "t-3>final"];
 // Part B's commands are only drawn, never run
@@ -24153,7 +24153,7 @@ const runSheetDoneLook = {
                 report: "",
                 phases: [
                     { kind: "plan", state: "done", startedts: now - 655_000, donets: now - 520_000, artifacts: ["docs/plan.md"] },
-                    { kind: "execute", state: "done", gate: true, startedts: now - 520_000, donets: now - 30_000 },
+                    { kind: "execute", state: "done", startedts: now - 520_000, donets: now - 30_000 },
                 ],
                 evidence: {
                     capturedts: now,
@@ -24342,7 +24342,7 @@ const runSheetLegacyLook = {
             report: "",
             phases: [
                 { kind: "plan", state: "done", startedts: now - 655_000, donets: now - 520_000, artifacts: ["docs/plan.md"] },
-                { kind: "execute", state: "done", gate: true, startedts: now - 520_000, donets: now - 30_000 },
+                { kind: "execute", state: "done", startedts: now - 520_000, donets: now - 30_000 },
             ],
             evidence: {
                 capturedts: now,

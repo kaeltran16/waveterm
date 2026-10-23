@@ -30,11 +30,11 @@ const ctx = (tasks: TaskNode[], extra: Partial<FactCtx> = {}): FactCtx => ({
 });
 
 describe("kindOf / wordOf / glyphKind", () => {
-    it("treats a gated done task as needing you", () => {
-        const t = task("t-1", "done", { gate: true });
-        expect(kindOf(t)).toBe("attention");
-        expect(wordOf(t)).toBe("at gate");
-        expect(glyphKind(t)).toBe("attention");
+    it("reads a done task as done: nothing holds it for approval", () => {
+        const t = task("t-1", "done");
+        expect(kindOf(t)).toBe("done");
+        expect(wordOf(t)).toBe("done");
+        expect(glyphKind(t)).toBe("done");
     });
     it("names the compound states in words", () => {
         expect(wordOf(task("t", "blocked-merge"))).toBe("merge blocked");

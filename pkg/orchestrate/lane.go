@@ -46,7 +46,7 @@ func laneTip(g *waveobj.TaskGroup, lane []string) *waveobj.TaskNode {
 }
 
 // laneMergeReady returns the tip of a lane that is finished and not yet landed: every task done or skipped,
-// and every done gate released. Nil otherwise.
+// Nil otherwise.
 func laneMergeReady(g *waveobj.TaskGroup, lane []string) *waveobj.TaskNode {
 	tip := laneTip(g, lane)
 	if tip == nil || tip.Merged || tip.RunID == "" {
@@ -57,7 +57,7 @@ func laneMergeReady(g *waveobj.TaskGroup, lane []string) *waveobj.TaskNode {
 		if t.State == TaskState_Skipped {
 			continue
 		}
-		if t.State != TaskState_Done || (t.Gate && !t.Released) {
+		if t.State != TaskState_Done {
 			return nil
 		}
 	}
@@ -86,7 +86,7 @@ func laneMerged(g *waveobj.TaskGroup, lane []string) bool {
 		if t.State == TaskState_Skipped {
 			continue
 		}
-		if !t.Merged || (t.Gate && !t.Released) {
+		if !t.Merged {
 			return false
 		}
 	}

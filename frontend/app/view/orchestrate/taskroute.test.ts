@@ -407,10 +407,7 @@ describe("dagStatusPill", () => {
         expect(dagStatusPill(failed)).toEqual({ label: "plan review failed", tone: "waiting" });
     });
     it("words and tones every other status as before", () => {
-        expect(dagStatusPill({ status: "awaiting-review" } as TaskGroup)).toEqual({
-            label: "awaiting review",
-            tone: "done",
-        });
+        expect(dagStatusPill({ status: "done" } as TaskGroup)).toEqual({ label: "done", tone: "done" });
         expect(dagStatusPill({ status: "blocked" } as TaskGroup)).toEqual({ label: "blocked", tone: "waiting" });
         expect(dagStatusPill({ status: "cancelled" } as TaskGroup)).toEqual({ label: "cancelled", tone: "muted" });
         expect(dagStatusPill({ status: "running" } as TaskGroup)).toEqual({ label: "running", tone: "active" });

@@ -185,27 +185,26 @@ const loaded = (state: WorkState): BriefingLoadState => ({
     error: null,
 });
 
-// one of each shape the queue can take: a gate with a run to land on, an escalation, and a
+// one of each shape the queue can take: a held land with a run to land on, an escalation, and a
 // dag-blocked row carrying the error tone. The attribution, why-line and citations are written the way
 // pkg/jarvis/attention.go composes them for these shapes — a fixture whose why-line no server would
 // emit would verify a row the app cannot actually produce.
 const attentionItems: AttentionItem[] = [
     {
-        kind: "dag-gate",
-        key: "dag-gate:g-briefing-1:t-2",
-        taskid: "t-2",
+        kind: "run-land-held",
+        key: "run-land-held:r-briefing-1",
         channelid: "ch-briefing",
         channelname: "waveterm",
         runid: "r-briefing-1",
         source: "the ask bridge",
-        text: "Approve the encoder before the DAG proceeds.",
+        text: "The run's branch was not merged back: the merge conflicts with main in pkg/agentask/encode.go",
+        reason: "the merge conflicts with main in pkg/agentask/encode.go",
         action: "Review",
-        phaseidx: 1,
+        phaseidx: 0,
         waitingsince: NOW - DAY,
         effortoid: "scenario-gate",
         chunklabel: "Phase 3",
-        why: "2 of 4 tasks done. Everything downstream stays queued until this one is released.",
-        cites: ["docs/superpowers/plans/ask-bridge.md", "pkg/agentask/encode.go"],
+        why: "The work is on wave/r-briefing-1. Clear the reason, then run `wsh runs land r-briefing-1`.",
     },
     {
         kind: "escalation",

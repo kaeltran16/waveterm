@@ -10,7 +10,7 @@ func TestClassifyFailure(t *testing.T) {
 	}{
 		{"context window exceeded", 1, FailureKindContextWindow},
 		{"request timed out after 300s", 1, FailureKindTimeout},
-		{"lead sendback: out of scope", 1, FailureKindGateSendback},
+		{"out of scope for this task", 1, FailureKindUnknown},
 		{"test failed: TestFoo", 1, FailureKindTestFailed},
 		{"2 of 5 checks not passing", 1, FailureKindTestFailed},
 		// passing test output on a failed outcome must not read as a test failure
@@ -35,7 +35,7 @@ func TestRetryDecision(t *testing.T) {
 	if retryDecision(FailureKindToolError, 1) {
 		t.Fatal("second consecutive tool failure must block")
 	}
-	for _, kind := range []string{FailureKindContextWindow, FailureKindTimeout, FailureKindGateSendback, FailureKindTestFailed, FailureKindUnknown} {
+	for _, kind := range []string{FailureKindContextWindow, FailureKindTimeout, FailureKindTestFailed, FailureKindUnknown} {
 		if retryDecision(kind, 0) {
 			t.Fatalf("%s must block on its first failure", kind)
 		}

@@ -269,8 +269,9 @@ func processTree(root *process.Process) []*process.Process {
 var cpuSampleEvery = 20 * time.Second
 
 // BusyWindow is how recent a busy CPU sample must be for status to call a worker busy: two sample intervals,
-// so one skipped sample doesn't flip a busy worker to idle.
-const BusyWindow = 2 * 20 * time.Second
+// so one skipped sample doesn't flip a busy worker to idle. Set once at init, so a test that zeroes cpuSampleEvery
+// keeps the production window.
+var BusyWindow = 2 * cpuSampleEvery
 
 // MaxLatestToolLen bounds the in-progress tool call a task carries.
 const MaxLatestToolLen = 80

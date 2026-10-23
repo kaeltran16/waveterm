@@ -138,9 +138,9 @@ func TestABatchOfOneFailsWithoutBisecting(t *testing.T) {
 	if _, err := os.Stat(worktreeDir(f.projectPath(t), f.ownerID+"-bisect")); !os.IsNotExist(err) {
 		t.Fatalf("no bisect tree is made, stat err %v", err)
 	}
-	want := "Verify failed after merging task t-0 (exit 1)."
-	if len(lead.sends) != 1 || !strings.Contains(lead.sends[0], want) {
-		t.Fatalf("today's wake, got %q", lead.sends)
+	want := "wake: Verify failed after merging task t-0 (exit 1): --- FAIL: TestBroken (t-0.txt). wsh jarvis dag status t-0"
+	if len(lead.sends) != 1 || lead.sends[0] != want {
+		t.Fatalf("want %q, got %q", want, lead.sends)
 	}
 }
 

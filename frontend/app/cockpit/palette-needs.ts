@@ -17,7 +17,6 @@ const GROUP_ORDER: NeedsGroup[] = ["asks", "reviews", "blocked"];
 const KIND_GROUP: Record<string, NeedsGroup> = {
     ask: "asks",
     escalation: "asks",
-    "dag-gate": "reviews",
 };
 
 // pkg/jarvis/attention.go keys an ask as "ask:" + its block oref, standalone or in a channel
@@ -70,8 +69,8 @@ export type NeedsTarget =
     | { kind: "run"; channelId: string; runId: string }
     | { kind: "channel"; channelId: string };
 
-// Where Enter on a Needs you row lands. A dag item's key names its dag ("dag-gate:<dag>[:<task>]",
-// "dag-blocked:<dag>", pkg/jarvis/attention.go); an ask whose agent left the roster falls back to its
+// Where Enter on a Needs you row lands. A dag item's key names its dag ("dag-blocked:<dag>",
+// pkg/jarvis/attention.go); an ask whose agent left the roster falls back to its
 // channel, or to nothing, rather than guessing at an agent. null: the item names nowhere to go.
 export function needsTarget(row: NeedsRow): NeedsTarget | null {
     if (row.agent != null) {

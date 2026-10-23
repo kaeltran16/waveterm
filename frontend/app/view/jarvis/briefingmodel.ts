@@ -162,7 +162,7 @@ export interface QueueRow {
     retry: boolean;
 }
 
-// dag-gate/dag-blocked are absent from the rail's map and fell through to the raw wire kind, which
+// dag-blocked is absent from the rail's map and fell through to the raw wire kind, which
 // already reads as a label; spelled out here so every kind the server can emit has a written form.
 // A queue row is the one region whose destination is not implied by what it is, and without this it has
 // none: the decision a row waits on (a plan gate, an escalation, a released task) is resolved by the run
@@ -187,7 +187,6 @@ export function queueOpenTarget(nav: QueueNav | null): QueueOpenTarget | null {
 const QUEUE_KIND_LABEL: Record<string, string> = {
     escalation: "escalation",
     ask: "ask",
-    "dag-gate": "dag gate",
     "dag-blocked": "dag blocked",
     "run-land-held": "land held",
     "run-unverified": "unverified",
@@ -295,10 +294,8 @@ export interface QueueSummary {
 }
 
 // the design's four kind words (design L1010-1013); every wire kind reads as one of them
-export function queueKindLabel(row: QueueRow): "gate" | "ask" | "failed" | "blocked" {
+export function queueKindLabel(row: QueueRow): "ask" | "failed" | "blocked" {
     switch (row.wireKind) {
-        case "dag-gate":
-            return "gate";
         case "ask":
         case "escalation":
             return "ask";
@@ -310,16 +307,13 @@ export function queueKindLabel(row: QueueRow): "gate" | "ask" | "failed" | "bloc
 }
 
 export type QueueAct = {
-    label: "Approve" | "Retry" | "Acknowledge" | "Open";
-    kind: "approve-dag" | "retry-dag" | "ack-run" | "open";
+    label: "Retry" | "Acknowledge" | "Open";
+    kind: "retry-dag" | "ack-run" | "open";
 };
 
-// What the row's button does in place (design L1598-1609). Approve and Retry need the exact task
-// the server named; without it the row opens its run rather than guessing one.
+// What the row's button does in place (design L1598-1609). Retry needs the exact task the server named;
+// without it the row opens its run rather than guessing one.
 export function queueAction(row: QueueRow): QueueAct {
-    if (row.wireKind === "dag-gate" && row.taskId !== "" && row.runId != null) {
-        return { label: "Approve", kind: "approve-dag" };
-    }
     if (row.wireKind === "dag-blocked" && row.retry && row.taskId !== "" && row.runId != null) {
         return { label: "Retry", kind: "retry-dag" };
     }

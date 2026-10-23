@@ -936,8 +936,8 @@ describe("unified active work", () => {
 });
 
 const attentionItem = (over: Partial<AttentionItem>): AttentionItem => ({
-    kind: "dag-gate",
-    key: "dag-gate:r1",
+    kind: "escalation",
+    key: "esc:r1",
     channelid: "ch-1",
     channelname: "waveterm",
     runid: "r1",
@@ -955,21 +955,21 @@ describe("buildAttentionQueue", () => {
     it("keeps the server's priority order rather than re-sorting on age", () => {
         const q = buildAttentionQueue({
             attention: [
-                item({ key: "dag-gate:d1", kind: "dag-gate", waitingsince: T0 - HOUR }),
+                item({ key: "dag-blocked:d1", kind: "dag-blocked", waitingsince: T0 - HOUR }),
                 item({ key: "ask:w1", kind: "ask", waitingsince: T0 - DAY }),
             ],
             efforts: [],
         });
-        expect(q.map((r) => r.key)).toEqual(["dag-gate:d1", "ask:w1"]);
+        expect(q.map((r) => r.key)).toEqual(["dag-blocked:d1", "ask:w1"]);
     });
 
     it("writes a label for every kind the server can emit", () => {
-        const kinds = ["escalation", "ask", "dag-gate", "dag-blocked"];
+        const kinds = ["escalation", "ask", "dag-blocked", "run-land-held", "run-unverified"];
         const q = buildAttentionQueue({
             attention: kinds.map((k, i) => item({ kind: k, key: k + i })),
             efforts: [],
         });
-        expect(q.map((r) => r.kind)).toEqual(["escalation", "ask", "dag gate", "dag blocked"]);
+        expect(q.map((r) => r.kind)).toEqual(["escalation", "ask", "dag blocked", "land held", "unverified"]);
     });
 
     it("gives a dag-blocked row the error tone and the rest the asking tone", () => {
@@ -1006,23 +1006,10 @@ describe("buildAttentionQueue", () => {
         expect(q[0]!.ts).toBe(T0 - HOUR);
     });
 
-    // the server un-rolled dag gates to one row per task; two tasks of one group must stay two rows.
-    it("keeps two gated tasks of the same dag apart", () => {
-        const q = buildAttentionQueue({
-            attention: [
-                item({ kind: "dag-gate", key: "dag-gate:d1:t-0", text: "Approve scaffold before the DAG proceeds." }),
-                item({ kind: "dag-gate", key: "dag-gate:d1:t-1", text: "Approve migrate before the DAG proceeds." }),
-            ],
-            efforts: [],
-        });
-        expect(q.map((r) => r.key)).toEqual(["dag-gate:d1:t-0", "dag-gate:d1:t-1"]);
-        expect(new Set(q.map((r) => r.title)).size).toBe(2);
-    });
-
     // a channel-backed item must not be re-routed just because a stray oref rode along.
     it("routes by the channel even when an oref rides along", () => {
         const q = buildAttentionQueue({
-            attention: [item({ kind: "dag-gate", oref: "effort:e-1" })],
+            attention: [item({ kind: "dag-blocked", oref: "effort:e-1" })],
             efforts: [],
         });
         expect(q[0]!.nav).toEqual({ kind: "channel", channelId: "ch-1", runId: "r1" });
@@ -1083,7 +1070,7 @@ describe("buildAttentionQueue", () => {
             })
         ).efforts;
         const q = buildAttentionQueue({ attention: [item({})], efforts });
-        expect(q.map((r) => r.kind)).toEqual(["dag gate", "chunk blocked"]);
+        expect(q.map((r) => r.kind)).toEqual(["escalation", "chunk blocked"]);
         expect(q[1]!.ts).toBeNull();
     });
 });
@@ -1268,7 +1255,7 @@ describe("summarizeAttentionQueue", () => {
     it("ignores rows without an age, and drops the oldest when none has one", () => {
         const queue = buildAttentionQueue({
             attention: [
-                attentionItem({ kind: "dag-gate", key: "g1", waitingsince: 0 }),
+                attentionItem({ kind: "dag-blocked", key: "g1", waitingsince: 0 }),
                 attentionItem({ kind: "ask", key: "a1", waitingsince: T0 - HOUR }),
                 attentionItem({ kind: "ask", key: "a2", waitingsince: T0 - 2 * HOUR }),
             ],
@@ -1276,10 +1263,10 @@ describe("summarizeAttentionQueue", () => {
         });
         expect(summarizeAttentionQueue(queue, T0)).toEqual({
             title: "3 things are waiting on you",
-            detail: "gate · ask · ask · oldest 2h",
+            detail: "blocked · ask · ask · oldest 2h",
             oldestTs: T0 - 2 * HOUR,
         });
-        expect(summarizeAttentionQueue(queue.slice(0, 1), T0)?.detail).toBe("gate");
+        expect(summarizeAttentionQueue(queue.slice(0, 1), T0)?.detail).toBe("blocked");
     });
 
     it("returns null for an empty queue", () => {
@@ -1338,8 +1325,8 @@ describe("design queue wording", () => {
     const q = (over: Partial<QueueRow>): QueueRow =>
         ({
             key: "k" + Math.random(),
-            kind: "dag gate",
-            wireKind: "dag-gate",
+            kind: "escalation",
+            wireKind: "escalation",
             title: "t",
             source: "s",
             detail: "",
@@ -1360,24 +1347,20 @@ describe("design queue wording", () => {
         const now = 10 * 3_600_000;
         const s = summarizeAttentionQueue(
             [
-                q({ wireKind: "dag-gate" }),
+                q({ wireKind: "dag-blocked" }),
                 q({ wireKind: "ask", ts: now - 2 * 3_600_000 }),
                 q({ wireKind: "dag-blocked", retry: true }),
             ],
             now
         )!;
         expect(s.title).toBe("3 things are waiting on you");
-        expect(s.detail).toBe("gate · ask · failed · oldest 2h");
+        expect(s.detail).toBe("blocked · ask · failed · oldest 2h");
     });
     it("one item is singular", () => {
         expect(summarizeAttentionQueue([q({})], 0)!.title).toBe("1 thing is waiting on you");
     });
     it("maps each wire kind to its in-place action", () => {
-        expect(queueAction(q({ wireKind: "dag-gate", taskId: "t-3" }))).toEqual({
-            label: "Approve",
-            kind: "approve-dag",
-        });
-        expect(queueAction(q({ wireKind: "dag-gate", taskId: "" }))).toEqual({ label: "Open", kind: "open" });
+        expect(queueAction(q({ wireKind: "escalation", taskId: "t-3" }))).toEqual({ label: "Open", kind: "open" });
         expect(queueAction(q({ wireKind: "dag-blocked", taskId: "t-4", retry: true }))).toEqual({
             label: "Retry",
             kind: "retry-dag",
@@ -1394,7 +1377,7 @@ describe("design queue wording", () => {
     it("acknowledges all only the rows whose own button is Acknowledge", () => {
         const rows = [
             q({ wireKind: "run-unverified", channelId: "c1", runId: "r1" }),
-            q({ wireKind: "dag-gate", runId: "r2" }),
+            q({ wireKind: "dag-blocked", runId: "r2" }),
             q({ wireKind: "run-unverified", runId: null }),
             q({ wireKind: "run-unverified", channelId: "", runId: "r4" }),
             q({ wireKind: "run-unverified", channelId: "c5", runId: "r5" }),

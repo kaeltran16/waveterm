@@ -109,7 +109,12 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 			publishDagEvent(DagEventTaskRetried, g, task.ID)
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskRetried, nil, detail)
 		} else {
-			PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(task.ID, kind))
+			// a clean exit's summary describes the work, not what went wrong
+			why := data.Summary
+			if data.Status == "done" {
+				why = ""
+			}
+			PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(task.ID, kind, why))
 		}
 		poke = true
 		return nil
@@ -160,7 +165,7 @@ func closeLeadTabOnExit(ctx context.Context, run *waveobj.Run) {
 // leadExitedNote is why an orchestrator run whose lead exited before submitting a plan stopped (spec §2, G8).
 const leadExitedNote = "lead exited before submitting a plan"
 
-// workerExitedNote is why a quick or pipeline run whose worker exited without completing its phase stopped.
+// workerExitedNote is why a quick run whose worker exited without completing its phase stopped.
 const workerExitedNote = "worker exited before completing its phase"
 
 // HandleRunWorkerExit fails a non-dag run whose worker exits without completing the phase it was running:
@@ -169,7 +174,7 @@ const workerExitedNote = "worker exited before completing its phase"
 //   - orchestrator: a lead that exits before submitting a plan (spec §2, G8). A lead that already submitted
 //     leaves its dag running — DagORef is set, so this is a no-op — and the wake adapter hands judgment to
 //     the human instead.
-//   - quick / pipeline: the run's only worker exits before running `wsh jarvis complete`. Nothing else
+//   - quick: the run's only worker exits before running `wsh jarvis complete`. Nothing else
 //     reconciles these modes (F26): a dag child's exit is HandleChildOutcome's job, not this one.
 func HandleRunWorkerExit(ctx context.Context, workerORef string, exit jarvis.WorkerExit) error {
 	channelId, runId, err := workerRunIds(ctx, workerORef)

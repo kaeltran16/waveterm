@@ -85,7 +85,6 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
             {/* awaiting-plan is cancellable too: abandoning a run at its gate is a normal answer, and the
                 alternative would be approving work you do not want in order to be allowed to stop it */}
             {group.status === "running" ||
-            group.status === "awaiting-review" ||
             group.status === "awaiting-plan" ||
             group.status === "plan-review" ||
             group.status === "finalizing" ? (

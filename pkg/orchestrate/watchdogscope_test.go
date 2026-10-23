@@ -110,18 +110,6 @@ func TestWatchdogTickDetectsStallInBlockedDag(t *testing.T) {
 	assertSiblingStalled(t, ctx, dagID, spawns, DagStatus_Blocked)
 }
 
-func TestWatchdogTickDetectsStallInAwaitingReviewDag(t *testing.T) {
-	ctx, dagID, spawns := silentSiblingDag(t, "watchdog-gate", func(g *waveobj.TaskGroup) {
-		g.Tasks[0].State = TaskState_Done
-		g.Tasks[0].Gate = true
-		g.Tasks[0].Released = false
-	})
-
-	watchdogTick(ctx)
-
-	assertSiblingStalled(t, ctx, dagID, spawns, DagStatus_AwaitingReview)
-}
-
 // Terminal dags are done being watched: re-scheduling them forever is pure noise.
 func TestWatchdogTickSkipsTerminalDags(t *testing.T) {
 	ctx, dagID, _ := silentSiblingDag(t, "watchdog-cancelled", func(g *waveobj.TaskGroup) {

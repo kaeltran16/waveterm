@@ -26,7 +26,6 @@ export function timelineLayout(windowWidth: number): TimelineLayout {
 export const ATTENTION_KINDS = new Set<string>([
     "task-review-failed",
     "child-ask",
-    "dag-gate-open",
     "dag-plan-gated",
     "phase-held",
     "task-failed",
@@ -103,7 +102,6 @@ const TASK_TARGET_KINDS: Record<string, TimelineTarget["kind"]> = {
     "child-ask-cleared": "worker",
     "task-told": "worker",
     "dag-blocked": "gate",
-    "dag-gate-open": "gate",
     "task-merge-started": "merge",
     "task-merge-blocked": "merge",
     "task-merge-continued": "merge",

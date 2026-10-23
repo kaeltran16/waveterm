@@ -270,15 +270,15 @@ describe("needsPaletteRows", () => {
             needsRows(
                 [
                     item({ kind: "ask", key: "ask:block:b1", channelname: "waveterm" }),
-                    item({ kind: "dag-gate", key: "dag-gate:d1", text: "Gate", channelid: "c1", runid: "r1" }),
+                    item({ kind: "dag-blocked", key: "dag-blocked:d1", text: "Blocked", channelid: "c1", runid: "r1" }),
                 ],
                 [agent({ state: "asking", task: "fix", ask } as any)]
             )
         );
 
-    it("words an ask and a gate, in group order", () => {
+    it("words an ask and a blocked dag, in group order", () => {
         const { inScope } = needsPaletteRows(grouped(), deps);
-        expect(inScope.map((r) => r.key)).toEqual(["needs:ask:block:b1", "needs:dag-gate:d1"]);
+        expect(inScope.map((r) => r.key)).toEqual(["needs:ask:block:b1", "needs:dag-blocked:d1"]);
         expect(inScope[0]).toMatchObject({
             kind: "needs",
             title: "juno — fix",
@@ -290,8 +290,8 @@ describe("needsPaletteRows", () => {
             echo: "Opens juno’s terminal at its question",
         });
         expect(inScope[1]).toMatchObject({
-            title: "Gate",
-            status: { label: "gate", tone: "asking" },
+            title: "Blocked",
+            status: { label: "blocked", tone: "asking" },
             echo: "Opens the run’s task graph",
         });
         inScope[1].run();

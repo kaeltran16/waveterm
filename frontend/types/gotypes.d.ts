@@ -2630,8 +2630,6 @@ declare global {
         orchestration?: string;
         parallelism?: number;
         prototype?: string;
-        plangatepending?: boolean;
-        planfeedback?: string;
     };
 
     // waveobj.RunEffortRef
@@ -2987,8 +2985,6 @@ declare global {
         mergerequired?: boolean;
         createdts: number;
         updatedts: number;
-        plangate?: boolean;
-        planapprovedts?: number;
         notifiedcondition?: string;
         usage?: UsageRow[];
         verify?: string;
@@ -3013,11 +3009,9 @@ declare global {
         description?: string;
         deps?: string[];
         chunks?: string[];
-        gate?: boolean;
         state: string;
         runid?: string;
         spawnedts?: number;
-        released?: boolean;
         merged?: boolean;
         runspec?: RunSpec;
         modelsource?: string;

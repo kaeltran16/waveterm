@@ -124,20 +124,17 @@ func TestLaneMergeReadyNamesTheTip(t *testing.T) {
 		name   string
 		states map[string]string
 		merged []string
-		gate   bool
 		want   string
 	}{
-		{"a task still running", map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_Running}, nil, false, ""},
-		{"every task done", done, nil, false, "t-3"},
-		{"the last task skipped", map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_Skipped}, nil, false, "t-2"},
-		{"every task skipped", map[string]string{"t-1": TaskState_Skipped, "t-2": TaskState_Skipped, "t-3": TaskState_Skipped}, nil, false, ""},
-		{"already merged", done, []string{"t-1", "t-2", "t-3"}, false, ""},
-		{"a done gate not released", done, nil, true, ""},
+		{"a task still running", map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_Running}, nil, ""},
+		{"every task done", done, nil, "t-3"},
+		{"the last task skipped", map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_Skipped}, nil, "t-2"},
+		{"every task skipped", map[string]string{"t-1": TaskState_Skipped, "t-2": TaskState_Skipped, "t-3": TaskState_Skipped}, nil, ""},
+		{"already merged", done, []string{"t-1", "t-2", "t-3"}, ""},
 	}
 	for _, c := range cases {
 		g := laneGroup(t, true, c.states)
 		markMerged(g, c.merged...)
-		taskByID(g, "t-2").Gate = c.gate
 		got := ""
 		if tip := laneMergeReady(g, lane); tip != nil {
 			got = tip.ID

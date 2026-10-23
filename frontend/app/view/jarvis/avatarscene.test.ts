@@ -19,7 +19,7 @@ const LINK_LOST: PetExpression = { kind: "link-lost", lostAt: 0 };
 const RUN_HELD: PetExpression = { kind: "run-held", runName: "retry budget", reason: "conflict" };
 const FACES = [AT_REST, TIRED, LINK_LOST, RUN_HELD];
 
-const POSTURES = ["none", "review-gate", "escalation", "blocked-worker"] as const;
+const POSTURES = ["none", "escalation", "blocked-worker"] as const;
 
 // The size the avatar actually ships at (petview's AVATAR_PX). Every threshold below is a fraction of it,
 // because "does this read" is only ever a question about this size.
@@ -303,7 +303,7 @@ describe("buildAvatarScene — posture", () => {
     it("emits a filled sector and a marker colour for each kind of waiting", () => {
         // the fill is the point: the same marker drawn as a hairline arc disappeared at the shipped size,
         // because a stroke competing with a lit form behind it loses however wide you make it
-        for (const posture of ["review-gate", "escalation", "blocked-worker"] as const) {
+        for (const posture of ["escalation", "blocked-worker"] as const) {
             const scene = buildAvatarScene(input({ posture }));
             expect(scene.markerVar).toMatch(/^--color-/);
             expect(scene.fills.some((f) => f.tone === "marker")).toBe(true);
@@ -326,7 +326,7 @@ describe("buildAvatarScene — posture", () => {
     });
 
     it("puts each kind of waiting at its own bearing", () => {
-        // three postures that are otherwise identical are told apart by WHERE on the rim the marker sits
+        // postures that are otherwise identical are told apart by WHERE on the rim the marker sits
         const bearingOf = (posture: (typeof POSTURES)[number]) => {
             const scene = buildAvatarScene(input({ posture, still: true }));
             const marks = scene.fills.filter((f) => f.tone === "marker");
@@ -334,15 +334,15 @@ describe("buildAvatarScene — posture", () => {
             const y = marks.reduce((n, f) => n + f.points[0][1], 0) / marks.length;
             return Math.atan2(y - scene.centreY, x - scene.centreX);
         };
-        const bearings = (["review-gate", "escalation", "blocked-worker"] as const).map(bearingOf);
-        expect(new Set(bearings.map((b) => b.toFixed(2))).size).toBe(3);
+        const bearings = (["escalation", "blocked-worker"] as const).map(bearingOf);
+        expect(new Set(bearings.map((b) => b.toFixed(2))).size).toBe(2);
     });
 
     it("gives each kind of waiting a distinguishable colour", () => {
-        const vars = (["review-gate", "escalation", "blocked-worker"] as const).map(
+        const vars = (["escalation", "blocked-worker"] as const).map(
             (posture) => buildAvatarScene(input({ posture })).markerVar
         );
-        expect(new Set(vars).size).toBe(3);
+        expect(new Set(vars).size).toBe(2);
     });
 
     it("cannot draw a count, because the scene has no primitive that could carry one", () => {

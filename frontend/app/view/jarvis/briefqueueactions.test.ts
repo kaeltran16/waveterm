@@ -39,16 +39,15 @@ function fakeDeps(fail = false) {
 }
 
 describe("actOnQueue", () => {
-    it("approves the exact gate the server named", async () => {
+    it("retries the exact task the server named", async () => {
         const deps = fakeDeps();
-        await actOnQueue(deps, row({ wireKind: "dag-gate", taskId: "t2" }), line(null));
+        await actOnQueue(deps, row({ wireKind: "dag-blocked", taskId: "t2", retry: true }), line(null));
         expect(deps.rpc.dagAction).toHaveBeenCalledWith({
             channelid: "ch1",
             runid: "r1",
             taskid: "t2",
-            action: "approve",
+            action: "retry",
         });
-        expect(deps.undo.notify).toHaveBeenCalledWith("Approved t2 · run 7");
     });
 
     it("retries a blocked task that can be retried", async () => {
@@ -67,7 +66,7 @@ describe("actOnQueue", () => {
 
     it("shows a refused action's message instead of a success toast", async () => {
         const deps = fakeDeps(true);
-        await actOnQueue(deps, row({ wireKind: "dag-gate", taskId: "t2" }), line(null));
+        await actOnQueue(deps, row({ wireKind: "dag-blocked", taskId: "t2", retry: true }), line(null));
         expect(deps.undo.error).toHaveBeenCalledWith("refused");
         expect(deps.undo.notify).not.toHaveBeenCalled();
     });

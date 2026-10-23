@@ -234,14 +234,12 @@ export function approachMood(current: RenderMood, expression: PetExpression, dtM
 
 // Posture is a bearing marker, never a count: which kind of waiting, not how much of it.
 export const MARKER_VARS: Record<PetPosture, string | null> = {
-    "review-gate": "--color-accent",
     escalation: "--color-error",
     "blocked-worker": "--color-asking",
     none: null,
 };
 
 const MARKER_BEARINGS: Record<PetPosture, number | null> = {
-    "review-gate": -62,
     escalation: 44,
     "blocked-worker": 152,
     none: null,

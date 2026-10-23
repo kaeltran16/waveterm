@@ -66,6 +66,23 @@ func TestApproveOverrulesAFailedReview(t *testing.T) {
 	}
 }
 
+// approve and sendback answer a failed review and nothing else: on any other task they refuse and leave it as it is.
+func TestApproveAndSendBackRefuseATaskWhoseReviewDidNotFail(t *testing.T) {
+	ctx, dag := seedRunningTask(t)
+	if err := ApplyAction(ctx, dag.OID, "t-0", "approve", waveobj.RoutePin{}); err == nil || !strings.Contains(err.Error(), "review failed") {
+		t.Fatalf("approve of a running task: err = %v, want a refusal naming the failed review", err)
+	}
+	if err := SendBack(ctx, dag.OID, "t-0", "try again"); err == nil || !strings.Contains(err.Error(), "review failed") {
+		t.Fatalf("sendback of a running task: err = %v, want a refusal naming the failed review", err)
+	}
+	if err := ApplyAction(ctx, dag.OID, "nope", "approve", waveobj.RoutePin{}); err == nil {
+		t.Fatal("approve of an unknown task must error")
+	}
+	if task := firstTask(t, ctx, dag.OID); task.State != TaskState_Running || task.LeadGuidance != "" {
+		t.Fatalf("a refused action changed the task: %+v", task)
+	}
+}
+
 func TestSendBackRunsAnotherRoundWithTheLeadsGuidance(t *testing.T) {
 	ctx, dag, _ := seedReviewFailedDag(t)
 	calls := captureSpawns(t)
