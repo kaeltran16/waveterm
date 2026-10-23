@@ -270,21 +270,6 @@ func TestRunFinishedTotalsUsageOnTheDag(t *testing.T) {
 	}
 }
 
-func TestDoneChildAndOpenGateDoNotWakeLead(t *testing.T) {
-	f := newFakeLead(t)
-	h := newNotifyHarness(t, 1, []waveobj.TaskNode{{ID: "t-0", Label: "a", Gate: true}})
-	h.finishTask(t, "t-0", jarvis.RunStatus_Done)
-
-	h.scheduleTimes(t, 2)
-
-	if got := h.loadDag(t).Status; got != DagStatus_AwaitingReview {
-		t.Fatalf("setup: dag status = %q, want %q", got, DagStatus_AwaitingReview)
-	}
-	if len(f.sends) != 0 {
-		t.Fatalf("a finished child and an open gate are not the lead's judgment, got %q", f.sends)
-	}
-}
-
 func TestForwardTaskMovesPendingQuestionToUser(t *testing.T) {
 	f := newFakeLead(t)
 	h := newChildOutcomeHarness(t, 1)

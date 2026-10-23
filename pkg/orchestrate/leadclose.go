@@ -111,7 +111,7 @@ func ShouldCloseOrchestratorLead(run *waveobj.Run, dag *waveobj.TaskGroup) bool 
 		return true
 	}
 	// dag must be terminal — no active tasks. done/cancelled are the only
-	// terminal dag statuses; blocked/awaiting-review still need the lead to
+	// terminal dag statuses; blocked still needs the lead to
 	// triage the gate, so keep it.
 	if dag.Status != DagStatus_Done && dag.Status != DagStatus_Cancelled {
 		return false

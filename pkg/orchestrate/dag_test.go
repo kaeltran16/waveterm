@@ -1,6 +1,7 @@
 package orchestrate
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -12,7 +13,7 @@ func mkTasks() []waveobj.TaskNode {
 	return []waveobj.TaskNode{
 		{ID: "t-0", Label: "setup"},
 		{ID: "t-1", Label: "api", Deps: []string{"t-0"}},
-		{ID: "t-2", Label: "ship", Deps: []string{"t-0", "t-1"}, Gate: true},
+		{ID: "t-2", Label: "ship", Deps: []string{"t-0", "t-1"}},
 	}
 }
 
@@ -49,7 +50,6 @@ func TestNewTaskGroupRejectsInvalidAuthoringAndEngineState(t *testing.T) {
 		{name: "excess parallelism", title: "g", parallelism: 9, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
 		{name: "state", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", State: TaskState_Running}}},
 		{name: "run id", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", RunID: "run"}}},
-		{name: "released", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Released: true}}},
 		{name: "last activity", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", LastActivity: 1}}},
 		{name: "attempts", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Attempts: 1}}},
 		{name: "lastfailurekind", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", LastFailureKind: "timeout"}}},
@@ -98,7 +98,6 @@ func TestSameDagProposalUsesOnlyAuthoringShape(t *testing.T) {
 	b.UpdatedTs = 60
 	b.Tasks[0].State = TaskState_Done
 	b.Tasks[0].RunID = "child"
-	b.Tasks[0].Released = true
 	b.Tasks[0].LastActivity = 100
 	b.Tasks[0].Attempts = 2
 	b.Tasks[0].LastFailureKind = FailureKindTimeout
@@ -134,33 +133,43 @@ func TestValidateRejects(t *testing.T) {
 	}
 }
 
+// A dag stored while task gates existed may still carry an unreleased gate on a done task. Nothing halts on
+// it any more: its successor is ready, a merge-required gated task is offered for merge, and once every task
+// is done the dag finalizes.
+func TestAStoredUnreleasedGateHoldsNothing(t *testing.T) {
+	var g waveobj.TaskGroup
+	stored := `{"status":"awaiting-review","parallelism":2,"tasks":[
+		{"id":"t-0","label":"setup","state":"done"},
+		{"id":"t-1","label":"gate","deps":["t-0"],"gate":true,"released":false,"state":"done","runid":"r-1"},
+		{"id":"t-2","label":"ship","deps":["t-1"],"state":"pending"}]}`
+	if err := json.Unmarshal([]byte(stored), &g); err != nil {
+		t.Fatal(err)
+	}
+	RecomputeDagStatus(&g)
+	if g.Status != DagStatus_Running {
+		t.Fatalf("status = %s, want running", g.Status)
+	}
+	if got := ReadyTasks(&g); len(got) != 1 || got[0] != "t-2" {
+		t.Fatalf("ReadyTasks = %v, want [t-2]", got)
+	}
+	g.MergeRequired = true
+	if tip := laneMergeReady(&g, []string{"t-1"}); tip == nil || tip.ID != "t-1" {
+		t.Fatalf("laneMergeReady = %v, want the gated task offered for merge", tip)
+	}
+	g.MergeRequired = false
+	g.Tasks[2].State = TaskState_Done
+	RecomputeDagStatus(&g)
+	if g.Status != DagStatus_Finalizing {
+		t.Fatalf("every task done: status = %s, want finalizing", g.Status)
+	}
+}
+
 func TestRecomputeStatusDerivation(t *testing.T) {
-	g := mustGroup(t, []waveobj.TaskNode{
-		{ID: "t-0", Label: "setup"},
-		{ID: "t-1", Label: "api", Deps: []string{"t-0"}},
-		{ID: "t-2", Label: "gate", Deps: []string{"t-0", "t-1"}, Gate: true},
-		{ID: "t-3", Label: "ship", Deps: []string{"t-2"}},
-	})
+	g := mustGroup(t, mkTasks())
 	g.Tasks[0].State = TaskState_Done
-	g.Tasks[1].State = TaskState_Done
 	RecomputeDagStatus(g)
 	if g.Status != DagStatus_Running {
-		t.Fatalf("gate not yet done: want running, got %s", g.Status)
-	}
-	g.Tasks[2].State = TaskState_Done // done, unreleased gate with open successor
-	RecomputeDagStatus(g)
-	if g.Status != DagStatus_AwaitingReview {
-		t.Fatalf("want awaiting-review, got %s", g.Status)
-	}
-	g.Tasks[3].State = TaskState_Done
-	RecomputeDagStatus(g)
-	if g.Status != DagStatus_AwaitingReview {
-		t.Fatalf("gate still unreleased: want awaiting-review, got %s", g.Status)
-	}
-	g.Tasks[2].Released = true
-	RecomputeDagStatus(g)
-	if g.Status != DagStatus_Finalizing {
-		t.Fatalf("released gate: want finalizing, got %s", g.Status)
+		t.Fatalf("want running, got %s", g.Status)
 	}
 	g2 := mustGroup(t, mkTasks())
 	g2.Tasks[1].State = TaskState_Failed
@@ -185,7 +194,6 @@ func TestRecomputeStatusCleanupDebt(t *testing.T) {
 		g4.Tasks[i].State = TaskState_Done
 		g4.Tasks[i].Merged = true
 	}
-	g4.Tasks[2].Released = true // released gate
 	RecomputeDagStatus(g4)
 	if g4.Status != DagStatus_Finalizing {
 		t.Fatalf("clean merged dag: want finalizing, got %s", g4.Status)
@@ -218,7 +226,6 @@ func cleanupDebtGroup(t *testing.T, attempts int, merged bool) *waveobj.TaskGrou
 		g.Tasks[i].State = TaskState_Done
 		g.Tasks[i].Merged = true
 	}
-	g.Tasks[2].Released = true
 	g.Tasks[0].Merged = merged
 	g.Tasks[0].CleanupError = "being used by another process"
 	g.Tasks[0].CleanupAttempts = attempts

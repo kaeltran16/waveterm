@@ -8,7 +8,7 @@ import { firstLine, formatElapsed } from "./dagdigest";
 import type { Rect } from "./daglayout";
 
 type Point = { x: number; y: number };
-type TaskState = Pick<TaskNode, "state" | "gate">;
+type TaskState = Pick<TaskNode, "state">;
 
 export type NodeKind = "attention" | "live" | "ready" | "done" | "inert" | "waiting";
 
@@ -34,16 +34,12 @@ const WORD = new Map<string, string>([
     ["review-failed", "review failed"],
 ]);
 
-function atGate(t: TaskState): boolean {
-    return !!t.gate && t.state === "done";
-}
-
 export function kindOf(t: TaskState): NodeKind {
-    return atGate(t) ? "attention" : (KIND.get(t.state) ?? "waiting");
+    return KIND.get(t.state) ?? "waiting";
 }
 
 export function wordOf(t: TaskState): string {
-    return atGate(t) ? "at gate" : (WORD.get(t.state) ?? t.state);
+    return WORD.get(t.state) ?? t.state;
 }
 
 export type GlyphKind =

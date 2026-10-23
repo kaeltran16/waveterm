@@ -291,33 +291,6 @@ func TestMergeThatLandedNothingLeavesNoCommitOnTheChild(t *testing.T) {
 	}
 }
 
-// a gate is the human's checkpoint; automatic merging must not step over it.
-func TestScheduleLeavesGatedTaskUnmergedUntilReleased(t *testing.T) {
-	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "gated", Gate: true}})
-	f.finish(t, "t-0")
-	calls := stubMerge(t, func(context.Context, string, string, string) (string, error) { return "sha-1", nil })
-
-	if err := Schedule(f.ctx, f.dagID); err != nil {
-		t.Fatal(err)
-	}
-	if *calls != 0 {
-		t.Fatalf("a held gate must block the merge, got %d attempts", *calls)
-	}
-	if f.dag(t).Tasks[0].Merged {
-		t.Fatal("gated task must stay unmerged")
-	}
-
-	if err := ApplyAction(f.ctx, f.dagID, "t-0", "approve", waveobj.RoutePin{}); err != nil {
-		t.Fatal(err)
-	}
-	if *calls != 1 {
-		t.Fatalf("want 1 merge after release, got %d", *calls)
-	}
-	if !f.dag(t).Tasks[0].Merged {
-		t.Fatal("released task must merge")
-	}
-}
-
 // a conflict is the one thing that still needs a person: it must stop, and stay stopped.
 func TestScheduleLeavesConflictBlockedAndDoesNotRetry(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "conflicts"}})

@@ -32,7 +32,7 @@ function item(over: Partial<AttentionItem> & Pick<AttentionItem, "kind" | "key">
 // pkg/jarvis/attention.go fills Text per kind: a gate's is the constant "Approve before Jarvis proceeds.",
 // while an escalation's and an ask's are the worker's actual question.
 const GATE = item({ kind: "gate", key: "gate:" + RUN, source: "Ship autonomy ladder tier gating", text: "Approve before Jarvis proceeds." }); // prettier-ignore
-const DAG_GATE = item({ kind: "dag-gate", key: "dag-gate:g1", text: "Approve the gate before the DAG proceeds." }); // prettier-ignore
+const UNVERIFIED = item({ kind: "run-unverified", key: "run-unverified:r1", text: "The run finished with checks it could not run." }); // prettier-ignore
 const ESCALATION = item({ kind: "escalation", key: "esc:m1", source: "gatekeeper", action: "Decide", text: "Phase 3 wants to rewrite peterrandmodel.ts — the tier only covers reads. Allow?" }); // prettier-ignore
 const DAG_BLOCKED = item({ kind: "dag-blocked", key: "dag-blocked:g2", text: "3 consecutive failures — decide retry/skip." }); // prettier-ignore
 const ASK = item({ kind: "ask", key: "ask:block:b1", source: "phase-2 worker", action: "Answer", text: "Keep the no-transcript fallback for pi workers, or drop it?" }); // prettier-ignore
@@ -41,7 +41,7 @@ describe("queueRows — detail earns its line, it is not given one", () => {
     // The row's scarcest resource is horizontal space, and four of the five kinds spend it on a constant
     // string that the verb button already implies. Only a question is worth the width.
     it("drops the detail of kinds whose text is boilerplate", () => {
-        const rows = queueRows([GATE, DAG_GATE]);
+        const rows = queueRows([GATE, UNVERIFIED]);
         expect(rows.map((r) => r.detail)).toEqual([null, null]);
     });
 
@@ -281,12 +281,7 @@ describe("peekConditions — every standing condition, readout marked", () => {
 
 describe("rowKindLabel — a row names its kind in a word", () => {
     it("reads every queue kind", () => {
-        expect(["dag-gate", "escalation", "dag-blocked", "ask"].map(rowKindLabel)).toEqual([
-            "Gate",
-            "Escalation",
-            "Blocked",
-            "Question",
-        ]);
+        expect(["escalation", "dag-blocked", "ask"].map(rowKindLabel)).toEqual(["Escalation", "Blocked", "Question"]);
     });
 });
 

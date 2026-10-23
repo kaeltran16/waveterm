@@ -1,10 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Pure: assemble the cockpit-wide "needs you" list — review gates, Gatekeeper escalations and blocked
-// workers, in that order, oldest first within each kind. This is the single definition; the frontend
-// derivations it replaces (railneeds.ts / channelneeds.ts) were deleted, because a snapshot of every
-// channel's runs is not live and could never see a gate outside the active channel.
+// Pure: assemble the cockpit-wide "needs you" list — blocked dags and held lands, Gatekeeper escalations,
+// blocked workers and unverified runs, in that order, oldest first within each kind. This is the single
+// definition; the frontend derivations it replaces (railneeds.ts / channelneeds.ts) were deleted, because a
+// snapshot of every channel's runs is not live and could never see an item outside the active channel.
 
 package jarvis
 
@@ -31,7 +31,6 @@ const (
 	AttentionAsk        = "ask"
 	// dag items: statuses mirror orchestrate.DagStatus_* but are spelled here because jarvis is the
 	// engine's client (orchestrate imports jarvis for run status — importing it back would cycle).
-	AttentionDagGate    = "dag-gate"
 	AttentionDagBlocked = "dag-blocked"
 	// run outcome items: a finished run's branch that could not be merged back, and a finished run whose result
 	// was not fully verified, which the human acknowledges once read.
@@ -262,7 +261,7 @@ func dagBlockedReason(g *waveobj.TaskGroup, owner *waveobj.Run) (text, why strin
 }
 
 func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
-	var gates, escalations, asks, unverified []wshrpc.AttentionItem
+	var holds, escalations, asks, unverified []wshrpc.AttentionItem
 	// ask orefs already represented by an escalation card — one waiting thing, one item.
 	escalated := map[string]bool{}
 
@@ -272,7 +271,7 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 				continue
 			}
 			if it, ok := landHeldItem(ch, run); ok {
-				gates = append(gates, it)
+				holds = append(holds, it)
 			}
 			if it, ok := unverifiedItem(ch, run); ok {
 				unverified = append(unverified, it)
@@ -319,19 +318,16 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 
 	for _, g := range in.Dags {
 		owner := findRun(in.Channels, g.RunID)
-		// a lead can finish its run past a gate or a failed final stage, and nothing moves the dag off it then
+		// a lead can finish its run past a failed final stage, and nothing moves the dag off it then
 		if owner != nil && (owner.Status == RunStatus_Done || owner.Status == RunStatus_Cancelled) {
 			continue
 		}
-		// statuses mirror orchestrate.DagStatus_AwaitingReview / DagStatus_Blocked (see AttentionDagGate).
-		switch g.Status {
-		case "awaiting-review":
-			gates = append(gates, dagGateItems(in, g)...)
-		case "blocked":
+		// mirrors orchestrate.DagStatus_Blocked (see AttentionDagBlocked)
+		if g.Status == "blocked" {
 			blockedEffort, blockedChunk := attribution(owner)
 			text, why := dagBlockedReason(g, owner)
 			taskID, retry := blockedTask(g)
-			gates = append(gates, wshrpc.AttentionItem{
+			holds = append(holds, wshrpc.AttentionItem{
 				Kind:         AttentionDagBlocked,
 				Key:          "dag-blocked:" + g.ID,
 				TaskId:       taskID,
@@ -383,9 +379,9 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		})
 	}
 
-	// Kind is the priority claim — a gate blocks a whole pipeline, an ask blocks one worker. Age only
+	// Kind is the priority claim — a hold blocks a whole run, an ask blocks one worker. Age only
 	// breaks ties inside a kind. Key is the final tiebreak so map iteration cannot reorder equal items.
-	for _, group := range [][]wshrpc.AttentionItem{gates, escalations, asks, unverified} {
+	for _, group := range [][]wshrpc.AttentionItem{holds, escalations, asks, unverified} {
 		g := group
 		sort.SliceStable(g, func(i, j int) bool {
 			if g[i].WaitingSince != g[j].WaitingSince {
@@ -395,8 +391,8 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		})
 	}
 
-	out := make([]wshrpc.AttentionItem, 0, len(gates)+len(escalations)+len(asks)+len(unverified))
-	out = append(out, gates...)
+	out := make([]wshrpc.AttentionItem, 0, len(holds)+len(escalations)+len(asks)+len(unverified))
+	out = append(out, holds...)
 	out = append(out, escalations...)
 	out = append(out, asks...)
 	// an unverified outcome holds nothing at all: the run is done
@@ -475,67 +471,6 @@ func pluralThings(n int) string {
 		return "thing was"
 	}
 	return "things were"
-}
-
-// dagGateItems is one row per task the engine is holding, not one per group: a dag with three gated
-// tasks used to render a single row and the human could not tell which task was waiting. The predicate
-// is orchestrate's own (control.go:196, digest.go:198, scheduler.go:13).
-func dagGateItems(in AttentionInput, g *waveobj.TaskGroup) []wshrpc.AttentionItem {
-	var out []wshrpc.AttentionItem
-	effortOID, chunkLabel := attribution(findRun(in.Channels, g.RunID))
-	done := doneTasks(g)
-	for _, t := range g.Tasks {
-		if !t.Gate || t.State != taskStateDone || t.Released {
-			continue
-		}
-		label := t.Label
-		if label == "" {
-			label = t.ID
-		}
-		// LastActivity is the newest observed child transcript write, so on a finished task it
-		// approximates when that task stopped. Unlike the group's UpdatedTs it differs per task, which
-		// is what makes oldest-first inside the kind order the rows by how long each has really waited.
-		since := t.LastActivity
-		if since <= 0 {
-			since = g.UpdatedTs
-		}
-		out = append(out, wshrpc.AttentionItem{
-			Kind:         AttentionDagGate,
-			Key:          "dag-gate:" + g.ID + ":" + t.ID,
-			TaskId:       t.ID,
-			ChannelId:    g.ChannelId,
-			ChannelName:  channelNameFor(in.Channels, g.ChannelId),
-			RunId:        g.RunID,
-			Source:       dagSource(in.Channels, g),
-			Text:         fmt.Sprintf("Approve %s before the DAG proceeds.", label),
-			Action:       "Review",
-			WaitingSince: since,
-			EffortOID:    effortOID,
-			ChunkLabel:   chunkLabel,
-			Why: fmt.Sprintf("%d of %d tasks done. Everything downstream stays queued until this one is released.",
-				done, len(g.Tasks)),
-		})
-	}
-	if len(out) == 0 {
-		// the engine says it is holding this dag but no task matches. Rather than drop a gate the human
-		// still has to clear, degrade to the group-level row this function replaced.
-		out = append(out, wshrpc.AttentionItem{
-			Kind:         AttentionDagGate,
-			Key:          "dag-gate:" + g.ID,
-			ChannelId:    g.ChannelId,
-			ChannelName:  channelNameFor(in.Channels, g.ChannelId),
-			RunId:        g.RunID,
-			Source:       dagSource(in.Channels, g),
-			Text:         "Approve the gate before the DAG proceeds.",
-			Action:       "Review",
-			WaitingSince: g.UpdatedTs,
-			EffortOID:    effortOID,
-			ChunkLabel:   chunkLabel,
-			Why: fmt.Sprintf("%d of %d tasks done. Everything downstream stays queued until the gate is released.",
-				done, len(g.Tasks)),
-		})
-	}
-	return out
 }
 
 // askQuestionMax bounds the ask row's text. Every other row carries one short sentence, and an agent's

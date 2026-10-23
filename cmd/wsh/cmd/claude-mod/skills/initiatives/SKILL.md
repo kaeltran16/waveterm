@@ -86,6 +86,10 @@ Chunks are always referenced by exact label, never index.
 - **Blocked is a state, not a note**: `wsh effort chunk status <effort> "<chunk>" blocked --note "why"`.
   The briefing's attention banner folds blocked chunks in, so a stuck initiative stays visible.
 - **Skipped shrinks the denominator**: an initiative that finishes by skipping still reads 100%.
+- **Archive a finished initiative**: when every chunk is `done` or `skipped`, run
+  `wsh effort status <effort> archived` in the same session as the last tick. Nothing archives on its
+  own, and a finished initiative left `active` stays on the briefing. `deferred` and `blocked` chunks
+  count as remaining, so an initiative that still has one is not finished.
 - Run↔chunk links detach automatically when the run's evidence seals; session workrefs detach at
   session end. Nothing auto-ticks — completion is always a deliberate action.
 

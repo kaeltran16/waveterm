@@ -171,7 +171,7 @@ export function dagStatusPill(group: Pick<TaskGroup, "status" | "planreview">): 
         return { label: "plan review failed", tone: "waiting" };
     }
     const label = status.split("-").join(" ");
-    if (status === "done" || status === "awaiting-review") return { label, tone: "done" };
+    if (status === "done") return { label, tone: "done" };
     if (status === "blocked" || status === "awaiting-plan") return { label, tone: "waiting" };
     if (status === "cancelled") return { label, tone: "muted" };
     return { label, tone: "active" };

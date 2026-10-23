@@ -50,7 +50,7 @@ func TestDagSubmitAndAction(t *testing.T) {
 		ChannelId: ch.OID, RunId: run.ID, Title: "t", Parallelism: 2,
 		Tasks: []waveobj.TaskNode{
 			{ID: "t-0", Label: "a"},
-			{ID: "t-1", Label: "b", Deps: []string{"t-0"}, Gate: true},
+			{ID: "t-1", Label: "b", Deps: []string{"t-0"}},
 			{ID: "t-2", Label: "c", Deps: []string{"t-1"}},
 		},
 	})
@@ -64,19 +64,13 @@ func TestDagSubmitAndAction(t *testing.T) {
 	if g.Tasks[0].State != orchestrate.TaskState_Running || g.Tasks[0].RunID == "" {
 		t.Fatalf("submit must schedule the first step: t-0 running with child run, got %+v", g.Tasks[0])
 	}
-	// approve on a non-gate task errors (targeted actions must not silently no-op):
+	// approve answers a failed review only; on a running task it errors (targeted actions must not silently no-op)
 	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-0", Action: "approve"}); err == nil {
-		t.Fatal("approve on non-gate task must error")
+		t.Fatal("approve on a task whose review did not fail must error")
 	}
-	// gate flow: t-0 done -> running; gate (t-1) done -> awaiting-review; approve -> running
+	// t-0 and t-1 done: no task waits on approval, so the dag runs on
 	if err := wstore.UpdateDag(ctx, g.ID, func(g *waveobj.TaskGroup) error {
 		g.Tasks[0].State = orchestrate.TaskState_Done
-		orchestrate.RecomputeDagStatus(g)
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := wstore.UpdateDag(ctx, g.ID, func(g *waveobj.TaskGroup) error {
 		g.Tasks[1].State = orchestrate.TaskState_Done
 		orchestrate.RecomputeDagStatus(g)
 		return nil
@@ -87,21 +81,11 @@ func TestDagSubmitAndAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g2.Group.Status != "awaiting-review" {
-		t.Fatalf("want awaiting-review, got %s", g2.Group.Status)
+	if g2.Group.Status != "running" {
+		t.Fatalf("want running, got %s", g2.Group.Status)
 	}
 	if g2.Digest.DagVersion != g2.Group.Version || g2.Digest.Counts.Total != len(g2.Group.Tasks) {
 		t.Fatalf("status digest not tied to group: version %d/%d counts %+v", g2.Digest.DagVersion, g2.Group.Version, g2.Digest.Counts)
-	}
-	if g2.Digest.Next.Kind != "human-action" || len(g2.Digest.Next.Actions) != 2 {
-		t.Fatalf("gate digest must expose approve/sendback, got %+v", g2.Digest.Next)
-	}
-	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-1", Action: "approve"}); err != nil {
-		t.Fatal(err)
-	}
-	g3, _ := ws.DagStatusCommand(ctx, wshrpc.CommandDagStatusData{ChannelId: ch.OID, RunId: run.ID})
-	if g3.Group.Status != "running" {
-		t.Fatalf("want running after approve, got %s", g3.Group.Status)
 	}
 	// cancel is terminal
 	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: ch.OID, RunId: run.ID, TaskId: "", Action: "cancel"}); err != nil {
@@ -256,7 +240,6 @@ func TestDagSubmitRejectsEngineStateBeforePersistence(t *testing.T) {
 	}{
 		{name: "state", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", State: "running"}}},
 		{name: "runid", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", RunID: "child"}}},
-		{name: "released", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Released: true}}},
 		{name: "lastactivity", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", LastActivity: 1}}},
 		{name: "attempts", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Attempts: 1}}},
 		{name: "lastfailurekind", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", LastFailureKind: "timeout"}}},

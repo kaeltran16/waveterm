@@ -305,8 +305,8 @@ type Run struct {
 	Parallelism int `json:"parallelism,omitempty"`
 	// Prototype is the design canvas the run was started with (Build this… on a canvas). It wins over the
 	// plan's **Prototype:** line at DagSubmit; empty = the plan's stands.
-	Prototype string `json:"prototype,omitempty"`
-	Meta MetaMapType `json:"meta"`
+	Prototype string      `json:"prototype,omitempty"`
+	Meta      MetaMapType `json:"meta"`
 }
 
 func (*Run) GetOType() string {
@@ -348,11 +348,9 @@ type TaskNode struct {
 	Description string   `json:"description,omitempty"` // plan context for the child (pins decisions the child must not re-ask)
 	Deps        []string `json:"deps,omitempty"`
 	Chunks      []string `json:"chunks,omitempty"`    // labels of the dag's effort chunks this task closes when it lands
-	Gate        bool     `json:"gate,omitempty"`      // halt the DAG at completion for review
 	State       string   `json:"state"`               // pending|ready|running|stalled|done|failed|cancelled|skipped|blocked-merge|verifying|verify-failed
 	RunID       string   `json:"runid,omitempty"`     // child run once spawned
 	SpawnedTs   int64    `json:"spawnedts,omitempty"` // when RunID's worker was spawned (UnixMilli), restamped each attempt
-	Released    bool     `json:"released,omitempty"`  // gate released by human approval
 	Merged      bool     `json:"merged,omitempty"`    // successful squash-merge back into the project branch
 	RunSpec     RunSpec  `json:"runspec,omitempty"`
 	// ModelSource is who set RunSpec's model: plan | reviewer | owner | escalation (TaskModelSource_*). Empty is
@@ -479,7 +477,7 @@ type TaskGroup struct {
 	Title         string     `json:"title,omitempty"`
 	Parallelism   int        `json:"parallelism"`
 	Tasks         []TaskNode `json:"tasks"`
-	Status        string     `json:"status"`                  // awaiting-plan|running|awaiting-review|blocked|done|cancelled (derived)
+	Status        string     `json:"status"`                  // running|plan-review|finalizing|blocked|done|cancelled (derived)
 	Failures      int        `json:"failures"`                // consecutive task failures; circuit-break at 3
 	WorkerRoute   *RoutePin  `json:"workerroute,omitempty"`   // default worker route (nil = inherit owner); task RunSpec wins
 	ReviewerPicks bool       `json:"reviewerpicks,omitempty"` // the plan reviewer picks task models (false = the WorkerRoute rule stands)

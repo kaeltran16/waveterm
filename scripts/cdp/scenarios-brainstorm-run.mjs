@@ -46,7 +46,6 @@ const tasksOf = (lanes) =>
         label,
         description: "do nothing, stop immediately",
         deps: i === 0 ? [] : [`t-${i}`],
-        gate: false,
         state: "",
     }));
 

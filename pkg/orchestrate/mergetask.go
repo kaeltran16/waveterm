@@ -361,7 +361,7 @@ func finalVerifyStandsIn(g *waveobj.TaskGroup) bool {
 	}
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
-		landed := t.State == TaskState_Done && (t.Merged || !g.MergeRequired) && (!t.Gate || t.Released)
+		landed := t.State == TaskState_Done && (t.Merged || !g.MergeRequired)
 		if !landed && t.State != TaskState_Skipped {
 			return false
 		}

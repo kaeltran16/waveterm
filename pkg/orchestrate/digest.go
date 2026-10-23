@@ -30,7 +30,6 @@ type DagDigestSnapshot struct {
 // neither reconstructs alternatives from task state.
 var (
 	digestActionAnswer            = []string{"answer"}
-	digestActionApproveSendback   = []string{"approve", "sendback"}
 	digestActionMerge             = []string{"merge"}
 	digestActionResolveMerge      = []string{"resolve-merge"}
 	digestActionRetryCleanup      = []string{"retry-cleanup"}
@@ -201,9 +200,6 @@ func taskAttention(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[stri
 	if ask, ok := askByTask[t.ID]; ok && !leadHolds(ask) {
 		return true
 	}
-	if t.Gate && t.State == TaskState_Done && !t.Released {
-		return true
-	}
 	if t.State == TaskState_Failed || t.State == TaskState_BlockedMerge || t.State == TaskState_VerifyFailed || t.State == TaskState_ReviewFailed {
 		return true
 	}
@@ -334,9 +330,6 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 	if ids := tasksInState(g, TaskState_ReviewFailed); len(ids) > 0 {
 		return humanActionStep("approve/sendback", ids, digestActionReviewFailed)
 	}
-	if ids := unreleasedGateIDs(g); len(ids) > 0 {
-		return humanActionStep("approve/sendback", ids, digestActionApproveSendback)
-	}
 	if ids := tasksInState(g, TaskState_BlockedMerge); len(ids) > 0 {
 		return humanActionStep("resolve-merge", ids, digestActionResolveMerge)
 	}
@@ -425,17 +418,6 @@ func tasksWithAsk(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem, 
 	for i := range g.Tasks {
 		if ask, ok := askByTask[g.Tasks[i].ID]; ok && leadHolds(ask) == lead {
 			ids = append(ids, g.Tasks[i].ID)
-		}
-	}
-	return ids
-}
-
-func unreleasedGateIDs(g *waveobj.TaskGroup) []string {
-	var ids []string
-	for i := range g.Tasks {
-		t := &g.Tasks[i]
-		if t.Gate && t.State == TaskState_Done && !t.Released {
-			ids = append(ids, t.ID)
 		}
 	}
 	return ids
@@ -545,9 +527,6 @@ func buildTaskDigest(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[st
 		}
 		td.AskTs = ask.Ts
 		td.AskDeadline = ask.Deadline
-	} else if t.Gate && t.State == TaskState_Done && !t.Released {
-		td.WaitReason = "gate"
-		td.HumanActions = digestActionApproveSendback
 	} else {
 		td.WaitReason = taskWaitReason(g, t)
 		td.HumanActions = taskHumanActions(g, t)

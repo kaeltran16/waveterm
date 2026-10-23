@@ -100,7 +100,6 @@ function conditionDot(expr: PetExpression): string {
 // legible without relying on colour.
 const ROW_DOT: Record<string, string> = {
     gate: "bg-warning",
-    "dag-gate": "bg-warning",
     escalation: "bg-error",
     "dag-blocked": "bg-error",
     ask: "bg-accent",

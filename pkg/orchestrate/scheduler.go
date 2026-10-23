@@ -8,23 +8,8 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
-// gateBlocked reports whether a completed-but-unreleased gate is halting the DAG.
-func gateBlocked(g *waveobj.TaskGroup) bool {
-	for i := range g.Tasks {
-		t := &g.Tasks[i]
-		if t.Gate && t.State == TaskState_Done && !t.Released {
-			return true
-		}
-	}
-	return false
-}
-
 // ReadyTasks returns pending tasks whose deps are all done/skipped, ordered by id.
-// A done, unreleased gate halts everything (spec: "halts the DAG at its completion").
 func ReadyTasks(g *waveobj.TaskGroup) []string {
-	if gateBlocked(g) {
-		return nil
-	}
 	var out []string
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
@@ -59,7 +44,7 @@ func depSatisfied(g *waveobj.TaskGroup, taskID, depID string) bool {
 	}
 	lane := laneOf(g, depID)
 	if slices.Contains(lane, taskID) {
-		return dep.State == TaskState_Skipped || (dep.State == TaskState_Done && (!dep.Gate || dep.Released))
+		return dep.State == TaskState_Skipped || dep.State == TaskState_Done
 	}
 	return laneMerged(g, lane)
 }
@@ -154,42 +139,6 @@ func MarkRunning(g *waveobj.TaskGroup, taskID, runID string) error {
 		}
 	}
 	return fmt.Errorf("no task %q", taskID)
-}
-
-// ApproveGate releases a completed gate so successors may run.
-func ApproveGate(g *waveobj.TaskGroup, taskID string) (*waveobj.TaskGroup, error) {
-	for i := range g.Tasks {
-		t := &g.Tasks[i]
-		if t.ID == taskID {
-			if !t.Gate || t.State != TaskState_Done {
-				return g, fmt.Errorf("task %q is not a done gate", taskID)
-			}
-			t.Released = true
-			RecomputeDagStatus(g)
-			return g, nil
-		}
-	}
-	return g, fmt.Errorf("no task %q", taskID)
-}
-
-// SendBackGate reopens a completed gate: it must return to pending (RunID cleared) so the
-// scheduler re-spawns it from a fresh worktree. mirror RetryTask — "running" with no runid
-// would occupy a parallelism slot yet never spawn (deadlock).
-func SendBackGate(g *waveobj.TaskGroup, taskID string) (*waveobj.TaskGroup, error) {
-	for i := range g.Tasks {
-		t := &g.Tasks[i]
-		if t.ID == taskID {
-			if !t.Gate || t.State != TaskState_Done {
-				return g, fmt.Errorf("task %q is not a done gate", taskID)
-			}
-			t.State = TaskState_Pending
-			t.Released = false
-			t.RunID = ""
-			RecomputeDagStatus(g)
-			return g, nil
-		}
-	}
-	return g, fmt.Errorf("no task %q", taskID)
 }
 
 func RetryTask(g *waveobj.TaskGroup, taskID string) error {

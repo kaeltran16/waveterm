@@ -8,7 +8,7 @@ const group = {
     tasks: [
         { id: "t-0", label: "setup", state: "done" },
         { id: "t-1", label: "api", deps: ["t-0"], state: "running", runid: "r-1" },
-        { id: "t-2", label: "ship", deps: ["t-1"], gate: true, state: "done" },
+        { id: "t-2", label: "ship", deps: ["t-1"], state: "done" },
         { id: "t-3", label: "perf", deps: ["t-2"], state: "failed" },
     ],
 } as any;
@@ -54,11 +54,10 @@ describe("buildViewData", () => {
         expect(nodes[1].actions).toEqual(["merge"]);
     });
 
-    it("flags gate and failure states", () => {
+    it("offers actions on failure states and none on a done task", () => {
         const { nodes } = buildViewData(group, owner, harnesses, none);
         const ship = nodes.find((n) => n.id === "t-2")!;
-        expect(ship.gate).toBe(true);
-        expect(ship.actions).toEqual(["approve", "sendback"]);
+        expect(ship.actions).toEqual([]);
         const perf = nodes.find((n) => n.id === "t-3")!;
         expect(perf.actions).toEqual(["retry", "skip", "escalate"]);
     });

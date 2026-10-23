@@ -108,7 +108,6 @@ export function DagTaskPeek({
                     <span className="text-secondary">{task.id}</span>
                     <span>·</span>
                     <span className={wordTone(task)}>{wordOf(task)}</span>
-                    {view.gate ? <span className="rounded-[5px] border border-edge-mid px-[5px]">gate</span> : null}
                     {view.meta ? (
                         <>
                             <span>·</span>

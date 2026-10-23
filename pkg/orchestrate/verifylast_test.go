@@ -18,8 +18,6 @@ func TestFinalVerifyStandsInOnlyForTheLastMerge(t *testing.T) {
 	other := func(state string, merged bool) waveobj.TaskNode {
 		return waveobj.TaskNode{ID: "t-1", Label: "b", State: state, Merged: merged}
 	}
-	gate := other(TaskState_Done, true)
-	gate.Gate = true
 	cases := []struct {
 		name   string
 		verify string
@@ -35,7 +33,6 @@ func TestFinalVerifyStandsInOnlyForTheLastMerge(t *testing.T) {
 		{"a task in review", verifyCmd, nil, other(TaskState_Reviewing, false), false},
 		{"a task waiting to merge", verifyCmd, nil, other(TaskState_Done, false), false},
 		{"a batch mate verifying", verifyCmd, nil, other(TaskState_Verifying, true), false},
-		{"a gate not released", verifyCmd, nil, gate, false},
 		{"a fix round", verifyCmd, &waveobj.FinalStage{Round: 2}, other(TaskState_Done, true), false},
 	}
 	for _, c := range cases {

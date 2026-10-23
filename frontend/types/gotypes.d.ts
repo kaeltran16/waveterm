@@ -3009,11 +3009,9 @@ declare global {
         description?: string;
         deps?: string[];
         chunks?: string[];
-        gate?: boolean;
         state: string;
         runid?: string;
         spawnedts?: number;
-        released?: boolean;
         merged?: boolean;
         runspec?: RunSpec;
         modelsource?: string;

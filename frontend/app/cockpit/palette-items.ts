@@ -70,7 +70,6 @@ const START_ICONS: Record<StartId, LucideIcon> = { run: SlidersHorizontal, agent
 const NEEDS_STATUS: Record<string, string> = {
     ask: "asking",
     escalation: "escalated",
-    "dag-gate": "gate",
     "dag-blocked": "blocked",
     "run-land-held": "land held",
     "run-unverified": "unverified",

@@ -28,8 +28,8 @@ describe("popupTarget", () => {
     it("falls through an unsupported oref", () => {
         expect(popupTarget(item({ oref: "bogus:x", runid: "r" }), agents)).toEqual({ kind: "run", runId: "r" });
     });
-    it("opens the run of a gate", () => {
-        expect(popupTarget(item({ kind: "dag-gate", channelid: "c", runid: "r" }), agents)).toEqual({
+    it("opens the run of a blocked dag", () => {
+        expect(popupTarget(item({ kind: "dag-blocked", channelid: "c", runid: "r" }), agents)).toEqual({
             kind: "run",
             runId: "r",
         });

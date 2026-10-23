@@ -30,7 +30,7 @@ export interface PetSignals {
     // window reads as a claude one, and the countdown belongs to whichever provider won.
     rateLimit?: { provider: string; pct: number; resetAt?: number };
     // posture: kinds only. The creature never renders a count — the nav badge owns that (design §3).
-    attention?: { reviewGates: number; escalations: number; blockedWorkers: number };
+    attention?: { escalations: number; blockedWorkers: number };
 }
 
 export type PetExpression =
@@ -39,7 +39,7 @@ export type PetExpression =
     | { kind: "tired"; provider: string; pct: number; resetAt?: number }
     | { kind: "at-rest" };
 
-export type PetPosture = "review-gate" | "escalation" | "blocked-worker" | "none";
+export type PetPosture = "escalation" | "blocked-worker" | "none";
 
 const ATTENTION_LAND_HELD = "run-land-held";
 
@@ -80,16 +80,12 @@ export function expressionFor(signals: PetSignals): PetExpression {
     return conditionsFor(signals)[0] ?? { kind: "at-rest" };
 }
 
-// Gate before escalation before ask, which is the order pkg/jarvis/attention.go itself sorts by ("a gate
-// blocks a whole pipeline, an ask blocks one worker"). Reading it back differently here would make the
-// creature and the Needs-you rail disagree about which waiting matters most.
+// Escalation before ask, which is the order pkg/jarvis/attention.go itself sorts them by. Reading it back
+// differently here would make the creature and the Needs-you rail disagree about which waiting matters most.
 export function postureFor(signals: PetSignals): PetPosture {
     const a = signals.attention;
     if (a == null) {
         return "none";
-    }
-    if (a.reviewGates > 0) {
-        return "review-gate";
     }
     if (a.escalations > 0) {
         return "escalation";

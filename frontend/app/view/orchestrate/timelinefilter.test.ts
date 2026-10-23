@@ -46,10 +46,9 @@ describe("filterEvents", () => {
         expect(filterEvents(events, "attention").map((e) => e.kind)).toEqual(["child-ask"]);
     });
 
-    it("attention covers asks, gates, failures, blocked merges, failed cleanup, hand-offs and failed wakes", () => {
+    it("attention covers asks, failures, blocked merges, failed cleanup, hand-offs and failed wakes", () => {
         for (const kind of [
             "child-ask",
-            "dag-gate-open",
             "phase-held",
             "task-failed",
             "task-stalled",
@@ -86,8 +85,8 @@ describe("eventClickTarget", () => {
         expect(eventClickTarget(ev("child-ask", { taskid: "t-2" }))).toEqual({ kind: "worker", taskId: "t-2" });
     });
 
-    it("routes gate kinds to the gate action", () => {
-        expect(eventClickTarget(ev("dag-gate-open", { taskid: "t-3" }))).toEqual({ kind: "gate", taskId: "t-3" });
+    it("routes a blocked dag to the gate action", () => {
+        expect(eventClickTarget(ev("dag-blocked", { taskid: "t-3" }))).toEqual({ kind: "gate", taskId: "t-3" });
     });
 
     it("routes merge kinds to merge state", () => {

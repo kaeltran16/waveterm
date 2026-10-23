@@ -23,6 +23,18 @@ func reviewFailed(g *waveobj.TaskGroup, taskID string) bool {
 	return t != nil && t.State == TaskState_ReviewFailed
 }
 
+// refuseNoFailedReview is why approve and sendback refuse a task: both answer a failed review, and nothing else.
+func refuseNoFailedReview(g *waveobj.TaskGroup, taskID, done string) error {
+	t := taskByID(g, taskID)
+	switch {
+	case t == nil:
+		return fmt.Errorf("no task %q", taskID)
+	case t.State != TaskState_ReviewFailed:
+		return fmt.Errorf("task %q is %s: only a task whose review failed can be %s", taskID, t.State, done)
+	}
+	return nil
+}
+
 func persistDag(ctx context.Context, g *waveobj.TaskGroup) error {
 	g.UpdatedTs = time.Now().UnixMilli()
 	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
@@ -166,9 +178,8 @@ func takeLeadTold(t *waveobj.TaskNode, text string) bool {
 	return false
 }
 
-// SendBack returns a task to a worker. A task whose review failed gets one more round, with the lead's guidance
-// beside the reviewer's findings; ReviewRound is kept, so a further fail comes straight back to the lead. Any
-// other task takes the old plan-gate sendback, which has no guidance.
+// SendBack returns a task whose review failed to a worker for one more round, with the lead's guidance beside the
+// reviewer's findings; ReviewRound is kept, so a further fail comes straight back to the lead.
 func SendBack(ctx context.Context, dagID, taskID, guidance string) error {
 	guidance = strings.TrimSpace(guidance)
 	if err := refuseLongNote("guidance", guidance); err != nil {
@@ -181,8 +192,8 @@ func SendBack(ctx context.Context, dagID, taskID, guidance string) error {
 		if err != nil {
 			return fmt.Errorf("loading dag: %w", err)
 		}
-		if !reviewFailed(g, taskID) {
-			return applyActionLocked(ctx, dagID, taskID, "sendback", waveobj.RoutePin{})
+		if err := refuseNoFailedReview(g, taskID, "sent back"); err != nil {
+			return err
 		}
 		task := taskByID(g, taskID)
 		task.LeadGuidance = guidance

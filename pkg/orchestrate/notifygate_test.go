@@ -121,20 +121,6 @@ func TestBlockedNotificationEmitsOncePerTransition(t *testing.T) {
 	}
 }
 
-func TestGateOpenNotificationEmitsOncePerTransition(t *testing.T) {
-	h := newNotifyHarness(t, 1, []waveobj.TaskNode{{ID: "t-0", Label: "a", Gate: true}})
-	h.finishTask(t, "t-0", jarvis.RunStatus_Done)
-
-	h.scheduleTimes(t, 3)
-
-	if got := h.loadDag(t).Status; got != DagStatus_AwaitingReview {
-		t.Fatalf("dag status = %q, want %q", got, DagStatus_AwaitingReview)
-	}
-	if n := h.countLifecycle(t, waveobj.RunEventKindDagGateOpen); n != 1 {
-		t.Fatalf("dag-gate-open lifecycle events = %d, want exactly 1", n)
-	}
-}
-
 func TestDagDoneNotificationEmitsOncePerTransition(t *testing.T) {
 	h := newNotifyHarness(t, 1, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
 	h.finishTask(t, "t-0", jarvis.RunStatus_Done)
@@ -146,33 +132,5 @@ func TestDagDoneNotificationEmitsOncePerTransition(t *testing.T) {
 	}
 	if n := h.countLifecycle(t, waveobj.RunEventKindDagDone); n != 1 {
 		t.Fatalf("dag-done lifecycle events = %d, want exactly 1", n)
-	}
-}
-
-// Suppressing repeats must not suppress a genuinely new gate. Two independent gates both complete;
-// releasing the first leaves the dag awaiting review on the second — the status never changes, but
-// the human is now being asked about a different task and has to be told.
-func TestSecondGateNotifiesThoughStatusIsUnchanged(t *testing.T) {
-	h := newNotifyHarness(t, 2, []waveobj.TaskNode{
-		{ID: "t-0", Label: "a", Gate: true},
-		{ID: "t-1", Label: "b", Gate: true},
-	})
-	h.finishTask(t, "t-0", jarvis.RunStatus_Done)
-	h.finishTask(t, "t-1", jarvis.RunStatus_Done)
-	h.scheduleTimes(t, 1)
-	if got := h.loadDag(t); got.Status != DagStatus_AwaitingReview || gatedTaskID(got) != "t-0" {
-		t.Fatalf("setup: status=%q gate=%q, want awaiting-review on t-0", got.Status, gatedTaskID(got))
-	}
-
-	if err := ApplyAction(h.ctx, h.dagID, "t-0", "approve", waveobj.RoutePin{}); err != nil {
-		t.Fatal(err)
-	}
-
-	got := h.loadDag(t)
-	if got.Status != DagStatus_AwaitingReview || gatedTaskID(got) != "t-1" {
-		t.Fatalf("status=%q gate=%q, want awaiting-review on t-1", got.Status, gatedTaskID(got))
-	}
-	if n := h.countLifecycle(t, waveobj.RunEventKindDagGateOpen); n != 2 {
-		t.Fatalf("dag-gate-open lifecycle events = %d, want 2 (one per gate the human must answer)", n)
 	}
 }

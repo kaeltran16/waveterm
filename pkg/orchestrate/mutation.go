@@ -290,25 +290,14 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 	var emit []func()
 	switch action {
 	case "approve":
-		if reviewFailed(g, taskID) {
-			// the lead overrules the reviewer: the worker's commit lands as it is
-			taskByID(g, taskID).State = TaskState_Done
-			emit = append(emit, func() {
-				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindReviewOverruled, nil, map[string]any{"taskid": taskID})
-			})
-		} else {
-			g2, err := ApproveGate(g, taskID)
-			if err != nil {
-				return err
-			}
-			g = g2
-		}
-	case "sendback":
-		g2, err := SendBackGate(g, taskID)
-		if err != nil {
+		if err := refuseNoFailedReview(g, taskID, "approved"); err != nil {
 			return err
 		}
-		g = g2
+		// the lead overrules the reviewer: the worker's commit lands as it is
+		taskByID(g, taskID).State = TaskState_Done
+		emit = append(emit, func() {
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindReviewOverruled, nil, map[string]any{"taskid": taskID})
+		})
 	case "skip":
 		if err := SkipTask(g, taskID); err != nil {
 			return err

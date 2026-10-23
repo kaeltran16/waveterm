@@ -421,7 +421,7 @@ failure or unverified reason says so, and the merge's chunks stay open until a l
 
 Every other merge verifies as before:
 
-- any task is still pending, running, in review, at a gate or waiting to merge;
+- any task is still pending, running, in review or waiting to merge;
 - the merge is one of a batch of two or more, even the plan's last batch, so a failure can still be bisected to
   its lane;
 - the plan has no Verify line, so the final stage has none to run;
@@ -649,7 +649,7 @@ from its conflict and failed Verify, then taking the answer to its question:
 **Open DAG** shows the task graph with a **Lifecycle** rail (filters All / Task / Attention). Clicking a node
 opens its peek beside it; a second click, a background click or `Esc` closes it. The peek's action bar has buttons
 only when the node needs a decision: Retry / Skip / Escalate… on a failed or stalled task, Approve / Send back on a
-gate, Resolve on a blocked merge or failed Verify, Merge on a lane end the engine is not merging itself. **Cancel** in its header cancels the DAG.
+failed review, Resolve on a blocked merge or failed Verify, Merge on a lane end the engine is not merging itself. **Cancel** in its header cancels the DAG.
 
 ![The Route DAG view](images/orchestrator-guide/17-dag.png)
 

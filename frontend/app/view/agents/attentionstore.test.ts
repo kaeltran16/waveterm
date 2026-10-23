@@ -75,7 +75,11 @@ describe("splitAttention", () => {
     });
 
     it("keeps the two groups disjoint and complete", () => {
-        const items = [item({ key: "a", channelid: "c1" }), item({ key: "b" }), item({ key: "c", kind: "dag-gate" })];
+        const items = [
+            item({ key: "a", channelid: "c1" }),
+            item({ key: "b" }),
+            item({ key: "c", kind: "dag-blocked" }),
+        ];
         const out = splitAttention(items);
         expect(out.channel.length + out.standalone.length).toBe(items.length);
     });

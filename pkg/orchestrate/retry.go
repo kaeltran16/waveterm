@@ -6,7 +6,6 @@ const (
 	FailureKindToolError     = "tool_call_error"
 	FailureKindContextWindow = "context-window"
 	FailureKindTimeout       = "timeout"
-	FailureKindGateSendback  = "gate-sendback"
 	FailureKindTestFailed    = "test-failed"
 	FailureKindUnknown       = "unknown"
 )
@@ -37,8 +36,6 @@ func classifyFailure(summary string, exitCode int) string {
 		return FailureKindContextWindow
 	case strings.Contains(s, "timeout"), strings.Contains(s, "timed out"):
 		return FailureKindTimeout
-	case strings.Contains(s, "sendback"), strings.Contains(s, "too hard"), strings.Contains(s, "out of scope"):
-		return FailureKindGateSendback
 	// bare "tests:" dropped: it matched passing summaries like "tests: 12 passed"
 	case strings.Contains(s, "test failed"), strings.Contains(s, "not passing"), strings.Contains(s, "check failed"):
 		return FailureKindTestFailed

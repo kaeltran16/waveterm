@@ -20,7 +20,7 @@ type ChannelCommands interface {
 	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error       // sets a channel's Jarvis autonomy tier (concierge|gatekeeper)
 	SetChannelReadCommand(ctx context.Context, data CommandSetChannelReadData) error       // stamps a channel's last-read timestamp for unread counts
 	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error // write a channel's per-project profile override (empty clears it)
-	GetAttentionCommand(ctx context.Context) (*CommandGetAttentionRtnData, error)          // everything waiting on the human across every channel: review gates, Gatekeeper escalations, blocked workers
+	GetAttentionCommand(ctx context.Context) (*CommandGetAttentionRtnData, error)          // everything waiting on the human across every channel: blocked dags, held lands, Gatekeeper escalations, blocked workers
 }
 
 type CommandCreateChannelData struct {
@@ -88,8 +88,8 @@ type CommandSetChannelProfileData struct {
 	Override  *waveobj.ProfileOverride `json:"override"`
 }
 
-// AttentionItem is one thing waiting on the human, anywhere in the cockpit. Kind is "gate" |
-// "escalation" | "ask". ChannelId/ChannelName are EMPTY for a standalone agent (one launched from the
+// AttentionItem is one thing waiting on the human, anywhere in the cockpit. Kind is "dag-blocked" |
+// "run-land-held" | "run-unverified" | "escalation" | "ask". ChannelId/ChannelName are EMPTY for a standalone agent (one launched from the
 // cockpit or Agent surface with no channel) — that is how the two nav-rail badges stay disjoint while
 // coming from one source.
 type AttentionItem struct {
@@ -104,7 +104,7 @@ type AttentionItem struct {
 	Action       string `json:"action"`           // Review | Decide | Answer
 	PhaseIdx     int    `json:"phaseidx"`         // gate items only: the phase AdvanceRun must address to approve or send back
 	WaitingSince int64  `json:"waitingsince"`
-	// TaskId is the task a dag-gate approves or a dag-blocked item names; Retry says retrying it is the
+	// TaskId is the task a dag-blocked item names; Retry says retrying it is the
 	// right action (a circuit break), not a merge the human resolves by hand.
 	TaskId string `json:"taskid,omitempty"`
 	Retry  bool   `json:"retry,omitempty"`

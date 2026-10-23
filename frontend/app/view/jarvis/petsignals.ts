@@ -11,9 +11,8 @@ import { liveWindowAgents, providerPlanUsage, type AgentVM } from "@/app/view/ag
 import { mergeRateLimitWindows, topProviderUsage, type SavedSnapshot } from "@/app/view/agents/ratelimitstore";
 import { heldLandFrom, type PetSignals } from "./petcondition";
 
-// pkg/jarvis/attention.go's three kinds. Named here rather than inlined so the mapping to the avatar's
-// posture vocabulary is one line to check against the server.
-const ATTENTION_GATE = "dag-gate";
+// pkg/jarvis/attention.go's kinds the avatar's posture reads. Named here rather than inlined so the mapping to
+// its posture vocabulary is one line to check against the server.
 const ATTENTION_ESCALATION = "escalation";
 const ATTENTION_ASK = "ask";
 
@@ -48,7 +47,6 @@ export function petSignalsFrom({ agents, savedRateLimits, now, attention, link }
         heldLand: heldLandFrom(attention),
         rateLimit,
         attention: {
-            reviewGates: count(attention, ATTENTION_GATE),
             escalations: count(attention, ATTENTION_ESCALATION),
             blockedWorkers: count(attention, ATTENTION_ASK),
         },

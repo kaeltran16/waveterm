@@ -3,8 +3,8 @@
 //
 // The cockpit-wide "needs you" list, computed server-side (pkg/jarvis/attention.go) and polled. This
 // replaced a frontend derivation over channelsAtom, which is a snapshot refetched only on channel
-// create/delete/rename/archive — so a run parked at a review gate in any non-active channel was
-// invisible to every badge.
+// create/delete/rename/archive — so a run waiting on the human in any non-active channel was invisible to
+// every badge.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -48,6 +48,22 @@ export function taskbarSignal(
     return newAttention(prev, next).length > 0 ? "flash" : null;
 }
 
+// DEV-only seam for the attention-popup CDP scenario, which raises items one poll at a time: a JSON array of
+// AttentionItem under this key is appended to every poll's server list. The server can raise only one item per
+// dag or run, too few to step the popup through. import.meta.env.DEV is false in production, so it never reads
+// the key there; a malformed value adds nothing.
+const DEV_ATTENTION_ITEMS_KEY = "wave:dev-attention-items";
+
+function devAttentionItems(): AttentionItem[] {
+    if (!import.meta.env.DEV || typeof localStorage === "undefined") return [];
+    try {
+        const value = JSON.parse(localStorage.getItem(DEV_ATTENTION_ITEMS_KEY) ?? "null");
+        return Array.isArray(value) ? value : [];
+    } catch {
+        return [];
+    }
+}
+
 // A failed poll leaves the last good list in place. Blanking the badge on one dropped request would
 // read as "nothing needs you", which is the exact lie this whole change exists to remove.
 export async function loadAttention(): Promise<void> {
@@ -55,7 +71,7 @@ export async function loadAttention(): Promise<void> {
     try {
         const rtn = await RpcApi.GetAttentionCommand(TabRpcClient);
         if (loadId === latestAttentionLoad) {
-            globalStore.set(attentionAtom, rtn.items ?? []);
+            globalStore.set(attentionAtom, [...(rtn.items ?? []), ...devAttentionItems()]);
         }
     } catch {
         // keep the previous value

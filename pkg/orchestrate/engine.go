@@ -28,7 +28,6 @@ import (
 // references unchanged.
 const (
 	DagEventChildDone   = wps.DagEventChildDone
-	DagEventGateOpen    = wps.DagEventGateOpen
 	DagEventBlocked     = wps.DagEventBlocked
 	DagEventComplete    = wps.DagEventComplete
 	DagEventTaskSpawned = wps.DagEventTaskSpawned
@@ -827,23 +826,17 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 	RecomputeDagStatus(g)
 	// every task landed: the final stage judges the merged result before the dag is done
 	advanceFinal(ctx, spawnCtx, g, owner, now, &afterCommit)
-	// status notifications: gate-open / blocked / complete, once per condition. The watchdog and every
+	// status notifications: blocked / complete, once per condition. The watchdog and every
 	// dag mutation re-enter Schedule, so emitting the standing status would refill the lifecycle log with
-	// identical rows and re-wake the lead about what it was already told. The gate cannot be compared
+	// identical rows and re-wake the lead about what it was already told. The condition cannot be compared
 	// against the status this tick started from: the mutation paths recompute and PERSIST the new status
 	// before calling Schedule, so the row already reads the new condition. What was last announced is its
-	// own fact, so the dag records it. Only the finished run wakes the lead here: a gate is the human's,
-	// and each failure behind a blocked dag woke the lead when it happened.
+	// own fact, so the dag records it. Only the finished run wakes the lead here: each failure behind a
+	// blocked dag woke the lead when it happened.
 	condition := dagCondition(g)
 	notify := condition != g.NotifiedCondition
 	g.NotifiedCondition = condition
 	switch {
-	case notify && g.Status == DagStatus_AwaitingReview:
-		gateTask := gatedTaskID(g)
-		afterCommit = append(afterCommit, func() {
-			publishDagEvent(DagEventGateOpen, g, "")
-			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagGateOpen, nil, map[string]any{"taskid": gateTask})
-		})
 	case notify && g.Status == DagStatus_Blocked:
 		failures := g.Failures
 		blockingKind := BlockingKind(g)

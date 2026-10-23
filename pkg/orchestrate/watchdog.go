@@ -46,7 +46,7 @@ var verifyOverdue = VerifyTimeout + scheduleTickTimeout
 // else to notice them. Ticking the parked ones cannot advance work that should not advance: every
 // dispatch guard (the gate halt, the circuit-break, parallelism) is inside NextToSpawn, so the tick
 // observes and reports without spawning.
-var watchdogStatuses = []string{DagStatus_Running, DagStatus_PlanReview, DagStatus_Finalizing, DagStatus_Blocked, DagStatus_AwaitingReview}
+var watchdogStatuses = []string{DagStatus_Running, DagStatus_PlanReview, DagStatus_Finalizing, DagStatus_Blocked}
 
 // watchdogOnce guards the single start; watchdogTick is the per-tick body (a var so tests can count
 // invocations without running a real ticker).
