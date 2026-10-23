@@ -41,10 +41,6 @@ import {
 } from "./codestore";
 import { wordAt } from "./codesymbolquery";
 
-// The markdown element defaults to 14px with no padding — sized for the old full-width chat block,
-// which reads oversized in a cockpit pane beside the 12px mono source view.
-const DOC_FONT_SIZE = 12.5;
-
 function sizeLabel(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -172,7 +168,6 @@ function MarkdownPreview({
             scrollable
             className="h-full"
             contentClassName="px-5 py-4"
-            fontSizeOverride={DOC_FONT_SIZE}
             onClickLink={onClickLink}
         />
     );
