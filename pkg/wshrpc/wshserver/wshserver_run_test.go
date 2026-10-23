@@ -939,8 +939,10 @@ func TestBuilderCheckRunLeavesSealDueFalse(t *testing.T) {
 	}
 	check := jarvis.NewRun("read the spec", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
 	check.StageRole = jarvis.UsageRole_BuilderCheck
+	judge := jarvis.NewRun("weigh the approaches", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	judge.StageRole = jarvis.UsageRole_BrainstormJudge
 	plain := jarvis.NewRun("finish it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
-	for _, r := range []waveobj.Run{check, plain} {
+	for _, r := range []waveobj.Run{check, judge, plain} {
 		if err := wstore.AppendRun(ctx, ch.OID, r); err != nil {
 			t.Fatalf("AppendRun: %v", err)
 		}
@@ -952,7 +954,7 @@ func TestBuilderCheckRunLeavesSealDueFalse(t *testing.T) {
 	for _, tc := range []struct {
 		id   string
 		want bool
-	}{{check.ID, false}, {plain.ID, true}} {
+	}{{check.ID, false}, {judge.ID, false}, {plain.ID, true}} {
 		sealDue, err := advanceRun(ctx, wshrpc.CommandAdvanceRunData{
 			ChannelId: ch.OID, RunId: tc.id, PhaseIdx: 0, Action: jarvis.RunAction_Complete, Report: "done",
 		})

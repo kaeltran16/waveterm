@@ -23,8 +23,15 @@ const CHECK_TAKING_IN = "Taking in the builder's questions.";
 // ids the builder-check record names; nothing real stands behind them
 const CHECK_RUN = "5b0f6a1e-3c2d-4e7f-8a9b-0c1d2e3f4a5b";
 const CHECK_CHANNEL = "9e8d7c6b-5a49-4382-b1a0-f9e8d7c6b5a4";
-// the reviewer's session:label as the server sets it: "Builder check · " and the brainstorm's title
+// the judge's record names these; nothing real stands behind them either
+const JUDGE_RUN = "2c7e1b94-6d3a-4f08-9a51-b8e0c4d7f312";
+const JUDGE_CHANNEL = "d4a1f6e8-0b72-4c59-8e3d-17a9c5b2e640";
+// each session's session:label as the server sets it: the stage and the brainstorm's title
 const REVIEWER_NAME = "Builder check · Improving the detection engine";
+const JUDGE_NAME = "Judge · Improving the detection engine";
+// the two sessions the tree nests under a brainstorm: the tab keys of the record naming each, its stage role, its row title
+const CHECK_KIND = { prefix: "brainstorm:check", run: CHECK_RUN, channel: CHECK_CHANNEL, name: REVIEWER_NAME, role: "builder-check", title: "Builder check" };
+const JUDGE_KIND = { prefix: "brainstorm:judge", run: JUDGE_RUN, channel: JUDGE_CHANNEL, name: JUDGE_NAME, role: "brainstorm-judge", title: "Judge" };
 const ROSTER_WAIT_MS = 15000;
 
 const PART = {
@@ -216,15 +223,15 @@ export default function (kit) {
     });
     const CHECK_REASON = "The builder session ended before it wrote its questions.";
     // Arc's record of the check, as the server writes it to the agent's tab
-    const setCheckRecord = (h, ctx, meta) =>
+    const setCheckRecord = (h, ctx, meta, kind = CHECK_KIND) =>
         h.rpc("setmeta", {
             oref: `tab:${ctx.tabId}`,
             meta: {
-                "brainstorm:checkstate": meta.state,
-                "brainstorm:checkts": Date.now(),
-                "brainstorm:checkrun": CHECK_RUN,
-                "brainstorm:checkchannel": CHECK_CHANNEL,
-                "brainstorm:checkreason": meta.reason ?? "",
+                [`${kind.prefix}state`]: meta.state,
+                [`${kind.prefix}ts`]: Date.now(),
+                [`${kind.prefix}run`]: kind.run,
+                [`${kind.prefix}channel`]: kind.channel,
+                [`${kind.prefix}reason`]: meta.reason ?? "",
             },
         });
     // the check card, Check with a builder and Try again, as the pane draws them
@@ -289,8 +296,8 @@ export default function (kit) {
 
     // the builder check's reviewer, as the server launches it: a tab of its own in the brainstorm's project, spawned for
     // the check's run, which has no lead. Nothing real stands behind the run
-    const openReviewer = async (h, ctx) => {
-        const tabId = await waveService(h, "workspace", "CreateTab", [ctx.workspaceId, REVIEWER_NAME, false]);
+    const openReviewer = async (h, ctx, kind = CHECK_KIND) => {
+        const tabId = await waveService(h, "workspace", "CreateTab", [ctx.workspaceId, kind.name, false]);
         ctx.reviewerTabId = tabId;
         const tab = await waveService(h, "object", "GetObject", [`tab:${tabId}`]);
         const blockId = tab?.blockids?.[0];
@@ -298,7 +305,7 @@ export default function (kit) {
         await h.rpc("setmeta", { oref: `block:${blockId}`, meta: { view: "term", controller: "shell", "cmd:cwd": "~" } });
         await h.rpc("setmeta", {
             oref: `tab:${tabId}`,
-            meta: { "session:project": TOPIC, "session:label": REVIEWER_NAME, "jarvis:runoref": `run:${CHECK_RUN}` },
+            meta: { "session:project": TOPIC, "session:label": kind.name, "jarvis:runoref": `run:${kind.run}` },
         });
         await h.rpc("eventpublish", {
             event: "agent:status",
@@ -330,12 +337,94 @@ export default function (kit) {
             };
         })()`);
     // the reviewer's row nested under the brainstorm's, reading `state`
-    const nestedIn = (bsId, rvId, state) => `(() => {
+    const nestedIn = (bsId, rvId, state, role = CHECK_KIND.role) => `(() => {
         const tree = document.querySelector("[data-agent-tree]");
         const bs = tree?.querySelector('[data-tree-agent="${bsId}"]');
         const rv = bs?.closest(".overflow-y-auto > div")?.nextElementSibling?.querySelector('[data-tree-agent="${rvId}"]');
-        return rv?.getAttribute("data-tree-stage") === "builder-check" && (rv.innerText ?? "").includes(${JSON.stringify(state)});
+        return rv?.getAttribute("data-tree-stage") === ${JSON.stringify(role)} && (rv.innerText ?? "").includes(${JSON.stringify(state)});
     })()`;
+
+    // plays the server: the brainstorm tab's record of a session of its own (the builder check's reviewer or the judge)
+    // and that session's tab; nothing launches
+    const nestingScenario = (name, kind, who) => ({
+        name,
+        surface: "agent",
+        async arrange(h) {
+            const ctx = await bsArrangeAgent(h, TOPIC, READY);
+            if (ctx.launchError != null || !ctx.inRoster) return ctx;
+            try {
+                ctx.reviewerInRoster = await openReviewer(h, ctx, kind);
+            } catch (e) {
+                ctx.launchError = `the ${who}'s tab: ${e?.message ?? e}`;
+            }
+            return ctx;
+        },
+        async assert(h, ctx) {
+            if (ctx.launchError != null) return [skipStep(name, `could not verify: ${ctx.launchError}`)];
+            if (!ctx.inRoster) return [skipStep(name, "could not verify: the brainstorm's terminal never became a roster agent")];
+            if (!ctx.reviewerInRoster) return [skipStep(name, `could not verify: the ${who}'s tab never got a tree row`)];
+            const steps = [];
+            const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+            const bsId = ctx.tabId;
+            const rvId = ctx.reviewerTabId;
+            const topLevel = (t) => t.rv != null && t.rv.stage == null && t.rv.guides === 0 && t.rv.text.includes(kind.name);
+
+            // 1. no record names the session's run yet: it is a top-level row of its own
+            const t1 = await readTree(h, bsId, rvId);
+            await h.shot(`cdp-shots/${name}-1.png`);
+            rec(`1. no record: the ${who} is a top-level row, named by its session label`, topLevel(t1) && t1.bs, t1);
+
+            // 2-4. the record names its run: the session nests right under the brainstorm whatever the record's state,
+            // and the counts stay what they were
+            const states = [
+                ["reading", "2. reading"],
+                ["answered", "3. answered"],
+                ["failed", "4. failed"],
+            ];
+            for (const [i, [state, label]] of states.entries()) {
+                await setCheckRecord(h, ctx, { state, reason: state === "failed" ? "The session ended." : "" }, kind);
+                const shown = await polishWaitFor(h, nestedIn(bsId, rvId, state, kind.role), CHECK_WAIT_MS);
+                const t = await readTree(h, bsId, rvId);
+                await h.shot(`cdp-shots/${name}-${i + 2}.png`);
+                rec(
+                    `${label}: the ${who} is a ${kind.title} row nested right under the brainstorm, reading ${state}, the counts unchanged`,
+                    shown && t.afterBs === rvId && t.rv?.guides > 0 && t.rv.text.includes(kind.title) && t.total === t1.total && t.group === t1.group,
+                    t
+                );
+            }
+
+            // 5. the brainstorm's tab closes: the session is a top-level row again, and the counts lose only the brainstorm
+            await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, bsId, false]);
+            ctx.tabId = null;
+            const back = await polishWaitFor(
+                h,
+                `(() => {
+                    const tree = document.querySelector("[data-agent-tree]");
+                    const rv = tree?.querySelector('[data-tree-agent="${rvId}"]');
+                    return !tree?.querySelector('[data-tree-agent="${bsId}"]') && !!rv && !rv.hasAttribute("data-tree-stage");
+                })()`,
+                ROSTER_WAIT_MS
+            );
+            const t5 = await readTree(h, bsId, rvId);
+            await h.shot(`cdp-shots/${name}-5.png`);
+            rec(
+                `5. brainstorm gone: the ${who} falls back to its own top-level row, the total one less`,
+                back && topLevel(t5) && !t5.bs && t5.total === t1.total - 1,
+                t5
+            );
+            return steps;
+        },
+        async teardown(h, ctx) {
+            if (ctx.reviewerTabId) {
+                try {
+                    await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.reviewerTabId, false]);
+                } catch (e) {
+                    console.error(`${name} teardown: close the ${who}'s tab failed: ${e?.message ?? e}`);
+                }
+            }
+            await bsTeardownAgent(h, ctx, name);
+        },
+    });
 
     return [
         {
@@ -682,87 +771,8 @@ export default function (kit) {
                 await bsTeardownAgent(h, ctx, "brainstorm-builder-check");
             },
         },
-        {
-            // plays the server: the brainstorm tab's check record and the reviewer's tab; no builder launches
-            name: "brainstorm-builder-tree",
-            surface: "agent",
-            async arrange(h) {
-                const ctx = await bsArrangeAgent(h, TOPIC, READY);
-                if (ctx.launchError != null || !ctx.inRoster) return ctx;
-                try {
-                    ctx.reviewerInRoster = await openReviewer(h, ctx);
-                } catch (e) {
-                    ctx.launchError = `the reviewer's tab: ${e?.message ?? e}`;
-                }
-                return ctx;
-            },
-            async assert(h, ctx) {
-                const name = "brainstorm-builder-tree";
-                if (ctx.launchError != null) return [skipStep(name, `could not verify: ${ctx.launchError}`)];
-                if (!ctx.inRoster) return [skipStep(name, "could not verify: the brainstorm's terminal never became a roster agent")];
-                if (!ctx.reviewerInRoster) return [skipStep(name, "could not verify: the reviewer's tab never got a tree row")];
-                const steps = [];
-                const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
-                const bsId = ctx.tabId;
-                const rvId = ctx.reviewerTabId;
-                const topLevel = (t) => t.rv != null && t.rv.stage == null && t.rv.guides === 0 && t.rv.text.includes(REVIEWER_NAME);
-
-                // 1. no record names the reviewer's run yet: it is a top-level row of its own
-                const t1 = await readTree(h, bsId, rvId);
-                await h.shot("cdp-shots/brainstorm-builder-tree-1.png");
-                rec("1. no record: the reviewer is a top-level row, named by its session label", topLevel(t1) && t1.bs, t1);
-
-                // 2-4. the record names its run: the reviewer nests right under the brainstorm whatever the check's state,
-                // and the counts stay what they were
-                const states = [
-                    ["reading", "2. reading"],
-                    ["answered", "3. answered"],
-                    ["failed", "4. failed"],
-                ];
-                for (const [i, [state, label]] of states.entries()) {
-                    await setCheckRecord(h, ctx, { state, reason: state === "failed" ? "The builder session ended." : "" });
-                    const shown = await polishWaitFor(h, nestedIn(bsId, rvId, state), CHECK_WAIT_MS);
-                    const t = await readTree(h, bsId, rvId);
-                    await h.shot(`cdp-shots/brainstorm-builder-tree-${i + 2}.png`);
-                    rec(
-                        `${label}: the reviewer is a Builder check row nested right under the brainstorm, reading ${state}, the counts unchanged`,
-                        shown && t.afterBs === rvId && t.rv?.guides > 0 && t.rv.text.includes("Builder check") && t.total === t1.total && t.group === t1.group,
-                        t
-                    );
-                }
-
-                // 5. the brainstorm's tab closes: the reviewer is a top-level row again, and the counts lose only the brainstorm
-                await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, bsId, false]);
-                ctx.tabId = null;
-                const back = await polishWaitFor(
-                    h,
-                    `(() => {
-                        const tree = document.querySelector("[data-agent-tree]");
-                        const rv = tree?.querySelector('[data-tree-agent="${rvId}"]');
-                        return !tree?.querySelector('[data-tree-agent="${bsId}"]') && !!rv && !rv.hasAttribute("data-tree-stage");
-                    })()`,
-                    ROSTER_WAIT_MS
-                );
-                const t5 = await readTree(h, bsId, rvId);
-                await h.shot("cdp-shots/brainstorm-builder-tree-5.png");
-                rec(
-                    "5. brainstorm gone: the reviewer falls back to its own top-level row, the total one less",
-                    back && topLevel(t5) && !t5.bs && t5.total === t1.total - 1,
-                    t5
-                );
-                return steps;
-            },
-            async teardown(h, ctx) {
-                if (ctx.reviewerTabId) {
-                    try {
-                        await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.reviewerTabId, false]);
-                    } catch (e) {
-                        console.error(`brainstorm-builder-tree teardown: close the reviewer's tab failed: ${e?.message ?? e}`);
-                    }
-                }
-                await bsTeardownAgent(h, ctx, "brainstorm-builder-tree");
-            },
-        },
+        nestingScenario("brainstorm-builder-tree", CHECK_KIND, "reviewer"),
+        nestingScenario("brainstorm-judge-tree", JUDGE_KIND, "judge"),
     ];
 }
 

@@ -60,6 +60,8 @@ Cockpit and surfaces:
   page is wanted.
 - **Builder check end to end, with a real reviewer** (2026-10-22) — revive when the reviewer's prompt
   or route chain changes, or a check hangs or returns nothing on a real project.
+- **Brainstorm judge end to end, in a real brainstorm** (2026-10-23) — revive when the judge's prompt or
+  result check changes, or a judge hangs, fails its check, or returns options the agent retypes.
 - **Sessions "All activity" feed peek** (2026-10-01) — revive when the feed rows carry a run, agent or
   effort target.
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /

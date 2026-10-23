@@ -524,6 +524,13 @@ declare global {
         file: string;
     };
 
+    // wshrpc.CommandBrainstormJudgeData
+    type CommandBrainstormJudgeData = {
+        blockid: string;
+        file: string;
+        line?: string;
+    };
+
     // wshrpc.CommandCancelRunData
     type CommandCancelRunData = {
         channelid: string;
@@ -2320,6 +2327,11 @@ declare global {
         "brainstorm:checkrun"?: string;
         "brainstorm:checkchannel"?: string;
         "brainstorm:checkreason"?: string;
+        "brainstorm:judgestate"?: string;
+        "brainstorm:judgets"?: number;
+        "brainstorm:judgerun"?: string;
+        "brainstorm:judgechannel"?: string;
+        "brainstorm:judgereason"?: string;
         "app:loom"?: boolean;
         "agent:transcriptpath"?: string;
         "agent:lastcommitts"?: number;

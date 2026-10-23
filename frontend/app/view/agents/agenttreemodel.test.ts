@@ -133,6 +133,74 @@ describe("buildAgentTree with a builder check", () => {
     });
 });
 
+describe("buildAgentTree with a brainstorm judge", () => {
+    // the brainstorming agent's tab names its judge's run (brainstorm:judgerun) as it names its check's
+    const brainstorm = (judge?: BuilderCheckRecord, check?: BuilderCheckRecord): AgentVM => ({
+        ...vm("bs", "idle", WAVE),
+        ...(judge ? { brainstormJudge: judge } : {}),
+        ...(check ? { builderCheck: check } : {}),
+    });
+    const session = (id: string, runId: string, state: AgentVM["state"] = "working"): AgentVM => ({
+        ...vm(id, state, WAVE),
+        runId,
+    });
+    const shape = (rows: AgentTreeRow[]) =>
+        rows.map((r) =>
+            r.kind === "group"
+                ? `group:${r.project}:${r.count}:${r.attn}`
+                : r.kind === "check"
+                  ? `  check:${r.agent.id}:${r.stageRole}:${r.state}`
+                  : `${r.kind}:${"agent" in r ? r.agent?.id : ""}`
+        );
+
+    it("nests the judge's session under the agent whose record names its run, with the judge's role and state", () => {
+        const rows = buildAgentTree(
+            [session("jd", "jdg-1"), brainstorm({ state: "reading", ts: 1, runId: "jdg-1" })],
+            ["jd", "bs"]
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:2:0", "parent:bs", "  check:jd:brainstorm-judge:reading"]);
+        for (const state of ["answered", "failed"] as const) {
+            const later = buildAgentTree(
+                [brainstorm({ state, ts: 1, runId: "jdg-1" }), session("jd", "jdg-1", "idle")],
+                ["bs", "jd"]
+            );
+            expect(shape(later)).toEqual(["group:waveterm:2:0", "parent:bs", `  check:jd:brainstorm-judge:${state}`]);
+        }
+    });
+
+    it("nests both sessions under one agent that holds both records, each with its own role and state", () => {
+        const rows = buildAgentTree(
+            [
+                session("rv", "chk-1"),
+                session("jd", "jdg-1"),
+                brainstorm({ state: "answered", ts: 1, runId: "jdg-1" }, { state: "reading", ts: 1, runId: "chk-1" }),
+            ],
+            ["rv", "jd", "bs"]
+        );
+        expect(shape(rows)).toEqual([
+            "group:waveterm:3:0",
+            "parent:bs",
+            "  check:rv:builder-check:reading",
+            "  check:jd:brainstorm-judge:answered",
+        ]);
+        expect(treeAgentCount(rows)).toBe(3);
+    });
+
+    it("gives the judge's session a plain row once the brainstorming agent is gone", () => {
+        const rows = buildAgentTree([session("jd", "jdg-1"), vm("other", "idle", WAVE)], ["jd", "other"]);
+        expect(shape(rows)).toEqual(["group:waveterm:2:0", "parent:jd", "parent:other"]);
+    });
+
+    it("counts the judge in the agent's group, and in its attn while it asks", () => {
+        const rows = buildAgentTree(
+            [brainstorm({ state: "reading", ts: 1, runId: "jdg-1" }), session("jd", "jdg-1", "asking")],
+            ["bs", "jd"]
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:2:1", "parent:bs", "  check:jd:brainstorm-judge:reading"]);
+        expect(treeAgentCount(rows)).toBe(2);
+    });
+});
+
 describe("buildAgentTree with run lineage", () => {
     const task = (id: string, state: string): TaskNode => ({ id, label: id, state }) as TaskNode;
     const run = (runId: string, tasks: TaskNode[], digest?: DagStatusDigest): RunInfo => ({

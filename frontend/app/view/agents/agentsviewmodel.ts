@@ -110,6 +110,7 @@ export interface AgentVM {
     effortId?: string; // the initiative this agent works on: launched from it, or last read or wrote through `wsh effort`
     brainstormFile?: string; // session:brainstorm on the tab: the attached brainstorm.json's absolute path
     builderCheck?: BuilderCheckRecord; // brainstorm:check* on the tab: Arc's record of the brainstorm's builder check
+    brainstormJudge?: BuilderCheckRecord; // brainstorm:judge* on the tab: Arc's record of the brainstorm's judge
     atPrompt?: boolean; // the raw status was waiting or idle, whatever state it folds to: a lead between wakes
     runDone?: boolean; // its own quick run is done, so at its prompt it is finished rather than idle
 }
@@ -498,6 +499,7 @@ export interface LiveAgentInput {
     effortORef?: string; // session:effort on the tab: "effort:<oid>"
     brainstormFile?: string; // session:brainstorm on the tab
     builderCheck?: BuilderCheckRecord; // brainstorm:check* on the tab
+    brainstormJudge?: BuilderCheckRecord; // brainstorm:judge* on the tab
 }
 
 /** Pure: one live row -> an AgentVM. `asking` (a pending AskUserQuestion) maps straight to asking so
@@ -536,6 +538,9 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
     }
     if (input.builderCheck) {
         vm.builderCheck = input.builderCheck;
+    }
+    if (input.brainstormJudge) {
+        vm.brainstormJudge = input.brainstormJudge;
     }
     if (input.status === "waiting" || input.status === "idle") {
         vm.atPrompt = true;
@@ -579,6 +584,7 @@ export interface TerminalRowInput {
     agent?: string; // session:agent runtime, set at launch for agent tabs (never for terminals)
     brainstormFile?: string; // session:brainstorm on the tab
     builderCheck?: BuilderCheckRecord; // brainstorm:check* on the tab
+    brainstormJudge?: BuilderCheckRecord; // brainstorm:judge* on the tab
 }
 
 /** Pure: the plain-terminal sessions — rows that own a term block but never emitted an agent status
@@ -611,6 +617,7 @@ export function deriveTerminalVMs(
             blockId: row.termBlockOref.split(":")[1],
             ...(row.brainstormFile ? { brainstormFile: row.brainstormFile } : {}),
             ...(row.builderCheck ? { builderCheck: row.builderCheck } : {}),
+            ...(row.brainstormJudge ? { brainstormJudge: row.brainstormJudge } : {}),
         });
     }
     return out;

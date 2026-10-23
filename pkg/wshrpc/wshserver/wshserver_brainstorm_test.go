@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -80,35 +81,35 @@ func tabMeta(t *testing.T, ctx context.Context, tabId string) waveobj.MetaMapTyp
 	return tab.Meta
 }
 
-func stubArmBuilderCheck(t *testing.T) *[]builderCheck {
+func stubArmBrainstormSession(t *testing.T) *[]brainstormSession {
 	t.Helper()
-	var armed []builderCheck
-	old := armBuilderCheck
-	armBuilderCheck = func(c builderCheck) { armed = append(armed, c) }
-	t.Cleanup(func() { armBuilderCheck = old })
+	var armed []brainstormSession
+	old := armBrainstormSession
+	armBrainstormSession = func(c brainstormSession) { armed = append(armed, c) }
+	t.Cleanup(func() { armBrainstormSession = old })
 	return &armed
 }
 
-func stubLaunchBuilderCheck(t *testing.T, runId string, err error) *[]orchestrate.JudgingSession {
+func stubLaunchBrainstormSession(t *testing.T, runId string, err error) *[]orchestrate.JudgingSession {
 	t.Helper()
 	var launched []orchestrate.JudgingSession
-	old := launchBuilderCheck
-	launchBuilderCheck = func(_ context.Context, s orchestrate.JudgingSession) (string, error) {
+	old := launchBrainstormSession
+	launchBrainstormSession = func(_ context.Context, s orchestrate.JudgingSession) (string, error) {
 		launched = append(launched, s)
 		return runId, err
 	}
-	t.Cleanup(func() { launchBuilderCheck = old })
+	t.Cleanup(func() { launchBrainstormSession = old })
 	return &launched
 }
 
 func TestBrainstormCheckRefusals(t *testing.T) {
 	ctx := context.Background()
-	armed := stubArmBuilderCheck(t)
+	armed := stubArmBrainstormSession(t)
 	_, noSpec := seedBrainstorm(t, "", false)
 	_, missingSpec := seedBrainstorm(t, testSpecRel, false)
 	_, good := seedBrainstorm(t, testSpecRel, true)
 	_, block := seedAgentTab(t, ctx, nil)
-	_, readingBlock := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_BrainstormCheckState: builderCheckReading})
+	_, readingBlock := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_BrainstormCheckState: brainstormReading})
 
 	for _, tc := range []struct {
 		name, block, file, want string
@@ -132,8 +133,8 @@ func TestBrainstormCheckRefusals(t *testing.T) {
 
 func TestBrainstormCheckLaunchWritesReadingThenTheRun(t *testing.T) {
 	ctx := context.Background()
-	armed := stubArmBuilderCheck(t)
-	launched := stubLaunchBuilderCheck(t, "run-1", nil)
+	armed := stubArmBrainstormSession(t)
+	launched := stubLaunchBrainstormSession(t, "run-1", nil)
 	project, file := seedBrainstorm(t, testSpecRel, true)
 	tabId, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionProject: "lag"})
 
@@ -141,7 +142,7 @@ func TestBrainstormCheckLaunchWritesReadingThenTheRun(t *testing.T) {
 		t.Fatalf("BrainstormCheckCommand: %v", err)
 	}
 	meta := tabMeta(t, ctx, tabId)
-	if got := meta.GetString(waveobj.MetaKey_BrainstormCheckState, ""); got != builderCheckReading {
+	if got := meta.GetString(waveobj.MetaKey_BrainstormCheckState, ""); got != brainstormReading {
 		t.Fatalf("checkstate = %q, want reading", got)
 	}
 	if meta.GetFloat(waveobj.MetaKey_BrainstormCheckTs, 0) == 0 || meta.HasKey(waveobj.MetaKey_BrainstormCheckRun) {
@@ -155,8 +156,8 @@ func TestBrainstormCheckLaunchWritesReadingThenTheRun(t *testing.T) {
 		t.Fatalf("armed %+v, want the tab, block, file and project", c)
 	}
 
-	if err := startBuilderCheck(ctx, &c); err != nil {
-		t.Fatalf("startBuilderCheck: %v", err)
+	if err := launchSessionRun(ctx, &c); err != nil {
+		t.Fatalf("launchSessionRun: %v", err)
 	}
 	ch, err := wstore.ChannelAtPath(ctx, project)
 	if err != nil || ch == nil {
@@ -171,7 +172,7 @@ func TestBrainstormCheckLaunchWritesReadingThenTheRun(t *testing.T) {
 		t.Fatalf("prompt does not name the spec %s", spec)
 	}
 	meta = tabMeta(t, ctx, tabId)
-	if meta.GetString(waveobj.MetaKey_BrainstormCheckState, "") != builderCheckReading ||
+	if meta.GetString(waveobj.MetaKey_BrainstormCheckState, "") != brainstormReading ||
 		meta.GetString(waveobj.MetaKey_BrainstormCheckRun, "") != "run-1" ||
 		meta.GetString(waveobj.MetaKey_BrainstormCheckChannel, "") != ch.OID {
 		t.Fatalf("record after launch = %v, want reading with checkrun run-1 and checkchannel %s", meta, ch.OID)
@@ -192,7 +193,7 @@ func TestBuilderCheckRouteChain(t *testing.T) {
 		{"no agent falls to the default runtime", nil, "", waveobj.RoutePin{Runtime: "claude"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			launched := stubLaunchBuilderCheck(t, "run-1", nil)
+			launched := stubLaunchBrainstormSession(t, "run-1", nil)
 			project, file := seedBrainstorm(t, testSpecRel, true)
 			ch, err := wstore.CreateChannel(ctx, "route", project)
 			if err != nil {
@@ -211,8 +212,8 @@ func TestBuilderCheckRouteChain(t *testing.T) {
 				t.Fatal(err)
 			}
 			c.TabId, c.BlockId = tabId, blockId
-			if err := startBuilderCheck(ctx, &c); err != nil {
-				t.Fatalf("startBuilderCheck: %v", err)
+			if err := launchSessionRun(ctx, &c); err != nil {
+				t.Fatalf("launchSessionRun: %v", err)
 			}
 			if got := (*launched)[0].Route; got != tc.want {
 				t.Fatalf("route = %+v, want %+v", got, tc.want)
@@ -225,19 +226,19 @@ func TestBuilderCheckDeliversTheReport(t *testing.T) {
 	ctx := context.Background()
 	_, file := seedBrainstorm(t, testSpecRel, true)
 	tabId, blockId := seedAgentTab(t, ctx, nil)
-	oldRead := readBuilderCheckRun
-	readBuilderCheckRun = func(_ context.Context, _, runId string) (*waveobj.Run, error) {
+	oldRead := readBrainstormRun
+	readBrainstormRun = func(_ context.Context, _, runId string) (*waveobj.Run, error) {
 		return &waveobj.Run{ID: runId, Status: jarvis.RunStatus_Done, Report: "1. Should a paused consumer page?"}, nil
 	}
-	t.Cleanup(func() { readBuilderCheckRun = oldRead })
+	t.Cleanup(func() { readBrainstormRun = oldRead })
 	type sent struct{ block, text string }
 	var delivered []sent
 	oldDeliver := deliverAgentMessage
 	deliverAgentMessage = func(block, text string) { delivered = append(delivered, sent{block, text}) }
 	t.Cleanup(func() { deliverAgentMessage = oldDeliver })
 
-	c := builderCheck{TabId: tabId, BlockId: blockId, File: file, RunId: "run-1", ChannelId: "ch-1", StartedTs: 1}
-	if !tickBuilderCheck(ctx, c, time.Now().UnixMilli()) {
+	c := brainstormSession{Kind: builderCheckKind, TabId: tabId, BlockId: blockId, File: file, RunId: "run-1", ChannelId: "ch-1", StartedTs: 1}
+	if !tickBrainstormSession(ctx, c, time.Now().UnixMilli()) {
 		t.Fatal("a done run with a report did not settle the check")
 	}
 	path := brainstormcheck.ReportPath(file)
@@ -248,7 +249,7 @@ func TestBuilderCheckDeliversTheReport(t *testing.T) {
 		t.Fatalf("delivered %+v, want the line for %s to block %s", delivered, path, blockId)
 	}
 	meta := tabMeta(t, ctx, tabId)
-	if meta.GetString(waveobj.MetaKey_BrainstormCheckState, "") != builderCheckAnswered ||
+	if meta.GetString(waveobj.MetaKey_BrainstormCheckState, "") != brainstormAnswered ||
 		meta.GetString(waveobj.MetaKey_BrainstormCheckRun, "") != "run-1" || meta.HasKey(waveobj.MetaKey_BrainstormCheckReason) {
 		t.Fatalf("record = %v, want answered for run-1 with no reason", meta)
 	}
@@ -273,16 +274,16 @@ func TestBuilderCheckLostRunStopsAndFails(t *testing.T) {
 	t.Cleanup(func() { stopStageSession = oldStop })
 
 	now := time.Now().UnixMilli()
-	c := builderCheck{TabId: tabId, BlockId: blockId, File: file, RunId: run.ID, ChannelId: ch.OID,
+	c := brainstormSession{Kind: builderCheckKind, TabId: tabId, BlockId: blockId, File: file, RunId: run.ID, ChannelId: ch.OID,
 		StartedTs: now - orchestrate.ReviewTimeout.Milliseconds() - 1}
-	if !tickBuilderCheck(ctx, c, now) {
+	if !tickBrainstormSession(ctx, c, now) {
 		t.Fatal("a session past its timeout did not settle the check")
 	}
 	if len(stopped) != 1 || stopped[0] != run.ID {
 		t.Fatalf("stopped %v, want the reviewer's run %s", stopped, run.ID)
 	}
 	meta := tabMeta(t, ctx, tabId)
-	if meta.GetString(waveobj.MetaKey_BrainstormCheckState, "") != builderCheckFailed ||
+	if meta.GetString(waveobj.MetaKey_BrainstormCheckState, "") != brainstormFailed ||
 		!strings.Contains(meta.GetString(waveobj.MetaKey_BrainstormCheckReason, ""), "no verdict") {
 		t.Fatalf("record = %v, want failed with the lost reason", meta)
 	}
@@ -290,7 +291,7 @@ func TestBuilderCheckLostRunStopsAndFails(t *testing.T) {
 
 func TestBuilderCheckLaunchErrorFails(t *testing.T) {
 	ctx := context.Background()
-	stubLaunchBuilderCheck(t, "", errors.New("pi is not installed"))
+	stubLaunchBrainstormSession(t, "", errors.New("pi is not installed"))
 	_, file := seedBrainstorm(t, testSpecRel, true)
 	tabId, blockId := seedAgentTab(t, ctx, nil)
 	c, err := readBrainstormForCheck(file)
@@ -299,10 +300,10 @@ func TestBuilderCheckLaunchErrorFails(t *testing.T) {
 	}
 	c.TabId, c.BlockId, c.StartedTs = tabId, blockId, 1
 
-	watchBuilderCheck(ctx, c) // returns at once: the launch failed
+	watchBrainstormSession(ctx, c) // returns at once: the launch failed
 
 	meta := tabMeta(t, ctx, tabId)
-	if meta.GetString(waveobj.MetaKey_BrainstormCheckState, "") != builderCheckFailed ||
+	if meta.GetString(waveobj.MetaKey_BrainstormCheckState, "") != brainstormFailed ||
 		meta.GetString(waveobj.MetaKey_BrainstormCheckReason, "") != "Arc could not start the builder: pi is not installed" {
 		t.Fatalf("record = %v, want failed with the launch error", meta)
 	}
@@ -310,24 +311,25 @@ func TestBuilderCheckLaunchErrorFails(t *testing.T) {
 
 func TestResumeBuilderChecksRearmsOrFails(t *testing.T) {
 	ctx := context.Background()
-	armed := stubArmBuilderCheck(t)
+	armed := stubArmBrainstormSession(t)
+	stubDeliver(t) // the sweep also fails other tests' reading judges, which send a line
 	_, file := seedBrainstorm(t, testSpecRel, true)
 	launchedTab, launchedBlock := seedAgentTab(t, ctx, waveobj.MetaMapType{
-		waveobj.MetaKey_BrainstormCheckState:   builderCheckReading,
+		waveobj.MetaKey_BrainstormCheckState:   brainstormReading,
 		waveobj.MetaKey_BrainstormCheckTs:      42,
 		waveobj.MetaKey_BrainstormCheckRun:     "run-1",
 		waveobj.MetaKey_BrainstormCheckChannel: "ch-1",
 		waveobj.MetaKey_SessionBrainstorm:      file,
 	})
 	unlaunchedTab, _ := seedAgentTab(t, ctx, waveobj.MetaMapType{
-		waveobj.MetaKey_BrainstormCheckState: builderCheckReading,
+		waveobj.MetaKey_BrainstormCheckState: brainstormReading,
 		waveobj.MetaKey_BrainstormCheckTs:    42,
 		waveobj.MetaKey_SessionBrainstorm:    file,
 	})
 
-	ResumeBuilderChecks(ctx)
+	ResumeBrainstormSessions(ctx)
 
-	var rearmed *builderCheck
+	var rearmed *brainstormSession
 	for i := range *armed {
 		if (*armed)[i].TabId == launchedTab {
 			rearmed = &(*armed)[i]
@@ -336,16 +338,346 @@ func TestResumeBuilderChecksRearmsOrFails(t *testing.T) {
 			t.Fatal("a check with no run was re-armed")
 		}
 	}
-	want := builderCheck{TabId: launchedTab, BlockId: launchedBlock, File: file, RunId: "run-1", ChannelId: "ch-1", StartedTs: 42}
+	want := brainstormSession{Kind: builderCheckKind, TabId: launchedTab, BlockId: launchedBlock, File: file, RunId: "run-1", ChannelId: "ch-1", StartedTs: 42}
 	if rearmed == nil || *rearmed != want {
 		t.Fatalf("re-armed %+v, want %+v", rearmed, want)
 	}
-	if got := tabMeta(t, ctx, launchedTab).GetString(waveobj.MetaKey_BrainstormCheckState, ""); got != builderCheckReading {
+	if got := tabMeta(t, ctx, launchedTab).GetString(waveobj.MetaKey_BrainstormCheckState, ""); got != brainstormReading {
 		t.Fatalf("re-armed check state = %q, want still reading", got)
 	}
 	meta := tabMeta(t, ctx, unlaunchedTab)
-	if meta.GetString(waveobj.MetaKey_BrainstormCheckState, "") != builderCheckFailed ||
+	if meta.GetString(waveobj.MetaKey_BrainstormCheckState, "") != brainstormFailed ||
 		meta.GetString(waveobj.MetaKey_BrainstormCheckReason, "") != builderCheckRestartedReason {
 		t.Fatalf("unlaunched record = %v, want failed: %s", meta, builderCheckRestartedReason)
+	}
+}
+
+type sentLine struct{ block, text string }
+
+func stubDeliver(t *testing.T) *[]sentLine {
+	t.Helper()
+	var delivered []sentLine
+	old := deliverAgentMessage
+	deliverAgentMessage = func(block, text string) { delivered = append(delivered, sentLine{block, text}) }
+	t.Cleanup(func() { deliverAgentMessage = old })
+	return &delivered
+}
+
+func stubReadBrainstormRun(t *testing.T, run *waveobj.Run) {
+	t.Helper()
+	old := readBrainstormRun
+	readBrainstormRun = func(context.Context, string, string) (*waveobj.Run, error) { return run, nil }
+	t.Cleanup(func() { readBrainstormRun = old })
+}
+
+const judgeAgentLean = "AGENT-LEAN-NEVER-SHOWN"
+
+// seedJudgeBrainstorm writes a project with a brainstorm.json whose open question lists n named approaches.
+// It returns the project dir and the brainstorm file.
+func seedJudgeBrainstorm(t *testing.T, n int) (string, string) {
+	t.Helper()
+	project := t.TempDir()
+	topic := filepath.Join(project, ".superpowers", "brainstorm", "lag-alerts")
+	if err := os.MkdirAll(topic, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var approaches []string
+	for i := range n {
+		approaches = append(approaches, `{"name":"Approach `+string(rune('A'+i))+`","description":"one way","facts":["a fact"]}`)
+	}
+	body := `{"title":"Lag alerts","question":{"text":"How should a lagging consumer alert?","why":"` + judgeAgentLean +
+		`","approaches":[` + strings.Join(approaches, ",") + `]}}`
+	file := filepath.Join(topic, "brainstorm.json")
+	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return project, file
+}
+
+const goodJudgeReport = `{"options":[{"label":"Page","detail":"Page the on-call.","pick":true},` +
+	`{"label":"Digest","detail":"Mail a daily digest."}],"read":"Paging rests on the existing pager.","added":[],` +
+	`"dropped":[{"name":"Approach C","reason":"No sink for it."}]}`
+
+func TestBrainstormJudgeRefusals(t *testing.T) {
+	ctx := context.Background()
+	armed := stubArmBrainstormSession(t)
+	launched := stubLaunchBrainstormSession(t, "run-1", nil)
+	_, good := seedJudgeBrainstorm(t, 5)
+	_, four := seedJudgeBrainstorm(t, 4)
+	_, noQuestion := seedBrainstorm(t, "", false)
+	_, block := seedAgentTab(t, ctx, nil)
+	_, readingBlock := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_BrainstormJudgeState: brainstormReading})
+
+	for _, tc := range []struct {
+		name, block, file, want string
+	}{
+		{"no block", "", good, "a block id and a brainstorm file are required"},
+		{"a relative path", block, filepath.Join(".superpowers", "brainstorm", "x", "brainstorm.json"), "must be an absolute path"},
+		{"no question", block, noQuestion, "no open question"},
+		{"four approaches", block, four, "lists 4 named approaches"},
+		{"already reading", readingBlock, good, judgeKind.busy},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := (&WshServer{}).BrainstormJudgeCommand(ctx, wshrpc.CommandBrainstormJudgeData{BlockId: tc.block, File: tc.file})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want one containing %q", err, tc.want)
+			}
+		})
+	}
+	if len(*armed) != 0 || len(*launched) != 0 {
+		t.Fatalf("a refused judge armed %+v and launched %+v", *armed, *launched)
+	}
+}
+
+func TestBrainstormJudgeIgnoresABuilderCheck(t *testing.T) {
+	ctx := context.Background()
+	armed := stubArmBrainstormSession(t)
+	_, judgeFile := seedJudgeBrainstorm(t, 5)
+	_, checkFile := seedBrainstorm(t, testSpecRel, true)
+	_, checkingBlock := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_BrainstormCheckState: brainstormReading})
+	_, judgingBlock := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_BrainstormJudgeState: brainstormReading})
+
+	if err := (&WshServer{}).BrainstormJudgeCommand(ctx, wshrpc.CommandBrainstormJudgeData{BlockId: checkingBlock, File: judgeFile}); err != nil {
+		t.Fatalf("a reading builder check refused the judge: %v", err)
+	}
+	if err := (&WshServer{}).BrainstormCheckCommand(ctx, wshrpc.CommandBrainstormCheckData{BlockId: judgingBlock, File: checkFile}); err != nil {
+		t.Fatalf("a reading judge refused the builder check: %v", err)
+	}
+	if len(*armed) != 2 || (*armed)[0].Kind != judgeKind || (*armed)[1].Kind != builderCheckKind {
+		t.Fatalf("armed %+v, want a judge then a builder check", *armed)
+	}
+}
+
+func TestBrainstormJudgeLaunchWritesReadingThenTheRun(t *testing.T) {
+	ctx := context.Background()
+	armed := stubArmBrainstormSession(t)
+	launched := stubLaunchBrainstormSession(t, "run-1", nil)
+	project, file := seedJudgeBrainstorm(t, 6)
+	ch, err := wstore.CreateChannel(ctx, "lag", project)
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{ReviewerRoute: &waveobj.RoutePin{Runtime: "pi", Model: "anthropic/claude-sonnet-5-5"}})
+	tabId, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "pi"})
+	const line = "double check the digest one"
+
+	if err := (&WshServer{}).BrainstormJudgeCommand(ctx, wshrpc.CommandBrainstormJudgeData{BlockId: blockId, File: file, Line: line}); err != nil {
+		t.Fatalf("BrainstormJudgeCommand: %v", err)
+	}
+	meta := tabMeta(t, ctx, tabId)
+	if meta.GetString(waveobj.MetaKey_BrainstormJudgeState, "") != brainstormReading ||
+		meta.GetFloat(waveobj.MetaKey_BrainstormJudgeTs, 0) == 0 || meta.HasKey(waveobj.MetaKey_BrainstormJudgeRun) {
+		t.Fatalf("reading record = %v, want reading with a judgets and no judgerun yet", meta)
+	}
+	if meta.HasKey(waveobj.MetaKey_BrainstormCheckState) {
+		t.Fatalf("the judge wrote the builder check's record: %v", meta)
+	}
+	if len(*armed) != 1 {
+		t.Fatalf("armed %d watchers, want 1", len(*armed))
+	}
+	c := (*armed)[0]
+	if c.Kind != judgeKind || c.TabId != tabId || c.BlockId != blockId || c.File != file || c.Project != project || c.Line != line {
+		t.Fatalf("armed %+v, want a judge for the tab, block, file, project and line", c)
+	}
+
+	if err := launchSessionRun(ctx, &c); err != nil {
+		t.Fatalf("launchSessionRun: %v", err)
+	}
+	s := (*launched)[0]
+	if s.ChannelId != ch.OID || s.WorkspaceId == "" || s.Role != jarvis.UsageRole_BrainstormJudge || s.Tree != project ||
+		!strings.HasPrefix(s.Label, "Judge · ") {
+		t.Fatalf("launched %+v, want a brainstorm-judge session labeled Judge in the project's channel and tree", s)
+	}
+	if want := (waveobj.RoutePin{Runtime: "claude", Model: "opus"}); s.Route != want {
+		t.Fatalf("route = %+v, want %+v whatever the agent's runtime and the reviewer route", s.Route, want)
+	}
+	for i := range 6 {
+		if name := "Approach " + string(rune('A'+i)); !strings.Contains(s.Prompt, name) {
+			t.Fatalf("the prompt lacks %q", name)
+		}
+	}
+	if !strings.Contains(s.Prompt, line) || strings.Contains(s.Prompt, judgeAgentLean) {
+		t.Fatalf("the prompt must hold the line %q and never the agent's why", line)
+	}
+	meta = tabMeta(t, ctx, tabId)
+	if meta.GetString(waveobj.MetaKey_BrainstormJudgeState, "") != brainstormReading ||
+		meta.GetString(waveobj.MetaKey_BrainstormJudgeRun, "") != "run-1" ||
+		meta.GetString(waveobj.MetaKey_BrainstormJudgeChannel, "") != ch.OID {
+		t.Fatalf("record after launch = %v, want reading with judgerun run-1 and judgechannel %s", meta, ch.OID)
+	}
+}
+
+func TestBrainstormJudgeDelivers(t *testing.T) {
+	ctx := context.Background()
+	_, file := seedJudgeBrainstorm(t, 5)
+	tabId, blockId := seedAgentTab(t, ctx, nil)
+	run := &waveobj.Run{ID: "run-1", Status: jarvis.RunStatus_Done, Report: goodJudgeReport}
+	stubReadBrainstormRun(t, run)
+	delivered := stubDeliver(t)
+
+	c := brainstormSession{Kind: judgeKind, TabId: tabId, BlockId: blockId, File: file, RunId: "run-1", ChannelId: "ch-1", StartedTs: 1}
+	if !tickBrainstormSession(ctx, c, time.Now().UnixMilli()) {
+		t.Fatal("a done run with a good result did not settle the judge")
+	}
+	_, want := brainstormcheck.DecideJudge(run, "")
+	path := brainstormcheck.JudgeResultPath(file)
+	if got, err := os.ReadFile(path); err != nil || len(want) == 0 || string(got) != string(want) {
+		t.Fatalf("judge.json = %q, %v, want %q", got, err, want)
+	}
+	if filepath.Dir(path) != filepath.Dir(file) {
+		t.Fatalf("judge.json at %s, want it beside %s", path, file)
+	}
+	if len(*delivered) != 1 || (*delivered)[0] != (sentLine{blockId, "brainstorm: judged " + path}) {
+		t.Fatalf("delivered %+v, want exactly the judged line for %s to block %s", *delivered, path, blockId)
+	}
+	meta := tabMeta(t, ctx, tabId)
+	if meta.GetString(waveobj.MetaKey_BrainstormJudgeState, "") != brainstormAnswered ||
+		meta.GetString(waveobj.MetaKey_BrainstormJudgeRun, "") != "run-1" || meta.HasKey(waveobj.MetaKey_BrainstormJudgeReason) {
+		t.Fatalf("record = %v, want answered for run-1 with no reason", meta)
+	}
+}
+
+// assertJudgeFailed checks the judge's record is failed with a reason that passes ok and ends as a sentence, that
+// the agent got exactly that reason's line, and that no judge.json was written.
+func assertJudgeFailed(t *testing.T, ctx context.Context, tabId, blockId, file string, delivered []sentLine, ok func(string) bool) {
+	t.Helper()
+	meta := tabMeta(t, ctx, tabId)
+	reason := meta.GetString(waveobj.MetaKey_BrainstormJudgeReason, "")
+	if meta.GetString(waveobj.MetaKey_BrainstormJudgeState, "") != brainstormFailed || !ok(reason) || !strings.HasSuffix(reason, ".") {
+		t.Fatalf("record = %v, want failed with the expected reason as a sentence", meta)
+	}
+	if len(delivered) != 1 || delivered[0] != (sentLine{blockId, "brainstorm: judge failed: " + reason}) {
+		t.Fatalf("delivered %+v, want exactly the failed line for %q to block %s", delivered, reason, blockId)
+	}
+	if _, err := os.Stat(brainstormcheck.JudgeResultPath(file)); err == nil {
+		t.Fatal("a failed judge wrote judge.json")
+	}
+}
+
+func TestBrainstormJudgeFailsWithALine(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name, report string
+		ok           func(string) bool
+	}{
+		{"an unusable report", "Here it is:\n" + goodJudgeReport, func(r string) bool {
+			return strings.HasPrefix(r, "The judge's result is not usable: it is not the one JSON object")
+		}},
+		{"an empty report", "  \n", func(r string) bool { return r == brainstormcheck.JudgeEmptyReason }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, file := seedJudgeBrainstorm(t, 5)
+			tabId, blockId := seedAgentTab(t, ctx, nil)
+			stubReadBrainstormRun(t, &waveobj.Run{ID: "run-1", Status: jarvis.RunStatus_Done, Report: tc.report})
+			delivered := stubDeliver(t)
+			c := brainstormSession{Kind: judgeKind, TabId: tabId, BlockId: blockId, File: file, RunId: "run-1", ChannelId: "ch-1", StartedTs: 1}
+			if !tickBrainstormSession(ctx, c, time.Now().UnixMilli()) {
+				t.Fatal("a done run did not settle the judge")
+			}
+			assertJudgeFailed(t, ctx, tabId, blockId, file, *delivered, tc.ok)
+		})
+	}
+
+	t.Run("a lost run", func(t *testing.T) {
+		_, file := seedJudgeBrainstorm(t, 5)
+		tabId, blockId := seedAgentTab(t, ctx, nil)
+		ch, err := wstore.CreateChannel(ctx, "lost-judge", t.TempDir())
+		if err != nil {
+			t.Fatalf("CreateChannel: %v", err)
+		}
+		run := jarvis.NewRun("judge", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+		run.StageRole = jarvis.UsageRole_BrainstormJudge
+		if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+			t.Fatalf("AppendRun: %v", err)
+		}
+		var stopped []string
+		oldStop := stopStageSession
+		stopStageSession = func(r waveobj.Run) { stopped = append(stopped, r.ID) }
+		t.Cleanup(func() { stopStageSession = oldStop })
+		delivered := stubDeliver(t)
+
+		now := time.Now().UnixMilli()
+		c := brainstormSession{Kind: judgeKind, TabId: tabId, BlockId: blockId, File: file, RunId: run.ID, ChannelId: ch.OID,
+			StartedTs: now - orchestrate.ReviewTimeout.Milliseconds() - 1}
+		if !tickBrainstormSession(ctx, c, now) {
+			t.Fatal("a session past its timeout did not settle the judge")
+		}
+		if len(stopped) != 1 || stopped[0] != run.ID {
+			t.Fatalf("stopped %v, want the judge's run %s", stopped, run.ID)
+		}
+		assertJudgeFailed(t, ctx, tabId, blockId, file, *delivered, func(r string) bool {
+			return strings.HasPrefix(r, judgeLostHead) && strings.Contains(r, "no verdict")
+		})
+	})
+
+	t.Run("a launch error", func(t *testing.T) {
+		stubLaunchBrainstormSession(t, "", errors.New("claude is not installed"))
+		project, file := seedJudgeBrainstorm(t, 5)
+		tabId, blockId := seedAgentTab(t, ctx, nil)
+		delivered := stubDeliver(t)
+		c := brainstormSession{Kind: judgeKind, TabId: tabId, BlockId: blockId, File: file, Project: project, Title: "Lag alerts", StartedTs: 1}
+
+		watchBrainstormSession(ctx, c) // returns at once: the launch failed
+
+		assertJudgeFailed(t, ctx, tabId, blockId, file, *delivered, func(r string) bool {
+			return r == "Arc could not start the judge: claude is not installed."
+		})
+	})
+}
+
+func TestResumeBrainstormSessionsRearmsOrFailsJudges(t *testing.T) {
+	ctx := context.Background()
+	armed := stubArmBrainstormSession(t)
+	delivered := stubDeliver(t)
+	_, file := seedJudgeBrainstorm(t, 5)
+	launchedTab, launchedBlock := seedAgentTab(t, ctx, waveobj.MetaMapType{
+		waveobj.MetaKey_BrainstormJudgeState:   brainstormReading,
+		waveobj.MetaKey_BrainstormJudgeTs:      42,
+		waveobj.MetaKey_BrainstormJudgeRun:     "run-1",
+		waveobj.MetaKey_BrainstormJudgeChannel: "ch-1",
+		waveobj.MetaKey_SessionBrainstorm:      file,
+	})
+	unlaunchedTab, unlaunchedBlock := seedAgentTab(t, ctx, waveobj.MetaMapType{
+		waveobj.MetaKey_BrainstormJudgeState: brainstormReading,
+		waveobj.MetaKey_BrainstormJudgeTs:    42,
+		waveobj.MetaKey_SessionBrainstorm:    file,
+	})
+	detachedTab, detachedBlock := seedAgentTab(t, ctx, waveobj.MetaMapType{
+		waveobj.MetaKey_BrainstormJudgeState:   brainstormReading,
+		waveobj.MetaKey_BrainstormJudgeTs:      42,
+		waveobj.MetaKey_BrainstormJudgeRun:     "run-2",
+		waveobj.MetaKey_BrainstormJudgeChannel: "ch-1",
+	})
+
+	ResumeBrainstormSessions(ctx)
+
+	var rearmed *brainstormSession
+	for i := range *armed {
+		switch (*armed)[i].TabId {
+		case launchedTab:
+			rearmed = &(*armed)[i]
+		case unlaunchedTab, detachedTab:
+			t.Fatalf("re-armed %+v, want it failed", (*armed)[i])
+		}
+	}
+	want := brainstormSession{Kind: judgeKind, TabId: launchedTab, BlockId: launchedBlock, File: file, RunId: "run-1", ChannelId: "ch-1", StartedTs: 42}
+	if rearmed == nil || *rearmed != want {
+		t.Fatalf("re-armed %+v, want %+v", rearmed, want)
+	}
+	if got := tabMeta(t, ctx, launchedTab).GetString(waveobj.MetaKey_BrainstormJudgeState, ""); got != brainstormReading {
+		t.Fatalf("re-armed judge state = %q, want still reading", got)
+	}
+	for _, tc := range []struct{ tab, block, reason string }{
+		{unlaunchedTab, unlaunchedBlock, judgeRestartedReason},
+		{detachedTab, detachedBlock, brainstormDetachedReason},
+	} {
+		meta := tabMeta(t, ctx, tc.tab)
+		if meta.GetString(waveobj.MetaKey_BrainstormJudgeState, "") != brainstormFailed ||
+			meta.GetString(waveobj.MetaKey_BrainstormJudgeReason, "") != tc.reason {
+			t.Fatalf("record = %v, want failed: %s", meta, tc.reason)
+		}
+		if !slices.Contains(*delivered, sentLine{tc.block, "brainstorm: judge failed: " + tc.reason}) {
+			t.Fatalf("delivered %+v, want the failed line %q to block %s", *delivered, tc.reason, tc.block)
+		}
 	}
 }

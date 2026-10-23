@@ -23,6 +23,7 @@ import { notesWsh, vaultRemote, vaultRoot } from "./notes-wsh.mjs";
 import { SCENARIOS as COCKPIT_FIXTURES } from "../cockpit-fixtures/scenarios.mjs";
 import builder from "./scenarios-brainstorm-builder.mjs";
 import findings from "./scenarios-brainstorm-findings.mjs";
+import judge from "./scenarios-brainstorm-judge.mjs";
 import review from "./scenarios-brainstorm-review.mjs";
 import run from "./scenarios-brainstorm-run.mjs";
 
@@ -25317,6 +25318,7 @@ export const SCENARIOS = [
     brainstormRailReasons,
     ...builder(BS_KIT),
     ...findings(BS_KIT),
+    ...judge(BS_KIT),
     ...review(BS_KIT),
     ...run(BS_KIT),
     canvasMark,

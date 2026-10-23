@@ -86,6 +86,13 @@ type MetaTSType struct {
 	BrainstormCheckChannel string `json:"brainstorm:checkchannel,omitempty"` // tab (id of the reviewer's channel)
 	BrainstormCheckReason  string `json:"brainstorm:checkreason,omitempty"`  // tab (why the check failed)
 
+	// the judge of a brainstorm's approach question (Arc launches it and owns its state on the agent's tab)
+	BrainstormJudgeState   string `json:"brainstorm:judgestate,omitempty"`   // tab ("reading" | "answered" | "failed")
+	BrainstormJudgeTs      int64  `json:"brainstorm:judgets,omitempty"`      // tab (UnixMilli of the last state change)
+	BrainstormJudgeRun     string `json:"brainstorm:judgerun,omitempty"`     // tab (id of the judge's run)
+	BrainstormJudgeChannel string `json:"brainstorm:judgechannel,omitempty"` // tab (id of the judge's channel)
+	BrainstormJudgeReason  string `json:"brainstorm:judgereason,omitempty"`  // tab (why the judge failed)
+
 	// for loom git client (Wave Agent Sessions fork)
 	AppLoom bool `json:"app:loom,omitempty"` // block (marks the live loom block for toggle)
 

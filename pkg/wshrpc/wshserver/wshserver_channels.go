@@ -94,12 +94,13 @@ func (ws *WshServer) GetChannelRunChangesCommand(ctx context.Context, data wshrp
 	return &wshrpc.CommandGetChannelRunChangesRtnData{RunIds: ids, Runs: runs}, nil
 }
 
-// withoutBuilderChecks drops the builder-check runs, which no run list shows, and returns the ids it dropped.
+// withoutBuilderChecks drops the brainstorm sessions' runs (builder check, approach judge), which no run list
+// shows, and returns the ids it dropped.
 func withoutBuilderChecks(runs []*waveobj.Run) ([]*waveobj.Run, map[string]bool) {
 	var dropped map[string]bool
 	kept := make([]*waveobj.Run, 0, len(runs))
 	for _, r := range runs {
-		if !jarvis.IsBuilderCheck(r) {
+		if !jarvis.IsBrainstormSession(r) {
 			kept = append(kept, r)
 			continue
 		}

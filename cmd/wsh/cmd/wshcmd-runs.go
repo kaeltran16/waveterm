@@ -625,9 +625,10 @@ func runsListRun(cmd *cobra.Command, args []string) error {
 // runsIsTask reports a run that exists to work one task of another run: an engine task's worker or reviewer
 // is a quick run carrying its parent's dagoref (only an orchestrator owns one), and a lead's child carries
 // the lead's oref. A project's run list is its top-level runs; these are reached through their parent. A
-// builder check's run has no parent, but it is not a run the person started either.
+// brainstorm session's run (builder check, approach judge) has no parent, but it is not a run the person started
+// either.
 func runsIsTask(r *waveobj.Run) bool {
-	return (r.DagORef != "" && r.Mode != jarvis.RunMode_Orchestrator) || r.ParentLeadORef != "" || jarvis.IsBuilderCheck(r)
+	return (r.DagORef != "" && r.Mode != jarvis.RunMode_Orchestrator) || r.ParentLeadORef != "" || jarvis.IsBrainstormSession(r)
 }
 
 func runsNewest(rows []runsRow, limit int) []runsRow {

@@ -12,6 +12,7 @@ import {
     answerLine,
     designLabel,
     hasProsCons,
+    judgeWork,
     optionLetter,
     partBoards,
     partSpikes,
@@ -27,6 +28,7 @@ import {
     type BrainstormFile,
     type BrainstormPart,
     type BrainstormQuestion,
+    type JudgeWork,
     type LineBox,
     type PartAnswer,
     type PartState,
@@ -287,47 +289,111 @@ export function useAnswer(agent: AgentVM, kind: "answer" | "builder-answer" = "a
 
 export type Answer = ReturnType<typeof useAnswer>;
 
-// the agent's read over the answers, with the one toggle for every answer's pros and cons, shown until hidden
+// the read over the answers, with the one toggle for every answer's pros and cons, shown until hidden. On a question
+// the judge weighed, the read and pick are the judge's; the judge's work goes under the answers
 export function QuestionAnswers({ q, ans, compact }: { q: BrainstormQuestion; ans: Answer; compact: boolean }) {
     const [shown, setShown] = useState(true);
     if (q.options == null) {
         return null;
     }
     const reasons = hasProsCons(q);
-    const options = <Options options={q.options} ans={ans} compact={compact} reasons={reasons && shown} />;
-    if (!q.read && !reasons) {
+    const work = judgeWork(q);
+    const who = work?.judged ? "Judge’s" : "Agent’s";
+    const options = (
+        <Options options={q.options} ans={ans} compact={compact} reasons={reasons && shown} pickLabel={`${who} pick`} />
+    );
+    if (!q.read && !reasons && work == null) {
         return options;
     }
+    const lineText = compact ? "text-[12.5px] leading-[1.5]" : "text-[15px] leading-[1.55]";
     return (
         <div className={cn("flex flex-col", compact ? "gap-[8px]" : "gap-[12px]")}>
-            <div className="flex items-baseline gap-[12px]">
-                <span
-                    data-brainstorm-read
-                    className={cn(
-                        "min-w-0 flex-1 text-secondary",
-                        compact ? "text-[12.5px] leading-[1.5]" : "text-[15px] leading-[1.55]"
-                    )}
-                >
-                    {q.read ? (
-                        <>
-                            <span className="font-semibold text-accent-soft">Agent’s read: </span>
-                            {q.read}
-                        </>
+            {q.read || reasons ? (
+                <div className="flex items-baseline gap-[12px]">
+                    <span data-brainstorm-read className={cn("min-w-0 flex-1 text-secondary", lineText)}>
+                        {q.read ? (
+                            <>
+                                <span className="font-semibold text-accent-soft">{who} read: </span>
+                                {q.read}
+                            </>
+                        ) : null}
+                    </span>
+                    {reasons ? (
+                        <button
+                            type="button"
+                            data-brainstorm-proscons-toggle
+                            aria-expanded={shown}
+                            onClick={() => setShown(!shown)}
+                            className={cn(CHIP, "flex-none")}
+                        >
+                            {shown ? "Hide pros and cons" : "Show pros and cons"}
+                        </button>
                     ) : null}
+                </div>
+            ) : null}
+            {options}
+            {work != null ? <JudgeWorkLine work={work} compact={compact} lineText={lineText} /> : null}
+        </div>
+    );
+}
+
+// how the judge got to its options, or why it did not; what it dropped stays behind a toggle, closed until opened
+function JudgeWorkLine({ work, compact, lineText }: { work: JudgeWork; compact: boolean; lineText: string }) {
+    const [open, setOpen] = useState(false);
+    const n = work.dropped.length;
+    return (
+        <div className={cn("flex flex-col", compact ? "mt-[8px] gap-[6px]" : "mt-[14px] gap-[10px]")}>
+            <div className="flex items-baseline gap-[12px]">
+                <span data-brainstorm-judge-work className={cn("min-w-0 flex-1 text-secondary", lineText)}>
+                    <span className="font-semibold text-accent-soft">Judge’s work: </span>
+                    {work.line}
                 </span>
-                {reasons ? (
+                {n > 0 ? (
                     <button
                         type="button"
-                        data-brainstorm-proscons-toggle
-                        aria-expanded={shown}
-                        onClick={() => setShown(!shown)}
+                        data-brainstorm-judge-dropped-toggle
+                        aria-expanded={open}
+                        onClick={() => setOpen(!open)}
                         className={cn(CHIP, "flex-none")}
                     >
-                        {shown ? "Hide pros and cons" : "Show pros and cons"}
+                        {open ? `Hide the ${n} dropped` : `Show the ${n} dropped`}
                     </button>
                 ) : null}
             </div>
-            {options}
+            {open && n > 0 ? (
+                <ul
+                    data-brainstorm-judge-dropped
+                    aria-label="Dropped by the judge"
+                    className="m-0 flex list-none flex-col rounded-[10px] border border-edge-faint bg-surface p-0"
+                >
+                    {work.dropped.map((d, i) => (
+                        <li
+                            key={i}
+                            className={cn(
+                                "flex flex-col gap-[3px] border-t border-edge-faint first:border-t-transparent",
+                                compact ? "py-[9px] pl-[48px] pr-[12px]" : "py-[12px] pl-[68px] pr-[20px]"
+                            )}
+                        >
+                            <span
+                                className={cn(
+                                    "font-semibold leading-[1.4] text-secondary",
+                                    compact ? "text-[13px]" : "text-[14.5px]"
+                                )}
+                            >
+                                {d.name}
+                            </span>
+                            <span
+                                className={cn(
+                                    "leading-[1.5] text-ink-mid",
+                                    compact ? "text-[12.5px]" : "text-[13.5px]"
+                                )}
+                            >
+                                Dropped: {d.reason}
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+            ) : null}
         </div>
     );
 }
@@ -338,11 +404,13 @@ export function Options({
     ans,
     compact,
     reasons,
+    pickLabel,
 }: {
     options: AnswerOption[];
     ans: Answer;
     compact: boolean;
     reasons: boolean;
+    pickLabel: string;
 }) {
     return (
         <div role="group" aria-label="Answers" className={cn("flex flex-col", compact ? "gap-[6px]" : "gap-[10px]")}>
@@ -396,7 +464,7 @@ export function Options({
                             ) : null}
                         </span>
                         {o.pick ? (
-                            <span className="flex-none text-[12px] font-semibold text-accent-soft">Agent’s pick</span>
+                            <span className="flex-none text-[12px] font-semibold text-accent-soft">{pickLabel}</span>
                         ) : null}
                     </button>
                     {reasons && (o.pros != null || o.cons != null) ? <ProsCons o={o} compact={compact} /> : null}

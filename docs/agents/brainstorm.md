@@ -49,6 +49,9 @@ the skill tells them not to use it: a lead routes every question through AskUser
 | Type a line with no question open, Enter | the line, joined onto one line | reads it as pushback or a question back, replies under a new question, sets `done` false |
 | Guess for me | `brainstorm: guess` | writes its own guess for the asked part, asks the next question |
 | Skip the questions | `brainstorm: skip questions` | writes every open part as a guess, sets `done` |
+| (the judge is done) | `brainstorm: judged <path>`, sent by the server | copies `judge.json` onto its question with one script, clears `working`, ends its turn on the question |
+| (the judge failed or was lost) | `brainstorm: judge failed: <reason>`, sent by the server | writes its own options and pick, sets `question.judge` to `{ "failed": <reason> }`, clears `working` |
+| Push back on a judged question, or type "double check" | the line, as typed | adds any alternative it names to `approaches`, runs `wsh brainstorm judge <brainstorm.json> --line <the line>`, ends its turn |
 | That's right | `brainstorm: confirm <part>` | makes the part yours |
 | Confirm all N guesses | `brainstorm: confirm every guess` | makes every plain guess yours (a changed part still waits) |
 | Edit, Enter | `brainstorm: edit <part>: <text>` | replaces the part's body, makes it yours |
@@ -185,13 +188,82 @@ agents behave the same.
   check` again so the agent rewrites the spec and relaunches. The pane shows the same card, "The agent
   ended its turn without starting the builder check.", when a `brainstorm: check` send settled and no
   newer record appeared.
-- **The startup sweep.** `ResumeBuilderChecks` runs when wavesrv starts: a `reading` tab with a
-  `checkrun` gets its watcher back (a reviewer that finished while Arc was down is delivered); one
-  without is set to `failed`, "Arc restarted before the builder started."
+- **The startup sweep.** `ResumeBrainstormSessions` runs when wavesrv starts and re-arms both kinds,
+  the builder check and the judge: a `reading` tab with a `checkrun` gets its watcher back (a reviewer
+  that finished while Arc was down is delivered); one without is set to `failed`, "Arc restarted
+  before the builder started."
 - **Runs it hides.** A `builder-check` run is not a run to the user: it is left out of
   `GetChannelRunsCommand` / `GetChannelRunChangesCommand`, `wsh runs list`, attention items and the
   session tree's run rows, and its done step makes no seal. The reviewer's tab stays a solo session
   in the roster.
+
+## How Arc runs the judge
+
+Design: `docs/superpowers/specs/2026-10-23-unbiased-approach-questions-design.md`. On a question that
+picks an approach (how to build, which design, which mechanism), the brainstorming agent lists the
+approaches and the facts it found, with no verdict, and a fresh Opus session that never saw its
+favorite weighs them. Permissions, process steps, plain choices and builder questions keep "Agent's
+pick"; the agent decides which questions are approach questions (the skill's **Approach questions go
+to the judge**). The judge rides the builder check's machinery.
+
+- **The handoff.** The agent writes the question's `text`, `part`, `why` and `approaches` (at least
+  five, each `{ "name", "description", "facts" }`, no odds, pick or pros and cons) with no `options` or
+  `read`, sets `working` ("The judge is weighing 7 approaches."), runs `wsh brainstorm judge <abs
+  brainstorm.json> [--line <text>]` and ends its turn. That calls `BrainstormJudgeCommand`, which reads
+  the file with `brainstormcheck.ReadJudgeInput` (a missing question, or fewer than five approaches with
+  a `name`, is refused), checks the file is under `.superpowers`, writes the judge record and returns at
+  once; a watcher goroutine does the rest. A second judge on a tab whose judge record is `reading` is
+  refused. The builder check and the judge keep separate records, so neither blocks the other.
+- **The judge's session.** A one-shot judging session (`orchestrate.LaunchJudgingSession`) in the
+  project's checkout, with Arc's prompt (`pkg/brainstormcheck/judge-prompt.md`). Arc builds it from the
+  file, never from the agent's words (`brainstormcheck.JudgePrompt`): every answer the user gave, every
+  part they confirmed, the question's text and the list in shuffled order. The agent's `why`, `read`,
+  guesses and notes stay out. The judge works read-only and is told not to read `.superpowers/`, which
+  is not enforced (spec D3). It asks what approach would beat every listed one, verifies the facts the
+  choice turns on, writes one JSON object to its report (2-4 options with pros, cons and one pick, a
+  `read`, what it `added`, and every listed approach it `dropped` with a reason) and runs `wsh jarvis
+  complete --report`, which ends it. Its run has `StageRole: brainstorm-judge` and the label
+  "Judge · <title>".
+- **The route.** Fixed: claude with Opus, whatever runtime the brainstorming agent uses. The run
+  settings' reviewer route, which the builder check reads, does not apply.
+- **A rerun.** `--line` carries the user's pushback or "double check" as typed (spec D8). The rerun's
+  prompt also holds the judge's earlier options and pick, read from `question.options` when
+  `question.judge` is a weighed record. Each rerun is a fresh session, not a resume of the last one.
+- **The tab record.** The server alone writes `brainstorm:judgestate` (`reading`, `answered`, `failed`)
+  with `judgets`, `judgerun`, `judgechannel` and `judgereason` on the agent's tab. The agent tree reads
+  it; the pane draws the judge's work from the file's `question.judge`, never from the record.
+- **The watcher and the result check.** Every 5 s it asks `brainstormcheck.DecideJudge` about the run.
+  A done run with a usable result is delivered. A done run with no report fails ("The judge ended
+  without its result."), and so does a result that fails Arc's check: not one JSON object (prose or a
+  code fence around it), not 2-4 options each with a label and a detail, not exactly one pick, an empty
+  `read`, or a dropped entry with no name or reason. `JudgingSessionLost` fails a lost session with its
+  reason, as for the builder check. Arc does not respawn a lost judge.
+- **Delivery and the two lines.** A usable result is written to `<topic dir>/judge.json` as
+  `{ "options", "read", "judge": { "added", "dropped" } }`, the agent gets `brainstorm: judged <abs
+  path>` through the same delivery `AgentPromptCommand` uses, and the record becomes `answered`. The
+  agent copies the file onto `question` with one `Object.assign` script, never retyping it, and clears
+  `working` in the same write; `approaches` stays for a rerun. Any failure (no result, an unusable
+  one, a lost session, a launch error, a restart before launch) records `failed` with the reason and
+  sends `brainstorm: judge failed: <reason>`: unlike the builder check, a failure is a line, since the
+  pane has no judge card. The agent then writes its own options with "Agent's pick" and
+  `question.judge` as `{ "failed": <reason> }`.
+- **The pane.** On a weighed question the read is "Judge's read" and the pick "Judge's pick", one
+  line under the options says how many approaches the agent listed, what the judge added and how many
+  it dropped, and a collapsed list gives each dropped approach with its reason (`judgeWork` in
+  `brainstormmodel.ts`). A failed record keeps "Agent's read" and "Agent's pick", and its line gives
+  the failure and its reason. A history row of a judged answer reads "Judge's pick".
+- **The startup sweep.** `ResumeBrainstormSessions` re-arms both kinds when wavesrv starts: a
+  `reading` judge with a `judgerun` gets its watcher back (a judge that finished while Arc was down is
+  delivered); one without, or one whose tab no longer holds a brainstorm, is set to `failed` and the
+  agent gets the failure line.
+- **Runs it hides.** A `brainstorm-judge` run is hidden wherever a `builder-check` run is
+  (`jarvis.IsBrainstormSession`): left out of `GetChannelRunsCommand` / `GetChannelRunChangesCommand`,
+  `wsh runs list`, attention items and the session tree's run rows, and its done step makes no seal.
+  Usage still counts it under `brainstorm-judge`.
+- **The tree row.** In the Agent tree the judge's tab is a "Judge" row nested under the brainstorming
+  agent whose `brainstorm:judgerun` names its run, reading the judge record's state, beside a builder
+  check's row when both exist; with that tab gone it is a top-level row of its own (`buildAgentTree`,
+  `brainstormJudgeOf`).
 
 ## Outside the pane
 
@@ -221,9 +293,9 @@ agents behave the same.
 | The pane | `frontend/app/view/agents/brainstormpane.tsx` |
 | Reveal on write, skill context, run-agent exclusion | `cmd/wsh/cmd/wshcmd-agenthook.go` |
 | `ARC_RUN_AGENT` on run agents | `pkg/jarvis/runexec.go` |
-| Builder check's pure parts: prompt, `Decide`, report path, delivery line | `pkg/brainstormcheck` |
-| Builder check's handler, watcher, route, startup sweep | `pkg/wshrpc/wshserver/wshserver_brainstorm.go` |
-| `wsh brainstorm check` | `cmd/wsh/cmd/wshcmd-brainstorm.go` |
+| Builder check's and judge's pure parts: prompts, `Decide` / `DecideJudge`, result paths, lines | `pkg/brainstormcheck` |
+| Builder check's and judge's handlers, watcher, routes, startup sweep | `pkg/wshrpc/wshserver/wshserver_brainstorm.go` |
+| `wsh brainstorm check`, `wsh brainstorm judge` | `cmd/wsh/cmd/wshcmd-brainstorm.go` |
 | The reviewer's launcher and liveness | `pkg/orchestrate/stagesession.go` (`LaunchJudgingSession`, `JudgingSessionLost`) |
 | The agent's protocol | `skills/brainstorm/SKILL.md` (edit here; the mod copy is generated) |
 
@@ -238,6 +310,14 @@ agents behave the same.
   'BrainstormCheckCmd'`; `npx vitest run frontend/app/view/agents/brainstormmodel.test.ts`.
 - **Builder check, pane:** `task verify:ui -- brainstorm-builder-check` plays the server's side by setting
   the tab meta: the pending card with Check unavailable, the result, the failed card and Try again.
+- **Judge, unit:** `go test ./pkg/brainstormcheck -run Judge` (the prompt, the result check, the paths
+  and lines); `go test ./pkg/wshrpc/wshserver -run 'BrainstormJudge|ResumeBrainstormSessions'` (the
+  handler's refusals, the launch, delivery of both lines, the sweep, with the launch stubbed);
+  `go test ./cmd/wsh/cmd -run BrainstormJudgeCmd`; `npx vitest run
+  frontend/app/view/agents/brainstormmodel.test.ts` (the judge record and the work line).
+- **Judge, pane and tree:** `task verify:ui -- brainstorm-judged-question brainstorm-judge-tree` plays the
+  agent's and the server's side: the judged question with its labels, work line and dropped list, the
+  failed record, a judged history row, and the judge's row nested under its agent.
 - **Pane, scripted:** `task verify:ui -- brainstorm-mode` (dev app running). It plays the agent's
   side by writing each state's `brainstorm.json` into a temp project and checks every state the
   mockup draws, every line the pane sends, the tree line and the popup. Between sends it plays the
@@ -259,6 +339,8 @@ agents behave the same.
   builder check no longer differs by harness: the reviewer is Arc's session, not the agent's subagent.
 - **The builder check has never run end to end with a real reviewer.** The Go tests stub the launch and
   the scenario plays the server; see the "Builder check end to end" entry in `docs/deferred.md`.
+- **The judge has never run end to end either.** The same holds for a live judge in a real
+  brainstorm; see the "Brainstorm judge end to end" entry in `docs/deferred.md`.
 - **The arc mod can deliver a mid-turn line twice.** A prompt that joins a running turn is queued as
   unread and only cleared on a tool result; a turn that ends on text submits it again. The pane avoids
   this by not sending while a line is pending; the mod itself (`claude/arc-mod/hooks`) is not fixed.

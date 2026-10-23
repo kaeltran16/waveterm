@@ -14,6 +14,40 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > with no trigger moved to "Declined 2026-10-16" below, and history paragraphs were cut to their recovery
 > lines. The full pre-prune text of every entry: `git show db067efe:docs/deferred.md`.
 
+## Brainstorm judge end to end, in a real brainstorm (deferred 2026-10-23)
+
+The brainstorm judge (`docs/superpowers/specs/2026-10-23-unbiased-approach-questions-design.md`,
+`docs/agents/brainstorm.md` "How Arc runs the judge") launches a one-shot claude + Opus session that weighs
+an approach question's list. No test or scenario runs a live judge in a real brainstorm.
+
+- **Why:** a live judge costs a real session and about a minute, and its options differ on every run, so no
+  CDP scenario can assert on them. The judge's path is proved in pieces instead.
+- **What stands in for it:**
+  - `go test ./pkg/brainstormcheck -run Judge`: the prompt Arc builds from a file, the result check and
+    the shape it writes, the result path, the lines.
+  - `go test ./pkg/wshrpc/wshserver -run 'BrainstormJudge|ResumeBrainstormSessions'`: the handler's
+    refusals, the fixed route, delivery of both lines and the startup re-arm, with the launch stubbed.
+  - `task verify:ui -- brainstorm-judged-question brainstorm-judge-tree`: the pane's judged and failed
+    question and the nested tree row, with the scenario playing the agent and the server.
+- **Steps for a person, once per harness (claude, then pi as the brainstorming agent):**
+  1. In the dev app, start an agent on a scratch project and brainstorm something until it asks how to
+     build a part.
+  2. Expect `approaches` in the file with at least five entries and facts, no `options` or `read`, and
+     the pane reading "The judge is weighing N approaches." with the judge's tab nested as "Judge" under
+     the agent.
+  3. When the judge ends, expect `judge.json` in the topic folder, the line `brainstorm: judged <path>`
+     in the agent, then the question with "Judge's read", "Judge's pick", the work line and the dropped
+     list. Check that the agent copied the file with a script rather than retyping it.
+  4. Type "double check": expect a fresh judge with the line, and the earlier options kept until the new
+     result lands.
+  5. Check usage counts the run under `brainstorm-judge`, that `wsh runs list` shows no run for it, and
+     that the judge's transcript shows no read of `.superpowers/` (spec D3; if it does, move the judge
+     to a clean worktree or a deny rule).
+- **Revive when:** the judge's prompt or result check changes, or a judge is seen to hang, fail its
+  check, or return options the agent then retypes.
+
+Nothing was built for this beyond the tests above, so there is nothing to recover from git.
+
 ## Builder check end to end, with a real reviewer (deferred 2026-10-22)
 
 The brainstorm builder check (`docs/superpowers/specs/2026-10-22-brainstorm-builder-check-reviewer-design.md`,

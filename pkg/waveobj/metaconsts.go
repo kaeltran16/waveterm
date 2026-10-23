@@ -80,6 +80,11 @@ const (
 	MetaKey_BrainstormCheckRun               = "brainstorm:checkrun"
 	MetaKey_BrainstormCheckChannel           = "brainstorm:checkchannel"
 	MetaKey_BrainstormCheckReason            = "brainstorm:checkreason"
+	MetaKey_BrainstormJudgeState             = "brainstorm:judgestate"
+	MetaKey_BrainstormJudgeTs                = "brainstorm:judgets"
+	MetaKey_BrainstormJudgeRun               = "brainstorm:judgerun"
+	MetaKey_BrainstormJudgeChannel           = "brainstorm:judgechannel"
+	MetaKey_BrainstormJudgeReason            = "brainstorm:judgereason"
 
 	MetaKey_AppLoom                          = "app:loom"
 

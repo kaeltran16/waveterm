@@ -28,12 +28,14 @@ const (
 	UsageRole_Verifier = "verifier"
 	// UsageRole_BuilderCheck is a run's StageRole as well: the one-shot reviewer of a brainstorm's builder check.
 	UsageRole_BuilderCheck = "builder-check"
+	// UsageRole_BrainstormJudge is a run's StageRole as well: the one-shot judge of a brainstorm's approach question.
+	UsageRole_BrainstormJudge = "brainstorm-judge"
 )
 
-// IsBuilderCheck reports a builder-check session's run. It is bookkeeping for the check's usage and transcript, so
-// the lists and attention a person reads leave it out.
-func IsBuilderCheck(r *waveobj.Run) bool {
-	return r.StageRole == UsageRole_BuilderCheck
+// IsBrainstormSession reports the run of a brainstorm's one-shot session: a builder check or an approach judge. It
+// is bookkeeping for the session's usage and transcript, so the lists and attention a person reads leave it out.
+func IsBrainstormSession(r *waveobj.Run) bool {
+	return r.StageRole == UsageRole_BuilderCheck || r.StageRole == UsageRole_BrainstormJudge
 }
 
 // UsageRole is the part a run played in its dag: a dag-level judging session (its StageRole), the child that
