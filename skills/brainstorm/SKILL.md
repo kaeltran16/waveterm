@@ -39,7 +39,7 @@ gitignored.
   "canvas": "consumer-lag-alerts",
   "question": {
     "n": 4, "text": "When a group stays past its lag threshold, who gets paged first?", "part": "thresholds",
-    "why": "Every consumer group names an owning team, so paging by owner needs no new config. I can't tell whether every team keeps a rota.",
+    "why": "Every consumer group names an owning team, and platform keeps the one rota Alertmanager routes to today. I can't tell whether every team keeps a rota.",
     "read": "Owner first wakes the fewest people if teams keep rotas; platform first is the safe fallback if they don't.",
     "options": [
       { "label": "Owning team first, platform after 15 minutes", "detail": "The owning team is paged; platform hears if nobody acks.", "pick": true,
@@ -49,7 +49,18 @@ gitignored.
         "pros": ["One rota to keep."], "cons": ["Platform wakes for lag it can't fix."] },
       { "label": "Both at once", "detail": "Owner and platform are paged together.",
         "pros": ["Nothing waits on a hand-off."], "cons": ["Every page wakes two people."] }
-    ]
+    ],
+    "approaches": [
+      { "name": "Owning team first", "description": "Page the group's owning team; platform hears after 15 minutes without an ack.", "facts": ["Every consumer group names its owning team in services/*/kafka.yaml."] },
+      { "name": "Platform on-call first", "description": "Page platform, which hands off what it can't fix.", "facts": ["Platform keeps the one rota Alertmanager routes to today (alertmanager/routes.yml)."] },
+      { "name": "Both at once", "description": "Page the owning team and platform together.", "facts": ["An Alertmanager route with continue: true reaches two receivers."] },
+      { "name": "By how far behind", "description": "Page the owner below a second, higher threshold, platform above it.", "facts": ["No group has a second threshold; thresholds is still asked."] },
+      { "name": "Last deployer", "description": "Page whoever last deployed the consumer.", "facts": ["deploy/log.go records each deploy's author."] }
+    ],
+    "judge": { "added": [], "dropped": [
+      { "name": "By how far behind", "reason": "Every group would need a second threshold, and none has one yet." },
+      { "name": "Last deployer", "reason": "A deployer is not on call: a night page reaches someone off shift." }
+    ] }
   },
   "working": null,
   "parts": [
@@ -88,10 +99,10 @@ Everything else is optional and read leniently, but write every field as describ
 |---|---|
 | `spec` | The spec path, relative to the project (or absolute). You write the spec there on `brainstorm: check`. |
 | `canvas` | The `arc:design` topic whose boards and spikes the parts list: boards live in `.superpowers/design/<canvas>/project/`, spikes anywhere under `.superpowers/design/<canvas>/`. Omit it when there are no mockups. |
-| `question` | `{ "n", "text", "part", "why", "read", "options" }`: the question you are waiting on, its number (1, 2, 3, ...), the id of the part it is for, why you ask it, your one-line read of the options, and the answers you offer (below). Leave `part` out for a question about no part (below). `null` while you are not asking. |
+| `question` | `{ "n", "text", "part", "why", "read", "options", "approaches", "judge" }`: the question you are waiting on, its number (1, 2, 3, ...), the id of the part it is for, why you ask it, your one-line read of the options, and the answers you offer (below). On an approach question, `approaches` is the list you made for the judge, and `read`, `options` and `judge` come from the judge (**Approach questions go to the judge**, below). Leave `part` out for a question about no part (below). `null` while you are not asking. |
 | `working` | One short line on what is still underway, set only when a turn ends with work running in the background (below). Arc shows it in place of the question and locks the pane's controls while it is set. `null` otherwise. |
 | `parts[]` | The design, in display order. `title`; `state`; `kind` (`"note"` for background, below; leave it out for a decision); `gist` (the part in one line, below); `body` (the part's text); `from` (where it came from: `answer 2`, `mockup`, `recon`); `boards` (board file names under the canvas's `project/`); `spikes` (live spike pages, as paths under the canvas folder, below); `was` / `why` (below). |
-| `history[]` | Every finished exchange, oldest first: `kind` (`question` or `recon`), `n` (the question's number), `q`, `why` (the question's `why`), `a`, `into` (the part ids it went into), and for a question that offered answers, `options` and `picked` (below). A question dropped after pushback has `superseded: true`, `part` (the part it was asked for) and no `a` (below). |
+| `history[]` | Every finished exchange, oldest first: `kind` (`question` or `recon`), `n` (the question's number), `q`, `why` (the question's `why`), `a`, `into` (the part ids it went into), and for a question that offered answers, `options` and `picked`, and the question's `judge` when it had one (below). A question dropped after pushback has `superseded: true`, `part` (the part it was asked for) and no `a` (below). |
 | `done` | `true` only when nothing is left to ask. |
 | `check` | The builder check's result (below), else `null`. |
 | `run` | The run id once a run started from this brainstorm, else `null`. |
@@ -134,6 +145,8 @@ Every other action is a `brainstorm:` line:
 | the answer, as typed | Answer sequence below, unless the line pushes back or asks instead (below). |
 | `brainstorm: guess` | The user wants you to decide. Write your best guess for the current question's part as `guess` (say in `from` that it was your call), then ask the next question as after an answer. |
 | `brainstorm: skip questions` | Stop asking. Write every `asked` and `open` part as a `guess`, set `question: null` and `done: true`. |
+| `brainstorm: judged <path>` | The judge weighed the open question. Copy the file at `<path>` onto `question` with the one-line script under **Approach questions go to the judge**, which sets `working` to `null` in the same write; never retype it. End the turn on the question. |
+| `brainstorm: judge failed: <reason>` | The judge did not weigh the open question. Write your own `options` and `read` with one `pick`, set `question.judge` to `{ "failed": "<reason>" }` and `working` to `null`, and end the turn on the question. |
 | `brainstorm: confirm <part id>` | Make that part `yours`; drop its `was` and `why`. |
 | `brainstorm: confirm every guess` | Make every `guess` part that has no `was` `yours`. A part with `was` stays a guess: it waits for keep or restore. |
 | `brainstorm: edit <part id>: <text>` | Replace that part's `body` with the text (fix only obvious typos), make it `yours`, drop `was` and `why`. |
@@ -177,8 +190,9 @@ would write the spec to), question 1 in `question` with `n: 1`, its part created
 in any other harness run `wsh ui reveal brainstorm:<topic>` from your terminal.
 
 **On an answer**, in that one write: append the exchange to `history` (with `n`, `q`, the question's `why`, `a`
-and `into`; when the question offered `options`, copy them into the entry and set `picked` to the index
-of the one the user's answer is, or leave `picked` out when they answered in their own words), write the part (`guess`, or `yours` when the user's own words are the part), and set the
+and `into`; when the question offered `options`, copy them into the entry, with the question's `judge`
+beside them when it has one, and set `picked` to the index of the one the user's answer is, or leave
+`picked` out when they answered in their own words), write the part (`guess`, or `yours` when the user's own words are the part), and set the
 next `question` (its part created as `asked` if new). End the turn with the question in the
 terminal too.
 
@@ -198,10 +212,18 @@ same `n`. In that one write:
   where they read your reply; the terminal still gets one short line.
 - A line that asks for a report (research, a comparison, a look at something) is done in that turn
   and reported as **Findings reach the question** says: the summary is your `why` reply.
-- A pushback against an option or an approach reruns **Check an approach before you offer it**
-  against what they raised. Their alternative becomes an option if it holds up, and the pick if it
-  beats yours; rewrite `options` and `read` to match. If it does not hold up, say why in `why`,
-  naming the fact.
+- On a question with `judge`, pushback against the options or a typed "double check" goes back to a
+  fresh judge, never weighed by you. In that write, add any alternative they name to `approaches` and
+  set `working`; then run
+  `wsh brainstorm judge <absolute path of brainstorm.json> --line "<their line, verbatim>"` and end
+  the turn. Keep the question's `options`, `read` and `judge` until the new `judge.json` is copied
+  over them: Arc reads the earlier options and pick from there (writing no `options` or `read` is for
+  a question's first judge only). Do not weigh their point in `why`: the judge's new result is the
+  reply. A plain question back (what something means) is no pushback: answer it in `why` as the first
+  bullet says.
+- On any other question, a pushback against an option is checked against the facts: their
+  alternative becomes an option if it holds up, and the pick if it beats yours; rewrite `options` and
+  `read` to match. If it does not hold up, say why in `why`, naming the fact.
 - When the pushback shows the question itself was wrong (it rests on a false fact, or asks what is
   already settled), ask the right question under the next `n` instead, and rewrite every part the
   false fact reached.
@@ -231,9 +253,14 @@ question back. In that one write:
   so a reply left in the terminal goes unread. Name the `part` it is about, and give `options` when
   the line leaves a choice.
 - Set `done: false`: the question is open until they answer it.
-- Work the line as **When the line is not an answer** says (rerun the check of an approach they push
-  back on, add the `recon` entry), and rewrite every part it changes as **A later answer changes
-  earlier parts** says: a `yours` part gets `was` and `why` and waits for keep or restore.
+- Work the line as **When the line is not an answer** says (add the `recon` entry), and rewrite every
+  part it changes as **A later answer changes earlier parts** says: a `yours` part gets `was` and
+  `why` and waits for keep or restore.
+- Pushback against an approach the user picked from a question with `judge`, or a typed "double
+  check" of one, goes back to a fresh judge: the question you open is an approach question
+  (**Approach questions go to the judge**), with any alternative they name in its `approaches`, and
+  you run the judge with `--line "<their line, verbatim>"`. Its `why` says what the line reopened,
+  never a lean.
 
 **Asking.** One question per turn, as superpowers does. Every question about the design names its
 `part`. Every question carries `why`: one or two sentences on what you already know and what you
@@ -246,24 +273,47 @@ option, and say how the options compare in `read`: one line, the reason for your
 shows the options as lettered rows the user picks from, each with its pros and cons under it, and
 `read` above them; the free-text box stays for any other answer. Write pros and cons whenever the
 choice is a trade-off; a question whose answers need no weighing leaves them and `read` out. An open question (a story, a moment, a number only the user knows) has no
-`options`.
+`options`. An approach question is the exception: the judge writes its options, pick and `read`
+(below).
 
-**Check an approach before you offer it.** A question that picks an approach (how to build
-something, which design, which mechanism) is never asked from what such designs usually look like.
-Before you write its options:
+**Approach questions go to the judge.** A question that picks an approach (how to build something,
+which design, which mechanism) is not yours to weigh: by the time you ask it you lean. Arc's judge,
+a fresh Opus session that never sees your favorite, checks the facts, adds what your list missed,
+and writes the options, the pick and the `read`; the pane labels them the judge's. Permissions,
+process steps, plain choices and the builder's questions are not approach questions: ask them as
+**Asking** says, with your own pick, which the pane labels "Agent's pick".
 
-- Look up the facts the choice turns on: the code it touches, what already exists that an option
-  would reuse, the constraints that rule an option out. Finding facts is your job; ask the user only
-  for what you cannot look up. Add what you found to `history` as a `recon` entry, and as a note part
-  when the design stands on it.
-- Ground every pro and con in something you found or the user said, and name it (`pkg/foo already
-  retries`).
-- Argue for each option you did not pick, and ask what approach would beat all of them. If one does,
-  it is an option; if it beats your pick, it is the pick.
-- Say in `read` the fact your pick rests on.
+For an approach question, in one write:
 
-The test: if the user answered "double check", would you come back with another approach or another
-pick? Then the check is not done. Do it now, before you ask.
+- List at least five distinct approaches in `approaches`, unconventional ones included, each
+  `{ "name", "description", "facts" }`: a name of a few words, one or two sentences on what it is,
+  and the facts you found in the code that bear on it (the code it touches, what already exists that
+  it would reuse, the constraints that rule it in or out), naming files and functions. Finding facts
+  is your job; ask the user only for what you cannot look up. An approach with no `name` does not
+  count toward the five. A fact the design stands on also goes in a note part.
+- Write no odds, no pick, no ranking and no pros and cons for them, in `approaches` or in a note.
+  Weighing how likely each approach is to be best can help you widen the list; keep those odds in
+  your head, never in the file.
+- The question's `why` states the facts and what you cannot tell without the user, never a lean.
+- Write no `options` and no `read`.
+- Set `working` to one line: `The judge is weighing 7 approaches.`
+
+The test for the list: if the user answered "double check", could you name an approach it lacks?
+Then the list is not done. Widen it now, before you run the judge.
+
+Then run `wsh brainstorm judge <absolute path of brainstorm.json>` and end the turn with one line.
+The pane shows the working line meanwhile, so the user never sees an unweighed question. If the
+command fails, do as for `brainstorm: judge failed`, with the command's error as the reason.
+
+When `brainstorm: judged <path>` arrives, copy the judge's result onto the question with this one
+script, never by retyping it; it sets `working` to `null` in the same write:
+
+```
+node -e "const fs=require('fs'),[f,j]=process.argv.slice(1),b=JSON.parse(fs.readFileSync(f));Object.assign(b.question,JSON.parse(fs.readFileSync(j)));b.working=null;fs.writeFileSync(f,JSON.stringify(b,null,2))" "<absolute path of brainstorm.json>" "<path>"
+```
+
+`<path>` is `judge.json` beside `brainstorm.json`: `{ "options", "read", "judge": { "added",
+"dropped" } }`. `approaches` stays in the question for a rerun.
 
 **Findings reach the question.** When the user asks for a report (research, a comparison, a look at
 something), what you found goes two places in the same write:
