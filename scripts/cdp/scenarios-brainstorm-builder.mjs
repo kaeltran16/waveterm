@@ -23,6 +23,9 @@ const CHECK_TAKING_IN = "Taking in the builder's questions.";
 // ids the builder-check record names; nothing real stands behind them
 const CHECK_RUN = "5b0f6a1e-3c2d-4e7f-8a9b-0c1d2e3f4a5b";
 const CHECK_CHANNEL = "9e8d7c6b-5a49-4382-b1a0-f9e8d7c6b5a4";
+// the reviewer's session:label as the server sets it: "Builder check · " and the brainstorm's title
+const REVIEWER_NAME = "Builder check · Improving the detection engine";
+const ROSTER_WAIT_MS = 15000;
 
 const PART = {
     intent: {
@@ -167,6 +170,7 @@ export default function (kit) {
         polishWaitFor,
         polishNap,
         skipStep,
+        waveService,
         BS_PANE,
         BS_ANSWER,
         BS_APPROVE_BAR,
@@ -282,6 +286,56 @@ export default function (kit) {
                 already: flat(rail?.querySelector("[data-brainstorm-already]")),
             };
         })()`);
+
+    // the builder check's reviewer, as the server launches it: a tab of its own in the brainstorm's project, spawned for
+    // the check's run, which has no lead. Nothing real stands behind the run
+    const openReviewer = async (h, ctx) => {
+        const tabId = await waveService(h, "workspace", "CreateTab", [ctx.workspaceId, REVIEWER_NAME, false]);
+        ctx.reviewerTabId = tabId;
+        const tab = await waveService(h, "object", "GetObject", [`tab:${tabId}`]);
+        const blockId = tab?.blockids?.[0];
+        if (!blockId) throw new Error("the reviewer's tab has no block");
+        await h.rpc("setmeta", { oref: `block:${blockId}`, meta: { view: "term", controller: "shell", "cmd:cwd": "~" } });
+        await h.rpc("setmeta", {
+            oref: `tab:${tabId}`,
+            meta: { "session:project": TOPIC, "session:label": REVIEWER_NAME, "jarvis:runoref": `run:${CHECK_RUN}` },
+        });
+        await h.rpc("eventpublish", {
+            event: "agent:status",
+            scopes: [`block:${blockId}`],
+            persist: 1,
+            data: { oref: `block:${blockId}`, state: "working", agent: "claude", cwd: ctx.cwd, ts: Date.now() },
+        });
+        return polishWaitFor(h, `!!document.querySelector('[data-agent-tree] [data-tree-agent="${tabId}"]')`, ROSTER_WAIT_MS);
+    };
+    // the reviewer's row, the row right after the brainstorm's, and the tree's counts: its header total and, when several
+    // projects show groups, the topic's group count
+    const readTree = (h, bsId, rvId) =>
+        h.ev(`(() => {
+            const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+            const tree = document.querySelector("[data-agent-tree]");
+            const row = (id) => tree?.querySelector('[data-tree-agent="' + id + '"]');
+            const rv = row(${JSON.stringify(rvId)});
+            const bs = row(${JSON.stringify(bsId)});
+            const next = bs?.closest(".overflow-y-auto > div")?.nextElementSibling?.querySelector("[data-tree-agent]");
+            const group = [...(tree?.querySelectorAll(".overflow-y-auto > div") ?? [])].find(
+                (d) => d.firstElementChild?.tagName === "SPAN" && d.firstElementChild.textContent === ${JSON.stringify(TOPIC)}
+            );
+            return {
+                rv: rv ? { stage: rv.getAttribute("data-tree-stage"), guides: rv.querySelectorAll(":scope > span.absolute").length, text: flat(rv) } : null,
+                bs: !!bs,
+                afterBs: next?.getAttribute("data-tree-agent") ?? null,
+                total: Number(tree?.querySelector("h3")?.nextElementSibling?.lastElementChild?.textContent),
+                group: group ? Number(group.lastElementChild?.textContent) : null,
+            };
+        })()`);
+    // the reviewer's row nested under the brainstorm's, reading `state`
+    const nestedIn = (bsId, rvId, state) => `(() => {
+        const tree = document.querySelector("[data-agent-tree]");
+        const bs = tree?.querySelector('[data-tree-agent="${bsId}"]');
+        const rv = bs?.closest(".overflow-y-auto > div")?.nextElementSibling?.querySelector('[data-tree-agent="${rvId}"]');
+        return rv?.getAttribute("data-tree-stage") === "builder-check" && (rv.innerText ?? "").includes(${JSON.stringify(state)});
+    })()`;
 
     return [
         {
@@ -626,6 +680,87 @@ export default function (kit) {
                     console.error(`brainstorm-builder-check teardown: stop recording sent lines failed: ${e?.message ?? e}`);
                 }
                 await bsTeardownAgent(h, ctx, "brainstorm-builder-check");
+            },
+        },
+        {
+            // plays the server: the brainstorm tab's check record and the reviewer's tab; no builder launches
+            name: "brainstorm-builder-tree",
+            surface: "agent",
+            async arrange(h) {
+                const ctx = await bsArrangeAgent(h, TOPIC, READY);
+                if (ctx.launchError != null || !ctx.inRoster) return ctx;
+                try {
+                    ctx.reviewerInRoster = await openReviewer(h, ctx);
+                } catch (e) {
+                    ctx.launchError = `the reviewer's tab: ${e?.message ?? e}`;
+                }
+                return ctx;
+            },
+            async assert(h, ctx) {
+                const name = "brainstorm-builder-tree";
+                if (ctx.launchError != null) return [skipStep(name, `could not verify: ${ctx.launchError}`)];
+                if (!ctx.inRoster) return [skipStep(name, "could not verify: the brainstorm's terminal never became a roster agent")];
+                if (!ctx.reviewerInRoster) return [skipStep(name, "could not verify: the reviewer's tab never got a tree row")];
+                const steps = [];
+                const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+                const bsId = ctx.tabId;
+                const rvId = ctx.reviewerTabId;
+                const topLevel = (t) => t.rv != null && t.rv.stage == null && t.rv.guides === 0 && t.rv.text.includes(REVIEWER_NAME);
+
+                // 1. no record names the reviewer's run yet: it is a top-level row of its own
+                const t1 = await readTree(h, bsId, rvId);
+                await h.shot("cdp-shots/brainstorm-builder-tree-1.png");
+                rec("1. no record: the reviewer is a top-level row, named by its session label", topLevel(t1) && t1.bs, t1);
+
+                // 2-4. the record names its run: the reviewer nests right under the brainstorm whatever the check's state,
+                // and the counts stay what they were
+                const states = [
+                    ["reading", "2. reading"],
+                    ["answered", "3. answered"],
+                    ["failed", "4. failed"],
+                ];
+                for (const [i, [state, label]] of states.entries()) {
+                    await setCheckRecord(h, ctx, { state, reason: state === "failed" ? "The builder session ended." : "" });
+                    const shown = await polishWaitFor(h, nestedIn(bsId, rvId, state), CHECK_WAIT_MS);
+                    const t = await readTree(h, bsId, rvId);
+                    await h.shot(`cdp-shots/brainstorm-builder-tree-${i + 2}.png`);
+                    rec(
+                        `${label}: the reviewer is a Builder check row nested right under the brainstorm, reading ${state}, the counts unchanged`,
+                        shown && t.afterBs === rvId && t.rv?.guides > 0 && t.rv.text.includes("Builder check") && t.total === t1.total && t.group === t1.group,
+                        t
+                    );
+                }
+
+                // 5. the brainstorm's tab closes: the reviewer is a top-level row again, and the counts lose only the brainstorm
+                await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, bsId, false]);
+                ctx.tabId = null;
+                const back = await polishWaitFor(
+                    h,
+                    `(() => {
+                        const tree = document.querySelector("[data-agent-tree]");
+                        const rv = tree?.querySelector('[data-tree-agent="${rvId}"]');
+                        return !tree?.querySelector('[data-tree-agent="${bsId}"]') && !!rv && !rv.hasAttribute("data-tree-stage");
+                    })()`,
+                    ROSTER_WAIT_MS
+                );
+                const t5 = await readTree(h, bsId, rvId);
+                await h.shot("cdp-shots/brainstorm-builder-tree-5.png");
+                rec(
+                    "5. brainstorm gone: the reviewer falls back to its own top-level row, the total one less",
+                    back && topLevel(t5) && !t5.bs && t5.total === t1.total - 1,
+                    t5
+                );
+                return steps;
+            },
+            async teardown(h, ctx) {
+                if (ctx.reviewerTabId) {
+                    try {
+                        await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.reviewerTabId, false]);
+                    } catch (e) {
+                        console.error(`brainstorm-builder-tree teardown: close the reviewer's tab failed: ${e?.message ?? e}`);
+                    }
+                }
+                await bsTeardownAgent(h, ctx, "brainstorm-builder-tree");
             },
         },
     ];

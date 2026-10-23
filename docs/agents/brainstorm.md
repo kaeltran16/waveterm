@@ -164,7 +164,9 @@ agents behave the same.
   the plan reviewer and final verifier use) in the project's checkout, with Arc's prompt
   (`pkg/brainstormcheck/builder-check-prompt.md`). It reads the spec, changes no file, writes its ranked
   questions to a report and runs `wsh jarvis complete --report`, which ends it. Its run has
-  `StageRole: builder-check`.
+  `StageRole: builder-check`. In the Agent tree its tab is a "Builder check" row nested under the
+  brainstorming agent whose `brainstorm:checkrun` names its run, reading the record's state; with that
+  tab gone it is a top-level row of its own (`buildAgentTree`).
 - **The route.** The run settings' reviewer route (with a per-project override), else the brainstorming
   agent's runtime with its default model, else the default runtime.
 - **The tab record.** The server alone writes `brainstorm:checkstate` (`reading`, `answered`, `failed`)

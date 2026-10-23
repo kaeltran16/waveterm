@@ -29,7 +29,7 @@ import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
-import { isAsking, treeLine, type BrainstormFile } from "./brainstormmodel";
+import { isAsking, treeLine, type BrainstormFile, type BuilderCheckRecord } from "./brainstormmodel";
 import { runStepView, runTreeText } from "./brainstormrunmodel";
 import { brainstormAtom, shownBrainstormFile } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
@@ -44,6 +44,7 @@ import { finalRowFocusId, type FinalTone } from "./finalstage";
 import { useFinalStageView } from "./finalstageviews";
 import { LEAD_MARK_CLASS, leadMark } from "./leadcardmodel";
 import {
+    BUILDER_CHECK_ROLE,
     endedWorkerId,
     laneLabel,
     runAgentsOf,
@@ -567,6 +568,7 @@ function ParentRow({
     return (
         <>
             <div
+                data-tree-agent={agent.id}
                 onClick={select}
                 onContextMenu={onContextMenu}
                 className={cn(
@@ -892,17 +894,27 @@ const STAGE_OUTCOME_DOT: Record<Exclude<StageOutcome, "passed">, string> = {
     failed: "bg-error",
 };
 
+// a builder check's record, drawn as a stage's verdict: an answered check is its reviewer's work done
+const CHECK_OUTCOME: Record<BuilderCheckRecord["state"], StageOutcome | undefined> = {
+    reading: undefined,
+    answered: "passed",
+    failed: "failed",
+};
+
+// `verdict` words the second line when the stage's own words differ from its outcome's, as a builder check's do
 function StageRow({
     model,
     agent,
     stageRole,
     outcome,
+    verdict,
     lens,
 }: {
     model: AgentsViewModel;
     agent: AgentVM;
     stageRole: string;
     outcome?: StageOutcome;
+    verdict?: string;
     lens?: string;
 }) {
     const focusId = useAtomValue(model.focusIdAtom);
@@ -920,6 +932,8 @@ function StageRow({
     };
     return (
         <div
+            data-tree-agent={agent.id}
+            data-tree-stage={stageRole}
             onClick={select}
             onContextMenu={onContextMenu}
             className={cn(
@@ -942,7 +956,7 @@ function StageRow({
                     {lens ? `${stageLabel(stageRole)} · ${planReviewLensTitle(lens)}` : stageLabel(stageRole)}
                 </div>
                 <div className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
-                    {stageSubline(outcome, formatAgeShort(displayAgeMs(agent, now)))}
+                    {stageSubline(verdict ?? outcome, formatAgeShort(displayAgeMs(agent, now)))}
                 </div>
             </div>
         </div>
@@ -1175,6 +1189,18 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                             case "parent":
                                 key = r.agent.id;
                                 body = <ParentRow model={model} agent={r.agent} />;
+                                break;
+                            case "check":
+                                key = r.agent.id;
+                                body = (
+                                    <StageRow
+                                        model={model}
+                                        agent={r.agent}
+                                        stageRole={BUILDER_CHECK_ROLE}
+                                        outcome={CHECK_OUTCOME[r.state]}
+                                        verdict={r.state}
+                                    />
+                                );
                                 break;
                             case "lead":
                                 key = r.agent.id;

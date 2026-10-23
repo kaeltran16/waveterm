@@ -8,7 +8,7 @@
 import type { LaunchAgentOpts } from "@/app/cockpit/cockpit-actions";
 import { formatAge, type AgentVM } from "./agentsviewmodel";
 import type { Runtime } from "./launch";
-import { planReviewerOf, runTitle, stageLabel, unmetDeps } from "./runlineage";
+import { BUILDER_CHECK_ROLE, planReviewerOf, runTitle, stageLabel, unmetDeps } from "./runlineage";
 import { runComplete } from "./runmodel";
 import type { LiveSession } from "./sessionsarchivestore";
 
@@ -16,9 +16,6 @@ export const LEAD_MEMBER = "lead";
 
 // the sessions that judge the whole dag, in the order they run; each is its own member, keyed by its role
 const STAGE_ROLES = ["plan-reviewer", "verifier"];
-// a brainstorm's builder check runs as a run of its own, but the brainstorm pane is its only face: its session
-// stays a solo, so the user can still open it
-const BUILDER_CHECK_ROLE = "builder-check";
 
 export interface RunSessions {
     runId: string;
@@ -52,6 +49,8 @@ export function groupRunSessions(list: LiveSession[]): { runs: RunSessions[]; so
     const byRun = new Map<string, RunSessions>();
     const solos: LiveSession[] = [];
     for (const s of list) {
+        // a builder check's run is its own, but the brainstorm pane is its only face: its session stays a solo, so
+        // the user can still open it
         if (!s.runid || s.role === BUILDER_CHECK_ROLE) {
             solos.push(s);
             continue;

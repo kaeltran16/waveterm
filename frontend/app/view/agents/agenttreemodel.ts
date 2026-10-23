@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Pure view-model logic for the Agent surface's left tree. No React, no Wave runtime imports.
-// Produces group headers, agent rows, and each orchestrator run's workers nested under its lead; subagent
+// Produces group headers, agent rows, each orchestrator run's workers nested under its lead, and a brainstorm's
+// builder-check reviewer nested under the brainstorming agent; subagent
 // children are read from per-block atoms in the component (they're ephemeral and keyed by block ORef), so
 // they stay out of this pure helper.
 
 import { projectOf, type AgentVM } from "./agentsviewmodel";
+import type { BuilderCheckRecord } from "./brainstormmodel";
 import { finalRowFocusId, finalStageView } from "./finalstage";
 import {
     endedWorkerId,
@@ -23,6 +25,8 @@ export const UNGROUPED_PROJECT = "ungrouped";
 export type AgentTreeRow =
     | { kind: "group"; project: string; count: number; attn: number }
     | { kind: "parent"; agent: AgentVM; project: string }
+    // a builder check's reviewer under the brainstorming agent that started it; `state` is that agent's record of it
+    | { kind: "check"; agent: AgentVM; project: string; state: BuilderCheckRecord["state"] }
     // an orchestrator lead; `live` counts its workers that are not done
     | { kind: "lead"; agent: AgentVM; project: string; run: RunInfo; open: boolean; live: number }
     // a run whose workers are in the roster but whose lead is not: a plan-path run before its first lead
@@ -135,8 +139,8 @@ export function stageOutcome(
 }
 
 // stageSubline is a stage row's second line: its verdict and age. the row's title already names the role.
-export function stageSubline(outcome: StageOutcome | undefined, age: string): string {
-    return [outcome, age].filter(Boolean).join(" · ");
+export function stageSubline(verdict: string | undefined, age: string): string {
+    return [verdict, age].filter(Boolean).join(" · ");
 }
 
 // history order: a plan review came before any task, a final verification after every one, and within a stage an
@@ -292,6 +296,18 @@ export function buildAgentTree(
         }
     }
 
+    // a builder check's reviewer is a run of its own with no lead, so only the brainstorming agent's record of the
+    // check links it to that agent. It nests there while the agent has a plain row, and is a plain row once that tab
+    // is gone
+    const checkOwners = new Map<string, AgentVM>(); // by the check's run id
+    for (const a of sorted) {
+        const runId = a.builderCheck?.runId;
+        if (runId && lineage.roles[a.id] == null && !checkOwners.has(runId)) {
+            checkOwners.set(runId, a);
+        }
+    }
+    const checks = new Map<string, AgentVM[]>(); // by the brainstorming agent's id
+
     const groups: { project: string; items: TopItem[] }[] = [];
     const byProject = new Map<string, TopItem[]>();
     const push = (item: TopItem) => {
@@ -316,6 +332,9 @@ export function buildAgentTree(
             placedRuns.add(role.leadRunId);
             const run = lineage.runs[role.leadRunId];
             push({ kind: "run", project: run.project || UNGROUPED_PROJECT, run });
+        } else if (a.runId != null && checkOwners.has(a.runId)) {
+            const owner = checkOwners.get(a.runId);
+            checks.set(owner.id, [...(checks.get(owner.id) ?? []), a]);
         } else {
             push({ kind: "parent", agent: a, project: projectOf(a) || UNGROUPED_PROJECT });
         }
@@ -328,9 +347,15 @@ export function buildAgentTree(
         let attn = 0;
         for (const item of g.items) {
             if (item.kind === "parent") {
-                body.push(item);
-                count++;
-                attn += item.agent.state === "asking" ? 1 : 0;
+                const nested = checks.get(item.agent.id) ?? [];
+                const state = item.agent.builderCheck?.state;
+                body.push(
+                    item,
+                    ...nested.map((agent) => ({ kind: "check" as const, agent, project: g.project, state }))
+                );
+                const members = [item.agent, ...nested];
+                count += members.length;
+                attn += members.filter((a) => a.state === "asking").length;
                 continue;
             }
             const r = runRows(
