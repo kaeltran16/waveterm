@@ -406,7 +406,11 @@ func Schedule(ctx context.Context, dagID string) error {
 func runTick(ctx context.Context, dagID string) error {
 	for {
 		var stalled []stalledTask
-		if err := withDagMutation(dagID, func() error { return scheduleLocked(ctx, dagID, &stalled) }); err != nil {
+		if err := withDagMutation(dagID, func() error {
+			var err error
+			stalled, err = scheduleLocked(ctx, dagID)
+			return err
+		}); err != nil {
 			return err
 		}
 		retried := false
@@ -419,20 +423,20 @@ func runTick(ctx context.Context, dagID string) error {
 	}
 }
 
-// scheduleLocked is one scheduling pass; the caller holds the dag lock. The tasks whose stall the engine retries
-// itself are left stalled and appended to stalled: stopping a worker is not done under the lock.
-func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) error {
+// scheduleLocked is one scheduling pass; the caller holds the dag lock. It returns the tasks whose stall the engine
+// retries itself, left stalled: stopping a worker is not done under the lock.
+func scheduleLocked(ctx context.Context, dagID string) ([]stalledTask, error) {
 	// an action is working on a task outside the dag lock (taskActions), and ticks when it is done
 	if !taskActions.TryLock(dagID) {
-		return nil
+		return nil, nil
 	}
 	defer taskActions.Unlock(dagID)
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil {
-		return fmt.Errorf("loading dag: %w", err)
+		return nil, fmt.Errorf("loading dag: %w", err)
 	}
 	if g.Status == DagStatus_Cancelled {
-		return nil
+		return nil, nil
 	}
 	// the sessions the dag records before this tick starts any: a tick that cannot commit stops the rest
 	recorded := sessionRunIDs(g)
@@ -441,17 +445,82 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 	defer budget.release()
 	owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
 	if err != nil {
-		return fmt.Errorf("loading owning run: %w", err)
+		return nil, fmt.Errorf("loading owning run: %w", err)
 	}
 	// before any session spawns, so a tick that cannot read the head returns having started nothing
 	spawnBase := owner.BaseCommit
 	if g.MergeRequired {
 		spawnBase, err = landingHead(budget.next(), owner)
 		if err != nil {
-			return fmt.Errorf("resolving project head for dag %s: %w", g.ID, err)
+			return nil, fmt.Errorf("resolving project head for dag %s: %w", g.ID, err)
 		}
 	}
 	spawnCtx := budget.next()
+	runs, prevStates := loadTaskRuns(ctx, g)
+	DeriveTaskStates(g, runs)
+	// liveness + stall detection: refresh each running task's last-activity from its child's own
+	// transcript writes; a running task silent past StallThreshold is flagged stalled (nothing else ever
+	// notices a headless child that stopped progressing). A stalled task whose worker works again goes back to
+	// running (revived); one whose child later completes still derives done (DeriveTaskStates).
+	now := time.Now().UnixMilli()
+	observeWorkers(ctx, g, runs, now, &afterCommit)
+	// review: apply verdicts, replace a reviewer that ended without one, spawn the missing ones. Before the
+	// task-done accounting below, so a pass is counted done in the tick that applied it.
+	advanceReviews(ctx, spawnCtx, g, owner, runs, now, &afterCommit)
+	// the plan reviewer, before dispatch: NextToSpawn holds every task until its review clears
+	advancePlanReview(ctx, spawnCtx, g, owner, now, &afterCommit)
+	// the plan's Check on the base, beside the plan review, so a broken base is named once before any worker
+	advanceBaseCheck(ctx, g, owner, &afterCommit)
+	stalled := recordTaskTransitions(ctx, g, runs, prevStates, now, &afterCommit)
+	countFailures(ctx, g, runs, prevStates, &afterCommit)
+	// what the cap holds back stays pending, and a later tick dispatches it once a worker or memory frees up
+	next := NextToSpawn(g)
+	next = next[:claimWorkers(ctx, g, len(next))]
+	defer releaseWorkerClaim(g.OID)
+	spawned, err := dispatchTasks(ctx, &budget, g, owner, spawnBase, runs, recorded, next, now, &afterCommit)
+	if err != nil {
+		return nil, err
+	}
+	spawnCtx = budget.next()
+	RecomputeDagStatus(g)
+	// every task landed: the final stage judges the merged result before the dag is done
+	advanceFinal(ctx, spawnCtx, g, owner, now, &afterCommit)
+	notifyCondition(ctx, spawnCtx, g, owner, &afterCommit)
+	g.UpdatedTs = time.Now().UnixMilli()
+	// whole-object replace: the snapshot was loaded under the dag mutation lock, so it cannot have
+	// gone stale. This is only sound while EVERY dag writer holds that lock — a write made outside it
+	// (the merge stamp used to be one) is silently discarded here, because UpdateDag hands the mutator
+	// the fresh row and this mutator throws it away. Field-scoped writers (persistTaskCleanupLocked) are the
+	// pattern to follow if a writer ever genuinely cannot take the lock.
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		*cur = *g
+		return nil
+	}); err != nil {
+		return nil, cleanupScheduleFailure(ctx, spawnCtx, g, recorded, spawned, err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
+	publishSpawnedRunUpdates(g.ChannelId, spawned)
+	for _, publish := range afterCommit {
+		publish()
+	}
+	// the one place a dag goes terminal regardless of what triggered the tick, so both closures hang
+	// here: complete a run that has no lead to report its own completion, then close a lead tab whose
+	// process may already be idle (keeponexit kept it), which the shell layer will not delete. The first
+	// completes a run only when no lead process is alive, and the second closes a tab only once the run is
+	// done, so a live lead's tab is never touched. best-effort: never fail Schedule over either.
+	if owner != nil {
+		if freshRun, err := wstore.GetRun(ctx, g.ChannelId, g.RunID); err == nil {
+			if freshDag, err := wstore.GetDag(ctx, g.OID); err == nil {
+				MaybeCompleteLeadFreeRun(ctx, freshRun, freshDag)
+				_, _ = MaybeCloseOrchestratorLead(ctx, freshRun, freshDag)
+			}
+		}
+	}
+	return stalled, nil
+}
+
+// loadTaskRuns reads the child run of every task that has one, and each task's state before this tick.
+func loadTaskRuns(ctx context.Context, g *waveobj.TaskGroup) (map[string]*waveobj.Run, map[string]string) {
 	runs := map[string]*waveobj.Run{}
 	prevStates := map[string]string{}
 	for i := range g.Tasks {
@@ -464,12 +533,12 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 			runs[t.RunID] = run
 		}
 	}
-	DeriveTaskStates(g, runs)
-	// liveness + stall detection: refresh each running task's last-activity from its child's own
-	// transcript writes; a running task silent past StallThreshold is flagged stalled (nothing else ever
-	// notices a headless child that stopped progressing). A stalled task whose worker works again goes back to
-	// running (revived); one whose child later completes still derives done (DeriveTaskStates).
-	now := time.Now().UnixMilli()
+	return runs, prevStates
+}
+
+// observeWorkers reads each running task's worker: its activity, CPU, told lines and progress, and stalls it when
+// it has gone quiet. The events it finds wait in afterCommit for the dag's commit.
+func observeWorkers(ctx context.Context, g *waveobj.TaskGroup, runs map[string]*waveobj.Run, now int64, afterCommit *[]func()) {
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
 		if t.RunID == "" {
@@ -506,7 +575,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 			if spawned := spawnTs(runs[t.RunID]); spawned > 0 {
 				sinceSpawn = activity - spawned
 			}
-			afterCommit = append(afterCommit, func() {
+			*afterCommit = append(*afterCommit, func() {
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFirstActivity, nil, map[string]any{"taskid": taskID, "sincespawnms": sinceSpawn})
 			})
 		}
@@ -524,7 +593,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 					continue
 				}
 				detail := map[string]any{"taskid": t.ID, "text": toldText(p.Text)}
-				afterCommit = append(afterCommit, func() {
+				*afterCommit = append(*afterCommit, func() {
 					appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskTold, nil, detail)
 				})
 			}
@@ -534,7 +603,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 		if t.State == TaskState_Running {
 			if reason, detail, flagged := checkProgress(ctx, t, runs[t.RunID], now); flagged {
 				taskID := t.ID
-				afterCommit = append(afterCommit, func() {
+				*afterCommit = append(*afterCommit, func() {
 					appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSuspect, nil, detail)
 					PostWake(ctx, g.ChannelId, g.RunID, taskSuspectWake(taskID, reason))
 				})
@@ -587,13 +656,12 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 			t.State = TaskState_Stalled
 		}
 	}
-	// review: apply verdicts, replace a reviewer that ended without one, spawn the missing ones. Before the
-	// task-done accounting below, so a pass is counted done in the tick that applied it.
-	advanceReviews(ctx, spawnCtx, g, owner, runs, now, &afterCommit)
-	// the plan reviewer, before dispatch: NextToSpawn holds every task until its review clears
-	advancePlanReview(ctx, spawnCtx, g, owner, now, &afterCommit)
-	// the plan's Check on the base, beside the plan review, so a broken base is named once before any worker
-	advanceBaseCheck(ctx, g, owner, &afterCommit)
+}
+
+// recordTaskTransitions records each task that finished or stalled in this tick, and returns the stalled ones the
+// engine retries itself.
+func recordTaskTransitions(ctx context.Context, g *waveobj.TaskGroup, runs map[string]*waveobj.Run, prevStates map[string]string, now int64, afterCommit *[]func()) []stalledTask {
+	var stalled []stalledTask
 	// child-done: record the task-done lifecycle boundary (task id + child run id). A done child is not
 	// judgment, so the lead is not woken; the merge that follows wakes it only on a conflict.
 	for i := range g.Tasks {
@@ -606,7 +674,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 			if taskActive(prevStates[t.ID]) {
 				unreviewed = noCommitLine(taskID, runs[t.RunID], len(unfinishedDescendants(g, taskID)) == 0)
 			}
-			afterCommit = append(afterCommit, func() {
+			*afterCommit = append(*afterCommit, func() {
 				publishDagEvent(DagEventChildDone, g, taskID)
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskDone, nil, map[string]any{"taskid": taskID, "runid": childRunID})
 				if unreviewed != "" {
@@ -631,9 +699,9 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 				hung, retry = taskTurnFailedWake(taskID, failure.Text), false
 			}
 			if retry {
-				*stalled = append(*stalled, stalledTask{taskID: taskID, runID: t.RunID, hung: hung})
+				stalled = append(stalled, stalledTask{taskID: taskID, runID: t.RunID, hung: hung})
 			}
-			afterCommit = append(afterCommit, func() {
+			*afterCommit = append(*afterCommit, func() {
 				publishDagEvent(DagEventTaskStalled, g, taskID)
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskStalled, nil, map[string]any{"taskid": taskID})
 				if !retry && hung != "" {
@@ -642,6 +710,11 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 			})
 		}
 	}
+	return stalled
+}
+
+// countFailures keeps the consecutive-failure streak and records each task that failed in this tick.
+func countFailures(ctx context.Context, g *waveobj.TaskGroup, runs map[string]*waveobj.Run, prevStates map[string]string, afterCommit *[]func()) {
 	// consecutive-failure accounting: a failure *streak* breaks only on a fresh success —
 	// a task that completed in an earlier tick must not keep resetting the counter, or the
 	// circuit-break at MaxConsecutiveFailures could never trip once any task had ever succeeded.
@@ -674,33 +747,34 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 			if run := runs[childRunID]; run != nil && run.Evidence != nil {
 				why = run.Evidence.Summary
 			}
-			afterCommit = append(afterCommit, func() {
+			*afterCommit = append(*afterCommit, func() {
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{"taskid": taskID, "runid": childRunID, "lastfailurekind": kind, "attempts": attempts})
 				PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(taskID, kind, why))
 			})
 		}
 	}
+}
+
+// dispatchTasks starts a worker for each task in next, in its lane's tree, and records its child run. A failure to
+// record a started worker unwinds the tick's spawns (cleanupScheduleFailure) and is returned.
+func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGroup, owner *waveobj.Run, spawnBase string, runs map[string]*waveobj.Run, recorded []string, next []string, now int64, afterCommit *[]func()) ([]spawnedWorkerInfo, error) {
 	var spawned []spawnedWorkerInfo
-	// what the cap holds back stays pending, and a later tick dispatches it once a worker or memory frees up
-	next := NextToSpawn(g)
-	next = next[:claimWorkers(ctx, g, len(next))]
-	defer releaseWorkerClaim(g.OID)
 	for _, taskID := range next {
 		task := taskByID(g, taskID)
 		pin := effectiveTaskRoute(task, owner, g)
 		capability, routeErr := runroute.Resolve(pin)
 		if routeErr != nil {
-			failDispatch(ctx, g, taskID, FailureKindRoute, routeErr, &afterCommit)
+			failDispatch(ctx, g, taskID, FailureKindRoute, routeErr, afterCommit)
 			continue
 		}
 		if harnessErr := validateWorkerHarness(pin.Runtime); harnessErr != nil {
-			failDispatch(ctx, g, taskID, FailureKindHarness, harnessErr, &afterCommit)
+			failDispatch(ctx, g, taskID, FailureKindHarness, harnessErr, afterCommit)
 			continue
 		}
 		// dispatch timing: worktree creation and the spawn call are in-process and separately
 		// fixable (a warm tree vs. a warm worker), so they are measured separately rather than
 		// folded into the child's wall clock where neither can be told apart.
-		spawnCtx = budget.next()
+		spawnCtx := budget.next()
 		cwd := owner.ProjectPath
 		taskBase := spawnBase
 		var branch string
@@ -717,7 +791,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 			// retry-cleanup acts on.
 			if werr != nil {
 				task.CleanupError, task.CleanupAttempts = boundedCleanupError(werr), 0
-				failDispatch(ctx, g, taskID, FailureKindWorktree, werr, &afterCommit)
+				failDispatch(ctx, g, taskID, FailureKindWorktree, werr, afterCommit)
 				continue
 			}
 			if left := laneLeftovers(spawnCtx, owner.ProjectPath, key); len(left) > 0 {
@@ -739,7 +813,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 					if rerr := removeWorktreeDir(context.WithoutCancel(ctx), owner.ProjectPath, wt); rerr != nil {
 						log.Printf("schedule dag %s task %s: removing worktree after setup failure: %v", g.OID, taskID, rerr)
 					}
-					failDispatch(ctx, g, taskID, FailureKindSetup, serr, &afterCommit)
+					failDispatch(ctx, g, taskID, FailureKindSetup, serr, afterCommit)
 					continue
 				}
 				markTreeSetUp(context.WithoutCancel(ctx), wt)
@@ -772,7 +846,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 		spawnMs := time.Since(spawnStart).Milliseconds()
 		spawnedAt := time.Now().UnixMilli()
 		if err != nil {
-			failDispatch(ctx, g, taskID, FailureKindSpawn, err, &afterCommit)
+			failDispatch(ctx, g, taskID, FailureKindSpawn, err, afterCommit)
 			continue
 		}
 		childRun := childRunFromSpec(g, task, owner, pin, cwd, taskBase, prompt)
@@ -790,13 +864,13 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 		}
 		spawned = append(spawned, spawnedWorkerInfo{childRun: childRun, oref: oref, taskID: taskID})
 		if !attached {
-			return cleanupScheduleFailure(ctx, spawnCtx, g, recorded, spawned, fmt.Errorf("child run for task %s has no running phase", taskID))
+			return nil, cleanupScheduleFailure(ctx, spawnCtx, g, recorded, spawned, fmt.Errorf("child run for task %s has no running phase", taskID))
 		}
 		// spawnCtx, not ctx: the row that records a spawned worker must outlive exactly as long as the
 		// spawn it records. Persisting on the caller's budget is what leaves a live process with no run
 		// row, and the task's RunID is cleared on this failure, so nothing can ever reap it.
 		if err := appendChildRun(spawnCtx, g.ChannelId, childRun); err != nil {
-			return cleanupScheduleFailure(ctx, spawnCtx, g, recorded, spawned, fmt.Errorf("persisting child run for task %s: %w", taskID, err))
+			return nil, cleanupScheduleFailure(ctx, spawnCtx, g, recorded, spawned, fmt.Errorf("persisting child run for task %s: %w", taskID, err))
 		}
 		spawned[len(spawned)-1].persisted = true
 		runORef := waveobj.MakeORef(waveobj.OType_Run, childRun.ID).String()
@@ -809,7 +883,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 		if err := startWorker(spawnCtx, oref); err != nil {
 			abandonUnstartedWorker(spawnCtx, g.ChannelId, childRun.ID, oref)
 			spawned = spawned[:len(spawned)-1]
-			failDispatch(ctx, g, taskID, FailureKindSpawn, err, &afterCommit)
+			failDispatch(ctx, g, taskID, FailureKindSpawn, err, afterCommit)
 			continue
 		}
 		// now, not at tick end: the app already shows the tab, and until its run arrives the tab sits outside
@@ -817,20 +891,21 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 		// before the dag commit names the run.
 		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, childRun.ID))
 		if err := MarkRunning(g, taskID, childRun.ID); err != nil {
-			return cleanupScheduleFailure(ctx, spawnCtx, g, recorded, spawned, err)
+			return nil, cleanupScheduleFailure(ctx, spawnCtx, g, recorded, spawned, err)
 		}
 		g.Tasks[taskIdx(g, taskID)].LastActivity = now
 		spawnedTaskID := taskID
-		afterCommit = append(afterCommit, func() {
+		*afterCommit = append(*afterCommit, func() {
 			publishDagEvent(DagEventTaskSpawned, g, spawnedTaskID)
 			// the append waits for the whole batch's commit, and a serial batch takes seconds per task
 			appendRunEventAt(ctx, spawnedAt, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": spawnedTaskID, "worktreems": worktreeMs, "setupms": setupMs, "spawnms": spawnMs})
 		})
 	}
-	spawnCtx = budget.next()
-	RecomputeDagStatus(g)
-	// every task landed: the final stage judges the merged result before the dag is done
-	advanceFinal(ctx, spawnCtx, g, owner, now, &afterCommit)
+	return spawned, nil
+}
+
+// notifyCondition announces the dag's condition once: blocked, or done with the run-finished wake.
+func notifyCondition(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, afterCommit *[]func()) {
 	// status notifications: blocked / complete, once per condition. The watchdog and every
 	// dag mutation re-enter Schedule, so emitting the standing status would refill the lifecycle log with
 	// identical rows and re-wake the lead about what it was already told. The condition cannot be compared
@@ -845,7 +920,7 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 	case notify && g.Status == DagStatus_Blocked:
 		failures := g.Failures
 		blockingKind := BlockingKind(g)
-		afterCommit = append(afterCommit, func() {
+		*afterCommit = append(*afterCommit, func() {
 			publishDagEvent(DagEventBlocked, g, "")
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagBlocked, nil, map[string]any{"failures": failures, "kind": blockingKind})
 		})
@@ -853,43 +928,12 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 		// detached: a caller's short rpc budget must not cut the total off part-way through the transcripts
 		g.Usage = jarvis.RunUsage(spawnCtx, owner, jarvis.DagChildRuns(spawnCtx, g.ChannelId, g.OID, owner.ID))
 		finished := RunFinishedWake(g.Final)
-		afterCommit = append(afterCommit, func() {
+		*afterCommit = append(*afterCommit, func() {
 			publishDagEvent(DagEventComplete, g, "")
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagDone, nil, map[string]any{})
 			PostWake(ctx, g.ChannelId, g.RunID, finished+landBlockerLines(ctx, owner))
 		})
 	}
-	g.UpdatedTs = time.Now().UnixMilli()
-	// whole-object replace: the snapshot was loaded under the dag mutation lock, so it cannot have
-	// gone stale. This is only sound while EVERY dag writer holds that lock — a write made outside it
-	// (the merge stamp used to be one) is silently discarded here, because UpdateDag hands the mutator
-	// the fresh row and this mutator throws it away. Field-scoped writers (persistTaskCleanupLocked) are the
-	// pattern to follow if a writer ever genuinely cannot take the lock.
-	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
-		*cur = *g
-		return nil
-	}); err != nil {
-		return cleanupScheduleFailure(ctx, spawnCtx, g, recorded, spawned, err)
-	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
-	publishSpawnedRunUpdates(g.ChannelId, spawned)
-	for _, publish := range afterCommit {
-		publish()
-	}
-	// the one place a dag goes terminal regardless of what triggered the tick, so both closures hang
-	// here: complete a run that has no lead to report its own completion, then close a lead tab whose
-	// process may already be idle (keeponexit kept it), which the shell layer will not delete. The first
-	// completes a run only when no lead process is alive, and the second closes a tab only once the run is
-	// done, so a live lead's tab is never touched. best-effort: never fail Schedule over either.
-	if owner != nil {
-		if freshRun, err := wstore.GetRun(ctx, g.ChannelId, g.RunID); err == nil {
-			if freshDag, err := wstore.GetDag(ctx, g.OID); err == nil {
-				MaybeCompleteLeadFreeRun(ctx, freshRun, freshDag)
-				_, _ = MaybeCloseOrchestratorLead(ctx, freshRun, freshDag)
-			}
-		}
-	}
-	return nil
 }
 
 // GroupForRun resolves the dag owning a run (the run carries DagORef — set on the
