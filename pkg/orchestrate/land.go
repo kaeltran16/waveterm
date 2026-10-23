@@ -490,11 +490,16 @@ func untrackedDiffersReason(path string) string {
 // untrackedCopies lists, as full paths, the untracked files in the checkout that are versions of ones the branch
 // adds, or names the first that is not instead. It changes nothing.
 func untrackedCopies(ctx context.Context, project, branch string) (copies []string, differs string, err error) {
-	base, err := git(ctx, project, "merge-base", "HEAD", branch)
+	// git names what the branch adds from the repo root, which a project in a subfolder of its repo is not
+	top, err := git(ctx, project, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return nil, "", fmt.Errorf("finding the checkout's repo root: %w", err)
+	}
+	base, err := git(ctx, top, "merge-base", "HEAD", branch)
 	if err != nil {
 		return nil, "", fmt.Errorf("finding where the run's branch forked: %w", err)
 	}
-	added, err := git(ctx, project, "diff", "--name-only", "--no-renames", "--diff-filter=A", "-z", base, branch)
+	added, err := git(ctx, top, "diff", "--name-only", "--no-renames", "--diff-filter=A", "-z", base, branch)
 	if err != nil {
 		return nil, "", fmt.Errorf("listing what the run adds: %w", err)
 	}
@@ -502,24 +507,24 @@ func untrackedCopies(ctx context.Context, project, branch string) (copies []stri
 		if p == "" {
 			continue
 		}
-		full := filepath.Join(project, filepath.FromSlash(p))
+		full := filepath.Join(top, filepath.FromSlash(p))
 		if info, err := os.Stat(full); err != nil || !info.Mode().IsRegular() {
 			continue
 		}
-		if _, err := git(ctx, project, "ls-files", "--error-unmatch", "--", p); err == nil {
+		if _, err := git(ctx, top, "ls-files", "--error-unmatch", "--", p); err == nil {
 			continue // tracked: git merges it or refuses on its own
 		}
 		// hash-object applies the checkout's filters, so a CRLF copy of an LF file still reads as the same
-		theirs, err := git(ctx, project, "rev-parse", branch+":"+p)
+		theirs, err := git(ctx, top, "rev-parse", branch+":"+p)
 		if err != nil {
 			return nil, "", fmt.Errorf("reading %s on the run's branch: %w", p, err)
 		}
-		mine, err := git(ctx, project, "hash-object", "--", p)
+		mine, err := git(ctx, top, "hash-object", "--", p)
 		if err != nil {
 			return nil, "", fmt.Errorf("reading the untracked %s: %w", p, err)
 		}
 		if mine != theirs {
-			held, err := runHeld(ctx, project, base, branch, p, mine)
+			held, err := runHeld(ctx, top, base, branch, p, mine)
 			if err != nil {
 				return nil, "", err
 			}
@@ -535,13 +540,13 @@ func untrackedCopies(ctx context.Context, project, branch string) (copies []stri
 // runHeld reports whether blob is a version of p the run's branch has held since base: in its history, or at a
 // tip its reflog records, which keeps the docs snapshot a resubmit after a failed plan review amended away (run
 // dca34385 revised the spec it adopted, and its land held on the untracked original).
-func runHeld(ctx context.Context, project, base, branch, p, blob string) (bool, error) {
+func runHeld(ctx context.Context, top, base, branch, p, blob string) (bool, error) {
 	raw := []string{"log", "--raw", "-m", "--no-abbrev", "--no-renames", "--format="}
 	for _, args := range [][]string{
 		slices.Concat(raw, []string{base + ".." + branch, "--", p}),
 		slices.Concat(raw, []string{"--walk-reflogs", branch, "--", p}),
 	} {
-		out, err := git(ctx, project, args...)
+		out, err := git(ctx, top, args...)
 		if err != nil {
 			return false, fmt.Errorf("listing the versions of %s the run's branch held: %w", p, err)
 		}

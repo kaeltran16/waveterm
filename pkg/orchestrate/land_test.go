@@ -451,6 +451,45 @@ func TestLandUntrackedEarlierVersionOfWhatTheBranchAdds(t *testing.T) {
 	})
 }
 
+// a project in a subfolder of its repo: git names what the run adds from the repo root, not the project (runs
+// 8cd593bb and d8a2a706 held on an identical copy)
+func TestLandUntrackedCopyInASubfolderProject(t *testing.T) {
+	subfolderLand := func(t *testing.T, copy string) (*mergeFixture, string) {
+		t.Helper()
+		f, tree := landFixture(t)
+		commitOnBranch(t, tree, "sub/spec.md", "spec\n")
+		f.setFinal(t, &waveobj.FinalStage{State: FinalState_Passed, Round: 1, Commit: gitCmd(t, tree, "rev-parse", "HEAD")})
+		sub := filepath.Join(f.project, "sub")
+		writeFile(t, filepath.Join(sub, "spec.md"), copy)
+		if err := wstore.UpdateRun(f.ctx, f.channel, f.ownerID, func(r *waveobj.Run) error {
+			r.ProjectPath = sub
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return f, sub
+	}
+	t.Run("an identical copy is cleared and the land merges", func(t *testing.T) {
+		f, _ := subfolderLand(t, "spec\n")
+
+		if land := f.landRun(t, false); land.State != LandState_Landed {
+			t.Fatalf("land = %+v, want landed", land)
+		}
+		if got := gitCmd(t, f.project, "ls-files", "sub/spec.md"); got != "sub/spec.md" {
+			t.Fatalf("sub/spec.md is not tracked after the land: %q", got)
+		}
+	})
+	t.Run("a differing copy holds the land", func(t *testing.T) {
+		f, sub := subfolderLand(t, "the human's spec\n")
+		head := gitCmd(t, f.project, "rev-parse", "main")
+
+		f.assertHeld(t, f.landRun(t, false), head, untrackedDiffersReason("sub/spec.md"))
+		if got := readFile(t, filepath.Join(sub, "spec.md")); got != "the human's spec\n" {
+			t.Fatalf("spec.md = %q, want the human's file intact", got)
+		}
+	})
+}
+
 func TestLandForceLandsAFailedOutcome(t *testing.T) {
 	f, _ := landFixture(t)
 	f.setFinal(t, &waveobj.FinalStage{State: FinalState_Failed, Round: 2, Detail: "Check failed"})
