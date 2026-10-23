@@ -496,6 +496,10 @@ export default function (kit) {
                     typed: changeQuiet.sent,
                     changeClosed,
                 });
+                rec("6a. the check's review, no question open, holds the line box, open", s6.view === "check" && s6.lineBox === "open", {
+                    view: s6.view,
+                    lineBox: s6.lineBox,
+                });
                 mark = await bsMark(h, ctx, "brainstorm: approved");
                 const approved = await bsClick(h, BS_APPROVE_BAR, "Approve and start run");
                 const approveTyped = await bsTyped(h, ctx, mark, "brainstorm: approved");

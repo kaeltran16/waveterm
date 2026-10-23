@@ -18591,6 +18591,7 @@ const bsRead = (h, ctx) =>
             approveReason: flat(pane?.querySelector("[data-brainstorm-approve-reason]")),
             question: flat(pane?.querySelector("[data-brainstorm-question]")),
             answerBox: !!pane?.querySelector("[data-brainstorm-answer]"),
+            lineBox: pane?.querySelector("[data-brainstorm-line-box]")?.getAttribute("data-brainstorm-line-box") ?? null,
             working: flat(pane?.querySelector("[data-brainstorm-working]")),
             stale: flat(pane?.querySelector("[data-brainstorm-stale]")),
             check: btn(pane?.querySelector("[data-brainstorm-check-btn]")),
@@ -19390,6 +19391,9 @@ const brainstormMode = {
                 s4d.phase === "Talking it through",
             { workingNote: s4d.workingNote, writing, confirm: s4d.confirm, reviewShown: s4d.reviewShown, phase: s4d.phase }
         );
+        rec("4c. the design while the agent writes holds the line box, locked", s4d.lineBox === "locked", {
+            lineBox: s4d.lineBox,
+        });
         await bsCloseDesign(h);
 
         // 5. a confirmed part changed
@@ -19580,6 +19584,20 @@ const brainstormMode = {
                 !s7c.text.includes("Confirm all"),
             { ...bsBrief(s7c), phase: s7c.phase, progress: s7c.progress, review: s7c.review, check: s7c.check }
         );
+        // 7c2. no question open: a line of the user's own goes to the agent as typed, as an answer does
+        const LINE_BOX = `${BS_PANE}?.querySelector("[data-brainstorm-line-box] textarea")`;
+        const pushback = "Why not reuse the alerting we have?";
+        mark = await bsMark(h, ctx, pushback);
+        const lineVia = await bsFill(h, LINE_BOX, pushback);
+        await bsKey(h, LINE_BOX, "Enter", lineVia);
+        const lineTyped = await bsTyped(h, ctx, mark, pushback);
+        await h.shot("cdp-shots/brainstorm-mode-ready-line.png");
+        rec("7c2. with no question open, the line box sends a typed line to the agent as typed", s7c.lineBox === "open" && lineTyped.ok, {
+            lineBox: s7c.lineBox,
+            ...lineTyped.detail,
+        });
+        await bsAgentTook(h, ctx);
+        await bsUntil(h, ctx, (s) => s.check?.disabled === false);
         mark = await bsMark(h, ctx, "brainstorm: check");
         const checked = await bsClick(h, `${BS_PANE}?.querySelector("[data-brainstorm-review]")`, "Check with a builder");
         const checkTyped = await bsTyped(h, ctx, mark, "brainstorm: check");

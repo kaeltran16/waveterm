@@ -27,6 +27,7 @@ import {
     type BrainstormFile,
     type BrainstormPart,
     type BrainstormQuestion,
+    type LineBox,
     type PartAnswer,
     type PartState,
     type TrackSegment,
@@ -456,29 +457,64 @@ function ReasonList({
     );
 }
 
-export function AnswerBox({ ans, options }: { ans: Answer; options: boolean }) {
+// locked while the agent writes; placeholder replaces the answer's, for a line that answers no question
+export function AnswerBox({
+    ans,
+    options,
+    locked = false,
+    placeholder,
+}: {
+    ans: Answer;
+    options: boolean;
+    locked?: boolean;
+    placeholder?: string;
+}) {
     return (
-        <div className="flex items-center gap-[12px]">
+        <div className="flex items-center gap-[12px]" title={locked ? WORKING_TITLE : undefined}>
             <textarea
                 data-brainstorm-answer
                 aria-label="Your answer"
                 rows={options ? 1 : 3}
                 value={ans.draft}
-                placeholder={options ? "Or type your own answer…" : "Answer in your own words…"}
+                disabled={locked}
+                placeholder={placeholder ?? (options ? "Or type your own answer…" : "Answer in your own words…")}
                 onChange={(e) => ans.setDraft(e.target.value)}
                 onKeyDown={(e) => onEnter(e, ans.sendDraft)}
-                className={cn(FIELD, "min-w-0 flex-1")}
+                className={cn(FIELD, "min-w-0 flex-1 disabled:opacity-50")}
             />
             <button
                 type="button"
                 data-brainstorm-ok
-                disabled={ans.draft.trim() === "" || ans.act.busy}
+                disabled={ans.draft.trim() === "" || ans.act.busy || locked}
                 onClick={ans.sendDraft}
                 className="flex-none cursor-pointer rounded-[7px] bg-accent px-[14px] py-[7px] text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-50"
             >
                 OK
             </button>
             <span className="flex-none text-[12px] text-muted">press Enter</span>
+        </div>
+    );
+}
+
+// a line of the user's own while no question is open, sent as the question's typed answer is: the agent reads it as
+// pushback or a question back, and answers with a question
+export function LineBar({ agent, box }: { agent: AgentVM; box: LineBox }) {
+    const ans = useAnswer(agent);
+    if (box === "none") {
+        return null;
+    }
+    return (
+        <div
+            data-brainstorm-line-box={box}
+            className="flex flex-none flex-col gap-[6px] border-t border-border px-[22px] py-[12px]"
+        >
+            <AnswerBox
+                ans={ans}
+                options={true}
+                locked={box === "locked"}
+                placeholder="Push back, or ask the agent something…"
+            />
+            {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
         </div>
     );
 }

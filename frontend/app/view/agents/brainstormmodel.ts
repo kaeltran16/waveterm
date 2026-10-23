@@ -693,6 +693,17 @@ function openBuilderQuestion(f: BrainstormFile): BuilderQuestion | null {
     return f.check?.yours.find((y) => y.a == null) ?? null;
 }
 
+// the box for a line of the user's own, which the agent reads as pushback or a question back: offered whenever no
+// question (talk or builder) is open and no run has started, locked while the agent writes or a check is pending
+export type LineBox = "open" | "locked" | "none";
+
+export function lineBox(f: BrainstormFile, checkPending = false): LineBox {
+    if (f.question != null || f.run != null || openBuilderQuestion(f) != null) {
+        return "none";
+    }
+    return f.working != null || checkPending ? "locked" : "open";
+}
+
 // how many of the asked question's options a letter key picks: as many as the pane draws, up to the keys there are
 export function pickableOptions(
     f: BrainstormFile | null,

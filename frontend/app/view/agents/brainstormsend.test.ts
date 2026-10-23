@@ -108,6 +108,14 @@ describe("sendBrainstorm", () => {
         expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 3000, modifiedMs: 500, kind: "check" });
     });
 
+    it("sends a line typed with no question open as the raw text, recorded as an answer", async () => {
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, file: FILE }));
+        const io = fakeIO();
+        await sendBrainstorm(AGENT, { kind: "answer", text: "why not use the\nclarify artifact?" }, io, 1000);
+        expect(io.sent).toEqual([["blk-1", "why not use the clarify artifact?"]]);
+        expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 1000, modifiedMs: 500, kind: "answer" });
+    });
+
     it("refuses a second check while the first is underway, sending nothing", async () => {
         updateBrainstorm(AGENT.id, (s) => ({ ...s, file: FILE }));
         await sendBrainstorm(AGENT, { kind: "check" }, fakeIO(), 1000);
