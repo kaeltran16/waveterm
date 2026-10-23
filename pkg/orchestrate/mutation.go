@@ -241,7 +241,8 @@ func escalationTarget(task *waveobj.TaskNode, owner *waveobj.Run, group *waveobj
 	if task == nil {
 		return waveobj.RoutePin{}, fmt.Errorf("task is required")
 	}
-	if task.State != TaskState_Failed && task.State != TaskState_Stalled && task.State != TaskState_BlockedMerge && task.State != TaskState_ReviewFailed {
+	// not blocked-merge: its worker finished, and a fresh one would leave the conflicted squash holding later merges
+	if task.State != TaskState_Failed && task.State != TaskState_Stalled && task.State != TaskState_ReviewFailed {
 		return waveobj.RoutePin{}, fmt.Errorf("task %q cannot be escalated from state %q", task.ID, task.State)
 	}
 	if task.Escalations >= 1 {

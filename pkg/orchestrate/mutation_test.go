@@ -407,6 +407,16 @@ func TestEscalateRejectsUnsupportedRouteWithoutCancellingRun(t *testing.T) {
 	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Runtime: "claude", Model: "gpt-5.4"})
 }
 
+// a blocked merge's worker finished: a fresh worker would leave the conflicted squash in the checkout, holding
+// later merges, and lose the lane's commit. The conflict is resolved and continued, not escalated.
+func TestEscalateRejectsBlockedMergeWithoutCancellingRun(t *testing.T) {
+	ctx, dag, child, worker := seedEscalationDag(t, "claude", TaskState_BlockedMerge, 0)
+	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Model: "opus"})
+	if got := mustLoadDag(t, ctx, dag.OID).Tasks[0]; got.State != TaskState_BlockedMerge || got.RunID != child.ID || got.Escalations != 0 {
+		t.Fatalf("rejected escalation moved the task: %+v", got)
+	}
+}
+
 func TestEscalateRejectsPendingTask(t *testing.T) {
 	ctx, dag := seedPendingDag(t)
 	if err := wstore.UpdateRun(ctx, dag.ChannelId, dag.RunID, func(owner *waveobj.Run) error {
