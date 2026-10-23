@@ -459,6 +459,7 @@ func TestRunsIsTask(t *testing.T) {
 		{"engine task worker", waveobj.Run{Mode: jarvis.RunMode_Quick, DagORef: "dag-1"}, true},
 		{"lead-spawned child", waveobj.Run{Mode: jarvis.RunMode_Quick, ParentLeadORef: "tab:lead"}, true},
 		{"builder check", waveobj.Run{Mode: jarvis.RunMode_Quick, StageRole: jarvis.UsageRole_BuilderCheck}, true},
+		{"brainstorm judge", waveobj.Run{Mode: jarvis.RunMode_Quick, StageRole: jarvis.UsageRole_BrainstormJudge}, true},
 		{"plan reviewer stage run owning no dag of its own", waveobj.Run{Mode: jarvis.RunMode_Quick, StageRole: jarvis.UsageRole_PlanReviewer}, false},
 	}
 	for _, tt := range cases {

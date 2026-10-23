@@ -253,7 +253,9 @@ func TestBuilderCheckRunIsNoRunYouStarted(t *testing.T) {
 		StageRole: jarvis.UsageRole_BuilderCheck, Evidence: &waveobj.RunEvidence{}}
 	running := *check
 	running.OID, running.Status = "check-live", "executing"
-	runs := []*waveobj.Run{check, &running}
+	judge := *check
+	judge.OID, judge.StageRole = "judge", jarvis.UsageRole_BrainstormJudge
+	runs := []*waveobj.Run{check, &running, &judge}
 	if got := ActiveWork(runs, nil, nil, nil); len(got) != 0 {
 		t.Fatalf("active work = %+v, want none", got)
 	}

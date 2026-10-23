@@ -55,6 +55,7 @@ func TestGetChannelRunCommandsLeaveOutABuilderCheck(t *testing.T) {
 		{ID: "quick", Goal: "g", Status: "done", CreatedTs: 1},
 		{ID: "plan-rev", Goal: "g", Status: "done", CreatedTs: 2, DagORef: "dag-1", StageRole: jarvis.UsageRole_PlanReviewer},
 		{ID: "check", Goal: "g", Status: "done", CreatedTs: 3, StageRole: jarvis.UsageRole_BuilderCheck},
+		{ID: "judge", Goal: "g", Status: "done", CreatedTs: 4, StageRole: jarvis.UsageRole_BrainstormJudge},
 	} {
 		if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 			t.Fatalf("append %s: %v", run.ID, err)
