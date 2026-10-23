@@ -213,9 +213,14 @@ func reviewFailedWake(taskID string) string {
 	return fmt.Sprintf("wake: review failed for task %s. wsh jarvis dag status", taskID)
 }
 
-// planReviewFailedWake carries the round's merged findings whole: the lead revises the plan from them. After
-// the last round the call is the human's, or on an autonomous run the lead's.
+// planReviewFindingsCmd prints a failed plan review's findings whole.
+const planReviewFindingsCmd = "wsh jarvis dag planreview findings"
+
+// planReviewFailedWake carries the round's merged findings, the lead revises the plan from them, up to
+// reportSectionMaxLen: five reviewers at their note cap would fill the lead's composer, so past it the wake names
+// planReviewFindingsCmd. After the last round the call is the human's, or on an autonomous run the lead's.
 func planReviewFailedWake(round int, findings string, last, autonomous bool) string {
+	findings = capText(findings, reportSectionMaxLen, planReviewFindingsCmd)
 	switch {
 	case last && autonomous:
 		return fmt.Sprintf("wake: plan review failed in round %d, the last: %s. %s.", round, flatLine(findings), autonomousPastPlanReview)

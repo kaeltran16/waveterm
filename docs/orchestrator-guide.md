@@ -1234,6 +1234,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag review <pass\|fail> "<note>" [--downstream "<note>"] [--for <task ids>] [--unverified "<what, why>"]` | a reviewer's verdict; ends the reviewer's session |
 | `dag planreview <pass\|fail> "<text>" [--pick "t-N=<sonnet\|lead>: <reason>" ...]` | a plan reviewer's verdict; ends its session. On a Reviewer picks run the full or follow-up reviewer's pass carries one `--pick` per task without a Model line, and a fail the ones it can judge ([Model picks](#model-picks)) |
 | `dag planreview accept "<the human's reason>"` | as the lead, proceed past a failed plan review on the human's word |
+| `dag planreview findings` | print a failed plan review's findings whole, one block per reviewer; the lead's wake carries the first 2,500 characters |
 | `dag final pass "<summary>" [--unverified "<what, why>"]` / `dag final fail "<defects>"` | the final verifier's verdict; ends its session |
 | `dag retry <task>` / `dag skip <task>` | retry or skip a failed or stalled task |
 | `dag escalate <task> --model <id> [--runtime <rt>]` | re-queue on another model, once per task |

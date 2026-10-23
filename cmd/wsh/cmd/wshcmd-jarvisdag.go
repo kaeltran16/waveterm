@@ -313,8 +313,8 @@ func reportPresenceLine(taskID string, sections []string) string {
 	return fmt.Sprintf("%s report: %s (wsh jarvis dag report %s)", taskID, what, taskID)
 }
 
-// planReviewFindingsRunes is how much of a failed review's findings the status line quotes; the lead's wake carries
-// them whole.
+// planReviewFindingsRunes is how much of a failed review's findings the status line quotes; `dag planreview findings`
+// prints them whole.
 const planReviewFindingsRunes = 240
 
 // planReviewLine says where the dag's plan review stands. The dag's status reads plan-review both while a reviewer
@@ -1011,6 +1011,40 @@ var dagPlanReviewCmd = &cobra.Command{
 	},
 }
 
+var dagPlanReviewFindingsCmd = &cobra.Command{
+	Use:     "findings",
+	Short:   "print the failed plan review's findings whole, one block per reviewer",
+	Args:    cobra.NoArgs,
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		channelId, runId, err := dagIds(cmd, dagRpcTimeoutMs)
+		if err != nil {
+			return err
+		}
+		st, err := wshclient.DagStatusCommand(RpcClient, wshrpc.CommandDagStatusData{ChannelId: channelId, RunId: runId}, &wshrpc.RpcOpts{Timeout: dagRpcTimeoutMs})
+		if err != nil {
+			return err
+		}
+		if st.Group == nil {
+			return fmt.Errorf("this run holds no dag")
+		}
+		text, err := planReviewFindingsText(st.Group.PlanReview)
+		if err != nil {
+			return err
+		}
+		fmt.Println(text)
+		return nil
+	},
+}
+
+// planReviewFindingsText is a failed plan review round's findings as the engine merged them.
+func planReviewFindingsText(pr *waveobj.PlanReviewStage) (string, error) {
+	if pr == nil || pr.State != orchestrate.PlanReviewState_Failed {
+		return "", fmt.Errorf("the plan review has no failed round to read findings from")
+	}
+	return pr.Findings, nil
+}
+
 // dagFinalData is the final verifier's verdict payload. RunId resolves to the verifier's own run, which is
 // how the server knows the verdict is its.
 func dagFinalData(cmd *cobra.Command, args []string) (wshrpc.CommandDagActionData, error) {
@@ -1264,9 +1298,10 @@ func leadTree() string {
 }
 
 func init() {
+	dagPlanReviewCmd.AddCommand(dagPlanReviewFindingsCmd)
 	jarvisDagCmd.AddCommand(dagSubmitCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd, dagReportCmd, dagReviewCmd, dagPlanReviewCmd, dagFinalCmd, dagAmendCmd, dagTellCmd)
 	jarvisDagCmd.AddCommand(dagAction("approve"), dagSendbackCmd, dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"), dagActionWithin("retry-cleanup", 60_000))
-	for _, c := range jarvisDagCmd.Commands() {
+	for _, c := range append(jarvisDagCmd.Commands(), dagPlanReviewFindingsCmd) {
 		c.Flags().String("runid", "", "run id")
 		c.Flags().String("channel", "", "channel id")
 	}

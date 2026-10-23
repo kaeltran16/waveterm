@@ -931,3 +931,16 @@ func TestPlanReviewLineListsReviewers(t *testing.T) {
 		t.Fatalf("a settled round lists no reviewers, got %q", got)
 	}
 }
+
+func TestPlanReviewFindingsTextIsTheFailedRoundsWholeFindings(t *testing.T) {
+	findings := "[Spec coverage] no task for 4.1\n\n[Plan format] Task 3 has no Depends line"
+	got, err := planReviewFindingsText(&waveobj.PlanReviewStage{State: orchestrate.PlanReviewState_Failed, Round: 1, Findings: findings})
+	if err != nil || got != findings {
+		t.Fatalf("got %q, %v; want the findings with their block breaks", got, err)
+	}
+	for _, pr := range []*waveobj.PlanReviewStage{nil, {State: orchestrate.PlanReviewState_Reviewing, Round: 1}} {
+		if _, err := planReviewFindingsText(pr); err == nil {
+			t.Fatalf("no failed round: want an error, plan review %+v", pr)
+		}
+	}
+}

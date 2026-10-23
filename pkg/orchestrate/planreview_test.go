@@ -5,6 +5,7 @@ package orchestrate
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -427,5 +428,27 @@ func TestADagWithNoPlanReviewDispatchesAtOnce(t *testing.T) {
 	schedule(t, ctx, dag.OID)
 	if g := loadDag(t, ctx, dag.OID); g.PlanReview != nil || g.Tasks[0].State != TaskState_Running || len(*calls) != 1 {
 		t.Fatalf("want the task dispatched, got review %+v task %s", g.PlanReview, g.Tasks[0].State)
+	}
+}
+
+// five failing lenses at their note cap would put ~10k characters in the lead's composer: the wake keeps whole
+// findings up to the cap and names the command that prints the rest
+func TestAPlanReviewFailedWakeCapsLongFindings(t *testing.T) {
+	var blocks []string
+	for i := 0; i < 5; i++ {
+		blocks = append(blocks, fmt.Sprintf("[Lens %d] %s", i, strings.Repeat("x ", MaxReviewNoteLen/2)))
+	}
+	findings := strings.Join(blocks, "\n\n")
+	for _, last := range []bool{false, true} {
+		w := planReviewFailedWake(1, findings, last, false)
+		if !strings.Contains(w, "[Lens 0]") || strings.Contains(w, "[Lens 4]") {
+			t.Fatalf("the wake keeps the first findings and drops the rest, got %d chars", len(w))
+		}
+		if !strings.Contains(w, "more characters: "+planReviewFindingsCmd) || strings.Contains(w, "\n") {
+			t.Fatalf("the wake is one line naming %q for the rest, got %q", planReviewFindingsCmd, w[len(w)-200:])
+		}
+		if n := len([]rune(w)); n > reportSectionMaxLen+len(proceedPastPlanReview)+300 {
+			t.Fatalf("the wake is capped, got %d runes", n)
+		}
 	}
 }
