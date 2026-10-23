@@ -8,6 +8,7 @@ import {
     UNGROUPED_PROJECT,
     type AgentTreeRow,
 } from "./agenttreemodel";
+import type { BuilderCheckRecord } from "./brainstormmodel";
 import { endedWorkerId, type Lineage, type RunInfo } from "./runlineage";
 
 function vm(id: string, state: AgentVM["state"], path?: string): AgentVM {
@@ -67,6 +68,71 @@ describe("buildAgentTree", () => {
     });
 });
 
+describe("buildAgentTree with a builder check", () => {
+    // the brainstorming agent's tab names its check's run (brainstorm:checkrun); the reviewer's tab is that run's
+    const brainstorm = (state: BuilderCheckRecord["state"], runId = "chk-1"): AgentVM => ({
+        ...vm("bs", "idle", WAVE),
+        builderCheck: { state, ts: 1, runId },
+    });
+    const reviewer = (state: AgentVM["state"] = "working", path = WAVE): AgentVM => ({
+        ...vm("rv", state, path),
+        runId: "chk-1",
+    });
+    const shape = (rows: AgentTreeRow[]) =>
+        rows.map((r) =>
+            r.kind === "group"
+                ? `group:${r.project}:${r.count}:${r.attn}`
+                : r.kind === "check"
+                  ? `  check:${r.agent.id}:${r.state}`
+                  : `${r.kind}:${"agent" in r ? r.agent?.id : ""}`
+        );
+
+    it("nests the reviewer under the brainstorm that started it, wherever the roster orders it", () => {
+        const rows = buildAgentTree(
+            [reviewer(), vm("other", "idle", WAVE), brainstorm("reading")],
+            ["rv", "other", "bs"]
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:3:0", "parent:other", "parent:bs", "  check:rv:reading"]);
+    });
+
+    it("keeps the reviewer under the brainstorm after the check answers or fails", () => {
+        for (const state of ["answered", "failed"] as const) {
+            const rows = buildAgentTree([brainstorm(state), reviewer("idle")], ["bs", "rv"]);
+            expect(shape(rows)).toEqual(["group:waveterm:2:0", "parent:bs", `  check:rv:${state}`]);
+        }
+    });
+
+    it("gives the reviewer its own row once the brainstorm's tab is gone", () => {
+        const rows = buildAgentTree([reviewer(), vm("other", "idle", WAVE)], ["rv", "other"]);
+        expect(shape(rows)).toEqual(["group:waveterm:2:0", "parent:rv", "parent:other"]);
+    });
+
+    it("gives the reviewer its own row when the brainstorm's record names another check", () => {
+        const rows = buildAgentTree([brainstorm("reading", "chk-2"), reviewer()], ["bs", "rv"]);
+        expect(shape(rows)).toEqual(["group:waveterm:2:0", "parent:bs", "parent:rv"]);
+    });
+
+    it("counts the reviewer in the brainstorm's group, and in its attn while it asks", () => {
+        const rows = buildAgentTree([brainstorm("reading"), reviewer("asking")], ["bs", "rv"]);
+        expect(shape(rows)).toEqual(["group:waveterm:2:1", "parent:bs", "  check:rv:reading"]);
+        expect(treeAgentCount(rows)).toBe(2);
+    });
+
+    it("draws the reviewer in the brainstorm's group, leaving no group for its own project", () => {
+        const rows = buildAgentTree([brainstorm("reading"), reviewer("working", LOOM)], ["rv", "bs"]);
+        expect(shape(rows)).toEqual(["group:waveterm:2:0", "parent:bs", "  check:rv:reading"]);
+    });
+
+    it("leaves the reviewer its own row when the brainstorm's row is a run's", () => {
+        const r: RunInfo = { runId: "run-1", channelId: "ch", title: "t", project: "waveterm" };
+        const rows = buildAgentTree([brainstorm("reading"), reviewer()], ["bs", "rv"], {
+            roles: { bs: { kind: "lead", runId: "run-1" } },
+            runs: { "run-1": r },
+        });
+        expect(shape(rows)).toEqual(["group:waveterm:2:0", "lead:bs", "parent:rv"]);
+    });
+});
+
 describe("buildAgentTree with run lineage", () => {
     const task = (id: string, state: string): TaskNode => ({ id, label: id, state }) as TaskNode;
     const run = (runId: string, tasks: TaskNode[], digest?: DagStatusDigest): RunInfo => ({
@@ -103,6 +169,8 @@ describe("buildAgentTree with run lineage", () => {
                     return `${r.kind}:${r.count}:${r.open}`;
                 case "parent":
                     return `parent:${r.agent.id}`;
+                case "check":
+                    return `check:${r.agent.id}:${r.state}`;
                 case "stage":
                     return `stage:${r.stageRole}:${r.agent.id}${r.lens ? `@${r.lens}` : ""}${r.outcome ? `:${r.outcome}` : ""}`;
                 case "final":
