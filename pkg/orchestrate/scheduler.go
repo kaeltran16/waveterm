@@ -79,13 +79,7 @@ func NextToSpawn(g *waveobj.TaskGroup) []string {
 	if g.Failures >= MaxConsecutiveFailures || planReviewHolds(g) {
 		return nil
 	}
-	busy := 0
-	for i := range g.Tasks {
-		if taskInFlight(g.Tasks[i].State) {
-			busy++
-		}
-	}
-	room := g.Parallelism - busy
+	room := g.Parallelism - slotsInUse(g)
 	if room <= 0 {
 		return nil
 	}

@@ -43,11 +43,22 @@ func taskActive(state string) bool {
 	return state == TaskState_Running || state == TaskState_Stalled
 }
 
-// taskInFlight reports a task that still holds its parallelism slot and its lane: a live worker, or a finished
-// worker's commit under review. taskActive is about the worker process alone, which a reviewing task no
-// longer has.
+// taskInFlight reports a task that still holds its lane and a share of the live-worker cap: a live worker, or a
+// finished worker's commit under review, whose reviewer is a process too. Its parallelism slot is slotsInUse's,
+// which a reviewing task does not hold: the review is short and works on no tree another lane writes.
 func taskInFlight(state string) bool {
 	return taskActive(state) || state == TaskState_Reviewing
+}
+
+// slotsInUse counts the tasks holding one of the run's parallelism slots: those with a live worker.
+func slotsInUse(g *waveobj.TaskGroup) int {
+	n := 0
+	for i := range g.Tasks {
+		if taskActive(g.Tasks[i].State) {
+			n++
+		}
+	}
+	return n
 }
 
 // reviewState reports a state the review loop owns. The worker's done run would derive done and erase it.

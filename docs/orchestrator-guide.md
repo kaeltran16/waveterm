@@ -166,7 +166,7 @@ sealed.
 | **Project** | Where the lead works and where lanes merge. Type to filter. |
 | **Shape → Orchestrator** | A lead plus the engine. |
 | **Start from → A goal** | "A lead works the goal with you in its terminal, then hands the engine a plan." |
-| **Parallelism** | How many lanes run at once, 1-8, default 3. Lowerable on a live run. |
+| **Parallelism** | How many workers run at once, 1-8, default 3. A task under review frees its slot for another lane. Lowerable on a live run. |
 | **Lead model** | The lead's route. It brainstorms, writes the spec and plan, and later judges wakes, so this is the model whose judgment a retry cannot recover. |
 | **Workers model** | The workers setting ([Routes](#4-routes)): Same as lead, Reviewer picks, or a route. Changeable on a live run for tasks not yet dispatched. |
 | **Reviewers model** | The reviewer route: task reviews, the plan review's full reviewer and the final verify. "Same as lead" unless set. |
@@ -453,7 +453,9 @@ Depends lines in the plan. Raising parallelism won't help. When slots are short,
 the ready task with the longest chain of tasks waiting behind it, then by task id, so a chain does not queue behind
 tasks nothing depends on.
 
-Parallelism is one run's width. Across every run on the machine the engine also starts at most 8 workers, and
+Parallelism is one run's width, counted in live workers: a task whose commit is under review holds its lane, so no
+task of that lane starts beside the reviewer, but not its slot. Across every run on the machine the engine also
+starts at most 8 workers, counting reviewers, and
 a new one only while at least 3.5 GB of memory is available: a worker's claude and its typecheck peak at about
 that. While another run waits, a run refills only to its share of the 8. A task held back stays pending and starts
 on a later tick, within 30 seconds of a worker finishing or memory freeing up; `dag status` still lists it as
