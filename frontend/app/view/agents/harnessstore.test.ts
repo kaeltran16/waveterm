@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const listHarnesses = vi.fn();
 const refreshRouteCatalog = vi.fn();
@@ -122,10 +122,24 @@ describe("harnessstore model catalog freshness", () => {
 });
 
 describe("harnessstore catalog load resilience", () => {
+    const sendLog = vi.fn();
     beforeEach(() => {
         vi.clearAllMocks();
         globalStore.set(harnessesAtom, []);
         refreshRouteCatalog.mockResolvedValue(undefined);
+        // the host api the app log is written through
+        vi.stubGlobal("window", { api: { sendLog } });
+    });
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    // the picker only ever shows that the list is missing, and the WebView console is not kept
+    it("writes a failed load to the app log with what failed", async () => {
+        listHarnesses.mockRejectedValue(new Error("EC-TIME: timeout waiting for response"));
+        await loadHarnesses();
+        expect(sendLog).toHaveBeenCalledTimes(1);
+        expect(sendLog.mock.calls[0][0]).toMatch(/harness catalog.*EC-TIME: timeout waiting for response/);
     });
 
     it("gives the catalog RPC more than the 5s default budget", async () => {

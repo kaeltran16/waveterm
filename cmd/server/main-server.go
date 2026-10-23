@@ -355,6 +355,7 @@ func main() {
 	blockcontroller.InitBlockController()
 	jarvisvolunteer.StartLooseEndSweep(context.Background())
 	memhygiene.StartSweep(context.Background())
+	go wshserver.WarmRouteCatalog() // the first picker to open finds the model catalog listed instead of waiting on the CLIs
 	err = wcore.InitBadgeStore()
 	if err != nil {
 		log.Printf("error initializing badge store: %v\n", err)

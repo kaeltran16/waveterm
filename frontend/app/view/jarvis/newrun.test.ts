@@ -271,11 +271,10 @@ describe("prefillToLaunch", () => {
         prototype: "C:/p/.superpowers/design/t/project/Main.dc.html",
     };
 
-    it("opens an orchestrator goal start on the canvas's project, goal and prototype", () => {
+    it("opens an orchestrator run on the canvas's project, goal and prototype", () => {
         expect(prefillToLaunch(prefill, ["waveterm", "other"])).toEqual({
             picked: "waveterm",
             shape: "orchestrator",
-            start: "goal",
             goal: prefill.goal,
             prototype: prefill.prototype,
         });
@@ -285,7 +284,6 @@ describe("prefillToLaunch", () => {
         expect(prefillToLaunch(prefill, ["other"])).toEqual({
             picked: null,
             shape: "orchestrator",
-            start: "goal",
             goal: prefill.goal,
             prototype: prefill.prototype,
         });

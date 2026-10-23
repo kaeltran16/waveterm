@@ -104,12 +104,20 @@ export function setAutonomous(next: boolean): void {
 //
 // Untouched controls return to their launch baselines first: a field the profile used to state and no
 // longer states has to revert, or the launcher would keep offering a setup the saved profile abandoned.
-export function hydrateRunConfigFromProfile(profile: JarvisProfile | null | undefined): void {
+//
+// `shape` is the shape something opened + Run for (a canvas's Build this…, the brainstorm's Approve, the palette's
+// Quick and Orchestrate). It stands over the profile's own, but it is not a hand edit: applied as one, it stopped the
+// profile filling in everything else, and an orchestrator opened from a brainstorm showed 3 workers on Same as lead
+// under a profile that said 4 on Reviewer picks.
+export function hydrateRunConfigFromProfile(
+    profile: JarvisProfile | null | undefined,
+    shape: RunShape | null = null
+): void {
     if (globalStore.get(configTouchedAtom)) {
         return;
     }
     const defaults = profileRunDefaults(profile);
-    globalStore.set(runShapeAtom, defaults.shape ?? LAUNCH_SHAPE);
+    globalStore.set(runShapeAtom, shape ?? defaults.shape ?? LAUNCH_SHAPE);
     globalStore.set(parallelismAtom, defaults.parallelism ?? DEFAULT_PARALLELISM);
     globalStore.set(startAtom, DEFAULT_START);
     globalStore.set(planPathAtom, "");
@@ -195,4 +203,13 @@ export function resetRunConfigForChannel(channelId: string | null, keepTouched =
 // otherwise leak it into the next test's first resetRunConfigForChannel call
 export function forgetConfiguredChannel(): void {
     configuredChannel = undefined;
+}
+
+// + Run is one launch per open, so every open starts a fresh draft. The window drops its goal when it closes, and
+// the choices made beside that goal used to stay: a cancelled draft, or one a prefill had marked as edited, kept
+// every later open of the same project off its profile and its lead off the harness preference, until a launch or
+// a different project cleared it.
+export function beginRunConfigDraft(): void {
+    configuredChannel = undefined;
+    resetRunConfig();
 }

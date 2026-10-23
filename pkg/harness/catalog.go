@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Operation string
@@ -95,9 +96,21 @@ type ProbeResult struct {
 // lookPath is a seam for tests; production behavior is exec.LookPath.
 var lookPath = exec.LookPath
 
-// versionCommand is a seam for tests; production behavior is `<bin> --version` under the caller ctx.
+// A version is shown, never needed, so a harness whose --version stalls is listed without one rather than holding
+// up the list. A var for tests.
+var versionProbeTimeout = 5 * time.Second
+
+// how long a probe past its bound still waits for its output pipe to close
+const versionWaitDelay = 2 * time.Second
+
+// versionCommand is a seam for tests; production behavior is `<bin> --version` under the caller ctx, bounded.
 var versionCommand = func(ctx context.Context, bin string) ([]byte, error) {
-	return exec.CommandContext(ctx, bin, "--version").CombinedOutput()
+	ctx, cancel := context.WithTimeout(ctx, versionProbeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "--version")
+	// pi is pi.cmd on Windows: the bound kills the shim, and its node child keeps the output pipe open
+	cmd.WaitDelay = versionWaitDelay
+	return cmd.CombinedOutput()
 }
 
 func ValidateInstalled(runtime string, operation Operation) (Spec, error) {

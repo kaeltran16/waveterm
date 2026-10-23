@@ -16934,6 +16934,196 @@ const paletteGoal = {
     },
 };
 
+// --- new-run-defaults: + Run opens on the project's saved profile and the harness preference, from the app bar and
+// from a prefill (the palette's Orchestrate, the path a brainstorm's Approve and a canvas's Build this… take), and its
+// Lead picker lists the model catalog. The profile is an override on the fixture's own channel rather than the global
+// one, so the developer's vault is left alone; the launcher hydrates from the resolved profile either way.
+const NEW_RUN_DEFAULTS_PROJECT = "verify-new-run-defaults";
+// quick, so a prefill's orchestrator is visibly its own shape while everything else comes from here
+const NEW_RUN_DEFAULTS_PROFILE = { defaultmode: "quick", parallelism: 5, reviewerpicks: true, autonomous: true };
+const NEW_RUN_FACE = `(() => {
+    const d = ${NEW_RUN};
+    if (!d) return null;
+    const flat = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
+    const pressed = [...d.querySelectorAll('button[aria-pressed="true"]')].map(flat);
+    const picker = (label) => flat(d.querySelector('[data-testid="route-picker"][aria-label="' + label + '"]')) || null;
+    return {
+        project: flat(${NEW_RUN_FIELD}),
+        shape: pressed.some((t) => t.startsWith('orchestrator')) ? 'orchestrator' : pressed.some((t) => t.startsWith('quick')) ? 'quick' : null,
+        workers: d.querySelector('[aria-label="Fewer concurrent workers"]')?.nextElementSibling?.textContent.trim() ?? null,
+        approvals: pressed.find((t) => t === 'Autonomous' || t === 'Ask me') ?? null,
+        lead: picker('Lead model'),
+        workersModel: picker('Workers model'),
+        goal: d.querySelector('textarea[aria-label="Goal"]')?.value ?? null,
+    };
+})()`;
+const NEW_RUN_CANCEL = `[...(${NEW_RUN}?.querySelectorAll('[data-new-run-footer] button') ?? [])].find((b) => b.textContent.trim() === 'Cancel')?.click()`;
+// the Lead picker's open list: its model rows, and the empty-list line it shows instead of them
+const LEAD_PICKER_LIST = `(() => {
+    const panel = document.querySelector('[role="group"][aria-label="Available routes"]');
+    if (!panel) return null;
+    const rows = [...panel.querySelectorAll('[data-testid^="route-option-"]')]
+        .map((b) => b.getAttribute('data-testid'))
+        .filter((id) => id !== 'route-option-inherit' && id !== 'route-option-extra');
+    const empty = [...panel.querySelectorAll('div')].map((d) => d.textContent.trim()).find((t) => t === 'Loading models…' || t === 'No run routes available.') ?? null;
+    return { rows, empty };
+})()`;
+
+async function openNewRunFace(h) {
+    await h.ev(`document.querySelector('[data-new-run]')?.click()`);
+    if (!(await polishWaitFor(h, `!!${NEW_RUN}`, 5000))) return null;
+    // the project's profile is read after the window draws
+    await polishNap(1500);
+    return h.ev(NEW_RUN_FACE);
+}
+
+async function closeNewRun(h) {
+    await h.ev(NEW_RUN_CANCEL);
+    await polishWaitFor(h, `!${NEW_RUN}`, 3000);
+}
+
+const newRunDefaults = {
+    name: "new-run-defaults",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-new-run-defaults-"));
+        const ctx = { cwd };
+        try {
+            await h.rpc("createproject", { name: NEW_RUN_DEFAULTS_PROJECT, path: cwd });
+            ctx.project = NEW_RUN_DEFAULTS_PROJECT;
+            await waitForProjectInConfig(h, NEW_RUN_DEFAULTS_PROJECT);
+            const ch = await h.rpc("createchannel", { name: NEW_RUN_DEFAULTS_PROJECT, projectpath: cwd });
+            ctx.channelId = ch.oid;
+            await h.rpc("setchannelprofile", { channelid: ctx.channelId, override: NEW_RUN_DEFAULTS_PROFILE });
+            const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
+            ctx.preferredModel = settings["harness:preferredmodel"] || "default";
+            // + Run opens on the most recent project
+            ctx.prevRecent = await h.ev(`localStorage.getItem(${JSON.stringify(RECENT_PROJECTS_KEY)})`);
+            const recent = [NEW_RUN_DEFAULTS_PROJECT, ...JSON.parse(ctx.prevRecent ?? "[]")];
+            await h.ev(`localStorage.setItem(${JSON.stringify(RECENT_PROJECTS_KEY)}, ${JSON.stringify(JSON.stringify(recent))})`);
+            await polishReload(h);
+            // the palette's launch block starts in the active project
+            await h.rpc("uireveal", { address: `channel:${ctx.channelId}` }, UI_ROUTE);
+            await polishNap(600);
+            await h.ev(PEEKS_ESC);
+            await polishNap(300);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. a project whose channel saves a profile was made", false, ctx.arrangeError);
+            return steps;
+        }
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        const preferred = ` · ${ctx.preferredModel}`;
+
+        const plain = await openNewRunFace(h);
+        await h.shot("cdp-shots/new-run-defaults-1-plain.png");
+        rec(
+            "1. + Run opens on the project's profile (quick) with the harness preference as the lead",
+            plain != null &&
+                plain.project.startsWith(NEW_RUN_DEFAULTS_PROJECT) &&
+                plain.shape === "quick" &&
+                (plain.lead ?? "").endsWith(preferred),
+            JSON.stringify({ ...plain, preferred: ctx.preferredModel })
+        );
+        if (plain == null) return steps;
+
+        // hand edits: the shape, the width and the lead, then the window is closed without launching
+        await h.ev(
+            `[...(${NEW_RUN}?.querySelectorAll('button[aria-pressed]') ?? [])].find((b) => b.firstElementChild?.textContent.trim() === 'orchestrator')?.click()`
+        );
+        await polishNap(200);
+        await h.ev(`${NEW_RUN}?.querySelector('[aria-label="Fewer concurrent workers"]')?.click()`);
+        await h.ev(`${NEW_RUN}?.querySelector('[data-testid="route-picker"][aria-label="Lead model"]')?.click()`);
+        await polishWaitFor(h, `(${LEAD_PICKER_LIST})?.rows.length > 0`, 20000);
+        const other = await h.ev(
+            `(${LEAD_PICKER_LIST})?.rows.find((id) => !id.endsWith(${JSON.stringify("-" + ctx.preferredModel)})) ?? null`
+        );
+        if (other != null) await h.ev(`document.querySelector('[data-testid=${JSON.stringify(other)}]')?.click()`);
+        await polishNap(300);
+        const edited = await h.ev(NEW_RUN_FACE);
+        await closeNewRun(h);
+        const reopened = await openNewRunFace(h);
+        rec(
+            "2. the next + Run drops the closed window's hand edits and is back on the profile and the preference",
+            edited?.shape === "orchestrator" &&
+                !(edited.lead ?? "").endsWith(preferred) &&
+                reopened != null &&
+                reopened.shape === "quick" &&
+                (reopened.lead ?? "").endsWith(preferred),
+            JSON.stringify({ edited, reopened })
+        );
+        await closeNewRun(h);
+
+        // the prefill path: the palette's Orchestrate fills the window the way a brainstorm's Approve does
+        const goal = `zqvx${Date.now() % 100000} verify the launcher defaults`;
+        const paletteOpen = await openPalette(h);
+        await h.ev(setInputExpr(PALETTE_INPUT, goal));
+        await paletteStateWhen(h, (s) => s.groups[0]?.label === `Start in #${NEW_RUN_DEFAULTS_PROJECT}`, 3000);
+        await h.ev(paletteKey("ArrowDown"));
+        const onOrch = await paletteStateWhen(h, (s) => (s.selected ?? "").startsWith("Orchestrate"), 2000);
+        await h.ev(paletteKey("Enter"));
+        await polishWaitFor(
+            h,
+            `${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value === ${JSON.stringify(goal)}`,
+            5000
+        );
+        await polishNap(1500);
+        const prefilled = await h.ev(NEW_RUN_FACE);
+        await h.shot("cdp-shots/new-run-defaults-2-prefill.png");
+        rec(
+            "3. a prefilled window keeps the orchestrator it was opened for and takes the width, Reviewer picks, Autonomous and the lead from the profile and the preference",
+            paletteOpen &&
+                (onOrch?.selected ?? "").startsWith("Orchestrate") &&
+                prefilled != null &&
+                prefilled.goal === goal &&
+                prefilled.shape === "orchestrator" &&
+                prefilled.workers === "5" &&
+                prefilled.workersModel === "Reviewer picks" &&
+                prefilled.approvals === "Autonomous" &&
+                (prefilled.lead ?? "").endsWith(preferred),
+            JSON.stringify({ selected: onOrch?.selected, ...prefilled })
+        );
+
+        await h.ev(`${NEW_RUN}?.querySelector('[data-testid="route-picker"][aria-label="Lead model"]')?.click()`);
+        await polishWaitFor(h, `(${LEAD_PICKER_LIST})?.rows.length > 0`, 20000);
+        const list = await h.ev(LEAD_PICKER_LIST);
+        await h.shot("cdp-shots/new-run-defaults-3-lead-picker.png");
+        rec(
+            "4. the Lead picker lists the model catalog",
+            list != null && list.rows.length > 0 && list.empty == null,
+            JSON.stringify({ rows: list?.rows.length, first: list?.rows.slice(0, 3), empty: list?.empty })
+        );
+        await h.ev(PEEKS_ESC);
+        await closeNewRun(h);
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(PEEKS_ESC).catch(() => {});
+        await h.ev(NEW_RUN_CANCEL).catch(() => {});
+        if (ctx.prevRecent !== undefined) {
+            const key = JSON.stringify(RECENT_PROJECTS_KEY);
+            await h
+                .ev(
+                    ctx.prevRecent === null
+                        ? `localStorage.removeItem(${key})`
+                        : `localStorage.setItem(${key}, ${JSON.stringify(ctx.prevRecent)})`
+                )
+                .catch(() => {});
+        }
+        await teardownFixtureRun(h, ctx, "new-run-defaults", {
+            what: "delete the project",
+            fn: () => (ctx.project ? h.rpc("deleteproject", { name: ctx.project }) : null),
+        });
+    },
+};
+
 // --- palette-notes: the Notes scope of Ctrl+P (docs/superpowers/plans/2026-10-08-user-notes-palette.md)
 // The vault may already hold notes, some of today's: rows are found by the run's stamp, and arrange adds its own
 // last so they lead the list.
@@ -25264,6 +25454,7 @@ export const SCENARIOS = [
     paletteActions,
     autonomousRuns,
     paletteGoal,
+    newRunDefaults,
     paletteNotes,
     modelPicks,
     planReviewRounds,

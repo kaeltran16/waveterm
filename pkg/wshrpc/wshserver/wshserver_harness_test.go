@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -205,5 +207,139 @@ func TestListRefusedRoutesUntilRefresh(t *testing.T) {
 	}
 	if rtn, err = ws.ListRefusedRoutesCommand(context.Background()); err != nil || len(rtn.Routes) != 0 {
 		t.Fatalf("refresh must forget refusals, got %+v, %v", rtn, err)
+	}
+}
+
+// slowPiCatalog stands in for the harness CLIs: claude answers at once and pi waits for release, the way a cold
+// `pi --list-models` spends seconds under load. Both fail on a done context, as exec.CommandContext does.
+type slowPiCatalog struct {
+	release    chan struct{}
+	piCalls    atomic.Int32
+	claudeCall atomic.Int32
+}
+
+func newSlowPiCatalog(t *testing.T) *slowPiCatalog {
+	c := &slowPiCatalog{release: make(chan struct{})}
+	restore := runroute.SetCatalogCommandForTest(func(ctx context.Context, bin string, _ ...string) ([]byte, error) {
+		if bin == "pi" {
+			c.piCalls.Add(1)
+			select {
+			case <-c.release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			return []byte("provider model context\nopenai gpt-x 128K\n"), nil
+		}
+		c.claudeCall.Add(1)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return []byte("  --model <model>  Model for the current session, an alias like 'sonnet' or 'opus'\n"), nil
+	})
+	runroute.RefreshRouteCatalog()
+	old := probeHarnesses
+	probeHarnesses = func(ctx context.Context) []harness.ProbeResult {
+		return []harness.ProbeResult{
+			{Spec: harness.Spec{Runtime: "pi", Label: "Pi", RunWorkerCapable: true}, Installed: true},
+			{Spec: harness.Spec{Runtime: "claude", Label: "Claude Code", RunWorkerCapable: true}, Installed: true},
+		}
+	}
+	t.Cleanup(func() {
+		c.releasePi()
+		// no enumeration may outlive the test into the next one's cache
+		c.waitForModels(t, "pi")
+		probeHarnesses = old
+		restore()
+		runroute.RefreshRouteCatalog()
+	})
+	return c
+}
+
+func (c *slowPiCatalog) releasePi() {
+	select {
+	case <-c.release:
+	default:
+		close(c.release)
+	}
+}
+
+func listedModels(t *testing.T, ctx context.Context, runtime string) []string {
+	t.Helper()
+	rtn, err := (&WshServer{}).ListHarnessesCommand(ctx)
+	if err != nil {
+		t.Fatalf("ListHarnessesCommand: %v", err)
+	}
+	models := []string{}
+	for _, h := range rtn.Harnesses {
+		for _, c := range h.RouteCapabilities {
+			if h.Runtime == runtime && c.Model != "" {
+				models = append(models, c.Model)
+			}
+		}
+	}
+	return models
+}
+
+func (c *slowPiCatalog) waitForModels(t *testing.T, runtime string) []string {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if models := listedModels(t, context.Background(), runtime); len(models) > 0 {
+			return models
+		}
+	}
+	t.Fatalf("%s models never listed", runtime)
+	return nil
+}
+
+// A slow pi spent the whole request's deadline, claude was then enumerated on an expired context, and the picker
+// listed no model at all: the launcher's "Loading models…" with nothing under it.
+func TestListHarnessesListsClaudeWhilePiIsSlow(t *testing.T) {
+	newSlowPiCatalog(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	claude := listedModels(t, ctx, "claude")
+
+	if !slices.Contains(claude, "opus") {
+		t.Fatalf("claude models = %v while pi was still listing, want opus among them", claude)
+	}
+}
+
+// The request that started an enumeration giving up must not throw the enumeration away: it used to die with the
+// request, nothing was cached, and the next picker open spawned the same CLI again from cold.
+func TestListHarnessesFinishesTheCatalogPastTheCallersDeadline(t *testing.T) {
+	c := newSlowPiCatalog(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if early := listedModels(t, ctx, "pi"); len(early) != 0 {
+		t.Fatalf("pi models = %v before pi answered", early)
+	}
+
+	c.releasePi()
+	models := c.waitForModels(t, "pi")
+
+	if !slices.Contains(models, "openai/gpt-x") {
+		t.Fatalf("pi models = %v, want openai/gpt-x", models)
+	}
+	if n := c.piCalls.Load(); n != 1 {
+		t.Fatalf("pi --list-models ran %d times, want once: the first enumeration must fill the cache", n)
+	}
+}
+
+// the frontend's boot request is not the only thing that fills the catalog: wavesrv lists it at startup itself
+func TestWarmRouteCatalogListsModelsBeforeAnyPickerAsks(t *testing.T) {
+	c := newSlowPiCatalog(t)
+	c.releasePi()
+
+	WarmRouteCatalog()
+	piBefore, claudeBefore := c.piCalls.Load(), c.claudeCall.Load()
+	claude := listedModels(t, context.Background(), "claude")
+	pi := listedModels(t, context.Background(), "pi")
+
+	if !slices.Contains(claude, "opus") || !slices.Contains(pi, "openai/gpt-x") {
+		t.Fatalf("claude = %v, pi = %v after the warm-up, want both listed", claude, pi)
+	}
+	if c.piCalls.Load() != piBefore || c.claudeCall.Load() != claudeBefore {
+		t.Fatal("a picker's listing re-ran a harness CLI the warm-up had already listed")
 	}
 }
