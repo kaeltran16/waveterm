@@ -6,10 +6,13 @@ package wshserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,41 +28,132 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// builderCheckPollEvery is how often a watcher judges its reviewer's run.
-const builderCheckPollEvery = 5 * time.Second
+// brainstormPollEvery is how often a watcher judges its session's run.
+const brainstormPollEvery = 5 * time.Second
 
 const (
-	builderCheckReading  = "reading"
-	builderCheckAnswered = "answered"
-	builderCheckFailed   = "failed"
+	brainstormReading  = "reading"
+	brainstormAnswered = "answered"
+	brainstormFailed   = "failed"
 
 	builderCheckRestartedReason = "Arc restarted before the builder started."
-	builderCheckDetachedReason  = "Arc restarted and the brainstorm is no longer attached to this tab."
+	judgeRestartedReason        = "Arc restarted before the judge started."
+	brainstormDetachedReason    = "Arc restarted and the brainstorm is no longer attached to this tab."
+
+	// heads JudgingSessionLost's verdict, a lowercase clause such as "it gave no verdict within 10m0s"
+	judgeLostHead = "The judge was lost: "
 )
 
-// launchBuilderCheck starts the reviewer's session. A var so tests spawn no worker.
-var launchBuilderCheck = orchestrate.LaunchJudgingSession
-
-// readBuilderCheckRun reads the reviewer's run. A var so tests can script it.
-var readBuilderCheckRun = wstore.GetRun
-
-// armBuilderCheck starts a check's watcher on a detached context, off the handler's RPC budget. A var so tests
-// drive the watcher's steps themselves.
-var armBuilderCheck = func(c builderCheck) { go watchBuilderCheck(context.Background(), c) }
-
-// builderCheckMu makes the handler's not-reading check and its reading write one step.
-var builderCheckMu sync.Mutex
-
-// builderCheck is one check in flight. Project, Spec and Title are set only before the launch; RunId, ChannelId
-// once the reviewer is launched. StartedTs is the record's checkts.
-type builderCheck struct {
-	TabId, BlockId, File string
-	Project, Spec, Title string
-	RunId, ChannelId     string
-	StartedTs            int64
+// asSentence ends reason with a period: the pane and the agent's line print a judge's failure as a sentence.
+func asSentence(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" || strings.HasSuffix(reason, ".") {
+		return reason
+	}
+	return reason + "."
 }
 
-// brainstormDoc is what the check reads from brainstorm.json.
+// launchBrainstormSession starts a builder check's reviewer or a judge. A var so tests spawn no worker.
+var launchBrainstormSession = orchestrate.LaunchJudgingSession
+
+// readBrainstormRun reads a session's run. A var so tests can script it.
+var readBrainstormRun = wstore.GetRun
+
+// armBrainstormSession starts a session's watcher on a detached context, off the handler's RPC budget. A var so
+// tests drive the watcher's steps themselves.
+var armBrainstormSession = func(s brainstormSession) { go watchBrainstormSession(context.Background(), s) }
+
+// sessionKind is what differs between the two one-shot sessions Arc runs on a brainstorm: the builder check and
+// the judge of an approach question. Each has its own record on the agent's tab, and one of each may read at once.
+type sessionKind struct {
+	what                                           string // names the kind in errors and logs
+	stateKey, tsKey, runKey, channelKey, reasonKey string
+	// mu makes the handler's not-reading check and its reading write one step
+	mu         sync.Mutex
+	busy       string // the refusal while one is reading
+	role       string
+	labelHead  string
+	reportFile string // the session's report file in the temp dir, a Sprintf pattern for a uuid
+	route      func(ch *waveobj.Channel, agent string) waveobj.RoutePin
+	prompt     func(s brainstormSession, reportPath string) (string, error)
+	// decide judges the run; on Deliver it returns the bytes to write to resultPath
+	decide      func(run *waveobj.Run, lostReason string) (brainstormcheck.Action, []byte)
+	resultPath  func(brainstormFile string) string
+	line        func(path string) string
+	failLine    func(reason string) string // nil when the pane shows the failure on its own card
+	failReason  func(reason string) string // the failure as recorded and sent; nil keeps it as is
+	startFailed string                     // the head of a launch error's reason
+	writeFailed string                     // a Sprintf pattern for the result path and the write error
+	restarted   string
+}
+
+var builderCheckKind = &sessionKind{
+	what:     "builder check",
+	stateKey: waveobj.MetaKey_BrainstormCheckState, tsKey: waveobj.MetaKey_BrainstormCheckTs,
+	runKey: waveobj.MetaKey_BrainstormCheckRun, channelKey: waveobj.MetaKey_BrainstormCheckChannel,
+	reasonKey:  waveobj.MetaKey_BrainstormCheckReason,
+	busy:       "a builder check is already running",
+	role:       jarvis.UsageRole_BuilderCheck,
+	labelHead:  "Builder check · ",
+	reportFile: "builder-check-%s.md",
+	route:      builderCheckRoute,
+	prompt: func(s brainstormSession, reportPath string) (string, error) {
+		return brainstormcheck.Prompt(s.Spec, reportPath), nil
+	},
+	decide: func(run *waveobj.Run, lostReason string) (brainstormcheck.Action, []byte) {
+		action := brainstormcheck.Decide(run, lostReason)
+		if action.Kind != brainstormcheck.Deliver {
+			return action, nil
+		}
+		return action, []byte(run.Report)
+	},
+	resultPath:  brainstormcheck.ReportPath,
+	line:        brainstormcheck.Line,
+	startFailed: "Arc could not start the builder: ",
+	writeFailed: "Arc could not write the builder's questions to %s: %v",
+	restarted:   builderCheckRestartedReason,
+}
+
+var judgeKind = &sessionKind{
+	what:     "judge",
+	stateKey: waveobj.MetaKey_BrainstormJudgeState, tsKey: waveobj.MetaKey_BrainstormJudgeTs,
+	runKey: waveobj.MetaKey_BrainstormJudgeRun, channelKey: waveobj.MetaKey_BrainstormJudgeChannel,
+	reasonKey:  waveobj.MetaKey_BrainstormJudgeReason,
+	busy:       "a judge is already weighing this brainstorm's question",
+	role:       jarvis.UsageRole_BrainstormJudge,
+	labelHead:  "Judge · ",
+	reportFile: "brainstorm-judge-%s.json",
+	// answer 14's model, whatever the agent runs on and whatever reviewer the run settings name (D4)
+	route: func(*waveobj.Channel, string) waveobj.RoutePin {
+		return waveobj.RoutePin{Runtime: "claude", Model: "opus"}
+	},
+	prompt: judgePrompt,
+	decide: func(run *waveobj.Run, lostReason string) (brainstormcheck.Action, []byte) {
+		if lostReason != "" {
+			lostReason = judgeLostHead + lostReason
+		}
+		return brainstormcheck.DecideJudge(run, lostReason)
+	},
+	resultPath:  brainstormcheck.JudgeResultPath,
+	line:        brainstormcheck.JudgedLine,
+	failLine:    brainstormcheck.JudgeFailedLine,
+	failReason:  asSentence,
+	startFailed: "Arc could not start the judge: ",
+	writeFailed: "Arc could not write the judge's result to %s: %v",
+	restarted:   judgeRestartedReason,
+}
+
+// brainstormSession is one session in flight. Project, Spec, Title and Line are set only before the launch;
+// RunId, ChannelId once it is launched. StartedTs is the record's ts.
+type brainstormSession struct {
+	Kind                       *sessionKind
+	TabId, BlockId, File       string
+	Project, Spec, Title, Line string
+	RunId, ChannelId           string
+	StartedTs                  int64
+}
+
+// brainstormDoc is what every session reads from brainstorm.json.
 type brainstormDoc struct {
 	Title string `json:"title"`
 	Spec  string `json:"spec"`
@@ -69,65 +163,98 @@ func (ws *WshServer) BrainstormCheckCommand(ctx context.Context, data wshrpc.Com
 	if data.BlockId == "" || data.File == "" {
 		return fmt.Errorf("a block id and a brainstorm file are required")
 	}
-	c, err := readBrainstormForCheck(data.File)
+	s, err := readBrainstormForCheck(data.File)
 	if err != nil {
 		return err
 	}
-	c.BlockId = data.BlockId
-	c.TabId, err = wstore.DBFindTabForBlockId(ctx, data.BlockId)
+	return startBrainstormSession(ctx, data.BlockId, s)
+}
+
+func (ws *WshServer) BrainstormJudgeCommand(ctx context.Context, data wshrpc.CommandBrainstormJudgeData) error {
+	if data.BlockId == "" || data.File == "" {
+		return fmt.Errorf("a block id and a brainstorm file are required")
+	}
+	s, raw, err := readBrainstorm(data.File)
 	if err != nil {
-		return fmt.Errorf("finding the tab of block %s: %w", data.BlockId, err)
-	}
-	builderCheckMu.Lock()
-	defer builderCheckMu.Unlock()
-	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, c.TabId)
-	if err != nil {
-		return fmt.Errorf("loading tab %s: %w", c.TabId, err)
-	}
-	if tab.Meta.GetString(waveobj.MetaKey_BrainstormCheckState, "") == builderCheckReading {
-		return fmt.Errorf("a builder check is already running")
-	}
-	c.StartedTs = time.Now().UnixMilli()
-	if err := setBuilderCheck(ctx, c.TabId, builderCheckReading, c.StartedTs, "", "", ""); err != nil {
 		return err
 	}
-	armBuilderCheck(c)
+	if _, err := brainstormcheck.ReadJudgeInput(raw); err != nil {
+		return err
+	}
+	s.Kind, s.Line = judgeKind, data.Line
+	return startBrainstormSession(ctx, data.BlockId, s)
+}
+
+// startBrainstormSession writes s's reading record on the agent's tab and arms its watcher, refusing while a
+// session of its kind already reads there.
+func startBrainstormSession(ctx context.Context, blockId string, s brainstormSession) error {
+	k := s.Kind
+	s.BlockId = blockId
+	var err error
+	s.TabId, err = wstore.DBFindTabForBlockId(ctx, blockId)
+	if err != nil {
+		return fmt.Errorf("finding the tab of block %s: %w", blockId, err)
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, s.TabId)
+	if err != nil {
+		return fmt.Errorf("loading tab %s: %w", s.TabId, err)
+	}
+	if tab.Meta.GetString(k.stateKey, "") == brainstormReading {
+		return errors.New(k.busy)
+	}
+	s.StartedTs = time.Now().UnixMilli()
+	if err := setBrainstormRecord(ctx, k, s.TabId, brainstormReading, s.StartedTs, "", "", ""); err != nil {
+		return err
+	}
+	armBrainstormSession(s)
 	return nil
 }
 
-// readBrainstormForCheck reads file and checks that the spec it names exists, relative to the brainstorm's
-// project: the directory above .superpowers.
-func readBrainstormForCheck(file string) (builderCheck, error) {
+// readBrainstorm reads file, which must be an absolute path under a .superpowers directory, and returns its
+// session (no kind yet) and its bytes.
+func readBrainstorm(file string) (brainstormSession, []byte, error) {
 	if !filepath.IsAbs(file) {
-		return builderCheck{}, fmt.Errorf("the brainstorm file must be an absolute path: %s", file)
+		return brainstormSession{}, nil, fmt.Errorf("the brainstorm file must be an absolute path: %s", file)
 	}
 	raw, err := os.ReadFile(file)
 	if err != nil {
-		return builderCheck{}, fmt.Errorf("reading %s: %w", file, err)
+		return brainstormSession{}, nil, fmt.Errorf("reading %s: %w", file, err)
 	}
 	var doc brainstormDoc
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return builderCheck{}, fmt.Errorf("%s is not valid JSON: %w", file, err)
-	}
-	if doc.Spec == "" {
-		return builderCheck{}, fmt.Errorf("%s names no spec: set spec to the spec's path", file)
+		return brainstormSession{}, nil, fmt.Errorf("%s is not valid JSON: %w", file, err)
 	}
 	project, err := brainstormProject(file)
 	if err != nil {
-		return builderCheck{}, err
-	}
-	spec := doc.Spec
-	if !filepath.IsAbs(spec) {
-		spec = filepath.Join(project, spec)
-	}
-	if info, err := os.Stat(spec); err != nil || info.IsDir() {
-		return builderCheck{}, fmt.Errorf("the spec %s does not exist: write it before starting the check", spec)
+		return brainstormSession{}, nil, err
 	}
 	title := doc.Title
 	if title == "" {
 		title = filepath.Base(filepath.Dir(file))
 	}
-	return builderCheck{File: file, Project: project, Spec: spec, Title: title}, nil
+	return brainstormSession{File: file, Project: project, Spec: doc.Spec, Title: title}, raw, nil
+}
+
+// readBrainstormForCheck reads file and checks that the spec it names exists, relative to the brainstorm's
+// project: the directory above .superpowers.
+func readBrainstormForCheck(file string) (brainstormSession, error) {
+	s, _, err := readBrainstorm(file)
+	if err != nil {
+		return brainstormSession{}, err
+	}
+	if s.Spec == "" {
+		return brainstormSession{}, fmt.Errorf("%s names no spec: set spec to the spec's path", file)
+	}
+	if !filepath.IsAbs(s.Spec) {
+		s.Spec = filepath.Join(s.Project, s.Spec)
+	}
+	if info, err := os.Stat(s.Spec); err != nil || info.IsDir() {
+		return brainstormSession{}, fmt.Errorf("the spec %s does not exist: write it before starting the check", s.Spec)
+	}
+	s.Kind = builderCheckKind
+	return s, nil
 }
 
 func brainstormProject(file string) (string, error) {
@@ -139,87 +266,108 @@ func brainstormProject(file string) (string, error) {
 	return "", fmt.Errorf("%s is not under a .superpowers directory", file)
 }
 
-// setBuilderCheck writes the check's record on the agent's tab, all five keys at once, clearing the empty ones,
-// and broadcasts the tab.
-func setBuilderCheck(ctx context.Context, tabId, state string, ts int64, run, channel, reason string) error {
-	meta := waveobj.MetaMapType{
-		waveobj.MetaKey_BrainstormCheckState:   state,
-		waveobj.MetaKey_BrainstormCheckTs:      ts,
-		waveobj.MetaKey_BrainstormCheckRun:     nil,
-		waveobj.MetaKey_BrainstormCheckChannel: nil,
-		waveobj.MetaKey_BrainstormCheckReason:  nil,
+// judgePrompt builds the judge's prompt from the file as it stands at launch, the list in a fresh random order.
+func judgePrompt(s brainstormSession, reportPath string) (string, error) {
+	raw, err := os.ReadFile(s.File)
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", s.File, err)
 	}
-	for key, val := range map[string]string{
-		waveobj.MetaKey_BrainstormCheckRun:     run,
-		waveobj.MetaKey_BrainstormCheckChannel: channel,
-		waveobj.MetaKey_BrainstormCheckReason:  reason,
-	} {
+	in, err := brainstormcheck.ReadJudgeInput(raw)
+	if err != nil {
+		return "", err
+	}
+	return brainstormcheck.JudgePrompt(in, s.Line, reportPath, rand.Shuffle), nil
+}
+
+// setBrainstormRecord writes k's record on the agent's tab, all five keys at once, clearing the empty ones, and
+// broadcasts the tab.
+func setBrainstormRecord(ctx context.Context, k *sessionKind, tabId, state string, ts int64, run, channel, reason string) error {
+	meta := waveobj.MetaMapType{
+		k.stateKey:   state,
+		k.tsKey:      ts,
+		k.runKey:     nil,
+		k.channelKey: nil,
+		k.reasonKey:  nil,
+	}
+	for key, val := range map[string]string{k.runKey: run, k.channelKey: channel, k.reasonKey: reason} {
 		if val != "" {
 			meta[key] = val
 		}
 	}
 	oref := waveobj.MakeORef(waveobj.OType_Tab, tabId)
 	if _, err := wstore.UpdateObjectMeta(ctx, oref, meta, false); err != nil {
-		return fmt.Errorf("writing the builder check on tab %s: %w", tabId, err)
+		return fmt.Errorf("writing the %s on tab %s: %w", k.what, tabId, err)
 	}
 	wcore.SendWaveObjUpdate(oref)
 	return nil
 }
 
-func failBuilderCheck(ctx context.Context, c builderCheck, reason string) {
-	if err := setBuilderCheck(ctx, c.TabId, builderCheckFailed, time.Now().UnixMilli(), c.RunId, c.ChannelId, reason); err != nil {
-		log.Printf("builder check: %v", err)
+// failBrainstormSession records s failed, and sends the agent the reason when the pane has no card to show it on.
+func failBrainstormSession(ctx context.Context, s brainstormSession, reason string) {
+	if s.Kind.failReason != nil {
+		reason = s.Kind.failReason(reason)
+	}
+	if err := setBrainstormRecord(ctx, s.Kind, s.TabId, brainstormFailed, time.Now().UnixMilli(), s.RunId, s.ChannelId, reason); err != nil {
+		log.Printf("%s: %v", s.Kind.what, err)
+	}
+	if s.Kind.failLine != nil && s.BlockId != "" {
+		deliverAgentMessage(s.BlockId, s.Kind.failLine(reason))
 	}
 }
 
-// watchBuilderCheck launches c's reviewer when it has none yet, then judges its run until it is delivered or
+// watchBrainstormSession launches s's session when it has none yet, then judges its run until it is delivered or
 // failed.
-func watchBuilderCheck(ctx context.Context, c builderCheck) {
-	if c.RunId == "" {
-		if err := startBuilderCheck(ctx, &c); err != nil {
-			failBuilderCheck(ctx, c, "Arc could not start the builder: "+err.Error())
+func watchBrainstormSession(ctx context.Context, s brainstormSession) {
+	if s.RunId == "" {
+		if err := launchSessionRun(ctx, &s); err != nil {
+			failBrainstormSession(ctx, s, s.Kind.startFailed+err.Error())
 			return
 		}
 	}
-	for !tickBuilderCheck(ctx, c, time.Now().UnixMilli()) {
-		time.Sleep(builderCheckPollEvery)
+	for !tickBrainstormSession(ctx, s, time.Now().UnixMilli()) {
+		time.Sleep(brainstormPollEvery)
 	}
 }
 
-// startBuilderCheck launches c's reviewer in the project's channel, in the workspace that holds the agent's tab,
+// launchSessionRun launches s's session in the project's channel, in the workspace that holds the agent's tab,
 // and records its run on the tab.
-func startBuilderCheck(ctx context.Context, c *builderCheck) error {
-	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, c.TabId)
+func launchSessionRun(ctx context.Context, s *brainstormSession) error {
+	k := s.Kind
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, s.TabId)
 	if err != nil {
-		return fmt.Errorf("loading tab %s: %w", c.TabId, err)
+		return fmt.Errorf("loading tab %s: %w", s.TabId, err)
 	}
 	name := tab.Meta.GetString(waveobj.MetaKey_SessionProject, "")
 	if name == "" {
-		name = filepath.Base(c.Project)
+		name = filepath.Base(s.Project)
 	}
-	ch, err := wstore.EnsureChannelAtPath(ctx, name, c.Project)
+	ch, err := wstore.EnsureChannelAtPath(ctx, name, s.Project)
 	if err != nil {
 		return fmt.Errorf("the project's channel: %w", err)
 	}
-	workspaceId, err := wstore.DBFindWorkspaceForTabId(ctx, c.TabId)
+	workspaceId, err := wstore.DBFindWorkspaceForTabId(ctx, s.TabId)
 	if err != nil {
-		return fmt.Errorf("finding the workspace of tab %s: %w", c.TabId, err)
+		return fmt.Errorf("finding the workspace of tab %s: %w", s.TabId, err)
 	}
 	if workspaceId == "" {
-		return fmt.Errorf("tab %s is in no workspace", c.TabId)
+		return fmt.Errorf("tab %s is in no workspace", s.TabId)
 	}
-	reportPath := filepath.Join(os.TempDir(), "builder-check-"+uuid.NewString()+".md")
-	runId, err := launchBuilderCheck(ctx, orchestrate.JudgingSession{
+	reportPath := filepath.Join(os.TempDir(), fmt.Sprintf(k.reportFile, uuid.NewString()))
+	prompt, err := k.prompt(*s, reportPath)
+	if err != nil {
+		return err
+	}
+	runId, err := launchBrainstormSession(ctx, orchestrate.JudgingSession{
 		ChannelId: ch.OID, WorkspaceId: workspaceId,
-		Role: jarvis.UsageRole_BuilderCheck, Label: "Builder check · " + c.Title, Tree: c.Project,
-		Prompt: brainstormcheck.Prompt(c.Spec, reportPath),
-		Route:  builderCheckRoute(ch, tab.Meta.GetString(waveobj.MetaKey_SessionAgent, "")),
+		Role: k.role, Label: k.labelHead + s.Title, Tree: s.Project,
+		Prompt: prompt,
+		Route:  k.route(ch, tab.Meta.GetString(waveobj.MetaKey_SessionAgent, "")),
 	})
 	if err != nil {
 		return err
 	}
-	c.RunId, c.ChannelId = runId, ch.OID
-	return setBuilderCheck(ctx, c.TabId, builderCheckReading, c.StartedTs, c.RunId, c.ChannelId, "")
+	s.RunId, s.ChannelId = runId, ch.OID
+	return setBrainstormRecord(ctx, k, s.TabId, brainstormReading, s.StartedTs, s.RunId, s.ChannelId, "")
 }
 
 // builderCheckRoute is the reviewer route of the run settings for ch, else the brainstorming agent's runtime when
@@ -235,69 +383,77 @@ func builderCheckRoute(ch *waveobj.Channel, agent string) waveobj.RoutePin {
 	return waveobj.RoutePin{Runtime: runroute.DefaultRuntime("")}
 }
 
-// tickBuilderCheck judges c's run once and acts on the verdict. It reports whether the check is settled.
-func tickBuilderCheck(ctx context.Context, c builderCheck, now int64) bool {
-	run, err := readBuilderCheckRun(ctx, c.ChannelId, c.RunId)
+// tickBrainstormSession judges s's run once and acts on the verdict. It reports whether the session is settled.
+func tickBrainstormSession(ctx context.Context, s brainstormSession, now int64) bool {
+	k := s.Kind
+	run, err := readBrainstormRun(ctx, s.ChannelId, s.RunId)
 	if err != nil {
 		run = nil
 	}
 	lost := ""
 	if run == nil || run.Status != jarvis.RunStatus_Done {
-		lost, _ = orchestrate.JudgingSessionLost(ctx, c.ChannelId, c.RunId, c.StartedTs, now)
+		lost, _ = orchestrate.JudgingSessionLost(ctx, s.ChannelId, s.RunId, s.StartedTs, now)
 	}
-	action := brainstormcheck.Decide(run, lost)
+	action, out := k.decide(run, lost)
 	switch action.Kind {
 	case brainstormcheck.Deliver:
-		path := brainstormcheck.ReportPath(c.File)
-		if err := os.WriteFile(path, []byte(run.Report), 0o644); err != nil {
-			failBuilderCheck(ctx, c, fmt.Sprintf("Arc could not write the builder's questions to %s: %v", path, err))
+		path := k.resultPath(s.File)
+		if err := os.WriteFile(path, out, 0o644); err != nil {
+			failBrainstormSession(ctx, s, fmt.Sprintf(k.writeFailed, path, err))
 			return true
 		}
-		deliverAgentMessage(c.BlockId, brainstormcheck.Line(path))
-		if err := setBuilderCheck(ctx, c.TabId, builderCheckAnswered, now, c.RunId, c.ChannelId, ""); err != nil {
-			log.Printf("builder check: %v", err)
+		deliverAgentMessage(s.BlockId, k.line(path))
+		if err := setBrainstormRecord(ctx, k, s.TabId, brainstormAnswered, now, s.RunId, s.ChannelId, ""); err != nil {
+			log.Printf("%s: %v", k.what, err)
 		}
 		return true
 	case brainstormcheck.Fail:
 		if run != nil && run.Status != jarvis.RunStatus_Done {
 			stopStageSession(*run)
 		}
-		failBuilderCheck(ctx, c, action.Reason)
+		failBrainstormSession(ctx, s, action.Reason)
 		return true
 	}
 	return false
 }
 
-// ResumeBuilderChecks re-arms the watcher of every check that was reading when wavesrv stopped, and fails one
-// whose reviewer never launched (D6). Called once at startup, after the store is up.
-func ResumeBuilderChecks(ctx context.Context) {
+// ResumeBrainstormSessions re-arms the watcher of every builder check and judge that was reading when wavesrv
+// stopped, and fails one whose session never launched (D6). Called once at startup, after the store is up.
+func ResumeBrainstormSessions(ctx context.Context) {
 	tabs, err := wstore.DBGetAllObjsByType[*waveobj.Tab](ctx, waveobj.OType_Tab)
 	if err != nil {
-		log.Printf("builder check: loading tabs: %v", err)
+		log.Printf("brainstorm sessions: loading tabs: %v", err)
 		return
 	}
 	for _, tab := range tabs {
-		if tab.Meta.GetString(waveobj.MetaKey_BrainstormCheckState, "") != builderCheckReading {
-			continue
+		for _, k := range []*sessionKind{builderCheckKind, judgeKind} {
+			resumeBrainstormSession(ctx, tab, k)
 		}
-		c := builderCheck{
-			TabId:     tab.OID,
-			File:      tab.Meta.GetString(waveobj.MetaKey_SessionBrainstorm, ""),
-			RunId:     tab.Meta.GetString(waveobj.MetaKey_BrainstormCheckRun, ""),
-			ChannelId: tab.Meta.GetString(waveobj.MetaKey_BrainstormCheckChannel, ""),
-			StartedTs: int64(tab.Meta.GetFloat(waveobj.MetaKey_BrainstormCheckTs, 0)),
-		}
-		if len(tab.BlockIds) > 0 {
-			c.BlockId = tab.BlockIds[0]
-		}
-		switch {
-		case c.RunId == "":
-			failBuilderCheck(ctx, c, builderCheckRestartedReason)
-		case c.File == "":
-			// the brainstorm was closed meanwhile: its questions have nowhere to go
-			failBuilderCheck(ctx, c, builderCheckDetachedReason)
-		default:
-			armBuilderCheck(c)
-		}
+	}
+}
+
+func resumeBrainstormSession(ctx context.Context, tab *waveobj.Tab, k *sessionKind) {
+	if tab.Meta.GetString(k.stateKey, "") != brainstormReading {
+		return
+	}
+	s := brainstormSession{
+		Kind:      k,
+		TabId:     tab.OID,
+		File:      tab.Meta.GetString(waveobj.MetaKey_SessionBrainstorm, ""),
+		RunId:     tab.Meta.GetString(k.runKey, ""),
+		ChannelId: tab.Meta.GetString(k.channelKey, ""),
+		StartedTs: int64(tab.Meta.GetFloat(k.tsKey, 0)),
+	}
+	if len(tab.BlockIds) > 0 {
+		s.BlockId = tab.BlockIds[0]
+	}
+	switch {
+	case s.RunId == "":
+		failBrainstormSession(ctx, s, k.restarted)
+	case s.File == "":
+		// the brainstorm was closed meanwhile: the result has nowhere to go
+		failBrainstormSession(ctx, s, brainstormDetachedReason)
+	default:
+		armBrainstormSession(s)
 	}
 }

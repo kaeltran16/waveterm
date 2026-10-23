@@ -25,6 +25,7 @@ type AgentCommands interface {
 	AgentsReadCommand(ctx context.Context, data CommandAgentsReadData) (*CommandAgentsReadRtnData, error)                                 // a live agent's state and last answer
 	AgentPromptCommand(ctx context.Context, data CommandAgentPromptData) error                                                            // the cockpit's own prompt to a block's agent session: its mod runs it, or it is typed
 	BrainstormCheckCommand(ctx context.Context, data CommandBrainstormCheckData) error                                                    // run the builder check on a brainstorm.json as a one-shot judging session
+	BrainstormJudgeCommand(ctx context.Context, data CommandBrainstormJudgeData) error                                                    // weigh a brainstorm.json's approach question with a one-shot blind judge
 }
 
 // what a live agent session is doing, as AgentInfo.State and CommandAgentsReadRtnData.State carry it.
@@ -60,6 +61,14 @@ type CommandAgentsSendData struct {
 type CommandBrainstormCheckData struct {
 	BlockId string `json:"blockid"`
 	File    string `json:"file"`
+}
+
+// CommandBrainstormJudgeData starts the judge of the open approach question: File and BlockId as for the builder
+// check, Line the user's pushback or "double check" as they typed it, on a rerun.
+type CommandBrainstormJudgeData struct {
+	BlockId string `json:"blockid"`
+	File    string `json:"file"`
+	Line    string `json:"line,omitempty"`
 }
 
 type CommandAgentPromptData struct {
