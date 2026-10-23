@@ -30,8 +30,6 @@ func FinalShotsRoot() string { return finalShotsRoot() }
 
 func SplitRunKey(key string) (runID, suffix string, ok bool) { return splitRunKey(key) }
 
-func UnlinkReparsePoints(dir string) error { return unlinkReparsePoints(dir) }
-
 // RunKeyForTreeDir maps a folder name under the worktree root to its engine key: a full key as is, a
 // <8-char prefix><suffix> name through the prefix's .run marker, either with the number a fresh path adds
 // (claimLaneTreeDir) dropped. ok=false: no marker, or not an engine name.
@@ -82,7 +80,7 @@ func RemoveRunWorktreeExclusive(ctx context.Context, projectPath, key, wantPath 
 	return RemoveRunWorktree(ctx, projectPath, key)
 }
 
-// RemoveDirExclusive deletes a folder no git tracks: UnlinkReparsePoints, then os.RemoveAll, under treeRemovals.
+// RemoveDirExclusive deletes a folder no git tracks: unlinkReparsePoints, then os.RemoveAll, under treeRemovals.
 func RemoveDirExclusive(path string) error {
 	if !treeRemovals.TryLock(path) {
 		return ErrTreeBusy

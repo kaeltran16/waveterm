@@ -54,8 +54,6 @@ func newMergeFixture(t *testing.T, tasks []waveobj.TaskNode) *mergeFixture {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// the plan gate is what holds an unapproved dag; these fixtures start past it
-	g.PlanApprovedTs = 1
 	if err := wstore.AppendDag(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
