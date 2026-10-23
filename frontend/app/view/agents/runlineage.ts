@@ -328,10 +328,14 @@ export function taskStateLabel(task: TaskNode, now: number): string | undefined 
 // a brainstorm's builder check runs as a run of its own with this stage role, and no lead
 export const BUILDER_CHECK_ROLE = "builder-check";
 
+// a brainstorm's judge runs the same way: a run of its own, no lead
+export const BRAINSTORM_JUDGE_ROLE = "brainstorm-judge";
+
 const STAGE_LABELS: Record<string, string> = {
     "plan-reviewer": "Plan review",
     verifier: "Final verification",
     [BUILDER_CHECK_ROLE]: "Builder check",
+    [BRAINSTORM_JUDGE_ROLE]: "Judge",
 };
 
 // stageLabel is what a stage session's row is titled.

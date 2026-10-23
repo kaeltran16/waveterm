@@ -8,7 +8,7 @@
 import type { LaunchAgentOpts } from "@/app/cockpit/cockpit-actions";
 import { formatAge, type AgentVM } from "./agentsviewmodel";
 import type { Runtime } from "./launch";
-import { BUILDER_CHECK_ROLE, planReviewerOf, runTitle, stageLabel, unmetDeps } from "./runlineage";
+import { BRAINSTORM_JUDGE_ROLE, BUILDER_CHECK_ROLE, planReviewerOf, runTitle, stageLabel, unmetDeps } from "./runlineage";
 import { runComplete } from "./runmodel";
 import type { LiveSession } from "./sessionsarchivestore";
 
@@ -49,9 +49,9 @@ export function groupRunSessions(list: LiveSession[]): { runs: RunSessions[]; so
     const byRun = new Map<string, RunSessions>();
     const solos: LiveSession[] = [];
     for (const s of list) {
-        // a builder check's run is its own, but the brainstorm pane is its only face: its session stays a solo, so
-        // the user can still open it
-        if (!s.runid || s.role === BUILDER_CHECK_ROLE) {
+        // a builder check's or judge's run is its own, but the brainstorm pane is its only face: its session stays a
+        // solo, so the user can still open it
+        if (!s.runid || s.role === BUILDER_CHECK_ROLE || s.role === BRAINSTORM_JUDGE_ROLE) {
             solos.push(s);
             continue;
         }

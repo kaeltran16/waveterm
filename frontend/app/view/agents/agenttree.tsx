@@ -44,7 +44,6 @@ import { finalRowFocusId, type FinalTone } from "./finalstage";
 import { useFinalStageView } from "./finalstageviews";
 import { LEAD_MARK_CLASS, leadMark } from "./leadcardmodel";
 import {
-    BUILDER_CHECK_ROLE,
     endedWorkerId,
     laneLabel,
     runAgentsOf,
@@ -894,7 +893,7 @@ const STAGE_OUTCOME_DOT: Record<Exclude<StageOutcome, "passed">, string> = {
     failed: "bg-error",
 };
 
-// a builder check's record, drawn as a stage's verdict: an answered check is its reviewer's work done
+// a builder check's or judge's record, drawn as a stage's verdict: an answered one is its session's work done
 const CHECK_OUTCOME: Record<BuilderCheckRecord["state"], StageOutcome | undefined> = {
     reading: undefined,
     answered: "passed",
@@ -1196,7 +1195,7 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                                     <StageRow
                                         model={model}
                                         agent={r.agent}
-                                        stageRole={BUILDER_CHECK_ROLE}
+                                        stageRole={r.stageRole}
                                         outcome={CHECK_OUTCOME[r.state]}
                                         verdict={r.state}
                                     />
