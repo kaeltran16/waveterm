@@ -18,6 +18,7 @@ import {
     detachCanvas,
     getCanvas,
     setCanvasMode,
+    setMark,
     setMarking,
     updateCanvas,
 } from "@/app/view/agents/canvasstore";
@@ -25,6 +26,7 @@ import {
     attachBrainstorm,
     detachBrainstorm,
     getBrainstorm,
+    openBrainstormBoard,
     openBrainstormDesign,
     setBrainstormMode,
     setReviewCursor,
@@ -587,6 +589,118 @@ describe("shell task peek vs agent Escape", () => {
 
         globalStore.set(renamingRowAtom, null);
         globalStore.set(shellTaskPeekAtom, null);
+    });
+});
+
+describe("brainstorm pane Escape", () => {
+    const nav: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+    const q = { n: 5, text: "Which layout?", part: "layout" };
+    const asking: BrainstormFile = {
+        v: 1,
+        title: "On-call",
+        spec: "",
+        question: q,
+        working: null,
+        parts: [{ id: "layout", title: "Layout", state: "asked", body: "" }],
+        history: [],
+        done: false,
+        check: null,
+        run: null,
+    };
+    let model: any;
+    const all = () => [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildAgentBindings(model)];
+    const back = () => all().find((b) => b.id === "agent:brainstorm-back")!;
+    const claiming = (c: KeyContext = nav) =>
+        all()
+            .filter((b) => b.keys === "Escape" && b.when?.(c) !== false)
+            .map((b) => b.id);
+    const pane = () => {
+        const s = getBrainstorm("a1")!;
+        return { board: s.board, designOpen: s.designOpen };
+    };
+
+    beforeEach(() => {
+        vi.stubGlobal("document", { activeElement: null });
+        model = {
+            ...stubModel("a1"),
+            surfaceAtom: atom<SurfaceKey>("agent"),
+            agentsAtom: atom<any[]>([{ id: "a1", name: "Agent", blockId: "b1" }]),
+        };
+        attachBrainstorm("a1", { topic: "oncall", cwd: "C:\\p" }, 0);
+        updateBrainstorm("a1", (s) => ({ ...s, file: asking }));
+        setBrainstormMode("a1", "brainstorm", 1);
+    });
+
+    afterEach(() => {
+        detachBrainstorm("a1");
+        detachCanvas("a1");
+        globalStore.set(escapeMenusOpenAtom, 0);
+        globalStore.set(focusSubagentAtom, null);
+        globalStore.set(shellTaskPeekAtom, null);
+        vi.unstubAllGlobals();
+    });
+
+    it("a board opened full size from the question: Esc goes back to the question, and is the only Escape claim", () => {
+        openBrainstormBoard("a1", "Split.dc.html");
+        expect(claiming()).toEqual(["agent:brainstorm-back"]);
+        back().run(nav);
+        expect(pane()).toEqual({ board: null, designOpen: false });
+        // the question is the top: nothing claims Esc there, as before
+        expect(claiming()).toEqual([]);
+    });
+
+    it("one level per press: a board opened off the design goes back to the design, and the design back to the question", () => {
+        openBrainstormDesign("a1", true);
+        openBrainstormBoard("a1", "Split.dc.html");
+        back().run(nav);
+        expect(pane()).toEqual({ board: null, designOpen: true });
+        expect(back().when!(nav)).toBe(true);
+        back().run(nav);
+        expect(pane()).toEqual({ board: null, designOpen: false });
+        expect(back().when!(nav)).toBe(false);
+    });
+
+    it("the design opened with no question under it has no step back, unless a builder check is pending under it", () => {
+        updateBrainstorm("a1", (s) => ({ ...s, file: { ...asking, question: null }, designOpen: true }));
+        expect(back().when!(nav)).toBe(false);
+        globalStore.set(model.agentsAtom, [
+            { id: "a1", name: "Agent", blockId: "b1", builderCheck: { state: "reading", ts: 2 } },
+        ]);
+        expect(back().when!(nav)).toBe(true);
+    });
+
+    it("yields to a focused field, an open modal and an open escape menu", () => {
+        openBrainstormBoard("a1", "Split.dc.html");
+        // the answer box, a row's edit or rename, the builder-check answer and the mark note are all fields
+        expect(back().when!({ ...nav, editable: true })).toBe(false);
+        expect(back().when!({ ...nav, modalOpen: true })).toBe(false);
+        globalStore.set(escapeMenusOpenAtom, 1);
+        expect(back().when!(nav)).toBe(false);
+        globalStore.set(escapeMenusOpenAtom, 0);
+        expect(back().when!(nav)).toBe(true);
+    });
+
+    it("on the board, a drawn mark's note owns Esc (it drops the mark), even with its field unfocused", () => {
+        attachCanvas("a1", { topic: "oncall", dir: "C:\\p\\d", projectDir: "C:\\p", board: "Split.dc.html" }, 0);
+        openBrainstormBoard("a1", "Split.dc.html");
+        setMarking("a1", true);
+        expect(back().when!(nav)).toBe(true);
+        setMark("a1", { x: 1, y: 1, w: 40, h: 40, note: "" });
+        expect(back().when!(nav)).toBe(false);
+        setMark("a1", null);
+        expect(back().when!(nav)).toBe(true);
+    });
+
+    it("stands down in the terminal, and while a subagent or a shell task peek holds Escape", () => {
+        openBrainstormBoard("a1", "Split.dc.html");
+        setBrainstormMode("a1", "terminal", 2);
+        expect(back().when!(nav)).toBe(false);
+        setBrainstormMode("a1", "brainstorm", 3);
+        globalStore.set(focusSubagentAtom, { parentId: "a1", agentId: "s" } as any);
+        expect(claiming()).toEqual(["subagent:back"]);
+        globalStore.set(focusSubagentAtom, null);
+        globalStore.set(shellTaskPeekAtom, { parentId: "a1", taskId: "t" });
+        expect(claiming()).toEqual(["shelltask:back"]);
     });
 });
 

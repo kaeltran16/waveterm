@@ -19,10 +19,12 @@ import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import {
+    builderCheckView,
     checkMain,
     checkReview,
     OPTION_KEYS,
     optionLetter,
+    paneBack,
     paneView,
     pickableOptions,
     type BrainstormAction,
@@ -32,6 +34,8 @@ import { sendBrainstorm } from "@/app/view/agents/brainstormsend";
 import {
     focusedBrainstorm,
     moveReviewCursor,
+    openBrainstormBoard,
+    openBrainstormDesign,
     setBrainstormMode,
     shownBrainstormFile,
     toggleReviewRow,
@@ -874,6 +878,18 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     const inCanvas = (ctx: KeyContext) => agentNav(ctx) && canvas()?.mode === "canvas";
     const boardReady = (ctx: KeyContext) => inCanvas(ctx) && !canvas()!.marking && paneState(canvas()!) === "board";
     const focusId = () => globalStore.get(model.focusIdAtom);
+    // the step the brainstorm pane's back control takes, which Esc takes too. A drawn mark's note owns Esc on the
+    // board (it drops the mark there), so the board's step waits for it even while the note's field is unfocused
+    const paneStep = () => {
+        const s = brainstorm();
+        if (s?.mode !== "brainstorm") {
+            return null;
+        }
+        const agent = globalStore.get(model.agentsAtom).find((a) => a.id === focusId());
+        const check = builderCheckView(agent?.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent);
+        const step = paneBack({ ...s, exited: exited() }, shownBrainstormFile(s), check.kind === "pending");
+        return step === "board" && focusedCanvas(model)?.mark != null ? null : step;
+    };
     return [
         {
             id: "subagent:back",
@@ -927,6 +943,32 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                     globalStore.set(terminalFullscreenAtom, false);
                 } else {
                     backOrHome(model);
+                }
+            },
+        },
+        {
+            // agent:back stands down in brainstorm mode, so this is the pane's Escape: its back control, one level
+            // per press. Guarded as agent:back is, so a focused field keeps its own Esc (the answer box, a row's
+            // edit or rename, the builder-check answer, the mark note), as do an open modal and an escape menu
+            id: "agent:brainstorm-back",
+            keys: "Escape",
+            group: "Agent",
+            label: "Back in the brainstorm: from a full-size board, or from the design to the question",
+            when: (ctx) =>
+                agentNavStrict(ctx) &&
+                noEscapeMenuOpen() &&
+                globalStore.get(focusSubagentAtom) == null &&
+                globalStore.get(shellTaskPeekAtom) == null &&
+                paneStep() != null,
+            run: () => {
+                const step = paneStep();
+                if (step == null) {
+                    return false;
+                }
+                if (step === "board") {
+                    openBrainstormBoard(focusId(), null);
+                } else {
+                    openBrainstormDesign(focusId(), false);
                 }
             },
         },

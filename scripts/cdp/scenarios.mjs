@@ -18742,6 +18742,18 @@ async function bsKey(h, elExpr, name, via, shift = false) {
     await polishNap(300);
 }
 
+// Esc as the user presses it, from the page's focus; a keydown on the document when CDP keys do not reach the page,
+// which the dispatcher's window capture still takes
+async function bsEscape(h) {
+    if (await bsKeysArrive(h)) {
+        await bsKey(h, null, "Escape", "keys");
+        return "keys";
+    }
+    await h.ev(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }))`);
+    await polishNap(300);
+    return "event";
+}
+
 // records every line the page sends an agent. Typing into the terminal (controllerinput) is not a send: the xterm
 // reports its own focus in and out (ESC [I, ESC [O) through it
 const BS_TYPED_INSTALL = `(() => {
@@ -19337,6 +19349,20 @@ const brainstormMode = {
             s2f.ok && fullBack === "clicked" && s2r.ok && s2r.qBoards.length === 2,
             { board: s2f.view, fullBack, back: bsBrief(s2r) }
         );
+        // Esc takes the back control's step; on the question there is no step left, so a second Esc changes nothing
+        await bsMouseClick(h, `${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-open-board]")`);
+        const s2e = await bsUntil(h, ctx, (s) => s.view === "board", 3000);
+        const escVia = await bsEscape(h);
+        const s2eq = await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes(BS_Q5_LAYOUT.text), 3000);
+        await h.shot("cdp-shots/brainstorm-mode-2-esc-board-to-question.png");
+        await bsEscape(h);
+        await polishNap(500);
+        const s2stay = await bsRead(h, ctx);
+        rec(
+            `2l5. Esc on the board opened full size from the question returns to the question, and a second Esc there leaves it be (${escVia === "keys" ? "a real Esc key" : "a keydown on the document: CDP keys did not reach the page"})`,
+            s2e.ok && s2eq.ok && s2eq.qBoards.length === 2 && s2stay.view === "design" && s2stay.question.includes(BS_Q5_LAYOUT.text),
+            { board: s2e.view, via: escVia, back: bsBrief(s2eq), again: bsBrief(s2stay) }
+        );
         bsWrite(ctx, BS_FILES.answered);
         await bsUntil(h, ctx, (s) => s.question.includes(BS_Q5.text));
 
@@ -19358,6 +19384,22 @@ const brainstormMode = {
             "3. Open full size shows the board with Mark and Back to the design; back returns to the design, not the question",
             s3.ok && board.mark && board.back && board.canvas && s3back.ok && s3back.back === "Back to question 5",
             { board: s3.view, ...board, back: s3back.view, parts: s3back.parts.length, backBtn: s3back.back }
+        );
+        // Esc, one level per press: the board opened off the design back to the design, then the design to the question
+        await bsOpenRow(h, "page");
+        await polishWaitFor(h, `!!${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")`, 3000);
+        await bsMouseClick(h, `${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")`);
+        const s3e = await bsUntil(h, ctx, (s) => s.view === "board", 3000);
+        const esc3 = await bsEscape(h);
+        const s3d = await bsUntil(h, ctx, (s) => s.view === "design" && s.back === "Back to question 5" && s.parts.length > 0, 3000);
+        await h.shot("cdp-shots/brainstorm-mode-3-esc-board-to-design.png");
+        await bsEscape(h);
+        const s3q = await bsUntil(h, ctx, (s) => s.view === "design" && s.back === "" && s.question.includes(BS_Q5.text), 3000);
+        await h.shot("cdp-shots/brainstorm-mode-3-esc-design-to-question.png");
+        rec(
+            `3b. Esc steps back one level per press: from the board opened off the design to the design, then from the design to question 5 (${esc3 === "keys" ? "a real Esc key" : "a keydown on the document: CDP keys did not reach the page"})`,
+            s3e.ok && s3d.ok && s3q.ok,
+            { board: s3e.view, via: esc3, design: { ...bsBrief(s3d), back: s3d.back }, question: { ...bsBrief(s3q), back: s3q.back } }
         );
         await bsCloseDesign(h);
 

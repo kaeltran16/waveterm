@@ -667,6 +667,12 @@ export function mainView(f: BrainstormFile, designOpen: boolean, checkPending = 
     return checkPending ? "working" : "design";
 }
 
+// the main view the design was opened over, which the design's back control returns to; the design itself when it
+// was not opened over one
+export function designUnder(f: BrainstormFile, designOpen: boolean, checkPending = false): MainView {
+    return designOpen ? mainView(f, false, checkPending) : "design";
+}
+
 // a board opened from the question goes back to it; one opened from the design, to the design
 export function boardBackLabel(f: BrainstormFile | null, designOpen: boolean): string {
     return f != null && mainView(f, designOpen) === "question" ? "Back to the question" : "Back to the design";
@@ -687,6 +693,12 @@ export function checkMain(f: BrainstormFile, designOpen: boolean): CheckMain {
         return "question";
     }
     return openBuilderQuestion(f) != null ? "builder" : "review";
+}
+
+// the check's main area the review was opened over, which the review's back control returns to; the review itself
+// when it was not opened over one
+export function checkUnder(f: BrainstormFile, designOpen: boolean): CheckMain {
+    return designOpen ? checkMain(f, false) : "review";
 }
 
 function openBuilderQuestion(f: BrainstormFile): BuilderQuestion | null {
@@ -1330,4 +1342,30 @@ export function paneView(s: {
         return "run";
     }
     return s.file?.check != null ? "check" : "design";
+}
+
+// The one level the pane's back control steps up, or null where it draws none: a full-size board goes back to where
+// it was opened, and the design opened over the question or the working note goes back to it. Esc takes the same
+// step (agent:brainstorm-back), so the key and the controls cannot disagree on when there is one
+export type PaneBack = "board" | "design";
+
+export function paneBack(
+    s: Parameters<typeof paneView>[0] & { designOpen: boolean },
+    f: BrainstormFile | null,
+    checkPending: boolean
+): PaneBack | null {
+    const view = paneView(s);
+    if (view === "board") {
+        return "board";
+    }
+    if (f == null) {
+        return null;
+    }
+    if (view === "check") {
+        return checkUnder(f, s.designOpen) !== "review" ? "design" : null;
+    }
+    if (view === "design") {
+        return designUnder(f, s.designOpen, checkPending) !== "design" ? "design" : null;
+    }
+    return null;
 }

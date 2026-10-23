@@ -158,13 +158,14 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 ### Agent: brainstorm mode
 
-`b` works when the focused agent has a brainstorm; such an agent never shows canvas mode, so `c` does nothing for it. In brainstorm mode, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm, except that `j` / `k` move between decisions while the builder check's review fills the main area (the arrows and `Ctrl`+`Tab` still move between agents there).
+`b` works when the focused agent has a brainstorm; such an agent never shows canvas mode, so `c` does nothing for it. In brainstorm mode, `d`, `f` and `F11` do not do their usual jobs, and `Esc` steps back inside the brainstorm instead of leaving the surface; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm, except that `j` / `k` move between decisions while the builder check's review fills the main area (the arrows and `Ctrl`+`Tab` still move between agents there).
 
 | Keys | Action |
 |---|---|
 | `b` | Show the agent's brainstorm; from the brainstorm, back to the terminal (while the question offers a B, `b` picks it instead) |
 | `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal or while `b` picks an answer |
 | `a` / `b` / `c` / `d` | While the brainstorm asks a question with answers to pick from: focus that answer; `Enter` sends it |
+| `Esc` | Back one level, as the pane's back control does: from a full-size board to the question or design it was opened from; from the design opened over the question (or over the agent writing) back to it. A focused field keeps its own `Esc`, and on a board with a drawn mark `Esc` stays the mark note's |
 | `j` / `k` | In the builder check's review: next / previous decision |
 | `Enter` | In the review: show or hide what the cursor decision was (a focused button keeps its own `Enter`) |
 | `y` | In the review: keep the cursor decision's change; on a guess, confirm it |

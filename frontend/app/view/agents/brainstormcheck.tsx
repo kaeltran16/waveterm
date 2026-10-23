@@ -11,6 +11,7 @@ import {
     approveBlocker,
     checkAsk,
     checkMain,
+    checkUnder,
     lineBox,
     partTitle,
     runLine,
@@ -72,7 +73,7 @@ export function Check({
 }) {
     const main = checkMain(f, s.designOpen);
     // the review opened over a question or the working note: the way back to it
-    const under = s.designOpen ? checkMain(f, false) : "review";
+    const under = checkUnder(f, s.designOpen);
     const openDesign = () => openBrainstormDesign(agent.id, true);
     const goTo = (id: string) => {
         setReviewCursor(agent.id, id);
