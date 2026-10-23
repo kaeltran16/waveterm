@@ -2,9 +2,11 @@ package harness
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -149,5 +151,34 @@ func TestConfigRootIsSteeringParent(t *testing.T) {
 		if got := spec.ConfigRoot(home); got != c.want {
 			t.Errorf("%s ConfigRoot = %q, want %q", c.runtime, got, c.want)
 		}
+	}
+}
+
+// A harness whose --version stalls behind a shim (pi is pi.cmd on Windows) is still listed, just without a
+// version: the probe used to wait as long as the stalled child held its output open, and every route picker's
+// catalog request waited with it.
+func TestProbeVersionReturnsWhenTheHarnessStalls(t *testing.T) {
+	old := versionProbeTimeout
+	versionProbeTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { versionProbeTimeout = old })
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "stall")
+	script := []byte("#!/bin/sh\nsleep 15 &\nwait\n")
+	if runtime.GOOS == "windows" {
+		bin += ".cmd"
+		script = []byte("@echo off\r\nping -n 16 127.0.0.1 >nul\r\n")
+	}
+	if err := os.WriteFile(bin, script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	_, err := versionCommand(context.Background(), bin)
+
+	if elapsed := time.Since(start); elapsed > versionWaitDelay+5*time.Second {
+		t.Fatalf("the version probe returned %v after a 300ms bound", elapsed)
+	}
+	if err == nil {
+		t.Fatal("a version probe cut off at its bound must fail")
 	}
 }

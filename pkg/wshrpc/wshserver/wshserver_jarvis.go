@@ -9,6 +9,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/consult"
@@ -188,7 +189,37 @@ func catalogModelsForProbe(ctx context.Context, result harness.ProbeResult) []ru
 }
 
 func (ws *WshServer) ListHarnessesCommand(ctx context.Context) (*wshrpc.CommandListHarnessesRtnData, error) {
+	return &wshrpc.CommandListHarnessesRtnData{Harnesses: harnessInfos(ctx)}, nil
+}
+
+// bounds the startup listing's --version probes; each model listing runs on its own deadline past this one
+const routeCatalogWarmTimeout = 30 * time.Second
+
+// WarmRouteCatalog lists every installed harness's models once at startup, so the first picker to open finds
+// them cached. The catalog used to be built only when the frontend asked, so a boot request that failed left the
+// first picker open waiting on every CLI from cold.
+func WarmRouteCatalog() {
+	defer func() {
+		panichandler.PanicHandler("WarmRouteCatalog", recover())
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), routeCatalogWarmTimeout)
+	defer cancel()
+	harnessInfos(ctx)
+}
+
+func harnessInfos(ctx context.Context) []wshrpc.HarnessInfo {
 	results := probeHarnesses(ctx)
+	// every runtime's listing starts before any is waited on, so a slow one cannot hold back the rest
+	models := make([][]runroute.ModelEntry, len(results))
+	var wg sync.WaitGroup
+	for i, r := range results {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			models[i] = catalogModelsForProbe(ctx, r)
+		}()
+	}
+	wg.Wait()
 	infos := make([]wshrpc.HarnessInfo, len(results))
 	for i, r := range results {
 		capabilities := []wshrpc.RouteCapabilityInfo{}
@@ -198,7 +229,7 @@ func (ws *WshServer) ListHarnessesCommand(ctx context.Context) (*wshrpc.CommandL
 				ResolvedModel: capability.ResolvedModel,
 			})
 		}
-		for _, entry := range catalogModelsForProbe(ctx, r) {
+		for _, entry := range models[i] {
 			capabilities = append(capabilities, wshrpc.RouteCapabilityInfo{
 				Runtime:       entry.Runtime,
 				Model:         entry.Model,
@@ -218,7 +249,7 @@ func (ws *WshServer) ListHarnessesCommand(ctx context.Context) (*wshrpc.CommandL
 			RouteCapabilities: capabilities,
 		}
 	}
-	return &wshrpc.CommandListHarnessesRtnData{Harnesses: infos}, nil
+	return infos
 }
 
 func (ws *WshServer) ListDossiersCommand(ctx context.Context) (*wshrpc.CommandListDossiersRtnData, error) {

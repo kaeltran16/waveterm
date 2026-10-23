@@ -38,9 +38,10 @@ import {
     resolveChannelLaunchRoute,
     resolvedProfileAtom,
 } from "../agents/runactions";
-import { START_OPTIONS, launchBlocker, startNote, type StartFrom } from "../agents/runconfig";
+import { START_OPTIONS, launchBlocker, startNote, type RunShape, type StartFrom } from "../agents/runconfig";
 import {
     autonomousAtom,
+    beginRunConfigDraft,
     endRunConfigDraft,
     hydrateRunConfigFromProfile,
     lightReviewerRouteAtom,
@@ -58,7 +59,6 @@ import {
     setReviewerPicks,
     setReviewerRoute,
     setRunRoute,
-    setRunShape,
     setStart,
     setWorkerRoute,
     startAtom,
@@ -332,6 +332,8 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const [picked, setPicked] = useState<string | null>(() => initialPick(names, recent[0] ?? null));
     const [goal, setGoal] = useState("");
     const [prototype, setPrototype] = useState("");
+    // the shape a prefill opened the window for, which hydration applies over the profile's
+    const [openedShape, setOpenedShape] = useState<RunShape | null>(null);
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const goalRef = useRef<HTMLTextAreaElement>(null);
@@ -363,6 +365,10 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     // for a project that has never said otherwise.
     const target = picked != null ? resolveChannelTarget(channels, picked, projectPath) : null;
     const pickedOid = target?.kind === "existing" ? target.oid : null;
+    // first, so the channel and profile effects below start from it
+    useEffect(() => {
+        beginRunConfigDraft();
+    }, []);
     useEffect(() => {
         // keepTouched: the project is a field of this one launch, not a place you navigated to, so
         // changing it must not rewrite the shape or the width you already picked
@@ -372,8 +378,8 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         }
     }, [pickedOid]);
     useEffect(() => {
-        hydrateRunConfigFromProfile(pickedOid != null ? profiles[pickedOid] : null);
-    }, [pickedOid, profiles]);
+        hydrateRunConfigFromProfile(pickedOid != null ? profiles[pickedOid] : null, openedShape);
+    }, [pickedOid, profiles, openedShape]);
     // the lead route the picker opens on, same precedence the sheet's composer uses: the project's own
     // saved route, else the harness preference — and never over a route the user has picked by hand
     const profileRoute = (pickedOid != null ? overrides[pickedOid]?.route : null) ?? pref.route ?? null;
@@ -396,8 +402,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         if (p.picked != null) {
             setPicked(p.picked);
         }
-        setRunShape(p.shape);
-        setStart(p.start);
+        setOpenedShape(p.shape);
         setGoal(p.goal);
         setPrototype(p.prototype);
     }, [rows]);

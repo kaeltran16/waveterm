@@ -8,7 +8,7 @@ import { atom, useAtomValue } from "jotai";
 import { useEffect, useRef } from "react";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { globalStore } from "@/app/store/global";
+import { getApi, globalStore } from "@/app/store/global";
 import { capabilityFor, normalizeRoute } from "./route";
 
 export interface HarnessPreferenceState {
@@ -98,10 +98,11 @@ export function initHarnessPreference(persistedRuntime: string, persistedModel =
     globalStore.set(harnessPreferenceAtom, { route, persistedRoute: route, saving: false });
 }
 
-// A cold listharnesses spawns one CLI per harness to enumerate its models (`pi --list-models`,
-// `opencode models`, `claude --help`), serialized server-side; that measured 5.3s against the RPC
-// layer's 5s DefaultTimeoutMs, so the picker loaded or came up empty depending on machine luck. The
-// budget has to cover the process spawns, not the wire.
+// A cold listharnesses spawns the harness CLIs (`pi --list-models`, `claude --help`, each one's --version);
+// that measured 5.3s against the RPC layer's 5s DefaultTimeoutMs, so the picker loaded or came up empty
+// depending on machine luck. The budget has to cover the process spawns, not the wire, and has to outlast the
+// backend's own bounds on a stalled CLI (7s for a --version, 17s for a model listing): it then answers in
+// time with every harness that did list.
 const CATALOG_RPC_TIMEOUT_MS = 30_000;
 
 export async function loadHarnesses(forceRefresh = false): Promise<void> {
@@ -122,13 +123,18 @@ async function fetchHarnesses(forceRefresh: boolean): Promise<void> {
             console.error("refreshing route catalog failed", e);
         }
     }
+    const start = Date.now();
     try {
         const rtn = await RpcApi.ListHarnessesCommand(TabRpcClient, { timeout: CATALOG_RPC_TIMEOUT_MS });
         globalStore.set(harnessesAtom, rtn?.harnesses ?? []);
     } catch (e) {
         // a failed re-list must not empty a catalog that already loaded — the picker would fall back
-        // to "Unknown: <runtime>" for a selection that is in fact valid
-        console.error("loading harness catalog failed", e);
+        // to "Unknown: <runtime>" for a selection that is in fact valid.
+        // the picker only shows that the list is missing and the WebView console is not kept, so the reason goes
+        // to waveapp.log
+        const msg = `loading harness catalog failed after ${Date.now() - start}ms: ${String(e)}`;
+        console.error(msg);
+        getApi().sendLog(msg);
     }
 }
 

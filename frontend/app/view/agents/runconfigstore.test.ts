@@ -3,9 +3,10 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_PARALLELISM, MAX_PARALLELISM } from "./runconfig";
+import { DEFAULT_PARALLELISM, MAX_PARALLELISM, type RunShape } from "./runconfig";
 import {
     autonomousAtom,
+    beginRunConfigDraft,
     configTouchedAtom,
     endRunConfigDraft,
     forgetConfiguredChannel,
@@ -15,6 +16,7 @@ import {
     planPreviewAtom,
     resetRunConfig,
     resetRunConfigForChannel,
+    reviewerPicksAtom,
     routeTouchedAtom,
     runRouteAtom,
     runShapeAtom,
@@ -350,5 +352,82 @@ describe("plan start", () => {
         expect(globalStore.get(startAtom)).toBe("goal");
         expect(globalStore.get(planPathAtom)).toBe("");
         expect(globalStore.get(planPreviewAtom)).toBeNull();
+    });
+});
+
+// + Run replays these calls as it opens: a fresh draft, the picked project's channel, then the profile, which
+// usually lands after the window has drawn. The user's global profile is the one these tests resolve to.
+describe("+ Run opens on the profile's defaults", () => {
+    const globalDefaults = {
+        playbook: [],
+        defaultmode: "orchestrator",
+        parallelism: 4,
+        reviewerpicks: true,
+    } as JarvisProfile;
+
+    const openLauncher = (channelId: string, shape: RunShape | null) => {
+        beginRunConfigDraft();
+        resetRunConfigForChannel(channelId, true);
+        hydrateRunConfigFromProfile(undefined, shape);
+        hydrateRunConfigFromProfile(globalDefaults, shape);
+    };
+
+    // Build this… and the brainstorm's Approve open the window as an orchestrator run: that shape is the
+    // reason it opened, not a choice that stops the profile filling in the width and the workers
+    it("keeps the shape a prefill opened it for and takes the rest from the profile", () => {
+        openLauncher("ch-1", "orchestrator");
+
+        expect(globalStore.get(runShapeAtom)).toBe("orchestrator");
+        expect(globalStore.get(parallelismAtom)).toBe(4);
+        expect(globalStore.get(reviewerPicksAtom)).toBe(true);
+        expect(globalStore.get(configTouchedAtom)).toBe(false);
+    });
+
+    it("lets a prefill's shape stand over the profile's own", () => {
+        openLauncher("ch-1", "quick");
+
+        expect(globalStore.get(runShapeAtom)).toBe("quick");
+        expect(globalStore.get(parallelismAtom)).toBe(4);
+    });
+
+    // the window drops its goal when it closes, so the choices made beside that goal go with it
+    it("does not carry a closed window's hand-made choices into the next open of the same project", () => {
+        openLauncher("ch-1", null);
+        setRunShape("quick");
+        stepParallelism(-2);
+        setWorkerRoute(pin("haiku"));
+
+        openLauncher("ch-1", null);
+
+        expect(globalStore.get(runShapeAtom)).toBe("orchestrator");
+        expect(globalStore.get(parallelismAtom)).toBe(4);
+        expect(globalStore.get(reviewerPicksAtom)).toBe(true);
+        expect(globalStore.get(workerRouteAtom)).toBeNull();
+    });
+
+    // the lead the picker opens on is the harness preference again, which only an untouched route lets in
+    it("lets the harness preference back into the lead route", () => {
+        openLauncher("ch-1", null);
+        setRunRoute(pin("sonnet"));
+
+        openLauncher("ch-1", null);
+
+        expect(globalStore.get(routeTouchedAtom)).toBe(false);
+        expect(globalStore.get(runRouteAtom)).toBeNull();
+    });
+
+    // a project picked after the user changed something keeps their choices, as it did before
+    it("still keeps hand-made choices across a project change inside one open", () => {
+        openLauncher("ch-1", "orchestrator");
+        stepParallelism(2);
+
+        resetRunConfigForChannel("ch-2", true);
+        hydrateRunConfigFromProfile(
+            { playbook: [], defaultmode: "quick", parallelism: 2 } as JarvisProfile,
+            "orchestrator"
+        );
+
+        expect(globalStore.get(runShapeAtom)).toBe("orchestrator");
+        expect(globalStore.get(parallelismAtom)).toBe(6);
     });
 });

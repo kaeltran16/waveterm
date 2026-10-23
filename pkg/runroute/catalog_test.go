@@ -6,6 +6,9 @@ package runroute
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -213,5 +216,42 @@ func TestCatalogKeepsStaleOnProbeFailure(t *testing.T) {
 	}
 	if got := ModelsForRuntime(context.Background(), "pi"); len(got) != 0 {
 		t.Fatalf("garbage with no usable stale cache must yield free-form-only, got %d", len(got))
+	}
+}
+
+// stallingCLI writes a harness stand-in shaped like pi on Windows: a shim whose child outlives the shim's kill and
+// keeps the output pipe open for 15s.
+func stallingCLI(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(dir, "stall.cmd")
+		if err := os.WriteFile(path, []byte("@echo off\r\nping -n 16 127.0.0.1 >nul\r\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	path := filepath.Join(dir, "stall")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 15 &\nwait\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// The deadline killed only the shim, and the listing then waited on the pipe its child still held: a stalled
+// `pi --list-models` kept its runtime's listing open for as long as pi hung, past every caller's deadline.
+func TestCatalogCommandReturnsWhenAChildKeepsItsOutputOpen(t *testing.T) {
+	bin := stallingCLI(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := catalogCommand(ctx, bin, "--list-models")
+
+	if elapsed := time.Since(start); elapsed > catalogWaitDelay+5*time.Second {
+		t.Fatalf("the listing returned %v after a 300ms deadline", elapsed)
+	}
+	if err == nil {
+		t.Fatal("a listing cut off at its deadline must fail")
 	}
 }
