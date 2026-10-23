@@ -37,7 +37,7 @@ export const SURFACE_HINTS: Partial<Record<SurfaceKey, FooterHint[]>> = {
         { ids: ["agent:fullscreen-chord"], keys: "F11", label: "full" }, // reachable in the terminal
         { ids: ["agent:canvas-open"], glyph: "c", label: "canvas" }, // terminal mode with a canvas
         { ids: ["agent:brainstorm-open"], glyph: "b", label: "brainstorm" }, // terminal mode with a brainstorm
-        { ids: ["agent:back"], glyph: "esc", label: "back" },
+        { ids: ["agent:back", "agent:brainstorm-back"], glyph: "esc", label: "back" },
         { ids: ["cycle-agent-next", "cycle-agent-prev"], keys: "Ctrl:Tab", label: "cycle" },
         { ids: ["agent:return-nav"], keys: "Shift:Escape", label: "leave" }, // editable-only via its binding
         { ids: ["agent:view-chord"], keys: "Ctrl:Shift:b", label: "view" }, // reachable in the terminal

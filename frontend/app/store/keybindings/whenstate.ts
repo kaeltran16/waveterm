@@ -70,8 +70,8 @@ export const PREDICATE_ATOMS: Atom<unknown>[] = [
     codeTreeFocusedAtom, // buildCodeBindings: inTree
     listNavAtom, // buildListNavBindings: active
     renamingRowAtom, // buildAgentBindings: subagent:back, shelltask:back
-    focusSubagentAtom, // buildAgentBindings: subagent:back, agent:back
-    shellTaskPeekAtom, // buildAgentBindings: shelltask:back, agent:back
+    focusSubagentAtom, // buildAgentBindings: subagent:back, agent:back, agent:brainstorm-back
+    shellTaskPeekAtom, // buildAgentBindings: shelltask:back, agent:back, agent:brainstorm-back
 ];
 
 function bumpWhenVersion() {

@@ -20,9 +20,11 @@ import {
     checkAsk,
     checkMain,
     checkReview,
+    checkUnder,
     compactedSummary,
     confirmableGuesses,
     designLabel,
+    designUnder,
     droppedQuestion,
     exitedSummary,
     handoffView,
@@ -37,6 +39,7 @@ import {
     noteParts,
     optionLetter,
     orderedParts,
+    paneBack,
     paneView,
     parseBrainstorm,
     parseBrainstormPath,
@@ -1624,6 +1627,80 @@ describe("paneView", () => {
         expect(paneView({ ...s, file: file({ run: "r1" }) })).toBe("run");
         expect(paneView({ ...s, file: withCheck, board: "B.dc.html" })).toBe("board");
         expect(paneView({ ...s, file: withCheck })).toBe("check");
+    });
+});
+
+describe("designUnder and checkUnder", () => {
+    const q = { n: 1, text: "Q", part: "a" };
+    const check = { yours: [], calls: [], answered: [] };
+
+    it("name the main view the design was opened over, or the design itself when it was not", () => {
+        expect(designUnder(file({ question: q }), true)).toBe("question");
+        expect(designUnder(file({ working: "w" }), true)).toBe("working");
+        expect(designUnder(file(), true, true)).toBe("working");
+        expect(designUnder(file(), true)).toBe("design");
+        expect(designUnder(file({ question: q }), false)).toBe("design");
+    });
+
+    it("name the check's main area the review was opened over, or the review itself when it was not", () => {
+        expect(checkUnder(file({ question: q, check }), true)).toBe("question");
+        expect(checkUnder(file({ check: { ...check, yours: [{ q: "B?" }] } }), true)).toBe("builder");
+        expect(checkUnder(file({ check }), true)).toBe("review");
+        expect(checkUnder(file({ question: q, check }), false)).toBe("review");
+    });
+});
+
+describe("paneBack", () => {
+    const q = { n: 1, text: "Q", part: "a" };
+    const check = { yours: [], calls: [], answered: [] };
+    const s = {
+        file: file({ question: q }),
+        error: null,
+        removed: false,
+        exited: false,
+        showDesign: false,
+        board: null,
+        designOpen: false,
+    };
+    const back = (
+        over: Partial<typeof s> & { file?: BrainstormFile | null; error?: string | null } = {},
+        pending = false
+    ) => {
+        const x = { ...s, ...over };
+        return paneBack(x, x.file, pending);
+    };
+
+    it("a full-size board steps back to where it was opened, the question or the design", () => {
+        expect(back({ board: "B.dc.html" })).toBe("board");
+        expect(back({ board: "B.dc.html", designOpen: true })).toBe("board");
+        expect(back({ board: "B.dc.html", file: file({ question: q, check }) })).toBe("board");
+    });
+
+    it("the design opened over the question or the working note steps back to it", () => {
+        expect(back({ designOpen: true })).toBe("design");
+        expect(back({ designOpen: true, file: file({ working: "w" }) })).toBe("design");
+        expect(back({ designOpen: true, exited: true, showDesign: true })).toBe("design");
+    });
+
+    it("the design opened with nothing under it has no step, unless a builder check is pending under it", () => {
+        expect(back({ designOpen: true, file: file() })).toBeNull();
+        expect(back({ designOpen: true, file: file() }, true)).toBe("design");
+    });
+
+    it("the check's review opened over its question, a builder question or the working note steps back to it", () => {
+        expect(back({ designOpen: true, file: file({ question: q, check }) })).toBe("design");
+        expect(back({ designOpen: true, file: file({ check: { ...check, yours: [{ q: "B?" }] } }) })).toBe("design");
+        expect(back({ designOpen: true, file: file({ working: "w", check }) })).toBe("design");
+        expect(back({ designOpen: true, file: file({ check }) })).toBeNull();
+    });
+
+    it("has no step from the question itself, a run, the exited card, or an unreadable or removed file", () => {
+        expect(back()).toBeNull();
+        expect(back({ file: file({ question: q, check }) })).toBeNull();
+        expect(back({ designOpen: true, file: file({ question: q, run: "r1" }) })).toBeNull();
+        expect(back({ designOpen: true, exited: true })).toBeNull();
+        expect(back({ designOpen: true, file: null, error: "bad" })).toBeNull();
+        expect(back({ designOpen: true, removed: true })).toBeNull();
     });
 });
 

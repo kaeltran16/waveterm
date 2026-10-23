@@ -20,6 +20,7 @@ import {
     boardBackLabel,
     builderCheckView,
     decisionParts,
+    designUnder,
     droppedQuestion,
     exitedSummary,
     historyRows,
@@ -273,7 +274,7 @@ function DesignMain({
         />
     );
     // the design opened over the question or the working note: the way back to it
-    const back = s.designOpen ? mainView(f, false, check.kind === "pending") : "design";
+    const back = designUnder(f, s.designOpen, check.kind === "pending");
     return (
         <>
             {back !== "design" ? (
