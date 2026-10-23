@@ -109,7 +109,12 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 			publishDagEvent(DagEventTaskRetried, g, task.ID)
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskRetried, nil, detail)
 		} else {
-			PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(task.ID, kind))
+			// a clean exit's summary describes the work, not what went wrong
+			why := data.Summary
+			if data.Status == "done" {
+				why = ""
+			}
+			PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(task.ID, kind, why))
 		}
 		poke = true
 		return nil

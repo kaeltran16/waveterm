@@ -944,3 +944,43 @@ func TestPlanReviewFindingsTextIsTheFailedRoundsWholeFindings(t *testing.T) {
 		}
 	}
 }
+
+// dag status <task> prints the dag's own line and that one task's part: its row, the failure the lead fixes from,
+// its review and what the human told it, and nothing of any other task.
+func TestDagTaskStatusLinesShowOnlyThatTask(t *testing.T) {
+	g := &waveobj.TaskGroup{
+		ID: "dag-1", Status: "blocked",
+		Tasks: []waveobj.TaskNode{
+			{ID: "t-0", Label: "a", State: orchestrate.TaskState_VerifyFailed, VerifyError: "exit 1: FAIL pkg/a"},
+			{ID: "t-1", Label: "b", State: orchestrate.TaskState_ReviewFailed},
+		},
+	}
+	rtn := &wshrpc.CommandDagStatusRtnData{
+		Group: g,
+		Digest: wshrpc.DagStatusDigest{
+			Tasks: []wshrpc.DagTaskDigest{
+				{TaskId: "t-0", HumanActions: []string{"resolve-merge"}},
+				{TaskId: "t-1", HumanActions: []string{"approve", "sendback"}, ReviewVerdict: "fail", ReviewNote: "misses the empty case"},
+			},
+			Told: []wshrpc.DagTold{{TaskId: "t-0", Ts: 1, Text: "stop"}, {TaskId: "t-1", Ts: 1, Text: "use parseDate"}},
+		},
+	}
+	lines, err := dagTaskStatusLines(rtn, 1000, "t-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"dag dag-1  status=blocked", "approve,sendback", "misses the empty case", "use parseDate"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q in:\n%s", want, joined)
+		}
+	}
+	for _, other := range []string{"t-0", "FAIL pkg/a", "stop"} {
+		if strings.Contains(joined, other) {
+			t.Fatalf("t-1's status shows %q of another task:\n%s", other, joined)
+		}
+	}
+	if _, err := dagTaskStatusLines(rtn, 1000, "t-9"); err == nil || !strings.Contains(err.Error(), "t-9") {
+		t.Fatalf("an unknown task must error naming it, got %v", err)
+	}
+}

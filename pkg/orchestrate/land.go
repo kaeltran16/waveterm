@@ -621,14 +621,30 @@ func LandConflicts(ctx context.Context, run *waveobj.Run) ([]string, error) {
 	return slices.Compact(files), nil
 }
 
+// conflictedFiles lists the paths a stopped merge left unmerged in tree. The diff filter reads the index, so it does
+// not depend on the language git prints its messages in.
+func conflictedFiles(ctx context.Context, tree string) ([]string, error) {
+	out, err := git(ctx, tree, "diff", "--name-only", "--diff-filter=U")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
 // objectID is a git object id, sha1 or sha256.
 var objectID = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 
 // mergeRefusal says why git would not make the merge. A conflict is aborted, so the checkout is left with no
 // merge state; a refusal to overwrite uncommitted edits never started one, and the edits are untouched.
 func mergeRefusal(ctx context.Context, project, base string, merr error) string {
-	if conflicted, err := git(ctx, project, "diff", "--name-only", "--diff-filter=U"); err == nil && conflicted != "" {
-		files := strings.Join(strings.Fields(conflicted), ", ")
+	if conflicted, err := conflictedFiles(ctx, project); err == nil && len(conflicted) > 0 {
+		files := strings.Join(conflicted, ", ")
 		if _, err := git(ctx, project, "merge", "--abort"); err != nil {
 			return fmt.Sprintf("the merge conflicts with %s in %s, and aborting it failed: %v", base, files, err)
 		}

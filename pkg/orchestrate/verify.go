@@ -329,6 +329,15 @@ type batchOutcome struct {
 	cancelled     bool // the claim was cancelled mid-judging: nothing is recorded
 }
 
+// verifyFailureLine is the first line of a failed Verify's output that names a failure, or "" when none does.
+func verifyFailureLine(err error) string {
+	var pe *planCommandError
+	if !errors.As(err, &pe) {
+		return ""
+	}
+	return firstFailureExcerpt(pe.output)
+}
+
 // verifyReason is the short cause a Verify failure's wake carries.
 func verifyReason(err error) string {
 	var pe *planCommandError
@@ -628,7 +637,7 @@ func recordBatchVerifyLocked(ctx context.Context, dagID string, out batchOutcome
 		data["bisect"] = out.bisect
 	}
 	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskVerifyFailed, nil, data)
-	PostWake(ctx, g.ChannelId, g.RunID, verifyFailedWake(out.failed, reason))
+	PostWake(ctx, g.ChannelId, g.RunID, verifyFailedWake(out.failed, reason, verifyFailureLine(out.err)))
 	return nil
 }
 

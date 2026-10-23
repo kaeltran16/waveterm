@@ -201,9 +201,9 @@ func dagSubmittedLines(g *waveobj.TaskGroup, round bool) string {
 }
 
 var dagStatusCmd = &cobra.Command{
-	Use:     "status",
-	Short:   "print a per-task status digest (state, stall/ask signal, next action)",
-	Args:    cobra.NoArgs,
+	Use:     "status [task-id]",
+	Short:   "print a per-task status digest (state, stall/ask signal, next action); with a task id, that task only",
+	Args:    cobra.MaximumNArgs(1),
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		channelId, runId, err := dagIds(cmd, dagRpcTimeoutMs)
@@ -214,7 +214,13 @@ var dagStatusCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		for _, line := range dagStatusLines(rtn, time.Now().UnixMilli()) {
+		lines := dagStatusLines(rtn, time.Now().UnixMilli())
+		if len(args) == 1 {
+			if lines, err = dagTaskStatusLines(rtn, time.Now().UnixMilli(), args[0]); err != nil {
+				return err
+			}
+		}
+		for _, line := range lines {
 			fmt.Println(line)
 		}
 		return nil
@@ -251,13 +257,37 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 	if len(g.Tasks) == 0 {
 		return lines
 	}
+	return append(lines, taskLines(rtn, now, g.Tasks)...)
+}
+
+// dagTaskStatusLines is one task's part of dag status, under the dag's own line: a wake names one task, so the lead
+// reads that task, not every task's output again.
+func dagTaskStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64, taskID string) ([]string, error) {
+	g := rtn.Group
+	if g == nil {
+		return nil, fmt.Errorf("dag status unavailable")
+	}
+	for _, t := range g.Tasks {
+		if t.ID == taskID {
+			head := fmt.Sprintf("dag %s  status=%s", g.ID, g.Status)
+			return append([]string{head}, taskLines(rtn, now, []waveobj.TaskNode{t})...), nil
+		}
+	}
+	return nil, fmt.Errorf("no task %q in dag %s", taskID, g.ID)
+}
+
+// taskLines renders tasks from the digest: a row each, then the failures the lead fixes from, then its account of
+// the work, then what the human typed to a worker.
+func taskLines(rtn *wshrpc.CommandDagStatusRtnData, now int64, tasks []waveobj.TaskNode) []string {
+	d := rtn.Digest
 	taskDigestByID := map[string]wshrpc.DagTaskDigest{}
 	for _, td := range d.Tasks {
 		taskDigestByID[td.TaskId] = td
 	}
+	var lines []string
 	var buf strings.Builder
 	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
-	for _, t := range g.Tasks {
+	for _, t := range tasks {
 		td, ok := taskDigestByID[t.ID]
 		if !ok {
 			continue
@@ -265,11 +295,11 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.ID, t.State, taskSignal(t.State, td, now), strings.Join(td.HumanActions, ","), t.Label)
 	}
 	w.Flush()
-	for _, row := range strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n") {
-		lines = append(lines, row)
+	if rows := strings.TrimSuffix(buf.String(), "\n"); rows != "" {
+		lines = append(lines, strings.Split(rows, "\n")...)
 	}
 	// the lead fixes a failed Verify from its output, so the whole kept tail is printed
-	for _, t := range g.Tasks {
+	for _, t := range tasks {
 		if t.State == orchestrate.TaskState_VerifyFailed && t.VerifyError != "" {
 			lines = append(lines, fmt.Sprintf("%s verify failed: %s", t.ID, t.VerifyError))
 		}
@@ -279,7 +309,9 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 		}
 	}
 	// what each task did and how its review went: the lead's account of the work, not just its state
-	for _, t := range g.Tasks {
+	shown := map[string]bool{}
+	for _, t := range tasks {
+		shown[t.ID] = true
 		td, ok := taskDigestByID[t.ID]
 		if !ok {
 			continue
@@ -296,7 +328,9 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 	}
 	// nothing wakes the lead for what the human typed to a worker, so this is where it learns of it
 	for _, told := range d.Told {
-		lines = append(lines, fmt.Sprintf("%s the human told this worker %s ago: %s", told.TaskId, durOrZero(now-told.Ts), strings.Join(strings.Fields(told.Text), " ")))
+		if shown[told.TaskId] {
+			lines = append(lines, fmt.Sprintf("%s the human told this worker %s ago: %s", told.TaskId, durOrZero(now-told.Ts), strings.Join(strings.Fields(told.Text), " ")))
+		}
 	}
 	return lines
 }

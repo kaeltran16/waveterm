@@ -236,7 +236,7 @@ func cleanupScheduleFailure(ctx, workerCtx context.Context, g *waveobj.TaskGroup
 			appendRunEvent(cleanupCtx, fresh.ChannelId, fresh.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{
 				"taskid": fresh.Tasks[idx].ID, "lastfailurekind": FailureKindUnrecorded, "attempts": fresh.Tasks[idx].Attempts, "detail": detail,
 			})
-			PostWake(cleanupCtx, fresh.ChannelId, fresh.RunID, taskFailedWake(fresh.Tasks[idx].ID, FailureKindUnrecorded))
+			PostWake(cleanupCtx, fresh.ChannelId, fresh.RunID, taskFailedWake(fresh.Tasks[idx].ID, FailureKindUnrecorded, detail))
 		}
 	}
 	return errors.Join(errs...)
@@ -371,7 +371,7 @@ func failDispatch(ctx context.Context, g *waveobj.TaskGroup, taskID, kind string
 		appendRunEventAt(ctx, failedAt, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{
 			"taskid": taskID, "lastfailurekind": kind, "attempts": attempts, "detail": detail,
 		})
-		PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(taskID, kind))
+		PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(taskID, kind, detail))
 	})
 }
 
@@ -669,9 +669,14 @@ func scheduleLocked(ctx context.Context, dagID string, stalled *[]stalledTask) e
 			childRunID := g.Tasks[i].RunID
 			kind := g.Tasks[i].LastFailureKind
 			attempts := g.Tasks[i].Attempts
+			// a worker that reported itself blocked said why in its summary
+			why := ""
+			if run := runs[childRunID]; run != nil && run.Evidence != nil {
+				why = run.Evidence.Summary
+			}
 			afterCommit = append(afterCommit, func() {
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{"taskid": taskID, "runid": childRunID, "lastfailurekind": kind, "attempts": attempts})
-				PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(taskID, kind))
+				PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(taskID, kind, why))
 			})
 		}
 	}

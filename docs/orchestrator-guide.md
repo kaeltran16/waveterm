@@ -681,16 +681,18 @@ reviewer or Verify is at work, and goes muted only when nothing is.
 ## When the run needs judgment
 
 The engine wakes the lead by typing one self-contained line into its terminal (for example
-`wake: Verify failed after merging task t-1 (exit 1). wsh jarvis dag status`). A wake that does not turn the
-lead to working within 30 seconds is retried once; after that the lead counts as dead and its events come to
-you.
+`wake: Verify failed after merging task t-1 (exit 1): --- FAIL: TestLand (0.02s). wsh jarvis dag status t-1`). A
+task's wake carries the first fact to act on, on one line: the first line of a failed review's note, of a failed
+task's detail, of the Verify output that names a failure, or the files a merge conflicts in. It ends with
+`dag status <task>`, which prints only that task. A wake that does not turn the lead to working within 30 seconds
+is retried once; after that the lead counts as dead and its events come to you.
 
 | Event | The lead | What reaches you |
 |---|---|---|
 | **Plan review failed** | revises the plan and runs `dag submit` again; after round 2, asks you, and on your word carries each accepted finding into the pending tasks it affects with `dag amend` (every task still waits), then runs `dag planreview accept "<your reason>"` | spec changes, and a second failed review |
 | **Merge conflict** at a lane merge | resolves it where lanes land (the run's branch tree, or the checkout) and `git add`s it without committing, then `wsh jarvis dag merge <task> --continue`, which commits the squash | nothing, unless the lead forwards it or is dead |
 | **Verify failed** after a merge | fixes it, commits, `dag merge <task> --continue` (re-runs Verify at HEAD) | same |
-| **Review failed** twice, or the reviewer couldn't do its job | reads the findings in `dag status`; `dag sendback <task> "<guidance>"`, `dag approve <task>`, retry, escalate, skip or forward | forwarded review failures |
+| **Review failed** twice, or the reviewer couldn't do its job | reads the findings in `dag status <task>`; `dag sendback <task> "<guidance>"`, `dag approve <task>`, retry, escalate, skip or forward | forwarded review failures |
 | **A passed task with a note for later tasks** that the engine could not deliver (nothing unfinished follows the task, or a named task already finished or without a live terminal) | amends the pending tasks the note affects (`dag amend`), or tells a running one (`dag tell`) | nothing |
 | **A worker's question** | answers from the spec, plan and code; a product or scope call it asks you itself, with what it checked and its recommendation, and relays your choice with `dag answer` (it checks `dag asks` first, in case you answered on the run sheet) | its own ask, and any question it has not answered within **10 minutes**, which moves to you with `dag answer` refused to the lead from then on, even while its own ask is open |
 | **Task failed** with its retry spent | `dag retry`, `dag escalate --model`, `dag skip`, or forwards | forwarded failures |
@@ -1224,6 +1226,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag submit --plan <md> [--spec <md>]` | validate the plan and start the engine on it (one DAG per run); after a failed plan review, submit the revised plan again |
 | `dag submit --round --plan <fix plan>` | after the final stage finishes with a round left, append the fix plan's tasks as a round |
 | `dag status` | per-task digest, the plan review's state and round, the report numbers, landed commits, Verify and merge errors, what you told workers, unverified notes, the final stage, token usage |
+| `dag status <task>` | that task only: its row, its Verify or merge error, its report and review lines, what you told it |
 | `dag asks` | questions the lead holds, oldest first, with every option |
 | `dag answer <task> <answers-json>` | answer as the lead |
 | `dag forward <task> "<note>"` | hand a question, failure, stall or conflict to the human |
