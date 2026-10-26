@@ -1,11 +1,12 @@
-// Fixtures for the sessions-search CDP scenarios: four Claude Code transcripts the session scan and search read,
-// and a run the lead and worker transcripts are linked to.
+// Fixtures for the sessions-search CDP scenarios: five Claude Code transcripts the session scan and search read,
+// a run the lead and worker transcripts are linked to, and a builder check's run.
 //
 // This writes into the REAL ~/.claude/projects (the scan reads only there), under one directory of its own,
 // C--arc-verify-sessions-search. Every scenario that uses it removes that directory, the temp cwd and the run in
 // its teardown (removeSessionsSearchFixtures, then kit.teardownFixtureRun).
 //
-// word and absent are nonces made per call, so a search for them finds only these fixtures; absent is in none.
+// word, checkWord and absent are nonces made per call, so a search for them finds only these fixtures; checkWord
+// is only in the check transcript, and absent is in none.
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -58,6 +59,7 @@ function transcript(id, cwd, startMs, turns) {
 export function writeSessionsSearchFixtures() {
     const word = nonce("arcfind");
     const absent = nonce("arcnone");
+    const checkWord = nonce("arccheck");
     const cwd = mkdtempSync(join(tmpdir(), "verify-sessions-search-"));
     const dir = join(homedir(), ".claude", "projects", PROJECT_DIR);
     mkdirSync(dir, { recursive: true });
@@ -68,6 +70,11 @@ export function writeSessionsSearchFixtures() {
         `server, and fix it. The log names ${word} as the stage it was in.`;
     const commitId = "toolu_" + randomBytes(8).toString("hex");
     const sessions = {
+        // a brainstorm's builder check: its own word, so steps 1-4's counts leave it out
+        check: [
+            { user: "Check whether the export job can be built from the brainstorm's chosen approach." },
+            { agent: `Yes: the ${checkWord} approach needs no new service.` },
+        ],
         other: [
             { user: "Rename the settings page heading to match the nav label." },
             { agent: "Renamed the heading; the nav and the page now both read Settings." },
@@ -106,17 +113,19 @@ export function writeSessionsSearchFixtures() {
         cwd,
         word,
         absent,
+        checkWord,
         solo: { id: ids.solo.id, title: titleOf(soloPrompt), transcript: ids.solo.path },
         other: { id: ids.other.id, title: titleOf(sessions.other[0].user) },
         lead: { id: ids.lead.id },
         worker: { id: ids.worker.id },
+        check: { id: ids.check.id },
     };
 }
 
 const SEED_TASKS = [{ id: "t-1", label: "noop", description: "do nothing, stop immediately", deps: [], state: "" }];
 
 // A run the lead and worker transcripts belong to, so linkSessionsToRuns places them as its lead and its t-1
-// worker. A dag can only be stored by dagsubmit, whose first tick dispatches t-1, so the run is cancelled at once;
+// worker, and a builder check's run of its own for the check transcript. A dag can only be stored by dagsubmit, whose first tick dispatches t-1, so the run is cancelled at once;
 // the worker's session is a deferred quick run pointed at the dag. Session ids are written after the cancels, so
 // nothing the engine writes on cancel lands over them. Returns a ctx for kit.teardownFixtureRun, whose channel
 // delete removes both runs and the dag.
@@ -156,6 +165,16 @@ export async function seedSessionsSearchRun(h, kit, fx) {
         });
         ctx.workerRunId = worker.run.id;
         await h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.workerRunId });
+        const check = await h.rpc("createrun", {
+            channelid: ctx.channelId,
+            workspaceid,
+            goal,
+            runtime: "claude",
+            mode: "quick",
+            deferstart: true,
+        });
+        ctx.checkRunId = check.run.id;
+        await h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.checkRunId });
         await kit.fstWriteRun(h, ctx.runId, (r) => ({ ...r, sessionid: fx.lead.id }));
         await kit.fstWriteRun(h, ctx.workerRunId, (r) => ({
             ...r,
@@ -164,6 +183,8 @@ export async function seedSessionsSearchRun(h, kit, fx) {
             taskid: "t-1",
             sessionid: fx.worker.id,
         }));
+        // no dag: linkSessionsToRuns places a builder check on its own run, with its stage role
+        await kit.fstWriteRun(h, ctx.checkRunId, (r) => ({ ...r, stagerole: "builder-check", sessionid: fx.check.id }));
     } catch (e) {
         ctx.arrangeError = String(e?.message ?? e);
     }

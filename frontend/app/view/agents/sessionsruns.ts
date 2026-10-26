@@ -362,13 +362,13 @@ export function memberOfSession(s: Pick<SessionActivity, "role" | "taskid">): st
     return s.role === "lead" || !s.taskid ? LEAD_MEMBER : s.taskid;
 }
 
-// sessionSelection is where opening a session lands on the Sessions surface: its run with it in view, else
-// its own entry
+// sessionSelection is where opening a session lands on the Sessions surface: its own entry when the list keeps
+// it a solo, else its run with it in view
 export function sessionSelection(s: Pick<SessionActivity, "runtime" | "id" | "runid" | "role" | "taskid">): {
     sel: string;
     member?: string;
 } {
-    return s.runid ? { sel: runSelKey(s.runid), member: memberOfSession(s) } : { sel: sessionKey(s) };
+    return isSoloSession(s) ? { sel: sessionKey(s) } : { sel: runSelKey(s.runid), member: memberOfSession(s) };
 }
 
 // sessionPrimary is a session's one primary action: Jump to its live agent, else Resume it if it can be
