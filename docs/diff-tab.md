@@ -326,10 +326,10 @@ The Code surface (`Ctrl`+`9`, or `g` `b`) has its own diff, and it answers a dif
 | | Diff surface | Code surface's Diff mode |
 |---|---|---|
 | Question | "What changed in this commit / range?" | "What am I about to commit in this file?" |
-| Renderer | Hand-rolled unified rows | Monaco diff editor |
+| Renderer | Monaco diff editor | Monaco diff editor |
 | Right-hand side | The committed content | **Your unsaved draft**, so in-progress edits appear |
 | Compares against | Any commit, or two refs | `HEAD` only |
-| Split view | No | Yes, when the pane measures ≥ 900px |
+| Split view | Yes, `Shift`+`D` | Yes, when the pane measures ≥ 900px |
 | Scope | Whole repository | The one open file |
 
 Press `d` in the Code surface to toggle it (the mode toggle in the path bar reads
@@ -352,22 +352,13 @@ Current, honest limits — not bugs:
 - **"Sent" means handed over.** A live agent takes the prompt through its mod, else it is typed into
   its terminal; a typing failure after the hand-off is only logged by wavesrv.
 - **Pending comments are per machine.** They live in this app's localStorage, not in the repository.
-- **No syntax highlighting, no word-level highlighting, no side-by-side, no in-diff search, no
-  whitespace-ignore.** The pane renders plain unified rows.
 - **No keyboard navigation of the changed-file list** (section 9).
 - **No "viewed" marker** — nothing tracks which files of a branch you have already read.
-- **No refresh.** The change list is read when the surface mounts and never again, so files edited
-  while you are looking at them keep their old counts. Leave the surface and come back to re-read.
-  (`filesstore.reloadChanges` exists for exactly this and has no caller — see `docs/open-issues.md`.)
 - **It is cramped at the default window size.** The app opens at 1000×700
   (`src-tauri/tauri.conf.json:14`) and the two left columns are fixed at 460px + 300px, leaving the
   diff roughly 240px — about 30 characters. Maximize the window before a real review.
 - **Local host only.** SSH/WSL workers run their git elsewhere; those commands are not registered on
   the remote route.
-
-Most of the first three are addressed by an approved but unstarted plan —
-`docs/superpowers/specs/2026-09-04-git-compare-viewer-parity-design.md` and the plan beside it —
-which swaps this pane for Monaco and makes the history column collapsible.
 
 ---
 
