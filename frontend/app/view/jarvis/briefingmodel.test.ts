@@ -1015,6 +1015,17 @@ describe("buildAttentionQueue", () => {
         expect(q[0]!.nav).toEqual({ kind: "channel", channelId: "ch-1", runId: "r1" });
     });
 
+    it("opens a workflow scan by its oref and labels it as one", () => {
+        const q = buildAttentionQueue({
+            attention: [item({ kind: "workflow-scan", key: "workflow-scan:r1", oref: "workflowscan:r1" })],
+            efforts: [],
+        });
+        expect(q[0]!.kind).toBe("workflow scan");
+        expect(queueKindLabel(q[0]!)).toBe("workflow scan");
+        expect(q[0]!.nav).toEqual({ kind: "oref", oref: "workflowscan:r1" });
+        expect(queueOpenTarget(q[0]!.nav)).toEqual({ kind: "oref", oref: "workflowscan:r1" });
+    });
+
     // F8: the row carries the initiative, the derived why-line and the citations. The title is joined
     // here from the efforts the Brief already holds, so an initiative's name has one source.
     it("joins the initiative title from the efforts it already has and appends the chunk", () => {

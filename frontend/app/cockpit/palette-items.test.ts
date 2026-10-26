@@ -10,6 +10,7 @@ vi.mock("@/app/view/agents/channelactions", () => ({ sendChannelMessage: vi.fn()
 vi.mock("@/app/view/agents/runrailsections", () => ({ openRunDag: vi.fn() }));
 vi.mock("@/app/view/jarvis/initiativeworkaction", () => ({ workOnInitiative: vi.fn() }));
 vi.mock("@/app/view/agents/sessionsfind", () => ({ openSessionHit: vi.fn() }));
+vi.mock("@/app/view/agents/workflowscanstart", () => ({ startWorkflowScan: vi.fn() }));
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -22,6 +23,7 @@ import { openRunDag } from "@/app/view/agents/runrailsections";
 import { openSessionHit } from "@/app/view/agents/sessionsfind";
 import { THEMES } from "@/app/view/agents/themes";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
+import { startWorkflowScan } from "@/app/view/agents/workflowscanstart";
 import { buildBriefIndex } from "@/app/view/jarvis/briefpalette";
 import { workOnInitiative } from "@/app/view/jarvis/initiativeworkaction";
 import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
@@ -169,6 +171,8 @@ describe("startRows", () => {
     it("takes a Global binding's chord and opens its window after closing", () => {
         const rows = startRows(
             [{ id: "new-agent", keys: "Ctrl:n", group: "Global", label: "New agent", run: () => {} }],
+            null,
+            {},
             deps
         );
         expect(rows.map((r) => r.key)).toEqual(["start:run", "start:agent", "start:initiative"]);
@@ -184,6 +188,37 @@ describe("startRows", () => {
         rows[1].run();
         expect(deps.close).toHaveBeenCalled();
         expect(globalStore.get(deps.model.newAgentOpenAtom)).toBe(true);
+    });
+
+    it("starts a workflow scan in the home project, closing once it lands", async () => {
+        vi.mocked(startWorkflowScan).mockResolvedValue({} as Run);
+        const rows = startRows([], channel("c1", "C:/src/waveterm"), projects, deps);
+        const scan = rows.find((r) => r.key === "start:scan")!;
+        expect(scan).toMatchObject({
+            kind: "start",
+            title: "Scan workflow",
+            meta: "#waveterm",
+            verb: "Start",
+            echo: "Starts a scan, opens Usage › Workflow",
+        });
+        scan.run();
+        expect(startWorkflowScan).toHaveBeenCalledWith(deps.model, "c1");
+        await vi.waitFor(() => expect(deps.close).toHaveBeenCalled());
+    });
+
+    it("keeps the palette open on a failed scan start and says why", async () => {
+        vi.mocked(startWorkflowScan).mockRejectedValue(new Error("a scan is already running"));
+        const rows = startRows([], channel("c1", "C:/src/waveterm"), projects, deps);
+        const scan = rows.find((r) => r.key === "start:scan")!;
+        scan.run();
+        await vi.waitFor(() =>
+            expect(setPaletteError).toHaveBeenLastCalledWith("Scan failed: a scan is already running")
+        );
+        expect(deps.close).not.toHaveBeenCalled();
+    });
+
+    it("has no scan row without a home project", () => {
+        expect(startRows([], null, {}, deps).map((r) => r.key)).not.toContain("start:scan");
     });
 });
 
@@ -315,6 +350,37 @@ describe("needsPaletteRows", () => {
         expect(setSel).toHaveBeenCalledWith(0);
         inAll[0].alt!.run();
         expect(deps.model.openTerminal).toHaveBeenCalledWith("a1");
+    });
+
+    it("opens a workflow scan through the router by its oref", () => {
+        const [row] = needsPaletteRows(
+            needsGroups(
+                needsRows(
+                    [
+                        item({
+                            kind: "workflow-scan",
+                            key: "workflow-scan:r9",
+                            oref: "workflowscan:r9",
+                            text: "Workflow scan waits on your picks",
+                            source: "Workflow scan",
+                            channelid: "c1",
+                            channelname: "waveterm",
+                            runid: "r9",
+                        }),
+                    ],
+                    []
+                )
+            ),
+            deps
+        ).inScope;
+        expect(row).toMatchObject({
+            status: { label: "workflow scan", tone: "asking" },
+            verb: "Open",
+            echo: "Opens Usage › Workflow",
+        });
+        row.run();
+        expect(vi.mocked(openTarget).mock.calls[0][1]).toEqual({ kind: "workflowscan", runId: "r9" });
+        expect(deps.close).toHaveBeenCalled();
     });
 
     it("opens a review with its dialog", () => {

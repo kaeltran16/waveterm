@@ -20,13 +20,14 @@ import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
 import { openRunDag } from "@/app/view/agents/runrailsections";
 import { openSessionHit } from "@/app/view/agents/sessionsfind";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
+import { startWorkflowScan } from "@/app/view/agents/workflowscanstart";
 import { rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
 import { workOnInitiative } from "@/app/view/jarvis/initiativeworkaction";
 import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
 import { openAddress, openTarget } from "@/app/view/jarvis/openref";
 import { fireAndForget } from "@/util/util";
 import type { PrimitiveAtom } from "jotai";
-import { Eye, Flag, GitFork, Plus, SlidersHorizontal, SquareTerminal, type LucideIcon } from "lucide-react";
+import { Eye, Flag, GitFork, Plus, ScanSearch, SlidersHorizontal, SquareTerminal, type LucideIcon } from "lucide-react";
 import { errorText, runPaletteAction } from "./palette-action";
 import {
     buildCommandItems,
@@ -35,7 +36,7 @@ import {
     GOTO_GROUP,
     postCloseContext,
     START_BINDINGS,
-    START_DEFS,
+    startDefs,
     type StartId,
 } from "./palette-commands";
 import type { ProjectRun } from "./palette-data";
@@ -65,7 +66,12 @@ export interface PaletteDeps {
 
 export type CommandRow = PaletteItem & { group: string };
 
-const START_ICONS: Record<StartId, LucideIcon> = { run: SlidersHorizontal, agent: SquareTerminal, initiative: Flag };
+const START_ICONS: Record<StartId, LucideIcon> = {
+    run: SlidersHorizontal,
+    agent: SquareTerminal,
+    initiative: Flag,
+    scan: ScanSearch,
+};
 
 // the attention kind as the one word a Needs you row's status shows
 const NEEDS_STATUS: Record<string, string> = {
@@ -74,6 +80,7 @@ const NEEDS_STATUS: Record<string, string> = {
     "dag-blocked": "blocked",
     "run-land-held": "land held",
     "run-unverified": "unverified",
+    "workflow-scan": "workflow scan",
 };
 
 export function themeRows(themePreset: string, { close }: PaletteDeps): PaletteItem[] {
@@ -150,13 +157,29 @@ export function commandRows(
     return { gotoItems, commandItems };
 }
 
-export function startRows(bindings: Binding[], { model, close }: PaletteDeps): PaletteItem[] {
-    const opens: Record<StartId, PrimitiveAtom<boolean>> = {
+export function startRows(
+    bindings: Binding[],
+    homeChannel: Channel | null,
+    projects: Record<string, ProjectKeywords>,
+    { model, close, setPaletteError }: PaletteDeps
+): PaletteItem[] {
+    const opens: Record<Exclude<StartId, "scan">, PrimitiveAtom<boolean>> = {
         run: model.newRunOpenAtom,
         agent: model.newAgentOpenAtom,
         initiative: model.newInitiativeOpenAtom,
     };
-    return START_DEFS.map((d) => ({
+    // a failure keeps the palette open on the error, as a launch does; success lands on the lens, then closes
+    const startScan = (channelId: string) => {
+        setPaletteError(undefined);
+        void runPaletteAction(() => startWorkflowScan(model, channelId)).then((result) => {
+            if ("error" in result) {
+                setPaletteError(`Scan failed: ${errorText(result.error)}`);
+                return;
+            }
+            close();
+        });
+    };
+    return startDefs(homeChannel ? channelProjectLabel(homeChannel, projects) : null).map((d) => ({
         key: `start:${d.id}`,
         kind: "start" as const,
         search: d.title,
@@ -164,12 +187,15 @@ export function startRows(bindings: Binding[], { model, close }: PaletteDeps): P
         icon: START_ICONS[d.id],
         meta: d.meta,
         chord: bindings.find((b) => b.id === d.binding && b.group === "Global")?.keys,
-        verb: "Open",
+        verb: d.verb ?? "Open",
         echo: d.echo,
-        run: () => {
-            close();
-            globalStore.set(opens[d.id], true);
-        },
+        run:
+            d.id === "scan"
+                ? () => startScan(homeChannel!.oid)
+                : () => {
+                      close();
+                      globalStore.set(opens[d.id], true);
+                  },
     }));
 }
 
@@ -239,6 +265,9 @@ export function runRows(
 }
 
 function needsIcon(row: NeedsRow): LucideIcon {
+    if (row.item.kind === "workflow-scan") {
+        return ScanSearch;
+    }
     if (row.agent == null) {
         return GitFork;
     }
@@ -258,6 +287,8 @@ function needsEcho(row: NeedsRow, t: NeedsTarget | null): string {
             return "Opens the run in Jarvis";
         case "channel":
             return row.item.channelname ? `Opens #${row.item.channelname} in Jarvis` : "Opens its project in Jarvis";
+        case "open":
+            return t.target.kind === "workflowscan" ? "Opens Usage › Workflow" : "Opens it";
         default:
             return "Nothing to open from here";
     }
@@ -293,6 +324,9 @@ function openNeeds(t: NeedsTarget | null, { model, close }: PaletteDeps) {
             break;
         case "channel":
             fireAndForget(() => openTarget(model, { kind: "channel", channelId: t.channelId }));
+            break;
+        case "open":
+            fireAndForget(() => openTarget(model, t.target));
             break;
         default:
             return;

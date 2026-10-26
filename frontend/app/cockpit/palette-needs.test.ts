@@ -39,6 +39,10 @@ describe("palette-needs", () => {
         expect(rows.map((r) => r.group)).toEqual(["asks", "blocked", "blocked", "blocked"]);
     });
 
+    it("a workflow scan waiting on picks is a review", () => {
+        expect(needsRows([item("workflow-scan", "workflow-scan:r1")], [])[0].group).toBe("reviews");
+    });
+
     it("keeps server order within a group and drops empty groups", () => {
         const g = needsGroups(
             needsRows([item("dag-blocked", "a"), item("escalation", "g"), item("run-unverified", "b")], [])
@@ -114,6 +118,17 @@ describe("palette-needs", () => {
             expect(target(at({ channelid: "c1", runid: "r1" }))).toEqual({ kind: "run", channelId: "c1", runId: "r1" });
             expect(target(at({ channelid: "c1" }))).toEqual({ kind: "channel", channelId: "c1" });
             expect(target(at({}))).toBeNull();
+        });
+
+        it("opens a workflow scan by its oref, not its run", () => {
+            const scan = at({
+                kind: "workflow-scan",
+                key: "workflow-scan:r1",
+                oref: "workflowscan:r1",
+                channelid: "c1",
+                runid: "r1",
+            });
+            expect(target(scan)).toEqual({ kind: "open", target: { kind: "workflowscan", runId: "r1" } });
         });
 
         it("an ask whose agent left the roster opens its channel, never an answer", () => {

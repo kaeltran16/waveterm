@@ -189,7 +189,10 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         () => commandRows(bindings, surface, themeItems.length, deps),
         [bindings, surface, model, themeItems.length]
     );
-    const startItems = useMemo(() => startRows(bindings, deps), [bindings, model]);
+    const startItems = useMemo(
+        () => startRows(bindings, homeChannel, projects, deps),
+        [bindings, homeChannel, projects, model]
+    );
     const agentItems = useMemo(() => agentRows(agents, deps), [agents, model]);
     const runItems = useMemo(() => runRows(runs, channels, projects, deps), [runs, channels, projects, model]);
     const needs = useMemo(() => needsRows(attention, agents), [attention, agents]);

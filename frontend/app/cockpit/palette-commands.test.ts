@@ -4,7 +4,14 @@
 import type { Binding, KeyContext } from "@/app/store/keybindings/types";
 import { describe, expect, it, vi } from "vitest";
 import { THEMES } from "@/app/view/agents/themes";
-import { buildCommandItems, buildExtraItems, buildThemeItems, commandGroups, postCloseContext } from "./palette-commands";
+import {
+    buildCommandItems,
+    buildExtraItems,
+    buildThemeItems,
+    commandGroups,
+    postCloseContext,
+    startDefs,
+} from "./palette-commands";
 
 const bind = (over: Partial<Binding> & Pick<Binding, "id" | "keys" | "label">): Binding => ({
     group: "Global",
@@ -121,6 +128,23 @@ describe("buildExtraItems", () => {
         const d = deps();
         buildExtraItems(d)[0].run();
         expect(d.openNewProject).toHaveBeenCalled();
+    });
+});
+
+describe("startDefs", () => {
+    it("adds Scan workflow in the home project, with its meta, verb and echo", () => {
+        const scan = startDefs("waveterm").find((d) => d.id === "scan");
+        expect(scan).toEqual({
+            id: "scan",
+            title: "Scan workflow",
+            meta: "#waveterm",
+            verb: "Start",
+            echo: "Starts a scan, opens Usage › Workflow",
+        });
+    });
+    it("has no Scan workflow without a home project", () => {
+        expect(startDefs(null).map((d) => d.id)).toEqual(["run", "agent", "initiative"]);
+        expect(startDefs("").map((d) => d.id)).not.toContain("scan");
     });
 });
 

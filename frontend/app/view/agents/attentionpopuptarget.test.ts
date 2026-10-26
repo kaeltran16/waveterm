@@ -25,6 +25,11 @@ describe("popupTarget", () => {
             anchor: undefined,
         });
     });
+    it("opens a workflow scan by its oref, not its run", () => {
+        expect(
+            popupTarget(item({ kind: "workflow-scan", oref: "workflowscan:r1", channelid: "c", runid: "r1" }), agents)
+        ).toEqual({ kind: "workflowscan", runId: "r1" });
+    });
     it("falls through an unsupported oref", () => {
         expect(popupTarget(item({ oref: "bogus:x", runid: "r" }), agents)).toEqual({ kind: "run", runId: "r" });
     });
