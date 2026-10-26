@@ -237,6 +237,20 @@ const waitState = async (h, pred) => {
     return s;
 };
 
+// the dev app indexes the whole ~/.claude/projects (about 50 s cold), and until then every search reports
+// incomplete, which step 5's retried search must not
+const INDEX_WAIT_MS = 180_000;
+const INDEX_RPC_TIMEOUT_MS = 30_000;
+const waitIndexWarm = async (h, query) => {
+    const t0 = Date.now();
+    for (;;) {
+        const r = await h.rpc("searchsessions", { query }, { timeout: INDEX_RPC_TIMEOUT_MS }).catch(() => null);
+        if (r != null && !r.incomplete) return true;
+        if (Date.now() - t0 > INDEX_WAIT_MS) return false;
+        await nap(h, 1000);
+    }
+};
+
 const clickIn = (h, rowKey, sel) =>
     h.ev(`${LIST}?.querySelector('[data-session-row="' + CSS.escape(${JSON.stringify(rowKey)}) + '"] ${sel}')?.click()`);
 
@@ -390,6 +404,7 @@ const sessionsSearch = (kit) => ({
         rec("4. a word in no session shows No sessions match", s4.empty === emptyText && s4.cards.length === 0, { empty: s4.empty, cards: s4.cards.length });
 
         // 5. an incomplete index says so; a failed search shows Search failed and Retry, which recovers
+        const indexWarm = await waitIndexWarm(h, fx.word);
         await stubSearch(h, `async (call) => ({ ...(await call()), incomplete: true })`);
         await typeQuery(h, fx.word);
         const s5a = await waitState(h, (s) => s.incomplete != null && s.cards.length > 0);
@@ -404,14 +419,23 @@ const sessionsSearch = (kit) => ({
         await h.shot("cdp-shots/sessions-search-5-retried.png");
         rec(
             "5. incomplete results say still indexing; a failed search shows Search failed with Retry, and Retry brings the results back",
-            s5a.incomplete === "Results may be incomplete — still indexing" &&
+            indexWarm &&
+                s5a.incomplete === "Results may be incomplete — still indexing" &&
                 (s5b.error ?? "").startsWith("Search failed") &&
                 s5b.retry &&
                 s5b.cards.length === 0 &&
                 s5c.error == null &&
                 s5c.incomplete == null &&
                 s5c.cards.some((c) => c.key === solo),
-            { incomplete: s5a.incomplete, error: s5b.error, retry: s5b.retry, failedCards: s5b.cards.length, retried: s5c.cards.map((c) => c.key) }
+            {
+                index: indexWarm ? "warm" : `never finished indexing within ${INDEX_WAIT_MS / 1000} s`,
+                incomplete: s5a.incomplete,
+                error: s5b.error,
+                retry: s5b.retry,
+                failedCards: s5b.cards.length,
+                retried: s5c.cards.map((c) => c.key),
+                retriedIncomplete: s5c.incomplete,
+            }
         );
 
         // 6. Escape in the field clears the query and the full list returns
