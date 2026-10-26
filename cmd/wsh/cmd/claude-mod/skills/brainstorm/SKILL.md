@@ -146,7 +146,7 @@ Every other action is a `brainstorm:` line:
 | `brainstorm: guess` | The user wants you to decide. Write your best guess for the current question's part as `guess` (say in `from` that it was your call), then ask the next question as after an answer. |
 | `brainstorm: skip questions` | Stop asking. Write every `asked` and `open` part as a `guess`, set `question: null` and `done: true`. |
 | `brainstorm: judged <path>` | The judge weighed the open question. Copy the file at `<path>` onto `question` with the one-line script under **Approach questions go to the judge**, which sets `working` to `null` in the same write; never retype it. End the turn on the question. |
-| `brainstorm: judge failed: <reason>` | The judge did not weigh the open question. Write your own `options` and `read` with one `pick`, set `question.judge` to `{ "failed": "<reason>" }` and `working` to `null`, and end the turn on the question. |
+| `brainstorm: judge failed: <reason>` | The judge did not weigh the open question (ignore it for a question no longer open, as the section after **Approach questions go to the judge** says). Write your own `options` and `read` with one `pick`, set `question.judge` to `{ "failed": "<reason>" }` and `working` to `null`, and end the turn on the question. |
 | `brainstorm: confirm <part id>` | Make that part `yours`; drop its `was` and `why`. |
 | `brainstorm: confirm every guess` | Make every `guess` part that has no `was` `yours`. A part with `was` stays a guess: it waits for keep or restore. |
 | `brainstorm: edit <part id>: <text>` | Replace that part's `body` with the text (fix only obvious typos), make it `yours`, drop `was` and `why`. |
@@ -314,6 +314,21 @@ node -e "const fs=require('fs'),[f,j]=process.argv.slice(1),b=JSON.parse(fs.read
 
 `<path>` is `judge.json` beside `brainstorm.json`: `{ "options", "read", "judge": { "added",
 "dropped" } }`. `approaches` stays in the question for a rerun.
+
+**While the judge weighs.** Arc shows the question, the approach list and an open answer box while
+the judge runs, and stops the judge itself before it sends an answer or Skip; you never stop it. A
+line that arrives while the judge runs (`working` set for an approach question) is handled so:
+
+- An answer, typed or an approach `name` from a clicked row, is recorded as any answer: `a` is the
+  text and `picked` is left out. No `options` go into the history entry: a first judge has none, and
+  a rerun's earlier options were not shown during the wait. Then ask the next question as after any
+  answer, with `working` back to `null`.
+- Pushback or "double check" reruns the judge with `--line "<their line, verbatim>"`, as on a judged
+  question, adding any alternative it names to `approaches`. `working` stays set, and you end the
+  turn.
+- `brainstorm: skip questions` works as in the table above.
+- A `brainstorm: judge failed` line for a question that is no longer open is ignored. A judge Arc
+  stopped sends no line.
 
 **Findings reach the question.** When the user asks for a report (research, a comparison, a look at
 something), what you found goes two places in the same write:
