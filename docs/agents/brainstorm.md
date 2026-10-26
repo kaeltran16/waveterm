@@ -51,7 +51,7 @@ the skill tells them not to use it: a lead routes every question through AskUser
 | Skip the questions | `brainstorm: skip questions` | writes every open part as a guess, sets `done` |
 | (the judge is done) | `brainstorm: judged <path>`, sent by the server | copies `judge.json` onto its question with one script, clears `working`, ends its turn on the question |
 | (the judge failed or was lost) | `brainstorm: judge failed: <reason>`, sent by the server | writes its own options and pick, sets `question.judge` to `{ "failed": <reason> }`, clears `working` |
-| An answer or Skip during the judge's wait | the line, as typed (Arc has stopped the judge first) | records it as any answer, with `working` back to `null` |
+| An answer or Skip during the judge's wait | the line, as typed, or `brainstorm: skip questions` (Arc has stopped the judge first) | an answer is recorded as any answer, with `working` back to `null`; Skip works as above |
 | Push back on a judged question, or type "double check" | the line, as typed | adds any alternative it names to `approaches`, runs `wsh brainstorm judge <brainstorm.json> --line <the line>`, ends its turn |
 | That's right | `brainstorm: confirm <part>` | makes the part yours |
 | Confirm all N guesses | `brainstorm: confirm every guess` | makes every plain guess yours (a changed part still waits) |
