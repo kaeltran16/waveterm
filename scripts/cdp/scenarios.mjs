@@ -26354,6 +26354,406 @@ const quickRunDone = {
     },
 };
 
+// Usage > Workflow (workflow-scan Main.dc.html and States.dc.html), each lens state seeded on a deferred quick run's
+// own record. No step clicks an enabled Scan workflow button: that starts a real Opus agent.
+const WFS_PROJECT = "verify-workflow-scan";
+const WFS_LENS = (kind) => `document.querySelector('[data-workflow-lens="${kind}"]')`;
+const WFS_SCAN_BUTTON = `document.querySelector('[data-workflow-scan-button]')`;
+const WFS_SEND = `document.querySelector('[data-workflow-send]')`;
+const WFS_CARD = (id) => `document.querySelector('[data-workflow-card="${id}"]')`;
+const WFS_COUNT = (sel) => `document.querySelectorAll(${JSON.stringify(sel)}).length`;
+const WFS_DAY_MS = 24 * 60 * 60 * 1000;
+
+// a made-up run id per quote, except p1's first, which is the fixture run itself so its link opens a run that exists
+function wfsPattern(ctx, id, title, runs, days, projects, texts) {
+    const quotes = texts.map((text, i) => ({
+        runid: id === "p1" && i === 0 ? ctx.runId : `${`f0${id}${i}`.padEnd(8, "0")}-0000-4000-8000-000000000000`,
+        project: WFS_PROJECT,
+        date: "2026-10-2" + i,
+        text,
+    }));
+    return { id, title, fixtarget: "AGENTS.md · Plans", runs, days, projects, quotes };
+}
+
+function wfsScan(ctx, extra) {
+    const now = Date.now();
+    const survivors = [
+        wfsPattern(ctx, "p1", "Final's dev app starts on an empty store; scenarios read data it lacks", 4, 2, [{ name: WFS_PROJECT, runs: 4 }], [
+            "Final runs on a fresh empty store (final-verify.mjs gives it a new ARC_DEV_DATA_DIR).",
+            "It also expects the modal to open in Project scope, but a fresh final store has no projects.",
+            "The scenario read the project list, and the final store had none to read.",
+            "Step 3 found no runs: the store Final booted was empty.",
+        ]),
+        wfsPattern(
+            ctx,
+            "p2",
+            "A skipped red step is filed under Differs from plan, not Not verified",
+            11,
+            7,
+            [
+                { name: "cyber_anomaly_detector", runs: 7 },
+                { name: "cyber_assistant", runs: 2 },
+                { name: WFS_PROJECT, runs: 2 },
+            ],
+            [
+                "Red step skipped: I wrote the tests and then the implementation, and ran Maven once afterwards.",
+                "Step 2 (watch the tests fail first) was not run on its own: the implementation was written first",
+                "The failing run was skipped; the tests were written after the change.",
+            ]
+        ),
+        wfsPattern(ctx, "p3", "Plans put whole-package runs in task steps; no reviewer flags them", 7, 4, [{ name: WFS_PROJECT, runs: 7 }], [
+            "I ran Step 9's package-wide verify.mjs, although the worker instructions say to skip whole-package runs.",
+            "Step 4 says to run `go test ./pkg/jarvis` for the whole package.",
+        ]),
+        wfsPattern(ctx, "p4", "Untracked plan copy blocks the land", 12, 6, [{ name: WFS_PROJECT, runs: 12 }], [
+            "The land was held: an untracked copy of the plan sits in the tree.",
+        ]),
+        wfsPattern(ctx, "p5", "Held-store EPERM line reported", 7, 5, [{ name: WFS_PROJECT, runs: 7 }], [
+            "EPERM on the held store was reported as a failure again.",
+        ]),
+    ];
+    return {
+        state: "picking",
+        stage: "checking",
+        project: WFS_PROJECT,
+        windowdays: 14,
+        fromts: now - 14 * WFS_DAY_MS,
+        tots: now,
+        runs: 47,
+        projects: 4,
+        candidates: 7,
+        kept: 5,
+        dropped: 0,
+        survivors,
+        underfloor: [
+            wfsPattern(ctx, "u1", "Plan reviewer cites the wrong spec section", 2, 2, [{ name: WFS_PROJECT, runs: 2 }], [
+                "The reviewer quoted a section the spec does not have.",
+            ]),
+            wfsPattern(ctx, "u2", "Setup junction left behind after cleanup", 1, 1, [{ name: WFS_PROJECT, runs: 1 }], [
+                "The node_modules junction was still there after worktree cleanup.",
+            ]),
+        ],
+        verdicts: [
+            {
+                id: "p1",
+                verdict: "suggest",
+                file: "AGENTS.md",
+                where: "Plans the engine runs",
+                fixproject: WFS_PROJECT,
+                edit: "+ That app starts on a fresh, empty store: a scenario arranges every record it reads.",
+            },
+            {
+                id: "p2",
+                verdict: "suggest",
+                file: "pkg/orchestrate/engine.go",
+                where: "workerContract",
+                fixproject: "waveterm",
+                edit: "+ A step the task asked for that you skipped goes under Not verified.",
+            },
+            {
+                id: "p3",
+                verdict: "suggest",
+                file: "pkg/orchestrate/planreview.go",
+                where: "Tests lens",
+                fixproject: WFS_PROJECT,
+                edit: "- no whole-package runs\n+ no task step runs a whole package, the full suite or the plan's Verify;",
+                declinedat: 4,
+            },
+            { id: "p4", verdict: "covered", note: "8bc284e7" },
+            { id: "p5", verdict: "covered", note: "f93850e9" },
+        ],
+        ...extra,
+    };
+}
+
+// writes the run's record and waits for the lens to draw the state it maps to
+async function wfsSeed(h, ctx, kind, change) {
+    await fstWriteRun(h, ctx.runId, (run) => change({ ...run, status: ctx.status }));
+    return polishWaitFor(h, `!!${WFS_LENS(kind)}`, 10000);
+}
+
+async function wfsHeaderEnabled(h) {
+    return h.ev(`${WFS_SCAN_BUTTON} ? !${WFS_SCAN_BUTTON}.disabled : null`);
+}
+
+const workflowScan = {
+    name: "workflow-scan",
+    surface: "usage",
+    async arrange(h) {
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-workflow-scan-")) };
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: WFS_PROJECT, projectpath: ctx.cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: "verify workflow-scan: do nothing",
+                runtime: "claude",
+                model: "opus",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            ctx.landPath = created.run.landpath;
+            ctx.status = created.run.status;
+            // the fixture channel is the active one, so it is the home project the Scan button starts in
+            ctx.openedChannel = await h.ev(openAddressExpr(`channel:${ctx.channelId}`));
+            ctx.opened = await h.ev(openAddressExpr(`workflowscan:${ctx.runId}`));
+            ctx.shown = await polishWaitFor(h, `!!${WFS_LENS("idle")}`, 10000);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail });
+        const shot = (name) => h.shot(`cdp-shots/workflow-scan-${name}.png`);
+        rec(
+            "0. workflowscan:<runid> opened Usage > Workflow on the fixture run",
+            ctx.arrangeError == null && ctx.opened?.ok === true && ctx.shown,
+            ctx.arrangeError ?? JSON.stringify({ runId: ctx.runId, opened: ctx.opened, shown: ctx.shown })
+        );
+        if (ctx.arrangeError != null) return steps;
+
+        // 1. idle, no scan yet: the fixture run has no workflowscan field
+        const idle = await h.ev(`(() => {
+            const lens = ${WFS_LENS("idle")};
+            return lens && {
+                big: !!lens.querySelector('[data-workflow-idle-scan]'),
+                line: (lens.innerText || '').includes('last 14 days · every project'),
+                last: !!lens.querySelector('[data-workflow-last]'),
+            };
+        })()`);
+        const idleHeader = await wfsHeaderEnabled(h);
+        await shot("idle");
+        rec(
+            "1. idle: the big Scan workflow button and the window line show, and the header button is enabled",
+            idle?.big && idle.line && !idle.last && idleHeader === true,
+            JSON.stringify({ idle, header: idleHeader })
+        );
+
+        // 2. scanning at the recount stage
+        const scanning = await wfsSeed(h, ctx, "scanning", (run) => ({
+            ...run,
+            workflowscan: wfsScan(ctx, { state: "scanning", stage: "recount", survivors: [], underfloor: [], verdicts: [], kept: 0 }),
+        }));
+        const stages = await h.ev(
+            `[...document.querySelectorAll('[data-workflow-stage]')].map((s) => [s.getAttribute('data-workflow-stage'), s.getAttribute('data-phase')])`
+        );
+        const scanningHeader = await wfsHeaderEnabled(h);
+        await shot("scanning");
+        rec(
+            "2. scanning: five stage rows with Recount now, and the header button disabled",
+            scanning &&
+                stages?.length === 5 &&
+                JSON.stringify(stages.map((s) => s[1])) === JSON.stringify(["done", "done", "now", "todo", "todo"]) &&
+                stages[2][0] === "Recount" &&
+                scanningHeader === false,
+            JSON.stringify({ scanning, stages, header: scanningHeader })
+        );
+
+        // 3. picking: three suggestions, one raised again, one with its fix in another project
+        const picking = await wfsSeed(h, ctx, "picking", (run) => ({ ...run, workflowscan: wfsScan(ctx) }));
+        const cards = await h.ev(`({
+            cards: ${WFS_COUNT("[data-workflow-card]")},
+            raised: ${WFS_COUNT("[data-workflow-raised]")},
+            copy: ${WFS_COUNT("[data-workflow-copy]")},
+            applyOnElsewhere: !!${WFS_CARD("p2")}?.querySelector('[data-workflow-pick="apply"]'),
+            send: ${WFS_SEND}?.textContent ?? null,
+        })`);
+        const pickingHeader = await wfsHeaderEnabled(h);
+        await shot("picking");
+        rec(
+            "3. picking: three cards, one raised again, Copy for #project instead of Apply on the other project's fix; header disabled",
+            picking && cards.cards === 3 && cards.raised === 1 && cards.copy === 1 && !cards.applyOnElsewhere && pickingHeader === false,
+            JSON.stringify({ picking, cards, header: pickingHeader })
+        );
+        await h.ev(`document.querySelector('[data-workflow-covered-toggle]')?.click()`);
+        const covered = await polishWaitFor(h, `${WFS_COUNT('[data-workflow-filed="covered"]')} === 2`, 3000);
+        await shot("picking-covered");
+        rec("3a. Already covered › expands its two rows in place", covered, JSON.stringify({ covered }));
+        await h.ev(`document.querySelector('[data-workflow-under-toggle]')?.click()`);
+        const under = await polishWaitFor(h, `${WFS_COUNT('[data-workflow-filed="under"]')} === 2`, 3000);
+        await shot("picking-under");
+        rec("3b. Under 3 runs › expands its two rows in place", under, JSON.stringify({ under }));
+
+        // 4. Copy for #project: the stub stands in for the clipboard, which a window without OS focus refuses
+        await h.ev(notesClipStub(false));
+        ctx.clipStubbed = true;
+        await h.ev(`document.querySelector('[data-workflow-copy="p2"]')?.click()`);
+        const copied = await polishWaitFor(h, `document.querySelector('[data-workflow-copy="p2"]')?.textContent.trim() === 'Copied'`, 3000);
+        const clip = await h.ev(`window.__notesClip ?? null`);
+        await shot("copied");
+        rec("4. Copy for #waveterm shows Copied", copied, JSON.stringify({ copied, clip }));
+
+        // 5. Apply one card, Drop another: the reason field shows and the send waits for a reason
+        await h.ev(`${WFS_CARD("p3")}?.querySelector('[data-workflow-pick="apply"]')?.click()`);
+        await h.ev(`${WFS_CARD("p1")}?.querySelector('[data-workflow-pick="drop"]')?.click()`);
+        const reasonShown = await polishWaitFor(h, `!!document.querySelector('[data-workflow-reason="p1"]')`, 3000);
+        const before = await h.ev(`({ label: ${WFS_SEND}?.textContent.trim(), disabled: ${WFS_SEND}?.disabled })`);
+        await h.ev(setInputExpr(`document.querySelector('[data-workflow-reason="p1"]')`, "covered by the Final store notes"));
+        const enabled = await polishWaitFor(h, `${WFS_SEND}?.disabled === false`, 3000);
+        await shot("drop-reason");
+        rec(
+            "5. Drop shows a reason field; the button reads Apply 1, decline 1 and is disabled until a reason is typed",
+            reasonShown && before?.label === "Apply 1, decline 1" && before.disabled === true && enabled,
+            JSON.stringify({ reasonShown, before, enabled })
+        );
+
+        // 6. send: the picks are stored and the state is applying before the delivery, which the fixture's missing
+        // agent fails
+        await h.ev(`${WFS_SEND}?.click()`);
+        let stored = null;
+        for (let i = 0; i < 40; i++) {
+            const ws = (await waveService(h, "object", "GetObject", [`run:${ctx.runId}`]))?.workflowscan;
+            stored = { state: ws?.state, picks: ws?.picks ?? [] };
+            if (stored.state === "applying" && stored.picks.length === 2) break;
+            await polishNap(250);
+        }
+        const deliveryError = await polishWaitFor(h, `!!${WFS_LENS("applying")}?.querySelector('[data-workflow-send-error]')`, 10000);
+        const errorText = await h.ev(`document.querySelector('[data-workflow-send-error]')?.textContent ?? null`);
+        const applyingHeader = await wfsHeaderEnabled(h);
+        await shot("applying");
+        const wantPicks = [
+            { id: "p1", pick: "drop", reason: "covered by the Final store notes" },
+            { id: "p3", pick: "apply" },
+        ];
+        rec(
+            "6. sent: the record holds the picks and applying, the delivery error shows inline, the header stays disabled",
+            stored?.state === "applying" &&
+                JSON.stringify(stored.picks) === JSON.stringify(wantPicks) &&
+                deliveryError &&
+                applyingHeader === false,
+            JSON.stringify({ stored, deliveryError, errorText, header: applyingHeader })
+        );
+
+        // 7. done, with a commit and a row per pick
+        const commit = "3f9c2d1e8b7a6c5d4e3f2a1b0c9d8e7f6a5b4c3d";
+        const done = await wfsSeed(h, ctx, "done", (run) => ({
+            ...run,
+            status: "done",
+            endcommit: commit,
+            workflowscan: wfsScan(ctx, {
+                state: "applying",
+                picks: [
+                    { id: "p1", pick: "apply" },
+                    { id: "p3", pick: "apply" },
+                    { id: "p2", pick: "drop", reason: "the fix lives in waveterm" },
+                ],
+            }),
+        }));
+        const doneView = await h.ev(`({
+            commit: document.querySelector('[data-workflow-commit]')?.textContent.trim() ?? null,
+            rows: [...document.querySelectorAll('[data-workflow-done-row]')].map((r) => r.getAttribute('data-workflow-done-row')),
+        })`);
+        const doneHeader = await wfsHeaderEnabled(h);
+        await shot("done");
+        rec(
+            "7. done: the commit and three rows, and the header button enabled",
+            done &&
+                doneView.commit === commit.slice(0, 8) &&
+                JSON.stringify(doneView.rows) === JSON.stringify(["applied", "applied", "declined"]) &&
+                doneHeader === true,
+            JSON.stringify({ done, doneView, header: doneHeader })
+        );
+        const runSheetOpen = `(() => {
+            const sheet = document.querySelector('[data-run-sheet]');
+            return !!sheet && (sheet.innerText || '').includes('verify workflow-scan');
+        })()`;
+        await h.ev(`document.querySelector('[data-workflow-open-diff]')?.click()`);
+        const diffSheet = await polishWaitFor(h, runSheetOpen, 10000);
+        const diffSurface = await h.activeSurfaceLabel();
+        await shot("open-in-diff");
+        rec(
+            "7a. Open in Diff opens the scan run's sheet on the Brief",
+            diffSheet && diffSurface === SURFACE_LABEL.jarvis,
+            JSON.stringify({ diffSheet, diffSurface })
+        );
+        await h.goto("usage");
+        const back = await polishWaitFor(h, `!!${WFS_LENS("done")}`, 5000);
+        const repicking = await wfsSeed(h, ctx, "picking", (run) => ({ ...run, endcommit: "", workflowscan: wfsScan(ctx) }));
+        await h.ev(`document.querySelector('[data-workflow-quote-run="${ctx.runId}"]')?.click()`);
+        const quoteSheet = await polishWaitFor(h, runSheetOpen, 10000);
+        const quoteSurface = await h.activeSurfaceLabel();
+        await shot("open-quote-run");
+        rec(
+            "7b. back on Usage > Workflow, a quote's run id opens that run",
+            back && repicking && quoteSheet && quoteSurface === SURFACE_LABEL.jarvis,
+            JSON.stringify({ back, repicking, quoteSheet, quoteSurface })
+        );
+        await h.goto("usage");
+
+        // 8. nothing to suggest, with the Not raised list
+        const nothing = await wfsSeed(h, ctx, "nothing", (run) => ({
+            ...run,
+            status: "done",
+            workflowscan: wfsScan(ctx, {
+                verdicts: [
+                    { id: "p1", verdict: "covered", note: "AGENTS.md" },
+                    { id: "p2", verdict: "covered", note: "8bc284e7" },
+                    { id: "p3", verdict: "declined", declinedat: 7 },
+                    { id: "p4", verdict: "covered", note: "8bc284e7" },
+                    { id: "p5", verdict: "covered", note: "f93850e9" },
+                ],
+            }),
+        }));
+        const notRaised = await h.ev(`({
+            title: (${WFS_LENS("nothing")}?.innerText || '').includes('Nothing to suggest'),
+            rows: [...document.querySelectorAll('[data-workflow-filed]')].map((r) => r.getAttribute('data-workflow-filed')),
+        })`);
+        await shot("nothing");
+        rec(
+            "8. nothing to suggest, with the Not raised list of covered, declined and under-floor rows",
+            nothing &&
+                notRaised.title &&
+                JSON.stringify(notRaised.rows) ===
+                    JSON.stringify(["covered", "covered", "covered", "covered", "declined", "under", "under"]),
+            JSON.stringify({ nothing, notRaised })
+        );
+
+        // 9. a cancelled run left in scanning blocks nothing
+        const cancelled = await wfsSeed(h, ctx, "idle", (run) => ({
+            ...run,
+            status: "cancelled",
+            workflowscan: wfsScan(ctx, { state: "scanning", stage: "patterns" }),
+        }));
+        const cancelledLast = await h.ev(`document.querySelector('[data-workflow-last="cancelled"]')?.textContent.trim() ?? null`);
+        const cancelledHeader = await wfsHeaderEnabled(h);
+        await shot("cancelled");
+        rec(
+            "9. a cancelled run left scanning shows as idle with its last: line, and the header button is enabled",
+            cancelled && /^last: \d\d-\d\d · cancelled$/.test(cancelledLast ?? "") && cancelledHeader === true,
+            JSON.stringify({ cancelled, cancelledLast, header: cancelledHeader })
+        );
+
+        // 10. failed: idle, with the last: line and the error
+        const failure = "the Sonnet reply had no json block";
+        const failed = await wfsSeed(h, ctx, "idle", (run) => ({
+            ...run,
+            workflowscan: wfsScan(ctx, { state: "failed", error: failure }),
+        }));
+        const failedLast = await h.ev(`document.querySelector('[data-workflow-last="failed"]')?.textContent.trim() ?? null`);
+        const failedHeader = await wfsHeaderEnabled(h);
+        await shot("failed");
+        rec(
+            "10. failed shows as idle with its last: line and the error",
+            failed && (failedLast ?? "").includes("failed") && (failedLast ?? "").includes(failure) && failedHeader === true,
+            JSON.stringify({ failed, failedLast, header: failedHeader })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(
+            h,
+            ctx,
+            "workflow-scan",
+            ctx.clipStubbed ? { what: "restore the clipboard", fn: () => h.ev(NOTES_CLIP_RESTORE) } : undefined
+        );
+    },
+};
+
 // the helpers the sessions scenario modules seed their run with (sessions-search-fixtures.mjs)
 const SESSIONS_KIT = { teardownFixtureRun, fstWriteRun, waveService };
 
@@ -26485,6 +26885,7 @@ export const SCENARIOS = [
     runSheetCardsLook,
     codeStaleBarLook,
     uiDrift,
+    workflowScan,
     // last: its fixture roster stands in for the live one until its teardown reloads
     agentComposer,
 ];
