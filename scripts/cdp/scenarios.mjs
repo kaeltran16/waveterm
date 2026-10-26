@@ -4388,35 +4388,42 @@ async function reloadApp(h) {
     }
 }
 
+// the retry package on a feature branch, and a working tree with one file of each status the list draws:
+// README.md modified, src/retry/policy.go modified, src/retry/backoff.go added, src/retry/legacy.go deleted
+function seedRetryRepo(prefix) {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    git(dir, "init", "-q", "--initial-branch=main");
+    mkdirSync(join(dir, "src", "retry"), { recursive: true });
+    writeFileSync(join(dir, "README.md"), "# retry\n");
+    writeFileSync(join(dir, "src", "retry", "policy.go"), "package retry\n\nfunc Budget() int {\n    return 3\n}\n");
+    writeFileSync(join(dir, "src", "retry", "legacy.go"), "package retry\n\nfunc Legacy() {}\n");
+    git(dir, "add", ".");
+    git(dir, "commit", "-q", "-m", "seed the retry package");
+    git(dir, "checkout", "-q", "-b", "feature");
+    writeFileSync(join(dir, "src", "retry", "policy.go"), "package retry\n\nfunc Budget() int {\n    return 8\n}\n");
+    writeFileSync(
+        join(dir, "src", "retry", "submit.go"),
+        "package retry\n\nfunc Submit(id string) error {\n    return nil\n}\n"
+    );
+    git(dir, "add", ".");
+    git(dir, "commit", "-q", "-m", "raise the budget, add submit");
+    // the working tree: four files, one of each status the list draws
+    writeFileSync(join(dir, "README.md"), "# retry\n\nBudgets and backoff for job submission.\n");
+    writeFileSync(
+        join(dir, "src", "retry", "policy.go"),
+        "package retry\n\nfunc Budget() int {\n    return 8\n}\n\nfunc Floor() int {\n    return 1\n}\n"
+    );
+    writeFileSync(join(dir, "src", "retry", "backoff.go"), "package retry\n\nfunc Backoff(n int) int {\n    return n * 2\n}\n");
+    git(dir, "add", "-N", "src/retry/backoff.go");
+    rmSync(join(dir, "src", "retry", "legacy.go"));
+    return dir;
+}
+
 const diffReviewMarks = {
     name: "diff-review-marks",
     surface: "files",
     async arrange(h) {
-        const dir = mkdtempSync(join(tmpdir(), "verify-diff-review-"));
-        git(dir, "init", "-q", "--initial-branch=main");
-        mkdirSync(join(dir, "src", "retry"), { recursive: true });
-        writeFileSync(join(dir, "README.md"), "# retry\n");
-        writeFileSync(join(dir, "src", "retry", "policy.go"), "package retry\n\nfunc Budget() int {\n    return 3\n}\n");
-        writeFileSync(join(dir, "src", "retry", "legacy.go"), "package retry\n\nfunc Legacy() {}\n");
-        git(dir, "add", ".");
-        git(dir, "commit", "-q", "-m", "seed the retry package");
-        git(dir, "checkout", "-q", "-b", "feature");
-        writeFileSync(join(dir, "src", "retry", "policy.go"), "package retry\n\nfunc Budget() int {\n    return 8\n}\n");
-        writeFileSync(
-            join(dir, "src", "retry", "submit.go"),
-            "package retry\n\nfunc Submit(id string) error {\n    return nil\n}\n"
-        );
-        git(dir, "add", ".");
-        git(dir, "commit", "-q", "-m", "raise the budget, add submit");
-        // the working tree: four files, one of each status the list draws
-        writeFileSync(join(dir, "README.md"), "# retry\n\nBudgets and backoff for job submission.\n");
-        writeFileSync(
-            join(dir, "src", "retry", "policy.go"),
-            "package retry\n\nfunc Budget() int {\n    return 8\n}\n\nfunc Floor() int {\n    return 1\n}\n"
-        );
-        writeFileSync(join(dir, "src", "retry", "backoff.go"), "package retry\n\nfunc Backoff(n int) int {\n    return n * 2\n}\n");
-        git(dir, "add", "-N", "src/retry/backoff.go");
-        rmSync(join(dir, "src", "retry", "legacy.go"));
+        const dir = seedRetryRepo("verify-diff-review-");
         const name = "verify-diff-review-marks";
         await h.rpc("createproject", { name, path: dir });
 
@@ -4649,6 +4656,290 @@ const diffReviewMarks = {
         await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...esc });
         await h.ev(`document.querySelector('[data-history-rail] button[title="Expand history"]')?.click()`);
         await h.ev(restoreLocalStorage(REVIEW_STORAGE_KEY, ctx.prevMarks));
+        try {
+            await h.rpc("deleteproject", { name: ctx.name });
+        } catch {
+            /* leave a stale registry entry rather than failing teardown */
+        }
+        try {
+            rmSync(ctx.dir, { recursive: true, force: true });
+        } catch {
+            /* a leftover temp repo is cheaper than a failed teardown */
+        }
+    },
+};
+
+// --- diff surface: comments on the diff's lines ---------------------------------------------------
+// docs/superpowers/plans/2026-10-26-diff-comments.md, Task 3, on diff-review-marks's temp repo: the + on a
+// hovered line, `m` on a selection, a note with an `m` in it, edit and delete, a removed range in split view,
+// and a comment that follows its lines when the working tree moves them.
+const COMMENT_STORAGE_KEY = "diff.comments.pending";
+const SHIFT = 8;
+// in-page: where line n's number sits in one side's editor of the diff pane, and where that editor's text starts
+const DIFF_LINE_LIB = `
+const lineBox = (side, n) => {
+    const ed = document.querySelector('[data-diff-pane] .editor.' + side);
+    const el = ed && [...ed.querySelectorAll('.margin-view-overlays .line-numbers')]
+        .find((e) => e.textContent.trim() === String(n));
+    if (!el || el.getBoundingClientRect().height === 0) return null;
+    const r = el.getBoundingClientRect();
+    const text = ed.querySelector('.view-lines').getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, mid: (r.top + r.bottom) / 2, textLeft: text.left };
+};`;
+
+const diffComments = {
+    name: "diff-comments",
+    surface: "files",
+    async arrange(h) {
+        const dir = seedRetryRepo("verify-diff-comments-");
+        const name = "verify-diff-comments";
+        await h.rpc("createproject", { name, path: dir });
+        // the comment store reads localStorage once, at module load, so the key is cleared before the reload that
+        // gives this scenario fresh module state; teardown puts back whatever the user had
+        const prevComments = await h.ev(`localStorage.getItem(${JSON.stringify(COMMENT_STORAGE_KEY)})`);
+        await h.ev(`localStorage.removeItem(${JSON.stringify(COMMENT_STORAGE_KEY)})`);
+        await reloadApp(h);
+        return { dir, name, prevComments };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const q = (sel) => `document.querySelector(${JSON.stringify(sel)})`;
+        const rowSel = (path) => `[data-changed-file-row=${JSON.stringify(path)}]`;
+        const POLICY = "src/retry/policy.go";
+        const LEGACY = "src/retry/legacy.go";
+        const DRAFT = "[data-diff-comment-draft]";
+        const TEXTAREA = `${DRAFT} textarea`;
+        const until = async (expr, ms = 8000) => {
+            for (let waited = 0; waited < ms; waited += 250) {
+                if (await h.ev(expr).catch(() => false)) return true;
+                await sleep(250);
+            }
+            return false;
+        };
+        const click = (sel) => h.ev(`(() => { const el = ${q(sel)}; if (!el) return false; el.click(); return true; })()`);
+        const pin = (width = 1600) =>
+            h.cdp("Emulation.setDeviceMetricsOverride", { width, height: 950, deviceScaleFactor: 1, mobile: false });
+        const lineBox = async (side, n) =>
+            JSON.parse(await h.ev(`(() => { ${DIFF_LINE_LIB} return JSON.stringify(lineBox(${JSON.stringify(side)}, ${n})); })()`));
+        const rectOf = async (sel) =>
+            JSON.parse(
+                await h.ev(`(() => { const el = ${q(sel)}; if (!el) return "null";
+                  const r = el.getBoundingClientRect(); return JSON.stringify({ x: r.left + r.width / 2, mid: r.top + r.height / 2 }); })()`)
+            );
+        const cards = async () =>
+            JSON.parse(
+                await h.ev(`JSON.stringify([...document.querySelectorAll('[data-diff-comment-card]')].map((c) => ({
+                    id: c.dataset.diffCommentCard,
+                    state: c.dataset.commentState,
+                    label: c.querySelector('[data-diff-comment-label]')?.textContent ?? "",
+                    note: c.querySelector('[data-diff-comment-note]')?.textContent ?? "",
+                    top: c.getBoundingClientRect().top,
+                    original: !!c.closest('.editor.original'),
+                })))`)
+            );
+        const draftTitle = () => h.ev(`${q(`${DRAFT} label`)}?.textContent ?? ""`);
+        // the first card's top sits just below line n's bottom: the zone hangs under the line, after its padding
+        const cardUnder = (side, n) => `(() => { ${DIFF_LINE_LIB}
+            const l = lineBox(${JSON.stringify(side)}, ${n});
+            const c = ${q("[data-diff-comment-card]")};
+            if (!l || !c) return false;
+            const gap = c.getBoundingClientRect().top - l.bottom;
+            return gap >= -1 && gap < 20; })()`;
+        const titleIs = (t) => `${q(`${DRAFT} label`)}?.textContent === ${JSON.stringify(t)}`;
+        const mouse = (type, x, y, extra = {}) => h.cdp("Input.dispatchMouseEvent", { type, x, y, ...extra });
+        const hover = (x, y) => mouse("mouseMoved", x, y);
+        const clickAt = async (x, y) => {
+            await mouse("mousePressed", x, y, { button: "left", buttons: 1, clickCount: 1 });
+            await mouse("mouseReleased", x, y, { button: "left", clickCount: 1 });
+        };
+        const drag = async (from, to) => {
+            await mouse("mousePressed", from.x, from.y, { button: "left", buttons: 1, clickCount: 1 });
+            await mouse("mouseMoved", (from.x + to.x) / 2, (from.y + to.y) / 2, { button: "left", buttons: 1 });
+            await mouse("mouseMoved", to.x, to.y, { button: "left", buttons: 1 });
+            await mouse("mouseReleased", to.x, to.y, { button: "left", clickCount: 1 });
+        };
+        const key = async (k, code, vk, modifiers = 0, text) => {
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: k, code, windowsVirtualKeyCode: vk, modifiers, text });
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: k, code, windowsVirtualKeyCode: vk, modifiers });
+        };
+        const ctrlEnter = () => key("Enter", "Enter", 13, CTRL);
+        // a selection over lines from..to of one side, from the start of the first to past the end of the last
+        // after a view switch the diff editor re-aligns the two sides over a few frames, and a drag measured
+        // mid-way starts on the wrong line: wait for two reads of the line to agree
+        const settledLineBox = async (side, n) => {
+            let last = null;
+            for (let waited = 0; waited < 3000; waited += 250) {
+                const now = await lineBox(side, n);
+                if (now != null && JSON.stringify(now) === JSON.stringify(last)) return now;
+                last = now;
+                await sleep(250);
+            }
+            return last;
+        };
+        const selectLines = async (side, from, to) => {
+            const a = await settledLineBox(side, from);
+            const b = await lineBox(side, to);
+            if (a == null || b == null) return false;
+            await drag({ x: a.textLeft + 2, y: a.mid }, { x: b.textLeft + 300, y: b.mid });
+            return h.ev(`!!document.activeElement?.closest('[data-diff-pane] .editor.${side}')`);
+        };
+        const plusOn = async (n) => {
+            const l = await lineBox("modified", n);
+            if (l == null) return null;
+            await hover(l.textLeft + 40, l.mid);
+            if (!(await until(`!!${q("[data-diff-comment-plus]")}`, 3000))) return null;
+            const plus = await rectOf("[data-diff-comment-plus]");
+            return { plus, line: l };
+        };
+        const pick = async () => {
+            await click("[data-files-source-picker]");
+            const option = `[data-files-source-option=${JSON.stringify(ctx.name)}]`;
+            await until(`!!${q(option)}`, 4000);
+            await click(option);
+            return until(`!!${q(rowSel(POLICY))}`, 15000);
+        };
+        const openFile = async (path) => {
+            await click(rowSel(path));
+            return until(
+                `${q(rowSel(path))}?.getAttribute("aria-current") === "true" && (() => { ${DIFF_LINE_LIB} return !!lineBox("modified", 1); })()`,
+                10000
+            );
+        };
+
+        try {
+            await pin();
+            await sleep(400);
+            const picked = await pick();
+            const opened = await openFile(POLICY);
+            const hovered = await plusOn(3);
+            const onLine3 = hovered != null && Math.abs(hovered.plus.mid - hovered.line.mid) < 4;
+            await h.shot("cdp-shots/diff-comments-plus.png");
+            if (hovered != null) await clickAt(hovered.plus.x, hovered.plus.mid);
+            const drafted = await until(titleIs("Comment on line 3"), 3000);
+            await h.shot("cdp-shots/diff-comments-draft-line3.png");
+            await key("Escape", "Escape", 27);
+            const cancelled = await until(`!${q(DRAFT)}`, 3000);
+            rec(
+                "1. hovering line 3 of src/retry/policy.go shows the +; clicking it opens a draft titled Comment on line 3, and Esc cancels it",
+                picked && opened && onLine3 && drafted && cancelled,
+                `picked=${picked} opened=${opened} plus=${JSON.stringify(hovered)} drafted=${drafted} cancelled=${cancelled}`
+            );
+
+            const selected = await selectLines("modified", 7, 9);
+            await key("m", "KeyM", 77, 0, "m");
+            const ranged = await until(titleIs("Comment on lines 7–9"), 3000);
+            rec(
+                "2. selecting lines 7-9 and pressing m in the editor opens a draft titled Comment on lines 7–9",
+                selected && ranged,
+                `focusInEditor=${selected} title="${await draftTitle()}"`
+            );
+            await h.shot("cdp-shots/diff-comments-composer.png");
+
+            const NOTE = "A floor of 1 means a zero budget can never be configured. Return 0 here and let Budget enforce the minimu";
+            const focused = await h.ev(`document.activeElement === ${q(TEXTAREA)}`);
+            await h.cdp("Input.insertText", { text: NOTE });
+            await key("m", "KeyM", 77, 0, "m");
+            await sleep(300);
+            const typed = await h.ev(`${q(TEXTAREA)}?.value ?? ""`);
+            const oneDraft = await h.ev(`document.querySelectorAll(${JSON.stringify(DRAFT)}).length === 1 && ${titleIs("Comment on lines 7–9")}`);
+            await ctrlEnter();
+            const added = await until(`!${q(DRAFT)} && document.querySelectorAll('[data-diff-comment-card][data-comment-state="pending"]').length === 1`);
+            const under9 = await until(cardUnder("modified", 9), 3000);
+            const [first] = await cards();
+            const line9 = await lineBox("modified", 9);
+            const handedBack = await h.ev(`document.activeElement === document.body`);
+            rec(
+                "3. a note typed with an m keeps every character, and Ctrl+Enter adds a pending card under line 9",
+                focused && typed === `${NOTE}m` && oneDraft && added && first?.label === "Lines 7–9" && under9 && handedBack,
+                `focused=${focused} typed="${typed}" oneDraft=${oneDraft} card=${JSON.stringify(first)} line9=${JSON.stringify(line9)} focusOnBody=${handedBack}`
+            );
+            await h.shot("cdp-shots/diff-comments-pending.png");
+
+            const EDITED = "Return 0 here and let Budget enforce the minimum.";
+            await click(`[data-diff-comment-card=${JSON.stringify(first?.id ?? "")}] [data-diff-comment-edit]`);
+            const editing = await until(`document.activeElement === ${q(TEXTAREA)}`, 3000);
+            await h.ev(`${q(TEXTAREA)}?.select()`);
+            await h.cdp("Input.insertText", { text: EDITED });
+            await ctrlEnter();
+            const edited = await until(`!${q(DRAFT)} && ${q("[data-diff-comment-note]")}?.textContent === ${JSON.stringify(EDITED)}`);
+            const afterEdit = await cards();
+            await h.shot("cdp-shots/diff-comments-edited.png");
+            const again = await plusOn(3);
+            if (again != null) await clickAt(again.plus.x, again.plus.mid);
+            await until(titleIs("Comment on line 3"), 3000);
+            await h.cdp("Input.insertText", { text: "drop me" });
+            await ctrlEnter();
+            await until(`document.querySelectorAll('[data-diff-comment-card]').length === 2`, 3000);
+            const extra = (await cards()).find((c) => c.label === "Line 3");
+            await click(`[data-diff-comment-card=${JSON.stringify(extra?.id ?? "")}] [data-diff-comment-delete]`);
+            const deleted = await until(
+                `document.querySelectorAll('[data-diff-comment-card]').length === 1 && !!${q(`[data-diff-comment-card=${JSON.stringify(first?.id ?? "")}]`)}`,
+                3000
+            );
+            rec(
+                "4. edit changes the note and keeps the comment; delete removes the card",
+                editing && edited && afterEdit.length === 1 && afterEdit[0].id === first?.id && extra != null && deleted,
+                `editing=${editing} cards=${JSON.stringify(afterEdit)} extra=${extra?.id} deleted=${deleted}`
+            );
+            await h.shot("cdp-shots/diff-comments-deleted.png");
+
+            const legacy = await openFile(LEGACY);
+            const hinted = await until(`!!${q("[data-diff-split-hint]")}`, 5000);
+            const hintText = await h.ev(`${q("[data-diff-split-hint]")}?.textContent ?? ""`);
+            await h.shot("cdp-shots/diff-comments-split-hint.png");
+            // split needs a pane of SPLIT_MIN_PX (diffoptions.ts), which 1600px with history open does not leave
+            await pin(2000);
+            await sleep(500);
+            await h.ev("document.activeElement?.blur?.()");
+            await key("D", "KeyD", 68, SHIFT, "D");
+            const split = await until(`(() => { ${DIFF_LINE_LIB} return !!lineBox("original", 3); })()`, 5000);
+            const leftSelected = await selectLines("original", 1, 3);
+            await key("m", "KeyM", 77, 0, "m");
+            const leftTitled = await until(titleIs("Comment on removed lines 1–3"), 3000);
+            const leftTitle = await draftTitle();
+            await h.cdp("Input.insertText", { text: "Legacy() may still have callers outside this package; say where they went." });
+            await ctrlEnter();
+            const leftAdded = await until(`!${q(DRAFT)} && ${cardUnder("original", 3)}`, 3000);
+            const removed = (await cards()).find((c) => c.label === "Removed lines 1–3");
+            rec(
+                "5. unified view hints at split on the deleted legacy.go; after Shift+D its left side takes a comment reading Removed lines 1–3",
+                legacy && hinted && split && leftSelected && leftTitled && leftAdded && removed?.original === true,
+                `hint="${hintText}" split=${split} focusInLeft=${leftSelected} title="${leftTitle}" underLine3=${leftAdded} card=${JSON.stringify(removed)}`
+            );
+            await h.shot("cdp-shots/diff-comments-removed.png");
+            await h.ev("document.activeElement?.blur?.()");
+            await key("D", "KeyD", 68, SHIFT, "D");
+            await pin();
+
+            await openFile(POLICY);
+            const before = (await cards()).map((c) => c.label);
+            writeFileSync(
+                join(ctx.dir, "src", "retry", "policy.go"),
+                "package retry\n// retries are per job\n// budgets are per tenant\n\nfunc Budget() int {\n    return 8\n}\n\nfunc Floor() int {\n    return 1\n}\n"
+            );
+            // no refresh key: the working-tree poll reloads the open pair by itself
+            const moved = await until(`${q("[data-diff-comment-label]")}?.textContent === "Lines 9–11"`, 20000);
+            const under11 = await until(cardUnder("modified", 11), 3000);
+            const [after] = await cards();
+            const line11 = await lineBox("modified", 11);
+            rec(
+                "6. two lines added above the commented range move its card down with them on the next poll",
+                before.length === 1 && before[0] === "Lines 7–9" && moved && under11,
+                `before=${JSON.stringify(before)} after=${JSON.stringify(after)} line11=${JSON.stringify(line11)}`
+            );
+            await h.shot("cdp-shots/diff-comments-refound.png");
+        } catch (e) {
+            rec("scenario aborted", false, String(e?.message ?? e));
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev("document.activeElement?.blur?.()");
+        await h.ev(restoreLocalStorage(COMMENT_STORAGE_KEY, ctx.prevComments));
+        // the store still holds this scenario's batch in memory and would write it back over the restored key
+        await reloadApp(h);
         try {
             await h.rpc("deleteproject", { name: ctx.name });
         } catch {
@@ -25433,6 +25724,7 @@ export const SCENARIOS = [
     diffCompare,
     diffReviewMarks,
     diffReviewMarksRun,
+    diffComments,
     surfaceSmoke,
     surfaceHeaders,
     codeSearch,

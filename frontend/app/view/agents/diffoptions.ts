@@ -37,6 +37,8 @@ export function paneOptions(split: boolean, ignoreWs: boolean): MonacoTypes.edit
         hideUnchangedRegions: { enabled: true, contextLineCount: 3, minimumLineCount: 3, revealLineCount: 20 },
         scrollBeyondLastLine: false,
         minimap: { enabled: false },
+        // the comment layer's + is a glyph-margin widget (diffcommentlayer.ts)
+        glyphMargin: true,
         fontSize: 12.5,
         fontFamily: "var(--font-mono)",
         smoothScrolling: true,

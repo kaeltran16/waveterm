@@ -19,6 +19,9 @@ import { Check, ChevronDown, ChevronUp, Code, ExternalLink, FileText, Pilcrow } 
 import { motion } from "motion/react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
+import { DiffCommentZones } from "./diffcommentcard";
+import { commentSplitAtom, mountCommentLayer } from "./diffcommentlayer";
+import { activeCommentSourceAtom, relocateComments } from "./diffcomments";
 import { firstDifferingLine } from "./diffcontent";
 import { diffPairAtom } from "./diffcontentstore";
 import { emptyDiffState, type EmptyDiff } from "./diffempty";
@@ -111,11 +114,25 @@ export function DiffPane({
         }
     }, [pair, reviewSubject, reviewOpen]);
 
+    // Re-find pending comments on every load of the pair, the poll's included: a deleted, binary or emptied
+    // file loads with empty text and its comments go lost until text returns. A tooLarge pair is skipped,
+    // since its text was never read rather than gone.
+    const commentKey = useAtomValue(activeCommentSourceAtom)?.key;
+    useEffect(() => {
+        if (pair != null && commentKey != null && !pair.tooLarge) {
+            relocateComments(commentKey, pair.path, pair.refs, { original: pair.original, modified: pair.modified });
+        }
+    }, [pair, commentKey]);
+
     const openChange = active?.open != null && active.open === path ? active.files.find((c) => c.path === path) : null;
     const reviewed = openChange != null && markState(reviews[active.subject], openChange) === "ok";
     const reviewTitle = reviewed ? "Unmark this file (v)" : "Mark reviewed and open the next file (v)";
     const layout = paneHeaderLayout(width);
-    const options = useMemo(() => paneOptions(split && layout.split, ignoreWs), [split, layout.split, ignoreWs]);
+    const splitShown = split && layout.split;
+    const options = useMemo(() => paneOptions(splitShown, ignoreWs), [splitShown, ignoreWs]);
+    useEffect(() => {
+        globalStore.set(commentSplitAtom, splitShown);
+    }, [splitShown]);
     const empty = emptyDiffState({ path, pair, nothingToCompare, noCommit });
 
     const body = () => {
@@ -132,9 +149,11 @@ export function DiffPane({
                     original={pair.original}
                     modified={pair.modified}
                     options={options}
-                    // publishes the editor so Shift+N / Shift+P can walk its hunks without focusing it
-                    onMount={(diff) => {
+                    // publishes the editor so Shift+N / Shift+P can walk its hunks without focusing it,
+                    // and mounts the comment layer on it
+                    onMount={(diff, monacoApi) => {
                         setDiffNav(diff);
+                        const unmountComments = mountCommentLayer(diff, monacoApi);
                         const update = () =>
                             globalStore.set(
                                 diffNavPosAtom,
@@ -152,11 +171,13 @@ export function DiffPane({
                         ];
                         return () => {
                             subs.forEach((s) => s.dispose());
+                            unmountComments();
                             clearDiffNav(diff);
                             globalStore.set(diffNavPosAtom, null);
                         };
                     }}
                 />
+                <DiffCommentZones />
             </Suspense>
         );
     };
