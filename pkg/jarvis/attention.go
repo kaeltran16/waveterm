@@ -36,6 +36,8 @@ const (
 	// was not fully verified, which the human acknowledges once read.
 	AttentionRunLandHeld   = "run-land-held"
 	AttentionRunUnverified = "run-unverified"
+	// a workflow scan whose agent waits on the owner's picks
+	AttentionWorkflowScan = "workflow-scan"
 )
 
 // mirrors orchestrate.TaskState_*, spelled here for the same reason as the dag statuses above.
@@ -276,6 +278,9 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 			if it, ok := unverifiedItem(ch, run); ok {
 				unverified = append(unverified, it)
 			}
+			if it, ok := workflowScanItem(ch, run); ok {
+				asks = append(asks, it)
+			}
 		}
 
 		for _, m := range ch.Messages {
@@ -463,6 +468,35 @@ func unverifiedItem(ch AttentionChannel, run *waveobj.Run) (wshrpc.AttentionItem
 		EffortOID:    effortOID,
 		ChunkLabel:   chunkLabel,
 		Why:          fmt.Sprintf("Not verified: %s. Once read, acknowledge it with `wsh runs ack %s`.", strings.TrimRight(strings.Join(reasons, "; "), "."), run.ID),
+	}, true
+}
+
+// workflowScanItem is a scan run whose agent waits on the owner's picks. A run cancelled or finished mid-scan can
+// keep a stale picking state, so the run's own status decides, not the scan's.
+func workflowScanItem(ch AttentionChannel, run *waveobj.Run) (wshrpc.AttentionItem, bool) {
+	scan := run.WorkflowScan
+	if scan == nil || scan.State != waveobj.WorkflowScanState_Picking ||
+		run.Status == RunStatus_Done || run.Status == RunStatus_Cancelled {
+		return wshrpc.AttentionItem{}, false
+	}
+	suggestions := 0
+	for _, v := range scan.Verdicts {
+		if v.Verdict == waveobj.WorkflowScanVerdict_Suggest {
+			suggestions++
+		}
+	}
+	return wshrpc.AttentionItem{
+		Kind:         AttentionWorkflowScan,
+		Key:          "workflow-scan:" + run.ID,
+		ChannelId:    ch.OID,
+		ChannelName:  ch.Name,
+		RunId:        run.ID,
+		ORef:         "workflowscan:" + run.ID,
+		Source:       "Workflow scan",
+		Text:         fmt.Sprintf("%d suggestions to decide", suggestions),
+		Action:       "Decide",
+		WaitingSince: run.CreatedTs,
+		Why:          "The scan's agent waits for your picks in Usage › Workflow.",
 	}, true
 }
 
