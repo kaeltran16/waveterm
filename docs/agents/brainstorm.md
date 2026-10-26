@@ -51,6 +51,7 @@ the skill tells them not to use it: a lead routes every question through AskUser
 | Skip the questions | `brainstorm: skip questions` | writes every open part as a guess, sets `done` |
 | (the judge is done) | `brainstorm: judged <path>`, sent by the server | copies `judge.json` onto its question with one script, clears `working`, ends its turn on the question |
 | (the judge failed or was lost) | `brainstorm: judge failed: <reason>`, sent by the server | writes its own options and pick, sets `question.judge` to `{ "failed": <reason> }`, clears `working` |
+| An answer or Skip during the judge's wait | the line, as typed, or `brainstorm: skip questions` (Arc has stopped the judge first) | an answer is recorded as any answer, with `working` back to `null`; Skip works as above |
 | Push back on a judged question, or type "double check" | the line, as typed | adds any alternative it names to `approaches`, runs `wsh brainstorm judge <brainstorm.json> --line <the line>`, ends its turn |
 | That's right | `brainstorm: confirm <part>` | makes the part yours |
 | Confirm all N guesses | `brainstorm: confirm every guess` | makes every plain guess yours (a changed part still waits) |
@@ -229,9 +230,26 @@ to the judge**). The judge rides the builder check's machinery.
 - **A rerun.** `--line` carries the user's pushback or "double check" as typed (spec D8). The rerun's
   prompt also holds the judge's earlier options and pick, read from `question.options` when
   `question.judge` is a weighed record. Each rerun is a fresh session, not a resume of the last one.
-- **The tab record.** The server alone writes `brainstorm:judgestate` (`reading`, `answered`, `failed`)
-  with `judgets`, `judgerun`, `judgechannel` and `judgereason` on the agent's tab. The agent tree reads
-  it; the pane draws the judge's work from the file's `question.judge`, never from the record.
+- **The tab record.** The server alone writes `brainstorm:judgestate` (`reading`, `answered`, `failed`,
+  `stopped`) with `judgets`, `judgerun`, `judgechannel` and `judgereason` on the agent's tab. The agent
+  tree reads it; the pane draws the judge's work from the file's `question.judge`, never from the record.
+- **The wait view.** While the judge runs, the pane shows the question (part link, text, `why`), a status
+  line (the file's `working` text), the approaches being weighed as clickable rows under "What the judge
+  is weighing · N", and an open answer box ("Or answer now in your own words…"). It is the `"judging"`
+  main view in `brainstormmodel.ts`: `working` set, `question.approaches` non-empty, and no line Arc sent
+  still pending (then `shownFile` shows "Writing up your answer." or "Taking in your change." as on any
+  question). A click sends the approach's `name` as the answer, recorded with no `picked`. Every other
+  working state (a talk answer's wait, the builder check's reading) keeps the bare working note.
+- **The pane's stop.** Before it sends an answer (typed, or a clicked row) or Skip during the wait, the
+  pane calls `BrainstormJudgeStopCommand` (`{ BlockId }`; no `wsh` command). On a `reading` record it
+  stops the judge's run and records `stopped` with the stop time, sending the agent no line; on any
+  other record it does nothing. The watcher checks the record under the kind's lock before each tick
+  and before writing its launched run, and exits silently (stopping a run it launched late) when the
+  record is no longer its own `reading`. A stop that errors keeps the line from being sent, and the pane
+  shows the error. `ResumeBrainstormSessions` leaves a `stopped` record alone, and a new judge may start
+  after one. The agent never stops the judge; the skill's **While the judge weighs** says how it takes
+  the lines (an answer, pushback rerunning the judge with `--line`, Skip) and to ignore a late
+  `brainstorm: judge failed` for a question no longer open.
 - **The watcher and the result check.** Every 5 s it asks `brainstormcheck.DecideJudge` about the run.
   A done run with a usable result is delivered. A done run with no report fails ("The judge ended
   without its result."), and so does a result that fails Arc's check: not one JSON object (prose or a

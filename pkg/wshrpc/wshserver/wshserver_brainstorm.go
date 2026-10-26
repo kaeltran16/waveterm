@@ -35,6 +35,7 @@ const (
 	brainstormReading  = "reading"
 	brainstormAnswered = "answered"
 	brainstormFailed   = "failed"
+	brainstormStopped  = "stopped"
 
 	builderCheckRestartedReason = "Arc restarted before the builder started."
 	judgeRestartedReason        = "Arc restarted before the judge started."
@@ -68,8 +69,11 @@ var armBrainstormSession = func(s brainstormSession) { go watchBrainstormSession
 type sessionKind struct {
 	what                                           string // names the kind in errors and logs
 	stateKey, tsKey, runKey, channelKey, reasonKey string
-	// mu makes the handler's not-reading check and its reading write one step
-	mu         sync.Mutex
+	// mu makes the handler's not-reading check and its reading write one step, and a watcher's own-record check
+	// and its write
+	mu sync.Mutex
+	// stoppable: a stop may take the record from its watcher, which then yields
+	stoppable  bool
 	busy       string // the refusal while one is reading
 	role       string
 	labelHead  string
@@ -119,6 +123,7 @@ var judgeKind = &sessionKind{
 	stateKey: waveobj.MetaKey_BrainstormJudgeState, tsKey: waveobj.MetaKey_BrainstormJudgeTs,
 	runKey: waveobj.MetaKey_BrainstormJudgeRun, channelKey: waveobj.MetaKey_BrainstormJudgeChannel,
 	reasonKey:  waveobj.MetaKey_BrainstormJudgeReason,
+	stoppable:  true,
 	busy:       "a judge is already weighing this brainstorm's question",
 	role:       jarvis.UsageRole_BrainstormJudge,
 	labelHead:  "Judge · ",
@@ -194,6 +199,59 @@ func (ws *WshServer) BrainstormJudgeCommand(ctx context.Context, data wshrpc.Com
 	}
 	s.Kind, s.Line = judgeKind, data.Line
 	return startBrainstormSession(ctx, data.BlockId, s)
+}
+
+// BrainstormJudgeStopCommand stops the judge reading on the block's tab, when there is one: the user answered
+// before it finished, so its result has nowhere to go. It sends the agent no line.
+func (ws *WshServer) BrainstormJudgeStopCommand(ctx context.Context, data wshrpc.CommandBrainstormJudgeStopData) error {
+	if data.BlockId == "" {
+		return fmt.Errorf("a block id is required")
+	}
+	tabId, err := wstore.DBFindTabForBlockId(ctx, data.BlockId)
+	if err != nil {
+		return fmt.Errorf("finding the tab of block %s: %w", data.BlockId, err)
+	}
+	k := judgeKind
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, tabId)
+	if err != nil {
+		return fmt.Errorf("loading tab %s: %w", tabId, err)
+	}
+	if tab.Meta.GetString(k.stateKey, "") != brainstormReading {
+		return nil
+	}
+	runId, channelId := tab.Meta.GetString(k.runKey, ""), tab.Meta.GetString(k.channelKey, "")
+	if runId != "" {
+		stopBrainstormRun(ctx, k, channelId, runId)
+	}
+	return setBrainstormRecord(ctx, k, tabId, brainstormStopped, time.Now().UnixMilli(), runId, channelId, "")
+}
+
+// stopBrainstormRun stops a session's run unless it is done.
+func stopBrainstormRun(ctx context.Context, k *sessionKind, channelId, runId string) {
+	run, err := readBrainstormRun(ctx, channelId, runId)
+	switch {
+	case err != nil || run == nil:
+		log.Printf("%s: stopping run %s: could not load it: %v", k.what, runId, err)
+	case run.Status != jarvis.RunStatus_Done:
+		stopStageSession(*run)
+	}
+}
+
+// ownsBrainstormRecord reports whether the tab's record is still s's reading one: a stop, or a new session
+// started after it, takes it. The caller holds s.Kind.mu.
+func ownsBrainstormRecord(ctx context.Context, s brainstormSession) bool {
+	k := s.Kind
+	if !k.stoppable {
+		return true
+	}
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, s.TabId)
+	if err != nil {
+		log.Printf("%s: loading tab %s: %v", k.what, s.TabId, err)
+		return false
+	}
+	return tab.Meta.GetString(k.stateKey, "") == brainstormReading && int64(tab.Meta.GetFloat(k.tsKey, 0)) == s.StartedTs
 }
 
 // startBrainstormSession writes s's reading record on the agent's tab and arms its watcher, refusing while a
@@ -326,12 +384,16 @@ func failBrainstormSession(ctx context.Context, s brainstormSession, reason stri
 	}
 }
 
-// watchBrainstormSession launches s's session when it has none yet, then judges its run until it is delivered or
-// failed.
+// watchBrainstormSession launches s's session when it has none yet, then judges its run until it is delivered,
+// failed, or its record is no longer its own.
 func watchBrainstormSession(ctx context.Context, s brainstormSession) {
 	if s.RunId == "" {
 		if err := launchSessionRun(ctx, &s); err != nil {
-			failBrainstormSession(ctx, s, s.Kind.startFailed+err.Error())
+			s.Kind.mu.Lock()
+			defer s.Kind.mu.Unlock()
+			if ownsBrainstormRecord(ctx, s) {
+				failBrainstormSession(ctx, s, s.Kind.startFailed+err.Error())
+			}
 			return
 		}
 	}
@@ -341,7 +403,7 @@ func watchBrainstormSession(ctx context.Context, s brainstormSession) {
 }
 
 // launchSessionRun launches s's session in the project's channel, in the workspace that holds the agent's tab,
-// and records its run on the tab.
+// and records its run on the tab. When the record was taken while it launched, it stops the run instead.
 func launchSessionRun(ctx context.Context, s *brainstormSession) error {
 	k := s.Kind
 	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, s.TabId)
@@ -378,6 +440,12 @@ func launchSessionRun(ctx context.Context, s *brainstormSession) error {
 		return err
 	}
 	s.RunId, s.ChannelId = runId, ch.OID
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if !ownsBrainstormRecord(ctx, *s) {
+		stopBrainstormRun(ctx, k, s.ChannelId, s.RunId)
+		return nil
+	}
 	return setBrainstormRecord(ctx, k, s.TabId, brainstormReading, s.StartedTs, s.RunId, s.ChannelId, "")
 }
 
@@ -394,9 +462,16 @@ func builderCheckRoute(ch *waveobj.Channel, agent string) waveobj.RoutePin {
 	return waveobj.RoutePin{Runtime: runroute.DefaultRuntime("")}
 }
 
-// tickBrainstormSession judges s's run once and acts on the verdict. It reports whether the session is settled.
+// tickBrainstormSession judges s's run once and acts on the verdict. It reports whether the session is settled,
+// which it is, without a word, once its record is no longer its own. It holds the kind's lock throughout, so a stop
+// lands before the tick or after its write.
 func tickBrainstormSession(ctx context.Context, s brainstormSession, now int64) bool {
 	k := s.Kind
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if !ownsBrainstormRecord(ctx, s) {
+		return true
+	}
 	run, err := readBrainstormRun(ctx, s.ChannelId, s.RunId)
 	if err != nil {
 		run = nil

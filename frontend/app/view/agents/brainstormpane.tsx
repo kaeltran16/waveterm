@@ -75,6 +75,7 @@ import {
     DOT_YOURS,
     ERROR_LINE,
     FIELD,
+    JudgingMain,
     LineBar,
     LINK,
     lockTitle,
@@ -145,7 +146,7 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
                     model={model}
                     agent={agent}
                     onBack={() => openBrainstormBoard(agent.id, null)}
-                    backLabel={boardBackLabel(f, s.designOpen)}
+                    backLabel={boardBackLabel(f, s.designOpen, s.sent != null)}
                 />
             ) : view === "run" ? (
                 <RunStep model={model} agent={agent} s={s} f={f!} />
@@ -183,7 +184,7 @@ function Design({
     const [opened, setOpened] = useState<Record<string, boolean>>({});
     const check = builderCheckView(agent.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent);
     const lock = editLock(f, check);
-    const view = mainView(f, s.designOpen);
+    const view = mainView(f, s.designOpen, s.sent != null);
     const seen = useAtomValue(brainstormSeenAtom)[s.path] ?? null;
     const unseen = unseenSince(f, seen);
     // opens the parts' rows in the design and scrolls to the first
@@ -220,6 +221,8 @@ function Design({
                                     : undefined
                             }
                         />
+                    ) : view === "judging" ? (
+                        <JudgingMain agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
                     ) : view === "working" ? (
                         <WorkingMain f={f} openDesign={openDesign} />
                     ) : (
@@ -296,7 +299,8 @@ function DesignMain({
         />
     );
     // the design opened over the question or the working note: the way back to it
-    const back = designUnder(f, s.designOpen);
+    const back = designUnder(f, s.designOpen, s.sent != null);
+    const backToQuestion = back === "question" || back === "judging";
     return (
         <>
             {back !== "design" ? (
@@ -308,11 +312,11 @@ function DesignMain({
                         className={cn(
                             CHIP,
                             "flex items-center gap-[8px]",
-                            back === "question" && "border-warning/45 bg-warning/12"
+                            backToQuestion && "border-warning/45 bg-warning/12"
                         )}
                     >
-                        <span className={cn(SMALL_DOT, back === "question" ? "bg-warning" : "bg-success")} />
-                        {back === "question"
+                        <span className={cn(SMALL_DOT, backToQuestion ? "bg-warning" : "bg-success")} />
+                        {backToQuestion
                             ? `Back to question ${f.question!.n}`
                             : "Back to what the agent is writing"}
                     </button>

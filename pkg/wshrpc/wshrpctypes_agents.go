@@ -26,6 +26,7 @@ type AgentCommands interface {
 	AgentPromptCommand(ctx context.Context, data CommandAgentPromptData) error                                                            // the cockpit's own prompt to a block's agent session: its mod runs it, or it is typed
 	BrainstormCheckCommand(ctx context.Context, data CommandBrainstormCheckData) error                                                    // run the builder check on a brainstorm.json as a one-shot judging session
 	BrainstormJudgeCommand(ctx context.Context, data CommandBrainstormJudgeData) error                                                    // weigh a brainstorm.json's approach question with a one-shot blind judge
+	BrainstormJudgeStopCommand(ctx context.Context, data CommandBrainstormJudgeStopData) error                                            // stop a reading judge: its run, and its record turns stopped
 	BrainstormCheckTimesCommand(ctx context.Context) (*BrainstormCheckTimes, error)                                                       // how long this machine's past builder checks took, for the pane's clock
 }
 
@@ -70,6 +71,11 @@ type CommandBrainstormJudgeData struct {
 	BlockId string `json:"blockid"`
 	File    string `json:"file"`
 	Line    string `json:"line,omitempty"`
+}
+
+// CommandBrainstormJudgeStopData stops the judge reading on the agent's tab: BlockId is the brainstorming agent's block.
+type CommandBrainstormJudgeStopData struct {
+	BlockId string `json:"blockid"`
 }
 
 // BrainstormCheckTimes is how long this machine's finished builder checks took, in ms: the median and the longest,

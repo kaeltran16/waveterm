@@ -40,15 +40,41 @@ const STATE = {
     file: FILE,
 } as BrainstormState;
 
-function fakeIO(fail = false) {
+// the judge weighing an approach question: the file works while the question lists its approaches
+const WAIT: BrainstormFile = {
+    ...FILE,
+    done: false,
+    working: "The judge is weighing 2 approaches.",
+    question: {
+        n: 2,
+        text: "How should alerts reach on-call?",
+        part: "page",
+        approaches: [
+            { name: "Page directly", description: "", facts: [] },
+            { name: "Via the channel", description: "", facts: [] },
+        ],
+    },
+};
+
+// calls holds every call in order, so a stop can be seen to come before the prompt
+function fakeIO(fail = false, stopFails = false) {
     const sent: [string, string][] = [];
+    const calls: string[] = [];
     return {
         sent,
+        calls,
         prompt: async (blockId: string, text: string) => {
             if (fail) {
                 throw new Error("boom");
             }
+            calls.push(`prompt ${blockId}`);
             sent.push([blockId, text]);
+        },
+        stopJudge: async (blockId: string) => {
+            if (stopFails) {
+                throw new Error("no such tab");
+            }
+            calls.push(`stop ${blockId}`);
         },
     };
 }
@@ -151,6 +177,53 @@ describe("sendBrainstorm", () => {
         );
         expect(getBrainstorm(AGENT.id)?.sent).toBeNull();
     });
+
+    describe("during the judge's wait", () => {
+        beforeEach(() => updateBrainstorm(AGENT.id, (s) => ({ ...s, file: WAIT })));
+
+        it.each([{ kind: "answer", text: "Page directly" }, { kind: "skip" }] as BrainstormAction[])(
+            "a $kind stops the judge before it sends",
+            async (action) => {
+                const io = fakeIO();
+                await sendBrainstorm(AGENT, action, io);
+                expect(io.calls).toEqual(["stop blk-1", "prompt blk-1"]);
+                expect(io.sent).toEqual([["blk-1", brainstormLine(action)]]);
+            }
+        );
+
+        it("a confirm leaves the judge running", async () => {
+            const io = fakeIO();
+            await sendBrainstorm(AGENT, { kind: "confirm", part: "page" }, io);
+            expect(io.calls).toEqual(["prompt blk-1"]);
+        });
+
+        it("a stop that fails sends nothing, and says the judge could not be stopped", async () => {
+            const io = fakeIO(false, true);
+            await expect(sendBrainstorm(AGENT, { kind: "answer", text: "Page directly" }, io)).rejects.toThrow(
+                /^Couldn't stop the judge: no such tab$/
+            );
+            expect(io.sent).toEqual([]);
+            expect(getBrainstorm(AGENT.id)?.sent).toBeNull();
+        });
+
+        it("a line already pending ends the wait: the next answer does not stop the judge", async () => {
+            const io = fakeIO();
+            await sendBrainstorm(AGENT, { kind: "answer", text: "Page directly" }, io, 1000);
+            await sendBrainstorm(AGENT, { kind: "answer", text: "Via the channel" }, io, 2000);
+            expect(io.calls).toEqual(["stop blk-1", "prompt blk-1", "prompt blk-1"]);
+        });
+    });
+
+    it.each([
+        ["no question", FILE],
+        ["working with no approaches", { ...WAIT, question: { ...WAIT.question!, approaches: undefined } }],
+        ["approaches but nothing working", { ...WAIT, working: null }],
+    ] as [string, BrainstormFile][])("outside the wait (%s) an answer does not stop the judge", async (_, f) => {
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, file: f }));
+        const io = fakeIO();
+        await sendBrainstorm(AGENT, { kind: "answer", text: "yes" }, io);
+        expect(io.calls).toEqual(["prompt blk-1"]);
+    });
 });
 
 describe("approveAndOpenRun", () => {
@@ -161,6 +234,7 @@ describe("approveAndOpenRun", () => {
             prompt: async (blockId: string, text: string) => {
                 seen.push([blockId, text, globalStore.get(newRunPrefillAtom), globalStore.get(model.newRunOpenAtom)]);
             },
+            stopJudge: async () => {},
         };
         await approveAndOpenRun(model, AGENT, STATE, io);
         expect(seen).toEqual([["blk-1", "brainstorm: approved", null, false]]);

@@ -19327,10 +19327,13 @@ const brainstormMode = {
                 closedRow === "false",
             { gist, closedBefore, openedRow, openBody, closedRow }
         );
+        // the rows run in decision order, so compare id -> state pairs, not their order
+        const states2c = bsStates(s2d);
+        const want2c = Object.entries(BS_MID_STATES);
         rec(
             "2c. part states: yours ×3, guess ×3, asked, open",
-            JSON.stringify(bsStates(s2d)) === JSON.stringify(BS_MID_STATES),
-            { states: bsStates(s2d), want: BS_MID_STATES }
+            Object.keys(states2c).length === want2c.length && want2c.every(([id, state]) => states2c[id] === state),
+            { states: states2c, want: BS_MID_STATES }
         );
         rec(
             "2d. the page part, opened, shows both mockups, the first labelled option A of 2",

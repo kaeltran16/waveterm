@@ -36,6 +36,7 @@ import {
     hasProsCons,
     historyRows,
     isAsking,
+    judgeWait,
     judgeWork,
     leftPanel,
     lineBox,
@@ -70,6 +71,7 @@ import {
     settleSent,
     shownFile,
     spikeUrl,
+    stopsJudge,
     terminalAnswer,
     treeLine,
     unseenSince,
@@ -112,6 +114,18 @@ const raw = (over: Record<string, unknown> = {}) =>
 const errorOf = (r: ParseResult): string | undefined => (r as { error?: string }).error;
 
 const agent = (over: Partial<AgentVM> = {}): AgentVM => ({ id: "t1", name: "loom", task: "x", state: "idle", ...over });
+
+// the file while the judge weighs an approach question: `working` set over a question that lists its approaches
+const approachList = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ name: `Approach ${i}`, description: "", facts: [] }));
+const waitQuestion = (n = 7): BrainstormQuestion => ({
+    n: 4,
+    text: "Which way?",
+    part: "a",
+    approaches: approachList(n),
+});
+const waitFile = (over: Partial<BrainstormFile> = {}): BrainstormFile =>
+    file({ question: waitQuestion(), working: "Weighing the approaches.", ...over });
 
 describe("parseBrainstorm", () => {
     it("rejects invalid json", () => {
@@ -540,6 +554,69 @@ describe("shownFile", () => {
     });
 });
 
+describe("judgeWait", () => {
+    it("is the file's working over a question that lists approaches, while no line is pending", () => {
+        expect(judgeWait(waitFile(), false)).toBe(true);
+        expect(judgeWait(waitFile(), true)).toBe(false);
+    });
+
+    it("is not any other wait: no approaches, no question, or no working", () => {
+        expect(judgeWait(waitFile({ question: { ...waitQuestion(), approaches: [] } }), false)).toBe(false);
+        expect(judgeWait(waitFile({ question: { ...waitQuestion(), approaches: undefined } }), false)).toBe(false);
+        expect(judgeWait(waitFile({ question: null }), false)).toBe(false);
+        expect(judgeWait(waitFile({ working: null }), false)).toBe(false);
+    });
+});
+
+describe("shownFile during the judge's wait", () => {
+    it("reads an answer sent in the wait as the agent writing it up, the question closed", () => {
+        const f = waitFile();
+        const s = shownFile(f, { at: 1, modifiedMs: 1, kind: "answer" });
+        expect(s.working).toBe("Writing up your answer.");
+        expect(s.question).toBeNull();
+    });
+
+    it("reads Skip sent in the wait as a change taken in, the question kept, so the wait is over", () => {
+        const f = waitFile();
+        const s = shownFile(f, { at: 1, modifiedMs: 1, kind: "line" });
+        expect(s.working).toBe("Taking in your change.");
+        expect(s.question).toBe(f.question);
+        expect(mainView(s, false, true)).toBe("working");
+        expect(checkMain({ ...s, check: { yours: [], calls: [], answered: [] } }, false, true)).toBe("working");
+    });
+
+    it("is the file itself with nothing sent", () => {
+        const f = waitFile();
+        expect(shownFile(f, null)).toBe(f);
+    });
+
+    it("leaves any other working file alone, a line sent or not", () => {
+        const noApproaches = waitFile({ question: { ...waitQuestion(), approaches: [] } });
+        const talkAnswer = file({ working: "Writing it", question: null });
+        expect(shownFile(noApproaches, { at: 1, modifiedMs: 1, kind: "line" })).toBe(noApproaches);
+        expect(shownFile(talkAnswer, { at: 1, modifiedMs: 1, kind: "answer" })).toBe(talkAnswer);
+    });
+});
+
+describe("stopsJudge", () => {
+    it("is an answer or Skip sent during the wait", () => {
+        expect(stopsJudge({ kind: "answer", text: "x" }, waitFile(), false)).toBe(true);
+        expect(stopsJudge({ kind: "skip" }, waitFile(), false)).toBe(true);
+    });
+
+    it("is not any other line", () => {
+        expect(stopsJudge({ kind: "confirm", part: "a" }, waitFile(), false)).toBe(false);
+        expect(stopsJudge({ kind: "edit", part: "a", text: "x" }, waitFile(), false)).toBe(false);
+        expect(stopsJudge({ kind: "guess" }, waitFile(), false)).toBe(false);
+    });
+
+    it("is not an answer once a line is pending, or on a judged question with no working", () => {
+        expect(stopsJudge({ kind: "answer", text: "x" }, waitFile(), true)).toBe(false);
+        expect(stopsJudge({ kind: "answer", text: "x" }, waitFile({ working: null }), false)).toBe(false);
+        expect(stopsJudge({ kind: "answer", text: "x" }, null, false)).toBe(false);
+    });
+});
+
 describe("treeLine", () => {
     const f = file({ run: "abcdef0123456789" });
 
@@ -821,9 +898,45 @@ describe("mainView", () => {
         expect(mainView(file({ question: q }), true)).toBe("design");
         expect(mainView(file({ working: "w" }), true)).toBe("design");
     });
+
+    it("is judging while the judge weighs the approaches, a rerun's earlier options included", () => {
+        expect(mainView(waitFile(), false)).toBe("judging");
+        const rerun = waitFile({
+            question: {
+                ...waitQuestion(),
+                options: [{ label: "A", detail: "" }],
+                read: "old",
+                judge: { kind: "weighed", added: [], dropped: [] },
+            },
+        });
+        expect(mainView(rerun, false)).toBe("judging");
+    });
+
+    it("is working, not judging, with a line pending, no approaches or no question", () => {
+        expect(mainView(waitFile(), false, true)).toBe("working");
+        expect(mainView(waitFile({ question: { ...waitQuestion(), approaches: [] } }), false)).toBe("working");
+        expect(mainView(waitFile({ question: { ...waitQuestion(), approaches: undefined } }), false)).toBe("working");
+        expect(mainView(waitFile({ question: null }), false)).toBe("working");
+    });
+
+    it("is the question once the wait ends with options and no working", () => {
+        expect(mainView(waitFile({ working: null }), false)).toBe("question");
+    });
+
+    it("the design opened over the wait shows the design, and the way back is judging", () => {
+        expect(mainView(waitFile(), true)).toBe("design");
+        expect(designUnder(waitFile(), true)).toBe("judging");
+        expect(designUnder(waitFile(), true, true)).toBe("working");
+    });
 });
 
 describe("boardBackLabel", () => {
+    it("goes back to the question during the judge's wait", () => {
+        expect(boardBackLabel(waitFile(), false)).toBe("Back to the question");
+        expect(boardBackLabel(waitFile(), true)).toBe("Back to the design");
+        expect(boardBackLabel(waitFile(), false, true)).toBe("Back to the design");
+    });
+
     const q = { n: 1, text: "Q", part: "a" };
 
     it("goes back to the question it was opened from, else to the design", () => {
@@ -879,6 +992,25 @@ describe("pickableOptions", () => {
         expect(pickableOptions(file({ question: q, check: { ...check, yours } }), { ...s, designOpen: true })).toBe(0);
         expect(pickableOptions(file({ check: { ...check, yours: [{ q: "B?", a: "yes", options }] } }), s)).toBe(0);
     });
+
+    it("during the judge's wait, is the approaches the pane draws as the rows, up to the letter keys", () => {
+        expect(pickableOptions(waitFile(), s)).toBe(4);
+        expect(pickableOptions(waitFile({ question: waitQuestion(2) }), s)).toBe(2);
+        expect(pickableOptions(waitFile({ question: waitQuestion(2) }), { ...s, sent: null })).toBe(2);
+    });
+
+    it("during the judge's wait in the check, is the approaches too", () => {
+        expect(pickableOptions(waitFile({ check }), s)).toBe(4);
+        expect(pickableOptions(waitFile({ check, question: waitQuestion(3) }), s)).toBe(3);
+    });
+
+    it("is none during the wait with a line sent, the design open or a board open", () => {
+        const sent = { at: 1, modifiedMs: 1, kind: "line" } as const;
+        expect(pickableOptions(waitFile(), { ...s, sent })).toBe(0);
+        expect(pickableOptions(waitFile({ check }), { ...s, sent })).toBe(0);
+        expect(pickableOptions(waitFile(), { ...s, designOpen: true })).toBe(0);
+        expect(pickableOptions(waitFile(), { ...s, board: "B.dc.html" })).toBe(0);
+    });
 });
 
 describe("checkMain", () => {
@@ -902,6 +1034,17 @@ describe("checkMain", () => {
     it("is the review when the design is opened over a question or the agent writing", () => {
         expect(checkMain(file({ question: q, check: { ...check, yours: [open] } }), true)).toBe("review");
         expect(checkMain(file({ working: "w", check }), true)).toBe("review");
+    });
+
+    it("is judging while the judge weighs the approaches, working with a line pending or none listed", () => {
+        const f = waitFile({ check: { ...check, yours: [open] } });
+        expect(checkMain(f, false)).toBe("judging");
+        expect(checkMain(f, false, true)).toBe("working");
+        expect(checkMain({ ...f, question: { ...waitQuestion(), approaches: [] } }, false)).toBe("working");
+        expect(checkMain({ ...f, question: null }, false)).toBe("working");
+        expect(checkMain(f, true)).toBe("review");
+        expect(checkUnder(f, true)).toBe("judging");
+        expect(checkUnder(f, true, true)).toBe("working");
     });
 });
 

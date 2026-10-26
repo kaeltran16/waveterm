@@ -398,7 +398,7 @@ export function settleSent(
 
 // Arc's record of the builder check, from the agent's tab meta (brainstorm:check*); only the server writes it
 export type BuilderCheckRecord = {
-    state: "reading" | "answered" | "failed";
+    state: "reading" | "answered" | "failed" | "stopped";
     ts: number;
     runId?: string;
     reason?: string;
@@ -467,8 +467,10 @@ export function terminalAnswer(
 
 // the file as Arc shows it: the agent writes once per turn, so while a sent line is pending Arc says the agent is
 // writing, as a `working` the file sets itself would
+// A line sent during the judge's wait reads as it does with no `working` at all: the judge's own `working` would
+// otherwise hide that Arc sent it.
 export function shownFile(f: BrainstormFile, sent: SentLine | null): BrainstormFile {
-    if (sent == null || f.working != null) {
+    if (sent == null || (f.working != null && !judgeWait(f, false))) {
         return f;
     }
     if (sent.kind === "answer") {
@@ -721,41 +723,55 @@ export function judgeWork(q: BrainstormQuestion): JudgeWork | null {
     };
 }
 
-// what the design view's main area holds: the question, or the agent writing, unless the user opened the design
-// over it; with neither, the design itself, a pending builder check's clock included
-export type MainView = "question" | "working" | "design";
+// the judge weighing an approach question: the file says it works while the question already lists the approaches.
+// The agent writing up an answer has `working` but no question, and a `working` over no approaches is any other wait.
+// A line Arc sent (linePending) ends the wait: the agent has taken the question over
+export function judgeWait(f: BrainstormFile, linePending: boolean): boolean {
+    return !linePending && f.working != null && (f.question?.approaches?.length ?? 0) > 0;
+}
 
-export function mainView(f: BrainstormFile, designOpen: boolean): MainView {
+// a line sent during the wait stops the judge: an answer or Skip, which the agent takes before the judge's options
+export function stopsJudge(a: BrainstormAction, f: BrainstormFile | null, linePending: boolean): boolean {
+    return f != null && judgeWait(f, linePending) && (a.kind === "answer" || a.kind === "skip");
+}
+
+// what the design view's main area holds: the question, or the agent writing, unless the user opened the design
+// over it; with neither, the design itself, a pending builder check's clock included. The judge's wait is the
+// question with its approaches, "judging"
+export type MainView = "question" | "judging" | "working" | "design";
+
+export function mainView(f: BrainstormFile, designOpen: boolean, linePending = false): MainView {
     if (designOpen) {
         return "design";
     }
     if (f.working != null) {
-        return "working";
+        return judgeWait(f, linePending) ? "judging" : "working";
     }
     return f.question != null ? "question" : "design";
 }
 
 // the main view the design was opened over, which the design's back control returns to; the design itself when it
 // was not opened over one
-export function designUnder(f: BrainstormFile, designOpen: boolean): MainView {
-    return designOpen ? mainView(f, false) : "design";
+export function designUnder(f: BrainstormFile, designOpen: boolean, linePending = false): MainView {
+    return designOpen ? mainView(f, false, linePending) : "design";
 }
 
 // a board opened from the question goes back to it; one opened from the design, to the design
-export function boardBackLabel(f: BrainstormFile | null, designOpen: boolean): string {
-    return f != null && mainView(f, designOpen) === "question" ? "Back to the question" : "Back to the design";
+export function boardBackLabel(f: BrainstormFile | null, designOpen: boolean, linePending = false): string {
+    const view = f != null ? mainView(f, designOpen, linePending) : "design";
+    return view === "question" || view === "judging" ? "Back to the question" : "Back to the design";
 }
 
 // what the builder check's main area holds. The talk question comes first: the agent waits on it in the terminal, and
 // its answer may settle the builder's questions. The design opened over a question is the review
-export type CheckMain = "working" | "question" | "builder" | "review";
+export type CheckMain = "working" | "judging" | "question" | "builder" | "review";
 
-export function checkMain(f: BrainstormFile, designOpen: boolean): CheckMain {
+export function checkMain(f: BrainstormFile, designOpen: boolean, linePending = false): CheckMain {
     if (designOpen) {
         return "review";
     }
     if (f.working != null) {
-        return "working";
+        return judgeWait(f, linePending) ? "judging" : "working";
     }
     if (f.question != null) {
         return "question";
@@ -765,8 +781,8 @@ export function checkMain(f: BrainstormFile, designOpen: boolean): CheckMain {
 
 // the check's main area the review was opened over, which the review's back control returns to; the review itself
 // when it was not opened over one
-export function checkUnder(f: BrainstormFile, designOpen: boolean): CheckMain {
-    return designOpen ? checkMain(f, false) : "review";
+export function checkUnder(f: BrainstormFile, designOpen: boolean, linePending = false): CheckMain {
+    return designOpen ? checkMain(f, false, linePending) : "review";
 }
 
 function openBuilderQuestion(f: BrainstormFile): BuilderQuestion | null {
@@ -873,20 +889,31 @@ export function checkClock(
     };
 }
 
-// how many of the asked question's options a letter key picks: as many as the pane draws, up to the keys there are
+// how many of the asked question's options a letter key picks: as many as the pane draws, up to the keys there are.
+// During the judge's wait the pane draws the approaches as the rows, so a key picks one of them
 export function pickableOptions(
     f: BrainstormFile | null,
-    s: { designOpen: boolean; board: string | null; removed: boolean }
+    s: { designOpen: boolean; board: string | null; removed: boolean; sent?: SentLine | null }
 ): number {
     if (f == null || s.board != null || s.removed) {
         return 0;
     }
-    let options: AnswerOption[] | undefined;
+    const linePending = s.sent != null;
+    let options: unknown[] | undefined;
     if (f.check != null) {
-        const main = checkMain(f, s.designOpen);
-        options = main === "question" ? f.question!.options : main === "builder" ? openBuilderQuestion(f)!.options : [];
+        const main = checkMain(f, s.designOpen, linePending);
+        options =
+            main === "question"
+                ? f.question!.options
+                : main === "builder"
+                  ? openBuilderQuestion(f)!.options
+                  : main === "judging"
+                    ? f.question!.approaches
+                    : [];
     } else if (isAsking(f) && mainView(f, s.designOpen) === "question") {
         options = f.question!.options;
+    } else if (mainView(f, s.designOpen, linePending) === "judging") {
+        options = f.question!.approaches;
     }
     return Math.min(options?.length ?? 0, OPTION_KEYS.length);
 }
@@ -1199,7 +1226,7 @@ export function handoffView(f: BrainstormFile): HandoffView {
     };
 }
 
-function plural(n: number, one: string, many: string): string {
+export function plural(n: number, one: string, many: string): string {
     return `${n} ${n === 1 ? one : many}`;
 }
 
