@@ -29,6 +29,7 @@ import {
     DesignButton,
     DOT,
     ERROR_LINE,
+    JudgingMain,
     LineBar,
     LINK,
     MainBody,
@@ -71,9 +72,10 @@ export function Check({
     s: BrainstormState;
     f: BrainstormFile;
 }) {
-    const main = checkMain(f, s.designOpen);
+    const linePending = s.sent != null;
+    const main = checkMain(f, s.designOpen, linePending);
     // the review opened over a question or the working note: the way back to it
-    const under = checkUnder(f, s.designOpen);
+    const under = checkUnder(f, s.designOpen, linePending);
     const openDesign = () => openBrainstormDesign(agent.id, true);
     const goTo = (id: string) => {
         setReviewCursor(agent.id, id);
@@ -106,6 +108,8 @@ export function Check({
                         <QuestionMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} skip={false} />
                     ) : main === "builder" ? (
                         <BuilderAsk agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
+                    ) : main === "judging" ? (
+                        <JudgingMain agent={agent} f={f} goTo={goTo} openDesign={openDesign} skip={false} />
                     ) : main === "working" ? (
                         <WorkingMain f={f} openDesign={openDesign} />
                     ) : (

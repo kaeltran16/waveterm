@@ -69,6 +69,7 @@ import {
     DOT_YOURS,
     ERROR_LINE,
     FIELD,
+    JudgingMain,
     LineBar,
     LINK,
     onEnter,
@@ -138,7 +139,7 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
                     model={model}
                     agent={agent}
                     onBack={() => openBrainstormBoard(agent.id, null)}
-                    backLabel={boardBackLabel(f, s.designOpen)}
+                    backLabel={boardBackLabel(f, s.designOpen, s.sent != null)}
                 />
             ) : view === "run" ? (
                 <RunStep model={model} agent={agent} s={s} f={f!} />
@@ -166,7 +167,7 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
     const [opened, setOpened] = useState<Record<string, boolean>>({});
     const check = builderCheckView(agent.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent);
     const checkPending = check.kind === "pending" ? check.text : undefined;
-    const view = mainView(f, s.designOpen, checkPending != null);
+    const view = mainView(f, s.designOpen, checkPending != null, s.sent != null);
     const seen = useAtomValue(brainstormSeenAtom)[s.path] ?? null;
     const unseen = unseenSince(f, seen);
     // opens the parts' rows in the design and scrolls to the first
@@ -203,6 +204,8 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
                                     : undefined
                             }
                         />
+                    ) : view === "judging" ? (
+                        <JudgingMain agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
                     ) : view === "working" ? (
                         <WorkingMain
                             f={f}
@@ -274,7 +277,8 @@ function DesignMain({
         />
     );
     // the design opened over the question or the working note: the way back to it
-    const back = designUnder(f, s.designOpen, check.kind === "pending");
+    const back = designUnder(f, s.designOpen, check.kind === "pending", s.sent != null);
+    const backToQuestion = back === "question" || back === "judging";
     return (
         <>
             {back !== "design" ? (
@@ -286,11 +290,11 @@ function DesignMain({
                         className={cn(
                             CHIP,
                             "flex items-center gap-[8px]",
-                            back === "question" && "border-warning/45 bg-warning/12"
+                            backToQuestion && "border-warning/45 bg-warning/12"
                         )}
                     >
-                        <span className={cn(SMALL_DOT, back === "question" ? "bg-warning" : "bg-success")} />
-                        {back === "question"
+                        <span className={cn(SMALL_DOT, backToQuestion ? "bg-warning" : "bg-success")} />
+                        {backToQuestion
                             ? `Back to question ${f.question!.n}`
                             : f.working == null
                               ? "Back to the builder check"

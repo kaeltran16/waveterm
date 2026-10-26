@@ -9,16 +9,29 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
 import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
-import { brainstormLine, runPrefill, sendBlocker, sentKind, type BrainstormAction } from "./brainstormmodel";
+import {
+    brainstormLine,
+    runPrefill,
+    sendBlocker,
+    sentKind,
+    stopsJudge,
+    type BrainstormAction,
+} from "./brainstormmodel";
 import { getBrainstorm, shownBrainstormFile, updateBrainstorm, type BrainstormState } from "./brainstormstore";
 
-type PromptIO = { prompt(blockId: string, text: string): Promise<void> };
+type PromptIO = {
+    prompt(blockId: string, text: string): Promise<void>;
+    stopJudge(blockId: string): Promise<void>;
+};
 
 // a session whose arc mod holds a control stream runs the line as a prompt, leaving the user's draft in the
 // composer alone; any other session has it typed, as canvas marks are sent
 const tauriPromptIO: PromptIO = {
     async prompt(blockId, text) {
         await RpcApi.AgentPromptCommand(TabRpcClient, { blockid: blockId, text });
+    },
+    async stopJudge(blockId) {
+        await RpcApi.BrainstormJudgeStopCommand(TabRpcClient, { blockid: blockId });
     },
 };
 
@@ -35,9 +48,19 @@ export async function sendBrainstorm(
     if (!agent.blockId) {
         throw new Error("This agent has no terminal to send to");
     }
-    const blocked = sendBlocker(action, shownBrainstormFile(getBrainstorm(agent.id)));
+    const state = getBrainstorm(agent.id);
+    const blocked = sendBlocker(action, shownBrainstormFile(state));
     if (blocked != null) {
         throw new Error(blocked);
+    }
+    // a judge left running would hold the next approach question's judge, and its result would land for a question
+    // already answered
+    if (stopsJudge(action, state?.file ?? null, state?.sent != null)) {
+        try {
+            await io.stopJudge(agent.blockId);
+        } catch (e) {
+            throw new Error(`Couldn't stop the judge: ${e instanceof Error ? e.message : String(e)}`);
+        }
     }
     try {
         await io.prompt(agent.blockId, line);

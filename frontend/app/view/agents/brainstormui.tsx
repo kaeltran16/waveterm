@@ -13,11 +13,13 @@ import {
     designLabel,
     hasProsCons,
     judgeWork,
+    OPTION_KEYS,
     optionLetter,
     partBoards,
     partSpikes,
     partTitle,
     phaseSteps,
+    plural,
     progressView,
     questionBoards,
     questionTrack,
@@ -62,6 +64,14 @@ export const LINK = "cursor-pointer text-accent-soft hover:underline";
 export const CARD_LABEL = "font-mono text-[11px] font-semibold";
 export const ERROR_LINE = "text-[12px] text-error";
 export const SECTION_HEAD = "m-0 text-[13px] font-semibold text-secondary";
+// an answer row, and the approach rows the judge weighs, which answer the same way
+const OPTION_ROW =
+    "overflow-hidden rounded-[10px] border has-[>button:disabled]:opacity-50 has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-accent";
+const OPTION_ROW_PLAIN = "border-edge-mid bg-surface has-[>button:enabled:hover]:border-edge-strong";
+const OPTION_BTN =
+    "flex w-full cursor-pointer items-center border-0 bg-transparent text-left outline-none disabled:cursor-default";
+const OPTION_LETTER =
+    "flex flex-none items-center justify-center rounded-[6px] border border-edge-strong font-mono font-semibold text-secondary";
 const SEGMENT = "box-border h-[6px] w-[22px] flex-none rounded-[3px]";
 const SEGMENT_STATE: Record<PartState, string> = {
     yours: "bg-success",
@@ -418,10 +428,10 @@ export function Options({
                 <div
                     key={i}
                     className={cn(
-                        "overflow-hidden rounded-[10px] border has-[>button:disabled]:opacity-50 has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-accent",
+                        OPTION_ROW,
                         o.pick
                             ? "border-accent/55 bg-accent/8 has-[>button:enabled:hover]:bg-accentbg"
-                            : "border-edge-mid bg-surface has-[>button:enabled:hover]:border-edge-strong"
+                            : OPTION_ROW_PLAIN
                     )}
                 >
                     <button
@@ -431,13 +441,13 @@ export function Options({
                         disabled={ans.act.busy}
                         onClick={() => void ans.sendText(o.label)}
                         className={cn(
-                            "flex w-full cursor-pointer items-center border-0 bg-transparent text-left outline-none disabled:cursor-default",
+                            OPTION_BTN,
                             compact ? "gap-[12px] px-[12px] py-[9px]" : "gap-[18px] px-[20px] py-[16px]"
                         )}
                     >
                         <span
                             className={cn(
-                                "flex flex-none items-center justify-center rounded-[6px] border border-edge-strong font-mono font-semibold text-secondary",
+                                OPTION_LETTER,
                                 compact ? "h-[24px] w-[24px] text-[11.5px]" : "h-[30px] w-[30px] text-[13px]"
                             )}
                         >
@@ -617,31 +627,7 @@ export function QuestionMain({
         <div data-brainstorm-question className="flex min-h-0 flex-1 flex-col">
             <Track segments={questionTrack(f)} />
             <MainBody>
-                <div className="flex flex-col gap-[14px]">
-                    <span className="flex items-center gap-[10px] text-[13px] text-warning">
-                        {q.part ? (
-                            <>
-                                <span className="font-mono font-semibold">{q.n} →</span>
-                                <button
-                                    type="button"
-                                    onClick={() => goTo(q.part)}
-                                    className="cursor-pointer border-0 bg-transparent p-0 text-warning hover:underline"
-                                >
-                                    {partTitle(f, q.part)}
-                                </button>
-                            </>
-                        ) : (
-                            <span className="font-mono font-semibold">Question {q.n}</span>
-                        )}
-                    </span>
-                    <h1 className="m-0 whitespace-pre-line text-[30px] font-bold leading-[1.3] text-primary">
-                        {q.text}
-                    </h1>
-                    {q.why ? (
-                        <p data-brainstorm-why className="m-0 text-[16px] leading-[1.6] text-ink-mid">
-                            {q.why}
-                        </p>
-                    ) : null}
+                <QuestionHead f={f} goTo={goTo}>
                     {findings != null ? (
                         <button
                             type="button"
@@ -653,7 +639,7 @@ export function QuestionMain({
                             New findings · {findings.count}
                         </button>
                     ) : null}
-                </div>
+                </QuestionHead>
                 {boards != null ? (
                     <div data-brainstorm-question-boards className="flex flex-wrap items-start gap-[24px]">
                         {q.options != null ? <div className="min-w-[360px] flex-1">{answers}</div> : null}
@@ -702,6 +688,138 @@ export function QuestionMain({
                             before the builder check.
                         </p>
                     ) : null}
+                </div>
+            </MainBody>
+        </div>
+    );
+}
+
+// the asked question's part link and number, its text and its why; children go under them
+function QuestionHead({ f, goTo, children }: { f: BrainstormFile; goTo: (id: string) => void; children?: ReactNode }) {
+    const q = f.question!;
+    return (
+        <div className="flex flex-col gap-[14px]">
+            <span className="flex items-center gap-[10px] text-[13px] text-warning">
+                {q.part ? (
+                    <>
+                        <span className="font-mono font-semibold">{q.n} →</span>
+                        <button
+                            type="button"
+                            onClick={() => goTo(q.part)}
+                            className="cursor-pointer border-0 bg-transparent p-0 text-warning hover:underline"
+                        >
+                            {partTitle(f, q.part)}
+                        </button>
+                    </>
+                ) : (
+                    <span className="font-mono font-semibold">Question {q.n}</span>
+                )}
+            </span>
+            <h1 className="m-0 whitespace-pre-line text-[30px] font-bold leading-[1.3] text-primary">{q.text}</h1>
+            {q.why ? (
+                <p data-brainstorm-why className="m-0 text-[16px] leading-[1.6] text-ink-mid">
+                    {q.why}
+                </p>
+            ) : null}
+            {children}
+        </div>
+    );
+}
+
+// the judge weighing the question's approaches: its status where the options will go, and the approaches as the
+// answers, any one sent as typed. Guess for me is left out, since the judge's pick is coming; a rerun's earlier
+// options, read and judge are left out too
+export function JudgingMain({
+    agent,
+    f,
+    goTo,
+    openDesign,
+    skip = true,
+}: {
+    agent: AgentVM;
+    f: BrainstormFile;
+    goTo: (id: string) => void;
+    openDesign: () => void;
+    // false in the builder check, where every part is already written
+    skip?: boolean;
+}) {
+    const q = f.question!;
+    const approaches = q.approaches!;
+    const ans = useAnswer(agent);
+    return (
+        <div data-brainstorm-question data-brainstorm-judging className="flex min-h-0 flex-1 flex-col">
+            <Track segments={questionTrack(f)} />
+            <MainBody>
+                <QuestionHead f={f} goTo={goTo} />
+                <div
+                    data-brainstorm-judge-status
+                    aria-live="polite"
+                    className="flex items-center gap-[12px] rounded-[10px] border border-edge-faint bg-surface px-[16px] py-[11px] text-[13px] font-semibold text-success"
+                >
+                    <span className={cn(SMALL_DOT, "bg-success")} />
+                    {f.working}
+                </div>
+                <div className="flex flex-col gap-[8px]">
+                    <div className="flex items-baseline gap-[8px]">
+                        <h2 data-brainstorm-judge-list className={SECTION_HEAD}>
+                            What the judge is weighing · {approaches.length}
+                        </h2>
+                        <span className="text-[12px] text-muted">
+                            the agent’s list, unranked; click one to answer now, or wait for the judge’s options and
+                            pick
+                        </span>
+                    </div>
+                    <div role="group" aria-label="Approaches" className="flex flex-col gap-[6px]">
+                        {approaches.map((a, i) => (
+                            <div key={i} className={cn(OPTION_ROW, OPTION_ROW_PLAIN)}>
+                                <button
+                                    type="button"
+                                    data-brainstorm-approach
+                                    data-brainstorm-option={i}
+                                    disabled={ans.act.busy}
+                                    onClick={() => void ans.sendText(a.name)}
+                                    className={cn(OPTION_BTN, "gap-[14px] px-[12px] py-[9px]")}
+                                >
+                                    {i < OPTION_KEYS.length ? (
+                                        <span className={cn(OPTION_LETTER, "h-[24px] w-[24px] text-[11.5px]")}>
+                                            {optionLetter(i)}
+                                        </span>
+                                    ) : (
+                                        <span aria-hidden="true" className="h-[24px] w-[24px] flex-none" />
+                                    )}
+                                    <span className="w-[190px] flex-none text-[13.5px] font-semibold leading-[1.4] text-primary">
+                                        {a.name}
+                                    </span>
+                                    <span className="min-w-0 flex-1 text-[12.5px] leading-[1.45] text-ink-mid">
+                                        {a.description}
+                                    </span>
+                                    {a.facts.length > 0 ? (
+                                        <span className="flex-none text-[12px] text-accent-soft">
+                                            {plural(a.facts.length, "fact", "facts")}
+                                        </span>
+                                    ) : null}
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <AnswerBox ans={ans} options={true} placeholder="Or answer now in your own words…" />
+                <div className="flex flex-col gap-[10px]">
+                    <div className="flex items-center gap-[10px]">
+                        {q.part !== "" && skip ? (
+                            <button
+                                type="button"
+                                disabled={ans.act.busy}
+                                onClick={() => void ans.send({ kind: "skip" })}
+                                className={CHIP}
+                            >
+                                Skip the questions
+                            </button>
+                        ) : null}
+                        <div className="flex-1" />
+                        <DesignButton f={f} onClick={openDesign} />
+                    </div>
+                    {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
                 </div>
             </MainBody>
         </div>
