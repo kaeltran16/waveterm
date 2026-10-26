@@ -117,7 +117,8 @@ export function initialPick(names: string[], remembered: string | null): string 
     return names.length === 1 ? names[0] : null;
 }
 
-// onStarted hears the id of a run this launch starts, so what filled the window can follow it
+// onStarted hears the id of a run this launch starts, so what filled the window can follow it; with it set,
+// the window does not switch to the run's Brief
 export type NewRunPrefill = {
     projectName: string;
     goal: string;

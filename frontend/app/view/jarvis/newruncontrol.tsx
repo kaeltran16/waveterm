@@ -474,6 +474,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                 return;
             }
             noteRecentProject(picked);
+            const followedByCaller = onStartedRef.current != null;
             onStartedRef.current?.(run.id);
             // the launch consumed this draft, so the next one starts from the project's saved defaults
             endRunConfigDraft(globalStore.get(resolvedProfileAtom)[oid]);
@@ -481,9 +482,12 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
             // separate concern that reports its own failures (openTarget toasts) — holding the modal open
             // over a run that is already running told the user their launch had failed. openTarget rather
             // than openChannelSheet because + New run is on the app bar: a launch from any surface has to
-            // switch to the Brief, or the sheet opens where nobody is looking.
+            // switch to the Brief, or the sheet opens where nobody is looking. A caller that follows the run
+            // itself (a brainstorm's pane shows its run) keeps the user where they are.
             onClose();
-            await openTarget(model, { kind: "channel", channelId: oid, runId: run.id });
+            if (!followedByCaller) {
+                await openTarget(model, { kind: "channel", channelId: oid, runId: run.id });
+            }
         });
     };
 
