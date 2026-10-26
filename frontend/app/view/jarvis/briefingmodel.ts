@@ -134,7 +134,8 @@ export type QueueTone = "asking" | "error";
 export type QueueNav =
     | { kind: "channel"; channelId: string; runId: string | null }
     | { kind: "effort"; oref: string }
-    | { kind: "record"; oref: string };
+    | { kind: "record"; oref: string }
+    | { kind: "oref"; oref: string };
 export interface QueueRow {
     key: string;
     kind: string;
@@ -190,7 +191,20 @@ const QUEUE_KIND_LABEL: Record<string, string> = {
     "dag-blocked": "dag blocked",
     "run-land-held": "land held",
     "run-unverified": "unverified",
+    "workflow-scan": "workflow scan",
 };
+
+const WORKFLOW_SCAN_KIND = "workflow-scan";
+
+// a scan's run is its agent's, so the run body has nothing to decide: the picks wait in Usage › Workflow
+function queueNav(a: AttentionItem, channelId: string): QueueNav | null {
+    if (a.kind === WORKFLOW_SCAN_KIND && a.oref) {
+        return { kind: "oref", oref: a.oref };
+    }
+    return channelId !== ""
+        ? { kind: "channel", channelId, runId: a.runid != null && a.runid !== "" ? a.runid : null }
+        : null;
+}
 
 export function buildAttentionQueue(input: {
     attention: AttentionItem[];
@@ -216,10 +230,7 @@ export function buildAttentionQueue(input: {
             // a standalone item names no channel, so there is no run body to land on; it renders as
             // static info rather than a button that would navigate nowhere (NeedsRow's rule, kept).
             action: channelId !== "" ? a.action : null,
-            nav:
-                channelId !== ""
-                    ? { kind: "channel", channelId, runId: a.runid != null && a.runid !== "" ? a.runid : null }
-                    : null,
+            nav: queueNav(a, channelId),
             tone: a.kind === "dag-blocked" ? "error" : "asking",
             attrib:
                 a.effortoid != null && a.effortoid !== ""
@@ -294,8 +305,10 @@ export interface QueueSummary {
 }
 
 // the design's four kind words (design L1010-1013); every wire kind reads as one of them
-export function queueKindLabel(row: QueueRow): "ask" | "failed" | "blocked" {
+export function queueKindLabel(row: QueueRow): "ask" | "failed" | "blocked" | "workflow scan" {
     switch (row.wireKind) {
+        case WORKFLOW_SCAN_KIND:
+            return "workflow scan";
         case "ask":
         case "escalation":
             return "ask";

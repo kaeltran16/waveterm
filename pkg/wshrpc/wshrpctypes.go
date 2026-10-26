@@ -54,6 +54,7 @@ type WshRpcInterface interface {
 	StreamCommands
 	ResMonCommands
 	MemHygieneCommands
+	WorkflowScanCommands
 	StorageCommands
 	WshRpcRemoteFileInterface
 	WshRpcFileInterface

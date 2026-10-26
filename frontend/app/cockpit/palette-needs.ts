@@ -6,6 +6,7 @@
 
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { parseDocReview } from "@/app/view/agents/docreview";
+import { parseAddress, type OpenTarget } from "@/app/view/jarvis/address";
 
 export type NeedsGroup = "asks" | "reviews" | "blocked";
 
@@ -17,6 +18,7 @@ const GROUP_ORDER: NeedsGroup[] = ["asks", "reviews", "blocked"];
 const KIND_GROUP: Record<string, NeedsGroup> = {
     ask: "asks",
     escalation: "asks",
+    "workflow-scan": "reviews",
 };
 
 // pkg/jarvis/attention.go keys an ask as "ask:" + its block oref, standalone or in a channel
@@ -67,7 +69,8 @@ export type NeedsTarget =
     | { kind: "review"; agentId: string } // the agent, with its doc review open
     | { kind: "dag"; channelId: string; runId: string; dagId: string; taskId?: string }
     | { kind: "run"; channelId: string; runId: string }
-    | { kind: "channel"; channelId: string };
+    | { kind: "channel"; channelId: string }
+    | { kind: "open"; target: OpenTarget }; // through the router, by the item's oref
 
 // Where Enter on a Needs you row lands. A dag item's key names its dag ("dag-blocked:<dag>",
 // pkg/jarvis/attention.go); an ask whose agent left the roster falls back to its
@@ -76,7 +79,14 @@ export function needsTarget(row: NeedsRow): NeedsTarget | null {
     if (row.agent != null) {
         return { kind: row.review ? "review" : "agent", agentId: row.agent.id };
     }
-    const { kind, key, channelid, runid, taskid } = row.item;
+    const { kind, key, channelid, runid, taskid, oref } = row.item;
+    // a scan's run is its agent's; what waits on the user is the scan's picks, in Usage › Workflow
+    if (kind === "workflow-scan" && oref) {
+        const parsed = parseAddress(oref);
+        if (parsed.kind !== "unsupported") {
+            return { kind: "open", target: parsed };
+        }
+    }
     if (!channelid) {
         return null;
     }

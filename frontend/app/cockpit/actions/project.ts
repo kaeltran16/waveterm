@@ -5,6 +5,7 @@ import {
     rowsWithChannel,
     type ProjectRow,
 } from "@/app/view/agents/projectsstore";
+import { startWorkflowScan } from "@/app/view/agents/workflowscanstart";
 import { briefProfileAtom } from "@/app/view/jarvis/jarvisstore";
 import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
 import { openTarget } from "@/app/view/jarvis/openref";
@@ -46,6 +47,16 @@ export const PROJECT_KIND: ThingKindDef<ProjectThing> = {
             run: (p, { model }) => {
                 globalStore.set(newRunPrefillAtom, { projectName: p.name, goal: "", shape: "orchestrator" });
                 globalStore.set(model.newRunOpenAtom, true);
+            },
+        },
+        {
+            id: "channel:scan",
+            label: "Scan workflow",
+            group: "steer",
+            applies: () => true,
+            // the start opens the lens itself; a rejection reaches the palette's error line
+            run: async (p, { model }) => {
+                await startWorkflowScan(model, p.channel.oid);
             },
         },
         {

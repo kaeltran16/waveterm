@@ -11,7 +11,8 @@
 // re-aggregates model.usageStatsAtom, so the detail is simply the surface scoped to one harness.
 // Loads on mount + a 60s refresh for the current window; a 1s tick keeps reset countdowns current.
 // A second lens, By work, re-scopes the same detail page to what the usage paid for: all usage, a
-// project, a run or a session (usageattribution.ts).
+// project, a run or a session (usageattribution.ts). A third, Workflow, owns the page below the toolbar
+// (workflowlensview.tsx).
 
 import { Meter } from "@/app/element/meter";
 import { useDidBecomeTrue } from "@/app/element/motionhooks";
@@ -72,6 +73,7 @@ import {
     type UsageLens,
 } from "./usagestore";
 import { formatProjectedDate, projectWeeklyExhaustion } from "./weeklyforecast";
+import { WorkflowLens } from "./workflowlensview";
 
 const ALL = "all";
 
@@ -263,6 +265,7 @@ function quotaFact(row: UsageRailRow, now: number): string | undefined {
 const LENS_OPTIONS: { key: UsageLens; label: string }[] = [
     { key: "provider", label: "By provider" },
     { key: "work", label: "By work" },
+    { key: "workflow", label: "Workflow" },
 ];
 
 const RANGE_OPTIONS: { key: "7d" | "all"; label: string }[] = [
@@ -692,26 +695,28 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
         }
     }, [usageLoaded, attr, workScope, workItem, setWorkScope, setWorkItem, setListExpanded]);
 
-    const listNav = useMemo<ListNavController>(
+    const listNav = useMemo<ListNavController | null>(
         () =>
-            work
-                ? {
-                      surface: "usage",
-                      navigableIds: [ALL_SCOPE, ...attr.projects.map((p) => p.key)],
-                      cursorId: workItem != null ? undefined : workScope,
-                      setCursor: (id) => {
-                          setWorkScope(id);
-                          setWorkItem(null);
-                          setListExpanded(false);
-                      },
-                  }
-                : {
-                      surface: "usage",
-                      navigableIds: [ALL, ...rows.map((r) => r.harness)],
-                      cursorId: sel,
-                      setCursor: setSel,
-                  },
-        [work, attr, workItem, workScope, rows, sel, setSel, setWorkScope, setWorkItem, setListExpanded]
+            lens === "workflow"
+                ? null
+                : work
+                  ? {
+                        surface: "usage",
+                        navigableIds: [ALL_SCOPE, ...attr.projects.map((p) => p.key)],
+                        cursorId: workItem != null ? undefined : workScope,
+                        setCursor: (id) => {
+                            setWorkScope(id);
+                            setWorkItem(null);
+                            setListExpanded(false);
+                        },
+                    }
+                  : {
+                        surface: "usage",
+                        navigableIds: [ALL, ...rows.map((r) => r.harness)],
+                        cursorId: sel,
+                        setCursor: setSel,
+                    },
+        [lens, work, attr, workItem, workScope, rows, sel, setSel, setWorkScope, setWorkItem, setListExpanded]
     );
     useSurfaceListNav(listNav);
 
@@ -780,17 +785,18 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const split = work ? scopeSplit(attr, scope, stats.split) : classSplit(stats.split);
     const selectAll = () => (work ? selectWork(ALL_SCOPE) : setSel(ALL));
 
+    const lensSwitch = (
+        <Segmented<UsageLens> value={lens} onChange={pickLens} role="group" ariaLabel="Lens" options={LENS_OPTIONS} />
+    );
+    if (lens === "workflow") {
+        return <WorkflowLens model={model} lensSwitch={lensSwitch} />;
+    }
+
     return (
         <MotionConfig reducedMotion="user">
             <div className="flex h-full min-h-0 flex-col bg-background">
                 <SurfaceToolbar title="Usage">
-                    <Segmented<UsageLens>
-                        value={lens}
-                        onChange={pickLens}
-                        role="group"
-                        ariaLabel="Lens"
-                        options={LENS_OPTIONS}
-                    />
+                    {lensSwitch}
                     <Segmented<"7d" | "all">
                         value={usageWindow}
                         onChange={pickWindow}

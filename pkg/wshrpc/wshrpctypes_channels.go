@@ -89,7 +89,7 @@ type CommandSetChannelProfileData struct {
 }
 
 // AttentionItem is one thing waiting on the human, anywhere in the cockpit. Kind is "dag-blocked" |
-// "run-land-held" | "run-unverified" | "escalation" | "ask". ChannelId/ChannelName are EMPTY for a standalone agent (one launched from the
+// "run-land-held" | "run-unverified" | "escalation" | "ask" | "workflow-scan". ChannelId/ChannelName are EMPTY for a standalone agent (one launched from the
 // cockpit or Agent surface with no channel) — that is how the two nav-rail badges stay disjoint while
 // coming from one source.
 type AttentionItem struct {
@@ -108,8 +108,9 @@ type AttentionItem struct {
 	// right action (a circuit break), not a merge the human resolves by hand.
 	TaskId string `json:"taskid,omitempty"`
 	Retry  bool   `json:"retry,omitempty"`
-	// ORef addresses the object an item is about when it is not reachable through a channel. The server
-	// sets none; only the frontend's own brainstorm item carries one, and the popup target reads it.
+	// ORef addresses the object an item is about when it is not reachable through a channel. The server sets
+	// one only on a workflow-scan item (workflowscan:<runid>); the frontend's own brainstorm item carries one
+	// too, and the popup target reads it.
 	ORef string `json:"oref,omitempty"`
 
 	// EffortOID/ChunkLabel are the initiative this waiting thing belongs to, read off the owning run's

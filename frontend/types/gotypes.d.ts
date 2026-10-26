@@ -1050,6 +1050,18 @@ declare global {
         weektokens: number;
     };
 
+    // wshrpc.CommandGetWorkflowScanData
+    type CommandGetWorkflowScanData = {
+        oref?: string;
+    };
+
+    // wshrpc.CommandGetWorkflowScanRtnData
+    type CommandGetWorkflowScanRtnData = {
+        channelid: string;
+        runid: string;
+        scan: WorkflowScan;
+    };
+
     // wshrpc.CommandGitChangesData
     type CommandGitChangesData = {
         cwd: string;
@@ -1644,6 +1656,37 @@ declare global {
         wait?: boolean;
     };
 
+    // wshrpc.CommandWorkflowScanData
+    type CommandWorkflowScanData = {
+        oref: string;
+        windowdays?: number;
+    };
+
+    // wshrpc.CommandWorkflowScanPicksData
+    type CommandWorkflowScanPicksData = {
+        channelid: string;
+        runid: string;
+        picks: WorkflowScanPick[];
+    };
+
+    // wshrpc.CommandWorkflowScanResultData
+    type CommandWorkflowScanResultData = {
+        oref: string;
+        verdicts: WorkflowScanVerdict[];
+    };
+
+    // wshrpc.CommandWorkflowScanStartData
+    type CommandWorkflowScanStartData = {
+        channelid: string;
+        workspaceid: string;
+        windowdays?: number;
+    };
+
+    // wshrpc.CommandWorkflowScanStartRtnData
+    type CommandWorkflowScanStartRtnData = {
+        run: Run;
+    };
+
     // wshrpc.CommandWriteTempFileData
     type CommandWriteTempFileData = {
         filename: string;
@@ -1674,6 +1717,12 @@ declare global {
     // wshrpc.ConsultChunk
     type ConsultChunk = {
         text: string;
+    };
+
+    // waveobj.ConsultSession
+    type ConsultSession = {
+        sessionid: string;
+        role: string;
     };
 
     // wshrpc.DagAskItem
@@ -2670,6 +2719,8 @@ declare global {
         orchestration?: string;
         parallelism?: number;
         prototype?: string;
+        workflowscan?: WorkflowScan;
+        consultsessions?: ConsultSession[];
     };
 
     // waveobj.RunEffortRef
@@ -3334,6 +3385,70 @@ declare global {
         projects?: ProjectWork[];
         efforts?: EffortSummary[];
         sources: SourceHealth;
+    };
+
+    // waveobj.WorkflowScan
+    type WorkflowScan = {
+        state: string;
+        stage: string;
+        project: string;
+        windowdays: number;
+        fromts: number;
+        tots: number;
+        runs: number;
+        projects: number;
+        candidates: number;
+        kept: number;
+        dropped: number;
+        survivors?: WorkflowScanPattern[];
+        underfloor?: WorkflowScanPattern[];
+        verdicts?: WorkflowScanVerdict[];
+        picks?: WorkflowScanPick[];
+        error?: string;
+    };
+
+    // waveobj.WorkflowScanPattern
+    type WorkflowScanPattern = {
+        id: string;
+        title: string;
+        fixtarget: string;
+        runs: number;
+        days: number;
+        projects: WorkflowScanProject[];
+        quotes: WorkflowScanQuote[];
+    };
+
+    // waveobj.WorkflowScanPick
+    type WorkflowScanPick = {
+        id: string;
+        pick: string;
+        reason?: string;
+    };
+
+    // waveobj.WorkflowScanProject
+    type WorkflowScanProject = {
+        name: string;
+        runs: number;
+    };
+
+    // waveobj.WorkflowScanQuote
+    type WorkflowScanQuote = {
+        runid: string;
+        project: string;
+        date: string;
+        text: string;
+    };
+
+    // waveobj.WorkflowScanVerdict
+    type WorkflowScanVerdict = {
+        id: string;
+        verdict: string;
+        note?: string;
+        file?: string;
+        where?: string;
+        fixproject?: string;
+        edit?: string;
+        declinedat?: number;
     };
 
     // waveobj.Workspace
