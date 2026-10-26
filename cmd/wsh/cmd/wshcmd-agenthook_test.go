@@ -248,29 +248,49 @@ func TestReadLastTitleMissing(t *testing.T) {
 	}
 }
 
-func TestLastUserPrompt(t *testing.T) {
-	// last user turn with human text wins; assistant/ai-title lines and tool_result-only user turns are ignored
-	lines := []string{
-		`{"type":"assistant","message":{"content":[]}}`,
-		`{"type":"user","message":{"content":"first ask"}}`,
-		`{"type":"user","message":{"content":[{"type":"tool_result","content":"file contents"}]}}`,
-		`{"type":"user","message":{"content":[{"type":"text","text":"/commit stage the diff"}]}}`,
-		`{"type":"ai-title","aiTitle":"x"}`,
+func TestReadLastTitleBeyondTail(t *testing.T) {
+	// a big turn (a skill body, an image) pushes the last ai-title out of the tail window; the row must keep
+	// it rather than fall back to head text
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	big := `{"type":"user","isMeta":true,"message":{"content":"` + strings.Repeat("x", transcriptTailBytes) + `"}}`
+	content := `{"type":"ai-title","aiTitle":"Brainstorm the panel"}` + "\n" + big + "\n" + `{"type":"user","message":{"content":"yes, A"}}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if got := lastUserPrompt(lines); got != "/commit stage the diff" {
-		t.Fatalf("lastUserPrompt = %q, want %q", got, "/commit stage the diff")
+	if got := readLastTitle(path); got != "Brainstorm the panel" {
+		t.Fatalf("title = %q, want the ai-title from before the tail", got)
 	}
 }
 
-func TestLastUserPromptStringAndEmpty(t *testing.T) {
-	if got := lastUserPrompt([]string{`{"type":"user","message":{"content":"hi there"}}`}); got != "hi there" {
-		t.Fatalf("string content = %q, want %q", got, "hi there")
+func TestReadFirstUserPrompt(t *testing.T) {
+	// the session's ask: meta turns (caveats, skill bodies) and tool_result-only turns are skipped, and later
+	// answers to the agent never replace it
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	content := strings.Join([]string{
+		`{"type":"user","isMeta":true,"message":{"content":"Caveat: local commands"}}`,
+		`{"type":"assistant","message":{"content":[]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","content":"r"}]}}`,
+		`{"type":"user","message":{"content":"<command-name>/arc:brainstorm</command-name>\n<command-args>add more interaction</command-args>"}}`,
+		`{"type":"user","isMeta":true,"message":{"content":[{"type":"text","text":"Base directory for this skill: C:\\x"}]}}`,
+		`{"type":"user","message":{"content":"Mine by default"}}`,
+		`{"type":"user","message":{"content":"brainstorm: approved"}}`,
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if got := lastUserPrompt([]string{`{"type":"assistant","message":{"content":"x"}}`}); got != "" {
-		t.Fatalf("no user turn -> %q, want empty", got)
+	if got := titleFromPrompt(readFirstUserPrompt(path)); got != "/arc:brainstorm add more interaction" {
+		t.Fatalf("title = %q, want the first human prompt", got)
 	}
-	if got := lastUserPrompt([]string{`{"type":"user","message":{"content":[{"type":"tool_result","content":"r"}]}}`}); got != "" {
-		t.Fatalf("tool_result-only user turn -> %q, want empty", got)
+}
+
+func TestReadFirstUserPromptNone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	os.WriteFile(path, []byte(`{"type":"assistant","message":{"content":"x"}}`+"\n"+`{"type":"user","message":{"content":[{"type":"tool_result","content":"r"}]}}`), 0o644)
+	if got := readFirstUserPrompt(path); got != "" {
+		t.Fatalf("no human turn -> %q, want empty", got)
+	}
+	if got := readFirstUserPrompt("/no/such/file"); got != "" {
+		t.Fatalf("missing file -> %q, want empty", got)
 	}
 }
 

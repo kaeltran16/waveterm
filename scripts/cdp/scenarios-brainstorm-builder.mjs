@@ -20,6 +20,18 @@ const CHECK_LINE = "brainstorm: check";
 // the pending card's copy, as brainstormmodel.ts words it
 const CHECK_READING = "A builder is reading the design.";
 const CHECK_TAKING_IN = "Taking in the builder's questions.";
+// the clock's notes (Main, Main-Long and Main-TakingIn boards), as brainstormmodel.ts words them
+const CHECK_WITHIN = "You can read the design meanwhile.";
+const CHECK_OVER = "Taking longer than usual";
+const CHECK_BUILDER_DONE = "The builder finished in 2:31.";
+const CHECK_LOCK_TITLE = "Locked while the builder check runs";
+// past builder checks the scenario seeds (ms), the spec's measured spread: usual 2:09, longest 8:28
+const PAST_CHECKS = [119_000, 129_000, 508_000];
+// the check's own run: started 1:42 ago (Main), 6:10 ago (Main-Long), and a builder that took 2:31 (Main-TakingIn)
+const CHECK_STARTED_AGO = 102_000;
+const CHECK_LONG_AGO = 370_000;
+const CHECK_TOOK = 151_000;
+const CLOCK_TICK_MS = 2200;
 // ids the builder-check record names; nothing real stands behind them
 const CHECK_RUN = "5b0f6a1e-3c2d-4e7f-8a9b-0c1d2e3f4a5b";
 const CHECK_CHANNEL = "9e8d7c6b-5a49-4382-b1a0-f9e8d7c6b5a4";
@@ -178,6 +190,7 @@ export default function (kit) {
         polishNap,
         skipStep,
         waveService,
+        fstWriteRun,
         BS_PANE,
         BS_ANSWER,
         BS_APPROVE_BAR,
@@ -222,19 +235,20 @@ export default function (kit) {
         check: { yours: [YOURS[0]], calls: [CALLS[0]], answered: ["The forecast’s weekday profile."], touched: [] },
     });
     const CHECK_REASON = "The builder session ended before it wrote its questions.";
-    // Arc's record of the check, as the server writes it to the agent's tab
+    // Arc's record of the check, as the server writes it to the agent's tab; run and channel default to ids nothing
+    // stands behind
     const setCheckRecord = (h, ctx, meta, kind = CHECK_KIND) =>
         h.rpc("setmeta", {
             oref: `tab:${ctx.tabId}`,
             meta: {
                 [`${kind.prefix}state`]: meta.state,
                 [`${kind.prefix}ts`]: Date.now(),
-                [`${kind.prefix}run`]: kind.run,
-                [`${kind.prefix}channel`]: kind.channel,
+                [`${kind.prefix}run`]: meta.run ?? kind.run,
+                [`${kind.prefix}channel`]: meta.channel ?? kind.channel,
                 [`${kind.prefix}reason`]: meta.reason ?? "",
             },
         });
-    // the check card, Check with a builder and Try again, as the pane draws them
+    // the check card, Check with a builder and Try again, as the pane draws them, and the pending check's clock
     const readCheck = (h) =>
         h.ev(`(() => {
             const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
@@ -243,13 +257,57 @@ export default function (kit) {
                 const el = pane?.querySelector(sel);
                 return el ? { disabled: el.disabled } : null;
             };
+            const clock = pane?.querySelector("[data-brainstorm-check-clock]");
+            const usual = pane?.querySelector("[data-brainstorm-check-usual]");
             return {
                 pending: flat(pane?.querySelector("[data-brainstorm-check-pending]")),
+                stage: pane?.querySelector("[data-brainstorm-check-pending]")?.getAttribute("data-brainstorm-check-pending") ?? null,
+                clock: flat(clock),
+                running: clock?.getAttribute("data-brainstorm-check-clock") ?? null,
+                bar: !!pane?.querySelector("[data-brainstorm-check-bar]"),
+                usualAt: usual?.style.left ?? null,
+                note: flat(pane?.querySelector("[data-brainstorm-check-note]")),
+                times: flat(pane?.querySelector("[data-brainstorm-check-times]")),
+                edits: [...(pane?.querySelectorAll("[data-brainstorm-part] button") ?? [])]
+                    .filter((b) => flat(b) === "Edit")
+                    .map((b) => ({ disabled: b.disabled, title: b.title })),
                 failed: flat(pane?.querySelector("[data-brainstorm-check-failed]")),
                 checkBtn: btn("[data-brainstorm-check-btn]"),
                 retry: btn("[data-brainstorm-check-retry]"),
             };
         })()`);
+    // m:ss, as the clock reads
+    const mmss = (ms) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
+    // a deferred quick run in the brainstorm's channel, written into a builder check's run: nothing ever starts it
+    const seedCheckRun = async (h, ctx, change) => {
+        const wslist = await h.rpc("workspacelist", null);
+        const created = await h.rpc("createrun", {
+            channelid: ctx.channelId,
+            workspaceid: wslist[0].workspacedata.oid,
+            goal: "verify brainstorm-builder-check: a seeded builder check",
+            runtime: "claude",
+            mode: "quick",
+            deferstart: true,
+        });
+        await fstWriteRun(h, created.run.id, (run) => ({ ...run, stagerole: "builder-check", ...change }));
+        return created.run.id;
+    };
+    // the past checks the clock reads its usual and longest times from, and the check's own run, still reading
+    const seedCheckRuns = async (h, ctx) => {
+        const ch = await h.rpc("createchannel", { name: "verify-bs-check-wait", projectpath: ctx.cwd });
+        ctx.channelId = ch.oid;
+        const now = Date.now();
+        for (const took of PAST_CHECKS) {
+            await seedCheckRun(h, ctx, {
+                status: "done",
+                createdts: now - 3_600_000,
+                completedts: now - 3_600_000 + took,
+                report: "The builder's questions.",
+            });
+        }
+        ctx.checkRunId = await seedCheckRun(h, ctx, { createdts: now - CHECK_STARTED_AGO });
+        return h.rpc("brainstormchecktimes", null);
+    };
     // a line sent before the shell's prompt is drawn is lost to it
     const waitForPrompt = async (h, ctx) => {
         let prompt = "";
@@ -703,25 +761,100 @@ export default function (kit) {
                     { ...bsBrief(s1), ...c1 }
                 );
 
-                // 2. reading: the pending card, and no Check button
-                await setCheckRecord(h, ctx, { state: "reading" });
-                const s2 = await bsUntil(h, ctx, (s) => s.working.includes(CHECK_READING));
+                // 2. reading: the design stays up under the clock strip, its edits locked, and no Check button
+                let times = null;
+                let seedError = null;
+                try {
+                    times = await seedCheckRuns(h, ctx);
+                } catch (e) {
+                    seedError = String(e?.message ?? e);
+                }
+                const timesText = times ? `usual ${mmss(times.usualms)} · longest ${mmss(times.longestms)}` : null;
+                const edits = (c) => c.edits.length > 0 && c.edits.every((e) => e.disabled && e.title.startsWith(CHECK_LOCK_TITLE));
+                await setCheckRecord(h, ctx, { state: "reading", run: ctx.checkRunId, channel: ctx.channelId });
+                const shown2 = await polishWaitFor(
+                    h,
+                    `${BS_PANE}?.querySelector("[data-brainstorm-check-pending]")?.innerText.includes(${JSON.stringify(times ? "usual" : CHECK_READING)}) ?? false`,
+                    CHECK_WAIT_MS
+                );
+                const s2 = await bsUntil(h, ctx, (s) => s.parts.length > 0);
                 const c2 = await readCheck(h);
                 await h.shot("cdp-shots/brainstorm-builder-check-2.png");
                 rec(
-                    "2. pending: with the record reading, the card reads A builder is reading the design. and Check with a builder is gone",
-                    s2.ok && c2.pending.includes(CHECK_READING) && noCheckBtn(c2) && c2.failed === "",
-                    { ...bsBrief(s2), ...c2 }
+                    "2. reading: the design stays up under Builder check, A builder is reading the design. with its clock from 1:42, a bar with the usual mark, and Checks here usually take…",
+                    seedError == null &&
+                        shown2 &&
+                        s2.ok &&
+                        s2.working === "" &&
+                        c2.stage === "reading" &&
+                        c2.pending.includes(CHECK_READING) &&
+                        c2.running === "running" &&
+                        /^[1-9]:\d\d$/.test(c2.clock) &&
+                        c2.bar &&
+                        c2.usualAt != null &&
+                        c2.note.includes(CHECK_WITHIN) &&
+                        !c2.note.includes(CHECK_OVER) &&
+                        c2.times === timesText &&
+                        times.longestms >= PAST_CHECKS.at(-1) &&
+                        noCheckBtn(c2) &&
+                        c2.failed === "",
+                    { seedError, times, ...bsBrief(s2), ...c2 }
+                );
+                await polishNap(CLOCK_TICK_MS);
+                const ticked = await readCheck(h);
+                rec(
+                    "2a. reading: the clock ticks",
+                    ticked.clock !== c2.clock && ticked.running === "running",
+                    { before: c2.clock, after: ticked.clock }
+                );
+                rec(
+                    "2b. reading: every Edit and the line box are locked, saying the builder check holds them",
+                    edits(c2) && s2.lineBox === "locked",
+                    { edits: c2.edits, lineBox: s2.lineBox }
                 );
 
-                // 3. answered, the file untouched and the agent idle from before: the questions are still being taken in
-                await setCheckRecord(h, ctx, { state: "answered" });
-                const s3 = await bsUntil(h, ctx, (s) => s.working.includes(CHECK_TAKING_IN));
+                // 2c. past the usual time: the note says so plainly, never as an error
+                await fstWriteRun(h, ctx.checkRunId, (run) => ({ ...run, createdts: Date.now() - CHECK_LONG_AGO }));
+                const shownLong = await polishWaitFor(
+                    h,
+                    `${BS_PANE}?.querySelector("[data-brainstorm-check-note]")?.innerText.includes(${JSON.stringify(CHECK_OVER)}) ?? false`,
+                    CHECK_WAIT_MS
+                );
+                const cLong = await readCheck(h);
+                await h.shot("cdp-shots/brainstorm-builder-check-2c-long.png");
+                rec(
+                    "2c. past the usual time: the clock reads 6 minutes and the note says Taking longer than usual, with no failure card",
+                    shownLong && /^6:\d\d$/.test(cLong.clock) && cLong.note.startsWith(CHECK_OVER) && cLong.failed === "",
+                    cLong
+                );
+
+                // 3. answered, the file untouched and the agent idle from before: the builder's time stands still while the
+                // agent takes in its questions, and the edits stay locked. The run, done with no report, adds no past check
+                const startedAt = Date.now() - CHECK_LONG_AGO;
+                await fstWriteRun(h, ctx.checkRunId, (run) => ({
+                    ...run,
+                    status: "done",
+                    createdts: startedAt,
+                    completedts: startedAt + CHECK_TOOK,
+                }));
+                await setCheckRecord(h, ctx, { state: "answered", run: ctx.checkRunId, channel: ctx.channelId });
+                const shown3 = await polishWaitFor(
+                    h,
+                    `${BS_PANE}?.querySelector('[data-brainstorm-check-pending="taking-in"] [data-brainstorm-check-clock="stopped"]') != null`,
+                    CHECK_WAIT_MS
+                );
+                const s3 = await bsUntil(h, ctx, (s) => s.parts.length > 0);
                 const c3 = await readCheck(h);
                 await h.shot("cdp-shots/brainstorm-builder-check-3.png");
                 rec(
-                    "3. taking in: with the record answered and the file unchanged, the card reads Taking in the builder's questions.",
-                    s3.ok && c3.pending.includes(CHECK_TAKING_IN) && noCheckBtn(c3),
+                    "3. taking in: the strip reads Taking in the builder's questions. with the clock stopped at 2:31 and The builder finished in 2:31., the edits still locked",
+                    shown3 &&
+                        s3.working === "" &&
+                        c3.pending.includes(CHECK_TAKING_IN) &&
+                        c3.clock === mmss(CHECK_TOOK) &&
+                        c3.note.startsWith(CHECK_BUILDER_DONE) &&
+                        edits(c3) &&
+                        noCheckBtn(c3),
                     { ...bsBrief(s3), ...c3 }
                 );
 
@@ -769,6 +902,14 @@ export default function (kit) {
                     await h.ev(TYPED_REMOVE);
                 } catch (e) {
                     console.error(`brainstorm-builder-check teardown: stop recording sent lines failed: ${e?.message ?? e}`);
+                }
+                if (ctx.channelId) {
+                    // the seeded runs go with their channel
+                    try {
+                        await h.rpc("deletechannel", { channelid: ctx.channelId });
+                    } catch (e) {
+                        console.error(`brainstorm-builder-check teardown: delete the channel failed: ${e?.message ?? e}`);
+                    }
                 }
                 await bsTeardownAgent(h, ctx, "brainstorm-builder-check");
             },

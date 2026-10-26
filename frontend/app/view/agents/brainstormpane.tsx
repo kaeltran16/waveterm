@@ -6,11 +6,12 @@
 // current), and every action is one line typed into the agent (brainstormsend).
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
+import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { makeFeBlockRouteId } from "@/app/store/wshrouter";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { atom, useAtomValue, type Atom } from "jotai";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { getProcExitAtom } from "./agentcontrollerstore";
 import type { AgentsViewModel } from "./agents";
@@ -19,9 +20,12 @@ import { Check } from "./brainstormcheck";
 import {
     boardBackLabel,
     builderCheckView,
+    checkClock,
+    checkSpan,
     decisionParts,
     designUnder,
     droppedQuestion,
+    editLock,
     exitedSummary,
     historyRows,
     isNote,
@@ -39,7 +43,9 @@ import {
     type BrainstormAction,
     type BrainstormFile,
     type BrainstormPart,
+    type BuilderCheckRecord,
     type BuilderCheckView,
+    type EditLock,
     type HistoryRow,
     type PartView,
     type Unseen,
@@ -72,6 +78,7 @@ import {
     JudgingMain,
     LineBar,
     LINK,
+    lockTitle,
     onEnter,
     PART_BTN,
     PartMockups,
@@ -82,7 +89,6 @@ import {
     StaleBanner,
     Toolbar,
     useAction,
-    WORKING_TITLE,
     WorkingMain,
 } from "./brainstormui";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN, CanvasPane, EdgeState, EXPLAINER } from "./canvaspane";
@@ -90,6 +96,7 @@ import { runtimeStartupCommand, type Runtime } from "./launch";
 
 // how far back the exited card looks for the agent's last words
 const LAST_OUTPUT_LINES = 200;
+const NO_RUN: Atom<Run | undefined> = atom(undefined as Run | undefined);
 
 const PART_DOT: Record<PartView, string> = {
     yours: DOT_YOURS,
@@ -153,21 +160,31 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
                     </EdgeState>
                 </>
             ) : (
-                <Design agent={agent} s={s} f={f} />
+                <Design agent={agent} s={s} f={f} nowAtom={model.nowAtom} />
             )}
         </div>
     );
 }
 
-function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: BrainstormFile }) {
+function Design({
+    agent,
+    s,
+    f,
+    nowAtom,
+}: {
+    agent: AgentVM;
+    s: BrainstormState;
+    f: BrainstormFile;
+    nowAtom: Atom<number>;
+}) {
     const partsRef = useRef<HTMLDivElement>(null);
     // a part to scroll to once the design is drawn: a link in the rail or over the question opens it first
     const [target, setTarget] = useState<string | null>(null);
     // the design's rows the user opened or closed; kept here so they survive the question taking the main area
     const [opened, setOpened] = useState<Record<string, boolean>>({});
     const check = builderCheckView(agent.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent);
-    const checkPending = check.kind === "pending" ? check.text : undefined;
-    const view = mainView(f, s.designOpen, checkPending != null, s.sent != null);
+    const lock = editLock(f, check);
+    const view = mainView(f, s.designOpen, s.sent != null);
     const seen = useAtomValue(brainstormSeenAtom)[s.path] ?? null;
     const unseen = unseenSince(f, seen);
     // opens the parts' rows in the design and scrolls to the first
@@ -207,24 +224,24 @@ function Design({ agent, s, f }: { agent: AgentVM; s: BrainstormState; f: Brains
                     ) : view === "judging" ? (
                         <JudgingMain agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
                     ) : view === "working" ? (
-                        <WorkingMain
-                            f={f}
-                            openDesign={openDesign}
-                            checkText={f.working == null ? checkPending : undefined}
-                        />
+                        <WorkingMain f={f} openDesign={openDesign} />
                     ) : (
                         <DesignMain
                             agent={agent}
                             s={s}
                             f={f}
                             check={check}
+                            lock={lock}
+                            nowAtom={nowAtom}
                             partsRef={partsRef}
                             unseen={unseen}
                             opened={opened}
                             setOpen={(id, open) => setOpened((o) => ({ ...o, [id]: open }))}
                         />
                     )}
-                    {view === "design" ? <LineBar agent={agent} box={lineBox(f, checkPending != null)} /> : null}
+                    {view === "design" ? (
+                        <LineBar agent={agent} box={lineBox(f, check.kind === "pending")} lock={lock} />
+                    ) : null}
                 </div>
                 <DecidedRail f={f} unseen={unseen} goTo={goTo} />
             </div>
@@ -237,6 +254,8 @@ function DesignMain({
     s,
     f,
     check,
+    lock,
+    nowAtom,
     partsRef,
     unseen,
     opened,
@@ -246,6 +265,8 @@ function DesignMain({
     s: BrainstormState;
     f: BrainstormFile;
     check: BuilderCheckView;
+    lock: EditLock;
+    nowAtom: Atom<number>;
     partsRef: RefObject<HTMLDivElement>;
     unseen: Unseen;
     opened: Record<string, boolean>;
@@ -271,13 +292,14 @@ function DesignMain({
             s={s}
             f={f}
             part={p}
+            lock={lock}
             unseen={unseen.parts.includes(p.id)}
             open={isOpen(p)}
             setOpen={(open) => setOpen(p.id, open)}
         />
     );
     // the design opened over the question or the working note: the way back to it
-    const back = designUnder(f, s.designOpen, check.kind === "pending", s.sent != null);
+    const back = designUnder(f, s.designOpen, s.sent != null);
     const backToQuestion = back === "question" || back === "judging";
     return (
         <>
@@ -296,9 +318,7 @@ function DesignMain({
                         <span className={cn(SMALL_DOT, backToQuestion ? "bg-warning" : "bg-success")} />
                         {backToQuestion
                             ? `Back to question ${f.question!.n}`
-                            : f.working == null
-                              ? "Back to the builder check"
-                              : "Back to what the agent is writing"}
+                            : "Back to what the agent is writing"}
                     </button>
                 </div>
             ) : null}
@@ -314,7 +334,11 @@ function DesignMain({
                             The agent is writing. Confirm, edit and keep open again when it asks its next question.
                         </div>
                     ) : null}
-                    {leftPanel(f) !== "none" ? <ReviewHead agent={agent} f={f} check={check} /> : null}
+                    {check.kind === "pending" ? (
+                        <CheckWait record={agent.builderCheck} check={check} nowAtom={nowAtom} />
+                    ) : leftPanel(f) !== "none" ? (
+                        <ReviewHead agent={agent} f={f} check={check} />
+                    ) : null}
                     <section data-brainstorm-decisions aria-label="Decisions" className="flex flex-col">
                         <div className="flex items-baseline gap-[8px] px-[14px] pb-[6px]">
                             <h2 className={SECTION_HEAD}>Decisions · {decisions.length}</h2>
@@ -344,6 +368,97 @@ function DesignMain({
                 </div>
             </div>
         </>
+    );
+}
+
+// how long this machine's past builder checks took; null until read, or when they could not be. Read again for each
+// check (key, its run), so the one before it counts
+function useCheckTimes(key: string | undefined): BrainstormCheckTimes | null {
+    const [times, setTimes] = useState<BrainstormCheckTimes | null>(null);
+    useEffect(() => {
+        let live = true;
+        RpcApi.BrainstormCheckTimesCommand(TabRpcClient)
+            .then((t) => live && setTimes(t))
+            .catch((e) => console.error("brainstorm: reading past builder check times:", e));
+        return () => {
+            live = false;
+        };
+    }, [key]);
+    return times;
+}
+
+const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+
+// the pending builder check in the review head's place: its time against how long checks here usually take
+function CheckWait({
+    record,
+    check,
+    nowAtom,
+}: {
+    record: BuilderCheckRecord | undefined;
+    check: Extract<BuilderCheckView, { kind: "pending" }>;
+    nowAtom: Atom<number>;
+}) {
+    const run = useAtomValue(record?.runId ? WOS.getWaveObjectAtom<Run>(WOS.makeORef("run", record.runId)) : NO_RUN);
+    const now = useAtomValue(nowAtom);
+    const times = useCheckTimes(record?.runId);
+    const clock = checkClock(check, checkSpan(record, run ?? null), times, now);
+    return (
+        <section
+            data-brainstorm-check-pending={check.stage}
+            aria-label="Builder check"
+            className="flex flex-col gap-[8px] px-[14px] py-[4px]"
+        >
+            <h2 className="m-0 text-[15px] font-semibold text-primary">Builder check</h2>
+            <div
+                aria-live="polite"
+                className="flex flex-col gap-[10px] rounded-[8px] border border-edge-mid bg-surface px-[16px] py-[12px]"
+            >
+                <div className="flex items-center gap-[10px]">
+                    <span className={cn(SMALL_DOT, "bg-success")} />
+                    <span className="text-[13.5px] font-semibold text-primary">{clock.line}</span>
+                    <div className="flex-1" />
+                    {clock.elapsed != null ? (
+                        <span
+                            data-brainstorm-check-clock={clock.running ? "running" : "stopped"}
+                            className={cn(
+                                "font-mono text-[13px] font-semibold",
+                                clock.running ? "text-secondary" : "text-ink-mid"
+                            )}
+                        >
+                            {clock.elapsed}
+                        </span>
+                    ) : null}
+                </div>
+                {clock.bar != null ? (
+                    <div data-brainstorm-check-bar className="relative h-[6px] rounded-[3px] bg-edge-mid">
+                        <div
+                            className="absolute inset-y-0 left-0 rounded-[3px] bg-success"
+                            style={{ width: pct(clock.bar.fill) }}
+                        />
+                        <div
+                            data-brainstorm-check-usual
+                            className="absolute top-[-3px] h-[12px] w-[2px] rounded-[1px] bg-ink-mid"
+                            style={{ left: pct(clock.bar.usual) }}
+                        />
+                    </div>
+                ) : null}
+                <div className="flex items-baseline gap-[12px] text-[12px] text-muted">
+                    <span data-brainstorm-check-note className={clock.over ? "text-ink-mid" : undefined}>
+                        {clock.note}
+                    </span>
+                    <div className="flex-1" />
+                    {clock.times != null ? (
+                        <span
+                            data-brainstorm-check-times
+                            className="flex-none whitespace-nowrap font-mono text-[10.5px]"
+                        >
+                            {clock.times}
+                        </span>
+                    ) : null}
+                </div>
+            </div>
+        </section>
     );
 }
 
@@ -435,6 +550,7 @@ function PartRow({
     s,
     f,
     part,
+    lock,
     unseen,
     open,
     setOpen,
@@ -443,6 +559,7 @@ function PartRow({
     s: BrainstormState;
     f: BrainstormFile;
     part: BrainstormPart;
+    lock: EditLock;
     unseen: boolean;
     open: boolean;
     setOpen: (open: boolean) => void;
@@ -452,9 +569,8 @@ function PartRow({
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState("");
     const act = useAction();
-    const working = f.working != null;
-    const locked = working || act.busy;
-    const lockTitle = working ? WORKING_TITLE : undefined;
+    const locked = lock != null || act.busy;
+    const title = lockTitle(lock);
     const send = (action: BrainstormAction) => act.run(() => sendBrainstorm(agent, action));
     const startEdit = () => {
         setDraft(part.body);
@@ -465,7 +581,7 @@ function PartRow({
         <button
             type="button"
             disabled={locked}
-            title={lockTitle}
+            title={title}
             onClick={onClick}
             className={cn(PART_BTN, quiet && "text-secondary")}
         >
@@ -476,7 +592,7 @@ function PartRow({
         <button
             type="button"
             disabled={locked}
-            title={lockTitle}
+            title={title}
             onClick={startEdit}
             className="cursor-pointer border-0 bg-transparent p-0 text-[12px] text-muted hover:text-secondary disabled:cursor-default disabled:opacity-50"
         >

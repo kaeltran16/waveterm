@@ -271,6 +271,12 @@ declare global {
         workspaceid?: string;
     };
 
+    // wshrpc.BrainstormCheckTimes
+    type BrainstormCheckTimes = {
+        usualms: number;
+        longestms: number;
+    };
+
     // wshrpc.BranchInfo
     type BranchInfo = {
         name: string;

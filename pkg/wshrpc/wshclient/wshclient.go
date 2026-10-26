@@ -151,6 +151,12 @@ func BrainstormCheckCommand(w *wshutil.WshRpc, data wshrpc.CommandBrainstormChec
 	return err
 }
 
+// command "brainstormchecktimes", wshserver.BrainstormCheckTimesCommand
+func BrainstormCheckTimesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.BrainstormCheckTimes, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.BrainstormCheckTimes](w, "brainstormchecktimes", nil, opts)
+	return resp, err
+}
+
 // command "brainstormjudge", wshserver.BrainstormJudgeCommand
 func BrainstormJudgeCommand(w *wshutil.WshRpc, data wshrpc.CommandBrainstormJudgeData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "brainstormjudge", data, opts)
