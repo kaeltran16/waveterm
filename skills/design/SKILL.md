@@ -158,8 +158,10 @@ The long form, for pushback on a design call or a specific kind of piece: `refer
   the brief did not ask for is a question in your reply, not an artboard. Start from the simplest
   design the brief allows: no multi-step flows, merged controls or extra variants unless asked.
 - When an artboard redraws an existing screen, every piece of information it shows today (cost,
-  time, tokens, counts) stays visible. Moving one behind a tooltip or dropping it is a question in
-  your reply, not a design choice.
+  time, tokens, counts) stays visible, and its labels and names stay as they are. Moving one
+  behind a tooltip, dropping or renaming it is a question in your reply, not a design choice.
+- For an app screen, write its one question in a line before drawing: its answer is the biggest
+  block, and a block that answers no question is cut.
 - Plain surfaces: no gradient washes, left-border cards or emoji; no Inter, Roboto or Arial.
 - With no design system, avoid the looks AI design clusters around: warm cream with a serif
   display and a terracotta accent; near-black with one acid-green or vermilion pop; broadsheet
@@ -174,4 +176,5 @@ The long form, for pushback on a design call or a specific kind of piece: `refer
   shared parts of side-by-side cards misaligned; an uppercase label over every heading; decorative
   dots and section numbers; "Oops!" errors, filler verbs and stock names (`Acme`, `John Doe`). The
   design system overrides any of these. Full list: "AI tells to design past" in
-  `reference/craft.md`; a marketing piece also takes the list under "Landing pages" there.
+  `reference/craft.md`; a marketing piece also takes the list under "Landing pages" there, an app
+  screen the one under "App screens".
