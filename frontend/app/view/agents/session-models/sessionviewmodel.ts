@@ -4,7 +4,7 @@ import type { BuilderCheckRecord } from "../brainstormmodel";
 
 export const NO_CWD_LABEL = "ungrouped";
 
-const CHECK_STATES: BuilderCheckRecord["state"][] = ["reading", "answered", "failed"];
+const CHECK_STATES: BuilderCheckRecord["state"][] = ["reading", "answered", "failed", "stopped"];
 
 // the builder check and the judge keep the same five keys on the tab, under their own prefix
 function sessionRecordOf(tabMeta: Record<string, any>, prefix: string): BuilderCheckRecord | undefined {

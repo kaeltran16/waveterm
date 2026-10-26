@@ -374,13 +374,15 @@ export default function (kit) {
             await h.shot(`cdp-shots/${name}-1.png`);
             rec(`1. no record: the ${who} is a top-level row, named by its session label`, topLevel(t1) && t1.bs, t1);
 
-            // 2-4. the record names its run: the session nests right under the brainstorm whatever the record's state,
-            // and the counts stay what they were
+            // the record names its run: the session nests right under the brainstorm whatever the record's state, and
+            // the counts stay what they were. Only the judge is ever stopped, by an answer given during its wait
             const states = [
                 ["reading", "2. reading"],
                 ["answered", "3. answered"],
                 ["failed", "4. failed"],
+                ...(who === "judge" ? [["stopped", "5. stopped"]] : []),
             ];
+            const closeStep = states.length + 2;
             for (const [i, [state, label]] of states.entries()) {
                 await setCheckRecord(h, ctx, { state, reason: state === "failed" ? "The session ended." : "" }, kind);
                 const shown = await polishWaitFor(h, nestedIn(bsId, rvId, state, kind.role), CHECK_WAIT_MS);
@@ -393,7 +395,7 @@ export default function (kit) {
                 );
             }
 
-            // 5. the brainstorm's tab closes: the session is a top-level row again, and the counts lose only the brainstorm
+            // the brainstorm's tab closes: the session is a top-level row again, and the counts lose only the brainstorm
             await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, bsId, false]);
             ctx.tabId = null;
             const back = await polishWaitFor(
@@ -406,9 +408,9 @@ export default function (kit) {
                 ROSTER_WAIT_MS
             );
             const t5 = await readTree(h, bsId, rvId);
-            await h.shot(`cdp-shots/${name}-5.png`);
+            await h.shot(`cdp-shots/${name}-${closeStep}.png`);
             rec(
-                `5. brainstorm gone: the ${who} falls back to its own top-level row, the total one less`,
+                `${closeStep}. brainstorm gone: the ${who} falls back to its own top-level row, the total one less`,
                 back && topLevel(t5) && !t5.bs && t5.total === t1.total - 1,
                 t5
             );

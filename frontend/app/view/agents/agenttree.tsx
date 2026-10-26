@@ -898,6 +898,7 @@ const CHECK_OUTCOME: Record<BuilderCheckRecord["state"], StageOutcome | undefine
     reading: undefined,
     answered: "passed",
     failed: "failed",
+    stopped: "unverified",
 };
 
 // `verdict` words the second line when the stage's own words differ from its outcome's, as a builder check's do
