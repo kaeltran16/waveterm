@@ -28,6 +28,7 @@ import {
     type BrainstormFile,
     type BrainstormPart,
     type BrainstormQuestion,
+    type EditLock,
     type JudgeWork,
     type LineBox,
     type PartAnswer,
@@ -45,6 +46,12 @@ const THUMB_W_COMPACT = 220;
 const THUMB_MAX_H = 200;
 
 export const WORKING_TITLE = "The agent is writing; this opens when it asks again";
+const CHECK_LOCK_TITLE = "Locked while the builder check runs; this opens when the agent has taken in its questions";
+
+// what a locked control says on hover
+export function lockTitle(lock: EditLock): string | undefined {
+    return lock === "working" ? WORKING_TITLE : lock === "check" ? CHECK_LOCK_TITLE : undefined;
+}
 
 export const DOT = "h-[7px] w-[7px] flex-none rounded-full";
 export const DOT_YOURS = cn(DOT, "bg-success");
@@ -525,20 +532,23 @@ function ReasonList({
     );
 }
 
-// locked while the agent writes; placeholder replaces the answer's, for a line that answers no question
+// locked while the agent writes, or for why lockedBy says; placeholder replaces the answer's, for a line that answers
+// no question
 export function AnswerBox({
     ans,
     options,
     locked = false,
+    lockedBy = "working",
     placeholder,
 }: {
     ans: Answer;
     options: boolean;
     locked?: boolean;
+    lockedBy?: EditLock;
     placeholder?: string;
 }) {
     return (
-        <div className="flex items-center gap-[12px]" title={locked ? WORKING_TITLE : undefined}>
+        <div className="flex items-center gap-[12px]" title={locked ? lockTitle(lockedBy) : undefined}>
             <textarea
                 data-brainstorm-answer
                 aria-label="Your answer"
@@ -566,7 +576,7 @@ export function AnswerBox({
 
 // a line of the user's own while no question is open, sent as the question's typed answer is: the agent reads it as
 // pushback or a question back, and answers with a question
-export function LineBar({ agent, box }: { agent: AgentVM; box: LineBox }) {
+export function LineBar({ agent, box, lock = "working" }: { agent: AgentVM; box: LineBox; lock?: EditLock }) {
     const ans = useAnswer(agent);
     if (box === "none") {
         return null;
@@ -580,6 +590,7 @@ export function LineBar({ agent, box }: { agent: AgentVM; box: LineBox }) {
                 ans={ans}
                 options={true}
                 locked={box === "locked"}
+                lockedBy={lock}
                 placeholder="Push back, or ask the agent something…"
             />
             {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
@@ -819,23 +830,9 @@ export function Thumbnails({
     );
 }
 
-// checkText is a pending builder check's, shown in the agent's place while the agent itself writes nothing
-export function WorkingMain({
-    f,
-    openDesign,
-    checkText,
-}: {
-    f: BrainstormFile;
-    openDesign: () => void;
-    checkText?: string;
-}) {
+export function WorkingMain({ f, openDesign }: { f: BrainstormFile; openDesign: () => void }) {
     return (
-        <div
-            data-brainstorm-working
-            data-brainstorm-check-pending={checkText != null ? "" : undefined}
-            aria-live="polite"
-            className="flex min-h-0 flex-1 flex-col"
-        >
+        <div data-brainstorm-working aria-live="polite" className="flex min-h-0 flex-1 flex-col">
             <Track segments={questionTrack(f)} />
             <MainBody>
                 <div className="flex flex-col gap-[14px]">
@@ -843,7 +840,7 @@ export function WorkingMain({
                         <span className={cn(SMALL_DOT, "bg-success")} />
                         Working
                     </span>
-                    <p className="m-0 text-[22px] font-semibold leading-[1.4] text-primary">{checkText ?? f.working}</p>
+                    <p className="m-0 text-[22px] font-semibold leading-[1.4] text-primary">{f.working}</p>
                     <p className="m-0 text-[15px] leading-[1.6] text-ink-mid">The next question comes after.</p>
                 </div>
                 <div className="flex">

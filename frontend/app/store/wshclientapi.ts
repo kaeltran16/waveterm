@@ -156,6 +156,12 @@ export class RpcApiType {
         return client.wshRpcCall("brainstormcheck", data, opts);
     }
 
+    // command "brainstormchecktimes" [call]
+    BrainstormCheckTimesCommand(client: WshClient, opts?: RpcOpts): Promise<BrainstormCheckTimes> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "brainstormchecktimes", null, opts);
+        return client.wshRpcCall("brainstormchecktimes", null, opts);
+    }
+
     // command "brainstormjudge" [call]
     BrainstormJudgeCommand(client: WshClient, data: CommandBrainstormJudgeData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "brainstormjudge", data, opts);

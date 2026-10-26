@@ -170,6 +170,17 @@ func (ws *WshServer) BrainstormCheckCommand(ctx context.Context, data wshrpc.Com
 	return startBrainstormSession(ctx, data.BlockId, s)
 }
 
+// BrainstormCheckTimesCommand reads every finished builder check in the store, failed and lost ones left out, since
+// one lost after 30 minutes would set the clock's end.
+func (ws *WshServer) BrainstormCheckTimesCommand(ctx context.Context) (*wshrpc.BrainstormCheckTimes, error) {
+	durations, err := wstore.GetStageRunDurations(ctx, jarvis.UsageRole_BuilderCheck)
+	if err != nil {
+		return nil, fmt.Errorf("reading past builder checks: %w", err)
+	}
+	usual, longest := brainstormcheck.Times(durations)
+	return &wshrpc.BrainstormCheckTimes{UsualMs: usual, LongestMs: longest}, nil
+}
+
 func (ws *WshServer) BrainstormJudgeCommand(ctx context.Context, data wshrpc.CommandBrainstormJudgeData) error {
 	if data.BlockId == "" || data.File == "" {
 		return fmt.Errorf("a block id and a brainstorm file are required")
