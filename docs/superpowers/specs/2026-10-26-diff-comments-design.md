@@ -181,6 +181,13 @@ Made by the run's lead (autonomous run, 2026-10-26), each with why.
   "(changed line)" tag is dropped (the quote already shows the line, and telling changed from context lines needs a
   second record per comment), and so is "since session start" in the header (a comment records its pair's refs, not
   the range that produced them, and the pair label already names the anchor commit).
+- **The prompt's layout**, exactly (the Prompt board's, whose leading "> " on the first line is the terminal's input
+  glyph, not text): the header line at column 0; a blank line; then per comment, each line indented two spaces: the
+  location, the quote as "> " followed by the range's first non-blank line with trailing whitespace trimmed and its
+  leading indentation kept ("  >     return 8"), and the note (each of its lines indented two spaces); a blank line
+  between comments and before the closing line, which is also indented two spaces. Lines joined with "
+", no
+  trailing newline.
 - **Send.** One `sendBatch(batch, recipient, io)` with an IO seam (`prompt`, `launch`, `exists`), as in
   `canvassend.ts`: each failing step throws `Couldn't send to <name>: …` or `Couldn't start an agent in <folder>: …`
   and the batch stays. On success the batch is cleared; a live send leaves "Sent N comments to <name>" (with its
