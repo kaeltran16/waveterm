@@ -26497,6 +26497,8 @@ const workflowScan = {
             ctx.runId = created.run.id;
             ctx.landPath = created.run.landpath;
             ctx.status = created.run.status;
+            // lands on the Brief, which installs __openAddress, and re-primes the boot-primed channel list
+            await polishReload(h);
             // the fixture channel is the active one, so it is the home project the Scan button starts in
             ctx.openedChannel = await h.ev(openAddressExpr(`channel:${ctx.channelId}`));
             ctx.opened = await h.ev(openAddressExpr(`workflowscan:${ctx.runId}`));
