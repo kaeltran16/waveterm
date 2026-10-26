@@ -19,7 +19,7 @@ import {
     type GroupKind,
     type PaletteGroup,
 } from "./palette-groups";
-import { notesFor, type CommandRow, type LaunchTarget, type PaletteDeps } from "./palette-items";
+import { notesFor, searchesSessions, type CommandRow, type LaunchTarget, type PaletteDeps } from "./palette-items";
 import { rankPaletteItems } from "./palette-match";
 import { MAX_RECENT, recentItems, sortByMru } from "./palette-mru";
 import { NEEDS_GROUP_LABELS, type NeedsGroup, type NeedsRow } from "./palette-needs";
@@ -44,6 +44,8 @@ export interface ScopeRows {
     agents: PaletteItem[];
     runs: PaletteItem[];
     sessions: PaletteItem[];
+    // the Sessions scope's search rows for a query that searches; null while that query has no answer yet
+    sessionHits: PaletteItem[] | null;
     channels: PaletteItem[];
     brief: PaletteItem[];
     notes: PaletteItem[];
@@ -218,6 +220,13 @@ function narrowedGroups(input: ScopeGroupsInput, deps: Pick<PaletteDeps, "setNav
     }
     if (nav.scope === "records") {
         return narrowed(rows.brief, SCOPE_KINDS.records);
+    }
+    if (nav.scope === "sessions" && searchesSessions(nav.query)) {
+        if (rows.sessionHits == null) {
+            return [{ key: "empty", label: scopeDef("sessions").label, items: [], emptyText: "Searching sessions…" }];
+        }
+        // server order: newest first, never re-ranked by title
+        return narrowed(rows.sessionHits, SCOPE_KINDS.sessions);
     }
     if (nav.scope === "notes") {
         // never empty: the "New note" row closes it, in the palette

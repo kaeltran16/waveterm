@@ -18,6 +18,7 @@ import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { rowsWithChannel, type ProjectRow } from "@/app/view/agents/projectsstore";
 import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
 import { openRunDag } from "@/app/view/agents/runrailsections";
+import { openSessionHit } from "@/app/view/agents/sessionsfind";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
 import { rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
 import { workOnInitiative } from "@/app/view/jarvis/initiativeworkaction";
@@ -404,6 +405,42 @@ export function sessionRows(sessions: SessionActivity[] | null, { model, close }
                 },
             };
         });
+}
+
+// below this many non-space characters the Sessions scope ranks its archive titles instead of searching
+const SESSION_QUERY_MIN = 2;
+
+export function searchesSessions(query: string): boolean {
+    return query.replace(/\s/g, "").length >= SESSION_QUERY_MIN;
+}
+
+// The Sessions scope's rows for a query: the server matched what was said, so they keep its order and every
+// session lists, resumable or not. Enter opens it at its first hit; query and terms are the answered search's.
+export function sessionSearchRows(
+    results: SessionSearchResult[],
+    query: string,
+    terms: string[],
+    { model, close }: PaletteDeps
+): PaletteItem[] {
+    const now = Date.now();
+    return results.map((r) => {
+        const s = r.session;
+        const title = s.task || "(untitled session)";
+        return {
+            key: `session:${s.runtime}:${s.id}`,
+            kind: "session" as const,
+            search: title,
+            title,
+            sub: r.hits?.[0]?.text,
+            meta: `${s.runtime} · ${formatAge(now - s.lastactivets)}`,
+            verb: "Open",
+            echo: `Opens “${title}” in Sessions at its first match`,
+            run: () => {
+                openSessionHit(model, r, query, terms);
+                close();
+            },
+        };
+    });
 }
 
 // Enter switches the active project and opens it.

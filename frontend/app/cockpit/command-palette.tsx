@@ -16,7 +16,7 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { activeChannelAtom, channelsAtom, primeChannels } from "@/app/view/agents/channelsstore";
 import { projectListAtom, projectsAtom, recentProjectsAtom } from "@/app/view/agents/projectsstore";
-import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
+import { loadSessionsArchive, overlayLive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
 import { themePresetAtom } from "@/app/view/agents/themestore";
 import { buildBriefIndex } from "@/app/view/jarvis/briefpalette";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
@@ -24,6 +24,7 @@ import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { THING_KINDS } from "./actions";
+import { SESSION_KIND } from "./actions/session";
 import { verbRows } from "./actions/types";
 import { errorText, runPaletteAction } from "./palette-action";
 import {
@@ -54,6 +55,7 @@ import {
     notesInAll,
     runRows,
     sessionRows,
+    sessionSearchRows,
     startRows,
     themeRows,
     type PaletteDeps,
@@ -81,6 +83,7 @@ import {
 import { scopeGroups } from "./palette-scopegroups";
 import { useNoteEditor } from "./use-note-editor";
 import { usePaletteFiles } from "./use-palette-files";
+import { usePaletteSessions } from "./use-palette-sessions";
 
 // how much of the preview's height PageUp/PageDown move it, so a line or two carries over
 const PREVIEW_PAGE = 0.85;
@@ -176,6 +179,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     }, [open]);
 
     const files = usePaletteFiles(open, nav.scope === "files", surface, homeChannel, projects);
+    // an action level keeps the search it was opened from, so its row's thing stays listed
+    const sessionsAt = nav.actions?.back ?? nav;
+    const sessionSearch = usePaletteSessions(open, sessionsAt.scope === "sessions", sessionsAt.query);
 
     // --- Sources ----------------------------------------------------------------------------------
     const themeItems = useMemo(() => themeRows(themePreset, deps), [themePreset]);
@@ -191,6 +197,12 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const needsByKey = useMemo(() => new Map(needs.map((r) => [`needs:${r.item.key}`, r])), [needs]);
     const needsItems = useMemo(() => needsPaletteRows(needsGrouped, deps), [needsGrouped, model]);
     const sessionItems = useMemo(() => sessionRows(sessions, deps), [sessions, model]);
+    const sessionHitItems = useMemo(
+        () =>
+            sessionSearch.results &&
+            sessionSearchRows(sessionSearch.results, sessionsAt.query, sessionSearch.terms, deps),
+        [sessionSearch.results, model]
+    );
     const channelItems = useMemo(() => channelRows(projectRows, channel, deps), [projectRows, channel, model]);
     const briefIndex = useMemo(
         () => buildBriefIndex({ records: records ?? [], efforts: efforts ?? [] }),
@@ -218,8 +230,23 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 m.set(entry.key, { def, entry });
             }
         }
+        // search rows replace their archive entries: they carry the hit Open in Sessions lands on
+        const now = Date.now();
+        for (const result of sessionSearch.results ?? []) {
+            const session = overlayLive([result.session], agents, now)[0];
+            const agent = session.liveId != null ? agents.find((a) => a.id === session.liveId) : undefined;
+            const find = { result, query: sessionsAt.query, terms: sessionSearch.terms };
+            m.set(`session:${session.runtime}:${session.id}`, {
+                def: SESSION_KIND,
+                entry: {
+                    key: `session:${session.runtime}:${session.id}`,
+                    title: session.task || "(untitled session)",
+                    thing: { session, agent, find },
+                },
+            });
+        }
         return m;
-    }, [things]);
+    }, [things, sessionSearch.results, agents]);
     const allVerbs = useMemo(
         () => things.flatMap(({ def, entries }) => verbRows(def, entries).map((v) => ({ def, v }))),
         [things]
@@ -254,6 +281,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 agents: agentItems,
                 runs: runItems,
                 sessions: sessionItems,
+                sessionHits: sessionHitItems,
                 channels: channelItems,
                 brief: briefItems,
                 notes: noteItems,
@@ -478,7 +506,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                             inputRef.current?.focus();
                         }}
                     />
-                    <PaletteErrorBand error={paletteError} />
+                    <PaletteErrorBand error={paletteError ?? sessionSearch.error} />
                     {notesSplit ? (
                         <PaletteNotesView
                             rows={flat}

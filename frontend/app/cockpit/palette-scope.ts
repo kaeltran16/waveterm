@@ -45,7 +45,7 @@ export const SCOPES: ScopeDef[] = [
         prefix: "s",
         sigil: "/",
         noun: "sessions",
-        placeholder: "Find a session to resume…",
+        placeholder: "Find a session by what was said…",
     },
     { id: "records", label: "Records", prefix: "re", noun: "records", placeholder: "Find a record or initiative…" },
     { id: "notes", label: "Notes", prefix: "no", noun: "notes", placeholder: "Search notes…" },

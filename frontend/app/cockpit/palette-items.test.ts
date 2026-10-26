@@ -9,6 +9,7 @@ vi.mock("@/app/view/agents/askanswer", () => ({ answerAgentAsk: vi.fn() }));
 vi.mock("@/app/view/agents/channelactions", () => ({ sendChannelMessage: vi.fn() }));
 vi.mock("@/app/view/agents/runrailsections", () => ({ openRunDag: vi.fn() }));
 vi.mock("@/app/view/jarvis/initiativeworkaction", () => ({ workOnInitiative: vi.fn() }));
+vi.mock("@/app/view/agents/sessionsfind", () => ({ openSessionHit: vi.fn() }));
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -18,6 +19,7 @@ import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { answerAgentAsk } from "@/app/view/agents/askanswer";
 import { docReviewAtom } from "@/app/view/agents/docreview";
 import { openRunDag } from "@/app/view/agents/runrailsections";
+import { openSessionHit } from "@/app/view/agents/sessionsfind";
 import { THEMES } from "@/app/view/agents/themes";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
 import { buildBriefIndex } from "@/app/view/jarvis/briefpalette";
@@ -41,6 +43,7 @@ import {
     notesInAll,
     runRows,
     sessionRows,
+    sessionSearchRows,
     startRows,
     themeRows,
     type PaletteDeps,
@@ -407,6 +410,56 @@ describe("sessionRows", () => {
             projectName: "waveterm",
         });
         expect(deps.close).toHaveBeenCalled();
+    });
+});
+
+describe("sessionSearchRows", () => {
+    afterEach(() => vi.useRealTimers());
+
+    const hit = (text: string): SessionHit => ({ kind: "turn", speaker: "user", ord: 0, text, marks: [[0, 4]] });
+    const result = (over: Partial<SessionActivity>, hits: SessionHit[]): SessionSearchResult => ({
+        session: {
+            id: "s1",
+            runtime: "codex",
+            task: "fix the export",
+            projectname: "waveterm",
+            lastactivets: 8 * 3_600_000,
+            ...over,
+        } as SessionActivity,
+        hits,
+        turnhits: hits.length,
+        eventhits: 0,
+    });
+
+    it("sessionSearchRows lists an unresumable ended session", () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(10 * 3_600_000);
+        const r = result({ resumecommand: "", status: "done" }, [hit("time out")]);
+        const rows = sessionSearchRows([r], "time out", ["time", "out"], deps);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+            key: "session:codex:s1",
+            kind: "session",
+            title: "fix the export",
+            meta: "codex · 2h",
+            verb: "Open",
+        });
+        rows[0].run();
+        expect(openSessionHit).toHaveBeenCalledWith(deps.model, r, "time out", ["time", "out"]);
+        expect(deps.close).toHaveBeenCalled();
+    });
+
+    it("sessionSearchRows puts the first snippet in sub", () => {
+        const rows = sessionSearchRows(
+            [result({}, [hit("…the stage times out on…"), hit("second")]), result({ id: "s2", task: "" }, [])],
+            "times",
+            ["times"],
+            deps
+        );
+        expect(rows.map((r) => [r.title, r.sub])).toEqual([
+            ["fix the export", "…the stage times out on…"],
+            ["(untitled session)", undefined],
+        ]);
     });
 });
 
