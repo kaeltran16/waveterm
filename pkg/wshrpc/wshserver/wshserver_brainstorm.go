@@ -35,6 +35,7 @@ const (
 	brainstormReading  = "reading"
 	brainstormAnswered = "answered"
 	brainstormFailed   = "failed"
+	brainstormStopped  = "stopped"
 
 	builderCheckRestartedReason = "Arc restarted before the builder started."
 	judgeRestartedReason        = "Arc restarted before the judge started."
@@ -183,6 +184,39 @@ func (ws *WshServer) BrainstormJudgeCommand(ctx context.Context, data wshrpc.Com
 	}
 	s.Kind, s.Line = judgeKind, data.Line
 	return startBrainstormSession(ctx, data.BlockId, s)
+}
+
+// BrainstormJudgeStopCommand stops the judge reading on the block's tab, when there is one: the user answered
+// before it finished, so its result has nowhere to go. It sends the agent no line.
+func (ws *WshServer) BrainstormJudgeStopCommand(ctx context.Context, data wshrpc.CommandBrainstormJudgeStopData) error {
+	if data.BlockId == "" {
+		return fmt.Errorf("a block id is required")
+	}
+	tabId, err := wstore.DBFindTabForBlockId(ctx, data.BlockId)
+	if err != nil {
+		return fmt.Errorf("finding the tab of block %s: %w", data.BlockId, err)
+	}
+	k := judgeKind
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, tabId)
+	if err != nil {
+		return fmt.Errorf("loading tab %s: %w", tabId, err)
+	}
+	if tab.Meta.GetString(k.stateKey, "") != brainstormReading {
+		return nil
+	}
+	runId, channelId := tab.Meta.GetString(k.runKey, ""), tab.Meta.GetString(k.channelKey, "")
+	if runId != "" {
+		run, err := readBrainstormRun(ctx, channelId, runId)
+		switch {
+		case err != nil || run == nil:
+			log.Printf("%s: stopping run %s: could not load it: %v", k.what, runId, err)
+		case run.Status != jarvis.RunStatus_Done:
+			stopStageSession(*run)
+		}
+	}
+	return setBrainstormRecord(ctx, k, tabId, brainstormStopped, time.Now().UnixMilli(), runId, channelId, "")
 }
 
 // startBrainstormSession writes s's reading record on the agent's tab and arms its watcher, refusing while a

@@ -157,6 +157,12 @@ func BrainstormJudgeCommand(w *wshutil.WshRpc, data wshrpc.CommandBrainstormJudg
 	return err
 }
 
+// command "brainstormjudgestop", wshserver.BrainstormJudgeStopCommand
+func BrainstormJudgeStopCommand(w *wshutil.WshRpc, data wshrpc.CommandBrainstormJudgeStopData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "brainstormjudgestop", data, opts)
+	return err
+}
+
 // command "cancelrun", wshserver.CancelRunCommand
 func CancelRunCommand(w *wshutil.WshRpc, data wshrpc.CommandCancelRunData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "cancelrun", data, opts)

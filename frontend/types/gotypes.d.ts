@@ -531,6 +531,11 @@ declare global {
         line?: string;
     };
 
+    // wshrpc.CommandBrainstormJudgeStopData
+    type CommandBrainstormJudgeStopData = {
+        blockid: string;
+    };
+
     // wshrpc.CommandCancelRunData
     type CommandCancelRunData = {
         channelid: string;
