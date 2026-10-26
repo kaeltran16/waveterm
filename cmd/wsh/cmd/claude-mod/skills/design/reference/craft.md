@@ -158,6 +158,61 @@ list is "AI tells to design past", below):
   image or a marked placeholder.
 - A quote runs three lines at most and carries a name and a role.
 
+### App screens
+
+Run and task lists, dashboards, settings, inboxes: screens a person
+works in every day rather than reads once. Adapted from taste-skill's
+app-screens chapter.
+
+Before drawing, write the screen's one question in a line ("Which run
+is waiting on me?", "What did this task change?"). It decides three
+things: the biggest block is the one that answers it, that block comes
+first in the reading order, and a block that answers no question is
+cut. Then name the one finding, the fact in today's data that most
+needs attention, and put it under the title beside the action it
+drives. The screen's most frequent job is one click away, where its
+answer shows: a screen with no control for its main job reads as a
+report, not a tool.
+
+The defaults a model reaches for on an app screen:
+
+- Colour goes on data and the one primary action, not on chrome: no
+  tinted nav rows, coloured tab pills or a brand fill on every button.
+- A metric is a label over a number, not a tile: no icon in a tinted
+  circle, no sparkline, no green "+12.5%" pill on every one. A delta
+  names its window ("+4 since Monday"); a zero change is grey.
+- Peer metrics share one container split by dividers, not a row of
+  four cards.
+- A surface takes one of a border, a tone step or a shadow, never two.
+  A shadow is for what floats.
+- A chart answers one question: one hue, no legend for a single
+  series, three to five faint gridlines or none, no gradient area fill
+  and no dot on every point.
+- A table is rules and alignment: no zebra rows or header band,
+  headers in small grey sentence case, numbers right-aligned in
+  tabular figures with units in grey.
+- A status pill is a pale tint with dark text of the same hue, inside a
+  row or beside a value, never above a heading.
+- Red is a signal: one red mark per object at most, on the failing
+  fact.
+- A short list caps its rows and links "View all" with the total; no
+  pagination under a five-row list.
+- The title is a noun ("Runs"), not a greeting.
+- Export, share and filter controls appear only where they are real.
+
+States on an app screen, beyond the "States" list under "AI tells":
+
+- A real zero prints as a zero. A missing value is a grey dash, never
+  a dash at full value size, which reads as loading.
+- Loading is the final layout with each value replaced by a flat bar
+  at its real size; labels and headers show at once; no shimmer
+  gradient, and nothing shifts when the data lands.
+- An error sits inside the block that failed: what failed, when the
+  data was last good, and a Retry. Not a full-screen banner.
+- An empty section keeps its frame and header and adds one sentence
+  across the block; an empty chart still draws its zero line.
+- Counts in tabs and headers follow the current filter.
+
 ### Mobile prototypes
 
 No fake chrome: do NOT draw a fake iOS status bar (the "9:41 ·
@@ -186,13 +241,14 @@ copyrighted-designs rule governs whether to recreate at all.)
 ### AI tells to design past
 
 Adapted from taste-skill (github.com/Leonxlnx/taste-skill, MIT), its
-v2 skill and its redesign audit, keeping only what holds on a canvas
-in any stack. Each is a default a model reaches for when it tries to
-look designed. Check finished artboards against the list before
-handing them over. The design system wins wherever it says otherwise:
-a system that specifies a middle-dot count label or a mono eyebrow is
-not a tell. The tells that only a marketing piece can commit sit under
-"Landing pages and marketing artboards", above.
+v2 skill, its redesign audit and its app-screens chapter, keeping only
+what holds on a canvas in any stack. Each is a default a model reaches
+for when it tries to look designed. Check finished artboards against
+the list before handing them over. The design system wins wherever it
+says otherwise: a system that specifies a middle-dot count label or a
+mono eyebrow is not a tell. The tells that only a marketing piece can
+commit sit under "Landing pages and marketing artboards", above; an
+app screen's under "App screens".
 
 Locks, held across every artboard of a flow:
 
@@ -256,6 +312,8 @@ Decoration:
 - The middle dot is not the default separator: one per line at most.
 - No neon or outer glow, no gradient text. A shadow is tinted toward
   its ground, not pure black on a light page.
+- No hand-drawn SVG illustration standing in for content: a real
+  image or a marked placeholder.
 
 Copy:
 
