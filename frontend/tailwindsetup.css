@@ -395,6 +395,15 @@ svg [aria-label="tip"] g path {
     background-color: color-mix(in srgb, var(--color-accent) 32%, transparent);
 }
 
+/* A session's find-bar matches (sessionsdetail.tsx): every match, and the current one stronger. */
+::highlight(sessions-find) {
+    background-color: color-mix(in srgb, var(--color-accent) 24%, transparent);
+}
+::highlight(sessions-find-current) {
+    background-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+    color: var(--color-primary);
+}
+
 /* Agents-view narration markdown (see markdownmessage.tsx). Neutral overlays, not palette hex. */
 .agent-md p {
     margin: 0 0 0.4em;

@@ -32,7 +32,7 @@ function textNodes(root: Node): Text[] {
     return nodes;
 }
 
-const docTextOf = (root: Node): string =>
+export const docTextOf = (root: Node): string =>
     textNodes(root)
         .map((n) => n.data)
         .join("");
@@ -51,7 +51,7 @@ function offsetOf(root: Node, node: Node, offset: number): number {
     return count;
 }
 
-function rangeOf(root: Node, start: number, end: number): Range | null {
+export function rangeOf(root: Node, start: number, end: number): Range | null {
     const range = document.createRange();
     let pos = 0;
     let started = false;

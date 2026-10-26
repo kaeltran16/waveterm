@@ -242,6 +242,16 @@ outside it. The tree keys work while the file tree holds focus.
 | `n` / `Shift`+`N` in the tree | New file / new folder in the cursor's directory |
 | `F2` / `Del` in the tree | Rename / delete the cursor row |
 
+### Sessions
+
+A session opened from a search hit shows a find bar over its transcript, with the caret in it.
+
+| Keys | Action |
+|---|---|
+| `Enter` / `Shift`+`Enter` in the find bar | Next / previous match, wrapping |
+| `Esc` in the find bar | Close the find bar |
+| `Esc` in the list's search field | Clear the query |
+
 ### Route DAG (the orchestrator run's graph)
 
 | Keys | Action |

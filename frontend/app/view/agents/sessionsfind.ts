@@ -38,3 +38,62 @@ export function openSessionHit(
     globalStore.set(model.sessionsFindAtom, { sessionKey: sessionKey(r.session), query, terms, target });
     landOn(model.surfaceAtom, "sessions");
 }
+
+// the find bar's next position, wrapping; 0 when there is nothing to step through
+export function stepFind(pos: number, total: number, dir: 1 | -1): number {
+    return total > 0 ? (pos + dir + total) % total : 0;
+}
+
+// Folds case one code point at a time, so a folding that changes a character's length (İ) cannot shift the
+// offsets: at[i] is the original [start, end) of the character folded[i] came from.
+function foldText(text: string): { folded: string; at: [number, number][] } {
+    let folded = "";
+    const at: [number, number][] = [];
+    let i = 0;
+    for (const ch of text) {
+        const low = ch.toLowerCase();
+        folded += low;
+        for (let k = 0; k < low.length; k++) {
+            at.push([i, i + ch.length]);
+        }
+        i += ch.length;
+    }
+    return { folded, at };
+}
+
+// Every occurrence of every term in text, as sorted UTF-16 [start, end) ranges, with overlapping ones merged:
+// the same rule the Go matcher counts turn hits by, so a turn's ranges here are its hits there.
+export function findRanges(text: string, terms: string[]): [number, number][] {
+    const { folded, at } = foldText(text);
+    const found: [number, number][] = [];
+    for (const term of terms) {
+        const t = term.toLowerCase();
+        if (t === "") {
+            continue;
+        }
+        // resumes past each occurrence, as the Go matcher does, so "aa" in "aaaa" is two touching ranges
+        for (let i = folded.indexOf(t); i >= 0; i = folded.indexOf(t, i + t.length)) {
+            found.push([at[i][0], at[i + t.length - 1][1]]);
+        }
+    }
+    found.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const merged: [number, number][] = [];
+    for (const r of found) {
+        const last = merged[merged.length - 1];
+        if (last != null && r[0] < last[1]) {
+            last[1] = Math.max(last[1], r[1]);
+        } else {
+            merged.push([r[0], r[1]]);
+        }
+    }
+    return merged;
+}
+
+// The terms of a query the user refines in the find bar, by the search's own rule (ParseQuery,
+// pkg/agentsessions): lower-cased words, and double-quoted text as one term; an unclosed quote runs to the end.
+export function findTerms(query: string): string[] {
+    return query.split('"').flatMap((part, i) => {
+        const words = part.toLowerCase().split(/\s+/).filter(Boolean);
+        return i % 2 === 1 ? (words.length ? [words.join(" ")] : []) : words;
+    });
+}
