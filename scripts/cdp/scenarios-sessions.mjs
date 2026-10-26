@@ -188,6 +188,8 @@ const sessionsList = {
 
 // a search waits out the debounce and, before Task 3's warm-up finishes, the index reading transcripts
 const SEARCH_WAIT_MS = 30_000;
+const FIND_WAIT_MS = 10_000;
+const PALETTE_TRIES = 3;
 const FIELD = `document.querySelector('[data-sessions-search]')`;
 const SEARCH_STUB = "__sessionsSearchStub";
 
@@ -251,6 +253,73 @@ const stubSearch = (h, body) =>
     `
     );
 const RESTORE_SEARCH = `const { RpcApi } = await mod("app/store/wshclientapi.ts"); delete RpcApi.SearchSessionsCommand; delete window.${SEARCH_STUB}; return true;`;
+
+// what the find bar and its highlights show for the session body keyed key
+const findState = (h, key) =>
+    h.ev(`(() => {
+        const body = document.querySelector('[data-session-key="' + CSS.escape(${JSON.stringify(key)}) + '"]');
+        const bar = body?.querySelector('[data-sessions-find]');
+        const input = bar?.querySelector('input');
+        const current = CSS.highlights.get('sessions-find-current');
+        const range = current ? [...current][0] : null;
+        const r = range?.getBoundingClientRect();
+        const box = body?.getBoundingClientRect();
+        return {
+            body: body != null,
+            pos: bar?.querySelector('[data-find-pos]')?.textContent ?? null,
+            focused: input != null && document.activeElement === input,
+            all: CSS.highlights.get('sessions-find')?.size ?? null,
+            currentText: range ? range.toString() : null,
+            visible: !!(r && box && r.height > 0 && r.top >= box.top && r.bottom <= box.bottom),
+            inRun: document.querySelector('[role="group"][aria-label="Sessions in this run"]') != null,
+        };
+    })()`);
+
+const waitFind = async (h, key, pos) => {
+    const t0 = Date.now();
+    let s = await findState(h, key);
+    while (s.pos !== pos && Date.now() - t0 < FIND_WAIT_MS) {
+        await nap(h, 250);
+        s = await findState(h, key);
+    }
+    await nap(h, 300);
+    return findState(h, key);
+};
+
+// Ctrl+P and its Sessions scope, driven on the palette's own input
+const PALETTE_INPUT = `document.querySelector('input[data-palette-input]')`;
+const PALETTE = `${PALETTE_INPUT}?.closest('[role="dialog"]')`;
+const paletteKey = (h, key) =>
+    h.ev(`${PALETTE_INPUT}?.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true }))`);
+const paletteState = (h) =>
+    h.ev(`(() => {
+        const d = ${PALETTE};
+        if (!d) return null;
+        const flat = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
+        const rows = [...d.querySelectorAll('[role="listbox"] button[data-idx]')];
+        return {
+            scope: d.querySelector('[data-palette-scope][aria-pressed="true"]')?.getAttribute('data-palette-scope') ?? null,
+            rows: rows.map(flat),
+            selected: flat(rows.find((b) => b.getAttribute('aria-selected') === 'true')),
+        };
+    })()`);
+const paletteTypes = (h, q) =>
+    h.ev(`(() => {
+        const el = ${PALETTE_INPUT};
+        if (!el) return false;
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(q)});
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+    })()`);
+const paletteWhen = async (h, pred, ms) => {
+    const t0 = Date.now();
+    let s = await paletteState(h);
+    while (!(s != null && pred(s)) && Date.now() - t0 < ms) {
+        await nap(h, 250);
+        s = await paletteState(h);
+    }
+    return s;
+};
 
 const sessionsSearch = (kit) => ({
     name: "sessions-search",
@@ -355,9 +424,65 @@ const sessionsSearch = (kit) => ({
             s6.query === "" && s6.summary === "" && s6.cards.some((c) => c.key === other) && s6.cards.every((c) => c.hits.length === 0),
             { query: s6.query, summary: s6.summary, rendered: s6.cards.length, total: list6.total }
         );
+
+        // 7. a snippet row opens the transcript at its hit. The solo's rows are its prompt and replies in order, so
+        // the second row is its second turn hit; its commit is an event row
+        await typeQuery(h, fx.word);
+        const s7a = await waitState(h, (s) => (card(s, solo)?.hits.length ?? 0) >= 2 && (card(s, runCard)?.hits.length ?? 0) >= 3);
+        await h.ev(`${LIST}?.querySelector('[data-session-row="' + CSS.escape(${JSON.stringify(solo)}) + '"]')?.querySelectorAll('[data-session-hit]')[1]?.click()`);
+        const s7 = await waitFind(h, solo, "2 of 4");
+        await h.shot("cdp-shots/sessions-search-7-open-hit.png");
+        rec(
+            "7. clicking the solo's second snippet row opens its transcript with the find bar at 2 of 4 and the current highlight in view",
+            s7.body && s7.pos === "2 of 4" && s7.all === 4 && s7.currentText?.toLowerCase() === word && s7.visible,
+            { rows: card(s7a, solo)?.hits.length, find: s7 }
+        );
+
+        // 8. a worker's snippet row opens the run with the worker in view; the switch is still on from step 3
+        const s8a = await searchState(h);
+        await h.ev(`${LIST}?.querySelector('[data-session-row="' + CSS.escape(${JSON.stringify(runCard)}) + '"] [data-session-hit="1"]')?.click()`);
+        const worker = `claude:${fx.worker.id}`;
+        const s8 = await waitFind(h, worker, "1 of 2");
+        await h.shot("cdp-shots/sessions-search-8-open-worker.png");
+        rec(
+            "8. Run agents on: clicking the run card's worker row opens the run with the worker in view and the find bar at 1 of 2",
+            !run.arrangeError && s8a.switchChecked === "true" && s8.body && s8.inRun && s8.pos === "1 of 2" && s8.all === 2 && s8.visible,
+            { arrangeError: run.arrangeError, switchChecked: s8a.switchChecked, find: s8 }
+        );
+
+        // 9. Ctrl+P's Sessions scope: Enter on the solo's row lands on Sessions with the word in the list's field
+        await h.ev(`(() => { const el = ${FIELD}; el?.focus(); el?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); })()`);
+        await waitState(h, (s) => s.query === "");
+        await h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`);
+        const opened = await paletteWhen(h, () => true, 3000);
+        await h.ev(`document.querySelector('[data-palette-scope="sessions"]')?.click()`);
+        let found = null;
+        // a search answered while the index was still warming may predate the fixtures: ask again
+        for (let i = 0; i < PALETTE_TRIES && !found?.rows.some((r) => r.includes(fx.solo.title)); i++) {
+            await paletteTypes(h, "");
+            await paletteTypes(h, fx.word);
+            found = await paletteWhen(h, (s) => s.scope === "sessions" && s.rows.some((r) => r.includes(fx.solo.title)), SEARCH_WAIT_MS / PALETTE_TRIES);
+        }
+        for (let i = 0; i < (found?.rows.length ?? 0) && !(await paletteState(h))?.selected.includes(fx.solo.title); i++) {
+            await paletteKey(h, "ArrowDown");
+            await nap(h, 100);
+        }
+        await h.shot("cdp-shots/sessions-search-9-palette.png");
+        await paletteKey(h, "Enter");
+        const s9 = await waitFind(h, solo, "1 of 4");
+        const s9Field = await searchState(h);
+        await h.shot("cdp-shots/sessions-search-9-landed.png");
+        rec(
+            "9. Ctrl+P > Sessions, type the word, Enter on the solo's row: Sessions shows the word in the list's field and the find bar at 1 of 4",
+            opened != null && found != null && s9.body && s9.pos === "1 of 4" && s9.all === 4 && s9Field.query === fx.word,
+            { palette: found, query: s9Field.query, find: s9 }
+        );
         return steps;
     },
     async teardown(h, ctx) {
+        if (await h.ev(`!!${PALETTE_INPUT}`).catch(() => false)) {
+            await h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`).catch(() => {});
+        }
         if (await h.ev(`window.${SEARCH_STUB} === true`)) {
             await modEval(h, RESTORE_SEARCH);
         }
