@@ -192,6 +192,7 @@ const FIND_WAIT_MS = 10_000;
 const PALETTE_TRIES = 3;
 const FIELD = `document.querySelector('[data-sessions-search]')`;
 const SEARCH_STUB = "__sessionsSearchStub";
+const RETRIED_FLAG = "__sessionsSearchRetried";
 
 // a controlled React input takes a value through the native setter and an input event
 const typeQuery = (h, q) =>
@@ -413,13 +414,24 @@ const sessionsSearch = (kit) => ({
         await typeQuery(h, `${fx.word} `);
         const s5b = await waitState(h, (s) => s.error != null);
         await h.shot("cdp-shots/sessions-search-5-failed.png");
-        await modEval(h, RESTORE_SEARCH);
+        // the store keeps the failed attempt's stale results while Retry waits out the debounce, so the state
+        // alone cannot tell the real reply from them: a pass-through stub flags that the real call answered
+        await h.ev(`delete window.${RETRIED_FLAG}`);
+        await stubSearch(h, `async (call) => { const r = await call(); window.${RETRIED_FLAG} = true; return r; }`);
         await h.ev(`[...(${LIST}?.querySelectorAll('[data-sessions-search-error] button') ?? [])].find((b) => b.textContent.trim() === 'Retry')?.click()`);
-        const s5c = await waitState(h, (s) => s.error == null && s.cards.some((c) => c.key === solo));
+        const t5 = Date.now();
+        let retriedReal = await h.ev(`window.${RETRIED_FLAG} === true`);
+        while (!retriedReal && Date.now() - t5 < SEARCH_WAIT_MS) {
+            await nap(h, 300);
+            retriedReal = await h.ev(`window.${RETRIED_FLAG} === true`);
+        }
+        const s5c = await waitState(h, (s) => s.error == null && s.incomplete == null && s.cards.some((c) => c.key === solo));
+        await modEval(h, RESTORE_SEARCH);
         await h.shot("cdp-shots/sessions-search-5-retried.png");
         rec(
             "5. incomplete results say still indexing; a failed search shows Search failed with Retry, and Retry brings the results back",
             indexWarm &&
+                retriedReal &&
                 s5a.incomplete === "Results may be incomplete — still indexing" &&
                 (s5b.error ?? "").startsWith("Search failed") &&
                 s5b.retry &&
@@ -433,6 +445,7 @@ const sessionsSearch = (kit) => ({
                 error: s5b.error,
                 retry: s5b.retry,
                 failedCards: s5b.cards.length,
+                retriedReal,
                 retried: s5c.cards.map((c) => c.key),
                 retriedIncomplete: s5c.incomplete,
             }
@@ -500,6 +513,25 @@ const sessionsSearch = (kit) => ({
             "9. Ctrl+P > Sessions, type the word, Enter on the solo's row: Sessions shows the word in the list's field and the find bar at 1 of 4",
             opened != null && found != null && s9.body && s9.pos === "1 of 4" && s9.all === 4 && s9Field.query === fx.word,
             { palette: found, query: s9Field.query, find: s9 }
+        );
+
+        // 10. a builder check carries its run's id but is a solo: its snippet row opens its own entry, not a run row.
+        // The search keeps it only with Run agents on
+        const check = `claude:${fx.check.id}`;
+        await typeQuery(h, "");
+        const s10a = await waitState(h, (s) => s.query === "");
+        if (s10a.switchChecked !== "true") {
+            await h.ev(`${LIST}?.querySelector('[role="switch"]')?.click()`);
+        }
+        await typeQuery(h, fx.checkWord);
+        const s10b = await waitState(h, (s) => (card(s, check)?.hits.length ?? 0) > 0);
+        await clickIn(h, check, "[data-session-hit]");
+        const s10 = await waitFind(h, check, "1 of 1");
+        await h.shot("cdp-shots/sessions-search-10-open-check.png");
+        rec(
+            "10. Run agents on: clicking a builder check's snippet row opens its own entry with the find bar at 1 of 1, not a run",
+            !run.arrangeError && s10.body && s10.pos === "1 of 1" && !s10.inRun,
+            { arrangeError: run.arrangeError, switchChecked: s10b.switchChecked, keys: s10b.cards.map((c) => c.key), check, find: s10 }
         );
         return steps;
     },

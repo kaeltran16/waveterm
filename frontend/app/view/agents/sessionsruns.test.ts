@@ -10,6 +10,7 @@ import {
     memberOfSession,
     memberSession,
     resumeLaunchOpts,
+    runSelKey,
     runView,
     sessionLabel,
     sessionPrimary,
@@ -566,5 +567,24 @@ describe("resumeLaunchOpts launch shape", () => {
     it("names a project-less session's agent 'agent', and keeps a named project's name", () => {
         expect(resumeLaunchOpts(mk({ ...base, projectname: "" })).projectName).toBe("agent");
         expect(resumeLaunchOpts(mk({ ...base })).projectName).toBe("proj");
+    });
+});
+
+describe("sessionSelection follows the list's solo rule", () => {
+    it("sessionSelection opens a builder-check session on its own entry", () => {
+        expect(sessionSelection(mk({ runtime: "claude", id: "b1", runid: "r1", role: "builder-check" }))).toEqual({
+            sel: "claude:b1",
+        });
+    });
+    it("sessionSelection opens a brainstorm-judge session on its own entry", () => {
+        expect(sessionSelection(mk({ runtime: "claude", id: "b1", runid: "r1", role: "brainstorm-judge" }))).toEqual({
+            sel: "claude:b1",
+        });
+    });
+    it("sessionSelection keeps a run worker on its run", () => {
+        expect(sessionSelection(mk({ id: "w1", runid: "r1", role: "worker", taskid: "t-2" }))).toEqual({
+            sel: runSelKey("r1"),
+            member: "t-2",
+        });
     });
 });
