@@ -14,6 +14,7 @@ export interface SessionsFind {
     query: string; // as typed, shown in the bar
     terms: string[]; // CommandSearchSessionsRtnData.terms
     target: { kind: "turn" | "event"; ord: number };
+    at: ReturnType<typeof sessionSelection>; // the selection that puts sessionKey in view
 }
 
 // hit omitted = the first hit, or a turn target at ord 0 when there is none
@@ -35,8 +36,18 @@ export function openSessionHit(
         globalStore.set(model.sessionsMemberAtom, to.member);
     }
     globalStore.set(model.sessionsViewAtom, target.kind === "event" ? "activity" : "transcript");
-    globalStore.set(model.sessionsFindAtom, { sessionKey: sessionKey(r.session), query, terms, target });
+    globalStore.set(model.sessionsFindAtom, { sessionKey: sessionKey(r.session), query, terms, target, at: to });
     landOn(model.surfaceAtom, "sessions");
+}
+
+// Selecting another session ends a find. Read from the selection, never from the session a detail pane
+// renders: while the pane animates from one detail to another, the outgoing one still renders the old session.
+// The merged feed ("all") selects no session, so it leaves the find set.
+export function findEnded(find: SessionsFind | null, sel: string, member: string): boolean {
+    if (find == null || sel === "all") {
+        return false;
+    }
+    return sel !== find.at.sel || (find.at.member != null && member !== find.at.member);
 }
 
 // the find bar's next position, wrapping; 0 when there is nothing to step through

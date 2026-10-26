@@ -22,7 +22,7 @@ import { docTextOf, rangeOf } from "./docreviewnotesview";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
 import type { LiveSession } from "./sessionsarchivestore";
-import { findRanges, findTerms, stepFind, type SessionsFind } from "./sessionsfind";
+import { findEnded, findRanges, findTerms, stepFind, type SessionsFind } from "./sessionsfind";
 import {
     LEAD_MEMBER,
     resumeLaunchOpts,
@@ -251,16 +251,17 @@ const highlights = () => (typeof CSS !== "undefined" ? CSS.highlights : undefine
 
 const firstPos = (f: SessionsFind | null) => (f?.target.kind === "turn" ? f.target.ord : 0);
 
-// Selecting another session ends the find. settled is false while a run's member in view is still resolving
-// (the run shows its lead until then), so the first frame after a hit opens does not end the hit's find.
-function useEndFindElsewhere(model: AgentsViewModel, session: LiveSession | undefined, settled: boolean) {
+// Selecting another session ends the find, decided from the selection atoms: an outgoing detail still renders
+// the old session while the pane animates, and must not clear the find just opened on the new one.
+function useEndFindElsewhere(model: AgentsViewModel) {
     const [find, setFind] = useAtom(model.sessionsFindAtom);
-    const key = session ? sessionKey(session) : null;
+    const sel = useAtomValue(model.sessionsSelAtom);
+    const member = useAtomValue(model.sessionsMemberAtom);
     useEffect(() => {
-        if (find != null && settled && key != null && key !== find.sessionKey) {
+        if (findEnded(find, sel, member)) {
             setFind(null);
         }
-    }, [find, key, settled]);
+    }, [find, sel, member]);
 }
 
 function FindBar({
@@ -471,7 +472,7 @@ function RuntimeTile({ runtime }: { runtime: string }) {
 }
 
 export function SoloDetail({ model, session }: { model: AgentsViewModel; session: LiveSession }) {
-    useEndFindElsewhere(model, session, true);
+    useEndFindElsewhere(model);
     const status: Status = session.live
         ? session.needsAttention
             ? { key: "asking", text: "asking" }
@@ -566,8 +567,7 @@ export function RunDetail({
     memberSession?: LiveSession;
     now: number;
 }) {
-    const selectedMember = useAtomValue(model.sessionsMemberAtom);
-    useEndFindElsewhere(model, memberSession, member.key === selectedMember);
+    useEndFindElsewhere(model);
     const lead = view.members[0].session;
     const head: Status =
         view.live || view.head.key !== "done" ? view.head : { key: "done", text: `done · ${view.head.text} ago` };

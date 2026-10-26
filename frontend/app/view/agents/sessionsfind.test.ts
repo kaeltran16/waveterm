@@ -6,7 +6,8 @@ import { forgetOrigin } from "@/app/view/jarvis/returnsurface";
 import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
-import { findRanges, findTerms, openSessionHit, stepFind, type SessionsFind } from "./sessionsfind";
+import { findEnded, findRanges, findTerms, openSessionHit, stepFind, type SessionsFind } from "./sessionsfind";
+import { LEAD_MEMBER, sessionKey, sessionSelection } from "./sessionsruns";
 
 function fakeModel() {
     return {
@@ -62,6 +63,7 @@ describe("openSessionHit", () => {
             query: "flaky test",
             terms: ["flaky", "test"],
             target: { kind: "turn", ord: 2 },
+            at: { sel: "claude:s1" },
         });
         expect(globalStore.get(m.surfaceAtom)).toBe("sessions");
     });
@@ -153,5 +155,39 @@ describe("findTerms", () => {
         for (const q of ["", "   ", '"', '""']) {
             expect(findTerms(q)).toEqual([]);
         }
+    });
+});
+
+describe("findEnded", () => {
+    const worker = session({ id: "w1", runid: "r9", role: "worker", taskid: "t-2" });
+    const solo = session({ id: "a" });
+    const findOf = (s: SessionActivity): SessionsFind => {
+        const m = fakeModel();
+        openSessionHit(m, result(s, [hit("turn", 0)]), "fix", ["fix"]);
+        return globalStore.get(m.sessionsFindAtom)!;
+    };
+
+    it("findEnded keeps a find whose run member was just selected", () => {
+        const to = sessionSelection(worker);
+        expect(findEnded(findOf(worker), to.sel, to.member!)).toBe(false);
+    });
+
+    it("findEnded keeps a find whose solo was just selected", () => {
+        // the member atom keeps whatever run member was last in view; a solo selection ignores it
+        expect(findEnded(findOf(solo), sessionSelection(solo).sel, "t-7")).toBe(false);
+    });
+
+    it("findEnded ends a find when another session is selected", () => {
+        expect(findEnded(findOf(solo), sessionKey(session({ id: "b" })), "lead")).toBe(true);
+        expect(findEnded(findOf(worker), sessionSelection(worker).sel, LEAD_MEMBER)).toBe(true);
+        expect(findEnded(findOf(worker), sessionKey(solo), "t-2")).toBe(true);
+    });
+
+    it("findEnded leaves a find set on the merged feed", () => {
+        expect(findEnded(findOf(solo), "all", "lead")).toBe(false);
+    });
+
+    it("findEnded is false with no find", () => {
+        expect(findEnded(null, "claude:a", "lead")).toBe(false);
     });
 });
