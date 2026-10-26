@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"bufio"
 	"encoding/json"
 	"io"
 	"os"
@@ -289,11 +290,24 @@ func readLastModel(path string) string {
 	return model
 }
 
+// readLastTitle returns the last ai-title in the transcript. Claude Code rewrites it every few turns, but one
+// big turn (a skill body, an image) can push it past the tail, so a miss there reads the whole file.
 func readLastTitle(path string) string {
+	if title := lastTitle(tailLines(path)); title != "" {
+		return title
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || int64(len(data)) <= transcriptTailBytes {
+		return ""
+	}
+	return lastTitle(strings.Split(string(data), "\n"))
+}
+
+func lastTitle(lines []string) string {
 	title := ""
-	for _, ln := range tailLines(path) {
-		ln = strings.TrimSpace(ln)
-		if ln == "" {
+	for _, ln := range lines {
+		// cheap prefilter: a whole-file read would otherwise unmarshal every multi-KB message
+		if !strings.Contains(ln, `"aiTitle"`) {
 			continue
 		}
 		var rec struct {
@@ -334,33 +348,35 @@ func userText(raw json.RawMessage) string {
 	return ""
 }
 
-// lastUserPrompt returns the text of the most recent user turn that carries human prose. Drives the
-// head-text fallback when a turn (e.g. a skill/slash-command dispatch) produced no ai-title record.
-func lastUserPrompt(lines []string) string {
-	prompt := ""
-	for _, ln := range lines {
-		ln = strings.TrimSpace(ln)
-		if ln == "" {
-			continue
-		}
+// readFirstUserPrompt returns the text of the first user turn the human typed: the session's ask, for the
+// head-text fallback when there is no ai-title (Claude Code writes none for a session opened with a slash
+// command). Not the latest turn: in a brainstorm that is an answer to the agent. Meta turns (caveats, skill
+// bodies) are skipped.
+func readFirstUserPrompt(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	r := bufio.NewReader(f)
+	for {
+		ln, err := r.ReadBytes('\n')
 		var rec struct {
 			Type    string `json:"type"`
+			IsMeta  bool   `json:"isMeta"`
 			Message struct {
 				Content json.RawMessage `json:"content"`
 			} `json:"message"`
 		}
-		if json.Unmarshal([]byte(ln), &rec) != nil || rec.Type != "user" {
-			continue
+		if json.Unmarshal(ln, &rec) == nil && rec.Type == "user" && !rec.IsMeta {
+			if txt := userText(rec.Message.Content); txt != "" {
+				return txt
+			}
 		}
-		if txt := userText(rec.Message.Content); txt != "" {
-			prompt = txt
+		if err != nil {
+			return ""
 		}
 	}
-	return prompt
-}
-
-func readLastUserPrompt(path string) string {
-	return lastUserPrompt(tailLines(path))
 }
 
 // shadowSessionRecord is the `session` line of an opencode shadow transcript.
@@ -601,10 +617,10 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		} else {
 			data.Model = readLastModel(transcriptPath)
 			data.Title = readLastTitle(transcriptPath)
-			// no ai-title yet (e.g. a skill/slash-command turn) -> fall back to the user's prompt so
-			// the row still gets a head-text summary instead of the bare agent name
+			// no ai-title (a session opened with a slash command) -> the session's first prompt, so the
+			// row still gets a head-text summary instead of the bare agent name
 			if data.Title == "" {
-				data.Title = titleFromPrompt(readLastUserPrompt(transcriptPath))
+				data.Title = titleFromPrompt(readFirstUserPrompt(transcriptPath))
 			}
 		}
 	}
