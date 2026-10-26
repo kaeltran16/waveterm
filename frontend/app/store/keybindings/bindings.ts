@@ -48,8 +48,10 @@ import {
     stepCanvasBoard,
 } from "@/app/view/agents/canvasstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
+import { sendPendingComments } from "@/app/view/agents/commentsend";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
 import { compareOnAtom, compareSelectionAtom, leaveCompare, swapCompareRefs } from "@/app/view/agents/comparestore";
+import { commentOnSelection } from "@/app/view/agents/diffcommentlayer";
 import { historyCollapsedAtom } from "@/app/view/agents/difflayout";
 import { gotoChange } from "@/app/view/agents/diffnav";
 import { ignoreWsAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
@@ -1334,6 +1336,25 @@ export function buildFilesBindings(): Binding[] {
             when: on,
             // no open file in a listed subject — let the key pass
             run: () => (toggleOpenFile() ? undefined : false),
+        },
+        {
+            // with focus in the diff editor, `m` is the editor's own action (diffcommentlayer.ts)
+            id: "files:comment",
+            keys: "m",
+            group: "Diff",
+            label: "Comment on lines",
+            when: on,
+            // no editor mounted or no source to comment for — let the key pass
+            run: () => commentOnSelection(),
+        },
+        {
+            id: "files:send-comments",
+            keys: "Shift:Enter",
+            group: "Diff",
+            label: "Send comments",
+            when: on,
+            // no send bar, no comments, or a recipient that has to wait — let the key pass
+            run: () => sendPendingComments(),
         },
         {
             id: "files:toggle-history",

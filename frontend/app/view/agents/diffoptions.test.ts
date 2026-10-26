@@ -54,6 +54,14 @@ describe("the pane's fixed chrome", () => {
     });
 });
 
+describe("commenting", () => {
+    // the comment + is a glyph-margin widget, which Monaco only draws with the margin on
+    it("draws the glyph margin in both views", () => {
+        expect(paneOptions(false, false).glyphMargin).toBe(true);
+        expect(paneOptions(true, false).glyphMargin).toBe(true);
+    });
+});
+
 describe("folding", () => {
     it("folds unchanged regions with three lines of context", () => {
         expect(paneOptions(false, false).hideUnchangedRegions).toEqual({

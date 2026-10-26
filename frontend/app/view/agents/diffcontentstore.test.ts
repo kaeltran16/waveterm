@@ -14,6 +14,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
+import { pairRefsFor } from "./diffcontent";
 import { clearDiffPair, diffPairAtom, loadDiffPair, MAX_DIFF_BYTES } from "./diffcontentstore";
 
 const b64 = (s: string) => Buffer.from(s, "utf-8").toString("base64");
@@ -113,7 +114,19 @@ describe("what each side reports about itself", () => {
             binary: false,
             tooLarge: false,
             size: 0,
+            refs: pairRefsFor({ kind: "commit", hash: "aaa" }),
         });
+    });
+
+    it("carries the refs it was read from", async () => {
+        fileAtRef.mockResolvedValue({ content: "x\n" });
+        fileRead.mockResolvedValue({ data64: b64("y\n") });
+        const worktree = { kind: "worktree", anchorRef: "main" } as const;
+        await loadDiffPair("/repo", "a.ts", worktree);
+        expect(globalStore.get(diffPairAtom)?.refs).toEqual(pairRefsFor(worktree));
+        const compare = { kind: "compare", base: "main", head: "feature", mergeBase: "m1", form: "mergebase" } as const;
+        await loadDiffPair("/repo", "a.ts", compare);
+        expect(globalStore.get(diffPairAtom)?.refs).toEqual(pairRefsFor(compare));
     });
 
     it("is binary when git has no text for the sides", async () => {

@@ -295,6 +295,28 @@ svg [aria-label="tip"] g path {
     background: rgba(255, 255, 255, 0.6);
 }
 
+/* Diff pane comments (diffcommentlayer.ts): the + on the hovered line's glyph margin, and the bar on
+   a commented or drafted range. */
+.monaco-editor .diff-comment-plus {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.monaco-editor .diff-comment-plus::before {
+    content: "+";
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
+    background: var(--color-accent);
+    color: var(--color-background);
+    font: 700 14px/16px var(--font-sans);
+    text-align: center;
+}
+.monaco-editor .diff-comment-range {
+    box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
 .ellipsis {
     display: block;
     white-space: nowrap;

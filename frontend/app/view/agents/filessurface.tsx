@@ -20,8 +20,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
 import type { AgentsViewModel } from "./agents";
 import { formatAge } from "./agentsviewmodel";
+import { CommentSendBar } from "./commentsendbar";
 import { DiffPane } from "./diffpane";
 import type { CompareForm, DiffSelection } from "./diffcontent";
+import { activeCommentSourceAtom, batchSourceFor } from "./diffcomments";
 import { clearDiffPair, loadDiffPair } from "./diffcontentstore";
 import { defaultFocusId, focusFollowAgent, sourceFor, type FilesSource } from "./diffsource";
 import { filesErrorAtom, filesStateAtom, loadFilesForScope, startChangesPoll, type FilesProject } from "./filesstore";
@@ -312,6 +314,20 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         );
     }, [review, shownChanges, shownPath, compareOn, selectedCommit]);
     useEffect(() => () => globalStore.set(activeReviewAtom, null), []);
+
+    // the pane and the send bar comment on this source without reaching into the surface; an ended agent
+    // still publishes its key (cwd "") so its stored batch stays reachable. Keyed on the two roster
+    // fields the source copies: any other roster tick must not republish it.
+    const agentRunId = agent?.runId;
+    const agentProject = agent?.project;
+    const commentSource = useMemo(
+        () => batchSourceFor(scope, state?.cwd, agent),
+        [scope, state?.cwd, agent?.id, agentRunId, agentProject]
+    );
+    useEffect(() => {
+        globalStore.set(activeCommentSourceAtom, commentSource);
+    }, [commentSource]);
+    useEffect(() => () => globalStore.set(activeCommentSourceAtom, null), []);
 
     // publish the visible column's rows for global j/k list-nav. cursor == selection: moving selects,
     // which loads that row's files and first diff. Must run before the early return (hooks rules).
@@ -683,6 +699,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     model={model}
                                 />
                             )}
+                            <CommentSendBar model={model} />
                         </div>
                     </div>
                 )}
