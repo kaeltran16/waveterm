@@ -82,6 +82,7 @@ import {
     buildListNavBindings,
     buildResMonBindings,
     closeTargetForDoubleCtrlC,
+    ctrlCReachesSession,
 } from "./bindings";
 import { listNavAtom } from "./listnav";
 import { matchBinding } from "./matcher";
@@ -145,6 +146,24 @@ describe("closeTargetForDoubleCtrlC", () => {
 
     it("returns null when the focused id is not in the roster", () => {
         expect(closeTargetForDoubleCtrlC(agents, "gone")).toBeNull();
+    });
+});
+
+describe("ctrlCReachesSession", () => {
+    it("counts in the terminal", () => {
+        expect(ctrlCReachesSession(true, true, false)).toBe(true);
+    });
+
+    it("counts anywhere on the surface while a brainstorm or canvas pane hides the terminal", () => {
+        expect(ctrlCReachesSession(false, true, true)).toBe(true);
+    });
+
+    it("leaves a terminal-mode surface outside the terminal alone", () => {
+        expect(ctrlCReachesSession(false, true, false)).toBe(false);
+    });
+
+    it("leaves focus outside the surface alone", () => {
+        expect(ctrlCReachesSession(false, false, true)).toBe(false);
     });
 });
 

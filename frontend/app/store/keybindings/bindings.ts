@@ -196,6 +196,18 @@ export function closeTargetForDoubleCtrlC(agents: AgentVM[], focusId: string | u
     return agents.find((x) => x.id === focusId) ?? null;
 }
 
+// a brainstorm or canvas pane hides the terminal and pulls focus to the surface, so the press counts anywhere on
+// the surface there; with the terminal showing it counts only inside it, so ^C elsewhere stays a plain key
+export function ctrlCReachesSession(inTerm: boolean, inSurface: boolean, paneShown: boolean): boolean {
+    return inTerm || (paneShown && inSurface);
+}
+
+// same rule as the agent surface's paneMode: an agent with a brainstorm never shows its canvas
+function focusedPaneShown(model: AgentsViewModel): boolean {
+    const brainstorm = focusedBrainstorm(model);
+    return brainstorm != null ? brainstorm.mode === "brainstorm" : focusedCanvasMode(model) != null;
+}
+
 // Escape on a surface: back over the jump that brought the user here, and home when there was none
 function backOrHome(model: AgentsViewModel): void {
     if (!backToOrigin()) {
@@ -345,9 +357,11 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             // Global chord (allowed while the terminal is focused/editable), Agent surface only.
             when: (ctx) => ctx.surface === "agent",
             run: () => {
-                const inTerm = (document.activeElement as HTMLElement | null)?.closest?.(".cockpit-focus-pane") != null;
-                if (!inTerm) {
-                    return false; // let ^C reach the shell when not in the focus pane
+                const active = document.activeElement as HTMLElement | null;
+                const inTerm = active?.closest?.(".cockpit-focus-pane") != null;
+                const inSurface = active?.closest?.("[data-cockpit-surface-wrap]") != null;
+                if (!ctrlCReachesSession(inTerm, inSurface, focusedPaneShown(model))) {
+                    return false;
                 }
                 const now = performance.now();
                 if (lastCtrlC != null && now - lastCtrlC < DOUBLE_CTRL_C_MS) {
