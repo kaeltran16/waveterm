@@ -19,15 +19,17 @@ import { joinRepoPath, splitRepoPath } from "@/util/paths";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import type * as MonacoTypes from "monaco-editor";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { isMarkdownPath } from "./codeclassify";
 import { CodeDiffView } from "./codediffview";
 import { remember } from "./codeeditorcache";
 import { langOf, type Lang } from "./codelang";
 import { resolveDocLink } from "./codelink";
+import { previewHeadingFor } from "./codeoutline";
 import {
     codeDraftsAtom,
     codeFileAtom,
+    codeOutlineAtom,
     codePendingLineAtom,
     codeProjectAtom,
     codeViewModeAtom,
@@ -101,6 +103,24 @@ function applyPendingLine(ed: MonacoTypes.editor.IStandaloneCodeEditor): void {
     if (ed.getPosition()?.lineNumber !== line) {
         ed.setPosition({ lineNumber: line, column: 1 });
     }
+}
+
+// A rendered document has no lines, so a jump lands on the heading of the section holding the line —
+// which is all a Symbols heading row or an @ pick asks for.
+function revealPreviewLine(root: HTMLElement | null, line: number): void {
+    // the document itself rather than the scroller: which element scrolls is the Markdown component's
+    // business, and scrollIntoView finds it
+    const doc = root?.querySelector<HTMLElement>("[data-overlayscrollbars-viewport]");
+    if (doc == null) {
+        return;
+    }
+    const headings = Array.from(doc.querySelectorAll<HTMLElement>(".heading"));
+    const at = previewHeadingFor(
+        globalStore.get(codeOutlineAtom),
+        line,
+        headings.map((h) => h.textContent ?? "")
+    );
+    (at === -1 ? doc : headings[at]).scrollIntoView({ block: "start" });
 }
 
 function restoreKept(ed: MonacoTypes.editor.IStandaloneCodeEditor, key: string): void {
@@ -179,6 +199,7 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
     const drafts = useAtomValue(codeDraftsAtom);
     const pendingLine = useAtomValue(codePendingLineAtom);
     const mode = useAtomValue(codeViewModeAtom);
+    const previewRef = useRef<HTMLDivElement>(null);
 
     // Two paths, both needed. Monaco is keyed by file path, so opening a DIFFERENT file remounts it
     // and onMount is the only hook that runs late enough to reveal a line. Jumping to another line
@@ -188,10 +209,10 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
         if (pendingLine == null) {
             return;
         }
-        // a rendered document has no line to reveal; consume the request so a later Source toggle
-        // does not half-open the file at a stale position
+        // consumed here too, so a later Source toggle does not half-open the file at a stale position
         if (file.kind === "text" && isMarkdownPath(file.path) && mode === "preview") {
             globalStore.set(codePendingLineAtom, null);
+            revealPreviewLine(previewRef.current, pendingLine);
             return;
         }
         if (editor != null) {
@@ -251,13 +272,15 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
             // toggle away, and the draft feeds the preview so unsaved edits show what you would save
             if (isMarkdownPath(file.path) && mode === "preview") {
                 return (
-                    <MarkdownPreview
-                        key={file.path}
-                        model={model}
-                        project={project}
-                        path={file.path}
-                        text={draft?.text ?? file.text}
-                    />
+                    <div ref={previewRef} className="h-full">
+                        <MarkdownPreview
+                            key={file.path}
+                            model={model}
+                            project={project}
+                            path={file.path}
+                            text={draft?.text ?? file.text}
+                        />
+                    </div>
                 );
             }
             return (

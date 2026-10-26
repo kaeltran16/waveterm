@@ -5965,6 +5965,12 @@ const CODE_SYMBOLS_MAIN = [
     "",
 ].join("\n");
 
+// a frontmatter block the renderer draws as a setext heading the outline skips, and sections long enough
+// that each heading starts below the fold
+const CODE_SYMBOLS_DOC = ["---", "title: fixture", "---", ""]
+    .concat(...["Overview", "Usage", "Notes"].map((h) => [`## ${h}`, "", ...Array.from({ length: 40 }, (_, i) => [`${h} paragraph ${i}.`, ""]).flat()]))
+    .join("\n");
+
 // The outline, the @ finder, and the two shaped searches, against a repo the scenario writes: epsilon is
 // defined twice so F12 on it lists instead of jumping. The caret is read from Monaco's active line number,
 // and placed on a word by a real click, since Monaco takes no text a CDP session types.
@@ -5977,6 +5983,7 @@ const codeSymbols = {
             ctx.dir = mkdtempSync(join(tmpdir(), "verify-code-symbols-"));
             git(ctx.dir, "init", "-q", "--initial-branch=main");
             writeFileSync(join(ctx.dir, "main.go"), CODE_SYMBOLS_MAIN);
+            writeFileSync(join(ctx.dir, "guide.md"), CODE_SYMBOLS_DOC);
             mkdirSync(join(ctx.dir, "sub"));
             writeFileSync(join(ctx.dir, "sub", "x.go"), "package sub\n\nfunc epsilon() int { return 2 }\n");
             git(ctx.dir, "add", ".");
@@ -5984,6 +5991,14 @@ const codeSymbols = {
             await h.rpc("createproject", { name: ctx.name, path: ctx.dir });
             ctx.madeProject = true;
             await waitForProjectInConfig(h, ctx.name);
+            // a terminal reporting as an agent in the fixture repo, whose edit stamp the last step moves
+            await openCanvasTerminal(h, ctx, ctx.name);
+            await h.rpc("eventpublish", {
+                event: "agent:status",
+                scopes: [`block:${ctx.blockId}`],
+                persist: 1,
+                data: { oref: `block:${ctx.blockId}`, state: "working", agent: "claude", cwd: ctx.dir, ts: Date.now() },
+            });
         } catch (e) {
             ctx.arrangeError = String(e?.message ?? e);
         }
@@ -6107,11 +6122,53 @@ const codeSymbols = {
         const refSummary = await poll(`/2 matches in 1 file/.test(${searchSummary}) ? ${searchSummary} : ""`);
         await h.shot("cdp-shots/code-symbols-references.png");
         rec("Shift+F12 lists the name's whole-word references under References to", onBeta2 && refTitle !== "" && refSummary !== "", `clicked=${onBeta2} title=${JSON.stringify(refTitle)} summary=${JSON.stringify(refSummary)}`);
+
+        // a markdown file opens as a rendered document, where a heading row scrolls to its section
+        await h.ev(`document.querySelector('[data-code-column-tab="files"]')?.click()`);
+        const docOpened = await poll(`(() => {
+            const r = [...document.querySelectorAll('[data-code-tree] [role="treeitem"]')].find((x) => x.textContent.trim() === "guide.md");
+            if (!r) return false;
+            r.click();
+            return true;
+        })()`);
+        // the heading's offset from the top edge of whichever element scrolls the preview; null until it renders
+        const headingTop = (name) => `(() => {
+            const v = document.querySelector("[data-overlayscrollbars-viewport]:has(.heading)");
+            const el = v && [...v.querySelectorAll(".heading")].find((x) => x.textContent.trim() === ${JSON.stringify(name)});
+            let s = v;
+            while (s && s.scrollHeight <= s.clientHeight) s = s.parentElement;
+            return el && s ? Math.round(el.getBoundingClientRect().top - s.getBoundingClientRect().top) : null;
+        })()`;
+        const atTop = (name) => `(() => { const t = ${headingTop(name)}; return t != null && Math.abs(t) < 40; })()`;
+        const before = await poll(`${headingTop("Usage")} ?? false`);
+        await h.ev(`document.querySelector('[data-code-column-tab="symbols"]')?.click()`);
+        await poll(`!!document.querySelector('[data-code-symbol-row="Usage"]')`);
+        await h.ev(`document.querySelector('[data-code-symbol-row="Usage"]')?.click()`);
+        const atUsage = await poll(atTop("Usage"));
+        await h.shot("cdp-shots/code-symbols-markdown.png");
+        rec("a heading row scrolls the markdown preview to that heading", docOpened && before > 200 && atUsage === true, `opened=${docOpened} top before=${before} after=${await h.ev(headingTop("Usage"))}`);
+
+        await h.ev(`document.querySelector('[data-code-symbol-row="Overview"]')?.click()`);
+        const atOverview = await poll(atTop("Overview"));
+        rec("a heading row above the view scrolls back up to it", atOverview === true, `top=${await h.ev(headingTop("Overview"))}`);
+
+        // an agent writing the open file while you stay on Code: no focus change announces it, the
+        // agent's edit stamp does
+        writeFileSync(join(ctx.dir, "guide.md"), CODE_SYMBOLS_DOC + "\nan agent's edit\n");
+        await sleep(1500);
+        const quiet = !(await h.ev(`!!document.querySelector("[data-code-stale]")`));
+        if (ctx.blockId) {
+            await h.rpc("setmeta", { oref: `block:${ctx.blockId}`, meta: { "agent:lasteditts": Date.now() } });
+        }
+        const stale = await poll(`!!document.querySelector("[data-code-stale]")`);
+        await h.shot("cdp-shots/code-symbols-agent-edit.png");
+        rec("an agent's edit stamp re-checks the open file and raises the stale bar", quiet && stale === true, `before stamp=${!quiet} after=${stale}`);
         return steps;
     },
     async teardown(h, ctx) {
         try {
             await h.ev(`document.querySelector('[data-code-column-tab="files"]')?.click()`);
+            if (ctx.tabId) await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]);
             if (ctx.madeProject) await h.rpc("deleteproject", { name: ctx.name });
         } finally {
             if (ctx.dir) rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 3 });

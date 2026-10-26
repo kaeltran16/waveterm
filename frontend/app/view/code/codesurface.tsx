@@ -2,8 +2,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Code surface: read any file in a registered git project. Read-only, and deliberately unconnected
-// to agents and runs — this answers "what does this code look like", not "what changed".
+// Code surface: read and edit the files of a project, or of any directory. It answers "what does
+// this code look like", not "what changed" (that is Diff). Its ties to agents: Send to agent hands one
+// a file reference, and an agent's edit re-checks the open file against disk.
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
@@ -12,15 +13,17 @@ import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildCodeBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
+import * as WOS from "@/app/store/wos";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { SurfaceEmptyState, SurfaceError, SurfaceToolbar, ToolbarFact } from "@/app/view/agents/surfacescaffold";
 import { sameRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtom, useAtomValue } from "jotai";
+import { atom, useAtom, useAtomValue } from "jotai";
 import { ArrowRight, ChevronDown, FilePlus, FolderGit2, FolderPlus, RotateCw, Save, Undo2 } from "lucide-react";
 import { useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CodeChangedPane } from "./codechangedpane";
+import { handoffProjectName, liveAgentsForProject } from "./codehandoff";
 import { canBack, canForward } from "./codehistory";
 import { CodePathBar } from "./codepathbar";
 import { pickerRecents } from "./coderecents";
@@ -158,6 +161,9 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
             fireAndForget(checkStale);
         }
     }, [hasFocus]);
+
+    // and its in-window twin, which no focus change announces
+    useRecheckOnAgentEdit(model, project);
 
     // Every surface but Agent unmounts on nav switch, so a mount here means "switched back to Code":
     // re-read the file list and git status. A cold mount has nothing to revalidate — the effect above
@@ -323,6 +329,47 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
             </div>
         </div>
     );
+}
+
+const NO_EDIT = atom(0);
+
+// An agent on this project edited a file while you stayed here. Read from the stamp `wsh agent-hook`
+// writes on the agent's block (commitmark.ts), for the agents Send to agent would list. Only a rise
+// counts: the first reading, or a new set of agents after a project switch, is not an edit.
+function useRecheckOnAgentEdit(model: AgentsViewModel, project: CodeProject | null): void {
+    const agents = useAtomValue(model.agentsAtom);
+    const registry = useAtomValue(projectsAtom);
+    const worktrees = useAtomValue(codeWorktreesAtom);
+    const name =
+        project == null
+            ? ""
+            : handoffProjectName(
+                  project,
+                  registeredProjects(registry),
+                  worktrees.find((wt) => wt.ismain)?.path ?? null
+              );
+    const blockIds = liveAgentsForProject(agents, name)
+        .map((a) => a.blockId)
+        .join(",");
+    const stampAtom = useMemo(() => {
+        if (blockIds === "") {
+            return NO_EDIT;
+        }
+        const orefs = blockIds.split(",").map((id) => WOS.makeORef("block", id));
+        return atom((get) =>
+            Math.max(...orefs.map((oref) => get(WOS.getWaveObjectAtom<Block>(oref))?.meta?.["agent:lasteditts"] ?? 0))
+        );
+    }, [blockIds]);
+    const stamp = useAtomValue(stampAtom);
+    const seenRef = useRef<{ blockIds: string; stamp: number } | null>(null);
+    useEffect(() => {
+        const seen = seenRef.current;
+        seenRef.current = { blockIds, stamp };
+        if (seen?.blockIds === blockIds && stamp > seen.stamp) {
+            fireAndForget(checkStale);
+            fireAndForget(revalidateIndex);
+        }
+    }, [blockIds, stamp]);
 }
 
 function PickerHeading({ first, children }: { first?: boolean; children: React.ReactNode }) {
