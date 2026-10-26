@@ -65,6 +65,11 @@ func runLinkOf(run *waveobj.Run, dag *waveobj.TaskGroup) (sessionRunLink, bool) 
 	return sessionRunLink{}, false
 }
 
+// isRunAgent reports whether a session's run role makes it a run's agent rather than the user's own session.
+func isRunAgent(role string) bool {
+	return role != "" && role != sessionRole_Lead
+}
+
 // runsBySession maps each requested id to the run launched under it, as its current session or an earlier lead session.
 func runsBySession(ctx context.Context, ids []string) (map[string]*waveobj.Run, error) {
 	runs, err := wstore.GetRunsBySessionIds(ctx, ids)
@@ -89,7 +94,8 @@ func runsBySession(ctx context.Context, ids []string) (map[string]*waveobj.Run, 
 	return out, nil
 }
 
-// linkSessionsToRuns stamps each session an orchestrator run launched with its place in that run.
+// linkSessionsToRuns stamps each session an orchestrator run launched with its place in that run, and a
+// brainstorm's one-shot builder check or judge with its own run and stage role.
 func linkSessionsToRuns(ctx context.Context, sessions []wshrpc.SessionActivity) error {
 	ids := make([]string, 0, len(sessions))
 	for _, s := range sessions {
@@ -118,7 +124,11 @@ func linkSessionsToRuns(ctx context.Context, sessions []wshrpc.SessionActivity) 
 		}
 		link, ok := runLinkOf(run, dag)
 		if !ok {
-			continue
+			if !jarvis.IsBrainstormSession(run) {
+				continue
+			}
+			// a brainstorm's one-shot builder check or judge has no dag: its own run is its place
+			link = sessionRunLink{RunId: run.OID, ChannelId: run.ChannelOID, Role: run.StageRole}
 		}
 		sessions[i].RunId, sessions[i].ChannelId = link.RunId, link.ChannelId
 		sessions[i].TaskId, sessions[i].Role, sessions[i].StageRunId = link.TaskId, link.Role, link.StageRunId

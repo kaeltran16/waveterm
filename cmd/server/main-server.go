@@ -15,6 +15,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/authkey"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
@@ -356,6 +357,7 @@ func main() {
 	jarvisvolunteer.StartLooseEndSweep(context.Background())
 	memhygiene.StartSweep(context.Background())
 	go wshserver.WarmRouteCatalog() // the first picker to open finds the model catalog listed instead of waiting on the CLIs
+	agentsessions.StartWarmup()     // the session list and search find every transcript of the window read
 	err = wcore.InitBadgeStore()
 	if err != nil {
 		log.Printf("error initializing badge store: %v\n", err)
