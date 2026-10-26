@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -54,7 +55,10 @@ func helperClaude() {
 		}
 		fmt.Printf("bash %s %d\n", name, task.Process.Pid)
 	}
-	select {}
+	// not select {}: with no other goroutine or timer the runtime kills it as a deadlock, and a task whose
+	// claude.exe is gone no longer counts as claude's
+	time.Sleep(helperLifetime)
+	os.Exit(0)
 }
 
 func gitBash(t *testing.T) string {
