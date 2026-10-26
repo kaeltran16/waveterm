@@ -28,17 +28,13 @@ settled, a decision stays settled.
 Ground the direction in the subject: what the design is for, who uses
 it, and the one thing they should remember. Bold and minimal both work;
 the key is intentionality, not intensity, then precision in spacing,
-type and detail. Spend the boldness in one place: one element is the
-memorable thing, and everything around it stays quiet. Commit to a
-small system:
+type and detail. Commit to a small system:
 
 - A type pairing: a distinctive display face over a refined body face,
   1–3 families. Google Fonts load in a canvas (one
   `fonts.googleapis.com/css2?family=…&display=swap` `<link>` in
   `<helmet>`; no other webfont host does), each with a system fallback
-  of close metrics. Set a type scale with deliberate steps, after The
-  Elements of Typographic Style, and let a headline's type treatment do
-  design work rather than only carry the words.
+  of close metrics.
 - Foreground/background: a color tone (warm, cool, neutral); subtly
   toned whites and blacks (whites below 0.02 saturation).
 - Accents: 0–2, in oklch, sharing chroma and lightness, varying hue.
@@ -61,11 +57,6 @@ there is something to react to.
 If you do not have an icon, asset, or component, draw a placeholder:
 in hi-fi design, a placeholder is better than a bad attempt at the
 real thing.
-
-Pictures, in this order: the user's own; then an openly licensed one
-(Unsplash, Wikimedia Commons) saved under `<root>/` and credited in
-your reply; then a marked placeholder. A found picture never stands in
-for the user's own work, product or people.
 
 ### Variations and options on the canvas
 
@@ -148,9 +139,6 @@ list is "AI tells to design past", below):
 
 - The hero fits the first viewport: headline two lines at most,
   subtext twenty words at most, the action visible without scrolling.
-- The hero opens with the most characteristic thing in the subject's
-  world: a headline, an image, a live demo. A big number over a small
-  label with a gradient accent is the default, not a choice.
 - Four text elements at most in the hero: an optional eyebrow,
   headline, subtext, actions (one primary, at most one secondary).
   Trust logos, pricing teasers and feature bullets get their own
@@ -316,9 +304,6 @@ Type:
   rhythm of the screen.
 - No single word alone on a last line: `text-wrap: balance` on a
   heading, `pretty` on body text.
-- Body lines under 80 characters; serif body text gets a little more
-  line-height than sans.
-- No single word of a headline set apart in italic, bold or color.
 
 Decoration:
 
@@ -344,8 +329,6 @@ Copy:
   Acme. A figure presented as a claim is still a placeholder.
 - Name the step ("Install"), not its number ("Step 1"). No em-dash in
   interface copy.
-- No `→` appended to a button or link label, and no `WORD — fragment`
-  labels.
 
 ## Content rules for every canvas
 
