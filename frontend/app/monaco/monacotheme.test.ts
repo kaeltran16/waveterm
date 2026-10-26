@@ -17,8 +17,6 @@ const CHROME: MonacoChrome = {
     foreground: "#e2e8f0",
     selection: "#1a222c",
     lineHighlight: "#171c22",
-    added: "#3fb950",
-    removed: "#f85149",
 };
 
 describe("monacoThemeFromTokens", () => {
@@ -65,28 +63,8 @@ describe("monacoThemeFromTokens", () => {
         expect(t.colors["editor.lineHighlightBackground"]).toBeUndefined();
     });
 
-    it("paints the diff bands from the cockpit's add/remove roles, not vs-dark's olive", () => {
+    it("leaves the diff bands to the base theme, so they match vs code / antigravity", () => {
         const t = monacoThemeFromTokens(TOKENS, CHROME, true);
-        expect(t.colors["diffEditor.insertedLineBackground"]).toMatch(/^#3fb950[0-9a-f]{2}$/);
-        expect(t.colors["diffEditor.insertedTextBackground"]).toMatch(/^#3fb950[0-9a-f]{2}$/);
-        expect(t.colors["diffEditor.removedLineBackground"]).toMatch(/^#f85149[0-9a-f]{2}$/);
-        expect(t.colors["diffEditor.removedTextBackground"]).toMatch(/^#f85149[0-9a-f]{2}$/);
-    });
-
-    it("keeps the line wash fainter than the word highlight, and both translucent", () => {
-        const t = monacoThemeFromTokens(TOKENS, CHROME, true);
-        const alpha = (key: string) => parseInt(t.colors[key].slice(-2), 16);
-        for (const side of ["inserted", "removed"]) {
-            const line = alpha(`diffEditor.${side}LineBackground`);
-            const text = alpha(`diffEditor.${side}TextBackground`);
-            expect(line).toBeLessThan(text);
-            // monaco requires these stay see-through or they hide the decorations underneath
-            expect(text).toBeLessThan(255);
-        }
-    });
-
-    it("drops the diff colors that are null so the base theme's values inherit", () => {
-        const t = monacoThemeFromTokens(TOKENS, { ...CHROME, added: null, removed: null }, true);
         for (const key of [
             "diffEditor.insertedLineBackground",
             "diffEditor.insertedTextBackground",
@@ -114,20 +92,17 @@ describe("monacoThemeFromTokens", () => {
 });
 
 describe("readChromeRoles", () => {
-    it("takes the diff colors from the diff tokens, not the success/error status colors", () => {
+    it("reads the chrome roles from their theme vars", () => {
         const vars: Record<string, string> = {
-            "--color-success": "#54c79a",
-            "--color-error": "#e0726c",
-            "--color-diff-added": "#3fb950",
-            "--color-diff-removed": "#f85149",
+            "--color-foreground": "#e2e8f0",
+            "--color-surface-selected": "#1a222c",
+            "--color-surface-hover": "#171c22",
         };
         const root = {
             ownerDocument: {
                 defaultView: { getComputedStyle: () => ({ getPropertyValue: (n: string) => vars[n] ?? "" }) },
             },
         } as unknown as HTMLElement;
-        const chrome = readChromeRoles(root);
-        expect(chrome.added).toBe("#3fb950");
-        expect(chrome.removed).toBe("#f85149");
+        expect(readChromeRoles(root)).toEqual(CHROME);
     });
 });
