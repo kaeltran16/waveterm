@@ -144,6 +144,25 @@ func TestUsageSessionsQuickRun(t *testing.T) {
 	}
 }
 
+func TestUsageSessionsConsultSession(t *testing.T) {
+	consult := uuid.NewString()
+	run := seedUsageRun(t, "", waveobj.Run{
+		Mode: "quick", Goal: "scan\nthe records", ProjectPath: usageTestRepo, SessionId: uuid.NewString(),
+		ConsultSessions: []waveobj.ConsultSession{{SessionId: consult, Role: "workflow-scan"}},
+	})
+	got := usageSessionsOf(t, claudeMeta(consult), claudeMeta(run.SessionId))
+	want := wshrpc.UsageSession{
+		Harness: "claude", Session: consult, Title: "a title", Project: usageTestRepo,
+		RunId: run.ID, ChannelId: run.ChannelOID, RunGoal: "scan", RunMode: "quick", Role: "workflow-scan",
+	}
+	if got[0] != want {
+		t.Fatalf("consult session: got %+v, want %+v", got[0], want)
+	}
+	if got[1].RunId != run.ID || got[1].RunMode != "quick" || got[1].Role != "" {
+		t.Fatalf("the run's own session keeps its link and no role, got %+v", got[1])
+	}
+}
+
 func TestUsageSessionsUnlinked(t *testing.T) {
 	got := usageSessionsOf(t, claudeMeta(uuid.NewString()), usagestats.SessionMeta{Harness: "claude", Session: uuid.NewString()})
 	want := wshrpc.UsageSession{Harness: "claude", Session: got[0].Session, Title: "a title", Project: "/somewhere/else"}
