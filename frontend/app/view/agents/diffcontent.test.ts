@@ -12,8 +12,27 @@ describe("pairRefsFor", () => {
         });
     });
 
-    it("falls back to HEAD when the working-tree range has no anchor", () => {
-        expect(pairRefsFor({ kind: "worktree", anchorRef: "" }).original).toEqual({ kind: "ref", ref: "HEAD" });
+    // a comment anchored to the symbolic HEAD reads as "against HEAD", which names a different commit
+    // once the agent commits; the sha HEAD pointed at when the pair was read does not move
+    it("anchors an unanchored working tree to the HEAD sha it was read against", () => {
+        expect(pairRefsFor({ kind: "worktree", anchorRef: "", head: "f00dfeed" }).original).toEqual({
+            kind: "ref",
+            ref: "f00dfeed",
+        });
+    });
+
+    it("keeps an explicit anchor over the HEAD sha", () => {
+        expect(pairRefsFor({ kind: "worktree", anchorRef: "abc1234", head: "f00dfeed" }).original).toEqual({
+            kind: "ref",
+            ref: "abc1234",
+        });
+    });
+
+    it("falls back to HEAD in a repository with no commits", () => {
+        expect(pairRefsFor({ kind: "worktree", anchorRef: "", head: "" }).original).toEqual({
+            kind: "ref",
+            ref: "HEAD",
+        });
     });
 
     // a commit's own change is measured against its first parent, which is what the caret means and

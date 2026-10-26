@@ -383,12 +383,13 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                   }
                 : { kind: "commit", hash: compareSelection ?? "" }
             : selectedCommit === WORKING_TREE
-              ? { kind: "worktree", anchorRef: state?.ref ?? "" }
+              ? { kind: "worktree", anchorRef: state?.ref ?? "", head: state?.head ?? "" }
               : { kind: "commit", hash: selectedCommit ?? "" };
         fireAndForget(() => loadDiffPair(cwd, shownPath, sel));
     }, [
         state?.cwd,
         state?.ref,
+        state?.head,
         shownPath,
         compareOn,
         compareRefs?.base,

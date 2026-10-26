@@ -108,15 +108,14 @@ Left to right, all on one time axis.
 
 ![The Diff surface at the default 1000x700 window](images/diff-tab/three-panes-1000x700.png)
 
-*The three panes at the app's default window size. Note the diff pane on the right: it is roughly 240px,
-so `@@ -102,6 +102,10 @@` wraps across four lines and the header buttons are clipped off the edge.
-This is [section 12](#12-what-it-deliberately-cannot-do)'s point, in a picture.*
+*The three panes at the app's default window size: the diff pane on the right is roughly 240px. This is
+[section 12](#12-what-it-deliberately-cannot-do)'s point, in a picture. Both shots predate the Monaco
+pane, so the pane itself looks different now; [section 7](#7-reading-the-diff-pane) describes it.*
 
 ![The same surface at 1600x950](images/diff-tab/three-panes-wide.png)
 
-*The same state at 1600×950 — the width the surface was designed against. The diff pane now carries its
-full header (path, **Read-only**, **Open in Code**, **Open in editor ↗**), the stats bar
-(`+48 −0 @@ -7,6 +7,8 @@`), and readable lines.*
+*The same state at 1600×950 — the width the surface was designed against, where the diff pane has room
+for its full header and readable lines.*
 
 ### Pane 1 — history (460px)
 
@@ -211,43 +210,49 @@ original range as the thing to return to.
 
 ## 7. Reading the diff pane
 
-The header carries the path, a **Read-only** marker, and up to two buttons:
+The pane is a read-only Monaco diff editor fed two full file texts: the left side read at the
+range's base ref, the right side at the commit (or from disk, for the working tree). Which two refs
+is `pairRefsFor` (`diffcontent.ts`); the loader is `diffcontentstore.ts`. Unified by default;
+unchanged stretches fold away, keeping 3 lines of context around each change.
 
-- **Open in Code** — opens the file in the Code surface at the first changed line (the first added
-  line; for a deletion-only hunk, the context line the hunk starts on). Always available when a
-  repository is scoped. The Code surface always shows the working-tree file and says so itself if
-  the path is gone.
+The header carries the path (the directory truncates from the left, so the file name always
+shows), the file's `+adds −dels` from the change list, and these controls:
+
+- **Change navigator** — `change 2/5` with ↑/↓ (`Shift`+`P` / `Shift`+`N`), walking the hunks
+  Monaco computed. Hidden while the open file has no change to walk.
+- **Unified / Split** (`Shift`+`D`) — only offered when the pane itself measures ≥ 900px; below
+  that the pane stays unified whatever the toggle says.
+- **Hide whitespace** (`Shift`+`W`) — off by default, so the pane agrees with the counts beside it;
+  on reads through a reformat.
+- **Mark reviewed** (`v`) — ticks the open file and opens the next unreviewed one. Shown when the
+  open file belongs to a listed subject.
+- **Open in Code** — opens the file in the Code surface at the first line where the two texts
+  differ. Always available when a repository is scoped. The Code surface always shows the
+  working-tree file and says so itself if the path is gone.
 - **Open in editor ↗** — hands the path to the OS. Only offered on the working-tree row, since it is
   the only row whose file is guaranteed to exist on disk.
 
-Below that, a stats bar (`+adds`, `−dels`, and the first hunk header), then the diff itself: old and
-new line-number gutters, a sign column, and the line, tinted green for additions and red for
-deletions.
+Below 1100px of pane width the buttons drop their labels and keep their icons and tooltips.
 
-**States that are not a diff**, each with its own sentence instead of an empty scroll area:
+**States that are not a diff**, each with its own sentence instead of an empty editor
+(`diffempty.ts`):
 
-| State | What you see | Verified |
-|---|---|---|
-| Binary file | *Binary file — git reports a change but has no text diff to show.* | Yes — a `.png` in `4dbca6b6` |
-| Mode change only | *Nothing inside this file changed.* | Not reached |
-| Pure rename | *Renamed. Nothing inside the file changed.* plus the old path | Yes — an `R100` rename of a 40-line file |
+| State | What you see |
+|---|---|
+| Either side over 2 MB | *Too large to show here*, with the size in the header — open it in Code |
+| Either side binary | *Binary file — Git records a change here, but there is no text to compare.* |
+| Both texts identical | *Contents unchanged — Only the name or the file mode changed.* |
+| No file selected | *Pick a file to see its changes* |
+| No commit open | *Pick a commit to see its changes* |
+| Compare's aggregate lists no files | *Nothing to compare* |
 
-**Untracked files** have no `HEAD` blob, so git emits no diff — the backend hands over the raw
-content and the pane renders it as an all-additions diff labelled **New file**, which is what it
-morally is. Verified on an untracked file in the working tree: `+361 −0`, label **New file**, every
-line green from line 1.
+**Added and deleted files** need no special case: the side where the path does not exist reads as
+empty, so an untracked or added file is all additions and a deleted one all removals.
 
-**Renames** cost the backend a second question. The pane reads one path (`git diff <base> <hash> --
-<newpath>`), and git cannot pair that path with a source it was not asked about — it used to answer
-`new file mode` plus every line as an addition, so a pure rename rendered as the whole file added
-while the file list beside it read `+0 −0`. `pathDiff` (`pkg/gitinfo/gitinfo.go`) now watches for
-that `new file mode` and only then asks the whole-diff `--name-status` question for a rename source,
-re-reading with both paths. The pane gets its `rename from` header, `parseUnifiedDiff` sets
-`renamedFrom`, and the *Renamed.* state fires. The extra call is skipped for every file that is not a
-fresh add, which is almost all of them.
-
-Related, by design: `nameStatusToStatusZ` deliberately rewrites a rename's `R` status to `M`, so a
-renamed file shows an **M** in the file list, never an **R**.
+**Renames are a known gap.** Both sides are read at the file's current path, which does not exist at
+the base ref, so a renamed file draws as wholly added (and a pure rename never reaches *Contents
+unchanged*). The file list is unaffected: `nameStatusToStatusZ` rewrites a rename's `R` to `M`, so
+it shows an **M** with the rename's own counts.
 
 ---
 
@@ -279,6 +284,11 @@ Diff-surface keys (live when the surface is active and you are not in a text fie
 | `g` `g` | Jump to the top of history | History mode |
 | `c` | Compare refs | Always |
 | `Tab` | Switch compare side | Compare mode |
+| `Shift`+`S` | Swap the compare refs | Compare mode |
+| `Shift`+`N` / `Shift`+`P` | Next / previous change in the open diff | A text diff is open |
+| `Shift`+`D` | Split / unified | Pane ≥ 900px |
+| `Shift`+`W` | Hide whitespace | Always |
+| `v` | Mark the open file reviewed (or unmark it) and open the next unreviewed file | The open file is in a listed subject |
 | `m` | Comment on the selected lines, or the cursor's line (also from inside the editor) | A text diff is open |
 | `Ctrl`+`Enter` / `Esc` | Add / cancel the comment being written | In a comment card |
 | `Shift`+`Enter` | Send the pending comments | The send bar has a recipient |
@@ -353,7 +363,6 @@ Current, honest limits — not bugs:
   its terminal; a typing failure after the hand-off is only logged by wavesrv.
 - **Pending comments are per machine.** They live in this app's localStorage, not in the repository.
 - **No keyboard navigation of the changed-file list** (section 9).
-- **No "viewed" marker** — nothing tracks which files of a branch you have already read.
 - **It is cramped at the default window size.** The app opens at 1000×700
   (`src-tauri/tauri.conf.json:14`) and the two left columns are fixed at 460px + 300px, leaving the
   diff roughly 240px — about 30 characters. Maximize the window before a real review.
@@ -418,7 +427,7 @@ Review comments on your changes (worktree against 3f9a21c), 2 comments:
 
 ## Coverage of this document
 
-What was exercised in the live dev app on 2026-09-04, and what was not:
+What was exercised in the live dev app on 2026-09-04, before the pane became Monaco (its **New file** and *Renamed.* states are gone, see [section 7](#7-reading-the-diff-pane)), and what was not:
 
 | Exercised live | Not exercised |
 |---|---|
