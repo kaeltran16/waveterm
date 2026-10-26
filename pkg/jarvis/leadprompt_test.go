@@ -189,6 +189,20 @@ func TestOrchestrationRulesCompleteOnTheirOwn(t *testing.T) {
 	if strings.Index(finished, AskTool("claude")) > strings.Index(finished, "wsh jarvis complete") {
 		t.Fatalf("a question must come before complete, which closes the tab:\n%s", finished)
 	}
+	// leads filed in-feature leftovers as chunks, which became a follow-up run with its own plan review
+	// (d20dc06e, dec24c70, d276b206): round work is set by area, not age, and a second round takes what the first left
+	if strings.Contains(finished, "whatever a round left") {
+		t.Fatalf("what a round left goes to the next round while one is left:\n%s", finished)
+	}
+	for _, want := range []string{
+		"in the feature the run built or in a file it changed, even when it predates the run",
+		"a check a worker can write",
+		"a failure on the base in code the run did not touch",
+	} {
+		if !strings.Contains(finished, want) {
+			t.Fatalf("run-finished rule missing round-work scope %q:\n%s", want, finished)
+		}
+	}
 	// accept spawns the first tasks, so an amend after it misses them (run 6c7652be)
 	if strings.Index(r, "carry each accepted finding") > strings.Index(r, "dag planreview accept") {
 		t.Fatalf("the plan review rule must amend before accept:\n%s", r)

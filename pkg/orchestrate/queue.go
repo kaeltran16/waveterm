@@ -67,7 +67,7 @@ func RunFinishedWake(f *waveobj.FinalStage) string {
 // roundLeftLine and noRoundLeftLine end a passed or unverified run-finished wake: the engine counts the rounds,
 // so the lead only judges which open issues are round work.
 const (
-	roundLeftLine   = "A round is left for the open issues inside the run's goal that a worker can fix: `wsh jarvis dag submit --round --plan <fix plan>`."
+	roundLeftLine   = "A round is left for the open issues that are round work:`wsh jarvis dag submit --round --plan <fix plan>`."
 	noRoundLeftLine = "No round is left: every open issue is an effort chunk."
 )
 
