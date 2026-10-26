@@ -13,7 +13,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { joinRepoPath } from "@/util/paths";
 import { base64ToString } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
-import { pairRefsFor, type DiffSelection, type DiffSide } from "./diffcontent";
+import { pairRefsFor, type DiffPairRefs, type DiffSelection, type DiffSide } from "./diffcontent";
 
 // Monaco is comfortable well past this; the cap exists so one accidental click on a vendored bundle
 // or a lockfile does not freeze the surface. Same number the patch readers cap at server-side, so a
@@ -29,6 +29,8 @@ export interface DiffPair {
     // set when either side exceeds MAX_DIFF_BYTES; size is the larger side, for the message
     tooLarge: boolean;
     size: number;
+    // the refs this pair was read from: a comment made on it is anchored to them
+    refs: DiffPairRefs;
 }
 
 export const diffPairAtom = atom<DiffPair | null>(null) as PrimitiveAtom<DiffPair | null>;
@@ -96,6 +98,7 @@ export async function loadDiffPair(cwd: string, path: string, sel: DiffSelection
             binary: original.binary || modified.binary,
             tooLarge: original.tooLarge || modified.tooLarge,
             size: Math.max(original.size, modified.size),
+            refs,
         });
     } catch {
         if (current.token === token) {
