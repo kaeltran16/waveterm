@@ -204,6 +204,9 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Shift`+`D` | Split / unified |
 | `Shift`+`W` | Ignore whitespace |
 | `v` | Mark the open file reviewed (or unmark it) and open the next unreviewed file |
+| `m` | Comment on the selected lines of the open diff, or the cursor's line (also from the editor) |
+| `Ctrl`+`Enter` / `Esc` | Add / cancel the comment being written |
+| `Shift`+`Enter` | Send the pending comments to the agent |
 | `r` | Refresh changes and history |
 | `c` | In history: compare refs. In compare: change the compared refs |
 | `Shift`+`S` | Swap compare refs (in compare) |

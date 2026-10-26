@@ -11,8 +11,9 @@ import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
 import { useMemo } from "react";
+import { activeCommentSourceAtom, commentStoreAtom, countsByPath } from "./diffcomments";
 import { buildFileTree, collapsedDirsAtom, treeModeAtom, type FileTreeRow } from "./filetree";
 import { statusColor, type GitChange, type GitChanges } from "./gitstatus";
 import {
@@ -104,6 +105,7 @@ function FileRow({
     depth,
     selected,
     review,
+    comments,
     onSelect,
     onToggle,
 }: {
@@ -111,6 +113,8 @@ function FileRow({
     label: string;
     depth: number;
     selected: boolean;
+    // pending comments on this path, lost ones included
+    comments: number;
     // null when the list has no review subject, which draws no check
     review: ReviewState | null;
     onSelect: () => void;
@@ -149,6 +153,16 @@ function FileRow({
                 >
                     {label}
                 </span>
+                {comments > 0 ? (
+                    <span
+                        data-changed-file-comments={comments}
+                        title={comments === 1 ? "1 pending comment" : `${comments} pending comments`}
+                        className="flex h-[18px] flex-none items-center gap-[3px] rounded-[5px] bg-accentbg px-[5px] font-mono text-[10.5px] font-bold text-accent-soft"
+                    >
+                        <MessageSquare size={11} strokeWidth={2.2} />
+                        {comments}
+                    </span>
+                ) : null}
                 <span
                     className={cn(
                         "flex-none font-mono text-[10.5px] font-semibold",
@@ -295,6 +309,12 @@ export function ChangedFileList({
     const tree = useAtomValue(treeModeAtom);
     const collapsed = useAtomValue(collapsedDirsAtom);
     const marks = useAtomValue(reviewMarksAtom);
+    const commentKey = useAtomValue(activeCommentSourceAtom)?.key;
+    const commentStore = useAtomValue(commentStoreAtom);
+    const commentCounts = useMemo(
+        () => countsByPath(commentKey != null ? commentStore[commentKey] : undefined),
+        [commentKey, commentStore]
+    );
     const rows = useMemo(
         () => (changes != null && tree ? buildFileTree(changes.files, collapsed) : []),
         [changes, tree, collapsed]
@@ -314,6 +334,7 @@ export function ChangedFileList({
             depth={depth}
             selected={change.path === selectedFile}
             review={review != null ? markState(subjectMarks, change) : null}
+            comments={commentCounts[change.path] ?? 0}
             onSelect={() => onSelectFile(change.path)}
             onToggle={() => review != null && toggleReviewed(review, change)}
         />

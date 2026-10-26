@@ -25,6 +25,7 @@ repository with three files dirty in the working tree. Nothing is mocked.
 - [10. Arriving from elsewhere](#10-arriving-from-elsewhere)
 - [11. The other diff — the Code surface](#11-the-other-diff--the-code-surface)
 - [12. What it deliberately cannot do](#12-what-it-deliberately-cannot-do)
+- [13. Comments to the agent](#13-comments-to-the-agent)
 
 ---
 
@@ -278,6 +279,9 @@ Diff-surface keys (live when the surface is active and you are not in a text fie
 | `g` `g` | Jump to the top of history | History mode |
 | `c` | Compare refs | Always |
 | `Tab` | Switch compare side | Compare mode |
+| `m` | Comment on the selected lines, or the cursor's line (also from inside the editor) | A text diff is open |
+| `Ctrl`+`Enter` / `Esc` | Add / cancel the comment being written | In a comment card |
+| `Shift`+`Enter` | Send the pending comments | The send bar has a recipient |
 | `Escape` | Clear filters → else leave compare → else back to Cockpit | In that order |
 
 `Shift`+`?` opens the full shortcut sheet. Note that `Shift`+`G` is deliberately not bare `g`, which
@@ -340,7 +344,14 @@ Practical rule: use the Code surface's diff while writing, the Diff surface whil
 Current, honest limits — not bugs:
 
 - **Read-only.** No staging, no checkout, no cherry-pick, no revert. Repository-mutating actions are
-  a separate, unwritten spec.
+  a separate, unwritten spec. A comment ([section 13](#13-comments-to-the-agent)) only ever becomes a
+  prompt to an agent.
+- **No comments on removed lines in unified view.** Monaco draws them without a gutter or selection;
+  switch to split (`Shift`+`D`).
+- **No comments to a run that has not landed.** Its landing tree belongs to the engine; the batch waits.
+- **"Sent" means handed over.** A live agent takes the prompt through its mod, else it is typed into
+  its terminal; a typing failure after the hand-off is only logged by wavesrv.
+- **Pending comments are per machine.** They live in this app's localStorage, not in the repository.
 - **No syntax highlighting, no word-level highlighting, no side-by-side, no in-diff search, no
   whitespace-ignore.** The pane renders plain unified rows.
 - **No keyboard navigation of the changed-file list** (section 9).
@@ -357,6 +368,60 @@ Current, honest limits — not bugs:
 Most of the first three are addressed by an approved but unstarted plan —
 `docs/superpowers/specs/2026-09-04-git-compare-viewer-parity-design.md` and the plan beside it —
 which swaps this pane for Monaco and makes the history column collapsible.
+
+---
+
+## 13. Comments to the agent
+
+Mark lines of the open diff with a note while reviewing, then send the batch to the agent that made
+the changes as one prompt. Spec: `docs/superpowers/specs/2026-10-26-diff-comments-design.md`.
+
+**Adding.** Hover a line and click the **+** in its gutter, or select lines and press `m` (with no
+selection, the cursor's line). A draft card opens under the range's last line — *Comment on lines
+7–9* — and `Ctrl`+`Enter` adds it, `Esc` cancels. Changed and context lines on the right take comments
+in both views. Removed lines take them only in split view, on the left side; in unified view a hunk of
+only removed lines carries a hint to switch.
+
+**Pending.** Each comment stays as a card under its lines, marked *pending*, with edit and delete. A
+card shows only on the pair of refs it was made on (the working tree, a commit, a comparison); the
+changed-file list counts a file's comments across every pair in a badge on its row. When the agent
+keeps working and the lines move, the comment follows its quoted text; if the text is gone the card
+is not drawn, but the comment stays counted and is sent with its original lines and quote.
+
+Comments are held per source — one batch per agent, run or project — in localStorage
+(`diff.comments.pending`), so they survive a restart; the 50 most recently touched batches are kept.
+
+**The send bar** under the diff pane counts the batch and names who gets it. With no comments it is a
+one-line hint.
+
+| Source | Send goes to |
+|---|---|
+| A live agent in an Arc terminal | That agent, as its next prompt — "working, joins its turn" mid-turn, "at its prompt" when idle |
+| A project | A new Claude Code agent in the project's folder, the batch as its first prompt |
+| A run that has landed | A new agent in the run's project folder |
+| A run that has not landed, or is held | Nobody yet: Send is disabled with the reason, and the batch is kept |
+| An agent a run started | Its run's rule |
+| An agent that has ended (or runs outside Arc) | A new agent in its last folder, else its project's folder; with neither, Send is disabled |
+
+`Shift`+`Enter` (or **Send**) sends. To a live agent the cards leave and *Sent 3 comments to loom*
+stays until the next comment. A new agent opens on the Agent surface. A failure keeps the batch and
+shows the error with **Send again**. **Discard** drops the whole batch.
+
+What the agent receives:
+
+```
+Review comments on your changes (worktree against 3f9a21c), 2 comments:
+
+  src/retry/policy.go:4
+  >     return 8
+  Why 8? Put the reason in a comment above the return.
+
+  src/retry/legacy.go: removed lines 1-3 of 3f9a21c
+  > package retry
+  Legacy() may still have callers outside this package.
+
+  Line numbers are the file as shown in the diff. Address each comment, then say which you changed.
+```
 
 ---
 

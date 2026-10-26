@@ -20,6 +20,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
 import type { AgentsViewModel } from "./agents";
 import { formatAge } from "./agentsviewmodel";
+import { CommentSendBar } from "./commentsendbar";
 import { DiffPane } from "./diffpane";
 import type { CompareForm, DiffSelection } from "./diffcontent";
 import { activeCommentSourceAtom, batchSourceFor } from "./diffcomments";
@@ -698,6 +699,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     model={model}
                                 />
                             )}
+                            <CommentSendBar model={model} />
                         </div>
                     </div>
                 )}

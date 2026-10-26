@@ -4687,6 +4687,74 @@ const lineBox = (side, n) => {
     return { top: r.top, bottom: r.bottom, mid: (r.top + r.bottom) / 2, textLeft: text.left };
 };`;
 
+// Task 4's steps: the Prompt board's three notes, on policy.go as the board draws it, from a shell tab made a
+// roster agent (its block's cwd is the temp repo)
+const DC_AGENT_TOPIC = "verify-diff-comments-agent";
+const DC_POLICY_BOARD = "package retry\n\nfunc Budget() int {\n    return 8\n}\n\nfunc Floor() int {\n    return 1\n}\n";
+const DC_NOTE_RETURN = "Why 8? The incident note says five retries were enough. Put the reason in a comment above the return.";
+const DC_NOTE_FLOOR = "A floor of 1 means a zero budget can never be configured. Return 0 here and let Budget enforce the minimum.";
+const DC_NOTE_LEGACY = "Keep Legacy() for one release; the scheduler still calls it.";
+
+// A run arranged as diff-review-marks-run arranges its own: deferred, written done with sealed evidence (which
+// draws the sheet's diff link), and with a landing tree and no land state, so it has not landed. Opened the way
+// a finished run's sheet opens it.
+async function openDcRun(h, ctx, { until, q, rowSel }) {
+    const cwd = mkdtempSync(join(tmpdir(), "verify-diff-comments-run-"));
+    ctx.run = { cwd };
+    try {
+        git(cwd, "init", "-q", "--initial-branch=main");
+        mkdirSync(join(cwd, "src", "retry"), { recursive: true });
+        writeFileSync(join(cwd, "src", "retry", "policy.go"), "package retry\n\nfunc Budget() int {\n    return 3\n}\n");
+        git(cwd, "add", ".");
+        git(cwd, "commit", "-q", "-m", "seed the retry package");
+        const wslist = await h.rpc("workspacelist", null);
+        const ch = await h.rpc("createchannel", { name: "verify-diff-comments-run", projectpath: cwd });
+        ctx.run.channelId = ch.oid;
+        const created = await h.rpc("createrun", {
+            channelid: ch.oid,
+            workspaceid: wslist[0].workspacedata.oid,
+            goal: "verify diff-comments: do nothing, make no file changes, stop immediately",
+            runtime: "claude",
+            mode: "orchestrator",
+            deferstart: true,
+        });
+        ctx.run.runId = created.run.id;
+        ctx.run.landPath = created.run.landpath;
+        const tree = created.run.landpath || cwd;
+        writeFileSync(join(tree, "src", "retry", "policy.go"), "package retry\n\nfunc Budget() int {\n    return 8\n}\n");
+        git(tree, "add", "src");
+        git(tree, "commit", "-q", "-m", "raise the budget");
+        const oref = `run:${created.run.id}`;
+        const evidence = {
+            capturedts: Date.now(),
+            hash: "",
+            files: [{ path: "src/retry/policy.go", stat: "M", add: 1, del: 1 }],
+            addtotal: 1,
+            deltotal: 1,
+            runtimems: 0,
+            durationms: 0,
+        };
+        const stored = await waveService(h, "object", "GetObject", [oref]);
+        await waveService(
+            h,
+            "object",
+            "UpdateObject",
+            [{ ...stored, otype: "run", status: "done", report: "", evidence, landpath: tree }, false],
+            FINAL_SHOTS_UICTX
+        );
+        await h.goto("jarvis");
+        await until(`typeof window.__openAddress === "function"`, 5000);
+        await h.ev(`window.__openAddress(${JSON.stringify(oref)})`);
+        const link = `[...document.querySelectorAll("[data-evidence-block] button")].find((b) => /open the repository diff/.test(b.textContent || ""))`;
+        const linked = await until(`!!(${link})`, 10000);
+        await h.ev(`${link}?.click()`);
+        const listed = await until(`!!${q(rowSel("src/retry/policy.go"))}`, 15000);
+        return { ok: linked && listed, linked, listed, landpath: created.run.landpath };
+    } catch (e) {
+        return { ok: false, error: String(e?.message ?? e) };
+    }
+}
+
 const diffComments = {
     name: "diff-comments",
     surface: "files",
@@ -4808,11 +4876,48 @@ const diffComments = {
             );
         };
 
+        const BAR = "[data-comment-send-bar]";
+        const bar = async () =>
+            JSON.parse(
+                await h.ev(`(() => { const b = ${q(BAR)}; if (!b) return "null";
+                    const t = (s) => b.querySelector(s)?.textContent ?? null;
+                    const send = b.querySelector("[data-comment-send]");
+                    return JSON.stringify({ kind: b.dataset.recipientKind, text: b.textContent, count: t("[data-comment-count]"),
+                        recipient: t("[data-comment-recipient]"), detail: t("[data-comment-detail]"), hint: t("[data-comment-hint]"),
+                        sent: t("[data-comment-sent-note]"), error: t("[data-comment-error]"),
+                        send: send?.textContent ?? null, sendDisabled: send?.disabled ?? null }); })()`)
+            );
+        const badge = (path) =>
+            h.ev(`(() => { const b = ${q(`${rowSel(path)} [data-changed-file-comments]`)}; return b ? b.title : null; })()`);
+        const comment = async (note) => {
+            await h.cdp("Input.insertText", { text: note });
+            await ctrlEnter();
+            return until(`!${q(DRAFT)}`, 3000);
+        };
+        const commentOnLine = async (n, note) => {
+            const at = await plusOn(n);
+            if (at == null) return false;
+            await clickAt(at.plus.x, at.plus.mid);
+            return (await until(titleIs(`Comment on line ${n}`), 3000)) && comment(note);
+        };
+        const commentOnRange = async (side, from, to, title, note) => {
+            if (!(await selectLines(side, from, to))) return false;
+            await key("m", "KeyM", 77, 0, "m");
+            return (await until(titleIs(title), 3000)) && comment(note);
+        };
+        const toggleSplit = async () => {
+            await h.ev("document.activeElement?.blur?.()");
+            await key("D", "KeyD", 68, SHIFT, "D");
+        };
+
         try {
             await pin();
             await sleep(400);
             const picked = await pick();
             const opened = await openFile(POLICY);
+            // step 7's state, read before the first comment and recorded in order after step 6
+            const hintedBar = (await until(`!!${q("[data-comment-hint]")}`, 5000)) ? await bar() : null;
+            await h.shot("cdp-shots/diff-comments-hint.png");
             const hovered = await plusOn(3);
             const onLine3 = hovered != null && Math.abs(hovered.plus.mid - hovered.line.mid) < 4;
             await h.shot("cdp-shots/diff-comments-plus.png");
@@ -4930,6 +5035,214 @@ const diffComments = {
                 `before=${JSON.stringify(before)} after=${JSON.stringify(after)} line11=${JSON.stringify(line11)}`
             );
             await h.shot("cdp-shots/diff-comments-refound.png");
+
+            const hintWant = `Press m or click a line's + to comment for ${ctx.name}`;
+            rec(
+                `7. before any comment the bar is the hint "${hintWant}"`,
+                hintedBar?.kind === "none" && hintedBar?.hint === hintWant,
+                JSON.stringify(hintedBar)
+            );
+
+            // step 6's edit left the Budget return on line 6
+            const third = await commentOnLine(6, DC_NOTE_RETURN);
+            const badges = { policy: await badge(POLICY), legacy: await badge(LEGACY) };
+            const projectBar = await bar();
+            // the bar names the project's folder, which is the temp repo's
+            const folder = basename(ctx.dir);
+            rec(
+                `8. with comments on two files the list badges them and the bar reads 3 comments in 2 files · to a new agent in ${folder}`,
+                third &&
+                    badges.policy === "2 pending comments" &&
+                    badges.legacy === "1 pending comment" &&
+                    projectBar?.kind === "new" &&
+                    projectBar.count === "3 comments" &&
+                    projectBar.text.includes("in 2 files · to") &&
+                    projectBar.recipient === "a new agent" &&
+                    projectBar.detail === `in ${folder}` &&
+                    projectBar.send === "Start agent with 3 comments⇧↵",
+                JSON.stringify({ third, badges, bar: projectBar })
+            );
+            await h.shot("cdp-shots/diff-comments-badges.png");
+
+            // a shell tab made a roster agent by the status report `wsh agentstatus` sends, its block's cwd the
+            // temp repo; the shell is never shown, so it never starts there
+            writeFileSync(join(ctx.dir, "src", "retry", "policy.go"), DC_POLICY_BOARD);
+            await openCanvasTerminal(h, ctx, DC_AGENT_TOPIC);
+            await h.rpc("setmeta", { oref: `block:${ctx.blockId}`, meta: { "cmd:cwd": ctx.dir } });
+            const reportAgent = (state) =>
+                h.rpc("eventpublish", {
+                    event: "agent:status",
+                    scopes: [`block:${ctx.blockId}`],
+                    persist: 1,
+                    data: { oref: `block:${ctx.blockId}`, state, agent: "claude", cwd: ctx.dir, ts: Date.now() },
+                });
+            await reportAgent("working");
+            await click("[data-files-source-picker]");
+            const agentRow = `[...document.querySelectorAll("button")].find((b) => !b.dataset.filesSourceOption &&
+                (b.querySelector("span.truncate")?.textContent ?? "").startsWith(${JSON.stringify(DC_AGENT_TOPIC)}))`;
+            const listed = await until(`!!(${agentRow})`, 10000);
+            await h.ev(`${agentRow}?.click()`);
+            // an agent's source may open on a commit: the board's comments are on the working tree, row zero
+            await until(`!!${q(rowSel(POLICY))}`, 15000);
+            await h.ev(`[...document.querySelectorAll("[data-history-row]")]
+                .find((r) => r.textContent.includes("Uncommitted changes"))?.querySelector("button")?.click()`);
+            const agentOpened =
+                (await until(`!!${q(rowSel("README.md"))} && !!${q(rowSel(LEGACY))}`, 10000)) && (await openFile(POLICY));
+            const name = await h.ev(`${q("[data-files-source-picker] span.truncate")}?.textContent ?? ""`);
+            const onAgent = [
+                await commentOnLine(4, DC_NOTE_RETURN),
+                await commentOnRange("modified", 7, 9, "Comment on lines 7–9", DC_NOTE_FLOOR),
+            ];
+            await openFile(LEGACY);
+            // split needs a pane of SPLIT_MIN_PX, as in step 5
+            await pin(2000);
+            await sleep(500);
+            await toggleSplit();
+            await until(`(() => { ${DIFF_LINE_LIB} return !!lineBox("original", 3); })()`, 5000);
+            onAgent.push(await commentOnRange("original", 1, 3, "Comment on removed lines 1–3", DC_NOTE_LEGACY));
+            await until(`${q("[data-comment-detail]")}?.textContent === "working, joins its turn"`, 5000);
+            const working = await bar();
+            // the pair label is the arranged repo's: the anchor the worktree pair was loaded against
+            ctx.agentAnchor = await h.ev(`(() => {
+                const store = JSON.parse(localStorage.getItem(${JSON.stringify(COMMENT_STORAGE_KEY)}) || "{}");
+                const key = Object.keys(store).find((k) => k.includes(${JSON.stringify(ctx.tabId)}));
+                return key ? store[key].comments[0]?.refs?.original?.ref ?? null : null; })()`);
+            rec(
+                `9a. on a live agent working, the bar reads 3 comments in 2 files · to ${name}, working, joins its turn`,
+                listed &&
+                    agentOpened &&
+                    onAgent.every(Boolean) &&
+                    working?.kind === "live" &&
+                    working.count === "3 comments" &&
+                    working.text.includes("in 2 files · to") &&
+                    working.recipient === name &&
+                    working.detail === "working, joins its turn" &&
+                    working.send === "Send 3 comments⇧↵",
+                JSON.stringify({ listed, agentOpened, name, onAgent, bar: working })
+            );
+            await h.shot("cdp-shots/diff-comments-live-working.png");
+
+            await reportAgent("idle");
+            const idleShown = await until(`${q("[data-comment-detail]")}?.textContent === "at its prompt"`, 8000);
+            rec("9b. with the agent idle the detail reads at its prompt", idleShown, JSON.stringify(await bar()));
+            await h.shot("cdp-shots/diff-comments-live-idle.png");
+
+            // the page's own agentprompt calls: refused once, then recorded and resolved, never forwarded, so
+            // nothing is typed into the shell
+            await h.ev(`(() => {
+                const c = window.TabRpcClient;
+                if (!c.__dcOrig) {
+                    c.__dcOrig = c.wshRpcCall;
+                    const call = c.wshRpcCall.bind(c);
+                    c.wshRpcCall = (command, data, opts) => {
+                        if (command !== "agentprompt") return call(command, data, opts);
+                        window.__dcPrompts.push(data);
+                        if (window.__dcRefuse) {
+                            window.__dcRefuse = false;
+                            return Promise.reject(new Error("verify refused the prompt"));
+                        }
+                        return Promise.resolve(null);
+                    };
+                }
+                window.__dcPrompts = [];
+                window.__dcRefuse = true;
+            })()`);
+            await click("[data-comment-send]");
+            const errored = await until(`!!${q("[data-comment-error]")}`, 5000);
+            const failed = await bar();
+            const kept = await h.ev(`document.querySelectorAll("[data-diff-comment-card]").length`);
+            rec(
+                `9c. a refused send shows Couldn't send to ${name}: … with Send again, and the cards and count stay`,
+                errored &&
+                    (failed?.error ?? "").startsWith(`Couldn't send to ${name}: `) &&
+                    failed.send === "Send again⇧↵" &&
+                    failed.count === "3 comments" &&
+                    kept === 1,
+                JSON.stringify({ bar: failed, cardsOnLegacy: kept })
+            );
+            await h.shot("cdp-shots/diff-comments-send-failed.png");
+
+            await h.ev("window.__dcPrompts = []; document.activeElement?.blur?.()");
+            await key("Enter", "Enter", 13, SHIFT, "\r");
+            await key("Enter", "Enter", 13, SHIFT, "\r");
+            const sentShown = await until(`!!${q("[data-comment-sent-note]")}`, 5000);
+            await sleep(300);
+            const prompts = JSON.parse(await h.ev(`JSON.stringify(window.__dcPrompts)`));
+            const stored = JSON.parse(await h.ev(`localStorage.getItem(${JSON.stringify(COMMENT_STORAGE_KEY)}) || "{}"`));
+            const anchor = ctx.agentAnchor;
+            const short = /^[0-9a-f]{40}$/.test(anchor ?? "") ? anchor.slice(0, 7) : anchor;
+            const want = [
+                `Review comments on your changes (worktree against ${short}), 3 comments:`,
+                "",
+                "  src/retry/policy.go:4",
+                "  >     return 8",
+                `  ${DC_NOTE_RETURN}`,
+                "",
+                "  src/retry/policy.go:7-9",
+                "  > func Floor() int {",
+                `  ${DC_NOTE_FLOOR}`,
+                "",
+                `  src/retry/legacy.go: removed lines 1-3 of ${short}`,
+                "  > package retry",
+                `  ${DC_NOTE_LEGACY}`,
+                "",
+                "  Line numbers are the file as shown in the diff. Address each comment, then say which you changed.",
+            ].join("\n");
+            const text = prompts[0]?.text ?? "";
+            mkdirSync("cdp-shots", { recursive: true });
+            writeFileSync("cdp-shots/diff-comments-prompt.txt", text);
+            const sentBar = await bar();
+            const left = await h.ev(`document.querySelectorAll("[data-diff-comment-card]").length`);
+            rec(
+                `9d. Shift+Enter sends exactly one agentprompt with the Prompt board's text, the cards leave and Sent 3 comments to ${name} shows`,
+                sentShown &&
+                    prompts.length === 1 &&
+                    prompts[0].blockid === ctx.blockId &&
+                    text === want &&
+                    left === 0 &&
+                    sentBar?.sent?.startsWith(`Sent 3 comments to ${name}`) &&
+                    Object.keys(stored).every((k) => !k.includes(ctx.tabId)),
+                JSON.stringify({ prompts: prompts.length, block: prompts[0]?.blockid, matches: text === want, sentBar, cardsLeft: left }) +
+                    "\nprompt:\n" +
+                    text +
+                    (text === want ? "" : "\nwant:\n" + want)
+            );
+            await h.shot("cdp-shots/diff-comments-sent.png");
+            await h.ev(`(() => { const c = window.TabRpcClient; if (c.__dcOrig) { c.wshRpcCall = c.__dcOrig; delete c.__dcOrig; } })()`);
+
+            await toggleSplit();
+            await pin();
+            await openFile(POLICY);
+            const lastOne = await commentOnLine(4, DC_NOTE_RETURN);
+            await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]);
+            ctx.tabClosed = true;
+            const endedText = `${name} has ended · to`;
+            const ended = await until(`(${q(BAR)}?.textContent ?? "").includes(${JSON.stringify(endedText)})`, 15000);
+            const endedBar = await bar();
+            rec(
+                `10. after the agent's tab closes the bar keeps its batch and reads ${name} has ended · to a new agent in ${name}'s folder`,
+                lastOne &&
+                    ended &&
+                    endedBar?.kind === "new" &&
+                    endedBar.count === "1 comment" &&
+                    endedBar.recipient === "a new agent" &&
+                    endedBar.detail === `in ${name}'s folder`,
+                JSON.stringify({ lastOne, bar: endedBar })
+            );
+            await h.shot("cdp-shots/diff-comments-ended.png");
+
+            const runOpened = await openDcRun(h, ctx, { until, q, rowSel });
+            const runFile = runOpened.ok && (await openFile(POLICY));
+            const onRun = runFile && (await commentOnLine(4, DC_NOTE_RETURN));
+            const reason = `run ${(ctx.run?.runId ?? "").slice(0, 8)} hasn't landed; send once it does`;
+            const waited = await until(`${q("[data-comment-detail]")}?.textContent === ${JSON.stringify(reason)}`, 8000);
+            const runBar = await bar();
+            rec(
+                `11. a run source that has not landed reads ${reason} with Send disabled`,
+                waited && runBar?.kind === "wait" && runBar.sendDisabled === true && runBar.count === "1 comment",
+                JSON.stringify({ opened: runOpened, runFile, onRun, bar: runBar })
+            );
+            await h.shot("cdp-shots/diff-comments-run-wait.png");
         } catch (e) {
             rec("scenario aborted", false, String(e?.message ?? e));
         }
@@ -4937,9 +5250,21 @@ const diffComments = {
     },
     async teardown(h, ctx) {
         await h.ev("document.activeElement?.blur?.()");
+        await h.ev(`(() => { const c = window.TabRpcClient; if (c?.__dcOrig) { c.wshRpcCall = c.__dcOrig; delete c.__dcOrig; } })()`);
+        if (ctx.tabId && !ctx.tabClosed) {
+            try {
+                await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]);
+            } catch {
+                /* a tab left open is cheaper than a failed teardown */
+            }
+        }
         await h.ev(restoreLocalStorage(COMMENT_STORAGE_KEY, ctx.prevComments));
         // the store still holds this scenario's batch in memory and would write it back over the restored key
         await reloadApp(h);
+        if (ctx.run != null) {
+            // a done run cannot be cancelled
+            await teardownFixtureRun(h, { ...ctx.run, runId: null }, "diff-comments", null);
+        }
         try {
             await h.rpc("deleteproject", { name: ctx.name });
         } catch {

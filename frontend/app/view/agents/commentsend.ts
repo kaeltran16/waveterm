@@ -179,6 +179,25 @@ async function step(what: string, fn: () => Promise<void>): Promise<void> {
     }
 }
 
+// The send bar's send, registered while the bar is mounted so Shift+Enter on the surface reaches it, as
+// diffcommentlayer.ts does for `m`. It returns false when there is nothing to send.
+let mountedSend: (() => boolean) | null = null;
+
+export function registerCommentSend(send: () => boolean): () => void {
+    mountedSend = send;
+    // by identity: a teardown that lands after the next bar mounted must not unregister it
+    return () => {
+        if (mountedSend === send) {
+            mountedSend = null;
+        }
+    };
+}
+
+// false = no bar mounted, no batch, or a recipient that has to wait, so the binding lets the key pass
+export function sendPendingComments(): boolean {
+    return mountedSend?.() ?? false;
+}
+
 // the batches being sent, by source key: a second Shift+Enter must not hand the same comments over twice
 const sending = new Set<string>();
 

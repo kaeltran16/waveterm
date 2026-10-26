@@ -35,6 +35,8 @@ import {
 import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
 import { sendBrainstorm } from "@/app/view/agents/brainstormsend";
 import type { BrainstormFile } from "@/app/view/agents/brainstormmodel";
+import { registerCommentSend } from "@/app/view/agents/commentsend";
+import { commentOnSelection } from "@/app/view/agents/diffcommentlayer";
 import { gotoChange } from "@/app/view/agents/diffnav";
 import { ignoreWsAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
@@ -102,6 +104,11 @@ vi.mock("@/app/view/agents/brainstormsend", async (orig) => ({
     ...(await orig<typeof import("@/app/view/agents/brainstormsend")>()),
     sendBrainstorm: vi.fn(async () => {}),
 }));
+// the real function, watched: with no editor mounted it declines on its own
+vi.mock("@/app/view/agents/diffcommentlayer", async (orig) => {
+    const mod = await orig<typeof import("@/app/view/agents/diffcommentlayer")>();
+    return { ...mod, commentOnSelection: vi.fn(mod.commentOnSelection) };
+});
 vi.mock("@/app/view/agents/diffnav", async (orig) => ({
     ...(await orig<typeof import("@/app/view/agents/diffnav")>()),
     gotoChange: vi.fn(() => true),
@@ -1888,6 +1895,46 @@ describe("Diff keys, DOM and toggles", () => {
         expect(find("files:change-refs").run(on)).toBeUndefined();
         expect(querySelector).toHaveBeenCalledWith("[data-ref-pair]");
         expect(click).toHaveBeenCalledOnce();
+    });
+
+    it("m declines with no editor mounted, and comments through the mounted layer", () => {
+        const b = find("files:comment");
+        expect(b.keys).toBe("m");
+        expect(b.when?.(on)).toBe(true);
+        expect(b.when?.({ ...on, editable: true })).toBe(false);
+        expect(b.run(on)).toBe(false);
+        vi.mocked(commentOnSelection).mockReturnValueOnce(true);
+        expect(b.run(on)).toBe(true);
+        expect(commentOnSelection).toHaveBeenCalledTimes(2);
+    });
+
+    it("Shift+Enter declines with no send bar or nothing to send, and sends through the registered bar", () => {
+        const b = find("files:send-comments");
+        expect(b.keys).toBe("Shift:Enter");
+        expect(b.when?.(on)).toBe(true);
+        expect(b.when?.({ ...on, modalOpen: true })).toBe(false);
+        expect(b.run(on)).toBe(false);
+        const send = vi.fn(() => false);
+        const unregister = registerCommentSend(send);
+        expect(b.run(on)).toBe(false);
+        send.mockReturnValue(true);
+        expect(b.run(on)).toBe(true);
+        expect(send).toHaveBeenCalledTimes(2);
+        unregister();
+        expect(b.run(on)).toBe(false);
+        expect(send).toHaveBeenCalledTimes(2);
+    });
+
+    it("an old send bar's teardown leaves the bar that replaced it registered", () => {
+        const first = vi.fn(() => true);
+        const second = vi.fn(() => true);
+        const dropFirst = registerCommentSend(first);
+        const dropSecond = registerCommentSend(second);
+        dropFirst();
+        expect(find("files:send-comments").run(on)).toBe(true);
+        expect(second).toHaveBeenCalledOnce();
+        expect(first).not.toHaveBeenCalled();
+        dropSecond();
     });
 
     it("Escape inside compare returns to the range compare was entered from", () => {
