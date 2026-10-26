@@ -73,6 +73,13 @@ export function DagTaskPeek({
     // the shared 1s ticker drives the Verify elapsed; without the roster context there is no ticker
     const tick = useAtomValue(agentsCtx?.model.nowAtom ?? NO_TICK_ATOM);
     const worker = resolveTaskWorker({ id: task.id, runid: task.runid }, childRun, agentsCtx?.agents ?? []);
+    // the engine clears reviewrunid at the verdict, so the reviewer's box shows only while a review runs
+    const reviewRun = useAtomValue<Run | undefined>(
+        (task.reviewrunid ? runAtom(task.reviewrunid) : NO_RUN_ATOM) as Atom<Run | undefined>
+    );
+    const reviewer = task.reviewrunid
+        ? resolveTaskWorker({ id: task.id, runid: task.reviewrunid }, reviewRun, agentsCtx?.agents ?? [])
+        : null;
     const peek = taskPeek(task, digestTask, briefs, tick || Date.now());
     const { events, status } = useRunEventsState(group.runid, group.channelid);
 
@@ -168,7 +175,8 @@ export function DagTaskPeek({
                     ))}
                 </div>
             ) : null}
-            {agentsCtx ? <WorkerSession worker={worker} model={agentsCtx.model} /> : null}
+            {agentsCtx ? <WorkerSession worker={worker} model={agentsCtx.model} role="Worker" /> : null}
+            {agentsCtx && reviewer ? <WorkerSession worker={reviewer} model={agentsCtx.model} role="Reviewer" /> : null}
             <dl className={PEEK_DL}>
                 <dt className={PEEK_DT}>Worker</dt>
                 <dd
@@ -324,17 +332,25 @@ function EscalatePanel({
 const SESSION_BOX = "flex min-w-0 items-center gap-2 rounded-[8px] border border-edge-mid px-[9px] py-[7px]";
 const SESSION_BTN = "flex-none cursor-pointer rounded-[6px] border px-2 py-[3px] text-[12px] font-semibold";
 
-// WorkerSession is the task's worker treatment: the shared status line when dispatched, with Open in Agent,
-// and the explicit pending and worker-unavailable states. A double-click or Enter on the node opens the same
-// place as the button.
-function WorkerSession({ worker, model }: { worker: TaskWorkerView; model: AgentsViewModel }) {
+// WorkerSession is a task session's treatment, its worker's or its running reviewer's: the shared status line
+// when dispatched, with Open in Agent, and the explicit pending and unavailable states. A double-click or Enter
+// on the node opens the same place as the worker's button.
+function WorkerSession({
+    worker,
+    model,
+    role,
+}: {
+    worker: TaskWorkerView;
+    model: AgentsViewModel;
+    role: "Worker" | "Reviewer";
+}) {
     const open = (e: MouseEvent) => {
         e.stopPropagation();
         openFromGraph(worker, model);
     };
     if (worker.state === "pending") {
         return (
-            <div className={cn(SESSION_BOX, "border-dashed text-[12.5px] text-ink-mid")}>
+            <div data-dag-peek-session={role} className={cn(SESSION_BOX, "border-dashed text-[12.5px] text-ink-mid")}>
                 <span className="h-1.5 w-1.5 flex-none rounded-full bg-edge-strong" />
                 Not dispatched yet
             </div>
@@ -342,7 +358,7 @@ function WorkerSession({ worker, model }: { worker: TaskWorkerView; model: Agent
     }
     if (worker.state === "dispatched" && worker.agent) {
         return (
-            <SessionBox>
+            <SessionBox role={role}>
                 <StatusLine agent={worker.agent} nowAtom={model.nowAtom} className="min-w-0 flex-1" />
                 <button
                     type="button"
@@ -355,8 +371,8 @@ function WorkerSession({ worker, model }: { worker: TaskWorkerView; model: Agent
         );
     }
     return (
-        <SessionBox>
-            <span className="flex-1 text-[12.5px] text-ink-mid">Worker session unavailable</span>
+        <SessionBox role={role}>
+            <span className="flex-1 text-[12.5px] text-ink-mid">{role} session unavailable</span>
             <button
                 type="button"
                 onClick={open}
@@ -368,8 +384,12 @@ function WorkerSession({ worker, model }: { worker: TaskWorkerView; model: Agent
     );
 }
 
-function SessionBox({ children }: { children: ReactNode }) {
-    return <div className={cn(SESSION_BOX, "bg-surface")}>{children}</div>;
+function SessionBox({ role, children }: { role: string; children: ReactNode }) {
+    return (
+        <div data-dag-peek-session={role} className={cn(SESSION_BOX, "bg-surface")}>
+            {children}
+        </div>
+    );
 }
 
 // stable no-run atom for a task that has not been dispatched (runAtom is oref-cached, so per-run atoms keep

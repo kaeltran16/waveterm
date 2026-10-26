@@ -14499,6 +14499,144 @@ const dagPeekScenario = {
     },
 };
 
+// --- dag-reviewer-session: the task peek's reviewer box ---------------------------------------------------------
+// t-1 is seeded reviewing, its worker and reviewer stand-in runs each recording a tab that the fixture roster holds,
+// so the peek resolves both sessions as a live review would. The dag is seeded done so no tick touches the seed:
+// a seeded DAG proves the UI, not the engine.
+const DRS_TASKS = [{ id: "t-1", label: "hello", description: "do nothing, stop immediately", deps: [], state: "" }];
+const DRS_LEAD = "drs lead";
+// tab ids are object ids: cancelling the run parses each recorded worker oref
+const DRS_WORKER = { id: "0d5e2c11-6f0a-4c8e-9a51-7b2f3e1d0a01", name: "drs worker" };
+const DRS_REVIEWER = { id: "0d5e2c11-6f0a-4c8e-9a51-7b2f3e1d0a02", name: "drs reviewer" };
+const DRS_MODAL = `document.querySelector("[data-dag-modal-kind]")`;
+const DRS_PEEK = `${DRS_MODAL}?.querySelector('[data-dag-task-peek="t-1"]')`;
+const drsBox = (role) => `${DRS_PEEK}?.querySelector('[data-dag-peek-session="${role}"]')`;
+const drsText = (role) => `(${drsBox(role)}?.innerText ?? "").replace(/\\s+/g, " ").trim()`;
+const DRS_HEADER = `(document.querySelector("[data-agent-header]")?.textContent ?? "").trim()`;
+
+// a deferred quick run whose running phase records the stand-in's tab, as a spawned worker's does
+async function drsStandIn(h, ctx, agent) {
+    const created = await h.rpc("createrun", {
+        channelid: ctx.channelId,
+        workspaceid: (await h.rpc("workspacelist", null))[0].workspacedata.oid,
+        goal: `verify dag-reviewer-session: stand-in run of ${agent.name}`,
+        runtime: "claude",
+        mode: "quick",
+        deferstart: true,
+    });
+    const phase = { kind: "quick", state: "running", startedts: Date.now(), workerorefs: [`tab:${agent.id}`] };
+    await fstWriteRun(h, created.run.id, (run) => ({ ...run, phases: [phase] }));
+    return created.run.id;
+}
+
+const drsAgent = (a, runId, task) => ({
+    ...a,
+    project: "waveterm",
+    task,
+    state: "working",
+    agent: "claude",
+    model: "opus",
+    activeMs: 60_000,
+    runId,
+    blockId: `fx-blk-${a.id}`,
+});
+
+const dagReviewerSession = {
+    name: "dag-reviewer-session",
+    surface: "jarvis",
+    async arrange(h) {
+        await h.cdp("Emulation.setDeviceMetricsOverride", DAG_PEEK_VIEWPORT);
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-dag-reviewer-session-")) };
+        try {
+            await arrangeFixtureRun(h, ctx, "dag-reviewer-session", DRS_LEAD);
+            const workerRun = await drsStandIn(h, ctx, DRS_WORKER);
+            const reviewRun = await drsStandIn(h, ctx, DRS_REVIEWER);
+            await h.rpc("dagsubmit", {
+                channelid: ctx.channelId,
+                runid: ctx.runId,
+                title: "verify dag-reviewer-session",
+                parallelism: 1,
+                tasks: DRS_TASKS,
+            });
+            ctx.dagId = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.oid;
+            await seedDag(
+                h,
+                ctx,
+                (dag) => ({
+                    ...dag,
+                    status: "done",
+                    tasks: dag.tasks.map((t) => ({ ...t, state: "reviewing", runid: workerRun, reviewrunid: reviewRun })),
+                }),
+                (dag) => JSON.stringify([dag?.status, dag?.tasks?.[0]?.state, dag?.tasks?.[0]?.reviewrunid])
+            );
+            // the roster is read at boot, so the stand-ins join it before the reload
+            const roster = [
+                ...treeRailRoster(ctx.runId, Date.now(), DRS_LEAD),
+                drsAgent(DRS_WORKER, workerRun, "hello"),
+                drsAgent(DRS_REVIEWER, reviewRun, "review t-1"),
+            ];
+            writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(roster, null, 2));
+            await h.ev("location.reload()");
+            await polishWaitFor(h, `!!document.querySelector("nav button")`, 30_000);
+            await h.cdp("Emulation.setDeviceMetricsOverride", DAG_PEEK_VIEWPORT);
+            await h.goto("jarvis");
+            ctx.opened = await h.ev(`(async () => {
+                for (let i = 0; i < 20 && typeof window.__openAddress !== "function"; i++) {
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                if (typeof window.__openAddress !== "function") return { ok: false, why: "no __openAddress hook" };
+                return window.__openAddress(${JSON.stringify(`run:${ctx.runId}`)});
+            })()`);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const openDag = `[...(document.querySelector("[data-run-sheet]")?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "Open DAG")`;
+        const sheet = await polishWaitFor(h, `!!${openDag}`, 15000);
+        if (sheet) await h.ev(`${openDag}.click()`);
+        const graph = await polishWaitFor(h, `!!${DRS_MODAL}?.querySelector('[data-dag-node="t-1"]')`, 10000);
+        // a click before the graph has laid out opens nothing, so it is repeated until the peek shows
+        const shown =
+            graph &&
+            (await polishWaitFor(
+                h,
+                `${drsText("Reviewer")}.includes("Open in Agent") || (${DRS_PEEK} == null && void ${DRS_MODAL}.querySelector('[data-dag-node="t-1"]').click())`,
+                10000
+            ));
+        const worker = await h.ev(drsText("Worker"));
+        const reviewer = await h.ev(drsText("Reviewer"));
+        await h.shot("cdp-shots/dag-reviewer-session.png");
+        steps.push({
+            step: "1. t-1 reviewing: the peek shows the worker's session and, under it, the reviewer's, each its own agent",
+            ok:
+                ctx.arrangeError == null &&
+                sheet &&
+                graph &&
+                shown &&
+                worker.includes(DRS_WORKER.name) &&
+                reviewer.includes(DRS_REVIEWER.name),
+            detail: JSON.stringify({ arrangeError: ctx.arrangeError, sheet, graph, worker, reviewer }),
+        });
+
+        await h.ev(`[...(${drsBox("Reviewer")}?.querySelectorAll("button") ?? [])].find((b) => /open in agent/i.test(b.innerText || ""))?.click()`);
+        const focused = await polishWaitFor(h, `${DRS_HEADER}.includes(${JSON.stringify(DRS_REVIEWER.name)})`, 5000);
+        const landed = await h.ev(`({ modalGone: ${DRS_MODAL} == null, header: ${DRS_HEADER} })`);
+        await h.shot("cdp-shots/dag-reviewer-session-opened.png");
+        steps.push({
+            step: "2. the reviewer's Open in Agent closes the DAG and focuses the reviewer, not the worker",
+            ok: focused && landed.modalGone,
+            detail: JSON.stringify(landed),
+        });
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "dag-reviewer-session");
+    },
+};
+
 // --- final-shots: the Final check row, dock button and viewer (.superpowers/design/final-shots) ------------
 // A deferred run's dag is rewritten through object.UpdateObject with a Final command, a failed round 1 kept in
 // pastfinals and an unverified round 2, both carrying the Viewer board's manifest. Their out dirs are temp dirs of
@@ -26440,6 +26578,7 @@ export const SCENARIOS = [
     runCost,
     dagObservability,
     dagPeekScenario,
+    dagReviewerSession,
     recordBandDetachRestore,
     agentRailFileLink,
     shellTasksScenario,
