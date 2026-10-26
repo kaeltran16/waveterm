@@ -23,6 +23,7 @@ import {
     quoteLines,
     relocate,
     relocateComments,
+    removeComments,
     sentNoteAtom,
     type BatchSource,
     type CommentBatch,
@@ -382,6 +383,42 @@ describe("deleteComment and discardBatch", () => {
         discardBatch("agent:a1");
         expect(Object.keys(globalStore.get(commentStoreAtom))).toEqual(["agent:a2"]);
         expect(Object.keys(JSON.parse(ls.data[COMMENT_STORAGE_KEY]))).toEqual(["agent:a2"]);
+    });
+});
+
+describe("removeComments", () => {
+    const addThree = () => {
+        addComment(SOURCE, draft());
+        addComment(SOURCE, draft({ start: 7, end: 7 }));
+        addComment(SOURCE, draft({ start: 9, end: 9 }));
+        return globalStore.get(commentStoreAtom)["agent:a1"].comments;
+    };
+
+    it("removeComments keeps a comment that is not in ids", () => {
+        const ls = mockLocalStorage();
+        const [a, b, c] = addThree();
+        removeComments("agent:a1", [a.id, b.id]);
+        expect(globalStore.get(commentStoreAtom)["agent:a1"].comments).toEqual([c]);
+        expect(JSON.parse(ls.data[COMMENT_STORAGE_KEY])["agent:a1"].comments).toEqual([c]);
+    });
+
+    it("removeComments deletes the batch when every comment is removed", () => {
+        const ls = mockLocalStorage();
+        const ids = addThree().map((c) => c.id);
+        removeComments("agent:a1", ids);
+        expect(globalStore.get(commentStoreAtom)["agent:a1"]).toBeUndefined();
+        expect(JSON.parse(ls.data[COMMENT_STORAGE_KEY])["agent:a1"]).toBeUndefined();
+    });
+
+    it("removeComments writes nothing when no id matches", () => {
+        const ls = mockLocalStorage();
+        addThree();
+        const before = globalStore.get(commentStoreAtom);
+        const writes = ls.writes();
+        removeComments("agent:a1", ["nope"]);
+        removeComments("agent:zzz", ["nope"]);
+        expect(globalStore.get(commentStoreAtom)).toBe(before);
+        expect(ls.writes()).toBe(writes);
     });
 });
 

@@ -13,6 +13,7 @@ import {
     type RecipientFacts,
 } from "./commentsend";
 import {
+    addComment,
     commentStoreAtom,
     sentNoteAtom,
     type BatchSource,
@@ -378,5 +379,42 @@ describe("sendBatch", () => {
         fail = false;
         await sendBatch(b, LIVE, io);
         expect(io.prompts).toHaveLength(1);
+    });
+
+    // the hand-over takes seconds and the composer stays usable, so a comment can land mid-send
+    const addDuringSend = () =>
+        addComment(batchOf().source, {
+            path: "src/b.go",
+            side: "modified",
+            start: 5,
+            end: 5,
+            quote: ["five"],
+            refs: REFS,
+            note: "added mid-send",
+        });
+
+    it("sendBatch keeps a comment added while a live send is in flight", async () => {
+        const b = batchOf();
+        seed(b);
+        let release: () => void = () => {};
+        const io = fakeIO({ prompt: () => new Promise<void>((resolve) => (release = resolve)) });
+        const sent = sendBatch(b, LIVE, io);
+        addDuringSend();
+        release();
+        await sent;
+        expect(stored(b).comments.map((c) => c.note)).toEqual(["added mid-send"]);
+        expect(globalStore.get(sentNoteAtom)[b.source.key]).toMatchObject({ count: b.comments.length, to: "loom" });
+    });
+
+    it("sendBatch keeps a comment added while a new agent is starting", async () => {
+        const b = batchOf();
+        seed(b);
+        let release: () => void = () => {};
+        const io = fakeIO({ launch: () => new Promise<void>((resolve) => (release = resolve)) });
+        const sent = sendBatch(b, NEW, io);
+        addDuringSend();
+        release();
+        await sent;
+        expect(stored(b).comments.map((c) => c.note)).toEqual(["added mid-send"]);
     });
 });

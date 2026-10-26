@@ -364,6 +364,18 @@ export function deleteComment(key: string, id: string): void {
     commit(withBatch(store, key, { ...batch, at: Date.now(), comments: batch.comments.filter((c) => c.id !== id) }));
 }
 
+// After a send: drops what went into the prompt and keeps a comment added while the send was in flight.
+export function removeComments(key: string, ids: string[]): void {
+    const store = globalStore.get(commentStoreAtom);
+    const batch = store[key];
+    const drop = new Set(ids);
+    if (batch == null || !batch.comments.some((c) => drop.has(c.id))) {
+        return;
+    }
+    const comments = batch.comments.filter((c) => !drop.has(c.id));
+    commit(withBatch(store, key, { ...batch, at: Date.now(), comments }));
+}
+
 export function discardBatch(key: string): void {
     const store = globalStore.get(commentStoreAtom);
     if (store[key] == null) {

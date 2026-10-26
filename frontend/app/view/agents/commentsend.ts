@@ -12,7 +12,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { buildCommentPrompt } from "./commentprompt";
-import { discardBatch, sentNoteAtom, type CommentBatch } from "./diffcomments";
+import { removeComments, sentNoteAtom, type CommentBatch } from "./diffcomments";
 import { runtimeStartupCommand } from "./launch";
 import { folderName } from "./usageattribution";
 
@@ -211,10 +211,12 @@ export async function sendBatch(batch: CommentBatch, r: Recipient, io: CommentSe
         return;
     }
     sending.add(key);
+    // the snapshot the prompt is built from: a comment added during the hand-over stays for the next send
+    const sent = batch.comments.map((c) => c.id);
     try {
         if (r.kind === "live") {
             await step(`Couldn't send to ${r.name}`, () => io.prompt(r.blockId, buildCommentPrompt(batch, "live")));
-            discardBatch(key);
+            removeComments(key, sent);
             const notes = globalStore.get(sentNoteAtom);
             globalStore.set(sentNoteAtom, {
                 ...notes,
@@ -225,7 +227,7 @@ export async function sendBatch(batch: CommentBatch, r: Recipient, io: CommentSe
         await step(`Couldn't start an agent in ${r.folder}`, () =>
             io.launch(r.cwd, r.project, buildCommentPrompt(batch, "new"))
         );
-        discardBatch(key);
+        removeComments(key, sent);
     } finally {
         sending.delete(key);
     }
