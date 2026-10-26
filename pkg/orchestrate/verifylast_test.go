@@ -153,7 +153,7 @@ func TestAFailingFinalVerifyAfterASkippedOneBlocksTheRun(t *testing.T) {
 
 	// the fix round's one merge is the dag's last again, and runs its own Verify as every fix-round merge does
 	failing.Store(false)
-	round, err := AppendRound(f.ctx, f.dagID, "", []waveobj.TaskNode{{ID: "t-1", Label: "fix"}})
+	round, err := AppendRound(f.ctx, f.dagID, "", []waveobj.TaskNode{{ID: "t-1", Label: "fix"}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

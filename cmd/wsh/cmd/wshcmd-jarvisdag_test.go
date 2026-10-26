@@ -235,7 +235,7 @@ func TestDagSubmitExposesPlanFlag(t *testing.T) {
 func TestDagSubmitRoundSendsRound(t *testing.T) {
 	flags := dagSubmitCmd.Flags()
 	t.Cleanup(func() {
-		for _, name := range []string{"plan", "round", "channel", "runid"} {
+		for _, name := range []string{"plan", "round", "granted", "channel", "runid"} {
 			f := flags.Lookup(name)
 			f.Value.Set(f.DefValue)
 			f.Changed = false
@@ -250,10 +250,22 @@ func TestDagSubmitRoundSendsRound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !data.Round || !filepath.IsAbs(data.PlanPath) || !strings.HasSuffix(data.PlanPath, "f.md") || data.ChannelId != "ch-1" || data.RunId != "run-1" {
+	if !data.Round || !filepath.IsAbs(data.PlanPath) || !strings.HasSuffix(data.PlanPath, "f.md") || data.ChannelId != "ch-1" || data.RunId != "run-1" || data.Granted != "" {
 		t.Fatalf("`dag submit --round --plan f.md` sends %+v", data)
 	}
+	if err := flags.Set("granted", "one more"); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := dagSubmitData(dagSubmitCmd); err != nil || !data.Round || data.Granted != "one more" {
+		t.Fatalf("`dag submit --round --granted` sends the human's words, got %+v, %v", data, err)
+	}
 	if err := flags.Set("round", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dagSubmitData(dagSubmitCmd); err == nil || !strings.Contains(err.Error(), "--granted goes with --round") {
+		t.Fatalf("--granted without --round is refused, got %v", err)
+	}
+	if err := flags.Set("granted", ""); err != nil {
 		t.Fatal(err)
 	}
 	if data, err := dagSubmitData(dagSubmitCmd); err != nil || data.Round {

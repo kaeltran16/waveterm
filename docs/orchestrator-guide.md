@@ -701,7 +701,7 @@ is retried once; after that the lead counts as dead and its events come to you.
 | **Worker hung** (15 min silent, process alive, no ask pending) | same as a failure | same |
 | **Worker may be stuck** (worktree unchanged 20 min while active, or the same failure 3x) | `dag tell`, `dag retry`, `dag escalate`, or lets it run | same |
 | **Worker never started** (5 min after spawn, its terminal's shell never came up) | `dag retry` | same |
-| **Final stage failed** | writes a fix plan and runs `dag submit --round --plan <fix plan>` (tasks only: the round runs the run's own Verify, Setup, Check and Final, and a fix plan naming different ones is refused); puts it to you when no round is left or the fix is a product call | a failed last round, or a product call |
+| **Final stage failed** | writes a fix plan and runs `dag submit --round --plan <fix plan>` (tasks only: the round runs the run's own Verify, Setup, Check and Final, and a fix plan naming different ones is refused); puts it to you when no round is left or the fix is a product call, and on your `One more round` submits with `--granted "<your words>"` | a failed last round, or a product call |
 | **Run finished** | fixes and commits what the landed tasks left behind, writes a judgment-only report to a file (a line per task, its decisions and why, wrap-up commits, open issues; the engine records landed commits, worktrees left behind, counts and unverified reasons in the sealed record), runs one round for the open issues inside the goal when the wake says a round is left, and adds the rest to the run's effort; fixes a land conflict the wake names, and only reports any other land blocker (never touching uncommitted changes that are not its own); then completes on its own with `wsh jarvis complete --report <file>`, which lands the branch and prints `landed <sha>` or `held: <reason>` for its report | a question only when a decision is needed (a failed verification or a deviation), then the Done face |
 
 In `dag status`, a running worker that has written nothing lately reads `idle Nm`, or `running a command Nm · <tool>`
@@ -1004,10 +1004,13 @@ own numbers and Depends mapped on. Each description opens with `Fix round N: thi
 <path>`, so its worker reads the fix plan, not the run's. The dag keeps its Verify, Setup, Check, Final and
 Prototype. On a branch-landed run the fix plan is committed to `wave/<runId>` first, and the new tasks cut from
 the landing tree's head. A fix round skips the plan review, but each of its tasks is reviewed. When its tasks
-land, the final stage runs again as round 2. The final stage runs at most twice (`MaxFinalRounds`): the first
-round and one fix round. `--round` is refused, with the reason, while the stage is still running or when no
-round is left. After round 2 fails, the wake tells the lead to put it to you. It does the same
-when the fix is a product call.
+land, the final stage runs again as the next round. The final stage runs at most three times on its own
+(`MaxFinalRounds`): the first round and two fix rounds. `--round` is refused, with the reason, while the stage is
+still running or when no round is left. After round 3 fails, the wake tells the lead to put it to you, with
+`One more round` among the options beside `Land anyway` and `Keep the land held`. On that answer the lead submits
+the fix plan with `dag submit --round --granted "<your words>"`, which the engine accepts only after a failed last
+round on a run that is not autonomous, and posts your words to the channel. The granted round is the last again, so
+a failed one comes back to you the same way. The lead also puts it to you when the fix is a product call.
 
 **This repo's Final command** is `node scripts/cdp/final-verify.mjs [scenario...]`. It starts a dev app from the
 final tree, runs the named `verify:ui` scenarios (all of them with none named) and writes into `ARC_FINAL_OUT`:
@@ -1227,6 +1230,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 |---|---|
 | `dag submit --plan <md> [--spec <md>]` | validate the plan and start the engine on it (one DAG per run); after a failed plan review, submit the revised plan again |
 | `dag submit --round --plan <fix plan>` | after the final stage finishes with a round left, append the fix plan's tasks as a round |
+| `dag submit --round --granted "<the human's words>" --plan <fix plan>` | after a failed last round, on the human's `One more round`: a round past the last (refused on an autonomous run) |
 | `dag status` | per-task digest, the plan review's state and round, the report numbers, landed commits, Verify and merge errors, what you told workers, unverified notes, the final stage, token usage |
 | `dag status <task>` | that task only: its row, its Verify or merge error, its report and review lines, what you told it |
 | `dag asks` | questions the lead holds, oldest first, with every option |

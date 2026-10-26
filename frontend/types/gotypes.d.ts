@@ -738,6 +738,7 @@ declare global {
         planpath?: string;
         specpath?: string;
         round?: boolean;
+        granted?: string;
     };
 
     // wshrpc.CommandDecideMemoryChangeData

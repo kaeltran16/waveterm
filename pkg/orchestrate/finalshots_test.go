@@ -173,7 +173,7 @@ func TestAppendRoundKeepsThePastFinal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := AppendRound(f.ctx, f.dagID, "docs/fix.md", fixPlanTasks(t)); err != nil {
+	if _, err := AppendRound(f.ctx, f.dagID, "docs/fix.md", fixPlanTasks(t), ""); err != nil {
 		t.Fatal(err)
 	}
 

@@ -37,6 +37,7 @@ type CommandDagSubmitData struct {
 	PlanPath    string             `json:"planpath,omitempty"`    // absolute path to a plan in jarvis.PlanFormat; replaces tasks
 	SpecPath    string             `json:"specpath,omitempty"`    // absolute path to the spec the plan implements; only with planpath
 	Round       bool               `json:"round,omitempty"`       // append the plan's tasks to the run's dag as a fix round after its final stage failed
+	Granted     string             `json:"granted,omitempty"`     // with round: the human's words granting a round past the last, after it failed
 }
 
 type CommandDagPlanPreviewData struct {

@@ -421,7 +421,7 @@ func submitFixRound(ctx context.Context, run *waveobj.Run, data wshrpc.CommandDa
 	}
 	// checked before the snapshot too: a refused round must not commit its plan into a landing tree the final
 	// stage may be running in
-	if err := orchestrate.CheckFixRound(g); err != nil {
+	if err := orchestrate.CheckFixRound(g, data.Granted); err != nil {
 		return nil, err
 	}
 	if err := orchestrate.CheckFixPlanCommands(g, plan.Verify, plan.Setup, plan.Check, plan.Final); err != nil {
@@ -439,7 +439,7 @@ func submitFixRound(ctx context.Context, run *waveobj.Run, data wshrpc.CommandDa
 		}
 		planPath = rels[0]
 	}
-	stored, err := orchestrate.AppendRound(ctx, g.OID, planPath, data.Tasks)
+	stored, err := orchestrate.AppendRound(ctx, g.OID, planPath, data.Tasks, data.Granted)
 	if err != nil {
 		return nil, err
 	}

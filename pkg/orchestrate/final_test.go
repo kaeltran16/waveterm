@@ -569,8 +569,12 @@ func TestAFinishedRunWithNoLeadLaunchesNoneUnlessTheFinalStageFailed(t *testing.
 
 func TestFinalFailedWakeAfterTheLastRoundGoesToTheHuman(t *testing.T) {
 	w := finalFailedWake(MaxFinalRounds, "run-1", "Final failed (exit 1):\nFAIL board", true, false)
-	if !strings.Contains(w, "the last") || !strings.Contains(w, "Put it to the human") || strings.Contains(w, "--round") {
+	if !strings.Contains(w, "the last") || !strings.Contains(w, "Put it to the human") || strings.Contains(w, "submit --round --plan") {
 		t.Fatalf("after the last round the lead forwards, got %q", w)
+	}
+	// only the human grants a round past the last
+	if !strings.Contains(w, "`One more round`") || !strings.Contains(w, `--round --granted "<the human's words>"`) {
+		t.Fatalf("the last-round wake must offer the human one more round, got %q", w)
 	}
 	// the land runs after complete closes the lead's tab, so only the lead can warn the human first
 	if !strings.Contains(w, "completing will not merge the branch") || !strings.Contains(w, "wsh runs land run-1 --force") {
@@ -604,7 +608,7 @@ func TestFinalFailedWakeAutonomous(t *testing.T) {
 	if got, want := finalFailedWake(1, "run-1", detail, false, false), "wake: the final stage failed on the merged result in round 1. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. "+fixEveryFailure+" Put it to the human if the fix is a product call:\n"+detail; got != want {
 		t.Fatalf("off, round 1:\n got %q\nwant %q", got, want)
 	}
-	if got, want := finalFailedWake(2, "run-1", detail, true, false), "wake: the final stage failed on the merged result in round 2, the last. Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land run-1 --force`, the human's call once the run is done, lands it:\n"+detail; got != want {
+	if got, want := finalFailedWake(3, "run-1", detail, true, false), "wake: the final stage failed on the merged result in round 3, the last. Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land run-1 --force`, the human's call once the run is done, lands it. "+grantedRoundOption+":\n"+detail; got != want {
 		t.Fatalf("off, last round:\n got %q\nwant %q", got, want)
 	}
 }

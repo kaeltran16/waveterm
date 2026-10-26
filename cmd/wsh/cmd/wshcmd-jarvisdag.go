@@ -84,12 +84,16 @@ func dagSubmitData(cmd *cobra.Command) (wshrpc.CommandDagSubmitData, error) {
 		return wshrpc.CommandDagSubmitData{}, err
 	}
 	round, _ := cmd.Flags().GetBool("round")
+	granted, _ := cmd.Flags().GetString("granted")
+	if granted != "" && !round {
+		return wshrpc.CommandDagSubmitData{}, fmt.Errorf("--granted goes with --round")
+	}
 	channelId, runId, err := dagIds(cmd, dagSubmitTimeoutMs)
 	if err != nil {
 		return wshrpc.CommandDagSubmitData{}, err
 	}
 	return wshrpc.CommandDagSubmitData{
-		ChannelId: channelId, RunId: runId, PlanPath: planPath, SpecPath: specPath, Round: round,
+		ChannelId: channelId, RunId: runId, PlanPath: planPath, SpecPath: specPath, Round: round, Granted: granted,
 	}, nil
 }
 
@@ -1342,6 +1346,7 @@ func init() {
 	dagSubmitCmd.Flags().String("plan", "", "the plan file to submit, in the plan format below; its tasks become the dag")
 	dagSubmitCmd.Flags().String("spec", "", "the spec the plan implements; committed with the plan in the run's first merge")
 	dagSubmitCmd.Flags().Bool("round", false, "after the final stage failed: append the fix plan's tasks to this run's dag as a fix round; the dag keeps its Verify, Setup, Check and Final")
+	dagSubmitCmd.Flags().String("granted", "", "with --round, after the last round failed: the human's words granting one more round, only on their answer")
 	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. sonnet, or opencode/deepseek-v4-pro for pi)")
 	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")
 	dagReviewCmd.Flags().String("downstream", "", "with pass: what a later task must know that the worker's report omits or gets wrong (a renamed API, a plan assumption that turned out wrong); the engine hands it to the tasks that depend on this one")

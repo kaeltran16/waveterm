@@ -67,7 +67,7 @@ func RunFinishedWake(f *waveobj.FinalStage) string {
 // roundLeftLine and noRoundLeftLine end a passed or unverified run-finished wake: the engine counts the rounds,
 // so the lead only judges which open issues are round work.
 const (
-	roundLeftLine   = "One round is left for the open issues inside the run's goal that a worker can fix: `wsh jarvis dag submit --round --plan <fix plan>`."
+	roundLeftLine   = "A round is left for the open issues inside the run's goal that a worker can fix: `wsh jarvis dag submit --round --plan <fix plan>`."
 	noRoundLeftLine = "No round is left: every open issue is an effort chunk."
 )
 
@@ -117,6 +117,10 @@ func landBlockerLines(ctx context.Context, run *waveobj.Run) string {
 // already failed on the base holds the land as much as one the run broke (run 72262859 held on four).
 const fixEveryFailure = "Fix every failing step, one already on the base or outside the goal included, since any of them holds the land."
 
+// grantedRoundOption is the extra answer the lead offers after a failed last round: the human, not the engine, judges
+// whether one more round would fix what is left.
+const grantedRoundOption = "Offer `One more round` too: on that answer, write a fix plan and run `wsh jarvis dag submit --round --granted \"<the human's words>\" --plan <fix plan>`"
+
 func finalFailedWake(round int, runID, detail string, last, autonomous bool) string {
 	switch {
 	case last && autonomous:
@@ -124,7 +128,7 @@ func finalFailedWake(round int, runID, detail string, last, autonomous bool) str
 	case autonomous:
 		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. %s If the fix is a product call, make the call you would recommend and record it and why in your report:\n%s", round, fixEveryFailure, detail)
 	case last:
-		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d, the last. Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land %s --force`, the human's call once the run is done, lands it:\n%s", round, runID, detail)
+		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d, the last. Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land %s --force`, the human's call once the run is done, lands it. %s:\n%s", round, runID, grantedRoundOption, detail)
 	}
 	return fmt.Sprintf("wake: the final stage failed on the merged result in round %d. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. %s Put it to the human if the fix is a product call:\n%s", round, fixEveryFailure, detail)
 }

@@ -60,8 +60,9 @@ func couldNotVerifyItem(label, cmd, out string) string {
 	return fmt.Sprintf("%s `%s` could not verify: %s", label, cmd, reason)
 }
 
-// MaxFinalRounds is how many times the final stage runs on one dag: the first, and one fix round.
-const MaxFinalRounds = 2
+// MaxFinalRounds is how many times the final stage runs on one dag without the human: the first, and two fix rounds.
+// The human can grant one more round after each failed last round (CheckFixRound).
+const MaxFinalRounds = 3
 
 // FinalTimeout bounds the Final command. A dev-app check boots the app first (up to 10 minutes) and then
 // runs its scenarios, so it is longer than Verify's.

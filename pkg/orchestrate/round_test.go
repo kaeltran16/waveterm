@@ -73,7 +73,7 @@ func TestAppendRoundExtendsTheDagAndCutsFromTheLandingHead(t *testing.T) {
 	gitCmd(t, tree, "commit", "-m", "docs: fix plan")
 	tip := gitCmd(t, tree, "rev-parse", "HEAD")
 
-	g, err := AppendRound(f.ctx, f.dagID, "docs/fix.md", fixPlanTasks(t))
+	g, err := AppendRound(f.ctx, f.dagID, "docs/fix.md", fixPlanTasks(t), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,30 +116,41 @@ func TestAppendRoundExtendsTheDagAndCutsFromTheLandingHead(t *testing.T) {
 	}
 }
 
-// a round is refused unless the final stage finished with a round left (Review Focus)
+// a round is refused unless the final stage finished with a round left (Review Focus), or the human granted one
+// past a failed last round on a run with a human at the cockpit
 func TestCheckFixRoundRefuses(t *testing.T) {
 	cases := []struct {
-		name    string
-		final   *waveobj.FinalStage
-		status  string
-		errPart string
+		name       string
+		final      *waveobj.FinalStage
+		status     string
+		autonomous bool
+		granted    string
+		errPart    string
 	}{
-		{"no final stage yet", nil, "", "the final stage has not finished"},
-		{"a round not started", &waveobj.FinalStage{Round: 2}, "", "the final stage has not finished"},
-		{"running its commands", &waveobj.FinalStage{State: FinalState_Checking, Round: 1}, "", "the final stage has not finished"},
-		{"its verifier judging", &waveobj.FinalStage{State: FinalState_Verifying, Round: 1}, "", "the final stage has not finished"},
-		{"failed the last round", &waveobj.FinalStage{State: FinalState_Failed, Round: MaxFinalRounds}, "", "no fix rounds left; forward to the human"},
-		{"passed the last round", &waveobj.FinalStage{State: FinalState_Passed, Round: MaxFinalRounds}, "", "no rounds left"},
-		{"unverified in the last round", &waveobj.FinalStage{State: FinalState_Unverified, Round: MaxFinalRounds}, "", "effort chunks"},
-		{"cancelled", &waveobj.FinalStage{State: FinalState_Passed, Round: 1}, DagStatus_Cancelled, "cancelled"},
-		{"failed with a round left", &waveobj.FinalStage{State: FinalState_Failed, Round: 1}, "", ""},
-		{"passed with a round left", &waveobj.FinalStage{State: FinalState_Passed, Round: 1}, "", ""},
-		{"unverified with a round left", &waveobj.FinalStage{State: FinalState_Unverified, Round: 1}, "", ""},
+		{"no final stage yet", nil, "", false, "", "the final stage has not finished"},
+		{"a round not started", &waveobj.FinalStage{Round: 2}, "", false, "", "the final stage has not finished"},
+		{"running its commands", &waveobj.FinalStage{State: FinalState_Checking, Round: 1}, "", false, "", "the final stage has not finished"},
+		{"its verifier judging", &waveobj.FinalStage{State: FinalState_Verifying, Round: 1}, "", false, "", "the final stage has not finished"},
+		{"failed the last round", &waveobj.FinalStage{State: FinalState_Failed, Round: MaxFinalRounds}, "", false, "", "no fix rounds left; put it to the human, who can grant one more"},
+		{"passed the last round", &waveobj.FinalStage{State: FinalState_Passed, Round: MaxFinalRounds}, "", false, "", "no rounds left"},
+		{"unverified in the last round", &waveobj.FinalStage{State: FinalState_Unverified, Round: MaxFinalRounds}, "", false, "", "effort chunks"},
+		{"cancelled", &waveobj.FinalStage{State: FinalState_Passed, Round: 1}, DagStatus_Cancelled, false, "", "cancelled"},
+		{"failed with a round left", &waveobj.FinalStage{State: FinalState_Failed, Round: 1}, "", false, "", ""},
+		{"failed the second round, a round left", &waveobj.FinalStage{State: FinalState_Failed, Round: 2}, "", false, "", ""},
+		{"passed with a round left", &waveobj.FinalStage{State: FinalState_Passed, Round: 1}, "", false, "", ""},
+		{"unverified with a round left", &waveobj.FinalStage{State: FinalState_Unverified, Round: 1}, "", false, "", ""},
+		{"granted past a failed last round", &waveobj.FinalStage{State: FinalState_Failed, Round: MaxFinalRounds}, "", false, "one more, it is one step", ""},
+		{"granted past a granted round that failed", &waveobj.FinalStage{State: FinalState_Failed, Round: MaxFinalRounds + 1}, "", false, "again", ""},
+		{"granted on an autonomous run", &waveobj.FinalStage{State: FinalState_Failed, Round: MaxFinalRounds}, "", true, "one more", "autonomous"},
+		{"granted with a round left", &waveobj.FinalStage{State: FinalState_Failed, Round: 1}, "", false, "one more", "drop --granted"},
+		{"granted after a passed last round", &waveobj.FinalStage{State: FinalState_Passed, Round: MaxFinalRounds}, "", false, "one more", "drop --granted"},
+		{"granted on a cancelled run", &waveobj.FinalStage{State: FinalState_Failed, Round: MaxFinalRounds}, DagStatus_Cancelled, false, "one more", "cancelled"},
+		{"a blank grant is no grant", &waveobj.FinalStage{State: FinalState_Failed, Round: MaxFinalRounds}, "", false, "  ", "no fix rounds left"},
 	}
 	for _, c := range cases {
 		g := mustGroup(t, []waveobj.TaskNode{{ID: "t-1", Label: "a"}})
-		g.Final, g.Status = c.final, c.status
-		err := CheckFixRound(g)
+		g.Final, g.Status, g.Autonomous = c.final, c.status, c.autonomous
+		err := CheckFixRound(g, c.granted)
 		if c.errPart == "" {
 			if err != nil {
 				t.Fatalf("%s: want no refusal, got %v", c.name, err)
@@ -152,12 +163,24 @@ func TestCheckFixRoundRefuses(t *testing.T) {
 	}
 }
 
+// the human's grant takes a round past the last, numbered on from it
+func TestAGrantedRoundExtendsPastTheLast(t *testing.T) {
+	f, _ := failedFinalFixture(t, MaxFinalRounds)
+	g, err := AppendRound(f.ctx, f.dagID, "docs/fix.md", fixPlanTasks(t), "one more round")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Tasks) != 9 || !reflect.DeepEqual(g.Final, &waveobj.FinalStage{Round: MaxFinalRounds + 1}) || g.Status != DagStatus_Running {
+		t.Fatalf("round %d is set up and the dag runs again, got %d tasks, %+v / %s", MaxFinalRounds+1, len(g.Tasks), g.Final, g.Status)
+	}
+}
+
 func TestAppendRoundRefusedLeavesTheDagAlone(t *testing.T) {
 	f, _ := failedFinalFixture(t, MaxFinalRounds)
 	before := f.dag(t)
 
-	_, err := AppendRound(f.ctx, f.dagID, "docs/fix.md", fixPlanTasks(t))
-	if err == nil || !strings.Contains(err.Error(), "no fix rounds left; forward to the human") {
+	_, err := AppendRound(f.ctx, f.dagID, "docs/fix.md", fixPlanTasks(t), "")
+	if err == nil || !strings.Contains(err.Error(), "no fix rounds left; put it to the human") {
 		t.Fatalf("round %d failed: want the refusal, got %v", MaxFinalRounds, err)
 	}
 	if after := f.dag(t); len(after.Tasks) != len(before.Tasks) || !reflect.DeepEqual(after.Final, before.Final) {
@@ -229,7 +252,7 @@ func TestAppendRoundAfterAPassedFinalStage(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	g, err := AppendRound(f.ctx, f.dagID, "docs/fix.md", fixPlanTasks(t))
+	g, err := AppendRound(f.ctx, f.dagID, "docs/fix.md", fixPlanTasks(t), "")
 	if err != nil {
 		t.Fatalf("a passed stage with a round left takes a round: %v", err)
 	}

@@ -195,7 +195,9 @@ func TestOrchestrationRulesCompleteOnTheirOwn(t *testing.T) {
 	}
 	for _, want := range []string{
 		"wsh jarvis dag submit --round --plan <fix plan>",
-		"at most 2 rounds",
+		"the engine counts the rounds",
+		"`One more round`",
+		`wsh jarvis dag submit --round --granted "<the human's words>" --plan <fix plan>`,
 		`wsh jarvis dag planreview accept "<the human's reason>"`,
 		// an accepted finding goes to a pending task, not to a post-final wrap-up commit (run 33880f82)
 		"first carry each accepted finding into the pending tasks it affects with `wsh jarvis dag amend <task>",

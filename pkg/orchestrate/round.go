@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -25,8 +26,9 @@ var fixRoundLineRe = regexp.MustCompile(`^Fix round \d+: this is task \d+ of the
 
 // CheckFixRound says why a dag cannot take a round, or nil. A round fixes what a failed final stage found, or
 // the open issues inside the goal that a finished run left, and the dag gets MaxFinalRounds final stages in all,
-// the first included. After a failed last round the call is the human's; after a finished one the rest is chunks.
-func CheckFixRound(g *waveobj.TaskGroup) error {
+// the first included. After a failed last round the call is the human's, who can grant one more (granted, their
+// words): the engine cannot tell a nearly-fixed run from one chasing a flake. After a finished one the rest is chunks.
+func CheckFixRound(g *waveobj.TaskGroup, granted string) error {
 	if g.Status == DagStatus_Cancelled {
 		return fmt.Errorf("dag %s is cancelled", g.OID)
 	}
@@ -37,9 +39,22 @@ func CheckFixRound(g *waveobj.TaskGroup) error {
 		}
 		return fmt.Errorf("the final stage has not finished (it is %s); a round only follows a finished final stage", state)
 	}
-	if g.Final.Round >= MaxFinalRounds {
-		if g.Final.State == FinalState_Failed {
-			return fmt.Errorf("no fix rounds left; forward to the human: the final stage failed round %d of %d", g.Final.Round, MaxFinalRounds)
+	last := g.Final.Round >= MaxFinalRounds
+	failed := g.Final.State == FinalState_Failed
+	if granted = strings.TrimSpace(granted); granted != "" {
+		switch {
+		case g.Autonomous:
+			return fmt.Errorf("a granted round is the human's call, and the run is autonomous: complete without one")
+		case !last || !failed:
+			return fmt.Errorf("--granted is only for a round past the last, after it failed; the final stage %s round %d of %d: drop --granted", g.Final.State, g.Final.Round, MaxFinalRounds)
+		case utf8.RuneCountInString(granted) > MaxReviewNoteLen:
+			return fmt.Errorf("the grant is %d characters; the limit is %d", utf8.RuneCountInString(granted), MaxReviewNoteLen)
+		}
+		return nil
+	}
+	if last {
+		if failed {
+			return fmt.Errorf("no fix rounds left; put it to the human, who can grant one more: the final stage failed round %d of %d", g.Final.Round, MaxFinalRounds)
 		}
 		return fmt.Errorf("no rounds left: the final stage %s round %d of %d; add what is left as effort chunks", g.Final.State, g.Final.Round, MaxFinalRounds)
 	}
@@ -67,16 +82,24 @@ func CheckFixPlanCommands(g *waveobj.TaskGroup, verify, setup, check, final stri
 // AppendRound extends a dag whose final stage finished with a fix plan's tasks, numbered on from its last task,
 // and sets up the next final round, which starts once they land. The dag keeps its Verify, Setup, Check, Final
 // and plan review: a fix round is not plan-reviewed, though each of its tasks is. planPath is the fix plan as
-// the dag stores its docs, repo-relative for a branch-landed dag; each task's description names it.
-func AppendRound(ctx context.Context, dagID, planPath string, tasks []waveobj.TaskNode) (*waveobj.TaskGroup, error) {
+// the dag stores its docs, repo-relative for a branch-landed dag; each task's description names it. granted is
+// the human's words for a round past the last, posted to the channel; "" otherwise.
+func AppendRound(ctx context.Context, dagID, planPath string, tasks []waveobj.TaskNode, granted string) (*waveobj.TaskGroup, error) {
 	var out *waveobj.TaskGroup
+	var afterCommit []func()
 	err := withDagMutation(dagID, func() error {
 		g, err := wstore.GetDag(ctx, dagID)
 		if err != nil {
 			return fmt.Errorf("loading dag: %w", err)
 		}
-		if err := CheckFixRound(g); err != nil {
+		if err := CheckFixRound(g, granted); err != nil {
 			return err
+		}
+		if granted = strings.TrimSpace(granted); granted != "" {
+			channelID, runID, round := g.ChannelId, g.RunID, g.Final.Round+1
+			afterCommit = append(afterCommit, func() {
+				PostQuiet(ctx, channelID, runID, fmt.Sprintf("the human granted round %d, past the last: %s", round, flatLine(granted)))
+			})
 		}
 		round := g.Final.Round + 1
 		appended, err := roundTasks(len(g.Tasks), round, planPath, tasks)
@@ -104,7 +127,13 @@ func AppendRound(ctx context.Context, dagID, planPath string, tasks []waveobj.Ta
 		out = g
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return nil, err
+	}
+	for _, fn := range afterCommit {
+		fn()
+	}
+	return out, nil
 }
 
 // roundTasks renumbers a fix plan's tasks t-(n+1)… after the dag's n, and maps their Depends from the fix
