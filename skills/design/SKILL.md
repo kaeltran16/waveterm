@@ -50,7 +50,26 @@ automatically a visual question.
 4. On feedback, read the files you will change, edit them in place, and go back to step 2. Small
    requested changes stay small.
 
-Hand over and stop. Render, screenshot or re-read the files only when the user asks.
+Hand over and stop. Render, screenshot or re-read the files only when the user asks, or in a
+finish pass.
+
+## Finishing a design
+
+When the user asks to finish a design or make it production-ready and its direction is settled,
+run a finish pass over the boards they name, or all of them:
+
+1. With no design system, add `System.dc.html`: the plan's colors, type scale, spacing and radius,
+   each named. Every other board takes its values from it.
+2. Serve the folder yourself (the probe in the loop, step 2) and screenshot each board with
+   headless Chrome or Edge into `.superpowers/design/<topic>/shots/`: a fluid board at 1440, 768
+   and 390 wide, a fixed one at its `w`, each tall enough to show the whole board:
+   `"<browser>" --headless=new --hide-scrollbars --virtual-time-budget=3000 --window-size=<w>,<h> --screenshot=<absolute .png path> <url>`
+   Read each PNG.
+3. Judge the shots against "Designing well" below and the tells, states and alignment rules in
+   `reference/craft.md`. Fix the three worst problems across the canvas and shoot again. Stop after
+   three rounds, or sooner when nothing worse than cosmetic is left. In the last round, remove one
+   accessory: the decoration that serves the brief least.
+4. Hand over as in the loop, step 3, adding what each round fixed and what is left.
 
 ## Cleaning up
 
@@ -71,9 +90,12 @@ doc in full, do's and don'ts included, and match it over any craft guidance. Cop
 from the token source itself (e.g. `@theme` in a Tailwind CSS file), never from memory or an
 older canvas. When an artboard redraws a screen or component that already exists, read its source
 and copy sizes, spacing, icons and primitives (buttons, toggles, key chips) from its classes: the
-doc gives the rules, the code gives the numbers. With no design system, commit to a small one:
-1–3 typefaces (a distinctive display face over a refined body face), a toned neutral ground, 0–2
-accents sharing chroma and lightness. State the look you chose in a line.
+doc gives the rules, the code gives the numbers. With no design system, write a small one in your
+reply before the first hi-fi artboard: 4–6 named colors (a toned neutral ground, 0–2 accents
+sharing chroma and lightness), 1–3 typefaces and their roles (a distinctive display face over a
+refined body face), the layout in a sentence or an ASCII wireframe, and the one element that makes
+this design memorable. Then check it: would a similar brief land on the same plan? Revise every
+part that would, and say what you changed.
 
 ## The files
 
