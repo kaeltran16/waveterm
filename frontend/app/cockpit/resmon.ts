@@ -191,6 +191,13 @@ export function buildViews(groups: ResMonGroup[]): ResMonView[] {
     });
 }
 
+// views in the given key order, a view not in it after them in the order it came; a key with no view drops out
+export function keepOrder(views: ResMonView[], order: string[]): ResMonView[] {
+    const at = new Map(order.map((k, i) => [k, i]));
+    const pos = (v: ResMonView) => at.get(v.key) ?? order.length;
+    return [...views].sort((a, b) => pos(a) - pos(b));
+}
+
 function plural(n: number, word: string): string {
     return `${n} ${word}${n === 1 ? "" : "s"}`;
 }

@@ -23203,6 +23203,16 @@ const resmonMain = {
         rec("1. click the readout: 700px, bottom-right; Arc first, then by CPU, every view collapsed; one view per run, not per worker",
             ok1, JSON.stringify({ width: s1?.width, right: s1?.right, bottom: s1?.bottom, readoutTop, groups: s1?.groups }));
 
+        const hot = resmonFixture();
+        hot.groups.find((g) => g.key === "job:7716").cpu = 99;
+        await resmonSet(h, hot);
+        await resmonNap(200);
+        const held = (await resmonPopover(h))?.groups.map((g) => g.key);
+        await shot("1a-held-order");
+        rec("1a. a refresh that ranks the last view first leaves the open popover's order alone",
+            JSON.stringify(held) === JSON.stringify(RESMON_GROUP_ORDER), JSON.stringify(held));
+        await resmonSet(h, resmonFixture());
+
         for (const k of RESMON_GROUP_ORDER.slice(1)) {
             await h.ev(resmonClick(resmonChevron(k)));
         }

@@ -2,13 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { launchPiTab } from "@/app/cockpit/cockpit-actions";
-import { buildViews } from "@/app/cockpit/resmon";
 import {
     confirmResMon,
     dispatchResMon,
     resmonOpenAtom,
-    resmonSnapshotAtom,
     resmonUiAtom,
+    resmonViewsAtom,
 } from "@/app/cockpit/resmonstore";
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
@@ -1795,7 +1794,7 @@ export function buildFinalShotsBindings(handlers: {
 export function buildResMonBindings(model: AgentsViewModel): Binding[] {
     const active = (ctx: KeyContext) =>
         globalStore.get(resmonOpenAtom) && !ctx.editable && !anyModalOpen() && !globalStore.get(model.paletteOpenAtom);
-    const views = () => buildViews(globalStore.get(resmonSnapshotAtom)?.groups ?? []);
+    const views = () => globalStore.get(resmonViewsAtom);
     const bind = (id: string, keys: string, label: string, run: () => void): Binding => ({
         id: `resmon:${id}`,
         keys,

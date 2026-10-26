@@ -17,7 +17,6 @@ import { useAtomValue } from "jotai";
 import { AppWindow, ChevronRight, CircleAlert, SquareTerminal, Workflow, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-    buildViews,
     fmtAge,
     fmtCpu,
     fmtMem,
@@ -38,7 +37,14 @@ import {
     type ResMonView,
 } from "./resmon";
 import { resmonOpener } from "./resmonreadout";
-import { confirmResMon, dispatchResMon, resmonOpenAtom, resmonSnapshotAtom, resmonUiAtom } from "./resmonstore";
+import {
+    confirmResMon,
+    dispatchResMon,
+    resmonOpenAtom,
+    resmonSnapshotAtom,
+    resmonUiAtom,
+    resmonViewsAtom,
+} from "./resmonstore";
 
 const GRID = "grid grid-cols-[minmax(0,1fr)_60px_64px_64px_76px_84px] items-center px-3.5";
 const INDENT_PX = 14;
@@ -127,7 +133,7 @@ function Note({ note }: { note: ResMonUi["notes"][string] }) {
 }
 
 function currentViews(): ResMonView[] {
-    return buildViews(globalStore.get(resmonSnapshotAtom)?.groups ?? []);
+    return globalStore.get(resmonViewsAtom);
 }
 
 const ICON = 13;
@@ -430,7 +436,7 @@ export function ResMonPopover({ model }: { model: AgentsViewModel }) {
     }, [ui.cursor]);
 
     const loading = snap == null || !snap.ready;
-    const views = useMemo(() => (snap?.ready ? buildViews(snap.groups) : []), [snap]);
+    const views = useAtomValue(resmonViewsAtom);
     const empty = views.every((v) => v.kind === "arc");
     const now = snap?.ts || Date.now();
 

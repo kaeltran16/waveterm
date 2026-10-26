@@ -26,6 +26,7 @@ import {
     resmonOpenAtom,
     resmonSnapshotAtom,
     resmonUiAtom,
+    resmonViewsAtom,
     startResMonPolling,
 } from "./resmonstore";
 
@@ -115,6 +116,22 @@ describe("polling", () => {
         expect(globalStore.get(resmonSnapshotAtom)?.cpu).toBe(3);
         expect(warn).toHaveBeenCalledTimes(2);
         warn.mockRestore();
+    });
+});
+
+describe("view order", () => {
+    const tab = (key: string, cpu: number): ResMonGroup => ({ ...waveterm, key, ownerid: key, label: key, cpu });
+    const withGroups = (groups: ResMonGroup[]): ResMonSnapshotData => ({ ...snap(1), groups });
+    const order = () => globalStore.get(resmonViewsAtom).map((v) => v.key);
+
+    it("holds the order while open, adds a new view last, and sorts by CPU again once closed", () => {
+        fixture().set(withGroups([tab("a", 10), tab("b", 5)]));
+        fixture().open();
+        fixture().set(withGroups([tab("a", 1), tab("b", 50), tab("c", 90)]));
+        expect(order()).toEqual(["a", "b", "c"]);
+        globalStore.set(resmonOpenAtom, false);
+        fixture().set(withGroups([tab("a", 1), tab("b", 50), tab("c", 90)]));
+        expect(order()).toEqual(["c", "b", "a"]);
     });
 });
 

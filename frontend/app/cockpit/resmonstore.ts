@@ -8,7 +8,17 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
-import { outcomeNote, RESMON_UI_INITIAL, resmonReduce, rowLabel, type ResMonAction, type ResMonUi } from "./resmon";
+import {
+    buildViews,
+    keepOrder,
+    outcomeNote,
+    RESMON_UI_INITIAL,
+    resmonReduce,
+    rowLabel,
+    type ResMonAction,
+    type ResMonUi,
+    type ResMonView,
+} from "./resmon";
 
 export const RESMON_POLL_MS = 2000;
 
@@ -16,6 +26,23 @@ export const RESMON_POLL_MS = 2000;
 export const resmonSnapshotAtom = atom<ResMonSnapshotData | null>(null) as PrimitiveAtom<ResMonSnapshotData | null>;
 export const resmonOpenAtom = atom(false) as PrimitiveAtom<boolean>;
 export const resmonUiAtom = atom<ResMonUi>(RESMON_UI_INITIAL) as PrimitiveAtom<ResMonUi>;
+// the view keys in drawn order. Sorted by CPU while closed, held while open so a refresh does not reorder the
+// blocks under the reader: a new view joins at the end
+const resmonOrderAtom = atom<string[]>([]) as PrimitiveAtom<string[]>;
+// the one view list the popover draws and its keys and clicks walk
+export const resmonViewsAtom = atom<ResMonView[]>((get) =>
+    keepOrder(buildViews(get(resmonSnapshotAtom)?.groups ?? []), get(resmonOrderAtom))
+);
+
+function setSnapshot(s: ResMonSnapshotData | null): void {
+    const held = globalStore.get(resmonOpenAtom) ? globalStore.get(resmonOrderAtom) : [];
+    const views = keepOrder(buildViews(s?.groups ?? []), held);
+    globalStore.set(
+        resmonOrderAtom,
+        views.map((v) => v.key)
+    );
+    globalStore.set(resmonSnapshotAtom, s);
+}
 
 // DEV fixture state: a pinned snapshot is never overwritten by a poll; an armed outcome answers the next confirm
 let pinned = false;
@@ -33,7 +60,7 @@ async function pollOnce(): Promise<void> {
         const snap = await RpcApi.ResMonSnapshotCommand(TabRpcClient, {});
         failing = false;
         if (!pinned) {
-            globalStore.set(resmonSnapshotAtom, snap ?? null);
+            setSnapshot(snap ?? null);
         }
     } catch (e) {
         // keep the last snapshot; log once per streak, not every 2s
@@ -95,7 +122,7 @@ if (import.meta.env.DEV && typeof window !== "undefined") {
     window.__resmonFixture = {
         set: (s) => {
             pinned = true;
-            globalStore.set(resmonSnapshotAtom, s);
+            setSnapshot(s);
         },
         killOutcome: (r) => {
             armedOutcome = r;
@@ -106,7 +133,7 @@ if (import.meta.env.DEV && typeof window !== "undefined") {
             armedOutcome = null;
             globalStore.set(resmonOpenAtom, false);
             globalStore.set(resmonUiAtom, RESMON_UI_INITIAL);
-            globalStore.set(resmonSnapshotAtom, null);
+            setSnapshot(null);
             void pollOnce();
         },
     };

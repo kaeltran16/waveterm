@@ -11,6 +11,7 @@ import {
     fmtSize,
     foldedTitle,
     isExpanded,
+    keepOrder,
     killChildrenConfirmText,
     killChildrenTargets,
     killConfirmText,
@@ -244,6 +245,19 @@ describe("buildViews", () => {
         const orphan = memberOf(group("job:2:1", "agenttab", "scratch", [proc(5, 0, "node.exe")]));
         expect(orphan.head).toBeNull();
         expect(orphan.kids.map((r) => r.pid)).toEqual([5]);
+    });
+});
+
+describe("keepOrder", () => {
+    const g = (key: string, cpu: number) => group(key, "agenttab", key, [], { cpu });
+
+    it("holds the given order against a CPU change, puts a new view last and drops a gone one", () => {
+        const views = buildViews([g("arc", 0), g("a", 1), g("b", 90), g("new", 50)]);
+        expect(keepOrder(views, ["arc", "a", "gone", "b"]).map((v) => v.key)).toEqual(["arc", "a", "b", "new"]);
+    });
+    it("keeps buildViews' order with no order given", () => {
+        const views = buildViews([g("arc", 0), g("a", 1), g("b", 90)]);
+        expect(keepOrder(views, []).map((v) => v.key)).toEqual(["arc", "b", "a"]);
     });
 });
 
