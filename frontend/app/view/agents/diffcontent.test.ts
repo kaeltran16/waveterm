@@ -35,6 +35,19 @@ describe("pairRefsFor", () => {
         });
     });
 
+    // a renamed file did not exist at the base under its new name, so the left side names the old path
+    it("reads a renamed file's left side at its source path", () => {
+        expect(pairRefsFor({ kind: "commit", hash: "deadbee" }, "old.ts")).toEqual({
+            original: { kind: "ref", ref: "deadbee^", path: "old.ts" },
+            modified: { kind: "ref", ref: "deadbee" },
+        });
+        expect(pairRefsFor({ kind: "worktree", anchorRef: "abc1234" }, "old.ts").original).toEqual({
+            kind: "ref",
+            ref: "abc1234",
+            path: "old.ts",
+        });
+    });
+
     // a commit's own change is measured against its first parent, which is what the caret means and
     // what the backend's commitBase already does for the change list
     it("diffs a commit against its first parent", () => {

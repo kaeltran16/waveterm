@@ -426,7 +426,9 @@ async function main() {
                 cpSync(SHOTS_DIR, join(out, SHOTS_DIR), { recursive: true });
                 writeFinalManifest(SHOTS_DIR, out);
             }
-            if (code === 0) close = await closeMainWindow(port);
+            // on a failed run too: a killed app's WebView2 profile stayed held past the store drop's retries
+            // (EPERM), while one that exits by itself lets go of it
+            close = await closeMainWindow(port);
         }
     } finally {
         stop();

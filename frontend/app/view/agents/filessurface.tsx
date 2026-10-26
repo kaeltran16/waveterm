@@ -385,7 +385,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             : selectedCommit === WORKING_TREE
               ? { kind: "worktree", anchorRef: state?.ref ?? "", head: state?.head ?? "" }
               : { kind: "commit", hash: selectedCommit ?? "" };
-        fireAndForget(() => loadDiffPair(cwd, shownPath, sel));
+        fireAndForget(() => loadDiffPair(cwd, shownPath, sel, selectedChange?.from));
     }, [
         state?.cwd,
         state?.ref,
@@ -398,6 +398,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         compareSelection,
         compareForm,
         selectedCommit,
+        selectedChange?.from,
         liveTick,
     ]);
 

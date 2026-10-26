@@ -150,6 +150,18 @@ describe("parseStoredComments", () => {
         const store = { "agent:a1": batch([comment({ lost: true })]) };
         expect(parseStoredComments(JSON.stringify(store))).toEqual(store);
     });
+
+    // pairKey is the refs' JSON, so a renamed file's comment only draws again if the path survives
+    it("round-trips a rename's left-side path", () => {
+        const refs: DiffPairRefs = {
+            original: { kind: "ref", ref: "abc^", path: "src/old.go" },
+            modified: { kind: "ref", ref: "abc" },
+        };
+        const store = { "agent:a1": batch([comment({ refs })]) };
+        expect(JSON.stringify(parseStoredComments(JSON.stringify(store))["agent:a1"].comments[0].refs)).toBe(
+            JSON.stringify(refs)
+        );
+    });
 });
 
 describe("pruneBatches", () => {

@@ -249,10 +249,10 @@ Below 1100px of pane width the buttons drop their labels and keep their icons an
 **Added and deleted files** need no special case: the side where the path does not exist reads as
 empty, so an untracked or added file is all additions and a deleted one all removals.
 
-**Renames are a known gap.** Both sides are read at the file's current path, which does not exist at
-the base ref, so a renamed file draws as wholly added (and a pure rename never reaches *Contents
-unchanged*). The file list is unaffected: `nameStatusToStatusZ` rewrites a rename's `R` to `M`, so
-it shows an **M** with the rename's own counts.
+**Renames** show as **R** in the file list, which keeps the source path git reported
+(`nameStatusToStatusZ` emits it after the entry, as porcelain does). The pane reads the left side at
+that old path, so an edited rename shows only its edits and a pure rename reads *Contents
+unchanged*. A comment on a renamed file's removed lines names the old path in the prompt.
 
 ---
 
@@ -464,8 +464,8 @@ not-a-repo panel — registers them as projects, and drives the surface through 
 the history store and the compare store both read zero and agree by accident — every compare-vs-
 working-tree defect is invisible to it, and so is anything needing a second ref. Checking that class
 of behaviour by hand needs a fixture with two diverging branches *and* a dirty tree, so the two
-stores hold visibly different numbers; likewise a rename needs its own two-commit fixture, since a
-rename cannot exist in a working-tree-only repo.
+stores hold visibly different numbers. Renames have their own fixture, `diff-rename` (a pure rename and
+an edited one, each its own commit), and `diff-source-row` checks which row a source opens on.
 
 Pure logic is unit-tested beside its module: `diffscope.test.ts`, `gitdiff.test.ts`,
 `githistorystore.test.ts`, `comparestore.test.ts`, `filesstore.test.ts`, `agentdiffnav.test.ts`.

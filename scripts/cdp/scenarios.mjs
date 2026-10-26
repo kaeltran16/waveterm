@@ -4693,6 +4693,7 @@ const lineBox = (side, n) => {
 // Task 4's steps: the Prompt board's three notes, on policy.go as the board draws it, from a shell tab made a
 // roster agent (its block's cwd is the temp repo)
 const DC_AGENT_TOPIC = "verify-diff-comments-agent";
+const PLUS_HOVER_TRIES = 3;
 const DC_POLICY_BOARD = "package retry\n\nfunc Budget() int {\n    return 8\n}\n\nfunc Floor() int {\n    return 1\n}\n";
 const DC_NOTE_RETURN = "Why 8? The incident note says five retries were enough. Put the reason in a comment above the return.";
 const DC_NOTE_FLOOR = "A floor of 1 means a zero budget can never be configured. Return 0 here and let Budget enforce the minimum.";
@@ -4757,6 +4758,217 @@ async function openDcRun(h, ctx, { until, q, rowSel }) {
         return { ok: false, error: String(e?.message ?? e) };
     }
 }
+
+// --- diff surface: the row a source opens on --------------------------------------------------------
+// defaultSelection opens a dirty tree on its uncommitted row. Picking an agent source whose folder a project
+// source already showed must land there too, as must picking it straight after a reload.
+const DSR_AGENT_TOPIC = "verify-diff-source-row-agent";
+const diffSourceRow = {
+    name: "diff-source-row",
+    surface: "files",
+    async arrange(h) {
+        const dir = seedRetryRepo("verify-diff-source-row-");
+        const name = "verify-diff-source-row";
+        await h.rpc("createproject", { name, path: dir });
+        return { dir, name };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const q = (sel) => `document.querySelector(${JSON.stringify(sel)})`;
+        const until = async (expr, ms = 8000) => {
+            for (let waited = 0; waited < ms; waited += 250) {
+                if (await h.ev(expr).catch(() => false)) return true;
+                await sleep(250);
+            }
+            return false;
+        };
+        const click = (sel) => h.ev(`(() => { const el = ${q(sel)}; if (!el) return false; el.click(); return true; })()`);
+        const README = `[data-changed-file-row="README.md"]`;
+        const selectedRow = () =>
+            h.ev(`[...document.querySelectorAll("[data-history-row] > button.bg-surface-selected")].map((b) => b.textContent).join(" | ")`);
+        // the row settles after both the change list and the history land; read it once it has held for a second
+        const settledRow = async () => {
+            let last = null;
+            for (let waited = 0; waited < 8000; waited += 500) {
+                const now = await selectedRow();
+                if (now && now === last) return now;
+                last = now;
+                await sleep(500);
+            }
+            return last;
+        };
+        const agentRow = `[...document.querySelectorAll("button")].find((b) => !b.dataset.filesSourceOption &&
+            (b.querySelector("span.truncate")?.textContent ?? "").startsWith(${JSON.stringify(DSR_AGENT_TOPIC)}))`;
+        const pickAgent = async () => {
+            await click("[data-files-source-picker]");
+            const listed = await until(`!!(${agentRow})`, 10000);
+            await h.ev(`${agentRow}?.click()`);
+            return listed && (await until(`!!${q(README)}`, 15000));
+        };
+        try {
+            await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+            await click("[data-files-source-picker]");
+            const option = `[data-files-source-option=${JSON.stringify(ctx.name)}]`;
+            await until(`!!${q(option)}`, 4000);
+            await click(option);
+            const projectListed = await until(`!!${q(README)}`, 15000);
+            const onProject = await settledRow();
+            rec(
+                "1. a project source on a dirty tree opens on Uncommitted changes",
+                projectListed && /Uncommitted changes/.test(onProject ?? ""),
+                JSON.stringify({ projectListed, selected: onProject })
+            );
+
+            await openCanvasTerminal(h, ctx, DSR_AGENT_TOPIC);
+            await h.rpc("setmeta", { oref: `block:${ctx.blockId}`, meta: { "cmd:cwd": ctx.dir } });
+            await h.rpc("eventpublish", {
+                event: "agent:status",
+                scopes: [`block:${ctx.blockId}`],
+                persist: 1,
+                data: { oref: `block:${ctx.blockId}`, state: "working", agent: "claude", cwd: ctx.dir, ts: Date.now() },
+            });
+            const agentListed = await pickAgent();
+            const onAgent = await settledRow();
+            rec(
+                "2. switching to an agent source in the same folder opens on Uncommitted changes",
+                agentListed && /Uncommitted changes/.test(onAgent ?? ""),
+                JSON.stringify({ agentListed, selected: onAgent })
+            );
+            await h.shot("cdp-shots/diff-source-row-agent.png");
+
+            await reloadApp(h);
+            await h.goto("files");
+            const reloadListed = await pickAgent();
+            const afterReload = await settledRow();
+            rec(
+                "3. after a reload, picking the agent source first opens on Uncommitted changes",
+                reloadListed && /Uncommitted changes/.test(afterReload ?? ""),
+                JSON.stringify({ reloadListed, selected: afterReload })
+            );
+        } catch (e) {
+            rec("scenario aborted", false, String(e?.message ?? e));
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        if (ctx.tabId) {
+            try {
+                await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]);
+            } catch {
+                /* a tab left open is cheaper than a failed teardown */
+            }
+        }
+        try {
+            await h.rpc("deleteproject", { name: ctx.name });
+        } catch {
+            /* leave a stale registry entry rather than failing teardown */
+        }
+        try {
+            rmSync(ctx.dir, { recursive: true, force: true });
+        } catch {
+            /* a leftover temp repo is cheaper than a failed teardown */
+        }
+    },
+};
+
+// --- diff surface: renames --------------------------------------------------------------------------
+// The pane reads a renamed file's left side at its old path (the change list keeps git's rename source), so a
+// pure rename reads Contents unchanged and an edited one shows only its edit, never the whole file as added.
+const RENAME_LINES = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`);
+const diffRename = {
+    name: "diff-rename",
+    surface: "files",
+    async arrange(h) {
+        const dir = mkdtempSync(join(tmpdir(), "verify-diff-rename-"));
+        git(dir, "init", "-q", "--initial-branch=main");
+        writeFileSync(join(dir, "a.txt"), RENAME_LINES.join("\n") + "\n");
+        writeFileSync(join(dir, "b.txt"), RENAME_LINES.map((l) => `b ${l}`).join("\n") + "\n");
+        git(dir, "add", ".");
+        git(dir, "commit", "-q", "-m", "seed two files");
+        git(dir, "mv", "a.txt", "moved.txt");
+        git(dir, "commit", "-q", "-m", "pure rename");
+        git(dir, "mv", "b.txt", "b2.txt");
+        writeFileSync(join(dir, "b2.txt"), RENAME_LINES.map((l, i) => (i === 4 ? "b edited" : `b ${l}`)).join("\n") + "\n");
+        git(dir, "add", ".");
+        git(dir, "commit", "-q", "-m", "rename and edit");
+        const name = "verify-diff-rename";
+        await h.rpc("createproject", { name, path: dir });
+        return { dir, name };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const q = (sel) => `document.querySelector(${JSON.stringify(sel)})`;
+        const until = async (expr, ms = 8000) => {
+            for (let waited = 0; waited < ms; waited += 250) {
+                if (await h.ev(expr).catch(() => false)) return true;
+                await sleep(250);
+            }
+            return false;
+        };
+        const click = (sel) => h.ev(`(() => { const el = ${q(sel)}; if (!el) return false; el.click(); return true; })()`);
+        const rowSel = (path) => `[data-changed-file-row=${JSON.stringify(path)}]`;
+        const status = (path) => h.ev(`${q(rowSel(path))}?.querySelector("span")?.textContent ?? null`);
+        const openCommit = (subject) =>
+            h.ev(`(() => { const b = [...document.querySelectorAll("[data-history-row] > button")]
+                .find((x) => x.textContent.includes(${JSON.stringify(subject)})); if (!b) return false; b.click(); return true; })()`);
+        const pane = () => h.ev(`${q("[data-diff-pane]")}?.textContent ?? ""`);
+        // inserted lines Monaco draws in the right side: a rename read as wholly added would mark all ten
+        const inserted = () => h.ev(`document.querySelectorAll("[data-diff-pane] .editor.modified .view-overlays .line-insert").length`);
+        try {
+            await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+            await click("[data-files-source-picker]");
+            const option = `[data-files-source-option=${JSON.stringify(ctx.name)}]`;
+            await until(`!!${q(option)}`, 4000);
+            await click(option);
+            const listed = await until(`[...document.querySelectorAll("[data-history-row]")].some((r) => r.textContent.includes("pure rename"))`, 15000);
+
+            const pure = listed && (await openCommit("pure rename"));
+            const pureRow = pure && (await until(`!!${q(rowSel("moved.txt"))}`, 8000));
+            if (pureRow) await click(rowSel("moved.txt"));
+            const unchanged = await until(`(${q("[data-diff-pane]")}?.textContent ?? "").includes("Contents unchanged")`, 8000);
+            const pureStatus = await status("moved.txt");
+            rec(
+                "1. a pure rename lists as R and the pane reads Contents unchanged",
+                pureRow && pureStatus === "R" && unchanged,
+                JSON.stringify({ listed, pureRow, status: pureStatus, pane: (await pane()).slice(0, 160) })
+            );
+            await h.shot("cdp-shots/diff-rename-pure.png");
+
+            const edited = await openCommit("rename and edit");
+            const editRow = edited && (await until(`!!${q(rowSel("b2.txt"))}`, 8000));
+            if (editRow) await click(rowSel("b2.txt"));
+            const drawn = await until(`document.querySelectorAll("[data-diff-pane] .editor.modified .view-overlays .line-insert").length > 0`, 8000);
+            await sleep(500);
+            const insertedLines = await inserted();
+            const editStatus = await status("b2.txt");
+            rec(
+                "2. a rename with one edited line lists as R and the pane marks that one line, not the whole file",
+                editRow && editStatus === "R" && drawn && insertedLines === 1,
+                JSON.stringify({ editRow, status: editStatus, insertedLines })
+            );
+            await h.shot("cdp-shots/diff-rename-edited.png");
+        } catch (e) {
+            rec("scenario aborted", false, String(e?.message ?? e));
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        try {
+            await h.rpc("deleteproject", { name: ctx.name });
+        } catch {
+            /* leave a stale registry entry rather than failing teardown */
+        }
+        try {
+            rmSync(ctx.dir, { recursive: true, force: true });
+        } catch {
+            /* a leftover temp repo is cheaper than a failed teardown */
+        }
+    },
+};
 
 const diffComments = {
     name: "diff-comments",
@@ -4856,13 +5068,19 @@ const diffComments = {
             await drag({ x: a.textLeft + 2, y: a.mid }, { x: b.textLeft + 300, y: b.mid });
             return h.ev(`!!document.activeElement?.closest('[data-diff-pane] .editor.${side}')`);
         };
+        // The first move onto a freshly opened pair can reach Monaco without an onMouseMove the layer sees, and
+        // the line can shift a row while the diff settles; a user's pointer keeps moving, so this re-measures and
+        // moves a few pixels on until the + shows (steps 9a and 11 failed on a single hover).
         const plusOn = async (n) => {
-            const l = await lineBox("modified", n);
-            if (l == null) return null;
-            await hover(l.textLeft + 40, l.mid);
-            if (!(await until(`!!${q("[data-diff-comment-plus]")}`, 3000))) return null;
-            const plus = await rectOf("[data-diff-comment-plus]");
-            return { plus, line: l };
+            for (let attempt = 0; attempt < PLUS_HOVER_TRIES; attempt++) {
+                const l = await lineBox("modified", n);
+                if (l == null) return null;
+                await hover(l.textLeft + 40 + attempt * 3, l.mid);
+                if (await until(`!!${q("[data-diff-comment-plus]")}`, 1500)) {
+                    return { plus: await rectOf("[data-diff-comment-plus]"), line: l };
+                }
+            }
+            return null;
         };
         const pick = async () => {
             await click("[data-files-source-picker]");
@@ -5085,12 +5303,9 @@ const diffComments = {
                 (b.querySelector("span.truncate")?.textContent ?? "").startsWith(${JSON.stringify(DC_AGENT_TOPIC)}))`;
             const listed = await until(`!!(${agentRow})`, 10000);
             await h.ev(`${agentRow}?.click()`);
-            // an agent's source may open on a commit: the board's comments are on the working tree, row zero
-            await until(`!!${q(rowSel(POLICY))}`, 15000);
-            await h.ev(`[...document.querySelectorAll("[data-history-row]")]
-                .find((r) => r.textContent.includes("Uncommitted changes"))?.querySelector("button")?.click()`);
+            // the source opens on the uncommitted row (diff-source-row), whose list has README.md and legacy.go
             const agentOpened =
-                (await until(`!!${q(rowSel("README.md"))} && !!${q(rowSel(LEGACY))}`, 10000)) && (await openFile(POLICY));
+                (await until(`!!${q(rowSel("README.md"))} && !!${q(rowSel(LEGACY))}`, 15000)) && (await openFile(POLICY));
             const name = await h.ev(`${q("[data-files-source-picker] span.truncate")}?.textContent ?? ""`);
             const onAgent = [
                 await commentOnLine(4, DC_NOTE_RETURN),
@@ -5234,6 +5449,49 @@ const diffComments = {
             );
             await h.shot("cdp-shots/diff-comments-ended.png");
 
+            // the page's own launch, with the claude block's meta recorded and swapped for a shell in ~ before it
+            // reaches wavesrv, so no agent starts; the tab it makes is closed in teardown
+            await h.ev(`(() => {
+                const c = window.TabRpcClient;
+                c.__dcOrig = c.wshRpcCall;
+                const call = c.wshRpcCall.bind(c);
+                window.__dcLaunch = { block: null, tab: null };
+                c.wshRpcCall = (command, data, opts) => {
+                    if (command === "setmeta" && data?.meta?.cmd === "claude") {
+                        window.__dcLaunch.block = data.meta;
+                        data = { ...data, meta: { view: "term", controller: "shell", "cmd:cwd": "~" } };
+                    } else if (command === "setmeta" && String(data?.oref ?? "").startsWith("tab:") && data?.meta?.["session:agent"]) {
+                        window.__dcLaunch.tab = data.oref.slice(4);
+                    }
+                    return call(command, data, opts);
+                };
+            })()`);
+            await h.ev("document.activeElement?.blur?.()");
+            await click("[data-comment-send]");
+            const launched = await until(`!!window.__dcLaunch?.tab`, 15000);
+            const launch = JSON.parse(await h.ev(`JSON.stringify(window.__dcLaunch)`));
+            await h.ev(`(() => { const c = window.TabRpcClient; if (c.__dcOrig) { c.wshRpcCall = c.__dcOrig; delete c.__dcOrig; } })()`);
+            ctx.launchedTabId = launch.tab;
+            const task = launch.block?.["cmd:args"]?.at(-1) ?? "";
+            const norm = (p) => String(p ?? "").replace(/\\/g, "/").toLowerCase();
+            // the agent's batch is keyed by its tab; the project's batch from step 8 holds the same note
+            const batchGone = Object.keys(
+                JSON.parse(await h.ev(`localStorage.getItem(${JSON.stringify(COMMENT_STORAGE_KEY)}) || "{}"`))
+            ).every((k) => !k.includes(ctx.tabId));
+            rec(
+                `10b. Start agent with 1 comment launches claude in ${name}'s folder with the comment as its task, and the batch clears`,
+                launched &&
+                    launch.block?.cmd === "claude" &&
+                    norm(launch.block?.["cmd:cwd"]) === norm(ctx.dir) &&
+                    task.startsWith(`Review comments on the changes in ${name} (worktree against `) &&
+                    task.includes("  src/retry/policy.go:4\n") &&
+                    task.includes(DC_NOTE_RETURN) &&
+                    batchGone,
+                JSON.stringify({ launched, cmd: launch.block?.cmd, cwd: launch.block?.["cmd:cwd"], tab: launch.tab, batchGone }) +
+                    "\ntask:\n" +
+                    task
+            );
+
             const runOpened = await openDcRun(h, ctx, { until, q, rowSel });
             const runFile = runOpened.ok && (await openFile(POLICY));
             const onRun = runFile && (await commentOnLine(4, DC_NOTE_RETURN));
@@ -5254,9 +5512,10 @@ const diffComments = {
     async teardown(h, ctx) {
         await h.ev("document.activeElement?.blur?.()");
         await h.ev(`(() => { const c = window.TabRpcClient; if (c?.__dcOrig) { c.wshRpcCall = c.__dcOrig; delete c.__dcOrig; } })()`);
-        if (ctx.tabId && !ctx.tabClosed) {
+        for (const tabId of [ctx.tabClosed ? null : ctx.tabId, ctx.launchedTabId]) {
+            if (!tabId) continue;
             try {
-                await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]);
+                await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, tabId, false]);
             } catch {
                 /* a tab left open is cheaper than a failed teardown */
             }
@@ -26113,6 +26372,8 @@ export const SCENARIOS = [
     diffReviewMarks,
     diffReviewMarksRun,
     diffComments,
+    diffSourceRow,
+    diffRename,
     surfaceSmoke,
     surfaceHeaders,
     codeSearch,

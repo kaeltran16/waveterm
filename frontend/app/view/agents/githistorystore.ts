@@ -228,6 +228,12 @@ function settleSelection(cwd: string, scope?: string): void {
         return;
     }
     const prev = globalStore.get(selectedCommitAtom);
+    // A source switch nulls the change list (beginLoad) while this read may still be in flight. The
+    // uncommitted row is then missing only because its count is unknown; moving off it would land on the
+    // tip, and keepSelection keeps the tip once the list is back.
+    if (prev === WORKING_TREE && globalStore.get(filesStateAtom) == null) {
+        return;
+    }
     const pick = keepSelection(rows, prev);
     if (pick == null) {
         return;

@@ -36,6 +36,17 @@ describe("loading both sides of a diff", () => {
         });
     });
 
+    // a pure rename then reads the same text on both sides, rather than the whole file as added
+    it("reads a renamed file's left side at its old path", async () => {
+        fileAtRef.mockImplementation((_c: any, d: any) => Promise.resolve({ content: `${d.path} at ${d.ref}` }));
+        await loadDiffPair("/repo", "src/new.ts", { kind: "commit", hash: "deadbee" }, "src/old.ts");
+        expect(globalStore.get(diffPairAtom)).toMatchObject({
+            path: "src/new.ts",
+            original: "src/old.ts at deadbee^",
+            modified: "src/new.ts at deadbee",
+        });
+    });
+
     // The working-tree side is the file on disk, not a ref — a git read of it would show the last
     // committed content and silently hide every uncommitted edit, which is the whole point of the row.
     it("reads the working-tree side from disk, not from git", async () => {

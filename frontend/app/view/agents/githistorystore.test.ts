@@ -163,6 +163,28 @@ describe("loadHistory selection settling", () => {
         expect(globalStore.get(selectedFileAtom)).toBe("pkg/jarvis/evidence.go");
     });
 
+    // A source switch nulls the change list while a history read is in flight; the uncommitted row is missing
+    // from the rows only because its count is unknown, and moving to the tip then stuck once the list landed.
+    it("keeps the uncommitted row selected through a read that lands while the change list reloads", async () => {
+        globalStore.set(selectedCommitAtom, WORKING_TREE);
+        globalStore.set(selectedFileAtom, "docs/open-issues.md");
+        globalStore.set(filesStateAtom, null);
+        await loadHistory(CWD, RUN_OPTS, RUN);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+        globalStore.set(filesStateAtom, {
+            cwd: CWD,
+            branch: "main",
+            isRepo: true,
+            changes: RUN_CHANGES as any,
+            ref: "base000",
+            head: "aaa1111",
+        });
+        await loadHistory(CWD, RUN_OPTS, RUN);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+    });
+
     it("keeps a remembered commit selection when no deep link was followed", async () => {
         globalStore.set(selectedCommitAtom, "aaa1111");
         globalStore.set(selectedFileAtom, "x.ts");

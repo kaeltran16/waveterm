@@ -133,6 +133,19 @@ describe("buildCommentPrompt", () => {
         expect(text.split("\n")[0]).toContain("(commit a1b2c3d)");
     });
 
+    // the removed lines are the old file's, which had the old name at that ref
+    it("names a renamed file's removed range by its old path", () => {
+        const renamed: DiffPairRefs = {
+            ...COMMIT,
+            original: { kind: "ref", ref: `${SHA}^`, path: "src/retry/old.go" },
+        };
+        const text = buildCommentPrompt(
+            batch([comment({ side: "original", start: 2, end: 5, refs: renamed, quote: ["x"] })]),
+            "live"
+        );
+        expect(text).toContain("  src/retry/old.go: removed lines 2-5 of a1b2c3d^\n");
+    });
+
     it("names one removed line in the singular", () => {
         const text = buildCommentPrompt(batch([comment({ side: "original", start: 2, end: 2 })]), "live");
         expect(text).toContain("  src/retry/policy.go: removed line 2 of a1b2c3d\n");
