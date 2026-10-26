@@ -318,7 +318,7 @@ function DesignMain({
                                 what the run builds; each one has to be yours
                             </span>
                         </div>
-                        {decisions.map(row)}
+                        {[...decisions].reverse().map(row)}
                     </section>
                     {notes.length > 0 ? (
                         <section data-brainstorm-notes aria-label="What the agent found" className="flex flex-col">

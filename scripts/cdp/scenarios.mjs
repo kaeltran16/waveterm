@@ -20267,6 +20267,8 @@ const brainstormReviewSkim = bsBoardScenario("brainstorm-review-skim", "detector
     const r = await h.ev(BSR_READ_REVIEW);
     await h.shot("cdp-shots/brainstorm-review-skim.png");
     const guesses = BSR_DECISIONS.filter((d) => d.state === "guess");
+    // the pane lists decisions newest first
+    const shown = [...BSR_DECISIONS].reverse();
     const wantRight = (d) => (d.state === "guess" ? ["That’s right", "Edit"] : ["Edit"]);
     rec(
         "1. the design before the builder check (Review-Skim): Confirm the design with Confirm all 5 guesses, each decision one row of title, gist and source with That’s right and Edit, or Yours and Edit",
@@ -20276,8 +20278,8 @@ const brainstormReviewSkim = bsBoardScenario("brainstorm-review-skim", "detector
             r.checkBtn === "" &&
             r.decisionsHead === `Decisions · ${BSR_DECISIONS.length}` &&
             JSON.stringify(r.decisions.map((d) => [d.id, d.state, d.gist])) ===
-                JSON.stringify(BSR_DECISIONS.map((d) => [d.id, d.state, d.gist])) &&
-            r.decisions.every((d, i) => JSON.stringify(d.buttons) === JSON.stringify(wantRight(BSR_DECISIONS[i]))) &&
+                JSON.stringify(shown.map((d) => [d.id, d.state, d.gist])) &&
+            r.decisions.every((d, i) => JSON.stringify(d.buttons) === JSON.stringify(wantRight(shown[i]))) &&
             r.progress === "4 of 9 parts yours",
         { ...bsBrief(drawn), line: r.line, confirmAll: r.confirmAll, head: r.decisionsHead, decisions: r.decisions.map((d) => [d.id, d.state, d.gist, d.buttons]), progress: r.progress }
     );
