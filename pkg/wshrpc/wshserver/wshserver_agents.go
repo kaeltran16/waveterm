@@ -114,6 +114,10 @@ func (ws *WshServer) GetSessionsActivityCommand(ctx context.Context, data wshrpc
 	return &wshrpc.CommandGetSessionsActivityRtnData{Sessions: out}, nil
 }
 
+func (ws *WshServer) SearchSessionsCommand(ctx context.Context, data wshrpc.CommandSearchSessionsData) (*wshrpc.CommandSearchSessionsRtnData, error) {
+	return nil, fmt.Errorf("session search is not built yet")
+}
+
 func cutoffFromEpoch(sec int64) time.Time {
 	if sec <= 0 {
 		return time.Time{}

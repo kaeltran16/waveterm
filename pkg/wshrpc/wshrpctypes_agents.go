@@ -12,6 +12,7 @@ type AgentCommands interface {
 	GetUsageStatsCommand(ctx context.Context, data CommandGetUsageStatsData) (*CommandGetUsageStatsRtnData, error)
 	GetRecentSessionsCommand(ctx context.Context, data CommandGetRecentSessionsData) (*CommandGetRecentSessionsRtnData, error)
 	GetSessionsActivityCommand(ctx context.Context, data CommandGetSessionsActivityData) (*CommandGetSessionsActivityRtnData, error)
+	SearchSessionsCommand(ctx context.Context, data CommandSearchSessionsData) (*CommandSearchSessionsRtnData, error) // sessions of the last 30 days whose words match a query
 	GetTranscriptTokensCommand(ctx context.Context, data CommandGetTranscriptTokensData) (*CommandGetTranscriptTokensRtnData, error)
 	GetTranscriptUsageCommand(ctx context.Context, data CommandGetTranscriptUsageData) (*CommandGetTranscriptUsageRtnData, error)
 	GetWindowTokensCommand(ctx context.Context, data CommandGetWindowTokensData) (*CommandGetWindowTokensRtnData, error)
@@ -155,12 +156,42 @@ type CommandGetRecentSessionsRtnData struct {
 }
 
 type CommandGetSessionsActivityData struct {
-	WindowDays int `json:"windowdays,omitempty"`
-	Limit      int `json:"limit,omitempty"`
+	WindowDays int  `json:"windowdays,omitempty"`
+	Limit      int  `json:"limit,omitempty"`
+	All        bool `json:"all,omitempty"` // every session in the window; Limit is ignored
 }
 
 type CommandGetSessionsActivityRtnData struct {
-	Sessions []SessionActivity `json:"sessions"`
+	Sessions   []SessionActivity `json:"sessions"`
+	Incomplete bool              `json:"incomplete,omitempty"` // the index is still being built
+}
+
+type CommandSearchSessionsData struct {
+	Query     string `json:"query"`
+	RunAgents bool   `json:"runagents,omitempty"` // include run workers, reviewers, judges and verifiers
+	MaxHits   int    `json:"maxhits,omitempty"`   // hits returned per session; 0 = 20
+}
+
+type CommandSearchSessionsRtnData struct {
+	Terms      []string              `json:"terms"`                // the parsed, lower-cased terms; the find bar searches these
+	Results    []SessionSearchResult `json:"results"`              // newest first
+	Incomplete bool                  `json:"incomplete,omitempty"` // the index is still being built
+}
+
+type SessionSearchResult struct {
+	Session   SessionActivity `json:"session"`  // run-linked, as GetSessionsActivity returns it
+	Hits      []SessionHit    `json:"hits"`     // turn hits in transcript order, then event hits in event order
+	TurnHits  int             `json:"turnhits"` // every turn hit, returned or not: the find bar's total
+	EventHits int             `json:"eventhits"`
+}
+
+// SessionHit is one merged range of matched text in a prompt or reply (turn) or in a searchable event
+type SessionHit struct {
+	Kind    string  `json:"kind"`    // "turn" | "event"
+	Speaker string  `json:"speaker"` // turn: "user" | "agent"; event: asked | committed | errored
+	Ord     int     `json:"ord"`     // turn: 0-based position among the session's turn hits; event: index in Session.Events
+	Text    string  `json:"text"`    // the snippet around the hit
+	Marks   [][]int `json:"marks"`   // [start, end) pairs, UTF-16 code units into Text, for every merged match range in it
 }
 
 type CommandGetTranscriptTokensData struct {

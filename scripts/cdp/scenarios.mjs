@@ -26,6 +26,9 @@ import findings from "./scenarios-brainstorm-findings.mjs";
 import judge from "./scenarios-brainstorm-judge.mjs";
 import review from "./scenarios-brainstorm-review.mjs";
 import run from "./scenarios-brainstorm-run.mjs";
+import sessionsList from "./scenarios-sessions.mjs";
+import sessionsFind from "./scenarios-sessions-find.mjs";
+import sessionsPalette from "./scenarios-sessions-palette.mjs";
 
 // A step this profile cannot run: no record holding a decision, no pi session focused. Neither a pass nor a
 // failure — report.mjs tallies it apart and exitCode ignores it. The detail must name what to seed, so a
@@ -25416,6 +25419,9 @@ const quickRunDone = {
     },
 };
 
+// the helpers the sessions scenario modules seed their run with (sessions-search-fixtures.mjs)
+const SESSIONS_KIT = { teardownFixtureRun, fstWriteRun, waveService };
+
 export const SCENARIOS = [
     cockpitKeysOnArrival,
     agentTerminalOnArrival,
@@ -25514,6 +25520,9 @@ export const SCENARIOS = [
     ...judge(BS_KIT),
     ...review(BS_KIT),
     ...run(BS_KIT),
+    ...sessionsList(SESSIONS_KIT),
+    ...sessionsFind(SESSIONS_KIT),
+    ...sessionsPalette(SESSIONS_KIT),
     canvasMark,
     canvasTabsScenario,
     agentTerminalNames,
