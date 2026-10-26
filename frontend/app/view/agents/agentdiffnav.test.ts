@@ -7,8 +7,13 @@ import { describe, expect, it, vi } from "vitest";
 
 const requestFileLink = vi.fn();
 vi.mock("./filesstore", () => ({ requestFileLink: (...a: any[]) => requestFileLink(...a) }));
+const listWorktrees = vi.fn();
+vi.mock("@/app/store/wshclientapi", () => ({
+    RpcApi: { GitListWorktreesCommand: (...a: any[]) => listWorktrees(...a) },
+}));
+vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { agentDiffScope, diffScopeOfRun, openDiff, runDiffScope } from "./agentdiffnav";
+import { agentDiffScope, diffScopeOfRun, openDiff, openRunDiff, runDiffScope } from "./agentdiffnav";
 import { scopeKey } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
 
@@ -71,5 +76,37 @@ describe("openDiff", () => {
             cwd: "/repo",
             baseCommit: "",
         });
+    });
+});
+
+// landing removes the run's tree; its commits are then in the checkout, and the tree was a worktree of the whole
+// repository even when the project is a subfolder of it
+describe("openRunDiff", () => {
+    const run = { id: "r4", projectpath: "C:/SIEM/webapp", landpath: "C:/arc-wt/r4", basecommit: "9f2c1de" } as Run;
+    const landed = { ...run, land: { state: "landed" } } as Run;
+
+    it("opens a landed run on the checkout's repo root", async () => {
+        listWorktrees.mockResolvedValueOnce({
+            worktrees: [
+                { path: "C:/arc-wt/other", branch: "wave/x" },
+                { path: "C:/SIEM", branch: "main", ismain: true },
+            ],
+        });
+        await openRunDiff(model, landed);
+        expect(listWorktrees).toHaveBeenLastCalledWith({}, { cwd: "C:/SIEM/webapp" });
+        expect(globalStore.get(diffScopeAtom)).toEqual(runDiffScope("r4", "C:/SIEM", "9f2c1de"));
+    });
+
+    it("falls back to the project when the repo root cannot be read", async () => {
+        listWorktrees.mockRejectedValueOnce(new Error("boom"));
+        await openRunDiff(model, landed);
+        expect(globalStore.get(diffScopeAtom)).toEqual(runDiffScope("r4", "C:/SIEM/webapp", "9f2c1de"));
+    });
+
+    it("opens a run not yet landed on its landing tree, without asking git", async () => {
+        listWorktrees.mockClear();
+        await openRunDiff(model, run);
+        expect(listWorktrees).not.toHaveBeenCalled();
+        expect(globalStore.get(diffScopeAtom)).toEqual(runDiffScope("r4", "C:/arc-wt/r4", "9f2c1de"));
     });
 });

@@ -7,6 +7,8 @@
 // on its first file instead of the one that was clicked.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { landOn } from "@/app/view/jarvis/returnsurface";
 import type { AgentsViewModel } from "./agents";
 import { defaultRangeFor, scopeKey, type DiffOrigin, type DiffScope } from "./diffscope";
@@ -27,8 +29,33 @@ export function runDiffScope(runId: string, cwd: string, baseCommit?: string): D
 }
 
 // a run's changes live where its lanes landed: its own branch tree when it has one, else the checkout
-export function diffScopeOfRun(run: Pick<Run, "id" | "projectpath" | "landpath" | "basecommit">): DiffScope {
+export function diffScopeOfRun(run: Pick<Run, "id" | "projectpath" | "landpath" | "land" | "basecommit">): DiffScope {
     return runDiffScope(run.id, runTree(run), run.basecommit);
+}
+
+// The checkout's repo root, which git lists as the main worktree. A project can be a subfolder of its repo, and the
+// readers diff --relative to their cwd, so reading a landed run from the project would drop what it changed elsewhere.
+async function checkoutRoot(projectPath: string): Promise<string | undefined> {
+    try {
+        const res = await RpcApi.GitListWorktreesCommand(TabRpcClient, { cwd: projectPath });
+        return res?.worktrees?.find((wt) => wt.ismain)?.path;
+    } catch (e) {
+        console.warn("reading the repo root of", projectPath, e);
+        return undefined;
+    }
+}
+
+// A landed run's tree is removed, and its commits are merged into the checkout. Its tree was a worktree of the whole
+// repo, so the checkout is read from its repo root.
+export async function openRunDiff(model: AgentsViewModel, run: Run, file?: string): Promise<void> {
+    let scope = diffScopeOfRun(run);
+    if (run.land?.state === "landed") {
+        const root = await checkoutRoot(run.projectpath);
+        if (root) {
+            scope = runDiffScope(run.id, root, run.basecommit);
+        }
+    }
+    openDiff(model, scope, file);
 }
 
 export function projectDiffScope(name: string, path: string): DiffScope {
