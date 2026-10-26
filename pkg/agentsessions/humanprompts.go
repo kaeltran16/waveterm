@@ -18,23 +18,11 @@ type HumanPrompt struct {
 	Text string
 }
 
-// claudePromptLine is the part of a claude transcript line that says whether it holds a prompt.
-type claudePromptLine struct {
-	Type             string        `json:"type"`
-	Timestamp        string        `json:"timestamp"`
-	IsMeta           bool          `json:"isMeta"`
-	IsSidechain      bool          `json:"isSidechain"`
-	IsCompactSummary bool          `json:"isCompactSummary"`
-	Origin           *claudeOrigin `json:"origin"`
-	Message          struct {
-		Content json.RawMessage `json:"content"`
-	} `json:"message"`
-	Attachment struct {
-		Type        string          `json:"type"`
-		CommandMode string          `json:"commandMode"`
-		Origin      *claudeOrigin   `json:"origin"`
-		Prompt      json.RawMessage `json:"prompt"`
-	} `json:"attachment"`
+type claudeAttachment struct {
+	Type        string          `json:"type"`
+	CommandMode string          `json:"commandMode"`
+	Origin      *claudeOrigin   `json:"origin"`
+	Prompt      json.RawMessage `json:"prompt"`
 }
 
 type claudeOrigin struct {
@@ -67,7 +55,7 @@ func claudeHumanPrompts(lines []string) []HumanPrompt {
 		if !strings.Contains(line, `"type":"user"`) && !strings.Contains(line, `"queued_command"`) {
 			continue
 		}
-		var rec claudePromptLine
+		var rec claudeLine
 		if json.Unmarshal([]byte(line), &rec) != nil {
 			continue
 		}
@@ -79,7 +67,7 @@ func claudeHumanPrompts(lines []string) []HumanPrompt {
 }
 
 // claudeTypedText is the text a person typed that a record carries, "" when it carries none.
-func claudeTypedText(rec claudePromptLine) string {
+func claudeTypedText(rec claudeLine) string {
 	var raw json.RawMessage
 	var origin *claudeOrigin
 	switch {
@@ -153,9 +141,17 @@ func piHumanPrompts(file *pisession.File) []HumanPrompt {
 	}
 	var out []HumanPrompt
 	for _, e := range branch {
-		if text := pisession.UserText(e.Message); text != "" && !agentmsg.IsAgentMessage(text) {
+		if text := piTypedText(e); text != "" {
 			out = append(out, HumanPrompt{Ts: parseTs(e.Timestamp), Text: text})
 		}
 	}
 	return out
+}
+
+// piTypedText is the text a person typed that a pi entry carries, "" when it carries none.
+func piTypedText(e pisession.Entry) string {
+	if text := pisession.UserText(e.Message); !agentmsg.IsAgentMessage(text) {
+		return text
+	}
+	return ""
 }
