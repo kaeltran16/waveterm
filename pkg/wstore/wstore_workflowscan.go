@@ -42,6 +42,11 @@ func QueryRunEventsSince(ctx context.Context, sinceTs int64, kinds []string) ([]
 	})
 }
 
+// GetWorkflowScanRuns returns every run that carries a WorkflowScan, across channels. Pure read (read pool).
+func GetWorkflowScanRuns(ctx context.Context) ([]*waveobj.Run, error) {
+	return selectRuns(ctx, `SELECT oid, version, data FROM db_run WHERE json_extract(data, '$.workflowscan') IS NOT NULL`)
+}
+
 // GetNewestWorkflowScanRun returns the most recently created run that carries a WorkflowScan, nil when there is
 // none. Pure read (read pool).
 func GetNewestWorkflowScanRun(ctx context.Context) (*waveobj.Run, error) {
