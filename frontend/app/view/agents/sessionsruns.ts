@@ -44,14 +44,18 @@ export function runIdOfSel(sel: string): string | undefined {
 
 const newestFirst = (a: LiveSession, b: LiveSession) => b.lastactivets - a.lastactivets;
 
+// a builder check's or judge's run is its own, but the brainstorm pane is its only face: its session stays a
+// solo, so the user can still open it
+export function isSoloSession(s: Pick<SessionActivity, "runid" | "role">): boolean {
+    return !s.runid || s.role === BUILDER_CHECK_ROLE || s.role === BRAINSTORM_JUDGE_ROLE;
+}
+
 // groupRunSessions folds each run's sessions into one entry and leaves every other session on its own.
 export function groupRunSessions(list: LiveSession[]): { runs: RunSessions[]; solos: LiveSession[] } {
     const byRun = new Map<string, RunSessions>();
     const solos: LiveSession[] = [];
     for (const s of list) {
-        // a builder check's or judge's run is its own, but the brainstorm pane is its only face: its session stays a
-        // solo, so the user can still open it
-        if (!s.runid || s.role === BUILDER_CHECK_ROLE || s.role === BRAINSTORM_JUDGE_ROLE) {
+        if (isSoloSession(s)) {
             solos.push(s);
             continue;
         }

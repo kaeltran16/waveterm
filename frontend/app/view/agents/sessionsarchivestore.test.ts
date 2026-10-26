@@ -9,8 +9,11 @@ import {
     groupByRecency,
     mergedFeed,
     overlayLive,
+    pageFeed,
+    pageGroups,
     resolveSelectedSession,
     totalEvents,
+    type RecencyGroup,
 } from "./sessionsarchivestore";
 
 const ev = (type: string, ts: number, text = ""): SessionEvent => ({ type, ts, text });
@@ -195,5 +198,60 @@ describe("mergedFeed + totalEvents", () => {
         expect(feed[0].ts).toBe(20);
         expect(feed[0].sessionTitle).toBe("B task");
         expect(totalEvents(list)).toBe(2);
+    });
+});
+
+describe("pageGroups + pageFeed", () => {
+    const now = new Date("2026-07-10T12:00:00Z").getTime();
+    const startOfToday = new Date(now).setHours(0, 0, 0, 0);
+    const item = (id: string, lastactivets: number, live = false) => ({ id, live, lastactivets });
+    // live l1 l2, today t1 t2 t3, earlier e1 e2
+    const groups = groupByRecency(
+        [
+            item("l1", 20, true),
+            item("l2", 10, true),
+            item("t1", startOfToday + 30),
+            item("t2", startOfToday + 20),
+            item("t3", startOfToday + 10),
+            item("e1", 20),
+            item("e2", 10),
+        ],
+        now
+    );
+    const view = (gs: RecencyGroup<{ id: string }>[]) => gs.map((g) => [g.key, g.items.map((i) => i.id)]);
+
+    it("pageGroups cuts across groups in order", () => {
+        expect(view(pageGroups(groups, 4))).toEqual([
+            ["live", ["l1", "l2"]],
+            ["today", ["t1", "t2"]],
+        ]);
+        expect(view(pageGroups(groups, 60))).toEqual(view(groups));
+    });
+
+    it("pageGroups keeps a group's full count", () => {
+        const paged = pageGroups(groups, 3);
+        expect(paged.map((g) => [g.key, g.items.length, g.total])).toEqual([
+            ["live", 2, 2],
+            ["today", 1, 3],
+        ]);
+    });
+
+    it("pageGroups drops a group with no rendered item", () => {
+        expect(pageGroups(groups, 2).map((g) => g.key)).toEqual(["live"]);
+        expect(pageGroups(groups, 0)).toEqual([]);
+    });
+
+    it("pageFeed keeps the newest count events", () => {
+        const list = overlayLive(
+            [
+                mk({ id: "a", events: [ev("started", 10), ev("asked", 40)] }),
+                mk({ id: "b", transcriptpath: "/b.jsonl", events: [ev("started", 20), ev("committed", 30)] }),
+            ],
+            [],
+            1000
+        );
+        const feed = mergedFeed(list);
+        expect(pageFeed(feed, 3).map((e) => e.ts)).toEqual([40, 30, 20]);
+        expect(pageFeed(feed, 200)).toHaveLength(4);
     });
 });

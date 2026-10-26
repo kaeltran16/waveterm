@@ -90,3 +90,24 @@ func TestRunLinkOf(t *testing.T) {
 		}
 	}
 }
+
+func TestLinkSessionsToRunsBrainstormOneShot(t *testing.T) {
+	ch, err := wstore.CreateChannel(context.Background(), "bos-ch", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := waveobj.Run{ID: uuid.NewString(), Mode: "quick", SessionId: "bos-1", StageRole: "builder-check"}
+	if err := wstore.AppendRun(context.Background(), ch.OID, run); err != nil {
+		t.Fatal(err)
+	}
+	sessions := []wshrpc.SessionActivity{{ID: "bos-1"}}
+	if err := linkSessionsToRuns(context.Background(), sessions); err != nil {
+		t.Fatal(err)
+	}
+	if sessions[0].RunId == "" || sessions[0].ChannelId != ch.OID || sessions[0].Role != "builder-check" {
+		t.Fatalf("a builder check's session links to its own run by its stage role, got %+v", sessions[0])
+	}
+	if !isRunAgent(sessions[0].Role) {
+		t.Fatalf("a builder check's session is a run agent")
+	}
+}

@@ -88,30 +88,63 @@ func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.C
 	return &wshrpc.CommandGetRecentSessionsRtnData{Sessions: out}, nil
 }
 
+func sessionActivityOf(s agentsessions.SessionInfo) wshrpc.SessionActivity {
+	evs := make([]wshrpc.SessionEvent, len(s.Events))
+	for j, e := range s.Events {
+		evs[j] = wshrpc.SessionEvent{Type: e.Type, Ts: e.Ts, Text: e.Text}
+	}
+	return wshrpc.SessionActivity{
+		ID: s.ID, Runtime: s.Runtime, ProjectPath: s.ProjectPath, ProjectName: s.ProjectName,
+		Branch: s.Branch, Task: s.Task, Model: s.Model, TokensTotal: s.TokensTotal,
+		LastActiveTs: s.LastActiveTs, ResumeCommand: s.ResumeCommand, ResumeArgs: s.ResumeArgs,
+		TranscriptPath: s.TranscriptPath,
+		Status:         s.Status, StartedTs: s.StartedTs, DurationMs: s.DurationMs, Events: evs,
+	}
+}
+
 func (ws *WshServer) GetSessionsActivityCommand(ctx context.Context, data wshrpc.CommandGetSessionsActivityData) (*wshrpc.CommandGetSessionsActivityRtnData, error) {
-	sessions, err := agentsessions.ScanSessions(data.WindowDays, data.Limit)
-	if err != nil {
-		return nil, fmt.Errorf("scanning sessions: %w", err)
+	var sessions []agentsessions.SessionInfo
+	complete := true
+	if data.All {
+		windowDays := data.WindowDays
+		if windowDays == 0 {
+			windowDays = agentsessions.IndexWindowDays
+		}
+		var indexed []agentsessions.IndexedSession
+		indexed, complete = agentsessions.Indexed(windowDays)
+		for _, s := range indexed {
+			sessions = append(sessions, s.Info)
+		}
+	} else {
+		var err error
+		if sessions, err = agentsessions.ScanSessions(data.WindowDays, data.Limit); err != nil {
+			return nil, fmt.Errorf("scanning sessions: %w", err)
+		}
 	}
 	out := make([]wshrpc.SessionActivity, len(sessions))
 	for i, s := range sessions {
-		evs := make([]wshrpc.SessionEvent, len(s.Events))
-		for j, e := range s.Events {
-			evs[j] = wshrpc.SessionEvent{Type: e.Type, Ts: e.Ts, Text: e.Text}
-		}
-		out[i] = wshrpc.SessionActivity{
-			ID: s.ID, Runtime: s.Runtime, ProjectPath: s.ProjectPath, ProjectName: s.ProjectName,
-			Branch: s.Branch, Task: s.Task, Model: s.Model, TokensTotal: s.TokensTotal,
-			LastActiveTs: s.LastActiveTs, ResumeCommand: s.ResumeCommand, ResumeArgs: s.ResumeArgs,
-			TranscriptPath: s.TranscriptPath,
-			Status:         s.Status, StartedTs: s.StartedTs, DurationMs: s.DurationMs, Events: evs,
-		}
+		out[i] = sessionActivityOf(s)
 	}
 	// unlinked sessions still list, just not under their run
 	if err := linkSessionsToRuns(ctx, out); err != nil {
 		log.Printf("sessions activity: %v", err)
 	}
-	return &wshrpc.CommandGetSessionsActivityRtnData{Sessions: out}, nil
+	return &wshrpc.CommandGetSessionsActivityRtnData{Sessions: out, Incomplete: !complete}, nil
+}
+
+func (ws *WshServer) SearchSessionsCommand(ctx context.Context, data wshrpc.CommandSearchSessionsData) (*wshrpc.CommandSearchSessionsRtnData, error) {
+	q := agentsessions.ParseQuery(data.Query)
+	if len(q.Terms) == 0 {
+		return &wshrpc.CommandSearchSessionsRtnData{Terms: []string{}, Results: []wshrpc.SessionSearchResult{}}, nil
+	}
+	maxHits := data.MaxHits
+	if maxHits <= 0 {
+		maxHits = defaultMaxHits
+	}
+	sessions, complete := agentsessions.Indexed(agentsessions.IndexWindowDays)
+	link := func(s []wshrpc.SessionActivity) error { return linkSessionsToRuns(ctx, s) }
+	results := searchResults(sessions, q, data.RunAgents, maxHits, link)
+	return &wshrpc.CommandSearchSessionsRtnData{Terms: q.Terms, Results: results, Incomplete: !complete}, nil
 }
 
 func cutoffFromEpoch(sec int64) time.Time {

@@ -15,9 +15,9 @@ import * as WOS from "@/app/store/wos";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
-import { Activity, Check, Workflow } from "lucide-react";
+import { Activity, Check, Search, Workflow } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { formatAge, formatAgeShort, formatTokens } from "./agentsviewmodel";
@@ -25,20 +25,22 @@ import type { RunInfo } from "./runlineage";
 import { runDigestsAtom, useRunDigests } from "./runlineagestore";
 import { runtimeMeta } from "./runtimemeta";
 import {
-    filterByProject,
-    filterByStatus,
     groupByRecency,
     loadSessionsArchive,
     mergedFeed,
     overlayLive,
+    pageFeed,
+    pageGroups,
     resolveSelectedSession,
     sessionsArchiveAtom,
     sessionsErrorAtom,
+    sessionsIncompleteAtom,
     totalEvents,
     type LiveSession,
     type SessionStatusFilter,
 } from "./sessionsarchivestore";
 import { eventColor, RunDetail, runSessionPrimary, SEG_COLOR, SoloDetail, StatusMark } from "./sessionsdetail";
+import { openSessionHit } from "./sessionsfind";
 import {
     defaultMember,
     groupRunSessions,
@@ -52,10 +54,23 @@ import {
     sessionLabel,
     sessionSelection,
     type RunMember,
-    type RunSessions,
     type RunView,
     type Status,
 } from "./sessionsruns";
+import {
+    composeSearchRows,
+    foldHits,
+    isSearchQuery,
+    keepRow,
+    mergeResultSessions,
+    scopeRows,
+    searchSummary,
+    snippetParts,
+    type CardMatch,
+    type Row,
+    type SnippetRow,
+} from "./sessionssearch";
+import { useSessionsSearch } from "./sessionssearchstore";
 import { SurfaceEmptyState, SurfaceError, SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 
 const FILTERS: { key: SessionStatusFilter; label: string }[] = [
@@ -65,26 +80,30 @@ const FILTERS: { key: SessionStatusFilter; label: string }[] = [
     { key: "done", label: "Done" },
 ];
 
-// one entry of the left list: an orchestrator run or a session on its own
-interface Row {
-    key: string;
-    live: boolean;
-    lastactivets: number;
-    run?: { group: RunSessions; view: RunView };
-    session?: LiveSession;
-}
+// ~2,400 sessions and ~8,600 events in 30 days: the list and the feed render in pages so neither freezes
+const LIST_PAGE = 60;
+const FEED_PAGE = 200;
+const ARCHIVE_POLL_MS = 3000;
 
-function keepRow(r: Row, f: SessionStatusFilter): boolean {
-    if (f === "all") {
-        return true;
-    }
-    if (f === "live") {
-        return r.live;
-    }
-    if (r.run) {
-        return f === "needs" ? r.run.view.needs.length > 0 : !r.live;
-    }
-    return filterByStatus([r.session!], f).length > 0;
+// how many of `total` rows to render: `page` more each time the sentinel at the list's end scrolls into view.
+// The observer is rebuilt on every growth, so a sentinel still in view after one page grows another.
+function usePaging(page: number, total: number) {
+    const [count, setCount] = useState(page);
+    const sentinelRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const el = sentinelRef.current;
+        if (el == null || count >= total) {
+            return;
+        }
+        const io = new IntersectionObserver((entries) => {
+            if (entries.some((e) => e.isIntersecting)) {
+                setCount((c) => c + page);
+            }
+        });
+        io.observe(el);
+        return () => io.disconnect();
+    }, [count, total, page]);
+    return { count, setCount, sentinelRef };
 }
 
 function needsRow(r: Row): boolean {
@@ -118,12 +137,30 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const [filter, setFilter] = useAtom(model.sessionsStatusFilterAtom);
     const projectFilter = useAtomValue(model.projectFilterAtom);
     const digests = useAtomValue(runDigestsAtom);
+    const incomplete = useAtomValue(sessionsIncompleteAtom);
+    const [query, setQuery] = useAtom(model.sessionsQueryAtom);
+    // off on every visit: run agents are a deliberate widening, not a mode the list remembers
+    const [runAgents, setRunAgents] = useState(false);
+    const search = useSessionsSearch(query, runAgents);
+    const searching = isSearchQuery(query);
+    const results = searching ? search.results : null;
 
     useEffect(() => {
         fireAndForget(loadSessionsArchive);
     }, []);
+    useEffect(() => {
+        if (!incomplete) {
+            return;
+        }
+        const t = setInterval(() => fireAndForget(loadSessionsArchive), ARCHIVE_POLL_MS);
+        return () => clearInterval(t);
+    }, [incomplete]);
 
-    const live = useMemo(() => (base == null ? [] : overlayLive(base, roster, now)), [base, roster, now]);
+    const live = useMemo(
+        () => (base == null ? [] : overlayLive(results ? mergeResultSessions(base, results) : base, roster, now)),
+        [base, results, roster, now]
+    );
+    const matches = useMemo(() => (results ? foldHits(results) : null), [results]);
     const { runs: runGroups, solos } = useMemo(() => groupRunSessions(live), [live]);
 
     // each run's own object and its dag, read from the object store (loaded on first read)
@@ -191,14 +228,15 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
         lastactivets: s.lastactivets,
         session: s,
     }));
-    const scoped = [
-        ...runRows.filter((r) => projectFilter === "all" || r.run!.view.project === projectFilter),
-        ...soloRows.filter((r) => filterByProject([r.session!], projectFilter).length > 0),
-    ];
-    const groups = groupByRecency(
-        scoped.filter((r) => keepRow(r, filter)),
-        now
-    );
+    const rows = [...runRows, ...soloRows];
+    const scoped = scopeRows(rows, projectFilter);
+    const shown = matches
+        ? composeSearchRows(rows, matches, filter, projectFilter)
+        : scoped.filter((r) => keepRow(r, filter));
+    const groups = groupByRecency(shown, now);
+    const summary = matches ? searchSummary(new Map(shown.map((r) => [r.key, matches.get(r.key)!]))) : "";
+    const openCard = (m: CardMatch) => openSessionHit(model, m.results[0], query, search.terms);
+    const openHit = (row: SnippetRow) => openSessionHit(model, row.result, query, search.terms, row.hit);
     const scopedSessions = scoped.flatMap((r) => (r.run ? r.run.group.sessions : [r.session!]));
     const liveCount = scopedSessions.filter((s) => s.live).length;
     const needsCount = scoped.filter(needsRow).length;
@@ -237,6 +275,8 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     // publish the "All activity" + row order for global j/k list-nav. cursor==selection. Refs keep the
     // controller stable while reading this render's rows, so it isn't re-registered on every roster tick.
     const navIds = useMemo(() => ["all", ...groups.flatMap((g) => g.items.map((r) => r.key))], [groups]);
+    const listPage = usePaging(LIST_PAGE, navIds.length - 1);
+    const paged = pageGroups(groups, listPage.count);
     const selectRef = useRef(select);
     selectRef.current = select;
     const actRef = useRef<() => void>(() => {});
@@ -257,6 +297,29 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
         [navIds, cursorId]
     );
     useSurfaceListNav(listNav);
+
+    // j/k walks every row: a cursor past the rendered rows grows the page to reach it, then its card scrolls
+    // into view once rendered. Only a cursor move scrolls, so growing the page by scrolling never yanks back.
+    const cursorIdx = navIds.indexOf(cursorId ?? "") - 1;
+    const setListCount = listPage.setCount;
+    useEffect(() => {
+        if (cursorIdx >= 0) {
+            setListCount((c) => (cursorIdx < c ? c : Math.ceil((cursorIdx + 1) / LIST_PAGE) * LIST_PAGE));
+        }
+    }, [cursorIdx, setListCount]);
+    const listRef = useRef<HTMLDivElement>(null);
+    const scrollTo = useRef<string | null>(null);
+    useEffect(() => {
+        scrollTo.current = cursorId && cursorId !== "all" ? cursorId : null;
+    }, [cursorId]);
+    useEffect(() => {
+        const key = scrollTo.current;
+        const card = key ? listRef.current?.querySelector(`[data-session-row="${CSS.escape(key)}"]`) : null;
+        if (card) {
+            card.scrollIntoView({ block: "nearest" });
+            scrollTo.current = null;
+        }
+    });
 
     const runTitles = Object.fromEntries(runRows.map((r) => [r.run!.group.runId, r.run!.view.title]));
     const detailKind = selRun ? "run" : selSession ? "solo" : "feed";
@@ -310,7 +373,21 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                 ) : null}
 
                 <div className="flex min-h-0 flex-1">
-                    <div className="flex w-[380px] flex-none flex-col gap-1.5 overflow-y-auto border-r border-edge-faint p-3 pb-10">
+                    {/* layoutScroll: the cards' layout animations read a cursor scroll as scroll, not as every card moving */}
+                    <motion.div
+                        layoutScroll
+                        ref={listRef}
+                        data-sessions-list=""
+                        className="flex w-[380px] flex-none flex-col gap-1.5 overflow-y-auto border-r border-edge-faint p-3 pb-10"
+                    >
+                        <SearchHeader
+                            query={query}
+                            setQuery={setQuery}
+                            runAgents={runAgents}
+                            setRunAgents={setRunAgents}
+                            summary={summary}
+                            incomplete={searching && search.incomplete}
+                        />
                         <button
                             type="button"
                             onClick={() => setSel("all")}
@@ -328,10 +405,31 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                             </span>
                         </button>
 
-                        {base == null ? (
+                        {searching && search.error != null ? (
+                            <div
+                                data-sessions-search-error=""
+                                className="mt-3 flex items-center gap-2 px-1 text-[12px] text-error"
+                            >
+                                <span className="flex-1">Search failed</span>
+                                <button
+                                    type="button"
+                                    onClick={search.retry}
+                                    className="cursor-pointer rounded-[6px] border border-border px-2 py-[3px] text-[11px] text-secondary hover:text-primary"
+                                >
+                                    Retry
+                                </button>
+                            </div>
+                        ) : base == null || (searching && results == null) ? (
                             <SkeletonRows className="mt-3 min-h-0 flex-1 space-y-[7px]">
                                 {(i) => <SkeletonLine key={i} className="h-[58px] rounded-[10px]" />}
                             </SkeletonRows>
+                        ) : searching && groups.length === 0 ? (
+                            <div
+                                data-sessions-search-empty=""
+                                className="mt-6 px-1 text-center text-[12.5px] text-muted"
+                            >
+                                No sessions match “{query.trim()}”.
+                            </div>
                         ) : groups.length === 0 ? (
                             <div className="mt-6">
                                 <SurfaceEmptyState
@@ -344,32 +442,40 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                 />
                             </div>
                         ) : (
-                            groups.map((g) => (
+                            paged.map((g) => (
                                 <div key={g.key} className="flex flex-col gap-1.5">
                                     <div className="flex items-center gap-2.5 px-1 pb-0.5 pt-3">
                                         <span className={cn(REGION_LABEL, "text-muted")}>{g.label}</span>
                                         <div className="h-px flex-1 bg-edge-faint" />
-                                        <span className="font-mono text-[10.5px] text-muted">{g.items.length}</span>
+                                        <span className="font-mono text-[10.5px] text-muted">{g.total}</span>
                                     </div>
                                     <AnimatePresence initial={false} mode="popLayout">
                                         {g.items.map((r) =>
                                             r.run ? (
                                                 <RunCard
                                                     key={r.key}
+                                                    rowKey={r.key}
                                                     view={r.run.view}
                                                     active={viewRunId === r.run.group.runId}
                                                     member={member}
                                                     now={now}
+                                                    match={matches?.get(r.key)}
                                                     onSelect={() => select(r.key)}
+                                                    onOpen={openCard}
+                                                    onHit={openHit}
                                                     onMember={(key) => selectMember(r.run!.group.runId, key)}
                                                 />
                                             ) : (
                                                 <SoloCard
                                                     key={r.key}
+                                                    rowKey={r.key}
                                                     session={r.session!}
                                                     active={sel === r.key}
                                                     now={now}
+                                                    match={matches?.get(r.key)}
                                                     onSelect={() => setSel(r.key)}
+                                                    onOpen={openCard}
+                                                    onHit={openHit}
                                                 />
                                             )
                                         )}
@@ -377,7 +483,13 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                 </div>
                             ))
                         )}
-                    </div>
+                        <div ref={listPage.sentinelRef} className="h-px flex-none" />
+                        {base != null && incomplete ? (
+                            <div data-sessions-loading="" className="px-1 pt-2 text-[12px] text-muted">
+                                Loading older sessions…
+                            </div>
+                        ) : null}
+                    </motion.div>
 
                     <div className="flex min-w-0 flex-1 flex-col px-8 py-[22px]">
                         <AnimatePresence mode="wait" initial={false}>
@@ -417,18 +529,26 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
 }
 
 function RunCard({
+    rowKey,
     view,
     active,
     member,
     now,
+    match,
     onSelect,
+    onOpen,
+    onHit,
     onMember,
 }: {
+    rowKey: string;
     view: RunView;
     active: boolean;
     member: string;
     now: number;
+    match?: CardMatch;
     onSelect: () => void;
+    onOpen: (m: CardMatch) => void;
+    onHit: (row: SnippetRow) => void;
     onMember: (key: string) => void;
 }) {
     const rt = runtimeMeta(view.runtime);
@@ -438,6 +558,7 @@ function RunCard({
     return (
         <motion.div
             layout
+            data-session-row={rowKey}
             variants={cardVariants}
             initial="initial"
             animate="animate"
@@ -449,7 +570,7 @@ function RunCard({
         >
             <button
                 type="button"
-                onClick={onSelect}
+                onClick={() => (match ? onOpen(match) : onSelect())}
                 className="flex w-full cursor-pointer flex-col gap-2 rounded-[10px] px-3 pb-[11px] pt-2.5 text-left"
             >
                 <span className="flex w-full items-center gap-2">
@@ -514,56 +635,232 @@ function RunCard({
                     ))}
                 </div>
             ) : null}
+            {match ? <SnippetRows match={match} runtime={view.runtime} onHit={onHit} /> : null}
         </motion.div>
     );
 }
 
 function SoloCard({
+    rowKey,
     session,
     active,
     now,
+    match,
     onSelect,
+    onOpen,
+    onHit,
 }: {
+    rowKey: string;
     session: LiveSession;
     active: boolean;
     now: number;
+    match?: CardMatch;
     onSelect: () => void;
+    onOpen: (m: CardMatch) => void;
+    onHit: (row: SnippetRow) => void;
 }) {
     const rt = runtimeMeta(session.runtime);
     return (
-        <motion.button
+        <motion.div
             layout
+            data-session-row={rowKey}
             variants={cardVariants}
             initial="initial"
             animate="animate"
             exit="exit"
-            type="button"
-            onClick={onSelect}
             className={cn(
-                "flex w-full cursor-pointer flex-col gap-2 rounded-[10px] border px-3 py-2.5 text-left",
+                "rounded-[10px] border",
                 active ? "border-accent bg-surface-selected" : "border-border bg-surface hover:border-edge-strong"
             )}
         >
-            <span className="flex w-full items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">
-                    {session.task || "(untitled session)"}
+            <button
+                type="button"
+                onClick={() => (match ? onOpen(match) : onSelect())}
+                className="flex w-full cursor-pointer flex-col gap-2 rounded-[10px] px-3 py-2.5 text-left"
+            >
+                <span className="flex w-full items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">
+                        {session.task || "(untitled session)"}
+                    </span>
+                    <StatusMark status={soloStatus(session, now)} />
                 </span>
-                <StatusMark status={soloStatus(session, now)} />
-            </span>
-            <span className="flex w-full items-center gap-2 font-mono text-[10.5px] text-muted">
-                <span className={rt.text}>{rt.glyph}</span>
-                <span className="min-w-0 truncate text-secondary" title={session.projectname}>
-                    {session.projectname}
+                <span className="flex w-full items-center gap-2 font-mono text-[10.5px] text-muted">
+                    <span className={rt.text}>{rt.glyph}</span>
+                    <span className="min-w-0 truncate text-secondary" title={session.projectname}>
+                        {session.projectname}
+                    </span>
+                    <span className="min-w-0 truncate" title={session.branch || undefined}>
+                        {session.branch || "—"}
+                    </span>
+                    <span className="flex-1" />
+                    {session.tokenstotal > 0 ? (
+                        <span className="flex-none whitespace-nowrap">{formatTokens(session.tokenstotal)} tok</span>
+                    ) : null}
                 </span>
-                <span className="min-w-0 truncate" title={session.branch || undefined}>
-                    {session.branch || "—"}
+            </button>
+            {match ? <SnippetRows match={match} runtime={session.runtime} onHit={onHit} /> : null}
+        </motion.div>
+    );
+}
+
+function SearchHeader({
+    query,
+    setQuery,
+    runAgents,
+    setRunAgents,
+    summary,
+    incomplete,
+}: {
+    query: string;
+    setQuery: (q: string) => void;
+    runAgents: boolean;
+    setRunAgents: (on: boolean) => void;
+    summary: string;
+    incomplete: boolean;
+}) {
+    return (
+        <div className="flex flex-none flex-col gap-1.5">
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-[7px] focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/15">
+                <Search size={14} strokeWidth={1.8} className="flex-none text-ink-mid" aria-hidden />
+                <input
+                    data-sessions-search=""
+                    aria-label="Search sessions"
+                    placeholder="Search what was said"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === "Escape" && query !== "") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setQuery("");
+                        }
+                    }}
+                    className="min-w-0 flex-1 bg-transparent text-[12.5px] text-primary outline-none placeholder:text-muted"
+                />
+                {query !== "" ? (
+                    <button
+                        type="button"
+                        aria-label="Clear search"
+                        onClick={() => setQuery("")}
+                        className="flex-none cursor-pointer font-mono text-[10.5px] text-muted hover:text-primary"
+                    >
+                        Esc
+                    </button>
+                ) : null}
+            </div>
+            <div className="flex items-center gap-2 px-0.5">
+                <span data-sessions-search-summary="" className="font-mono text-[10.5px] text-muted">
+                    {summary}
                 </span>
                 <span className="flex-1" />
-                {session.tokenstotal > 0 ? (
-                    <span className="flex-none whitespace-nowrap">{formatTokens(session.tokenstotal)} tok</span>
-                ) : null}
-            </span>
-        </motion.button>
+                <button
+                    type="button"
+                    role="switch"
+                    aria-checked={runAgents}
+                    onClick={() => setRunAgents(!runAgents)}
+                    className="flex cursor-pointer items-center gap-[7px] py-0.5 text-[11.5px] font-semibold text-ink-mid hover:text-primary"
+                >
+                    <span
+                        className={cn(
+                            "relative h-[15px] w-[26px] flex-none rounded-full border transition-colors",
+                            runAgents ? "border-accent bg-accent/30" : "border-edge-strong bg-surface"
+                        )}
+                    >
+                        <span
+                            className={cn(
+                                "absolute top-[2px] h-[9px] w-[9px] rounded-full transition-all",
+                                runAgents ? "left-[13px] bg-primary" : "left-[2px] bg-muted"
+                            )}
+                        />
+                    </span>
+                    Run agents
+                </button>
+            </div>
+            {incomplete ? (
+                <div data-sessions-search-incomplete="" className="px-0.5 text-[11.5px] text-muted">
+                    Results may be incomplete — still indexing
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+// a card lists this many of its hits, then a row that expands to every hit returned
+const SNIPPET_ROWS = 3;
+
+function whoClass(row: SnippetRow, runtimeText: string): string {
+    if (row.who === "you") {
+        return "text-ink-mid";
+    }
+    return row.who === "agent" || row.who === "lead" ? runtimeText : "text-muted";
+}
+
+function SnippetRows({
+    match,
+    runtime,
+    onHit,
+}: {
+    match: CardMatch;
+    runtime: string;
+    onHit: (row: SnippetRow) => void;
+}) {
+    const [expanded, setExpanded] = useState(false);
+    if (match.hits.length === 0) {
+        return null;
+    }
+    const rt = runtimeMeta(runtime);
+    const rows = expanded ? match.hits : match.hits.slice(0, SNIPPET_ROWS);
+    const more = match.hits.length - rows.length;
+    return (
+        <div
+            role="group"
+            aria-label="Matches in this session"
+            data-session-hits=""
+            className="flex flex-col gap-px border-t border-edge-faint px-1.5 pb-1.5 pt-1"
+        >
+            {rows.map((row) => (
+                <button
+                    key={row.key}
+                    type="button"
+                    data-session-hit={row.who}
+                    onClick={() => onHit(row)}
+                    className="grid cursor-pointer grid-cols-[58px_minmax(0,1fr)] items-start gap-x-2 rounded-[6px] px-2 py-1 text-left hover:bg-surface-hover"
+                >
+                    <span
+                        title={row.who}
+                        className={cn(
+                            "truncate pt-px text-right font-mono text-[10.5px]",
+                            row.hit.kind === "event" ? "" : whoClass(row, rt.text)
+                        )}
+                        style={row.hit.kind === "event" ? { color: eventColor(row.who) } : undefined}
+                    >
+                        {row.who}
+                    </span>
+                    {/* two lines, so a hit past the first line's end still shows */}
+                    <span className="line-clamp-2 min-w-0 break-words text-[12px] leading-[1.45] text-secondary">
+                        {snippetParts(row.hit.text, row.hit.marks).map((p, i) =>
+                            p.mark ? (
+                                <mark key={i} className="rounded-[3px] bg-accent/20 px-px text-primary">
+                                    {p.text}
+                                </mark>
+                            ) : (
+                                <span key={i}>{p.text}</span>
+                            )
+                        )}
+                    </span>
+                </button>
+            ))}
+            {more > 0 ? (
+                <button
+                    type="button"
+                    data-session-hits-more=""
+                    onClick={() => setExpanded(true)}
+                    className="cursor-pointer py-[3px] pl-[74px] text-left font-mono text-[10.5px] text-muted hover:text-primary"
+                >
+                    {more} more {more === 1 ? "match" : "matches"}
+                </button>
+            ) : null}
+        </div>
     );
 }
 
@@ -579,8 +876,9 @@ function MergedFeed({
     onOpen: (sessionKey: string) => void;
 }) {
     const feed = mergedFeed(list, (s) => sessionLabel(s, titles));
+    const feedPage = usePaging(FEED_PAGE, feed.length);
     return (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div data-sessions-feed="" className="min-h-0 flex-1 overflow-y-auto">
             <div className="mb-1.5 flex items-center gap-2.5">
                 <h2 className={cn(REGION_LABEL, "text-muted")}>All activity</h2>
                 <div className="h-px flex-1 bg-edge-faint" />
@@ -590,9 +888,10 @@ function MergedFeed({
                 <div className="mt-8 text-center text-[13px] text-muted">No recent activity.</div>
             ) : (
                 <div className="flex flex-col">
-                    {feed.map((e) => (
+                    {pageFeed(feed, feedPage.count).map((e) => (
                         <button
                             key={e.key}
+                            data-sessions-feed-row=""
                             type="button"
                             onClick={() => onOpen(e.sessionKey)}
                             className="grid cursor-pointer grid-cols-[8px_minmax(0,1fr)_auto] items-start gap-x-3.5 border-b border-edge-faint px-2 py-2.5 text-left hover:bg-surface-hover"
@@ -618,6 +917,7 @@ function MergedFeed({
                             </span>
                         </button>
                     ))}
+                    <div ref={feedPage.sentinelRef} className="h-px flex-none" />
                 </div>
             )}
         </div>

@@ -987,11 +987,13 @@ declare global {
     type CommandGetSessionsActivityData = {
         windowdays?: number;
         limit?: number;
+        all?: boolean;
     };
 
     // wshrpc.CommandGetSessionsActivityRtnData
     type CommandGetSessionsActivityRtnData = {
         sessions: SessionActivity[];
+        incomplete?: boolean;
     };
 
     // wshrpc.CommandGetSubagentsData
@@ -1482,6 +1484,20 @@ declare global {
     type CommandSealRunEvidenceData = {
         channelid: string;
         runid: string;
+    };
+
+    // wshrpc.CommandSearchSessionsData
+    type CommandSearchSessionsData = {
+        query: string;
+        runagents?: boolean;
+        maxhits?: number;
+    };
+
+    // wshrpc.CommandSearchSessionsRtnData
+    type CommandSearchSessionsRtnData = {
+        terms: string[];
+        results: SessionSearchResult[];
+        incomplete?: boolean;
     };
 
     // wshrpc.CommandSetChannelProfileData
@@ -2777,6 +2793,15 @@ declare global {
         text: string;
     };
 
+    // wshrpc.SessionHit
+    type SessionHit = {
+        kind: string;
+        speaker: string;
+        ord: number;
+        text: string;
+        marks: number[][];
+    };
+
     // wshrpc.SessionInfo
     type SessionInfo = {
         id: string;
@@ -2791,6 +2816,14 @@ declare global {
         resumecommand: string;
         transcriptpath: string;
         resumeargs?: string[];
+    };
+
+    // wshrpc.SessionSearchResult
+    type SessionSearchResult = {
+        session: SessionActivity;
+        hits: SessionHit[];
+        turnhits: number;
+        eventhits: number;
     };
 
     // wconfig.SettingsType

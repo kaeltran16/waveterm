@@ -965,6 +965,12 @@ func SealRunEvidenceCommand(w *wshutil.WshRpc, data wshrpc.CommandSealRunEvidenc
 	return err
 }
 
+// command "searchsessions", wshserver.SearchSessionsCommand
+func SearchSessionsCommand(w *wshutil.WshRpc, data wshrpc.CommandSearchSessionsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandSearchSessionsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandSearchSessionsRtnData](w, "searchsessions", data, opts)
+	return resp, err
+}
+
 // command "setchannelprofile", wshserver.SetChannelProfileCommand
 func SetChannelProfileCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelProfileData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setchannelprofile", data, opts)

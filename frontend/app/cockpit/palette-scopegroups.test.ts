@@ -28,6 +28,7 @@ const rows = (over: Partial<ScopeRows> = {}): ScopeRows => ({
     agents: [row("agent:a1", "agent", "juno")],
     runs: [row("run:r1", "run", "ship the palette")],
     sessions: [],
+    sessionHits: null,
     channels: [row("channel:c1", "channel", "#waveterm")],
     brief: [row("record:t1", "record", "a record")],
     notes: [row("note:n1", "note", "build steps"), row("note:n2", "note", "alpha")],
@@ -167,6 +168,30 @@ describe("scopeGroups", () => {
         expect(out.groups[0].items[0]).toMatchObject({ key: "widen", title: "Search everything for “zzz”" });
         out.groups[0].items[0].run();
         expect(out.setNav.mock.calls[0][0](nav({ scope: "agents", query: "zzz" })).scope).toBe("all");
+    });
+
+    it("sessions scope with a query keeps server order", () => {
+        // neither title holds the query: the server matched what was said, so nothing is ranked or dropped here
+        const sessionHits = [
+            row("session:claude:s2", "session", "newer"),
+            row("session:claude:s1", "session", "older"),
+        ];
+        const out = groupsAt(
+            { scope: "sessions", query: "timeout" },
+            { rows: rows({ sessions: [row("session:claude:s3", "session", "timeout title")], sessionHits }) }
+        );
+        expect(out.shape).toEqual([["Sessions", ["session:claude:s2", "session:claude:s1"]]]);
+        const pending = groupsAt({ scope: "sessions", query: "timeout" }, { rows: rows({ sessionHits: null }) });
+        expect(pending.groups[0]).toMatchObject({ items: [], emptyText: "Searching sessions…" });
+    });
+
+    it("sessions scope with an empty query lists the archive rows", () => {
+        const archive = [row("session:claude:s1", "session", "refactor"), row("session:pi:s2", "session", "deploy")];
+        const out = groupsAt(
+            { scope: "sessions", query: "" },
+            { rows: rows({ sessions: archive, sessionHits: null }) }
+        );
+        expect(out.shape).toEqual([["Sessions", ["session:claude:s1", "session:pi:s2"]]]);
     });
 });
 

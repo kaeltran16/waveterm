@@ -3,6 +3,7 @@ import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { overlayLive, sessionsArchiveAtom, type LiveSession } from "@/app/view/agents/sessionsarchivestore";
 import { runSessionPrimary } from "@/app/view/agents/sessionsdetail";
+import { openSessionHit } from "@/app/view/agents/sessionsfind";
 import { sessionPrimary, sessionSelection } from "@/app/view/agents/sessionsruns";
 import { landOn } from "@/app/view/jarvis/returnsurface";
 import type { ThingKindDef } from "./types";
@@ -11,6 +12,8 @@ import type { ThingKindDef } from "./types";
 export interface SessionThing {
     session: LiveSession;
     agent?: AgentVM;
+    // a Sessions scope search row: Open in Sessions opens it at its first hit
+    find?: { result: SessionSearchResult; query: string; terms: string[] };
 }
 
 export const SESSION_KIND: ThingKindDef<SessionThing> = {
@@ -31,6 +34,10 @@ export const SESSION_KIND: ThingKindDef<SessionThing> = {
             applies: () => true,
             // the Sessions surface has no router target, so this writes its own selection as its list does
             run: (t, { model }) => {
+                if (t.find != null) {
+                    openSessionHit(model, t.find.result, t.find.query, t.find.terms);
+                    return;
+                }
                 const to = sessionSelection(t.session);
                 globalStore.set(model.sessionsSelAtom, to.sel);
                 if (to.member != null) {

@@ -13,12 +13,15 @@ import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentVM } from "./agentsviewmodel";
 
 const WINDOW_DAYS = 30;
-const LIMIT = 100;
+// the first call may parse up to 100 transcripts before it answers
+const ARCHIVE_TIMEOUT_MS = 30_000;
 
 // null = not loaded yet; [] = loaded-empty.
 export const sessionsArchiveAtom = atom<SessionActivity[] | null>(null) as PrimitiveAtom<SessionActivity[] | null>;
 // true = the last scan failed (so an empty list reads as an error, not "no sessions"). Mirrors usagestore.
 export const sessionsErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+// true = wavesrv is still indexing the window, so older sessions are missing; the surface reloads until false.
+export const sessionsIncompleteAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
 let loading = false;
 
@@ -28,14 +31,21 @@ export async function loadSessionsArchive(): Promise<void> {
     }
     loading = true;
     try {
-        const rtn = await RpcApi.GetSessionsActivityCommand(TabRpcClient, { windowdays: WINDOW_DAYS, limit: LIMIT });
+        const rtn = await RpcApi.GetSessionsActivityCommand(
+            TabRpcClient,
+            { windowdays: WINDOW_DAYS, all: true },
+            { timeout: ARCHIVE_TIMEOUT_MS }
+        );
         globalStore.set(sessionsArchiveAtom, rtn.sessions ?? []);
+        globalStore.set(sessionsIncompleteAtom, !!rtn.incomplete);
         globalStore.set(sessionsErrorAtom, false);
     } catch {
         // surface the failure distinctly instead of an indistinguishable empty list. Keep any last-good
         // data; mark loaded (null -> []) so the surface shows the error banner, not a permanent skeleton.
         globalStore.set(sessionsErrorAtom, true);
         globalStore.set(sessionsArchiveAtom, (prev) => prev ?? []);
+        // stop the incomplete poll; Retry on the error banner reloads
+        globalStore.set(sessionsIncompleteAtom, false);
     } finally {
         loading = false;
     }
@@ -96,6 +106,7 @@ export interface RecencyGroup<T = LiveSession> {
     key: "live" | "today" | "earlier";
     label: string;
     items: T[];
+    total: number; // the group's full count, whatever pageGroups cut from items
 }
 
 type Recent = { live: boolean; lastactivets: number };
@@ -120,11 +131,26 @@ export function groupByRecency<T extends Recent>(list: T[], now: number): Recenc
     earlier.sort(desc);
     return (
         [
-            { key: "live", label: "Live now", items: live },
-            { key: "today", label: "Today", items: today },
-            { key: "earlier", label: "Earlier", items: earlier },
+            { key: "live", label: "Live now", items: live, total: live.length },
+            { key: "today", label: "Today", items: today, total: today.length },
+            { key: "earlier", label: "Earlier", items: earlier, total: earlier.length },
         ] as RecencyGroup<T>[]
     ).filter((g) => g.items.length > 0);
+}
+
+// the first `count` items across the groups in order; a group with none of them is dropped
+export function pageGroups<T>(groups: RecencyGroup<T>[], count: number): RecencyGroup<T>[] {
+    const out: RecencyGroup<T>[] = [];
+    let left = count;
+    for (const g of groups) {
+        if (left <= 0) {
+            break;
+        }
+        const items = g.items.slice(0, left);
+        left -= items.length;
+        out.push({ ...g, items });
+    }
+    return out;
 }
 
 export interface MergedItem {
@@ -161,6 +187,11 @@ export function mergedFeed(
     }
     items.sort((a, b) => b.ts - a.ts);
     return items;
+}
+
+// mergedFeed is newest first, so its head is the newest `count` events
+export function pageFeed(items: MergedItem[], count: number): MergedItem[] {
+    return items.slice(0, count);
 }
 
 export function totalEvents(list: LiveSession[]): number {

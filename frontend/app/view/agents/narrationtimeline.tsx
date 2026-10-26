@@ -581,16 +581,20 @@ export function NarrationTimeline({
     entries,
     accentLatest,
     active,
+    renderAll,
     className,
 }: {
     entries: AgentEntry[];
     accentLatest?: boolean;
     active?: boolean;
+    // a find over the transcript must reach its earliest turns, so it lifts the cap
+    renderAll?: boolean;
     className?: string;
 }) {
     const [expanded, setExpanded] = useState<Set<number>>(new Set());
     const items = useMemo(() => groupTimeline(entries), [entries]);
-    const visibleItems = items.length > TIMELINE_RENDER_CAP ? items.slice(items.length - TIMELINE_RENDER_CAP) : items;
+    const visibleItems =
+        !renderAll && items.length > TIMELINE_RENDER_CAP ? items.slice(items.length - TIMELINE_RENDER_CAP) : items;
     const copyMenu = (text: string) => (e: React.MouseEvent) =>
         ContextMenuModel.getInstance().showContextMenu(
             [
@@ -630,6 +634,7 @@ export function NarrationTimeline({
                                 <span className="h-[7px] w-[7px] rounded-full bg-accent-soft" />
                             </span>
                             <div
+                                data-find-turn
                                 className={cn(
                                     "min-w-0 flex-1 text-[13px] leading-[1.55]",
                                     item.index === lastMessageIdx ? "text-primary" : "text-secondary"
@@ -654,7 +659,9 @@ export function NarrationTimeline({
                                 <div className="mb-0.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-accent-soft">
                                     You
                                 </div>
-                                <p className="text-[13px] leading-[1.5] text-primary">{item.text}</p>
+                                <p data-find-turn className="text-[13px] leading-[1.5] text-primary">
+                                    {item.text}
+                                </p>
                             </div>
                         </motion.div>
                     );

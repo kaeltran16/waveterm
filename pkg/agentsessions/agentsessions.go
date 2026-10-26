@@ -108,13 +108,20 @@ type SessionInfo struct {
 	Events         []SessionEvent
 }
 
+// claudeLine is the part of a claude transcript line that the session, its events, its prompts
+// (claudeTypedText) and its replies (claudeReplyText) are derived from.
 type claudeLine struct {
-	Type       string `json:"type"`
-	Timestamp  string `json:"timestamp"` // events derivation; session derivation ignores it
-	Cwd        string `json:"cwd"`
-	GitBranch  string `json:"gitBranch"`
-	Entrypoint string `json:"entrypoint"`
-	Message    struct {
+	Type             string           `json:"type"`
+	Timestamp        string           `json:"timestamp"` // events derivation; session derivation ignores it
+	Cwd              string           `json:"cwd"`
+	GitBranch        string           `json:"gitBranch"`
+	Entrypoint       string           `json:"entrypoint"`
+	IsMeta           bool             `json:"isMeta"`
+	IsSidechain      bool             `json:"isSidechain"`
+	IsCompactSummary bool             `json:"isCompactSummary"`
+	Origin           *claudeOrigin    `json:"origin"`
+	Attachment       claudeAttachment `json:"attachment"`
+	Message          struct {
 		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 		Usage   *struct {
@@ -626,7 +633,7 @@ type provider struct {
 	runtime   string
 	root      string
 	matches   func(name string) bool
-	fused     func(path, stem string, lines []string) (*SessionInfo, sessionEvents)
+	fused     func(path, stem string, lines []string) (*SessionInfo, sessionEvents, []Turn)
 	resumeCmd func(s *SessionInfo) string
 }
 
@@ -635,14 +642,14 @@ func claudeProvider(root string) provider {
 		runtime: "claude",
 		root:    root,
 		matches: func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
-		// one shared unmarshal pass for both derivations — claude transcripts dominate the scan cost
-		fused: func(_ string, id string, lines []string) (*SessionInfo, sessionEvents) {
+		// one shared unmarshal pass for every derivation — claude transcripts dominate the scan cost
+		fused: func(_ string, id string, lines []string) (*SessionInfo, sessionEvents, []Turn) {
 			recs := parseClaudeLines(lines)
 			s := claudeSessionFrom(id, recs)
 			if s == nil {
-				return nil, sessionEvents{}
+				return nil, sessionEvents{}, nil
 			}
-			return s, claudeEventsFrom(recs)
+			return s, claudeEventsFrom(recs), claudeTurns(recs)
 		},
 		resumeCmd: func(s *SessionInfo) string { return "claude --resume " + s.ID },
 	}
@@ -657,12 +664,12 @@ func codexProvider(root string) provider {
 		},
 		// codex's session/event passes parse different payload shapes, so fusing would cost the same
 		// two unmarshals per line; its files are small, sequential is fine
-		fused: func(_ string, _ string, lines []string) (*SessionInfo, sessionEvents) {
+		fused: func(_ string, _ string, lines []string) (*SessionInfo, sessionEvents, []Turn) {
 			s := extractCodexSession("", lines)
 			if s == nil {
-				return nil, sessionEvents{}
+				return nil, sessionEvents{}, nil
 			}
-			return s, extractCodexEvents(lines)
+			return s, extractCodexEvents(lines), nil
 		},
 		resumeCmd: func(s *SessionInfo) string { return "codex resume " + s.ID },
 	}
@@ -678,13 +685,13 @@ func opencodeProvider(storageRoot string) provider {
 		matches: func(name string) bool {
 			return strings.HasPrefix(name, "ses_") && strings.HasSuffix(name, ".json")
 		},
-		fused: func(path, stem string, lines []string) (*SessionInfo, sessionEvents) {
+		fused: func(path, stem string, lines []string) (*SessionInfo, sessionEvents, []Turn) {
 			data := loadOpencodeSession(path)
 			s := extractOpencodeSession(stem, lines, data)
 			if s == nil {
-				return nil, sessionEvents{}
+				return nil, sessionEvents{}, nil
 			}
-			return s, extractOpencodeEvents(data)
+			return s, extractOpencodeEvents(data), nil
 		},
 		resumeCmd: func(s *SessionInfo) string { return "opencode -s " + s.ID },
 	}
@@ -934,17 +941,17 @@ func piProvider(root string) provider {
 		runtime: "pi",
 		root:    root,
 		matches: func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
-		fused: func(path, _ string, _ []string) (*SessionInfo, sessionEvents) {
+		fused: func(path, _ string, _ []string) (*SessionInfo, sessionEvents, []Turn) {
 			file, err := pisession.Read(path)
 			if err != nil {
 				log.Printf("agentsessions: skipping malformed pi session %q: %v", path, err)
-				return nil, sessionEvents{}
+				return nil, sessionEvents{}, nil
 			}
 			s := extractPiSession(file, path)
 			if s == nil {
-				return nil, sessionEvents{}
+				return nil, sessionEvents{}, nil
 			}
-			return s, extractPiEvents(file)
+			return s, extractPiEvents(file), piTurns(file)
 		},
 		resumeCmd: func(s *SessionInfo) string { return "pi --session " + s.TranscriptPath },
 	}
@@ -1073,6 +1080,7 @@ type scanCacheEntry struct {
 	size  int64
 	info  *SessionInfo // nil = parsed, but not a session
 	se    sessionEvents
+	turns []Turn
 }
 
 var (
@@ -1080,27 +1088,52 @@ var (
 	scanCache   = map[string]scanCacheEntry{}
 )
 
-// scanCacheMax bounds cache memory; clearing all when full is cheaper than LRU bookkeeping and only
-// costs a re-parse of the hot set.
-const scanCacheMax = 4096
+// scanCacheMax bounds cache memory. It sits well above the 30-day candidate set, which Indexed prunes to,
+// so the clear-all is only an overflow guard: clearing mid-scan made a cached pass slower than a cold one.
+const scanCacheMax = 65536
 
-// scanSessionCached derives one candidate's session, reusing the cache while the file is unchanged.
-func scanSessionCached(c candidate) (*SessionInfo, sessionEvents) {
+// cachedEntry returns a candidate's cache entry while its file is unchanged.
+func cachedEntry(c candidate) (scanCacheEntry, bool) {
 	scanCacheMu.Lock()
 	e, ok := scanCache[c.path]
 	scanCacheMu.Unlock()
-	if ok && e.mtime.Equal(c.mtime) && e.size == c.size {
-		return e.info, e.se
-	}
-	lines := readLines(c.path)
-	s, se := c.p.fused(c.path, c.stem, lines)
+	return e, ok && e.mtime.Equal(c.mtime) && e.size == c.size
+}
+
+// parseCandidate reads and derives one candidate, and caches the result.
+func parseCandidate(c candidate) scanCacheEntry {
+	s, se, turns := c.p.fused(c.path, c.stem, readLines(c.path))
+	e := scanCacheEntry{mtime: c.mtime, size: c.size, info: s, se: se, turns: turns}
 	scanCacheMu.Lock()
 	if len(scanCache) >= scanCacheMax {
 		clear(scanCache)
 	}
-	scanCache[c.path] = scanCacheEntry{mtime: c.mtime, size: c.size, info: s, se: se}
+	scanCache[c.path] = e
 	scanCacheMu.Unlock()
-	return s, se
+	return e
+}
+
+// scanSessionCached derives one candidate's session, reusing the cache while the file is unchanged.
+func scanSessionCached(c candidate) scanCacheEntry {
+	if e, ok := cachedEntry(c); ok {
+		return e
+	}
+	return parseCandidate(c)
+}
+
+// sessionOf is a cached session as callers see it, stamped with its candidate's runtime, file and time.
+func sessionOf(c candidate, e scanCacheEntry) SessionInfo {
+	// value copy: the cache holds the canonical entry; callers may not mutate it
+	s := *e.info
+	s.Runtime = c.p.runtime
+	s.LastActiveTs = c.mtime.UnixMilli()
+	s.ResumeCommand = c.p.resumeCmd(&s)
+	s.TranscriptPath = c.path
+	s.Events = e.se.Events
+	s.Status = e.se.Status
+	s.StartedTs = e.se.StartedTs
+	s.DurationMs = e.se.DurationMs
+	return s
 }
 
 // parseCandidates derives sessions from candidates in mtime order until limit sessions are found
@@ -1111,21 +1144,11 @@ func parseCandidates(cands []candidate, limit int) []SessionInfo {
 		if limit > 0 && len(out) >= limit {
 			break
 		}
-		s, se := scanSessionCached(c)
-		if s == nil {
+		e := scanSessionCached(c)
+		if e.info == nil {
 			continue
 		}
-		// value copy: the cache holds the canonical entry; callers may not mutate it
-		s2 := *s
-		s2.Runtime = c.p.runtime
-		s2.LastActiveTs = c.mtime.UnixMilli()
-		s2.ResumeCommand = c.p.resumeCmd(&s2)
-		s2.TranscriptPath = c.path
-		s2.Events = se.Events
-		s2.Status = se.Status
-		s2.StartedTs = se.StartedTs
-		s2.DurationMs = se.DurationMs
-		out = append(out, s2)
+		out = append(out, sessionOf(c, e))
 	}
 	return out
 }
@@ -1151,7 +1174,7 @@ func ExtractSession(path, runtime string) (*SessionInfo, error) {
 	// strip .jsonl then .json so a claude/codex path (foo.jsonl) keeps its stem and an opencode
 	// session-info path (ses_x.json) is trimmed too.
 	stem := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(path), ".jsonl"), ".json")
-	s, se := p.fused(path, stem, lines)
+	s, se, _ := p.fused(path, stem, lines)
 	if s == nil {
 		return nil, nil
 	}
@@ -1234,12 +1257,17 @@ func TranscriptForSession(root, runtime, cwd, sessionId string) string {
 // sessions across runtimes — a provider that writes many files cannot crowd other runtimes' recent
 // sessions out of the parse set by quota alone.
 func scanProviders(providers []provider, windowDays, limit int) []SessionInfo {
+	out := parseCandidates(walkProviders(providers, windowDays), limit)
+	sort.Slice(out, func(i, j int) bool { return out[i].LastActiveTs > out[j].LastActiveTs })
+	return out
+}
+
+// walkProviders is every provider's candidates within the window, newest first.
+func walkProviders(providers []provider, windowDays int) []candidate {
 	var cands []candidate
 	for _, p := range providers {
 		cands = append(cands, walkCandidates(p, windowDays)...)
 	}
 	sort.Slice(cands, func(i, j int) bool { return cands[i].mtime.After(cands[j].mtime) })
-	out := parseCandidates(cands, limit)
-	sort.Slice(out, func(i, j int) bool { return out[i].LastActiveTs > out[j].LastActiveTs })
-	return out
+	return cands
 }

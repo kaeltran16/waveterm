@@ -972,6 +972,12 @@ export class RpcApiType {
         return client.wshRpcCall("sealrunevidence", data, opts);
     }
 
+    // command "searchsessions" [call]
+    SearchSessionsCommand(client: WshClient, data: CommandSearchSessionsData, opts?: RpcOpts): Promise<CommandSearchSessionsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "searchsessions", data, opts);
+        return client.wshRpcCall("searchsessions", data, opts);
+    }
+
     // command "setchannelprofile" [call]
     SetChannelProfileCommand(client: WshClient, data: CommandSetChannelProfileData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setchannelprofile", data, opts);
