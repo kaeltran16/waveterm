@@ -543,18 +543,12 @@ describe("shownFile", () => {
 describe("treeLine", () => {
     const f = file({ run: "abcdef0123456789" });
 
-    it("names the run by its first 8 chars, not done, while Arc knows nothing of it", () => {
-        expect(treeLine(f, false)).toEqual({ lead: "Brainstorm", text: "run abcdef01", runId: "abcdef0123456789" });
+    it("names the run by its first 8 chars while Arc knows nothing of it", () => {
+        expect(treeLine(f, false)).toEqual({ text: "run abcdef01", runId: "abcdef0123456789" });
     });
 
-    it("says what Arc knows of the run, and done only once it merged", () => {
-        expect(treeLine(f, false, { text: "building 3/10 · run abcdef01", merged: false })).toEqual({
-            lead: "Brainstorm",
-            text: "building 3/10 · run abcdef01",
-            runId: "abcdef0123456789",
-        });
-        expect(treeLine(f, true, { text: "merged · run abcdef01", merged: true })).toEqual({
-            lead: "Brainstorm done",
+    it("says what Arc knows of the run, even while asking", () => {
+        expect(treeLine(f, true, "merged · run abcdef01")).toEqual({
             text: "merged · run abcdef01",
             runId: "abcdef0123456789",
         });
@@ -562,10 +556,10 @@ describe("treeLine", () => {
 
     it("names asking, the builder check, working and the default", () => {
         const q = { n: 4, text: "?", part: "a" };
-        expect(treeLine(file({ question: q }), true)).toEqual({ lead: "Brainstorm", text: "asking question 4" });
+        expect(treeLine(file({ question: q }), true)).toEqual({ text: "asking question 4" });
         expect(treeLine(file({ check: { yours: [], calls: [], answered: [] } }), false).text).toBe("builder check");
         expect(treeLine(file({ working: "Writing" }), false).text).toBe("writing up your answer");
-        expect(treeLine(file(), false)).toEqual({ lead: "Brainstorm", text: "in progress" });
+        expect(treeLine(file(), false)).toEqual({ text: "in progress" });
     });
 });
 

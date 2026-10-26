@@ -31,7 +31,7 @@ import type { AgentsViewModel } from "./agents";
 import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
 import { isAsking, treeLine, type BrainstormFile, type BuilderCheckRecord } from "./brainstormmodel";
 import { runStepView, runTreeText } from "./brainstormrunmodel";
-import { brainstormAtom, shownBrainstormFile } from "./brainstormstore";
+import { brainstormAtom, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
@@ -209,49 +209,90 @@ function FoldChip({
     );
 }
 
-// One click from anywhere on the surface to an agent's canvas, and back to its terminal when that canvas is the
-// one showing. The click must not reach the row, which would only focus the agent in whatever mode it was left
-function CanvasTag({ model, id }: { model: AgentsViewModel; id: string }) {
+// One click from anywhere on the surface to an agent's brainstorm or canvas, and back to its terminal when that pane
+// is the one showing. The click must not reach the row, which would only focus the agent in whatever mode it was left
+function PaneTag({ model, id }: { model: AgentsViewModel; id: string }) {
     const canvas = useAtomValue(canvasStateAtom(id));
-    const showing = useAtomValue(model.focusIdAtom) === id && canvas?.mode === "canvas";
-    // an agent with a brainstorm never shows its canvas: the brainstorm pane opens its boards
     const brainstorm = useAtomValue(brainstormAtom(id));
-    if (canvas == null || brainstorm != null) {
+    const focused = useAtomValue(model.focusIdAtom) === id;
+    // an agent with a brainstorm never shows its canvas: the brainstorm pane opens its boards
+    if (brainstorm != null) {
+        const showing = focused && brainstorm.mode === "brainstorm";
+        return (
+            <PaneChip
+                label="brainstorm"
+                showing={showing}
+                title={showing ? "Back to the terminal" : "Show the brainstorm"}
+                onClick={() => {
+                    globalStore.set(model.focusIdAtom, id);
+                    setBrainstormMode(id, showing ? "terminal" : "brainstorm", Date.now());
+                }}
+            />
+        );
+    }
+    if (canvas == null) {
         return null;
     }
+    const showing = focused && canvas.mode === "canvas";
+    return (
+        <PaneChip
+            label="canvas"
+            showing={showing}
+            title={showing ? "Back to the terminal" : "Show the canvas"}
+            onClick={() => {
+                globalStore.set(model.focusIdAtom, id);
+                setCanvasMode(id, showing ? "terminal" : "canvas", Date.now());
+            }}
+        >
+            {isUnseen(canvas) ? (
+                <span aria-label="updated since you last looked" className="h-[5px] w-[5px] rounded-full bg-accent" />
+            ) : null}
+        </PaneChip>
+    );
+}
+
+function PaneChip({
+    label,
+    showing,
+    title,
+    onClick,
+    children,
+}: {
+    label: string;
+    showing: boolean;
+    title: string;
+    onClick: () => void;
+    children?: React.ReactNode;
+}) {
     return (
         <button
             type="button"
             aria-pressed={showing}
             onClick={(e) => {
                 e.stopPropagation();
-                globalStore.set(model.focusIdAtom, id);
-                setCanvasMode(id, showing ? "terminal" : "canvas", Date.now());
+                onClick();
             }}
-            title={showing ? "Back to the terminal" : "Show the canvas"}
+            title={title}
             className={cn(
                 "flex flex-none cursor-pointer items-center gap-[4px] rounded-[5px] border px-[6px] py-[1px] font-mono text-[10.5px] font-semibold text-accent-soft",
                 showing ? "border-accent bg-accentbg" : "border-edge-mid hover:border-edge-strong"
             )}
         >
-            canvas
-            {isUnseen(canvas) ? (
-                <span aria-label="updated since you last looked" className="h-[5px] w-[5px] rounded-full bg-accent" />
-            ) : null}
+            {label}
+            {children}
         </button>
     );
 }
 
-// replaces a row's branch text while the agent brainstorms; a finished one links to the run it started
+// replaces a row's branch text while the agent brainstorms (its brainstorm chip names it); a finished one links to
+// the run it started
 function BrainstormTreeLine({ model, f, asking }: { model: AgentsViewModel; f: BrainstormFile; asking: boolean }) {
     const info = useRunInfo(f.run);
     const view = f.run != null ? runStepView(f.run, info.run, info.loaded) : null;
-    const line = treeLine(f, asking, view ? { text: runTreeText(f.run!, view), merged: view.merged } : undefined);
+    const line = treeLine(f, asking, view ? runTreeText(f.run!, view) : undefined);
     const done = line.runId != null;
     return (
         <span data-brainstorm-tree-line className="flex min-w-0 items-baseline text-[11.5px]">
-            <span className={cn("flex-none whitespace-pre", done ? "text-ink-mid" : "text-warning")}>{line.lead}</span>
-            <span className="flex-none whitespace-pre text-muted"> · </span>
             {done ? (
                 <button
                     type="button"
@@ -265,7 +306,7 @@ function BrainstormTreeLine({ model, f, asking }: { model: AgentsViewModel; f: B
                     {line.text}
                 </button>
             ) : (
-                <span className="min-w-0 truncate text-ink-mid">{line.text}</span>
+                <span className={cn("min-w-0 truncate", asking ? "text-warning" : "text-ink-mid")}>{line.text}</span>
             )}
         </span>
     );
@@ -628,7 +669,7 @@ function ParentRow({
                         </div>
                     )}
                 </div>
-                <CanvasTag model={model} id={agent.id} />
+                <PaneTag model={model} id={agent.id} />
                 {/* a row names its state only when it wants something; the dot already says working or idle */}
                 {review ? (
                     // opens the dialog over whatever agent is focused, so the click must not reach the row
@@ -873,7 +914,7 @@ function WorkerRow({
                     </span>
                 </div>
             </div>
-            {agent != null ? <CanvasTag model={model} id={agent.id} /> : null}
+            {agent != null ? <PaneTag model={model} id={agent.id} /> : null}
             {ask?.owner === "lead" ? (
                 <span className="flex items-center gap-[3px] whitespace-nowrap font-mono text-[10.5px] font-medium text-muted">
                     <ArrowRight size={10} aria-hidden />
@@ -1104,7 +1145,7 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
                     <div className="truncate text-[13px] font-medium text-ink-hi">{terminal.name}</div>
                 )}
             </div>
-            <CanvasTag model={model} id={terminal.id} />
+            <PaneTag model={model} id={terminal.id} />
         </div>
     );
 }

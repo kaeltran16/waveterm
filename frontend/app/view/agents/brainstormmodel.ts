@@ -506,27 +506,23 @@ export function withBrainstorm(agent: AgentVM, f: BrainstormFile | null, now: nu
     };
 }
 
-export type TreeLine = { lead: "Brainstorm" | "Brainstorm done"; text: string; runId?: string };
+export type TreeLine = { text: string; runId?: string };
 
-// run is what Arc knows of the brainstorm's run: done only once it merged, since a started run can still fail
-export function treeLine(f: BrainstormFile, asking: boolean, run?: { text: string; merged: boolean }): TreeLine {
+// runText is what Arc knows of the brainstorm's run
+export function treeLine(f: BrainstormFile, asking: boolean, runText?: string): TreeLine {
     if (f.run != null) {
-        return {
-            lead: run?.merged ? "Brainstorm done" : "Brainstorm",
-            text: run?.text ?? `run ${f.run.slice(0, RUN_ID_CHARS)}`,
-            runId: f.run,
-        };
+        return { text: runText ?? `run ${f.run.slice(0, RUN_ID_CHARS)}`, runId: f.run };
     }
     if (asking) {
-        return { lead: "Brainstorm", text: `asking question ${f.question?.n ?? ""}`.trim() };
+        return { text: `asking question ${f.question?.n ?? ""}`.trim() };
     }
     if (f.check != null) {
-        return { lead: "Brainstorm", text: "builder check" };
+        return { text: "builder check" };
     }
     if (f.working != null) {
-        return { lead: "Brainstorm", text: "writing up your answer" };
+        return { text: "writing up your answer" };
     }
-    return { lead: "Brainstorm", text: "in progress" };
+    return { text: "in progress" };
 }
 
 export type BrainstormAction =
