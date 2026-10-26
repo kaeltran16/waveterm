@@ -354,8 +354,10 @@ How the boards map onto the record:
 
 The header's Scan workflow button starts a scan in the home project (active, else last used, else only), resolved
 by the palette's own `palettePickChannel`. It is disabled while the newest scan is scanning, picking or applying and
-its run is neither done nor cancelled. The server refuses a start by the same rule, so a scan whose run died mid-scan
-blocks nothing.
+its run is neither done nor cancelled. The server holds one scan at a time across all projects: it refuses a start
+while any scan run, in any project, is scanning, picking or applying and its run is neither done nor cancelled, and
+the error names that scan's project and run. A scan whose run is done or cancelled, including one that died
+mid-scan, blocks nothing.
 
 ### Tests and checks
 

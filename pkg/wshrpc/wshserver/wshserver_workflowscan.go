@@ -50,12 +50,13 @@ func windowDaysOr(days int) int {
 	return days
 }
 
-// activeWorkflowScan is the channel's scan that still holds the project, nil when none does. A scan whose run
-// ended keeps the state it had, so a run that died mid-scan must not block the next one.
-func activeWorkflowScan(ctx context.Context, channelId string) (*waveobj.Run, error) {
-	runs, err := wstore.GetChannelRuns(ctx, channelId)
+// activeWorkflowScan is the scan, in any project, that is still live, nil when none is: one scan runs at a time,
+// as the lens shows only the newest. A scan whose run ended keeps the state it had, so a run that died mid-scan
+// must not block the next one.
+func activeWorkflowScan(ctx context.Context) (*waveobj.Run, error) {
+	runs, err := wstore.GetWorkflowScanRuns(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("loading runs: %w", err)
+		return nil, fmt.Errorf("loading scan runs: %w", err)
 	}
 	for _, r := range runs {
 		if r.WorkflowScan == nil || r.Status == jarvis.RunStatus_Done || r.Status == jarvis.RunStatus_Cancelled {
@@ -77,12 +78,12 @@ func (ws *WshServer) WorkflowScanStartCommand(ctx context.Context, data wshrpc.C
 	if err != nil {
 		return nil, fmt.Errorf("loading channel: %w", err)
 	}
-	active, err := activeWorkflowScan(ctx, ch.OID)
+	active, err := activeWorkflowScan(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if active != nil {
-		return nil, fmt.Errorf("a workflow scan is already %s in %s: run %s", active.WorkflowScan.State, ch.Name, active.ID)
+		return nil, fmt.Errorf("a workflow scan is already %s in %s: run %s", active.WorkflowScan.State, active.WorkflowScan.Project, active.ID)
 	}
 	days := windowDaysOr(data.WindowDays)
 	project := runProjectName(&waveobj.Run{ChannelOID: ch.OID, ProjectPath: ch.ProjectPath}, map[string]*waveobj.Channel{ch.OID: ch})

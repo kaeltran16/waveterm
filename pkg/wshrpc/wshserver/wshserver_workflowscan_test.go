@@ -21,10 +21,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// the store is shared by every test in the package: scan-time runs are seeded decades ahead, so the window
-// holds only them
-var workflowScanTestNow = time.Date(2099, 3, 20, 12, 0, 0, 0, time.UTC)
-
 const workflowScanTestQuote = "the worker skipped the watch it fail first step"
 
 type modelCall struct {
@@ -33,7 +29,36 @@ type modelCall struct {
 	prompt string
 }
 
-func stubWorkflowScanModel(t *testing.T, reply func(prompt string) (string, error)) *[]modelCall {
+// latestRow is past the newest run and scan-signal event in the store, which every test in the package shares: a
+// test that places its rows after it reads only its own, whatever other tests seed
+func latestRow(t *testing.T) time.Time {
+	t.Helper()
+	ctx := context.Background()
+	runs, err := wstore.GetRunsCreatedSince(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := wstore.QueryRunEventsSince(ctx, 0, workflowscan.EventKinds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest := time.Now().UnixMilli()
+	for _, r := range runs {
+		latest = max(latest, r.CreatedTs)
+	}
+	for _, e := range events {
+		latest = max(latest, e.Ts)
+	}
+	return time.UnixMilli(latest + 1)
+}
+
+// scanWindowEnd is a scan clock whose default window starts after every row already in the store
+func scanWindowEnd(t *testing.T) time.Time {
+	t.Helper()
+	return latestRow(t).Add(time.Duration(workflowScanWindowDays+1) * 24 * time.Hour)
+}
+
+func stubWorkflowScanModel(t *testing.T, now time.Time, reply func(prompt string) (string, error)) *[]modelCall {
 	t.Helper()
 	var calls []modelCall
 	oldModel, oldNow := workflowScanModel, workflowScanNow
@@ -41,7 +66,7 @@ func stubWorkflowScanModel(t *testing.T, reply func(prompt string) (string, erro
 		calls = append(calls, modelCall{spec, cwd, prompt})
 		return reply(prompt)
 	}
-	workflowScanNow = func() time.Time { return workflowScanTestNow }
+	workflowScanNow = func() time.Time { return now }
 	t.Cleanup(func() { workflowScanModel, workflowScanNow = oldModel, oldNow })
 	return &calls
 }
@@ -55,7 +80,8 @@ func newScanChannel(t *testing.T, name string) *waveobj.Channel {
 	return ch
 }
 
-// startTestScan starts a scan run through the real create path, with a fake worker tab
+// startTestScan starts a scan run through the real create path, with a fake worker tab. The run is cancelled when
+// the test ends: one scan runs at a time across projects, so a scan left live would refuse every later start.
 func startTestScan(t *testing.T, ch *waveobj.Channel) *waveobj.Run {
 	t.Helper()
 	stubRunServer(t, "claude", nil)
@@ -65,7 +91,18 @@ func startTestScan(t *testing.T, ch *waveobj.Channel) *waveobj.Run {
 	if err != nil {
 		t.Fatalf("starting a scan: %v", err)
 	}
+	t.Cleanup(func() { setRunStatus(t, rtn.Run, jarvis.RunStatus_Cancelled) })
 	return rtn.Run
+}
+
+func setRunStatus(t *testing.T, run *waveobj.Run, status string) {
+	t.Helper()
+	if err := wstore.UpdateRun(context.Background(), run.ChannelOID, run.ID, func(r *waveobj.Run) error {
+		r.Status = status
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func scanWorkerORef(t *testing.T, run *waveobj.Run) string {
@@ -143,17 +180,22 @@ func TestWorkflowScanStartMarksRun(t *testing.T) {
 func TestWorkflowScanStartRefusesWhileActive(t *testing.T) {
 	ch := newScanChannel(t, "wfscan-active")
 	first := startTestScan(t, ch)
+	// one scan at a time across projects: a live scan in one refuses a start in another
+	other := newScanChannel(t, "wfscan-active-other")
 	for _, state := range []string{waveobj.WorkflowScanState_Scanning, waveobj.WorkflowScanState_Picking, waveobj.WorkflowScanState_Applying} {
 		setScan(t, first, func(s *waveobj.WorkflowScan) { s.State = state })
-		_, err := (&WshServer{}).WorkflowScanStartCommand(context.Background(), wshrpc.CommandWorkflowScanStartData{
-			ChannelId: ch.OID, WorkspaceId: "ws",
-		})
-		if err == nil || !strings.Contains(err.Error(), first.ID) {
-			t.Fatalf("%s: want a refusal naming run %s, got %v", state, first.ID, err)
+		for _, start := range []*waveobj.Channel{ch, other} {
+			_, err := (&WshServer{}).WorkflowScanStartCommand(context.Background(), wshrpc.CommandWorkflowScanStartData{
+				ChannelId: start.OID, WorkspaceId: "ws",
+			})
+			if err == nil || !strings.Contains(err.Error(), first.ID) || !strings.Contains(err.Error(), "in "+ch.Name+":") {
+				t.Fatalf("%s, starting in %s: want a refusal naming %s's run %s, got %v", state, start.Name, ch.Name, first.ID, err)
+			}
 		}
 	}
-	// another project's scan is its own
-	startTestScan(t, newScanChannel(t, "wfscan-active-other"))
+	// a cancelled scan blocks nothing
+	setRunStatus(t, first, jarvis.RunStatus_Cancelled)
+	startTestScan(t, other)
 }
 
 func TestWorkflowScanStartIgnoresFinishedRuns(t *testing.T) {
@@ -177,16 +219,17 @@ func TestWorkflowScanStages(t *testing.T) {
 	ctx := context.Background()
 	scanCh := newScanChannel(t, "wfscan-stages")
 	run := startTestScan(t, scanCh)
+	now := scanWindowEnd(t)
 	siem := newScanChannel(t, "wfscan-stages-siem")
 	var ids []string
 	for i := range 3 {
-		ids = append(ids, seedSignalRun(t, siem, workflowScanTestNow.Add(-time.Duration(i+1)*24*time.Hour), workflowScanTestQuote))
+		ids = append(ids, seedSignalRun(t, siem, now.Add(-time.Duration(i+1)*24*time.Hour), workflowScanTestQuote))
 	}
 	// outside the 14-day window
-	seedSignalRun(t, siem, workflowScanTestNow.Add(-20*24*time.Hour), workflowScanTestQuote)
+	seedSignalRun(t, siem, now.Add(-20*24*time.Hour), workflowScanTestQuote)
 
 	var stagesSeen []string
-	calls := stubWorkflowScanModel(t, func(prompt string) (string, error) {
+	calls := stubWorkflowScanModel(t, now, func(prompt string) (string, error) {
 		mid := readScan(t, run)
 		stagesSeen = append(stagesSeen, mid.WorkflowScan.Stage)
 		var cites []string
@@ -229,7 +272,7 @@ func TestWorkflowScanStages(t *testing.T) {
 		if s.Runs != 3 || s.Projects != 1 || s.Candidates != 2 || s.Kept != 1 || s.Dropped != 0 {
 			t.Fatalf("counts: runs=%d projects=%d candidates=%d kept=%d dropped=%d", s.Runs, s.Projects, s.Candidates, s.Kept, s.Dropped)
 		}
-		if s.WindowDays != 14 || s.ToTs != workflowScanTestNow.UnixMilli() || s.FromTs != workflowScanTestNow.Add(-14*24*time.Hour).UnixMilli() {
+		if s.WindowDays != 14 || s.ToTs != now.UnixMilli() || s.FromTs != now.Add(-14*24*time.Hour).UnixMilli() {
 			t.Fatalf("window: %d days, %d..%d", s.WindowDays, s.FromTs, s.ToTs)
 		}
 		if len(s.Survivors) != 1 || s.Survivors[0].Id != "p1" || s.Survivors[0].Runs != 3 ||
@@ -248,7 +291,7 @@ func TestWorkflowScanStages(t *testing.T) {
 
 func TestWorkflowScanFailsOnBadReply(t *testing.T) {
 	run := startTestScan(t, newScanChannel(t, "wfscan-bad"))
-	stubWorkflowScanModel(t, func(string) (string, error) { return "I found nothing worth a block", nil })
+	stubWorkflowScanModel(t, scanWindowEnd(t), func(string) (string, error) { return "I found nothing worth a block", nil })
 	_, err := (&WshServer{}).WorkflowScanCommand(context.Background(), wshrpc.CommandWorkflowScanData{ORef: scanWorkerORef(t, run)})
 	if err == nil {
 		t.Fatal("want the scan to fail on a reply with no json")
@@ -259,7 +302,7 @@ func TestWorkflowScanFailsOnBadReply(t *testing.T) {
 	}
 
 	run = startTestScan(t, newScanChannel(t, "wfscan-modelerr"))
-	stubWorkflowScanModel(t, func(string) (string, error) { return "", errors.New("claude exited 1") })
+	stubWorkflowScanModel(t, scanWindowEnd(t), func(string) (string, error) { return "", errors.New("claude exited 1") })
 	if _, err := (&WshServer{}).WorkflowScanCommand(context.Background(), wshrpc.CommandWorkflowScanData{ORef: scanWorkerORef(t, run)}); err == nil {
 		t.Fatal("want the scan to fail when the model call does")
 	}
@@ -278,7 +321,7 @@ func TestWorkflowScanRefusesNonScanRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := stubWorkflowScanModel(t, func(string) (string, error) { return "", nil })
+	calls := stubWorkflowScanModel(t, scanWindowEnd(t), func(string) (string, error) { return "", nil })
 	oref := scanWorkerORef(t, rtn.Run)
 	if _, err := (&WshServer{}).WorkflowScanCommand(ctx, wshrpc.CommandWorkflowScanData{ORef: oref}); err == nil || !strings.Contains(err.Error(), "not a workflow scan") {
 		t.Fatalf("scan: want a refusal, got %v", err)
@@ -401,15 +444,18 @@ func TestWorkflowScanPicksStoredWhenDeliveryFails(t *testing.T) {
 
 func TestGetWorkflowScanNewest(t *testing.T) {
 	ctx := context.Background()
+	other := newScanChannel(t, "wfscan-newest-tab")
+	run := startTestScan(t, other)
 	ch := newScanChannel(t, "wfscan-newest")
-	// seeded past every other test's scan run, all of which are created now or in 2099
+	// created after every run already in the store, so it is the newest whatever other tests seeded
 	newest := waveobj.Run{
-		ID: uuid.NewString(), CreatedTs: time.Date(2200, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli(),
+		ID: uuid.NewString(), ChannelOID: ch.OID, CreatedTs: latestRow(t).UnixMilli(),
 		WorkflowScan: &waveobj.WorkflowScan{State: waveobj.WorkflowScanState_Picking, Project: ch.Name},
 	}
 	if err := wstore.AppendRun(ctx, ch.OID, newest); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { setRunStatus(t, &newest, jarvis.RunStatus_Cancelled) })
 	rtn, err := (&WshServer{}).GetWorkflowScanCommand(ctx, wshrpc.CommandGetWorkflowScanData{})
 	if err != nil {
 		t.Fatal(err)
@@ -419,8 +465,6 @@ func TestGetWorkflowScanNewest(t *testing.T) {
 	}
 
 	// a tab's own scan, whatever is newer
-	other := newScanChannel(t, "wfscan-newest-tab")
-	run := startTestScan(t, other)
 	rtn, err = (&WshServer{}).GetWorkflowScanCommand(ctx, wshrpc.CommandGetWorkflowScanData{ORef: scanWorkerORef(t, run)})
 	if err != nil {
 		t.Fatal(err)
