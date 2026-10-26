@@ -18,14 +18,18 @@ import {
     builderCheckView,
     canCheck,
     checkAsk,
+    checkClock,
     checkMain,
     checkReview,
+    checkSpan,
     checkUnder,
+    clockText,
     compactedSummary,
     confirmableGuesses,
     designLabel,
     designUnder,
     droppedQuestion,
+    editLock,
     exitedSummary,
     handoffView,
     hasMockups,
@@ -442,7 +446,7 @@ describe("builderCheckView", () => {
     });
     const idleBefore = { state: "idle" as const, idleSince: 900 };
     const working = { state: "working" as const };
-    const TAKING_IN = { kind: "pending", text: "Taking in the builder's questions." };
+    const TAKING_IN = { kind: "pending", stage: "taking-in", text: "Taking in the builder's questions." };
     const NOT_STARTED = { kind: "failed", reason: "The agent ended its turn without starting the builder check." };
 
     it("is none with no record and no check sent", () => {
@@ -450,7 +454,7 @@ describe("builderCheckView", () => {
     });
 
     it("is pending while a builder reads, whatever the agent or the file does", () => {
-        const reading = { kind: "pending", text: "A builder is reading the design." };
+        const reading = { kind: "pending", stage: "reading", text: "A builder is reading the design." };
         expect(builderCheckView(rec("reading"), null, ready, 500, idleBefore)).toEqual(reading);
         expect(builderCheckView(rec("reading"), null, ready, 2000, { state: "idle", idleSince: 1500 })).toEqual(
             reading
@@ -823,12 +827,6 @@ describe("mainView", () => {
         expect(mainView(file({ question: q }), true)).toBe("design");
         expect(mainView(file({ working: "w" }), true)).toBe("design");
     });
-
-    it("a pending builder check holds the main area behind a question, and under an opened design", () => {
-        expect(mainView(file(), false, true)).toBe("working");
-        expect(mainView(file({ question: q }), false, true)).toBe("question");
-        expect(mainView(file(), true, true)).toBe("design");
-    });
 });
 
 describe("boardBackLabel", () => {
@@ -1153,8 +1151,8 @@ describe("reviewHead", () => {
 
     it("offers no check while one is pending, and leaves a failed one to its Try again", () => {
         const f = file({ done: true, parts: [part("a", "yours")] });
-        const pending = reviewHead(f, { kind: "pending", text: "A builder is reading the design." });
-        expect(pending).toEqual({ line: "A builder is reading the design.", action: null, guesses: 0 });
+        const pending = { kind: "pending", stage: "reading", text: "A builder is reading the design." } as const;
+        expect(reviewHead(f, pending).action).toBeNull();
         expect(reviewHead(f, { kind: "failed", reason: "x" }).action).toBeNull();
         expect(reviewHead(f, { kind: "none" }).action).toBe("check");
     });
@@ -1639,7 +1637,6 @@ describe("designUnder and checkUnder", () => {
     it("name the main view the design was opened over, or the design itself when it was not", () => {
         expect(designUnder(file({ question: q }), true)).toBe("question");
         expect(designUnder(file({ working: "w" }), true)).toBe("working");
-        expect(designUnder(file(), true, true)).toBe("working");
         expect(designUnder(file(), true)).toBe("design");
         expect(designUnder(file({ question: q }), false)).toBe("design");
     });
@@ -1664,12 +1661,9 @@ describe("paneBack", () => {
         board: null,
         designOpen: false,
     };
-    const back = (
-        over: Partial<typeof s> & { file?: BrainstormFile | null; error?: string | null } = {},
-        pending = false
-    ) => {
+    const back = (over: Partial<typeof s> & { file?: BrainstormFile | null; error?: string | null } = {}) => {
         const x = { ...s, ...over };
-        return paneBack(x, x.file, pending);
+        return paneBack(x, x.file);
     };
 
     it("a full-size board steps back to where it was opened, the question or the design", () => {
@@ -1684,9 +1678,8 @@ describe("paneBack", () => {
         expect(back({ designOpen: true, exited: true, showDesign: true })).toBe("design");
     });
 
-    it("the design opened with nothing under it has no step, unless a builder check is pending under it", () => {
+    it("the design opened with nothing under it has no step, a pending builder check's design included", () => {
         expect(back({ designOpen: true, file: file() })).toBeNull();
-        expect(back({ designOpen: true, file: file() }, true)).toBe("design");
     });
 
     it("the check's review opened over its question, a builder question or the working note steps back to it", () => {
@@ -2147,5 +2140,106 @@ describe("a judged question", () => {
             })
         );
         expect(rows.map((r) => r.judged)).toEqual([true, false, false]);
+    });
+});
+
+describe("the builder check's wait", () => {
+    const READING = { kind: "pending", stage: "reading", text: "A builder is reading the design." } as const;
+    const TAKING_IN = { kind: "pending", stage: "taking-in", text: "Taking in the builder's questions." } as const;
+    const rec = (state: BuilderCheckRecord["state"], ts = 1000): BuilderCheckRecord => ({ state, ts, runId: "r1" });
+    // the five checks the spec measured: usual 2:09, longest 8:28
+    const TIMES = { usualms: 129_000, longestms: 508_000 };
+
+    it("keeps the design in the main area while the check is pending and the agent writes nothing", () => {
+        expect(mainView(file({ done: true, parts: [part("a", "yours")] }), false)).toBe("design");
+        expect(mainView(file({ working: "Sorting the builder's questions." }), false)).toBe("working");
+    });
+
+    it("locks the design's edits while the agent writes or a check is pending, taking in included", () => {
+        expect(editLock(file(), { kind: "none" })).toBeNull();
+        expect(editLock(file(), { kind: "failed", reason: "x" })).toBeNull();
+        expect(editLock(file(), READING)).toBe("check");
+        expect(editLock(file(), TAKING_IN)).toBe("check");
+        expect(editLock(file({ working: "w" }), READING)).toBe("working");
+    });
+
+    it("times a reading check from its run, else from its record, and a finished one only from its run", () => {
+        expect(checkSpan(rec("reading"), null)).toEqual({ start: 1000, end: null });
+        expect(checkSpan(rec("reading"), { createdts: 1200 })).toEqual({ start: 1200, end: null });
+        expect(checkSpan(rec("answered", 152_000), { createdts: 1200, completedts: 152_200 })).toEqual({
+            start: 1200,
+            end: 152_200,
+        });
+        // the answered record's time is when the builder finished, not when it started
+        expect(checkSpan(rec("answered", 152_000), null)).toBeNull();
+        expect(checkSpan(rec("answered"), { createdts: 1200 })).toBeNull();
+        expect(checkSpan(rec("failed"), { createdts: 1200, completedts: 9000 })).toBeNull();
+        expect(checkSpan(undefined, null)).toBeNull();
+    });
+
+    it("reads m:ss", () => {
+        expect(clockText(0)).toBe("0:00");
+        expect(clockText(102_999)).toBe("1:42");
+        expect(clockText(508_000)).toBe("8:28");
+        expect(clockText(-5)).toBe("0:00");
+    });
+
+    it("counts a reading check against the usual time, with the bar running to the longest", () => {
+        const c = checkClock(READING, { start: 0, end: null }, TIMES, 102_000);
+        expect(c).toEqual({
+            line: "A builder is reading the design.",
+            elapsed: "1:42",
+            running: true,
+            bar: { fill: 102_000 / 508_000, usual: 129_000 / 508_000 },
+            note: "Checks here usually take about 2 minutes. You can read the design meanwhile.",
+            over: false,
+            times: "usual 2:09 · longest 8:28",
+        });
+    });
+
+    it("says plainly when the check runs past the usual time, and the bar stays full past the longest", () => {
+        const over = checkClock(READING, { start: 0, end: null }, TIMES, 370_000);
+        expect(over.elapsed).toBe("6:10");
+        expect(over.note).toBe("Taking longer than usual: most checks here finish in about 2 minutes.");
+        expect(over.over).toBe(true);
+        expect(checkClock(READING, { start: 0, end: null }, TIMES, 900_000).bar.fill).toBe(1);
+    });
+
+    it("rounds a short usual time to under a minute", () => {
+        const c = checkClock(READING, { start: 0, end: null }, { usualms: 20_000, longestms: 40_000 }, 5000);
+        expect(c.note).toBe("Checks here usually take under a minute. You can read the design meanwhile.");
+    });
+
+    it("shows the clock alone before the first past check", () => {
+        const c = checkClock(READING, { start: 0, end: null }, { usualms: 0, longestms: 0 }, 65_000);
+        expect(c).toMatchObject({
+            elapsed: "1:05",
+            bar: null,
+            times: null,
+            note: "You can read the design meanwhile.",
+        });
+        expect(checkClock(READING, { start: 0, end: null }, null, 65_000).bar).toBeNull();
+    });
+
+    it("stops the clock at the builder's time while the agent takes in its questions", () => {
+        const c = checkClock(TAKING_IN, { start: 0, end: 151_000 }, TIMES, 999_000);
+        expect(c).toMatchObject({
+            line: "Taking in the builder's questions.",
+            elapsed: "2:31",
+            running: false,
+            bar: { fill: 151_000 / 508_000, usual: 129_000 / 508_000 },
+            note: "The builder finished in 2:31. The agent is sorting its questions into yours, its calls and what the design already answers.",
+            over: false,
+            times: "usual 2:09 · longest 8:28",
+        });
+    });
+
+    it("leaves the time out while a finished check's run is unknown", () => {
+        const c = checkClock(TAKING_IN, null, TIMES, 999_000);
+        expect(c.elapsed).toBeNull();
+        expect(c.bar).toBeNull();
+        expect(c.note).toBe(
+            "The builder finished. The agent is sorting its questions into yours, its calls and what the design already answers."
+        );
     });
 });

@@ -404,9 +404,10 @@ export type BuilderCheckRecord = {
     reason?: string;
 };
 
+// a pending check is the builder reading, then the agent taking in the builder's questions
 export type BuilderCheckView =
     | { kind: "none" }
-    | { kind: "pending"; text: string }
+    | { kind: "pending"; stage: "reading" | "taking-in"; text: string }
     | { kind: "failed"; reason: string };
 
 const CHECK_TAKING_IN = "Taking in the builder's questions.";
@@ -438,11 +439,11 @@ export function builderCheckView(
         return unchecked ? { kind: "failed", reason: CHECK_NOT_STARTED } : { kind: "none" };
     }
     if (record?.state === "reading") {
-        return { kind: "pending", text: PENDING_CHECK };
+        return { kind: "pending", stage: "reading", text: PENDING_CHECK };
     }
     if (record?.state === "answered") {
         const taken = lineTaken(record.ts, modifiedMs != null && modifiedMs > record.ts, agent);
-        return taken ? { kind: "none" } : { kind: "pending", text: CHECK_TAKING_IN };
+        return taken ? { kind: "none" } : { kind: "pending", stage: "taking-in", text: CHECK_TAKING_IN };
     }
     if (record?.state === "failed" && unchecked) {
         return { kind: "failed", reason: record.reason ?? "" };
@@ -725,27 +726,23 @@ export function judgeWork(q: BrainstormQuestion): JudgeWork | null {
 }
 
 // what the design view's main area holds: the question, or the agent writing, unless the user opened the design
-// over it; with neither, the design itself
+// over it; with neither, the design itself, a pending builder check's clock included
 export type MainView = "question" | "working" | "design";
 
-// a pending builder check (checkPending) holds the main area as the agent writing does, behind any question
-export function mainView(f: BrainstormFile, designOpen: boolean, checkPending = false): MainView {
+export function mainView(f: BrainstormFile, designOpen: boolean): MainView {
     if (designOpen) {
         return "design";
     }
     if (f.working != null) {
         return "working";
     }
-    if (f.question != null) {
-        return "question";
-    }
-    return checkPending ? "working" : "design";
+    return f.question != null ? "question" : "design";
 }
 
 // the main view the design was opened over, which the design's back control returns to; the design itself when it
 // was not opened over one
-export function designUnder(f: BrainstormFile, designOpen: boolean, checkPending = false): MainView {
-    return designOpen ? mainView(f, false, checkPending) : "design";
+export function designUnder(f: BrainstormFile, designOpen: boolean): MainView {
+    return designOpen ? mainView(f, false) : "design";
 }
 
 // a board opened from the question goes back to it; one opened from the design, to the design
@@ -789,6 +786,95 @@ export function lineBox(f: BrainstormFile, checkPending = false): LineBox {
         return "none";
     }
     return f.working != null || checkPending ? "locked" : "open";
+}
+
+// why the design's edits are locked: the agent writing, or a builder check pending, since the agent rewrites parts
+// while it takes in the builder's questions; null while they are open
+export type EditLock = "working" | "check" | null;
+
+export function editLock(f: BrainstormFile, check: BuilderCheckView): EditLock {
+    if (f.working != null) {
+        return "working";
+    }
+    return check.kind === "pending" ? "check" : null;
+}
+
+// a pending check's start and, once the builder is done, its end (ms). The check's run is the source, the one place
+// both survive a reload; until the run loads, a reading check starts at its record's time and a finished one is
+// unknown, since the record's time was moved to when the builder finished
+export type CheckSpan = { start: number; end: number | null };
+type CheckRunTimes = { createdts?: number; completedts?: number };
+
+export function checkSpan(record: BuilderCheckRecord | undefined, run: CheckRunTimes | null): CheckSpan | null {
+    if (record?.state === "reading") {
+        return { start: run?.createdts || record.ts, end: null };
+    }
+    if (record?.state === "answered" && run?.createdts && run.completedts) {
+        return { start: run.createdts, end: run.completedts };
+    }
+    return null;
+}
+
+// the clock strip over the design while a check is pending: the check's time against how long this machine's past
+// checks took. bar is fractions of the longest, null before the first past check or with no time to show; over is
+// a reading check past the usual time
+export type CheckClock = {
+    line: string;
+    elapsed: string | null;
+    running: boolean;
+    bar: { fill: number; usual: number } | null;
+    note: string;
+    over: boolean;
+    times: string | null;
+};
+
+// m:ss, the clock's own reading
+export function clockText(ms: number): string {
+    const secs = Math.max(0, Math.floor(ms / 1000));
+    return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+}
+
+function aboutText(ms: number): string {
+    const mins = Math.round(ms / 60_000);
+    return mins < 1 ? "under a minute" : `about ${plural(mins, "minute", "minutes")}`;
+}
+
+export function checkClock(
+    check: Extract<BuilderCheckView, { kind: "pending" }>,
+    span: CheckSpan | null,
+    times: BrainstormCheckTimes | null,
+    now: number
+): CheckClock {
+    const ms = span == null ? null : (span.end ?? now) - span.start;
+    const elapsed = ms == null ? null : clockText(ms);
+    const known = times != null && times.usualms > 0 && times.longestms > 0;
+    const bar =
+        known && ms != null
+            ? { fill: Math.min(1, ms / times.longestms), usual: Math.min(1, times.usualms / times.longestms) }
+            : null;
+    const clock = { line: check.text, elapsed, running: check.stage === "reading", bar, over: false };
+    const timesText = known ? `usual ${clockText(times.usualms)} · longest ${clockText(times.longestms)}` : null;
+    if (check.stage === "taking-in") {
+        const done = elapsed == null ? "The builder finished." : `The builder finished in ${elapsed}.`;
+        return {
+            ...clock,
+            note: `${done} The agent is sorting its questions into yours, its calls and what the design already answers.`,
+            times: timesText,
+        };
+    }
+    if (!known) {
+        return { ...clock, note: "You can read the design meanwhile.", times: null };
+    }
+    const about = aboutText(times.usualms);
+    const over = ms != null && ms > times.usualms;
+    return {
+        ...clock,
+        note: over
+            ? `Taking longer than usual: most checks here finish in ${about}.`
+            : `Checks here usually take ${about}. You can read the design meanwhile.`,
+        over,
+        times: timesText,
+    };
 }
 
 // how many of the asked question's options a letter key picks: as many as the pane draws, up to the keys there are
@@ -1003,15 +1089,12 @@ export function confirmableGuesses(f: BrainstormFile): number {
 }
 
 // the head of the design once there is something to review: what stands before the builder check, and the one
-// press that moves it on. Confirm all needs two guesses, since one has its own That's right. Check is not offered
-// while a check is pending, nor beside a failed one, whose Try again sends the same line
+// press that moves it on. Confirm all needs two guesses, since one has its own That's right. Check is offered only
+// with no check under way: a pending one shows its clock in this head's place, a failed one its Try again
 export type ReviewHead = { line: string; action: "confirm-all" | "check" | null; guesses: number };
 
 export function reviewHead(f: BrainstormFile, check: BuilderCheckView = { kind: "none" }): ReviewHead {
     if (canCheck(f)) {
-        if (check.kind === "pending") {
-            return { line: check.text, action: null, guesses: 0 };
-        }
         return {
             line: "Every decision is yours. Next, a fresh agent reads the design as a builder would.",
             action: check.kind === "none" ? "check" : null,
@@ -1426,8 +1509,7 @@ export type PaneBack = "board" | "design";
 
 export function paneBack(
     s: Parameters<typeof paneView>[0] & { designOpen: boolean },
-    f: BrainstormFile | null,
-    checkPending: boolean
+    f: BrainstormFile | null
 ): PaneBack | null {
     const view = paneView(s);
     if (view === "board") {
@@ -1440,7 +1522,7 @@ export function paneBack(
         return checkUnder(f, s.designOpen) !== "review" ? "design" : null;
     }
     if (view === "design") {
-        return designUnder(f, s.designOpen, checkPending) !== "design" ? "design" : null;
+        return designUnder(f, s.designOpen) !== "design" ? "design" : null;
     }
     return null;
 }

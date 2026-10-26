@@ -679,13 +679,13 @@ describe("brainstorm pane Escape", () => {
         expect(back().when!(nav)).toBe(false);
     });
 
-    it("the design opened with no question under it has no step back, unless a builder check is pending under it", () => {
+    it("the design opened with no question under it has no step back, a pending builder check's design included", () => {
         updateBrainstorm("a1", (s) => ({ ...s, file: { ...asking, question: null }, designOpen: true }));
         expect(back().when!(nav)).toBe(false);
         globalStore.set(model.agentsAtom, [
             { id: "a1", name: "Agent", blockId: "b1", builderCheck: { state: "reading", ts: 2 } },
         ]);
-        expect(back().when!(nav)).toBe(true);
+        expect(back().when!(nav)).toBe(false);
     });
 
     it("yields to a focused field, an open modal and an open escape menu", () => {

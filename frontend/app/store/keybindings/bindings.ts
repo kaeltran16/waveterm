@@ -19,7 +19,6 @@ import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import {
-    builderCheckView,
     checkMain,
     checkReview,
     OPTION_KEYS,
@@ -899,9 +898,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         if (s?.mode !== "brainstorm") {
             return null;
         }
-        const agent = globalStore.get(model.agentsAtom).find((a) => a.id === focusId());
-        const check = builderCheckView(agent?.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent);
-        const step = paneBack({ ...s, exited: exited() }, shownBrainstormFile(s), check.kind === "pending");
+        const step = paneBack({ ...s, exited: exited() }, shownBrainstormFile(s));
         return step === "board" && focusedCanvas(model)?.mark != null ? null : step;
     };
     return [

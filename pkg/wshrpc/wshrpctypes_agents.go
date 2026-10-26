@@ -26,6 +26,7 @@ type AgentCommands interface {
 	AgentPromptCommand(ctx context.Context, data CommandAgentPromptData) error                                                            // the cockpit's own prompt to a block's agent session: its mod runs it, or it is typed
 	BrainstormCheckCommand(ctx context.Context, data CommandBrainstormCheckData) error                                                    // run the builder check on a brainstorm.json as a one-shot judging session
 	BrainstormJudgeCommand(ctx context.Context, data CommandBrainstormJudgeData) error                                                    // weigh a brainstorm.json's approach question with a one-shot blind judge
+	BrainstormCheckTimesCommand(ctx context.Context) (*BrainstormCheckTimes, error)                                                       // how long this machine's past builder checks took, for the pane's clock
 }
 
 // what a live agent session is doing, as AgentInfo.State and CommandAgentsReadRtnData.State carry it.
@@ -69,6 +70,13 @@ type CommandBrainstormJudgeData struct {
 	BlockId string `json:"blockid"`
 	File    string `json:"file"`
 	Line    string `json:"line,omitempty"`
+}
+
+// BrainstormCheckTimes is how long this machine's finished builder checks took, in ms: the median and the longest,
+// both 0 before the first.
+type BrainstormCheckTimes struct {
+	UsualMs   int64 `json:"usualms"`
+	LongestMs int64 `json:"longestms"`
 }
 
 type CommandAgentPromptData struct {
