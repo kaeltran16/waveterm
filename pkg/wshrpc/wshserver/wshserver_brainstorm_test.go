@@ -621,10 +621,126 @@ func TestJudgeStartsAfterStop(t *testing.T) {
 	}
 }
 
+// readingJudge is a judge's reading record at ts: the record a watcher armed at ts owns.
+func readingJudge(ts int64) waveobj.MetaMapType {
+	return waveobj.MetaMapType{waveobj.MetaKey_BrainstormJudgeState: brainstormReading, waveobj.MetaKey_BrainstormJudgeTs: ts}
+}
+
+func TestJudgeWatcherExitsAfterStop(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct{ name, report string }{
+		{"a good result", goodJudgeReport},
+		{"an empty result", "  \n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, file := seedJudgeBrainstorm(t, 5)
+			meta := readingJudge(42)
+			meta[waveobj.MetaKey_BrainstormJudgeRun], meta[waveobj.MetaKey_BrainstormJudgeChannel] = "run-1", "ch-1"
+			tabId, blockId := seedAgentTab(t, ctx, meta)
+			stubStopStageSession(t)
+			stubReadBrainstormRun(t, &waveobj.Run{ID: "run-1", Status: jarvis.RunStatus_Done, Report: tc.report})
+			delivered := stubDeliver(t)
+			if err := (&WshServer{}).BrainstormJudgeStopCommand(ctx, wshrpc.CommandBrainstormJudgeStopData{BlockId: blockId}); err != nil {
+				t.Fatalf("BrainstormJudgeStopCommand: %v", err)
+			}
+			stoppedTs := tabMeta(t, ctx, tabId).GetFloat(waveobj.MetaKey_BrainstormJudgeTs, 0)
+
+			c := brainstormSession{Kind: judgeKind, TabId: tabId, BlockId: blockId, File: file, RunId: "run-1", ChannelId: "ch-1", StartedTs: 42}
+			if !tickBrainstormSession(ctx, c, time.Now().UnixMilli()) {
+				t.Fatal("a stopped judge's watcher did not settle")
+			}
+			if _, err := os.Stat(brainstormcheck.JudgeResultPath(file)); err == nil {
+				t.Fatal("a stopped judge's watcher wrote judge.json")
+			}
+			if len(*delivered) != 0 {
+				t.Fatalf("a stopped judge's watcher sent %+v", *delivered)
+			}
+			got := tabMeta(t, ctx, tabId)
+			if got.GetString(waveobj.MetaKey_BrainstormJudgeState, "") != brainstormStopped ||
+				got.GetFloat(waveobj.MetaKey_BrainstormJudgeTs, 0) != stoppedTs || got.HasKey(waveobj.MetaKey_BrainstormJudgeReason) {
+				t.Fatalf("record = %v, want it left stopped at %v", got, stoppedTs)
+			}
+		})
+	}
+}
+
+func TestJudgeLaunchAfterStopStopsItsRun(t *testing.T) {
+	ctx := context.Background()
+	armed := stubArmBrainstormSession(t)
+	stopped := stubStopStageSession(t)
+	delivered := stubDeliver(t)
+	stubReadBrainstormRun(t, &waveobj.Run{ID: "run-1", Status: jarvis.RunStatus_Executing})
+	_, file := seedJudgeBrainstorm(t, 5)
+	tabId, blockId := seedAgentTab(t, ctx, nil)
+	old := launchBrainstormSession
+	launchBrainstormSession = func(ctx context.Context, _ orchestrate.JudgingSession) (string, error) {
+		// the user answers while the judge's session starts
+		if err := (&WshServer{}).BrainstormJudgeStopCommand(ctx, wshrpc.CommandBrainstormJudgeStopData{BlockId: blockId}); err != nil {
+			t.Errorf("BrainstormJudgeStopCommand: %v", err)
+		}
+		return "run-1", nil
+	}
+	t.Cleanup(func() { launchBrainstormSession = old })
+	if err := (&WshServer{}).BrainstormJudgeCommand(ctx, wshrpc.CommandBrainstormJudgeData{BlockId: blockId, File: file}); err != nil {
+		t.Fatalf("BrainstormJudgeCommand: %v", err)
+	}
+
+	watchBrainstormSession(ctx, (*armed)[0]) // returns at once: its record was stopped
+
+	if len(*stopped) != 1 || (*stopped)[0] != "run-1" {
+		t.Fatalf("stopped %v, want the run launched after the stop, run-1", *stopped)
+	}
+	meta := tabMeta(t, ctx, tabId)
+	if meta.GetString(waveobj.MetaKey_BrainstormJudgeState, "") != brainstormStopped || meta.HasKey(waveobj.MetaKey_BrainstormJudgeRun) ||
+		meta.HasKey(waveobj.MetaKey_BrainstormJudgeChannel) {
+		t.Fatalf("record = %v, want stopped with no run written over it", meta)
+	}
+	if len(*delivered) != 0 {
+		t.Fatalf("a stopped judge sent %+v", *delivered)
+	}
+}
+
+func TestStaleJudgeWatcherLeavesNewJudge(t *testing.T) {
+	ctx := context.Background()
+	armed := stubArmBrainstormSession(t)
+	stubStopStageSession(t)
+	stubReadBrainstormRun(t, &waveobj.Run{ID: "run-1", Status: jarvis.RunStatus_Done, Report: goodJudgeReport})
+	delivered := stubDeliver(t)
+	_, file := seedJudgeBrainstorm(t, 5)
+	meta := readingJudge(42)
+	meta[waveobj.MetaKey_BrainstormJudgeRun], meta[waveobj.MetaKey_BrainstormJudgeChannel] = "run-1", "ch-1"
+	tabId, blockId := seedAgentTab(t, ctx, meta)
+	if err := (&WshServer{}).BrainstormJudgeStopCommand(ctx, wshrpc.CommandBrainstormJudgeStopData{BlockId: blockId}); err != nil {
+		t.Fatalf("BrainstormJudgeStopCommand: %v", err)
+	}
+	if err := (&WshServer{}).BrainstormJudgeCommand(ctx, wshrpc.CommandBrainstormJudgeData{BlockId: blockId, File: file, Line: "rerun"}); err != nil {
+		t.Fatalf("BrainstormJudgeCommand: %v", err)
+	}
+	fresh := tabMeta(t, ctx, tabId)
+
+	old := brainstormSession{Kind: judgeKind, TabId: tabId, BlockId: blockId, File: file, RunId: "run-1", ChannelId: "ch-1", StartedTs: 42}
+	if !tickBrainstormSession(ctx, old, time.Now().UnixMilli()) {
+		t.Fatal("the stale watcher did not settle")
+	}
+	if _, err := os.Stat(brainstormcheck.JudgeResultPath(file)); err == nil {
+		t.Fatal("the stale watcher wrote judge.json")
+	}
+	if len(*delivered) != 0 {
+		t.Fatalf("the stale watcher sent %+v", *delivered)
+	}
+	got := tabMeta(t, ctx, tabId)
+	if got.GetString(waveobj.MetaKey_BrainstormJudgeState, "") != brainstormReading ||
+		got.GetFloat(waveobj.MetaKey_BrainstormJudgeTs, 0) != float64((*armed)[0].StartedTs) ||
+		got.GetFloat(waveobj.MetaKey_BrainstormJudgeTs, 0) != fresh.GetFloat(waveobj.MetaKey_BrainstormJudgeTs, 0) ||
+		got.HasKey(waveobj.MetaKey_BrainstormJudgeRun) {
+		t.Fatalf("record = %v, want the new judge's reading record %v unchanged", got, fresh)
+	}
+}
+
 func TestBrainstormJudgeDelivers(t *testing.T) {
 	ctx := context.Background()
 	_, file := seedJudgeBrainstorm(t, 5)
-	tabId, blockId := seedAgentTab(t, ctx, nil)
+	tabId, blockId := seedAgentTab(t, ctx, readingJudge(1))
 	run := &waveobj.Run{ID: "run-1", Status: jarvis.RunStatus_Done, Report: goodJudgeReport}
 	stubReadBrainstormRun(t, run)
 	delivered := stubDeliver(t)
@@ -681,7 +797,7 @@ func TestBrainstormJudgeFailsWithALine(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, file := seedJudgeBrainstorm(t, 5)
-			tabId, blockId := seedAgentTab(t, ctx, nil)
+			tabId, blockId := seedAgentTab(t, ctx, readingJudge(1))
 			stubReadBrainstormRun(t, &waveobj.Run{ID: "run-1", Status: jarvis.RunStatus_Done, Report: tc.report})
 			delivered := stubDeliver(t)
 			c := brainstormSession{Kind: judgeKind, TabId: tabId, BlockId: blockId, File: file, RunId: "run-1", ChannelId: "ch-1", StartedTs: 1}
@@ -694,7 +810,9 @@ func TestBrainstormJudgeFailsWithALine(t *testing.T) {
 
 	t.Run("a lost run", func(t *testing.T) {
 		_, file := seedJudgeBrainstorm(t, 5)
-		tabId, blockId := seedAgentTab(t, ctx, nil)
+		now := time.Now().UnixMilli()
+		startedTs := now - orchestrate.ReviewTimeout.Milliseconds() - 1
+		tabId, blockId := seedAgentTab(t, ctx, readingJudge(startedTs))
 		ch, err := wstore.CreateChannel(ctx, "lost-judge", t.TempDir())
 		if err != nil {
 			t.Fatalf("CreateChannel: %v", err)
@@ -710,9 +828,8 @@ func TestBrainstormJudgeFailsWithALine(t *testing.T) {
 		t.Cleanup(func() { stopStageSession = oldStop })
 		delivered := stubDeliver(t)
 
-		now := time.Now().UnixMilli()
 		c := brainstormSession{Kind: judgeKind, TabId: tabId, BlockId: blockId, File: file, RunId: run.ID, ChannelId: ch.OID,
-			StartedTs: now - orchestrate.ReviewTimeout.Milliseconds() - 1}
+			StartedTs: startedTs}
 		if !tickBrainstormSession(ctx, c, now) {
 			t.Fatal("a session past its timeout did not settle the judge")
 		}
@@ -727,7 +844,7 @@ func TestBrainstormJudgeFailsWithALine(t *testing.T) {
 	t.Run("a launch error", func(t *testing.T) {
 		stubLaunchBrainstormSession(t, "", errors.New("claude is not installed"))
 		project, file := seedJudgeBrainstorm(t, 5)
-		tabId, blockId := seedAgentTab(t, ctx, nil)
+		tabId, blockId := seedAgentTab(t, ctx, readingJudge(1))
 		delivered := stubDeliver(t)
 		c := brainstormSession{Kind: judgeKind, TabId: tabId, BlockId: blockId, File: file, Project: project, Title: "Lag alerts", StartedTs: 1}
 
