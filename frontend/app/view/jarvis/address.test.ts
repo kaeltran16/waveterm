@@ -121,6 +121,10 @@ describe("parseAddress", () => {
         });
     });
 
+    it("reads a workflow scan by its run id", () => {
+        expect(parseAddress("workflowscan:r-1")).toEqual({ kind: "workflowscan", runId: "r-1" });
+    });
+
     it.each(["commit:abc", "session:s-1", "decision:dec-1"])("leaves %s unsupported", (address) => {
         expect(parseAddress(address)).toEqual({ kind: "unsupported", message: CANNOT_OPEN });
     });

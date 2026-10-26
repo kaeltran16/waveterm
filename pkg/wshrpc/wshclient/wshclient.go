@@ -618,6 +618,12 @@ func GetWindowTokensCommand(w *wshutil.WshRpc, data wshrpc.CommandGetWindowToken
 	return resp, err
 }
 
+// command "getworkflowscan", wshserver.GetWorkflowScanCommand
+func GetWorkflowScanCommand(w *wshutil.WshRpc, data wshrpc.CommandGetWorkflowScanData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetWorkflowScanRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetWorkflowScanRtnData](w, "getworkflowscan", data, opts)
+	return resp, err
+}
+
 // command "gitchanges", wshserver.GitChangesCommand
 func GitChangesCommand(w *wshutil.WshRpc, data wshrpc.CommandGitChangesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitChangesRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitChangesRtnData](w, "gitchanges", data, opts)
@@ -1141,6 +1147,30 @@ func VaultSyncCommand(w *wshutil.WshRpc, data wshrpc.CommandVaultSyncData, opts 
 // command "waveinfo", wshserver.WaveInfoCommand
 func WaveInfoCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.WaveInfoData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.WaveInfoData](w, "waveinfo", nil, opts)
+	return resp, err
+}
+
+// command "workflowscan", wshserver.WorkflowScanCommand
+func WorkflowScanCommand(w *wshutil.WshRpc, data wshrpc.CommandWorkflowScanData, opts *wshrpc.RpcOpts) (*waveobj.WorkflowScan, error) {
+	resp, err := sendRpcRequestCallHelper[*waveobj.WorkflowScan](w, "workflowscan", data, opts)
+	return resp, err
+}
+
+// command "workflowscanpicks", wshserver.WorkflowScanPicksCommand
+func WorkflowScanPicksCommand(w *wshutil.WshRpc, data wshrpc.CommandWorkflowScanPicksData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "workflowscanpicks", data, opts)
+	return err
+}
+
+// command "workflowscanresult", wshserver.WorkflowScanResultCommand
+func WorkflowScanResultCommand(w *wshutil.WshRpc, data wshrpc.CommandWorkflowScanResultData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "workflowscanresult", data, opts)
+	return err
+}
+
+// command "workflowscanstart", wshserver.WorkflowScanStartCommand
+func WorkflowScanStartCommand(w *wshutil.WshRpc, data wshrpc.CommandWorkflowScanStartData, opts *wshrpc.RpcOpts) (*wshrpc.CommandWorkflowScanStartRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandWorkflowScanStartRtnData](w, "workflowscanstart", data, opts)
 	return resp, err
 }
 

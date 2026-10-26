@@ -305,12 +305,103 @@ type Run struct {
 	Parallelism int `json:"parallelism,omitempty"`
 	// Prototype is the design canvas the run was started with (Build this… on a canvas). It wins over the
 	// plan's **Prototype:** line at DagSubmit; empty = the plan's stands.
-	Prototype string      `json:"prototype,omitempty"`
-	Meta      MetaMapType `json:"meta"`
+	Prototype string `json:"prototype,omitempty"`
+	// WorkflowScan marks a run as a workflow scan and holds every part of the scan's state; the lens follows
+	// the newest run that has one.
+	WorkflowScan *WorkflowScan `json:"workflowscan,omitempty"`
+	// ConsultSessions are sessions the run started outside its own agent (a one-shot model call), each with the
+	// usage role it played, so the usage linker can place their tokens on this run.
+	ConsultSessions []ConsultSession `json:"consultsessions,omitempty"`
+	Meta            MetaMapType      `json:"meta"`
 }
 
 func (*Run) GetOType() string {
 	return OType_Run
+}
+
+type ConsultSession struct {
+	SessionId string `json:"sessionid"`
+	Role      string `json:"role"`
+}
+
+const (
+	WorkflowScanState_Scanning = "scanning"
+	WorkflowScanState_Picking  = "picking"
+	WorkflowScanState_Applying = "applying"
+	WorkflowScanState_Failed   = "failed"
+
+	WorkflowScanStage_Read     = "read"
+	WorkflowScanStage_Patterns = "patterns"
+	WorkflowScanStage_Recount  = "recount"
+	WorkflowScanStage_Checking = "checking"
+
+	WorkflowScanVerdict_Suggest  = "suggest"
+	WorkflowScanVerdict_Covered  = "covered"
+	WorkflowScanVerdict_Declined = "declined"
+
+	WorkflowScanPick_Apply = "apply"
+	WorkflowScanPick_Drop  = "drop"
+)
+
+// WorkflowScan is a scan run's state. Done and cancelled are the run's own Status, not copied here.
+type WorkflowScan struct {
+	State      string `json:"state"`   // scanning | picking | applying | failed
+	Stage      string `json:"stage"`   // while scanning: read | patterns | recount | checking
+	Project    string `json:"project"` // the scan's own project name
+	WindowDays int    `json:"windowdays"`
+	FromTs     int64  `json:"fromts"`
+	ToTs       int64  `json:"tots"`
+	Runs       int    `json:"runs"`       // runs read
+	Projects   int    `json:"projects"`   // projects those runs span
+	Candidates int    `json:"candidates"` // the patterns Sonnet named
+	Kept       int    `json:"kept"`       // survivors of the recount
+	Dropped    int    `json:"dropped"`    // run blocks cut for the corpus size cap
+	// Survivors and UnderFloor are written by code from the recount, so every number and quote a card shows
+	// is never a model's.
+	Survivors  []WorkflowScanPattern `json:"survivors,omitempty"`
+	UnderFloor []WorkflowScanPattern `json:"underfloor,omitempty"`
+	Verdicts   []WorkflowScanVerdict `json:"verdicts,omitempty"` // the Opus agent's judgement per survivor
+	Picks      []WorkflowScanPick    `json:"picks,omitempty"`    // the owner's picks
+	Error      string                `json:"error,omitempty"`    // why the scan failed
+}
+
+type WorkflowScanPattern struct {
+	Id        string                `json:"id"`
+	Title     string                `json:"title"`
+	FixTarget string                `json:"fixtarget"` // <file> · <symbol or section>
+	Runs      int                   `json:"runs"`      // verified runs
+	Days      int                   `json:"days"`      // distinct UTC dates of those runs
+	Projects  []WorkflowScanProject `json:"projects"`
+	Quotes    []WorkflowScanQuote   `json:"quotes"`
+}
+
+type WorkflowScanProject struct {
+	Name string `json:"name"`
+	Runs int    `json:"runs"`
+}
+
+type WorkflowScanQuote struct {
+	RunId   string `json:"runid"` // the full id
+	Project string `json:"project"`
+	Date    string `json:"date"` // YYYY-MM-DD
+	Text    string `json:"text"`
+}
+
+type WorkflowScanVerdict struct {
+	Id         string `json:"id"`
+	Verdict    string `json:"verdict"` // suggest | covered | declined
+	Note       string `json:"note,omitempty"`
+	File       string `json:"file,omitempty"`
+	Where      string `json:"where,omitempty"`
+	FixProject string `json:"fixproject,omitempty"`
+	Edit       string `json:"edit,omitempty"` // the drafted change as +/- lines
+	DeclinedAt int    `json:"declinedat,omitempty"`
+}
+
+type WorkflowScanPick struct {
+	Id     string `json:"id"`
+	Pick   string `json:"pick"` // apply | drop
+	Reason string `json:"reason,omitempty"`
 }
 
 // RunLand is where a run's branch stands on its way back into the branch it started from.

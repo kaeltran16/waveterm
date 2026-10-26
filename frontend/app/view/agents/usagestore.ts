@@ -29,7 +29,7 @@ export const usageLoadedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 // on every tab switch. Module-level atoms keep the user's window/metric choice across unmount.
 export const usageWindowAtom = atom<"7d" | "all">("7d");
 export const usageMetricAtom = atom<"tokens" | "spend">("tokens");
-export type UsageLens = "provider" | "work";
+export type UsageLens = "provider" | "work" | "workflow";
 export const usageLensAtom = atom<UsageLens>("provider");
 // By work: the rail scope ("all" or a project key), the run or session opened from a list with the
 // scope its Back returns to, and whether the ranked list is expanded

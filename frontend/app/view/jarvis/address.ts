@@ -15,7 +15,8 @@ export type OpenTarget =
     | { kind: "note"; noteId: string }
     | { kind: "canvas"; topic: string; board?: string }
     | { kind: "brainstorm"; topic: string }
-    | { kind: "memhygiene"; project: string };
+    | { kind: "memhygiene"; project: string }
+    | { kind: "workflowscan"; runId: string };
 
 export type Unsupported = { kind: "unsupported"; message: string };
 
@@ -60,6 +61,8 @@ export function parseAddress(address: string, hint?: AddressHint): OpenTarget | 
             return parseVaultNode(id, hint?.sourceType);
         case "canvas":
             return parseCanvas(id);
+        case "workflowscan":
+            return { kind: "workflowscan", runId: id };
         case "brainstorm":
             return isCanvasSegment(id)
                 ? { kind: "brainstorm", topic: id }

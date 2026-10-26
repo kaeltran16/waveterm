@@ -624,6 +624,12 @@ export class RpcApiType {
         return client.wshRpcCall("getwindowtokens", data, opts);
     }
 
+    // command "getworkflowscan" [call]
+    GetWorkflowScanCommand(client: WshClient, data: CommandGetWorkflowScanData, opts?: RpcOpts): Promise<CommandGetWorkflowScanRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getworkflowscan", data, opts);
+        return client.wshRpcCall("getworkflowscan", data, opts);
+    }
+
     // command "gitchanges" [call]
     GitChangesCommand(client: WshClient, data: CommandGitChangesData, opts?: RpcOpts): Promise<CommandGitChangesRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitchanges", data, opts);
@@ -1150,6 +1156,30 @@ export class RpcApiType {
     WaveInfoCommand(client: WshClient, opts?: RpcOpts): Promise<WaveInfoData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "waveinfo", null, opts);
         return client.wshRpcCall("waveinfo", null, opts);
+    }
+
+    // command "workflowscan" [call]
+    WorkflowScanCommand(client: WshClient, data: CommandWorkflowScanData, opts?: RpcOpts): Promise<WorkflowScan> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "workflowscan", data, opts);
+        return client.wshRpcCall("workflowscan", data, opts);
+    }
+
+    // command "workflowscanpicks" [call]
+    WorkflowScanPicksCommand(client: WshClient, data: CommandWorkflowScanPicksData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "workflowscanpicks", data, opts);
+        return client.wshRpcCall("workflowscanpicks", data, opts);
+    }
+
+    // command "workflowscanresult" [call]
+    WorkflowScanResultCommand(client: WshClient, data: CommandWorkflowScanResultData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "workflowscanresult", data, opts);
+        return client.wshRpcCall("workflowscanresult", data, opts);
+    }
+
+    // command "workflowscanstart" [call]
+    WorkflowScanStartCommand(client: WshClient, data: CommandWorkflowScanStartData, opts?: RpcOpts): Promise<CommandWorkflowScanStartRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "workflowscanstart", data, opts);
+        return client.wshRpcCall("workflowscanstart", data, opts);
     }
 
     // command "workspacelist" [call]

@@ -24,6 +24,8 @@ import { jumpToAgent } from "../agents/channelsprimitives";
 import { selectChannel } from "../agents/channelsstore";
 import { selectMemoryProject } from "../agents/memorystore";
 import { setupTabAtom } from "../agents/setupstore";
+import { usageLensAtom } from "../agents/usagestore";
+import { workflowScanRunAtom } from "../agents/workflowscanstart";
 import { isCanvasSegment, parseAddress, type AddressHint, type OpenTarget } from "./address";
 import { effortDetailAtom, loadEffortDetail } from "./effortstore";
 import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
@@ -51,6 +53,7 @@ type CanvasTarget = Extract<OpenTarget, { kind: "canvas" }>;
 type BrainstormTarget = Extract<OpenTarget, { kind: "brainstorm" }>;
 type NoteTarget = Extract<OpenTarget, { kind: "note" }>;
 type MemHygieneTarget = Extract<OpenTarget, { kind: "memhygiene" }>;
+type WorkflowScanTarget = Extract<OpenTarget, { kind: "workflowscan" }>;
 type Caller = AddressHint["caller"];
 
 const OK: OpenResult = { ok: true };
@@ -88,6 +91,8 @@ function targetName(target: OpenTarget): string {
             return `note ${target.noteId}`;
         case "memhygiene":
             return `memory of ${target.project}`;
+        case "workflowscan":
+            return `workflow scan ${target.runId}`;
     }
 }
 
@@ -141,7 +146,12 @@ export async function openAddress(
 }
 
 export function isPeekable(target: OpenTarget): boolean {
-    return target.kind !== "canvas" && target.kind !== "brainstorm" && target.kind !== "memhygiene";
+    return (
+        target.kind !== "canvas" &&
+        target.kind !== "brainstorm" &&
+        target.kind !== "memhygiene" &&
+        target.kind !== "workflowscan"
+    );
 }
 
 // an address that does not parse still peeks, so the refusal is the peek's own toast
@@ -157,7 +167,12 @@ export async function peekTarget(
     target: OpenTarget,
     report: ReportOpen = toast
 ): Promise<OpenResult> {
-    if (target.kind === "canvas" || target.kind === "brainstorm" || target.kind === "memhygiene") {
+    if (
+        target.kind === "canvas" ||
+        target.kind === "brainstorm" ||
+        target.kind === "memhygiene" ||
+        target.kind === "workflowscan"
+    ) {
         return openTarget(model, target, report);
     }
     const current = nextOpen();
@@ -263,6 +278,9 @@ async function land(
             );
         case "memhygiene":
             return select(await loadMemHygiene(target, current), () => selectMemHygiene(model, target.project));
+        // the lens follows the run's own object, so there is nothing to load first
+        case "workflowscan":
+            return selectWorkflowScan(model, target.runId);
     }
 }
 
@@ -276,7 +294,7 @@ async function select<T>(load: Loaded<T>, write: (facts: T) => OpenResult | Prom
 
 async function peek(
     model: AgentsViewModel,
-    target: Exclude<OpenTarget, CanvasTarget | BrainstormTarget | MemHygieneTarget>,
+    target: Exclude<OpenTarget, CanvasTarget | BrainstormTarget | MemHygieneTarget | WorkflowScanTarget>,
     current: () => boolean
 ): Promise<OpenResult> {
     const resolved = target.kind === "channel" ? await channelRun(target, current) : loaded<PeekTarget>(target);
@@ -586,6 +604,13 @@ function selectMemHygiene(model: AgentsViewModel, project: string): OpenResult {
     globalStore.set(setupTabAtom, "memory");
     selectMemoryProject(project);
     landOn(model.surfaceAtom, "setup");
+    return OK;
+}
+
+function selectWorkflowScan(model: AgentsViewModel, runId: string): OpenResult {
+    globalStore.set(workflowScanRunAtom, runId);
+    globalStore.set(usageLensAtom, "workflow");
+    landOn(model.surfaceAtom, "usage");
     return OK;
 }
 
