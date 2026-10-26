@@ -80,6 +80,7 @@ func TestPlanReviewPromptUnchangedWithoutPicks(t *testing.T) {
 		"- " + planReviewDependsReasonItem + "\n" +
 		"- each task states its acceptance criteria and names the tests that prove them;\n" +
 		"- the commands the plan names (its Verify, Setup, Check and Final lines, and those in its tasks) exist;\n" +
+		"- no Setup, Check or Verify command, and no task step, names a path a task of this plan creates (a package pattern, a test file) unless that task is among the step's Depends: a task's tree holds only what its Depends landed, so the command fails there and every worker works around it. Final runs on the merged result, so it may name them;\n" +
 		"- no Verify, Check or Final command, and no task step, rebuilds the environment on every call (a scratch worktree, or a package install per call): the engine already prepares each tree, with the plan's Setup or, with none, the main checkout's linked `node_modules`;\n" +
 		"- " + planReviewManifestItem + "\n" +
 		"- the Final command checks the running app: every task that adds or changes a rendered view, a visual state (loading, empty, error, gone) or an interaction names in its acceptance the scenario step that shows that view or performs that interaction, and Final runs that scenario. A scenario that only opens the surface or panel the view sits in does not count. A check left to a person has no owner in a run, so a plan that leaves one is a finding.\n" +

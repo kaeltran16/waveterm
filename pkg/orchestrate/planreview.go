@@ -102,6 +102,8 @@ var planReviewChecklist = []planReviewItem{
 	{PlanReviewLens_Order, planReviewDependsReasonItem},
 	{PlanReviewLens_Tests, "each task states its acceptance criteria and names the tests that prove them;"},
 	{PlanReviewLens_Tests, "the commands the plan names (its Verify, Setup, Check and Final lines, and those in its tasks) exist;"},
+	// run 2678342f's check command vetted ./pkg/brainstormcheck/..., which its Task 3 created: 7 of 10 workers hit it on the base
+	{PlanReviewLens_Tests, "no Setup, Check or Verify command, and no task step, names a path a task of this plan creates (a package pattern, a test file) unless that task is among the step's Depends: a task's tree holds only what its Depends landed, so the command fails there and every worker works around it. Final runs on the merged result, so it may name them;"},
 	// SIEM's leads wrapped every vitest call in a fresh worktree plus pnpm install: 109 s a call against vitest's 11 s (run 313fb392)
 	{PlanReviewLens_Tests, "no Verify, Check or Final command, and no task step, rebuilds the environment on every call (a scratch worktree, or a package install per call): the engine already prepares each tree, with the plan's Setup or, with none, the main checkout's linked `node_modules`;"},
 	{PlanReviewLens_Tests, planReviewManifestItem},

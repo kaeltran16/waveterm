@@ -506,6 +506,8 @@ design canvas), the plan and the files they name. The full checklist is that:
   as its own small task;
 - each task states its acceptance criteria and names the tests that prove them;
 - the commands the plan names exist;
+- no Setup, Check or Verify command, and no task step, names a path a task of the plan creates, unless that
+  task is among the step's Depends (Final may);
 - every task that changes a view, a visual state or an interaction names the scenario step that shows it, and
   Final runs that scenario; with a Prototype, every board has one.
 
@@ -521,7 +523,7 @@ reviewers route, each checking only its own part of the checklist:
 |---|---|
 | **Spec coverage** | every requirement has a task; spec gaps and spec/plan contradictions |
 | **Task order and files** | Files/Depends overlaps; Depends reasons hold; names consistent across tasks |
-| **Tests and commands** | acceptance criteria and named tests; the named commands exist |
+| **Tests and commands** | acceptance criteria and named tests; the named commands exist and none needs a path a later task creates |
 | **Final coverage** | each UI change has a Final scenario step; with a Prototype, each board has one |
 
 The round settles once no reviewer is still reviewing: one `plan-reviewed` event, one wake. It passes when the full
