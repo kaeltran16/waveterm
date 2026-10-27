@@ -64,6 +64,16 @@ makes the plan reviewer read it as the spec and the final verifier check the bui
 every board. So before a canvas becomes a spec, drop the options not chosen: each board then
 shows one screen or state the built UI can reach, and its `title` says which.
 
+Build this… has two outcomes, picked by Arc's lookup and never by you:
+
+- **A canvas a run waits on** (a run started this session, from **Design first → Mock up** or the lead's
+  `Needs a design` ask): Build this… attaches the canvas as the run's prototype and starts its lead, which plans
+  from it. No launcher opens, and the run stops reading Designing.
+- **Any other canvas**: Build this… opens the New run window on its **Approved design** start, with the
+  prototype attached.
+
+Either way, stop at the canvas: do not plan or start a run yourself.
+
 ## The design system
 
 A repo design doc (`DESIGN.md` or the like) and its token source ARE the design system: read the

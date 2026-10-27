@@ -13,15 +13,37 @@ plan before any worker starts ([The plan review](#the-plan-review)). A final sta
 before the run is done ([The final stage](#the-final-stage)). The engine merges the branch back when the run
 completes ([Landing back](#landing-back)).
 
+The 2026-10-27 change moved design work out of the run's lead: a run's lead plans from an approved design and
+holds no design conversation ([Pick a flow](#pick-a-flow), [Design first](#design-first)). The screenshots of a
+lead brainstorming predate it.
+
 ## Pick a flow
 
 | You have | Use | What runs |
 |---|---|---|
 | One small change you can describe in a sentence | **Quick** | One fresh worker. No lead, no plan. It stops and asks if the goal turns out bigger. |
-| A goal that still needs design decisions | **Orchestrator → A goal** | A lead brainstorms it with you in its terminal, then either does it itself or hands the engine a plan. |
+| A goal that still needs design decisions | **A design session, then Orchestrator → Approved design** | You settle the design with an agent first (the brainstorm pane, a design canvas, or both). A lead then plans from it, never brainstorming with you. |
+| A goal that needs no design | **Orchestrator → A goal** | A lead reads the goal and the code, then does it itself or hands the engine a plan. If it finds the goal needs a design, it asks you once. |
 | A plan already written in the plan format | **Orchestrator → A plan file** | The engine runs the plan at once. A lead is launched only when something needs judgment. |
 
-Everything else in this guide is how to watch those three and what to do when they need you.
+Everything else in this guide is how to watch those flows and what to do when they need you.
+
+**Design happens before the run's lead, not inside it.** A run's lead plans from an approved design and then
+supervises; it holds no design conversation. The design is made in a design session, an interactive agent started
+for it, and reaches a run as a field of the run (`Spec`, `Prototype`):
+
+| The work needs | Where | It becomes a run by | The lead gets |
+|---|---|---|---|
+| a brainstorm only | the brainstorm pane, no boards | **Approve** | the spec |
+| a design only | an `arc:design` canvas | **Build this…** | the prototype |
+| both | the brainstorm pane with boards | **Approve** | the spec and the prototype |
+| nothing, or unclear | **+ Run → Orchestrator → A goal** | **Start run** | the goal |
+
+A design session is **normal** (you started it in chat) or **linked** (a run started it and waits on it).
+**Approve** and **Build this…** open the New run window on the Approved design start for a normal session
+([Flow 2](#flow-2-orchestrator-from-a-goal)), and hand the design to the waiting run for a linked one
+([A designing run](#a-designing-run)). Which one a session is, is looked up by the server, never judged by the
+agent.
 
 **The division of labor.** Code does the mechanics: scheduling, worktrees, Setup, merges, Verify, the final
 stage's commands, retries, and merging the run back. Fresh reviewer sessions judge the plan, each task and the
@@ -130,7 +152,8 @@ review's lens reviewers and its round-2 follow-up ([The plan review](#the-plan-r
 for it.
 
 A pi lead needs the `@juicesharp/rpiv-ask-user-question` package (so its questions reach the cockpit) and the
-superpowers package installed into pi itself (the lead plans with `brainstorming` and `writing-plans`).
+superpowers package installed into pi itself (the lead plans with `writing-plans`; a design session runs on the
+lead's route and uses `brainstorming` or `arc:design`).
 
 ---
 
@@ -165,9 +188,11 @@ sealed.
 |---|---|
 | **Project** | Where the lead works and where lanes merge. Type to filter. |
 | **Shape → Orchestrator** | A lead plus the engine. |
-| **Start from → A goal** | "A lead works the goal with you in its terminal, then hands the engine a plan." |
+| **Start from → A goal** | "A lead works the goal with you in its terminal, then hands the engine a plan." It holds no design conversation: a goal that needs a design is handed to a design session ([Design first](#design-first)). |
+| **Start from → Approved design** | Offered only when an Approve or Build this… brought a design. The spec and prototype show read-only, the goal (it names the run) is editable, and a lead plans from the design with no design conversation. They reach the run as fields, never as goal prose. |
+| **Design first** | On the Goal start: **Off**, **Brainstorm** or **Mock up**. See [Design first](#design-first). Blocked with `Design first needs Ask me approvals` when Approvals is autonomous. |
 | **Parallelism** | How many workers run at once, 1-8, default 3. A task under review frees its slot for another lane. Lowerable on a live run. |
-| **Lead model** | The lead's route. It brainstorms, writes the spec and plan, and later judges wakes, so this is the model whose judgment a retry cannot recover. |
+| **Lead model** | The lead's route. It reads the approved design (or the goal) and the code, writes the plan, and later judges wakes, so this is the model whose judgment a retry cannot recover. A design session started for the run uses it too. |
 | **Workers model** | The workers setting ([Routes](#4-routes)): Same as lead, Reviewer picks, or a route. Changeable on a live run for tasks not yet dispatched. |
 | **Reviewers model** | The reviewer route: task reviews, the plan review's full reviewer and the final verify. "Same as lead" unless set. |
 | **Light reviewers model** | The Light reviewers route: the plan review's four lens reviewers and round 2's follow-up. "Sonnet (default)" (Claude Code · `sonnet`) unless set. Changeable on a live run. |
@@ -179,18 +204,55 @@ The route picker filters by harness (**All / Pi / Claude Code**) and accepts a c
 
 For the backlog run: lead **Claude Code · opus**, workers **Claude Code · sonnet**, parallelism 3.
 
-### The lead brainstorms with you
+### The lead plans, it does not brainstorm
 
 **Start run** creates the run and opens its sheet at **Planning** ("the lead is writing the plan"). Nothing is
 dispatched until the lead submits a plan.
 
 ![A goal run in Planning](images/orchestrator-guide/06-goal-planning.png)
 
-**Open lead ↗** takes you to the lead on the Agent surface. The lead runs `superpowers:brainstorming` against
-the real code in its tree (the run's branch, or the checkout). The details rail's **Run** section reads
-"planning · no plan submitted yet" until it submits.
+**Open lead ↗** takes you to the lead on the Agent surface. The lead reads the real code in its tree (the run's
+branch, or the checkout) and, on an **Approved design** start, the design it was handed. The details rail's
+**Run** section reads "planning · no plan submitted yet" until it submits.
 
-![The lead brainstorming in its terminal](images/orchestrator-guide/07-lead-terminal.png)
+![The lead in its terminal](images/orchestrator-guide/07-lead-terminal.png)
+
+The screenshot predates the design split: its lead is brainstorming, which a lead no longer does.
+
+### Design first
+
+A goal that needs a design settles it before the lead starts. On the Goal start, **Design first** is
+**Off** (the default), **Brainstorm** or **Mock up**. Picking one makes **Start run** create the run and start a
+design session in the project instead of a lead:
+
+- **Brainstorm** starts the session with `superpowers:brainstorming` and the brainstorm pane.
+- **Mock up** starts it with `arc:design`, for a canvas.
+
+It needs a human, so it is blocked on an autonomous run (`Design first needs Ask me approvals`). The server
+refuses it too, and with `--plan`, a spec or a prototype, or on a Quick run.
+
+The session is also what a lead hands the run to when it finds the goal needs a design
+([What the lead does with the goal](#what-the-lead-does-with-the-goal)).
+
+### A designing run
+
+A run that waits on a design session reads **Designing** on its sheet (status Planning, with no lead and no
+plan), with the sub **brainstorming with you** or **mocking it up with you** and the next step "a lead plans
+from the design once you approve it". **Open session** takes you to the session's tab on the Agent surface.
+
+- **Approve** in the session's brainstorm pane, or **Build this…** on its canvas, attaches the design to the run
+  (its spec and prototype) and starts its lead, which plans from it. The run stops reading Designing, and the
+  brainstorm agent is sent `brainstorm: run <id>`. No New run window opens.
+- The same Approve or Build this… from a session no run waits on opens the New run window on the Approved
+  design start. A second Approve from a session whose design a run already took is refused with
+  `run <id> already took this session's design`, and opens nothing.
+- If the session's tab is closed, the sub reads "the design session's tab is closed" and there is no link. The
+  run keeps waiting; cancel it like any planning run. Cancelling leaves the session's tab, which is a normal
+  session. Closing that tab never fails the run.
+
+A designing run's session is not an agent of the run: it has no `ARC_RUN_AGENT`, so the brainstorm skill and
+pane apply to it, and it works in the project's checkout, where `.superpowers/` and
+`docs/superpowers/specs/` live.
 
 ### Answering the lead
 
@@ -212,8 +274,8 @@ on you** on the Brief instead of scrolling past in a terminal. The Jarvis nav ic
   sheet today; see [Rough edges](#rough-edges-found-while-writing-this).
 - **✕** dismisses the question.
 
-**The review dialog.** The lead's **Spec review**, and its round-2 **Plan review**
-([The plan review](#the-plan-review)), open as one dialog over whatever surface you are on: the document
+**The review dialog.** The lead's round-2 **Plan review**
+([The plan review](#the-plan-review)) opens as a dialog over whatever surface you are on: the document
 rendered on the left, the decisions (or findings) it asks you to accept on the right, and **Approve** (the
 plan's is **Accept all and proceed**, `Ctrl Enter`) or **Request changes** at the bottom. Request changes
 takes a note and sends it to the lead as your answer. Select text in the document to quote it: a note field
@@ -223,7 +285,7 @@ with N notes**, **Request changes · N notes**, whose message becomes optional),
 your message or the approve label, then each passage on a `> ` line with its note under it, in document order.
 Once sent, the notes lock. Everywhere else the ask shows as a one-line summary with
 a **Review** button: the Cockpit lead card, the Brief's card, the run sheet. On the Agent surface the lead's
-tree row carries a `review` tag, the lead's header an amber `Spec review` / `Plan review` chip, and `r` opens
+tree row carries a `review` tag, the lead's header an amber `Plan review` chip, and `r` opens
 it on the focused lead. It opens by itself only once per ask, when you focus the lead itself on the Agent
 surface and are not typing in its terminal; never from another agent or another surface. `Esc` hides it and
 leaves the question open, and it closes once the lead picks up your answer.
@@ -234,28 +296,49 @@ it find that `deletechannel` is the teardown of the CDP scenarios, and it came b
 
 ### What the lead does with the goal
 
-The brainstorming skill classifies the goal. The lead states the path it takes and proceeds, asking about the
-path only when it is genuinely unclear, and finishes accordingly:
+The lead's path is chosen in code, by what the run carries.
+
+**A run with an approved design** (an Approved design start, `wsh runs start --spec` / `--prototype`, or a design
+attached to a designing run) gets the plan-from-design prompt. The design is approved, so the lead does no
+brainstorming, no classification and no Spec review. It reads the design and the code it touches, writes the
+decisions it makes beyond the design, each with why, into the plan's header, then writes the plan with
+`superpowers:writing-plans` and submits it: `wsh jarvis dag submit --plan <plan> --spec <spec>` when the run has a
+spec, and without `--spec` when it has only a prototype (the plan names the prototype on its `**Prototype:**` line,
+and the plan reviewer reads the canvas as the spec). At submit the run's spec and prototype win over the lead's
+`--spec` and the plan's line. After `dag submit` it does not ask you to review the plan or pick an execution
+mode, since the engine reviews the plan.
+
+**A run with no design** gets the goal prompt. You are at the lead's terminal and every question goes through its
+ask tool, but it does not brainstorm. It states which path it takes and proceeds, asking about the path only when
+it is genuinely unclear, and finishes accordingly:
 
 | Class | The lead | You see |
 |---|---|---|
 | **Spike** (a question to answer) | writes the answer to a temp file as its report, `wsh jarvis complete --report <file>` | Done, with its answer as the summary |
 | **Bounded** (one change) | asks for your yes, implements in its tree (the run's branch, or the checkout), tests, commits, writes its report to a temp file, `wsh jarvis complete --commit <sha> --report <file>` | Done, with the commit and its report as the summary, merged back |
-| **Architectural** (needs a plan) | asks the decisions it needs as questions with options, writes the design straight into the spec, asks one **Spec review** (the spec's path on the question's first line), writes the plan with `superpowers:writing-plans`, runs `wsh jarvis dag submit --plan <plan> --spec <spec>` and stops | the plan review, then the sheet fills with tasks |
+| **Architectural** (needs a plan) | asks once, header `Needs a design`, with three options (below) | **Brainstorm it** or **Mock it up**: the run reads Designing. **Plan from the goal**: the plan review, then the sheet fills with tasks |
 
-The Spec review is the one approval: the lead does not ask section by section, and after `dag submit` it does not
-ask you to review the plan or pick an execution mode, since the engine reviews the plan.
+The `Needs a design` options:
 
-When the goal names a mockup or design canvas that settles the design, the lead writes no spec. Its Spec review
-carries the mockup's path on the first line and one line per decision beyond the mockup. The plan names the mockup
-on its `**Prototype:**` line and is submitted without `--spec`, and the plan reviewer reads the canvas as the spec.
+- **Brainstorm it** and **Mock it up** run `wsh jarvis design --kind brainstorm` / `--kind canvas` and stop. The
+  command starts the design session, records the run as waiting on it ([A designing run](#a-designing-run)) and
+  closes the lead's tab. Closing that tab does not fail the run: the command takes the lead out of the run first.
+  When you approve the design, a new lead plans from it. Refused on an autonomous run, on a run that has a dag and
+  on a Quick run.
+- **Plan from the goal**: the lead makes the design calls itself, records each with why in the plan's header,
+  writes the plan with `superpowers:writing-plans`, and runs `wsh jarvis dag submit --plan <plan>`, with no
+  `--spec`, and stops.
+
+An autonomous run never asks: with nobody to design with, the lead's design work is reading the code, which
+supervision needs anyway ([Autonomous runs](#autonomous-runs)).
 
 A plan's tasks carry the design decisions, the files each owns, the interfaces other tasks rely on, and acceptance
 criteria with their tests, but not the implementation: the prompt overrides `writing-plans`' complete-code rule,
 since pasted code made the lead's plan-writing the longest phase of a small run (7 to 14 min for 17 to 88 KB plans).
 
 Once the plan review passes, or you accept a plan it failed, the engine waits for the lead to go idle and types a
-`/compact` that keeps what you said and drops code it read. A plan submitted as JSON, with no review, is handed
+`/compact` for a lead that planned. It keeps the interfaces and files each task relies on, why the plan is split as
+it is, and your answers to the lead's own asks, and drops tool output, plan drafts and code bodies. A plan submitted as JSON, with no review, is handed
 over at `dag submit`. A failed review sends the plan back to a lead that still has its context to revise it. Every compaction of a lead re-injects its orchestration rules (`wsh jarvis dag rules`), so
 it knows it is the lead of a run when it next wakes.
 
@@ -852,7 +935,9 @@ defaults, the new-run launcher, `wsh runs start --autonomous`). On an autonomous
 otherwise reach you, takes the option it would recommend, and records each call and why in its report:
 
 - **The path and the spec.** A bounded goal or a spike goes ahead without your yes; an architectural one records
-  its decisions in the spec and submits with no spec review question.
+  its decisions in the spec and submits with no spec review question. It never asks `Needs a design`: Design
+  first, and `wsh jarvis design` from a lead, are refused on an autonomous run because nobody is there to design
+  with. A run that carries an approved design plans from it with the same autonomous rules.
 - **Plan review failed after the last round, or its reviewer was lost.** It carries the findings into the pending
   tasks with `dag amend`, then runs `dag planreview accept "autonomous run"`; a resubmit past the last round is
   refused with the same instruction. Spec changes while it revises are made and recorded.
@@ -869,7 +954,7 @@ Gatekeeper still stays out of orchestrator runs, the engine plan reviewer still 
 on a worker question still works.
 
 The setting can change mid-run, from the run sheet's Adjust panel or the palette's **Go autonomous** / **Ask me
-again**. Turning it on answers the lead's own waiting question (spec review, plan review, the land question) with
+again**. Turning it on answers the lead's own waiting question (`Needs a design`, plan review, the land question) with
 one line telling it to decide, wakes it with the autonomous rules, and hands the worker questions you were holding
 back to the lead; a waiting question whose picker takes no typed answer stays with you, and the save says so.
 Turning it off wakes the lead to ask you again from its next decision; calls it already made stand. A run with no
@@ -1259,6 +1344,7 @@ Run-level commands, from any terminal in the project:
 | Command | Does |
 |---|---|
 | `wsh runs start [goal] [--plan <md>] [--landing branch\|checkout]` | start a run; `--landing` wins over the profile, and the default is branch |
+| `wsh runs start [goal] --spec <md> [--prototype <canvas>]` | start an orchestrator run on an approved design: a lead plans from it, with no design conversation. Paths are made absolute; orchestrator runs only |
 | `wsh runs start … --worker-runtime <rt> [--worker-model <id>]` | the workers setting is that route |
 | `wsh runs start … --reviewer-picks` | the workers setting is Reviewer picks; refused with `--worker-runtime`/`--worker-model` |
 | `wsh runs start … --reviewer-runtime <rt> [--reviewer-model <id>]` | the reviewer route; `--reviewer-model` needs `--reviewer-runtime` |
@@ -1267,6 +1353,12 @@ Run-level commands, from any terminal in the project:
 | `wsh runs rerun-final <run-id>` | run a failed final stage again in the same round, once a cause outside the code is fixed |
 | `wsh runs land <run-id> [--force]` | retry a held land-back; `--force` lands a failed final stage (the human's call only) |
 | `wsh runs ack <run-id>` | acknowledge an unverified outcome, clearing its attention item |
+
+From a lead's terminal only:
+
+| Command | Does |
+|---|---|
+| `wsh jarvis design --kind brainstorm\|canvas` | hand the run to a design session: start it, mark the run Designing and close the lead's tab. The lead's `Needs a design` answers run it; refused on an autonomous run |
 
 The worker and reviewer flags need an orchestrator run, like `--parallelism` and `--landing`. Left out, the run
 takes the profile's workers setting and reviewer route ([Routes](#4-routes)).
