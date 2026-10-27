@@ -346,7 +346,7 @@ func initialWorkerStatusEvent(blockId, runtime string, ts int64) wps.WaveEvent {
 // prompt, every other shape the bare worker prompt.
 func phasePrompt(run *waveobj.Run) string {
 	if run.Mode == RunMode_Orchestrator {
-		return BuildOrchestratePrompt(run.Goal, run.Principles, run.Runtime, run.Autonomous)
+		return BuildOrchestratePrompt(run)
 	}
 	return BuildQuickPrompt(run.Goal, run.Principles, run.Runtime)
 }

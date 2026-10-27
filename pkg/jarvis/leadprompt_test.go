@@ -26,7 +26,7 @@ func TestAskToolByRuntime(t *testing.T) {
 // the plan format either never reaches the engine or reaches it with a plan the parser rejects.
 func TestEngineLaunchPromptCarriesTheGoalRunProtocol(t *testing.T) {
 	for runtime, tool := range map[string]string{"claude": "AskUserQuestion", "pi": "ask_user_question"} {
-		p := BuildOrchestratePrompt("ship auth", nil, runtime, false)
+		p := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: runtime})
 		for _, want := range []string{
 			"Goal: ship auth",
 			"superpowers:brainstorming",
@@ -54,7 +54,7 @@ func TestEngineLaunchPromptCarriesTheGoalRunProtocol(t *testing.T) {
 // change request and never proceeds.
 func TestLeadPromptApprovalWithNotes(t *testing.T) {
 	const applied = "its `> ` quoted notes are applied before proceeding; any other text is a change request."
-	launch := BuildOrchestratePrompt("ship auth", nil, "claude", false)
+	launch := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: "claude"})
 	if want := "an answer that starts with `Approve` is an approval, and " + applied; !strings.Contains(launch, want) {
 		t.Fatalf("launch prompt's Spec review missing %q:\n%s", want, launch)
 	}
@@ -68,7 +68,7 @@ func TestLeadPromptApprovalWithNotes(t *testing.T) {
 // and the human's width all belong to a lead that planned the dag itself, which a plan file replaces.
 func TestEngineLaunchPromptDropsTheOldPlanningProtocol(t *testing.T) {
 	for _, runtime := range []string{"claude", "pi"} {
-		p := BuildOrchestratePrompt("ship auth", nil, runtime, false)
+		p := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: runtime})
 		for _, gone := range []string{"--file", "import-tasks", "triage", "16 tasks", "parallelism", "resolve-merge"} {
 			if strings.Contains(p, gone) {
 				t.Fatalf("%s launch prompt still carries %q:\n%s", runtime, gone, p)
@@ -234,7 +234,7 @@ func TestOrchestrationRulesCompleteOnTheirOwn(t *testing.T) {
 // asked; the design goes into the spec file with one approval; the engine commits the files and reviews the plan.
 func TestEngineLaunchPromptCutsTheCeremony(t *testing.T) {
 	for _, runtime := range []string{"claude", "pi"} {
-		p := BuildOrchestratePrompt("ship auth", nil, runtime, false)
+		p := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: runtime})
 		for _, want := range []string{
 			"State the path you take",
 			"only when it is genuinely unclear",
@@ -258,7 +258,7 @@ func TestEngineLaunchPromptCutsTheCeremony(t *testing.T) {
 // writing-plans asks for complete code, so the prompt overrides that one rule and keeps what a worker cannot decide
 func TestEngineLaunchPromptPlansCarryDecisionsNotCode(t *testing.T) {
 	for _, runtime := range []string{"claude", "pi"} {
-		p := BuildOrchestratePrompt("ship auth", nil, runtime, false)
+		p := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: runtime})
 		for _, want := range []string{
 			"except its complete-code rule",
 			"the design decisions it makes",
@@ -278,7 +278,7 @@ func TestEngineLaunchPromptPlansCarryDecisionsNotCode(t *testing.T) {
 // human's one approval moves to the decisions made beyond it
 func TestEngineLaunchPromptSkipsTheSpecWhenAMockupSettlesTheDesign(t *testing.T) {
 	for _, runtime := range []string{"claude", "pi"} {
-		p := BuildOrchestratePrompt("ship auth", nil, runtime, false)
+		p := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: runtime})
 		for _, want := range []string{
 			"When the goal names a mockup or design canvas that settles the design, write no spec file",
 			"the `Spec review` question is the mockup's absolute path on its first line, then one `- ` line per decision you make beyond it",
@@ -297,13 +297,13 @@ func TestEngineRunPromptsPutTheContractOverPrinciples(t *testing.T) {
 	ps := waveobj.PrincipleList{{ID: "wt", Text: "Use worktree"}}
 	for name, p := range map[string]string{
 		"plan lead": PlanLeadPrompt(ps, "r1", "", "/repo/plan.md", "", false, "wake"),
-		"goal lead": BuildOrchestratePrompt("ship auth", ps, "claude", false),
+		"goal lead": BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Principles: ps, Runtime: "claude"}),
 	} {
 		if !strings.Contains(p, "- Use worktree\n"+ContractWinsLine+"\n\n") {
 			t.Fatalf("%s prompt must follow its principles with the contract line:\n%s", name, p)
 		}
 	}
-	if strings.Contains(BuildOrchestratePrompt("ship auth", nil, "claude", false), ContractWinsLine) {
+	if strings.Contains(BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: "claude"}), ContractWinsLine) {
 		t.Fatal("with no principles there is nothing for the contract to win over")
 	}
 }
@@ -360,7 +360,7 @@ func TestPlanAuthorIsToldToSplitByIndependentWork(t *testing.T) {
 		t.Fatalf("the plan format must say independent tasks run at the same time:\n%s", PlanFormat)
 	}
 	for _, runtime := range []string{"claude", "pi"} {
-		p := BuildOrchestratePrompt("ship auth", nil, runtime, false)
+		p := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: runtime})
 		if !strings.Contains(p, "what can proceed independently") {
 			t.Fatalf("%s launch prompt does not tell the lead to split the plan by independent work:\n%s", runtime, p)
 		}
@@ -373,7 +373,7 @@ func TestPlanAuthorIsToldToSplitByIndependentWork(t *testing.T) {
 func TestEveryCommittingPromptCarriesTheCommitRule(t *testing.T) {
 	for name, p := range map[string]string{
 		"quick":               BuildQuickPrompt("add a spinner", nil, "claude"),
-		"orchestrate launch":  BuildOrchestratePrompt("ship auth", nil, "claude", false),
+		"orchestrate launch":  BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: "claude"}),
 		"orchestration rules": OrchestrationRules("run-1", "", "", "", false),
 	} {
 		if !strings.Contains(p, CommitRule) {
@@ -455,7 +455,7 @@ func TestAutonomousTexts(t *testing.T) {
 // nobody is at an autonomous lead's terminal: no brainstorm questions, no path question, no Spec review
 func TestLaunchPromptAutonomous(t *testing.T) {
 	for _, runtime := range []string{"claude", "pi"} {
-		p := BuildOrchestratePrompt("ship auth", nil, runtime, true)
+		p := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: runtime, Autonomous: true})
 		for _, gone := range []string{"Spec review", "AskUserQuestion", "ask_user_question", "superpowers:brainstorming", "the human's yes"} {
 			if strings.Contains(p, gone) {
 				t.Errorf("%s autonomous launch prompt carries %q:\n%s", runtime, gone, p)
@@ -479,7 +479,7 @@ func TestLaunchPromptAutonomous(t *testing.T) {
 				t.Errorf("%s autonomous launch prompt missing %q:\n%s", runtime, want, p)
 			}
 		}
-		if off := BuildOrchestratePrompt("ship auth", nil, runtime, false); strings.Contains(off, AutonomousRules) {
+		if off := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: runtime}); strings.Contains(off, AutonomousRules) {
 			t.Errorf("%s asking launch prompt carries the autonomous rules:\n%s", runtime, off)
 		}
 	}

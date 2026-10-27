@@ -11,20 +11,22 @@ import (
 )
 
 type RunCommands interface {
-	CreateRunCommand(ctx context.Context, data CommandCreateRunData) (*CommandCreateRunRtnData, error)                // create + start a goal Run (spawns phase 1's worker)
-	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                                          // complete a phase / approve or send back a gate (spawns the next worker)
-	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                                            // cancel a Run
-	StopRunWorkerCommand(ctx context.Context, data CommandStopRunWorkerData) error                                    // stop one surviving worker of a cancelled run
-	SealRunEvidenceCommand(ctx context.Context, data CommandSealRunEvidenceData) error                                // derive+seal a done run's evidence if absent (idempotent backfill)
-	LandRunCommand(ctx context.Context, data CommandLandRunData) (*waveobj.RunLand, error)                            // merge a done branch-landed run's wave/<runId> back into its base, or hold it with the reason
-	AckRunCommand(ctx context.Context, data CommandAckRunData) error                                                  // acknowledge a done run's unverified outcome, which clears its attention item
-	RunAsksCommand(ctx context.Context, data CommandRunAskData) (*CommandDagAsksRtnData, error)                       // the pending question on a run's own session (a lead's, or a quick run's)
-	RunAnswerCommand(ctx context.Context, data CommandRunAnswerData) error                                            // answer a run's own pending question
-	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) (*CommandReportRunPhaseRtnData, error) // lead self-reports hold/complete; resolves run/phase from its own oref; an engine lead's complete returns its land
-	CreateChildRunCommand(ctx context.Context, data CommandCreateChildRunData) (*CommandCreateChildRunRtnData, error) // orchestrator lead spawns a hands-off child run for one backlog unit; parent resolved from the caller's oref
-	SetRunSettingsCommand(ctx context.Context, data CommandSetRunSettingsData) error                                  // change a live engine run's scheduler settings (pending on the Run before a DAG exists, live on its TaskGroup after)
-	RunTranscriptPathCommand(ctx context.Context, data CommandRunTranscriptPathData) (string, error)                  // the transcript of a run launched under a session id, "" when none was written
-	RunUsageCommand(ctx context.Context, data CommandRunUsageData) (*CommandRunUsageRtnData, error)                   // a run's tokens per role, task and model: sealed when the run has evidence, else read from its transcripts now
+	CreateRunCommand(ctx context.Context, data CommandCreateRunData) (*CommandCreateRunRtnData, error)                   // create + start a goal Run (spawns phase 1's worker)
+	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                                             // complete a phase / approve or send back a gate (spawns the next worker)
+	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                                               // cancel a Run
+	StopRunWorkerCommand(ctx context.Context, data CommandStopRunWorkerData) error                                       // stop one surviving worker of a cancelled run
+	SealRunEvidenceCommand(ctx context.Context, data CommandSealRunEvidenceData) error                                   // derive+seal a done run's evidence if absent (idempotent backfill)
+	LandRunCommand(ctx context.Context, data CommandLandRunData) (*waveobj.RunLand, error)                               // merge a done branch-landed run's wave/<runId> back into its base, or hold it with the reason
+	AckRunCommand(ctx context.Context, data CommandAckRunData) error                                                     // acknowledge a done run's unverified outcome, which clears its attention item
+	RunAsksCommand(ctx context.Context, data CommandRunAskData) (*CommandDagAsksRtnData, error)                          // the pending question on a run's own session (a lead's, or a quick run's)
+	RunAnswerCommand(ctx context.Context, data CommandRunAnswerData) error                                               // answer a run's own pending question
+	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) (*CommandReportRunPhaseRtnData, error)    // lead self-reports hold/complete; resolves run/phase from its own oref; an engine lead's complete returns its land
+	CreateChildRunCommand(ctx context.Context, data CommandCreateChildRunData) (*CommandCreateChildRunRtnData, error)    // orchestrator lead spawns a hands-off child run for one backlog unit; parent resolved from the caller's oref
+	SetRunSettingsCommand(ctx context.Context, data CommandSetRunSettingsData) error                                     // change a live engine run's scheduler settings (pending on the Run before a DAG exists, live on its TaskGroup after)
+	RunTranscriptPathCommand(ctx context.Context, data CommandRunTranscriptPathData) (string, error)                     // the transcript of a run launched under a session id, "" when none was written
+	RunUsageCommand(ctx context.Context, data CommandRunUsageData) (*CommandRunUsageRtnData, error)                      // a run's tokens per role, task and model: sealed when the run has evidence, else read from its transcripts now
+	RunDesignAttachCommand(ctx context.Context, data CommandRunDesignAttachData) (*CommandRunDesignAttachRtnData, error) // hand a design session's approved design to the run waiting on it and start its lead
+	JarvisDesignCommand(ctx context.Context, data CommandJarvisDesignData) error                                         // a lead hands the design to a linked session: the run waits on it, the lead's tab closes
 }
 
 type CommandCreateRunData struct {
@@ -55,9 +57,33 @@ type CommandCreateRunData struct {
 	// Prototype is the design canvas the run's final verifier compares against. It wins over the plan's
 	// **Prototype:** line; an orchestrator run only.
 	Prototype string `json:"prototype,omitempty"`
+	// Spec is the approved design spec (absolute path); the lead plans from it. An orchestrator run only.
+	Spec string `json:"spec,omitempty"`
+	// DesignFirst starts a design session the run waits on instead of a lead: brainstorm | canvas. An
+	// orchestrator run only.
+	DesignFirst string `json:"designfirst,omitempty"`
 	// Autonomous is the Approvals setting; nil = the resolved profile's. An orchestrator run only: an explicit
 	// true on a quick run is refused.
 	Autonomous *bool `json:"autonomous,omitempty"`
+}
+
+// CommandRunDesignAttachData is a design session's Approve / Build this…: BlockId is the session's block.
+type CommandRunDesignAttachData struct {
+	BlockId   string `json:"blockid"`
+	Spec      string `json:"spec,omitempty"`
+	Prototype string `json:"prototype,omitempty"`
+}
+
+// CommandRunDesignAttachRtnData names the run that took the design; empty when no run waited on the block.
+type CommandRunDesignAttachRtnData struct {
+	ChannelId string `json:"channelid,omitempty"`
+	RunId     string `json:"runid,omitempty"`
+}
+
+// CommandJarvisDesignData is a lead's `wsh jarvis design`: ORef is the lead's own tab or block.
+type CommandJarvisDesignData struct {
+	ORef string `json:"oref"`
+	Kind string `json:"kind"` // brainstorm | canvas
 }
 
 type CommandCreateRunRtnData struct {

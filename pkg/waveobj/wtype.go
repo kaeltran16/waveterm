@@ -306,6 +306,15 @@ type Run struct {
 	// Prototype is the design canvas the run was started with (Build this… on a canvas). It wins over the
 	// plan's **Prototype:** line at DagSubmit; empty = the plan's stands.
 	Prototype string `json:"prototype,omitempty"`
+	// Spec is the approved design spec (absolute path) the run was started with or took from a design
+	// session. It wins over the lead's --spec at DagSubmit.
+	Spec string `json:"spec,omitempty"`
+	// Design is set while the run waits on a linked design session; it is cleared when the session's
+	// approved design attaches.
+	Design *RunDesign `json:"design,omitempty"`
+	// DesignSession is the block of the session whose design the run took. It outlives Design so a repeat
+	// attach from the same block is refused rather than read as an unlinked session.
+	DesignSession string `json:"designsession,omitempty"`
 	// WorkflowScan marks a run as a workflow scan and holds every part of the scan's state; the lens follows
 	// the newest run that has one.
 	WorkflowScan *WorkflowScan `json:"workflowscan,omitempty"`
@@ -322,6 +331,17 @@ func (*Run) GetOType() string {
 type ConsultSession struct {
 	SessionId string `json:"sessionid"`
 	Role      string `json:"role"`
+}
+
+const (
+	RunDesignKind_Brainstorm = "brainstorm"
+	RunDesignKind_Canvas     = "canvas"
+)
+
+// RunDesign links a run to the design session it waits on.
+type RunDesign struct {
+	Kind    string `json:"kind"`    // brainstorm | canvas
+	BlockId string `json:"blockid"` // the session's block
 }
 
 const (
