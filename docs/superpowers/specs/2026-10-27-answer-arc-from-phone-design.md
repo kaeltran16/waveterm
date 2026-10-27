@@ -225,8 +225,9 @@ question's rows toggle. A prose ask submits the picked label as text, as the coc
 does.
 
 **Push.** While remote mode is on, the server reads the waiting list on a short fixed interval and
-pushes each item whose key it has not seen since remote mode turned on. What was already waiting
-when it turned on is not pushed: the owner just saw it at the desk. The payload names the agent or
+pushes each item it did not see on its previous read (a question is told apart by its key and ask
+id, so an agent's next question pushes too, and an item that leaves and comes back pushes again).
+What was already waiting when it turned on is not pushed: the owner just saw it at the desk. The payload names the agent or
 run and the question's header (for a run, the kind of wait), never the question text or the hold
 reason. Web Push is implemented with the standard library (RFC 8291 payload encryption, RFC 8292
 VAPID), with no new dependency. A subscription the push service reports gone (404 or 410) is
