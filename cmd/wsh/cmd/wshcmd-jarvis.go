@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -46,6 +47,39 @@ var jarvisCtxCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+var jarvisDesignCmd = &cobra.Command{
+	Use:     "design",
+	Short:   "hand the run's design to a session with the human; the run waits on it and this lead's tab closes",
+	Args:    cobra.NoArgs,
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		kind, _ := cmd.Flags().GetString("kind")
+		oref, err := resolveBlockArg()
+		if err != nil {
+			return fmt.Errorf("resolving block: %w", err)
+		}
+		data, err := jarvisDesignData(oref.String(), kind)
+		if err != nil {
+			return err
+		}
+		if err := wshclient.JarvisDesignCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: jarvisDesignTimeoutMs}); err != nil {
+			return err
+		}
+		fmt.Println("the run waits on the design session; a fresh lead plans from the design once the human approves it")
+		return nil
+	},
+}
+
+// jarvisDesignTimeoutMs covers the design session's spawn and the lead tab's close after it.
+var jarvisDesignTimeoutMs = jarvis.RunWorkerSpawnTimeout.Milliseconds() + 30_000
+
+func jarvisDesignData(blockORef, kind string) (wshrpc.CommandJarvisDesignData, error) {
+	if kind != waveobj.RunDesignKind_Brainstorm && kind != waveobj.RunDesignKind_Canvas {
+		return wshrpc.CommandJarvisDesignData{}, fmt.Errorf("--kind must be %s or %s", waveobj.RunDesignKind_Brainstorm, waveobj.RunDesignKind_Canvas)
+	}
+	return wshrpc.CommandJarvisDesignData{ORef: blockORef, Kind: kind}, nil
 }
 
 var jarvisCompleteCmd = &cobra.Command{
@@ -116,6 +150,8 @@ func init() {
 	jarvisCmd.AddCommand(jarvisCompleteCmd)
 	jarvisCmd.AddCommand(jarvisRunCmd)
 	jarvisCmd.AddCommand(jarvisCtxCmd)
+	jarvisDesignCmd.Flags().String("kind", "", "brainstorm|canvas: brainstorm the goal with the human, or mock it up")
+	jarvisCmd.AddCommand(jarvisDesignCmd)
 	rootCmd.AddCommand(jarvisCmd)
 }
 

@@ -140,6 +140,9 @@ type RunWorkerOptions struct {
 	// worker from a live one before relaunching it. TaskId is empty for a lead.
 	RunId  string
 	TaskId string
+	// DesignSession spawns a design session a run waits on, not a run's agent: without RunAgentEnv the
+	// brainstorm pane and its hook context apply to it. Its caller sets no RunId or TaskId.
+	DesignSession bool
 }
 
 // createWorkerTab is the tab-creation seam, so tests make a tab without a layout or a live workspace.
@@ -284,6 +287,9 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	blockId := tab.BlockIds[0]
 
 	blockMeta := makeWorkerBlockMeta(spec, cwd, opts.KeepOnExit)
+	if opts.DesignSession {
+		delete(blockMeta[waveobj.MetaKey_CmdEnv].(map[string]any), RunAgentEnv)
+	}
 	if opts.RunId != "" {
 		blockMeta["agent:runid"] = opts.RunId
 	}
