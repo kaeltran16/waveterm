@@ -103,7 +103,7 @@ export function resolveSelectedSession(list: LiveSession[], selection: string): 
 }
 
 export interface RecencyGroup<T = LiveSession> {
-    key: "live" | "today" | "earlier";
+    key: "pinned" | "live" | "today" | "earlier";
     label: string;
     items: T[];
     total: number; // the group's full count, whatever pageGroups cut from items
@@ -111,13 +111,20 @@ export interface RecencyGroup<T = LiveSession> {
 
 type Recent = { live: boolean; lastactivets: number };
 
-export function groupByRecency<T extends Recent>(list: T[], now: number): RecencyGroup<T>[] {
+export function groupByRecency<T extends Recent>(
+    list: T[],
+    now: number,
+    isPinned?: (item: T) => boolean
+): RecencyGroup<T>[] {
     const startOfToday = new Date(now).setHours(0, 0, 0, 0);
+    const pinned: T[] = [];
     const live: T[] = [];
     const today: T[] = [];
     const earlier: T[] = [];
     for (const s of list) {
-        if (s.live) {
+        if (isPinned?.(s)) {
+            pinned.push(s);
+        } else if (s.live) {
             live.push(s);
         } else if (s.lastactivets >= startOfToday) {
             today.push(s);
@@ -126,11 +133,13 @@ export function groupByRecency<T extends Recent>(list: T[], now: number): Recenc
         }
     }
     const desc = (a: T, b: T) => b.lastactivets - a.lastactivets;
+    pinned.sort(desc);
     live.sort(desc);
     today.sort(desc);
     earlier.sort(desc);
     return (
         [
+            { key: "pinned", label: "Pinned", items: pinned, total: pinned.length },
             { key: "live", label: "Live now", items: live, total: live.length },
             { key: "today", label: "Today", items: today, total: today.length },
             { key: "earlier", label: "Earlier", items: earlier, total: earlier.length },
