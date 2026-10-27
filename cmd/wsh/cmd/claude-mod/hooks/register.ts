@@ -7,6 +7,8 @@ import { drawCacheMiss } from "./cache-band";
 import { cacheMissNotice, transcriptEntries } from "./cache-core";
 import { controlMsg, deliver, endTurn, steerNotice, takeLines } from "./control-core";
 import type { Turn } from "./control-core";
+import { ALL_CATEGORIES, applyEdit, goalpostNote, goalpostRole, inspectChange, inspectCommand } from "./goalpost-core";
+import type { GoalpostFinding } from "./goalpost-core";
 import { denial } from "./guard-core";
 import { idleArgs } from "./status-core";
 import { usageArgs } from "./usage-core";
@@ -86,6 +88,66 @@ async function refusal($: EngineInterface, command: string, background?: boolean
     return active ? denial(command, await $.session.cwd(), background === true) : null;
 }
 
+// set once wsh answered `not a task worker`: the session's role does not change, so later findings skip the call
+let isKnownNonWorker = false;
+
+// what a change lowers the bar on; none outside Arc, and none when a detector throws, so the tool call goes on
+async function goalposts($: EngineInterface, detect: () => GoalpostFinding[] | Promise<GoalpostFinding[]>) {
+    if (!active) {
+        return [];
+    }
+    try {
+        return await detect();
+    } catch (err) {
+        $.ui.log(`arc: goalpost detection failed: ${String(err)}`, { to: "debug" });
+        return [];
+    }
+}
+
+// the file's text before the call; null when it is not there yet
+async function currentText($: EngineInterface, path: string): Promise<string | null> {
+    return (await $.fs.exists(path)) ? $.fs.read(path) : null;
+}
+
+// stores the findings on the task when this session is a run's task worker, and answers wsh's verdict;
+// null when the report failed or was skipped
+async function reportGoalposts($: EngineInterface, findings: GoalpostFinding[]): Promise<string | null> {
+    if (isKnownNonWorker) {
+        return null;
+    }
+    try {
+        const wire = findings.map(({ rule, file, title, before, after }) => ({ rule, file, title, before, after }));
+        const ran = await $.process.run([WSH, "jarvis", "dag", "goalpost", JSON.stringify(wire)]);
+        if (ran.exitCode !== 0) {
+            $.ui.log(`arc: wsh jarvis dag goalpost exited ${ran.exitCode}: ${ran.stderr.trim()}`, { to: "debug" });
+            return null;
+        }
+        isKnownNonWorker = ran.stdout.trim() === "not a task worker";
+        return ran.stdout;
+    } catch (err) {
+        $.ui.log(`arc: wsh jarvis dag goalpost failed: ${String(err)}`, { to: "debug" });
+        return null;
+    }
+}
+
+// runs the tool, then tells Claude what it lowered and whom to answer to. never denies and never asks:
+// the task reviewer, the final report or the user judges it
+async function withGoalposts<E, R extends { deny?: string; isError?: true; context?: readonly string[] }>(
+    $: EngineInterface,
+    findings: GoalpostFinding[],
+    e: E,
+    next: (e: E) => Promise<R>
+): Promise<R> {
+    const ran = await next(e);
+    if (findings.length === 0 || ran.deny !== undefined || ran.isError) {
+        return ran;
+    }
+    const isRunAgent = Boolean(await $.env.get("ARC_RUN_AGENT"));
+    const answer = isRunAgent ? await reportGoalposts($, findings) : null;
+    const note = goalpostNote(findings, goalpostRole(isRunAgent, answer));
+    return { ...ran, context: [...(ran.context ?? []), note] };
+}
+
 // set while a question is in claude's own dialog, where the settings hooks beneath show the card for it.
 // a question dismissed there runs no PostToolUse and no Stop hook, so the turn's end takes the card down
 // and reports idle, or the cockpit reads asking until the next prompt
@@ -130,6 +192,7 @@ async function reportCacheMiss($: EngineInterface) {
 export const register: Register = (on) => {
     on("session.start", async ($, e, next) => {
         active = Boolean((await $.env.get("WAVETERM_BLOCKID")) && (await $.env.get("WAVETERM_JWT")));
+        isKnownNonWorker = false;
         const started = await next(e);
         if (active) {
             void listenToCockpit($);
@@ -213,12 +276,37 @@ export const register: Register = (on) => {
     // refused in code: a prompt's rule is one the model can talk itself out of
     on("tool.call", { tool: "Bash" }, async ($, e, next) => {
         const why = await refusal($, e.command, e.run_in_background);
-        return why === null ? next(e) : { deny: why };
+        if (why !== null) {
+            return { deny: why };
+        }
+        return withGoalposts($, await goalposts($, () => inspectCommand(e.command, ALL_CATEGORIES)), e, next);
     });
 
     on("tool.call", { tool: "PowerShell" }, async ($, e, next) => {
         const why = await refusal($, e.command, e.run_in_background);
-        return why === null ? next(e) : { deny: why };
+        if (why !== null) {
+            return { deny: why };
+        }
+        return withGoalposts($, await goalposts($, () => inspectCommand(e.command, ALL_CATEGORIES)), e, next);
+    });
+
+    on("tool.call", { tool: "Edit" }, async ($, e, next) => {
+        const findings = await goalposts($, async () => {
+            const before = await currentText($, e.file_path);
+            const after = before === null ? null : applyEdit(before, e.old_string, e.new_string, e.replace_all);
+            return after === null ? [] : inspectChange({ path: e.file_path, before, after }, ALL_CATEGORIES);
+        });
+        return withGoalposts($, findings, e, next);
+    });
+
+    on("tool.call", { tool: "Write" }, async ($, e, next) => {
+        const findings = await goalposts($, async () =>
+            inspectChange(
+                { path: e.file_path, before: await currentText($, e.file_path), after: e.content },
+                ALL_CATEGORIES
+            )
+        );
+        return withGoalposts($, findings, e, next);
     });
 
     // every question goes to claude's own dialog, so it reads the same at any terminal width and on every

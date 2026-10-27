@@ -20,6 +20,31 @@ type DagCommands interface {
 	DagMergeContinueCommand(ctx context.Context, data CommandDagMergeData) error                                      // finish a resolved squash merge, or re-run a failed Verify
 	DagAsksCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagAsksRtnData, error)                    // pending child asks (children block on one at a time)
 	DagAnswerCommand(ctx context.Context, data CommandDagAnswerData) error                                            // deliver an answer to a child's pending ask
+	DagGoalpostCommand(ctx context.Context, data CommandDagGoalpostData) (*CommandDagGoalpostRtnData, error)          // record a task worker's check-lowering edits for its reviewer
+}
+
+// CommandDagGoalpostData is `wsh jarvis dag goalpost`: arc-mod's findings on an edit the caller made. RunId is
+// the caller's own run; only a task's current worker has them recorded.
+type CommandDagGoalpostData struct {
+	ChannelId string            `json:"channelid"`
+	RunId     string            `json:"runid"`
+	Findings  []GoalpostFinding `json:"findings"`
+}
+
+// CommandDagGoalpostRtnData says whether the findings were stored: false for any caller that is not a task's
+// current worker.
+type CommandDagGoalpostRtnData struct {
+	Recorded bool `json:"recorded"`
+}
+
+// GoalpostFinding is one check-lowering edit, as arc-mod's detectors report it: the rule that matched, the file,
+// a one-line title, and the sample lines before and after the edit.
+type GoalpostFinding struct {
+	Rule   string   `json:"rule"`
+	File   string   `json:"file,omitempty"`
+	Title  string   `json:"title"`
+	Before []string `json:"before,omitempty"`
+	After  []string `json:"after,omitempty"`
 }
 
 // A submission is a plan file or a typed task list. Every shipped caller sends a plan file — `wsh jarvis
