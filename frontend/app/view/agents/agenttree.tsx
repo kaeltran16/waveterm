@@ -84,6 +84,7 @@ import {
     type SubagentState,
 } from "./session-models/sessionviewmodel";
 import {
+    clockTime,
     isStandingBy,
     monitorExpiresAt,
     monitorSubline,
@@ -424,15 +425,6 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
             <TaskStripBar run={run} />
         </>
     );
-}
-
-function clockTime(ms: number): string {
-    return new Date(ms).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-    });
 }
 
 // A parent's background shell tasks and monitors under it, nested like its subagents. A monitor, or a shell

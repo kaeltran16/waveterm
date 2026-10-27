@@ -21,6 +21,7 @@ import { Radio, Terminal, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import {
+    clockTime,
     monitorEventsSummary,
     monitorExpiresAt,
     monitorTimeLeft,
@@ -60,15 +61,6 @@ function useTaskOutput(path: string | undefined): string[] | null {
 }
 
 const close = () => globalStore.set(shellTaskPeekAtom, null);
-
-function clockTime(ms: number): string {
-    return new Date(ms).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hourCycle: "h23",
-    });
-}
 
 function OutputBody({ path }: { path: string | undefined }) {
     const lines = useTaskOutput(path);

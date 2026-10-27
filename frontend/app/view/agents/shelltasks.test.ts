@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    clockTime,
     extractShellTasks,
     isStandingBy,
     monitorEventsSummary,
@@ -613,6 +614,20 @@ describe("extractShellTasks monitors", () => {
         const [t] = extract(lines);
         expect(t).toMatchObject({ id: "mws00001", kind: "monitor", description: "Watch the socket" });
         expect(t).not.toHaveProperty("command");
+    });
+});
+
+describe("clockTime", () => {
+    it("pads every field and reads midnight as 00", () => {
+        expect(clockTime(new Date(2026, 9, 27, 0, 0, 5).getTime())).toBe("00:00:05");
+    });
+
+    it("keeps a 24-hour clock", () => {
+        expect(clockTime(new Date(2026, 9, 27, 23, 59, 59).getTime())).toBe("23:59:59");
+    });
+
+    it("pads a single-digit hour and minute", () => {
+        expect(clockTime(new Date(2026, 9, 27, 9, 4, 42).getTime())).toBe("09:04:42");
     });
 });
 

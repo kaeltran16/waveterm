@@ -329,6 +329,16 @@ export function shellTasksLabel(tasks: ShellTask[]): string {
     return noun === "monitors" ? "1 monitor" : "1 shell task";
 }
 
+/** Local wall-clock HH:MM:SS, 24-hour whatever the locale. */
+export function clockTime(ms: number): string {
+    return new Date(ms).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+    });
+}
+
 /** Pure: when a monitor times out, or null when it never does or its start is unknown. */
 export function monitorExpiresAt(t: ShellTask): number | null {
     if (t.persistent || t.startedTs == null || t.timeoutMs == null) {
