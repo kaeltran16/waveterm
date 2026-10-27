@@ -23797,6 +23797,135 @@ const settingsStorage = {
     },
 };
 
+// --- remote-switch: Settings > Remote and the app bar's Remote on pill ------------------------------------------
+// Step 1 reads the dev store's real status (no remote setup). The rest are fixtures set into remoteStatusAtom
+// through the app's own store module; nothing reaches wavesrv but step 6's switch click, which the real
+// RemoteOnCommand refuses because the dev store has no setup. Teardown reloads the real status.
+const REMOTE_PANE = `document.querySelector('[data-settings-section="remote"]')`;
+const REMOTE_PILL = `document.querySelector('[data-remote-pill]')`;
+const REMOTE_HOST = "arc.example.com";
+const REMOTE_TUNNEL_ERROR = "failed to dial edge: connection refused";
+const REMOTE_SET_UP = { on: false, hostname: REMOTE_HOST, port: 8765, tunnel: "off", subscriptions: 0 };
+const REMOTE_FIXTURES = {
+    up: { ...REMOTE_SET_UP, on: true, tunnel: "up", subscriptions: 1 },
+    down: { ...REMOTE_SET_UP, on: true, tunnel: "down", tunnelerror: REMOTE_TUNNEL_ERROR, subscriptions: 1 },
+    nocloudflared: { ...REMOTE_SET_UP, cloudflaredmissing: true },
+    off: REMOTE_SET_UP,
+};
+const remoteSetStatus = (h, name) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { remoteStatusAtom } = await mod("app/view/agents/remotestore.ts");
+        globalStore.set(remoteStatusAtom, ${JSON.stringify(REMOTE_FIXTURES[name])});
+        return true;
+    `);
+const remoteReload = (h) =>
+    lookEval(h, `
+        await (await mod("app/view/agents/remotestore.ts")).loadRemoteStatus();
+        return true;
+    `);
+const REMOTE_READ = `(() => {
+    const pane = ${REMOTE_PANE};
+    const sw = pane?.querySelector('[role="switch"]');
+    const text = (el) => (el?.textContent || "").trim();
+    return {
+        pane: pane != null,
+        pill: ${REMOTE_PILL} != null,
+        switchOn: sw?.getAttribute("aria-checked") === "true",
+        switchDisabled: sw?.disabled ?? null,
+        note: text(pane?.querySelector('[data-testid="remote-switch-note"]')),
+        error: text(pane?.querySelector('[data-testid="remote-error"]')),
+        lines: Object.fromEntries([...(pane?.querySelectorAll('[data-remote-line]') ?? [])].map((l) => [l.getAttribute("data-remote-line"), text(l)])),
+    };
+})()`;
+
+const remoteSwitchScenario = {
+    name: "remote-switch",
+    surface: "settings",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const shot = (n) => h.shot(`cdp-shots/remote-switch-${n}.png`);
+        const settle = () => polishNap(300);
+
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        await h.goto("settings");
+        await remoteReload(h);
+        await h.ev(`document.querySelector('[data-section="remote"]')?.click()`);
+        await polishWaitFor(h, `${REMOTE_PANE}?.querySelector('[data-remote-line]') != null`, 5000);
+        await settle();
+        await shot("1-unset");
+        const unset = await h.ev(REMOTE_READ);
+        rec(
+            "1. with no setup the switch is disabled, says to run wsh remote setup, and no pill shows",
+            unset.pane && unset.switchDisabled === true && !unset.switchOn && unset.note.includes("wsh remote setup") && !unset.pill && /^Setup incomplete/.test(unset.lines.setup ?? ""),
+            JSON.stringify(unset)
+        );
+
+        await remoteSetStatus(h, "up");
+        await polishWaitFor(h, `${REMOTE_PILL} != null`, 3000);
+        await settle();
+        await shot("2-up");
+        const up = await h.ev(REMOTE_READ);
+        const pillText = await h.ev(`(${REMOTE_PILL}?.textContent || "").trim()`);
+        rec(
+            "2. on with the tunnel up: the pill shows, the section shows on, the address and subscribed",
+            up.pill && pillText === "Remote on" && up.switchOn && up.switchDisabled === false && up.lines.tunnel === "Tunnel up" && up.lines.address === `https://${REMOTE_HOST}` && up.lines.phone === "Phone subscribed",
+            JSON.stringify({ ...up, pillText })
+        );
+
+        await h.goto("agent");
+        await settle();
+        await h.ev(`${REMOTE_PILL}?.click()`);
+        const opened = await polishWaitFor(h, `${REMOTE_PANE} != null`, 5000);
+        await settle();
+        await shot("3-pill-opens");
+        const selected = await h.ev(`document.querySelector('[data-section="remote"]')?.className.includes("border-accent") ?? false`);
+        rec("3. clicking the pill on the Agent surface opens Settings > Remote", opened && selected, JSON.stringify({ opened, selected }));
+
+        await remoteSetStatus(h, "down");
+        await settle();
+        await shot("4-down");
+        const down = await h.ev(REMOTE_READ);
+        rec(
+            "4. on with the tunnel down: the section shows the down line with its error",
+            down.lines.tunnel === `Tunnel down: ${REMOTE_TUNNEL_ERROR}` && down.switchOn && down.pill,
+            JSON.stringify(down)
+        );
+
+        await remoteSetStatus(h, "nocloudflared");
+        await settle();
+        await shot("5-no-cloudflared");
+        const nocf = await h.ev(REMOTE_READ);
+        rec(
+            "5. set up but cloudflared missing: the switch is disabled with the winget line",
+            nocf.switchDisabled === true && nocf.note.includes("winget install --id Cloudflare.cloudflared") && !nocf.pill && nocf.lines.setup === "Setup complete",
+            JSON.stringify(nocf)
+        );
+
+        await remoteSetStatus(h, "off");
+        await settle();
+        await h.ev(`${REMOTE_PANE}?.querySelector('[role="switch"]')?.click()`);
+        await polishWaitFor(h, `${REMOTE_PANE}?.querySelector('[data-testid="remote-error"]') != null`, 20000);
+        await settle();
+        await shot("6-refused");
+        const refused = await h.ev(REMOTE_READ);
+        rec(
+            "6. set up and off: the switch's real RemoteOnCommand refuses, and the section shows the error inline",
+            refused.error !== "" && !refused.switchOn && !refused.pill,
+            JSON.stringify(refused)
+        );
+        return steps;
+    },
+    async teardown(h) {
+        await remoteReload(h).catch(() => {});
+        await h.goto("cockpit");
+    },
+};
+
 // --- motion gaps ---------------------------------------------------------------------------------
 // The cockpit toast and the Setup tab panel used to cut in and out. Each check samples in-page, in one
 // evaluation, because a CDP round trip per sample is slower than the animations it measures: an observer
@@ -28375,6 +28504,7 @@ export const SCENARIOS = [
     settingsVaultSync,
     settingsClaudeAccount,
     settingsStorage,
+    remoteSwitchScenario,
     jarvisMotion,
     // before brief-inline-tracker, which leaves a briefing fixture on over the seeded data
     briefDesignParity,

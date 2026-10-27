@@ -47,6 +47,8 @@ import { DEFAULT_REMEMBER_FLAGS, naFlagsAtom, naRememberFlagsAtom } from "./nafl
 import { ITEMS } from "./navrail";
 import { DEFAULT_RAIL_VISIBLE, railVisibleAtom } from "./railstore";
 import { forgetRateLimit } from "./ratelimitstore";
+import { remoteStatusLines, remoteSwitch } from "./remotemodel";
+import { remoteStatusAtom, setRemoteOn } from "./remotestore";
 import { RoutePicker } from "./routepicker";
 import {
     changedCount,
@@ -67,7 +69,7 @@ import {
     type SettingRowDef,
     type SettingSectionDef,
 } from "./settingsmodel";
-import { takePendingSettingsSection } from "./settingsstore";
+import { pendingSettingsSectionAtom, takePendingSettingsSection } from "./settingsstore";
 import { navSummary } from "./storagemodel";
 import { StorageHeaderActions, StorageSection } from "./storagesection";
 import { loadStorage, startStoragePoll, storageReportAtom } from "./storagestore";
@@ -235,12 +237,15 @@ export function SettingsSurface({ model }: { model: AgentsViewModel }) {
     const selected = resolveSelection(visibleSections, wanted);
     const bindings = useRowBindings(sections, flagRuntime);
 
+    // keyed on the atom so a deep link made while Settings is already open still moves the selection
+    const pendingSection = useAtomValue(pendingSettingsSectionAtom);
     useEffect(() => {
         const want = takePendingSettingsSection();
         if (want != null) {
+            setQuery("");
             setWanted(want);
         }
-    }, []);
+    }, [pendingSection]);
 
     // the index shows the Storage report's totals, so it loads with the surface, not with the section
     useEffect(() => {
@@ -538,16 +543,28 @@ function Mono({ children, warn }: { children: ReactNode; warn?: boolean }) {
     return <span className={cn("font-mono text-[12.5px]", warn ? "text-warning" : "text-secondary")}>{children}</span>;
 }
 
-function Toggle({ on, onToggle, label }: { on: boolean; onToggle: () => void; label: string }) {
+function Toggle({
+    on,
+    onToggle,
+    label,
+    disabled,
+}: {
+    on: boolean;
+    onToggle: () => void;
+    label: string;
+    disabled?: boolean;
+}) {
     return (
         <button
             type="button"
             role="switch"
             aria-checked={on}
             aria-label={label}
+            disabled={disabled}
             onClick={onToggle}
             className={cn(
-                "relative h-[23px] w-[42px] shrink-0 cursor-pointer rounded-full transition-colors",
+                "relative h-[23px] w-[42px] shrink-0 rounded-full transition-colors",
+                disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer",
                 on ? "bg-accent" : "bg-surface-selected"
             )}
         >
@@ -735,6 +752,8 @@ function SectionBody({
             return <FontsSection />;
         case "general":
             return <GeneralSection />;
+        case "remote":
+            return <RemoteSection />;
         case "newagent":
             return <NewAgentSection runtime={runtime} onRuntime={onRuntime} />;
         case "claudeaccount":
@@ -924,6 +943,53 @@ function GeneralSection() {
                     onToggle={() => setRailVisible((v) => !v)}
                     label="Show details rail by default"
                 />
+            </SettingRow>
+        </div>
+    );
+}
+
+// the status comes from the app bar's remote:status subscription; a switch change lands there too
+function RemoteSection() {
+    const status = useAtomValue(remoteStatusAtom);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const sw = remoteSwitch(status);
+    const lines = remoteStatusLines(status);
+    const toggle = () =>
+        fireAndForget(async () => {
+            setError(null);
+            setBusy(true);
+            try {
+                await setRemoteOn(!sw.on);
+            } catch (e) {
+                setError(String(e));
+            } finally {
+                setBusy(false);
+            }
+        });
+    return (
+        <div>
+            <SettingRow id="remote.mode">
+                <Toggle on={sw.on} onToggle={toggle} label="Remote mode" disabled={!sw.enabled || busy} />
+            </SettingRow>
+            {sw.note ? (
+                <Note testId="remote-switch-note">
+                    <span className="font-mono">{sw.note}</span>
+                </Note>
+            ) : null}
+            {error ? (
+                <Note tone="error" testId="remote-error">
+                    {error}
+                </Note>
+            ) : null}
+            <SettingRow id="remote.status" stacked>
+                <div role="status" aria-live="polite" className="flex flex-col gap-1 font-mono text-[12px]">
+                    {lines.map((l) => (
+                        <div key={l.id} data-remote-line={l.id} className={l.error ? "text-error" : "text-secondary"}>
+                            {l.text}
+                        </div>
+                    ))}
+                </div>
             </SettingRow>
         </div>
     );

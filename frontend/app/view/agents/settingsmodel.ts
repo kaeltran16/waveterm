@@ -171,6 +171,26 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
             ],
         },
         {
+            id: "remote",
+            name: "Remote",
+            blurb: "Answer agent questions from your phone through your Cloudflare tunnel, while you turn it on. Setup is a CLI step: wsh remote setup.",
+            group: "Cockpit",
+            rows: [
+                {
+                    id: "remote.mode",
+                    title: "Remote mode",
+                    desc: "While on, what waits on you reaches your phone, and you can answer agent questions from it. The phone can turn it off too.",
+                    key: "secretstore · arc_remote",
+                    scope: "local",
+                },
+                {
+                    id: "remote.status",
+                    title: "Status",
+                    desc: "Setup, the tunnel, the public address, and whether a phone has subscribed.",
+                },
+            ],
+        },
+        {
             id: "newagent",
             name: "New Agent",
             blurb: "Launch flags reused for every new agent, per runtime.",
