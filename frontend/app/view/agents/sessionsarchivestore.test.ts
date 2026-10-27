@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
@@ -12,6 +13,8 @@ import {
     pageFeed,
     pageGroups,
     resolveSelectedSession,
+    sessionsPinnedAtom,
+    shouldPrunePins,
     totalEvents,
     type RecencyGroup,
 } from "./sessionsarchivestore";
@@ -229,6 +232,19 @@ describe("groupByRecency: pinned", () => {
             ["pinned", ["pl", "pe"], 2],
             ["live", ["l"], 1],
         ]);
+    });
+});
+
+describe("pins: prune gate and the unloaded client", () => {
+    it("prunes only after an ok, complete load", () => {
+        expect(shouldPrunePins(true, false)).toBe(true);
+        expect(shouldPrunePins(true, true)).toBe(false);
+        expect(shouldPrunePins(false, false)).toBe(false);
+        expect(shouldPrunePins(false, true)).toBe(false);
+    });
+
+    it("reads no pins before the client is loaded", () => {
+        expect(globalStore.get(sessionsPinnedAtom)).toEqual([]);
     });
 });
 

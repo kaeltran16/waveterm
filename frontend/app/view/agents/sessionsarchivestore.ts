@@ -6,11 +6,15 @@
 // summary + per-session lifecycle events), a pure live-roster overlay, and pure grouping/filter/feed
 // helpers. Replaces the retired Activity FE extraction stack (activitystore/activityevents/discovery).
 
+import { ClientModel } from "@/app/store/client-model";
 import { globalStore } from "@/app/store/jotaiStore";
+import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { atom, type PrimitiveAtom } from "jotai";
+import { fireAndForget } from "@/util/util";
+import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import type { AgentVM } from "./agentsviewmodel";
+import { prunePins } from "./sessionspins";
 
 const WINDOW_DAYS = 30;
 // the first call may parse up to 100 transcripts before it answers
@@ -22,6 +26,31 @@ export const sessionsArchiveAtom = atom<SessionActivity[] | null>(null) as Primi
 export const sessionsErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 // true = wavesrv is still indexing the window, so older sessions are missing; the surface reloads until false.
 export const sessionsIncompleteAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+
+// the pinned row keys, held on the client object; no client or no key reads as none
+export const sessionsPinnedAtom: Atom<string[]> = atom((get) => {
+    const clientAtom = ClientModel.getInstance().clientAtom;
+    return (clientAtom ? get(clientAtom)?.meta?.["sessions:pinned"] : null) ?? [];
+});
+
+export function setSessionsPinned(pins: string[]): void {
+    const clientId = ClientModel.getInstance().clientId;
+    if (clientId == null) {
+        console.log("setSessionsPinned: no client id, pins not saved");
+        return;
+    }
+    fireAndForget(() =>
+        RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: WOS.makeORef("client", clientId),
+            meta: { "sessions:pinned": pins.length ? pins : null },
+        })
+    );
+}
+
+// only a complete scan of the window can say a pinned session left it
+export function shouldPrunePins(loadOk: boolean, incomplete: boolean): boolean {
+    return loadOk && !incomplete;
+}
 
 let loading = false;
 
@@ -36,9 +65,17 @@ export async function loadSessionsArchive(): Promise<void> {
             { windowdays: WINDOW_DAYS, all: true },
             { timeout: ARCHIVE_TIMEOUT_MS }
         );
-        globalStore.set(sessionsArchiveAtom, rtn.sessions ?? []);
+        const sessions = rtn.sessions ?? [];
+        globalStore.set(sessionsArchiveAtom, sessions);
         globalStore.set(sessionsIncompleteAtom, !!rtn.incomplete);
         globalStore.set(sessionsErrorAtom, false);
+        if (shouldPrunePins(true, !!rtn.incomplete)) {
+            const pins = globalStore.get(sessionsPinnedAtom);
+            const kept = prunePins(pins, sessions);
+            if (kept !== pins) {
+                setSessionsPinned(kept);
+            }
+        }
     } catch {
         // surface the failure distinctly instead of an indistinguishable empty list. Keep any last-good
         // data; mark loaded (null -> []) so the surface shows the error banner, not a permanent skeleton.

@@ -9,13 +9,14 @@
 
 import { cardVariants, MOTION } from "@/app/element/motiontokens";
 import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import * as WOS from "@/app/store/wos";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
-import { Activity, Check, Search, Workflow } from "lucide-react";
+import { Activity, Check, Pin, PinOff, Search, Workflow } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -35,12 +36,15 @@ import {
     sessionsArchiveAtom,
     sessionsErrorAtom,
     sessionsIncompleteAtom,
+    sessionsPinnedAtom,
+    setSessionsPinned,
     totalEvents,
     type LiveSession,
     type SessionStatusFilter,
 } from "./sessionsarchivestore";
 import { eventColor, RunDetail, runSessionPrimary, SEG_COLOR, SoloDetail, StatusMark } from "./sessionsdetail";
 import { openSessionHit } from "./sessionsfind";
+import { isRowPinned, togglePinnedRow } from "./sessionspins";
 import {
     defaultMember,
     groupRunSessions,
@@ -139,6 +143,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const digests = useAtomValue(runDigestsAtom);
     const incomplete = useAtomValue(sessionsIncompleteAtom);
     const [query, setQuery] = useAtom(model.sessionsQueryAtom);
+    const pins = useAtomValue(sessionsPinnedAtom);
     // off on every visit: run agents are a deliberate widening, not a mode the list remembers
     const [runAgents, setRunAgents] = useState(false);
     const search = useSessionsSearch(query, runAgents);
@@ -233,7 +238,22 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const shown = matches
         ? composeSearchRows(rows, matches, filter, projectFilter)
         : scoped.filter((r) => keepRow(r, filter));
-    const groups = groupByRecency(shown, now);
+    const pinSet = new Set(pins);
+    const groups = groupByRecency(shown, now, (r: Row) => isRowPinned(r, pinSet));
+    const pinMenu = (row: Row) => (e: React.MouseEvent) => {
+        e.preventDefault();
+        const pinned = isRowPinned(row, pinSet);
+        ContextMenuModel.getInstance().showContextMenu(
+            [
+                {
+                    label: pinned ? "Unpin" : "Pin",
+                    icon: pinned ? <PinOff size={15} /> : <Pin size={15} />,
+                    click: () => setSessionsPinned(togglePinnedRow(pins, row)),
+                },
+            ],
+            e
+        );
+    };
     const summary = matches ? searchSummary(new Map(shown.map((r) => [r.key, matches.get(r.key)!]))) : "";
     const openCard = (m: CardMatch) => openSessionHit(model, m.results[0], query, search.terms);
     const openHit = (row: SnippetRow) => openSessionHit(model, row.result, query, search.terms, row.hit);
@@ -443,7 +463,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                             </div>
                         ) : (
                             paged.map((g) => (
-                                <div key={g.key} className="flex flex-col gap-1.5">
+                                <div key={g.key} data-sessions-group={g.key} className="flex flex-col gap-1.5">
                                     <div className="flex items-center gap-2.5 px-1 pb-0.5 pt-3">
                                         <span className={cn(REGION_LABEL, "text-muted")}>{g.label}</span>
                                         <div className="h-px flex-1 bg-edge-faint" />
@@ -464,6 +484,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                                     onOpen={openCard}
                                                     onHit={openHit}
                                                     onMember={(key) => selectMember(r.run!.group.runId, key)}
+                                                    onContextMenu={pinMenu(r)}
                                                 />
                                             ) : (
                                                 <SoloCard
@@ -476,6 +497,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                                     onSelect={() => setSel(r.key)}
                                                     onOpen={openCard}
                                                     onHit={openHit}
+                                                    onContextMenu={pinMenu(r)}
                                                 />
                                             )
                                         )}
@@ -539,6 +561,7 @@ function RunCard({
     onOpen,
     onHit,
     onMember,
+    onContextMenu,
 }: {
     rowKey: string;
     view: RunView;
@@ -550,6 +573,7 @@ function RunCard({
     onOpen: (m: CardMatch) => void;
     onHit: (row: SnippetRow) => void;
     onMember: (key: string) => void;
+    onContextMenu: (e: React.MouseEvent) => void;
 }) {
     const rt = runtimeMeta(view.runtime);
     // a finished run reads as its age alone; its members' checks already say it landed
@@ -563,6 +587,7 @@ function RunCard({
             initial="initial"
             animate="animate"
             exit="exit"
+            onContextMenu={onContextMenu}
             className={cn(
                 "rounded-[10px] border",
                 active ? "border-accent bg-surface-selected" : "border-border bg-surface hover:border-edge-strong"
@@ -649,6 +674,7 @@ function SoloCard({
     onSelect,
     onOpen,
     onHit,
+    onContextMenu,
 }: {
     rowKey: string;
     session: LiveSession;
@@ -658,6 +684,7 @@ function SoloCard({
     onSelect: () => void;
     onOpen: (m: CardMatch) => void;
     onHit: (row: SnippetRow) => void;
+    onContextMenu: (e: React.MouseEvent) => void;
 }) {
     const rt = runtimeMeta(session.runtime);
     return (
@@ -668,6 +695,7 @@ function SoloCard({
             initial="initial"
             animate="animate"
             exit="exit"
+            onContextMenu={onContextMenu}
             className={cn(
                 "rounded-[10px] border",
                 active ? "border-accent bg-surface-selected" : "border-border bg-surface hover:border-edge-strong"
