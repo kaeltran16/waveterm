@@ -13663,6 +13663,591 @@ const shellTasksScenario = {
     },
 };
 
+// --- monitor-tasks: Claude Code Monitor tasks beside shell tasks in the Agent tree, the peek and the card ----------
+// docs/superpowers/plans/2026-10-27-monitor-tasks.md, boards Main / PeekOutput / PeekEmpty. Two fixture agents idle
+// past the grace window: one with a shell task, two live monitors and three that ended (expired, stream ended,
+// TaskStop), which must not list; one with a persistent monitor. Only standing by keeps their cards on the grid.
+const MONITOR_AGENT = { id: "fx-monitor-tasks", name: "monitor-tasks agent" };
+const MONITOR_PERSIST_AGENT = { id: "fx-monitor-persistent", name: "monitor-persistent agent" };
+const MIN = 60_000;
+const MONITOR_SHELL = { id: "bmtshell", description: "serve the preview", output: ["preview on :4173"] };
+const MONITOR_STRAY_LINE = "grep: warning: stray \\ before -";
+const MONITORS = [
+    {
+        id: "bmtevents",
+        description: "final-verify PASS/FAIL lines",
+        command: 'tail -f final-verify.log | grep --line-buffered -E "PASS|FAIL\\-"',
+        startedAgo: 12 * MIN,
+        timeoutMs: 30 * MIN,
+        events: [
+            { ago: 10 * MIN, lines: ["PASS surface-smoke"] },
+            { ago: 7 * MIN, lines: ["FAIL shell-tasks", "3b. Kill: the X shows on the hovered row only"] },
+            { ago: 4 * MIN, lines: ["PASS shell-tasks"] },
+            { ago: 1.5 * MIN, lines: ["PASS monitor-tasks"] },
+        ],
+        output: "stray",
+    },
+    {
+        id: "bmtquiet",
+        description: "errors in waveapp.log",
+        command: 'tail -f waveapp.log | grep --line-buffered "error"',
+        startedAgo: 2 * MIN,
+        timeoutMs: 30 * MIN,
+        events: [],
+        output: "empty",
+    },
+    {
+        id: "bmtexpired",
+        description: "tail the old build log",
+        command: "tail -f build.log",
+        startedAgo: 40 * MIN,
+        timeoutMs: 30 * MIN,
+        events: [],
+    },
+    {
+        id: "bmtended",
+        description: "watch the deploy stream",
+        command: "./deploy-stream.sh",
+        startedAgo: 35 * MIN,
+        timeoutMs: 60 * MIN,
+        events: [],
+        endedAgo: 30 * MIN,
+    },
+    {
+        id: "bmtstopped",
+        description: "poll the review queue",
+        command: "./review-queue.sh",
+        startedAgo: 25 * MIN,
+        timeoutMs: 60 * MIN,
+        events: [],
+        stoppedAgo: 20 * MIN,
+    },
+];
+const MONITOR_LIVE = MONITORS.filter((m) => m.output != null);
+const MONITOR_GONE = MONITORS.filter((m) => m.output == null);
+const MONITOR_PERSIST = {
+    id: "bmtpersist",
+    description: "watch the CI queue",
+    command: "./ci-queue.sh",
+    startedAgo: 45 * MIN,
+    timeoutMs: 30 * MIN,
+    persistent: true,
+    events: [
+        { ago: 30 * MIN, lines: ["build 812 queued"] },
+        { ago: 3 * MIN, lines: ["build 813 queued"] },
+    ],
+};
+const MONITOR_LIB = `
+    // the agent row's fold chip for its task list, whatever kinds it holds
+    const chip = (name) =>
+        [...(treeRow(name)?.querySelectorAll("button[aria-label]") ?? [])].find((b) =>
+            /^(Show|Hide) (shell tasks|monitors|tasks)$/.test(b.getAttribute("aria-label"))
+        ) ?? null;
+    const sub = (id) => text(taskRow(id)?.querySelector("[data-task-sub]"));
+    const left = (id) => taskRow(id)?.querySelector("[data-monitor-left]") ?? null;
+    const mark = (id) => taskRow(id)?.querySelector("svg[aria-label]")?.getAttribute("aria-label") ?? null;
+    const tab = (name) => peek()?.querySelector('[data-peek-tab="' + name + '"]') ?? null;
+    const footer = () => text(peek()?.querySelector("[data-peek-footer]"));
+    const menuItem = (label) =>
+        [...document.querySelectorAll("span.whitespace-nowrap")].find((el) => el.textContent === label)?.parentElement;
+`;
+
+// claude writes a monitor's output under its temp dir, keyed by the transcript's project dir and session
+function monitorOutFile(transcript, id) {
+    return join(tmpdir(), "claude", basename(dirname(transcript)), basename(transcript, ".jsonl"), "tasks", `${id}.output`);
+}
+
+function monitorNotification(m, body) {
+    return [
+        "<task-notification>",
+        `<task-id>${m.id}</task-id>`,
+        `<summary>Monitor event: "${m.description}"</summary>`,
+        `<event>${body}</event>`,
+        "If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.",
+        "</task-notification>",
+    ].join("\n");
+}
+
+// the assistant Monitor tool_use and the user record of its start result
+function monitorTaskStart(m, now) {
+    const toolUseId = `toolu_${m.id}`;
+    const timestamp = new Date(now - m.startedAgo).toISOString();
+    const input = { description: m.description, timeout_ms: m.timeoutMs, command: m.command };
+    if (m.persistent) input.persistent = true;
+    const use = {
+        type: "assistant",
+        timestamp,
+        message: { role: "assistant", content: [{ type: "tool_use", id: toolUseId, name: "Monitor", input }] },
+    };
+    const start = {
+        type: "user",
+        timestamp,
+        message: {
+            role: "user",
+            content: [
+                {
+                    tool_use_id: toolUseId,
+                    type: "tool_result",
+                    content: `Monitor started (task ${m.id}, expires in ${m.timeoutMs / MIN}m unless the source ends first; events arrive as notifications.)`,
+                },
+            ],
+        },
+        toolUseResult: { taskId: m.id, timeoutMs: m.timeoutMs, persistent: m.persistent === true },
+    };
+    return [use, start];
+}
+
+// every event is written twice: the queue-operation enqueue, then the user record a turn delivers it in
+function monitorEvent(m, ev, now) {
+    const content = monitorNotification(m, ev.lines.join("\n"));
+    return [
+        { type: "queue-operation", operation: "enqueue", timestamp: new Date(now - ev.ago).toISOString(), content },
+        { type: "user", timestamp: new Date(now - ev.ago + 1000).toISOString(), message: { role: "user", content } },
+    ];
+}
+
+// a stream-ended notification, or the TaskStop tool_use and its success result
+function monitorEnd(m, transcript, now) {
+    if (m.stoppedAgo != null) {
+        const timestamp = new Date(now - m.stoppedAgo).toISOString();
+        const toolUseId = `toolu_stop_${m.id}`;
+        const message = `Successfully stopped task: ${m.id} (${m.command})`;
+        return [
+            {
+                type: "assistant",
+                timestamp,
+                message: { role: "assistant", content: [{ type: "tool_use", id: toolUseId, name: "TaskStop", input: { task_id: m.id } }] },
+            },
+            {
+                type: "user",
+                timestamp,
+                message: {
+                    role: "user",
+                    content: [{ tool_use_id: toolUseId, type: "tool_result", content: JSON.stringify({ message, task_id: m.id }) }],
+                },
+                toolUseResult: { message, task_id: m.id, command: m.command },
+            },
+        ];
+    }
+    return [
+        {
+            type: "queue-operation",
+            operation: "enqueue",
+            timestamp: new Date(now - m.endedAgo).toISOString(),
+            content: [
+                "<task-notification>",
+                `<task-id>${m.id}</task-id>`,
+                `<tool-use-id>toolu_${m.id}</tool-use-id>`,
+                `<output-file>${monitorOutFile(transcript, m.id)}</output-file>`,
+                "<status>completed</status>",
+                `<summary>Monitor "${m.description}" stream ended</summary>`,
+                "</task-notification>",
+            ].join("\n"),
+        },
+    ];
+}
+
+function writeMonitorTranscript(cwd, name, shellTasks, monitors) {
+    const now = Date.now();
+    const transcript = join(cwd, `${name}.jsonl`);
+    const records = [];
+    for (const t of shellTasks) {
+        records.push(...shellTaskStart(t, cwd, new Date(now - 14 * MIN).toISOString()));
+        writeFileSync(join(cwd, `${t.id}.output`), t.output.map((l) => l + "\n").join(""));
+    }
+    for (const m of monitors) {
+        records.push(...monitorTaskStart(m, now));
+        for (const ev of m.events) records.push(...monitorEvent(m, ev, now));
+        if (m.endedAgo != null || m.stoppedAgo != null) records.push(...monitorEnd(m, transcript, now));
+        if (m.output != null) {
+            const out = monitorOutFile(transcript, m.id);
+            mkdirSync(dirname(out), { recursive: true });
+            const lines = m.output === "stray" ? [MONITOR_STRAY_LINE, ...m.events.flatMap((e) => e.lines)] : [];
+            writeFileSync(out, lines.map((l) => l + "\n").join(""));
+        }
+    }
+    // a real transcript is in time order; the shell task's start lands between the monitors'
+    records.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+    const first = { type: "user", cwd, timestamp: new Date(now - 50 * MIN).toISOString(), message: { role: "user", content: `verify ${name}` } };
+    writeFileSync(transcript, [first, ...records].map((r) => JSON.stringify(r) + "\n").join(""));
+    return transcript;
+}
+
+const monitorTasksScenario = {
+    name: "monitor-tasks",
+    surface: "cockpit",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-monitor-tasks-"));
+        const ctx = { cwd, prevRail: await h.ev(`localStorage.getItem(${JSON.stringify(RAIL_VISIBLE_KEY)})`) };
+        try {
+            ctx.transcript = writeMonitorTranscript(cwd, "monitor-tasks", [MONITOR_SHELL], MONITORS);
+            const persistTranscript = writeMonitorTranscript(cwd, "monitor-persistent", [], [MONITOR_PERSIST]);
+            const now = Date.now();
+            const agent = (a, transcriptPath, task) => ({
+                id: a.id,
+                name: a.name,
+                project: "verify-monitor-tasks",
+                task,
+                activity: task,
+                state: "idle",
+                // past IDLE_GRACE_MS: only standing by keeps these cards on the grid
+                idleSince: now - 8 * MIN,
+                agent: "claude",
+                model: "opus",
+                blockId: `fx-blk-${a.id}`,
+                transcriptPath,
+            });
+            mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
+            writeFileSync(
+                TREE_RAIL_FIXTURE,
+                JSON.stringify(
+                    [
+                        agent(MONITOR_AGENT, ctx.transcript, "watch final-verify and stand by"),
+                        agent(MONITOR_PERSIST_AGENT, persistTranscript, "watch the CI queue"),
+                    ],
+                    null,
+                    2
+                )
+            );
+            ctx.wroteFixture = true;
+            // the agent rail is off by default and persisted, and the fixture roster is read once at boot
+            await h.ev(`localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "true")`);
+            await h.ev("location.reload()");
+            await h.ev(`(async () => {
+                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+            })()`);
+            await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+            await h.goto("cockpit");
+            ctx.loaded = await h.ev(`(async () => {
+                ${SHELL_LIB}
+                const ok = await until(() =>
+                    ${JSON.stringify([MONITOR_AGENT.id, MONITOR_PERSIST_AGENT.id])}.every((id) => band(card(id)).includes("standing by"))
+                );
+                return { ok, card: text(card(${JSON.stringify(MONITOR_AGENT.id)})).slice(0, 300) };
+            })()`);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const mainName = JSON.stringify(MONITOR_AGENT.name);
+        const persistName = JSON.stringify(MONITOR_PERSIST_AGENT.name);
+        const liveIds = [MONITOR_SHELL.id, ...MONITOR_LIVE.map((m) => m.id)];
+        rec(
+            "0. both fixture agents idle past the grace window are on the grid, standing by",
+            ctx.arrangeError == null && ctx.loaded?.ok === true,
+            ctx.arrangeError ?? JSON.stringify(ctx.loaded)
+        );
+        if (ctx.arrangeError != null) return steps;
+
+        const centerOf = (expr) =>
+            h.ev(`(() => {
+                ${SHELL_LIB}
+                ${MONITOR_LIB}
+                const el = ${expr};
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+            })()`);
+        const hover = async (expr) => {
+            const at = await centerOf(expr);
+            if (at) await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y });
+            return at;
+        };
+        const unhover = () => h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 5, y: 940 });
+
+        // 1. Main: one list under the agent, shell task first, the ended monitors gone, both agents standing by
+        await h.goto("agent");
+        const rows = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            ${MONITOR_LIB}
+            const ids = ${JSON.stringify(liveIds)};
+            const all = ${JSON.stringify([...liveIds, ...MONITOR_GONE.map((m) => m.id)])};
+            await until(() => chip(${mainName}) != null && ids.every((id) => taskRow(id) != null));
+            await new Promise((r) => setTimeout(r, 400));
+            const c = chip(${mainName});
+            return {
+                chip: text(c),
+                expanded: c?.getAttribute("aria-expanded") ?? null,
+                rows: taskRowIds().filter((id) => all.includes(id)),
+                kinds: ids.map((id) => taskRow(id)?.getAttribute("data-task-kind") ?? null),
+                marks: ids.map(mark),
+                // the title tooltip host parks a hovered element's title in data-arc-title
+                titles: ids.map((id) => taskRow(id)?.getAttribute("title") ?? taskRow(id)?.getAttribute("data-arc-title") ?? null),
+                subs: Object.fromEntries(ids.map((id) => [id, sub(id)])),
+                left: ids.slice(1).map((id) => text(left(id))),
+                dots: [dot(treeRow(${mainName})), dot(treeRow(${persistName}))],
+            };
+        })()`);
+        await h.shot("cdp-shots/monitor-tasks-1.png");
+        rec(
+            "1. Main: the chip reads 3 tasks, open; rows bmtshell, bmtevents, bmtquiet with Terminal / Radio marks and their commands as titles; the expired, ended and stopped monitors are absent; both agents' dots accent",
+            rows.chip === "3 tasks" &&
+                rows.expanded === "true" &&
+                rows.rows.join(",") === liveIds.join(",") &&
+                rows.kinds.join(",") === "shell,monitor,monitor" &&
+                rows.marks.join(",") === "Shell task,Monitor,Monitor" &&
+                rows.titles.join("\n") === [`./${MONITOR_SHELL.id}.sh`, ...MONITOR_LIVE.map((m) => m.command)].join("\n") &&
+                rows.subs.bmtevents.startsWith("4 events ·") &&
+                rows.subs.bmtquiet.startsWith("no events yet ·") &&
+                rows.left.every((l) => /^(\d+m|<1m) left$/.test(l)) &&
+                rows.dots.every((d) => d?.bg === "var(--color-accent)"),
+            JSON.stringify(rows)
+        );
+
+        // 2. Persistent and folded: no time left on a persistent monitor; the chip folds and unfolds its rows
+        const persist = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            ${MONITOR_LIB}
+            const id = ${JSON.stringify(MONITOR_PERSIST.id)};
+            await until(() => chip(${persistName}) != null && taskRow(id) != null);
+            const before = { chip: text(chip(${persistName})), sub: sub(id), left: left(id) != null };
+            chip(${persistName})?.click();
+            await until(() => taskRow(id) == null, 20);
+            await new Promise((r) => setTimeout(r, 400));
+            const folded = {
+                expanded: chip(${persistName})?.getAttribute("aria-expanded") ?? null,
+                label: chip(${persistName})?.getAttribute("aria-label") ?? null,
+                row: taskRow(id) != null,
+            };
+            return { before, folded };
+        })()`);
+        await h.shot("cdp-shots/monitor-tasks-2.png");
+        const unfolded = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            ${MONITOR_LIB}
+            const id = ${JSON.stringify(MONITOR_PERSIST.id)};
+            chip(${persistName})?.click();
+            await until(() => taskRow(id) != null, 20);
+            return { expanded: chip(${persistName})?.getAttribute("aria-expanded") ?? null, row: taskRow(id) != null };
+        })()`);
+        rec(
+            "2. Persistent: the chip reads 1 monitor, the row reads persistent · 2 events with no time left; the chip folds (Show monitors, rows gone) and unfolds",
+            persist.before.chip === "1 monitor" &&
+                persist.before.sub.startsWith("persistent · 2 events") &&
+                persist.before.left === false &&
+                persist.folded.expanded === "false" &&
+                persist.folded.label === "Show monitors" &&
+                persist.folded.row === false &&
+                unfolded.expanded === "true" &&
+                unfolded.row === true,
+            JSON.stringify({ persist, unfolded })
+        );
+
+        // 3. Stop: the hovered monitor's X and menu use the monitor copy. The fixture block has no live job, so the
+        // stop reaches wavesrv and comes back refused: a toast, and the row stays
+        await hover(`taskRow("bmtquiet")`);
+        const stopX = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            const x = () => taskRow("bmtquiet")?.querySelector("[data-shell-task-kill]");
+            await until(() => x() != null && getComputedStyle(x()).opacity === "1", 20);
+            return {
+                label: x()?.getAttribute("aria-label") ?? null,
+                title: x()?.getAttribute("title") ?? x()?.getAttribute("data-arc-title") ?? null,
+                opacity: x() ? getComputedStyle(x()).opacity : null,
+            };
+        })()`);
+        await h.shot("cdp-shots/monitor-tasks-3.png");
+        const menu = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            ${MONITOR_LIB}
+            const r = taskRow("bmtquiet").getBoundingClientRect();
+            taskRow("bmtquiet").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 40, clientY: r.top + 10 }));
+            await until(() => menuItem("Stop monitor") != null, 20);
+            return ["Show output", "Hide output", "Stop monitor", "Kill task"].filter((l) => menuItem(l) != null);
+        })()`);
+        const stopped = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            ${MONITOR_LIB}
+            menuItem("Stop monitor")?.click();
+            const toast = () => [...document.querySelectorAll("[data-notification-toast]")].find((t) => t.textContent.includes("Stop monitor"));
+            await until(() => toast() != null, 40);
+            const msg = text(toast());
+            toast()?.click();
+            await new Promise((r) => setTimeout(r, 400));
+            return { toast: msg, rowStays: taskRow("bmtquiet") != null, menuClosed: menuItem("Stop monitor") == null };
+        })()`);
+        await unhover();
+        rec(
+            "3. Stop: the hovered monitor's X reads Stop errors in waveapp.log; right-click offers Show output and Stop monitor; a refused stop toasts Stop monitor / Not stopped and keeps the row",
+            stopX.label === "Stop errors in waveapp.log" &&
+                stopX.opacity === "1" &&
+                menu.join(",") === "Show output,Stop monitor" &&
+                stopped.toast?.includes("Not stopped") &&
+                stopped.rowStays === true &&
+                stopped.menuClosed === true,
+            JSON.stringify({ stopX, menu, stopped })
+        );
+
+        const clickRow = (id) =>
+            h.ev(`(async () => {
+                ${SHELL_LIB}
+                taskRow(${JSON.stringify(id)})?.click();
+                await new Promise((r) => setTimeout(r, 400));
+            })()`);
+        // a monitor row always toggles its peek: a second click closes it
+        const closePeek = (id) =>
+            h.ev(`(async () => {
+                ${SHELL_LIB}
+                if (peek()?.getAttribute("data-shell-task-peek") === ${JSON.stringify(id)}) taskRow(${JSON.stringify(id)})?.click();
+                return await until(() => peek() == null, 20);
+            })()`);
+        const peekState = (id, want) =>
+            h.ev(`(async () => {
+                ${SHELL_LIB}
+                ${MONITOR_LIB}
+                const want = ${JSON.stringify(want ?? null)};
+                await until(() => peek()?.getAttribute("data-shell-task-peek") === ${JSON.stringify(id)} && (want == null || text(peek()).includes(want)), 40);
+                await new Promise((r) => setTimeout(r, 300));
+                const p = peek();
+                if (!p) return null;
+                const tablist = p.querySelector('[role="tablist"]');
+                const tabState = (name) => (tab(name) ? { text: text(tab(name)), role: tab(name).getAttribute("role"), selected: tab(name).getAttribute("aria-selected") } : null);
+                const expires = p.querySelector("[data-monitor-expires]");
+                return {
+                    id: p.getAttribute("data-shell-task-peek"),
+                    text: text(p),
+                    mark: p.querySelector("[data-peek-mark]")?.getAttribute("data-peek-mark") ?? null,
+                    state: text(p.querySelector("[data-shell-task-state]")),
+                    command: p.querySelector("[data-monitor-command]") ? text(p.querySelector("[data-monitor-command]")) : null,
+                    tablist: tablist ? tablist.getAttribute("aria-label") : null,
+                    events: tabState("events"),
+                    output: tabState("output"),
+                    eventTimes: [...p.querySelectorAll("[data-monitor-event]")].map((e) => text(e.querySelector("[data-monitor-event-time]"))),
+                    footer: footer(),
+                    expires: expires ? { text: text(expires), title: expires.getAttribute("title") } : null,
+                };
+            })()`);
+        const selectTab = (name) =>
+            h.ev(`(async () => {
+                ${SHELL_LIB}
+                ${MONITOR_LIB}
+                tab(${JSON.stringify(name)})?.click();
+                await until(() => tab(${JSON.stringify(name)})?.getAttribute("aria-selected") === "true", 20);
+            })()`);
+
+        // 4. Events peek: the monitor's header, command line, tabs, one row per event and the expiry footer
+        const evMon = MONITORS[0];
+        await clickRow(evMon.id);
+        const events = await peekState(evMon.id, evMon.events.at(-1).lines[0]);
+        await h.shot("cdp-shots/monitor-tasks-4.png");
+        rec(
+            "4. Events peek: Radio mark, watching, a $ command line, the Monitor view tablist on Events 4, four timed events, a footer of 4 events · and expires in …m",
+            events?.mark === "monitor" &&
+                events.state === "watching" &&
+                events.command?.startsWith("$ ") &&
+                events.tablist === "Monitor view" &&
+                events.events?.role === "tab" &&
+                events.events.selected === "true" &&
+                events.events.text === `Events ${evMon.events.length}` &&
+                events.eventTimes.length === evMon.events.length &&
+                events.eventTimes.every((t) => /^\d\d:\d\d:\d\d$/.test(t)) &&
+                evMon.events.every((e) => e.lines.every((l) => events.text.includes(l))) &&
+                events.footer.startsWith(`${evMon.events.length} events ·`) &&
+                /^expires in \d+m$/.test(events.expires?.text ?? "") &&
+                /^expires \d\d:\d\d:\d\d$/.test(events.expires?.title ?? ""),
+            JSON.stringify(events)
+        );
+
+        // 5. Output peek: the output file's tail, its stray grep warning included
+        await selectTab("output");
+        const output = await peekState(evMon.id, "grep: warning: stray");
+        await h.shot("cdp-shots/monitor-tasks-5.png");
+        rec(
+            "5. Output peek: the Output tab selected, the body holds the grep warning and the event lines, the footer names bmtevents.output and last 64 KB",
+            output?.output?.selected === "true" &&
+                output.events?.selected === "false" &&
+                output.text.includes("grep: warning: stray") &&
+                evMon.events.every((e) => e.lines.every((l) => output.text.includes(l))) &&
+                output.footer.includes(`${evMon.id}.output`) &&
+                output.footer.includes("last 64 KB"),
+            JSON.stringify(output)
+        );
+        await closePeek(evMon.id);
+
+        // 6. Empty peek: a monitor with no events yet, and its empty output file
+        const quiet = MONITORS[1];
+        await clickRow(quiet.id);
+        const empty = await peekState(quiet.id, "No events yet.");
+        await h.shot("cdp-shots/monitor-tasks-6.png");
+        await selectTab("output");
+        const emptyOut = await peekState(quiet.id, "No output yet.");
+        rec(
+            "6. Empty peek: Events 0 reads No events yet. with a footer of watching since; its Output tab reads No output yet.",
+            empty?.events?.text === "Events 0" &&
+                empty.events.selected === "true" &&
+                empty.text.includes("No events yet.") &&
+                empty.eventTimes.length === 0 &&
+                empty.footer.startsWith("watching since") &&
+                emptyOut?.output?.selected === "true" &&
+                emptyOut.text.includes("No output yet."),
+            JSON.stringify({ empty, emptyOut: emptyOut && { output: emptyOut.output, text: emptyOut.text } })
+        );
+        await closePeek(quiet.id);
+
+        // 7. Shell peek: a shell task keeps its plain output peek, with the Terminal mark
+        await clickRow(MONITOR_SHELL.id);
+        const shell = await peekState(MONITOR_SHELL.id, MONITOR_SHELL.output[0]);
+        await h.shot("cdp-shots/monitor-tasks-7.png");
+        rec(
+            "7. Shell peek: the Terminal mark, running, no tablist and no command line",
+            shell?.mark === "shell" && shell.state === "running" && shell.tablist === null && shell.command === null,
+            JSON.stringify(shell)
+        );
+        await closePeek(MONITOR_SHELL.id);
+
+        // 8. Cockpit card: the band and chip count both kinds; the hover list marks each running or watching
+        await h.goto("cockpit");
+        const main = JSON.stringify(MONITOR_AGENT.id);
+        const cards = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            await until(() => card(${main})?.querySelector("[data-shell-tasks-chip]") != null, 40);
+            return {
+                label: band(card(${main})),
+                chip: text(card(${main})?.querySelector("[data-shell-tasks-chip]")),
+                persistChip: text(card(${JSON.stringify(MONITOR_PERSIST_AGENT.id)})?.querySelector("[data-shell-tasks-chip]")),
+            };
+        })()`);
+        await hover(`card(${main})?.querySelector("[data-shell-tasks-chip]")`);
+        const list = await h.ev(`(async () => {
+            ${SHELL_LIB}
+            const l = () => card(${main})?.querySelector("[data-shell-tasks-list]");
+            await until(() => l() != null, 20);
+            await new Promise((r) => setTimeout(r, 300));
+            return text(l());
+        })()`);
+        await h.shot("cdp-shots/monitor-tasks-8.png");
+        await unhover();
+        const count = (word) => (list.match(new RegExp("\\b" + word + "\\b", "g")) ?? []).length;
+        rec(
+            "8. Cockpit card: the band reads 3 tasks running, the chip 3 tasks; its list holds the three live tasks, watching twice and running once, none of the ended monitors; the persistent agent's chip reads 1 monitor",
+            cards.label.includes("3 tasks running") &&
+                cards.chip === "3 tasks" &&
+                [MONITOR_SHELL, ...MONITOR_LIVE].every((t) => list.includes(t.description)) &&
+                count("watching") === 2 &&
+                count("running") === 1 &&
+                MONITOR_GONE.every((m) => !list.includes(m.description)) &&
+                cards.persistChip === "1 monitor",
+            JSON.stringify({ ...cards, list })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        // teardownFixtureRun deletes the temp dir with the transcripts and the shell task's output; the monitors'
+        // output files sit under claude's temp dir, keyed by that temp dir's name
+        rmSync(join(tmpdir(), "claude", basename(ctx.cwd)), { recursive: true, force: true });
+        await teardownFixtureRun(h, ctx, "monitor-tasks", {
+            what: "restore the rail's visibility",
+            fn: () => h.ev(restoreLocalStorage(RAIL_VISIBLE_KEY, ctx.prevRail)),
+        });
+    },
+};
+
 // --- dag-observability: what the run sheet and the DAG modal claim about a live DAG ------------------
 // The orchestrator observability checks (spec 10.3, once scripts/cdp/orchestrator-observability-e2e.mjs) on
 // today's surfaces: a run reads on the Jarvis run sheet, and the DAG opens from its dock. The chained plan
@@ -27144,6 +27729,7 @@ export const SCENARIOS = [
     recordBandDetachRestore,
     agentRailFileLink,
     shellTasksScenario,
+    monitorTasksScenario,
     finalShotsScenario,
     finalRerunScenario,
     finalStageScenario,

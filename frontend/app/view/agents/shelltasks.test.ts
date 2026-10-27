@@ -3,12 +3,19 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    clockTime,
     extractShellTasks,
     isStandingBy,
+    monitorEventsSummary,
+    monitorExpiresAt,
+    monitorOutputPath,
+    monitorSubline,
+    monitorTimeLeft,
     outputTail,
     redirectTarget,
     shellKillNote,
     shellTasksLabel,
+    shellTasksNoun,
     type ShellTask,
 } from "./shelltasks";
 
@@ -53,6 +60,51 @@ function bashStart(toolUseId: string, taskId: string, timestamp = "2026-10-06T08
     });
 }
 
+function monitorUse(toolUseId: string, input: Record<string, unknown>): string {
+    return JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-10-27T09:00:00.000Z",
+        message: { role: "assistant", content: [{ type: "tool_use", id: toolUseId, name: "Monitor", input }] },
+    });
+}
+
+function monitorStart(
+    toolUseId: string,
+    taskId: string,
+    { timestamp = "2026-10-27T09:00:01.000Z", timeoutMs = 1800000, persistent = false } = {}
+): string {
+    return JSON.stringify({
+        type: "user",
+        timestamp,
+        message: {
+            role: "user",
+            content: [
+                {
+                    tool_use_id: toolUseId,
+                    type: "tool_result",
+                    content: `Monitor started (task ${taskId}, expires in 30m unless the source ends first; events arrive as notifications)`,
+                },
+            ],
+        },
+        toolUseResult: { taskId, timeoutMs, persistent },
+    });
+}
+
+function monitorEvent(taskId: string, desc: string, lines: string[]): string {
+    return [
+        "<task-notification>",
+        `<task-id>${taskId}</task-id>`,
+        `<summary>Monitor event: "${desc}"</summary>`,
+        `<event>${lines.join("\n")}</event>`,
+        "If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.",
+        "</task-notification>",
+    ].join("\n");
+}
+
+function monitorEnd(taskId: string, toolUseId: string, desc: string): string {
+    return notification(taskId, toolUseId, "completed", `Monitor "${desc}" stream ended`);
+}
+
 function notification(taskId: string, toolUseId: string, status: string, summary: string): string {
     return [
         "<task-notification>",
@@ -65,17 +117,12 @@ function notification(taskId: string, toolUseId: string, status: string, summary
     ].join("\n");
 }
 
-function enqueue(content: string): string {
-    return JSON.stringify({
-        type: "queue-operation",
-        operation: "enqueue",
-        timestamp: "2026-10-06T08:56:09.046Z",
-        content,
-    });
+function enqueue(content: string, timestamp = "2026-10-06T08:56:09.046Z"): string {
+    return JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp, content });
 }
 
-function userString(content: string): string {
-    return JSON.stringify({ type: "user", timestamp: "2026-10-06T08:56:09.083Z", message: { role: "user", content } });
+function userString(content: string, timestamp = "2026-10-06T08:56:09.083Z"): string {
+    return JSON.stringify({ type: "user", timestamp, message: { role: "user", content } });
 }
 
 function toolResultTo(toolUseId: string, text = "ok") {
@@ -98,6 +145,7 @@ describe("extractShellTasks", () => {
         expect(extractShellTasks(startWait)).toEqual([
             {
                 id: "bqjiuoxr7",
+                kind: "shell",
                 description: "Wait 30 seconds in the background",
                 command: "sleep 30",
                 startedTs: Date.parse("2026-10-06T08:55:39.046Z"),
@@ -310,6 +358,7 @@ describe("extractShellTasks record shapes", () => {
         expect(extractShellTasks(lines)).toEqual([
             {
                 id: "bnew001",
+                kind: "shell",
                 description: "Sleep nine",
                 command: "sleep 9",
                 startedTs: Date.parse("2026-10-06T08:55:39.046Z"),
@@ -351,6 +400,7 @@ describe("extractShellTasks record shapes", () => {
         expect(described({ command: "make all", description: 5 }).description).toBe("make all");
         expect(described({ description: "Only described" })).toStrictEqual({
             id: "bnew001",
+            kind: "shell",
             description: "Only described",
             startedTs: Date.parse("2026-10-06T08:55:39.046Z"),
         });
@@ -427,6 +477,173 @@ describe("extractShellTasks finish notifications", () => {
     });
 });
 
+describe("extractShellTasks monitors", () => {
+    const TRANSCRIPT = "C:\\Users\\kael02\\.claude\\projects\\C--Users-kael02-IdeaProjects-waveterm\\5e1f0c2a.jsonl";
+    const START = Date.parse("2026-10-27T09:00:01.000Z");
+    const DESC = "Watch the dev log for errors";
+    const COMMAND = "tail -f /tmp/dev.log | grep --line-buffered ERROR";
+    const startLogs = [
+        monitorUse("toolu_M1", { description: DESC, timeout_ms: 1800000, command: COMMAND }),
+        monitorStart("toolu_M1", "mlogs001"),
+    ];
+    const ev1 = monitorEvent("mlogs001", DESC, ["ERROR one", "ERROR two"]);
+    const extract = (lines: string[], now = START + 1000) =>
+        extractShellTasks(lines, { now, transcriptPath: TRANSCRIPT });
+    const eventCount = (lines: string[]) => extract(lines)[0]?.events?.length;
+
+    it("a Monitor start lists a monitor", () => {
+        expect(extract(startLogs)).toEqual([
+            {
+                id: "mlogs001",
+                kind: "monitor",
+                description: DESC,
+                command: COMMAND,
+                startedTs: START,
+                timeoutMs: 1800000,
+                persistent: false,
+                events: [],
+                outputPath: "$TEMP/claude/C--Users-kael02-IdeaProjects-waveterm/5e1f0c2a/tasks/mlogs001.output",
+            },
+        ]);
+    });
+
+    it("lists no output path without a transcript path", () => {
+        expect(extractShellTasks(startLogs, { now: START })[0]).not.toHaveProperty("outputPath");
+    });
+
+    it("each event counts once", () => {
+        const events = extract([
+            ...startLogs,
+            enqueue(ev1, "2026-10-27T09:01:00.000Z"),
+            userString(ev1, "2026-10-27T09:01:00.050Z"),
+        ])[0].events;
+        expect(events).toEqual([{ ts: Date.parse("2026-10-27T09:01:00.000Z"), lines: ["ERROR one", "ERROR two"] }]);
+    });
+
+    it("an event delivered mid-turn counts once", () => {
+        const remove = JSON.stringify({
+            type: "queue-operation",
+            operation: "remove",
+            timestamp: "2026-10-27T09:01:01.000Z",
+        });
+        const attachment = JSON.stringify({
+            type: "attachment",
+            timestamp: "2026-10-27T09:01:01.000Z",
+            attachment: { type: "queued_command", prompt: ev1, commandMode: "task-notification" },
+        });
+        expect(eventCount([...startLogs, enqueue(ev1), remove, attachment])).toBe(1);
+    });
+
+    it("a user-record event with no enqueue counts", () => {
+        const events = extract([...startLogs, userString(ev1, "2026-10-27T09:02:00.000Z")])[0].events;
+        expect(events).toEqual([{ ts: Date.parse("2026-10-27T09:02:00.000Z"), lines: ["ERROR one", "ERROR two"] }]);
+    });
+
+    it("two identical events both count", () => {
+        expect(eventCount([...startLogs, enqueue(ev1), enqueue(ev1), userString(ev1), userString(ev1)])).toBe(2);
+        expect(eventCount([...startLogs, enqueue(ev1), userString(ev1), enqueue(ev1), userString(ev1)])).toBe(2);
+    });
+
+    it("matches a user-record copy to its enqueue by body", () => {
+        const ev2 = monitorEvent("mlogs001", DESC, ["ERROR three"]);
+        expect(eventCount([...startLogs, enqueue(ev1), userString(ev2), userString(ev1)])).toBe(2);
+    });
+
+    it("a stream-ended notification drops a monitor", () => {
+        expect(extract([...startLogs, enqueue(ev1), enqueue(monitorEnd("mlogs001", "toolu_M1", DESC))])).toEqual([]);
+        expect(extract([...startLogs, userString(monitorEnd("mlogs001", "toolu_M1", DESC))])).toEqual([]);
+    });
+
+    it("a TaskStop result drops a monitor", () => {
+        const stopped = JSON.stringify({
+            type: "user",
+            message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_St", content: "ok" }] },
+            toolUseResult: { message: "Successfully stopped task: mlogs001", task_id: "mlogs001", command: COMMAND },
+        });
+        expect(extract([...startLogs, stopped])).toEqual([]);
+    });
+
+    it("a monitor past its timeout drops; a persistent one stays", () => {
+        expect(extract(startLogs, START + 1800000)).toEqual([]);
+        expect(extract(startLogs, START + 1800000 - 1).map((t) => t.id)).toEqual(["mlogs001"]);
+        const persistent = [startLogs[0], monitorStart("toolu_M1", "mlogs001", { persistent: true })];
+        expect(extract(persistent, START + 1800000 * 100).map((t) => t.persistent)).toEqual([true]);
+    });
+
+    it("keeps a monitor whose start time is unknown", () => {
+        const start = JSON.parse(startLogs[1]);
+        delete start.timestamp;
+        expect(extract([startLogs[0], JSON.stringify(start)], START + 1800000 * 100)).toHaveLength(1);
+    });
+
+    it("a taskId result without timeoutMs is not a monitor", () => {
+        const other = JSON.parse(startLogs[1]);
+        delete other.toolUseResult.timeoutMs;
+        expect(extract([startLogs[0], JSON.stringify(other)])).toEqual([]);
+        const empty = JSON.parse(startLogs[1]);
+        empty.toolUseResult.taskId = "";
+        expect(extract([startLogs[0], JSON.stringify(empty)])).toEqual([]);
+    });
+
+    it("an event for an id with no start is ignored", () => {
+        const stray = monitorEvent("mother01", "Other", ["x"]);
+        expect(extract([enqueue(stray), userString(stray)])).toEqual([]);
+        expect(eventCount([...startLogs, enqueue(stray), userString(stray)])).toBe(0);
+    });
+
+    it("shell tasks and monitors list in start order", () => {
+        const lines = [
+            bashUse("toolu_04A", { command: "task dev", description: "Run the dev app" }),
+            bashStart("toolu_04A", "bdevapp01", "2026-10-27T08:59:00.000Z"),
+            ...startLogs,
+            bashUse("toolu_04C", { command: "go test ./pkg/x", description: "Test pkg x" }),
+            bashStart("toolu_04C", "bgotest01", "2026-10-27T09:00:30.000Z"),
+        ];
+        expect(extract(lines).map((t) => [t.id, t.kind])).toEqual([
+            ["bdevapp01", "shell"],
+            ["mlogs001", "monitor"],
+            ["bgotest01", "shell"],
+        ]);
+    });
+
+    it("a ws monitor lists with no command", () => {
+        const lines = [
+            monitorUse("toolu_W1", { description: "Watch the socket", timeout_ms: 1800000, ws: { url: "ws://x" } }),
+            monitorStart("toolu_W1", "mws00001"),
+        ];
+        const [t] = extract(lines);
+        expect(t).toMatchObject({ id: "mws00001", kind: "monitor", description: "Watch the socket" });
+        expect(t).not.toHaveProperty("command");
+    });
+});
+
+describe("clockTime", () => {
+    it("pads every field and reads midnight as 00", () => {
+        expect(clockTime(new Date(2026, 9, 27, 0, 0, 5).getTime())).toBe("00:00:05");
+    });
+
+    it("keeps a 24-hour clock", () => {
+        expect(clockTime(new Date(2026, 9, 27, 23, 59, 59).getTime())).toBe("23:59:59");
+    });
+
+    it("pads a single-digit hour and minute", () => {
+        expect(clockTime(new Date(2026, 9, 27, 9, 4, 42).getTime())).toBe("09:04:42");
+    });
+});
+
+describe("monitorOutputPath", () => {
+    it("derives the output path over both separators", () => {
+        const want = "$TEMP/claude/C--x/abc/tasks/m1.output";
+        expect(monitorOutputPath("C:\\Users\\u\\.claude\\projects\\C--x\\abc.jsonl", "m1")).toBe(want);
+        expect(monitorOutputPath("/c/Users/u/.claude/projects/C--x/abc.jsonl", "m1")).toBe(want);
+    });
+
+    it("gives nothing for a path that is not a transcript in a directory", () => {
+        expect(monitorOutputPath("abc.jsonl", "m1")).toBeUndefined();
+        expect(monitorOutputPath("C:\\x\\abc.txt", "m1")).toBeUndefined();
+    });
+});
+
 describe("redirectTarget", () => {
     const CWD = "C:\\repo";
     it.each([
@@ -477,7 +694,7 @@ describe("redirectTarget", () => {
 });
 
 describe("isStandingBy", () => {
-    const running: ShellTask[] = [{ id: "a", description: "a" }];
+    const running: ShellTask[] = [{ id: "a", kind: "shell", description: "a" }];
 
     it("is true only for idle with a running task", () => {
         expect(isStandingBy("idle", running)).toBe(true);
@@ -496,25 +713,87 @@ describe("isStandingBy", () => {
 });
 
 describe("shellKillNote", () => {
+    const shell = { kind: "shell", description: "Run the dev app" } as const;
+    const monitor = { kind: "monitor", description: "Watch the log" } as const;
+
     it("says nothing for a kill, since the row leaving says it", () => {
-        expect(shellKillNote({ outcome: "killed", killed: 2 }, "Run the dev app")).toBeNull();
+        expect(shellKillNote({ outcome: "killed", killed: 2 }, shell)).toBeNull();
+        expect(shellKillNote({ outcome: "killed", killed: 1 }, monitor)).toBeNull();
     });
 
     it("names the task for every other outcome, with the OS text on a failure", () => {
-        expect(shellKillNote({ outcome: "gone", killed: 0 }, "Run the dev app")).toBe(
-            '"Run the dev app" had already ended.'
-        );
-        expect(shellKillNote({ outcome: "failed", killed: 0, error: "Access is denied." }, "Run the dev app")).toBe(
+        expect(shellKillNote({ outcome: "gone", killed: 0 }, shell)).toBe('"Run the dev app" had already ended.');
+        expect(shellKillNote({ outcome: "failed", killed: 0, error: "Access is denied." }, shell)).toBe(
             'Could not kill "Run the dev app": Access is denied.'
         );
-        expect(shellKillNote({ outcome: "refused", killed: 0 }, "Run the dev app")).toMatch(/^Not killed: /);
+        expect(shellKillNote({ outcome: "refused", killed: 0 }, shell)).toMatch(/^Not killed: /);
+    });
+
+    it("uses the stop copy for a monitor", () => {
+        expect(shellKillNote({ outcome: "gone", killed: 0 }, monitor)).toBe('"Watch the log" had already ended.');
+        expect(shellKillNote({ outcome: "failed", killed: 0, error: "Access is denied." }, monitor)).toBe(
+            'Could not stop "Watch the log": Access is denied.'
+        );
+        expect(shellKillNote({ outcome: "refused", killed: 0 }, monitor)).toBe(
+            'Not stopped: "Watch the log" is not a process of this agent\'s tab.'
+        );
     });
 });
 
-describe("shellTasksLabel", () => {
-    it("pluralizes", () => {
-        expect(shellTasksLabel(1)).toBe("1 shell task");
-        expect(shellTasksLabel(3)).toBe("3 shell tasks");
+describe("monitor labels", () => {
+    const NOW = Date.parse("2026-10-27T10:00:00.000Z");
+    const MIN = 60_000;
+    const shellTask: ShellTask = { id: "s", kind: "shell", description: "s" };
+    const monitor = (over: Partial<ShellTask> = {}): ShellTask => ({
+        id: "m",
+        kind: "monitor",
+        description: "m",
+        startedTs: NOW - 10 * MIN,
+        timeoutMs: 30 * MIN,
+        ...over,
+    });
+    const events = (...agoMs: number[]) => agoMs.map((ago) => ({ ts: NOW - ago, lines: ["x"] }));
+
+    it("labels a list by its kinds", () => {
+        expect(shellTasksLabel([shellTask])).toBe("1 shell task");
+        expect(shellTasksLabel([shellTask, shellTask, shellTask])).toBe("3 shell tasks");
+        expect(shellTasksLabel([monitor()])).toBe("1 monitor");
+        expect(shellTasksLabel([monitor(), monitor()])).toBe("2 monitors");
+        expect(shellTasksLabel([shellTask, monitor(), monitor()])).toBe("3 tasks");
+        expect(shellTasksNoun([shellTask])).toBe("shell tasks");
+        expect(shellTasksNoun([monitor()])).toBe("monitors");
+        expect(shellTasksNoun([shellTask, monitor()])).toBe("tasks");
+    });
+
+    it("summarizes events, or nothing without any", () => {
+        expect(monitorEventsSummary(monitor(), NOW)).toBeNull();
+        expect(monitorEventsSummary(monitor({ events: events(3 * MIN) }), NOW)).toBe("1 event · 3m ago");
+        expect(monitorEventsSummary(monitor({ events: events(5 * MIN, 0, 20_000, 10_000) }), NOW)).toBe(
+            "4 events · just now"
+        );
+    });
+
+    it("writes a row's second line", () => {
+        expect(monitorSubline(monitor({ startedTs: NOW - 20_000 }), NOW)).toBe("no events yet · <1m");
+        expect(monitorSubline(monitor({ events: events(30 * MIN, 20_000, 10_000, 0) }), NOW)).toBe(
+            "4 events · just now"
+        );
+        const nine = events(...Array.from({ length: 9 }, (_, i) => (i === 8 ? 3 * MIN : 4 * MIN)));
+        expect(monitorSubline(monitor({ persistent: true, events: nine }), NOW)).toBe("persistent · 9 events · 3m ago");
+    });
+
+    it("reads the time left, rounded up", () => {
+        expect(monitorTimeLeft(monitor({ startedTs: NOW - 12.5 * MIN, timeoutMs: 30 * MIN }), NOW)).toBe("18m left");
+        expect(monitorTimeLeft(monitor({ startedTs: NOW - 30 * MIN + 30_000 }), NOW)).toBe("<1m left");
+        expect(monitorTimeLeft(monitor({ persistent: true }), NOW)).toBeNull();
+        expect(monitorTimeLeft(monitor({ timeoutMs: undefined }), NOW)).toBeNull();
+        expect(monitorTimeLeft(monitor({ startedTs: undefined }), NOW)).toBeNull();
+    });
+
+    it("derives the expiry from start and timeout", () => {
+        expect(monitorExpiresAt(monitor())).toBe(NOW - 10 * MIN + 30 * MIN);
+        expect(monitorExpiresAt(monitor({ persistent: true }))).toBeNull();
+        expect(monitorExpiresAt(monitor({ timeoutMs: undefined }))).toBeNull();
     });
 });
 

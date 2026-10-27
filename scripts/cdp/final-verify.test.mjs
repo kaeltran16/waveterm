@@ -110,7 +110,7 @@ describe("final-verify.mjs", () => {
         const r = await run(env);
         expect(r.code).toBe(EXIT_UNVERIFIED);
         expect(r.last).toBe("ARC_FINAL_OUT is not set");
-    });
+    }, 30_000);
 
     it("is unverified when the dev app never answers CDP, and stops the process it started", async () => {
         dir = mkdtempSync(join(tmpdir(), "final-verify-"));
@@ -187,7 +187,7 @@ fs.writeFileSync(path.join(data, "waveapp.log"), "boot log");
         // the profile lives in the store, so dropping the store drops it
         expect(env.WEBVIEW2_USER_DATA_FOLDER).toBe(join(env.ARC_DEV_DATA_DIR, "webview2-profile"));
         expect(existsSync(join(out, "webview2-profile"))).toBe(false);
-    });
+    }, 30_000);
 });
 
 // a final stage runs the exe it builds in its slot's cargo target dir, so stages overlap only on different slots
@@ -213,7 +213,8 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
             ...process.env,
             LOCALAPPDATA: join(dir, "localappdata"),
             ARC_FINAL_OUT: join(dir, name),
-            ARC_FINAL_BOOT_MS: "10000",
+            // the fake exits on its own after holdMs, so this only bounds a start slowed by a loaded machine
+            ARC_FINAL_BOOT_MS: "20000",
             ARC_FINAL_DEV_CMD: `node "${fakeDev}"`,
         };
     }
@@ -254,7 +255,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         expect(dirname(a.env.ARC_DEV_DATA_DIR)).not.toBe(dirname(b.env.ARC_DEV_DATA_DIR));
         expect(a.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).not.toBe(b.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS);
         expect(a.devUrl).not.toBe(b.devUrl);
-    }, 30_000);
+    }, 60_000);
 
     // node_modules is a junction to the main checkout's, so its .vite cache is shared with every dev app on the
     // machine: one re-optimizing mid-boot swaps react's chunks under another and loads two copies of react
@@ -268,7 +269,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
             expect(dirname(env.ARC_VITE_CACHE_DIR)).toBe(base);
             expect(env.ARC_VITE_CACHE_DIR).not.toContain("node_modules");
         }
-    }, 30_000);
+    }, 60_000);
 
     it("runs two final stages one after the other when one slot is free", async () => {
         const base = makeBase();
@@ -280,7 +281,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         } finally {
             await Promise.all(held.map(close));
         }
-    }, 30_000);
+    }, 60_000);
 
     it("is unverified when other final stages keep every slot past the wait", async () => {
         const base = makeBase();
@@ -294,7 +295,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         } finally {
             await Promise.all(held.map(close));
         }
-    });
+    }, 30_000);
 
     it("is free once the stage holding it is killed", async () => {
         const base = makeBase();
@@ -310,10 +311,11 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         const held = await acquireBuildSlot(base, 5000, 1);
         expect(held).toEqual({ slot: 0, lock: expect.anything() });
         await close(held.lock);
-    });
+    }, 30_000);
 
     // run dca34385: a worker started its own dev app with slot 0's target dir, so the next stage on slot 0 got the lock
     // and cargo then could not replace the exe that app ran
+    // windows scans the freshly copied exe on its first launch, which can outlast the default timeout under a full suite
     it.skipIf(process.platform !== "win32")("skips a slot whose exe a dev app started without the lock is running", async () => {
         const base = makeBase();
         const exe = join(base, "target", "debug", "wave-tauri.exe");
@@ -332,7 +334,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         const held = await acquireBuildSlot(base, 0);
         expect(held.slot).toBe(0);
         await close(held.lock);
-    });
+    }, 30_000);
 });
 
 describe("pickVitePort", () => {

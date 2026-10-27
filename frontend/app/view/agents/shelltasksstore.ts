@@ -71,7 +71,8 @@ export async function refreshShellTasks(id: string, transcriptPath: string | und
         if (loadSeq.get(id) !== seq) {
             return;
         }
-        setList(id, extractShellTasks(tr.lines ?? []));
+        // now on every read, so a monitor past its timeout leaves at the next poll while the agent sits idle
+        setList(id, extractShellTasks(tr.lines ?? [], { now: Date.now(), transcriptPath }));
         setReadAt(id, startedAt);
     } catch {
         // keep the last known list: the next poll or transcript activity retries. The read still
@@ -168,8 +169,12 @@ export async function killShellTask(parentId: string, blockId: string, task: She
             (globalStore.get(shellTasksByIdAtom)[parentId] ?? []).filter((t) => t.id !== task.id)
         );
     }
-    const note = shellKillNote(r, task.description);
+    const note = shellKillNote(r, task);
     if (note != null) {
-        pushToast({ title: "Kill shell task", message: note, level: r.outcome === "gone" ? "info" : "error" });
+        pushToast({
+            title: task.kind === "monitor" ? "Stop monitor" : "Kill shell task",
+            message: note,
+            level: r.outcome === "gone" ? "info" : "error",
+        });
     }
 }
