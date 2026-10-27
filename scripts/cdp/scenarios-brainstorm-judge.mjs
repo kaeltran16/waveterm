@@ -284,7 +284,6 @@ export default function (kit) {
             bsWrite(ctx, DONE);
             const s4 = await bsUntil(h, ctx, (s) => s.history.some((r) => r.label.startsWith("Q4")));
             const row = s4.history.find((r) => r.label.startsWith("Q4"));
-            await h.ev(`(() => { const r = ${BS_PANE}?.querySelector("[data-brainstorm-rail]"); r?.scrollTo(0, r.scrollHeight); })()`);
             await h.shot("cdp-shots/brainstorm-judged-question-answered.png");
             rec(
                 "4. answered: the rail's Q4 row marks the picked answer as the Judge’s pick, not the Agent’s",

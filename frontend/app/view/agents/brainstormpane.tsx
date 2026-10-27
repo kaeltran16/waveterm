@@ -799,18 +799,18 @@ function IntoLinks({
     );
 }
 
-// the recon it all stood on at the top, then every question answered with all it offered, newest at the bottom
+// every question answered with all it offered, newest at the top, then the recon it all stood on
 function DecidedRail({ f, unseen, goTo }: { f: BrainstormFile; unseen: Unseen; goTo: (id: string) => void }) {
-    const rows = historyRows(f, unseen);
+    const rows = historyRows(f, unseen).reverse();
     const decided = rows.filter((r) => r.kind === "question" && !r.dropped).length;
     const working = f.working != null;
     const railRef = useRef<HTMLElement>(null);
     const shown = useRef(0);
-    // a new entry lands at the bottom, so follow it; the first draw jumps there without animating
+    // a new entry lands at the top, so follow it
     useEffect(() => {
         const el = railRef.current;
-        if (el != null && rows.length > shown.current) {
-            el.scrollTo({ top: el.scrollHeight, behavior: shown.current === 0 ? "auto" : "smooth" });
+        if (el != null && shown.current > 0 && rows.length > shown.current) {
+            el.scrollTo({ top: 0, behavior: "smooth" });
         }
         shown.current = rows.length;
     }, [rows.length]);
@@ -823,7 +823,7 @@ function DecidedRail({ f, unseen, goTo }: { f: BrainstormFile; unseen: Unseen; g
         >
             <div className="flex items-baseline gap-[8px] pb-[8px]">
                 <h2 className="m-0 text-[13px] font-semibold text-secondary">Decided so far · {decided}</h2>
-                <span className="text-[12px] text-muted">newest last</span>
+                <span className="text-[12px] text-muted">newest first</span>
             </div>
             {rows.length === 0 ? (
                 <p className="m-0 border-t border-border pt-[12px] text-[12.5px] leading-[1.5] text-muted">
@@ -846,7 +846,7 @@ function DecidedRail({ f, unseen, goTo }: { f: BrainstormFile; unseen: Unseen; g
                             <IntoLinks into={h.into} goTo={goTo} />
                         </div>
                     ) : (
-                        <RailQuestion key={`${h.label}:${i}`} h={h} justNow={i === rows.length - 1 && working} goTo={goTo} />
+                        <RailQuestion key={`${h.label}:${i}`} h={h} justNow={i === 0 && working} goTo={goTo} />
                     )
                 )}
             </div>
