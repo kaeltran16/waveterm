@@ -1667,17 +1667,26 @@ describe("summaries", () => {
 describe("runPrefill", () => {
     const base = { projectName: "proj", cwd: "C:\\proj" };
 
-    it("joins a relative spec to the cwd and builds the goal", () => {
+    // the spec is a field the launcher shows read-only, never goal prose a human can edit away
+    it("sends a relative spec joined to the cwd as a field, and a goal that names only the title", () => {
         const p = runPrefill(file({ title: "Lag alerts", spec: "docs/specs/lag.md" }), base);
         expect(p.projectName).toBe("proj");
         expect(p.shape).toBe("orchestrator");
-        expect(p.goal).toBe("Build Lag alerts as specified in C:\\proj\\docs\\specs\\lag.md.");
+        expect(p.spec).toBe("C:\\proj\\docs\\specs\\lag.md");
+        expect(p.goal).toBe("Build Lag alerts.");
         expect(p.prototype).toBeUndefined();
     });
 
     it("keeps an absolute spec as it is", () => {
         const p = runPrefill(file({ title: "T", spec: "D:\\elsewhere\\s.md" }), base);
-        expect(p.goal).toBe("Build T as specified in D:\\elsewhere\\s.md.");
+        expect(p.spec).toBe("D:\\elsewhere\\s.md");
+        expect(p.goal).toBe("Build T.");
+    });
+
+    it("sends no spec when the brainstorm wrote none", () => {
+        const p = runPrefill(file({ title: "T" }), base);
+        expect(p).not.toHaveProperty("spec");
+        expect(p.goal).toBe("Build T.");
     });
 
     it("uses the first listed board, in part order, as the prototype", () => {

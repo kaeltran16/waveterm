@@ -18783,6 +18783,257 @@ const newRunDefaults = {
     },
 };
 
+// --- new-run-design: the Approved design start and Design first (docs/superpowers/specs/2026-10-27-lead-plans-from-approved-design-design.md)
+// The prefill is set through the app's own newRunPrefillAtom, as a brainstorm's Approve and a canvas's Build this… set
+// it, with an onStarted so the window stays put after a launch. RpcApi.CreateRunCommand is replaced in the page with a
+// recorder that returns a stand-in run, so Start run sends its payload and no lead starts; teardown restores it.
+const NEW_RUN_DESIGN_PROJECT = "verify-new-run-design";
+const NEW_RUN_DESIGN_GOAL = "Build verify new-run-design.";
+const NEW_RUN_DESIGN_EDITED = "Build verify new-run-design, renamed in the window.";
+const NEW_RUN_DESIGN_FIRST_GOAL = "verify new-run-design: a UI check records this launch; nothing runs";
+const NEW_RUN_DESIGN_STATE = "__newRunDesign";
+const NEW_RUN_DESIGN_INSTALL = `
+    const { RpcApi } = await mod("app/store/wshclientapi.ts");
+    const s = (window.${NEW_RUN_DESIGN_STATE} ??= { calls: [], started: [] });
+    if (!Object.prototype.hasOwnProperty.call(RpcApi, "CreateRunCommand")) {
+        RpcApi.CreateRunCommand = (client, data) => {
+            s.calls.push(data);
+            return Promise.resolve({ run: { id: "verify-new-run-design-" + s.calls.length } });
+        };
+    }
+    return true;
+`;
+// the own property shadows the class's method, so deleting it puts the app's back
+const NEW_RUN_DESIGN_RESTORE = `
+    const { RpcApi } = await mod("app/store/wshclientapi.ts");
+    if (Object.prototype.hasOwnProperty.call(RpcApi, "CreateRunCommand")) delete RpcApi.CreateRunCommand;
+    delete window.${NEW_RUN_DESIGN_STATE};
+    return true;
+`;
+const newRunDesignPrefill = (prefill) => `
+    const [{ globalStore }, { newRunPrefillAtom }] = await Promise.all([
+        mod("app/store/jotaiStore.ts"),
+        mod("app/view/jarvis/newruncontrol.tsx"),
+    ]);
+    const s = window.${NEW_RUN_DESIGN_STATE};
+    globalStore.set(newRunPrefillAtom, { ...${JSON.stringify(prefill)}, onStarted: (id) => s.started.push(id) });
+    document.querySelector('[data-new-run]')?.click();
+    return true;
+`;
+const NEW_RUN_DESIGN_CALLS = `(window.${NEW_RUN_DESIGN_STATE}?.calls ?? [])`;
+const NEW_RUN_DESIGN_FACE = `(() => {
+    const d = ${NEW_RUN};
+    if (!d) return null;
+    const flat = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
+    const group = (label) => {
+        const g = d.querySelector('[role="group"][aria-label="' + label + '"]');
+        if (!g) return null;
+        const buttons = [...g.querySelectorAll('button')];
+        return { options: buttons.map(flat), pressed: buttons.filter((b) => b.getAttribute('aria-pressed') === 'true').map(flat) };
+    };
+    const design = d.querySelector('[data-new-run-design]');
+    const goal = d.querySelector('textarea[aria-label="Goal"]');
+    const start = [...d.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Start run');
+    return {
+        start: group('Start from'),
+        designFirst: group('Design first'),
+        approvals: group('Approvals'),
+        design: design
+            ? {
+                  spec: flat(design.querySelector('[data-new-run-design-spec]')) || null,
+                  prototype: flat(design.querySelector('[data-new-run-design-prototype]')) || null,
+                  controls: design.querySelectorAll('input, textarea, button, [contenteditable="true"]').length,
+              }
+            : null,
+        goal: goal ? { value: goal.value, editable: !goal.readOnly && !goal.disabled } : null,
+        startDisabled: start?.disabled ?? null,
+        footer: flat(d.querySelector('[data-new-run-footer]')),
+    };
+})()`;
+const setGoalExpr = (value) => `(() => {
+    const el = ${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]');
+    if (!el) return false;
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(el, ${JSON.stringify(value)});
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+})()`;
+
+// Opens the window from a prefill and waits for its goal and the project's profile.
+async function openNewRunDesign(h, prefill) {
+    await lookEval(h, newRunDesignPrefill(prefill));
+    const opened = await polishWaitFor(
+        h,
+        `${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value === ${JSON.stringify(prefill.goal)}`,
+        5000
+    );
+    // the project's profile is read after the window draws, and hydration must not undo the prefill's start
+    await polishNap(1500);
+    return opened ? h.ev(NEW_RUN_DESIGN_FACE) : null;
+}
+
+// Presses Start run and waits for the recorder to hear the launch and the window to close. The launch first resolves
+// the lead route against the route catalog, whose first listing can take tens of seconds (pi's has taken 17s to fail).
+const NEW_RUN_DESIGN_LAUNCH_MS = 60000;
+async function startNewRunDesign(h) {
+    const before = await h.ev(`${NEW_RUN_DESIGN_CALLS}.length`);
+    await h.ev(`${NEW_RUN_START}?.click()`);
+    const sent = await polishWaitFor(h, `${NEW_RUN_DESIGN_CALLS}.length > ${before}`, NEW_RUN_DESIGN_LAUNCH_MS);
+    const closed = await polishWaitFor(h, `!${NEW_RUN}`, 5000);
+    return { sent, closed, payload: sent ? await h.ev(`${NEW_RUN_DESIGN_CALLS}.at(-1)`) : null };
+}
+
+const newRunDesign = {
+    name: "new-run-design",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-new-run-design-"));
+        const ctx = {
+            cwd,
+            spec: join(cwd, "docs", "superpowers", "specs", "2026-10-27-verify-design.md"),
+            prototype: join(cwd, ".superpowers", "design", "verify", "project", "Main.dc.html"),
+        };
+        try {
+            await h.rpc("createproject", { name: NEW_RUN_DESIGN_PROJECT, path: cwd });
+            ctx.project = NEW_RUN_DESIGN_PROJECT;
+            await waitForProjectInConfig(h, NEW_RUN_DESIGN_PROJECT);
+            // the project's own channel, so a launch resolves it rather than minting one
+            const ch = await h.rpc("createchannel", { name: NEW_RUN_DESIGN_PROJECT, projectpath: cwd });
+            ctx.channelId = ch.oid;
+            // a launch writes the recent-projects list; put the developer's own back in teardown
+            ctx.prevRecent = await h.ev(`localStorage.getItem(${JSON.stringify(RECENT_PROJECTS_KEY)})`);
+            await polishReload(h);
+            ctx.installed = await lookEval(h, NEW_RUN_DESIGN_INSTALL);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null || ctx.installed !== true) {
+            rec("0. the project, its channel and the CreateRun recorder were made", false, ctx.arrangeError ?? "no recorder");
+            return steps;
+        }
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        const design = { projectName: NEW_RUN_DESIGN_PROJECT, goal: NEW_RUN_DESIGN_GOAL, shape: "orchestrator", spec: ctx.spec, prototype: ctx.prototype };
+
+        const opened = await openNewRunDesign(h, design);
+        await h.shot("cdp-shots/new-run-design-1-approved-design.png");
+        rec(
+            "1. a prefill with a spec and a prototype opens New run on the Approved design start",
+            opened?.start != null &&
+                opened.start.options.join("|") === "Approved design|Goal|Plan file" &&
+                opened.start.pressed.join("|") === "Approved design",
+            JSON.stringify(opened)
+        );
+        if (opened == null) return steps;
+
+        await h.ev(setGoalExpr(NEW_RUN_DESIGN_EDITED));
+        await polishNap(200);
+        const edited = await h.ev(NEW_RUN_DESIGN_FACE);
+        rec(
+            "2. the spec and prototype show read-only and the goal is editable",
+            opened.design != null &&
+                opened.design.spec === `Spec · ${ctx.spec}` &&
+                opened.design.prototype === `Prototype · ${ctx.prototype}` &&
+                opened.design.controls === 0 &&
+                opened.designFirst == null &&
+                edited?.goal?.editable === true &&
+                edited.goal.value === NEW_RUN_DESIGN_EDITED,
+            JSON.stringify({ design: opened.design, designFirst: opened.designFirst, goal: edited?.goal })
+        );
+
+        const launched = await startNewRunDesign(h);
+        const p = launched.payload;
+        rec(
+            "3. Start run sends spec and prototype as fields and the goal without the spec path",
+            launched.sent &&
+                launched.closed &&
+                p?.mode === "orchestrator" &&
+                p.spec === ctx.spec &&
+                p.prototype === ctx.prototype &&
+                p.goal === NEW_RUN_DESIGN_EDITED &&
+                !p.goal.includes(ctx.spec) &&
+                p.designfirst === undefined,
+            JSON.stringify(launched)
+        );
+
+        const plain = { projectName: NEW_RUN_DESIGN_PROJECT, goal: NEW_RUN_DESIGN_FIRST_GOAL, shape: "orchestrator" };
+        const onGoal = await openNewRunDesign(h, plain);
+        await h.ev(clickByText(`${NEW_RUN}?.querySelector('[role="group"][aria-label="Approvals"]')`, "button", "Ask me"));
+        await h.ev(clickByText(`${NEW_RUN}?.querySelector('[role="group"][aria-label="Design first"]')`, "button", "Brainstorm"));
+        await polishNap(200);
+        const brainstorm = await h.ev(NEW_RUN_DESIGN_FACE);
+        await h.shot("cdp-shots/new-run-design-2-design-first.png");
+        const firstLaunch = brainstorm?.startDisabled === false ? await startNewRunDesign(h) : { why: "Start run is disabled" };
+        const fp = firstLaunch.payload;
+        rec(
+            "4. the Goal start shows Design first; Brainstorm sends designfirst brainstorm",
+            onGoal?.start?.pressed.join("|") === "Goal" &&
+                onGoal.designFirst?.options.join("|") === "Off|Brainstorm|Mock up" &&
+                onGoal.designFirst.pressed.join("|") === "Off" &&
+                brainstorm?.designFirst?.pressed.join("|") === "Brainstorm" &&
+                firstLaunch.sent === true &&
+                fp?.mode === "orchestrator" &&
+                fp.designfirst === "brainstorm" &&
+                fp.goal === NEW_RUN_DESIGN_FIRST_GOAL &&
+                fp.spec === undefined &&
+                fp.prototype === undefined,
+            JSON.stringify({ onGoal: onGoal && { start: onGoal.start, designFirst: onGoal.designFirst }, brainstorm: brainstorm?.designFirst, firstLaunch })
+        );
+
+        const noDesign = await openNewRunDesign(h, plain);
+        await h.ev(clickByText(`${NEW_RUN}?.querySelector('[role="group"][aria-label="Design first"]')`, "button", "Brainstorm"));
+        await h.ev(clickByText(`${NEW_RUN}?.querySelector('[role="group"][aria-label="Approvals"]')`, "button", "Autonomous"));
+        await polishNap(200);
+        const blocked = await h.ev(NEW_RUN_DESIGN_FACE);
+        await h.shot("cdp-shots/new-run-design-3-autonomous-blocked.png");
+        const callsBefore = await h.ev(`${NEW_RUN_DESIGN_CALLS}.length`);
+        await h.ev(`${NEW_RUN_START}?.click()`);
+        await polishNap(800);
+        const callsAfter = await h.ev(`${NEW_RUN_DESIGN_CALLS}.length`);
+        rec(
+            "5. with Approvals autonomous, Design first blocks the launch with its reason",
+            blocked?.approvals?.pressed.join("|") === "Autonomous" &&
+                blocked.designFirst?.pressed.join("|") === "Brainstorm" &&
+                blocked.startDisabled === true &&
+                blocked.footer.includes("Design first needs Ask me approvals") &&
+                callsAfter === callsBefore,
+            JSON.stringify({ approvals: blocked?.approvals, designFirst: blocked?.designFirst, startDisabled: blocked?.startDisabled, footer: blocked?.footer, callsBefore, callsAfter })
+        );
+
+        rec(
+            "6. a prefill with no design offers only Goal and Plan file",
+            noDesign?.start?.options.join("|") === "Goal|Plan file" && noDesign.design == null,
+            JSON.stringify({ start: noDesign?.start, design: noDesign?.design })
+        );
+        await h.ev(NEW_RUN_CANCEL);
+        await polishWaitFor(h, `!${NEW_RUN}`, 3000);
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(NEW_RUN_CANCEL).catch(() => {});
+        await lookEval(h, NEW_RUN_DESIGN_RESTORE).catch((e) =>
+            console.error(`new-run-design teardown: restore CreateRunCommand failed: ${e?.message ?? e}`)
+        );
+        if (ctx.prevRecent !== undefined) {
+            const key = JSON.stringify(RECENT_PROJECTS_KEY);
+            await h
+                .ev(
+                    ctx.prevRecent === null
+                        ? `localStorage.removeItem(${key})`
+                        : `localStorage.setItem(${key}, ${JSON.stringify(ctx.prevRecent)})`
+                )
+                .catch(() => {});
+        }
+        await teardownFixtureRun(h, ctx, "new-run-design", {
+            what: "delete the project",
+            fn: () => (ctx.project ? h.rpc("deleteproject", { name: ctx.project }) : null),
+        });
+    },
+};
+
 // --- palette-notes: the Notes scope of Ctrl+P (docs/superpowers/plans/2026-10-08-user-notes-palette.md)
 // The vault may already hold notes, some of today's: rows are found by the run's stamp, and arrange adds its own
 // last so they lead the list.
@@ -21606,6 +21857,224 @@ const brainstormMode = {
         if (ctx.project) await step("delete the project", () => h.rpc("deleteproject", { name: ctx.project }));
         await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
         await step("go home", () => h.goto("cockpit"));
+    },
+};
+
+// --- run-sheet-designing: a run waiting on its design session (docs/superpowers/specs/2026-10-27-lead-plans-from-approved-design-design.md)
+// Two real Design first runs, each with the session the server starts for it. The sessions are made roster agents by a
+// published status, as the brainstorm scenarios make theirs, so the sheet's link does not wait on the agent's hooks.
+// Approve runs the real attach, which starts a lead; the pane's prompts go to a recorder that sends nothing.
+const RSD_PROJECT = "verify-run-sheet-designing";
+const RSD_GOAL = "verify run-sheet-designing: ask nothing, make no changes, stop";
+const RSD_TOPIC = "verify-run-sheet-designing";
+// Design first spawns the session before CreateRun returns, and the route may resolve against a cold catalog
+const RSD_CREATE_RPC = { timeout: 120_000 };
+const RSD_SHEET_WAIT_MS = 15_000;
+// the attach starts the lead before it replies
+const RSD_ATTACH_WAIT_MS = 120_000;
+const RSD_STATE = "__runSheetDesigning";
+const RSD_INSTALL = `
+    const { RpcApi } = await mod("app/store/wshclientapi.ts");
+    const s = (window.${RSD_STATE} ??= { prompts: [] });
+    if (!Object.prototype.hasOwnProperty.call(RpcApi, "AgentPromptCommand")) {
+        RpcApi.AgentPromptCommand = (client, data) => {
+            s.prompts.push({ block: data?.blockid, text: data?.text });
+            return Promise.resolve();
+        };
+    }
+    return true;
+`;
+// the own property shadows the class's method, so deleting it puts the app's back
+const RSD_RESTORE = `
+    const { RpcApi } = await mod("app/store/wshclientapi.ts");
+    if (Object.prototype.hasOwnProperty.call(RpcApi, "AgentPromptCommand")) delete RpcApi.AgentPromptCommand;
+    delete window.${RSD_STATE};
+    return true;
+`;
+const RSD_PROMPTS = `(window.${RSD_STATE}?.prompts ?? [])`;
+const RSD_SHEET = `(() => {
+    const root = document.querySelector("[data-run-sheet]");
+    const verb = root?.querySelector("[data-run-sheet-verb]");
+    return {
+        verb: verb?.textContent.trim() ?? null,
+        sub: verb?.nextElementSibling?.textContent.trim() ?? null,
+        link: !!root?.querySelector("[data-run-sheet-design-link]"),
+    };
+})()`;
+const rsdTermShown = (tabId) =>
+    `(() => { const t = document.querySelector('[data-agent-terminal="${tabId}"]'); return !!t && !t.classList.contains("hidden"); })()`;
+
+// opens run's sheet on the Jarvis surface and reads it until ok holds; the last read either way
+async function rsdSheet(h, runId, ok) {
+    if ((await h.activeSurfaceLabel()) !== SURFACE_LABEL.jarvis) await h.goto("jarvis");
+    await polishWaitFor(h, `typeof window.__openAddress === "function"`, 5000);
+    await h.ev(`window.__openAddress(${JSON.stringify(`run:${runId}`)})`);
+    let s = null;
+    for (const start = Date.now(); Date.now() - start < RSD_SHEET_WAIT_MS; await polishNap(250)) {
+        s = await h.ev(RSD_SHEET).catch(() => null);
+        if (s != null && ok(s)) return { ...s, ok: true };
+    }
+    return { ...s, ok: false };
+}
+
+const rsdRun = async (h, ctx, runId) => (await channelRuns(h, ctx.channelId)).find((r) => r.id === runId) ?? null;
+
+// a Design first run and the session it waits on: the session's block, its tab, and the run's workspace
+async function rsdCreate(h, ctx, workspaceId, kind) {
+    const created = await h.rpc(
+        "createrun",
+        { channelid: ctx.channelId, workspaceid: workspaceId, goal: RSD_GOAL, runtime: "claude", mode: "orchestrator", designfirst: kind },
+        RSD_CREATE_RPC
+    );
+    const runId = created?.run?.id;
+    if (!runId) throw new Error(`createrun (${kind}) returned no run`);
+    const blockId = (await rsdRun(h, ctx, runId))?.design?.blockid;
+    if (!blockId) throw new Error(`the ${kind} run waits on no design session`);
+    const block = await waveService(h, "object", "GetObject", [`block:${blockId}`]);
+    const tabId = String(block?.parentoref ?? "").replace(/^tab:/, "");
+    if (!tabId) throw new Error(`the ${kind} session's block ${blockId} has no tab`);
+    await bsPublishStatus(h, { blockId, cwd: ctx.cwd });
+    return { runId, blockId, tabId, workspaceId };
+}
+
+const runSheetDesigning = {
+    name: "run-sheet-designing",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-run-sheet-designing-"));
+        const ctx = { cwd, spec: join(cwd, ...BS_SPEC.split("/")) };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            mkdirSync(dirname(ctx.spec), { recursive: true });
+            writeFileSync(ctx.spec, "# Consumer lag alerts\n\nverify run-sheet-designing: the approved spec.\n");
+            // an orchestrator's lead works in an engine tree, cut from the project's history
+            fstGitInit(cwd);
+            await h.rpc("createproject", { name: RSD_PROJECT, path: cwd });
+            ctx.project = RSD_PROJECT;
+            await waitForProjectInConfig(h, RSD_PROJECT);
+            const ch = await h.rpc("createchannel", { name: RSD_PROJECT, projectpath: cwd });
+            ctx.channelId = ch.oid;
+            const workspaceId = (await h.rpc("workspacelist", null))[0].workspacedata.oid;
+            ctx.brainstorm = await rsdCreate(h, ctx, workspaceId, "brainstorm");
+            ctx.canvas = await rsdCreate(h, ctx, workspaceId, "canvas");
+            await polishReload(h);
+            ctx.installed = await lookEval(h, RSD_INSTALL);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+        if (ctx.arrangeError != null || ctx.installed !== true) {
+            rec("0. the project, two Design first runs, their sessions and the prompt recorder were made", false, ctx.arrangeError ?? "no recorder");
+            return steps;
+        }
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        const { brainstorm, canvas } = ctx;
+
+        const s1 = await rsdSheet(h, brainstorm.runId, (s) => s.verb === "Designing" && s.sub === "brainstorming with you" && s.link);
+        await h.shot("cdp-shots/run-sheet-designing-1-brainstorm.png");
+        rec("1. the brainstorm run's sheet reads Designing with the brainstorm sub", s1.ok, s1);
+
+        await h.ev(`document.querySelector("[data-run-sheet] [data-run-sheet-design-link]")?.click()`);
+        const shown = await polishWaitFor(h, rsdTermShown(brainstorm.tabId), RSD_SHEET_WAIT_MS);
+        const surface = await h.activeSurfaceLabel();
+        await h.shot("cdp-shots/run-sheet-designing-2-open-session.png");
+        rec("2. Open session shows the session's tab on the Agent surface", s1.ok && shown && surface === SURFACE_LABEL.agent, {
+            surface,
+            sessionTab: brainstorm.tabId,
+            shown,
+        });
+
+        const s3 = await rsdSheet(h, canvas.runId, (s) => s.verb === "Designing" && s.sub === "mocking it up with you" && s.link);
+        await waveService(h, "workspace", "CloseTab", [canvas.workspaceId, canvas.tabId, false]);
+        ctx.canvasClosed = true;
+        const s3b = await rsdSheet(h, canvas.runId, (s) => s.verb === "Designing" && s.sub === "the design session's tab is closed" && !s.link);
+        await h.shot("cdp-shots/run-sheet-designing-3-closed.png");
+        rec(
+            "3. the canvas run reads mocking it up with you; with its session tab deleted it reads the closed sub and has no Open session link",
+            s3.ok && s3b.ok,
+            { open: s3, closed: s3b }
+        );
+
+        // the session's brainstorm, approvable and naming the spec, shown in its pane on the Agent surface
+        const file = join(ctx.cwd, ".superpowers", "brainstorm", RSD_TOPIC, "brainstorm.json");
+        mkdirSync(dirname(file), { recursive: true });
+        const { canvas: _board, ...approvable } = BS_HANDOFF_ANSWERED;
+        writeFileSync(file, JSON.stringify(approvable, null, 2));
+        const session = { blockId: brainstorm.blockId, cwd: ctx.cwd };
+        let paneError = null;
+        try {
+            await bsPublishStatus(h, session);
+            await bsReveal(h, session, RSD_TOPIC);
+            await h.goto("agent");
+            await h.ev(`window.__openAddress(${JSON.stringify(`agent:${brainstorm.tabId}`)})`);
+            if (!(await polishWaitFor(h, `!!${BS_SWITCH}`, BS_POLL_WAIT_MS))) throw new Error("the reveal drew no brainstorm switcher");
+            if (!(await bsShowPane(h))) throw new Error("the Brainstorm segment drew no pane");
+        } catch (e) {
+            paneError = String(e?.message ?? e);
+        }
+        const approve = `${BS_PANE}?.querySelector("[data-brainstorm-approve]")`;
+        const enabled = paneError == null && (await polishWaitFor(h, `${approve}?.disabled === false`, BS_POLL_WAIT_MS));
+        if (enabled) await h.ev(`${approve}.click()`);
+        const runLine = `brainstorm: run ${brainstorm.runId}`;
+        const told = enabled && (await polishWaitFor(h, `${RSD_PROMPTS}.some((p) => p.text === ${JSON.stringify(runLine)})`, RSD_ATTACH_WAIT_MS));
+        const launcher = await h.ev(`!!${NEW_RUN}`);
+        const paneSays = await h.ev(flatText(`${BS_PANE}?.querySelector("[data-brainstorm-approve-bar]")`)).catch(() => "");
+        await h.shot("cdp-shots/run-sheet-designing-4-approved.png");
+        const prompts = await h.ev(RSD_PROMPTS);
+        const after = await rsdRun(h, ctx, brainstorm.runId);
+        const s4 = await rsdSheet(h, brainstorm.runId, (s) => s.verb != null && s.verb !== "Designing");
+        rec(
+            "4. Approve in the brainstorm session's pane attaches: no New run window opens, the run leaves Designing, and the pane sends brainstorm: run <id>",
+            told &&
+                !launcher &&
+                JSON.stringify(prompts) ===
+                    JSON.stringify([
+                        { block: brainstorm.blockId, text: "brainstorm: approved" },
+                        { block: brainstorm.blockId, text: runLine },
+                    ]) &&
+                after?.design == null &&
+                after?.designsession === brainstorm.blockId &&
+                after?.spec === ctx.spec &&
+                s4.ok,
+            {
+                paneError,
+                enabled,
+                told,
+                launcher,
+                prompts,
+                paneSays: paneSays.slice(0, 200),
+                run: after && { status: after.status, design: after.design, designsession: after.designsession, spec: after.spec },
+                sheet: s4,
+            }
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`run-sheet-designing teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("close the New run window", () => h.ev(`${NEW_RUN} ? (${PEEKS_ESC}, true) : false`));
+        await step("restore AgentPromptCommand", () => lookEval(h, RSD_RESTORE));
+        // a cancel leaves a design session's tab alone, and the lead's is one of the run's workers
+        ctx.runId = ctx.brainstorm?.runId;
+        await teardownFixtureRun(h, ctx, "run-sheet-designing", {
+            what: "cancel the canvas run, close the session tabs and delete the project",
+            fn: async () => {
+                if (ctx.canvas) await step("cancel the canvas run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.canvas.runId }));
+                for (const s of [ctx.brainstorm, ctx.canvasClosed ? null : ctx.canvas]) {
+                    if (s) await step(`close session tab ${s.tabId}`, () => waveService(h, "workspace", "CloseTab", [s.workspaceId, s.tabId, false]));
+                }
+                if (ctx.project) await step("delete the project", () => h.rpc("deleteproject", { name: ctx.project }));
+            },
+        });
     },
 };
 
@@ -27879,6 +28348,8 @@ export const SCENARIOS = [
     autonomousRuns,
     paletteGoal,
     newRunDefaults,
+    newRunDesign,
+    runSheetDesigning,
     paletteNotes,
     modelPicks,
     planReviewRounds,

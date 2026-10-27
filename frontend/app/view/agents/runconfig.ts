@@ -14,18 +14,36 @@ export const MAX_PARALLELISM = 8; // orchestrate.MaxParallelism (pkg/orchestrate
 export const DEFAULT_PARALLELISM = 3;
 
 // Where an orchestrator starts. A goal gets a lead that works it with you and hands the engine a plan; a plan
-// file skips that turn, because a plan you already wrote does not need a lead to transcribe it.
-export type StartFrom = "goal" | "plan";
-export const START_OPTIONS: StartFrom[] = ["goal", "plan"];
+// file skips that turn, because a plan you already wrote does not need a lead to transcribe it. An approved
+// design (a brainstorm's spec, a canvas's board) gets a lead that plans from it, so it is offered only when
+// something brought one.
+export type StartFrom = "goal" | "plan" | "design";
 export const DEFAULT_START: StartFrom = "goal";
 
-// Said in full because a plan start runs with no lead, and a user who is not told when one appears reads its
-// absence as a broken launch.
-export function startNote(start: StartFrom): string {
-    return start === "goal"
-        ? "A lead works the goal with you in its terminal, then hands the engine a plan."
-        : "The engine runs the plan now. A lead starts only if something needs judgment: a question, a failure, a hung worker, a conflict or a failed Verify.";
+export function startOptions(hasDesign: boolean): StartFrom[] {
+    return hasDesign ? ["design", "goal", "plan"] : ["goal", "plan"];
 }
+
+// the start atom outlives the window that set it, so a design start left over where no design came is a goal
+export function effectiveStart(start: StartFrom, hasDesign: boolean): StartFrom {
+    return start === "design" && !hasDesign ? "goal" : start;
+}
+
+const START_NOTES: Record<StartFrom, string> = {
+    goal: "A lead works the goal with you in its terminal, then hands the engine a plan.",
+    // said in full because a plan start runs with no lead, and a user who is not told when one appears reads its
+    // absence as a broken launch
+    plan: "The engine runs the plan now. A lead starts only if something needs judgment: a question, a failure, a hung worker, a conflict or a failed Verify.",
+    design: "A lead plans from the approved design, with no design conversation, then hands the engine the plan.",
+};
+
+export function startNote(start: StartFrom): string {
+    return START_NOTES[start];
+}
+
+// Design first on a goal start: a design session (a brainstorm, or a mockup on a canvas) runs before any lead,
+// and the run waits on it. The wire values are CreateRun's designfirst.
+export type DesignFirst = "" | "brainstorm" | "canvas";
 
 export interface ShapeCard {
     id: RunShape;
@@ -116,6 +134,9 @@ export interface LaunchBlockerInput {
     goal: string;
     planPath: string;
     preview: PlanPreview | null;
+    // absent where the launcher offers no Design first (the brief sheet's)
+    designFirst?: DesignFirst;
+    autonomous?: boolean;
 }
 
 // launchBlocker says why a launch cannot start yet, or null when it can. A plan start waits for a preview of
@@ -131,5 +152,12 @@ export function launchBlocker(input: LaunchBlockerInput): string | null {
         }
         return input.preview.error ?? null;
     }
-    return input.goal.trim() === "" ? "Write the goal" : null;
+    if (input.goal.trim() === "") {
+        return "Write the goal";
+    }
+    // the server refuses it too: an autonomous run has nobody to design with
+    if (input.shape === "orchestrator" && input.start === "goal" && input.designFirst && input.autonomous) {
+        return "Design first needs Ask me approvals";
+    }
+    return null;
 }

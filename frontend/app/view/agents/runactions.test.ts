@@ -116,6 +116,27 @@ describe("createRunPayload", () => {
         });
         expect(payload).toStrictEqual({ ...base, mode: "quick" });
     });
+
+    const spec = "C:/p/docs/superpowers/specs/x-design.md";
+
+    it("sends an orchestrator run's spec and Design first", () => {
+        expect(
+            createRunPayload("w", "c", "g", { runtime: "pi" } as RoutePin, { mode: "orchestrator", spec })
+        ).toStrictEqual({ ...base, mode: "orchestrator", spec });
+        expect(
+            createRunPayload("w", "c", "g", { runtime: "pi" } as RoutePin, {
+                mode: "orchestrator",
+                designFirst: "canvas",
+            })
+        ).toStrictEqual({ ...base, mode: "orchestrator", designfirst: "canvas" });
+    });
+
+    // the server refuses both on a quick run
+    it.each([undefined, "quick"])("drops the spec and Design first from mode %s", (mode) => {
+        expect(
+            createRunPayload("w", "c", "g", { runtime: "pi" } as RoutePin, { mode, spec, designFirst: "brainstorm" })
+        ).toStrictEqual({ ...base, mode });
+    });
 });
 
 describe("createRun", () => {

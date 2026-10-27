@@ -227,6 +227,8 @@ describe("sendBrainstorm", () => {
 });
 
 describe("approveAndOpenRun", () => {
+    const unlinked = async () => ({});
+
     it("sends brainstorm: approved before it prefills and opens the launcher", async () => {
         const model = fakeModel();
         const seen: unknown[] = [];
@@ -236,7 +238,7 @@ describe("approveAndOpenRun", () => {
             },
             stopJudge: async () => {},
         };
-        await approveAndOpenRun(model, AGENT, STATE, io);
+        await approveAndOpenRun(model, AGENT, STATE, io, unlinked);
         expect(seen).toEqual([["blk-1", "brainstorm: approved", null, false]]);
         expect(globalStore.get(newRunPrefillAtom)).toMatchObject(runPrefill(FILE, { projectName: "siem", cwd: "/p" }));
         expect(globalStore.get(model.newRunOpenAtom)).toBe(true);
@@ -244,7 +246,45 @@ describe("approveAndOpenRun", () => {
 
     it("leaves the launcher closed when the line cannot be sent", async () => {
         const model = fakeModel();
-        await expect(approveAndOpenRun(model, AGENT, STATE, fakeIO(true))).rejects.toThrow("Couldn't send to");
+        const asked: unknown[] = [];
+        const attach = async (data: CommandRunDesignAttachData) => {
+            asked.push(data);
+            return {};
+        };
+        await expect(approveAndOpenRun(model, AGENT, STATE, fakeIO(true), attach)).rejects.toThrow("Couldn't send to");
+        expect(asked).toEqual([]);
+        expect(globalStore.get(newRunPrefillAtom)).toBeNull();
+        expect(globalStore.get(model.newRunOpenAtom)).toBe(false);
+    });
+
+    it("on a session a run waits on, hands the run the design and tells the agent its id, with no launcher", async () => {
+        const model = fakeModel();
+        const io = fakeIO();
+        const asked: CommandRunDesignAttachData[] = [];
+        const attach = async (data: CommandRunDesignAttachData) => {
+            asked.push(data);
+            return { channelid: "c1", runid: "run-7" };
+        };
+        await approveAndOpenRun(model, AGENT, STATE, io, attach);
+        await flush();
+        const { spec, prototype } = runPrefill(FILE, { projectName: "siem", cwd: "/p" });
+        expect(asked).toEqual([{ blockid: "blk-1", spec, prototype }]);
+        expect(io.sent).toEqual([
+            ["blk-1", "brainstorm: approved"],
+            ["blk-1", "brainstorm: run run-7"],
+        ]);
+        expect(globalStore.get(newRunPrefillAtom)).toBeNull();
+        expect(globalStore.get(model.newRunOpenAtom)).toBe(false);
+    });
+
+    it("a refused attach throws and opens nothing", async () => {
+        const model = fakeModel();
+        const io = fakeIO();
+        const attach = async (): Promise<CommandRunDesignAttachRtnData> => {
+            throw new Error("run run-7 already took this session's design");
+        };
+        await expect(approveAndOpenRun(model, AGENT, STATE, io, attach)).rejects.toThrow("already took");
+        expect(io.sent).toEqual([["blk-1", "brainstorm: approved"]]);
         expect(globalStore.get(newRunPrefillAtom)).toBeNull();
         expect(globalStore.get(model.newRunOpenAtom)).toBe(false);
     });

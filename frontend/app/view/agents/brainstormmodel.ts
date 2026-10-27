@@ -1469,8 +1469,14 @@ function firstBoard(f: BrainstormFile): string | undefined {
 export function runPrefill(f: BrainstormFile, a: { projectName: string; cwd: string }): NewRunPrefill {
     const board = firstBoard(f);
     const prototype = f.canvas && board ? join(canvasProjectDir(canvasDir(a.cwd, f.canvas)), board) : undefined;
-    const goal = f.spec ? `Build ${f.title} as specified in ${absoluteSpec(f.spec, a.cwd)}.` : `Build ${f.title}.`;
-    return { projectName: a.projectName, shape: "orchestrator", goal, ...(prototype != null ? { prototype } : {}) };
+    // the spec is a field, not goal prose: the launcher shows it read-only and the lead's prompt is chosen by it
+    return {
+        projectName: a.projectName,
+        shape: "orchestrator",
+        goal: `Build ${f.title}.`,
+        ...(f.spec ? { spec: absoluteSpec(f.spec, a.cwd) } : {}),
+        ...(prototype != null ? { prototype } : {}),
+    };
 }
 
 export function runLine(projectName: string): string {

@@ -5,11 +5,13 @@
 // Thin: what it shows comes from canvasmodel/canvasmarks, and what it knows comes from the agent's canvas state,
 // which useCanvasPoller keeps current.
 
+import { pushToast } from "@/app/cockpit/notificationstore";
 import { Segmented } from "@/app/element/segmented";
 import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
+import { openTarget } from "@/app/view/jarvis/openref";
 import { formatChordString } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -25,6 +27,7 @@ import {
 } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
+import { errText } from "./brainstormui";
 import { boxToMark, type Box, type Mark } from "./canvasmarks";
 import {
     ALL_TAB,
@@ -51,6 +54,7 @@ import {
     setMarking,
     type CanvasState,
 } from "./canvasstore";
+import { routeDesign, tauriDesignAttach } from "./designroute";
 import { NOTE_CARD, NoteCardBody } from "./docreviewnotesview";
 
 // the app bar's buttons
@@ -65,15 +69,36 @@ const LABEL_OFFSET = 22;
 
 const NOTE_GAP = 6;
 
-// New run opens as an orchestrator run on the agent's project, with this canvas as the run's prototype
-function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasState): void {
-    globalStore.set(newRunPrefillAtom, {
-        projectName: projectOf(agent),
-        goal: buildGoal(s.dir, shownBoards(s)),
-        shape: "orchestrator",
-        prototype: prototypePath(s.dir, shownBoards(s)),
-    });
-    globalStore.set(model.newRunOpenAtom, true);
+// a run waiting on this session takes the canvas as its prototype and the sheet opens on it; any other session
+// opens New run as an orchestrator run on the agent's project, with this canvas as the run's prototype
+async function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasState): Promise<void> {
+    const prototype = prototypePath(s.dir, shownBoards(s));
+    const openLauncher = () => {
+        globalStore.set(newRunPrefillAtom, {
+            projectName: projectOf(agent),
+            goal: buildGoal(s.dir, shownBoards(s)),
+            shape: "orchestrator",
+            prototype,
+        });
+        globalStore.set(model.newRunOpenAtom, true);
+    };
+    if (!agent.blockId) {
+        openLauncher();
+        return;
+    }
+    try {
+        await routeDesign(
+            {
+                attach: tauriDesignAttach,
+                onAttached: (channelId, runId) => void openTarget(model, { kind: "channel", channelId, runId }),
+                openLauncher,
+            },
+            agent.blockId,
+            { prototype }
+        );
+    } catch (e) {
+        pushToast({ title: "Couldn't hand the design to its run", message: errText(e), level: "error" });
+    }
 }
 
 // onBack: shown inside a brainstorm, which owns the way back (backLabel says where to) and the run launch
@@ -168,7 +193,11 @@ export function CanvasPane({
                             </button>
                         ) : null}
                         {s.boards.length > 0 && onBack == null ? (
-                            <button type="button" onClick={() => openBuildRun(model, agent, s)} className={CANVAS_BTN}>
+                            <button
+                                type="button"
+                                onClick={() => void openBuildRun(model, agent, s)}
+                                className={CANVAS_BTN}
+                            >
                                 Build this…
                             </button>
                         ) : null}

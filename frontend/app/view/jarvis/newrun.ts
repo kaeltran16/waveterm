@@ -10,7 +10,7 @@
 import { fuzzyScore } from "@/app/cockpit/palette-match";
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import { appendAttachments, type Attachment } from "@/app/view/agents/composerattachments";
-import type { RunShape, StartFrom } from "@/app/view/agents/runconfig";
+import { DEFAULT_START, type DesignFirst, type RunShape, type StartFrom } from "@/app/view/agents/runconfig";
 
 export type ChannelTarget = { kind: "existing"; oid: string } | { kind: "create"; name: string; path: string };
 
@@ -43,8 +43,12 @@ export interface RunConfig {
     reviewerRoute: RoutePin | null;
     lightReviewerRoute: RoutePin | null;
     autonomous: boolean;
-    // a canvas's board, from Build this…; absolute, since a run's worktree has no copy of the design folder
+    // the approved design, sent on a design start only: a brainstorm's spec and a canvas's board; absolute, since
+    // a run's worktree has no copy of the design folder
+    spec?: string;
     prototype?: string;
+    // a goal start's Design first; absent is off
+    designFirst?: DesignFirst;
 }
 
 export interface LaunchOpts {
@@ -55,7 +59,9 @@ export interface LaunchOpts {
     reviewerPicks?: boolean;
     reviewerRoute?: RoutePin;
     lightReviewerRoute?: RoutePin;
+    spec?: string;
     prototype?: string;
+    designFirst?: DesignFirst;
     autonomous?: boolean;
 }
 
@@ -63,7 +69,8 @@ export interface LaunchOpts {
 // reads an unset mode as `quick` (resolveRunPlan). Every orchestrator run is an engine run, so the machine
 // is the server's to set. reviewerPicks goes out even when false: the server reads an unset one as the
 // profile's, and the launcher has already shown the user the profile's answer and let them change it. autonomous
-// goes out the same way, and never on quick, which the server refuses it on.
+// goes out the same way, and never on quick, which the server refuses it on. The design rides only its own
+// start, so switching to Goal or Plan file launches a run that never sees it.
 export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
     const {
         shape,
@@ -74,7 +81,9 @@ export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
         reviewerPicks,
         reviewerRoute,
         lightReviewerRoute,
+        spec,
         prototype,
+        designFirst,
         autonomous,
     } = config;
     if (shape !== "orchestrator") {
@@ -88,7 +97,9 @@ export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
         reviewerPicks,
         ...(reviewerRoute != null ? { reviewerRoute } : {}),
         ...(lightReviewerRoute != null ? { lightReviewerRoute } : {}),
-        ...(prototype ? { prototype } : {}),
+        ...(start === "design" && spec ? { spec } : {}),
+        ...(start === "design" && prototype ? { prototype } : {}),
+        ...(start === "goal" && designFirst ? { designFirst } : {}),
         autonomous,
     };
 }
@@ -123,24 +134,30 @@ export type NewRunPrefill = {
     projectName: string;
     goal: string;
     shape: RunShape;
+    // an approved design: a brainstorm's spec, a canvas's board; both absolute
+    spec?: string;
     prototype?: string;
     onStarted?: (runId: string) => void;
 };
 
-// What the window opens on when something filled it (a canvas's Build this…, the palette's Quick and Orchestrate):
-// the prefill's shape, except that a prototype only rides an orchestrator run, so one that
-// came with a prototype is corrected to orchestrator. The project is picked only if it is registered, as
-// initialPick does.
+// What the window opens on when something filled it (a brainstorm's Approve, a canvas's Build this…, the palette's
+// Quick and Orchestrate): the prefill's shape on the goal start, except that a design only rides an orchestrator
+// run, so one that came with a spec or a prototype opens an orchestrator on the Approved design start. The project
+// is picked only if it is registered, as initialPick does.
 export function prefillToLaunch(
     prefill: NewRunPrefill,
     projectNames: string[]
-): { picked: string | null; shape: RunShape; goal: string; prototype: string } {
+): { picked: string | null; shape: RunShape; start: StartFrom; goal: string; spec: string; prototype: string } {
     const { projectName, goal } = prefill;
+    const spec = prefill.spec ?? "";
     const prototype = prefill.prototype ?? "";
+    const hasDesign = spec !== "" || prototype !== "";
     return {
         picked: projectName !== "" && projectNames.includes(projectName) ? projectName : null,
-        shape: prototype !== "" ? "orchestrator" : prefill.shape,
+        shape: hasDesign ? "orchestrator" : prefill.shape,
+        start: hasDesign ? "design" : DEFAULT_START,
         goal,
+        spec,
         prototype,
     };
 }

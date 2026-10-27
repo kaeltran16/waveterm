@@ -108,10 +108,11 @@ export function setAutonomous(next: boolean): void {
 // `shape` is the shape something opened + Run for (a canvas's Build this…, the brainstorm's Approve, the palette's
 // Quick and Orchestrate). It stands over the profile's own, but it is not a hand edit: applied as one, it stopped the
 // profile filling in everything else, and an orchestrator opened from a brainstorm showed 3 workers on Same as lead
-// under a profile that said 4 on Reviewer picks.
+// under a profile that said 4 on Reviewer picks. `start` is the same for the start (an approved design's).
 export function hydrateRunConfigFromProfile(
     profile: JarvisProfile | null | undefined,
-    shape: RunShape | null = null
+    shape: RunShape | null = null,
+    start: StartFrom | null = null
 ): void {
     if (globalStore.get(configTouchedAtom)) {
         return;
@@ -119,7 +120,7 @@ export function hydrateRunConfigFromProfile(
     const defaults = profileRunDefaults(profile);
     globalStore.set(runShapeAtom, shape ?? defaults.shape ?? LAUNCH_SHAPE);
     globalStore.set(parallelismAtom, defaults.parallelism ?? DEFAULT_PARALLELISM);
-    globalStore.set(startAtom, DEFAULT_START);
+    globalStore.set(startAtom, start ?? DEFAULT_START);
     globalStore.set(planPathAtom, "");
     globalStore.set(workerRouteAtom, defaults.workerRoute ?? null);
     globalStore.set(reviewerPicksAtom, defaults.reviewerPicks);
