@@ -21861,9 +21861,10 @@ const brainstormMode = {
 };
 
 // --- run-sheet-designing: a run waiting on its design session (docs/superpowers/specs/2026-10-27-lead-plans-from-approved-design-design.md)
-// Two real Design first runs, each with the session the server starts for it. The sessions are made roster agents by a
-// published status, as the brainstorm scenarios make theirs, so the sheet's link does not wait on the agent's hooks.
-// Approve runs the real attach, which starts a lead; the pane's prompts go to a recorder that sends nothing.
+// Three real Design first runs, each with the session the server starts for it: step 3 closes one mock-up session's
+// tab, so Build this… needs a second. The sessions are made roster agents by a published status, as the brainstorm
+// scenarios make theirs, so the sheet's link does not wait on the agent's hooks. Approve and Build this… run the real
+// attach, which starts a lead; the pane's prompts go to a recorder that sends nothing.
 const RSD_PROJECT = "verify-run-sheet-designing";
 const RSD_GOAL = "verify run-sheet-designing: ask nothing, make no changes, stop";
 const RSD_TOPIC = "verify-run-sheet-designing";
@@ -21903,6 +21904,16 @@ const RSD_SHEET = `(() => {
 })()`;
 const rsdTermShown = (tabId) =>
     `(() => { const t = document.querySelector('[data-agent-terminal="${tabId}"]'); return !!t && !t.classList.contains("hidden"); })()`;
+const RSD_BOARD = "Main.dc.html";
+// the session's own row, since the other sessions' rows can carry a canvas tag too
+const rsdCanvasTag = (tabId) =>
+    `[...(document.querySelector('[data-tree-agent="${tabId}"]')?.querySelectorAll("button[aria-pressed]") ?? [])].find((b) => (b.textContent || "").trim().startsWith("canvas"))`;
+const RSD_BUILD_BTN = `[...(${CANVAS_PANE}?.querySelectorAll("button") ?? [])].find((b) => (b.textContent || "").trim() === "Build this…")`;
+const rsdActiveRun = (channelId) => `(async () => { ${LOOK_LIB}
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
+    const { activeRunIdAtom } = await mod("app/view/jarvis/jarvissubjectstore.ts");
+    return globalStore.get(activeRunIdAtom)[${JSON.stringify(channelId)}] ?? null;
+})()`;
 
 // opens run's sheet on the Jarvis surface and reads it until ok holds; the last read either way
 async function rsdSheet(h, runId, ok) {
@@ -21957,6 +21968,7 @@ const runSheetDesigning = {
             const workspaceId = (await h.rpc("workspacelist", null))[0].workspacedata.oid;
             ctx.brainstorm = await rsdCreate(h, ctx, workspaceId, "brainstorm");
             ctx.canvas = await rsdCreate(h, ctx, workspaceId, "canvas");
+            ctx.build = await rsdCreate(h, ctx, workspaceId, "canvas");
             await polishReload(h);
             ctx.installed = await lookEval(h, RSD_INSTALL);
         } catch (e) {
@@ -21968,11 +21980,11 @@ const runSheetDesigning = {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
         if (ctx.arrangeError != null || ctx.installed !== true) {
-            rec("0. the project, two Design first runs, their sessions and the prompt recorder were made", false, ctx.arrangeError ?? "no recorder");
+            rec("0. the project, three Design first runs, their sessions and the prompt recorder were made", false, ctx.arrangeError ?? "no recorder");
             return steps;
         }
         await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
-        const { brainstorm, canvas } = ctx;
+        const { brainstorm, canvas, build } = ctx;
 
         const s1 = await rsdSheet(h, brainstorm.runId, (s) => s.verb === "Designing" && s.sub === "brainstorming with you" && s.link);
         await h.shot("cdp-shots/run-sheet-designing-1-brainstorm.png");
@@ -22051,6 +22063,59 @@ const runSheetDesigning = {
                 sheet: s4,
             }
         );
+
+        // the second mock-up session's board, shown in its canvas pane on the Agent surface; Build this… hands the
+        // board to the run, and the run's channel opens on it without a hand-made open
+        const boardDir = join(ctx.cwd, ".superpowers", "design", RSD_TOPIC, "project");
+        const board = join(boardDir, RSD_BOARD);
+        mkdirSync(boardDir, { recursive: true });
+        writeFileSync(join(boardDir, "canvas.json"), JSON.stringify({ boards: { [RSD_BOARD]: { w: 1440 } }, order: [RSD_BOARD] }));
+        writeFileSync(board, "<!doctype html><title>verify run-sheet-designing</title><p>verify run-sheet-designing: the mock-up</p>");
+        let canvasError = null;
+        try {
+            await bsPublishStatus(h, { blockId: build.blockId, cwd: ctx.cwd });
+            await h.rpc("uireveal", { address: `canvas:${RSD_TOPIC}`, callerblockid: build.blockId, callercwd: ctx.cwd }, UI_ROUTE);
+            await h.goto("agent");
+            await h.ev(`window.__openAddress(${JSON.stringify(`agent:${build.tabId}`)})`);
+            const tag = rsdCanvasTag(build.tabId);
+            if (!(await polishWaitFor(h, `!!${tag}`, BS_POLL_WAIT_MS))) throw new Error("the reveal drew no canvas tag on the session's row");
+            await h.ev(`${tag}.click()`);
+            if (!(await polishWaitFor(h, `!!${RSD_BUILD_BTN}`, CANVAS_TABS_WAIT_MS))) throw new Error("the canvas pane drew no Build this…");
+        } catch (e) {
+            canvasError = String(e?.message ?? e);
+        }
+        const before = await h.ev(rsdActiveRun(ctx.channelId)).catch(() => null);
+        if (canvasError == null) await h.ev(`${RSD_BUILD_BTN}.click()`);
+        // the attach starts the lead before it replies, and only its reply opens the channel
+        const opened =
+            canvasError == null &&
+            (await polishWaitFor(h, `(async () => (await ${rsdActiveRun(ctx.channelId)}) === ${JSON.stringify(build.runId)})()`, RSD_ATTACH_WAIT_MS));
+        const surface5 = await h.activeSurfaceLabel();
+        const launcher5 = await h.ev(`!!${NEW_RUN}`);
+        const left = opened && (await polishWaitFor(h, `(() => { const s = ${RSD_SHEET}; return s.verb != null && s.verb !== "Designing"; })()`, RSD_SHEET_WAIT_MS));
+        const sheet5 = await h.ev(RSD_SHEET).catch(() => null);
+        await h.shot("cdp-shots/run-sheet-designing-5-build-this.png");
+        const built = await rsdRun(h, ctx, build.runId);
+        rec(
+            "5. Build this… in the mock-up session's canvas pane attaches: no New run window opens, the run leaves Designing with the board as its prototype, and its channel opens",
+            opened &&
+                surface5 === SURFACE_LABEL.jarvis &&
+                !launcher5 &&
+                left &&
+                built?.design == null &&
+                built?.designsession === build.blockId &&
+                built?.prototype === board,
+            {
+                canvasError,
+                before,
+                opened,
+                surface: surface5,
+                launcher: launcher5,
+                sheet: sheet5,
+                board,
+                run: built && { status: built.status, design: built.design, designsession: built.designsession, prototype: built.prototype },
+            }
+        );
         return steps;
     },
     async teardown(h, ctx) {
@@ -22066,10 +22131,12 @@ const runSheetDesigning = {
         // a cancel leaves a design session's tab alone, and the lead's is one of the run's workers
         ctx.runId = ctx.brainstorm?.runId;
         await teardownFixtureRun(h, ctx, "run-sheet-designing", {
-            what: "cancel the canvas run, close the session tabs and delete the project",
+            what: "cancel the canvas runs, close the session tabs and delete the project",
             fn: async () => {
                 if (ctx.canvas) await step("cancel the canvas run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.canvas.runId }));
-                for (const s of [ctx.brainstorm, ctx.canvasClosed ? null : ctx.canvas]) {
+                // Build this… started this run's lead
+                if (ctx.build) await step("cancel the built run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.build.runId }));
+                for (const s of [ctx.brainstorm, ctx.canvasClosed ? null : ctx.canvas, ctx.build]) {
                     if (s) await step(`close session tab ${s.tabId}`, () => waveService(h, "workspace", "CloseTab", [s.workspaceId, s.tabId, false]));
                 }
                 if (ctx.project) await step("delete the project", () => h.rpc("deleteproject", { name: ctx.project }));

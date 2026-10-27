@@ -494,8 +494,12 @@ export default function (kit) {
                 const ctx = await bsArrangeAgent(h, TOPIC, ASKING);
                 if (ctx.launchError != null || ctx.cwd == null) return ctx;
                 // the New run window approve opens names the agent's project, which the terminal's tab meta sets to
-                // the topic; and its prototype is the canvas's first board
+                // the topic; and its prototype is the canvas's first board. The spec is on disk, as `brainstorm: check`
+                // leaves it: Approve's design attach refuses a spec or prototype that is not there
                 try {
+                    const specFile = join(ctx.cwd, ...SPEC.split("/"));
+                    mkdirSync(join(specFile, ".."), { recursive: true });
+                    writeFileSync(specFile, `# ${SETTLED.title}\n`);
                     const project = join(ctx.cwd, ".superpowers", "design", TOPIC, "project");
                     mkdirSync(project, { recursive: true });
                     writeFileSync(join(project, "canvas.json"), JSON.stringify({ boards: { [BOARD]: { w: 1600 } }, order: [BOARD] }));
