@@ -876,6 +876,30 @@ export class RpcApiType {
         return client.wshRpcCall("remotemkdir", data, opts);
     }
 
+    // command "remoteoff" [call]
+    RemoteOffCommand(client: WshClient, opts?: RpcOpts): Promise<RemoteStatusData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remoteoff", null, opts);
+        return client.wshRpcCall("remoteoff", null, opts);
+    }
+
+    // command "remoteon" [call]
+    RemoteOnCommand(client: WshClient, opts?: RpcOpts): Promise<RemoteStatusData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remoteon", null, opts);
+        return client.wshRpcCall("remoteon", null, opts);
+    }
+
+    // command "remotesetup" [call]
+    RemoteSetupCommand(client: WshClient, data: CommandRemoteSetupData, opts?: RpcOpts): Promise<RemoteStatusData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remotesetup", data, opts);
+        return client.wshRpcCall("remotesetup", data, opts);
+    }
+
+    // command "remotestatus" [call]
+    RemoteStatusCommand(client: WshClient, opts?: RpcOpts): Promise<RemoteStatusData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remotestatus", null, opts);
+        return client.wshRpcCall("remotestatus", null, opts);
+    }
+
     // command "remotewritefile" [call]
     RemoteWriteFileCommand(client: WshClient, data: FileData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remotewritefile", data, opts);

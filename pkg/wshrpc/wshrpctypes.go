@@ -48,6 +48,7 @@ type WshRpcInterface interface {
 	AskCommands
 	NotifyCommands
 	VaultCommands
+	RemoteCommands
 	ClaudeAccountCommands
 	ClaudeModCommands
 	UiCommands

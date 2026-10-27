@@ -869,6 +869,30 @@ func RemoteMkdirCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) er
 	return err
 }
 
+// command "remoteoff", wshserver.RemoteOffCommand
+func RemoteOffCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.RemoteStatusData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.RemoteStatusData](w, "remoteoff", nil, opts)
+	return resp, err
+}
+
+// command "remoteon", wshserver.RemoteOnCommand
+func RemoteOnCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.RemoteStatusData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.RemoteStatusData](w, "remoteon", nil, opts)
+	return resp, err
+}
+
+// command "remotesetup", wshserver.RemoteSetupCommand
+func RemoteSetupCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteSetupData, opts *wshrpc.RpcOpts) (*wshrpc.RemoteStatusData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.RemoteStatusData](w, "remotesetup", data, opts)
+	return resp, err
+}
+
+// command "remotestatus", wshserver.RemoteStatusCommand
+func RemoteStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.RemoteStatusData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.RemoteStatusData](w, "remotestatus", nil, opts)
+	return resp, err
+}
+
 // command "remotewritefile", wshserver.RemoteWriteFileCommand
 func RemoteWriteFileCommand(w *wshutil.WshRpc, data wshrpc.FileData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "remotewritefile", data, opts)

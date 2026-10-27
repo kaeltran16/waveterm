@@ -27,6 +27,7 @@ declare global {
         | "dag:task-retried"
         | "run:event"
         | "memhygiene:update"
+        | "remote:status"
     ;
 
     type WaveEvent = {
@@ -55,7 +56,8 @@ declare global {
         { event: "dag:task-stalled"; data?: string; } | 
         { event: "dag:task-retried"; data?: string; } | 
         { event: "run:event"; data?: RunEventData; } | 
-        { event: "memhygiene:update"; data?: null; }
+        { event: "memhygiene:update"; data?: null; } | 
+        { event: "remote:status"; data?: RemoteStatusData; }
     );
 
 }
