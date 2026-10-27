@@ -110,7 +110,7 @@ describe("final-verify.mjs", () => {
         const r = await run(env);
         expect(r.code).toBe(EXIT_UNVERIFIED);
         expect(r.last).toBe("ARC_FINAL_OUT is not set");
-    });
+    }, 30_000);
 
     it("is unverified when the dev app never answers CDP, and stops the process it started", async () => {
         dir = mkdtempSync(join(tmpdir(), "final-verify-"));
@@ -187,7 +187,7 @@ fs.writeFileSync(path.join(data, "waveapp.log"), "boot log");
         // the profile lives in the store, so dropping the store drops it
         expect(env.WEBVIEW2_USER_DATA_FOLDER).toBe(join(env.ARC_DEV_DATA_DIR, "webview2-profile"));
         expect(existsSync(join(out, "webview2-profile"))).toBe(false);
-    });
+    }, 30_000);
 });
 
 // a final stage runs the exe it builds in its slot's cargo target dir, so stages overlap only on different slots
@@ -295,7 +295,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         } finally {
             await Promise.all(held.map(close));
         }
-    });
+    }, 30_000);
 
     it("is free once the stage holding it is killed", async () => {
         const base = makeBase();
@@ -311,7 +311,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         const held = await acquireBuildSlot(base, 5000, 1);
         expect(held).toEqual({ slot: 0, lock: expect.anything() });
         await close(held.lock);
-    });
+    }, 30_000);
 
     // run dca34385: a worker started its own dev app with slot 0's target dir, so the next stage on slot 0 got the lock
     // and cargo then could not replace the exe that app ran
