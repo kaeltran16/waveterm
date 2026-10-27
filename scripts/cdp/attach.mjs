@@ -145,7 +145,8 @@ async function listTargets(port) {
 }
 
 // one page target's session. Its shots land in the list the caller passes, so every page of a run shares one.
-async function openPage(target, shots) {
+// Exported for a scenario that drives its own browser, whose shots still belong to the run.
+export async function openPage(target, shots) {
     const client = await connect(target.webSocketDebuggerUrl);
     await client.send("Runtime.enable");
     await client.send("Page.enable");
