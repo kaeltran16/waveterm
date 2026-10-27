@@ -8,13 +8,12 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
-	"github.com/wavetermdev/waveterm/pkg/runroute"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/workflowscan"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -265,70 +264,33 @@ func (ws *WshServer) WorkflowScanPicksCommand(ctx context.Context, data wshrpc.C
 	}); err != nil {
 		return err
 	}
+	// an agent that stopped, by its tab closing or its process exiting, failed the run's phase: resumed in its own
+	// session, which holds the verdicts the picks refer to, it starts on the picks
+	if jarvis.RunningPhaseIndex(*run) < 0 {
+		if err := orchestrate.ResumeRun(ctx, run.ChannelOID, run.ID, lastFailedPhase(run)); err != nil {
+			return fmt.Errorf("run %s: the picks are stored, but the scan's agent could not be resumed: %w", run.ID, err)
+		}
+		return nil
+	}
 	block := ""
 	if oref, perr := waveobj.ParseORef(leadORef(run)); perr == nil {
 		block = tabAgentBlock(ctx, oref.OID)
 	}
 	if block == "" {
-		if err := reviveScanAgent(ctx, run); err != nil {
-			return fmt.Errorf("run %s: the picks are stored, but the scan's agent is gone and could not be resumed: %w", run.ID, err)
-		}
-		return nil
+		return fmt.Errorf("run %s: the picks are stored, but the scan's agent is gone", run.ID)
 	}
 	deliverAgentMessage(block, workflowscan.PicksLine)
 	return nil
 }
 
-// reviveScanAgent resumes the scan's session in a new tab, with the picks line as its first turn, for a scan whose
-// tab was closed while it waited: the session still holds the verdicts the picks refer to. The new tab replaces
-// the closed one as the run's worker before it starts, so its wsh calls resolve to this run.
-func reviveScanAgent(ctx context.Context, run *waveobj.Run) error {
-	runSpawnLocks.Lock(run.ID)
-	defer runSpawnLocks.Unlock(run.ID)
-	// a tab is created, so the FE call's budget must not cancel it half-made
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), jarvis.RunWorkerSpawnTimeout)
-	defer cancel()
-	// read again under the lock: a resend that waited on it finds the agent another call already resumed
-	run, err := wstore.GetRun(ctx, run.ChannelOID, run.ID)
-	if err != nil {
-		return err
-	}
-	closed := leadORef(run)
-	if closed == "" {
-		return fmt.Errorf("the run has no running phase")
-	}
-	if oref, perr := waveobj.ParseORef(closed); perr == nil && tabAgentBlock(ctx, oref.OID) != "" {
-		return nil
-	}
-	if run.SessionId == "" {
-		return fmt.Errorf("it left no session")
-	}
-	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: runroute.DefaultRuntime(run.Runtime), Model: run.Model})
-	if err != nil {
-		return err
-	}
-	tabORef, err := jarvis.SpawnRunWorker(ctx, cap, run.WorkspaceId, run.WorkflowScan.Project, jarvis.LandPath(run), workflowscan.PicksLine, jarvis.RunWorkerOptions{RunId: run.ID})
-	if err != nil {
-		return err
-	}
-	if err := wstore.UpdateRun(ctx, run.ChannelOID, run.ID, func(r *waveobj.Run) error {
-		for i := range r.Phases {
-			if idx := slices.Index(r.Phases[i].WorkerOrefs, closed); idx >= 0 {
-				r.Phases[i].WorkerOrefs[idx] = tabORef
-				return nil
-			}
+// lastFailedPhase is the index of the run's last failed phase, -1 when none failed.
+func lastFailedPhase(run *waveobj.Run) int {
+	for i := len(run.Phases) - 1; i >= 0; i-- {
+		if run.Phases[i].State == jarvis.PhaseState_Failed {
+			return i
 		}
-		return fmt.Errorf("its tab %s is no longer the run's worker", closed)
-	}); err != nil {
-		return err
 	}
-	publishRunUpdate(run.ChannelOID, run.ID)
-	runORef := waveobj.MakeORef(waveobj.OType_Run, run.ID).String()
-	channelORef := waveobj.MakeORef(waveobj.OType_Channel, run.ChannelOID).String()
-	if err := wstore.StampWorkerOwner(ctx, tabORef, runORef, channelORef); err != nil {
-		return err
-	}
-	return jarvis.ResumeRunWorker(ctx, tabORef, run.Runtime, run.SessionId, workflowscan.PicksLine)
+	return -1
 }
 
 func (ws *WshServer) GetWorkflowScanCommand(ctx context.Context, data wshrpc.CommandGetWorkflowScanData) (*wshrpc.CommandGetWorkflowScanRtnData, error) {

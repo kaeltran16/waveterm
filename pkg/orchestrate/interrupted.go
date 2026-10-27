@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/workflowscan"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -111,8 +113,8 @@ func ResumeInterruptedLeads(ctx context.Context) {
 	}
 }
 
-// resumeRefusal is why a run's failed phase cannot be resumed, or "" when it can. The worker's tab is
-// checked by the restart itself.
+// resumeRefusal is why a run's failed phase cannot be resumed, or "" when it can. A closed worker tab is no
+// refusal: the worker resumes in a new one.
 func resumeRefusal(run *waveobj.Run, phaseIdx int) string {
 	switch {
 	case run.DagORef != "":
@@ -132,28 +134,37 @@ func resumeRefusal(run *waveobj.Run, phaseIdx int) string {
 	return ""
 }
 
-// ResumeRun puts a failed phase back to running and restarts its worker in its own session and tab. The phase
-// is running before the worker starts, so a worker that exits at once, or never starts, fails it again through
-// the exit hook like any other exit; a restart that errors outright is rolled back to failed.
+// ResumeRun puts a failed phase back to running and restarts its worker in its own session: in its tab, or in a
+// new one when its tab was closed. The phase is running before the worker starts, so a worker that exits at once,
+// or never starts, fails it again through the exit hook like any other exit; a restart that errors outright is
+// rolled back to failed.
 func ResumeRun(ctx context.Context, channelId, runId string, phaseIdx int) error {
-	var worker, runtime, sessionId string
+	var run waveobj.Run
 	err := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
 		if reason := resumeRefusal(r, phaseIdx); reason != "" {
 			return errors.New(reason)
 		}
-		workers := r.Phases[phaseIdx].WorkerOrefs
-		worker, runtime, sessionId = workers[len(workers)-1], r.Runtime, r.SessionId
 		next, e := jarvis.ResumePhase(*r, phaseIdx)
 		if e != nil {
 			return e
 		}
 		*r = next
+		run = next
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("cannot resume run %s: %w", runId, err)
 	}
-	if rerr := jarvis.ResumeRunWorker(ctx, worker, runtime, sessionId, jarvis.ResumeNudge); rerr != nil {
+	workers := run.Phases[phaseIdx].WorkerOrefs
+	worker := workers[len(workers)-1]
+	nudge := resumeNudge(&run)
+	var rerr error
+	if workerTabGone(ctx, worker) {
+		rerr = resumeInNewTab(ctx, &run, phaseIdx, worker, nudge)
+	} else {
+		rerr = jarvis.ResumeRunWorker(ctx, worker, run.Runtime, run.SessionId, nudge)
+	}
+	if rerr != nil {
 		if err := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
 			if r.Phases[phaseIdx].State != jarvis.PhaseState_Running {
 				return nil // the exit hook already failed it
@@ -173,4 +184,60 @@ func ResumeRun(ctx context.Context, channelId, runId string, phaseIdx int) error
 	appendRunEvent(ctx, channelId, runId, waveobj.RunEventKindWorkerResumed, &phaseIdx, map[string]any{})
 	sendRunUpdates(channelId, runId)
 	return nil
+}
+
+// resumeNudge is a resumed worker's first turn: the picks line for a workflow scan whose owner's picks are
+// stored, which its agent was waiting on, else the general nudge.
+func resumeNudge(run *waveobj.Run) string {
+	if run.WorkflowScan != nil && run.WorkflowScan.State == waveobj.WorkflowScanState_Applying {
+		return workflowscan.PicksLine
+	}
+	return jarvis.ResumeNudge
+}
+
+// workerTabGone reports a worker tab that no longer exists. An oref that names no tab is not gone: the restart
+// reports it.
+func workerTabGone(ctx context.Context, workerORef string) bool {
+	oref, err := waveobj.ParseORef(workerORef)
+	if err != nil || oref.OType != waveobj.OType_Tab {
+		return false
+	}
+	tab, err := wstore.DBGet[*waveobj.Tab](ctx, oref.OID)
+	return err == nil && tab == nil
+}
+
+// resumeInNewTab resumes a worker whose tab was closed in a new tab, which takes the closed one's place on the
+// phase and carries the run's owner stamp before it starts, so the resumed agent's wsh calls resolve to its run.
+func resumeInNewTab(ctx context.Context, run *waveobj.Run, phaseIdx int, closed, nudge string) error {
+	// a tab is created, so a caller's short RPC budget must not cancel it half-made
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), jarvis.RunWorkerSpawnTimeout)
+	defer cancel()
+	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: runroute.DefaultRuntime(run.Runtime), Model: run.Model})
+	if err != nil {
+		return err
+	}
+	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, run.ChannelOID)
+	if err != nil {
+		return fmt.Errorf("loading channel: %w", err)
+	}
+	tabORef, err := jarvis.SpawnRunWorker(ctx, cap, run.WorkspaceId, ch.Name, jarvis.LandPath(run), nudge, jarvis.RunWorkerOptions{RunId: run.ID})
+	if err != nil {
+		return err
+	}
+	if err := wstore.UpdateRun(ctx, run.ChannelOID, run.ID, func(r *waveobj.Run) error {
+		workers := r.Phases[phaseIdx].WorkerOrefs
+		if i := slices.Index(workers, closed); i >= 0 {
+			workers[i] = tabORef
+			return nil
+		}
+		return fmt.Errorf("its closed tab %s is no longer the phase's worker", closed)
+	}); err != nil {
+		return err
+	}
+	runORef := waveobj.MakeORef(waveobj.OType_Run, run.ID).String()
+	channelORef := waveobj.MakeORef(waveobj.OType_Channel, run.ChannelOID).String()
+	if err := wstore.StampWorkerOwner(ctx, tabORef, runORef, channelORef); err != nil {
+		return err
+	}
+	return jarvis.ResumeRunWorker(ctx, tabORef, run.Runtime, run.SessionId, nudge)
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/workflowscan"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -438,22 +439,46 @@ func stubScanResume(t *testing.T, err error) *[]scanResumeCall {
 	return &calls
 }
 
-func TestWorkflowScanPicksResumesClosedAgent(t *testing.T) {
+// closeWorkerTab closes a run's worker tab the way the app does, through wcore.DeleteTab in its workspace
+func closeWorkerTab(t *testing.T, workerORef string) {
+	t.Helper()
+	ctx := context.Background()
+	oref, err := waveobj.ParseORef(workerORef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := &waveobj.Workspace{OID: uuid.NewString(), TabIds: []string{oref.OID}}
+	if err := wstore.DBInsert(ctx, ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wcore.DeleteTab(ctx, ws.OID, oref.OID, false); err != nil {
+		t.Fatalf("closing tab %s: %v", workerORef, err)
+	}
+}
+
+// the scan's tab is closed while it waits on picks: the close fails the run, and the picks resume the scan's
+// session in a new tab that starts on them
+func TestWorkflowScanPicksResumeAnAgentWhoseTabClosed(t *testing.T) {
 	ctx := context.Background()
 	ch, run := pickingScan(t, "wfscan-picks-closed")
 	run = readScan(t, run)
 	closed := scanWorkerORef(t, run)
 	sent := stubScanDelivery(t, "")
 	resumed := stubScanResume(t, nil)
-	picks := []waveobj.WorkflowScanPick{{Id: "p1", Pick: waveobj.WorkflowScanPick_Apply}}
 
+	closeWorkerTab(t, closed)
+	if got := readScan(t, run); got.Status != jarvis.RunStatus_Blocked || got.Phases[0].State != jarvis.PhaseState_Failed {
+		t.Fatalf("closing the scan's tab left status=%q phase=%q, want blocked and failed", got.Status, got.Phases[0].State)
+	}
+
+	picks := []waveobj.WorkflowScanPick{{Id: "p1", Pick: waveobj.WorkflowScanPick_Apply}}
 	if err := (&WshServer{}).WorkflowScanPicksCommand(ctx, wshrpc.CommandWorkflowScanPicksData{ChannelId: ch.OID, RunId: run.ID, Picks: picks}); err != nil {
 		t.Fatalf("picks with the agent's tab closed: %v", err)
 	}
 	got := readScan(t, run)
 	worker := scanWorkerORef(t, got)
-	if worker == closed || len(got.Phases[0].WorkerOrefs) != 1 {
-		t.Fatalf("want the closed tab %s replaced as the run's worker, got %v", closed, got.Phases[0].WorkerOrefs)
+	if worker == closed || len(got.Phases[0].WorkerOrefs) != 1 || got.Phases[0].State != jarvis.PhaseState_Running {
+		t.Fatalf("want the closed tab %s replaced by a running worker, got %v %s", closed, got.Phases[0].WorkerOrefs, got.Phases[0].State)
 	}
 	want := scanResumeCall{worker, run.Runtime, run.SessionId, workflowscan.PicksLine}
 	if run.SessionId == "" || len(*resumed) != 1 || (*resumed)[0] != want {
@@ -468,31 +493,16 @@ func TestWorkflowScanPicksResumesClosedAgent(t *testing.T) {
 	if len(*sent) != 0 {
 		t.Fatalf("the picks line goes in as the resumed session's first turn, not typed, got %+v", *sent)
 	}
-
-	// a resend that read the run before the first resume took the lock still holds the closed tab
-	tabAgentBlock = func(_ context.Context, tabId string) string {
-		if "tab:"+tabId == worker {
-			return "block-new"
-		}
-		return ""
-	}
-	if err := reviveScanAgent(ctx, run); err != nil {
-		t.Fatalf("reviving an agent already resumed: %v", err)
-	}
-	if again := readScan(t, run); len(*resumed) != 1 || scanWorkerORef(t, again) != worker {
-		t.Fatalf("want no second agent for one closed tab, got %d resumes and worker %s", len(*resumed), scanWorkerORef(t, again))
-	}
 }
 
 func TestWorkflowScanPicksStoredWhenDeliveryFails(t *testing.T) {
 	ch, run := pickingScan(t, "wfscan-picks-gone")
 	sent := stubScanDelivery(t, "")
-	stubScanResume(t, errors.New("no block"))
 	picks := []waveobj.WorkflowScanPick{{Id: "p1", Pick: waveobj.WorkflowScanPick_Drop, Reason: "not worth it"}}
 
 	err := (&WshServer{}).WorkflowScanPicksCommand(context.Background(), wshrpc.CommandWorkflowScanPicksData{ChannelId: ch.OID, RunId: run.ID, Picks: picks})
-	if err == nil || !strings.Contains(err.Error(), run.ID) || !strings.Contains(err.Error(), "no block") {
-		t.Fatalf("want a delivery error naming run %s and the resume's failure, got %v", run.ID, err)
+	if err == nil || !strings.Contains(err.Error(), run.ID) {
+		t.Fatalf("want a delivery error naming run %s, got %v", run.ID, err)
 	}
 	s := readScan(t, run).WorkflowScan
 	if s.State != waveobj.WorkflowScanState_Applying || !slices.Equal(s.Picks, picks) {

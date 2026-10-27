@@ -823,12 +823,13 @@ the run; a second stall waits for you.
 ### The app restarted mid-run
 
 A Quick run, or an orchestrator run before `dag submit`, whose worker was running when the app quit or crashed
-comes back **Blocked** with an **Interrupted by restart** row. A worker whose process exited on its own reads the
-same, with a **Worker exited** row (**Lead exited** for a lead). Opening the worker's tab does not start it again;
-its terminal says the worker stopped. The blocked card offers:
+comes back **Blocked** with an **Interrupted by restart** row. A worker whose process exited on its own, or whose
+tab you closed, reads the same, with a **Worker exited** row (**Lead exited** for a lead) giving which. Opening the
+worker's tab does not start it again; its terminal says the worker stopped. The blocked card offers:
 
-- **Resume** restarts the worker in its own tab and session (`claude --resume`, `pi --session`) with a one-line
-  nudge to check the working tree and continue, never the task again. The run reads Executing and the timeline
+- **Resume** restarts the worker in its own session (`claude --resume`, `pi --session`), in its tab or, when that
+  was closed, a new one, with a one-line nudge to check the working tree and continue, never the task again. A
+  workflow scan whose picks are stored is nudged with the picks instead. The run reads Executing and the timeline
   gains a **Worker resumed** row. Shown for claude and pi runs that recorded a session; a refusal shows its reason
   on the card.
 - **Take control** opens the worker's terminal as it was left.
