@@ -314,6 +314,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
 
     // run dca34385: a worker started its own dev app with slot 0's target dir, so the next stage on slot 0 got the lock
     // and cargo then could not replace the exe that app ran
+    // windows scans the freshly copied exe on its first launch, which can outlast the default timeout under a full suite
     it.skipIf(process.platform !== "win32")("skips a slot whose exe a dev app started without the lock is running", async () => {
         const base = makeBase();
         const exe = join(base, "target", "debug", "wave-tauri.exe");
@@ -332,7 +333,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         const held = await acquireBuildSlot(base, 0);
         expect(held.slot).toBe(0);
         await close(held.lock);
-    });
+    }, 30_000);
 });
 
 describe("pickVitePort", () => {
