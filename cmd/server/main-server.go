@@ -27,6 +27,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/wshfs"
+	"github.com/wavetermdev/waveterm/pkg/remotemode"
 	"github.com/wavetermdev/waveterm/pkg/service"
 	"github.com/wavetermdev/waveterm/pkg/util/envutil"
 	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
@@ -386,6 +387,12 @@ func main() {
 		log.Printf("error creating unix listener: %v\n", err)
 		return
 	}
+	go func() {
+		defer func() {
+			panichandler.PanicHandler("remotemode.Restore", recover())
+		}()
+		remotemode.Restore()
+	}()
 	go func() {
 		if BuildTime == "" {
 			BuildTime = "0"

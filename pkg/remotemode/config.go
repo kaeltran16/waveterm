@@ -106,5 +106,5 @@ func FindCloudflared() (string, error) {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("cloudflared not found: install it with `winget install --id Cloudflare.cloudflared`")
+	return "", fmt.Errorf("cloudflared not found: install it with `%s`", remoteWingetLine)
 }
