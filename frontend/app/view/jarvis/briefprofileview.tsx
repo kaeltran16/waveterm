@@ -83,7 +83,7 @@ const APPROVALS = [
     [true, "Autonomous"],
 ] as const;
 const APPROVALS_NOTE = {
-    ask: "The lead stops for the spec review, a plan review that failed twice, product calls, and the last failed final stage.",
+    ask: "The lead stops for a goal that needs a design, a plan review that failed twice, product calls, and the last failed final stage.",
     autonomous:
         "The lead takes the option it would recommend at each of those points and records why in its report. If the final stage still fails after the last round, the land stays held for you.",
 };
