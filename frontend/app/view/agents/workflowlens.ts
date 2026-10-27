@@ -55,15 +55,36 @@ export interface DoneRow {
     file: string;
 }
 
+export interface KeptRow {
+    id: string;
+    title: string;
+    runs: number;
+    days: number;
+    where: string;
+}
+
+// what the scan is doing at its current stage; from and to are mmdd
+export type StageDetail =
+    | { stage: "read"; from: string; to: string }
+    | { stage: "patterns"; runs: number; projects: number }
+    | { stage: "recount"; candidates: number }
+    | { stage: "checking"; kept: KeptRow[]; underFloor: number };
+
 export type WorkflowView =
     | { kind: "idle"; last?: { date: string; outcome: "cancelled" | "failed"; error?: string } }
-    | { kind: "scanning"; stages: StageRow[] }
+    | { kind: "scanning"; stages: StageRow[]; detail: StageDetail; startedTs: number }
     | { kind: "picking"; cards: WorkflowCard[]; covered: FiledRow[]; declined: FiledRow[]; underFloor: FiledRow[] }
-    | { kind: "applying"; stages: StageRow[]; cards: WorkflowCard[] }
-    | { kind: "done"; commit?: string; rows: DoneRow[] }
-    | { kind: "nothing"; covered: FiledRow[]; declined: FiledRow[]; underFloor: FiledRow[] };
+    | { kind: "applying"; stages: StageRow[]; cards: WorkflowCard[]; sent: string }
+    | { kind: "done"; commit?: string; rows: DoneRow[]; stages: StageRow[] }
+    | {
+          kind: "nothing";
+          covered: FiledRow[];
+          declined: FiledRow[];
+          underFloor: FiledRow[];
+          stages: StageRow[];
+      };
 
-const STAGES: { stage: string; label: string }[] = [
+const STAGES: { stage: StageDetail["stage"]; label: string }[] = [
     { stage: "read", label: "Read runs" },
     { stage: "patterns", label: "Sonnet patterns" },
     { stage: "recount", label: "Recount" },
@@ -80,15 +101,48 @@ function count(n: number, one: string, many: string): string {
     return `${n} ${n === 1 ? one : many}`;
 }
 
+// "3 suggested · 2 covered": the nonzero counts only
+function tally(parts: [number, string][]): string {
+    return parts
+        .filter(([n]) => n > 0)
+        .map(([n, label]) => `${n} ${label}`)
+        .join(" · ");
+}
+
+function picksFact(scan: WorkflowScan): string {
+    const picks = scan.picks ?? [];
+    if (picks.length === 0) {
+        return "none to pick";
+    }
+    const drops = picks.filter((p) => p.pick === "drop").length;
+    return tally([
+        [picks.length - drops, "applied"],
+        [drops, "declined"],
+    ]);
+}
+
+// the stage the scan is at, as an index into STAGES; a stage not yet set reads as the first
+function stageIndex(scan: WorkflowScan): number {
+    return Math.max(
+        0,
+        STAGES.findIndex((s) => s.stage === scan.stage)
+    );
+}
+
 // `now` is the index of the row in progress; past the last row, every row is done
 function stageRows(scan: WorkflowScan, now: number): StageRow[] {
     const cut = scan.dropped > 0 ? ` · ${scan.dropped} cut for size` : "";
+    const under = scan.underfloor?.length ? ` · ${scan.underfloor.length} under ${RUN_FLOOR} runs` : "";
     const facts = [
         `${count(scan.runs, "run", "runs")} · ${count(scan.projects, "project", "projects")}${cut}`,
-        String(scan.candidates),
-        `${scan.kept} kept`,
-        "",
-        "",
+        `${scan.candidates} named`,
+        `${scan.kept} kept${under}`,
+        tally([
+            [verdictsOf(scan, "suggest").length, "suggested"],
+            [verdictsOf(scan, "covered").length, "covered"],
+            [verdictsOf(scan, "declined").length, "declined"],
+        ]),
+        picksFact(scan),
     ];
     return [...STAGES.map((s) => s.label), PICKS_LABEL].map((label, i) => {
         const phase: StagePhase = i < now ? "done" : i === now ? "now" : "todo";
@@ -173,6 +227,40 @@ function storedPicks(scan: WorkflowScan): Record<string, PickDraft> {
     return out;
 }
 
+function where(projects: WorkflowScanProject[]): string {
+    if (projects.length === 1) {
+        return `#${projects[0].name}`;
+    }
+    return projects.length > 1 ? `${projects.length} projects` : "";
+}
+
+function scanWindow(run: Run, scan: WorkflowScan): { from: string; to: string } {
+    return { from: scan.fromts ? mmdd(scan.fromts) : "", to: mmdd(scan.tots || run.createdts) };
+}
+
+function stageDetail(run: Run, scan: WorkflowScan): StageDetail {
+    switch (STAGES[stageIndex(scan)].stage) {
+        case "read":
+            return { stage: "read", ...scanWindow(run, scan) };
+        case "patterns":
+            return { stage: "patterns", runs: scan.runs, projects: scan.projects };
+        case "recount":
+            return { stage: "recount", candidates: scan.candidates };
+        case "checking":
+            return {
+                stage: "checking",
+                kept: (scan.survivors ?? []).map((p) => ({
+                    id: p.id,
+                    title: p.title,
+                    runs: p.runs,
+                    days: p.days,
+                    where: where(p.projects ?? []),
+                })),
+                underFloor: scan.underfloor?.length ?? 0,
+            };
+    }
+}
+
 function doneRows(scan: WorkflowScan): DoneRow[] {
     const titles = new Map((scan.survivors ?? []).map((p) => [p.id, p.title]));
     const files = new Map((scan.verdicts ?? []).map((v) => [v.id, v.file ?? ""]));
@@ -201,30 +289,31 @@ export function workflowView(run: Run | null, picks: Record<string, PickDraft>):
         };
     }
     if (run.status === "done") {
+        const stages = stageRows(scan, STAGES.length + 1);
         return verdictsOf(scan, "suggest").length > 0
-            ? { kind: "done", commit: run.endcommit || undefined, rows: doneRows(scan) }
-            : { kind: "nothing", ...filed(scan) };
+            ? { kind: "done", commit: run.endcommit || undefined, rows: doneRows(scan), stages }
+            : { kind: "nothing", ...filed(scan), stages };
     }
     switch (scan.state) {
         case "scanning":
             return {
                 kind: "scanning",
-                stages: stageRows(
-                    scan,
-                    Math.max(
-                        0,
-                        STAGES.findIndex((s) => s.stage === scan.stage)
-                    )
-                ),
+                stages: stageRows(scan, stageIndex(scan)),
+                detail: stageDetail(run, scan),
+                startedTs: run.createdts,
             };
         case "picking":
             return { kind: "picking", cards: buildCards(scan, picks), ...filed(scan) };
-        case "applying":
+        case "applying": {
+            const stored = storedPicks(scan);
+            const cards = buildCards(scan, stored);
             return {
                 kind: "applying",
-                stages: stageRows(scan, STAGES.length + 1),
-                cards: buildCards(scan, storedPicks(scan)),
+                stages: stageRows(scan, STAGES.length),
+                cards,
+                sent: ctaLabel(cards, stored),
             };
+        }
         default:
             return { kind: "idle" };
     }
@@ -235,11 +324,13 @@ export function scanHead(run: Run): { title: string; span: string } | null {
     if (scan == null) {
         return null;
     }
-    const to = scan.tots || run.createdts;
-    const range = scan.fromts ? `${mmdd(scan.fromts)} → ${mmdd(to)} · ` : "";
+    const { from, to } = scanWindow(run, scan);
+    // the read stage has not counted anything yet
+    const reading = scan.state === "scanning" && stageIndex(scan) === 0;
+    const counts = reading ? "" : `${count(scan.runs, "run", "runs")} · ${count(scan.projects, "project", "projects")}`;
     return {
-        title: `Scan of ${mmdd(to)}`,
-        span: `${range}${count(scan.runs, "run", "runs")} · ${count(scan.projects, "project", "projects")}`,
+        title: `Scan of ${to}`,
+        span: [from ? `${from} → ${to}` : "", counts].filter(Boolean).join(" · "),
     };
 }
 

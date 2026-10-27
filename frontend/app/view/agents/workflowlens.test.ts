@@ -143,6 +143,13 @@ describe("workflowView: the state mapping", () => {
                 { tag: "applied", title: "pattern p1", file: "AGENTS.md" },
                 { tag: "declined", title: "pattern p3", file: "docs/deferred.md" },
             ],
+            stages: [
+                { label: "Read runs", phase: "done", fact: "47 runs · 4 projects" },
+                { label: "Sonnet patterns", phase: "done", fact: "7 named" },
+                { label: "Recount", phase: "done", fact: "3 kept · 1 under 3 runs" },
+                { label: "Opus checks files", phase: "done", fact: "2 suggested · 1 covered" },
+                { label: "Your picks", phase: "done", fact: "1 applied · 1 declined" },
+            ],
         });
     });
 
@@ -163,6 +170,13 @@ describe("workflowView: the state mapping", () => {
             ],
             declined: [{ tag: "declined", title: "pattern p2", fact: "4 runs · not past 4" }],
             underFloor: [{ tag: "under", title: "pattern u1", fact: "2 runs · 2 days" }],
+            stages: [
+                { label: "Read runs", phase: "done", fact: "47 runs · 4 projects" },
+                { label: "Sonnet patterns", phase: "done", fact: "7 named" },
+                { label: "Recount", phase: "done", fact: "3 kept · 1 under 3 runs" },
+                { label: "Opus checks files", phase: "done", fact: "2 covered · 1 declined" },
+                { label: "Your picks", phase: "done", fact: "none to pick" },
+            ],
         });
     });
 
@@ -199,7 +213,13 @@ describe("workflowView: stage phases", () => {
     });
 
     it("shows a row's count once it is done", () => {
-        expect(phases("checking").map((s) => s.fact)).toEqual(["47 runs · 4 projects", "7", "3 kept", "", ""]);
+        expect(phases("checking").map((s) => s.fact)).toEqual([
+            "47 runs · 4 projects",
+            "7 named",
+            "3 kept · 1 under 3 runs",
+            "",
+            "",
+        ]);
         expect(phases("patterns")[1].fact).toBe("");
     });
 
@@ -207,10 +227,125 @@ describe("workflowView: stage phases", () => {
         const v = workflowView(run(scan({ state: "scanning", stage: "patterns", dropped: 5 })), {});
         expect(v.kind === "scanning" && v.stages[0].fact).toBe("47 runs · 4 projects · 5 cut for size");
     });
+});
 
-    it("has every row done while the agent applies the picks", () => {
+describe("workflowView: stage facts", () => {
+    const facts = (extra: Partial<WorkflowScan>) => {
+        const v = workflowView(run(scan({ state: "scanning", stage: "checking", ...extra })), {});
+        return v.kind === "scanning" ? v.stages.map((s) => s.fact) : [];
+    };
+
+    it("names the patterns and the kept count once their rows are done", () => {
+        expect(facts({ underfloor: [] })).toEqual(["47 runs · 4 projects", "7 named", "3 kept", "", ""]);
+    });
+
+    it("adds the patterns under the floor to the recount fact", () => {
+        expect(facts({ underfloor: [pattern("u1", 2), pattern("u2", 1)] })[2]).toBe("3 kept · 2 under 3 runs");
+    });
+});
+
+describe("workflowView: applying phases", () => {
+    it("has the picks row in progress while the agent applies them", () => {
         const v = workflowView(run(scan({ state: "applying" })), {});
-        expect(v.kind === "applying" && v.stages.map((s) => s.phase)).toEqual(["done", "done", "done", "done", "done"]);
+        expect(v.kind === "applying" && v.stages.map((s) => s.phase)).toEqual(["done", "done", "done", "done", "now"]);
+    });
+
+    it("counts the verdicts on the Opus row, leaving zero parts and stray ids out", () => {
+        const ws = scan({
+            state: "applying",
+            survivors: ["p1", "p2", "p3", "p4", "p5"].map((id) => pattern(id, 4)),
+            verdicts: [
+                suggest("p1"),
+                suggest("p2"),
+                suggest("p3"),
+                { id: "p4", verdict: "covered" },
+                { id: "p5", verdict: "covered" },
+                { id: "gone", verdict: "declined", declinedat: 3 },
+                suggest("gone2"),
+            ],
+        });
+        const v = workflowView(run(ws), {});
+        expect(v.kind === "applying" && v.stages[3].fact).toBe("3 suggested · 2 covered");
+    });
+
+    it("says what the picks sent", () => {
+        const ws = scan({
+            state: "applying",
+            survivors: [pattern("p1", 11), pattern("p2", 4), pattern("p3", 4)],
+            verdicts: [suggest("p1"), suggest("p2"), suggest("p3")],
+            picks: [
+                { id: "p1", pick: "apply" },
+                { id: "p2", pick: "apply" },
+                { id: "p3", pick: "drop", reason: "noise" },
+            ],
+        });
+        const v = workflowView(run(ws), {});
+        expect(v.kind === "applying" && v.sent).toBe("Apply 2, decline 1");
+    });
+});
+
+describe("workflowView: done and nothing stages", () => {
+    it("has every row done, with the picks counted, when the picks are applied", () => {
+        const ws = scan({
+            state: "applying",
+            survivors: [pattern("p1", 11), pattern("p2", 4), pattern("p3", 4)],
+            verdicts: [suggest("p1"), suggest("p2"), suggest("p3")],
+            picks: [
+                { id: "p1", pick: "apply" },
+                { id: "p2", pick: "apply" },
+                { id: "p3", pick: "drop", reason: "noise" },
+            ],
+        });
+        const v = workflowView(run(ws, "done"), {});
+        expect(v.kind === "done" && v.stages.map((s) => s.phase)).toEqual(["done", "done", "done", "done", "done"]);
+        expect(v.kind === "done" && v.stages[4].fact).toBe("2 applied · 1 declined");
+    });
+
+    it("has every row done, with none to pick, when nothing was suggested", () => {
+        const ws = scan({ verdicts: [{ id: "p1", verdict: "covered" }] });
+        const v = workflowView(run(ws, "done"), {});
+        expect(v.kind === "nothing" && v.stages.map((s) => s.phase)).toEqual(["done", "done", "done", "done", "done"]);
+        expect(v.kind === "nothing" && v.stages[3].fact).toBe("1 covered");
+        expect(v.kind === "nothing" && v.stages[4].fact).toBe("none to pick");
+    });
+});
+
+describe("workflowView: scanning detail", () => {
+    const scanning = (extra: Partial<WorkflowScan>) => {
+        const v = workflowView(run(scan({ state: "scanning", ...extra })), {});
+        if (v.kind !== "scanning") {
+            throw new Error(`expected scanning, got ${v.kind}`);
+        }
+        return v;
+    };
+
+    it("gives each stage its own detail", () => {
+        expect(scanning({ stage: "read", runs: 0, projects: 0 }).detail).toEqual({
+            stage: "read",
+            from: "10-12",
+            to: "10-26",
+        });
+        expect(scanning({ stage: "patterns" }).detail).toEqual({ stage: "patterns", runs: 47, projects: 4 });
+        expect(scanning({ stage: "recount" }).detail).toEqual({ stage: "recount", candidates: 7 });
+    });
+
+    it("lists the kept patterns while Opus checks them", () => {
+        const three = { ...pattern("p2", 5), projects: ["a", "b", "c"].map((name) => ({ name, runs: 1 })) };
+        const none = { ...pattern("p3", 3), projects: [] };
+        const v = scanning({ stage: "checking", survivors: [pattern("p1", 9), three, none] });
+        expect(v.detail).toEqual({
+            stage: "checking",
+            kept: [
+                { id: "p1", title: "pattern p1", runs: 9, days: 2, where: "#waveterm" },
+                { id: "p2", title: "pattern p2", runs: 5, days: 2, where: "3 projects" },
+                { id: "p3", title: "pattern p3", runs: 3, days: 2, where: "" },
+            ],
+            underFloor: 1,
+        });
+    });
+
+    it("starts the clock at the run's creation", () => {
+        expect(scanning({ stage: "read" }).startedTs).toBe(OCT_26);
     });
 });
 
@@ -263,6 +398,15 @@ describe("workflowView: cards", () => {
 describe("scanHead", () => {
     it("names the scan's day, window, runs and projects", () => {
         expect(scanHead(run(scan()))).toEqual({ title: "Scan of 10-26", span: "10-12 → 10-26 · 47 runs · 4 projects" });
+    });
+
+    it("leaves the counts out while the scan reads the runs", () => {
+        expect(scanHead(run(scan({ state: "scanning", stage: "read", runs: 0, projects: 0 })))?.span).toBe(
+            "10-12 → 10-26"
+        );
+        expect(scanHead(run(scan({ state: "scanning", stage: "patterns" })))?.span).toBe(
+            "10-12 → 10-26 · 47 runs · 4 projects"
+        );
     });
 });
 

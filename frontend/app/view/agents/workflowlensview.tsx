@@ -13,12 +13,15 @@ import { openTarget } from "@/app/view/jarvis/openref";
 import { AVATAR_SURFACE_REACH_PX } from "@/app/view/jarvis/petview";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom, type Atom, type PrimitiveAtom } from "jotai";
+import { Check } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import { errText, useAction } from "./brainstormui";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN } from "./canvaspane";
 import { activeChannelAtom, primeChannels } from "./channelsstore";
 import { projectListAtom, recentProjectsAtom } from "./projectsstore";
+import { fmtDuration } from "./runcompletion";
+import { StatusDot } from "./statusdot";
 import { SurfaceToolbar } from "./surfacescaffold";
 import {
     canSend,
@@ -33,6 +36,7 @@ import {
     type DoneRow,
     type FiledRow,
     type PickDraft,
+    type StageDetail,
     type StageRow,
     type WorkflowCard,
     type WorkflowView,
@@ -69,73 +73,218 @@ function openRun(model: AgentsViewModel, runId: string, channelId?: string) {
     fireAndForget(() => openTarget(model, channelId ? { kind: "channel", channelId, runId } : { kind: "run", runId }));
 }
 
-function Check({ size }: { size: number }) {
-    return (
-        <svg
-            width={size}
-            height={size}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-            className="text-success"
-        >
-            <path d="M20 6 9 17l-5-5" />
-        </svg>
-    );
-}
+const PANEL = "flex flex-col rounded-[14px] border border-border bg-surface-raised px-[22px]";
+const ELAPSED_TICK_MS = 1000;
 
-function Panel({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
+function Panel({
+    label,
+    detail,
+    children,
+    className,
+}: {
+    label: string;
+    detail?: string;
+    children: ReactNode;
+    className?: string;
+}) {
     return (
-        <section
-            aria-label={label}
-            className={cn(
-                "flex flex-col gap-3 rounded-[14px] border border-border bg-surface-raised px-[22px] py-5",
-                className
-            )}
-        >
+        <section aria-label={label} data-workflow-detail={detail} className={cn(PANEL, "gap-3 py-5", className)}>
             {children}
         </section>
     );
 }
 
-function StatusDot({ label, tone }: { label: string; tone: "success" | "warning" }) {
+function StageMark({ phase }: { phase: StageRow["phase"] }) {
+    if (phase === "done") {
+        return <Check size={14} strokeWidth={2.4} aria-label="done" className="text-success" />;
+    }
+    if (phase === "now") {
+        return <StatusDot state="working" pulse />;
+    }
     return (
-        <span
-            className={cn(
-                "flex items-center gap-2 font-mono text-[11px]",
-                tone === "success" ? "text-success" : "text-warning"
-            )}
-        >
-            <span className={cn("h-1.5 w-1.5 rounded-full", tone === "success" ? "bg-success" : "bg-warning")} />
-            {label}
-        </span>
+        <span aria-label="to do" className="box-border h-[9px] w-[9px] rounded-full border-[1.5px] border-ink-faint" />
     );
 }
 
-function Stages({ label, stages }: { label: string; stages: StageRow[] }) {
+const STAGE_LABEL: Record<StageRow["phase"], string> = {
+    done: "font-medium text-primary",
+    now: "font-semibold text-primary",
+    todo: "font-medium text-muted",
+};
+
+function StageList({ stages }: { stages: StageRow[] }) {
     return (
-        <Panel label="Stages" className="max-w-[520px]">
-            <StatusDot label={label} tone="success" />
-            {stages.map((s) => (
+        <section aria-label="Stages" className={cn(PANEL, "pt-5 pb-1.5")}>
+            {stages.map((s, i) => (
                 <div
                     key={s.label}
                     data-workflow-stage={s.label}
                     data-phase={s.phase}
-                    className="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2.5 text-[13px]"
+                    className="grid grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-x-3"
                 >
-                    <span className={cn("text-[12px]", s.phase === "todo" ? "text-ink-faint" : "text-success")}>
-                        {s.phase === "done" ? "✓" : s.phase === "now" ? "●" : "○"}
+                    <div className="flex flex-col items-center self-stretch">
+                        <span className="flex h-[18px] w-4 items-center justify-center">
+                            <StageMark phase={s.phase} />
+                        </span>
+                        {i < stages.length - 1 ? (
+                            <span
+                                className={cn(
+                                    "my-1 min-h-[14px] w-px flex-1",
+                                    s.phase === "done" ? "bg-edge-strong" : "bg-border"
+                                )}
+                            />
+                        ) : null}
+                    </div>
+                    <span className={cn("pb-4 text-[13.5px]", STAGE_LABEL[s.phase])}>{s.label}</span>
+                    <span data-workflow-stage-fact className="pt-0.5 font-mono text-[11px] text-ink-mid">
+                        {s.fact}
                     </span>
-                    <span className={s.phase === "todo" ? "text-muted" : "text-secondary"}>{s.label}</span>
-                    <span className="font-mono text-[11px] text-ink-mid">{s.fact}</span>
                 </div>
             ))}
-        </Panel>
+        </section>
     );
+}
+
+// the stage column beside what the scan is doing or did; below lg the two stack, stages first
+function Split({ stages, children }: { stages: StageRow[]; children: ReactNode }) {
+    return (
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[380px_minmax(0,1fr)]">
+            <StageList stages={stages} />
+            {children}
+        </div>
+    );
+}
+
+function PaneText({ title, body }: { title: string; body: string }) {
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="text-[15px] font-semibold text-primary">{title}</span>
+            <span className="max-w-[720px] text-[13px] leading-[1.5] text-ink-mid">{body}</span>
+        </div>
+    );
+}
+
+function KeptRows({
+    kept,
+    underFloor,
+}: {
+    kept: Extract<StageDetail, { stage: "checking" }>["kept"];
+    underFloor: number;
+}) {
+    return (
+        <>
+            {kept.length > 0 ? (
+                <div className="flex flex-col border-t border-edge-faint">
+                    {kept.map((k) => (
+                        <div
+                            key={k.id}
+                            data-workflow-kept={k.id}
+                            className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-5 border-b border-edge-faint py-[9px]"
+                        >
+                            <span className="text-[13px] text-secondary">{k.title}</span>
+                            <span className="whitespace-nowrap font-mono text-[11px] text-muted">
+                                <b className="text-primary">{k.runs}</b> runs · {k.days} days
+                                {k.where ? ` · ${k.where}` : ""}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            ) : null}
+            {underFloor > 0 ? (
+                <span className={MONO_META}>
+                    {underFloor} under {RUN_FLOOR} runs set aside
+                </span>
+            ) : null}
+        </>
+    );
+}
+
+function ScanDetail({ detail }: { detail: StageDetail }) {
+    switch (detail.stage) {
+        case "read":
+            return (
+                <Panel label="Read runs" detail="read" className="gap-3.5">
+                    <PaneText
+                        title="Reading run records"
+                        body={`Every project's runs from ${detail.from} to ${detail.to}.`}
+                    />
+                </Panel>
+            );
+        case "patterns":
+            return (
+                <Panel label="Sonnet patterns" detail="patterns" className="gap-3.5">
+                    <PaneText
+                        title={`Sonnet reads ${detail.runs} runs from ${detail.projects} projects`}
+                        body={`It names the problems that recur in them. Code then recounts each one against the run records and sets aside any seen in fewer than ${RUN_FLOOR} runs.`}
+                    />
+                </Panel>
+            );
+        case "recount":
+            return (
+                <Panel label="Recount" detail="recount" className="gap-3.5">
+                    <PaneText
+                        title={`Recounting ${detail.candidates} patterns`}
+                        body={`Code counts each one against the run records and sets aside any seen in fewer than ${RUN_FLOOR} runs.`}
+                    />
+                </Panel>
+            );
+        case "checking":
+            return (
+                <Panel label="Opus checks files" detail="checking" className="gap-3.5">
+                    <PaneText
+                        title={`Opus checks ${detail.kept.length} patterns against the files`}
+                        body="The scan's agent reads each pattern's fix target and docs/deferred.md, marks it covered, declined or a suggestion, and drafts the fix. Your picks open here when it is done."
+                    />
+                    <KeptRows kept={detail.kept} underFloor={detail.underFloor} />
+                </Panel>
+            );
+    }
+}
+
+// mounts only while scanning, so the interval never outlives that view
+function Elapsed({ startedTs }: { startedTs: number }) {
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const id = setInterval(() => setNow(Date.now()), ELAPSED_TICK_MS);
+        return () => clearInterval(id);
+    }, []);
+    return <span data-workflow-elapsed>{fmtDuration(now - startedTs)}</span>;
+}
+
+const HEAD_STATUS = "flex items-center gap-[7px] font-mono text-[11px]";
+
+function HeadStatus({ view }: { view: Exclude<WorkflowView, { kind: "idle" }> }) {
+    switch (view.kind) {
+        case "scanning":
+        case "applying":
+            return (
+                <span data-workflow-status={view.kind} className={cn(HEAD_STATUS, "text-accent-soft")}>
+                    <StatusDot state="working" pulse className="h-1.5 w-1.5" />
+                    {view.kind === "scanning" ? (
+                        <span>
+                            scanning · <Elapsed startedTs={view.startedTs} />
+                        </span>
+                    ) : (
+                        "applying your picks"
+                    )}
+                </span>
+            );
+        case "picking":
+            return (
+                <span data-workflow-status="picking" className={cn(HEAD_STATUS, "text-warning")}>
+                    <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+                    {view.cards.length} to decide
+                </span>
+            );
+        case "done":
+        case "nothing":
+            return (
+                <span data-workflow-status={view.kind} className={cn(HEAD_STATUS, "gap-1.5 text-success")}>
+                    <Check size={11} strokeWidth={2.4} aria-hidden="true" />
+                    done
+                </span>
+            );
+    }
 }
 
 function TaggedRows({ rows, attr }: { rows: (FiledRow | DoneRow)[]; attr: string }) {
@@ -428,7 +577,15 @@ function FiledToggle({ label, rows, attr }: { label: string; rows: FiledRow[]; a
     );
 }
 
-function Head({ run, extra, model }: { run: Run; extra?: ReactNode; model: AgentsViewModel }) {
+function Head({
+    run,
+    view,
+    model,
+}: {
+    run: Run;
+    view: Exclude<WorkflowView, { kind: "idle" }>;
+    model: AgentsViewModel;
+}) {
     const head = scanHead(run);
     if (head == null) {
         return null;
@@ -437,7 +594,7 @@ function Head({ run, extra, model }: { run: Run; extra?: ReactNode; model: Agent
         <div data-workflow-head className="flex items-baseline gap-4">
             <h2 className="m-0 text-[14px] font-semibold text-primary">{head.title}</h2>
             <span className={MONO_META}>{head.span}</span>
-            {extra}
+            <HeadStatus view={view} />
             <span className="flex-1" />
             <button
                 type="button"
@@ -529,11 +686,7 @@ function Picking({
         setDrafts({ ...drafts, [id]: { reason: "", ...drafts[id], ...patch } });
     return (
         <>
-            <Head
-                run={run}
-                model={model}
-                extra={<StatusDot label={`${view.cards.length} to decide`} tone="warning" />}
-            />
+            <Head run={run} view={view} model={model} />
             {view.cards.map((c) => (
                 <Card
                     key={c.id}
@@ -566,9 +719,9 @@ function Done({
     view: Extract<WorkflowView, { kind: "done" }>;
 }) {
     return (
-        <Panel label="Done" className="max-w-[640px]">
+        <Panel label="Done" detail="done" className="gap-3.5">
             <div className="flex items-center gap-2">
-                <Check size={13} />
+                <Check size={13} strokeWidth={2.4} aria-hidden="true" className="text-success" />
                 <span className="text-[14px] font-semibold text-primary">{view.commit ? "Committed" : "Finished"}</span>
                 {view.commit ? (
                     <span data-workflow-commit className="font-mono text-[12px] text-accent-soft">
@@ -599,21 +752,31 @@ function Nothing({ view }: { view: Extract<WorkflowView, { kind: "nothing" }> })
         view.declined.length > 0 ? `${view.declined.length} declined` : "",
     ].filter(Boolean);
     return (
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-            <Panel label="Nothing to suggest" className="min-h-[220px] items-center justify-center">
-                <Check size={22} />
+        <Panel label="Nothing to suggest" detail="nothing" className="gap-3.5">
+            <div className="flex items-center gap-2.5">
+                <Check size={18} strokeWidth={2.4} aria-hidden="true" className="text-success" />
                 <span className="text-[15px] font-semibold text-primary">Nothing to suggest</span>
                 {facts.length > 0 ? <span className={MONO_META}>{facts.join(" · ")}</span> : null}
-            </Panel>
+            </div>
             {notRaised.length > 0 ? (
-                <Panel label="Not raised">
-                    <h3 className="m-0 font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted">
-                        Not raised
-                    </h3>
+                <div className="flex flex-col gap-3 border-t border-edge-faint pt-3.5">
+                    <h3 className="m-0 text-[13px] font-semibold text-secondary">Not raised</h3>
                     <TaggedRows rows={notRaised} attr="data-workflow-filed" />
-                </Panel>
+                </div>
             ) : null}
-        </div>
+        </Panel>
+    );
+}
+
+function Applying({ run, view }: { run: Run; view: Extract<WorkflowView, { kind: "applying" }> }) {
+    return (
+        <Panel label="Applying" detail="applying" className="gap-3.5">
+            <PaneText
+                title="Opus applies your picks"
+                body={`${view.sent} sent. The scan's agent edits the files, writes each Declined entry to docs/deferred.md and commits. The commit shows here when it is done.`}
+            />
+            <SendError runId={run.id} />
+        </Panel>
     );
 }
 
@@ -635,36 +798,26 @@ function Body({
     if (view.kind === "idle" || run == null) {
         return idle;
     }
-    switch (view.kind) {
-        case "scanning":
-            return <Stages label="scanning" stages={view.stages} />;
-        case "picking":
-            return <Picking model={model} run={run} view={view} drafts={drafts} setDrafts={setDrafts} />;
-        case "applying":
-            return (
-                <>
-                    <Head run={run} model={model} />
-                    <Stages label="applying your picks" stages={view.stages} />
-                    {view.cards.map((c) => (
-                        <Card key={c.id} model={model} card={c} />
-                    ))}
-                </>
-            );
-        case "done":
-            return (
-                <>
-                    <Head run={run} model={model} />
-                    <Done model={model} run={run} view={view} />
-                </>
-            );
-        case "nothing":
-            return (
-                <>
-                    <Head run={run} model={model} />
-                    <Nothing view={view} />
-                </>
-            );
+    if (view.kind === "picking") {
+        return <Picking model={model} run={run} view={view} drafts={drafts} setDrafts={setDrafts} />;
     }
+    return (
+        <>
+            <Head run={run} view={view} model={model} />
+            <Split stages={view.stages}>
+                {view.kind === "scanning" ? (
+                    <ScanDetail detail={view.detail} />
+                ) : view.kind === "applying" ? (
+                    <Applying run={run} view={view} />
+                ) : view.kind === "done" ? (
+                    <Done model={model} run={run} view={view} />
+                ) : (
+                    <Nothing view={view} />
+                )}
+            </Split>
+            {view.kind === "applying" ? view.cards.map((c) => <Card key={c.id} model={model} card={c} />) : null}
+        </>
+    );
 }
 
 // the lens owns the page below the shared toolbar: the other lenses' range and scope bar mean nothing here
@@ -723,14 +876,7 @@ export function WorkflowLens({ model, lensSwitch }: { model: AgentsViewModel; le
     };
 
     const footer =
-        run == null ? null : view.kind === "picking" ? (
-            <PicksBar run={run} cards={view.cards} drafts={drafts} />
-        ) : view.kind === "applying" ? (
-            <Footer>
-                <span className="text-[12.5px] text-ink-mid">Picks sent. The scan’s agent is applying them.</span>
-                <SendError runId={run.id} />
-            </Footer>
-        ) : null;
+        run != null && view.kind === "picking" ? <PicksBar run={run} cards={view.cards} drafts={drafts} /> : null;
     const scanDisabled = !button.enabled || start.busy;
 
     return (
