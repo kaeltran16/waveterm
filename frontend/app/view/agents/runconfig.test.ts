@@ -9,10 +9,12 @@ import {
     SHAPE_CARDS,
     approvalsNote,
     clampParallelism,
+    effectiveStart,
     launchBlocker,
     profileRunDefaults,
     runLauncherFace,
     startNote,
+    startOptions,
     type LaunchBlockerInput,
 } from "./runconfig";
 
@@ -92,14 +94,41 @@ describe("startNote", () => {
         expect(startNote("plan")).toMatch(/judgment/);
         expect(startNote("goal")).toMatch(/lead/);
     });
+
+    it("tells a design start that the lead plans from the design without a design conversation", () => {
+        expect(startNote("design")).toMatch(/plans from the approved design/);
+        expect(startNote("design")).toMatch(/no design conversation/);
+    });
+});
+
+describe("startOptions", () => {
+    it("offers the approved design first when one came", () => {
+        expect(startOptions(true)).toEqual(["design", "goal", "plan"]);
+    });
+
+    it("offers only Goal and Plan file with no design", () => {
+        expect(startOptions(false)).toEqual(["goal", "plan"]);
+    });
+});
+
+describe("effectiveStart", () => {
+    it("reads a design start with no design as a goal start", () => {
+        expect(effectiveStart("design", false)).toBe("goal");
+    });
+
+    it("keeps every other start", () => {
+        expect(effectiveStart("design", true)).toBe("design");
+        expect(effectiveStart("plan", false)).toBe("plan");
+        expect(effectiveStart("goal", true)).toBe("goal");
+    });
 });
 
 describe("approvalsNote", () => {
     it("says each choice in the board's words", () => {
         expect(approvalsNote(true)).toBe(
-            "No questions: the lead decides the spec, plan review and product calls itself, and records why. You can switch this on the run sheet."
+            "No questions: the lead makes the plan review and product calls itself, and records why. You can switch this on the run sheet."
         );
-        expect(approvalsNote(false)).toBe("The lead waits for you at the spec review and whenever a call is yours.");
+        expect(approvalsNote(false)).toBe("The lead waits for you whenever a call is yours.");
     });
 });
 
@@ -143,6 +172,32 @@ describe("launchBlocker", () => {
 
     it("ignores a plan start left over on quick, which has no plan", () => {
         expect(launchBlocker(input({ shape: "quick", start: "plan", goal: "fix the flake" }))).toBeNull();
+    });
+
+    // an autonomous run has nobody to design with
+    it.each(["brainstorm", "canvas"] as const)("blocks Design first %s on an autonomous run", (designFirst) => {
+        expect(launchBlocker(input({ goal: "ship coupons", designFirst, autonomous: true }))).toBe(
+            "Design first needs Ask me approvals"
+        );
+    });
+
+    it("lets Design first start with Ask me approvals, and an autonomous run with Design first off", () => {
+        expect(launchBlocker(input({ goal: "ship coupons", designFirst: "brainstorm", autonomous: false }))).toBeNull();
+        expect(launchBlocker(input({ goal: "ship coupons", designFirst: "", autonomous: true }))).toBeNull();
+    });
+
+    it("asks for the goal before Design first's reason", () => {
+        expect(launchBlocker(input({ designFirst: "canvas", autonomous: true }))).toBe("Write the goal");
+    });
+
+    it("ignores a Design first left over on another start", () => {
+        expect(
+            launchBlocker(input({ start: "design", goal: "Build X.", designFirst: "brainstorm", autonomous: true }))
+        ).toBeNull();
+    });
+
+    it("needs a goal on a design start, since the goal names the run", () => {
+        expect(launchBlocker(input({ start: "design" }))).toBe("Write the goal");
     });
 });
 

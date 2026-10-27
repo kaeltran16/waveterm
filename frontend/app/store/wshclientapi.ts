@@ -696,6 +696,12 @@ export class RpcApiType {
         return client.wshRpcCall("jarvisctx", data, opts);
     }
 
+    // command "jarvisdesign" [call]
+    JarvisDesignCommand(client: WshClient, data: CommandJarvisDesignData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jarvisdesign", data, opts);
+        return client.wshRpcCall("jarvisdesign", data, opts);
+    }
+
     // command "jarvisrunevents" [call]
     JarvisRunEventsCommand(client: WshClient, data: CommandJarvisRunEventsData, opts?: RpcOpts): Promise<CommandJarvisRunEventsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jarvisrunevents", data, opts);
@@ -958,6 +964,12 @@ export class RpcApiType {
     RunAsksCommand(client: WshClient, data: CommandRunAskData, opts?: RpcOpts): Promise<CommandDagAsksRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "runasks", data, opts);
         return client.wshRpcCall("runasks", data, opts);
+    }
+
+    // command "rundesignattach" [call]
+    RunDesignAttachCommand(client: WshClient, data: CommandRunDesignAttachData, opts?: RpcOpts): Promise<CommandRunDesignAttachRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "rundesignattach", data, opts);
+        return client.wshRpcCall("rundesignattach", data, opts);
     }
 
     // command "runtranscriptpath" [call]

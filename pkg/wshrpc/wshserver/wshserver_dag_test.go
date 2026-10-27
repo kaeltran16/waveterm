@@ -974,3 +974,35 @@ func TestDagSubmitHandsOffOnlyToALead(t *testing.T) {
 		t.Fatalf("a run with no lead worker gets no handoff, got %v", handed)
 	}
 }
+
+// the approved spec a run took is the human's: a lead that names another at submit does not replace it
+func TestDagSubmitRunSpecWins(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "dag-run-spec", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	runSpec, leadSpec := write("approved.md", "# approved\n"), write("lead.md", "# lead\n")
+	planPath := write("plan.md", "# Plan\n\n### Task 1: one\ndo it\n")
+	run := jarvis.NewRun("ship it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	run.Status = jarvis.RunStatus_Planning
+	run.Spec = runSpec
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	g, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: ch.OID, RunId: run.ID, PlanPath: planPath, SpecPath: leadSpec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.SpecPath != runSpec {
+		t.Fatalf("dag spec = %q, want the run's %q", g.SpecPath, runSpec)
+	}
+}

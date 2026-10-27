@@ -11,6 +11,7 @@ import {
     autonomousResolvedNote,
     configLine,
     configNote,
+    designLink,
     doneBody,
     doneBodyHasDiff,
     finalStageEndable,
@@ -107,6 +108,7 @@ function read(over: Partial<SheetRead> = {}): SheetRead {
         userAsks: [],
         workerAsking: false,
         survivors: 0,
+        designOpen: false,
         ...over,
     };
 }
@@ -529,6 +531,46 @@ describe("undaggedStatus", () => {
             pulse: true,
             meta: [muted("6m elapsed"), muted("1 worker")],
             next: null,
+        });
+    });
+
+    describe("a run waiting on its design session", () => {
+        const designing = (kind: string, designOpen: boolean) =>
+            lead({ run: run({ status: "planning", dagoref: "", design: { kind, blockid: "blk-d" } }), designOpen });
+        const reading = {
+            ...quiet,
+            verb: "Designing",
+            tone: "muted",
+            meta: [muted("18m elapsed"), muted("no plan yet")],
+            next: "a lead plans from the design once you approve it",
+        };
+
+        it("reads Designing while you brainstorm it", () => {
+            expect(designing("brainstorm", true)).toEqual({ ...reading, sub: "brainstorming with you", pulse: true });
+        });
+
+        it("reads Designing while you mock it up", () => {
+            expect(designing("canvas", true)).toEqual({ ...reading, sub: "mocking it up with you", pulse: true });
+        });
+
+        it("says the session's tab is closed when it has no live tab", () => {
+            for (const kind of ["brainstorm", "canvas"]) {
+                expect(designing(kind, false)).toEqual({
+                    ...reading,
+                    sub: "the design session's tab is closed",
+                    pulse: false,
+                });
+            }
+        });
+
+        it("reads Designing ahead of a lead's question", () => {
+            expect(
+                lead({
+                    run: run({ status: "planning", dagoref: "", design: { kind: "brainstorm", blockid: "blk-d" } }),
+                    designOpen: true,
+                    workerAsking: true,
+                }).verb
+            ).toBe("Designing");
         });
     });
 
@@ -1255,6 +1297,24 @@ describe("sheetLead", () => {
     it("is none on a finished run or a quick run", () => {
         expect(sheetLead(run({ ...withLead, status: "done" }), [lead])).toBeUndefined();
         expect(sheetLead(run({ ...withLead, mode: "" }), [lead])).toBeUndefined();
+    });
+});
+
+describe("designLink", () => {
+    const session = { id: "tab-d", name: "design", state: "working", blockId: "blk-d" } as AgentVM;
+    const other = { id: "tab-x", name: "other", state: "working", blockId: "blk-x" } as AgentVM;
+    const waiting = run({ status: "planning", dagoref: "", design: { kind: "canvas", blockid: "blk-d" } });
+
+    it("is the tab whose terminal is the design session's block", () => {
+        expect(designLink(waiting, [other, session])).toEqual({ tabId: "tab-d" });
+    });
+
+    it("is none when the session's tab is gone", () => {
+        expect(designLink(waiting, [other])).toBeNull();
+    });
+
+    it("is none on a run waiting on no design", () => {
+        expect(designLink(run({ status: "planning", dagoref: "" }), [session])).toBeNull();
     });
 });
 

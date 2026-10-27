@@ -690,6 +690,12 @@ func JarvisCtxCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisCtxData, opts 
 	return resp, err
 }
 
+// command "jarvisdesign", wshserver.JarvisDesignCommand
+func JarvisDesignCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisDesignData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "jarvisdesign", data, opts)
+	return err
+}
+
 // command "jarvisrunevents", wshserver.JarvisRunEventsCommand
 func JarvisRunEventsCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisRunEventsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisRunEventsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisRunEventsRtnData](w, "jarvisrunevents", data, opts)
@@ -950,6 +956,12 @@ func RunAnswerCommand(w *wshutil.WshRpc, data wshrpc.CommandRunAnswerData, opts 
 // command "runasks", wshserver.RunAsksCommand
 func RunAsksCommand(w *wshutil.WshRpc, data wshrpc.CommandRunAskData, opts *wshrpc.RpcOpts) (*wshrpc.CommandDagAsksRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandDagAsksRtnData](w, "runasks", data, opts)
+	return resp, err
+}
+
+// command "rundesignattach", wshserver.RunDesignAttachCommand
+func RunDesignAttachCommand(w *wshutil.WshRpc, data wshrpc.CommandRunDesignAttachData, opts *wshrpc.RpcOpts) (*wshrpc.CommandRunDesignAttachRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandRunDesignAttachRtnData](w, "rundesignattach", data, opts)
 	return resp, err
 }
 

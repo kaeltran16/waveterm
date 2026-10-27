@@ -18,6 +18,7 @@ import {
     type BrainstormAction,
 } from "./brainstormmodel";
 import { getBrainstorm, shownBrainstormFile, updateBrainstorm, type BrainstormState } from "./brainstormstore";
+import { routeDesign, tauriDesignAttach, type DesignAttach } from "./designroute";
 
 type PromptIO = {
     prompt(blockId: string, text: string): Promise<void>;
@@ -96,13 +97,27 @@ export function openRunLauncher(
     globalStore.set(model.newRunOpenAtom, true);
 }
 
-// the agent hears it is approved first, so a line that cannot be sent leaves the launcher closed
+// the agent hears it is approved first, so a line that cannot be sent leaves the launcher closed. A run waiting
+// on this session takes the design and starts its lead; any other session gets the launcher
 export async function approveAndOpenRun(
     model: AgentsViewModel,
     agent: AgentVM,
     s: BrainstormState,
-    io: PromptIO = tauriPromptIO
+    io: PromptIO = tauriPromptIO,
+    attach: DesignAttach = tauriDesignAttach
 ): Promise<void> {
     await sendBrainstorm(agent, { kind: "approved" }, io);
-    openRunLauncher(model, agent, s, io);
+    if (s.file == null) {
+        return;
+    }
+    const { spec, prototype } = runPrefill(s.file, { projectName: projectOf(agent), cwd: s.cwd });
+    await routeDesign(
+        {
+            attach,
+            onAttached: (_channelId, runId) => notifyRun(agent, runId, io),
+            openLauncher: () => openRunLauncher(model, agent, s, io),
+        },
+        agent.blockId!,
+        { spec, prototype }
+    );
 }

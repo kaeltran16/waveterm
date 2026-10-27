@@ -644,6 +644,8 @@ declare global {
         deferstart?: boolean;
         planpath?: string;
         prototype?: string;
+        spec?: string;
+        designfirst?: string;
         autonomous?: boolean;
     };
 
@@ -1228,6 +1230,12 @@ declare global {
         goal?: string;
     };
 
+    // wshrpc.CommandJarvisDesignData
+    type CommandJarvisDesignData = {
+        oref: string;
+        kind: string;
+    };
+
     // wshrpc.CommandJarvisRunEventsData
     type CommandJarvisRunEventsData = {
         channelid: string;
@@ -1473,6 +1481,19 @@ declare global {
     type CommandRunAskData = {
         channelid: string;
         runid: string;
+    };
+
+    // wshrpc.CommandRunDesignAttachData
+    type CommandRunDesignAttachData = {
+        blockid: string;
+        spec?: string;
+        prototype?: string;
+    };
+
+    // wshrpc.CommandRunDesignAttachRtnData
+    type CommandRunDesignAttachRtnData = {
+        channelid?: string;
+        runid?: string;
     };
 
     // wshrpc.CommandRunTranscriptPathData
@@ -2720,8 +2741,17 @@ declare global {
         orchestration?: string;
         parallelism?: number;
         prototype?: string;
+        spec?: string;
+        design?: RunDesign;
+        designsession?: string;
         workflowscan?: WorkflowScan;
         consultsessions?: ConsultSession[];
+    };
+
+    // waveobj.RunDesign
+    type RunDesign = {
+        kind: string;
+        blockid: string;
     };
 
     // waveobj.RunEffortRef

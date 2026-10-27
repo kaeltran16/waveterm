@@ -85,6 +85,8 @@ export type SheetRead = {
     // the run's own worker — the lead, or a quick run's one worker — is asking the human
     workerAsking: boolean;
     survivors: number;
+    // a designing run's session tab is still open (designLink found it)
+    designOpen: boolean;
 };
 
 // The task graph a run's status is read from. Only an orchestrator owns one: a task's worker is a quick run
@@ -203,6 +205,21 @@ function undaggedStatus(read: SheetRead): SheetStatus {
     const { run, nowMs, workerAsking } = read;
     const elapsed: SheetMeta = { text: `${since(nowMs, run.createdts)} elapsed`, tone: "muted" };
     const quiet = { meter: null, retry: false };
+    if (run.design != null) {
+        return {
+            ...quiet,
+            verb: "Designing",
+            sub: !read.designOpen
+                ? "the design session's tab is closed"
+                : run.design.kind === "canvas"
+                  ? "mocking it up with you"
+                  : "brainstorming with you",
+            tone: "muted",
+            pulse: read.designOpen,
+            meta: [elapsed, { text: "no plan yet", tone: "muted" }],
+            next: "a lead plans from the design once you approve it",
+        };
+    }
     if (run.mode === "orchestrator") {
         const meta: SheetMeta[] = [elapsed, { text: "no plan yet", tone: "muted" }];
         if (workerAsking) {
@@ -760,6 +777,16 @@ export function finalStageRerunnable(group: TaskGroup | null): boolean {
 // the dock's Open lead: a live orchestrator's lead, whose terminal the Agent surface shows
 export function sheetLead(run: Run, agents: AgentVM[]): AgentVM | undefined {
     return run.mode === "orchestrator" && !isTerminal(run.status) ? leadWorker(run, agents) : undefined;
+}
+
+// a designing run's Open session: the linked design session's tab, found by its terminal block
+export function designLink(run: Run, agents: AgentVM[]): { tabId: string } | null {
+    const blockId = run.design?.blockid;
+    if (!blockId) {
+        return null;
+    }
+    const agent = agents.find((a) => a.blockId === blockId);
+    return agent != null ? { tabId: agent.id } : null;
 }
 
 // a done run's body: its filed report, else the sealed evidence (design L508, L539)

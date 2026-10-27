@@ -407,6 +407,14 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 	if data.Prototype != "" && !engineLaunch {
 		return nil, fmt.Errorf("prototype needs an orchestrator run: only the engine's final verifier reads it")
 	}
+	if data.Spec != "" {
+		if !engineLaunch {
+			return nil, fmt.Errorf("spec needs an orchestrator run: only its lead plans from a design")
+		}
+		if err := checkDesignFile("spec", data.Spec); err != nil {
+			return nil, err
+		}
+	}
 	if data.Autonomous != nil && *data.Autonomous && !engineLaunch {
 		return nil, fmt.Errorf("autonomous needs an orchestrator run: only its lead answers for you")
 	}
@@ -435,6 +443,9 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 			data.Autonomous = &resolved.Autonomous
 		}
 	}
+	if err := checkDesignFirst(data, engineLaunch); err != nil {
+		return nil, err
+	}
 	reviewerPicks := data.ReviewerPicks != nil && *data.ReviewerPicks
 	if err := validateWorkersSetting(data.WorkerRoute, reviewerPicks); err != nil {
 		return nil, err
@@ -449,7 +460,7 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 		return nil, err
 	}
 	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, resolved.Principles, mode, playbook, time.Now().UnixMilli())
-	if data.DeferStart {
+	if data.DeferStart || data.DesignFirst != "" {
 		run.Status = jarvis.RunStatus_Planning
 	}
 	run.Runtime = cap.Runtime // immutable after Start; every phase and child inherits this
@@ -467,6 +478,7 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 	}
 	run.Parallelism = data.Parallelism
 	run.Prototype = data.Prototype
+	run.Spec = data.Spec
 	// capture the repo baseline so the evidence diff survives the worker committing its changes;
 	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
 	if head, herr := gitinfo.HeadCommit(ctx, ch.ProjectPath); herr == nil {
@@ -531,6 +543,14 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 				}
 			}
 			return nil, fmt.Errorf("submitting plan: %w", err)
+		}
+	case data.DesignFirst != "":
+		// the session takes the lead's place until its design attaches
+		if _, err := startDesignSession(ctx, data.ChannelId, &run, data.DesignFirst); err != nil {
+			if cerr := ws.CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: data.ChannelId, RunId: run.ID}); cerr != nil {
+				log.Printf("CreateRun: cancelling run %s after its design session failed to start: %v", run.ID, cerr)
+			}
+			return nil, err
 		}
 	case !data.DeferStart:
 		phaseZero := 0

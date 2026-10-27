@@ -494,8 +494,12 @@ export default function (kit) {
                 const ctx = await bsArrangeAgent(h, TOPIC, ASKING);
                 if (ctx.launchError != null || ctx.cwd == null) return ctx;
                 // the New run window approve opens names the agent's project, which the terminal's tab meta sets to
-                // the topic; and its prototype is the canvas's first board
+                // the topic; and its prototype is the canvas's first board. The spec is on disk, as `brainstorm: check`
+                // leaves it: Approve's design attach refuses a spec or prototype that is not there
                 try {
+                    const specFile = join(ctx.cwd, ...SPEC.split("/"));
+                    mkdirSync(join(specFile, ".."), { recursive: true });
+                    writeFileSync(specFile, `# ${SETTLED.title}\n`);
                     const project = join(ctx.cwd, ".superpowers", "design", TOPIC, "project");
                     mkdirSync(project, { recursive: true });
                     writeFileSync(join(project, "canvas.json"), JSON.stringify({ boards: { [BOARD]: { w: 1600 } }, order: [BOARD] }));
@@ -707,7 +711,8 @@ export default function (kit) {
                 const approved = await bsClick(h, BS_APPROVE_BAR, "Approve and start run");
                 const approveTyped = await bsTyped(h, ctx, mark, "brainstorm: approved");
                 const runOpen = await polishWaitFor(h, `!!${NEW_RUN}`, 3000);
-                const goal = `Build ${SETTLED.title} as specified in ${join(ctx.cwd, ...SPEC.split("/"))}.`;
+                const goal = `Build ${SETTLED.title}.`;
+                const spec = join(ctx.cwd, ...SPEC.split("/"));
                 const prototype = join(ctx.cwd, ".superpowers", "design", TOPIC, "project", BOARD);
                 await polishWaitFor(h, `${NEW_RUN}?.querySelector('textarea[aria-label="Goal"]')?.value === ${JSON.stringify(goal)}`, 3000);
                 const launcher = await h.ev(`({
@@ -719,8 +724,8 @@ export default function (kit) {
                 const runClosed = await polishWaitFor(h, `!${NEW_RUN}`, 3000);
                 rec(
                     "6b. Approve sends brainstorm: approved and opens New run with the spec's absolute path and the prototype",
-                    approved === "clicked" && approveTyped.ok && runOpen && launcher.goal === goal && launcher.text.includes(`Prototype · ${prototype}`) && runClosed,
-                    { approved, ...approveTyped.detail, runOpen, goal: launcher.goal, wantGoal: goal, prototype, text: (launcher.text ?? "").slice(0, 400), runClosed }
+                    approved === "clicked" && approveTyped.ok && runOpen && launcher.goal === goal && launcher.text.includes(`Spec · ${spec}`) && launcher.text.includes(`Prototype · ${prototype}`) && runClosed,
+                    { approved, ...approveTyped.detail, runOpen, goal: launcher.goal, wantGoal: goal, spec, prototype, text: (launcher.text ?? "").slice(0, 400), runClosed }
                 );
                 return steps;
             },

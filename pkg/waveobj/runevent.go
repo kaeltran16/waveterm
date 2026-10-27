@@ -9,6 +9,8 @@ import "encoding/json"
 // state; the FE timeline groups them under RUN (cross-cutting) or their phase (phaseidx set).
 const (
 	RunEventKindCreated        = "run-created"
+	RunEventKindDesignStarted  = "design-started"  // a run began waiting on a design session ("kind", "blockid")
+	RunEventKindDesignAttached = "design-attached" // the run took the session's approved design ("spec", "prototype")
 	RunEventKindPhaseStarted   = "phase-started"
 	RunEventKindPhaseComplete  = "phase-complete"
 	RunEventKindPhaseHeld      = "phase-held"

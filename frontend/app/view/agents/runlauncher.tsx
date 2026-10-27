@@ -23,10 +23,11 @@ import { RoutePicker } from "./routepicker";
 import {
     MAX_PARALLELISM,
     SHAPE_CARDS,
-    START_OPTIONS,
     approvalsNote,
+    effectiveStart,
     runLauncherFace,
     startNote,
+    startOptions,
     type PlanPreview,
     type StartFrom,
 } from "./runconfig";
@@ -112,16 +113,17 @@ export function ShapeCards({ showParallelism }: { showParallelism: boolean }) {
     );
 }
 
-const START_LABEL: Record<StartFrom, string> = { goal: "A goal", plan: "A plan file" };
+const START_LABEL: Record<StartFrom, string> = { goal: "A goal", plan: "A plan file", design: "Approved design" };
 
 // Where an orchestrator starts. It sits under the shape because it decides whether a lead runs at all: a plan
 // file hands the engine work you already decomposed, and a lead appears only when something needs judgment.
+// Nothing fills this launcher, so it never has a design to start from.
 function StartSection({ projectPath }: { projectPath: string }) {
-    const start = useAtomValue(startAtom);
+    const start = effectiveStart(useAtomValue(startAtom), false);
     return (
         <Section label="Start from">
             <div className="flex gap-2">
-                {START_OPTIONS.map((option) => (
+                {startOptions(false).map((option) => (
                     <button
                         key={option}
                         type="button"

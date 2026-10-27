@@ -47,7 +47,7 @@ export async function stopRunWorker(channelId: string, runId: string, workerORef
 // an engine launch builds a git worktree and starts a worker per lane before CreateRun returns, so the
 // budget has to cover the widest run the launcher allows rather than a typical RPC round trip. The server
 // derives its own handler deadline from this same field.
-const CREATE_RUN_TIMEOUT_MS = 180_000;
+export const CREATE_RUN_TIMEOUT_MS = 180_000;
 
 export interface CreateRunOpts {
     mode?: string;
@@ -59,7 +59,9 @@ export interface CreateRunOpts {
     reviewerPicks?: boolean;
     reviewerRoute?: RoutePin | null;
     lightReviewerRoute?: RoutePin | null;
+    spec?: string;
     prototype?: string;
+    designFirst?: string;
     autonomous?: boolean;
 }
 
@@ -85,7 +87,9 @@ export function createRunPayload(
         ...(orchestrator && opts.reviewerPicks != null ? { reviewerpicks: opts.reviewerPicks } : {}),
         ...(orchestrator && opts.reviewerRoute ? { reviewerroute: opts.reviewerRoute } : {}),
         ...(orchestrator && opts.lightReviewerRoute ? { lightreviewerroute: opts.lightReviewerRoute } : {}),
+        ...(orchestrator && opts.spec ? { spec: opts.spec } : {}),
         ...(orchestrator && opts.prototype ? { prototype: opts.prototype } : {}),
+        ...(orchestrator && opts.designFirst ? { designfirst: opts.designFirst } : {}),
         // false is sent too, as reviewerpicks is; the server refuses an explicit autonomous on a quick run
         ...(orchestrator && opts.autonomous != null ? { autonomous: opts.autonomous } : {}),
         mode: opts?.mode,

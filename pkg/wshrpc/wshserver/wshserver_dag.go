@@ -254,6 +254,10 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	if data.Round {
 		return submitFixRound(ctx, run, data, plan)
 	}
+	// the approved spec the run was started with is the human's, not the lead's; it is committed with the plan
+	if run.Spec != "" && data.PlanPath != "" {
+		data.SpecPath = run.Spec
+	}
 	// a plan written without a Setup line still gets prepared trees: the project's checked-in default fills it,
 	// read from the landing tree, which is at the commit the run builds from
 	if plan.Setup == "" {

@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -93,5 +94,28 @@ func TestCompleteLandLinesSayWhereTheLandStands(t *testing.T) {
 				t.Fatalf("completeLandLines = %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+func TestJarvisDesignSubcommand(t *testing.T) {
+	var design *cobra.Command
+	for _, c := range jarvisCmd.Commands() {
+		if c.Name() == "design" {
+			design = c
+		}
+	}
+	if design == nil || design.Flags().Lookup("kind") == nil {
+		t.Fatal("`jarvis design --kind` is not registered")
+	}
+	for _, kind := range []string{waveobj.RunDesignKind_Brainstorm, waveobj.RunDesignKind_Canvas} {
+		d, err := jarvisDesignData("block:b1", kind)
+		if err != nil || d.ORef != "block:b1" || d.Kind != kind {
+			t.Fatalf("%s: %+v, %v", kind, d, err)
+		}
+	}
+	for _, kind := range []string{"", "mockup"} {
+		if _, err := jarvisDesignData("block:b1", kind); err == nil {
+			t.Fatalf("kind %q was accepted", kind)
+		}
 	}
 }

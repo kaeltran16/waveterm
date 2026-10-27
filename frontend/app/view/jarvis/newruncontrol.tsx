@@ -23,7 +23,6 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
-import { X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import { AttachButton, AttachmentTray } from "../agents/attachmenttray";
@@ -38,7 +37,15 @@ import {
     resolveChannelLaunchRoute,
     resolvedProfileAtom,
 } from "../agents/runactions";
-import { START_OPTIONS, launchBlocker, startNote, type RunShape, type StartFrom } from "../agents/runconfig";
+import {
+    effectiveStart,
+    launchBlocker,
+    startNote,
+    startOptions,
+    type DesignFirst,
+    type RunShape,
+    type StartFrom,
+} from "../agents/runconfig";
 import {
     autonomousAtom,
     beginRunConfigDraft,
@@ -95,7 +102,9 @@ const CANCEL_BTN =
 const FULL_WIDTH_PICKER =
     "min-w-0 flex-1 [&>div]:w-full [&>div>button]:w-full [&>div>button]:max-w-none [&>div>button]:justify-between";
 const PLAN_GRID = "grid grid-cols-[40px_minmax(0,1fr)_44px_96px_112px] gap-x-2.5 px-3";
-const START_LABEL: Record<StartFrom, string> = { goal: "Goal", plan: "Plan file" };
+const START_LABEL: Record<StartFrom, string> = { design: "Approved design", goal: "Goal", plan: "Plan file" };
+const DESIGN_FIRST_OPTIONS: DesignFirst[] = ["", "brainstorm", "canvas"];
+const DESIGN_FIRST_LABEL: Record<DesignFirst, string> = { "": "Off", brainstorm: "Brainstorm", canvas: "Mock up" };
 const MODEL_TONE: Record<PlanModelTone, string> = {
     "plan-live": "text-accent-soft",
     "plan-ignored": "text-ink-faint line-through",
@@ -184,30 +193,90 @@ function ModelsSection({ orchestrator }: { orchestrator: boolean }) {
     );
 }
 
-function StartToggle({ start }: { start: StartFrom }) {
+function Segmented<T extends string>({
+    label,
+    options,
+    labels,
+    value,
+    onPick,
+}: {
+    label: string;
+    options: T[];
+    labels: Record<T, string>;
+    value: T;
+    onPick: (next: T) => void;
+}) {
+    return (
+        <div
+            role="group"
+            aria-label={label}
+            className="flex flex-none gap-0.5 rounded-[8px] border border-border bg-surface p-0.5"
+        >
+            {options.map((option) => (
+                <button
+                    key={option}
+                    type="button"
+                    aria-pressed={value === option}
+                    onClick={() => onPick(option)}
+                    className={cn(
+                        "cursor-pointer rounded-[6px] px-3 py-1 text-[11.5px] font-semibold",
+                        value === option ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:text-secondary"
+                    )}
+                >
+                    {labels[option]}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+function StartToggle({ start, hasDesign }: { start: StartFrom; hasDesign: boolean }) {
     return (
         <div className="flex items-center gap-2">
-            <div
-                role="group"
-                aria-label="Start from"
-                className="flex flex-none gap-0.5 rounded-[8px] border border-border bg-surface p-0.5"
-            >
-                {START_OPTIONS.map((option) => (
-                    <button
-                        key={option}
-                        type="button"
-                        aria-pressed={start === option}
-                        onClick={() => setStart(option)}
-                        className={cn(
-                            "cursor-pointer rounded-[6px] px-3 py-1 text-[11.5px] font-semibold",
-                            start === option ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:text-secondary"
-                        )}
-                    >
-                        {START_LABEL[option]}
-                    </button>
-                ))}
-            </div>
+            <Segmented
+                label="Start from"
+                options={startOptions(hasDesign)}
+                labels={START_LABEL}
+                value={start}
+                onPick={setStart}
+            />
             <span className="min-w-0 flex-1 text-[11px] leading-[1.45] text-muted">{startNote(start)}</span>
+        </div>
+    );
+}
+
+// The approved design is what the lead plans from, so it is shown, not edited: a design to change goes back to
+// the session that made it.
+function DesignRow({ attrs, label, path }: { attrs: Record<`data-${string}`, string>; label: string; path: string }) {
+    return (
+        <span {...attrs} title={path} className="min-w-0 truncate font-mono text-[11px] text-muted">
+            {label} · {path}
+        </span>
+    );
+}
+
+function DesignRows({ spec, prototype }: { spec: string; prototype: string }) {
+    return (
+        <div data-new-run-design className="flex flex-col gap-1">
+            {spec !== "" ? <DesignRow attrs={{ "data-new-run-design-spec": "" }} label="Spec" path={spec} /> : null}
+            {prototype !== "" ? (
+                <DesignRow attrs={{ "data-new-run-design-prototype": "" }} label="Prototype" path={prototype} />
+            ) : null}
+        </div>
+    );
+}
+
+function DesignFirstToggle({ value, onPick }: { value: DesignFirst; onPick: (next: DesignFirst) => void }) {
+    return (
+        <div className="flex items-center gap-2">
+            <span className="text-[12px] text-ink-mid">Design first</span>
+            <Segmented
+                label="Design first"
+                options={DESIGN_FIRST_OPTIONS}
+                labels={DESIGN_FIRST_LABEL}
+                value={value}
+                onPick={onPick}
+            />
         </div>
     );
 }
@@ -321,7 +390,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const reviewerRoute = useAtomValue(reviewerRouteAtom);
     const lightReviewerRoute = useAtomValue(lightReviewerRouteAtom);
     const autonomous = useAtomValue(autonomousAtom);
-    const startFrom = useAtomValue(startAtom);
+    const startAtomValue = useAtomValue(startAtom);
     const planPath = useAtomValue(planPathAtom);
     const preview = useAtomValue(planPreviewAtom);
     const runRoute = useAtomValue(runRouteAtom);
@@ -331,15 +400,21 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     // type-a-goal-and-go rather than pick-the-same-project-again
     const [picked, setPicked] = useState<string | null>(() => initialPick(names, recent[0] ?? null));
     const [goal, setGoal] = useState("");
+    // the approved design a prefill brought; read-only, so only a prefill sets them
+    const [spec, setSpec] = useState("");
     const [prototype, setPrototype] = useState("");
-    // the shape a prefill opened the window for, which hydration applies over the profile's
+    const [designFirst, setDesignFirst] = useState<DesignFirst>("");
+    // the shape and start a prefill opened the window for, which hydration applies over the profile's
     const [openedShape, setOpenedShape] = useState<RunShape | null>(null);
+    const [openedStart, setOpenedStart] = useState<StartFrom | null>(null);
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const goalRef = useRef<HTMLTextAreaElement>(null);
     const planRef = useRef<HTMLInputElement>(null);
     const onStartedRef = useRef<((runId: string) => void) | null>(null);
     const { attachments, addPaths, remove, retry, onPaste } = useComposerAttachments();
+    const hasDesign = spec !== "" || prototype !== "";
+    const startFrom = effectiveStart(startAtomValue, hasDesign);
     const config = {
         shape,
         parallelism,
@@ -350,13 +425,15 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         reviewerRoute,
         lightReviewerRoute,
         autonomous,
+        spec,
         prototype,
+        designFirst,
     };
     const orchestrator = shape === "orchestrator";
     // a plan start is named by its plan, so it has no goal field to fill
     const planStart = orchestrator && startFrom === "plan";
     const blocker =
-        launchBlocker({ shape, start: startFrom, goal, planPath, preview }) ??
+        launchBlocker({ shape, start: startFrom, goal, planPath, preview, designFirst, autonomous }) ??
         (planStart ? null : attachmentBlocker(attachments));
     const projectPath = rows.find((r) => r.name === picked)?.path ?? "";
 
@@ -378,8 +455,8 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         }
     }, [pickedOid]);
     useEffect(() => {
-        hydrateRunConfigFromProfile(pickedOid != null ? profiles[pickedOid] : null, openedShape);
-    }, [pickedOid, profiles, openedShape]);
+        hydrateRunConfigFromProfile(pickedOid != null ? profiles[pickedOid] : null, openedShape, openedStart);
+    }, [pickedOid, profiles, openedShape, openedStart]);
     // the lead route the picker opens on, same precedence the sheet's composer uses: the project's own
     // saved route, else the harness preference — and never over a route the user has picked by hand
     const profileRoute = (pickedOid != null ? overrides[pickedOid]?.route : null) ?? pref.route ?? null;
@@ -403,7 +480,9 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
             setPicked(p.picked);
         }
         setOpenedShape(p.shape);
+        setOpenedStart(p.start);
         setGoal(p.goal);
+        setSpec(p.spec);
         setPrototype(p.prototype);
     }, [rows]);
 
@@ -549,7 +628,10 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                             {orchestrator ? <ApprovalsSection /> : null}
                         </div>
                         <div className="flex min-h-0 min-w-0 flex-col gap-3 px-[18px] py-4">
-                            {orchestrator ? <StartToggle start={startFrom} /> : null}
+                            {orchestrator ? <StartToggle start={startFrom} hasDesign={hasDesign} /> : null}
+                            {orchestrator && startFrom === "design" ? (
+                                <DesignRows spec={spec} prototype={prototype} />
+                            ) : null}
                             {planStart ? (
                                 <PlanPane
                                     projectPath={projectPath}
@@ -572,26 +654,11 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                         <AttachButton onClick={pickFiles} />
                                         <AttachmentTray items={attachments} onRemove={remove} onRetry={retry} />
                                     </div>
+                                    {orchestrator && startFrom === "goal" ? (
+                                        <DesignFirstToggle value={designFirst} onPick={setDesignFirst} />
+                                    ) : null}
                                 </>
                             )}
-                            {orchestrator && prototype !== "" ? (
-                                <div className="flex items-center gap-1.5">
-                                    <span
-                                        title={prototype}
-                                        className="min-w-0 truncate font-mono text-[11px] text-muted"
-                                    >
-                                        Prototype · {prototype}
-                                    </span>
-                                    <button
-                                        type="button"
-                                        aria-label="Remove prototype"
-                                        onClick={() => setPrototype("")}
-                                        className="flex flex-none cursor-pointer items-center text-muted hover:text-primary"
-                                    >
-                                        <X size={12} aria-hidden />
-                                    </button>
-                                </div>
-                            ) : null}
                         </div>
                     </div>
                     <div

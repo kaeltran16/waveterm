@@ -111,20 +111,83 @@ describe("launchOptsFromConfig", () => {
         );
     });
 
-    it("carries a canvas prototype on an orchestrator run", () => {
-        const prototype = "C:/p/x/project/Main.dc.html";
-        expect(launchOptsFromConfig({ ...base, shape: "orchestrator", prototype })).toEqual({
+    const spec = "C:/p/docs/superpowers/specs/x-design.md";
+    const prototype = "C:/p/x/project/Main.dc.html";
+
+    it("sends the spec and the prototype as fields on a design start", () => {
+        expect(
+            launchOptsFromConfig({
+                ...base,
+                shape: "orchestrator",
+                start: "design",
+                spec,
+                prototype,
+                designFirst: "canvas",
+            })
+        ).toEqual({
             mode: "orchestrator",
             reviewerPicks: false,
             autonomous: false,
             parallelism: 3,
+            spec,
             prototype,
         });
     });
 
-    // the server rejects a prototype on a quick run
-    it("drops the prototype from quick", () => {
-        expect(launchOptsFromConfig({ ...base, prototype: "C:/p/x/project/Main.dc.html" })).toEqual({ mode: "quick" });
+    it("sends only what the design has", () => {
+        expect(launchOptsFromConfig({ ...base, shape: "orchestrator", start: "design", spec })).not.toHaveProperty(
+            "prototype"
+        );
+        expect(launchOptsFromConfig({ ...base, shape: "orchestrator", start: "design", prototype })).not.toHaveProperty(
+            "spec"
+        );
+    });
+
+    // the design rides only its own start: a run started from Goal or Plan file never sees it
+    it("sends no design from a goal or a plan start", () => {
+        for (const start of ["goal", "plan"] as const) {
+            const opts = launchOptsFromConfig({
+                ...base,
+                shape: "orchestrator",
+                start,
+                planPath: "/p.md",
+                spec,
+                prototype,
+            });
+            expect(opts).not.toHaveProperty("spec");
+            expect(opts).not.toHaveProperty("prototype");
+        }
+    });
+
+    it.each(["brainstorm", "canvas"] as const)("sends Design first %s from a goal start", (designFirst) => {
+        expect(launchOptsFromConfig({ ...base, shape: "orchestrator", designFirst })).toEqual({
+            mode: "orchestrator",
+            reviewerPicks: false,
+            autonomous: false,
+            parallelism: 3,
+            designFirst,
+        });
+    });
+
+    it("sends no Design first when it is off, or from a plan start", () => {
+        expect(launchOptsFromConfig({ ...base, shape: "orchestrator", designFirst: "" })).not.toHaveProperty(
+            "designFirst"
+        );
+        expect(
+            launchOptsFromConfig({
+                ...base,
+                shape: "orchestrator",
+                start: "plan",
+                planPath: "/p.md",
+                designFirst: "brainstorm",
+            })
+        ).toEqual({ mode: "orchestrator", reviewerPicks: false, autonomous: false, parallelism: 3, planPath: "/p.md" });
+    });
+
+    // the server rejects a prototype, a spec and Design first on a quick run
+    it("drops the design and Design first from quick", () => {
+        expect(launchOptsFromConfig({ ...base, start: "design", spec, prototype })).toEqual({ mode: "quick" });
+        expect(launchOptsFromConfig({ ...base, designFirst: "brainstorm" })).toEqual({ mode: "quick" });
     });
 
     it.each([true, false])("carries autonomous %s on an orchestrator run", (autonomous) => {
@@ -142,7 +205,9 @@ describe("launchOptsFromConfig", () => {
     });
 
     it("sends no prototype when none is set", () => {
-        expect(launchOptsFromConfig({ ...base, shape: "orchestrator", prototype: "" })).not.toHaveProperty("prototype");
+        expect(
+            launchOptsFromConfig({ ...base, shape: "orchestrator", start: "design", spec, prototype: "" })
+        ).not.toHaveProperty("prototype");
     });
 });
 
@@ -271,19 +336,38 @@ describe("prefillToLaunch", () => {
         prototype: "C:/p/.superpowers/design/t/project/Main.dc.html",
     };
 
-    it("opens an orchestrator run on the canvas's project, goal and prototype", () => {
+    it("opens an orchestrator run on the Approved design start with the canvas's project, goal and prototype", () => {
         expect(prefillToLaunch(prefill, ["waveterm", "other"])).toEqual({
             picked: "waveterm",
             shape: "orchestrator",
+            start: "design",
             goal: prefill.goal,
+            spec: "",
             prototype: prefill.prototype,
         });
     });
 
+    it("opens a brainstorm's spec on the Approved design start, corrected to orchestrator", () => {
+        const spec = "C:/p/docs/superpowers/specs/x-design.md";
+        expect(prefillToLaunch({ projectName: "p", goal: "Build X.", shape: "quick", spec }, ["p"])).toEqual({
+            picked: "p",
+            shape: "orchestrator",
+            start: "design",
+            goal: "Build X.",
+            spec,
+            prototype: "",
+        });
+    });
+
+    it("opens a prefill with no design on the goal start", () => {
+        expect(prefillToLaunch({ projectName: "p", goal: "g", shape: "orchestrator" }, ["p"]).start).toBe("goal");
+    });
+
     it("picks no project when the canvas's project is not registered", () => {
-        expect(prefillToLaunch(prefill, ["other"])).toEqual({
+        expect(prefillToLaunch(prefill, ["other"])).toMatchObject({
             picked: null,
             shape: "orchestrator",
+            start: "design",
             goal: prefill.goal,
             prototype: prefill.prototype,
         });
@@ -296,6 +380,8 @@ describe("prefillToLaunch", () => {
     it("takes the shape from the prefill", () => {
         expect(prefillToLaunch({ projectName: "p", goal: "g", shape: "quick" }, ["p"])).toMatchObject({
             shape: "quick",
+            start: "goal",
+            spec: "",
             prototype: "",
             picked: "p",
         });

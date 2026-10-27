@@ -59,10 +59,12 @@ import { finalCheckEntry, shotPath, shotRounds, type FinalCheckEntry, type ShotR
 import { FinalShotsViewer, VERDICT_DOT } from "./finalshotsviewer";
 import { briefEffortIndexAtom, briefProfileAtom, briefRevealChunkAtom } from "./jarvisstore";
 import { useLocalImage } from "./localimage";
+import { openTarget } from "./openref";
 import { RunReportView } from "./runreportview";
 import { runSettingsDraft, type LinkedGroupRead } from "./runsettings";
 import {
     configLine,
+    designLink,
     doneBody,
     finalStageEndable,
     orderedTasks,
@@ -186,7 +188,16 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
     const userAsks = userOwnedAsks(asks);
     const asker = leadAsker(run, agents);
     const survivors = cancelSurvivors(run, agents).length;
-    const status = sheetStatus({ run, nowMs: now, dag, userAsks, workerAsking: asker != null, survivors });
+    const design = designLink(run, agents);
+    const status = sheetStatus({
+        run,
+        nowMs: now,
+        dag,
+        userAsks,
+        workerAsking: asker != null,
+        survivors,
+        designOpen: design != null,
+    });
     const waiting: WaitingQuestion | null =
         asker != null
             ? { header: asker.ask?.questions?.[0]?.header || "question", lead: true }
@@ -201,7 +212,14 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
 
     return (
         <div data-run-sheet={run.status} className="flex min-h-0 flex-1 flex-col bg-background">
-            <Reading run={run} status={status} dag={dag} waiting={waiting} onRetry={dag?.digest.retry} />
+            <Reading
+                run={run}
+                status={status}
+                dag={dag}
+                waiting={waiting}
+                onRetry={dag?.digest.retry}
+                onOpenDesign={design != null ? () => openTarget(ctx.model, { kind: "agent", ...design }) : undefined}
+            />
             <div className="sc min-h-0 flex-1 overflow-y-auto px-4 pb-2.5">
                 {dag != null ? (
                     <RunTimingSection run={run} digest={dag.digest.digest} tasks={dag.group?.tasks} now={now} />
@@ -341,12 +359,15 @@ function Reading({
     dag,
     waiting,
     onRetry,
+    onOpenDesign,
 }: {
     run: Run;
     status: SheetStatus;
     dag: SheetDagRead | null;
     waiting: WaitingQuestion | null;
     onRetry?: () => void;
+    // a designing run whose session tab is open
+    onOpenDesign?: () => void;
 }) {
     const [goalOpen, setGoalOpen] = useState(false);
     const index = useAtomValue(briefEffortIndexAtom);
@@ -372,6 +393,17 @@ function Reading({
                     {status.verb}
                 </span>
                 <span className="min-w-0 text-[13px] leading-[1.35] text-ink-mid">{status.sub}</span>
+                {onOpenDesign != null ? (
+                    <button
+                        type="button"
+                        data-run-sheet-design-link
+                        onClick={onOpenDesign}
+                        className={cn(LINK, "inline-flex flex-none items-center gap-1")}
+                    >
+                        Open session
+                        <ArrowUpRight size={11} aria-hidden />
+                    </button>
+                ) : null}
             </div>
             <SheetBarView bar={status.meter} dag={dag} />
             <RunSettingsPanel

@@ -13,7 +13,9 @@ reads it, and every user action reaches you as one line, sent to you as a messag
 
 **Not in a run's agent.** When your instructions put every question through AskUserQuestion or
 `wsh ask` (an orchestrator run's lead, or any agent an Arc run started; Arc sets `ARC_RUN_AGENT` in its
-environment), follow them and do not use this skill: the cockpit shows those questions instead.
+environment), follow them and do not use this skill: the cockpit shows those questions instead. A
+design session a run started for you to brainstorm in is not one of those: it has no `ARC_RUN_AGENT`,
+so this skill applies.
 
 What changes from plain brainstorming:
 
@@ -158,8 +160,8 @@ Every other action is a `brainstorm:` line:
 | `brainstorm: builder answer: <text>` | Builder check, below. |
 | `brainstorm: builder decide` | Move the first `check.yours` entry with no `a` into `check.calls` as `{ "text": <your decision>, "part": <its part> }`, fold it into that part and the spec (marked "Agent's call"), write the file. |
 | `brainstorm: keep talking` | Set `done: false` and `check: null`, and ask your next question. |
-| `brainstorm: approved` | Stop. Arc opens the run launcher with the spec attached. Do not start a run yourself. |
-| `brainstorm: run <id>` | A run started from this brainstorm: set `run` to the id. |
+| `brainstorm: approved` | Stop. Arc either attaches the design to the run waiting on this session and starts its lead, or opens the run launcher on its **Approved design** start with the spec attached (**The run**, below). Do not start a run yourself. |
+| `brainstorm: run <id>` | A run started from this brainstorm, or took its design: set `run` to the id. |
 
 After acting on any line, write the file once, then end the turn with a short reply in the
 terminal (the next question, when there is one).
@@ -451,8 +453,16 @@ decision.
 **Approving.** Arc enables approve only once no question is open, every builder question is
 answered or decided by you, and every decision is `yours`.
 
-**The run.** On `brainstorm: approved`, stop; Arc opens the launcher, and sends `brainstorm: run <id>`
-once the run starts.
+**The run.** On `brainstorm: approved`, stop. Which of two things happens is Arc's lookup, never your call:
+
+- **A session a run waits on** (a run started it, from **Design first** or the lead's `Needs a design`
+  ask): Approve attaches the design, the spec and the first board as the prototype, to that run and starts its
+  lead. No launcher opens. Arc then sends `brainstorm: run <id>`.
+- **Any other session** (you were asked to brainstorm in chat): Arc opens the run launcher on its **Approved
+  design** start, with the spec and the first board attached, and sends `brainstorm: run <id>` once the run
+  starts.
+
+Either way, a lead plans from the design: do not plan or start a run yourself.
 
 **Resuming.** Asked to resume a brainstorm from a `brainstorm.json` path (a new agent after the old
 one exited): read the file, carry on from its `question` or its next step, and keep writing the
