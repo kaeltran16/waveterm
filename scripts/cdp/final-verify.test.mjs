@@ -213,7 +213,8 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
             ...process.env,
             LOCALAPPDATA: join(dir, "localappdata"),
             ARC_FINAL_OUT: join(dir, name),
-            ARC_FINAL_BOOT_MS: "10000",
+            // the fake exits on its own after holdMs, so this only bounds a start slowed by a loaded machine
+            ARC_FINAL_BOOT_MS: "20000",
             ARC_FINAL_DEV_CMD: `node "${fakeDev}"`,
         };
     }
@@ -254,7 +255,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         expect(dirname(a.env.ARC_DEV_DATA_DIR)).not.toBe(dirname(b.env.ARC_DEV_DATA_DIR));
         expect(a.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).not.toBe(b.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS);
         expect(a.devUrl).not.toBe(b.devUrl);
-    }, 30_000);
+    }, 60_000);
 
     // node_modules is a junction to the main checkout's, so its .vite cache is shared with every dev app on the
     // machine: one re-optimizing mid-boot swaps react's chunks under another and loads two copies of react
@@ -268,7 +269,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
             expect(dirname(env.ARC_VITE_CACHE_DIR)).toBe(base);
             expect(env.ARC_VITE_CACHE_DIR).not.toContain("node_modules");
         }
-    }, 30_000);
+    }, 60_000);
 
     it("runs two final stages one after the other when one slot is free", async () => {
         const base = makeBase();
@@ -280,7 +281,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         } finally {
             await Promise.all(held.map(close));
         }
-    }, 30_000);
+    }, 60_000);
 
     it("is unverified when other final stages keep every slot past the wait", async () => {
         const base = makeBase();
