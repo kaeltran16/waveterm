@@ -12,6 +12,7 @@ reference for build commands, architecture, and gotchas — start there.
 | `orchestrator-guide.md` | How to use the orchestrator: Quick, goal-led and plan-file runs, answering a lead, steering, landing, and the rough edges. |
 | `orchestrator-redesign-flaws.md` | Living flaws tracker for the orchestrator engine; resolved rows kept as one-line summaries. |
 | `diff-tab.md` | Reference and walkthrough for the Diff surface. |
+| `remote-phone.md` | Setup guide for remote mode: answering Arc from an installed iPhone web app through a Cloudflare tunnel, and the login check on a real phone. |
 | `keyboard-shortcuts.md` | Human-readable mirror of the keybinding registry (`frontend/app/store/keybindings/` is the source of truth). |
 
 ## Directories
