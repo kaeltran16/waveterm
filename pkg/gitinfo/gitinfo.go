@@ -118,20 +118,19 @@ func GetRangeChanges(ctx context.Context, cwd, base, end string) (*Changes, erro
 	return &Changes{StatusZ: nameStatusToStatusZ(nameStatus), Numstat: numstat, IsRepo: true}, nil
 }
 
-// GetTrailerCommitsChanges is GetRangeChanges narrowed to the commits in from..to whose trailerKey
-// trailer has a value match accepts. On a checkout shared with other sessions the range interleaves their
-// commits with the ones being measured, and a trailer is the only mark that tells them apart. Counts are
-// summed per path over the kept commits (each measured against its first parent), and a path touched
-// twice takes the status of its last commit. The timeout is per commit: a long run keeps many commits,
-// and running out of time here fails the whole read.
-func GetTrailerCommitsChanges(ctx context.Context, cwd, from, to, trailerKey string, match func(string) bool) (*Changes, error) {
+// GetCommitsChanges is GetRangeChanges narrowed to the commits in from..to whose sha keep accepts. On a
+// checkout shared with other sessions the range interleaves their commits with the ones being measured.
+// Counts are summed per path over the kept commits (each measured against its first parent), and a path
+// touched twice takes the status of its last commit. The timeout is per commit: a long run keeps many
+// commits, and running out of time here fails the whole read.
+func GetCommitsChanges(ctx context.Context, cwd, from, to string, keep func(sha string) bool) (*Changes, error) {
 	logCtx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	inside, err := run(logCtx, cwd, "rev-parse", "--is-inside-work-tree")
 	if err != nil || strings.TrimSpace(inside) != "true" {
 		return &Changes{IsRepo: false}, nil
 	}
-	out, err := run(logCtx, cwd, "log", "--reverse", "--format=%H%x00%P%x00%(trailers:key="+trailerKey+",valueonly)%x1e", from+".."+to)
+	out, err := run(logCtx, cwd, "log", "--reverse", "--format=%H%x00%P%x1e", from+".."+to)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +142,7 @@ func GetTrailerCommitsChanges(ctx context.Context, cwd, from, to, trailerKey str
 	source := map[string]string{}
 	for _, rec := range strings.Split(out, "\x1e") {
 		fields := strings.Split(strings.TrimSpace(rec), "\x00")
-		if len(fields) != 3 || !anyLineMatches(fields[2], match) {
+		if len(fields) != 2 || !keep(fields[0]) {
 			continue
 		}
 		parent := emptyTreeHash
@@ -205,15 +204,6 @@ func GetTrailerCommitsChanges(ctx context.Context, cwd, from, to, trailerKey str
 		fmt.Fprintf(&numstat, "%d\t%d\t%s\n", counts[path].add, counts[path].del, path)
 	}
 	return &Changes{StatusZ: statusZ.String(), Numstat: numstat.String(), IsRepo: true}, nil
-}
-
-func anyLineMatches(values string, match func(string) bool) bool {
-	for _, v := range strings.Split(values, "\n") {
-		if v = strings.TrimSpace(v); v != "" && match(v) {
-			return true
-		}
-	}
-	return false
 }
 
 // commitDiffs returns one commit's name-status and numstat against parent, both -z.

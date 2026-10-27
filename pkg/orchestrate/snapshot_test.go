@@ -54,7 +54,7 @@ func TestSnapshotDocsCommitsBothDocsOnTheRunsBranch(t *testing.T) {
 	if want := []string{"docs/specs/s.md", "docs/plans/p.md"}; !reflect.DeepEqual(rels, want) {
 		t.Fatalf("paths = %v, want %v", rels, want)
 	}
-	if msg := gitCmd(t, tree, "log", "-1", "--format=%B"); msg != "docs: spec and plan for coupons\n\nArc-Run: run-1" {
+	if msg := gitCmd(t, tree, "log", "-1", "--format=%B"); msg != "docs: spec and plan for coupons" {
 		t.Fatalf("message = %q", msg)
 	}
 	files := strings.Fields(gitCmd(t, tree, "show", "--name-only", "--format=", "HEAD"))
@@ -102,7 +102,7 @@ func TestSnapshotDocsRevisesTheSnapshotNoLaneHasCut(t *testing.T) {
 	if after := commitCount(t, tree); after != before {
 		t.Fatalf("commits went from %s to %s, want the revision to replace the first snapshot", before, after)
 	}
-	if msg := gitCmd(t, tree, "log", "-1", "--format=%B"); msg != "docs: spec and plan for coupons\n\nArc-Run: run-1" {
+	if msg := gitCmd(t, tree, "log", "-1", "--format=%B"); msg != "docs: spec and plan for coupons" {
 		t.Fatalf("message = %q", msg)
 	}
 	if got := gitCmd(t, tree, "show", "HEAD:docs/specs/s.md"); got != "# spec, revised" {
@@ -130,12 +130,15 @@ func TestSnapshotDocsKeepsASnapshotALaneWasCutFrom(t *testing.T) {
 	}
 }
 
-// another run's snapshot, or the lead's own commit, is never rewritten
+// the lead's own commit on the landing branch is never rewritten
 func TestSnapshotDocsKeepsAHeadThatIsNotThisRunsSnapshot(t *testing.T) {
 	tree, spec, plan := snapshotFixture(t)
-	if _, err := SnapshotDocs(context.Background(), tree, "run-2", "coupons", spec, plan); err != nil {
+	if _, err := SnapshotDocs(context.Background(), tree, "run-1", "coupons", spec, plan); err != nil {
 		t.Fatal(err)
 	}
+	writeDoc(t, filepath.Join(tree, "notes.md"), "# notes\n")
+	gitCmd(t, tree, "add", "notes.md")
+	gitCmd(t, tree, "commit", "-m", "docs: the lead's notes")
 	first := gitCmd(t, tree, "rev-parse", "HEAD")
 	writeDoc(t, plan, "# plan, revised\n")
 	if _, err := SnapshotDocs(context.Background(), tree, "run-1", "coupons", spec, plan); err != nil {

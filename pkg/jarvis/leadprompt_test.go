@@ -215,7 +215,6 @@ func TestOrchestrationRulesCompleteOnTheirOwn(t *testing.T) {
 		`wsh jarvis dag planreview accept "<the human's reason>"`,
 		// an accepted finding goes to a pending task, not to a post-final wrap-up commit (run 33880f82)
 		"first carry each accepted finding into the pending tasks it affects with `wsh jarvis dag amend <task>",
-		"end each commit you make for this run with the line `Arc-Run: r1`",
 		// the land runs after complete; run dc7d6de0's lead completed a failed final and never said it would hold
 		"a failed final stage holds the land: completing does not merge the branch",
 		"`wsh runs land <run> --force`",

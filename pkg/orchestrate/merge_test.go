@@ -11,10 +11,6 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
-
-	"github.com/google/uuid"
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func TestMergeSquash(t *testing.T) {
@@ -42,7 +38,7 @@ func TestMergeSquash(t *testing.T) {
 }
 
 // a lane lands under the messages its workers wrote, oldest first and each once, not the plan's task titles,
-// without the agent's attribution; the lane and its task are named in trailers
+// without the agent's attribution or any trailer
 func TestMergeSquashKeepsTheWorkersCommitMessages(t *testing.T) {
 	dir := newGitRepo(t)
 	base := gitCmd(t, dir, "rev-parse", "HEAD")
@@ -56,14 +52,14 @@ func TestMergeSquashKeepsTheWorkersCommitMessages(t *testing.T) {
 	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "Add the feature", TaskIDs: []string{"t-1"}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	want := "feat(x): add the feature\n\nwhy it exists\n\ndocs: record the feature\n\nArc-Run: run-1\nArc-Task: t-1"
+	want := "feat(x): add the feature\n\nwhy it exists\n\ndocs: record the feature"
 	if got := gitCmd(t, dir, "log", "-1", "--format=%B"); got != want {
 		t.Fatalf("squash message = %q, want %q", got, want)
 	}
 }
 
 // one worker's subject names only its own task, so a lane of several lands under their titles, with the
-// workers' messages as the body and a task and model trailer per task; a retry still finds the commit by its run trailer
+// workers' messages as the body; a retry still finds the commit by its message
 func TestMergeSquashOfASeveralTaskLaneNamesEveryTask(t *testing.T) {
 	dir := newGitRepo(t)
 	base := gitCmd(t, dir, "rev-parse", "HEAD")
@@ -73,12 +69,12 @@ func TestMergeSquashOfASeveralTaskLaneNamesEveryTask(t *testing.T) {
 		gitCmd(t, wt, "add", ".")
 		gitCmd(t, wt, "commit", "-m", msg)
 	}
-	lane := MergeLane{Title: "schema; ui", TaskIDs: []string{"t-1", "t-4"}, Routes: []string{"t-1 claude claude-opus-5-5", "t-4 pi opencode-go/deepseek-v4-flash"}}
+	lane := MergeLane{Title: "schema; ui", TaskIDs: []string{"t-1", "t-4"}}
 	landed, err := MergeRunWorktree(context.Background(), dir, "run-1", lane, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "feat: schema; ui\n\nfeat(schema): add the table\n\nfeat(ui): show the table\n\nArc-Run: run-1\nArc-Task: t-1\nArc-Task: t-4\nArc-Model: t-1 claude claude-opus-5-5\nArc-Model: t-4 pi opencode-go/deepseek-v4-flash"
+	want := "feat: schema; ui\n\nfeat(schema): add the table\n\nfeat(ui): show the table"
 	if got := gitCmd(t, dir, "log", "-1", "--format=%B"); got != want {
 		t.Fatalf("squash message = %q, want %q", got, want)
 	}
@@ -106,46 +102,25 @@ func TestMergeSquashOfASeveralTaskLaneCutsItsSubjectLine(t *testing.T) {
 		t.Fatalf("subject = %q (%d runes), want the lane title cut to %d", subject, n, maxLandTitleLen)
 	}
 	body := gitCmd(t, dir, "log", "-1", "--format=%b")
-	for _, want := range []string{"feat(cockpit): show a waiting merge gate", "Arc-Task: t-2", "Arc-Task: t-3"} {
+	for _, want := range []string{"feat(orchestrate): show how long a merge gate has sat", "feat(cockpit): show a waiting merge gate"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body lost %q:\n%s", want, body)
 		}
 	}
 }
 
-// a skipped task landed nothing, so the squash commit names it neither in its subject nor in a trailer
+// a skipped task landed nothing, so the squash commit's subject leaves it out
 func TestMergeLaneLeavesOutSkippedTasks(t *testing.T) {
 	g := laneGroup(t, true, map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Skipped, "t-3": TaskState_Done})
 	want := MergeLane{Title: "schema; ui", TaskIDs: []string{"t-1", "t-3"}}
-	if got := mergeLane(context.Background(), g, []string{"t-1", "t-2", "t-3"}); !reflect.DeepEqual(got, want) {
+	if got := mergeLane(g, []string{"t-1", "t-2", "t-3"}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("lane = %+v, want %+v", got, want)
 	}
 }
 
-// the model trailer names the run behind each task, its pinned model when no transcript reports one, and leaves
-// out a task whose run is gone rather than failing the merge
-func TestMergeLaneNamesEachTasksWorkerRoute(t *testing.T) {
-	ctx := context.Background()
-	ch, err := wstore.CreateChannel(ctx, "mergelane-"+uuid.NewString(), t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	g := laneGroup(t, true, map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_Done})
-	g.ChannelId = ch.OID
-	for _, r := range []waveobj.Run{{ID: "run-t-1", Runtime: "pi", Model: "opencode-go/deepseek-v4-flash"}, {ID: "run-t-2"}} {
-		if err := wstore.AppendRun(ctx, ch.OID, r); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got := mergeLane(ctx, g, []string{"t-1", "t-2", "t-3"}).Routes
-	if want := []string{"t-1 pi opencode-go/deepseek-v4-flash", "t-2 claude"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("routes = %q, want %q", got, want)
-	}
-}
-
-func TestStripAttributionDropsAgentCreditAndKeepsTheRunTrailer(t *testing.T) {
-	msg := "feat(x): add it\n\nwhy\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_1\nArc-Run: run-1"
-	if got, want := stripAttribution(msg), "feat(x): add it\n\nwhy\n\nArc-Run: run-1"; got != want {
+func TestStripAttributionDropsAgentCredit(t *testing.T) {
+	msg := "feat(x): add it\n\nwhy\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_1"
+	if got, want := stripAttribution(msg), "feat(x): add it\n\nwhy"; got != want {
 		t.Fatalf("stripAttribution = %q, want %q", got, want)
 	}
 }
@@ -161,7 +136,7 @@ func TestMergeSquashFallsBackToTheLaneLabel(t *testing.T) {
 	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "Add the feature"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := gitCmd(t, dir, "log", "-1", "--format=%B"), "chore: Add the feature\n\nArc-Run: run-1"; got != want {
+	if got, want := gitCmd(t, dir, "log", "-1", "--format=%B"), "chore: Add the feature"; got != want {
 		t.Fatalf("squash message = %q, want %q", got, want)
 	}
 }
@@ -207,8 +182,8 @@ func conflictedSquash(t *testing.T) string {
 }
 
 // A continue with nothing staged must not credit the lane with whatever is at HEAD: a squash the resolver threw
-// away would mark the task merged on the previous lane's commit, and one they committed themselves lands without
-// the run and task trailers that later merges and the run's evidence find it by.
+// away would mark the task merged on the previous lane's commit, and one they committed themselves lands under
+// a message of their own, which a retried merge cannot recognize as the lane's.
 func TestMergeContinueRefusesWhatTheLaneDidNotLand(t *testing.T) {
 	t.Run("squash abandoned", func(t *testing.T) {
 		dir := conflictedSquash(t)
@@ -230,13 +205,18 @@ func TestMergeContinueRefusesWhatTheLaneDidNotLand(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "git reset --soft HEAD~1") {
 			t.Fatalf("continue over the resolver's own commit: err = %v, want a refusal naming the undo", err)
 		}
-		// the way out the refusal names lands the squash with its trailers
+		// the way out the refusal names lands the squash under the lane's message, and a retry recognizes it
 		gitCmd(t, dir, "reset", "-q", "--soft", "HEAD~1")
-		if _, err := MergeContinue(context.Background(), dir, "run-1", MergeLane{Title: "do the thing", TaskIDs: []string{"t-1"}}, nil); err != nil {
+		lane := MergeLane{Title: "do the thing", TaskIDs: []string{"t-1"}}
+		landed, err := MergeContinue(context.Background(), dir, "run-1", lane, nil)
+		if err != nil {
 			t.Fatal(err)
 		}
-		if msg := gitCmd(t, dir, "log", "-1", "--format=%B"); !strings.Contains(msg, "Arc-Run: run-1") || !strings.Contains(msg, "Arc-Task: t-1") {
-			t.Fatalf("squash message lacks its trailers: %q", msg)
+		if msg := gitCmd(t, dir, "log", "-1", "--format=%B"); strings.Contains(msg, "Arc-") {
+			t.Fatalf("squash message carries a trailer: %q", msg)
+		}
+		if sha, err := MergeContinue(context.Background(), dir, "run-1", lane, nil); err != nil || sha != landed {
+			t.Fatalf("retried continue: want %s, got %q (%v)", landed, sha, err)
 		}
 	})
 }
@@ -259,7 +239,7 @@ func TestMergeOfALaneThatLandedNothingReturnsNoCommit(t *testing.T) {
 			dir := newGitRepo(t)
 			os.WriteFile(filepath.Join(dir, "earlier.txt"), []byte("earlier lane\n"), 0o644)
 			gitCmd(t, dir, "add", ".")
-			gitCmd(t, dir, "commit", "-m", "an earlier lane\n\nArc-Run: run-1")
+			gitCmd(t, dir, "commit", "-m", "an earlier lane")
 			head := gitCmd(t, dir, "rev-parse", "HEAD")
 			wt, err := CreateRunWorktree(context.Background(), dir, "run-2", head)
 			if err != nil {
@@ -281,15 +261,16 @@ func TestMergeOfALaneThatLandedNothingReturnsNoCommit(t *testing.T) {
 	}
 }
 
-// a merge retried after its squash already landed still reports that squash, whether the branch survived the
-// earlier attempt or cleanup already deleted it
+// a merge retried after its squash already landed still reports that squash while the branch survives; once
+// cleanup deleted the branch nothing marks the squash as the lane's, so the retry credits no commit
 func TestMergeRetryAfterTheSquashLandedReturnsItsCommit(t *testing.T) {
 	dir := newGitRepo(t)
 	base := gitCmd(t, dir, "rev-parse", "HEAD")
 	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
 	os.WriteFile(filepath.Join(wt, "feature.txt"), []byte("feat\n"), 0o644)
 	gitCmd(t, wt, "add", ".")
-	gitCmd(t, wt, "commit", "-m", "feature")
+	// a worker commits well before its merge; in the same second the squash would be this very commit
+	gitCmd(t, wt, "commit", "--date", "2020-01-01T00:00:00", "-m", "feature")
 	landed, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -300,8 +281,11 @@ func TestMergeRetryAfterTheSquashLandedReturnsItsCommit(t *testing.T) {
 	}
 	gitCmd(t, dir, "worktree", "remove", "--force", wt)
 	gitCmd(t, dir, "branch", "-D", "wave/run-1")
-	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}, nil); err != nil || sha != landed {
-		t.Fatalf("branch deleted: want %s, got %q (%v)", landed, sha, err)
+	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}, nil); err != nil || sha != "" {
+		t.Fatalf("branch deleted: want no commit, got %q (%v)", sha, err)
+	}
+	if got := gitCmd(t, dir, "rev-parse", "HEAD"); got != landed {
+		t.Fatalf("a retry after the branch is gone must commit nothing, HEAD moved to %s", got)
 	}
 }
 

@@ -260,8 +260,8 @@ over at `dag submit`. A failed review sends the plan back to a lead that still h
 it knows it is the lead of a run when it next wakes.
 
 On a run landing on its own branch, `dag submit` commits the spec and plan to `wave/<runId>` before any lane is
-cut (subject `docs: spec and plan for <title>`, without the plan template's " Implementation Plan", trailer
-`Arc-Run: <runId>`). Every lane branches from that
+cut (subject `docs: spec and plan for <title>`, without the plan template's " Implementation Plan"). Every lane
+branches from that
 commit, so each worker and reviewer reads that snapshot in its own tree, never the lead's live copy, and the docs
 land with the run. A resubmit with revised docs amends that commit while no lane has been cut from it (after a
 failed plan review), and commits anew once one has (a fix round's plan); identical content commits nothing. On a
@@ -386,8 +386,8 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 
 The engine turns tasks into **lanes**: a chain where each task has one dependency and is its only dependent
 shares one worktree and one branch, each task a fresh worker committing on top of the last, and lands as one
-squash merge. The squash commit carries its workers' commit messages, oldest first, and names the lane in an
-`Arc-Run:` trailer; the plan's task titles stand in only when those messages are empty. Independent tasks and tasks after a fork or join start their own lane. Lanes are what
+squash merge. The squash commit carries its workers' commit messages, oldest first, and no trailer; the plan's
+task titles stand in only when those messages are empty. Independent tasks and tasks after a fork or join start their own lane. Lanes are what
 parallelism counts. A task whose dependency is in another lane starts once that lane has merged, while the merge's
 Verify still runs; a failed Verify holds the next merge, not a dependent's start.
 
@@ -1038,8 +1038,8 @@ command (default `task dev -- --config <ARC_FINAL_OUT>/tauri.final.json`).
 The sheet goes to **Done**: tasks, commits landed, wall clock, worker time, and **evidence sealed**. **What
 landed** lists each task's commit; **Sealed evidence** has the diff stat and the lead's summary. The evidence
 also seals the run's outcome from the final stage (`passed` or `unverified`, with the reasons) and the tokens
-it spent. On a checkout-landed run it counts only the run's own commits, the ones with its `Arc-Run:` trailer;
-the lead ends each commit it makes with `Arc-Run: <runId>` so its own fixes count.
+it spent. On a checkout-landed run it counts only the lane merges the engine recorded on the run's tasks; the
+lead's own commits there are not counted, since no commit carries a mark of the run that made it.
 
 ![A finished plan run](images/orchestrator-guide/18-done.png)
 
@@ -1054,8 +1054,7 @@ and the rail names the branch it committed on:
 A branch-landed run's work reaches its base without you. When the run completes (the lead's `complete`, or the
 engine closing a lead-free run), the engine seals the evidence, then merges `wave/<runId>` into the base branch in
 the project checkout. The merge is `git merge --no-ff` with the plan's title (else the goal's first line) as a
-conventional subject, typed from the branch's own commits (`feat(cockpit): Shared Surface Toolbar`), and
-`Arc-Run: <runId>` as its trailer. Every land gets that subject, whether the engine starts it or you do with
+conventional subject, typed from the branch's own commits (`feat(cockpit): Shared Surface Toolbar`). Every land gets that subject, whether the engine starts it or you do with
 `wsh runs land` or **Retry land**: all of them go through one land function. It then removes the landing tree and
 deletes the branch; the evidence keeps the branch's tip. Landing is its own step with its own state (`pending`,
 `landed`, `held`). The lead's `wsh jarvis complete` waits for it and prints the outcome, `landed <sha>` or

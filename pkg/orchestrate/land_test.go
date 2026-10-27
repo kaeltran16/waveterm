@@ -123,8 +123,8 @@ func TestLandMergesTheBranchIntoACleanCheckout(t *testing.T) {
 		t.Fatalf("head has parents %v, want a --no-ff merge", parents)
 	}
 	msg := gitCmd(t, f.project, "log", "-1", "--format=%B")
-	if !strings.HasPrefix(msg, "feat(coupons): Coupon codes\n") || !strings.Contains(msg, "Arc-Run: "+f.ownerID) {
-		t.Fatalf("merge message %q, want the plan title typed from the branch and the Arc-Run line", msg)
+	if msg != "feat(coupons): Coupon codes" {
+		t.Fatalf("merge message %q, want only the plan title typed from the branch", msg)
 	}
 	// core.autocrlf may check it out with CRLF
 	if got := strings.ReplaceAll(readFile(t, filepath.Join(f.project, "feature.txt")), "\r\n", "\n"); got != "feature\n" {

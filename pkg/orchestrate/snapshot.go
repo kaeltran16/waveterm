@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -50,7 +49,7 @@ func SnapshotDocs(ctx context.Context, landTree, runID, title string, paths ...s
 	if _, err := git(ctx, landTree, append([]string{"add", "--"}, staged...)...); err != nil {
 		return nil, err
 	}
-	args := []string{"commit", "-m", snapshotSubjectPrefix + changeTitle(title), "-m", runTrailer + ": " + runID}
+	args := []string{"commit", "-m", snapshotSubjectPrefix + changeTitle(title)}
 	// a resubmit after a failed plan review revises docs no lane has read yet, so it replaces their snapshot
 	// rather than adding a second commit with the same subject
 	if revisableSnapshot(ctx, landTree, runID) {
@@ -67,10 +66,11 @@ func SnapshotDocs(ctx context.Context, landTree, runID, title string, paths ...s
 const snapshotSubjectPrefix = "docs: spec and plan for "
 
 // revisableSnapshot reports whether the tree's HEAD is runID's own earlier docs snapshot and only the run's
-// landing branch holds it. A lane cut from it is a branch that holds it too, and has read those docs.
+// landing branch holds it, which no other run's commit can be. A lane cut from it is a branch that holds it too,
+// and has read those docs.
 func revisableSnapshot(ctx context.Context, tree, runID string) bool {
 	msg, err := git(ctx, tree, "log", "-1", "--format=%B", "HEAD")
-	if err != nil || !strings.HasPrefix(msg, snapshotSubjectPrefix) || !slices.Contains(strings.Split(msg, "\n"), runTrailer+": "+runID) {
+	if err != nil || !strings.HasPrefix(msg, snapshotSubjectPrefix) {
 		return false
 	}
 	refs, err := git(ctx, tree, "for-each-ref", "--contains", "HEAD", "--format=%(refname)", "refs/heads")

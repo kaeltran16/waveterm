@@ -10,30 +10,15 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/wavetermdev/waveterm/pkg/jarvis"
 )
 
 var ErrMergeConflict = errors.New("merge conflict")
 
-// runTrailer names the lane a squash commit landed, which is how a retried merge recognizes its own commit.
-const runTrailer = jarvis.RunTrailerKey
-
-// taskTrailer names each task a squash commit landed, so `git log --grep Arc-Task` finds a task's commit even
-// when its lane landed several tasks as one.
-const taskTrailer = "Arc-Task"
-
-// modelTrailer names the harness and model behind each task a squash commit landed, so blaming a later fix
-// reaches the model that wrote the line after the run and its transcripts are gone.
-const modelTrailer = "Arc-Model"
-
 // MergeLane is what a lane's squash commit names: Title is its task titles, joined, and TaskIDs the tasks it
-// lands. Skipped tasks are in neither, since they landed nothing. Routes is "<task> <harness> [model]" for each
-// task whose worker run is known.
+// lands. Skipped tasks are in neither, since they landed nothing.
 type MergeLane struct {
 	Title   string
 	TaskIDs []string
-	Routes  []string
 }
 
 // MergeRunWorktree squash-merges wave/<runID> into the project branch and returns the merge commit
@@ -47,14 +32,11 @@ func MergeRunWorktree(ctx context.Context, projectPath, runID string, lane Merge
 		return "", ErrNotGitRepo
 	}
 	branch := "wave/" + runID
-	// Idempotency: if the branch is already gone, the squash commit landed on a
-	// prior attempt that failed only on worktree cleanup. Return that commit without
-	// re-merging so the caller can still stamp Merged/EndCommit and clean up.
+	// Idempotency: if the branch is already gone, the squash commit landed on a prior attempt that failed only
+	// on worktree cleanup. Nothing marks which commit that was, so it lands nothing more and credits none, and
+	// the caller can still stamp Merged and clean up.
 	if _, err := git(ctx, projectPath, "rev-parse", "--verify", branch); err != nil {
-		if sha, gerr := landedHead(ctx, projectPath, runID); gerr == nil {
-			return sha, nil
-		}
-		return "", fmt.Errorf("squash merge: %w", err)
+		return "", nil
 	}
 	if _, err := git(ctx, projectPath, "merge", "--squash", branch); err != nil {
 		if strings.Contains(err.Error(), "CONFLICT") {
@@ -62,7 +44,7 @@ func MergeRunWorktree(ctx context.Context, projectPath, runID string, lane Merge
 		}
 		// the branch is an ancestor of HEAD: it has no commit of its own to land
 		if strings.Contains(err.Error(), "Already up to date") {
-			if sha, gerr := landedHead(ctx, projectPath, runID); gerr == nil {
+			if sha, gerr := landedHead(ctx, projectPath, runID, lane); gerr == nil {
 				return sha, nil
 			}
 		}
@@ -89,7 +71,7 @@ func MergeContinue(ctx context.Context, projectPath, runID string, lane MergeLan
 // it, then commits. A path git refuses to stage, because it is ignored or outside the repository, is logged
 // and left out: the docs are not worth failing a merge over. resolved is a continue after a conflict: with
 // nothing staged it lands nothing, since HEAD is then the lane's squash from an earlier attempt or not the lane's
-// at all (the squash was thrown away, or its resolver committed it without the trailers merges are found by).
+// at all (the squash was thrown away, or its resolver committed it under a message of their own).
 func finishMerge(ctx context.Context, projectPath, runID string, lane MergeLane, fold []string, resolved bool) (string, error) {
 	for _, path := range fold {
 		staged, err := foldIntoTree(ctx, projectPath, path)
@@ -104,7 +86,7 @@ func finishMerge(ctx context.Context, projectPath, runID string, lane MergeLane,
 		// "nothing to commit": a retry whose squash commit already landed on the prior attempt, a branch whose
 		// commits change nothing, or a resolved squash that is no longer staged
 		if strings.Contains(err.Error(), "nothing to commit") || strings.Contains(err.Error(), "no changes added") || strings.Contains(err.Error(), "nothing added") {
-			sha, lerr := landedHead(ctx, projectPath, runID)
+			sha, lerr := landedHead(ctx, projectPath, runID, lane)
 			if resolved && lerr == nil && sha == "" {
 				return "", fmt.Errorf("nothing to commit in %s: the resolved merge is not staged. Resolve the conflicts and `git add` them without committing; if you committed the resolution yourself, undo that commit with `git reset --soft HEAD~1`; then run --continue again", projectPath)
 			}
@@ -142,12 +124,11 @@ func foldIntoTree(ctx context.Context, tree, path string) (string, error) {
 	return target, os.WriteFile(target, data, 0o644)
 }
 
-// mergeMessage is the branch's commit messages, oldest first, each once and without agent attribution,
-// then the run trailer and one task trailer per landed task. The branch always starts at a commit on the
-// project branch, so HEAD..branch is exactly its workers' commits. A lane of several tasks takes its title
-// as the subject, since any one worker's subject names only that worker's task, cut to a subject line as a land
-// title is: two task titles joined run past it, typed from the workers' subjects. A one-task lane falls back to
-// the title only when the messages are empty or unreadable.
+// mergeMessage is the branch's commit messages, oldest first, each once and without agent attribution. The
+// branch always starts at a commit on the project branch, so HEAD..branch is exactly its workers' commits. A
+// lane of several tasks takes its title as the subject, since any one worker's subject names only that worker's
+// task, cut to a subject line as a land title is: two task titles joined run past it, typed from the workers'
+// subjects. A one-task lane falls back to the title only when the messages are empty or unreadable.
 func mergeMessage(ctx context.Context, projectPath, runID string, lane MergeLane) string {
 	var msgs, subjects []string
 	out, err := git(ctx, projectPath, "log", "--reverse", "--format=%B%x00", "HEAD..wave/"+runID)
@@ -163,14 +144,7 @@ func mergeMessage(ctx context.Context, projectPath, runID string, lane MergeLane
 	if len(lane.TaskIDs) > 1 || len(msgs) == 0 {
 		msgs = append([]string{conventionalTitle(firstLine(lane.Title), subjects)}, msgs...)
 	}
-	trailers := []string{runTrailer + ": " + runID}
-	for _, id := range lane.TaskIDs {
-		trailers = append(trailers, taskTrailer+": "+id)
-	}
-	for _, r := range lane.Routes {
-		trailers = append(trailers, modelTrailer+": "+r)
-	}
-	return strings.Join(msgs, "\n\n") + "\n\n" + strings.Join(trailers, "\n")
+	return strings.Join(msgs, "\n\n")
 }
 
 // attributionPrefixes start the credit lines an agent harness appends to its commits. The project never
@@ -190,17 +164,33 @@ func stripAttribution(msg string) string {
 
 // landedHead is HEAD when it is this branch's squash commit, and "" otherwise. A merge that commits nothing
 // finds some other commit at HEAD, the previous lane's or a human's, and crediting the branch with it
-// overstates what landed.
-func landedHead(ctx context.Context, projectPath, runID string) (string, error) {
-	out, err := git(ctx, projectPath, "log", "-1", "--format=%H %(trailers:key="+runTrailer+",valueonly)")
+// overstates what landed. The commit carries no marker, so it is recognized by its message, which the branch's
+// commits fix. A one-commit lane squashed in the same second its worker committed is that very commit, so the
+// branch is then no longer ahead of HEAD and nothing is credited; a worker commits well before its merge.
+func landedHead(ctx context.Context, projectPath, runID string, lane MergeLane) (string, error) {
+	out, err := git(ctx, projectPath, "log", "-1", "--format=%H%x00%B")
 	if err != nil {
 		return "", err
 	}
-	sha, landed, _ := strings.Cut(out, " ")
-	if strings.TrimSpace(landed) != runID {
+	sha, msg, _ := strings.Cut(out, "\x00")
+	if cleanMessage(msg) != cleanMessage(mergeMessage(ctx, projectPath, runID, lane)) {
 		return "", nil
 	}
 	return sha, nil
+}
+
+// cleanMessage is msg as git stores a message given with -m: each line without trailing whitespace, and blank
+// lines collapsed to one.
+func cleanMessage(msg string) string {
+	var kept []string
+	for _, line := range strings.Split(strings.TrimSpace(msg), "\n") {
+		line = strings.TrimRight(line, " \t\r")
+		if line == "" && len(kept) > 0 && kept[len(kept)-1] == "" {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
 }
 
 func firstLine(s string) string {

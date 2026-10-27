@@ -805,8 +805,8 @@ func TestSealEvidenceScopesToEndCommit(t *testing.T) {
 }
 
 // sharedMainRepo lays down, on one branch: base, a lane commit of run R, a commit from another session,
-// the lead's own fix, and a commit from run R2 whose id shares R's prefix.
-func sharedMainRepo(t *testing.T) (dir, base, end string) {
+// the lead's own fix, and a lane commit of run R2 at end.
+func sharedMainRepo(t *testing.T) (dir, base, lane, end string) {
 	t.Helper()
 	dir = t.TempDir()
 	gitCmd(t, dir, "init", "-b", "main")
@@ -824,11 +824,11 @@ func sharedMainRepo(t *testing.T) (dir, base, end string) {
 		return head
 	}
 	base = commit("base.txt", "base")
-	commit("lane.txt", "lane\n\nArc-Run: R-t-1")
+	lane = commit("lane.txt", "lane")
 	commit("other.txt", "another session")
-	commit("lead.txt", "lead fix\n\nArc-Run: R")
-	end = commit("r2.txt", "another run\n\nArc-Run: R2-t-1")
-	return dir, base, end
+	commit("lead.txt", "lead fix")
+	end = commit("r2.txt", "another run")
+	return dir, base, lane, end
 }
 
 func sealedPaths(t *testing.T, run *waveobj.Run) map[string]bool {
@@ -843,26 +843,41 @@ func sealedPaths(t *testing.T, run *waveobj.Run) map[string]bool {
 	return paths
 }
 
-// a checkout-landed run shares main with other sessions, so only commits carrying its Arc-Run marker count
-func TestSealEvidenceCountsOnlyACheckoutRunsOwnCommits(t *testing.T) {
-	dir, base, end := sharedMainRepo(t)
+// a checkout-landed run shares main with other sessions, so only the lane merges its dag stamped count: not
+// another session's commit, not another run's lane, and not the lead's own commit, which nothing marks as the run's
+func TestSealEvidenceCountsOnlyACheckoutRunsLaneMerges(t *testing.T) {
+	ctx := context.Background()
+	dir, base, lane, end := sharedMainRepo(t)
+	ch, err := wstore.CreateChannel(ctx, "checkout-evidence", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dagID := uuid.NewString()
+	for _, w := range []waveobj.Run{
+		{ID: uuid.NewString(), TaskId: "t-1", DagORef: dagID, EndCommit: lane},
+		{ID: uuid.NewString(), TaskId: "t-1", DagORef: uuid.NewString(), EndCommit: end},
+	} {
+		if err := wstore.AppendRun(ctx, ch.OID, w); err != nil {
+			t.Fatal(err)
+		}
+	}
 	run := &waveobj.Run{
-		ID: "R", Status: RunStatus_Done, ProjectPath: dir, DagORef: uuid.NewString(), BaseCommit: base, EndCommit: end, CreatedTs: 1000,
+		ID: "R", ChannelOID: ch.OID, Status: RunStatus_Done, ProjectPath: dir, DagORef: dagID, BaseCommit: base, EndCommit: end, CreatedTs: 1000,
 		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000}},
 	}
 	paths := sealedPaths(t, run)
-	want := map[string]bool{"lane.txt": true, "lead.txt": true}
+	want := map[string]bool{"lane.txt": true}
 	if !reflect.DeepEqual(paths, want) {
 		t.Fatalf("files = %v, want %v", paths, want)
 	}
-	if run.Evidence.AddTotal != 2 {
-		t.Errorf("AddTotal = %d, want 2", run.Evidence.AddTotal)
+	if run.Evidence.AddTotal != 1 {
+		t.Errorf("AddTotal = %d, want 1", run.Evidence.AddTotal)
 	}
 }
 
 // a branch-landed run's range is the branch's own history, so it keeps the plain range diff
 func TestSealEvidenceKeepsTheRangeForABranchRun(t *testing.T) {
-	dir, base, end := sharedMainRepo(t)
+	dir, base, _, end := sharedMainRepo(t)
 	run := &waveobj.Run{
 		ID: "R", Status: RunStatus_Done, ProjectPath: dir, LandPath: dir, DagORef: uuid.NewString(), BaseCommit: base, EndCommit: end, CreatedTs: 1000,
 		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000}},

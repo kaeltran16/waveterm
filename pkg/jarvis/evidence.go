@@ -551,10 +551,6 @@ func dagRecordTask(t *waveobj.TaskNode, worker *waveobj.Run, forLead bool) waveo
 	return row
 }
 
-// RunTrailerKey is the commit trailer that marks a commit as a run's own: the engine writes
-// `Arc-Run: <runId>-t-N` on each lane it lands and the lead ends its own commits with `Arc-Run: <runId>`.
-const RunTrailerKey = "Arc-Run"
-
 // landsOnCheckout reports whether run is an engine run landing straight on its checkout. Its commits
 // interleave there with other sessions', so BaseCommit..EndCommit is not its own history; a run landing
 // on its own branch, and a dag child in its own worktree, keep the plain range.
@@ -562,9 +558,16 @@ func landsOnCheckout(run *waveobj.Run) bool {
 	return run.DagORef != "" && run.TaskId == "" && run.LandPath == ""
 }
 
-// ownsRunMarker accepts the trailer values run runID wrote. The "-" keeps run R2 out of run R.
-func ownsRunMarker(runID string) func(string) bool {
-	return func(v string) bool { return v == runID || strings.HasPrefix(v, runID+"-") }
+// laneMergeCommits is the set of squash commits run's dag landed, the commit stamped on each task's worker run.
+// A commit the lead made itself is not in it: a commit carries no mark of the run that made it.
+func laneMergeCommits(ctx context.Context, run *waveobj.Run) map[string]bool {
+	shas := map[string]bool{}
+	for _, r := range DagChildRuns(ctx, run.ChannelOID, run.DagORef, run.ID) {
+		if r.EndCommit != "" {
+			shas[r.EndCommit] = true
+		}
+	}
+	return shas
 }
 
 // SealEvidence derives and freezes a run's evidence snapshot. Idempotent: a run that already has
@@ -626,7 +629,8 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 		rangeChanges := gitinfo.GetRangeChanges
 		if landsOnCheckout(run) {
 			rangeChanges = func(ctx context.Context, cwd, from, to string) (*gitinfo.Changes, error) {
-				return gitinfo.GetTrailerCommitsChanges(ctx, cwd, from, to, RunTrailerKey, ownsRunMarker(run.ID))
+				merges := laneMergeCommits(ctx, run)
+				return gitinfo.GetCommitsChanges(ctx, cwd, from, to, func(sha string) bool { return merges[sha] })
 			}
 		}
 		if ch, gerr = rangeChanges(ctx, run.ProjectPath, run.BaseCommit, run.EndCommit); gerr != nil {

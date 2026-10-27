@@ -365,7 +365,7 @@ func TestDagSubmitCommitsTheSpecAndPlanOnTheRunsBranch(t *testing.T) {
 		t.Fatalf("planpath %q, specpath %q; want repo-relative", g.PlanPath, g.SpecPath)
 	}
 	branch := "wave/" + run.ID
-	if msg := execGit("log", "-1", "--format=%B", branch); !strings.HasPrefix(msg, "docs: spec and plan for ") || !strings.HasSuffix(msg, "Arc-Run: "+run.ID) {
+	if msg := execGit("log", "-1", "--format=%B", branch); !strings.HasPrefix(msg, "docs: spec and plan for ") || strings.Contains(msg, "\n") {
 		t.Fatalf("branch tip message = %q", msg)
 	}
 	if got := execGit("show", branch+":docs/specs/coupons.md"); got != "# spec" {
@@ -438,7 +438,7 @@ func TestDagSubmitRoundCommitsTheFixPlanOnTheRunsBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if msg := execGit("log", "-1", "--format=%B", branch); !strings.HasPrefix(msg, "docs: spec and plan for Board fix") || !strings.HasSuffix(msg, "Arc-Run: "+run.ID) {
+	if msg := execGit("log", "-1", "--format=%B", branch); !strings.HasPrefix(msg, "docs: spec and plan for Board fix") || strings.Contains(msg, "\n") {
 		t.Fatalf("branch tip message = %q", msg)
 	}
 	if !strings.HasPrefix(got.Tasks[1].Description, "Fix round 2: this is task 1 of the fix plan at docs/plans/board-fix.md;") || got.PlanPath != "docs/plans/board.md" {

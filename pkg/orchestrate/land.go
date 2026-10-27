@@ -207,7 +207,7 @@ func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force 
 		return heldLand("reading the checkout's head: " + err.Error())
 	}
 	title := landTitle(run, g, branchSubjects(ctx, project, pre, branch))
-	if _, err := git(ctx, project, "merge", "--no-ff", "-m", title, "-m", "Arc-Run: "+run.ID, branch); err != nil {
+	if _, err := git(ctx, project, "merge", "--no-ff", "-m", title, branch); err != nil {
 		return heldLand(mergeRefusal(ctx, project, run.BaseBranch, err))
 	}
 	land := &waveobj.RunLand{State: LandState_Landed}

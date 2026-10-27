@@ -87,7 +87,7 @@ func newLeadCompleteFixture(t *testing.T) *leadCompleteFixture {
 
 	f.write(t, "t-1.txt", "hello\n")
 	f.git(t, "add", ".")
-	f.git(t, "commit", "-m", "run t-1: task 1", "-m", jarvis.RunTrailerKey+": "+f.owner.ID+"-t-1")
+	f.git(t, "commit", "-m", "run t-1: task 1")
 	f.write(t, ".waveterm/recovery/earlier-attempt-t-1.patch", "")
 
 	origSeal, origCapture := sealAsync, captureAsync
@@ -117,8 +117,13 @@ func (f *leadCompleteFixture) complete(t *testing.T, runId string) *waveobj.Run 
 // Without it the seal diffed the working tree and counted the engine's own .waveterm files.
 func TestLeadCompletingItsPlanRunRecordsTheProjectHead(t *testing.T) {
 	f := newLeadCompleteFixture(t)
+	// the engine stamps a lane's squash on its task's run, which is how the run's evidence finds it
+	head := f.git(t, "rev-parse", "HEAD")
+	if err := wstore.UpdateRun(context.Background(), f.channelId, f.child.ID, func(r *waveobj.Run) error { r.EndCommit = head; return nil }); err != nil {
+		t.Fatal(err)
+	}
 	run := f.complete(t, f.owner.ID)
-	if head := f.git(t, "rev-parse", "HEAD"); run.EndCommit != head {
+	if run.EndCommit != head {
 		t.Fatalf("EndCommit = %q, want the project head %s", run.EndCommit, head)
 	}
 	if f.seal == nil {
