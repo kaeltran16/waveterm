@@ -11,6 +11,7 @@
 // petPeekDestAtom. It states where the reply lands exactly once: the old footer said it three times ("No
 // channel selected", "Select a channel to ask Jarvis", "No destination") inside a 90px band.
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { HarnessPicker } from "@/app/view/agents/harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "@/app/view/agents/harnessstore";
 import { MarkdownMessage } from "@/app/view/agents/markdownmessage";
@@ -18,6 +19,7 @@ import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { X } from "lucide-react";
 import { useState } from "react";
 import { sendErrand } from "./petactrun";
 import { petErrandState } from "./peterrandmodel";
@@ -37,7 +39,21 @@ function ErrandReply({ errand }: { errand: PetErrandState }) {
         <div className="rounded-[8px] border border-border bg-surface px-[9px] py-[7px]">
             <div className="mb-[3px] flex items-center gap-1.5 font-mono text-[10.5px] text-muted">
                 <span className={cn("h-[5px] w-[5px] flex-none rounded-full", status.dot)} />
-                {errand.runtime} · {status.word}
+                <span className="flex-1">
+                    {errand.runtime} · {status.word}
+                </span>
+                {/* not while streaming: the next chunk would write the reply straight back */}
+                {errand.status !== "streaming" ? (
+                    <button
+                        type="button"
+                        data-pet-errand-dismiss
+                        aria-label="Dismiss reply"
+                        onClick={() => globalStore.set(petErrandAtom, null)}
+                        className="-my-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-[5px] text-muted hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                        <X aria-hidden="true" size={12} strokeWidth={2} />
+                    </button>
+                ) : null}
             </div>
             <div className="max-h-[180px] overflow-y-auto text-[11.5px] leading-[1.5] text-secondary [overflow-wrap:anywhere]">
                 {errand.status === "error" ? (

@@ -155,6 +155,42 @@ function ClampedProse({ text, collapsed, className }: { text: string; collapsed:
     );
 }
 
+// A line-clamped headline that opens in place when clicked. Only an overflowing headline takes the click; a
+// short one lets it through to the row, whose click peeks the event's source.
+function ClampedLine({ text, className }: { text: string; className?: string }) {
+    const ref = useRef<HTMLDivElement | null>(null);
+    const [overflows, setOverflows] = useState(false);
+    const [expanded, setExpanded] = useState(false);
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (el == null) {
+            return;
+        }
+        const measure = () => setOverflows(el.scrollHeight > el.clientHeight + 1);
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [text]);
+    const toggles = overflows || expanded;
+    return (
+        <div
+            ref={ref}
+            title={toggles ? (expanded ? "Show less" : "Show all") : undefined}
+            onClick={(event) => {
+                if (!toggles || (event.target as HTMLElement).closest("button, a") != null) {
+                    return;
+                }
+                event.stopPropagation();
+                setExpanded((prior) => !prior);
+            }}
+            className={cn(className, !expanded && "line-clamp-3", toggles && "cursor-pointer")}
+        >
+            <InlineMarkdown text={text} />
+        </div>
+    );
+}
+
 function ActButton({
     model,
     act,
@@ -401,9 +437,10 @@ function LatestUpdate({
                 <EventLabel event={event} />
                 <span>· {ageLabel(Math.max(0, now - event.at))}</span>
             </div>
-            <div className="line-clamp-3 text-[12px] leading-[1.45] text-secondary [overflow-wrap:anywhere]">
-                <InlineMarkdown text={event.text} />
-            </div>
+            <ClampedLine
+                text={event.text}
+                className="text-[12px] leading-[1.45] text-secondary [overflow-wrap:anywhere]"
+            />
             {/* the message body renders dimmed, under the title the bubble already said */}
             {event.detail != null ? (
                 <ClampedProse
