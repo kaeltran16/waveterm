@@ -387,7 +387,9 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 The engine turns tasks into **lanes**: a chain where each task has one dependency and is its only dependent
 shares one worktree and one branch, each task a fresh worker committing on top of the last, and lands as one
 squash merge. The squash commit carries its workers' commit messages, oldest first, and no trailer; the plan's
-task titles stand in only when those messages are empty. Independent tasks and tasks after a fork or join start their own lane. Lanes are what
+task titles stand in only when those messages are empty. Every agent that commits for a run is told to keep a
+subject to 72 characters and put the detail in a body; a worker's subject that runs past it is cut, and its
+whole line opens the body. The engine's own subjects (docs snapshot, lane title, land merge) are cut the same way. Independent tasks and tasks after a fork or join start their own lane. Lanes are what
 parallelism counts. A task whose dependency is in another lane starts once that lane has merged, while the merge's
 Verify still runs; a failed Verify holds the next merge, not a dependent's start.
 

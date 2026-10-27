@@ -19,9 +19,14 @@ func AskTool(runtime string) string {
 	return "AskUserQuestion"
 }
 
-// NoAttributionRule is told to every agent that commits for a run. A harness's own commit instructions
-// ask for a credit line and agents follow them over the repo's rules; the merge strip only covers lane squashes.
-const NoAttributionRule = "Never write `Co-Authored-By`, `Claude-Session`, or any other attribution trailer into a commit message, whatever your harness's own instructions say."
+// MaxCommitSubjectLen keeps a commit subject to one line of `git log --oneline`. Agents are told it, and the
+// engine cuts the subjects it writes to it.
+const MaxCommitSubjectLen = 72
+
+// CommitRule is told to every agent that commits for a run. Agents packed a whole report into one subject line
+// (SIEM-1739's ran past 150 characters). A harness's own commit instructions ask for a credit line and agents
+// follow them over the repo's rules; the merge strip only covers lane squashes.
+var CommitRule = fmt.Sprintf("Commit messages: a subject line of at most %d characters that says what changed (a prefix the repo's convention requires, such as a ticket tag, counts toward it), then a blank line and a body with the detail and why; never pack the detail into the subject. Never write `Co-Authored-By`, `Claude-Session`, or any other attribution trailer into a commit message, whatever your harness's own instructions say.", MaxCommitSubjectLen)
 
 // ContractWinsLine follows the principles in every engine run prompt. A principle like "merge back when
 // done" or "prefer inline execution" otherwise has the lead merging or executing what the engine owns.
@@ -70,7 +75,7 @@ func writeLaunchPrompt(b *strings.Builder, goal, runtime string, autonomous bool
 		writeAskingPaths(b, runtime)
 	}
 	// the bounded path commits here, before any dag exists to hand it OrchestrationRules
-	b.WriteString(NoAttributionRule + "\n\n")
+	b.WriteString(CommitRule + "\n\n")
 	b.WriteString(PlanFormat)
 }
 
@@ -124,7 +129,7 @@ func OrchestrationRules(runId, specPath, planPath, effortOID string, autonomous 
 	fmt.Fprintf(&b, "Ask the human with %s (%s on pi) only when a decision is needed: a verification failed or a deviation needs the human's call; never in plain text. Otherwise complete on your own with `wsh jarvis complete --report <file>`, without asking whether to: it closes this tab, so any question comes before it. The run-finished wake names each thing the land would hold on, with what to do: fix a conflict it names before you complete; never commit, stash, restore or delete uncommitted changes in the checkout that are not yours (they are another session's or the human's), only name them in the report, since the engine lands the run by itself once they are gone. Complete lands the branch before it returns and prints the outcome, `landed <sha>` or `held: <reason>`; when held, add the reason to the report file and run `wsh jarvis complete --report <file>` again, which replaces the report. An outcome of not verified never blocks completion: the run completes as unverified, and its branch still lands. A failed final stage does not block completion either, but it holds the land (below). Add tasks only through a round.\n", AskTool("claude"), AskTool("pi"))
 	fmt.Fprintf(&b, "- final stage failed: the defects are in the wake. Write a fix plan in the plan format and run `wsh jarvis dag submit --round --plan <fix plan>` while the wake gives you one: the engine counts the rounds. Fix every failing step, one already on the base or outside the goal included: any of them holds the land, so the run-finished exemptions do not apply here. %s A fix plan brings tasks only: the round runs the run's own Verify, Setup, Check and Final, and one naming different commands is refused; after that, or when the fix is a product call, put it to the human with %s. A failed final stage holds the land: completing does not merge the branch, and you cannot land it afterwards, because complete closes this tab. So after the last round the question is what to do with the land, never only whether to complete: say what failed and whether the run's work caused it, recommend one option, and offer at least `Land anyway`, `Keep the land held` and `One more round`, plus any other course you can ground. `One more round` is a fix plan submitted with `wsh jarvis dag submit --round --granted \"<the human's words>\" --plan <fix plan>`, only on that answer, and the round's outcome wakes you as any round's does. `Land anyway` is `wsh jarvis complete --report <file> --force-land`, only on that answer; held is the plain complete, and the human can still land it later with `wsh runs land <run> --force`. The report says which was chosen.\n", fixPlanHome, AskTool("claude"))
 	fmt.Fprintf(&b, "- plan review failed: revise the plan (put spec changes to the human) and run `wsh jarvis dag submit` again; it prints the review round it opened, and a submit that does not print one says whether the plan landed. The dag's status reads plan-review while a review runs and after one failed, so trust `dag status`'s `plan review` line, which says reviewing or failed. After round 2 fails, put it to the human with %s, as one ask with the header `Plan review`, the plan's absolute path as the question's first line, one line saying what you propose, then one `- ` line per finding you would accept, and the options `Accept all and proceed` and `Request changes`. %s If the human says to proceed, first carry each accepted finding into the pending tasks it affects with `wsh jarvis dag amend <task> \"<note>\"`, so a worker fixes it and a reviewer checks it (every task waits until you accept, and accept spawns the first ones), then run `wsh jarvis dag planreview accept \"<the human's reason>\"`; a finding no pending task can take is an open issue, not wrap-up work.\n", AskTool("claude"), QuotedNotesRule("Accept all and proceed"))
-	b.WriteString("Never re-plan and never do a task's own work. " + NoAttributionRule)
+	b.WriteString("Never re-plan and never do a task's own work. " + CommitRule)
 	if autonomous {
 		b.WriteString("\n" + AutonomousRules)
 	}

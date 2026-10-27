@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -49,7 +50,8 @@ func SnapshotDocs(ctx context.Context, landTree, runID, title string, paths ...s
 	if _, err := git(ctx, landTree, append([]string{"add", "--"}, staged...)...); err != nil {
 		return nil, err
 	}
-	args := []string{"commit", "-m", snapshotSubjectPrefix + changeTitle(title)}
+	subject := snapshotSubjectPrefix + landSubject(changeTitle(title), jarvis.MaxCommitSubjectLen-len([]rune(snapshotSubjectPrefix)))
+	args := []string{"commit", "-m", subject}
 	// a resubmit after a failed plan review revises docs no lane has read yet, so it replaces their snapshot
 	// rather than adding a second commit with the same subject
 	if revisableSnapshot(ctx, landTree, runID) {

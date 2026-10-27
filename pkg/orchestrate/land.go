@@ -671,10 +671,6 @@ func changeTitle(title string) string {
 	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(title), planTitleSuffix))
 }
 
-// maxLandTitleLen keeps the merge subject to one line of `git log --oneline`: a one-line goal can run to
-// a thousand characters.
-const maxLandTitleLen = 72
-
 // landTitle is the merge commit's subject: the plan's title, else the goal's first line, as a conventional
 // subject typed from the branch's own commit subjects.
 func landTitle(run *waveobj.Run, g *waveobj.TaskGroup, subjects []string) string {
@@ -719,14 +715,15 @@ var conventionalTypes = []string{"feat", "fix", "perf", "refactor", "test", "doc
 // fallbackType types a commit whose gathered subjects name no known type.
 const fallbackType = "chore"
 
-// conventionalTitle makes title a conventional subject, cut to maxLandTitleLen. A title that already is one is
-// kept; otherwise the prefix comes from conventionalPrefix.
+// conventionalTitle makes title a conventional subject, cut to jarvis.MaxCommitSubjectLen: a one-line goal can
+// run to a thousand characters. A title that already is one is kept; otherwise the prefix comes from
+// conventionalPrefix.
 func conventionalTitle(title string, subjects []string) string {
 	if conventionalSubjectRe.MatchString(title) {
-		return landSubject(title, maxLandTitleLen)
+		return landSubject(title, jarvis.MaxCommitSubjectLen)
 	}
 	prefix := conventionalPrefix(subjects)
-	return prefix + landSubject(title, maxLandTitleLen-len([]rune(prefix)))
+	return prefix + landSubject(title, jarvis.MaxCommitSubjectLen-len([]rune(prefix)))
 }
 
 // conventionalPrefix is the "type(scope): " of the highest-ranked type among subjects, with the scope its

@@ -367,17 +367,17 @@ func TestPlanAuthorIsToldToSplitByIndependentWork(t *testing.T) {
 	}
 }
 
-// A harness's own commit instructions ask for a credit line and agents follow them over the repo's rules,
-// so every prompt that tells an agent to commit has to countermand it — the merge strip only covers lane
+// Every prompt that tells an agent to commit gives the commit rule: a short subject with the detail in a body,
+// and no credit line, which a harness's own commit instructions ask for. The merge strip only covers lane
 // squashes, and a quick run's commit lands straight on the branch.
-func TestEveryCommittingPromptCarriesTheNoAttributionRule(t *testing.T) {
+func TestEveryCommittingPromptCarriesTheCommitRule(t *testing.T) {
 	for name, p := range map[string]string{
 		"quick":               BuildQuickPrompt("add a spinner", nil, "claude"),
 		"orchestrate launch":  BuildOrchestratePrompt("ship auth", nil, "claude", false),
 		"orchestration rules": OrchestrationRules("run-1", "", "", "", false),
 	} {
-		if !strings.Contains(p, NoAttributionRule) {
-			t.Errorf("%s prompt tells the agent to commit but never forbids an attribution trailer:\n%s", name, p)
+		if !strings.Contains(p, CommitRule) {
+			t.Errorf("%s prompt tells the agent to commit but never gives the commit rule:\n%s", name, p)
 		}
 	}
 }
@@ -471,7 +471,7 @@ func TestLaunchPromptAutonomous(t *testing.T) {
 			"write the decisions you make beyond it, with why, into the plan's header",
 			"wsh jarvis dag submit --plan <plan path> --spec <spec path>",
 			"wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>",
-			NoAttributionRule,
+			CommitRule,
 			AutonomousRules,
 			strings.TrimRight(PlanFormat, "\n"),
 		} {

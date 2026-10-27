@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 )
 
 var ErrMergeConflict = errors.New("merge conflict")
@@ -143,6 +145,10 @@ func mergeMessage(ctx context.Context, projectPath, runID string, lane MergeLane
 	}
 	if len(lane.TaskIDs) > 1 || len(msgs) == 0 {
 		msgs = append([]string{conventionalTitle(firstLine(lane.Title), subjects)}, msgs...)
+	}
+	// a worker's subject past the limit is cut, and its whole line opens the body, so nothing it said is lost
+	if subject, _, _ := strings.Cut(msgs[0], "\n"); len([]rune(subject)) > jarvis.MaxCommitSubjectLen {
+		msgs = append([]string{landSubject(subject, jarvis.MaxCommitSubjectLen)}, msgs...)
 	}
 	return strings.Join(msgs, "\n\n")
 }

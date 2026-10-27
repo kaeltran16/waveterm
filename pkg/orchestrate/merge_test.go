@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 )
 
 func TestMergeSquash(t *testing.T) {
@@ -98,14 +100,36 @@ func TestMergeSquashOfASeveralTaskLaneCutsItsSubjectLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	subject := gitCmd(t, dir, "log", "-1", "--format=%s")
-	if n := utf8.RuneCountInString(subject); n > maxLandTitleLen || !strings.HasPrefix(subject, "feat: F16 — the digest carries") {
-		t.Fatalf("subject = %q (%d runes), want the lane title cut to %d", subject, n, maxLandTitleLen)
+	if n := utf8.RuneCountInString(subject); n > jarvis.MaxCommitSubjectLen || !strings.HasPrefix(subject, "feat: F16 — the digest carries") {
+		t.Fatalf("subject = %q (%d runes), want the lane title cut to %d", subject, n, jarvis.MaxCommitSubjectLen)
 	}
 	body := gitCmd(t, dir, "log", "-1", "--format=%b")
 	for _, want := range []string{"feat(orchestrate): show how long a merge gate has sat", "feat(cockpit): show a waiting merge gate"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body lost %q:\n%s", want, body)
 		}
+	}
+}
+
+// SIEM-1739's t-2 worker packed its report into a ~160-character subject; the squash cuts it to one log line
+// and keeps the whole line, and the rest of the message, in the body
+func TestMergeSquashCutsAWorkersOverlongSubject(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	long := "[2.6.10.1][MP][SIEM-1739] I1 I2 user update checks the write right and the target's tenant in code; a self-edit changes only profile fields; userDetails answers 404"
+	os.WriteFile(filepath.Join(wt, "f.txt"), []byte("x\n"), 0o644)
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "-m", long+"\n\nwhy it changed")
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "user update", TaskIDs: []string{"t-2"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	subject := gitCmd(t, dir, "log", "-1", "--format=%s")
+	if n := utf8.RuneCountInString(subject); n > jarvis.MaxCommitSubjectLen || !strings.HasPrefix(subject, "[2.6.10.1][MP][SIEM-1739] I1 I2 user update") {
+		t.Fatalf("subject = %q (%d runes), want the worker's subject cut to %d", subject, n, jarvis.MaxCommitSubjectLen)
+	}
+	if body := gitCmd(t, dir, "log", "-1", "--format=%b"); body != long+"\n\nwhy it changed" {
+		t.Fatalf("body = %q, want the worker's whole message", body)
 	}
 }
 

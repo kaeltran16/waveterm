@@ -10,7 +10,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -157,6 +159,19 @@ func TestSnapshotDocsSubjectDropsThePlanTemplateSuffix(t *testing.T) {
 	}
 	if got := gitCmd(t, tree, "log", "-1", "--format=%s"); got != "docs: spec and plan for Coupon codes" {
 		t.Fatalf("subject = %q", got)
+	}
+}
+
+// a plan's H1 can run long; the docs commit's subject stays one log line
+func TestSnapshotDocsSubjectFitsOneLogLine(t *testing.T) {
+	tree, spec, plan := snapshotFixture(t)
+	title := "SIEM-1739 run I: user-management authorization, tenant checks in code, and a 404 for every missing tenant row"
+	if _, err := SnapshotDocs(context.Background(), tree, "run-1", title, spec, plan); err != nil {
+		t.Fatal(err)
+	}
+	got := gitCmd(t, tree, "log", "-1", "--format=%s")
+	if n := utf8.RuneCountInString(got); n > jarvis.MaxCommitSubjectLen || !strings.HasPrefix(got, "docs: spec and plan for SIEM-1739 run I:") {
+		t.Fatalf("subject = %q (%d runes), want it cut to %d", got, n, jarvis.MaxCommitSubjectLen)
 	}
 }
 
