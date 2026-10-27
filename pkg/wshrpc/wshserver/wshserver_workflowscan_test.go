@@ -424,14 +424,75 @@ func TestWorkflowScanPicksDelivers(t *testing.T) {
 	}
 }
 
+type scanResumeCall struct{ tabORef, runtime, sessionId, nudge string }
+
+func stubScanResume(t *testing.T, err error) *[]scanResumeCall {
+	t.Helper()
+	var calls []scanResumeCall
+	old := jarvis.ResumeRunWorker
+	jarvis.ResumeRunWorker = func(_ context.Context, tabORef, runtime, sessionId, nudge string) error {
+		calls = append(calls, scanResumeCall{tabORef, runtime, sessionId, nudge})
+		return err
+	}
+	t.Cleanup(func() { jarvis.ResumeRunWorker = old })
+	return &calls
+}
+
+func TestWorkflowScanPicksResumesClosedAgent(t *testing.T) {
+	ctx := context.Background()
+	ch, run := pickingScan(t, "wfscan-picks-closed")
+	run = readScan(t, run)
+	closed := scanWorkerORef(t, run)
+	sent := stubScanDelivery(t, "")
+	resumed := stubScanResume(t, nil)
+	picks := []waveobj.WorkflowScanPick{{Id: "p1", Pick: waveobj.WorkflowScanPick_Apply}}
+
+	if err := (&WshServer{}).WorkflowScanPicksCommand(ctx, wshrpc.CommandWorkflowScanPicksData{ChannelId: ch.OID, RunId: run.ID, Picks: picks}); err != nil {
+		t.Fatalf("picks with the agent's tab closed: %v", err)
+	}
+	got := readScan(t, run)
+	worker := scanWorkerORef(t, got)
+	if worker == closed || len(got.Phases[0].WorkerOrefs) != 1 {
+		t.Fatalf("want the closed tab %s replaced as the run's worker, got %v", closed, got.Phases[0].WorkerOrefs)
+	}
+	want := scanResumeCall{worker, run.Runtime, run.SessionId, workflowscan.PicksLine}
+	if run.SessionId == "" || len(*resumed) != 1 || (*resumed)[0] != want {
+		t.Fatalf("want the scan's session resumed in the new tab with the picks line, got %+v (want %+v)", *resumed, want)
+	}
+	if m := jarvis.ResolveRunWorkerFromMeta(ctx, worker); m == nil || m.Run.ID != run.ID {
+		t.Fatalf("want the new tab to resolve to run %s, got %+v", run.ID, m)
+	}
+	if s := got.WorkflowScan; s.State != waveobj.WorkflowScanState_Applying || !slices.Equal(s.Picks, picks) {
+		t.Fatalf("want applying with the picks stored, got %s %+v", s.State, s.Picks)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("the picks line goes in as the resumed session's first turn, not typed, got %+v", *sent)
+	}
+
+	// a resend that read the run before the first resume took the lock still holds the closed tab
+	tabAgentBlock = func(_ context.Context, tabId string) string {
+		if "tab:"+tabId == worker {
+			return "block-new"
+		}
+		return ""
+	}
+	if err := reviveScanAgent(ctx, run); err != nil {
+		t.Fatalf("reviving an agent already resumed: %v", err)
+	}
+	if again := readScan(t, run); len(*resumed) != 1 || scanWorkerORef(t, again) != worker {
+		t.Fatalf("want no second agent for one closed tab, got %d resumes and worker %s", len(*resumed), scanWorkerORef(t, again))
+	}
+}
+
 func TestWorkflowScanPicksStoredWhenDeliveryFails(t *testing.T) {
 	ch, run := pickingScan(t, "wfscan-picks-gone")
 	sent := stubScanDelivery(t, "")
+	stubScanResume(t, errors.New("no block"))
 	picks := []waveobj.WorkflowScanPick{{Id: "p1", Pick: waveobj.WorkflowScanPick_Drop, Reason: "not worth it"}}
 
 	err := (&WshServer{}).WorkflowScanPicksCommand(context.Background(), wshrpc.CommandWorkflowScanPicksData{ChannelId: ch.OID, RunId: run.ID, Picks: picks})
-	if err == nil || !strings.Contains(err.Error(), run.ID) {
-		t.Fatalf("want a delivery error naming run %s, got %v", run.ID, err)
+	if err == nil || !strings.Contains(err.Error(), run.ID) || !strings.Contains(err.Error(), "no block") {
+		t.Fatalf("want a delivery error naming run %s and the resume's failure, got %v", run.ID, err)
 	}
 	s := readScan(t, run).WorkflowScan
 	if s.State != waveobj.WorkflowScanState_Applying || !slices.Equal(s.Picks, picks) {
