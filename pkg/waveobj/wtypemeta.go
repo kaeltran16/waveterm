@@ -78,6 +78,7 @@ type MetaTSType struct {
 	SessionEffort          string   `json:"session:effort,omitempty"`          // tab ("effort:<oid>": the initiative the session was launched from, or last read or wrote through `wsh effort`)
 	SessionBrainstorm      string   `json:"session:brainstorm,omitempty"`      // tab (absolute path of the brainstorm.json the session's agent writes)
 	SessionCollapsedGroups []string `json:"session:collapsedgroups,omitempty"` // workspace
+	SessionsPinned         []string `json:"sessions:pinned,omitempty"`         // client (Sessions surface pins: row keys "<runtime>:<id>" or "run:<runId>")
 
 	// the builder check on a brainstorm (Arc launches the reviewer and owns its state on the agent's tab)
 	BrainstormCheckState   string `json:"brainstorm:checkstate,omitempty"`   // tab ("reading" | "answered" | "failed")
