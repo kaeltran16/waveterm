@@ -75,6 +75,8 @@ const (
 	MetaKey_SessionBrainstorm                = "session:brainstorm"
 	MetaKey_SessionCollapsedGroups           = "session:collapsedgroups"
 
+	MetaKey_SessionsPinned                   = "sessions:pinned"
+
 	MetaKey_BrainstormCheckState             = "brainstorm:checkstate"
 	MetaKey_BrainstormCheckTs                = "brainstorm:checkts"
 	MetaKey_BrainstormCheckRun               = "brainstorm:checkrun"

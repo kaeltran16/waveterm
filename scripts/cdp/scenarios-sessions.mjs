@@ -1,6 +1,9 @@
 // The Sessions list: every session of 30 days in pages, and its search field, Run agents switch and result cards.
 // kit holds scenarios.mjs's sessions helpers (SESSIONS_KIT); the fixtures are in sessions-search-fixtures.mjs.
 
+import { randomUUID } from "node:crypto";
+import { rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { removeSessionsSearchFixtures, seedSessionsSearchRun, writeSessionsSearchFixtures } from "./sessions-search-fixtures.mjs";
 
 const VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
@@ -550,6 +553,334 @@ const sessionsSearch = (kit) => ({
     },
 });
 
+// --- sessions-pin: the card's right-click menu pins a row into a Pinned group at the list's top ---------------------
+const PIN_KEY = "sessions:pinned";
+const PIN_BOGUS = "claude:arc-verify-no-such-session";
+const PIN_WAIT_MS = 15_000;
+const LIVE_WAIT_MS = 60_000;
+const PIN_TAB = "verify-sessions-pin";
+// a moved card animates out of one group and into another; a shot taken sooner shows the gap it leaves
+const PIN_SETTLE_MS = 900;
+const CLIENT = `const { ClientModel } = await mod("app/store/client-model.ts"); const cm = ClientModel.getInstance();`;
+
+// the client's pin key as stored: whether it is present, and its value
+const readPins = (h) =>
+    modEval(
+        h,
+        `${CLIENT}
+        const meta = globalStore.get(cm.clientAtom)?.meta ?? {};
+        return { clientId: cm.clientId, had: ${JSON.stringify(PIN_KEY)} in meta && meta[${JSON.stringify(PIN_KEY)}] != null, pins: globalStore.get(store.sessionsPinnedAtom) };
+    `
+    );
+const writePins = (h, clientId, value) => h.rpc("setmeta", { oref: `client:${clientId}`, meta: { [PIN_KEY]: value } });
+
+// every recency group the list shows: its key, header label and count, and its rows in order
+const pinGroups = (h) =>
+    h.ev(`(() => [...(${LIST}?.querySelectorAll('[data-sessions-group]') ?? [])].map((g) => {
+        const head = [...(g.firstElementChild?.querySelectorAll('span') ?? [])];
+        return {
+            key: g.getAttribute('data-sessions-group'),
+            label: head[0]?.textContent?.trim() ?? null,
+            count: parseInt(head.at(-1)?.textContent ?? '', 10),
+            rows: [...g.querySelectorAll('[data-session-row]')].map((c) => ({
+                key: c.getAttribute('data-session-row'),
+                text: c.textContent ?? '',
+                pulse: c.querySelector('.pulse-dot') != null,
+                hits: c.querySelector('[data-session-hits]') != null,
+            })),
+        };
+    }))()`);
+const groupOf = (groups, key) => groups.find((g) => g.rows.some((r) => r.key === key))?.key ?? null;
+const inGroup = (groups, gkey, key) => !!groups.find((g) => g.key === gkey)?.rows.some((r) => r.key === key);
+
+const rightClick = (h, key) =>
+    h.ev(`(() => {
+        const b = ${LIST}?.querySelector('[data-session-row="' + CSS.escape(${JSON.stringify(key)}) + '"] button');
+        if (!b) return false;
+        const r = b.getBoundingClientRect();
+        b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: r.left + 24, clientY: r.top + 12 }));
+        return true;
+    })()`);
+// the open menu's item labels from contextMenuAtom, and the labels drawn on screen
+const menuState = (h) =>
+    modEval(
+        h,
+        `const { contextMenuAtom } = await mod("app/store/contextmenu.ts");
+        const m = globalStore.get(contextMenuAtom);
+        const drawn = [...document.querySelectorAll('span.whitespace-nowrap')].map((s) => s.textContent.trim()).filter((t) => t === 'Pin' || t === 'Unpin');
+        return { open: m != null, items: (m?.items ?? []).map((i) => i.label), drawn };
+    `
+    );
+const clickMenu = (h, label) =>
+    h.ev(`(() => {
+        const s = [...document.querySelectorAll('span.whitespace-nowrap')].find((x) => x.textContent.trim() === ${JSON.stringify(label)});
+        s?.parentElement?.click();
+        return s != null;
+    })()`);
+const closeMenu = (h) => modEval(h, `const { contextMenuAtom } = await mod("app/store/contextmenu.ts"); globalStore.set(contextMenuAtom, null);`);
+const waitGroups = async (h, pred, ms = PIN_WAIT_MS) => {
+    const t0 = Date.now();
+    let g = await pinGroups(h);
+    while (!pred(g) && Date.now() - t0 < ms) {
+        await nap(h, 300);
+        g = await pinGroups(h);
+    }
+    return g;
+};
+const menuPick = async (h, key, label) => {
+    await rightClick(h, key);
+    await nap(h, 300);
+    return clickMenu(h, label);
+};
+const liveFact = (h) =>
+    h.ev(`(() => {
+        const el = [...document.querySelectorAll('span')].find((s) => /^\\d+ agents? live$/.test((s.textContent || '').trim()));
+        return el ? parseInt(el.textContent, 10) : 0;
+    })()`);
+const clickFilter = (h, label) =>
+    h.ev(`[...(document.querySelector('[role="group"][aria-label="Status filter"]')?.querySelectorAll('button') ?? [])].find((b) => (b.textContent || '').trim() === ${JSON.stringify(label)})?.click()`);
+
+// a live fixture session: its transcript in the fixtures' project dir and a terminal tab reported working on it, as
+// inject-live-agents.mjs does with wsh agentstatus
+async function startLiveFixture(h, kit, fx) {
+    const id = randomUUID();
+    const path = join(fx.dir, `${id}.jsonl`);
+    const t0 = Date.now() - 2000;
+    const rows = [
+        { type: "user", message: { role: "user", content: "Keep the pinned live fixture busy while the list is checked." } },
+        { type: "assistant", message: { role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Working on it." }] } },
+    ].map((r, i) => JSON.stringify({ ...r, sessionId: id, cwd: fx.cwd, entrypoint: "cli", uuid: randomUUID(), timestamp: new Date(t0 + i * 1000).toISOString() }));
+    writeFileSync(path, rows.join("\n") + "\n");
+    const live = { id, path, key: `claude:${id}` };
+    const bootTab = String(await h.ev("window.TabRpcClient.routeId")).replace(/^tab:/, "");
+    const wslist = await h.rpc("workspacelist", null);
+    const ws = wslist.find((w) => (w.workspacedata?.tabids ?? []).includes(bootTab)) ?? wslist[0];
+    live.workspaceId = ws.workspacedata.oid;
+    live.tabId = await kit.waveService(h, "workspace", "CreateTab", [live.workspaceId, PIN_TAB, false]);
+    const tab = await kit.waveService(h, "object", "GetObject", [`tab:${live.tabId}`]);
+    live.blockId = tab?.blockids?.[0];
+    if (!live.blockId) throw new Error("the live fixture's tab has no block");
+    await h.rpc("setmeta", { oref: `block:${live.blockId}`, meta: { view: "term", controller: "shell", "cmd:cwd": "~" } });
+    await reportLive(h, live);
+    return live;
+}
+const reportLive = (h, live) =>
+    h.rpc("eventpublish", {
+        event: "agent:status",
+        scopes: [`block:${live.blockId}`],
+        persist: 1,
+        data: { oref: `block:${live.blockId}`, state: "working", agent: "claude", transcriptpath: live.path, ts: Date.now() },
+    });
+
+const sessionsPin = (kit) => ({
+    name: "sessions-pin",
+    surface: "sessions",
+    async arrange(h) {
+        const fx = writeSessionsSearchFixtures();
+        const run = await seedSessionsSearchRun(h, kit, fx);
+        const prior = await readPins(h);
+        const ctx = { fx, run, prior };
+        // start from no pins, so the Pinned group holds only what this scenario pins
+        await writePins(h, prior.clientId, null);
+        try {
+            ctx.live = await startLiveFixture(h, kit, fx);
+        } catch (e) {
+            ctx.liveError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+        const { fx, run, live } = ctx;
+        const solo = `claude:${fx.solo.id}`;
+        const runCard = run.runId ? `run:${run.runId}` : null;
+        await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT);
+        await clickFilter(h, "All");
+        await remount(h);
+
+        // 0. the live fixture lists under Live now with its running mark
+        const t0 = Date.now();
+        let g0 = await pinGroups(h);
+        const liveShows = (g) => !!live && g.find((x) => x.key === "live")?.rows.some((r) => r.key === live.key && r.pulse && r.text.includes("running"));
+        while (!liveShows(g0) && Date.now() - t0 < LIVE_WAIT_MS) {
+            await modEval(h, `await store.loadSessionsArchive();`);
+            await nap(h, 1000);
+            g0 = await pinGroups(h);
+        }
+        rec("0. the live fixture session lists under Live now, running", !ctx.liveError && !run.arrangeError && liveShows(g0), {
+            liveError: ctx.liveError,
+            arrangeError: run.arrangeError,
+            live: live?.key,
+            groups: g0.map((g) => [g.key, g.rows.length]),
+        });
+        const soloHome = groupOf(g0, solo);
+
+        // 1. right-click the ended solo card: Pin; it moves into Pinned
+        await rightClick(h, solo);
+        await nap(h, 400);
+        const m1 = await menuState(h);
+        await h.shot("cdp-shots/sessions-pin-1-menu-pin.png");
+        await clickMenu(h, "Pin");
+        const g1 = await waitGroups(h, (g) => inGroup(g, "pinned", solo));
+        await nap(h, PIN_SETTLE_MS);
+        await h.shot("cdp-shots/sessions-pin-1-pinned.png");
+        const p1 = g1.find((g) => g.key === "pinned");
+        rec(
+            "1. right-click an ended solo card shows Pin; Pin moves it under a Pinned header, out of its recency group",
+            m1.open && m1.items.join() === "Pin" && m1.drawn.includes("Pin") && p1?.label === "Pinned" && inGroup(g1, "pinned", solo) && groupOf(g1, solo) === "pinned",
+            { menu: m1, soloHome, pinned: p1?.rows.map((r) => r.key) }
+        );
+
+        // 2. pin the run card: Pinned counts 2
+        await menuPick(h, runCard, "Pin");
+        const g2 = await waitGroups(h, (g) => inGroup(g, "pinned", runCard));
+        await nap(h, PIN_SETTLE_MS);
+        await h.shot("cdp-shots/sessions-pin-2-run.png");
+        const p2 = g2.find((g) => g.key === "pinned");
+        rec("2. Pin on the run card lists it under Pinned, which counts 2", inGroup(g2, "pinned", runCard) && p2?.count === 2 && p2?.rows.length === 2, {
+            runCard,
+            pinned: p2,
+        });
+
+        // 3. a pinned card's menu offers Unpin; Escape closes it
+        await rightClick(h, solo);
+        await nap(h, 400);
+        const m3 = await menuState(h);
+        await h.shot("cdp-shots/sessions-pin-3-menu-unpin.png");
+        await h.ev(`(document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }))`);
+        await nap(h, 300);
+        const m3b = await menuState(h);
+        rec("3. a pinned card's menu shows Unpin, and Escape closes it", m3.open && m3.items.join() === "Unpin" && m3.drawn.includes("Unpin") && !m3b.open, {
+            menu: m3,
+            afterEscape: m3b,
+        });
+        if (m3b.open) await closeMenu(h);
+
+        // 4. pin the live card: first in Pinned, still running, gone from Live now; the live count holds
+        const liveBefore = await liveFact(h);
+        if (live) await reportLive(h, live);
+        await menuPick(h, live?.key, "Pin");
+        const g4 = await waitGroups(h, (g) => inGroup(g, "pinned", live?.key));
+        await nap(h, PIN_SETTLE_MS);
+        await h.shot("cdp-shots/sessions-pin-4-live.png");
+        const p4 = g4.find((g) => g.key === "pinned");
+        const liveAfter = await liveFact(h);
+        rec(
+            "4. Pin on the live card lists it first under Pinned with its running mark, out of Live now; the live count holds",
+            p4?.rows[0]?.key === live?.key &&
+                p4.rows[0].pulse &&
+                p4.rows[0].text.includes("running") &&
+                !inGroup(g4, "live", live?.key) &&
+                liveBefore > 0 &&
+                liveAfter === liveBefore,
+            { pinned: p4?.rows.map((r) => [r.key, r.pulse]), liveBefore, liveAfter }
+        );
+
+        // 5. the Live chip keeps only the live pinned card
+        await clickFilter(h, "Live");
+        const g5 = await waitGroups(h, (g) => !g.some((x) => x.rows.some((r) => r.key === solo || r.key === runCard)));
+        await nap(h, PIN_SETTLE_MS);
+        await h.shot("cdp-shots/sessions-pin-5-live-filter.png");
+        const p5 = g5.find((g) => g.key === "pinned");
+        const all5 = g5.flatMap((g) => g.rows.map((r) => r.key));
+        rec(
+            "5. under the Live chip the Pinned group shows only the live pinned card, and no ended pinned card shows",
+            p5?.rows.length === 1 && p5.rows[0].key === live?.key && !all5.includes(solo) && !all5.includes(runCard),
+            { pinned: p5?.rows.map((r) => r.key), groups: g5.map((g) => [g.key, g.rows.length]) }
+        );
+        await clickFilter(h, "All");
+        await nap(h, 400);
+
+        // 6. a search keeps a pinned match under Pinned with its snippet rows
+        await typeQuery(h, fx.word);
+        const g6 = await waitGroups(
+            h,
+            (g) => !!g.find((x) => x.key === "pinned")?.rows.some((r) => r.key === solo && r.hits),
+            SEARCH_WAIT_MS
+        );
+        await nap(h, PIN_SETTLE_MS);
+        await h.shot("cdp-shots/sessions-pin-6-search.png");
+        const p6 = g6.find((g) => g.key === "pinned");
+        rec(
+            "6. searching the fixture word lists the pinned matches under Pinned with their snippet rows",
+            !!p6?.rows.find((r) => r.key === solo)?.hits && !!p6?.rows.find((r) => r.key === runCard)?.hits,
+            { pinned: p6?.rows.map((r) => [r.key, r.hits]), groups: g6.map((g) => g.key) }
+        );
+        await typeQuery(h, "");
+        await waitGroups(h, (g) => g.some((x) => x.key !== "pinned"));
+
+        // 7. j from All activity lands on the first Pinned row
+        await h.ev(`[...document.querySelectorAll('button')].find((b) => (b.textContent || '').trim().startsWith('All activity'))?.click()`);
+        await h.ev(`document.activeElement?.blur()`);
+        await nap(h, 400);
+        const g7 = await pinGroups(h);
+        const firstPinned = g7.find((g) => g.key === "pinned")?.rows[0]?.key ?? null;
+        await h.ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', code: 'KeyJ', bubbles: true, cancelable: true }))`);
+        await nap(h, 500);
+        const nav7 = await listState(h);
+        rec("7. j from All activity selects the first Pinned row", firstPinned != null && nav7.cursor === firstPinned, { firstPinned, cursor: nav7.cursor });
+
+        // 8. Unpin the solo card: it returns to its recency group
+        await menuPick(h, solo, "Unpin");
+        const g8 = await waitGroups(h, (g) => !inGroup(g, "pinned", solo) && groupOf(g, solo) != null);
+        await nap(h, PIN_SETTLE_MS);
+        await h.shot("cdp-shots/sessions-pin-8-unpinned.png");
+        rec("8. Unpin on the solo card returns it to its recency group", soloHome != null && groupOf(g8, solo) === soloHome, {
+            soloHome,
+            now: groupOf(g8, solo),
+        });
+
+        // 9. a complete archive load prunes a pin whose session is not in the window, and keeps the rest
+        const before9 = (await readPins(h)).pins;
+        await writePins(h, ctx.prior.clientId, [...before9, PIN_BOGUS]);
+        const t9 = Date.now();
+        let pins9 = (await readPins(h)).pins;
+        let sawBogus = pins9.includes(PIN_BOGUS);
+        while (Date.now() - t9 < COMPLETE_WAIT_MS) {
+            await modEval(h, `await store.loadSessionsArchive();`);
+            await nap(h, 500);
+            const complete = await modEval(h, `return !globalStore.get(store.sessionsIncompleteAtom) && !globalStore.get(store.sessionsErrorAtom);`);
+            pins9 = (await readPins(h)).pins;
+            sawBogus ||= pins9.includes(PIN_BOGUS);
+            if (complete && sawBogus && !pins9.includes(PIN_BOGUS)) break;
+        }
+        rec(
+            "9. a complete archive load drops the bogus pin and keeps the real ones",
+            sawBogus && !pins9.includes(PIN_BOGUS) && before9.length > 0 && before9.every((k) => pins9.includes(k)),
+            { before: before9, after: pins9, sawBogus }
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`sessions-pin teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("close the menu", () => closeMenu(h));
+        await step("clear the query", () => typeQuery(h, ""));
+        await step("back to All", () => clickFilter(h, "All"));
+        if (ctx.prior?.clientId) {
+            await step("restore the pins", () => writePins(h, ctx.prior.clientId, ctx.prior.had ? ctx.prior.pins : null));
+        }
+        const live = ctx.live;
+        if (live?.tabId) {
+            await step("close the live fixture's tab", () => kit.waveService(h, "workspace", "CloseTab", [live.workspaceId, live.tabId, false]));
+        }
+        if (live?.path) {
+            await step("remove the live fixture's transcript", () => rmSync(live.path, { force: true }));
+        }
+        try {
+            removeSessionsSearchFixtures(ctx.fx);
+        } finally {
+            await kit.teardownFixtureRun(h, ctx.run ?? {}, "sessions-pin");
+        }
+    },
+});
+
 export default function (kit) {
-    return [sessionsList, sessionsSearch(kit)];
+    return [sessionsList, sessionsSearch(kit), sessionsPin(kit)];
 }

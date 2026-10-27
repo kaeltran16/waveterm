@@ -2399,6 +2399,7 @@ declare global {
         "session:effort"?: string;
         "session:brainstorm"?: string;
         "session:collapsedgroups"?: string[];
+        "sessions:pinned"?: string[];
         "brainstorm:checkstate"?: string;
         "brainstorm:checkts"?: number;
         "brainstorm:checkrun"?: string;

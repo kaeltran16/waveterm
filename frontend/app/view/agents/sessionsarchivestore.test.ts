@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
@@ -12,6 +13,8 @@ import {
     pageFeed,
     pageGroups,
     resolveSelectedSession,
+    sessionsPinnedAtom,
+    shouldPrunePins,
     totalEvents,
     type RecencyGroup,
 } from "./sessionsarchivestore";
@@ -181,6 +184,67 @@ describe("groupByRecency: ordering and membership", () => {
             ["today", ["t"]],
         ]);
         expect(groupByRecency([], now)).toEqual([]);
+    });
+});
+
+describe("groupByRecency: pinned", () => {
+    const now = new Date("2026-07-10T12:00:00Z").getTime();
+    const startOfToday = new Date(now).setHours(0, 0, 0, 0);
+    const item = (id: string, lastactivets: number, live = false) => ({ id, live, lastactivets });
+    type Item = ReturnType<typeof item>;
+    const ids = (g: { items: { id: string }[] }) => g.items.map((i) => i.id);
+    const list = [
+        item("pl", 10, true),
+        item("pe", 5),
+        item("l", 20, true),
+        item("t", startOfToday + 5),
+        item("e", startOfToday - 5),
+    ];
+    const isPinned = (i: Item) => i.id.startsWith("p");
+
+    it("puts pinned items, live or old, first and newest first, out of their usual groups", () => {
+        const groups = groupByRecency(list, now, isPinned);
+        expect(groups.map((g) => [g.key, g.label, ids(g)])).toEqual([
+            ["pinned", "Pinned", ["pl", "pe"]],
+            ["live", "Live now", ["l"]],
+            ["today", "Today", ["t"]],
+            ["earlier", "Earlier", ["e"]],
+        ]);
+    });
+
+    it("drops a group emptied by pinning", () => {
+        const groups = groupByRecency([item("pl", 10, true), item("e", 5)], now, isPinned);
+        expect(groups.map((g) => [g.key, ids(g)])).toEqual([
+            ["pinned", ["pl"]],
+            ["earlier", ["e"]],
+        ]);
+    });
+
+    it("groups as before with no predicate or one that matches nothing", () => {
+        const plain = groupByRecency(list, now);
+        expect(groupByRecency(list, now, () => false)).toEqual(plain);
+        expect(plain.map((g) => g.key)).toEqual(["live", "today", "earlier"]);
+    });
+
+    it("pageGroups cuts across the pinned group first", () => {
+        const paged = pageGroups(groupByRecency(list, now, isPinned), 3);
+        expect(paged.map((g) => [g.key, ids(g), g.total])).toEqual([
+            ["pinned", ["pl", "pe"], 2],
+            ["live", ["l"], 1],
+        ]);
+    });
+});
+
+describe("pins: prune gate and the unloaded client", () => {
+    it("prunes only after an ok, complete load", () => {
+        expect(shouldPrunePins(true, false)).toBe(true);
+        expect(shouldPrunePins(true, true)).toBe(false);
+        expect(shouldPrunePins(false, false)).toBe(false);
+        expect(shouldPrunePins(false, true)).toBe(false);
+    });
+
+    it("reads no pins before the client is loaded", () => {
+        expect(globalStore.get(sessionsPinnedAtom)).toEqual([]);
     });
 });
 
