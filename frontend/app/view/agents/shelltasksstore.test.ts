@@ -28,7 +28,7 @@ import {
 
 const transcript = vi.mocked(RpcApi.GetAgentTranscriptCommand);
 
-const task = (id: string): ShellTask => ({ id, description: id });
+const task = (id: string): ShellTask => ({ id, kind: "shell", description: id });
 
 afterEach(() => {
     transcript.mockReset();

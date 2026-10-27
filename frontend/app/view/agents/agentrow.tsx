@@ -19,7 +19,9 @@ import {
     Minimize2,
     PanelRight,
     Plus,
+    Radio,
     SquareTerminal,
+    Terminal,
     X,
 } from "lucide-react";
 import { motion } from "motion/react";
@@ -83,11 +85,11 @@ function FinishedAge({ agent, nowAtom }: { agent: AgentVM; nowAtom: Atom<number>
     return <>{formatAgo(displayAgeMs(agent, now))}</>;
 }
 
-function StandingByMeta({ agent, nowAtom, running }: { agent: AgentVM; nowAtom: Atom<number>; running: number }) {
+function StandingByMeta({ agent, nowAtom, tasks }: { agent: AgentVM; nowAtom: Atom<number>; tasks: ShellTask[] }) {
     const now = useAtomValue(nowAtom);
     return (
         <>
-            {shellTasksLabel(running)} running · {formatAge(displayAgeMs(agent, now))}
+            {shellTasksLabel(tasks)} running · {formatAge(displayAgeMs(agent, now))}
         </>
     );
 }
@@ -219,7 +221,7 @@ function ShellTasksBadge({ tasks }: { tasks: ShellTask[] }) {
     return (
         <div className="relative shrink-0" onMouseEnter={() => setPeek(true)} onMouseLeave={() => setPeek(false)}>
             <span data-shell-tasks-chip className={cn(CHIP, "hover:border-edge-strong hover:text-accent-soft")}>
-                {shellTasksLabel(tasks.length)}
+                {shellTasksLabel(tasks)}
             </span>
             <PopoverReveal
                 open={peek}
@@ -227,15 +229,24 @@ function ShellTasksBadge({ tasks }: { tasks: ShellTask[] }) {
                 className="absolute right-0 top-[24px] z-30 w-[300px] rounded-[9px] border border-edge-strong bg-surface-raised p-2 shadow-popover-lg"
             >
                 <div data-shell-tasks-list className="flex flex-col gap-1.5">
-                    {tasks.map((t) => (
-                        <div key={t.id} className="flex items-center gap-2">
-                            <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-accent" />
-                            <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-secondary">
-                                {t.description}
-                            </span>
-                            <span className="font-mono text-[10.5px] font-semibold text-accent">running</span>
-                        </div>
-                    ))}
+                    {tasks.map((t) => {
+                        const Mark = t.kind === "monitor" ? Radio : Terminal;
+                        return (
+                            <div key={t.id} className="flex items-center gap-2">
+                                <Mark
+                                    size={12}
+                                    aria-label={t.kind === "monitor" ? "Monitor" : "Shell task"}
+                                    className="shrink-0 text-accent"
+                                />
+                                <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-secondary">
+                                    {t.description}
+                                </span>
+                                <span className="font-mono text-[10.5px] font-semibold text-accent">
+                                    {t.kind === "monitor" ? "watching" : "running"}
+                                </span>
+                            </div>
+                        );
+                    })}
                 </div>
             </PopoverReveal>
         </div>
@@ -320,7 +331,6 @@ export const AgentRow = memo(function AgentRow({
     const commitDone = useCommitDone(agent.blockId, idle && !standingBy);
     const runDone = agentRunDone(agent, standingBy);
     const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
-    const runningShellTasks = shellTasks.length;
     const tasks = useAtomValue(tasksAtomFor(agent.id));
     const prog = tasks && tasks.length > 0 ? taskProgress(tasks) : undefined;
     const showComposer = composerOpen;
@@ -517,7 +527,7 @@ export const AgentRow = memo(function AgentRow({
                             <Clock size={12} aria-hidden className="shrink-0 text-ink-mid" />
                             <span className={cn(REGION_LABEL, "text-ink-mid")}>Standing by</span>
                             <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-muted">
-                                <StandingByMeta agent={agent} nowAtom={nowAtom} running={runningShellTasks} />
+                                <StandingByMeta agent={agent} nowAtom={nowAtom} tasks={shellTasks} />
                             </span>
                         </>
                     ) : (

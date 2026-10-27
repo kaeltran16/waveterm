@@ -168,8 +168,12 @@ export async function killShellTask(parentId: string, blockId: string, task: She
             (globalStore.get(shellTasksByIdAtom)[parentId] ?? []).filter((t) => t.id !== task.id)
         );
     }
-    const note = shellKillNote(r, task.description);
+    const note = shellKillNote(r, task);
     if (note != null) {
-        pushToast({ title: "Kill shell task", message: note, level: r.outcome === "gone" ? "info" : "error" });
+        pushToast({
+            title: task.kind === "monitor" ? "Stop monitor" : "Kill shell task",
+            message: note,
+            level: r.outcome === "gone" ? "info" : "error",
+        });
     }
 }

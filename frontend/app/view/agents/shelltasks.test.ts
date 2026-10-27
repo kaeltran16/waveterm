@@ -5,10 +5,15 @@ import { describe, expect, it } from "vitest";
 import {
     extractShellTasks,
     isStandingBy,
+    monitorEventsSummary,
+    monitorExpiresAt,
+    monitorSubline,
+    monitorTimeLeft,
     outputTail,
     redirectTarget,
     shellKillNote,
     shellTasksLabel,
+    shellTasksNoun,
     type ShellTask,
 } from "./shelltasks";
 
@@ -98,6 +103,7 @@ describe("extractShellTasks", () => {
         expect(extractShellTasks(startWait)).toEqual([
             {
                 id: "bqjiuoxr7",
+                kind: "shell",
                 description: "Wait 30 seconds in the background",
                 command: "sleep 30",
                 startedTs: Date.parse("2026-10-06T08:55:39.046Z"),
@@ -310,6 +316,7 @@ describe("extractShellTasks record shapes", () => {
         expect(extractShellTasks(lines)).toEqual([
             {
                 id: "bnew001",
+                kind: "shell",
                 description: "Sleep nine",
                 command: "sleep 9",
                 startedTs: Date.parse("2026-10-06T08:55:39.046Z"),
@@ -351,6 +358,7 @@ describe("extractShellTasks record shapes", () => {
         expect(described({ command: "make all", description: 5 }).description).toBe("make all");
         expect(described({ description: "Only described" })).toStrictEqual({
             id: "bnew001",
+            kind: "shell",
             description: "Only described",
             startedTs: Date.parse("2026-10-06T08:55:39.046Z"),
         });
@@ -477,7 +485,7 @@ describe("redirectTarget", () => {
 });
 
 describe("isStandingBy", () => {
-    const running: ShellTask[] = [{ id: "a", description: "a" }];
+    const running: ShellTask[] = [{ id: "a", kind: "shell", description: "a" }];
 
     it("is true only for idle with a running task", () => {
         expect(isStandingBy("idle", running)).toBe(true);
@@ -496,25 +504,87 @@ describe("isStandingBy", () => {
 });
 
 describe("shellKillNote", () => {
+    const shell = { kind: "shell", description: "Run the dev app" } as const;
+    const monitor = { kind: "monitor", description: "Watch the log" } as const;
+
     it("says nothing for a kill, since the row leaving says it", () => {
-        expect(shellKillNote({ outcome: "killed", killed: 2 }, "Run the dev app")).toBeNull();
+        expect(shellKillNote({ outcome: "killed", killed: 2 }, shell)).toBeNull();
+        expect(shellKillNote({ outcome: "killed", killed: 1 }, monitor)).toBeNull();
     });
 
     it("names the task for every other outcome, with the OS text on a failure", () => {
-        expect(shellKillNote({ outcome: "gone", killed: 0 }, "Run the dev app")).toBe(
-            '"Run the dev app" had already ended.'
-        );
-        expect(shellKillNote({ outcome: "failed", killed: 0, error: "Access is denied." }, "Run the dev app")).toBe(
+        expect(shellKillNote({ outcome: "gone", killed: 0 }, shell)).toBe('"Run the dev app" had already ended.');
+        expect(shellKillNote({ outcome: "failed", killed: 0, error: "Access is denied." }, shell)).toBe(
             'Could not kill "Run the dev app": Access is denied.'
         );
-        expect(shellKillNote({ outcome: "refused", killed: 0 }, "Run the dev app")).toMatch(/^Not killed: /);
+        expect(shellKillNote({ outcome: "refused", killed: 0 }, shell)).toMatch(/^Not killed: /);
+    });
+
+    it("uses the stop copy for a monitor", () => {
+        expect(shellKillNote({ outcome: "gone", killed: 0 }, monitor)).toBe('"Watch the log" had already ended.');
+        expect(shellKillNote({ outcome: "failed", killed: 0, error: "Access is denied." }, monitor)).toBe(
+            'Could not stop "Watch the log": Access is denied.'
+        );
+        expect(shellKillNote({ outcome: "refused", killed: 0 }, monitor)).toBe(
+            'Not stopped: "Watch the log" is not a process of this agent\'s tab.'
+        );
     });
 });
 
-describe("shellTasksLabel", () => {
-    it("pluralizes", () => {
-        expect(shellTasksLabel(1)).toBe("1 shell task");
-        expect(shellTasksLabel(3)).toBe("3 shell tasks");
+describe("monitor labels", () => {
+    const NOW = Date.parse("2026-10-27T10:00:00.000Z");
+    const MIN = 60_000;
+    const shellTask: ShellTask = { id: "s", kind: "shell", description: "s" };
+    const monitor = (over: Partial<ShellTask> = {}): ShellTask => ({
+        id: "m",
+        kind: "monitor",
+        description: "m",
+        startedTs: NOW - 10 * MIN,
+        timeoutMs: 30 * MIN,
+        ...over,
+    });
+    const events = (...agoMs: number[]) => agoMs.map((ago) => ({ ts: NOW - ago, lines: ["x"] }));
+
+    it("labels a list by its kinds", () => {
+        expect(shellTasksLabel([shellTask])).toBe("1 shell task");
+        expect(shellTasksLabel([shellTask, shellTask, shellTask])).toBe("3 shell tasks");
+        expect(shellTasksLabel([monitor()])).toBe("1 monitor");
+        expect(shellTasksLabel([monitor(), monitor()])).toBe("2 monitors");
+        expect(shellTasksLabel([shellTask, monitor(), monitor()])).toBe("3 tasks");
+        expect(shellTasksNoun([shellTask])).toBe("shell tasks");
+        expect(shellTasksNoun([monitor()])).toBe("monitors");
+        expect(shellTasksNoun([shellTask, monitor()])).toBe("tasks");
+    });
+
+    it("summarizes events, or nothing without any", () => {
+        expect(monitorEventsSummary(monitor(), NOW)).toBeNull();
+        expect(monitorEventsSummary(monitor({ events: events(3 * MIN) }), NOW)).toBe("1 event · 3m ago");
+        expect(monitorEventsSummary(monitor({ events: events(5 * MIN, 0, 20_000, 10_000) }), NOW)).toBe(
+            "4 events · just now"
+        );
+    });
+
+    it("writes a row's second line", () => {
+        expect(monitorSubline(monitor({ startedTs: NOW - 20_000 }), NOW)).toBe("no events yet · <1m");
+        expect(monitorSubline(monitor({ events: events(30 * MIN, 20_000, 10_000, 0) }), NOW)).toBe(
+            "4 events · just now"
+        );
+        const nine = events(...Array.from({ length: 9 }, (_, i) => (i === 8 ? 3 * MIN : 4 * MIN)));
+        expect(monitorSubline(monitor({ persistent: true, events: nine }), NOW)).toBe("persistent · 9 events · 3m ago");
+    });
+
+    it("reads the time left, rounded up", () => {
+        expect(monitorTimeLeft(monitor({ startedTs: NOW - 12.5 * MIN, timeoutMs: 30 * MIN }), NOW)).toBe("18m left");
+        expect(monitorTimeLeft(monitor({ startedTs: NOW - 30 * MIN + 30_000 }), NOW)).toBe("<1m left");
+        expect(monitorTimeLeft(monitor({ persistent: true }), NOW)).toBeNull();
+        expect(monitorTimeLeft(monitor({ timeoutMs: undefined }), NOW)).toBeNull();
+        expect(monitorTimeLeft(monitor({ startedTs: undefined }), NOW)).toBeNull();
+    });
+
+    it("derives the expiry from start and timeout", () => {
+        expect(monitorExpiresAt(monitor())).toBe(NOW - 10 * MIN + 30 * MIN);
+        expect(monitorExpiresAt(monitor({ persistent: true }))).toBeNull();
+        expect(monitorExpiresAt(monitor({ timeoutMs: undefined }))).toBeNull();
     });
 });
 

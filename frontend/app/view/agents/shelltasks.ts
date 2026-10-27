@@ -5,12 +5,24 @@
 // "standing by" state (idle with a task still running). No React and no Wave runtime imports, so the
 // transcript shapes are unit-testable on their own.
 
+import { formatAgeShort, formatAgo } from "./agentsviewmodel";
+
+export interface MonitorEvent {
+    ts?: number;
+    lines: string[];
+}
+
 export interface ShellTask {
     id: string;
+    kind: "shell" | "monitor";
     description: string;
     command?: string; // verbatim, which the kill matches the task's process by
     startedTs?: number;
     outputPath?: string;
+    // monitor only
+    timeoutMs?: number;
+    persistent?: boolean;
+    events?: MonitorEvent[];
 }
 
 // a cap, not a guarantee: a task started before the last 2000 transcript records is not listed.
@@ -80,6 +92,7 @@ function startedTask(rec: any, toolUses: Map<string, any>): ShellTask | null {
     const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
     return {
         id,
+        kind: "shell",
         description,
         ...(command !== "" ? { command } : {}),
         ...(Number.isFinite(ts) ? { startedTs: ts } : {}),
@@ -207,22 +220,75 @@ export function isStandingBy(state: string, tasks: ShellTask[]): boolean {
 }
 
 /** Pure: what to tell the user after a kill, or null when the row leaving says it. */
-export function shellKillNote(r: ResMonKillRtnData, description: string): string | null {
+export function shellKillNote(r: ResMonKillRtnData, task: Pick<ShellTask, "kind" | "description">): string | null {
+    const d = task.description;
     switch (r.outcome) {
         case "killed":
             return null;
         case "gone":
-            return `"${description}" had already ended.`;
-        case "failed":
+            return `"${d}" had already ended.`;
+        case "failed": {
             // the OS text ends in its own period
-            return `Could not kill "${description}"${r.error ? `: ${r.error.replace(/\.$/, "")}` : ""}.`;
+            const why = r.error ? `: ${r.error.replace(/\.$/, "")}` : "";
+            return `Could not ${task.kind === "monitor" ? "stop" : "kill"} "${d}"${why}.`;
+        }
         default:
-            return `Not killed: "${description}" is not a process of this agent's tab.`;
+            return `${task.kind === "monitor" ? "Not stopped" : "Not killed"}: "${d}" is not a process of this agent's tab.`;
     }
 }
 
-export function shellTasksLabel(n: number): string {
-    return n === 1 ? "1 shell task" : `${n} shell tasks`;
+export function shellTasksNoun(tasks: ShellTask[]): "shell tasks" | "monitors" | "tasks" {
+    const monitors = tasks.filter((t) => t.kind === "monitor").length;
+    if (monitors === 0) {
+        return "shell tasks";
+    }
+    return monitors === tasks.length ? "monitors" : "tasks";
+}
+
+export function shellTasksLabel(tasks: ShellTask[]): string {
+    const n = tasks.length;
+    const noun = shellTasksNoun(tasks);
+    if (n !== 1) {
+        return `${n} ${noun}`;
+    }
+    return noun === "monitors" ? "1 monitor" : "1 shell task";
+}
+
+/** Pure: when a monitor times out, or null when it never does or its start is unknown. */
+export function monitorExpiresAt(t: ShellTask): number | null {
+    if (t.persistent || t.startedTs == null || t.timeoutMs == null) {
+        return null;
+    }
+    return t.startedTs + t.timeoutMs;
+}
+
+/** Pure: "N events · 3m ago", or null when the monitor has reported nothing. */
+export function monitorEventsSummary(t: ShellTask, now: number): string | null {
+    const events = t.events ?? [];
+    if (events.length === 0) {
+        return null;
+    }
+    const lastTs = events[events.length - 1].ts;
+    const count = events.length === 1 ? "1 event" : `${events.length} events`;
+    return `${count} · ${formatAgo(lastTs != null ? now - lastTs : undefined)}`;
+}
+
+/** Pure: a monitor row's second line. */
+export function monitorSubline(t: ShellTask, now: number): string {
+    const body =
+        monitorEventsSummary(t, now) ??
+        `no events yet · ${formatAgeShort(t.startedTs != null ? now - t.startedTs : undefined)}`;
+    return t.persistent ? `persistent · ${body}` : body;
+}
+
+/** Pure: "18m left" for a monitor row, null when persistent or its start/timeout is unknown. */
+export function monitorTimeLeft(t: ShellTask, now: number): string | null {
+    const expires = monitorExpiresAt(t);
+    if (expires == null) {
+        return null;
+    }
+    const left = expires - now;
+    return left < 60_000 ? "<1m left" : `${Math.ceil(left / 60_000)}m left`;
 }
 
 /** The output lines trimmed so their joined text is at most the last maxChars characters; a line

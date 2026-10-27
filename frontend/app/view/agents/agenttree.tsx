@@ -81,7 +81,7 @@ import {
     visibleSubagents,
     type SubagentState,
 } from "./session-models/sessionviewmodel";
-import { isStandingBy, shellTasksLabel, type ShellTask } from "./shelltasks";
+import { isStandingBy, shellTasksLabel, shellTasksNoun, type ShellTask } from "./shelltasks";
 import { ShellTaskPeek } from "./shelltaskpeek";
 import {
     killShellTask,
@@ -602,11 +602,11 @@ function ParentRow({
     const tasksChip =
         tasks.length > 0 ? (
             <FoldChip
-                label={shellTasksLabel(tasks.length)}
+                label={shellTasksLabel(tasks)}
                 open={tasksOpen}
                 onToggle={() => setTasksOverride(!tasksOpen)}
-                ariaShow="Show shell tasks"
-                ariaHide="Hide shell tasks"
+                ariaShow={`Show ${shellTasksNoun(tasks)}`}
+                ariaHide={`Hide ${shellTasksNoun(tasks)}`}
             />
         ) : null;
 
