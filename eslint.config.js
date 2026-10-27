@@ -56,6 +56,17 @@ export default [
     },
 
     {
+        // the phone page is plain browser js served by wavesrv, sw.js its service worker
+        files: ["pkg/remotemode/web/static/*.js"],
+        languageOptions: {
+            globals: {
+                ...globals.browser,
+                ...globals.serviceworker,
+            },
+        },
+    },
+
+    {
         files: ["**/*.js", "**/*.cjs"],
         rules: {
             "@typescript-eslint/no-require-imports": "off",

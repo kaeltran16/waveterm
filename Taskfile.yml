@@ -19,6 +19,7 @@ tasks:
         deps:
             - npm:install
             - sync:piartifacts
+            - sync:remoteweb
             - sync:claudemod
             - tauri:sync-version
             - build:backend:devhost
@@ -280,6 +281,22 @@ tasks:
             - cmd/wsh/cmd/pi-simplify-gate-extension.ts
             - cmd/wsh/cmd/pi-simplify-gate-core-extension.ts
 
+    sync:remoteweb:
+        desc: Write the phone page's generated assets under pkg/remotemode/web/static (tokens.css from the @theme block, the woff2 fonts, the 256 px icon) from their single sources (generated, never hand-edited).
+        cmds:
+            - cmd: node scripts/sync-remote-web.mjs
+        sources:
+            - scripts/sync-remote-web.mjs
+            - frontend/tailwindsetup.css
+            - public/fonts/hanken-grotesk-variable.woff2
+            - public/fonts/jetbrains-mono-v13-latin-regular.woff2
+            - public/fonts/jetbrains-mono-v13-latin-700.woff2
+            - src-tauri/icons/icon.ico
+        generates:
+            - pkg/remotemode/web/static/tokens.css
+            - pkg/remotemode/web/static/fonts/*.woff2
+            - pkg/remotemode/web/static/icon.png
+
     sync:claudemod:
         desc: Copy the authored Claude mods (claude/arc-mod, claude/arc-view-mod, claude/arc-skim-mod) into their go:embed locations cmd/wsh/cmd/claude-mod, claude-view-mod and claude-skim-mod (generated, never hand-edited), without their tests or engine-written types. Arc's shipped skills (skills/) go into the arc mod's skills/, so Claude Code lists them as arc:<skill>.
         cmds:
@@ -299,6 +316,7 @@ tasks:
     build:server:internal:
         deps:
             - sync:piartifacts
+            - sync:remoteweb
             - sync:claudemod
         requires:
             vars:
@@ -337,6 +355,7 @@ tasks:
     build:wsh:internal:
         deps:
             - sync:piartifacts
+            - sync:remoteweb
             - sync:claudemod
         vars:
             EXT:
