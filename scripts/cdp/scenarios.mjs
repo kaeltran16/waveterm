@@ -13977,7 +13977,8 @@ const monitorTasksScenario = {
                 rows: taskRowIds().filter((id) => all.includes(id)),
                 kinds: ids.map((id) => taskRow(id)?.getAttribute("data-task-kind") ?? null),
                 marks: ids.map(mark),
-                titles: ids.map((id) => taskRow(id)?.getAttribute("title") ?? null),
+                // the title tooltip host parks a hovered element's title in data-arc-title
+                titles: ids.map((id) => taskRow(id)?.getAttribute("title") ?? taskRow(id)?.getAttribute("data-arc-title") ?? null),
                 subs: Object.fromEntries(ids.map((id) => [id, sub(id)])),
                 left: ids.slice(1).map((id) => text(left(id))),
                 dots: [dot(treeRow(${mainName})), dot(treeRow(${persistName}))],
@@ -14045,7 +14046,11 @@ const monitorTasksScenario = {
             ${SHELL_LIB}
             const x = () => taskRow("bmtquiet")?.querySelector("[data-shell-task-kill]");
             await until(() => x() != null && getComputedStyle(x()).opacity === "1", 20);
-            return { label: x()?.getAttribute("aria-label") ?? null, title: x()?.getAttribute("title") ?? null, opacity: x() ? getComputedStyle(x()).opacity : null };
+            return {
+                label: x()?.getAttribute("aria-label") ?? null,
+                title: x()?.getAttribute("title") ?? x()?.getAttribute("data-arc-title") ?? null,
+                opacity: x() ? getComputedStyle(x()).opacity : null,
+            };
         })()`);
         await h.shot("cdp-shots/monitor-tasks-3.png");
         const menu = await h.ev(`(async () => {
