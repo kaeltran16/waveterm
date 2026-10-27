@@ -832,6 +832,13 @@ outside the task), and ends with one command:
   starting from the rejected commit with the findings in its prompt. The second time, it goes to
   **review-failed** and the lead wakes.
 
+The reviewer also gets the task's goalpost findings: arc-mod watches a Claude Code task worker's edits and
+commands for ones that lower a check (a skipped or deleted test, a loosened assertion, `--no-verify`), and reports
+each to the engine with `wsh jarvis dag goalpost`, which records it on the run as `task-goalpost`. The reviewer's
+brief lists them after the worker's report, and the reviewer must pass or fail each one by name in its note: pass
+it when the task or spec calls for it, when the report explains it, or when the final diff no longer shows it;
+otherwise fail the task. pi workers are not covered: the guard is a Claude Code mod.
+
 A reviewer that ends without a verdict or runs past 20 minutes is replaced once; a reviewer that commits has its
 verdict thrown out. Either way the task goes to review-failed after that. A worker that reports no commit is not
 reviewed: the task is done, and the lead's next wake says `t-N finished without reporting a commit` with the
