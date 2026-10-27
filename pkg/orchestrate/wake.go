@@ -42,9 +42,9 @@ const (
 	leadLaunchFailedNote = "lead could not be started"
 )
 
-// handoffInstructions is what a lead's compaction keeps once its plan is handed over (spec §7): what the
-// spec does not already hold.
-const handoffInstructions = "Keep: what the human said that the spec does not record, and the reason behind each decision. Drop: code you read, drafts, tool output."
+// handoffInstructions is what a lead's compaction keeps once its plan is handed over (spec decision 5): the
+// lead planned from an approved design, so what it must carry is its own planning, not the design's reasoning.
+const handoffInstructions = "Keep: the interfaces and files each task relies on, why the plan is split as it is, and the human's answers to your own asks. Drop: tool output, plan drafts, code bodies."
 
 // HandoffCompact is the handoff as typed into a lead: the compaction lands at the natural boundary
 // instead of mid-wake. A session with a stream is asked to compact instead (streamMsg).
