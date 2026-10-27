@@ -1388,6 +1388,16 @@ declare global {
         fileinfo?: FileInfo[];
     };
 
+    // wshrpc.CommandRemoteSetupData
+    type CommandRemoteSetupData = {
+        tunneltoken: string;
+        team: string;
+        aud: string;
+        email: string;
+        hostname: string;
+        port?: number;
+    };
+
     // wshrpc.CommandRemoveBackgroundAgentData
     type CommandRemoveBackgroundAgentData = {
         sessionid: string;
@@ -2606,6 +2616,18 @@ declare global {
         model?: string;
         text: string;
         ts: number;
+    };
+
+    // wshrpc.RemoteStatusData
+    type RemoteStatusData = {
+        on: boolean;
+        missing?: string[];
+        hostname?: string;
+        port?: number;
+        tunnel: string;
+        tunnelerror?: string;
+        subscriptions: number;
+        cloudflaredmissing?: boolean;
     };
 
     // wshrpc.ResMonGroup

@@ -4,6 +4,9 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { ProjectSwitcher } from "@/app/view/agents/projectswitcher";
+import { showRemotePill } from "@/app/view/agents/remotemodel";
+import { loadRemoteStatus, remoteStatusAtom, subscribeRemoteStatus } from "@/app/view/agents/remotestore";
+import { pendingSettingsSectionAtom } from "@/app/view/agents/settingsstore";
 import { UsageMeters } from "@/app/view/agents/usagemeters";
 import { loadWindowTokens, windowTokensAtom } from "@/app/view/agents/windowtokenstore";
 import { landOn } from "@/app/view/jarvis/returnsurface";
@@ -11,7 +14,7 @@ import { formatChordString } from "@/util/keysym";
 import { fireAndForget } from "@/util/util";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAtomValue } from "jotai";
-import { TriangleAlert } from "lucide-react";
+import { Smartphone, TriangleAlert } from "lucide-react";
 import { useEffect } from "react";
 import { versionInfoAtom } from "./versioninfo";
 
@@ -53,6 +56,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
 
             <div className="flex h-full shrink-0 items-center gap-2.5">
                 <VersionMismatchPill />
+                <RemoteOnPill model={model} />
                 <AppBarUsage model={model} />
                 {/* secondary, so New agent stays the one primary action. data-new-run: the Brief's `r` key
                     presses this (buildJarvisBindings). */}
@@ -119,6 +123,35 @@ function AppBarUsage({ model }: { model: AgentsViewModel }) {
             now={now}
             onOpen={() => landOn(model.surfaceAtom, "usage")}
         />
+    );
+}
+
+// The app bar is always mounted, so it holds remote mode's status subscription for Settings > Remote too.
+function RemoteOnPill({ model }: { model: AgentsViewModel }) {
+    const status = useAtomValue(remoteStatusAtom);
+    useEffect(() => {
+        const unsub = subscribeRemoteStatus();
+        fireAndForget(loadRemoteStatus);
+        return unsub;
+    }, []);
+    if (!showRemotePill(status)) {
+        return null;
+    }
+    const open = () => {
+        globalStore.set(pendingSettingsSectionAtom, "remote");
+        landOn(model.surfaceAtom, "settings");
+    };
+    return (
+        <button
+            type="button"
+            data-remote-pill
+            onClick={open}
+            title={status?.hostname ? `Reachable from your phone at https://${status.hostname}` : undefined}
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[8px] border border-success/40 bg-success/10 px-2 py-[5px] text-[11.5px] font-semibold text-success hover:bg-success/15"
+        >
+            <Smartphone size={12} />
+            Remote on
+        </button>
     );
 }
 

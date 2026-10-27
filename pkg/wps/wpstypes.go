@@ -37,6 +37,7 @@ const (
 	Event_RunEvent      = "run:event"        // type: wshrpc.RunEventData
 
 	Event_MemHygieneUpdate = "memhygiene:update" // type: none (the setup memory tab re-lists on it)
+	Event_RemoteStatus     = "remote:status"     // type: *wshrpc.RemoteStatusData
 )
 
 var AllEvents []string = []string{
@@ -60,6 +61,7 @@ var AllEvents []string = []string{
 	DagEventTaskRetried,
 	Event_RunEvent,
 	Event_MemHygieneUpdate,
+	Event_RemoteStatus,
 }
 
 type WaveEvent struct {

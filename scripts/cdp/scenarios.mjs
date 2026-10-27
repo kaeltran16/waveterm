@@ -2,12 +2,12 @@
 // teardown(h,ctx) }. arrange/assert/teardown run in Node and drive the browser via h (see attach.mjs).
 // Asserts are RPC-based (backend state) or DOM-based (h.ev) — NOT jotai atom reads (globalStore is not
 // exposed on window). steps are { step, ok, detail }.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SURFACE_LABEL } from "./attach.mjs";
+import { SURFACE_LABEL, openPage } from "./attach.mjs";
 import { narrationFeed } from "./narrationfeed.mjs";
 import {
     MEMORY_FAILED_ERROR,
@@ -23797,6 +23797,518 @@ const settingsStorage = {
     },
 };
 
+// --- remote-switch: Settings > Remote and the app bar's Remote on pill ------------------------------------------
+// Step 1 reads the dev store's real status (no remote setup). The rest are fixtures set into remoteStatusAtom
+// through the app's own store module; nothing reaches wavesrv but step 6's switch click, which the real
+// RemoteOnCommand refuses because the dev store has no setup. Teardown reloads the real status.
+const REMOTE_PANE = `document.querySelector('[data-settings-section="remote"]')`;
+const REMOTE_PILL = `document.querySelector('[data-remote-pill]')`;
+const REMOTE_HOST = "arc.example.com";
+const REMOTE_TUNNEL_ERROR = "failed to dial edge: connection refused";
+const REMOTE_SET_UP = { on: false, hostname: REMOTE_HOST, port: 8765, tunnel: "off", subscriptions: 0 };
+const REMOTE_FIXTURES = {
+    up: { ...REMOTE_SET_UP, on: true, tunnel: "up", subscriptions: 1 },
+    down: { ...REMOTE_SET_UP, on: true, tunnel: "down", tunnelerror: REMOTE_TUNNEL_ERROR, subscriptions: 1 },
+    nocloudflared: { ...REMOTE_SET_UP, cloudflaredmissing: true },
+    off: REMOTE_SET_UP,
+};
+const remoteSetStatus = (h, name) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { remoteStatusAtom } = await mod("app/view/agents/remotestore.ts");
+        globalStore.set(remoteStatusAtom, ${JSON.stringify(REMOTE_FIXTURES[name])});
+        return true;
+    `);
+const remoteReload = (h) =>
+    lookEval(h, `
+        await (await mod("app/view/agents/remotestore.ts")).loadRemoteStatus();
+        return true;
+    `);
+const REMOTE_READ = `(() => {
+    const pane = ${REMOTE_PANE};
+    const sw = pane?.querySelector('[role="switch"]');
+    const text = (el) => (el?.textContent || "").trim();
+    return {
+        pane: pane != null,
+        pill: ${REMOTE_PILL} != null,
+        switchOn: sw?.getAttribute("aria-checked") === "true",
+        switchDisabled: sw?.disabled ?? null,
+        note: text(pane?.querySelector('[data-testid="remote-switch-note"]')),
+        error: text(pane?.querySelector('[data-testid="remote-error"]')),
+        lines: Object.fromEntries([...(pane?.querySelectorAll('[data-remote-line]') ?? [])].map((l) => [l.getAttribute("data-remote-line"), text(l)])),
+    };
+})()`;
+
+const remoteSwitchScenario = {
+    name: "remote-switch",
+    surface: "settings",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const shot = (n) => h.shot(`cdp-shots/remote-switch-${n}.png`);
+        const settle = () => polishNap(300);
+
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        await h.goto("settings");
+        await remoteReload(h);
+        await h.ev(`document.querySelector('[data-section="remote"]')?.click()`);
+        await polishWaitFor(h, `${REMOTE_PANE}?.querySelector('[data-remote-line]') != null`, 5000);
+        await settle();
+        await shot("1-unset");
+        const unset = await h.ev(REMOTE_READ);
+        rec(
+            "1. with no setup the switch is disabled, says to run wsh remote setup, and no pill shows",
+            unset.pane && unset.switchDisabled === true && !unset.switchOn && unset.note.includes("wsh remote setup") && !unset.pill && /^Setup incomplete/.test(unset.lines.setup ?? ""),
+            JSON.stringify(unset)
+        );
+
+        await remoteSetStatus(h, "up");
+        await polishWaitFor(h, `${REMOTE_PILL} != null`, 3000);
+        await settle();
+        await shot("2-up");
+        const up = await h.ev(REMOTE_READ);
+        const pillText = await h.ev(`(${REMOTE_PILL}?.textContent || "").trim()`);
+        rec(
+            "2. on with the tunnel up: the pill shows, the section shows on, the address and subscribed",
+            up.pill && pillText === "Remote on" && up.switchOn && up.switchDisabled === false && up.lines.tunnel === "Tunnel up" && up.lines.address === `https://${REMOTE_HOST}` && up.lines.phone === "Phone subscribed",
+            JSON.stringify({ ...up, pillText })
+        );
+
+        await h.goto("agent");
+        await settle();
+        await h.ev(`${REMOTE_PILL}?.click()`);
+        const opened = await polishWaitFor(h, `${REMOTE_PANE} != null`, 5000);
+        await settle();
+        await shot("3-pill-opens");
+        const selected = await h.ev(`document.querySelector('[data-section="remote"]')?.className.includes("border-accent") ?? false`);
+        rec("3. clicking the pill on the Agent surface opens Settings > Remote", opened && selected, JSON.stringify({ opened, selected }));
+
+        await remoteSetStatus(h, "down");
+        await settle();
+        await shot("4-down");
+        const down = await h.ev(REMOTE_READ);
+        rec(
+            "4. on with the tunnel down: the section shows the down line with its error",
+            down.lines.tunnel === `Tunnel down: ${REMOTE_TUNNEL_ERROR}` && down.switchOn && down.pill,
+            JSON.stringify(down)
+        );
+
+        await remoteSetStatus(h, "nocloudflared");
+        await settle();
+        await shot("5-no-cloudflared");
+        const nocf = await h.ev(REMOTE_READ);
+        rec(
+            "5. set up but cloudflared missing: the switch is disabled with the winget line",
+            nocf.switchDisabled === true && nocf.note.includes("winget install --id Cloudflare.cloudflared") && !nocf.pill && nocf.lines.setup === "Setup complete",
+            JSON.stringify(nocf)
+        );
+
+        await remoteSetStatus(h, "off");
+        await settle();
+        await h.ev(`${REMOTE_PANE}?.querySelector('[role="switch"]')?.click()`);
+        await polishWaitFor(h, `${REMOTE_PANE}?.querySelector('[data-testid="remote-error"]') != null`, 20000);
+        await settle();
+        await shot("6-refused");
+        const refused = await h.ev(REMOTE_READ);
+        rec(
+            "6. set up and off: the switch's real RemoteOnCommand refuses, and the section shows the error inline",
+            refused.error !== "" && !refused.switchOn && !refused.pill,
+            JSON.stringify(refused)
+        );
+        return steps;
+    },
+    async teardown(h) {
+        await remoteReload(h).catch(() => {});
+        await h.goto("cockpit");
+    },
+};
+
+// --- remote-phone: the phone page, served by cmd/remotepreview, in a phone-sized headless browser ---------------
+// Needs no dev app: the preview serves the real page and handler with fixture data and an Access check that lets
+// everything through, and prints a line for each answer, subscribe and off it gets. The browser is its own
+// headless Edge or Chrome on its own CDP port; its shots join the run's. Restarts reuse the first port, since the
+// page's origin, service worker and last-reached time all hang on it.
+const PHONE_REPO = fileURLToPath(new URL("../..", import.meta.url));
+// "REMOTEPREVIEW <url>" once listening, then "REMOTEPREVIEW <what> <json>" per answer, subscribe and off
+const PHONE_LINE = /^REMOTEPREVIEW (\S+)(?: (.*))?$/;
+const PHONE_ENDPOINT = "https://push.example.test/arc-remote-phone";
+const PHONE_WAIT_MS = 15_000;
+const PHONE_GONE_TEXT = "already answered or withdrawn";
+// headless chrome has no push service: the grant and the subscription are stubbed before any page script runs, and
+// the grant outlives a reload as a real one would
+const PHONE_GRANT_KEY = "arc-remote-phone.granted";
+const PHONE_STUB = `(() => {
+    Object.defineProperty(Notification, "permission", {
+        configurable: true,
+        get: () => (localStorage.getItem(${JSON.stringify(PHONE_GRANT_KEY)}) ? "granted" : "default"),
+    });
+    Notification.requestPermission = async () => {
+        localStorage.setItem(${JSON.stringify(PHONE_GRANT_KEY)}, "1");
+        return "granted";
+    };
+    PushManager.prototype.subscribe = async () => ({
+        endpoint: ${JSON.stringify(PHONE_ENDPOINT)},
+        expirationTime: null,
+        keys: { p256dh: "BFakeP256dhKeyForTheRemotePhoneScenario", auth: "fakeAuthSecret" },
+    });
+})()`;
+
+function phoneBrowserPath() {
+    if (process.env.CHROME) return process.env.CHROME;
+    const found = [
+        "C:/Program Files/Google/Chrome/Application/chrome.exe",
+        "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+        "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium",
+    ].find((p) => existsSync(p));
+    if (!found) throw new Error("no Chrome or Edge found; set CHROME=<path to chrome or msedge>");
+    return found;
+}
+
+// resolves once the preview prints its url; every later record line lands in ctx.records
+function phoneStartPreview(ctx, fixture) {
+    const args = ["--fixture", fixture, ...(ctx.port ? ["--port", String(ctx.port)] : [])];
+    const child = spawn(ctx.bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    ctx.preview = child;
+    let stderr = "";
+    child.stderr.on("data", (d) => (stderr += d));
+    return new Promise((resolveUrl, reject) => {
+        const timer = setTimeout(() => reject(new Error(`remotepreview did not start in ${PHONE_WAIT_MS}ms: ${stderr}`)), PHONE_WAIT_MS);
+        let buf = "";
+        child.stdout.on("data", (d) => {
+            buf += d;
+            let nl;
+            while ((nl = buf.indexOf("\n")) >= 0) {
+                const line = buf.slice(0, nl).trim();
+                buf = buf.slice(nl + 1);
+                const m = line.match(PHONE_LINE);
+                if (!m) continue;
+                if (m[1].startsWith("http")) {
+                    clearTimeout(timer);
+                    ctx.url = m[1];
+                    ctx.port = Number(new URL(m[1]).port);
+                    resolveUrl(m[1]);
+                } else {
+                    ctx.records.push({ what: m[1], data: m[2] ? JSON.parse(m[2]) : null });
+                }
+            }
+        });
+        child.on("exit", (code) => {
+            clearTimeout(timer);
+            reject(new Error(`remotepreview exited (${code}) before it listened: ${stderr}`));
+        });
+    });
+}
+
+async function phoneStopPreview(ctx) {
+    const child = ctx.preview;
+    ctx.preview = null;
+    if (!child || child.exitCode != null) return;
+    const exited = new Promise((r) => child.once("exit", r));
+    child.kill();
+    await exited;
+}
+
+async function phoneLaunchBrowser(ctx, shots) {
+    const profile = join(ctx.dir, "profile");
+    ctx.browser = spawn(
+        phoneBrowserPath(),
+        [
+            "--headless=new",
+            "--disable-gpu",
+            "--hide-scrollbars",
+            "--no-first-run",
+            "--no-default-browser-check",
+            `--user-data-dir=${profile}`,
+            "--remote-debugging-port=0",
+            "about:blank",
+        ],
+        { stdio: "ignore" }
+    );
+    const portFile = join(profile, "DevToolsActivePort");
+    let port = 0;
+    for (const start = Date.now(); !port && Date.now() - start < PHONE_WAIT_MS; await polishNap(200)) {
+        if (existsSync(portFile)) port = Number(readFileSync(portFile, "utf8").split("\n")[0]);
+    }
+    if (!port) throw new Error(`the headless browser wrote no DevToolsActivePort in ${PHONE_WAIT_MS}ms`);
+    const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+    const target = targets.find((t) => t.type === "page");
+    if (!target) throw new Error(`the headless browser on :${port} has no page target`);
+    const page = await openPage(target, shots);
+    await page.cdp("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+    await page.cdp("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+    await page.cdp("Page.addScriptToEvaluateOnNewDocument", { source: PHONE_STUB });
+    return page;
+}
+
+// a navigation or reload, then the first draw of #app
+async function phoneLoad(page, url) {
+    await page.ev(`(() => { window.__phoneReloading = true; location.href = ${JSON.stringify(url)}; })()`).catch(() => {});
+    await polishWaitFor(page, `!window.__phoneReloading && document.querySelector("#app")?.childElementCount > 0`, PHONE_WAIT_MS);
+}
+
+const PHONE_READ = `(() => {
+    const text = (el) => (el?.textContent || "").trim();
+    const buttons = [...document.querySelectorAll("button")].map(text);
+    return {
+        chip: text(document.querySelector(".chip")),
+        sub: text(document.querySelector(".head-sub")),
+        sections: [...document.querySelectorAll("section h2")].map(text),
+        cards: [...document.querySelectorAll(".card .meta-agent")].map(text),
+        held: document.querySelectorAll(".shown").length,
+        notice: text(document.querySelector(".notice")),
+        blank: text(document.querySelector(".blank-title")),
+        notifications: buttons.includes("Turn on notifications"),
+        off: buttons.includes("Turn off remote mode"),
+        answering: document.querySelector(".qblock") != null,
+        sent: text(document.querySelector(".sent")),
+    };
+})()`;
+
+const phoneClickButton = (label) =>
+    `(() => { const b = [...document.querySelectorAll("button")].find((x) => (x.textContent || "").trim() === ${JSON.stringify(label)}); b?.click(); return !!b; })()`;
+const phoneOpenCard = (source) =>
+    `(() => { const c = [...document.querySelectorAll(".card")].find((x) => x.querySelector(".meta-agent")?.textContent === ${JSON.stringify(source)}); c?.click(); return !!c; })()`;
+const phonePick = (qi, oi) => `document.querySelectorAll(".qblock")[${qi}]?.querySelectorAll(".option")[${oi}]?.click()`;
+const PHONE_SEND_DISABLED = `document.querySelector(".btn-primary")?.disabled ?? null`;
+
+const remotePhone = {
+    name: "remote-phone",
+    surface: "cockpit",
+    async arrange() {
+        const dir = mkdtempSync(join(tmpdir(), "verify-remote-phone-"));
+        const bin = join(dir, `remotepreview${process.platform === "win32" ? ".exe" : ""}`);
+        // a built binary, not go run: killing go run on Windows leaves its child serving
+        execFileSync("go", ["build", "-o", bin, "./cmd/remotepreview"], { cwd: PHONE_REPO, stdio: "pipe" });
+        return { dir, bin, records: [], port: 0 };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const records = (what) => ctx.records.filter((r) => r.what === what);
+        const recorded = async (what, n) => {
+            for (const start = Date.now(); records(what).length < n && Date.now() - start < PHONE_WAIT_MS; ) await polishNap(200);
+            return records(what).length >= n;
+        };
+
+        await phoneStartPreview(ctx, "main");
+        const page = (ctx.page = await phoneLaunchBrowser(ctx, h.shots));
+        const shot = (n) => page.shot(`cdp-shots/remote-phone-${n}.png`);
+        const shotScrolled = async (n) => {
+            await page.ev(`document.querySelector(".main")?.scrollTo(0, 1e6)`);
+            await polishNap(200);
+            await shot(n);
+            await page.ev(`document.querySelector(".main")?.scrollTo(0, 0)`);
+        };
+        const read = () => page.ev(PHONE_READ);
+        const list = await (await fetch(`${ctx.url}api/waiting`)).json();
+        const [portQ, checksQ, withdrawnQ] = list.questions;
+
+        // 1. Main
+        await phoneLoad(page, ctx.url);
+        await polishWaitFor(page, `document.querySelectorAll(".card").length === 3`, PHONE_WAIT_MS);
+        // the service worker must hold the shell before step 6 can draw Unreachable offline
+        const sw = await page.ev(`Promise.race([
+            navigator.serviceWorker.ready.then(() => caches.match("/")).then((r) => !!r),
+            new Promise((r) => setTimeout(() => r(false), ${PHONE_WAIT_MS})),
+        ])`);
+        await polishNap(300);
+        await shot("1-main");
+        await shotScrolled("1-main-held");
+        const main = await read();
+        rec(
+            "1. Main: questions then held runs, the counts line, the off button and Turn on notifications",
+            main.chip === "Remote on" &&
+                main.sub === "3 questions to answer · 2 runs held" &&
+                JSON.stringify(main.sections) === JSON.stringify(["Questions", "Held runs"]) &&
+                JSON.stringify(main.cards) === JSON.stringify(list.questions.map((q) => q.source)) &&
+                main.held === 2 &&
+                main.off &&
+                main.notifications &&
+                sw === true,
+            JSON.stringify({ ...main, sw })
+        );
+
+        // 1b. Turn on notifications
+        await page.ev(phoneClickButton("Turn on notifications"));
+        const subscribed = await recorded("subscribe", 1);
+        await polishWaitFor(page, `![...document.querySelectorAll("button")].some((b) => /^Turn(ing)? on notifications/.test(b.textContent.trim()))`, PHONE_WAIT_MS);
+        await shot("1b-notifications-on");
+        const afterSub = await read();
+        rec(
+            "1b. tapping Turn on notifications: the preview recorded the stub's subscription and the button is gone",
+            subscribed && records("subscribe")[0].data.endpoint === PHONE_ENDPOINT && !afterSub.notifications && afterSub.notice === "",
+            JSON.stringify({ subscribe: records("subscribe"), notice: afterSub.notice, button: afterSub.notifications })
+        );
+
+        // 2. Answer
+        await page.ev(phoneOpenCard(portQ.source));
+        await polishWaitFor(page, `document.querySelector(".qblock") != null`, PHONE_WAIT_MS);
+        await page.ev(`(() => { const d = document.querySelector("details.fold"); if (d) d.open = true; })()`);
+        await polishNap(300);
+        await shot("2-answer");
+        await shotScrolled("2-answer-end");
+        const pq = portQ.questions[0];
+        const answer = await page.ev(`(() => {
+            const text = (el) => (el?.textContent || "").trim();
+            const block = document.querySelector(".qblock");
+            return {
+                question: text(block?.querySelector("h1")),
+                fold: block?.querySelector("details.fold")?.open ?? false,
+                preview: block?.querySelector(".fold-text")?.textContent ?? "",
+                nums: [...(block?.querySelectorAll(".option-num") ?? [])].map(text),
+                rec: [...(block?.querySelectorAll(".option") ?? [])].findIndex((o) => o.querySelector(".rec-mark")),
+                own: block?.querySelector("input[type=text]") != null,
+                send: text(document.querySelector(".btn-primary")),
+                sendDisabled: document.querySelector(".btn-primary")?.disabled ?? null,
+            };
+        })()`);
+        const recIndex = pq.options.findIndex((o) => /\(Recommended\)$/.test(o.label));
+        rec(
+            "2. Answer: the full question, the fold open on the preview, numbered rows with the recommended mark, own answer, Send",
+            answer.question === pq.question &&
+                answer.fold &&
+                answer.preview === pq.options[recIndex].preview &&
+                JSON.stringify(answer.nums) === JSON.stringify(pq.options.map((_, i) => String(i + 1))) &&
+                answer.rec === recIndex &&
+                answer.own &&
+                answer.send === "Send answer" &&
+                answer.sendDisabled === true,
+            JSON.stringify(answer)
+        );
+
+        // 3. Answered
+        await page.ev(phonePick(0, recIndex));
+        await page.ev(phoneClickButton("Send answer"));
+        await polishWaitFor(page, `document.querySelector(".sent") != null`, PHONE_WAIT_MS);
+        const answered = await recorded("answer", 1);
+        await polishNap(300);
+        await shot("3-answered");
+        const sent = await read();
+        const first = records("answer")[0]?.data;
+        rec(
+            "3. pick and send: Answered with what was sent, and the preview recorded the answer",
+            sent.sent.startsWith("Answered") &&
+                sent.sent.includes(`Sent to ${portQ.source}: 8765`) &&
+                answered &&
+                first.oref === portQ.oref &&
+                first.askid === portQ.askid &&
+                JSON.stringify(first.answers) === JSON.stringify([{ selectedindexes: [recIndex] }]),
+            JSON.stringify({ sent: sent.sent, record: first })
+        );
+
+        // 4. a two-question ask: Send waits for both
+        await page.ev(phoneClickButton("Back to what is waiting"));
+        await polishWaitFor(page, `document.querySelectorAll(".card").length === 2`, PHONE_WAIT_MS);
+        await page.ev(phoneOpenCard(checksQ.source));
+        await polishWaitFor(page, `document.querySelectorAll(".qblock").length === 2`, PHONE_WAIT_MS);
+        await page.ev(phonePick(0, 1));
+        const halfDisabled = await page.ev(PHONE_SEND_DISABLED);
+        await polishNap(200);
+        await shot("4-half-answered");
+        await page.ev(phonePick(1, 0));
+        await page.ev(phonePick(1, 2));
+        const fullDisabled = await page.ev(PHONE_SEND_DISABLED);
+        const multiChecked = await page.ev(
+            `[...document.querySelectorAll(".qblock")[1].querySelectorAll(".option")].map((o) => o.getAttribute("aria-checked"))`
+        );
+        await shotScrolled("4-both-answered");
+        await page.ev(phoneClickButton("Send answer"));
+        await polishWaitFor(page, `document.querySelector(".sent") != null`, PHONE_WAIT_MS);
+        const second = (await recorded("answer", 2)) ? records("answer")[1].data : null;
+        await polishNap(300);
+        await shot("4-answered");
+        rec(
+            "4. a two-question ask: Send stays disabled with one answered, then sends both, the second multi-select",
+            halfDisabled === true &&
+                fullDisabled === false &&
+                JSON.stringify(multiChecked) === JSON.stringify(["true", "false", "true"]) &&
+                second?.oref === checksQ.oref &&
+                JSON.stringify(second?.answers) === JSON.stringify([{ selectedindexes: [1] }, { selectedindexes: [0, 2] }]),
+            JSON.stringify({ halfDisabled, fullDisabled, multiChecked, record: second })
+        );
+
+        // 4b. a question answered at the desk meanwhile
+        await page.ev(phoneClickButton("Back to what is waiting"));
+        await polishWaitFor(page, `document.querySelectorAll(".card").length === 1`, PHONE_WAIT_MS);
+        await page.ev(phoneOpenCard(withdrawnQ.source));
+        await polishWaitFor(page, `document.querySelector(".qblock") != null`, PHONE_WAIT_MS);
+        await page.ev(phonePick(0, 0));
+        await page.ev(phoneClickButton("Send answer"));
+        await polishWaitFor(page, `document.querySelector(".notice") != null && !document.querySelector(".qblock")`, PHONE_WAIT_MS);
+        await polishNap(300);
+        await shot("4b-gone");
+        const gone = await read();
+        rec(
+            "4b. the withdrawn question: the page says it was already answered or withdrawn and is back on the list",
+            gone.notice.includes(PHONE_GONE_TEXT) && !gone.answering && gone.cards.length === 1 && records("answer").length === 2,
+            JSON.stringify({ notice: gone.notice, cards: gone.cards, answers: records("answer").length })
+        );
+
+        // 5. Empty
+        await phoneStopPreview(ctx);
+        await phoneStartPreview(ctx, "empty");
+        await phoneLoad(page, ctx.url);
+        await polishWaitFor(page, `document.querySelector(".blank-title") != null`, PHONE_WAIT_MS);
+        await polishNap(300);
+        await shot("5-empty");
+        const empty = await read();
+        rec(
+            "5. the empty fixture: Empty, still on, with the off button",
+            empty.blank === "Nothing is waiting on you." && empty.chip === "Remote on" && empty.sub === "Nothing waiting" && empty.off,
+            JSON.stringify(empty)
+        );
+
+        // 6. Unreachable
+        await phoneStopPreview(ctx);
+        await phoneLoad(page, ctx.url);
+        await polishWaitFor(page, `document.querySelector(".chip-off") != null`, PHONE_WAIT_MS);
+        await polishNap(300);
+        await shot("6-unreachable");
+        const down = await read();
+        rec(
+            "6. the preview stopped and the page reloaded: Unreachable with Last reached",
+            down.chip === "Not reachable" && down.sub.startsWith("Last reached") && down.blank === "Arc is not reachable.",
+            JSON.stringify(down)
+        );
+
+        // 7. turn off from the phone
+        await phoneStartPreview(ctx, "main");
+        await phoneLoad(page, ctx.url);
+        await polishWaitFor(page, `document.querySelector(".chip-on") != null && document.querySelectorAll(".card").length > 0`, PHONE_WAIT_MS);
+        await page.ev(phoneClickButton("Turn off remote mode"));
+        await polishNap(200);
+        await shot("7-confirm-off");
+        await page.ev(phoneClickButton("Turn off now"));
+        const off = await recorded("off", 1);
+        await polishWaitFor(page, `document.querySelector(".chip-off") != null`, PHONE_WAIT_MS);
+        await polishNap(300);
+        await shot("7-off");
+        const after = await read();
+        rec(
+            "7. Turn off remote mode, confirmed: the preview recorded Off and the page shows Unreachable",
+            off && after.chip === "Not reachable" && after.blank === "Arc is not reachable.",
+            JSON.stringify({ ...after, offRecords: records("off").length })
+        );
+        return steps;
+    },
+    async teardown(_h, ctx) {
+        ctx.page?.close();
+        await phoneStopPreview(ctx).catch(() => {});
+        if (ctx.browser && ctx.browser.exitCode == null) {
+            const exited = new Promise((r) => ctx.browser.once("exit", r));
+            ctx.browser.kill();
+            await exited;
+        }
+        rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    },
+};
+
 // --- motion gaps ---------------------------------------------------------------------------------
 // The cockpit toast and the Setup tab panel used to cut in and out. Each check samples in-page, in one
 // evaluation, because a CDP round trip per sample is slower than the animations it measures: an observer
@@ -28375,6 +28887,8 @@ export const SCENARIOS = [
     settingsVaultSync,
     settingsClaudeAccount,
     settingsStorage,
+    remoteSwitchScenario,
+    remotePhone,
     jarvisMotion,
     // before brief-inline-tracker, which leaves a briefing fixture on over the seeded data
     briefDesignParity,
