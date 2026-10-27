@@ -7,6 +7,7 @@ import {
     isStandingBy,
     monitorEventsSummary,
     monitorExpiresAt,
+    monitorOutputPath,
     monitorSubline,
     monitorTimeLeft,
     outputTail,
@@ -58,6 +59,51 @@ function bashStart(toolUseId: string, taskId: string, timestamp = "2026-10-06T08
     });
 }
 
+function monitorUse(toolUseId: string, input: Record<string, unknown>): string {
+    return JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-10-27T09:00:00.000Z",
+        message: { role: "assistant", content: [{ type: "tool_use", id: toolUseId, name: "Monitor", input }] },
+    });
+}
+
+function monitorStart(
+    toolUseId: string,
+    taskId: string,
+    { timestamp = "2026-10-27T09:00:01.000Z", timeoutMs = 1800000, persistent = false } = {}
+): string {
+    return JSON.stringify({
+        type: "user",
+        timestamp,
+        message: {
+            role: "user",
+            content: [
+                {
+                    tool_use_id: toolUseId,
+                    type: "tool_result",
+                    content: `Monitor started (task ${taskId}, expires in 30m unless the source ends first; events arrive as notifications)`,
+                },
+            ],
+        },
+        toolUseResult: { taskId, timeoutMs, persistent },
+    });
+}
+
+function monitorEvent(taskId: string, desc: string, lines: string[]): string {
+    return [
+        "<task-notification>",
+        `<task-id>${taskId}</task-id>`,
+        `<summary>Monitor event: "${desc}"</summary>`,
+        `<event>${lines.join("\n")}</event>`,
+        "If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.",
+        "</task-notification>",
+    ].join("\n");
+}
+
+function monitorEnd(taskId: string, toolUseId: string, desc: string): string {
+    return notification(taskId, toolUseId, "completed", `Monitor "${desc}" stream ended`);
+}
+
 function notification(taskId: string, toolUseId: string, status: string, summary: string): string {
     return [
         "<task-notification>",
@@ -70,17 +116,12 @@ function notification(taskId: string, toolUseId: string, status: string, summary
     ].join("\n");
 }
 
-function enqueue(content: string): string {
-    return JSON.stringify({
-        type: "queue-operation",
-        operation: "enqueue",
-        timestamp: "2026-10-06T08:56:09.046Z",
-        content,
-    });
+function enqueue(content: string, timestamp = "2026-10-06T08:56:09.046Z"): string {
+    return JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp, content });
 }
 
-function userString(content: string): string {
-    return JSON.stringify({ type: "user", timestamp: "2026-10-06T08:56:09.083Z", message: { role: "user", content } });
+function userString(content: string, timestamp = "2026-10-06T08:56:09.083Z"): string {
+    return JSON.stringify({ type: "user", timestamp, message: { role: "user", content } });
 }
 
 function toolResultTo(toolUseId: string, text = "ok") {
@@ -432,6 +473,159 @@ describe("extractShellTasks finish notifications", () => {
             "</task-notification>",
         ].join("\n");
         expect(ids([...dotted, enqueue(multi)])).toEqual([]);
+    });
+});
+
+describe("extractShellTasks monitors", () => {
+    const TRANSCRIPT = "C:\\Users\\kael02\\.claude\\projects\\C--Users-kael02-IdeaProjects-waveterm\\5e1f0c2a.jsonl";
+    const START = Date.parse("2026-10-27T09:00:01.000Z");
+    const DESC = "Watch the dev log for errors";
+    const COMMAND = "tail -f /tmp/dev.log | grep --line-buffered ERROR";
+    const startLogs = [
+        monitorUse("toolu_M1", { description: DESC, timeout_ms: 1800000, command: COMMAND }),
+        monitorStart("toolu_M1", "mlogs001"),
+    ];
+    const ev1 = monitorEvent("mlogs001", DESC, ["ERROR one", "ERROR two"]);
+    const extract = (lines: string[], now = START + 1000) =>
+        extractShellTasks(lines, { now, transcriptPath: TRANSCRIPT });
+    const eventCount = (lines: string[]) => extract(lines)[0]?.events?.length;
+
+    it("a Monitor start lists a monitor", () => {
+        expect(extract(startLogs)).toEqual([
+            {
+                id: "mlogs001",
+                kind: "monitor",
+                description: DESC,
+                command: COMMAND,
+                startedTs: START,
+                timeoutMs: 1800000,
+                persistent: false,
+                events: [],
+                outputPath: "$TEMP/claude/C--Users-kael02-IdeaProjects-waveterm/5e1f0c2a/tasks/mlogs001.output",
+            },
+        ]);
+    });
+
+    it("lists no output path without a transcript path", () => {
+        expect(extractShellTasks(startLogs, { now: START })[0]).not.toHaveProperty("outputPath");
+    });
+
+    it("each event counts once", () => {
+        const events = extract([
+            ...startLogs,
+            enqueue(ev1, "2026-10-27T09:01:00.000Z"),
+            userString(ev1, "2026-10-27T09:01:00.050Z"),
+        ])[0].events;
+        expect(events).toEqual([{ ts: Date.parse("2026-10-27T09:01:00.000Z"), lines: ["ERROR one", "ERROR two"] }]);
+    });
+
+    it("an event delivered mid-turn counts once", () => {
+        const remove = JSON.stringify({
+            type: "queue-operation",
+            operation: "remove",
+            timestamp: "2026-10-27T09:01:01.000Z",
+        });
+        const attachment = JSON.stringify({
+            type: "attachment",
+            timestamp: "2026-10-27T09:01:01.000Z",
+            attachment: { type: "queued_command", prompt: ev1, commandMode: "task-notification" },
+        });
+        expect(eventCount([...startLogs, enqueue(ev1), remove, attachment])).toBe(1);
+    });
+
+    it("a user-record event with no enqueue counts", () => {
+        const events = extract([...startLogs, userString(ev1, "2026-10-27T09:02:00.000Z")])[0].events;
+        expect(events).toEqual([{ ts: Date.parse("2026-10-27T09:02:00.000Z"), lines: ["ERROR one", "ERROR two"] }]);
+    });
+
+    it("two identical events both count", () => {
+        expect(eventCount([...startLogs, enqueue(ev1), enqueue(ev1), userString(ev1), userString(ev1)])).toBe(2);
+        expect(eventCount([...startLogs, enqueue(ev1), userString(ev1), enqueue(ev1), userString(ev1)])).toBe(2);
+    });
+
+    it("matches a user-record copy to its enqueue by body", () => {
+        const ev2 = monitorEvent("mlogs001", DESC, ["ERROR three"]);
+        expect(eventCount([...startLogs, enqueue(ev1), userString(ev2), userString(ev1)])).toBe(2);
+    });
+
+    it("a stream-ended notification drops a monitor", () => {
+        expect(extract([...startLogs, enqueue(ev1), enqueue(monitorEnd("mlogs001", "toolu_M1", DESC))])).toEqual([]);
+        expect(extract([...startLogs, userString(monitorEnd("mlogs001", "toolu_M1", DESC))])).toEqual([]);
+    });
+
+    it("a TaskStop result drops a monitor", () => {
+        const stopped = JSON.stringify({
+            type: "user",
+            message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_St", content: "ok" }] },
+            toolUseResult: { message: "Successfully stopped task: mlogs001", task_id: "mlogs001", command: COMMAND },
+        });
+        expect(extract([...startLogs, stopped])).toEqual([]);
+    });
+
+    it("a monitor past its timeout drops; a persistent one stays", () => {
+        expect(extract(startLogs, START + 1800000)).toEqual([]);
+        expect(extract(startLogs, START + 1800000 - 1).map((t) => t.id)).toEqual(["mlogs001"]);
+        const persistent = [startLogs[0], monitorStart("toolu_M1", "mlogs001", { persistent: true })];
+        expect(extract(persistent, START + 1800000 * 100).map((t) => t.persistent)).toEqual([true]);
+    });
+
+    it("keeps a monitor whose start time is unknown", () => {
+        const start = JSON.parse(startLogs[1]);
+        delete start.timestamp;
+        expect(extract([startLogs[0], JSON.stringify(start)], START + 1800000 * 100)).toHaveLength(1);
+    });
+
+    it("a taskId result without timeoutMs is not a monitor", () => {
+        const other = JSON.parse(startLogs[1]);
+        delete other.toolUseResult.timeoutMs;
+        expect(extract([startLogs[0], JSON.stringify(other)])).toEqual([]);
+        const empty = JSON.parse(startLogs[1]);
+        empty.toolUseResult.taskId = "";
+        expect(extract([startLogs[0], JSON.stringify(empty)])).toEqual([]);
+    });
+
+    it("an event for an id with no start is ignored", () => {
+        const stray = monitorEvent("mother01", "Other", ["x"]);
+        expect(extract([enqueue(stray), userString(stray)])).toEqual([]);
+        expect(eventCount([...startLogs, enqueue(stray), userString(stray)])).toBe(0);
+    });
+
+    it("shell tasks and monitors list in start order", () => {
+        const lines = [
+            bashUse("toolu_04A", { command: "task dev", description: "Run the dev app" }),
+            bashStart("toolu_04A", "bdevapp01", "2026-10-27T08:59:00.000Z"),
+            ...startLogs,
+            bashUse("toolu_04C", { command: "go test ./pkg/x", description: "Test pkg x" }),
+            bashStart("toolu_04C", "bgotest01", "2026-10-27T09:00:30.000Z"),
+        ];
+        expect(extract(lines).map((t) => [t.id, t.kind])).toEqual([
+            ["bdevapp01", "shell"],
+            ["mlogs001", "monitor"],
+            ["bgotest01", "shell"],
+        ]);
+    });
+
+    it("a ws monitor lists with no command", () => {
+        const lines = [
+            monitorUse("toolu_W1", { description: "Watch the socket", timeout_ms: 1800000, ws: { url: "ws://x" } }),
+            monitorStart("toolu_W1", "mws00001"),
+        ];
+        const [t] = extract(lines);
+        expect(t).toMatchObject({ id: "mws00001", kind: "monitor", description: "Watch the socket" });
+        expect(t).not.toHaveProperty("command");
+    });
+});
+
+describe("monitorOutputPath", () => {
+    it("derives the output path over both separators", () => {
+        const want = "$TEMP/claude/C--x/abc/tasks/m1.output";
+        expect(monitorOutputPath("C:\\Users\\u\\.claude\\projects\\C--x\\abc.jsonl", "m1")).toBe(want);
+        expect(monitorOutputPath("/c/Users/u/.claude/projects/C--x/abc.jsonl", "m1")).toBe(want);
+    });
+
+    it("gives nothing for a path that is not a transcript in a directory", () => {
+        expect(monitorOutputPath("abc.jsonl", "m1")).toBeUndefined();
+        expect(monitorOutputPath("C:\\x\\abc.txt", "m1")).toBeUndefined();
     });
 });
 

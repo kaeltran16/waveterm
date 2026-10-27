@@ -71,7 +71,8 @@ export async function refreshShellTasks(id: string, transcriptPath: string | und
         if (loadSeq.get(id) !== seq) {
             return;
         }
-        setList(id, extractShellTasks(tr.lines ?? []));
+        // now on every read, so a monitor past its timeout leaves at the next poll while the agent sits idle
+        setList(id, extractShellTasks(tr.lines ?? [], { now: Date.now(), transcriptPath }));
         setReadAt(id, startedAt);
     } catch {
         // keep the last known list: the next poll or transcript activity retries. The read still

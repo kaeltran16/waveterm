@@ -1,9 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Pure projection of a claude transcript into its background shell tasks still running, and the derived
-// "standing by" state (idle with a task still running). No React and no Wave runtime imports, so the
-// transcript shapes are unit-testable on their own.
+// Pure projection of a claude transcript into its background shell tasks and Monitor tasks still running,
+// and the derived "standing by" state (idle with a task still running). No React and no Wave runtime
+// imports, so the transcript shapes are unit-testable on their own.
 
 import { formatAgeShort, formatAgo } from "./agentsviewmodel";
 
@@ -73,10 +73,14 @@ function toolResultText(content: unknown): string {
         .join("\n");
 }
 
-function startedTask(rec: any, toolUses: Map<string, any>): ShellTask | null {
-    const id = rec?.toolUseResult?.backgroundTaskId;
+function startedTask(rec: any, toolUses: Map<string, any>, transcriptPath: string | undefined): ShellTask | null {
+    const r = rec?.toolUseResult;
     const content = rec?.message?.content;
-    if (typeof id !== "string" || id === "" || !Array.isArray(content)) {
+    const shellId = typeof r?.backgroundTaskId === "string" ? r.backgroundTaskId : "";
+    // another tool's result can carry a taskId too; only a Monitor's has a timeout
+    const monitorId = typeof r?.taskId === "string" && typeof r.timeoutMs === "number" ? r.taskId : "";
+    const id = shellId || monitorId;
+    if (id === "" || !Array.isArray(content)) {
         return null;
     }
     const result = content.find((b: any) => b?.type === "tool_result");
@@ -86,18 +90,38 @@ function startedTask(rec: any, toolUses: Map<string, any>): ShellTask | null {
         typeof input.description === "string" && input.description.trim() !== ""
             ? input.description.trim()
             : command.slice(0, COMMAND_DESCRIPTION_MAX);
-    const outputPath =
-        redirectTarget(command, typeof rec.cwd === "string" ? rec.cwd : undefined) ??
-        /Output is being written to: (.+?)\.(?:\s|$)/.exec(toolResultText(result?.content))?.[1];
     const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
-    return {
+    const common = {
         id,
-        kind: "shell",
         description,
         ...(command !== "" ? { command } : {}),
         ...(Number.isFinite(ts) ? { startedTs: ts } : {}),
-        ...(outputPath ? { outputPath } : {}),
     };
+    if (shellId === "") {
+        const outputPath = transcriptPath ? monitorOutputPath(transcriptPath, id) : undefined;
+        return {
+            ...common,
+            kind: "monitor",
+            timeoutMs: r.timeoutMs,
+            persistent: r.persistent === true,
+            events: [],
+            ...(outputPath ? { outputPath } : {}),
+        };
+    }
+    const outputPath =
+        redirectTarget(command, typeof rec.cwd === "string" ? rec.cwd : undefined) ??
+        /Output is being written to: (.+?)\.(?:\s|$)/.exec(toolResultText(result?.content))?.[1];
+    return { ...common, kind: "shell", ...(outputPath ? { outputPath } : {}) };
+}
+
+// the transcript's project dir and session, which claude names a monitor's output dir after
+const TRANSCRIPT_PATH = /([^\\/]+)[\\/]([^\\/]+)\.jsonl$/;
+
+/** Pure: where claude writes a monitor's output, from its transcript path, with the temp dir left as
+ *  $TEMP for wavesrv to resolve. Undefined for a path that is not a .jsonl in a directory. */
+export function monitorOutputPath(transcriptPath: string, taskId: string): string | undefined {
+    const m = TRANSCRIPT_PATH.exec(transcriptPath);
+    return m ? `$TEMP/claude/${m[1]}/${m[2]}/tasks/${taskId}.output` : undefined;
 }
 
 // a stdout redirect outside quotes: `>`, `>>`, `1>` or `&>`, then a quoted or bare target. `2>` and `>&2`
@@ -164,15 +188,32 @@ function notificationContent(rec: any): string | null {
     return null;
 }
 
-/** Pure: the running background shell tasks in transcript JSONL lines, in start order. A start is a
- *  user record carrying toolUseResult.backgroundTaskId; a <task-notification> with a status for that id
- *  (queue-operation enqueue or user-role string) or a successful TaskStop result for it drops it. A
- *  notification for an id with no start in the lines is ignored. Unparseable lines are skipped. */
-export function extractShellTasks(lines: string[]): ShellTask[] {
+// a monitor event: a notification for a task id with an <event> body and no status
+function eventOf(content: string): { id: string; body: string } | null {
+    if (!content.includes("<task-notification>") || tag(content, "status") != null) {
+        return null;
+    }
+    const id = tag(content, "task-id");
+    const body = tag(content, "event");
+    return id != null && body != null ? { id, body } : null;
+}
+
+/** Pure: the running background shell tasks and monitors in transcript JSONL lines, in start order. A
+ *  shell task starts on a user record carrying toolUseResult.backgroundTaskId, a monitor on one carrying
+ *  toolUseResult.taskId and timeoutMs; a <task-notification> with a status for that id (queue-operation
+ *  enqueue or user-role string) or a successful TaskStop result for it drops it, and a monitor that is not
+ *  persistent also drops at its timeout, which writes no record. A monitor's events are its status-less
+ *  notifications: each is written as an enqueue, then a user record or a queued_command attachment, so a
+ *  user record counts only when no enqueue of the same body preceded it. A notification for an id with
+ *  no start in the lines is ignored. Unparseable lines are skipped. */
+export function extractShellTasks(lines: string[], opts: { now?: number; transcriptPath?: string } = {}): ShellTask[] {
+    const now = opts.now ?? Date.now();
     const toolUses = new Map<string, any>();
     const tasks = new Map<string, ShellTask>();
     // a task that finishes at once can have its enqueue written before its start record
     const finishedEarly = new Set<string>();
+    // per monitor id, the enqueued event bodies whose user-record copy is still to come
+    const pendingEvents = new Map<string, string[]>();
     for (const line of lines) {
         let rec: any;
         try {
@@ -198,7 +239,7 @@ export function extractShellTasks(lines: string[]): ShellTask[] {
             tasks.delete(stoppedId);
             continue;
         }
-        const started = rec.type === "user" ? startedTask(rec, toolUses) : null;
+        const started = rec.type === "user" ? startedTask(rec, toolUses, opts.transcriptPath) : null;
         if (started != null) {
             if (!finishedEarly.has(started.id)) {
                 tasks.set(started.id, started);
@@ -206,13 +247,47 @@ export function extractShellTasks(lines: string[]): ShellTask[] {
             continue;
         }
         const content = notificationContent(rec);
-        for (const id of content != null ? finishedIds(content) : []) {
+        if (content == null) {
+            continue;
+        }
+        const event = eventOf(content);
+        if (event != null) {
+            addEvent(rec, event, tasks.get(event.id), pendingEvents);
+            continue;
+        }
+        for (const id of finishedIds(content)) {
             if (!tasks.delete(id)) {
                 finishedEarly.add(id);
             }
         }
     }
-    return [...tasks.values()];
+    return [...tasks.values()].filter((t) => {
+        const expires = monitorExpiresAt(t);
+        return expires == null || now < expires;
+    });
+}
+
+function addEvent(
+    rec: any,
+    event: { id: string; body: string },
+    task: ShellTask | undefined,
+    pendingEvents: Map<string, string[]>
+): void {
+    if (task?.kind !== "monitor") {
+        return;
+    }
+    const pending = pendingEvents.get(event.id) ?? [];
+    if (rec.type === "queue-operation") {
+        pendingEvents.set(event.id, [...pending, event.body]);
+    } else {
+        const copyOf = pending.indexOf(event.body);
+        if (copyOf >= 0) {
+            pending.splice(copyOf, 1);
+            return;
+        }
+    }
+    const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
+    task.events.push({ ...(Number.isFinite(ts) ? { ts } : {}), lines: event.body.split(/\r?\n/) });
 }
 
 export function isStandingBy(state: string, tasks: ShellTask[]): boolean {
